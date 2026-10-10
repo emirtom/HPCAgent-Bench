@@ -42,7 +42,7 @@ def nussinov_diagonal_kernel(table_ptr, stride_tm, stride_tn, seq_ptr, N, comple
     tl.store(table_ptr + i * stride_tm + j * stride_tn, best)
 
 
-def kernel(N: int, seq: torch.Tensor, complement_sum: int = 3, pair_bonus: int = 1):
+def nussinov(N: int, seq: torch.Tensor, complement_sum: int = 3, pair_bonus: int = 1):
     table = torch.zeros((N, N), dtype=seq.dtype)
 
     stride_tm, stride_tn = table.stride()

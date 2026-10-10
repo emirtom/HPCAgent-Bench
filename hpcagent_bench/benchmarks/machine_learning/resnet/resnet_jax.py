@@ -42,7 +42,7 @@ def batchnorm2d(x, eps=1e-5):
 # Bottleneck residual block (after initial convolution, without downsampling)
 # in the ResNet-50 CNN (inference)
 @jax.jit
-def resnet_basicblock(input, conv1, conv2, conv3):
+def resnet(input, conv1, conv2, conv3):
     # Pad output of first convolution for second convolution
     padded = jnp.zeros((input.shape[0], input.shape[1] + 2, input.shape[2] + 2, conv1.shape[3]), dtype=input.dtype)
     padded = lax.dynamic_update_slice(padded, conv2d(input, conv1), (0, 1, 1, 0))

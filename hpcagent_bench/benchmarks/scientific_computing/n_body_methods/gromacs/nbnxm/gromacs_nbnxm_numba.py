@@ -197,7 +197,7 @@ def _ci_range(
 
 
 @nb.njit(parallel=True, cache=True)
-def gromacs(
+def gromacs_nbnxm(
     x,
     q,
     atom_type,

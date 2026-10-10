@@ -1312,7 +1312,6 @@ KNOWN_MANIFEST_KEYS = frozenset(
         "short-name",
         "relative_path",
         "module_name",
-        "func_name",
         "parameters",
         "config",
         "constraints",
@@ -1420,13 +1419,8 @@ INITIALIZER = "initialize"
 
 
 def derive_func_name(relative_path: str, module_name: str) -> str | None:
-    """The kernel's entry function, inferred when a manifest omits ``func_name``.
-
-    Reads ``<module>_numpy.py`` and returns its top-level function: the sole
-    ``def`` if there is exactly one, else the ``def`` whose name matches the
-    module (the kernel convention). Returns ``None`` when neither rule applies
-    (helpers shadow the entry) so the caller falls back to an explicit
-    ``func_name`` / errors.
+    """The kernel's entry function: the sole top-level ``def`` of ``<module>_numpy.py``, else the
+    ``def`` named for the module. ``None`` when neither rule applies; a manifest cannot name it.
     """
     ref = numpy_reference_path(relative_path, module_name)
     if ref is None:
@@ -2334,10 +2328,9 @@ class BenchSpec:
             # back. A name too long for a backend's symbol rules is shortened at EMISSION, in
             # ``numpyto_common.naming.entry_symbol``, never here.
             raw["short_name"] = p.stem
-            if "func_name" not in raw:
-                fn = derive_func_name(str(raw.get("relative_path", "")), str(raw["module_name"]))
-                if fn is not None:
-                    raw["func_name"] = fn
+            fn = derive_func_name(str(raw.get("relative_path", "")), str(raw["module_name"]))
+            if fn is not None:
+                raw["func_name"] = fn
             if defines_function(p.parent / f"{raw['module_name']}.py", INITIALIZER):
                 raw["init"] = {**init_raw, "func_name": INITIALIZER}
             raw.setdefault("name", raw["short_name"])  # human title, free-form; NOT an identity

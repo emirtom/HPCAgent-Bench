@@ -119,7 +119,7 @@ def test_vexx_k_config_parameter_validates_under_jax(cfg) -> None:
 
 def test_vexx_k_config_set_covers_every_branch() -> None:
     """The config-parameter set is a one-hot + key-combos cover: a witness for each augmentation /
-    spinor / gamma / band-group branch of ``vexx_all_paths``, so no config path is silently untested."""
+    spinor / gamma / band-group branch of ``vexx_k``, so no config path is silently untested."""
     configs = _vexx_configs()
     assert {c["okvan"] for c in configs} == {True, False}
     assert any(c["okvan"] and not c["tqr"] and not c["okpaw"] for c in configs), "no US G-space"

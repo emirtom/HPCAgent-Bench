@@ -33,7 +33,7 @@ def maxpool2d(x, n, h_in, w_in, c):
     return np.max(split, axis=(2, 4))
 
 
-def lenet5(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1, out, H, W):
+def lenet(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1, out, H, W):
     h1 = (H - 4) // 2
     w1 = (W - 4) // 2
     x1 = relu(conv2d(input, conv1, N, 5, H, W, 6) + conv1bias)

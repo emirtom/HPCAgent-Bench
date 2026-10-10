@@ -5686,8 +5686,8 @@ def emit_dace(kir: KernelIR, fn_name: str | None = None) -> str:
         out.append(f"__hpcagent_bench_renames__ = {main.renames!r}")
         out.append("")
     # Which of the module's programs is the KERNEL. Kept helpers are @dc.programs too, so a reader
-    # can no longer take the sole one, and the name matches neither the file stem (lenet ->
-    # lenet5) nor a fixed word (nussinov -> kernel).
+    # can no longer take the sole one, and the name matches neither the file stem (tsvc_2_s000 ->
+    # s000) nor a fixed word (gemm -> kernel).
     out.append(f"__hpcagent_bench_program__ = {main.name!r}")
     out.append("")
     for rendered in programs:

@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """ctypes front-end for the hand-written C++ vexx oracle (``vexx_k_oracle.cpp``).
 
-Exposes :func:`vexx_all_paths` with the SAME signature as
-``vexx_k_numpy.vexx_all_paths`` and accumulates onto ``hpsi`` in place, so it is a
+Exposes :func:`vexx_k` with the SAME signature as
+``vexx_k_numpy.vexx_k`` and accumulates onto ``hpsi`` in place, so it is a
 drop-in numerical oracle. The C++ core uses FFTW3 for the band-pair FFTs (vexx is
 FFT-bound; no BLAS/LAPACK needed). The Coulomb-kernel gate mirrors the numpy port:
 ``use_coulomb_vcut_ws`` without a ``vcut_corrected`` table raises.
@@ -142,7 +142,7 @@ def _p(a):
     return a.ctypes.data_as(_VP) if a is not None else _VP(0)
 
 
-def vexx_all_paths(
+def vexx_k(
     psi,
     hpsi,
     exxbuff,
@@ -225,7 +225,7 @@ def vexx_all_paths(
     vcut_cutoff: float = 0.0,
     vcut_corrected=None,
 ):
-    """C++-oracle vexx. Same contract as ``vexx_k_numpy.vexx_all_paths``: accumulate
+    """C++-oracle vexx. Same contract as ``vexx_k_numpy.vexx_k``: accumulate
     Vx|psi> onto ``hpsi`` in place and return it."""
     so = build_so()
     if so is None:

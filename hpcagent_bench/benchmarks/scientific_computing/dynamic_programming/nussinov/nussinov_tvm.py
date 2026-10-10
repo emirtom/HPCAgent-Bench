@@ -59,7 +59,7 @@ _K_cpu = TvmKernel("nussinov_cpu", build_primfunc, cpu_target, lambda: tvm.cpu(0
 _K_gpu = TvmKernel("nussinov_gpu", build_primfunc, gpu_target, lambda: tvm.cuda(0))
 
 
-def kernel(N, seq, complement_sum=3, pair_bonus=1):
+def nussinov(N, seq, complement_sum=3, pair_bonus=1):
     _K = active_kernel(_K_cpu, _K_gpu)
     n = int(N)
     itype = "int32"

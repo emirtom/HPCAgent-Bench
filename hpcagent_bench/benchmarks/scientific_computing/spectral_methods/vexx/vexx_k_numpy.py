@@ -3,7 +3,7 @@
 
 """Vectorized NumPy port of QE's exx_bp::vexx_bp_k (GPL v2+); mirrors vexx_k_numpy.py's math exactly.
 
-Only vexx_all_paths (the manifest func_name) and what it calls are ported -- the sibling `vexx`
+Only the entry vexx_k and what it calls are ported -- the sibling `vexx`
 collinear-only kernel in the shipped reference belongs to a different benchmark and is unreachable
 from here, so it is not carried over.
 
@@ -345,7 +345,7 @@ def _add_nlxx_pot(hpsi_col, deexx, vkb, nat, nh, ofsbeta, eps_occ, exxalfa, gamm
     return hpsi_col
 
 
-def vexx_all_paths(
+def vexx_k(
     psi,
     hpsi,
     exxbuff,

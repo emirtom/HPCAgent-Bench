@@ -35,7 +35,7 @@ Ported and validated (per-stencil, bit-exact vs GT4Py):
 | `stencils/fvtp2d.py` `q_i_stencil` | `q_i_stencil` | Y |
 | `stencils/fvtp2d.py` `q_j_stencil` | `q_j_stencil` | Y |
 | `stencils/fvtp2d.py` `final_fluxes` | `final_fluxes` | Y |
-| `stencils/fvtp2d.py` `FiniteVolumeTransport.__call__` (no del-n, grid_type>=3) | `finite_volume_transport` | Y (composition, deep interior) |
+| `stencils/fvtp2d.py` `FiniteVolumeTransport.__call__` (no del-n, grid_type>=3) | `fv3_dycore` | Y (composition, deep interior) |
 | `stencils/copy_corners.py` `_blind_copy_corners_x/_y` | `copy_corners_x/_y` | Y (identity transcription) |
 | `stencils/delnflux.py` `fx_calculation` / `fy_calculation` | `fx_calc` / `fy_calc` | Y |
 | `stencils/delnflux.py` `d2_damp_interval` (nord==0) | `d2_damp` | Y |
@@ -117,7 +117,7 @@ Ported and validated (per-stencil, bit-exact vs GT4Py):
 
 ## How far up the call tree (composition status)
 
-- **Transport leaf**: `finite_volume_transport` / `_fv_tp_2d` (fv_tp_2d, grid_type>=3,
+- **Transport leaf**: `fv3_dycore` / `_fv_tp_2d` (fv_tp_2d, grid_type>=3,
   with mass-flux + del-n damping variants) composed and validated end-to-end.
 - **Hyperdiffusion**: `delnflux_nord0` (+ mass-weighted) and `delnflux_higher_order`
   (del-4) composed and validated.

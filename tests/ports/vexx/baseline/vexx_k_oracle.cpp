@@ -1,7 +1,7 @@
 // Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Hand-written C++ reimplementation of vexx_k_numpy.py::vexx_all_paths -- the QE
+// Hand-written C++ reimplementation of vexx_k_numpy.py::vexx_k -- the QE
 // band-parallel Fock exact-exchange operator exx_bp::vexx_bp_k -- using FFTW3 for
 // the band-pair FFTs (the numpy port's np.fft). vexx is FFT-bound: the Fock
 // operator is FFT + sparse per-atom (ultrasoft/PAW) augmentation, so it needs no

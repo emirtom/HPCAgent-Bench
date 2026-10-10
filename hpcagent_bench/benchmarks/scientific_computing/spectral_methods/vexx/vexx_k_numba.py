@@ -3,7 +3,7 @@
 """Hand-written parallel numba reference for vexx_k (NumpyToNumba emit fails: numba resolve_reshape
 "assert not kws" on the Fortran-order reshape around the FFTs).
 
-Same math as vexx_k_numpy.py (vexx_all_paths on the manifest inputs: default Coulomb kernel, no
+Same math as vexx_k_numpy.py (vexx_k on the manifest inputs: default Coulomb kernel, no
 per-q augmentation tables, no Coulomb truncation). Per (q, band group) every Fock band pair (ii,
 jbnd) is independent given the current exxbuff slab, so the pairs are processed as one batch: an
 @njit loop builds rho_ij (plus the real-space US augmentation), one batched scipy.fft.fftn,
@@ -227,7 +227,7 @@ def fft_rows(rows, shape, inverse, workers):
     return np.ascontiguousarray(out).reshape(rows.shape)
 
 
-def vexx_all_paths(
+def vexx_k(
     psi,
     hpsi,
     exxbuff,
@@ -295,7 +295,7 @@ def vexx_all_paths(
     tqr,
     gamma_only,
 ):
-    """Apply the Fock exchange operator to psi and accumulate onto hpsi in place (vexx_all_paths)."""
+    """Apply the Fock exchange operator to psi and accumulate onto hpsi in place (vexx_k)."""
     del nlm, jblock, noncolin, nbnd, nat
     n, m, npwx, npol, nrxxs, ngm, nh, nkb = (int(v) for v in (n, m, npwx, npol, nrxxs, ngm, nh, nkb))
     nqs, negrp, eg = int(nqs), int(negrp), int(my_egrp_id)

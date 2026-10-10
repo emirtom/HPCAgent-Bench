@@ -11,6 +11,7 @@ emitter (:func:`numpyto_common.naming.entry_symbol`, the single rule both the em
 """
 
 import collections
+import pathlib
 
 import pytest
 import yaml
@@ -77,9 +78,19 @@ def test_a_manifest_may_not_declare_a_second_identity(tmp_path) -> None:
     manifest does not load, which is the property worth pinning -- a second identity that silently
     aliases is what the field could become."""
     manifest = tmp_path / "some_kernel.yaml"
-    manifest.write_text("name: Some Kernel\nshort_name: sk\nfunc_name: some_kernel\noutput_args: [out]\n")
+    manifest.write_text("name: Some Kernel\nshort_name: sk\noutput_args: [out]\n")
     raw = yaml.safe_load(manifest.read_text())
     with pytest.raises(ValueError, match="short_name"):
+        BenchSpec.from_yaml(raw, source=str(manifest))
+
+
+def test_a_manifest_may_not_name_its_entry_function(tmp_path: pathlib.Path) -> None:
+    """The entry function is read off the reference and named for the kernel, so a manifest that
+    names another one is refused rather than honoured as a second, divergent identity."""
+    manifest = tmp_path / "some_kernel.yaml"
+    manifest.write_text("name: Some Kernel\nfunc_name: other\noutput_args: [out]\n")
+    raw = yaml.safe_load(manifest.read_text())
+    with pytest.raises(ValueError, match="func_name"):
         BenchSpec.from_yaml(raw, source=str(manifest))
 
 

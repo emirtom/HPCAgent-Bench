@@ -1414,7 +1414,7 @@ def transport_pass(
 STEP = 0.01
 
 
-def finite_volume_transport(
+def fv3_dycore(
     q,
     crx,
     cry,

@@ -25,7 +25,7 @@ def _hpsi(x, vloc, half_inv_h2, lap):
     return -half_inv_h2 * (t0 + t1 + t2) + vloc[..., None] * x
 
 
-def kernel(a, b, a0, half_inv_h2, m, vloc, X, out, N):
+def chebyshev_filter_subspace(a, b, a0, half_inv_h2, m, vloc, X, out, N):
     lap = _laplacian_1d(N, X.dtype)
 
     e = 0.5 * (b - a)  # half-width of the damping interval
