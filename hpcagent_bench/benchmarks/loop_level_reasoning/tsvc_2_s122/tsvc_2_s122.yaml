@@ -11,15 +11,19 @@ parameters:
     LEN_1D: 157277866
   XL:
     LEN_1D: 260382392
+# The loop stride n3 (TSVC's runtime argument): 1 is the unit-stride sweep, 2 touches every other
+# element.
+config:
+  n3:
+    domain: [1, 2]
+    selects: iteration
 init:
   output_args:
   - n1
-  - n3
   - a
   - b
   scalars:
     n1: 1
-    n3: 1
   arrays:
     a: (LEN_1D,)
     b: (LEN_1D,)
