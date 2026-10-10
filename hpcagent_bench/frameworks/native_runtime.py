@@ -3,8 +3,10 @@
 """Shared loader for the native (C / C++ / Fortran) benchmark backends."""
 
 import ctypes
+import os
 import pathlib
 import subprocess
+import tempfile
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -143,10 +145,20 @@ def _ensure_built(cpp_backend: pathlib.Path, short: str, framework: str) -> path
         return so
     bd.mkdir(exist_ok=True)
     extra = framework_extra_flags(framework)
-    for cmd in build_kernel_lib_commands(
-        sources, so, build_dir=bd, compiler=FRAMEWORK_COMPILER.get(framework), extra_flags=extra
-    ):
-        subprocess.check_call(cmd)
+    # Objects and the link land in a private directory and the .so is renamed into place: two
+    # processes building the same column otherwise interleave writes, and one dlopens a half-linked
+    # file ("file too short").
+    with tempfile.TemporaryDirectory(dir=bd) as private:
+        staged = pathlib.Path(private) / so_name
+        for cmd in build_kernel_lib_commands(
+            sources,
+            staged,
+            build_dir=pathlib.Path(private),
+            compiler=FRAMEWORK_COMPILER.get(framework),
+            extra_flags=extra,
+        ):
+            subprocess.check_call(cmd)
+        os.replace(staged, so)
     return so
 
 
