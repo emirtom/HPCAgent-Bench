@@ -8,7 +8,7 @@
 # preprocessed f2dace-qe-source tree), NOT the f2dace AST-dump stack. The fully-inlined kernel and the
 # dace-fortran-lowered C++ of its FFT-free numeric core live in baseline/.
 #
-# GATED KERNEL: the full multi-config reference `vexx_all_paths` (vexx_k_numpy.py)
+# GATED KERNEL: the full multi-config reference `vexx_k` (vexx_k_numpy.py)
 # -- collinear / noncollinear, norm-conserving / ultrasoft / PAW, real-space
 # augmentation, gamma_only, single / multi band-group. Like the sibling `cegterg`
 # microapp it is validated by the co-located property tests (test_reference.py:
@@ -23,7 +23,6 @@
 # Sizes: ngrid = cubic FFT grid edge, nbnd = occupied orbitals, m = trial bands.
 name: QE Exact Exchange K
 short-name: QE EXX K
-func_name: vexx_all_paths
 level: 3
 # Size presets (the gate uses S). nrxxs = ngrid**3 and the naive-DFT cost is
 # O(nrxxs**2), so these stay small.
@@ -99,7 +98,7 @@ parameters:
     nbnd: [2, 8]
     m: [2, 8]
 # CURATED config space: baseline + one-hot + the key augmentation combos, so every
-# config branch of vexx_all_paths fires at least once. Deliberately NOT a product --
+# config branch of vexx_k fires at least once. Deliberately NOT a product --
 # each row's trailing comment names the branch it is the sole witness for.
 config:
 # -- baseline --

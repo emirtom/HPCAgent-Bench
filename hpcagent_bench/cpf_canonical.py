@@ -70,9 +70,9 @@ def program_name(path: pathlib.Path) -> str:
 def resolve_program(module: ModuleType, path: pathlib.Path, entry: str = "") -> "DaceProgram | None":
     """The ``DaceProgram`` in ``module`` that is the kernel's ENTRY POINT, or ``None``.
 
-    ``entry`` is the manifest's ``func_name``, and it is asked first because it is the only name
-    that is DECLARED. The file stem answers next, for a caller that holds no spec. Both can miss: a
-    kernel whose function is named for the algorithm rather than the file matches neither.
+    ``entry`` is the spec's ``func_name``, read off the reference, and it is asked first. The file
+    stem answers next, for a caller that holds no spec. Both can miss: a kernel whose function is
+    named for the algorithm rather than the file matches neither.
 
     A module holding several programs is the normal case, not the ambiguous one -- the emitter
     keeps each inlined helper as its own ``@dc.program`` -- so the last two readings work down from

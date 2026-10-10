@@ -305,15 +305,14 @@ def test_the_entry_program_resolves_when_the_module_holds_several() -> None:
 
     Whichever program comes first in the module would render the wrong function under the kernel's
     name -- a translation unit that builds, exports the expected symbol and computes a helper. The
-    manifest's ``func_name`` is the declared answer and is taken first; the file stem answers for a
+    spec's ``func_name`` is the declared answer and is taken first; the file stem answers for a
     caller with no spec; and a module whose helpers are ``_``-prefixed leaves exactly one public
     program, which is the entry however it is named.
     """
     many = module_of(MULTI_PROGRAM_SOURCE)
     assert entry_name(many, "channel_flow", "channel_flow") == "channel_flow"
     assert entry_name(many, "channel_flow") == "channel_flow"
-    # The declared entry wins where the stem names nothing in the module, which is the case that
-    # left `vexx_k` unrendered: its programs are `_g2_convolution` and `vexx_all_paths`.
+    # The declared entry wins where the stem names nothing in the module.
     assert entry_name(many, "other", "channel_flow") == "channel_flow"
     assert entry_name(many, "other") is None
 

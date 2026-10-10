@@ -99,7 +99,7 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
     # 2. Inject the decorator on EVERY top-level ``def`` (``(?m)^`` anchors to
     #    column 0, so indented / nested defs are skipped). Decorating only the
     #    first def silently left the real kernel un-njit'd whenever a helper was
-    #    defined first (lenet's ``relu`` before ``lenet5``) -- numba then ran the
+    #    defined first (lenet's ``relu`` before ``lenet``) -- numba then ran the
     #    kernel as plain numpy, a false pass. numba's njit is lazy, so an unused
     #    helper is never compiled; a called one must be njit to be callable from
     #    nopython code, so decorating all top-level defs is both correct and free.

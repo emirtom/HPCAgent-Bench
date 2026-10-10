@@ -2,7 +2,6 @@
 # provenance: {kind: derived, upstream: ls3df}
 name: LS3DF Fragment DFT SCF
 short-name: LS3DF SCF
-func_name: kernel
 level: 3
 # XL is sized so the fastest baseline stays under 20 s on one mi300 node: numba ran M in 0.9 s, and
 # the work grows about as nfrag * Lb^3 * nstate, which puts this XL near 17 s and the earlier

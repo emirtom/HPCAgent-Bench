@@ -30,7 +30,7 @@ def argmax_value(a, out, LEN_1D):
 ```
 
 The loader takes the signature from the only top-level `def`, or the one named like the stem;
-another entry name needs `func_name:`. Avoid C/C++ keywords as variable names, do not read a loop
+a reference with helpers names its entry like the stem. Avoid C/C++ keywords as variable names, do not read a loop
 variable after its loop, and leave `workspace`/`workspace_size` to the C ABI. See
 [canonical_numpy_form.md](../canonical_numpy_form.md) for what lowers cleanly to C.
 

@@ -289,7 +289,7 @@ def _batchnorm2d_relu(
 
 # Bottleneck residual block (after initial convolution, without downsampling)
 # in the ResNet-50 CNN (inference)
-def resnet_basicblock(input, conv1, conv2, conv3):
+def resnet(input, conv1, conv2, conv3):
     N, H, W, C1 = input.shape
     C2 = conv1.shape[-1]
 

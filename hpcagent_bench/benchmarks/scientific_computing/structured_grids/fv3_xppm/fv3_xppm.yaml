@@ -41,10 +41,25 @@ parameters:
     nj: 2847
     nk: 48
     nsteps: 20
+# Discrete algorithm options (mord = abs(iord)):
+#   iord in {5, 6, 7}  : 5 = simplest monotone limiter (smt5 = bl*br < 0);
+#                        6/7 = the (3*|b0| < |bl-br|) curvature limiter.
+#   grid_type in {0,1,2}: apply the cubed-sphere edge regions of compute_al
+#                         (grid_type < 3). (3 and >4 are unsupported upstream;
+#                         iord >= 8 is out of scope for this port.)
+# The constraint keeps every limiter on the gt0 grid and every edge treatment under iord 5.
 config:
   # Ghost-cell halo width, fixed by the cubed-sphere stencil.
   nhalo:
     value: 3
+  iord:
+    domain: [5, 6, 7]
+    selects: branch
+  grid_type:
+    domain: [0, 1, 2]
+    selects: branch
+constraints:
+- iord == 5 or grid_type == 0
 init:
   input_args:
   - ni
@@ -64,35 +79,6 @@ init:
     courant: "(nhalo + ni + nhalo, nj, nk)"
     dxa: "(nhalo + ni + nhalo, nj, nk)"
     xflux: "(nhalo + ni + nhalo, nj, nk)"
-  scalars:
-    # Default discrete options (see `configurations` for the full allowed sets).
-    # iord = PPM order selector, mord = abs(iord); grid_type selects the
-    # cubed-sphere edge treatment.
-    iord: 5
-    grid_type: 0
-# Discrete (set-valued) algorithm options -- NOT continuous ranges. Each entry
-# is one runnable configuration of the kernel. mord = abs(iord).
-#   iord in {5, 6, 7}  : 5 = simplest monotone limiter (smt5 = bl*br < 0);
-#                        6/7 = the (3*|b0| < |bl-br|) curvature limiter.
-#   grid_type in {0,1,2}: apply the cubed-sphere edge regions of compute_al
-#                         (grid_type < 3). (3 and >4 are unsupported upstream;
-#                         iord >= 8 is out of scope for this port.)
-configurations:
-  iord5_gt0:
-    iord: 5
-    grid_type: 0
-  iord6_gt0:
-    iord: 6
-    grid_type: 0
-  iord7_gt0:
-    iord: 7
-    grid_type: 0
-  iord5_gt1:
-    iord: 5
-    grid_type: 1
-  iord5_gt2:
-    iord: 5
-    grid_type: 2
 input_args:
 - q
 - courant

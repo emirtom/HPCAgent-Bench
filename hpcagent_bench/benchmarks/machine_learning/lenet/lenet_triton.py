@@ -235,7 +235,7 @@ def fc_bias(A, B):
     _kernel_bias[grid](A, B, N, A.stride(0), A.stride(1))
 
 
-def lenet5(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1):
+def lenet(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1):
     x = conv2d_bias_relu(input, conv1, conv1bias)
     x = maxpool2d(x)
     x = conv2d_bias_relu(x, conv2, conv2bias)

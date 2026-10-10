@@ -592,7 +592,6 @@ If the port needs a manifest change, that is a finding to report, not an edit to
 
 ```yaml
 name: batch_norm
-func_name: batch_norm
 kind: microkernel
 level: 1
 parameters:

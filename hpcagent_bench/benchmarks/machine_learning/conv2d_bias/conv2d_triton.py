@@ -61,7 +61,7 @@ def _kernel_conv2d(
     tl.store(output_ptr + output_idx, acc)
 
 
-def conv2d_bias(input, weights, bias):
+def conv2d(input, weights, bias):
     N, H, W, C_in = input.shape
     K = weights.shape[0]
     C_out = weights.shape[3]

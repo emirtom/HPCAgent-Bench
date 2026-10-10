@@ -147,10 +147,10 @@ def test_a_retired_sparse_block_is_refused_at_load(retired: str) -> None:
         load(raw)
 
 
-def test_layouts_beside_a_configurations_block_is_refused() -> None:
+def test_a_configurations_block_is_refused() -> None:
     raw = spmv_manifest()
     raw["configurations"] = {"csr": {"A": "csr"}}
-    with pytest.raises(ValueError, match="drop its 'configurations' block"):
+    with pytest.raises(ValueError, match="unknown manifest field.*'configurations'"):
         load(raw)
 
 

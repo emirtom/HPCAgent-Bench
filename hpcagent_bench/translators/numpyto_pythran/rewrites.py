@@ -286,7 +286,7 @@ class DeadCodePrune(ast.NodeTransformer):
     Pythran compiles the WHOLE module (every ``def``), so a helper the kernel
     never calls still has to satisfy pythran's subset. The fv3_dycore port
     keeps the full FV3 call tree in one file (118 functions) but exports only
-    the ``finite_volume_transport`` leaf (21 reachable): the unexported
+    the ``fv3_dycore`` leaf (21 reachable): the unexported
     drivers use ``**dyn_params`` keyword-unpacking and string-keyed dict
     state pythran flatly rejects (``Call with kwargs not supported``) -- dead
     code that never runs in the export's closure.

@@ -28,9 +28,9 @@ KERNEL = "tsvc_2_s212"  # 1-D: a,b outputs; c,d inputs; LEN_1D symbol
 DIVERGENT = "bicg_solvers"
 #: A plain dense kernel, one native target and no sparse configuration.
 DENSE = "arc_distance"
-#: A kernel whose manifest declares ``configurations:``, so its emitted stem and exported symbol
-#: both carry the configuration (``spmv_csr_fp64``) -- the shape an unresolved emitter default
-#: desyncs from the binding. The cheapest such kernel to emit; fv3_dycore is the same shape.
+#: A sparse kernel, so its emitted stem and exported symbol both carry the configuration
+#: (``spmv_csr_fp64``) -- the shape an unresolved emitter default desyncs from the binding. The
+#: cheapest such kernel to emit.
 CONFIGURED = "spmv"
 #: framework -> the compiler binary that must be present to build it.
 _COMPILER = {"cc": "gcc", "llvm": "clang", "fortran": "gfortran", "polly": "clang", "pluto": "clang"}

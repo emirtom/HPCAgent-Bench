@@ -3,7 +3,7 @@
 """Chained-subscript collapse, config-flag typing, and slice-fusion gather offset.
 
 These are the general translator features the QE exact-exchange kernel
-(``vexx_all_paths``) needs to emit natively for EVERY configuration (the
+(``vexx_k``) needs to emit natively for EVERY configuration (the
 translation is orthogonal to the config flags -- one binary handles all of them):
 
   * ``tabxx_qr[ia][:, ijtoh[ih, jh]]`` -- a CHAINED subscript (a scalar row index,

@@ -88,7 +88,7 @@ def emit_jax(numpy_src: str, func_name: str, jit: bool = False) -> str:
     ast.fix_missing_locations(fn)
     # Emit only REACHABLE helpers, not every module-level function -- a module
     # may co-locate sibling kernels the target never calls (vexx's
-    # ``vexx_all_paths`` + its US/PAW helpers) that jax can't express.
+    # ``vexx_k`` + its US/PAW helpers) that jax can't express.
     defined_ = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
 
     def called_names(node: ast.AST) -> set:

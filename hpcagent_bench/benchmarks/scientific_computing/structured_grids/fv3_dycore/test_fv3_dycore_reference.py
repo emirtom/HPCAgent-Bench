@@ -83,7 +83,7 @@ def test_copy_corners_identity():
     assert np.array_equal(fy[-2, -2], f[-7, -2])
 
 
-# finite_volume_transport composition (grid_type>=3 interior) end-to-end
+# fv3_dycore composition (grid_type>=3 interior) end-to-end
 
 
 # GT4Py-free invariants

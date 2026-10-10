@@ -435,7 +435,7 @@ def nbnxm_4x4_qstab_lj_force(
     return f, fshift
 
 
-def gromacs(
+def gromacs_nbnxm(
     x,
     q,
     atom_type,

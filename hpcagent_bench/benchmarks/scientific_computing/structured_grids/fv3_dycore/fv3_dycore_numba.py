@@ -3,7 +3,7 @@
 """Hand-written parallel numba reference for fv3_dycore (NumpyToNumba emit is serial: plain
 ``@nb.njit``, body preserved verbatim).
 
-Each stencil of ``finite_volume_transport`` (fv_tp_2d) is one explicit loop nest over the same
+Each stencil of ``fv3_dycore`` (fv_tp_2d) is one explicit loop nest over the same
 index ranges as the numpy reference, ``prange`` over the outer axis i; every iteration writes only
 its own i-row, so there is no race. The grid_type<3 edge columns of ``compute_al`` are applied
 after the interior formula in the reference's ia, ib, ic order, so where two of them name the same
@@ -315,7 +315,7 @@ STEP = 0.01  # = fv3_dycore_numpy.STEP
 
 
 @nb.njit(parallel=True, cache=True)
-def finite_volume_transport(
+def fv3_dycore(
     q,
     crx,
     cry,
@@ -334,7 +334,7 @@ def finite_volume_transport(
     grid_type,
     nsteps,
 ):
-    """``nsteps`` transport steps (see ``fv3_dycore_numpy.finite_volume_transport``)."""
+    """``nsteps`` transport steps (see ``fv3_dycore_numpy.fv3_dycore``)."""
     for _step in range(nsteps):
         transport_pass(
             q,

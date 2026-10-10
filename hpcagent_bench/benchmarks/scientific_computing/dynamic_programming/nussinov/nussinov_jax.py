@@ -9,7 +9,7 @@ from jax import lax
 
 
 @jax.jit
-def kernel(N, seq, table, complement_sum=3, pair_bonus=1):
+def nussinov(N, seq, table, complement_sum=3, pair_bonus=1):
     def match(b1, b2):
         return jnp.where(b1 + b2 == complement_sum, pair_bonus, 0).astype(table.dtype)
 

@@ -51,7 +51,7 @@ def maxpool2d(x):
 
 # LeNet-5 Convolutional Neural Network (inference mode)
 @jax.jit
-def lenet5(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b):
+def lenet(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b):
     x = relu(conv2d(input, conv1) + conv1bias)
     x = maxpool2d(x)
     x = relu(conv2d(x, conv2) + conv2bias)

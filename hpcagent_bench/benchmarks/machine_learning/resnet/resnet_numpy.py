@@ -35,7 +35,7 @@ def batchnorm2d(x, eps=1e-5):
     return (x - mean) / np.sqrt(std + eps)
 
 
-def resnet_basicblock(input, conv1, conv2, conv3, out, N, H, W, C1, C2):
+def resnet(input, conv1, conv2, conv3, out, N, H, W, C1, C2):
     # input is (N,H,W,C1); conv1 is (1,1,C1,C2), so conv2d(input, conv1) is (N,H,W,C2), padded by 1.
     padded = np.zeros((N, H + 2, W + 2, C2), input.dtype)
 

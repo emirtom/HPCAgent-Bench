@@ -194,7 +194,7 @@ TRANSLATOR_FORMAT_NAMES = {"bsr": "bcsr"}
 
 def translator_format(fmt: LayoutChoice) -> LayoutChoice:
     """``fmt`` as the translators spell it (:data:`TRANSLATOR_FORMAT_NAMES`)."""
-    return TRANSLATOR_FORMAT_NAMES.get(fmt, fmt) if isinstance(fmt, str) else fmt
+    return TRANSLATOR_FORMAT_NAMES.get(fmt, fmt)
 
 
 def layouts_to_raw(layouts: dict[str, SparseLayout]) -> dict[str, RawSparseLayout]:

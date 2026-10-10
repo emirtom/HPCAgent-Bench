@@ -6,7 +6,7 @@ from jax import lax
 
 
 # Deep learning convolutional operator (stride = 1)
-def conv2d(input, weights):
+def convolve(input, weights):
     K = weights.shape[0]  # Assuming square kernel
     N = input.shape[0]
     H_out = input.shape[1] - K + 1
@@ -29,5 +29,5 @@ def conv2d(input, weights):
 
 
 @jax.jit
-def conv2d_bias(input, weights, bias):
-    return conv2d(input, weights) + bias
+def conv2d(input, weights, bias):
+    return convolve(input, weights) + bias

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fancy index-array scatter / gather with a runtime-materialised index row.
 
-The QE ultrasoft real-space augmentation (``vexx_all_paths`` -> ``_addusxx_r`` /
+The QE ultrasoft real-space augmentation (``vexx_k`` -> ``_addusxx_r`` /
 ``_newdxx_r``) reads a per-atom box of grid points out of an integer table and
 then scatters / gathers a length-``box`` vector through it:
 

@@ -1,4 +1,4 @@
-"""CPU TVM impl of the ``lenet5`` deep-learning microapp (inference)."""
+"""CPU TVM impl of the ``lenet`` deep-learning microapp (inference)."""
 
 import tvm
 from tvm import te
@@ -97,7 +97,7 @@ _K_fc3_cpu = TvmKernel("lenet_fc3_cpu", lambda M, Kd, Nd, dt: build_dense(M, Kd,
 _K_fc3_gpu = TvmKernel("lenet_fc3_gpu", lambda M, Kd, Nd, dt: build_dense(M, Kd, Nd, dt, False), _TARGET_gpu, _DEV_gpu)
 
 
-def lenet5(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1):
+def lenet(input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1):
     _K_conv1 = active_kernel(_K_conv1_cpu, _K_conv1_gpu)
     _K_conv2 = active_kernel(_K_conv2_cpu, _K_conv2_gpu)
     _K_fc1 = active_kernel(_K_fc1_cpu, _K_fc1_gpu)
