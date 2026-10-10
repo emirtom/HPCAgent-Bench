@@ -175,6 +175,12 @@ def ppcg_missing() -> str:
     return device_and_tools_missing(gpu_profiling.KFD_DEVICE, ("hipcc",))
 
 
+def full_width_missing() -> str:
+    """ "" when OpenMP runs at this host's full core count, else what it runs at."""
+    threads = os.environ.get("OMP_NUM_THREADS")
+    return "" if threads == str(os.cpu_count()) else f"OMP_NUM_THREADS={threads} on {os.cpu_count()} cores"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class HardwareGroup:
     """A marker for tests that need real hardware: what they need, and a probe naming what is missing."""
@@ -192,6 +198,10 @@ HARDWARE_GROUPS: Mapping[str, HardwareGroup] = MappingProxyType(
             "an armable CPU hardware counter (a real PMU, an open perf_event gate)", counters_missing
         ),
         "perf": HardwareGroup("perf sampling (perf on PATH, perf_event_paranoid <= 2)", perf_missing),
+        "canon_perf": HardwareGroup(
+            "the whole host at OMP_NUM_THREADS = its core count (the canon speed gate, tests/test_canon_perf_gate.py)",
+            full_width_missing,
+        ),
         "amd": HardwareGroup("an AMD GPU (/dev/kfd) with rocminfo and rocprofv3", amd_missing),
         "judge_image": HardwareGroup(
             "the judge image (/opt/harness) on an AMD GPU node (/dev/kfd) with rocminfo, hipcc and cupy",
@@ -265,11 +275,6 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "real_fuzz: keep the full (GPU-scale) fuzz size range -- opt out of the "
         "suite-wide small-size cap. Only for tests that validate the fuzz machinery itself.",
-    )
-    config.addinivalue_line(
-        "markers",
-        "perf: times canon against the compiled baseline (tests/test_canon_perf_gate.py); run only by the perf CI "
-        "job, one test at a time at the runner's full core count.",
     )
     config.addinivalue_line(
         "markers",

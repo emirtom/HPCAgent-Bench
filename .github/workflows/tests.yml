@@ -182,7 +182,7 @@ jobs:
       - name: Perf gate
         run: |
           export OMP_NUM_THREADS=$(nproc)
-          python -m pytest -p no:cacheprovider -p no:xdist -rfEs --timeout=2400 -m perf \
+          python -m pytest -p no:cacheprovider -p no:xdist -rfEs --timeout=2400 -m canon_perf \
             "tests/test_canon_perf_gate.py::test_canon_is_within_2x_of_the_compiled_baseline[${{ matrix.kernel }}]"
       - uses: ./.github/actions/finish
         if: always()

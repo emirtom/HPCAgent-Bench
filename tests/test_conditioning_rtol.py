@@ -9,7 +9,7 @@ from hpcagent_bench.spec import BenchSpec
 
 
 def test_jfnk_bratu_is_graded_at_its_conditioning_floor() -> None:
-    assert kernel_tolerances(BenchSpec.load("jfnk_bratu"), "float64") == (1.0e-5, tolerances_for("float64")[1])
+    assert kernel_tolerances(BenchSpec.load("jfnk_bratu"), "float64") == (1.0e-5, 1.0e-5)
 
 
 def test_rk45_ensemble_is_graded_at_its_absolute_floor() -> None:

@@ -10,7 +10,6 @@ enough to amortize the thread team, small enough for a CI runner) as the median 
 The list is curated, not the corpus: each entry is a case canon has been slow on.
 """
 
-import os
 import pathlib
 
 import pytest
@@ -50,10 +49,9 @@ def median_ms(db: pathlib.Path, column: str, kernel: str) -> float:
     return float(row["median_ms"])
 
 
-@pytest.mark.perf
+@pytest.mark.canon_perf
 @pytest.mark.parametrize("kernel", sorted(CURATED))
 def test_canon_is_within_2x_of_the_compiled_baseline(kernel: str, tmp_path: pathlib.Path) -> None:
-    assert os.environ.get("OMP_NUM_THREADS") == str(os.cpu_count()), "the perf job runs at the full core count"
     db = tmp_path / "perf.db"
     failed = run_framework_sweep(
         kernel, [CANON, *BASELINES], PRESET, True, REPEAT, TIMEOUT_S, True, None, canon=CanonTarget(db, "perf")
