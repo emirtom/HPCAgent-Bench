@@ -70,7 +70,6 @@ def expand_sparse_arrays(
         # variant (single-variant kernels need no configurations).
         raw_fmt = cfg.get(logical)
         chosen: object = raw_fmt if raw_fmt is not None else (next(iter(variants)) if variants else None)
-        # A configuration may also bind a plain execution-path knob, which names no variant.
         if not isinstance(chosen, str) or chosen == "dense":
             continue
         fmt = chosen

@@ -234,9 +234,7 @@ def _native_targets(spec: BenchSpec) -> list[tuple]:
     """``[(config_or_None, native_base)]`` -- one entry per emit-distinct layout the framework
     baselines run.
 
-    A dense kernel yields ``[(None, <module>)]``; a knob kernel one ``(<config>, <module>_<config>)``
-    per configuration (each is a full kernel with its own source / symbol / lib). A sparse kernel
-    yields its default layout alone: every baseline reads the default layout (docs/sparse_abi.md).
+    A dense kernel yields ``[(None, <module>)]``. A sparse kernel yields its default layout alone: every baseline reads the default layout (docs/sparse_abi.md).
 
     :meth:`BenchSpec.native_base` is the single source of truth for the stem (it
     matches what the emitter derives from the reference filename)."""

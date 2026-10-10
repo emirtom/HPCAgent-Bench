@@ -115,7 +115,6 @@ __all__ = [
     "bound_names",
     "bsr_block_sizes",
     "buffer_dtype",
-    "choice_of",
     "collect_loop_var_reads",
     "constraint_holds",
     "declares_storage_precision",
@@ -144,7 +143,6 @@ __all__ = [
     "parse_baseline",
     "parse_config_list",
     "parse_config_space",
-    "parse_configurations",
     "parse_init",
     "parse_layouts",
     "parse_mpi",
@@ -197,10 +195,8 @@ PresetTable = dict[str, dict[str, FuzzValue]]
 #: whatever else that array declares.
 ArrayEntry = str | dict[str, str | bool | domain_mod.RawDomain]
 
-#: What one ``configurations`` entry binds an array to: the sparse FORMAT it is emitted in, or the
-#: integer a knob takes for kernels that enumerate their execution paths this way (fv3_dycore,
-#: fv3_xppm bind ``hord`` / ``grid_type``, not a layout).
-LayoutChoice = str | int
+#: The sparse FORMAT one configuration emits an array in.
+LayoutChoice = str
 
 
 def is_mapping(raw: object) -> TypeGuard[dict[object, object]]:
@@ -287,11 +283,6 @@ def int_of(raw: object, field_name: str, source: str) -> int:
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise ValueError(f"{source}: {field_name}: expected an integer (got {type(raw).__name__})")
     return raw
-
-
-def choice_of(raw: object, field_name: str, source: str) -> LayoutChoice:
-    """One ``configurations`` value: a format name, or the integer a knob is bound to."""
-    return raw if isinstance(raw, str) else int_of(raw, field_name, source)
 
 
 def as_domain(raw: object, field_name: str, source: str) -> domain_mod.RawDomain:
@@ -550,18 +541,6 @@ def bsr_block_sizes() -> tuple[int, ...]:
     """The block edges a bsr request may name (``sparse.bsr_block_sizes``)."""
     raw = config.get("sparse.bsr_block_sizes", [])
     return tuple(int(v) for v in as_list(raw) if isinstance(v, (int, float, str)))
-
-
-def parse_configurations(raw: dict[str, object], source: str) -> dict[str, "SparseConfiguration"]:
-    """Parse the ``configurations`` block of a knob kernel: ``{config_key: {knob: value}}``."""
-    out: dict[str, SparseConfiguration] = {}
-    for cfg_name, raw_mapping in raw.items():
-        cfg_field = f"configurations.{cfg_name}"
-        mapping = block_of(raw_mapping, cfg_field, source)
-        out[cfg_name] = SparseConfiguration(
-            arrays={arr: choice_of(fmt, f"{cfg_field}.{arr}", source) for arr, fmt in mapping.items()}
-        )
-    return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -1325,7 +1304,6 @@ KNOWN_MANIFEST_KEYS = frozenset(
         "allowed_precisions",
         "fuzz",
         "layouts",
-        "configurations",
         "mpi",
         "baseline",
         "level",
@@ -1539,8 +1517,7 @@ class SparseConfiguration:
     """One {logical-array -> format} mapping that yields one emit file.
 
     A sparse kernel has one per offered format (:func:`layout_configurations`), keyed by the
-    format; a knob kernel (fv3_dycore, fv3_xppm) declares its own ``configurations`` block, binding
-    a knob to an integer instead of an array to a format.
+    format.
     """
 
     arrays: dict[str, LayoutChoice]
@@ -1558,8 +1535,7 @@ class ResolvedBench:
     :ivar parent: the owning kernel's ``short_name``.
     :ivar config_key: configuration name (``"dense"`` for dense kernels).
     :ivar id: globally-unique sub-benchmark id.
-    :ivar arrays: ``{logical_array -> format}`` for the emit (``{}`` dense); an integer where
-        the configuration binds a knob rather than a layout (:data:`LayoutChoice`).
+    :ivar arrays: ``{logical_array -> format}`` for the emit (``{}`` dense).
     """
 
     parent: str
@@ -1993,7 +1969,7 @@ class BenchSpec:
 
     # The ``layouts`` block (optional; absent means a dense kernel): every logical sparse array and
     # the formats a submission may request it in. ``configurations`` then holds one entry per
-    # offered format (:func:`layout_configurations`); a knob kernel declares its own instead.
+    # offered format (:func:`layout_configurations`).
     sparse_layouts: dict[str, SparseLayout] = field(default_factory=dict[str, SparseLayout])
     configurations: dict[str, SparseConfiguration] = field(default_factory=dict[str, SparseConfiguration])
 
@@ -2100,10 +2076,7 @@ class BenchSpec:
         # (emit_bridge.legacy_bench_info_dict) carries the derived configurations beside ``layouts``;
         # they are re-derived, never read back.
         sparse_layouts = parse_layouts(block_of(ext.get("layouts") or bench.get("layouts"), "layouts", source), source)
-        cfg_raw = block_of(ext.get("configurations") or bench.get("configurations"), "configurations", source)
-        configurations = (
-            layout_configurations(sparse_layouts) if sparse_layouts else parse_configurations(cfg_raw, source)
-        )
+        configurations = layout_configurations(sparse_layouts) if sparse_layouts else {}
 
         input_args = resolve_input_args(bench, relative_path, module_name, func_name, source)
         # 'parameters' below keeps its one meaning for every consumer, {preset: {symbol: value}},
@@ -2284,11 +2257,6 @@ class BenchSpec:
                     f"{source}: per-kernel {banned!r} is not allowed -- validation tolerance is "
                     f"derived from the run precision (see hpcagent_bench.precision.TOLERANCE_MATRIX)."
                 )
-        if "layouts" in raw and "configurations" in raw:
-            raise ValueError(
-                f"{source}: a kernel with 'layouts' derives one configuration per offered format; "
-                f"drop its 'configurations' block"
-            )
         unknown = set(raw) - KNOWN_MANIFEST_KEYS
         if unknown:
             hints: list[str] = []
@@ -2417,8 +2385,7 @@ class BenchSpec:
         """Expand this kernel into its concrete sub-benchmarks, one per emit-distinct configuration.
 
         * **Dense** kernel -> one ``ResolvedBench`` (``config_key="dense"``, ``id`` == ``short_name``).
-        * **Sparse** kernel (``layouts``) or knob kernel (``configurations``) -> one per
-          configuration, ``id`` ``"{short}[{config}]"``; the default layout comes first.
+        * **Sparse** kernel (``layouts``) -> one per configuration, ``id`` ``"{short}[{config}]"``; the default layout comes first.
 
         The grading unit stays the kernel: a submission picks its layout by request (``layout``),
         and the other configurations exist for the per-format references (``run-sparse``)."""
@@ -2434,11 +2401,10 @@ class BenchSpec:
     @property
     def default_layout(self) -> str | None:
         """The configuration a submission that requests no layout is graded in, and every baseline's:
-        the sparse arrays' shared default format, the first declared knob configuration, or ``None``
-        for a dense kernel. The one authority for that default (binding, emitter, harbor)."""
+        the sparse arrays' shared default format, or ``None`` for a dense kernel. The one authority for that default (binding, emitter, harbor)."""
         if self.sparse_layouts:
             return next(iter(self.sparse_layouts.values())).default
-        return next(iter(self.configurations), None)
+        return None
 
     def native_base(self, config: str | None = None) -> str:
         """The native artifact stem for one layout: ``<module>`` (dense) or
