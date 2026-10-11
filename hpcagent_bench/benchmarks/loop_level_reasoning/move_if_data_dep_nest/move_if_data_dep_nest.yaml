@@ -1,21 +1,18 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Hoist If in Data-Dep Nest
+short-name: Hoist If Nest
 level: 1
 parameters:
   S:
     LEN_2D: 64
   M:
-    LEN_2D: 12289
+    LEN_2D: 11409
   L:
-    LEN_2D: 14082
+    LEN_2D: 13568
   XL:
     LEN_2D: 16136
-init:
-  arrays:
-    out: (LEN_2D,LEN_2D)
-    src: (LEN_2D,LEN_2D)
-    cond: (LEN_2D,)
-output_args:
-- out
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  out: {shape: "(LEN_2D,LEN_2D)", out: true}
+  src: (LEN_2D,LEN_2D)
+  cond: (LEN_2D,)

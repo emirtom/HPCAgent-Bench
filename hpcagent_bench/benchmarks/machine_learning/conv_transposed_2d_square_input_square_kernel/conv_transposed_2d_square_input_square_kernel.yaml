@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/57_conv_transposed_2D__square_input__square_kernel.py}
 name: ConvT2D Square
-func_name: conv_transposed_2d_square_input_square_kernel
 level: 1
 parameters:
   S:
@@ -46,13 +46,10 @@ config:
     value: 0
   conv_transpose2d_stride:
     value: 1
-init:
-  arrays:
-    x: (batch_size, in_channels, height, width)
-    conv_transpose2d_weight: (in_channels, out_channels // conv_transpose2d_groups, kernel_size, kernel_size)
-    conv_transpose2d_bias: (out_channels,)
-    out: (batch_size, out_channels, (height - 1) * conv_transpose2d_stride - 2 * conv_transpose2d_padding + conv_transpose2d_dilation * (kernel_size - 1) + conv_transpose2d_output_padding + 1, (width - 1) * conv_transpose2d_stride - 2 * conv_transpose2d_padding + conv_transpose2d_dilation * (kernel_size - 1) + conv_transpose2d_output_padding + 1)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, in_channels, height, width)
+  conv_transpose2d_weight: (in_channels, out_channels // conv_transpose2d_groups, kernel_size, kernel_size)
+  conv_transpose2d_bias: (out_channels,)
+  out:
+    shape: (batch_size, out_channels, (height - 1) * conv_transpose2d_stride - 2 * conv_transpose2d_padding + conv_transpose2d_dilation * (kernel_size - 1) + conv_transpose2d_output_padding + 1, (width - 1) * conv_transpose2d_stride - 2 * conv_transpose2d_padding + conv_transpose2d_dilation * (kernel_size - 1) + conv_transpose2d_output_padding + 1)
+    out: true

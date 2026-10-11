@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level2/67_Conv2d_GELU_GlobalAvgPool.py}
 name: Conv2D + GELU + GlobalAvgPool
-func_name: conv2d_gelu_global_avg_pool
 level: 2
 parameters:
   S:
@@ -34,17 +34,11 @@ parameters:
 config:
   conv_padding:
     value: 0
-init:
-  arrays:
-    x: (batch_size, in_channels, height, width)
-    conv_weight: (out_channels, in_channels, kernel_size, kernel_size)
-    conv_bias: (out_channels,)
-    out: (batch_size, out_channels)
-  scalars:
-    conv_stride: 1
-    conv_dilation: 1
-    conv_groups: 1
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, in_channels, height, width)
+  conv_weight: (out_channels, in_channels, kernel_size, kernel_size)
+  conv_bias: (out_channels,)
+  out: {shape: "(batch_size, out_channels)", out: true}
+  conv_stride: 1
+  conv_dilation: 1
+  conv_groups: 1

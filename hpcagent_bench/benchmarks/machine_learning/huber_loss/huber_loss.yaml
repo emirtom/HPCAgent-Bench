@@ -1,26 +1,21 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/96_HuberLoss.py}
 name: Huber Loss
-func_name: huber_loss
 level: 1
 parameters:
   S:
     batch_size: 4
     dim1: 8
   M:
-    batch_size: 49152
-    dim1: 4096
+    batch_size: 39527
+    dim1: 3293
   L:
-    batch_size: 88161
-    dim1: 2597
+    batch_size: 79059
+    dim1: 2328
   XL:
     batch_size: 158129
     dim1: 1646
-init:
-  arrays:
-    predictions: (batch_size, dim1)
-    targets: (batch_size, dim1)
-    out: (1,)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  predictions: (batch_size, dim1)
+  targets: (batch_size, dim1)
+  out: {shape: "(1,)", out: true}

@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/14_Matmul_for_upper_triangular_matrices.py}
 name: Upper-Triangular MatMul
-func_name: matmul_for_upper_triangular_matrices
 level: 1
 parameters:
   S:
@@ -11,12 +11,7 @@ parameters:
     N: 5194
   XL:
     N: 13175
-init:
-  arrays:
-    A: (N, N)
-    B: (N, N)
-    out: (N, N)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  A: (N, N)
+  B: (N, N)
+  out: {shape: "(N, N)", out: true}

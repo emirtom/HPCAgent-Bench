@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level2/90_Conv3d_LeakyReLU_Sum_Clamp_GELU.py}
 name: Conv3D-LReLU-Sum-Clmp-GELU
-func_name: conv3d_leaky_relu_sum_clamp_gelu
 level: 2
 parameters:
   # A list-valued symbol cannot cross the scalar ABI (ctypes has no argument for it), and this
@@ -37,14 +37,11 @@ parameters:
     depth: 115
     height: 115
     width: 115
-init:
-  arrays:
-    x: (batch_size, in_channels, depth, height, width)
-    conv_weight: (out_channels, in_channels, kernel_size, kernel_size, kernel_size)
-    conv_bias: (out_channels,)
-    sum_tensor: (out_channels, 1, 1, 1)
-    out: (batch_size, out_channels, depth - kernel_size + 1, height - kernel_size + 1, width - kernel_size + 1)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, in_channels, depth, height, width)
+  conv_weight: (out_channels, in_channels, kernel_size, kernel_size, kernel_size)
+  conv_bias: (out_channels,)
+  sum_tensor: (out_channels, 1, 1, 1)
+  out:
+    shape: (batch_size, out_channels, depth - kernel_size + 1, height - kernel_size + 1, width - kernel_size + 1)
+    out: true

@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: derived, upstream: polybench, via: [npbench]}
 name: Toeplitz system solver
+short-name: Durbin
 level: 2
 parameters:
   S:
@@ -10,15 +12,6 @@ parameters:
     N: 126491
   XL:
     N: 400000
-init:
-  input_args:
-  - N
-  arrays:
-    r: (N,)
-    y: (N,)
-  func_name: initialize
-output_args:
-- y
-experiment_tags:
-- npbench
-- polybench
+args:
+  r: (N,)
+  y: {shape: "(N,)", out: true}

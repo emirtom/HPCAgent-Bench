@@ -41,7 +41,7 @@ def _run(scalar_args):
     ``scalar_args`` is the trailing ``(complement_sum, pair_bonus)`` tuple, or () to exercise
     the defaults."""
     initialize = _load("nussinov").initialize
-    kernel = _load("nussinov_numpy").kernel
+    kernel = _load("nussinov_numpy").nussinov
     seq, table, _complement_sum_default, _pair_bonus_default = initialize(40)
     kernel(40, seq, table, *scalar_args)
     return table

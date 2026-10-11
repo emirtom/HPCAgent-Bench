@@ -1,4 +1,4 @@
-# Copyright 2021 ETH Zurich and the HPCAgent-Bench authors.
+# Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Matrix-free conjugate-gradient Poisson solver for the DFT Hartree potential: solve
@@ -31,7 +31,7 @@ def _neg_laplacian(x, inv_h2):
     )
 
 
-def kernel(inv_h2, tol, niter, rho, V):
+def poisson_cg_3d(inv_h2, tol, niter, rho, V):
 
     b1 = 4.0 * np.pi * rho
     b2 = b1 - b1.mean()  # project onto the charge-neutral (zero-mean) subspace

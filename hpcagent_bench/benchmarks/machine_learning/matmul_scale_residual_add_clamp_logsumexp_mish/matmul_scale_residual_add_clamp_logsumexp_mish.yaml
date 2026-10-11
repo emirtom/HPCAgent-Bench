@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level2/22_Matmul_Scale_ResidualAdd_Clamp_LogSumExp_Mish.py}
 name: MatMul-Scale-Res-Clmp-LSE-Mish
-func_name: matmul_scale_residual_add_clamp_logsumexp_mish
 level: 2
 parameters:
   S:
@@ -30,13 +30,8 @@ config:
     value: -10.0
   clamp_max:
     value: 10.0
-init:
-  arrays:
-    x: (batch_size, input_size)
-    matmul_weight: (hidden_size, input_size)
-    matmul_bias: (hidden_size,)
-    out: (batch_size, 1)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, input_size)
+  matmul_weight: (hidden_size, input_size)
+  matmul_bias: (hidden_size,)
+  out: {shape: "(batch_size, 1)", out: true}

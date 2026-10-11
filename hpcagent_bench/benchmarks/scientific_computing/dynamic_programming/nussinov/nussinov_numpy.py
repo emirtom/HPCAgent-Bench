@@ -11,7 +11,7 @@ def match(b1, b2, complement_sum, pair_bonus):
         return 0
 
 
-def kernel(N, seq, table, complement_sum=3, pair_bonus=1):
+def nussinov(N, seq, table, complement_sum=3, pair_bonus=1):
     # complement_sum: the encoded-base sum that counts as a complementary pair (default 3,
     # matching initialize()'s 0..3 base encoding, where 0+3 and 1+2 are the two complements).
     # pair_bonus: score awarded for closing a complementary pair (default 1, the pre-exposure

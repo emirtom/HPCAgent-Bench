@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Gather Load
 level: 1
 parameters:
@@ -10,22 +11,8 @@ parameters:
     LEN_1D: 53326126
   XL:
     LEN_1D: 86171992
-init:
-  output_args:
-  - scale
-  - src
-  - idx
-  - dst
-  scalars:
-    scale: 1.0
-  arrays:
-    src: (LEN_1D,)
-    idx:
-      shape: (LEN_1D,)
-      dtype: int64
-      index_array: true
-    dst: (LEN_1D,)
-output_args:
-- dst
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  scale: 1.0
+  src: (LEN_1D,)
+  idx: {shape: "(LEN_1D,)", dtype: int64, index_array: true}
+  dst: {shape: "(LEN_1D,)", out: true}

@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Scan, Five Carries
+short-name: Scan 5 Carries
 level: 1
 parameters:
   S:
@@ -10,11 +12,6 @@ parameters:
     LEN_1D: 31455573
   XL:
     LEN_1D: 52076478
-init:
-  arrays:
-    acc: (5,LEN_1D)
-    delta: (5,LEN_1D)
-output_args:
-- acc
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  acc: {shape: "(5,LEN_1D)", out: true}
+  delta: (5,LEN_1D)

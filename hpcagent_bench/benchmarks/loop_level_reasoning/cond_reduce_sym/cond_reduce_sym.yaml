@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Conditional Sum, Symbolic
+short-name: Cond Sum Sym
 level: 1
 parameters:
   S:
@@ -14,11 +16,6 @@ config:
   K:
     value: 1
     selects: branch
-init:
-  arrays:
-    a: (LEN_1D,)
-    out: (1,)
-output_args:
-- out
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  a: (LEN_1D,)
+  out: {shape: "(1,)", out: true}

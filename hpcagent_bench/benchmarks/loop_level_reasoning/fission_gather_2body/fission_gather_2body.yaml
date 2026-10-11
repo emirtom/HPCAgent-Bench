@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Fission, Two Gathers
+short-name: Fission Gather
 level: 1
 parameters:
   S:
@@ -10,18 +12,9 @@ parameters:
     LEN_1D: 27076953
   XL:
     LEN_1D: 43127140
-init:
-  arrays:
-    b: (LEN_1D,)
-    e: (LEN_1D,)
-    a: (LEN_1D,)
-    c: (LEN_1D,)
-    idx:
-      shape: (LEN_1D,)
-      dtype: int64
-      index_array: true
-output_args:
-- b
-- e
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  b: {shape: "(LEN_1D,)", out: true}
+  e: {shape: "(LEN_1D,)", out: true}
+  a: (LEN_1D,)
+  c: (LEN_1D,)
+  idx: {shape: "(LEN_1D,)", dtype: int64, index_array: true}

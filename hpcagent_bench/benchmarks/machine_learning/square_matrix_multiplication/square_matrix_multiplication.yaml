@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/1_Square_matrix_multiplication_.py}
 name: Square Matrix Multiply
-func_name: square_matrix_multiplication
 level: 1
 parameters:
   S:
@@ -11,12 +11,7 @@ parameters:
     N: 4842
   XL:
     N: 11447
-init:
-  arrays:
-    A: (N, N)
-    B: (N, N)
-    out: (N, N)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  A: (N, N)
+  B: (N, N)
+  out: {shape: "(N, N)", out: true}

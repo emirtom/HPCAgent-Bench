@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original}
 name: Subset Sum
 level: 3
 parameters:
@@ -10,29 +11,7 @@ parameters:
     N: 31
   XL:
     N: 36
-init:
-  input_args:
-  - N
-  output_args:
-  - items
-  - target
-  - count
-  arrays:
-    items:
-      shape: (N,)
-      dtype: int64
-    target:
-      shape: (1,)
-      dtype: int64
-    count:
-      shape: (1,)
-      dtype: int64
-  func_name: initialize
-array_args:
-- items
-- target
-- count
-output_args:
-- count
-experiment_tags:
-- backtrack_branch_bound
+args:
+  items: {shape: "(N,)", dtype: int64}
+  target: {shape: "(1,)", dtype: int64}
+  count: {shape: "(1,)", dtype: int64, out: true}

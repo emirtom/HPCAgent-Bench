@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Rerollable 7-Way SAXPY
+short-name: Reroll SAXPY7
 level: 1
 parameters:
   S:
@@ -10,11 +12,6 @@ parameters:
     NBLK: 22468266
   XL:
     NBLK: 37197484
-init:
-  arrays:
-    a: (7 * NBLK,)
-    b: (7 * NBLK,)
-output_args:
-- a
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  a: {shape: "(7 * NBLK,)", out: true}
+  b: (7 * NBLK,)

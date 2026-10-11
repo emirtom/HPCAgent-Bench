@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/34_InstanceNorm.py}
 name: Instance Normalization
-func_name: instance_norm
 level: 1
 parameters:
   S:
@@ -27,13 +27,7 @@ parameters:
     dim2: 179
     features: 44
     num_features: 64
-init:
-  arrays:
-    x: (batch_size, features, dim1, dim2)
-    out: (batch_size, features, dim1, dim2)
-  scalars:
-    inorm_eps: 1.0e-05
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, features, dim1, dim2)
+  out: {shape: "(batch_size, features, dim1, dim2)", out: true}
+  inorm_eps: 1.0e-05

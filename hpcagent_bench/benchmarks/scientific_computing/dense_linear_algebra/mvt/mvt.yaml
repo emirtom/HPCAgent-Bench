@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: derived, upstream: polybench, via: [npbench]}
 name: Matrix-Vector and Transpose
+short-name: MVT
 level: 2
 parameters:
   S:
@@ -10,47 +12,14 @@ parameters:
     N: 16134
   XL:
     N: 23168
-init:
-  input_args:
-  - N
-  output_args:
-  - x1
-  - x2
-  - y_1
-  - y_2
-  - A
-  func_name: initialize
-  arrays:
-    x1:
-      shape: (N,)
-    x2:
-      shape: (N,)
-    y_1:
-      shape: (N,)
-    y_2:
-      shape: (N,)
-    A:
-      shape: (N, N)
-array_args:
-- x1
-- x2
-- y_1
-- y_2
-- A
-output_args:
-- x1
-- x2
+args:
+  x1: {shape: "(N,)", out: true, partitioned: true}
+  x2: {shape: "(N,)", out: true}
+  y_1: (N,)
+  y_2: (N,)
+  A: {shape: "(N, N)", partitioned: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 2
-  arrays:
-    A:
-    - N
-    - N
-    x1:
-    - N
-experiment_tags:
-- npbench
-- polybench

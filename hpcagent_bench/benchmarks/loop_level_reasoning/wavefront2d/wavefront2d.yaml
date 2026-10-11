@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: TSVC Wavefront 2D
+short-name: TSVC Wavefront
 level: 1
 parameters:
   S:
@@ -10,12 +12,7 @@ parameters:
     LEN_2D: 15769
   XL:
     LEN_2D: 20235
-init:
-  arrays:
-    a: (LEN_2D,LEN_2D)
-output_args:
-- a
+args:
+  a: {shape: "(LEN_2D,LEN_2D)", out: true}
 chain_length:
   a: 2 * LEN_2D
-loop_level_reasoning:
-  source: tsvc_2_5

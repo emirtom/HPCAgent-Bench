@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Argmax by Value
+short-name: Argmax Value
 level: 1
 parameters:
   S:
@@ -10,11 +12,6 @@ parameters:
     LEN_1D: 306166068
   XL:
     LEN_1D: 520764783
-init:
-  arrays:
-    a: (LEN_1D,)
-    out: (1,)
-output_args:
-- out
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  a: (LEN_1D,)
+  out: {shape: "(1,)", out: true}

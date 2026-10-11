@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level2/4_Conv2d_Mish_Mish.py}
 name: Conv2D + Mish + Mish
-func_name: conv2d_mish_mish
 level: 2
 parameters:
   S:
@@ -40,13 +40,10 @@ config:
     value: 0
   conv_stride:
     value: 1
-init:
-  arrays:
-    x: (batch_size, in_channels, height, width)
-    conv_weight: (out_channels, in_channels // conv_groups, kernel_size, kernel_size)
-    conv_bias: (out_channels,)
-    out: (batch_size, out_channels, (height + 2 * conv_padding - conv_dilation * (kernel_size - 1) - 1) // conv_stride + 1, (width + 2 * conv_padding - conv_dilation * (kernel_size - 1) - 1) // conv_stride + 1)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, in_channels, height, width)
+  conv_weight: (out_channels, in_channels // conv_groups, kernel_size, kernel_size)
+  conv_bias: (out_channels,)
+  out:
+    shape: (batch_size, out_channels, (height + 2 * conv_padding - conv_dilation * (kernel_size - 1) - 1) // conv_stride + 1, (width + 2 * conv_padding - conv_dilation * (kernel_size - 1) - 1) // conv_stride + 1)
+    out: true

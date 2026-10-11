@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: algorithm, upstream: tsvc, detail: s353}
 name: TSVC s353, Gather Unroll 17
+short-name: TSVC s353 G17
 level: 1
 parameters:
   S:
@@ -10,15 +12,7 @@ parameters:
     N: 54010590
   XL:
     N: 86937662
-init:
-  arrays:
-    ip:
-      shape: (N,)
-      dtype: int64
-      index_array: true
-    a: (N,)
-    b: (N,)
-output_args:
-- b
-loop_level_reasoning:
-  source: adversarial_unroll
+args:
+  ip: {shape: "(N,)", dtype: int64, index_array: true}
+  a: (N,)
+  b: {shape: "(N,)", out: true}

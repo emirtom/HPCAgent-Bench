@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: algorithm, upstream: automata_lib}
 name: DFA Scan
 level: 2
 parameters:
@@ -18,37 +19,7 @@ parameters:
     N: 520698992
     NS: 256
     NA: 256
-init:
-  input_args:
-  - N
-  - NS
-  - NA
-  output_args:
-  - trans
-  - symbols
-  - counts
-  dtypes:
-    counts: int64
-    symbols: int64
-    trans: int64
-  func_name: initialize
-  arrays:
-    trans:
-      shape: (NS, NA)
-      dtype: int64
-    symbols:
-      shape: (N,)
-      dtype: int64
-      index_array: true
-    counts:
-      shape: (NS,)
-      dtype: int64
-array_args:
-- trans
-- symbols
-- counts
-output_args:
-- counts
-experiment_tags:
-- finite_state_machine
-- harness-focus20
+args:
+  trans: {shape: "(NS, NA)", dtype: int64}
+  symbols: {shape: "(N,)", dtype: int64, index_array: true}
+  counts: {shape: "(NS,)", dtype: int64, out: true}

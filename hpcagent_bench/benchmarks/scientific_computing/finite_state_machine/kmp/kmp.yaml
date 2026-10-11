@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original}
 name: KMP Search
 level: 2
 parameters:
@@ -14,31 +15,7 @@ parameters:
   XL:
     N: 520764763
     M: 20
-init:
-  input_args:
-  - N
-  - M
-  output_args:
-  - text
-  - pattern
-  - matches
-  arrays:
-    text:
-      shape: (N,)
-      dtype: int64
-    pattern:
-      shape: (M,)
-      dtype: int64
-    matches:
-      shape: (1,)
-      dtype: int64
-  func_name: initialize
-array_args:
-- text
-- pattern
-- matches
-output_args:
-- matches
-experiment_tags:
-- finite_state_machine
-- harness-focus20
+args:
+  text: {shape: "(N,)", dtype: int64}
+  pattern: {shape: "(M,)", dtype: int64}
+  matches: {shape: "(1,)", dtype: int64, out: true}

@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Quasi-Affine Mod-K Stripe
+short-name: Quasi-Aff Mod
 level: 1
 parameters:
   S:
@@ -16,12 +18,7 @@ config:
     selects: branch
 constraints:
 - K >= 1
-init:
-  arrays:
-    a: (LEN_1D,)
-    b: (LEN_1D,)
-    c: (LEN_1D,)
-output_args:
-- a
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  a: {shape: "(LEN_1D,)", out: true}
+  b: (LEN_1D,)
+  c: (LEN_1D,)

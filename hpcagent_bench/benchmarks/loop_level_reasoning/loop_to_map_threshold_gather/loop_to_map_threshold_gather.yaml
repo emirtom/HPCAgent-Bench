@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Threshold Gather Loop to Map
+short-name: Thresh Gather
 level: 1
 parameters:
   S:
@@ -10,17 +12,9 @@ parameters:
     LEN_2D: 9236
   XL:
     LEN_2D: 11410
-init:
-  arrays:
-    out: (LEN_2D,LEN_2D)
-    x: (LEN_2D,LEN_2D)
-    y: (LEN_2D,LEN_2D)
-    w: (LEN_2D,LEN_2D)
-    idx:
-      shape: (LEN_2D,)
-      dtype: int64
-      index_array: true
-output_args:
-- out
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  out: {shape: "(LEN_2D,LEN_2D)", out: true}
+  x: (LEN_2D,LEN_2D)
+  y: (LEN_2D,LEN_2D)
+  w: (LEN_2D,LEN_2D)
+  idx: {shape: "(LEN_2D,)", dtype: int64, index_array: true}

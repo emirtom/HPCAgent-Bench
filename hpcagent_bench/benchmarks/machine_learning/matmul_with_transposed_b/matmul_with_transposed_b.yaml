@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/17_Matmul_with_transposed_B.py}
 name: MatMul, B Transposed
-func_name: matmul_with_transposed_b
 level: 1
 parameters:
   S:
@@ -19,12 +19,7 @@ parameters:
     K: 22895
     M: 5723
     N: 11447
-init:
-  arrays:
-    A: (M, K)
-    B: (N, K)
-    out: (M, N)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  A: (M, K)
+  B: (N, K)
+  out: {shape: "(M, N)", out: true}

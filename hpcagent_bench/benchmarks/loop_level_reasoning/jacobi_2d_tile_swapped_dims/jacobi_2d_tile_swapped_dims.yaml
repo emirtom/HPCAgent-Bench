@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: algorithm, upstream: polybench, detail: jacobi-2d}
 name: Jacobi 2D, Swapped Tile Dims
+short-name: Jac2D Swapped
 level: 1
 parameters:
   S:
@@ -14,12 +16,6 @@ parameters:
   XL:
     N: 5869
     TSTEPS: 20
-init:
-  arrays:
-    A: (N,N)
-    B: (N,N)
-output_args:
-- A
-- B
-loop_level_reasoning:
-  source: adversarial_tile
+args:
+  A: {shape: "(N,N)", out: true}
+  B: {shape: "(N,N)", out: true}

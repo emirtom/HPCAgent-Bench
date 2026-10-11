@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: derived, upstream: scipy}
 name: Edge Laplacian
 level: 1
 parameters:
@@ -14,42 +15,9 @@ parameters:
   XL:
     N: 26038239
     E: 156229435
-init:
-  input_args:
-  - N
-  - E
-  output_args:
-  - src
-  - dst
-  - w
-  - x
-  - Lx
-  dtypes:
-    dst: int64
-    src: int64
-  func_name: initialize
-  arrays:
-    src:
-      shape: (E,)
-      dtype: int64
-      index_array: true
-    dst:
-      shape: (E,)
-      dtype: int64
-      index_array: true
-    w:
-      shape: (E,)
-    x:
-      shape: (N,)
-    Lx:
-      shape: (N,)
-array_args:
-- src
-- dst
-- w
-- x
-- Lx
-output_args:
-- Lx
-experiment_tags:
-- unstructured_grids
+args:
+  src: {shape: "(E,)", dtype: int64, index_array: true}
+  dst: {shape: "(E,)", dtype: int64, index_array: true}
+  w: (E,)
+  x: (N,)
+  Lx: {shape: "(N,)", out: true}

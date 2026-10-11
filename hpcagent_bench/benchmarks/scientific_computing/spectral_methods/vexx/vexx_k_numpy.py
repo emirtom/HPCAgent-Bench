@@ -1,9 +1,9 @@
-# Copyright 2021 ETH Zurich and the HPCAgent-Bench authors.
+# Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Vectorized NumPy port of QE's exx_bp::vexx_bp_k (GPL v2+); mirrors vexx_k_numpy.py's math exactly.
 
-Only vexx_all_paths (the manifest func_name) and what it calls are ported -- the sibling `vexx`
+Only the entry vexx_k and what it calls are ported -- the sibling `vexx`
 collinear-only kernel in the shipped reference belongs to a different benchmark and is unreachable
 from here, so it is not carried over.
 
@@ -71,7 +71,7 @@ def _vcut_init(a, cutoff, security=6.0):
     tpi = 2.0 * np.pi
     b = tpi * np.linalg.inv(a).T  # b = 2pi (a^-1)^T
     a_omega = float(np.linalg.det(a))
-    n = [int(np.ceil(cutoff * np.sqrt(np.sum((a[i, :] * a[i, :]))) / tpi)) for i in range(3)]
+    n = [int(np.ceil(cutoff * np.sqrt(np.sum(a[i, :] * a[i, :])) / tpi)) for i in range(3)]
     n1, n2, n3 = n
 
     # Ewald split params (vcut_formula)
@@ -79,7 +79,7 @@ def _vcut_init(a, cutoff, security=6.0):
     sigma = 3.0 / rwigner
 
     # long-range real-space grid over one unit cell (full grid, weight 1)
-    m = [max(1, int(security * np.sqrt(np.sum((a[:, i] * a[:, i]))) * sigma)) for i in range(3)]
+    m = [max(1, int(security * np.sqrt(np.sum(a[:, i] * a[:, i])) * sigma)) for i in range(3)]
     m1, m2, m3 = m
     F = np.stack(
         np.meshgrid(np.arange(m1) / m1, np.arange(m2) / m2, np.arange(m3) / m3, indexing="ij"), axis=-1
@@ -345,7 +345,7 @@ def _add_nlxx_pot(hpsi_col, deexx, vkb, nat, nh, ofsbeta, eps_occ, exxalfa, gamm
     return hpsi_col
 
 
-def vexx_all_paths(
+def vexx_k(
     psi,
     hpsi,
     exxbuff,

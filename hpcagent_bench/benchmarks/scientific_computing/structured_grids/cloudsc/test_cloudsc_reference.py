@@ -1,4 +1,4 @@
-# Copyright 2021 ETH Zurich and the HPCAgent-Bench authors.
+# Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Correctness gate: asserts the CLOUDSC initializer's atmosphere is physically valid and exercises real branches."""
@@ -10,7 +10,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import yaml
+
+from hpcagent_bench.spec import BenchSpec
 
 _HERE = Path(__file__).resolve().parent
 
@@ -29,21 +30,19 @@ def _load(name, path):
 def kit():
     init_mod = _load("cloudsc_init", _HERE / "cloudsc.py")
     kernel_mod = _load("cloudsc_numpy", _HERE / "cloudsc_numpy.py")
-    manifest = yaml.safe_load((_HERE / "cloudsc.yaml").read_text())
-    return init_mod, kernel_mod, manifest
+    return init_mod, kernel_mod, BenchSpec.load("cloudsc")
 
 
 def _initialize(kit, nlev, klon):
-    init_mod, _, manifest = kit
-    out_args = manifest["init"]["output_args"]
-    return dict(zip(out_args, init_mod.initialize(nlev, klon)))
+    init_mod, _, spec = kit
+    return dict(zip(spec.init.output_args, init_mod.initialize(nlev, klon)))
 
 
 def _run_kernel(kit, named, nlev, klon):
-    _, kernel_mod, manifest = kit
+    _, kernel_mod, spec = kit
     scalars = {"kfdia": klon, "kidia": 1, "klon": klon, "nlev": nlev, "ptsphy": 3600.0}
     # Pass the live arrays (the kernel mutates outputs in place).
-    args = [named[a] if a in named else scalars[a] for a in manifest["input_args"]]
+    args = [named[a] if a in named else scalars[a] for a in spec.input_args]
     kernel_mod.cloudsc(*args)
 
 

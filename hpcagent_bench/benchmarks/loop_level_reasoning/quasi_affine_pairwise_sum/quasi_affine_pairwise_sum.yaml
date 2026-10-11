@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Quasi-Affine Pairwise Sum
+short-name: Quasi-Aff Pair
 level: 1
 parameters:
   S:
@@ -10,11 +12,6 @@ parameters:
     LEN_1D: 111016965
   XL:
     LEN_1D: 173588261
-init:
-  arrays:
-    a: (2 * LEN_1D,)
-    b: (LEN_1D,)
-output_args:
-- b
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  a: (2 * LEN_1D,)
+  b: {shape: "(LEN_1D,)", out: true}

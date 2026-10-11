@@ -109,7 +109,7 @@ _K_bar_cpu = TvmKernel("resnet_bnaddrelu_cpu", build_bn_add_relu, _TARGET_cpu, _
 _K_bar_gpu = TvmKernel("resnet_bnaddrelu_gpu", build_bn_add_relu, _TARGET_gpu, _DEV_gpu)
 
 
-def resnet_basicblock(input, conv1, conv2, conv3):
+def resnet(input, conv1, conv2, conv3):
     _K_bar = active_kernel(_K_bar_cpu, _K_bar_gpu)
     _K_bnr = active_kernel(_K_bnr_cpu, _K_bnr_gpu)
     _K_conv1 = active_kernel(_K_conv1_cpu, _K_conv1_gpu)

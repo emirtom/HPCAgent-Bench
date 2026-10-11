@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: derived, upstream: polybench, via: [npbench]}
 name: Scalar-Vector-Matrix Multiply
+short-name: GESUMMV
 level: 2
 parameters:
   S:
@@ -10,48 +12,15 @@ parameters:
     N: 11409
   XL:
     N: 16383
-init:
-  input_args:
-  - N
-  output_args:
-  - alpha
-  - beta
-  - A
-  - B
-  - x
-  - out
-  func_name: initialize
-  arrays:
-    A:
-      shape: (N, N)
-    B:
-      shape: (N, N)
-    x:
-      shape: (N,)
-    out:
-      shape: (N,)
-array_args:
-- A
-- B
-- x
-- out
-output_args:
-- out
+args:
+  alpha: {}
+  beta: {}
+  A: {shape: "(N, N)", partitioned: true}
+  B: {shape: "(N, N)", partitioned: true}
+  x: (N,)
+  out: {shape: "(N,)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 2
-  arrays:
-    A:
-    - N
-    - N
-    B:
-    - N
-    - N
-    out:
-    - N
-experiment_tags:
-- npbench
-- mpi-focus32
-- polybench

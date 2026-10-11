@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: algorithm, upstream: tsvc, detail: s2111}
 name: Wavefront 2D
 level: 1
 parameters:
@@ -10,12 +11,7 @@ parameters:
     N: 13462
   XL:
     N: 14747
-init:
-  arrays:
-    aa: (N,N)
-output_args:
-- aa
+args:
+  aa: {shape: "(N,N)", out: true}
 chain_length:
   aa: 2 * N
-loop_level_reasoning:
-  source: canonicalization

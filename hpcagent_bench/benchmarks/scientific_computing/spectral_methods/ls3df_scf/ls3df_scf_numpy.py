@@ -159,7 +159,7 @@ def genpot(rho, V_ion, h):
     return v - v.mean()
 
 
-def kernel(dvol, half_inv_h2, tol, nscf, mix, m, offsets, alpha, occ, V_ion, proj, dij, psi_frag, rho, V_tot):
+def ls3df_scf(dvol, half_inv_h2, tol, nscf, mix, m, offsets, alpha, occ, V_ion, proj, dij, psi_frag, rho, V_tot):
 
     N = rho.shape[0]
     nfrag, Lb = psi_frag.shape[0], psi_frag.shape[1]

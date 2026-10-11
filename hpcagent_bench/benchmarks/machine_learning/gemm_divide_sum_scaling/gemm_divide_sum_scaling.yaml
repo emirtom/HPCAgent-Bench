@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level2/14_Gemm_Divide_Sum_Scaling.py}
 name: GEMM + Divide + Sum + Scaling
-func_name: gemm_divide_sum_scaling
 level: 2
 parameters:
   S:
@@ -19,14 +19,8 @@ parameters:
     batch_size: 60853
     input_size: 7606
     hidden_size: 7606
-init:
-  arrays:
-    x: (batch_size, input_size)
-    weight: (hidden_size, input_size)
-    out: (batch_size, 1)
-  scalars:
-    scaling_factor: 1.5
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, input_size)
+  weight: (hidden_size, input_size)
+  out: {shape: "(batch_size, 1)", out: true}
+  scaling_factor: 1.5

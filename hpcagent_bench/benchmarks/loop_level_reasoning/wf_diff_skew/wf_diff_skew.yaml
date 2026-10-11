@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Wavefront Difference Skew
 short-name: Wavefront Skew
 level: 1
@@ -11,14 +12,7 @@ parameters:
     LEN_2D: 16746
   XL:
     LEN_2D: 22820
-init:
-  arrays:
-    a: (LEN_2D,LEN_2D)
-output_args:
-- a
+args:
+  a: {shape: "(LEN_2D,LEN_2D)", out: true}
 chain_length:
   a: LEN_2D
-loop_level_reasoning:
-  source: tsvc_2_5
-experiment_tags:
-- llr-focus40

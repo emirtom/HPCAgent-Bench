@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/36_RMSNorm_.py}
 name: RMS Normalization
-func_name: rms_norm
 level: 1
 parameters:
   S:
@@ -31,11 +31,6 @@ parameters:
     eps: 1.0e-05
     features: 44
     num_features: 64
-init:
-  arrays:
-    x: (batch_size, features, dim1, dim2)
-    out: (batch_size, features, dim1, dim2)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, features, dim1, dim2)
+  out: {shape: "(batch_size, features, dim1, dim2)", out: true}

@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level2/3_ConvTranspose3d_Sum_LayerNorm_AvgPool_GELU.py}
 name: ConvT3D-Sum-LN-AvgP-GELU
-func_name: conv_transpose3d_sum_layer_norm_avg_pool_gelu
 level: 2
 parameters:
   S:
@@ -48,18 +48,14 @@ config:
     value: 0
   padding:
     value: 0
-init:
-  arrays:
-    x: (batch_size, in_channels, D, H, W)
-    conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
-    conv_transpose_bias: (out_channels,)
-    norm_weight: ((W - 1) * stride - 2 * padding + kernel_size + output_padding,)
-    norm_bias: ((W - 1) * stride - 2 * padding + kernel_size + output_padding,)
-    out: (batch_size, out_channels, ((D - 1) * stride - 2 * padding + kernel_size + output_padding - pool_kernel_size) // pool_kernel_size + 1, ((H - 1) * stride - 2 * padding + kernel_size + output_padding - pool_kernel_size) // pool_kernel_size + 1, ((W - 1) * stride - 2 * padding + kernel_size + output_padding - pool_kernel_size) // pool_kernel_size + 1)
-  scalars:
-    sum_weight: 1.0
-    norm_eps: 1.0e-05
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  x: (batch_size, in_channels, D, H, W)
+  conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
+  conv_transpose_bias: (out_channels,)
+  norm_weight: ((W - 1) * stride - 2 * padding + kernel_size + output_padding,)
+  norm_bias: ((W - 1) * stride - 2 * padding + kernel_size + output_padding,)
+  out:
+    shape: (batch_size, out_channels, ((D - 1) * stride - 2 * padding + kernel_size + output_padding - pool_kernel_size) // pool_kernel_size + 1, ((H - 1) * stride - 2 * padding + kernel_size + output_padding - pool_kernel_size) // pool_kernel_size + 1, ((W - 1) * stride - 2 * padding + kernel_size + output_padding - pool_kernel_size) // pool_kernel_size + 1)
+    out: true
+  sum_weight: 1.0
+  norm_eps: 1.0e-05

@@ -1,4 +1,5 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: derived, upstream: rodinia, detail: hotspot}
 name: HotSpot
 level: 2
 parameters:
@@ -34,41 +35,12 @@ parameters:
     cz: 0.02
     cpow: 1.0
     amb: 80.0
-init:
-  input_args:
-  - N
-  output_args:
-  - temp
-  - power
-  - T
-  func_name: initialize
-  arrays:
-    temp:
-      shape: (N, N)
-    power:
-      shape: (N, N)
-    T:
-      shape: (N, N)
-array_args:
-- temp
-- power
-- T
-output_args:
-- T
+args:
+  temp: {shape: "(N, N)", partitioned: true}
+  power: {shape: "(N, N)", partitioned: true}
+  T: {shape: "(N, N)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 2
-  arrays:
-    temp:
-    - N
-    - N
-    power:
-    - N
-    - N
-    T:
-    - N
-    - N
-experiment_tags:
-- hotspot

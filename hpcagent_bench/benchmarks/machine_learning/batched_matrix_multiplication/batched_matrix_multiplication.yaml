@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest (KernelBench port).
+# provenance: {kind: derived, upstream: kernelbench, detail: KernelBench/level1/3_Batched_matrix_multiplication.py}
 name: Batched Matrix Multiply
-func_name: batched_matrix_multiplication
 level: 1
 parameters:
   S:
@@ -23,12 +23,7 @@ parameters:
     k: 557
     m: 557
     n: 557
-init:
-  arrays:
-    A: (batch_size, m, k)
-    B: (batch_size, k, n)
-    out: (batch_size, m, n)
-output_args:
-- out
-experiment_tags:
-- kernelbench
+args:
+  A: (batch_size, m, k)
+  B: (batch_size, k, n)
+  out: {shape: "(batch_size, m, n)", out: true}

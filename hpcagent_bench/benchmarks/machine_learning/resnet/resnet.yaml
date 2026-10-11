@@ -1,6 +1,6 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: derived, upstream: skalski, via: [npbench]}
 name: ResNet-50 Bottleneck Block
-func_name: resnet_basicblock
 level: 3
 parameters:
   S:
@@ -27,44 +27,14 @@ parameters:
     H: 8
     C1: 712
     C2: 253
-init:
-  input_args:
-  - N
-  - W
-  - H
-  - C1
-  - C2
-  output_args:
-  - input
-  - conv1
-  - conv2
-  - conv3
-  - out
-  func_name: initialize
-  arrays:
-    input:
-      shape: (N, H, W, C1)
-    conv1:
-      shape: (1, 1, C1, C2)
-    conv2:
-      shape: (3, 3, C2, C2)
-    conv3:
-      shape: (1, 1, C2, C1)
-    out:
-      shape: (N, H, W, C1)
+args:
+  input: (N, H, W, C1)
+  conv1: (1, 1, C1, C2)
+  conv2: (3, 3, C2, C2)
+  conv3: (1, 1, C2, C1)
+  out: {shape: "(N, H, W, C1)", out: true}
 # fp32 only, declared here rather than left to a python default: this is a float32 inference
 # block, and everything that needs its precision -- ``initialize``, the reference-parity gate --
 # reads it from the manifest instead of naming a dtype of its own.
-precisions:
+allowed_precisions:
 - fp32
-array_args:
-- input
-- conv1
-- conv2
-- conv3
-- out
-output_args:
-- out
-experiment_tags:
-- npbench
-- deep_learning

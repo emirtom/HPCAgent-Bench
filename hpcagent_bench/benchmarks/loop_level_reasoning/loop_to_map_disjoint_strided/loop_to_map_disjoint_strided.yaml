@@ -1,5 +1,7 @@
 # HPCAgent-Bench benchmark manifest -- adding a benchmark: see README.md.
+# provenance: {kind: original, contributor: spcl, detail: 'TSVC-2.5 extension loop, pattern derived from TSVC_2'}
 name: Disjoint Strided Loop to Map
+short-name: Map Disjoint
 level: 1
 parameters:
   S:
@@ -10,11 +12,6 @@ parameters:
     LEN_1D: 99471257
   XL:
     LEN_1D: 173588261
-init:
-  arrays:
-    a: (2 * LEN_1D,)
-    b: (LEN_1D,)
-output_args:
-- a
-loop_level_reasoning:
-  source: tsvc_2_5
+args:
+  a: {shape: "(2 * LEN_1D,)", out: true}
+  b: (LEN_1D,)
