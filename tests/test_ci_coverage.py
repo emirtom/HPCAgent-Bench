@@ -398,8 +398,11 @@ def test_every_integration_shard_keeps_its_own_coverage_and_ccache() -> None:
     assert "integration" in workflow_jobs()["coverage"]["needs"], "coverage does not wait for the integration shards"
 
 
-def test_the_perf_job_runs_every_curated_kernel() -> None:
-    """The perf job's matrix is the gate's curated list: a kernel added to one and not the other is never timed."""
-    from tests.test_canon_perf_gate import CURATED
+def test_the_perf_jobs_run_every_curated_kernel_once() -> None:
+    """The perf matrix is PERF_JOBS, and PERF_JOBS partitions the gate's curated list: a kernel in no job is never
+    timed, a kernel in two is timed twice."""
+    from tests.test_canon_perf_gate import CURATED, PERF_JOBS
 
-    assert workflow_jobs()["perf"]["strategy"]["matrix"]["kernel"] == sorted(CURATED)
+    assert workflow_jobs()["perf"]["strategy"]["matrix"]["job"] == sorted(PERF_JOBS)
+    timed = [kernel for kernels in PERF_JOBS.values() for kernel in kernels]
+    assert sorted(timed) == sorted(CURATED)
