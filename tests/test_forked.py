@@ -240,9 +240,11 @@ def test_a_forked_child_does_not_outlive_the_process_that_forked_it(tmp_path, fo
     marker = tmp_path / "child.pid"
     script = tmp_path / "forker.py"
     script.write_text(
-        "import pathlib, sys, time\n"
+        "import os, pathlib, sys, time\n"
         "def child():\n"
-        f"    pathlib.Path({str(marker)!r}).write_text(str(__import__('os').getpid()))\n"
+        # Written aside and renamed: the parent polls for the marker and must never read it half-written.
+        f"    pathlib.Path({str(marker)!r} + '.tmp').write_text(str(os.getpid()))\n"
+        f"    os.replace({str(marker)!r} + '.tmp', {str(marker)!r})\n"
         "    time.sleep(120)\n"
         f"{fork_call}\n"
     )
