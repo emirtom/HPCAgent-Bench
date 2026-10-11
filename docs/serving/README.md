@@ -8,6 +8,7 @@ carry to MI300X.
 | Page | Covers |
 |---|---|
 | [`qwen38.md`](qwen38.md), [`kimi27sglang.md`](kimi27sglang.md), [`glm53.md`](glm53.md), [`oss120b.md`](oss120b.md) | one model each: configuration, DO / DO NOT, the numbers behind them |
+| [`known-issues.md`](known-issues.md) | problems we hit on Beverin (RCCL pipeline crash, fuse-overlayfs freeze, garbled output), with evidence and status |
 | [`knobs.md`](knobs.md) | cross-model: APU memory model, KV pool threshold, aiter derate, HiCache, fabric, Slurm shape |
 | [`private-endpoint.md`](private-endpoint.md) | a keyed Qwen3.8 server only you can use, from your laptop or your own Daint jobs |
 | [`mi200-endpoint.md`](mi200-endpoint.md) | the same server in BF16 on an mi200 node, and the one-command ping test that checks it from anywhere |

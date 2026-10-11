@@ -160,10 +160,18 @@ derived_edf() {
     # serve cross-node collectives only. With them, a single-node tensor-parallel server fails at init
     # with "Failed to initialize any NET plugin". The agent and a single-node inference step get both
     # switched off; the judge (MPI gang ranks reuse its EDF) and multi-node inference keep them.
-    local name="$1" role="${2:-role}" dir src="" tmp hooks_off=0
+    #
+    # The agent container is READ-ONLY (writable = false). A writable CE container is a fuse-overlayfs upper layer,
+    # and one agent command that copies up a large image tree (`rm -rf /root`, `chmod -R /opt`) blocks every
+    # lookup in the container: temperature3 671243 sat 7 h and 675636 an hour with no new process able to
+    # start while running streams kept writing to their bind mounts. Read-only, such a command fails at once
+    # with EROFS. What an agent writes lives in bind mounts (RUN_DIR, /shared), the seal's per-worker tmpfs
+    # and the node's /tmp, bound in for the launch venv the entrypoint builds before the seal.
+    local name="$1" role="${2:-role}" dir src="" tmp hooks_off=0 read_only=0
     if [[ "${role}" == agent-node || ( "${role}" == vllm-node && "${INFERENCE_NODES:-1}" -eq 1 ) ]]; then
         hooks_off=1
     fi
+    [[ "${role}" == agent* ]] && read_only=1
     local -a edf_dirs
     EDF_FILE="${RUN_DIR}/edf/${name}.${role}.toml"
     IFS=: read -r -a edf_dirs <<<"${EDF_PATH:-${HOME}/.edf}"
@@ -209,6 +217,8 @@ derived_edf() {
                 # The mount point the seal binds the worker's own setup's skill pages over, read-only.
                 mkdir -p "${SHARED_HOST_DIR}/skills" 2>/dev/null || true
                 printf '    "%s/skills:/skills:ro",\n' "${SHARED_HOST_DIR}"
+                # The node's own /tmp: the read-only container's only writable scratch before the seal.
+                printf '    "/tmp:/tmp",\n'
                 # NOT the generated cache. emit_reference_source lowers the reference into the
                 # TARGET language, and materialize_shared.sh:13 is explicit that those lowerings
                 # reach no agent: "a kernel's copyable material is its numpy reference plus any
@@ -234,7 +244,7 @@ derived_edf() {
         printf ']\n'
         printf 'workdir = "%s"\n' "${RUN_DIR}"
     } >"${tmp}.block"
-    awk -v block="${tmp}.block" -v hooks_off="${hooks_off}" '
+    awk -v block="${tmp}.block" -v hooks_off="${hooks_off}" -v read_only="${read_only}" '
         function hooks_off_lines() {
             print "com.hooks.cxi.enabled = \"false\""
             print "com.hooks.aws_ofi_nccl.enabled = \"false\""
@@ -249,6 +259,7 @@ derived_edf() {
         in_mounts && /^[[:space:]]*\][[:space:]]*$/ { in_mounts = 0; next }
         in_mounts { next }
         /^[[:space:]]*workdir[[:space:]]*=/ { next }
+        read_only && /^[[:space:]]*writable[[:space:]]*=/ { print "writable = false"; next }
         /^[[:space:]]*\[/ {
             if (hooks_off && section == "annotations") hooks_off_lines()
             section = $0

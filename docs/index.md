@@ -67,6 +67,7 @@ serving/private-endpoint
 serving/mi200-endpoint
 serving/extending-private-inference
 serving/knobs
+serving/known-issues
 serving/qwen38
 serving/qwen38-gh200
 serving/glm53
