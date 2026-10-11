@@ -48,17 +48,30 @@ parameters:
     LEN_1D: 306166068
   XL:
     LEN_1D: 520764783
-init:
-  arrays:
-    a: (LEN_1D,)
-    out: (1,)
-output_args:
-- out
+args:
+  a: (LEN_1D,)
+  out: {shape: "(1,)", out: true}
 ```
 
-Every `def` argument is an array (`init.arrays`), a scalar with a value (`init.scalars`) or a size
-symbol (`parameters`); shapes name only `parameters` or `config` symbols. `output_args` lists the
-graded buffers. `level` is 1 (one primitive op), 2 (composite or data-dependent control) or 3 (full
+`args` declares every argument once, in order: a shape string (an array), a number (a scalar's
+value), or a mapping. A `def` argument missing from `args` is a size symbol (`parameters`) or a knob
+(`config`); shapes name only those. The graded outputs are the entries marked `out: true`, and only
+those are compared. The order is the data order: each array's draw stream, a fallback initializer's
+return order, the grading order. The call signature, the array list and the initializer's inputs are
+read from the `def` lines, never repeated. A mapping takes:
+
+| key | meaning |
+|---|---|
+| `shape` | an array; with the optional `dtype`, `dist`, `domain`, `index_array` of [Input data](#input-data) |
+| `value` | a scalar's value (the bare-number form), optionally with `dtype` |
+| `out` | `true`: a graded output |
+| `partitioned` | `true`: the default `mpi.decomposition` block-partitions this array over its shape's axes |
+| `returned` | `false`: a fallback `initialize()` does not return it (a seeded scalar, a zero-filled buffer) |
+
+With a fallback `initialize()`, an entry with neither `shape` nor `value` (`alpha: {}`, or
+`nnr: {dtype: int64}`) is a value the initializer builds and returns.
+
+`level` is 1 (one primitive op), 2 (composite or data-dependent control) or 3 (full
 application; not on the loop-level track). S is for smoke runs; XL is the production shape that
 `fuzzed` samples around. Unknown keys and per-kernel `rtol`/`atol` are load errors.
 
@@ -111,7 +124,7 @@ check.
 magnitude and the lognormal at 0.1x) ([scoring.md](../scoring.md#12-correctness-gates)). A kernel therefore needs
 4 distinct value draws of one shape, not 4 manifests.
 
-**Declarative (preferred).** An `init.arrays` entry is a shape string or
+**Declarative (preferred).** An array's `args` entry is a shape string or
 `{shape, dtype?, dist?, domain?, index_array?}`:
 
 | key | allowed values |
@@ -140,10 +153,11 @@ with a comment in the manifest when the bound is not obvious:
   `tsvc_2_s118`), or `|c| < 1` for a single-term carry (`tsvc_2_s321`);
 - a log-decay that is exponentiated (`mamba2_*`'s `A`): `[-1, 0]`.
 
-**Fallback `initialize()`**, defined in `<kernel>.py` (which is what selects it), with `init.input_args` (see
-`tsvc_2_s322`), only when no shape, distribution and domain can describe the inputs: a structured matrix, a
-well-posed boundary value problem, a physical initial condition. It does not get the hidden rotation, so it must
-make the 4 timed draws distinct itself. It takes `perturbation` (a
+**Fallback `initialize()`**, defined in `<kernel>.py` (which is what selects it; see `tsvc_2_s322`), only when no
+shape, distribution and domain can describe the inputs: a structured matrix, a well-posed boundary value problem, a
+physical initial condition. Its parameters before the first of `datatype`, `rng`, `dist`, `perturbation` and
+`variant_spec` are its inputs: the harness passes the size symbols or scalar values of those names. It does not get
+the hidden rotation, so it must make the 4 timed draws distinct itself. It takes `perturbation` (a
 `support/distributions/perturbation.py:Perturbation`; `resolve(perturbation).seed` is the draw's seed, seed 0 the
 canonical public input) or `rng` (a seeded `numpy.random.Generator`), and `xp` (`numpy`, or `cupy` on a GPU) to
 build every array with:

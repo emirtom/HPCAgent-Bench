@@ -42,7 +42,7 @@ def vpv(a, b, LEN_1D):  # same name and arguments as the NumPy reference
     exe = k.get((n, str(a.dtype)))  # tuned and compiled once per key
     out = k.out((n,), a.dtype)
     exe(a, b, out)  # inputs, then output buffers
-    return out  # outputs in output_args order
+    return out  # graded outputs, in manifest order
 ```
 
 `TvmKernel.get(key)` calls `build_primfunc(*key)`, so the key holds every shape, scalar and dtype
@@ -55,7 +55,8 @@ the PrimFunc depends on. `TvmKernel.out(shape, dtype)` allocates on the kernel's
   no complex dtype); a scipy sparse matrix stays scipy. Scalars and sizes arrive as Python
   numbers.
 - TIR is out-of-place and the reference mutates in place, so compute fresh outputs and return
-  them in `output_args` order (a tuple for several). The harness validates the returned values.
+  them in the manifest order of the `out: true` entries (a tuple for several). The harness validates
+  the returned values.
 - Cells the reference leaves untouched keep the input value: read the input placeholder and
   select with `te.if_then_else` (`tsvc_2_vdotr`, `tsvc_2_s1244`).
 - A select still evaluates the branch it discards, so clamp its indices

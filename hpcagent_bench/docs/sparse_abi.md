@@ -12,7 +12,10 @@ the timed region.
 ## Manifest: `layouts`
 
 ```yaml
-array_args: [A, x, b]    # the LOGICAL array; never a buffer name
+args:
+  A: {}                  # the LOGICAL array, built by initialize(); never a buffer name
+  x: (N,)
+  b: {shape: "(N,)", out: true}
 layouts:
   A:
     logical_shape: [N, N]   # rows, cols
@@ -127,7 +130,7 @@ reference and golden outputs, the disk cache, archived grades, the HF export, an
 tool or run reads back. A requested layout exists only at the submission boundary: the judge
 converts the canonical CSR into it just before the call (`materialize.apply_layout`, untimed), on a
 copy that nothing stores. No cache key names the layout -- every layout draws the default's inputs
--- and the grade records it only as `Score.layout`. A sparse array is an input only (the loader refuses one in `output_args`), so nothing
+-- and the grade records it only as `Score.layout`. A sparse array is an input only (the loader refuses one marked `out: true`), so nothing
 a kernel writes is ever in a requested layout. `tests/test_sparse_layout_judge.py` checks that a csc
 grade hands the reference, and caches, byte for byte what the csr grade does.
 
@@ -143,7 +146,7 @@ CSR itself rather than a product the lowering could re-express (`spgemm_hash`'s 
 translation to another layout takes that layout's buffers and rebuilds the CSR at the kernel's
 entry -- a count, a scan and a scatter over the stored entries, rows' columns ascending, padding
 skipped (`translators/numpyto_common/frontend/sparse_rebuild.py`) -- then runs the body unchanged.
-The loader refuses any other reference or `array_args` naming a physical buffer. Either way every
+The loader refuses any other reference. Either way every
 offered (kernel, layout) has a C reference.
 
 `python -m hpcagent_bench.cli run-sparse` grades every (kernel, offered layout) reference translation
@@ -155,7 +158,7 @@ and `judge-fault` fail it.
 1. Write the initializer to return the matrix (any scipy sparse object) and take `rng` and
    `perturbation` (its `scenario`); `support/helpers/sparse/generators.py` has `square_system` and
    `rect_matrix`.
-2. Declare `layouts.<A>` and list `A` in `array_args`.
+2. Declare `layouts.<A>` and name `A` in `args` (`A: {}`: the initializer returns it).
 3. Check the bindings and the translations:
 
 ```bash
