@@ -44,21 +44,7 @@ config:
     selects: physical
 constraints:
 - nb == order * (order + 1) * (order + 2) // 6
-init:
-  input_args:
-  - batch
-  - order
-  output_args:
-  - Q
-  - I
-  - star
-  arrays:
-    Q: "(batch, nb, 9)"
-    I: "(batch, nb, 9)"
-    star: "(9, 9)"
-array_args:
-- Q
-- I
-- star
-output_args:
-- Q
+args:
+  Q: {shape: "(batch, nb, 9)", out: true}
+  I: "(batch, nb, 9)"
+  star: "(9, 9)"

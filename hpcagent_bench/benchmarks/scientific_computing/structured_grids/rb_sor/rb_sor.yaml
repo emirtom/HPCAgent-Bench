@@ -33,22 +33,9 @@ constraints:
 # any omega in (0, 2) on this SPD operator; it changes every update's weights, not the work).
 config:
   omega: {domain: [1.0, 1.5], selects: physical}
-init:
-  input_args:
-  - N
-  output_args:
-  - u
-  - f
-  arrays:
-    u:
-      shape: (N, N)
-    f:
-      shape: (N, N)
-array_args:
-- f
-- u
-output_args:
-- u
+args:
+  u: {shape: "(N, N)", out: true}
+  f: (N, N)
 allowed_precisions:
 - fp64
 # Concurrency: Grade this kernel against a red-black reference only, never against

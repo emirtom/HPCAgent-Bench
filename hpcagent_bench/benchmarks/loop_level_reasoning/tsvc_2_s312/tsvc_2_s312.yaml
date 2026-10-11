@@ -11,13 +11,8 @@ parameters:
     LEN_1D: 322727372
   XL:
     LEN_1D: 520764783
-init:
+args:
   # Input domains: a product over LEN_1D (5e8 at XL): factors within 3e-4 of 1 keep it finite at
   # every rung.
-  arrays:
-    a:
-      shape: (LEN_1D,)
-      domain: [0.9997, 1.0003]
-    result: (1,)
-output_args:
-- result
+  a: {shape: "(LEN_1D,)", domain: [0.9997, 1.0003]}
+  result: {shape: "(1,)", out: true}

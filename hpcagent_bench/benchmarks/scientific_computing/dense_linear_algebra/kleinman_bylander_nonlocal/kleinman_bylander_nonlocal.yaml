@@ -24,28 +24,11 @@ parameters:
     ngrid: [2048, 958794]
     nproj: [8, 815]
     nstate: [8, 406]
-init:
-  input_args:
-  - ngrid
-  - nproj
-  - nstate
-  output_args:
-  - beta
-  - dij
-  - psi
-  - hpsi
-  arrays:
-    beta: {shape: "(ngrid, nproj)", dtype: float64}
-    dij: {shape: "(nproj, nproj)", dtype: float64}
-    psi: {shape: "(ngrid, nstate)", dtype: float64}
-    hpsi: {shape: "(ngrid, nstate)", dtype: float64}
-array_args:
-- beta
-- dij
-- psi
-- hpsi
-output_args:
-- hpsi
+args:
+  beta: {shape: "(ngrid, nproj)", dtype: float64}
+  dij: {shape: "(nproj, nproj)", dtype: float64}
+  psi: {shape: "(ngrid, nstate)", dtype: float64}
+  hpsi: {shape: "(ngrid, nstate)", dtype: float64, out: true}
 fuzz:
   constraints:
   - nproj <= ngrid

@@ -22,65 +22,15 @@ parameters:
   XL:
     KLEV: 137
     KLON: 105489
-init:
-  input_args:
-  - KLEV
-  - KLON
-  output_args:
-  - zqx_l
-  - zqx_i
-  - zqx_v
-  - za
-  - ptend_q
-  - ptend_t
-  arrays:
-    zqx_l:
-      shape: (KLEV, KLON)
-    zqx_i:
-      shape: (KLEV, KLON)
-    zqx_v:
-      shape: (KLEV, KLON)
-    za:
-      shape: (KLEV, KLON)
-    ptend_q:
-      shape: (KLEV, KLON)
-    ptend_t:
-      shape: (KLEV, KLON)
-array_args:
-- zqx_l
-- zqx_i
-- zqx_v
-- za
-- ptend_q
-- ptend_t
-output_args:
-- zqx_l
-- zqx_i
-- zqx_v
-- za
-- ptend_q
-- ptend_t
+args:
+  zqx_l: {shape: "(KLEV, KLON)", out: true, partitioned: true}
+  zqx_i: {shape: "(KLEV, KLON)", out: true, partitioned: true}
+  zqx_v: {shape: "(KLEV, KLON)", out: true, partitioned: true}
+  za: {shape: "(KLEV, KLON)", out: true, partitioned: true}
+  ptend_q: {shape: "(KLEV, KLON)", out: true, partitioned: true}
+  ptend_t: {shape: "(KLEV, KLON)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - KLON
     work_exponent: 1
-  arrays:
-    zqx_l:
-    - KLEV
-    - KLON
-    zqx_i:
-    - KLEV
-    - KLON
-    zqx_v:
-    - KLEV
-    - KLON
-    za:
-    - KLEV
-    - KLON
-    ptend_q:
-    - KLEV
-    - KLON
-    ptend_t:
-    - KLEV
-    - KLON

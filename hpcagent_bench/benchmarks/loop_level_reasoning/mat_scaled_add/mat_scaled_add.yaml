@@ -16,14 +16,10 @@ parameters:
   XL:
     M: 18633
     N: 13974
-init:
-  scalars:
-    alpha: 2.0
-  arrays:
-    A: (M, N)
-    B: (M, N)
-output_args:
-- B
+args:
+  A: (M, N)
+  B: {shape: "(M, N)", out: true}
+  alpha: 2.0
 # Distributed-track envelope (residency: distributed). A 2-D elementwise map (B += alpha*A) with
 # no cross-rank dependence, so a 2-D block-cyclic partition needs no communication. This is the
 # MPI track's BLOCK-CYCLIC demonstrator: the rows (M) and columns (N) carry DISTINCT symbols, so

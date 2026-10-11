@@ -16,34 +16,12 @@ parameters:
   XL:
     N: 268435289
     npt: 333
-init:
-  input_args:
-  - N
-  - npt
-  output_args:
-  - data
-  - radius
-  - res
-  arrays:
-    data:
-      shape: (N,)
-    radius:
-      shape: (N,)
-    res:
-      shape: (npt,)
-array_args:
-- data
-- radius
-- res
-output_args:
-- res
+args:
+  data: {shape: "(N,)", partitioned: true}
+  radius: {shape: "(N,)", partitioned: true}
+  res: {shape: "(npt,)", out: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 1
-  arrays:
-    data:
-    - N
-    radius:
-    - N

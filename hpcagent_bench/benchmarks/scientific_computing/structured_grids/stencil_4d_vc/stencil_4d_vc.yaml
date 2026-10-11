@@ -20,50 +20,13 @@ parameters:
     B: 31
     N: 177
     R: 6
-init:
-  input_args:
-  - B
-  - N
-  - R
-  output_args:
-  - b_grid
-  - in_grid
-  - out_grid
-  - w_dist
-  arrays:
-    b_grid:
-      shape: (B, N, N, N)
-    in_grid:
-      shape: (B, N, N, N)
-    out_grid:
-      shape: (B, N, N, N)
-    w_dist:
-      shape: (R + 1,)
-array_args:
-- b_grid
-- in_grid
-- out_grid
-- w_dist
-output_args:
-- out_grid
+args:
+  b_grid: {shape: "(B, N, N, N)", partitioned: true}
+  in_grid: {shape: "(B, N, N, N)", partitioned: true}
+  out_grid: {shape: "(B, N, N, N)", out: true, partitioned: true}
+  w_dist: (R + 1,)
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 3
-  arrays:
-    b_grid:
-    - B
-    - N
-    - N
-    - N
-    in_grid:
-    - B
-    - N
-    - N
-    - N
-    out_grid:
-    - B
-    - N
-    - N
-    - N

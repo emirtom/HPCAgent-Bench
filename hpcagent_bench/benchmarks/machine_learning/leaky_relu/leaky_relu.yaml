@@ -19,9 +19,6 @@ parameters:
     batch_size: 39528
     dim: 6587
     negative_slope: 0.01
-init:
-  arrays:
-    x: (batch_size, dim)
-    out: (batch_size, dim)
-output_args:
-- out
+args:
+  x: (batch_size, dim)
+  out: {shape: "(batch_size, dim)", out: true}

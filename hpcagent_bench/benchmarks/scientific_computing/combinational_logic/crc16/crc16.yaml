@@ -21,25 +21,9 @@ config:
     - 1
     - 0
     selects: branch
-init:
-  input_args:
-  - N
-  output_args:
-  - data
-  - crc
-  scalars:
-    poly: 4129
-    crc_init: 65535
-    xorout: 65535
-  arrays:
-    data:
-      shape: (N,)
-      dtype: uint8
-    crc:
-      shape: (1,)
-      dtype: int64
-array_args:
-- data
-- crc
-output_args:
-- crc
+args:
+  data: {shape: "(N,)", dtype: uint8}
+  crc: {shape: "(1,)", dtype: int64, out: true}
+  poly: {value: 4129, returned: false}
+  crc_init: {value: 65535, returned: false}
+  xorout: {value: 65535, returned: false}

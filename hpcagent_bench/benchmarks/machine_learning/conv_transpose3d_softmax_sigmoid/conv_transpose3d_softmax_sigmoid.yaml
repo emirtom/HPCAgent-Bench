@@ -44,11 +44,10 @@ config:
     value: 0
   padding:
     value: 0
-init:
-  arrays:
-    x: (batch_size, in_channels, D, H, W)
-    conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
-    conv_transpose_bias: (out_channels,)
-    out: (batch_size, out_channels, (D - 1) * stride - 2 * padding + kernel_size + output_padding, (H - 1) * stride - 2 * padding + kernel_size + output_padding, (W - 1) * stride - 2 * padding + kernel_size + output_padding)
-output_args:
-- out
+args:
+  x: (batch_size, in_channels, D, H, W)
+  conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
+  conv_transpose_bias: (out_channels,)
+  out:
+    shape: (batch_size, out_channels, (D - 1) * stride - 2 * padding + kernel_size + output_padding, (H - 1) * stride - 2 * padding + kernel_size + output_padding, (W - 1) * stride - 2 * padding + kernel_size + output_padding)
+    out: true

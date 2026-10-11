@@ -51,139 +51,43 @@ config:
 - {npol: 2, uspp: false, lrot: false, nks: 1, current_k: 1, maxter: 20}
 - {npol: 2, uspp: true, lrot: false, nks: 4, current_k: 3, maxter: 20}
 - {npol: 2, uspp: true, lrot: true, nks: 4, current_k: 1, maxter: 20}
-init:
-  input_args:
-  - ngrid
-  - nvec
-  - npol
-  - uspp
-  - lrot
-  - nks
-  - current_k
-  output_args:
-  - g2kin
-  - vrs
-  - nlk
-  - vkb
-  - deeq
-  - qq
-  - h_diag
-  - s_diag
-  - evc
-  - e
-  - btype
-  - ethr
-  - uspp
-  - lrot
-  - npw
-  - npwx
-  - nvec
-  - nvecx
-  - npol
-  - n1
-  - n2
-  - n3
-  - nkb
-  - nks
-  - current_k
-  arrays:
-    g2kin:
-      shape: (npwx, nks)
-      dtype: float64
-    vrs:
-      shape: (n1 * n2 * n3, npol)
-      dtype: float64
-    nlk:
-      shape: (npwx, nks)
-      dtype: int64
-      # Not declared as an index_array: the Fortran emitter adds its own +1 when
-      # subscripting with the copied gmap local, so the harness's Fortran index
-      # base would shift it a second time and write past the FFT grid.
-    vkb:
-      shape: (npwx, nkb, nks)
-      dtype: complex128
-    deeq:
-      shape: (nkb, nkb)
-      dtype: float64
-    qq:
-      shape: (nkb, nkb)
-      dtype: float64
-    h_diag:
-      shape: (npwx, npol)
-      dtype: float64
-    s_diag:
-      shape: (npwx, npol)
-      dtype: float64
-    evc:
-      shape: (npwx * npol, nvec)
-      dtype: complex128
-    e:
-      shape: (nvec,)
-      dtype: float64
-    btype:
-      shape: (nvec,)
-      dtype: int32
-    npw:
-      shape: (nks,)
-      dtype: int64
-  scalars:
-    ethr: 1.0e-8
+args:
+  g2kin: {shape: "(npwx, nks)", dtype: float64}
+  vrs: {shape: "(n1 * n2 * n3, npol)", dtype: float64}
+  nlk: {shape: "(npwx, nks)", dtype: int64}
+  # Not declared as an index_array: the Fortran emitter adds its own +1 when
+  # subscripting with the copied gmap local, so the harness's Fortran index
+  # base would shift it a second time and write past the FFT grid.
+  vkb: {shape: "(npwx, nkb, nks)", dtype: complex128}
+  deeq: {shape: "(nkb, nkb)", dtype: float64}
+  qq: {shape: "(nkb, nkb)", dtype: float64}
+  h_diag: {shape: "(npwx, npol)", dtype: float64}
+  s_diag: {shape: "(npwx, npol)", dtype: float64}
+  evc: {shape: "(npwx * npol, nvec)", dtype: complex128}
+  # Only e (the eigenvalues) is graded: the eigenvectors evc carry an unobservable
+  # per-root gauge / degenerate-subspace rotation, so they are computed in place but
+  # not compared.
+  # evc is NOT graded: an eigenvector is fixed only up to a phase, and nothing in LAPACK pins it --
+  # zhegv's choice is an artifact of its tridiagonal reduction, so no other eigensolver (nor another
+  # LAPACK build) reproduces it. Grading it made the kernel's verdict a fingerprint of one library
+  # path rather than a statement about the answer. The eigenVALUES are phase-independent and stay.
+  e: {shape: "(nvec,)", dtype: float64, out: true}
+  btype: {shape: "(nvec,)", dtype: int32}
+  ethr: 1.0e-8
+  uspp: {}
+  lrot: {}
+  npw: {shape: "(nks,)", dtype: int64}
   # The six integers initialize() DERIVES: absent from 'parameters', so without this
   # the binding would default them to float64 while the emitter types them int64 --
   # and SysV/AAPCS64 read INTEGER and SSE arguments from independent registers.
-  dtypes:
-    npwx: int64
-    nvecx: int64
-    n1: int64
-    n2: int64
-    n3: int64
-    nkb: int64
-input_args:
-- g2kin
-- vrs
-- nlk
-- vkb
-- deeq
-- qq
-- h_diag
-- s_diag
-- evc
-- e
-- btype
-- ethr
-- uspp
-- lrot
-- npw
-- npwx
-- nvec
-- nvecx
-- npol
-- n1
-- n2
-- n3
-- nkb
-- nks
-- current_k
-array_args:
-- g2kin
-- vrs
-- nlk
-- vkb
-- deeq
-- qq
-- h_diag
-- s_diag
-- evc
-- e
-- btype
-- npw
-# Only e (the eigenvalues) is graded: the eigenvectors evc carry an unobservable
-# per-root gauge / degenerate-subspace rotation, so they are computed in place but
-# not compared.
-output_args:
-# evc is NOT graded: an eigenvector is fixed only up to a phase, and nothing in LAPACK pins it --
-# zhegv's choice is an artifact of its tridiagonal reduction, so no other eigensolver (nor another
-# LAPACK build) reproduces it. Grading it made the kernel's verdict a fingerprint of one library
-# path rather than a statement about the answer. The eigenVALUES are phase-independent and stay.
-- e
+  npwx: {dtype: int64}
+  nvec: {}
+  nvecx: {dtype: int64}
+  npol: {}
+  n1: {dtype: int64}
+  n2: {dtype: int64}
+  n3: {dtype: int64}
+  nkb: {dtype: int64}
+  nks: {}
+  current_k: {}
 allowed_precisions: [fp64]

@@ -52,82 +52,24 @@ parameters:
   fuzzed:
     ngrid: [6, 20]
     m: [1, 9]
-init:
-  input_args:
-  - ngrid
-  - m
-  output_args:
-  - psi
-  - hpsi
-  - v
-  - igk_k
-  - nl
-  - lda
-  - n
-  - m
-  - nnr
-  - nr1
-  - nr2
-  - nr3
-  - ngm
-  - ngw
-  - nks
-  - current_k
-  arrays:
-    psi:
-      shape: (lda, m)
-      dtype: complex128
-    hpsi:
-      shape: (lda, m)
-      dtype: complex128
-    v:
-      shape: (nnr,)
-      dtype: float64
-    igk_k:
-      shape: (lda, nks)
-      dtype: int32
-      index_array: true
-    nl:
-      shape: (ngm,)
-      dtype: int32
-      index_array: true
-  # No init.scalars block: the derived sizes (lda, n, nnr, nr1..3, ngm, ngw, nks,
-  # current_k) are ordinary kernel arguments (input_args), which already makes them
-  # resolvable shape identifiers, and initialize() returns their values
-  # (init.output_args) -- same design as the sibling addusxx_g/newdxx_g manifests.
-  dtypes:
-    lda: int64
-    n: int64
-    nnr: int64
-    nr1: int64
-    nr2: int64
-    nr3: int64
-    ngm: int64
-    ngw: int64
-    nks: int64
-    current_k: int64
-input_args:
-- psi
-- hpsi
-- v
-- igk_k
-- nl
-- lda
-- n
-- m
-- nnr
-- nr1
-- nr2
-- nr3
-- ngm
-- ngw
-- nks
-- current_k
-array_args:
-- psi
-- hpsi
-- v
-- igk_k
-- nl
-output_args:
-- hpsi
+args:
+  psi: {shape: "(lda, m)", dtype: complex128}
+  hpsi: {shape: "(lda, m)", dtype: complex128, out: true}
+  v: {shape: "(nnr,)", dtype: float64}
+  igk_k: {shape: "(lda, nks)", dtype: int32, index_array: true}
+  nl: {shape: "(ngm,)", dtype: int32, index_array: true}
+  # No scalar values: the derived sizes (lda, n, nnr, nr1..3, ngm, ngw, nks,
+  # current_k) are ordinary kernel arguments, which already makes them resolvable
+  # shape identifiers, and initialize() returns their values -- same design as the
+  # sibling addusxx_g/newdxx_g manifests.
+  lda: {dtype: int64}
+  n: {dtype: int64}
+  m: {}
+  nnr: {dtype: int64}
+  nr1: {dtype: int64}
+  nr2: {dtype: int64}
+  nr3: {dtype: int64}
+  ngm: {dtype: int64}
+  ngw: {dtype: int64}
+  nks: {dtype: int64}
+  current_k: {dtype: int64}

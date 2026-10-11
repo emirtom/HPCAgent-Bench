@@ -15,27 +15,7 @@ parameters:
   XL:
     N: 520764763
     M: 20
-init:
-  input_args:
-  - N
-  - M
-  output_args:
-  - text
-  - pattern
-  - matches
-  arrays:
-    text:
-      shape: (N,)
-      dtype: int64
-    pattern:
-      shape: (M,)
-      dtype: int64
-    matches:
-      shape: (1,)
-      dtype: int64
-array_args:
-- text
-- pattern
-- matches
-output_args:
-- matches
+args:
+  text: {shape: "(N,)", dtype: int64}
+  pattern: {shape: "(M,)", dtype: int64}
+  matches: {shape: "(1,)", dtype: int64, out: true}

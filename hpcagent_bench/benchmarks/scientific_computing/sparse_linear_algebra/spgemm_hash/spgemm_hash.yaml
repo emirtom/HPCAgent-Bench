@@ -49,26 +49,12 @@ parameters:
     nnz_A: [2097152, 4194304]
     nnz_B: [2097152, 4194304]
     nnz_C_cap: {derive: "min(M * N, nnz_A * max(max(1, nnz_B // K // 4) + 1, 2 * (nnz_B // K) - max(1, nnz_B // K // 4)))"}
+args:
+  A: {}
+  B: {}
+  C_indptr: {shape: "(M + 1,)", dtype: int64, out: true}
+  C_indices: {shape: "(nnz_C_cap,)", dtype: int64, out: true}
 init:
-  input_args:
-  - M
-  - K
-  - N
-  - nnz_A
-  - nnz_B
-  - nnz_C_cap
-  output_args:
-  - A
-  - B
-  - C_indptr
-  - C_indices
-  arrays:
-    C_indptr:
-      shape: (M + 1,)
-      dtype: int64
-    C_indices:
-      shape: (nnz_C_cap,)
-      dtype: int64
   # One scenario per input seed (seed % 3); where each row's columns go. `layouts`: the formats each
   # scenario is offered in; a submission requesting a layout
   # draws only from the scenarios listing it (docs/sparse_abi.md).
@@ -82,14 +68,6 @@ init:
     blocked:
       description: each row's columns drawn from an 8-aligned window shared by its block row (communities)
       layouts: [csr, csc, coo, bsr, ell]
-array_args:
-- A
-- B
-- C_indices
-- C_indptr
-output_args:
-- C_indptr
-- C_indices
 # A and B are boolean (pattern) matrices: index buffers only, a uint8 mask where a format stores
 # padding. A submission may request a layout for them (docs/sparse_abi.md); the output C stays CSR.
 layouts:

@@ -11,23 +11,10 @@ parameters:
     LEN_1D: 59668445
   XL:
     LEN_1D: 80916438
-init:
-  output_args:
-  - n1
-  - a
-  - b
-  - c
-  - d_
-  - ip
-  scalars:
-    n1: 1
-  arrays:
-    a: (LEN_1D,)
-    b: (LEN_1D,)
-    c: (LEN_1D,)
-    d_: (LEN_1D,)
-    ip:
-      shape: (LEN_1D,)
-      dtype: int32
-output_args:
-- a
+args:
+  n1: 1
+  a: {shape: "(LEN_1D,)", out: true}
+  b: (LEN_1D,)
+  c: (LEN_1D,)
+  d_: (LEN_1D,)
+  ip: {shape: "(LEN_1D,)", dtype: int32}

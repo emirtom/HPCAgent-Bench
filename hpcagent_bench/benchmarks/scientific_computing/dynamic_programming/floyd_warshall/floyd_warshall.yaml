@@ -11,16 +11,5 @@ parameters:
     N: 1514
   XL:
     N: 3855
-init:
-  input_args:
-  - N
-  output_args:
-  - path
-  arrays:
-    path:
-      shape: (N, N)
-      dtype: int32
-array_args:
-- path
-output_args:
-- path
+args:
+  path: {shape: "(N, N)", dtype: int32, out: true}

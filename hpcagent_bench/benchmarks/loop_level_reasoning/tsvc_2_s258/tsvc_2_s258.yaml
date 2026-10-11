@@ -11,14 +11,10 @@ parameters:
     LEN_2D: 61372718
   XL:
     LEN_2D: 86794130
-init:
-  arrays:
-    a: (LEN_2D,)
-    b: (LEN_2D,)
-    c: (LEN_2D,)
-    d: (LEN_2D,)
-    e: (LEN_2D,)
-    aa: (1,LEN_2D)
-output_args:
-- b
-- e
+args:
+  a: (LEN_2D,)
+  b: {shape: "(LEN_2D,)", out: true}
+  c: (LEN_2D,)
+  d: (LEN_2D,)
+  e: {shape: "(LEN_2D,)", out: true}
+  aa: (1,LEN_2D)

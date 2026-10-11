@@ -26,52 +26,11 @@ parameters:
     NB: 32048
     NLEV: 53
     NPROMA: 152
-init:
-  input_args:
-  - NB
-  - NLEV
-  - NPROMA
-  output_args:
-  - coeff
-  - g_idx
-  - g_blk
-  - s_idx
-  - s_blk
-  - src
-  - dst
-  arrays:
-    coeff:
-      shape: (NB, NPROMA)
-      dtype: float64
-    g_idx:
-      shape: (NB, NPROMA)
-      dtype: int32
-      index_array: true
-    g_blk:
-      shape: (NB, NPROMA)
-      dtype: int32
-      index_array: true
-    s_idx:
-      shape: (NB, NPROMA)
-      dtype: int32
-      index_array: true
-    s_blk:
-      shape: (NB, NPROMA)
-      dtype: int32
-      index_array: true
-    src:
-      shape: (NB, NLEV, NPROMA)
-      dtype: float64
-    dst:
-      shape: (NB, NLEV, NPROMA)
-      dtype: float64
-array_args:
-- coeff
-- g_idx
-- g_blk
-- s_idx
-- s_blk
-- src
-- dst
-output_args:
-- dst
+args:
+  coeff: {shape: "(NB, NPROMA)", dtype: float64}
+  g_idx: {shape: "(NB, NPROMA)", dtype: int32, index_array: true}
+  g_blk: {shape: "(NB, NPROMA)", dtype: int32, index_array: true}
+  s_idx: {shape: "(NB, NPROMA)", dtype: int32, index_array: true}
+  s_blk: {shape: "(NB, NPROMA)", dtype: int32, index_array: true}
+  src: {shape: "(NB, NLEV, NPROMA)", dtype: float64}
+  dst: {shape: "(NB, NLEV, NPROMA)", dtype: float64, out: true}

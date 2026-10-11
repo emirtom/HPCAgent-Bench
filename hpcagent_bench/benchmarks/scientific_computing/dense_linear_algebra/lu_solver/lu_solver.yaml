@@ -22,21 +22,6 @@ parameters:
   XL:
     NCLV: 2
     KLON: 66364246
-init:
-  input_args:
-  - NCLV
-  - KLON
-  output_args:
-  - zqlhs
-  - zqxn
-  arrays:
-    zqlhs:
-      shape: (NCLV, NCLV, KLON)
-    zqxn:
-      shape: (NCLV, KLON)
-array_args:
-- zqlhs
-- zqxn
-output_args:
-- zqlhs
-- zqxn
+args:
+  zqlhs: {shape: "(NCLV, NCLV, KLON)", out: true}
+  zqxn: {shape: "(NCLV, KLON)", out: true}

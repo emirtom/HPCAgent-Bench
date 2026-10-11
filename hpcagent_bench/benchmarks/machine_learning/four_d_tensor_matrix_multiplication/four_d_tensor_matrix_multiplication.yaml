@@ -27,10 +27,7 @@ parameters:
     nj: 186
     nk: 750
     nl: 750
-init:
-  arrays:
-    A: (nb, ni, nj, nl)
-    B: (nl, nk)
-    out: (nb, ni, nj, nk)
-output_args:
-- out
+args:
+  A: (nb, ni, nj, nl)
+  B: (nl, nk)
+  out: {shape: "(nb, ni, nj, nk)", out: true}

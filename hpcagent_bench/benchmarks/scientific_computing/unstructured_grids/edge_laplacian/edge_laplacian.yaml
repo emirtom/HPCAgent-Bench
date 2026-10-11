@@ -15,36 +15,9 @@ parameters:
   XL:
     N: 26038239
     E: 156229435
-init:
-  input_args:
-  - N
-  - E
-  output_args:
-  - src
-  - dst
-  - w
-  - x
-  - Lx
-  arrays:
-    src:
-      shape: (E,)
-      dtype: int64
-      index_array: true
-    dst:
-      shape: (E,)
-      dtype: int64
-      index_array: true
-    w:
-      shape: (E,)
-    x:
-      shape: (N,)
-    Lx:
-      shape: (N,)
-array_args:
-- src
-- dst
-- w
-- x
-- Lx
-output_args:
-- Lx
+args:
+  src: {shape: "(E,)", dtype: int64, index_array: true}
+  dst: {shape: "(E,)", dtype: int64, index_array: true}
+  w: (E,)
+  x: (N,)
+  Lx: {shape: "(N,)", out: true}

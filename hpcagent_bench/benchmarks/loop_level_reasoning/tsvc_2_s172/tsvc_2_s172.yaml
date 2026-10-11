@@ -17,15 +17,7 @@ config:
   n3:
     domain: [1, 2]
     selects: iteration
-init:
-  output_args:
-  - n1
-  - a
-  - b
-  scalars:
-    n1: 1
-  arrays:
-    a: (LEN_1D,)
-    b: (LEN_1D,)
-output_args:
-- a
+args:
+  n1: 1
+  a: {shape: "(LEN_1D,)", out: true}
+  b: (LEN_1D,)

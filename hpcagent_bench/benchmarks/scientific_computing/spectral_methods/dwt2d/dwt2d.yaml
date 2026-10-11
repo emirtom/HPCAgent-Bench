@@ -33,19 +33,6 @@ parameters:
 # a safety net even though the fuzzed preset above satisfies it by construction.
 constraints:
 - N % 2 ** nlevels == 0
-init:
-  input_args:
-  - N
-  output_args:
-  - image
-  - out
-  arrays:
-    image:
-      shape: (N, N)
-    out:
-      shape: (N, N)
-array_args:
-- image
-- out
-output_args:
-- out
+args:
+  image: (N, N)
+  out: {shape: "(N, N)", out: true}

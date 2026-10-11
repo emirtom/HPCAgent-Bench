@@ -11,10 +11,7 @@ parameters:
     NBLK: 36823631
   XL:
     NBLK: 52076478
-init:
-  arrays:
-    a: (5 * NBLK,)
-    b: (5 * NBLK,)
-    c: (2,)
-output_args:
-- c
+args:
+  a: (5 * NBLK,)
+  b: (5 * NBLK,)
+  c: {shape: "(2,)", out: true}

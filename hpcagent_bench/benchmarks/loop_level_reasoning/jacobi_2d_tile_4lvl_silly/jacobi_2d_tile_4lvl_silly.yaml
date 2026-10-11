@@ -20,10 +20,6 @@ parameters:
   XL:
     N: 1723
     TSTEPS: 20
-init:
-  arrays:
-    A: (N,N)
-    B: (N,N)
-output_args:
-- A
-- B
+args:
+  A: {shape: "(N,N)", out: true}
+  B: {shape: "(N,N)", out: true}

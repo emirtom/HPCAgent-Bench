@@ -16,9 +16,6 @@ parameters:
   XL:
     N: 4175662
     K: 62
-init:
-  arrays:
-    fall: (N,K)
-    flux: (N,K)
-output_args:
-- flux
+args:
+  fall: (N,K)
+  flux: {shape: "(N,K)", out: true}

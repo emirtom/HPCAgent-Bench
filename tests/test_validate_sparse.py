@@ -13,6 +13,7 @@ import copy
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.emit_bridge import legacy_bench_info_dict
 from hpcagent_bench.spec import BenchSpec, load_yaml
 from hpcagent_bench.support.helpers.sparse.abi import FORMATS
 from hpcagent_bench.validate_sparse import SparseConfigError
@@ -27,6 +28,13 @@ def spmv_manifest() -> dict[str, object]:
 
 def load(raw: dict[str, object]) -> BenchSpec:
     return BenchSpec.from_yaml(raw, source=str(SPMV))
+
+
+def load_with(**bench: object) -> BenchSpec:
+    """spmv through its bench_info dict with ``bench`` replacing what the manifest derives: the
+    argument lists a manifest no longer spells, so the dict is where a wrong one can still appear."""
+    info = legacy_bench_info_dict(load(spmv_manifest()))["benchmark"]
+    return BenchSpec.from_dict({**info, **bench}, source=str(SPMV))
 
 
 def test_the_unedited_manifest_offers_every_format_with_csr_first() -> None:
@@ -95,19 +103,15 @@ def test_an_unknown_key_in_a_layout_is_refused() -> None:
 
 
 def test_a_sparse_array_missing_from_array_args_is_refused() -> None:
-    raw = spmv_manifest()
-    raw["array_args"] = ["x", "y"]
     with pytest.raises(SparseConfigError, match="not in array_args"):
-        load(raw)
+        load_with(array_args=["x", "y"])
 
 
 def test_a_physical_buffer_name_in_array_args_is_refused() -> None:
     """``array_args`` names the logical array: a buffer name there would bind one format's buffer
     for every format a submission may request."""
-    raw = spmv_manifest()
-    raw["array_args"] = ["A", "A_row", "x", "y"]
     with pytest.raises(SparseConfigError, match="physical buffer name"):
-        load(raw)
+        load_with(array_args=["A", "A_row", "x", "y"])
 
 
 @pytest.mark.parametrize(
@@ -117,10 +121,8 @@ def test_a_reference_taking_other_than_its_csr_buffers_is_refused(inputs: list[s
     """A reference takes the logical matrix or exactly its csr buffers (the translators rebuild them
     from any requested layout); a part of them, or another format's, computes in one layout whatever
     a submission requests."""
-    raw = spmv_manifest()
-    raw["input_args"] = inputs
     with pytest.raises(SparseConfigError, match="or exactly its csr buffers"):
-        load(raw)
+        load_with(input_args=inputs)
 
 
 @pytest.mark.parametrize("output", ["A", "A_data"])
@@ -128,15 +130,14 @@ def test_a_sparse_output_is_refused(output: str) -> None:
     """A layout exists only at the submission boundary: what a kernel writes is compared and stored
     as declared, so a sparse array (or one of its buffers) is never an output."""
     raw = spmv_manifest()
-    raw["output_args"] = ["y", output]
+    raw["args"][output] = {"out": True}
     with pytest.raises(SparseConfigError, match="a layout is for inputs only"):
         load(raw)
 
 
 def test_a_reference_taking_exactly_its_csr_buffers_loads() -> None:
-    raw = spmv_manifest()
-    raw["input_args"] = ["A_data", "A_indices", "A_indptr", "x", "y"]
-    assert load(raw).input_args == ("A_data", "A_indices", "A_indptr", "x", "y")
+    inputs = ["A_data", "A_indices", "A_indptr", "x", "y"]
+    assert load_with(input_args=inputs).input_args == tuple(inputs)
 
 
 @pytest.mark.parametrize("retired", ["variants", "sparse_layouts", "distributions"])
@@ -213,8 +214,6 @@ def test_bsr_is_served_when_one_block_edge_is() -> None:
 
 
 def test_the_scenario_layouts_round_trip_through_the_legacy_dict() -> None:
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-
     spec = load(spmv_manifest())
     again = BenchSpec.from_dict(legacy_bench_info_dict(spec)["benchmark"], source="<roundtrip>")
     assert again.init.scenario_layouts == spec.init.scenario_layouts

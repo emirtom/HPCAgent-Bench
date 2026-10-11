@@ -11,20 +11,8 @@ parameters:
     LEN_1D: 53602253
   XL:
     LEN_1D: 87066712
-init:
-  output_args:
-  - scale
-  - src
-  - idx
-  - dst
-  scalars:
-    scale: 1.0
-  arrays:
-    src: (LEN_1D,)
-    idx:
-      shape: (LEN_1D,)
-      dtype: int64
-      index_array: true
-    dst: (LEN_1D,)
-output_args:
-- dst
+args:
+  scale: 1.0
+  src: (LEN_1D,)
+  idx: {shape: "(LEN_1D,)", dtype: int64, index_array: true}
+  dst: {shape: "(LEN_1D,)", out: true}

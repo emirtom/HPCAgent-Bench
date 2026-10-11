@@ -33,32 +33,11 @@ config:
   seed:
     value: 42
     selects: seed
-init:
-  input_args:
-  - N
-  - niter
-  - seed
-  output_args:
-  - temp
-  - power
-  - T
-  - work
-  arrays:
-    temp:
-      shape: (N, N)
-    power:
-      shape: (N, N)
-    T:
-      shape: (N, N)
-    work:
-      shape: (N, N)
-array_args:
-- temp
-- power
-- T
-- work
-# `work` is the second ping-pong buffer: written every timestep, but its final
-# contents are scratch. Upstream writes out only the final temperature
-# (hotspot_openmp.cpp:321), which is `T`.
-output_args:
-- T
+args:
+  temp: (N, N)
+  power: (N, N)
+  # `work` is the second ping-pong buffer: written every timestep, but its final
+  # contents are scratch. Upstream writes out only the final temperature
+  # (hotspot_openmp.cpp:321), which is `T`.
+  T: {shape: "(N, N)", out: true}
+  work: (N, N)

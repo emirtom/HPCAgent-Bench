@@ -33,33 +33,24 @@ parameters:
     NX: 1200
     NY: 149
     NZ: 598
-init:
-  input_args:
-  - NX
-  - NY
-  - NZ
-  arrays:
-    G1: (NX, NY)
-    G3: (NX, NY)
-    J: (NX, NY)
-    d1_dx: (NX, NY)
-    ddt_n: (NX, NY, NZ)
-    ddt_vort: (NX, NY, NZ)
-    dx: (NX, NY)
-    dy: (NX, NY)
-    dz: (NX, NY)
-    g11: (NX, NY)
-    g13: (NX, NY)
-    g33: (NX, NY)
-    g_22: (NX, NY)
-    n: (NX, NY, NZ)
-    phi: (NX, NY, NZ)
-    vort: (NX, NY, NZ)
-  scalars:
-    Dn: 0.001
-    Dvort: 0.001
-    alpha: 1.0
-    kappa: 0.5
-output_args:
-- ddt_n
-- ddt_vort
+args:
+  G1: (NX, NY)
+  G3: (NX, NY)
+  J: (NX, NY)
+  d1_dx: (NX, NY)
+  ddt_n: {shape: "(NX, NY, NZ)", out: true}
+  ddt_vort: {shape: "(NX, NY, NZ)", out: true}
+  dx: (NX, NY)
+  dy: (NX, NY)
+  dz: (NX, NY)
+  g11: (NX, NY)
+  g13: (NX, NY)
+  g33: (NX, NY)
+  g_22: (NX, NY)
+  n: (NX, NY, NZ)
+  phi: (NX, NY, NZ)
+  vort: (NX, NY, NZ)
+  Dn: 0.001
+  Dvort: 0.001
+  alpha: 1.0
+  kappa: 0.5

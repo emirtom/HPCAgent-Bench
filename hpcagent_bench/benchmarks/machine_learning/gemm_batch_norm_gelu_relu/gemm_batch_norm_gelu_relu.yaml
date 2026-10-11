@@ -19,32 +19,13 @@ parameters:
     batch_size: 44279
     in_features: 5534
     out_features: 5534
-init:
-  arrays:
-    x:
-      shape: (batch_size, in_features)
-      domain: [-1.0, 1.0]
-    gemm_weight:
-      shape: (out_features, in_features)
-      domain: [-0.01344, 0.01344]
-    gemm_bias:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    batch_norm_weight:
-      shape: (out_features,)
-      domain: [0.5, 1.5]
-    batch_norm_bias:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    batch_norm_running_mean:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    batch_norm_running_var:
-      shape: (out_features,)
-      dist: lognormal
-      domain: [0.5, 1.5]
-    out: (batch_size, out_features)
-  scalars:
-    batch_norm_eps: 1.0e-05
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, in_features)", domain: [-1.0, 1.0]}
+  gemm_weight: {shape: "(out_features, in_features)", domain: [-0.01344, 0.01344]}
+  gemm_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  batch_norm_weight: {shape: "(out_features,)", domain: [0.5, 1.5]}
+  batch_norm_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  batch_norm_running_mean: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  batch_norm_running_var: {shape: "(out_features,)", dist: lognormal, domain: [0.5, 1.5]}
+  out: {shape: "(batch_size, out_features)", out: true}
+  batch_norm_eps: 1.0e-05

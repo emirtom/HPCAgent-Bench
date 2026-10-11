@@ -20,35 +20,12 @@ parameters:
   paper:
     N: 256
     R: 2
-init:
-  input_args:
-  - N
-  - R
-  output_args:
-  - in_grid
-  - out_grid
-  - w_box
-  arrays:
-    in_grid: "(N, N, N)"
-    out_grid: "(N, N, N)"
-    w_box: "(2 * R + 1, 2 * R + 1, 2 * R + 1)"
-array_args:
-- in_grid
-- out_grid
-- w_box
-output_args:
-- out_grid
+args:
+  in_grid: {shape: "(N, N, N)", partitioned: true}
+  out_grid: {shape: "(N, N, N)", out: true, partitioned: true}
+  w_box: "(2 * R + 1, 2 * R + 1, 2 * R + 1)"
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 3
-  arrays:
-    in_grid:
-    - N
-    - N
-    - N
-    out_grid:
-    - N
-    - N
-    - N

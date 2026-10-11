@@ -31,37 +31,16 @@ parameters:
   fuzzed:
     num_tokens: [64, 512]
     num_experts: {set: [64, 128]}
-init:
-  input_args:
-  - num_tokens
-  - num_experts
-  output_args:
-  - router_logits
-  - out
-  arrays:
-    router_logits:
-      shape: (num_tokens, num_experts)
-      dtype: bf16
-    out:
-      shape: (num_tokens, num_experts)
-      dtype: bf16
-  scalars:
-    capacity_factor: 1.0
-output_args:
-- out
+args:
+  router_logits: {shape: "(num_tokens, num_experts)", dtype: bf16, partitioned: true}
+  out: {shape: "(num_tokens, num_experts)", dtype: bf16, out: true, partitioned: true}
+  capacity_factor: {value: 1.0, returned: false}
 mpi:
   decomposition:
     axis:
     - num_tokens
     work_exponent: 1
     collective: exclusive prefix sum (exscan) of per-expert token counts over ranks + allreduce(sum) of the token count
-  arrays:
-    router_logits:
-    - num_tokens
-    - num_experts
-    out:
-    - num_tokens
-    - num_experts
   split:
     router_logits: num_tokens
     out: num_tokens

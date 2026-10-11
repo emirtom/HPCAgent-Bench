@@ -34,40 +34,14 @@ parameters:
     NY: 199
     NZ: 1608
     nsteps: 10
-init:
-  input_args:
-  - NX
-  - NY
-  - NZ
-  arrays:
-    dx: (NX, NY)
-    dz: (NX, NY)
-    f: (NX, NY, NZ)
-    g: (NX, NY, NZ)
-    result: (NX, NY, NZ)
-output_args:
-- result
+args:
+  dx: {shape: "(NX, NY)", partitioned: true}
+  dz: {shape: "(NX, NY)", partitioned: true}
+  f: {shape: "(NX, NY, NZ)", partitioned: true}
+  g: {shape: "(NX, NY, NZ)", partitioned: true}
+  result: {shape: "(NX, NY, NZ)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - NY
     work_exponent: 1
-  arrays:
-    dx:
-    - NX
-    - NY
-    dz:
-    - NX
-    - NY
-    f:
-    - NX
-    - NY
-    - NZ
-    g:
-    - NX
-    - NY
-    - NZ
-    result:
-    - NX
-    - NY
-    - NZ

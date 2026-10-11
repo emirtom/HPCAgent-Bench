@@ -11,10 +11,7 @@ parameters:
     N: 13462
   XL:
     N: 14747
-init:
-  arrays:
-    aa: (N,N)
-output_args:
-- aa
+args:
+  aa: {shape: "(N,N)", out: true}
 chain_length:
   aa: 2 * N

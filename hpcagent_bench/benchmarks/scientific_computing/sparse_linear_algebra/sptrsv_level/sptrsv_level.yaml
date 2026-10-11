@@ -37,30 +37,13 @@ parameters:
     MATRIX_ID: {set: [0]}
     N: {set: [82654]}
     NNZ_L: {set: [328556]}
+args:
+  L: {}
+  b: {shape: "(N,)", dtype: float64}
+  level_ptr: {shape: "(N + 1,)", dtype: int64}
+  perm: {shape: "(N,)", dtype: int64, index_array: true}
+  x: {shape: "(N,)", dtype: float64, out: true}
 init:
-  input_args:
-  - MATRIX_ID
-  - N
-  output_args:
-  - L
-  - b
-  - level_ptr
-  - perm
-  - x
-  arrays:
-    b:
-      shape: (N,)
-      dtype: float64
-    level_ptr:
-      shape: (N + 1,)
-      dtype: int64
-    perm:
-      shape: (N,)
-      dtype: int64
-      index_array: true
-    x:
-      shape: (N,)
-      dtype: float64
   # A timed repeat keeps the factor's pattern and rescales its values with this function.
   revalue: revalue
   # One scenario (the rung's matrix); `layouts`: the formats it is offered in
@@ -69,14 +52,6 @@ init:
     suitesparse:
       description: the lower triangle of the rung's SuiteSparse SPD matrix
       layouts: [csr, csc, coo, ell]
-array_args:
-- L
-- b
-- level_ptr
-- perm
-- x
-output_args:
-- x
 # L is in CSR by default; a submission may request another layout (docs/sparse_abi.md). Its indices
 # are 0-based in every language, like every sparse buffer's. bsr is not offered (no block edge tiles
 # the odd row counts of M and L), nor dia (a SuiteSparse factor spans thousands of diagonals).

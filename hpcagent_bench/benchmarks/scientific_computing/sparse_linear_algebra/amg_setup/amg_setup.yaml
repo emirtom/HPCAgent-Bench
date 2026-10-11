@@ -41,30 +41,13 @@ config:
   # aggregation stops coarsening and a coarse operator grows denser than the fine one (measured
   # 3.5x at 64^3), past the reference's work-buffer bound.
   theta: {domain: [0.03, 0.05], selects: tolerance}
+args:
+  A: {}
+  level_n: {shape: "(16,)", dtype: int64, out: true}
+  level_nnz: {shape: "(16,)", dtype: int64, out: true}
+  nlevels: {shape: "(1,)", dtype: int64, out: true}
+  agg0: {shape: "(NX * NY * NZ,)", dtype: int64}
 init:
-  input_args:
-  - NX
-  - NY
-  - NZ
-  output_args:
-  - A
-  - level_n
-  - level_nnz
-  - nlevels
-  - agg0
-  arrays:
-    level_n:
-      shape: (16,)
-      dtype: int64
-    level_nnz:
-      shape: (16,)
-      dtype: int64
-    nlevels:
-      shape: (1,)
-      dtype: int64
-    agg0:
-      shape: (NX * NY * NZ,)
-      dtype: int64
   # A timed repeat keeps the operator's pattern and rescales its values with this function.
   revalue: revalue
   # One scenario (the operator is the physics); `layouts`: the formats it is offered in
@@ -73,16 +56,6 @@ init:
     stencil:
       description: the 27-point jumping-coefficient operator on the grid
       layouts: [csr, csc, coo, "bsr:2", dia, ell]
-array_args:
-- A
-- level_n
-- level_nnz
-- nlevels
-- agg0
-output_args:
-- level_n
-- level_nnz
-- nlevels
 # A is the operator in CSR by default; a submission may request another layout (docs/sparse_abi.md).
 # Its column ids are 0-based in every language: they are also compared against 0-based row ids.
 layouts:

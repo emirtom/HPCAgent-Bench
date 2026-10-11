@@ -12,19 +12,11 @@ parameters:
     LEN_1D: 122745436
   XL:
     LEN_1D: 173588261
-init:
-  input_args:
-  - LEN_1D
-  arrays:
-    src: (LEN_1D,)
-    weight: (LEN_1D,)
-    packed: (LEN_1D,)
-    out_count:
-      shape: (1,)
-      dtype: int64
-output_args:
-- packed
-- out_count
+args:
+  src: (LEN_1D,)
+  weight: (LEN_1D,)
+  packed: {shape: "(LEN_1D,)", out: true}
+  out_count: {shape: "(1,)", dtype: int64, out: true}
 # ``packed`` holds the answer in ``[0, out_count)`` and the reference never writes past it, so the
 # tail keeps whatever ``initialize`` put there. Grading it demanded those bytes back -- tidiness,
 # not the computation -- and two agents in two languages independently failed for appending the

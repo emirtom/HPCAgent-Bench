@@ -19,14 +19,9 @@ parameters:
     batch_size: 105419
     dim: 1
     dim1: 1646
-init:
-  arrays:
-    x: (batch_size, dim1)
-    mask:
-      shape: (batch_size, dim1)
-      dtype: int64
-    out: (batch_size, dim1)
-output_args:
-- out
+args:
+  x: (batch_size, dim1)
+  mask: {shape: "(batch_size, dim1)", dtype: int64}
+  out: {shape: "(batch_size, dim1)", out: true}
 chain_length:
   out: dim1

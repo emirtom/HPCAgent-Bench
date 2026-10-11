@@ -21,12 +21,7 @@ parameters:
     N: 2828
   XL:
     N: 10000
-init:
-  input_args: [N]
-  output_args: [a, wmax, vmax]
-  arrays:
-    a: {shape: "(N, N)", dtype: float64}
-    wmax: {shape: "(1,)", dtype: float64}
-    vmax: {shape: "(N,)", dtype: float64}
-array_args: [a, wmax, vmax]
-output_args: [wmax, vmax]
+args:
+  a: {shape: "(N, N)", dtype: float64}
+  wmax: {shape: "(1,)", dtype: float64, out: true}
+  vmax: {shape: "(N,)", dtype: float64, out: true}

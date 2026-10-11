@@ -19,17 +19,8 @@ parameters:
     batch_size: 60852
     hidden_size: 7606
     input_size: 7606
-init:
-  arrays:
-    x:
-      shape: (batch_size, input_size)
-      domain: [-1.0, 1.0]
-    linear_weight:
-      shape: (hidden_size, input_size)
-      domain: [-0.01147, 0.01147]
-    linear_bias:
-      shape: (hidden_size,)
-      domain: [-0.1, 0.1]
-    out: (batch_size, 1)
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, input_size)", domain: [-1.0, 1.0]}
+  linear_weight: {shape: "(hidden_size, input_size)", domain: [-0.01147, 0.01147]}
+  linear_bias: {shape: "(hidden_size,)", domain: [-0.1, 0.1]}
+  out: {shape: "(batch_size, 1)", out: true}

@@ -23,35 +23,15 @@ parameters:
   fuzzed:
     batch_size: [8, 64]
     dim: [64, 512]
-init:
-  input_args:
-  - batch_size
-  - dim
-  output_args:
-  - x
-  - out
-  arrays:
-    x:
-      shape: (batch_size, dim)
-      dtype: bf16
-    out:
-      shape: (batch_size, dim)
-      dtype: bf16
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, dim)", dtype: bf16, partitioned: true}
+  out: {shape: "(batch_size, dim)", dtype: bf16, out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - dim
     work_exponent: 1
     collective: allreduce(max) + allreduce(sum) of per-row partials
-  arrays:
-    x:
-    - batch_size
-    - dim
-    out:
-    - batch_size
-    - dim
   split:
     x: dim
     out: dim

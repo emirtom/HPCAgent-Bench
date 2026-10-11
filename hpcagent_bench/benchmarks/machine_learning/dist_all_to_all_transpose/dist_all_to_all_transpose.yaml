@@ -29,35 +29,15 @@ parameters:
   fuzzed:
     rows: [64, 512]
     cols: [64, 512]
-init:
-  input_args:
-  - rows
-  - cols
-  output_args:
-  - x
-  - out
-  arrays:
-    x:
-      shape: (rows, cols)
-      dtype: bf16
-    out:
-      shape: (cols, rows)
-      dtype: bf16
-output_args:
-- out
+args:
+  x: {shape: "(rows, cols)", dtype: bf16, partitioned: true}
+  out: {shape: "(cols, rows)", dtype: bf16, out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - rows
     work_exponent: 1
     collective: all-to-all (alltoallv) of transposed (rows_r x cols_j) blocks
-  arrays:
-    x:
-    - rows
-    - cols
-    out:
-    - cols
-    - rows
   split:
     x: rows
     out: cols

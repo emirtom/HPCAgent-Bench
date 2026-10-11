@@ -15,10 +15,7 @@ parameters:
   XL:
     K: 8067
     M: 64545
-init:
-  arrays:
-    A: (M, K)
-    B: (K, 1)
-    out: (M, 1)
-output_args:
-- out
+args:
+  A: (M, K)
+  B: (K, 1)
+  out: {shape: "(M, 1)", out: true}

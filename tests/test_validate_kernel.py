@@ -20,12 +20,9 @@ level: 1
 parameters:
   S:
     N: 4
-init:
-  arrays:
-    a: (N,)
-    out: (1,)
-output_args:
-- out
+args:
+  a: (N,)
+  out: {shape: "(1,)", out: true}
 """
 
 INITIALIZE = "\n\ndef initialize(N):\n    return N\n"
@@ -96,7 +93,7 @@ def test_the_initializer_is_derived_from_the_kernel_module(
 
 
 def test_a_declared_init_func_name_is_a_load_error(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    manifest = GOOD_MANIFEST.replace("init:\n", "init:\n  func_name: initialize\n")
+    manifest = GOOD_MANIFEST + "init:\n  func_name: initialize\n"
     with pytest.raises(ValueError, match="init.func_name is derived"):
         make_spec(tmp_path, monkeypatch, manifest=manifest, module=INITIALIZE)
 
@@ -131,7 +128,7 @@ def test_a_loop_variable_read_after_its_loop_is_reported(
             "(1 + pad,)",
             [
                 (
-                    "kern: a shape reads init.scalars.pad, which initialization cannot see; "
+                    "kern: a shape reads the scalar value args.pad, which initialization cannot see; "
                     "declare it in config: (or a parameters: preset)"
                 )
             ],
@@ -143,8 +140,8 @@ def test_a_loop_variable_read_after_its_loop_is_reported(
 def test_a_shape_reading_a_knob_only_init_scalars_binds_is_reported(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, out_shape: str, expected: list[str]
 ) -> None:
-    """``init.scalars`` is bound when the kernel is called, after the shapes built its arguments."""
-    manifest = GOOD_MANIFEST.replace("out: (1,)", f"out: {out_shape}\n  scalars:\n    pad: 1")
+    """A scalar value is bound when the kernel is called, after the shapes built its arguments."""
+    manifest = GOOD_MANIFEST.replace('"(1,)"', f'"{out_shape}"') + "  pad: 1\n"
     numpy = "def kern(a, out, pad):\n    out[0] = a[0] + pad\n    return out\n"
     problems = validate_kernel(make_spec(tmp_path, monkeypatch, manifest=manifest, numpy=numpy))
     assert problems == expected, problems
@@ -199,7 +196,7 @@ def test_real_manifests_are_valid(kernel: str) -> None:
     assert problems == [], problems
 
 
-SCENARIO_MANIFEST = GOOD_MANIFEST.replace("init:\n", "init:\n  scenarios:\n    rest: at rest\n    pulse: one pulse\n")
+SCENARIO_MANIFEST = GOOD_MANIFEST + "init:\n  scenarios:\n    rest: at rest\n    pulse: one pulse\n"
 
 
 def test_declared_scenarios_load_in_declaration_order(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,10 +225,10 @@ def test_scenarios_with_a_perturbation_initializer_are_valid(
 @pytest.mark.parametrize(
     ("manifest", "module", "message"),
     [
-        (GOOD_MANIFEST.replace("init:\n", "init:\n  scenarios:\n    rest: at rest\n"), None, "fallback initialize"),
-        (GOOD_MANIFEST.replace("init:\n", "init:\n  scenarios: {}\n"), INITIALIZE, "non-empty"),
-        (GOOD_MANIFEST.replace("init:\n", "init:\n  scenarios:\n    rest: ''\n"), INITIALIZE, "description"),
-        (GOOD_MANIFEST.replace("init:\n", "init:\n  scenarios:\n    not-a-name: x\n"), INITIALIZE, "identifier"),
+        (GOOD_MANIFEST + "init:\n  scenarios:\n    rest: at rest\n", None, "fallback initialize"),
+        (GOOD_MANIFEST + "init:\n  scenarios: {}\n", INITIALIZE, "non-empty"),
+        (GOOD_MANIFEST + "init:\n  scenarios:\n    rest: ''\n", INITIALIZE, "description"),
+        (GOOD_MANIFEST + "init:\n  scenarios:\n    not-a-name: x\n", INITIALIZE, "identifier"),
     ],
     ids=["declarative-init", "empty", "blank-description", "bad-name"],
 )

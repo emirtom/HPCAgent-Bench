@@ -20,17 +20,11 @@ parameters:
     nnz: 60132367
 config:
   max_iter: {value: 250, selects: iteration}
+args:
+  A: {}
+  b: (N,)
+  x: {shape: "(N,)", out: true}
 init:
-  input_args:
-  - N
-  - nnz
-  output_args:
-  - A
-  - b
-  - x
-  arrays:
-    b: (N,)
-    x: (N,)
   # A timed repeat keeps the matrix's pattern and redraws its values with this function.
   revalue: revalue
   # One physical scenario per input seed (seed % 3); pattern and values come from the draw's rng.
@@ -46,12 +40,6 @@ init:
     diagonal:
       description: a full diagonal plus nnz / 10 entries scattered uniformly
       layouts: [csr, csc, coo, "bsr:2"]
-array_args:
-- A
-- b
-- x
-output_args:
-- x
 # Sparse arrays: every format is derived (docs/sparse_abi.md); a submission requests one per run.
 layouts:
   A:

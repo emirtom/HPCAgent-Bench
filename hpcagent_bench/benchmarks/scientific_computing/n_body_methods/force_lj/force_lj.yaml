@@ -24,26 +24,11 @@ parameters:
     cutoff: 2.5
     epsilon: 1.0
     sigma: 1.0
-init:
-  input_args:
-  - N
-  output_args:
-  - pos
-  - force
-  arrays:
-    pos: "(N, 3)"
-    force: "(N, 3)"
-array_args:
-- pos
-- force
-output_args:
-- force
+args:
+  pos: "(N, 3)"
+  force: {shape: "(N, 3)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 2
-  arrays:
-    force:
-    - N
-    - 3

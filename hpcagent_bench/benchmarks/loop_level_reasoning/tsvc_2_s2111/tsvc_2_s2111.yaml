@@ -11,10 +11,7 @@ parameters:
     LEN_2D: 13465
   XL:
     LEN_2D: 14754
-init:
-  arrays:
-    aa: (LEN_2D,LEN_2D)
-output_args:
-- aa
+args:
+  aa: {shape: "(LEN_2D,LEN_2D)", out: true}
 chain_length:
   aa: 2 * LEN_2D

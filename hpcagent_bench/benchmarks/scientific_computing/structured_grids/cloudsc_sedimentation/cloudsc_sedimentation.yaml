@@ -28,57 +28,17 @@ parameters:
     KLEV: 137
     KLON: 759132
     nsteps: 2
+args:
+  za: (KLEV, KLON)
+  zdtgdp: (KLEV, KLON)
+  zrdtgdp: (KLEV, KLON)
+  zrho: (KLEV, KLON)
+  vqx: (NSPEC,)
+  zqx: (NSPEC, KLEV, KLON)
+  zqv: {shape: "(KLEV, KLON)", out: true}
+  pfplsx: {shape: "(NSPEC, KLEV + 1, KLON)", out: true}
+  zqxn: {shape: "(NSPEC, KLEV, KLON)", out: true}
+  zcovptot: {shape: "(KLEV, KLON)", out: true}
 init:
   constants:
     NSPEC: 3
-  input_args:
-  - KLEV
-  - KLON
-  output_args:
-  - za
-  - zdtgdp
-  - zrdtgdp
-  - zrho
-  - vqx
-  - zqx
-  - zqv
-  - pfplsx
-  - zqxn
-  - zcovptot
-  arrays:
-    za:
-      shape: (KLEV, KLON)
-    zdtgdp:
-      shape: (KLEV, KLON)
-    zrdtgdp:
-      shape: (KLEV, KLON)
-    zrho:
-      shape: (KLEV, KLON)
-    vqx:
-      shape: (NSPEC,)
-    zqx:
-      shape: (NSPEC, KLEV, KLON)
-    zqv:
-      shape: (KLEV, KLON)
-    pfplsx:
-      shape: (NSPEC, KLEV + 1, KLON)
-    zqxn:
-      shape: (NSPEC, KLEV, KLON)
-    zcovptot:
-      shape: (KLEV, KLON)
-array_args:
-- za
-- zdtgdp
-- zrdtgdp
-- zrho
-- vqx
-- zqx
-- zqv
-- pfplsx
-- zqxn
-- zcovptot
-output_args:
-- zqv
-- pfplsx
-- zqxn
-- zcovptot

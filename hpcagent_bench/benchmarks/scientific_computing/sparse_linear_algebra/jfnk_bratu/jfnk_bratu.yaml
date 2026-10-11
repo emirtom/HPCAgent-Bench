@@ -32,19 +32,8 @@ config:
   # Bratu lambda: 6.0 sits just below the fold (lambda* ~ 6.808), hard but reliably convergent from
   # u0 = 0; 3.0 is the mildly nonlinear regime and converges in fewer Newton steps.
   lam: {domain: [6.0, 3.0], selects: physical}
-init:
-  input_args:
-  - N
-  output_args:
-  - u
-  arrays:
-    u:
-      shape: (N, N)
-      dtype: float64
-array_args:
-- u
-output_args:
-- u
+args:
+  u: {shape: "(N, N)", dtype: float64, out: true}
 allowed_precisions:
 - fp64
 # The fp64 band (rtol 1e-9) is finer than this solve resolves: the reference's own u moves by 3.9e-9

@@ -11,17 +11,7 @@ parameters:
     LEN_1D: 322727372
   XL:
     LEN_1D: 520764783
-init:
-  input_args:
-  - LEN_1D
-  - threshold
-  output_args:
-  - a
-  - result
-  scalars:
-    threshold: 1
-  arrays:
-    a: (LEN_1D,)
-    result: (1,)
-output_args:
-- result
+args:
+  a: (LEN_1D,)
+  result: {shape: "(1,)", out: true}
+  threshold: {value: 1, returned: false}

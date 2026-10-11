@@ -40,49 +40,17 @@ parameters:
     num_heads: [1, 4]
     kv_length: [64, 1024]
     head_dim: {set: [64, 128]}
-init:
-  input_args:
-  - batch_size
-  - num_heads
-  - kv_length
-  - head_dim
-  output_args:
-  - query
-  - keys
-  - values
-  - out
-  arrays:
-    query:
-      shape: (batch_size, num_heads, head_dim)
-      dtype: bf16
-    keys:
-      shape: (batch_size, num_heads, kv_length, head_dim)
-      dtype: bf16
-    values:
-      shape: (batch_size, num_heads, kv_length, head_dim)
-      dtype: bf16
-    out:
-      shape: (batch_size, num_heads, head_dim)
-      dtype: bf16
-output_args:
-- out
+args:
+  query: {shape: "(batch_size, num_heads, head_dim)", dtype: bf16}
+  keys: {shape: "(batch_size, num_heads, kv_length, head_dim)", dtype: bf16, partitioned: true}
+  values: {shape: "(batch_size, num_heads, kv_length, head_dim)", dtype: bf16, partitioned: true}
+  out: {shape: "(batch_size, num_heads, head_dim)", dtype: bf16, out: true}
 mpi:
   decomposition:
     axis:
     - kv_length
     work_exponent: 1
     collective: log-sum-exp combine -- allreduce(max) of the row max, allreduce(sum) of rescaled denominators and numerators
-  arrays:
-    keys:
-    - batch_size
-    - num_heads
-    - kv_length
-    - head_dim
-    values:
-    - batch_size
-    - num_heads
-    - kv_length
-    - head_dim
   split:
     query: null
     keys: kv_length

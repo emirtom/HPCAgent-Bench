@@ -30,11 +30,8 @@ config:
     value: -10.0
   clamp_max:
     value: 10.0
-init:
-  arrays:
-    x: (batch_size, input_size)
-    matmul_weight: (hidden_size, input_size)
-    matmul_bias: (hidden_size,)
-    out: (batch_size, 1)
-output_args:
-- out
+args:
+  x: (batch_size, input_size)
+  matmul_weight: (hidden_size, input_size)
+  matmul_bias: (hidden_size,)
+  out: {shape: "(batch_size, 1)", out: true}

@@ -26,23 +26,9 @@ parameters:
 config:
   # Harris-Stephens sensitivity, at both ends of its usual 0.04-0.06 range.
   k: {domain: [0.04, 0.06], selects: physical}
-init:
-  input_args:
-  - H
-  - W
-  output_args:
-  - img
-  - R
-  arrays:
-    img:
-      shape: (H, W)
-    R:
-      shape: (H, W)
-array_args:
-- img
-- R
-output_args:
-- R
+args:
+  img: {shape: "(H, W)", partitioned: true}
+  R: {shape: "(H, W)", out: true, partitioned: true}
 fuzz:
   constraints:
   - H >= 8
@@ -52,10 +38,3 @@ mpi:
     axis:
     - H
     work_exponent: 1
-  arrays:
-    img:
-    - H
-    - W
-    R:
-    - H
-    - W

@@ -15,21 +15,7 @@ parameters:
   XL:
     M: 10747
     N: 12985
-init:
-  input_args:
-  - M
-  - N
-  output_args:
-  - float_n
-  - data
-  - out
-  arrays:
-    data:
-      shape: (N, M)
-    out:
-      shape: (M, M)
-array_args:
-- data
-- out
-output_args:
-- out
+args:
+  float_n: {}
+  data: (N, M)
+  out: {shape: "(M, M)", out: true}

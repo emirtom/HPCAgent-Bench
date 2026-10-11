@@ -11,14 +11,8 @@ parameters:
     NBLK: 17406857
   XL:
     NBLK: 23307591
-init:
-  arrays:
-    a: (4 * NBLK,)
-    b: (4 * NBLK,)
-    c: (4 * NBLK,)
-    ip:
-      shape: (4 * NBLK,)
-      dtype: int32
-      index_array: true
-output_args:
-- a
+args:
+  a: {shape: "(4 * NBLK,)", out: true}
+  b: (4 * NBLK,)
+  c: (4 * NBLK,)
+  ip: {shape: "(4 * NBLK,)", dtype: int32, index_array: true}

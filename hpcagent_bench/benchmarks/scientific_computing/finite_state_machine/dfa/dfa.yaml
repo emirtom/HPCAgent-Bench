@@ -19,29 +19,7 @@ parameters:
     N: 520698992
     NS: 256
     NA: 256
-init:
-  input_args:
-  - N
-  - NS
-  - NA
-  output_args:
-  - trans
-  - symbols
-  - counts
-  arrays:
-    trans:
-      shape: (NS, NA)
-      dtype: int64
-    symbols:
-      shape: (N,)
-      dtype: int64
-      index_array: true
-    counts:
-      shape: (NS,)
-      dtype: int64
-array_args:
-- trans
-- symbols
-- counts
-output_args:
-- counts
+args:
+  trans: {shape: "(NS, NA)", dtype: int64}
+  symbols: {shape: "(N,)", dtype: int64, index_array: true}
+  counts: {shape: "(NS,)", dtype: int64, out: true}

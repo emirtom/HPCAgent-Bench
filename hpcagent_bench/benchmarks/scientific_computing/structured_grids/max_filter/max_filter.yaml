@@ -20,32 +20,11 @@ parameters:
     H: 16136
     W: 16136
     r: 26
-init:
-  input_args:
-  - H
-  - W
-  output_args:
-  - image
-  - out
-  arrays:
-    image:
-      shape: (H, W)
-    out:
-      shape: (H, W)
-array_args:
-- image
-- out
-output_args:
-- out
+args:
+  image: {shape: "(H, W)", partitioned: true}
+  out: {shape: "(H, W)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - H
     work_exponent: 1
-  arrays:
-    image:
-    - H
-    - W
-    out:
-    - H
-    - W

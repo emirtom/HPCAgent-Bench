@@ -19,32 +19,8 @@ parameters:
   XL:
     NV: 179558
     NE: 11491700
-init:
-  input_args:
-  - NV
-  - NE
-  output_args:
-  - colidx
-  - esrc
-  - rowptr
-  - total
-  arrays:
-    colidx:
-      shape: (NE,)
-      dtype: int64
-    esrc:
-      shape: (NE,)
-      dtype: int64
-    rowptr:
-      shape: (NV + 1,)
-      dtype: int64
-    total:
-      shape: (1,)
-      dtype: int64
-array_args:
-- colidx
-- esrc
-- rowptr
-- total
-output_args:
-- total
+args:
+  colidx: {shape: "(NE,)", dtype: int64}
+  esrc: {shape: "(NE,)", dtype: int64}
+  rowptr: {shape: "(NV + 1,)", dtype: int64}
+  total: {shape: "(1,)", dtype: int64, out: true}

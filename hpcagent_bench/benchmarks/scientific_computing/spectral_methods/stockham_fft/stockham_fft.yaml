@@ -19,20 +19,7 @@ parameters:
     R: 2
     K: 28
     N: 130191196
-init:
-  input_args:
-  - R
-  - K
-  output_args:
-  - N
-  - x
-  - y
-  arrays:
-    x:
-      shape: (N,)
-      dtype: complex128
-    y:
-      shape: (N,)
-      dtype: complex128
-output_args:
-- y
+args:
+  N: {}
+  x: {shape: "(N,)", dtype: complex128}
+  y: {shape: "(N,)", dtype: complex128, out: true}

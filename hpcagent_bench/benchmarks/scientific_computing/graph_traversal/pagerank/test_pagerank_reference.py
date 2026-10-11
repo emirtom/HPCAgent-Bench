@@ -67,11 +67,10 @@ def test_omitting_scalars_equals_explicit_defaults():
 
 
 def test_scalars_match_yaml_defaults():
-    """initialize()'s defaults stay in sync with pagerank.yaml's init.scalars."""
-    import yaml
+    """initialize()'s defaults stay in sync with pagerank.yaml's scalar values."""
+    from hpcagent_bench.spec import BenchSpec
 
-    manifest = yaml.safe_load((_HERE / "pagerank.yaml").read_text())
-    scalars = manifest["init"]["scalars"]
+    scalars = BenchSpec.load("pagerank").init.scalars
     assert scalars["damping"] == 0.85
     assert scalars["max_iterations"] == 100
     initialize = _load("pagerank").initialize

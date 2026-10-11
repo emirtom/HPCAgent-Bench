@@ -29,22 +29,9 @@ parameters:
       - 1
       - 2
       - 3
-init:
-  input_args:
-  - N
-  output_args:
-  - image
-  - out
-  arrays:
-    image:
-      shape: (N, N)
-    out:
-      shape: (N, N)
-array_args:
-- image
-- out
-output_args:
-- out
+args:
+  image: (N, N)
+  out: {shape: "(N, N)", out: true}
 fuzz:
   constraints:
   - N >= 2**(nlevels + 1)

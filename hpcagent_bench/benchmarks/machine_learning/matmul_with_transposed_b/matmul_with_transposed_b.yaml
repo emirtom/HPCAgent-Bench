@@ -19,10 +19,7 @@ parameters:
     K: 22895
     M: 5723
     N: 11447
-init:
-  arrays:
-    A: (M, K)
-    B: (N, K)
-    out: (M, N)
-output_args:
-- out
+args:
+  A: (M, K)
+  B: (N, K)
+  out: {shape: "(M, N)", out: true}

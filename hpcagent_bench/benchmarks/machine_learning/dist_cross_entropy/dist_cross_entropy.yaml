@@ -26,37 +26,16 @@ parameters:
   fuzzed:
     batch_size: [4, 64]
     num_classes: [64, 1024]
-init:
-  input_args:
-  - batch_size
-  - num_classes
-  output_args:
-  - predictions
-  - targets
-  - out
-  arrays:
-    predictions:
-      shape: (batch_size, num_classes)
-      dtype: bf16
-    targets:
-      shape: (batch_size,)
-      dtype: int64
-      index_array: true
-    out:
-      shape: (batch_size,)
-      dtype: bf16
-output_args:
-- out
+args:
+  predictions: {shape: "(batch_size, num_classes)", dtype: bf16, partitioned: true}
+  targets: {shape: "(batch_size,)", dtype: int64, index_array: true}
+  out: {shape: "(batch_size,)", dtype: bf16, out: true}
 mpi:
   decomposition:
     axis:
     - num_classes
     work_exponent: 1
     collective: allreduce(max) + allreduce(sum exp) + allreduce(target logit); per-row loss replicated
-  arrays:
-    predictions:
-    - batch_size
-    - num_classes
   split:
     predictions: num_classes
     targets: null

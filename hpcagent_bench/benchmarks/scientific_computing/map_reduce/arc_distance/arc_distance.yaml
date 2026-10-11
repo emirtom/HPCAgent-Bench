@@ -11,47 +11,14 @@ parameters:
     N: 74777465
   XL:
     N: 107374182
-init:
-  input_args:
-  - N
-  output_args:
-  - theta_1
-  - phi_1
-  - theta_2
-  - phi_2
-  - distance_matrix
-  arrays:
-    theta_1:
-      shape: (N,)
-    phi_1:
-      shape: (N,)
-    theta_2:
-      shape: (N,)
-    phi_2:
-      shape: (N,)
-    distance_matrix:
-      shape: (N,)
-array_args:
-- theta_1
-- phi_1
-- theta_2
-- phi_2
-- distance_matrix
-output_args:
-- distance_matrix
+args:
+  theta_1: {shape: "(N,)", partitioned: true}
+  phi_1: {shape: "(N,)", partitioned: true}
+  theta_2: {shape: "(N,)", partitioned: true}
+  phi_2: {shape: "(N,)", partitioned: true}
+  distance_matrix: {shape: "(N,)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 1
-  arrays:
-    theta_1:
-    - N
-    phi_1:
-    - N
-    theta_2:
-    - N
-    phi_2:
-    - N
-    distance_matrix:
-    - N

@@ -11,9 +11,6 @@ parameters:
     LEN_1D: 183982898
   XL:
     LEN_1D: 260382360
-init:
-  arrays:
-    a: (LEN_1D,)
-    flat_2d_array: (LEN_1D + 64,)
-output_args:
-- flat_2d_array
+args:
+  a: (LEN_1D,)
+  flat_2d_array: {shape: "(LEN_1D + 64,)", out: true}

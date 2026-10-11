@@ -11,10 +11,7 @@ parameters:
     LEN_2D: 4798
   XL:
     LEN_2D: 9868
-init:
-  arrays:
-    aa: (LEN_2D,LEN_2D)
-    bb: (LEN_2D,LEN_2D)
-    flat_2d_array: (LEN_2D * LEN_2D,)
-output_args:
-- flat_2d_array
+args:
+  aa: (LEN_2D,LEN_2D)
+  bb: (LEN_2D,LEN_2D)
+  flat_2d_array: {shape: "(LEN_2D * LEN_2D,)", out: true}

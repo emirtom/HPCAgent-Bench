@@ -60,63 +60,15 @@ config:
     selects: branch
 constraints:
 - iord == 5 or grid_type == 0
-init:
-  input_args:
-  - ni
-  - nj
-  - nk
-  - iord
-  - grid_type
-  output_args:
-  - q
-  - courant
-  - dxa
-  - xflux
-  - iord
-  - grid_type
-  arrays:
-    q: "(nhalo + ni + nhalo, nj, nk)"
-    courant: "(nhalo + ni + nhalo, nj, nk)"
-    dxa: "(nhalo + ni + nhalo, nj, nk)"
-    xflux: "(nhalo + ni + nhalo, nj, nk)"
-input_args:
-- q
-- courant
-- dxa
-- xflux
-- nhalo
-- ni
-- nj
-- nk
-- iord
-- grid_type
-- nsteps
-array_args:
-- q
-- courant
-- dxa
-- xflux
-output_args:
-- xflux
+args:
+  q: {shape: "(nhalo + ni + nhalo, nj, nk)", partitioned: true}
+  courant: {shape: "(nhalo + ni + nhalo, nj, nk)", partitioned: true}
+  dxa: {shape: "(nhalo + ni + nhalo, nj, nk)", partitioned: true}
+  xflux: {shape: "(nhalo + ni + nhalo, nj, nk)", out: true, partitioned: true}
+  iord: {}
+  grid_type: {}
 mpi:
   decomposition:
     axis:
     - nj
     work_exponent: 1
-  arrays:
-    q:
-    - nhalo + ni + nhalo
-    - nj
-    - nk
-    courant:
-    - nhalo + ni + nhalo
-    - nj
-    - nk
-    dxa:
-    - nhalo + ni + nhalo
-    - nj
-    - nk
-    xflux:
-    - nhalo + ni + nhalo
-    - nj
-    - nk

@@ -50,11 +50,10 @@ config:
     value: 0
   conv_transpose_stride:
     value: 1
-init:
-  arrays:
-    x: (batch_size, in_channels, height, width)
-    conv_transpose_weight: (in_channels, out_channels // conv_transpose_groups, kernel_size, kernel_size)
-    conv_transpose_bias: (out_channels,)
-    out: (batch_size, out_channels, (height - 1) * conv_transpose_stride - 2 * conv_transpose_padding + conv_transpose_dilation * (kernel_size - 1) + conv_transpose_output_padding + 1, (width - 1) * conv_transpose_stride - 2 * conv_transpose_padding + conv_transpose_dilation * (kernel_size - 1) + conv_transpose_output_padding + 1)
-output_args:
-- out
+args:
+  x: (batch_size, in_channels, height, width)
+  conv_transpose_weight: (in_channels, out_channels // conv_transpose_groups, kernel_size, kernel_size)
+  conv_transpose_bias: (out_channels,)
+  out:
+    shape: (batch_size, out_channels, (height - 1) * conv_transpose_stride - 2 * conv_transpose_padding + conv_transpose_dilation * (kernel_size - 1) + conv_transpose_output_padding + 1, (width - 1) * conv_transpose_stride - 2 * conv_transpose_padding + conv_transpose_dilation * (kernel_size - 1) + conv_transpose_output_padding + 1)
+    out: true

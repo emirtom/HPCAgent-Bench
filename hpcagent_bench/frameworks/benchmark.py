@@ -11,7 +11,7 @@ import numpy.typing as npt
 
 from hpcagent_bench import config, fuzz
 from hpcagent_bench.emit_bridge import RawInit, legacy_bench_info_dict
-from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.spec import HARNESS_KWARGS, BenchSpec
 
 __all__ = [
     "DRAWABLE_DTYPES",
@@ -23,10 +23,6 @@ __all__ = [
     "resolve_datatype",
     "storage_and_compute",
 ]
-
-#: Kwargs the harness supplies BY NAME to an initializer that declares them. A positional value
-#: must never land in one of these slots: the same argument would then arrive twice.
-HARNESS_KWARGS = frozenset({"datatype", "rng", "dist", "perturbation", "variant_spec"})
 
 
 def accepts_positional_dtype(params: Mapping[str, Any], supplied: int) -> bool:

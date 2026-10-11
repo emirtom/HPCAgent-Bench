@@ -27,60 +27,14 @@ parameters:
     NB: 514
     NLEV: 90
     NPROMA: 1024
-init:
-  input_args:
-  - NB
-  - NLEV
-  - NPROMA
-  output_args:
-  - vn
-  - vt
-  - wgtfac_e
-  - vn_ie
-  - z_kin_hor_e
-  arrays:
-    vn:
-      shape: (NB, NLEV, NPROMA)
-    vt:
-      shape: (NB, NLEV, NPROMA)
-    wgtfac_e:
-      shape: (NB, NLEV, NPROMA)
-    vn_ie:
-      shape: (NB, NLEV, NPROMA)
-    z_kin_hor_e:
-      shape: (NB, NLEV, NPROMA)
-array_args:
-- vn
-- vt
-- wgtfac_e
-- vn_ie
-- z_kin_hor_e
-output_args:
-- vn_ie
-- z_kin_hor_e
+args:
+  vn: {shape: "(NB, NLEV, NPROMA)", partitioned: true}
+  vt: {shape: "(NB, NLEV, NPROMA)", partitioned: true}
+  wgtfac_e: {shape: "(NB, NLEV, NPROMA)", partitioned: true}
+  vn_ie: {shape: "(NB, NLEV, NPROMA)", out: true, partitioned: true}
+  z_kin_hor_e: {shape: "(NB, NLEV, NPROMA)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - NB
     work_exponent: 1
-  arrays:
-    vn:
-    - NB
-    - NLEV
-    - NPROMA
-    vt:
-    - NB
-    - NLEV
-    - NPROMA
-    wgtfac_e:
-    - NB
-    - NLEV
-    - NPROMA
-    vn_ie:
-    - NB
-    - NLEV
-    - NPROMA
-    z_kin_hor_e:
-    - NB
-    - NLEV
-    - NPROMA

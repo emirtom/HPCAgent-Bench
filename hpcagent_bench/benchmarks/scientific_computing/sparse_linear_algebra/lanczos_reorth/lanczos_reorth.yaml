@@ -51,31 +51,13 @@ parameters:
     m: {set: [10, 50, 100]}
 constraints:
 - 10 * m <= NX * NY * NZ
+args:
+  A: {}
+  b: {shape: "(NX * NY * NZ,)", dtype: float64}
+  Q: {shape: "(NX * NY * NZ, m)", dtype: float64, out: true}
+  alpha: {shape: "(m,)", dtype: float64, out: true}
+  beta: {shape: "(m,)", dtype: float64, out: true}
 init:
-  input_args:
-  - NX
-  - NY
-  - NZ
-  - m
-  output_args:
-  - A
-  - b
-  - Q
-  - alpha
-  - beta
-  arrays:
-    b:
-      shape: (NX * NY * NZ,)
-      dtype: float64
-    Q:
-      shape: (NX * NY * NZ, m)
-      dtype: float64
-    alpha:
-      shape: (m,)
-      dtype: float64
-    beta:
-      shape: (m,)
-      dtype: float64
   # A timed repeat keeps the operator's pattern and rescales its values with this function.
   revalue: revalue
   # One scenario (the operator is the physics); `layouts`: the formats it is offered in
@@ -84,16 +66,6 @@ init:
     poisson:
       description: the 7-point Dirichlet Laplacian on the grid
       layouts: [csr, csc, coo, dia, ell]
-array_args:
-- A
-- Q
-- alpha
-- b
-- beta
-output_args:
-- Q
-- alpha
-- beta
 # A is the operator in CSR by default; a submission may request another layout (docs/sparse_abi.md).
 # bsr is not offered: an odd grid edge (XL is 81^3) leaves no block edge that tiles the matrix.
 layouts:

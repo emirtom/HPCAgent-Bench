@@ -27,40 +27,9 @@ parameters:
     NB: 41734
     NLEV: 47
     NPROMA: 134
-init:
-  input_args:
-  - NB
-  - NLEV
-  - NPROMA
-  output_args:
-  - e_bln
-  - edge_idx
-  - edge_blk
-  - src
-  - dst
-  arrays:
-    e_bln:
-      shape: (NB, NPROMA)
-      dtype: float64
-    edge_idx:
-      shape: (NB, NPROMA)
-      dtype: int32
-      index_array: true
-    edge_blk:
-      shape: (NB, NPROMA)
-      dtype: int32
-      index_array: true
-    src:
-      shape: (NB, NLEV, NPROMA)
-      dtype: float64
-    dst:
-      shape: (NB, NLEV, NPROMA)
-      dtype: float64
-array_args:
-- e_bln
-- edge_idx
-- edge_blk
-- src
-- dst
-output_args:
-- dst
+args:
+  e_bln: {shape: "(NB, NPROMA)", dtype: float64}
+  edge_idx: {shape: "(NB, NPROMA)", dtype: int32, index_array: true}
+  edge_blk: {shape: "(NB, NPROMA)", dtype: int32, index_array: true}
+  src: {shape: "(NB, NLEV, NPROMA)", dtype: float64}
+  dst: {shape: "(NB, NLEV, NPROMA)", dtype: float64, out: true}

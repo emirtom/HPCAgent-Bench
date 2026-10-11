@@ -21,14 +21,9 @@ parameters:
     N: 19335
   XL:
     N: 23169
-init:
-  input_args: [N]
-  output_args: [cov, w, r, risk, ret]
-  arrays:
-    cov: {shape: "(N, N)", dtype: float64}
-    w: {shape: "(N,)", dtype: float64}
-    r: {shape: "(N,)", dtype: float64}
-    risk: {shape: "(1,)", dtype: float64}
-    ret: {shape: "(1,)", dtype: float64}
-array_args: [cov, w, r, risk, ret]
-output_args: [risk, ret]
+args:
+  cov: {shape: "(N, N)", dtype: float64}
+  w: {shape: "(N,)", dtype: float64}
+  r: {shape: "(N,)", dtype: float64}
+  risk: {shape: "(1,)", dtype: float64, out: true}
+  ret: {shape: "(1,)", dtype: float64, out: true}

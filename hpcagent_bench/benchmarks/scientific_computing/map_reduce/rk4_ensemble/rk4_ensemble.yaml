@@ -31,28 +31,12 @@ parameters:
   fuzzed:
     NSYS: [1024, 568117]
     NSTEPS: [50, 1000]
-init:
-  input_args:
-  - NSYS
-  scalars:
-    a: 1.2
-    b: 2.5
-    ep: 1.0
-    t_end: 5.0
-  arrays:
-    y0:
-      shape: (NSYS, 3)
-      dtype: float64
-    y:
-      shape: (NSYS, 3)
-      dtype: float64
-  output_args:
-  - y0
-  - y
-array_args:
-- y0
-- y
-output_args:
-- y
+args:
+  y0: {shape: "(NSYS, 3)", dtype: float64}
+  y: {shape: "(NSYS, 3)", dtype: float64, out: true}
+  a: {value: 1.2, returned: false}
+  b: {value: 2.5, returned: false}
+  ep: {value: 1.0, returned: false}
+  t_end: {value: 5.0, returned: false}
 allowed_precisions:
 - fp64

@@ -11,10 +11,6 @@ parameters:
     LEN_1D: 208144136
   XL:
     LEN_1D: 216619907
-init:
-  arrays:
-    a: (LEN_1D,)
-    result: (1,)
-output_args:
-- a
-- result
+args:
+  a: {shape: "(LEN_1D,)", out: true}
+  result: {shape: "(1,)", out: true}

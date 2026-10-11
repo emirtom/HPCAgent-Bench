@@ -27,42 +27,20 @@ parameters:
   # keeps every draw comfortably clear of initialize()'s N >= 2 check.
   fuzzed:
     N: [8, 6000]
-init:
-  input_args:
-  - N
-  output_args:
-  - A
-  - b
-  arrays:
-    A:
-      shape: (N, N)
-      dtype: float64
-    b:
-      shape: (N,)
-      dtype: float64
-    x:
-      shape: (N,)
-      dtype: float64
-    steps_out:
-      shape: (1,)
-      dtype: int64
+args:
+  A: {shape: "(N, N)", dtype: float64}
+  b: {shape: "(N,)", dtype: float64}
+  # Graded on x alone: steps_out is the refinement step count, bookkeeping a reordered residual moves.
+  x: {shape: "(N,)", dtype: float64, out: true, returned: false}
+  steps_out: {shape: "(1,)", dtype: int64, returned: false}
   # Conditioning is the whole benchmark (too well conditioned and refinement is a no-op; too ill
   # conditioned and it cannot converge) -- fixed across every preset, never scaled. Float, not
   # int, so it is never mistaken for a dimension by anything that treats parameters/scalars
   # generically; see hpcagent_bench/sizing.py's own int-vs-float dimension check.
-  scalars:
-    kappa: 1000000.0
+  kappa: {value: 1000000.0, returned: false}
 config:
   max_steps: {value: 20, selects: iteration}
   tol: {value: 1.0e-13, selects: tolerance}
-array_args:
-- A
-- b
-- steps_out
-- x
-# Graded on x alone: steps_out is the refinement step count, bookkeeping a reordered residual moves.
-output_args:
-- x
 # At kappa 1e6 fp64 resolves x to ~kappa*eps (2e-10 normwise), and small components drift further: the
 # parallel numba build lands 1.1e-7 to 1.5e-6 elementwise from the reference on held-out XL inputs. A
 # refinement whose residual is formed in fp32 stalls near kappa*eps32 ~ 1e-1.

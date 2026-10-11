@@ -21,34 +21,12 @@ parameters:
     - 1000000
     - 260381892
     npt: 1000
-init:
-  input_args:
-  - N
-  - npt
-  output_args:
-  - data
-  - radius
-  - out
-  arrays:
-    data:
-      shape: (N,)
-    radius:
-      shape: (N,)
-    out:
-      shape: (npt,)
-array_args:
-- data
-- radius
-- out
-output_args:
-- out
+args:
+  data: {shape: "(N,)", partitioned: true}
+  radius: {shape: "(N,)", partitioned: true}
+  out: {shape: "(npt,)", out: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 1
-  arrays:
-    data:
-    - N
-    radius:
-    - N

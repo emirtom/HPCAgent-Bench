@@ -16,9 +16,6 @@ config:
   K:
     domain: [1, 8]
     selects: iteration
-init:
-  arrays:
-    a: (LEN_1D,)
-    x: (LEN_1D,)
-output_args:
-- a
+args:
+  a: {shape: "(LEN_1D,)", out: true}
+  x: (LEN_1D,)
