@@ -28,7 +28,16 @@ import pytest
 import yaml
 
 from hpcagent_bench import languages, protocols, recorded_rows
-from hpcagent_bench.harness import grade_under, native_call, recording, rep_variation, results_db, scoring, timing
+from hpcagent_bench.harness import (
+    denominator,
+    grade_under,
+    native_call,
+    recording,
+    rep_variation,
+    results_db,
+    scoring,
+    timing,
+)
 from hpcagent_bench.harness.scoring import Score, TimedCell, VerifyResult, score
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.stats import score_rule
@@ -1517,23 +1526,39 @@ def test_the_worklist_carries_the_scratch_request_the_shard_recorded(tmp_path: p
     assert listed == {20: "8*LEN_1D*LEN_1D", 10: None}
 
 
-def test_every_grading_cut_names_a_kernel_and_a_reason() -> None:
-    """grading_cuts.yaml is data a regrade acts on: a misspelt kernel would silently keep its stale finals."""
+def test_every_grading_cut_names_a_kernel_or_reference_and_a_reason() -> None:
+    """grading_cuts.yaml is data a regrade acts on: a misspelt kernel or reference kind would silently keep its
+    stale finals."""
     table = yaml.safe_load(grade_under.GRADING_CUTS.read_text(encoding="utf-8"))
-    assert table
-    for kernel, entry in table.items():
+    assert table["kernels"]
+    for kernel, entry in table["kernels"].items():
         assert BenchSpec.load(kernel).short_name, kernel
         assert entry["why"].strip(), kernel
-    assert set(grade_under.grading_cuts()) == set(table)
+    kinds = {kind for raced in denominator.KINDS.values() for kind in raced}
+    for kind, entry in table["references"].items():
+        assert kind in kinds, kind
+        assert entry["why"].strip(), kind
+    cuts = grade_under.grading_cuts()
+    assert (set(cuts.kernels), set(cuts.references)) == (set(table["kernels"]), set(table["references"]))
 
 
 def test_a_final_grade_before_its_kernels_grading_cut_is_stale() -> None:
     """A final graded before tsvc_2_s3112's cut (a one-ulp atol that failed correct blocked prefix
     sums) does not answer the episode; one at or after the cut does."""
-    cut = grade_under.grading_cuts()["tsvc_2_s3112"]
+    cuts = grade_under.grading_cuts()
+    cut = cuts.kernels["tsvc_2_s3112"]
+    assert cut < cuts.references["numba"]
     assert grade_under.stale_final("tsvc_2_s3112", cut - 1)
-    assert not grade_under.stale_final("tsvc_2_s3112", cut)
-    assert not grade_under.stale_final("gemm", 0), "a kernel with no cut never goes stale"
+    assert not grade_under.stale_final("tsvc_2_s3112", max(cut, *cuts.references.values()))
+
+
+def test_a_reference_timing_cut_stales_every_kernel_racing_that_reference() -> None:
+    """The numba pool fix re-times every best-of(numba,c) kernel (gemm has no cut of its own); a torch-autotune
+    kernel (conv2d) races no numba reference and keeps its finals."""
+    cut = grade_under.grading_cuts().references["numba"]
+    assert grade_under.stale_final("gemm", cut - 1)
+    assert not grade_under.stale_final("gemm", cut)
+    assert not grade_under.stale_final("conv2d", 0)
 
 
 def final_of(db: pathlib.Path, submission: int, ts: int, reduction: str, speedup: float, ratios: list[float]) -> int:

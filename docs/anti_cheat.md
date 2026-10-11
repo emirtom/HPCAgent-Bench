@@ -158,8 +158,8 @@ input (it fails that input, [sparse_abi.md](../hpcagent_bench/docs/sparse_abi.md
 Every reported number is the final grade (`mw4x5`). `/submit` is graded as one and recorded with it, so a
 lucky measurement is one draw of 4 inputs x 5 runs a side, each input credited only when a Mann-Whitney test
 confirms it. A submission an older `/submit` protocol graded is re-timed from the stored source
-(`grade-under`). A final grade recorded before its kernel's grading last
-changed is stale (`hpcagent_bench/harness/grading_cuts.yaml`, `grade_under.stale_final`): its submission
+(`grade-under`). A final grade recorded before its kernel's grading, or the timing of a
+reference its denominator races, last changed is stale (`hpcagent_bench/harness/grading_cuts.yaml`, `grade_under.stale_final`): its submission
 goes back on the owed worklist, together with the submissions that grading failed, so a correct
 answer an older tolerance rejected is graded again.
 
