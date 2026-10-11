@@ -149,6 +149,8 @@ __all__ = [
     "grade",
     "grade_cells",
     "grade_rank_counts",
+    "GradingCuts",
+    "epoch_ms",
     "grading_cuts",
     "grading_env",
     "hide_experiment_data",
@@ -551,17 +553,17 @@ GROUP BY g.id
 
 
 def stale_rows(db: pathlib.Path) -> list[dict[str, Any]]:
-    """The submissions of ``db`` whose live verdict came from a grading since fixed (:func:`stale_final`):
-    no live credit, a stored source, graded before their kernel's cut. A correct answer the old
-    tolerance failed is still its episode's answer, so the worklist grades it again under the current
+    """The submissions of ``db`` whose live verdict came from a grading since fixed (their kernel's cut):
+    no live credit, a stored source, graded before their kernel's cut (a reference's timing cut changes no
+    verdict). A correct answer the old tolerance failed is still its episode's answer, so the worklist grades it again under the current
     manifest; one with no stored source cannot be, and does not displace an earlier credited one."""
-    cuts = grading_cuts()
+    cuts = grading_cuts().kernels
     if not cuts:
         return []
     query = UNCREDITED_SUBMISSIONS.format(kernels=", ".join("?" * len(cuts)))
     with results_db.reading(db) as conn:
         rows = conn.execute(query, tuple(cuts)).fetchall()
-    return [{**dict(row), "db": str(db)} for row in rows if stale_final(str(row["kernel"]), int(row["ts_ms"]))]
+    return [{**dict(row), "db": str(db)} for row in rows if int(row["ts_ms"]) < cuts[str(row["kernel"])]]
 
 
 def as_libraries(requested: object) -> list[str]:
@@ -678,24 +680,40 @@ FINAL_GRADES = (
     "SELECT of_grade_id, kernel, ts_ms, timing_reduction, denominator, status FROM grades WHERE kind = 'final'"
 )
 
-#: Per kernel, the moment its grading last changed (grading_cuts.yaml): a final grade before it is stale.
+#: Per kernel, the moment its grading last changed, and per reference kind the moment its timing last changed
+#: (grading_cuts.yaml): a final grade before either is stale.
 GRADING_CUTS = pathlib.Path(__file__).with_name("grading_cuts.yaml")
 
 
-@functools.lru_cache(maxsize=None, typed=True)
-def grading_cuts() -> dict[str, int]:
-    """``{kernel: epoch ms}`` of :data:`GRADING_CUTS`."""
-    table = yaml.safe_load(GRADING_CUTS.read_text(encoding="utf-8")) or {}
+class GradingCuts(NamedTuple):
+    """:data:`GRADING_CUTS` as epoch ms: ``kernels`` changed what a grade accepts, ``references`` how a
+    reference kind is timed (every kernel whose denominator races that kind)."""
+
+    kernels: dict[str, int]
+    references: dict[str, int]
+
+
+def epoch_ms(table: Mapping[str, Mapping[str, str]]) -> dict[str, int]:
+    """``{name: epoch ms}`` of a cut table's ``since`` stamps."""
     return {
-        kernel: int(datetime.datetime.fromisoformat(entry["since"]).timestamp() * 1000)
-        for kernel, entry in table.items()
+        name: int(datetime.datetime.fromisoformat(entry["since"]).timestamp() * 1000) for name, entry in table.items()
     }
 
 
+@functools.lru_cache(maxsize=None, typed=True)
+def grading_cuts() -> GradingCuts:
+    """The cuts of :data:`GRADING_CUTS`."""
+    table = yaml.safe_load(GRADING_CUTS.read_text(encoding="utf-8")) or {}
+    return GradingCuts(epoch_ms(table.get("kernels") or {}), epoch_ms(table.get("references") or {}))
+
+
 def stale_final(kernel: str, ts_ms: int) -> bool:
-    """Was a final grade of ``kernel`` at ``ts_ms`` recorded before the kernel's grading last changed?"""
-    cut = grading_cuts().get(kernel)
-    return cut is not None and ts_ms < cut
+    """Was a final grade of ``kernel`` at ``ts_ms`` recorded before the kernel's grading, or the timing of a
+    reference its denominator races, last changed?"""
+    cuts = grading_cuts()
+    raced = denominator.KINDS[denominator.for_kernel(kernel)]
+    moments = [cuts.kernels.get(kernel), *(cuts.references.get(kind) for kind in raced)]
+    return any(cut is not None and ts_ms < cut for cut in moments)
 
 
 def final_graded(db: pathlib.Path, protocol: Protocol | None = None) -> frozenset[int]:
