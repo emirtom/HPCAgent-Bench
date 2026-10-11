@@ -6,7 +6,7 @@ per-model pages and [`knobs.md`](knobs.md) carry the configuration that avoids t
 
 | # | Issue | Visible as | Status |
 |---|---|---|---|
-| 1 | RCCL internal error on the pipeline-parallel send (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load | open; tp=8 x pp=2 under test |
+| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | open |
 | 2 | A writable CE container freezes on fuse-overlayfs | every agent on the node stalls at once, no error | fixed in hb: the agent container is read-only |
 | 3 | vLLM `ROCM_AITER_FA` garbles Qwen3.8 under agent load | random tokens in reasoning, invented tool names | avoided: Qwen3.8 serves on SGLang |
 | 4 | Self-tuned GEMM kernel tables break Qwen3.8 numerics | agents loop on degenerate reasoning | avoided: stock aiter tables only |
@@ -37,10 +37,17 @@ GLM-5.3 jobs of 2026-10-10/11 (675850 after 3 h 07 min, 675956 after 2 h 30 min,
 serving, 675957 ended in `NODE_FAIL`). Earlier GLM-5.3 jobs on the same shape served for up to 14 h (633828).
 Nothing in our stack changed between them, and the error comes from RCCL's own internal check, not from SGLang.
 
-**What we do.** A 4-node `tp=8 pp=2` shape (`SGLANG_PP_SIZE=2`) halves the number of pipeline boundaries and
-moves traffic from point-to-point sends to all-reduces. It is under test with `NCCL_DEBUG=WARN` to capture
-the failing check. Advice from CSCS on CXI queue sizes (`FI_CXI_DEFAULT_CQ_SIZE`, `FI_CXI_DEFAULT_TX_SIZE`)
-or known RCCL/libfabric issues on long-lived point-to-point traffic is welcome.
+**A second shape fails the same way.** On 4 nodes as `tp=8 pp=2` (`SGLANG_PP_SIZE=2`, smoke 676465), each
+tensor-parallel group spans two nodes, and the server died before serving a request: the cross-node all-reduce
+raised the same RCCL internal error while SGLang captured CUDA graphs. (A first attempt, 676429, failed earlier:
+SGLang's post-load barrier is hardcoded to 480 s and the two nodes of a group finished loading weights up to
+18 minutes apart; the sglang image now reads `SGLANG_UNBALANCED_MODEL_LOADING_TIMEOUT_S`.) So both a pipeline send
+and a tensor-parallel all-reduce fail inside RCCL whenever they cross nodes through the plugin.
+
+**Open.** We have not yet captured RCCL's own diagnostic (`NCCL_DEBUG=WARN` set for 676465 printed no RCCL
+lines into the server logs). Advice from CSCS is welcome on: CXI queue sizes (`FI_CXI_DEFAULT_CQ_SIZE`,
+`FI_CXI_DEFAULT_TX_SIZE`), the netstack artifact `gpu_rocm7-cxi_13.1.0-ofi_2.6.0-aws_1.20.0` (26.08.1) with
+RCCL 2.27.7, and any known RCCL/libfabric issue with long-lived cross-node traffic on MI300A.
 
 ## 2. A writable container freezes on fuse-overlayfs
 

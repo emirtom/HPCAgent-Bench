@@ -137,14 +137,17 @@ def test_omp_num_threads_is_not_a_source(monkeypatch) -> None:
     assert flags.ncores() == real, "ncores() read OMP_NUM_THREADS; a single-core parent can now poison the .so"
 
 
-def numba_threads_after_sizing(team: int) -> int:
-    """In a child: the numba pool size after :func:`size_loaded_numba_pool`, numba imported first."""
+def numba_threads_after_sizing(team: int) -> tuple[int, int]:
+    """In a child: (threads the sizing started, numba's pool size afterwards)."""
+    import threading
+
     import numba
 
     from hpcagent_bench.harness.native_call import size_loaded_numba_pool
 
+    before = threading.active_count()
     size_loaded_numba_pool(team)
-    return int(numba.get_num_threads())
+    return threading.active_count() - before, int(numba.get_num_threads())
 
 
 def test_the_numba_pool_follows_the_slot_team() -> None:
@@ -155,7 +158,9 @@ def test_the_numba_pool_follows_the_slot_team() -> None:
     assert flags.cpu_env(flags.Mode.MULTI_CORE, threads=3)["NUMBA_NUM_THREADS"] == "3"
     one = run_forked(numba_threads_after_sizing, 1, label="numba pool")
     assert one.ok, one.error
-    assert one.result == 1
+    assert one.result == (0, 1), (
+        "the sizing started a thread (the seal refuses that) or left the pool at its import size"
+    )
 
 
 def test_cpu_env_sizes_multi_core_from_ncores() -> None:

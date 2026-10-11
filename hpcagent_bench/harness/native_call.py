@@ -521,12 +521,18 @@ def check_loaded_openmp_width(threads: int) -> None:
 
 def size_loaded_numba_pool(team: int) -> None:
     """Size the numba pool to the slot's ``team`` when numba is already loaded. A forked child inherits the
-    parent's ``numba.config.NUMBA_NUM_THREADS``, read when the parent imported numba from its own affinity (every
-    logical CPU it saw), so the env var :func:`flags.cpu_env` sets comes too late: the parallel-numba baseline
-    would run twice the slot's cores, or every core of the node, against an OpenMP team of ``team``."""
-    numba_mod = sys.modules.get("numba")
-    if numba_mod is not None:
-        numba_mod.set_num_threads(max(1, min(team, numba_mod.config.NUMBA_NUM_THREADS)))
+    parent's pool size, read when the parent imported numba from its own affinity (every logical CPU it saw), so
+    the env var :func:`flags.cpu_env` sets comes too late: the parallel-numba baseline would run twice the slot's
+    cores, or every core of the node, against an OpenMP team of ``team``.
+
+    The size is set without starting a thread: ``numba.set_num_threads`` launches the pool, and the seal applied
+    after this refuses a multithreaded process. A pool the parent already launched is past resizing here."""
+    parallel = sys.modules.get("numba.np.ufunc.parallel")
+    if parallel is None or parallel._is_initialized:
+        return
+    size = max(1, min(team, parallel.NUM_THREADS))
+    parallel.NUM_THREADS = size
+    sys.modules["numba"].config.NUMBA_NUM_THREADS = size
 
 
 def slot_threads(cpus: set[int], requested: int | None = None) -> int:
