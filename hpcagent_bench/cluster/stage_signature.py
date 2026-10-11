@@ -4,8 +4,8 @@
 
 The agent prompt tells a bare-kernel task to read the staged material for "the signature and the
 symbol the judge links against". Nothing staged it. ``materialize_shared.sh`` copies a kernel's
-NumPy reference and any vendored baseline, and the C and Fortran lowerings are GENERATED rather
-than checked in -- so for every kernel without a vendored ``*_reference.c`` the sentence pointed at
+NumPy reference and any hand-written ``*_reference.*``, and the C and Fortran lowerings are GENERATED
+rather than checked in -- so for every kernel without a ``*_reference.c`` the sentence pointed at
 a file that was never there, and the agent had to reconstruct the ABI from Python.
 
 On llr40's one-dimensional microkernels that guess usually lands. On the scientific_computing

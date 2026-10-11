@@ -176,7 +176,7 @@ def test_an_explicit_torch_kind_is_one_kind() -> None:
         assert grading.resolve_baseline(kind, spec) == kind
         assert grading.resolve_baseline_set(kind, spec) == (kind,)
         assert grading.baseline_policy_stamp((kind,)) == f"{grading.SINGLE_BASELINE_POLICY}:{kind}"
-        assert grading.baseline_compiled(kind, spec) is None
+        assert grading.baseline_compiled(kind) is None
 
 
 def test_torch_is_credited_before_numpy_when_both_were_timed() -> None:

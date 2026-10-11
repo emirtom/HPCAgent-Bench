@@ -1246,7 +1246,7 @@ def measure_one_baseline(
         return  # absent, as the grade scores it (a harness fault)
     if python_bl is not None:
         out[python_bl[0]] = min(python_bl[1])
-    compiled = baseline_compiled(baseline, spec)  # None | (label, language, candidate compilers, mode)
+    compiled = baseline_compiled(baseline)  # None | (label, language, candidate compilers, mode)
     if compiled is not None:
         label, lang, compilers, mode = compiled
         timeout = timing.kernel_timeout_s()
@@ -1269,7 +1269,6 @@ def measure_one_baseline(
                     language=lang,
                     mode=mode,
                     compiler=compiler or None,
-                    baseline=label,
                     warmup=warmup,
                 )
             except RuntimeError:
@@ -1392,7 +1391,6 @@ def retime_baseline(
             language=language,
             mode=mode,
             compiler=compiler,
-            baseline=primary,
             warmup=warmup,
             rep_data=rep_data,
         )[3]
@@ -1879,9 +1877,9 @@ def graded_score(
             reference = oracle_function(oracle, spec, task, binding, timeout=timeout, memory_gb=memory_gb)
         # Compiled references: the single-core C oracle and/or the compiled baseline. ``c`` shares the
         # single-core build; ``*-autopar`` is a separate multi-core build.
-        plan: ReferencePlan = reference_plan(oracle, baseline, spec)
+        plan: ReferencePlan = reference_plan(oracle, baseline)
         # One plan per candidate: the single ``plan`` under the fixed policy, the whole set under best-of.
-        plans: tuple[ReferencePlan, ...] = tuple(reference_plan(oracle, kind, spec) for kind in kinds)
+        plans: tuple[ReferencePlan, ...] = tuple(reference_plan(oracle, kind) for kind in kinds)
         best_of = is_best_of(kinds)
         wants_seq_c_baseline = any(one.bl_is_seq_c for one in plans)
         # Why each candidate produced no denominator, so an all-failed set can say which and how.
@@ -2126,7 +2124,7 @@ def graded_score(
                     baselines["c"] = c_ns
                     baseline_samples["c"] = c_samples
 
-        # Own-build baselines (``*-autopar`` or the kernel's vendored source), timing only: time every
+        # Own-build baselines (``*-autopar``), timing only: time every
         # available compiler and keep the fastest; skip failures, fall back to numpy if none build.
         def time_own_build(one: ReferencePlan, cut_s: float = 0.0) -> None:
             """Time every candidate compiler of ``one``'s own build and keep the fastest sample set.
@@ -2152,7 +2150,6 @@ def graded_score(
                         language=lang,
                         mode=bl_mode,
                         compiler=compiler or None,
-                        baseline=label,
                         warmup=warmup,
                         rep_data=rep_data,
                     )
@@ -4017,7 +4014,7 @@ def score_cells(
     )
     # The compiled baseline (label, language, compiler, mode). The single-core C reference is also
     # built whenever a compiled baseline is requested, for the dual-oracle and fast C grading.
-    plan: ReferencePlan = reference_plan(oracle, baseline, spec)
+    plan: ReferencePlan = reference_plan(oracle, baseline)
 
     cand_context = submission_omp_context(submission)
 
@@ -4101,7 +4098,6 @@ def score_cells(
                         language=plan.bl_lang,
                         mode=plan.compiled[3],
                         compiler=(compiler or None),
-                        baseline=plan.bl_label,
                     )
                 except Exception:  # noqa: BLE001 -- this candidate is unavailable / won't build
                     built = BuildResult(False, None, "")

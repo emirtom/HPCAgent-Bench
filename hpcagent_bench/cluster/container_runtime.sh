@@ -222,7 +222,7 @@ derived_edf() {
                 # NOT the generated cache. emit_reference_source lowers the reference into the
                 # TARGET language, and materialize_shared.sh:13 is explicit that those lowerings
                 # reach no agent: "a kernel's copyable material is its numpy reference plus any
-                # vendored baseline". Mounting the cache here hands the agent a correct
+                # hand-written *_reference.*". Mounting the cache here hands the agent a correct
                 # implementation of the kernel it is being graded on writing.
                 ;;
             # The judge is the role that CALLS emit_reference_source to grade, so the generated

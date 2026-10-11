@@ -158,5 +158,4 @@ kind (`numpy`, `c`, `c-autopar`, `cpp-autopar`, `fortran-autopar`, `torch-autotu
 replaces the set. `*-autopar` builds the generated reference multi-core with Polly (clang) or
 `-ftree-parallelize-loops` (gfortran), flags from `flags.py`. A compiled baseline that cannot be
 emitted or built falls back to `numpy` and says so in `TaskScore.baseline`; a `torch-*` baseline
-never falls back. A kernel that vendors its own parallel reference uses it alone
-([benchmarks.md](benchmarks.md#vendored-native-baseline-optional)).
+never falls back.

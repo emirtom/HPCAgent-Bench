@@ -129,7 +129,7 @@ def test_an_own_build_baseline_is_re_timed_with_the_compiler_that_won(monkeypatc
         guillotine_s=0.0,
     )
     assert samples == [5, 6]
-    assert (seen[0]["compiler"], seen[0]["baseline"], seen[0]["mode"]) == ("clang", "c-autopar", Mode.MULTI_CORE)
+    assert (seen[0]["language"], seen[0]["compiler"], seen[0]["mode"]) == ("c", "clang", Mode.MULTI_CORE)
 
 
 def test_a_baseline_with_no_second_timer_is_refused_not_faked() -> None:

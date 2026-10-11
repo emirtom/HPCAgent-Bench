@@ -40,7 +40,7 @@ BENCH_DIR = (
 SPEC = BenchSpec.load("cp2k_grid_integrate")
 BINDING = binding_from_spec(SPEC)
 
-#: Thread counts the vendored OpenMP baseline must agree on. Tasks are independent and
+#: Thread counts the native OpenMP reference must agree on. Tasks are independent and
 #: write disjoint Hab slices, so the answer may not depend on how they are scheduled.
 THREAD_COUNTS = (1, 2, 4)
 
@@ -73,11 +73,11 @@ def manifest_working_set_bytes(benchmark: dict[str, Any], preset: str, names: Se
 
 @pytest.fixture(scope="session")
 def fortran_library() -> ctypes.CDLL:
-    """The vendored baseline built with OpenMP, as the harness builds it.
+    """The native reference built with OpenMP.
 
     One build serves both entry points in the module: the standalone core
     ``cp2k_grid_integrate_ref`` the cross-checks below call directly, and the canonical
-    C-ABI entry ``cp2k_grid_integrate_fp64`` the harness calls for the vendored baseline.
+    C-ABI entry ``cp2k_grid_integrate_fp64``.
     """
     compiler = shutil.which("gfortran")
     if compiler is None:
@@ -105,7 +105,7 @@ def fortran_reference(fortran_library: ctypes.CDLL) -> Callable[..., None]:
 
 
 def omp_controls(library: ctypes.CDLL) -> tuple[Callable[[int], None], Callable[[], int]]:
-    """``(omp_set_num_threads, omp_get_max_threads)`` resolved through the vendored library.
+    """``(omp_set_num_threads, omp_get_max_threads)`` resolved through the reference library.
 
     They resolve only when the source was compiled AND linked with ``-fopenmp``: without
     the flag every ``!$omp`` line is an inert comment and there is no OpenMP runtime to
@@ -144,7 +144,7 @@ def call_abi_entry(library: ctypes.CDLL, data: dict[str, Any]) -> None:
             argtypes.append(ctypes.c_int64)
             args.append(ctypes.c_int64(int(data[arg.name])))
     # Reserved scratch pair (ABI Sec. 11): the harness passes NULL/0 when no workspace is
-    # requested, so the vendored reference must accept it without dereferencing.
+    # requested, so the native reference must accept it without dereferencing.
     argtypes += [ctypes.c_void_p, ctypes.c_int64]
     args += [ctypes.c_void_p(0), ctypes.c_int64(0)]
     function.argtypes = argtypes
@@ -211,12 +211,7 @@ def test_manifest_size_parameters_scalars_and_xl_working_set() -> None:
     assert benchmark["config"]["seed"]["domain"] == [17, 23]
     assert all(parameters["npts"] >= 6 for parameters in benchmark["parameters"].values())  # initialize()'s floor
     assert benchmark["level"] == 3
-    assert benchmark["baseline"] == {
-        "kind": "vendored",
-        "source": "cp2k_grid_integrate_reference.f90",
-        "language": "fortran",
-        "mode": "multi_core",
-    }
+    assert "baseline" not in benchmark  # the Fortran reference is material, never the denominator
 
     symbols = dict(benchmark["parameters"]["S"], seed=17)
     args = [symbols[name] for name in init["input_args"]]
@@ -362,7 +357,7 @@ def test_numpy_matches_fortran_reference(
     assert_fp64_allclose(actual, expected)
 
 
-def test_vendored_baseline_is_really_compiled_with_openmp(fortran_library: ctypes.CDLL) -> None:
+def test_the_native_reference_is_really_compiled_with_openmp(fortran_library: ctypes.CDLL) -> None:
     """The upstream pragmas must be live code, not inert comments.
 
     A build that dropped ``-fopenmp`` still compiles and still passes every numerical

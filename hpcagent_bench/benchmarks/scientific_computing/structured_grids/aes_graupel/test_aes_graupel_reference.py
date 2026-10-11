@@ -310,7 +310,7 @@ def test_numba_matches_the_source_on_every_inout_and_out_field(
 
 
 def test_the_baseline_build_stays_inside_the_fp64_band() -> None:
-    """The flags the harness builds the vendored baseline with (native, contracted multiply-adds) differ from
+    """The flags the native reference is built with (native, contracted multiply-adds) differ from
     NumPy by rounding only, far inside the grading band, on the largest case."""
     with tempfile.TemporaryDirectory() as directory:
         baseline = build_baseline(Path(directory))

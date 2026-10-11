@@ -789,7 +789,6 @@ SIZE_CLASS_PHRASE = {
 REF_PHRASE = {
     "compiled": "the NumPy reference as its compiled Numba and C versions compute it",
     "torch": "the kernel's PyTorch model",
-    "vendored": "the kernel's own native reference implementation",
     "numba": "the parallel Numba reference (the NumPy reference compiled by @numba.njit(parallel=True))",
     "c": "the compiled C reference (NumpyToX-generated from the NumPy reference)",
     "torch-autotune-cpu": "the compiled PyTorch reference (this kernel's PyTorch model run through "

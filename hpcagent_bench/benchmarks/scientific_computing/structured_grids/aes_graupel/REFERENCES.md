@@ -9,7 +9,7 @@ per-column fused variant given for this benchmark: one loop over the columns of 
 the levels and then the sedimentation scan over the levels. The layout of that directory's own
 `mo_aes_graupel.f90` (two loops over the whole block) is not the task.
 
-`aes_graupel_reference.f90` is the vendored baseline: the four ICON files VERBATIM, in dependency order in one
+`aes_graupel_reference.f90` is the native reference: the four ICON files VERBATIM, in dependency order in one
 file between begin and end markers, with the sha256 of each recorded in the header, then the C ABI wrapper.
 The ICON text keeps its `!$ACC` directives and its commented-out loops, which compile to nothing here (no
 OpenACC). The wrapper runs `graupel_run` over blocks of 128 columns in parallel, as ICON calls it over its

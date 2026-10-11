@@ -82,13 +82,11 @@ def test_llr_races_c_and_numba_and_ml_times_torch_autotune_on_its_device() -> No
         assert grading.resolve_baseline_set("auto", ml) == ("numba",)
 
 
-def test_a_vendored_kernel_keeps_its_own_reference_alone() -> None:
-    """A kernel that ships an upstream-parallel source IS the strongest reference for itself;
-    racing it against a generated one would answer a different question."""
-    vendored = BenchSpec.load("cp2k_grid_integrate")
-    assert vendored.baseline is not None
-    assert grading.resolve_baseline_set("auto", vendored) == (grading.VENDORED_BASELINE,)
-    assert grading.baseline_policy(grading.resolve_baseline_set(None, vendored)) == grading.SINGLE_BASELINE_POLICY
+def test_a_kernel_with_a_hand_written_reference_races_its_tracks_set() -> None:
+    """A committed ``*_reference.f90`` is material for the agent, never the denominator: the kernel is graded
+    against the best of its track's compiled references like every other."""
+    spec = BenchSpec.load("cp2k_grid_integrate")
+    assert grading.resolve_baseline_set("auto", spec) == grading.track_baseline_set(spec.track)
 
 
 def test_a_best_of_set_may_only_hold_kinds_timeable_in_the_candidates_bracket(monkeypatch) -> None:

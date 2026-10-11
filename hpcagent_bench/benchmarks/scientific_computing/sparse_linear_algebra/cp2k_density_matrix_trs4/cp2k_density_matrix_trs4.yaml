@@ -110,11 +110,6 @@ output_args:
 - state
 chain_length:
   gamma_values: n_iter
-baseline:
-  kind: vendored
-  source: cp2k_density_matrix_trs4_reference.f90
-  language: fortran
-  mode: multi_core
 fuzz:
   constraints:
   - n_block_rows >= 4

@@ -75,7 +75,7 @@ def test_one_folder_per_kernel_carries_the_reference_material(tmp_path: pathlib.
     materialize(repo, shared, problems_file(tmp_path / "problems.jsonl", [KERNEL]))
     task_dir = shared / "tasks/argmax_value"
     assert (task_dir / "argmax_value_numpy.py").is_file()
-    assert (task_dir / "argmax_value_reference.cpp").is_file()  # vendored baseline, where one ships
+    assert (task_dir / "argmax_value_reference.cpp").is_file()  # hand-written reference, where one ships
     assert not (task_dir / "argmax_value.yaml").exists()  # the manifest is the judge's, not the agent's
 
 

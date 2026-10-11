@@ -5,8 +5,7 @@
 The value is configured per track in one place (``measurement.denominator.<track>``), recorded on
 every grade (``grades.denominator``), and a grade is credited only when its denominator is the one
 configured for its kernel (:func:`for_kernel`): two denominators are two definitions of S_i and are
-never pooled. A kernel that ships its own reference is graded against it whatever the track says
-(:data:`Denominator.VENDORED`).
+never pooled.
 
 Earlier builds stamped ``baseline_policy`` with versioned names (``single-v1:<kind>``,
 ``best-of-v1/v2/v3:<kinds>``); :func:`of_grade` reads one of those, with the references a grade raced,
@@ -45,6 +44,8 @@ class Denominator(enum.Enum):
     NUMBA = "numba"
     C = "c"
     C_AUTOPAR = "c-autopar"
+    #: What grades of the three kernels that once shipped their own native reference recorded; no kernel is
+    #: credited under it, so those grades are owed a regrade under their track's denominator.
     VENDORED = "vendored"
     BEST_OF_NUMBA_C = "best-of(numba,c)"
     BEST_OF_NUMBA_C_AUTOPAR = "best-of(numba,c,c-autopar)"
@@ -93,13 +94,12 @@ def configured(track: str | None) -> Denominator:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def for_kernel(kernel: str) -> Denominator:
-    """The denominator a grade of ``kernel`` is credited under: its own shipped reference, else its
-    track's (:func:`configured`). Cached; a kernel no manifest describes takes the fallback."""
+    """The denominator a grade of ``kernel`` is credited under: its track's (:func:`configured`). Cached; a kernel no manifest describes takes the fallback."""
     try:
         spec = BenchSpec.load(kernel)
     except Exception:  # noqa: BLE001 -- a retired / renamed kernel is on no track
         return configured(None)
-    return Denominator.VENDORED if spec.baseline is not None else configured(spec.track)
+    return configured(spec.track)
 
 
 def credited(stamp: object, recorded: object, kernel: str) -> bool:

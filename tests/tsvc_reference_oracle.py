@@ -26,7 +26,8 @@ import numpy as np
 from hpcagent_bench import languages, paths
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.spec import BenchSpec, Mode, load_spec
+from hpcagent_bench.flags import Mode
+from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.support.bindings.contract import Binding, binding_from_spec
 from tests.fresh_module import module_at
 

@@ -240,8 +240,7 @@ of `hpcagent_bench/harness/denominator.py`: `numba`, `c`, `c-autopar`, `best-of(
 time); `machine_learning` is `torch-autotune` (`torch.compile` max-autotune on the kernel's device,
 recorded as the grade's device kind `torch-autotune-cpu` / `torch-autotune-gpu`). Where one kind is
 asked for (a sweep cell) it is the head of the configured references (`c` for `best-of(numba,c)`),
-A kernel that ships its own reference is graded
-against it (`vendored`). A grade is credited only under its kernel's configured denominator; two are
+A grade is credited only under its kernel's configured denominator; two are
 never pooled. A best-of race times every reference in one grading call and the fastest wins; a lost
 `c` / `c-autopar` (no build, crash, flat timeout) is a `score_error`, never a grade over the
 survivors, while a lost numba is disclosed and the grade stands on the rest.
