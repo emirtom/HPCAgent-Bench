@@ -17,10 +17,5 @@ parameters:
   # [lo + (hi - lo) // 2, hi] is exactly [15, 18].
   fuzzed:
     N: [12, 18]
-init:
-  arrays:
-    count:
-      shape: (1,)
-      dtype: int64
-output_args:
-- count
+args:
+  count: {shape: "(1,)", dtype: int64, out: true}

@@ -19,20 +19,9 @@ parameters:
     batch_size: 44279
     in_features: 5534
     out_features: 5534
-init:
-  arrays:
-    x:
-      shape: (batch_size, in_features)
-      domain: [-1.0, 1.0]
-    matmul_weight:
-      shape: (out_features, in_features)
-      domain: [-0.01344, 0.01344]
-    matmul_bias:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    add_value:
-      shape: (out_features,)
-      domain: [-1.0, 1.0]
-    out: (batch_size, out_features)
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, in_features)", domain: [-1.0, 1.0]}
+  matmul_weight: {shape: "(out_features, in_features)", domain: [-0.01344, 0.01344]}
+  matmul_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  add_value: {shape: "(out_features,)", domain: [-1.0, 1.0]}
+  out: {shape: "(batch_size, out_features)", out: true}

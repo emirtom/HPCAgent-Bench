@@ -32,35 +32,11 @@ parameters:
     NLEV: {set: [16, 90, 512, 4096]}
     NPROMA: {derive: "columns * 90 // NLEV"}
     nsteps: 1
-init:
-  input_args:
-  - NLEV
-  - NPROMA
-  output_args:
-  - x
-  - decay
-  - s0
-  - s
-  - y
-  arrays:
-    x:
-      shape: (NPROMA, NLEV)
-    decay:
-      shape: (NPROMA, NLEV)
-    s0:
-      shape: (NPROMA,)
-    s:
-      shape: (NPROMA, NLEV)
-    y:
-      shape: (NPROMA, NLEV)
-array_args:
-- x
-- decay
-- s0
-- s
-- y
-output_args:
-- s
-- y
+args:
+  x: (NPROMA, NLEV)
+  decay: (NPROMA, NLEV)
+  s0: (NPROMA,)
+  s: {shape: "(NPROMA, NLEV)", out: true}
+  y: {shape: "(NPROMA, NLEV)", out: true}
 chain_length:
   s: NLEV * nsteps

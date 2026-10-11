@@ -16,33 +16,12 @@ parameters:
   XL:
     M: 20722
     N: 25905
-init:
-  input_args:
-  - M
-  - N
-  output_args:
-  - x
-  - A
-  - out
-  arrays:
-    x:
-      shape: (N,)
-    A:
-      shape: (M, N)
-    out:
-      shape: (N,)
-array_args:
-- A
-- x
-- out
-output_args:
-- out
+args:
+  x: (N,)
+  A: {shape: "(M, N)", partitioned: true}
+  out: {shape: "(N,)", out: true}
 mpi:
   decomposition:
     axis:
     - M
     work_exponent: 1
-  arrays:
-    A:
-    - M
-    - N

@@ -18,10 +18,7 @@ config:
     selects: branch
 constraints:
 - K >= 1
-init:
-  arrays:
-    a: (LEN_1D,)
-    b: (LEN_1D,)
-    c: (LEN_1D,)
-output_args:
-- a
+args:
+  a: {shape: "(LEN_1D,)", out: true}
+  b: (LEN_1D,)
+  c: (LEN_1D,)

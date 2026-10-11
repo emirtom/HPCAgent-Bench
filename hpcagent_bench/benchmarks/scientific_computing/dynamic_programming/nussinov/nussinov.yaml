@@ -17,26 +17,8 @@ parameters:
     N: 3500
   XL:
     N: 4200
-init:
-  input_args:
-  - N
-  output_args:
-  - seq
-  - table
-  - complement_sum
-  - pair_bonus
-  scalars:
-    complement_sum: 3
-    pair_bonus: 1
-  arrays:
-    seq:
-      shape: (N,)
-      dtype: int32
-    table:
-      shape: (N, N)
-      dtype: int32
-array_args:
-- seq
-- table
-output_args:
-- table
+args:
+  seq: {shape: "(N,)", dtype: int32}
+  table: {shape: "(N, N)", dtype: int32, out: true}
+  complement_sum: 3
+  pair_bonus: 1

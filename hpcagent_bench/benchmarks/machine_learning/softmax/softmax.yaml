@@ -19,21 +19,6 @@ parameters:
     N: 11
     H: 11
     SM: 1466
-init:
-  input_args:
-  - N
-  - H
-  - SM
-  output_args:
-  - x
-  - out
-  arrays:
-    x:
-      shape: (N, H, SM, SM)
-    out:
-      shape: (N, H, SM, SM)
-array_args:
-- x
-- out
-output_args:
-- out
+args:
+  x: (N, H, SM, SM)
+  out: {shape: "(N, H, SM, SM)", out: true}

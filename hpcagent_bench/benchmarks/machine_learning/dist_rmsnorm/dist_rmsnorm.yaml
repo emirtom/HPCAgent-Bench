@@ -27,43 +27,17 @@ parameters:
   fuzzed:
     num_tokens: [8, 64]
     hidden_size: [64, 512]
-init:
-  input_args:
-  - num_tokens
-  - hidden_size
-  output_args:
-  - x
-  - rms_weight
-  - out
-  arrays:
-    x:
-      shape: (num_tokens, hidden_size)
-      dtype: bf16
-    rms_weight:
-      shape: (hidden_size,)
-      dtype: bf16
-    out:
-      shape: (num_tokens, hidden_size)
-      dtype: bf16
-  scalars:
-    rms_eps: 1.0e-06
-output_args:
-- out
+args:
+  x: {shape: "(num_tokens, hidden_size)", dtype: bf16, partitioned: true}
+  rms_weight: {shape: "(hidden_size,)", dtype: bf16, partitioned: true}
+  out: {shape: "(num_tokens, hidden_size)", dtype: bf16, out: true, partitioned: true}
+  rms_eps: {value: 1.0e-06, returned: false}
 mpi:
   decomposition:
     axis:
     - hidden_size
     work_exponent: 1
     collective: allreduce(sum) of each token's partial sum of squares
-  arrays:
-    x:
-    - num_tokens
-    - hidden_size
-    rms_weight:
-    - hidden_size
-    out:
-    - num_tokens
-    - hidden_size
   split:
     x: hidden_size
     rms_weight: hidden_size

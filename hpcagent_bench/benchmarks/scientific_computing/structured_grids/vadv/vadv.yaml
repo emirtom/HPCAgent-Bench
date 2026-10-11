@@ -26,44 +26,15 @@ parameters:
 config:
 - {bet_m: 0.5, bet_p: 0.5}
 - {bet_m: 0.4, bet_p: 0.6}
-init:
-  input_args:
-  - I
-  - J
-  - K
-  scalars:
-    dtr_stage: 1.0
-  arrays:
-    utens_stage: (I, J, K)
-    u_stage: (I, J, K)
-    wcon: (I + 1, J, K)
-    u_pos: (I, J, K)
-    utens: (I, J, K)
-output_args:
-- utens_stage
+args:
+  utens_stage: {shape: "(I, J, K)", out: true, partitioned: true}
+  u_stage: {shape: "(I, J, K)", partitioned: true}
+  wcon: {shape: "(I + 1, J, K)", partitioned: true}
+  u_pos: {shape: "(I, J, K)", partitioned: true}
+  utens: {shape: "(I, J, K)", partitioned: true}
+  dtr_stage: 1.0
 mpi:
   decomposition:
     axis:
     - J
     work_exponent: 1
-  arrays:
-    utens_stage:
-    - I
-    - J
-    - K
-    u_stage:
-    - I
-    - J
-    - K
-    wcon:
-    - I + 1
-    - J
-    - K
-    u_pos:
-    - I
-    - J
-    - K
-    utens:
-    - I
-    - J
-    - K

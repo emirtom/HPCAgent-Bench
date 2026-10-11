@@ -12,14 +12,7 @@ parameters:
     LEN_1D: 306166067
   XL:
     LEN_1D: 520764782
-init:
-  arrays:
-    a: (LEN_1D,)
-    out_value: (1,)
-    out_index:
-      shape: (1,)
-      dtype: int64
-      index_array: true
-output_args:
-- out_value
-- out_index
+args:
+  a: (LEN_1D,)
+  out_value: {shape: "(1,)", out: true}
+  out_index: {shape: "(1,)", dtype: int64, index_array: true, out: true}

@@ -31,29 +31,11 @@ parameters:
     NLEV: {set: [16, 90, 512, 4096]}
     NPROMA: {derive: "columns * 90 // NLEV"}
     nsteps: 2
-init:
-  arrays:
-    x:
-      shape: (NLEV, NPROMA)
-      domain: [0.0, 1.0]
-    t:
-      shape: (NLEV, NPROMA)
-      domain: [0.0, 1.0]
-    s0:
-      shape: (NPROMA,)
-      domain: [0.0, 1.0]
-    s:
-      shape: (NLEV, NPROMA)
-    y:
-      shape: (NLEV, NPROMA)
-array_args:
-- x
-- t
-- s0
-- s
-- y
-output_args:
-- s
-- y
+args:
+  x: {shape: "(NLEV, NPROMA)", domain: [0.0, 1.0]}
+  t: {shape: "(NLEV, NPROMA)", domain: [0.0, 1.0]}
+  s0: {shape: "(NPROMA,)", domain: [0.0, 1.0]}
+  s: {shape: "(NLEV, NPROMA)", out: true}
+  y: {shape: "(NLEV, NPROMA)", out: true}
 chain_length:
   s: NLEV * nsteps

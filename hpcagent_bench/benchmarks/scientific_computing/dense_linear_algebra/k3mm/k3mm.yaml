@@ -28,47 +28,14 @@ parameters:
     NK: 8021
     NL: 8257
     NM: 8493
-init:
-  input_args:
-  - NI
-  - NJ
-  - NK
-  - NL
-  - NM
-  output_args:
-  - A
-  - B
-  - C
-  - D
-  - out
-  arrays:
-    A:
-      shape: (NI, NK)
-    B:
-      shape: (NK, NJ)
-    C:
-      shape: (NJ, NM)
-    D:
-      shape: (NM, NL)
-    out:
-      shape: (NI, NL)
-array_args:
-- A
-- B
-- C
-- D
-- out
-output_args:
-- out
+args:
+  A: {shape: "(NI, NK)", partitioned: true}
+  B: (NK, NJ)
+  C: (NJ, NM)
+  D: (NM, NL)
+  out: {shape: "(NI, NL)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - NI
     work_exponent: 1
-  arrays:
-    A:
-    - NI
-    - NK
-    out:
-    - NI
-    - NL

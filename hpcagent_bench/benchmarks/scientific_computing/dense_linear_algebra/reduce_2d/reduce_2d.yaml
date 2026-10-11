@@ -20,20 +20,6 @@ parameters:
   paper:
     N: 16384
     M: 16384
-init:
-  input_args:
-  - N
-  - M
-  output_args:
-  - matrix
-  - out
-  arrays:
-    matrix:
-      shape: (N, M)
-    out:
-      shape: (N,)
-array_args:
-- matrix
-- out
-output_args:
-- out
+args:
+  matrix: (N, M)
+  out: {shape: "(N,)", out: true}

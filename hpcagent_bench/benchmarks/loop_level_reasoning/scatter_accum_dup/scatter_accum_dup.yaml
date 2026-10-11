@@ -12,15 +12,7 @@ parameters:
     LEN_1D: 68210830
   XL:
     LEN_1D: 89475334
-init:
-  input_args:
-  - LEN_1D
-  arrays:
-    bins: (LEN_1D,)
-    src: (LEN_1D,)
-    ip:
-      shape: (LEN_1D,)
-      dtype: int32
-      index_array: true
-output_args:
-- bins
+args:
+  bins: {shape: "(LEN_1D,)", out: true}
+  src: (LEN_1D,)
+  ip: {shape: "(LEN_1D,)", dtype: int32, index_array: true}

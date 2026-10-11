@@ -62,7 +62,7 @@ parameters:
   fuzzed:
     numElem: {construct: "edge**3", edge: {set: [2, 4, 8, 16, 32, 64, 100]}}
     nsteps: 20
-init:
+args:
   # x/y/z (node coordinates) are built in initialize() via a meshgrid +
   # reshape(-1), which the shape-harvest can't infer -- declare them so they are
   # NODE arrays (numNode), not element arrays. Without this the position update
@@ -93,231 +93,49 @@ init:
   # Declaring them ``(numNode,)`` was not a harmless upper bound: it is the
   # loop extent the scatter ``xdd[symmX[k]] = 0`` is emitted with, so the
   # native backends read edgeNodes**3 - edgeNodes**2 entries past the end.
-  arrays:
-    x: "(numNode,)"
-    y: "(numNode,)"
-    z: "(numNode,)"
-    xd: "(numNode,)"
-    yd: "(numNode,)"
-    zd: "(numNode,)"
-    xdd: "(numNode,)"
-    ydd: "(numNode,)"
-    zdd: "(numNode,)"
-    fx: "(numNode,)"
-    fy: "(numNode,)"
-    fz: "(numNode,)"
-    nodalMass: "(numNode,)"
-    symmX: {shape: "(numSymm,)", dtype: int64, index_array: true}
-    symmY: {shape: "(numSymm,)", dtype: int64, index_array: true}
-    symmZ: {shape: "(numSymm,)", dtype: int64, index_array: true}
-    arealg: "(numElem,)"
-    delv: "(numElem,)"
-    delv_eta: "(numElem,)"
-    delv_xi: "(numElem,)"
-    delv_zeta: "(numElem,)"
-    delx_eta: "(numElem,)"
-    delx_xi: "(numElem,)"
-    delx_zeta: "(numElem,)"
-    dxx: "(numElem,)"
-    dyy: "(numElem,)"
-    dzz: "(numElem,)"
-    e: "(numElem,)"
-    elemBC: {shape: "(numElem,)", dtype: int64}
-    elemMass: "(numElem,)"
-    letam: {shape: "(numElem,)", dtype: int64}
-    letap: {shape: "(numElem,)", dtype: int64}
-    lxim: {shape: "(numElem,)", dtype: int64}
-    lxip: {shape: "(numElem,)", dtype: int64}
-    lzetam: {shape: "(numElem,)", dtype: int64}
-    lzetap: {shape: "(numElem,)", dtype: int64}
-    p: "(numElem,)"
-    q: "(numElem,)"
-    ql: "(numElem,)"
-    qq: "(numElem,)"
-    ss: "(numElem,)"
-    v: "(numElem,)"
-    vdov: "(numElem,)"
-    vnew: "(numElem,)"
-    volo: "(numElem,)"
-    nodelist: {shape: "(numElem, 8)", dtype: int64, index_array: true}
-  input_args:
-  - numElem
-  - nsteps
-  output_args:
-  - e
-  - p
-  - q
-  - ql
-  - qq
-  - v
-  - volo
-  - vnew
-  - delv
-  - vdov
-  - arealg
-  - ss
-  - elemMass
-  - dxx
-  - dyy
-  - dzz
-  - delv_xi
-  - delv_eta
-  - delv_zeta
-  - delx_xi
-  - delx_eta
-  - delx_zeta
-  - lxim
-  - lxip
-  - letam
-  - letap
-  - lzetam
-  - lzetap
-  - elemBC
-  - x
-  - y
-  - z
-  - xd
-  - yd
-  - zd
-  - xdd
-  - ydd
-  - zdd
-  - fx
-  - fy
-  - fz
-  - nodalMass
-  - symmX
-  - symmY
-  - symmZ
-  - nodelist
-input_args:
-- e
-- p
-- q
-- ql
-- qq
-- v
-- volo
-- vnew
-- delv
-- vdov
-- arealg
-- ss
-- elemMass
-- dxx
-- dyy
-- dzz
-- delv_xi
-- delv_eta
-- delv_zeta
-- delx_xi
-- delx_eta
-- delx_zeta
-- lxim
-- lxip
-- letam
-- letap
-- lzetam
-- lzetap
-- elemBC
-- x
-- y
-- z
-- xd
-- yd
-- zd
-- xdd
-- ydd
-- zdd
-- fx
-- fy
-- fz
-- nodalMass
-- symmX
-- symmY
-- symmZ
-- nodelist
-- numElem
-- numNode
-- numSymm
-- nsteps
-array_args:
-- e
-- p
-- q
-- ql
-- qq
-- v
-- volo
-- vnew
-- delv
-- vdov
-- arealg
-- ss
-- elemMass
-- dxx
-- dyy
-- dzz
-- delv_xi
-- delv_eta
-- delv_zeta
-- delx_xi
-- delx_eta
-- delx_zeta
-- lxim
-- lxip
-- letam
-- letap
-- lzetam
-- lzetap
-- elemBC
-- x
-- y
-- z
-- xd
-- yd
-- zd
-- xdd
-- ydd
-- zdd
-- fx
-- fy
-- fz
-- nodalMass
-- symmX
-- symmY
-- symmZ
-- nodelist
-output_args:
-- e
-- p
-- q
-- ql
-- qq
-- v
-- vnew
-- delv
-- vdov
-- arealg
-- ss
-- dxx
-- dyy
-- dzz
-- delv_xi
-- delv_eta
-- delv_zeta
-- delx_xi
-- delx_eta
-- delx_zeta
-- x
-- y
-- z
-- xd
-- yd
-- zd
-- xdd
-- ydd
-- zdd
-- fx
-- fy
-- fz
+  e: {shape: "(numElem,)", out: true}
+  p: {shape: "(numElem,)", out: true}
+  q: {shape: "(numElem,)", out: true}
+  ql: {shape: "(numElem,)", out: true}
+  qq: {shape: "(numElem,)", out: true}
+  v: {shape: "(numElem,)", out: true}
+  volo: "(numElem,)"
+  vnew: {shape: "(numElem,)", out: true}
+  delv: {shape: "(numElem,)", out: true}
+  vdov: {shape: "(numElem,)", out: true}
+  arealg: {shape: "(numElem,)", out: true}
+  ss: {shape: "(numElem,)", out: true}
+  elemMass: "(numElem,)"
+  dxx: {shape: "(numElem,)", out: true}
+  dyy: {shape: "(numElem,)", out: true}
+  dzz: {shape: "(numElem,)", out: true}
+  delv_xi: {shape: "(numElem,)", out: true}
+  delv_eta: {shape: "(numElem,)", out: true}
+  delv_zeta: {shape: "(numElem,)", out: true}
+  delx_xi: {shape: "(numElem,)", out: true}
+  delx_eta: {shape: "(numElem,)", out: true}
+  delx_zeta: {shape: "(numElem,)", out: true}
+  lxim: {shape: "(numElem,)", dtype: int64}
+  lxip: {shape: "(numElem,)", dtype: int64}
+  letam: {shape: "(numElem,)", dtype: int64}
+  letap: {shape: "(numElem,)", dtype: int64}
+  lzetam: {shape: "(numElem,)", dtype: int64}
+  lzetap: {shape: "(numElem,)", dtype: int64}
+  elemBC: {shape: "(numElem,)", dtype: int64}
+  x: {shape: "(numNode,)", out: true}
+  y: {shape: "(numNode,)", out: true}
+  z: {shape: "(numNode,)", out: true}
+  xd: {shape: "(numNode,)", out: true}
+  yd: {shape: "(numNode,)", out: true}
+  zd: {shape: "(numNode,)", out: true}
+  xdd: {shape: "(numNode,)", out: true}
+  ydd: {shape: "(numNode,)", out: true}
+  zdd: {shape: "(numNode,)", out: true}
+  fx: {shape: "(numNode,)", out: true}
+  fy: {shape: "(numNode,)", out: true}
+  fz: {shape: "(numNode,)", out: true}
+  nodalMass: "(numNode,)"
+  symmX: {shape: "(numSymm,)", dtype: int64, index_array: true}
+  symmY: {shape: "(numSymm,)", dtype: int64, index_array: true}
+  symmZ: {shape: "(numSymm,)", dtype: int64, index_array: true}
+  nodelist: {shape: "(numElem, 8)", dtype: int64, index_array: true}

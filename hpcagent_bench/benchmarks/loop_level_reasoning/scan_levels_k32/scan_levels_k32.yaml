@@ -25,22 +25,9 @@ parameters:
     NLEV: 256
     NPROMA: 2034237
     nsteps: 13
-init:
-  arrays:
-    a:
-      shape: (NLEV, NPROMA)
-      domain: [0.0, 1.0]
-    c:
-      shape: (NLEV, NPROMA)
-      domain: [0.2, 0.9]
-    x:
-      shape: (NLEV, NPROMA)
-      domain: [0.0, 1.0]
-array_args:
-- a
-- c
-- x
-output_args:
-- a
+args:
+  a: {shape: "(NLEV, NPROMA)", domain: [0.0, 1.0], out: true}
+  c: {shape: "(NLEV, NPROMA)", domain: [0.2, 0.9]}
+  x: {shape: "(NLEV, NPROMA)", domain: [0.0, 1.0]}
 chain_length:
   a: NLEV * nsteps

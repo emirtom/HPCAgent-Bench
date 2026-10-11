@@ -39,46 +39,11 @@ config:
   horizon:
     value: 2.0
     selects: tolerance
-init:
-  input_args:
-  - XN
-  - YN
-  output_args:
-  - Z_out
-  - N_out
-  arrays:
-    Z_out:
-      shape: (YN, XN)
-      dtype: complex128
-    N_out:
-      shape: (YN, XN)
-      dtype: int64
-input_args:
-- xmin
-- xmax
-- ymin
-- ymax
-- XN
-- YN
-- maxiter
-- horizon
-- Z_out
-- N_out
-array_args:
-- Z_out
-- N_out
-output_args:
-- Z_out
-- N_out
+args:
+  Z_out: {shape: "(YN, XN)", dtype: complex128, out: true, partitioned: true}
+  N_out: {shape: "(YN, XN)", dtype: int64, out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - YN
     work_exponent: 1
-  arrays:
-    Z_out:
-    - YN
-    - XN
-    N_out:
-    - YN
-    - XN

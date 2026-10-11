@@ -29,34 +29,11 @@ config:
   nbins:
     domain: [256, 4096]
     selects: physical
-init:
-  input_args:
-  - H
-  - W
-  - nbins
-  output_args:
-  - img
-  - out
-  arrays:
-    img:
-      shape: (H, W)
-      dtype: uint16
-    out:
-      shape: (H, W)
-array_args:
-- img
-- out
-output_args:
-- out
+args:
+  img: {shape: "(H, W)", dtype: uint16, partitioned: true}
+  out: {shape: "(H, W)", out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - H
     work_exponent: 1
-  arrays:
-    img:
-    - H
-    - W
-    out:
-    - H
-    - W

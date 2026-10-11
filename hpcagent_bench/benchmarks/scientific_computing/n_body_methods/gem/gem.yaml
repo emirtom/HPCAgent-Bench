@@ -30,24 +30,8 @@ parameters:
     natoms: 24000
     kappa: 0.1
     diel: 80.0
-init:
-  input_args:
-  - npoints
-  - natoms
-  output_args:
-  - pos
-  - apos
-  - charge
-  - phi
-  arrays:
-    pos: "(npoints, 3)"
-    apos: "(natoms, 3)"
-    charge: "(natoms,)"
-    phi: "(npoints,)"
-array_args:
-- pos
-- apos
-- charge
-- phi
-output_args:
-- phi
+args:
+  pos: "(npoints, 3)"
+  apos: "(natoms, 3)"
+  charge: "(natoms,)"
+  phi: {shape: "(npoints,)", out: true}

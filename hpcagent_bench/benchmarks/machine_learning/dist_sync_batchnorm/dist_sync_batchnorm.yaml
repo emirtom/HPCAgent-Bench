@@ -38,51 +38,18 @@ parameters:
     channels: [8, 64]
     height: [4, 16]
     width: [4, 16]
-init:
-  input_args:
-  - batch_size
-  - channels
-  - height
-  - width
-  output_args:
-  - x
-  - bn_weight
-  - bn_bias
-  - out
-  arrays:
-    x:
-      shape: (batch_size, channels, height, width)
-      dtype: bf16
-    bn_weight:
-      shape: (channels,)
-      dtype: bf16
-    bn_bias:
-      shape: (channels,)
-      dtype: bf16
-    out:
-      shape: (batch_size, channels, height, width)
-      dtype: bf16
-  scalars:
-    bn_eps: 1.0e-05
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, channels, height, width)", dtype: bf16, partitioned: true}
+  bn_weight: {shape: "(channels,)", dtype: bf16}
+  bn_bias: {shape: "(channels,)", dtype: bf16}
+  out: {shape: "(batch_size, channels, height, width)", dtype: bf16, out: true, partitioned: true}
+  bn_eps: {value: 1.0e-05, returned: false}
 mpi:
   decomposition:
     axis:
     - batch_size
     work_exponent: 1
     collective: allreduce(sum) of per-channel partial sums, then of per-channel centred sums of squares
-  arrays:
-    x:
-    - batch_size
-    - channels
-    - height
-    - width
-    out:
-    - batch_size
-    - channels
-    - height
-    - width
   split:
     x: batch_size
     bn_weight: null

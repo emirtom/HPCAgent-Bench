@@ -11,26 +11,8 @@ parameters:
     N: 8937
   XL:
     N: 22819
-init:
-  input_args:
-  - N
-  output_args:
-  - trans
-  - rank
-  - damping
-  - max_iterations
-  arrays:
-    trans:
-      shape: (N, N)
-      dtype: float64
-    rank:
-      shape: (N,)
-      dtype: float64
-  scalars:
-    damping: 0.85
-    max_iterations: 100
-array_args:
-- trans
-- rank
-output_args:
-- rank
+args:
+  trans: {shape: "(N, N)", dtype: float64}
+  rank: {shape: "(N,)", dtype: float64, out: true}
+  damping: 0.85
+  max_iterations: 100

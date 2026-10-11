@@ -27,28 +27,12 @@ constraints:
 # GroupNorm reshapes the channels into num_groups equal groups; a rung or fuzzed draw that does not
 # divide makes the reference raise.
 - out_features % num_groups == 0
-init:
-  arrays:
-    x:
-      shape: (batch_size, in_features)
-      domain: [-1.0, 1.0]
-    matmul_weight:
-      shape: (out_features, in_features)
-      domain: [-0.01344, 0.01344]
-    matmul_bias:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    bias:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    group_norm_weight:
-      shape: (out_features,)
-      domain: [0.5, 1.5]
-    group_norm_bias:
-      shape: (out_features,)
-      domain: [-0.1, 0.1]
-    out: (batch_size, out_features)
-  scalars:
-    group_norm_eps: 1.0e-05
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, in_features)", domain: [-1.0, 1.0]}
+  matmul_weight: {shape: "(out_features, in_features)", domain: [-0.01344, 0.01344]}
+  matmul_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  group_norm_weight: {shape: "(out_features,)", domain: [0.5, 1.5]}
+  group_norm_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
+  out: {shape: "(batch_size, out_features)", out: true}
+  group_norm_eps: 1.0e-05

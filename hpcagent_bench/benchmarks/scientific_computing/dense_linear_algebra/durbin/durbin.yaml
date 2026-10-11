@@ -12,11 +12,6 @@ parameters:
     N: 126491
   XL:
     N: 400000
-init:
-  input_args:
-  - N
-  arrays:
-    r: (N,)
-    y: (N,)
-output_args:
-- y
+args:
+  r: (N,)
+  y: {shape: "(N,)", out: true}

@@ -156,9 +156,9 @@ A manifest can bind a knob in three places, and they are not interchangeable:
 * `parameters:` -- a size preset. Visible to initialization, varies per preset.
 * `config:` -- a pinned compile-time constant. Visible to initialization, folded into the emitted
   program as a module constant and dropped from the ABI on both sides.
-* `init.scalars` -- a runtime scalar argument. Bound when the kernel is CALLED.
+* a scalar value in `args` -- a runtime scalar argument. Bound when the kernel is CALLED.
 
-**A shape expression resolves names from `parameters:` and `config:` ONLY.** `init.scalars` is bound
+**A shape expression resolves names from `parameters:` and `config:` ONLY.** A scalar value is bound
 after the arrays a call takes have already been built, so a shape that reads one raises at
 initialization:
 
@@ -455,7 +455,7 @@ superseded here in the same way Sec. 3's vocabulary list is.
 ## Two places the docs and the corpus disagree
 
 Trust the neighbours. Shape unpacking (`n, c_in, h, w = x.shape`) lowers on every native backend
-despite CONTRIBUTOR_GUIDE Sec. 2 listing tuple-unpack as unsupported. Manifest `init.scalars`
+despite CONTRIBUTOR_GUIDE Sec. 2 listing tuple-unpack as unsupported. Manifest scalar values
 declared as plain YAML ints arrive as Python ints, so the defensive `int(conv_stride)` casts a
 mechanical torch port sprays everywhere can go. When a rule and a passing kernel disagree, check what
 the kernels beside yours actually do before you write either one down as fact.
@@ -592,31 +592,26 @@ If the port needs a manifest change, that is a finding to report, not an edit to
 
 ```yaml
 name: batch_norm
-kind: microkernel
 level: 1
 parameters:
   S: {batch_size: 4, features: 4, dim1: 4, dim2: 5}
-init:
-  arrays:
-    x: (batch_size, features, dim1, dim2)
-    bn_running_var:
-      shape: (batch_size,)
-      dist: lognormal   # a variance must be positive -- the default fill would give negatives
-    out: (batch_size, features, dim1, dim2)
-  scalars:
-    bn_eps: 1.0e-05
-output_args: [out]
-taxonomy: {track: machine_learning, subtrack: kernelbench, domain: Learning}
+args:
+  x: (batch_size, features, dim1, dim2)
+  bn_running_var:
+    shape: (batch_size,)
+    dist: lognormal   # a variance must be positive -- the default fill would give negatives
+  out: {shape: "(batch_size, features, dim1, dim2)", out: true}
+  bn_eps: 1.0e-05
 ```
 
 Two that are easy to get wrong: `dist:` exists because the default fill is not legal for every array
 (a variance, a denominator, an index); and `allowed_precisions: [fp64]` belongs on any kernel whose result
 is chaotic, so the fp32 sweep does not report drift as a defect.
 
-Argument order is the manifest's `init.arrays` + `init.scalars`, output last and named in
-`output_args`. The kernel mutates the output and returns nothing -- a returning form needs
-tuple-unpack the pipeline does not have. Helper `def`s above the entry point are fine and get
-inlined, but they are a source-level convenience: the emitted C is one flat function.
+Argument order is the order of `args`, output last and marked `out: true`. The kernel mutates the output
+and returns nothing -- a returning form needs tuple-unpack the pipeline does not have. Helper `def`s
+above the entry point are fine and get inlined, but they are a source-level convenience: the emitted C
+is one flat function.
 
 ## Working beside other agents
 

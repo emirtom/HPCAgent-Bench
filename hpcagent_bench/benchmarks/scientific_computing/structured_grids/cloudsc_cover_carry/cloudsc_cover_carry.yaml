@@ -28,45 +28,12 @@ parameters:
     KLEV: 137
     KLON: 1425451
     nsteps: 4
-init:
-  input_args:
-  - KLEV
-  - KLON
-  output_args:
-  - za
-  - zaorig
-  - zsolac
-  - pmfu
-  - pmfd
-  - zdtgdp
-  - zanew
-  - zda
-  arrays:
-    za:
-      shape: (KLEV, KLON)
-    zaorig:
-      shape: (KLEV, KLON)
-    zsolac:
-      shape: (KLEV, KLON)
-    pmfu:
-      shape: (KLEV, KLON)
-    pmfd:
-      shape: (KLEV, KLON)
-    zdtgdp:
-      shape: (KLEV, KLON)
-    zanew:
-      shape: (KLEV, KLON)
-    zda:
-      shape: (KLEV, KLON)
-array_args:
-- za
-- zaorig
-- zsolac
-- pmfu
-- pmfd
-- zdtgdp
-- zanew
-- zda
-output_args:
-- zanew
-- zda
+args:
+  za: (KLEV, KLON)
+  zaorig: (KLEV, KLON)
+  zsolac: (KLEV, KLON)
+  pmfu: (KLEV, KLON)
+  pmfd: (KLEV, KLON)
+  zdtgdp: (KLEV, KLON)
+  zanew: {shape: "(KLEV, KLON)", out: true}
+  zda: {shape: "(KLEV, KLON)", out: true}

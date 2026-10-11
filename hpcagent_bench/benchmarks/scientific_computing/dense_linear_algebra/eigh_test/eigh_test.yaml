@@ -17,13 +17,8 @@ config:
   lower:
     domain: [false, true]
     selects: branch
-init:
-  input_args: [N]
-  output_args: [a, b, wout, vout]
-  arrays:
-    a: {shape: "(N, N)", dtype: complex128}
-    b: {shape: "(N, N)", dtype: complex128}
-    wout: {shape: "(N,)", dtype: float64}
-    vout: {shape: "(N, N)", dtype: complex128}
-array_args: [a, b, wout, vout]
-output_args: [wout, vout]
+args:
+  a: {shape: "(N, N)", dtype: complex128}
+  b: {shape: "(N, N)", dtype: complex128}
+  wout: {shape: "(N,)", dtype: float64, out: true}
+  vout: {shape: "(N, N)", dtype: complex128, out: true}

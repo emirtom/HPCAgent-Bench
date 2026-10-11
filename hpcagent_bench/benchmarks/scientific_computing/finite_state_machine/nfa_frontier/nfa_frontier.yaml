@@ -45,47 +45,15 @@ parameters:
     NE: {derive: "55 * C"}
     NSTART: {derive: "C"}
     T: [6471602, 12943204]
-init:
-  input_args:
-  - C
-  - NS
-  - NE
-  - NSTART
-  - T
-  arrays:
-    comp_ptr:
-      shape: (C + 1,)
-      dtype: int64
-    row_ptr:
-      shape: (NS + 1,)
-      dtype: int64
-    col_idx:
-      shape: (NE,)
-      dtype: int64
-    symbol_cols:
-      shape: (NS, 256)
-      dtype: uint8
-    is_report:
-      shape: (NS,)
-      dtype: uint8
-    start_ptr:
-      shape: (C + 1,)
-      dtype: int64
-    start_idx:
-      shape: (NSTART,)
-      dtype: int64
-    start_sod:
-      shape: (NSTART,)
-      dtype: uint8
-    stream:
-      shape: (T,)
-      dtype: int64
-    activation_counts:
-      shape: (NS,)
-      dtype: int64
-    report_counts:
-      shape: (C,)
-      dtype: int64
-output_args:
-- activation_counts
-- report_counts
+args:
+  comp_ptr: {shape: "(C + 1,)", dtype: int64}
+  row_ptr: {shape: "(NS + 1,)", dtype: int64}
+  col_idx: {shape: "(NE,)", dtype: int64}
+  symbol_cols: {shape: "(NS, 256)", dtype: uint8}
+  is_report: {shape: "(NS,)", dtype: uint8}
+  start_ptr: {shape: "(C + 1,)", dtype: int64}
+  start_idx: {shape: "(NSTART,)", dtype: int64}
+  start_sod: {shape: "(NSTART,)", dtype: uint8}
+  stream: {shape: "(T,)", dtype: int64}
+  activation_counts: {shape: "(NS,)", dtype: int64, out: true}
+  report_counts: {shape: "(C,)", dtype: int64, out: true}

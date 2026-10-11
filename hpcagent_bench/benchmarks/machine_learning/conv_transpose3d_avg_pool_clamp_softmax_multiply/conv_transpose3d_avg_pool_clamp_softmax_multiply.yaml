@@ -48,19 +48,17 @@ config:
     value: 0
   padding:
     value: 0
-init:
-  arrays:
-    x: (batch_size, in_channels, depth, height, width)
-    conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
-    conv_transpose_bias: (out_channels,)
-    scale: (1,)
-    out: (batch_size, out_channels, ((depth - pool_kernel_size) // pool_kernel_size
+args:
+  x: (batch_size, in_channels, depth, height, width)
+  conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
+  conv_transpose_bias: (out_channels,)
+  scale: (1,)
+  out:
+    shape: (batch_size, out_channels, ((depth - pool_kernel_size) // pool_kernel_size
       + 1 - 1) * stride - 2 * padding + (kernel_size - 1) + output_padding + 1, ((height
       - pool_kernel_size) // pool_kernel_size + 1 - 1) * stride - 2 * padding + (kernel_size
       - 1) + output_padding + 1, ((width - pool_kernel_size) // pool_kernel_size +
       1 - 1) * stride - 2 * padding + (kernel_size - 1) + output_padding + 1)
-  scalars:
-    clamp_min: 0.0
-    clamp_max: 1.0
-output_args:
-- out
+    out: true
+  clamp_min: 0.0
+  clamp_max: 1.0

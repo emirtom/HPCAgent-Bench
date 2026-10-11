@@ -58,7 +58,9 @@ from hpcagent_bench.support.helpers.sparse.abi import (
 )
 
 __all__ = [
+    "ARG_ENTRY_KEYS",
     "ARRAY_ENTRY_KEYS",
+    "ARRAY_ONLY_KEYS",
     "BARE_LEVEL",
     "COMPREHENSION_NODES",
     "CONFIG_KNOB_KEYS",
@@ -68,6 +70,7 @@ __all__ = [
     "DEFAULT_FUZZ",
     "DEFAULT_FUZZ_ANCHOR",
     "FUZZ_SUFFIX",
+    "HARNESS_KWARGS",
     "IDENTIFIER",
     "INITIALIZER",
     "KERNELS",
@@ -75,6 +78,7 @@ __all__ = [
     "LAYOUT_KEYS",
     "LEVELS",
     "MANIFEST_DERIVED_CACHES",
+    "MANIFEST_INIT_KEYS",
     "PRESET_CHOICES",
     "RESERVED_BACKEND_NAMES",
     "RUNGS",
@@ -84,6 +88,8 @@ __all__ = [
     "SUPPORTED_DWARFS",
     "SUPPORTED_SCALES",
     "TRACK_DATATYPE_TRACK",
+    "ArgFlag",
+    "ArgsBlock",
     "ArrayEntry",
     "BenchSpec",
     "ConfigKnob",
@@ -116,8 +122,11 @@ __all__ = [
     "derive_array_args",
     "derive_func_name",
     "derive_input_args",
+    "expand_args",
+    "flag_of",
     "function_parameters",
     "init_arrays_raw",
+    "initializer_inputs",
     "int_of",
     "is_list",
     "is_mapping",
@@ -133,6 +142,7 @@ __all__ = [
     "number_of",
     "numpy_reference_path",
     "outside_nested_scopes",
+    "parse_args",
     "parse_array_entries",
     "parse_config_list",
     "parse_config_space",
@@ -144,6 +154,7 @@ __all__ = [
     "parse_preset",
     "parse_scenarios",
     "parse_workspace_bytes",
+    "partition_axes",
     "preset_arg",
     "register_manifest_cache",
     "resolve_array_args",
@@ -183,7 +194,7 @@ ConfigRow = dict[str, FuzzValue]
 #: the fuzz vocabulary and not ``int``.
 PresetTable = dict[str, dict[str, FuzzValue]]
 
-#: One ``init.arrays`` entry as a manifest spells it: a bare shape string, or the shape plus
+#: One array declaration as a manifest's ``args`` spells it: a bare shape string, or the shape plus
 #: whatever else that array declares.
 ArrayEntry = str | dict[str, str | bool | domain_mod.RawDomain]
 
@@ -278,7 +289,7 @@ def int_of(raw: object, field_name: str, source: str) -> int:
 
 
 def as_domain(raw: object, field_name: str, source: str) -> domain_mod.RawDomain:
-    """One ``init.arrays[*].domain`` as the manifest states it -- a sign name or a ``[low, high]``
+    """One array's ``domain`` as the manifest states it -- a sign name or a ``[low, high]``
     pair. :func:`hpcagent_bench.support.distributions.domain.parse` is what decides it is one."""
     if isinstance(raw, str):
         return raw
@@ -543,7 +554,7 @@ class InitSpec:
     section "Input data"). Every generated input and every reference output must be finite, and
     the output must stay bounded relative to the input for every draw.
 
-    * Declarative first. An ``init.arrays`` entry is ``{shape, dtype?, dist?, domain?,
+    * Declarative first. An array's ``args`` entry is ``{shape, dtype?, dist?, domain?,
       index_array?}``. ``dist`` names a registered distribution
       (:mod:`hpcagent_bench.support.distributions`: ``uniform`` -- the default, on
       ``[-1000, 1000)`` --, ``normal``, ``lognormal``, ``exponential``, ``gamma``, ``beta``,
@@ -603,18 +614,18 @@ class InitSpec:
     #: Arrays absent from this map follow the run precision as before.
     dtypes: dict[str, str] = field(default_factory=dict[str, str])
     #: Per-array distribution overrides -- ``{name: dist_name}`` from the
-    #: unified ``init.arrays`` surface (each array entry may carry its own
+    #: array's ``args`` entry (each array entry may carry its own
     #: ``dist``, e.g. a well-conditioned ``spd`` matrix beside a ``uniform``
     #: rhs). Arrays absent from this map use the run-wide default distribution.
     dists: dict[str, str] = field(default_factory=dict[str, str])
     #: ``{array -> value domain}``: what part of the real line the kernel is DEFINED on, as
-    #: declared by ``init.arrays[name].domain``. A sign name (``positive``/``nonneg``/
+    #: declared by the array's ``domain``. A sign name (``positive``/``nonneg``/
     #: ``negative``/``nonpos``), a ``[low, high]`` interval, or ``any``. The generator folds
     #: every distribution onto it (``support.distributions.generate``), so the hidden rotation
     #: can vary sign and magnitude everywhere a kernel has not said it cannot.
     domains: dict[str, domain_mod.RawDomain] = field(default_factory=dict[str, domain_mod.RawDomain])
     #: Arrays whose ELEMENTS are subscripts into another array, as declared by
-    #: ``init.arrays[name].index_array: true``. The numpy reference is the 0-based truth for every
+    #: the array's ``index_array: true``. The numpy reference is the 0-based truth for every
     #: one of them; the index BASE is then a property of the consuming language, not of the data,
     #: so the ABI seam rebases the buffer on the way in and out (see
     #: :func:`hpcagent_bench.support.bindings.contract.index_base`). Declared, never inferred:
@@ -672,7 +683,7 @@ SUPPORTED_DWARFS = frozenset(
     }
 )
 
-#: Everything one ``init.arrays`` entry may declare. Closed on purpose: a key outside this set
+#: Everything one array declaration may carry. Closed on purpose: a key outside this set
 #: is a load error, not a silently ignored line.
 ARRAY_ENTRY_KEYS = frozenset({"shape", "dtype", "dist", "domain", "index_array"})
 
@@ -1072,7 +1083,7 @@ def _validate_packed_shapes(
                     ranged = sorted(s for s in idents if s in namespace and is_range(namespace[s]))
                     if ranged:
                         raise ValueError(
-                            f"{source}: {kernel}: init.arrays[{name!r}] is dtype {dtype!r}, whose "
+                            f"{source}: {kernel}: args.{name} is dtype {dtype!r}, whose "
                             f"elements pack {mult} per byte, but preset {preset!r} sizes its innermost "
                             f"dimension {inner_expr!r} (shape {shape_expr!r}) from the fuzz range(s) "
                             f"{ranged}, which draw sizes of either parity. Make the multiple hold by "
@@ -1081,7 +1092,7 @@ def _validate_packed_shapes(
                     continue
                 if inner % mult:
                     raise ValueError(
-                        f"{source}: {kernel}: init.arrays[{name!r}] is dtype {dtype!r}, whose "
+                        f"{source}: {kernel}: args.{name} is dtype {dtype!r}, whose "
                         f"elements pack {mult} per byte, but preset {preset!r} gives its "
                         f"innermost dimension {inner_expr!r} (shape {shape_expr!r}) the extent "
                         f"{inner}, which is not a multiple of {mult}. A packed {dtype} buffer "
@@ -1171,9 +1182,7 @@ KNOWN_MANIFEST_KEYS = frozenset(
         "parameters",
         "config",
         "constraints",
-        "input_args",
-        "array_args",
-        "output_args",
+        "args",
         "output_extent",
         "chain_length",
         "init",
@@ -1221,17 +1230,27 @@ LEVELS = (1, 2, 3)
 DEFAULT_FUZZ: dict[str, list[str]] = {"data_distributions": ["uniform", "normal", "lognormal"]}
 
 
-def derive_array_args(input_args: tuple[str, ...], init: InitSpec | None) -> tuple[str, ...] | None:
-    """The kernel's array inputs, inferred when a manifest omits ``array_args``.
-
-    An input is an array exactly when ``init.shapes`` materialises it; size
-    symbols and scalars are not. Returns ``None`` when there is nothing to infer
-    from (no declarative ``init.shapes``), so the caller can fall back / error.
-    """
+def derive_array_args(
+    input_args: tuple[str, ...],
+    output_args: tuple[str, ...],
+    init: InitSpec | None,
+    sparse_layouts: dict[str, "SparseLayout"],
+) -> tuple[str, ...] | None:
+    """The kernel's array arguments, in signature order: each input ``init.shapes`` materialises,
+    a sparse layout's buffers folded into their logical array, then any graded array the signature
+    does not take (a reference that returns it). Size symbols and scalars are not arrays. Returns
+    ``None`` when there is nothing to infer from (no declarative ``init.shapes``)."""
     if init is None or not init.shapes:
         return None
-    shaped = set(init.shapes)
-    return tuple(a for a in input_args if a in shaped)
+    owner = {
+        buf.name: logical
+        for logical, lay in sparse_layouts.items()
+        for variant in lay.variants.values()
+        for buf in variant.buffers
+    }
+    arrays = set(init.shapes) | set(sparse_layouts)
+    found = (owner.get(name, name) for name in (*input_args, *output_args))
+    return tuple(dict.fromkeys(name for name in found if name in arrays))
 
 
 def numpy_reference_path(relative_path: str, module_name: str) -> pathlib.Path | None:
@@ -1245,7 +1264,9 @@ def numpy_reference_path(relative_path: str, module_name: str) -> pathlib.Path |
     return None
 
 
-def derive_input_args(relative_path: str, module_name: str, func_name: str) -> tuple[str, ...] | None:
+def derive_input_args(
+    relative_path: str, module_name: str, func_name: str, bound: frozenset[str]
+) -> tuple[str, ...] | None:
     """The kernel's call signature = the NumPy reference's parameter names.
 
     A Python function already states its inputs in its ``def`` line, so a
@@ -1253,8 +1274,9 @@ def derive_input_args(relative_path: str, module_name: str, func_name: str) -> t
     reference's positional parameters in order. (The canonical C-ABI ordering is
     computed separately by ``bindings.contract.binding_from_spec``, so the def
     order need only match how the reference is called -- which it does by
-    definition.) Returns ``None`` if the source/function can't be found, so the
-    caller falls back to an explicit ``input_args`` / errors.
+    definition.) A parameter with a default that no name in ``bound`` supplies is
+    left to its default, not passed. Returns ``None`` if the source/function can't
+    be found.
     """
     ref = numpy_reference_path(relative_path, module_name)
     if ref is None:
@@ -1263,12 +1285,30 @@ def derive_input_args(relative_path: str, module_name: str, func_name: str) -> t
         (n for n in ast.walk(ast.parse(ref.read_text())) if isinstance(n, ast.FunctionDef) and n.name == func_name),
         None,
     )
-    return tuple(a.arg for a in fn.args.args) if fn is not None else None
+    if fn is None:
+        return None
+    params = fn.args.args
+    defaulted = {a.arg for a in params[len(params) - len(fn.args.defaults) :]}
+    return tuple(a.arg for a in params if a.arg not in defaulted or a.arg in bound)
 
 
 #: The fallback initializer's name: a kernel whose ``<module>.py`` defines it builds its inputs with it
 #: (``init.func_name``), every other kernel declaratively from ``init.arrays``.
 INITIALIZER = "initialize"
+
+#: Kwargs the harness supplies BY NAME to an initializer that declares them. A positional value
+#: must never land in one of these slots: the same argument would then arrive twice.
+HARNESS_KWARGS = frozenset({"datatype", "rng", "dist", "perturbation", "variant_spec"})
+
+
+def initializer_inputs(module: pathlib.Path) -> tuple[str, ...]:
+    """``init.input_args``: what the harness passes a fallback initializer positionally -- the
+    parameters of its ``def`` line before the first :data:`HARNESS_KWARGS` name. Like the kernel's
+    own inputs, the function states them; the manifest does not repeat them."""
+    tree = ast.parse(module.read_text())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == INITIALIZER)
+    names = (a.arg for a in (*fn.args.posonlyargs, *fn.args.args))
+    return tuple(itertools.takewhile(lambda name: name not in HARNESS_KWARGS, names))
 
 
 def derive_func_name(relative_path: str, module_name: str) -> str | None:
@@ -1437,12 +1477,12 @@ def parse_array_entries(
         flag = entry.get("index_array")
         if flag is not None:
             if not isinstance(flag, bool):
-                raise ValueError(f"{source}: init.arrays[{name!r}].index_array must be true or false, got {flag!r}")
+                raise ValueError(f"{source}: args.{name}.index_array must be true or false, got {flag!r}")
             if flag:
                 index_arrays.append(name)
         if entry.get("domain") is not None:
             # Parsed at load so a bad domain names the kernel and array, not a worker's traceback.
-            declared_domain = as_domain(entry["domain"], f"init.arrays[{name!r}].domain", source)
+            declared_domain = as_domain(entry["domain"], f"args.{name}.domain", source)
             domain_mod.parse(declared_domain)
             domains[name] = declared_domain
     # A float subscript is not a subscript: an index array must pin an integer dtype, or it would
@@ -1451,7 +1491,7 @@ def parse_array_entries(
         declared = dtypes.get(name)
         if declared is None or not declared.lstrip("u").startswith("int"):
             raise ValueError(
-                f"{source}: init.arrays[{name!r}] is index_array but declares "
+                f"{source}: args.{name} is index_array but declares "
                 f"dtype {declared!r}; an index array must pin an integer dtype "
                 f"(e.g. 'int64'), because a subscript cannot follow the float "
                 f"precision sweep"
@@ -1528,6 +1568,156 @@ def parse_init(raw: object, source: str) -> InitSpec:
         scenario_layouts=scenario_layouts,
         revalue=str(init_raw.get("revalue", "")),
     )
+
+
+class ArgFlag(Enum):
+    """A boolean role one ``args`` entry may carry; the member's value is its manifest key."""
+
+    #: Graded against the reference after the call (``output_args``). Declared, never inferred:
+    #: comparing only the outputs is what keeps grading memory small.
+    OUT = "out"
+    #: ``false``: a fallback ``initialize()`` does not return it -- a scalar seeded from its value, a
+    #: buffer the harness zero-fills. Only a kernel with a fallback initializer can say so.
+    RETURNED = "returned"
+    #: Block-partitioned by the default ``mpi.decomposition`` over its shape's axes (``mpi.arrays``).
+    PARTITIONED = "partitioned"
+
+
+#: Everything one ``args`` entry in mapping form may declare. Closed on purpose, like
+#: :data:`ARRAY_ENTRY_KEYS`: a misspelt key is a load error, not an ignored line.
+ARG_ENTRY_KEYS = ARRAY_ENTRY_KEYS | {"value"} | {flag.value for flag in ArgFlag}
+
+#: The entry keys only an array (an entry with a ``shape``) may carry.
+ARRAY_ONLY_KEYS = (ARRAY_ENTRY_KEYS - {"shape", "dtype"}) | {ArgFlag.PARTITIONED.value}
+
+#: The keys a manifest's ``init`` block may carry: what the fallback initializer needs beyond ``args``.
+MANIFEST_INIT_KEYS = frozenset({"scenarios", "revalue", "constants", "workspace"})
+
+
+@dataclass(frozen=True, slots=True)
+class ArgsBlock:
+    """A manifest's ``args:`` block, expanded into the declarations :meth:`BenchSpec.from_dict` reads.
+
+    ``args`` maps each argument name, in order, to a shape string (an array), a number (a scalar's
+    value) or a mapping: ``shape`` with the :data:`ARRAY_ENTRY_KEYS`, or ``value``, plus the
+    :class:`ArgFlag` roles and an optional ``dtype``. A mapping with neither ``shape`` nor ``value``
+    names a value a fallback ``initialize()`` builds. The order is the data order: the arrays' draw
+    streams, the initializer's return order and the order outputs are graded in.
+
+    :ivar arrays: ``init.arrays``.
+    :ivar scalars: ``init.scalars``.
+    :ivar dtypes: ``init.dtypes``: the declared types of the names that are not arrays.
+    :ivar returned: ``init.output_args``.
+    :ivar outputs: ``output_args``.
+    :ivar partitioned: ``mpi.arrays``: ``{array: its shape's axes}``.
+    """
+
+    arrays: dict[str, ArrayEntry]
+    scalars: dict[str, float]
+    dtypes: dict[str, str]
+    returned: tuple[str, ...]
+    outputs: tuple[str, ...]
+    partitioned: dict[str, list[str | int]]
+
+
+def flag_of(entry: dict[str, object], flag: ArgFlag, default: bool, where: str, source: str) -> bool:
+    """One :class:`ArgFlag` of an ``args`` entry; anything but a YAML bool is a load error."""
+    value = entry.get(flag.value, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{source}: {where}.{flag.value} must be true or false, got {value!r}")
+    return value
+
+
+def partition_axes(shape: str) -> list[str | int]:
+    """An array's axes as ``mpi.arrays`` lists them: a literal extent as an int, a symbol as text."""
+    return [int(dim) if dim.isdigit() else dim for dim in shape_dims(shape)]
+
+
+def parse_args(raw: object, fallback: bool, source: str) -> ArgsBlock:
+    """The ``args:`` block -> :class:`ArgsBlock`. ``fallback``: the kernel builds its inputs with a
+    fallback ``initialize()``, the only case an entry may name an undeclared value or not be returned."""
+    block = block_of(raw, "args", source)
+    if not block:
+        raise ValueError(f"{source}: 'args' must map each argument to its shape, its value or a declaration")
+    arrays: dict[str, ArrayEntry] = {}
+    scalars: dict[str, float] = {}
+    dtypes: dict[str, str] = {}
+    returned: list[str] = []
+    outputs: list[str] = []
+    partitioned: dict[str, list[str | int]] = {}
+    for name, raw_entry in block.items():
+        where = f"args.{name}"
+        if isinstance(raw_entry, str):
+            entry: dict[str, object] = {"shape": raw_entry}
+        elif isinstance(raw_entry, (int, float)) and not isinstance(raw_entry, bool):
+            entry = {"value": raw_entry}
+        elif is_mapping(raw_entry):
+            entry = as_block(raw_entry)
+        else:
+            raise ValueError(f"{source}: {where} must be a shape string, a number or a mapping, got {raw_entry!r}")
+        unknown_keys = sorted(set(entry) - ARG_ENTRY_KEYS)
+        if unknown_keys:
+            raise ValueError(f"{source}: {where} has unknown key(s) {unknown_keys}; expected {sorted(ARG_ENTRY_KEYS)}")
+        shape, value = entry.get("shape"), entry.get("value")
+        array_only = sorted(ARRAY_ONLY_KEYS & set(entry))
+        if shape is not None and value is not None:
+            raise ValueError(f"{source}: {where} declares both a shape and a value; a name is an array or a scalar")
+        if shape is None and array_only:
+            raise ValueError(f"{source}: {where} declares {array_only}, which only an array (a shape) can carry")
+        is_returned = flag_of(entry, ArgFlag.RETURNED, True, where, source)
+        if not fallback and ((shape is None and value is None) or ArgFlag.RETURNED.value in entry):
+            raise ValueError(
+                f"{source}: {where}: only a kernel with a fallback {INITIALIZER}() may name a value it builds "
+                f"or say it does not return one; a declarative init needs a shape or a value"
+            )
+        if shape is None and value is None and not is_returned:
+            raise ValueError(f"{source}: {where} declares nothing and is not returned, so nothing binds it")
+        if shape is not None:
+            array_keys = {key: item for key, item in entry.items() if key in ARRAY_ENTRY_KEYS}
+            arrays[name] = raw_entry if isinstance(raw_entry, str) else cast("ArrayEntry", array_keys)
+        else:
+            if value is not None:
+                scalars[name] = number_of(value, f"{where}.value", source)
+            if entry.get("dtype") is not None:
+                dtypes[name] = str(entry["dtype"])
+        if is_returned:
+            returned.append(name)
+        if flag_of(entry, ArgFlag.OUT, False, where, source):
+            outputs.append(name)
+        if flag_of(entry, ArgFlag.PARTITIONED, False, where, source):
+            partitioned[name] = partition_axes(str(shape))
+    if not outputs:
+        raise ValueError(f"{source}: no 'args' entry is marked out: true; a kernel grades at least one output")
+    return ArgsBlock(arrays, scalars, dtypes, tuple(returned), tuple(outputs), partitioned)
+
+
+def expand_args(raw: dict[str, object], module: pathlib.Path | None, source: str) -> None:
+    """Rewrite a manifest's ``args:`` block, in place, into the ``output_args`` / ``init`` / ``mpi.arrays``
+    declarations :meth:`BenchSpec.from_dict` reads. ``module`` is the kernel's ``<module>.py`` when it
+    defines the fallback :data:`INITIALIZER` (whose ``def`` line then gives ``init.input_args``)."""
+    init_raw = block_of(raw.get("init"), "init", source)
+    mpi_raw = block_of(raw.get("mpi"), "mpi", source)
+    spelled = [f"init.{key}" for key in init_raw if key not in MANIFEST_INIT_KEYS]
+    spelled += ["mpi.arrays"] if "arrays" in mpi_raw else []
+    if spelled:
+        raise ValueError(
+            f"{source}: {spelled} are not manifest keys: every argument is declared once under 'args' "
+            f"(init takes only {sorted(MANIFEST_INIT_KEYS)})"
+        )
+    args = parse_args(raw.pop("args", None), module is not None, source)
+    raw["output_args"] = list(args.outputs)
+    init: dict[str, object] = {**init_raw, "arrays": args.arrays, "output_args": list(args.returned)}
+    if args.scalars:
+        init["scalars"] = args.scalars
+    if args.dtypes:
+        init["dtypes"] = args.dtypes
+    if module is not None:
+        init["func_name"] = INITIALIZER
+        init["input_args"] = list(initializer_inputs(module))
+    raw["init"] = init
+    if args.partitioned:
+        head = {key: mpi_raw.pop(key) for key in ("decomposition",) if key in mpi_raw}
+        raw["mpi"] = {**head, "arrays": args.partitioned, **mpi_raw}
 
 
 def parse_scenarios(init_raw: dict[str, object], source: str) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
@@ -1628,63 +1818,70 @@ def parse_config_space(
 
 
 def resolve_input_args(
-    bench: dict[str, object], relative_path: str, module_name: str, func_name: str, source: str
+    bench: dict[str, object], relative_path: str, module_name: str, func_name: str, bound: frozenset[str], source: str
 ) -> tuple[str, ...]:
-    """``input_args`` as declared, else read from the reference function's signature."""
+    """``input_args`` as declared, else read from the reference function's signature (a defaulted
+    parameter no name in ``bound`` supplies keeps its default)."""
     declared_inputs = bench.get("input_args")
     if declared_inputs is not None:
         return tuple(str(a) for a in as_list(declared_inputs))
-    derived_inputs = derive_input_args(relative_path, module_name, func_name)
+    derived_inputs = derive_input_args(relative_path, module_name, func_name, bound)
     if derived_inputs is None:
         raise ValueError(
-            f"{source}: 'input_args' is absent and the reference "
-            f"'{func_name}' could not be read from "
-            f"{relative_path}/{module_name}_numpy.py to infer the "
-            f"signature; declare 'input_args' explicitly."
+            f"{source}: the reference '{func_name}' could not be read from "
+            f"{relative_path}/{module_name}_numpy.py to infer the kernel's signature."
         )
     return derived_inputs
 
 
 def resolve_array_args(
-    declared_arrays: object, input_args: tuple[str, ...], init_spec: InitSpec | None, param_syms: set[str], source: str
+    declared_arrays: object,
+    input_args: tuple[str, ...],
+    output_args: tuple[str, ...],
+    init_spec: InitSpec | None,
+    sparse_layouts: dict[str, SparseLayout],
+    known: frozenset[str],
+    source: str,
 ) -> tuple[str, ...]:
-    """``array_args`` as declared (trusted as-is), else inferred from ``init.arrays``.
+    """``array_args`` as declared (trusted as-is), else derived (:func:`derive_array_args`).
 
-    On the inferred path every input must be an array, an ``init.scalars`` value or a size symbol,
-    so a forgotten shape cannot silently demote an array to a scalar."""
+    On the derived path every input must be a name the manifest defines (``known``: an array, a
+    scalar, a value the initializer returns, a size symbol or config knob, a sparse buffer), so a
+    forgotten shape cannot silently demote an array to a scalar."""
     if declared_arrays is not None:
         return tuple(str(a) for a in as_list(declared_arrays))
-    derived_arrays = derive_array_args(input_args, init_spec)
-    if derived_arrays is None or init_spec is None:
-        raise ValueError(
-            f"{source}: 'array_args' is absent and cannot be inferred -- "
-            f"declare it, or give the kernel a declarative 'init.arrays' block "
-            f"so its array inputs can be derived."
-        )
-    classified = set(init_spec.shapes) | set(init_spec.scalars) | param_syms
-    unknown = [a for a in input_args if a not in classified]
+    derived_arrays = derive_array_args(input_args, output_args, init_spec, sparse_layouts)
+    if derived_arrays is None:
+        raise ValueError(f"{source}: no argument has a shape, so the kernel's arrays cannot be derived.")
+    unknown = [a for a in input_args if a not in known]
     if unknown:
         raise ValueError(
-            f"{source}: input(s) {unknown} are undeclared. With 'array_args' inferred, every "
-            f"input must be an array (give it a shape in init.arrays), a scalar value "
-            f"(init.scalars), or a size symbol (parameters). If {unknown} are arrays, add "
-            f"them to init.arrays."
+            f"{source}: input(s) {unknown} of the reference are undeclared. Every input is an 'args' "
+            f"entry (a shape for an array, a value for a scalar), a size symbol (parameters) or a "
+            f"config knob."
         )
     return derived_arrays
 
 
 def validate_init_kinds(init_spec: InitSpec | None, param_syms: set[str], source: str) -> None:
-    """A name is exactly one kind: not both a preset dimension and an ``init.scalars`` value (the
-    preset copy would win and be down-scaled as a size), nor both an array and a scalar."""
+    """A name is exactly one kind: not both a preset dimension and a scalar value (the
+    preset copy would win and be down-scaled as a size), nor both an array and a scalar. Every
+    input of a fallback initializer is a size symbol, a config knob or a scalar value."""
     if init_spec is None:
         return
     shadowed = sorted(set(init_spec.scalars) & param_syms)
     if shadowed:
         raise ValueError(
             f"{source}: {shadowed} are declared in both a 'parameters' preset and "
-            f"'init.scalars'. 'parameters' holds DIMENSIONS only; an algorithm knob "
-            f"belongs in 'init.scalars', where it is preset-independent and exempt "
+            f"'args' (a scalar value). 'parameters' holds DIMENSIONS only; an algorithm knob "
+            f"is a scalar value in 'args', where it is preset-independent and exempt "
             f"from e2e size down-scaling. Drop the preset copies."
+        )
+    undefined = [a for a in init_spec.input_args if a not in param_syms and a not in init_spec.scalars]
+    if undefined:
+        raise ValueError(
+            f"{source}: {INITIALIZER}() takes {undefined} positionally, which the manifest defines "
+            f"neither as a size symbol, a config knob nor a scalar value."
         )
     conflicted = sorted(set(init_spec.shapes) & set(init_spec.scalars))
     if conflicted:
@@ -1928,7 +2125,6 @@ class BenchSpec:
         sparse_layouts = parse_layouts(block_of(ext.get("layouts") or bench.get("layouts"), "layouts", source), source)
         configurations = layout_configurations(sparse_layouts) if sparse_layouts else {}
 
-        input_args = resolve_input_args(bench, relative_path, module_name, func_name, source)
         # 'parameters' below keeps its one meaning for every consumer, {preset: {symbol: value}},
         # with each config knob's representative value merged in.
         dimensions_map = parse_parameters(bench["parameters"], source)
@@ -1966,10 +2162,17 @@ class BenchSpec:
                 if bad:
                     raise ValueError(f"{source}: {short_name}: config[{i}] {row} violates constraint(s) {bad}")
         param_syms = {sym for values in parameters_view.values() for sym in values}
-        array_args = resolve_array_args(bench.get("array_args"), input_args, init_spec, param_syms, source)
-        validate_init_kinds(init_spec, param_syms, source)
-
         output_args = tuple(str(a) for a in as_list(bench["output_args"]))
+        init_names = (
+            set[str]() if init_spec is None else {*init_spec.shapes, *init_spec.scalars, *init_spec.output_args}
+        )
+        buffers = {buf.name for lay in sparse_layouts.values() for var in lay.variants.values() for buf in var.buffers}
+        known = frozenset(param_syms | config_syms | init_names | buffers)
+        input_args = resolve_input_args(bench, relative_path, module_name, func_name, known, source)
+        array_args = resolve_array_args(
+            bench.get("array_args"), input_args, output_args, init_spec, sparse_layouts, known, source
+        )
+        validate_init_kinds(init_spec, param_syms, source)
         # Keys and values must both name graded outputs, or the extent resolves to nothing at grade
         # time and silently compares the whole array again.
         output_extent = {
@@ -2114,13 +2317,13 @@ class BenchSpec:
         # holds this manifest, and ``module_name`` defaults to the file stem
         # (``<stem>_numpy.py`` holds the kernel). Both are still honoured when
         # explicitly given (e.g. the ``module_name != stem`` cases).
-        init_raw = as_block(raw.get("init"))
-        if "func_name" in init_raw:
+        if "func_name" in as_block(raw.get("init")):
             raise ValueError(
                 f"{source}: init.func_name is derived: the kernel module's {INITIALIZER}() is the fallback "
                 f"initializer when it exists; drop the key"
             )
         p = pathlib.Path(source)
+        initializer: pathlib.Path | None = None
         if p.suffix in (".yaml", ".yml"):
             # Anchored on the corpus root, never on a path component that happens to spell
             # "benchmarks" -- a checkout living under such a directory matches that scan too.
@@ -2141,9 +2344,10 @@ class BenchSpec:
             fn = derive_func_name(str(raw.get("relative_path", "")), str(raw["module_name"]))
             if fn is not None:
                 raw["func_name"] = fn
-            if defines_function(p.parent / f"{raw['module_name']}.py", INITIALIZER):
-                raw["init"] = {**init_raw, "func_name": INITIALIZER}
+            module = p.parent / f"{raw['module_name']}.py"
+            initializer = module if defines_function(module, INITIALIZER) else None
             raw.setdefault("name", raw["short_name"])  # human title, free-form; NOT an identity
+        expand_args(raw, initializer, source)
         # Track and dwarf come from the manifest's LOCATION, never from the manifest: a declared copy
         # of the path could only drift from it. A two-deep path (``<track>/<kernel>``) has no dwarf.
         parts = pathlib.PurePosixPath(str(raw.get("relative_path", ""))).parts
@@ -2719,27 +2923,16 @@ def scenarios_without_perturbation(spec: BenchSpec) -> list[str]:
 
 
 def shape_reads_init_scalars(spec: BenchSpec) -> list[str]:
-    """A shape is evaluated before the call that binds ``init.scalars``, so it may only read names that
-    ``parameters:`` or ``config:`` declare. Read from the manifest text, as the corpus test does."""
-    manifest = paths.BENCHMARKS / spec.relative_path / f"{spec.short_name}.yaml"
-    if not manifest.is_file():
-        return [f"{spec.short_name}: no manifest at {manifest}"]
-    raw = load_yaml(manifest.read_text())
-    init = as_block(raw.get("init"))
-    scalars = as_block(init.get("scalars"))
-    if not scalars:
+    """A shape is evaluated before the call that binds the scalar values, so it may only read names
+    that ``parameters:`` or ``config:`` declare."""
+    if spec.init is None or not spec.init.scalars:
         return []
-    shapes = [*as_block(init.get("arrays")).values(), init.get("outputs") or ""]
-    read = {name for shape in shapes for name in IDENTIFIER.findall(str(shape))}
-    config = raw.get("config")
-    # A variant-sweep manifest spells config as a list of whole knob assignments.
-    visible = {k for entry in as_list(config) for k in as_block(entry)} if is_list(config) else set(as_block(config))
-    for values in as_block(raw.get("parameters")).values():
-        visible |= set(as_block(values))
+    read = {name for shape in spec.init.shapes.values() for name in IDENTIFIER.findall(shape)}
+    visible = spec.config_names.union(*(set(values) for values in spec.parameters.values()))
     return [
-        f"{spec.short_name}: a shape reads init.scalars.{sym}, which initialization cannot see; "
+        f"{spec.short_name}: a shape reads the scalar value args.{sym}, which initialization cannot see; "
         "declare it in config: (or a parameters: preset)"
-        for sym in sorted(read & set(scalars) - visible)
+        for sym in sorted(read & set(spec.init.scalars) - visible)
     ]
 
 

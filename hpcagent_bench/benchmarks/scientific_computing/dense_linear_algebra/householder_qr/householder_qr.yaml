@@ -35,43 +35,12 @@ parameters:
     N: {set: [64, 128, 256]}
 constraints:
 - M >= N
-init:
-  input_args:
-  - M
-  - N
-  output_args:
-  - A
-  - b
-  - Q
-  - R
-  - x
-  arrays:
-    A:
-      shape: (M, N)
-      dtype: float64
-    b:
-      shape: (M,)
-      dtype: float64
-    Q:
-      shape: (M, N)
-      dtype: float64
-    R:
-      shape: (N, N)
-      dtype: float64
-    x:
-      shape: (N,)
-      dtype: float64
-array_args:
-- A
-- b
-- Q
-- R
-- x
-output_args:
-- A
-- Q
-- R
-- x
+args:
+  A: {shape: "(M, N)", dtype: float64, out: true}
+  b: {shape: "(M,)", dtype: float64}
+  Q: {shape: "(M, N)", dtype: float64, out: true}
+  R: {shape: "(N, N)", dtype: float64, out: true}
+  x: {shape: "(N,)", dtype: float64, out: true}
 allowed_precisions:
 - fp64
 # Concurrency: The k loop over columns is a genuine recurrence: reflector k acts on the trailing

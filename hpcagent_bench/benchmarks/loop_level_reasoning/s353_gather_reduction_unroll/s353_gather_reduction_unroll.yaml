@@ -12,13 +12,7 @@ parameters:
     N: 55525355
   XL:
     N: 91882498
-init:
-  arrays:
-    ip:
-      shape: (N,)
-      dtype: int64
-      index_array: true
-    a: (N,)
-    b: (1,)
-output_args:
-- b
+args:
+  ip: {shape: "(N,)", dtype: int64, index_array: true}
+  a: (N,)
+  b: {shape: "(1,)", out: true}

@@ -23,12 +23,9 @@ parameters:
     bias: true
     in_features: 5534
     out_features: 5534
-init:
-  arrays:
-    x: (batch_size, in_features)
-    gemm_weight: (out_features, in_features)
-    gemm_bias: (out_features,)
-    subtract: (out_features,)
-    out: (batch_size, in_features)
-output_args:
-- out
+args:
+  x: (batch_size, in_features)
+  gemm_weight: (out_features, in_features)
+  gemm_bias: (out_features,)
+  subtract: (out_features,)
+  out: {shape: "(batch_size, in_features)", out: true}

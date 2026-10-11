@@ -17,27 +17,7 @@ parameters:
     N: 110100480
   fuzzed:
     N: {smooth: 7, range: [55050240, 110100480]}
-init:
-  input_args:
-  - N
-  output_args:
-  - x
-  - y
-  - z
-  arrays:
-    x:
-      shape: (N,)
-      dtype: complex128
-    y:
-      shape: (N,)
-      dtype: complex128
-    z:
-      shape: (N,)
-      dtype: complex128
-array_args:
-- x
-- y
-- z
-output_args:
-- y
-- z
+args:
+  x: {shape: "(N,)", dtype: complex128}
+  y: {shape: "(N,)", dtype: complex128, out: true}
+  z: {shape: "(N,)", dtype: complex128, out: true}

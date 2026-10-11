@@ -11,12 +11,9 @@ parameters:
     LEN_2D: 10545
   XL:
     LEN_2D: 12774
-init:
-  arrays:
-    bb: (LEN_2D,LEN_2D)
-    flat_2d_array: (LEN_2D * LEN_2D,)
-    cc: (LEN_2D,LEN_2D)
-output_args:
-- bb
+args:
+  bb: {shape: "(LEN_2D,LEN_2D)", out: true}
+  flat_2d_array: (LEN_2D * LEN_2D,)
+  cc: (LEN_2D,LEN_2D)
 chain_length:
   bb: LEN_2D

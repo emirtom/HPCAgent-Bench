@@ -41,70 +41,21 @@ constraints:
 # GroupNorm reshapes the channels into num_groups equal groups; a rung or fuzzed draw that does not
 # divide makes the reference raise.
 - out_features % num_groups == 0
-init:
-  input_args:
-  - batch_size
-  - in_features
-  - out_features
-  - num_groups
-  output_args:
-  - x
-  - gemm_weight
-  - gemm_bias
-  - group_norm_weight
-  - group_norm_bias
-  - multiply_weight
-  - out
-  arrays:
-    x:
-      shape: (batch_size, in_features)
-      dtype: bf16
-    gemm_weight:
-      shape: (out_features, in_features)
-      dtype: bf16
-    gemm_bias:
-      shape: (out_features,)
-      dtype: bf16
-    group_norm_weight:
-      shape: (out_features,)
-      dtype: bf16
-    group_norm_bias:
-      shape: (out_features,)
-      dtype: bf16
-    multiply_weight:
-      shape: (out_features,)
-      dtype: bf16
-    out:
-      shape: (batch_size, out_features)
-      dtype: bf16
-  scalars:
-    group_norm_eps: 1.0e-05
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, in_features)", dtype: bf16, partitioned: true}
+  gemm_weight: {shape: "(out_features, in_features)", dtype: bf16, partitioned: true}
+  gemm_bias: {shape: "(out_features,)", dtype: bf16, partitioned: true}
+  group_norm_weight: {shape: "(out_features,)", dtype: bf16, partitioned: true}
+  group_norm_bias: {shape: "(out_features,)", dtype: bf16, partitioned: true}
+  multiply_weight: {shape: "(out_features,)", dtype: bf16, partitioned: true}
+  out: {shape: "(batch_size, out_features)", dtype: bf16, out: true, partitioned: true}
+  group_norm_eps: {value: 1.0e-05, returned: false}
 mpi:
   decomposition:
     axis:
     - out_features
     work_exponent: 1
     collective: allreduce of per-group moments on each group's sub-communicator
-  arrays:
-    x:
-    - batch_size
-    - in_features
-    gemm_weight:
-    - out_features
-    - in_features
-    gemm_bias:
-    - out_features
-    group_norm_weight:
-    - out_features
-    group_norm_bias:
-    - out_features
-    multiply_weight:
-    - out_features
-    out:
-    - batch_size
-    - out_features
   split:
     x: batch_size
     gemm_weight: out_features

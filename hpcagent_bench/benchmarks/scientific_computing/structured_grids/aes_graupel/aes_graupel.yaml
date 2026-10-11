@@ -34,97 +34,25 @@ parameters:
 config:
   # The physics time step (s): every conversion rate is capped at the mass a step can move.
   dt: {domain: [60.0, 30.0], selects: physical}
-init:
-  input_args:
-  - nvec
-  - ke
-  output_args:
-  - dz
-  - p
-  - rho
-  - t
-  - qv
-  - qc
-  - qi
-  - qr
-  - qs
-  - qg
-  - qnc
-  - prr_gsp
-  - pri_gsp
-  - prs_gsp
-  - prg_gsp
-  - pflx
-  - pre_gsp
-  arrays:
-    dz:
-      shape: (ke, nvec)
-    p:
-      shape: (ke, nvec)
-    rho:
-      shape: (ke, nvec)
-    t:
-      shape: (ke, nvec)
-    qv:
-      shape: (ke, nvec)
-    qc:
-      shape: (ke, nvec)
-    qi:
-      shape: (ke, nvec)
-    qr:
-      shape: (ke, nvec)
-    qs:
-      shape: (ke, nvec)
-    qg:
-      shape: (ke, nvec)
-    qnc:
-      shape: (nvec,)
-    prr_gsp:
-      shape: (nvec,)
-    pri_gsp:
-      shape: (nvec,)
-    prs_gsp:
-      shape: (nvec,)
-    prg_gsp:
-      shape: (nvec,)
-    pflx:
-      shape: (ke, nvec)
-    pre_gsp:
-      shape: (nvec,)
-  scalars:
-    ivstart: 1
-    kstart: 10
-array_args:
-- dz
-- p
-- rho
-- t
-- qv
-- qc
-- qi
-- qr
-- qs
-- qg
-- qnc
-- prr_gsp
-- pri_gsp
-- prs_gsp
-- prg_gsp
-- pflx
-- pre_gsp
-output_args:
-- t
-- qv
-- qc
-- qi
-- qr
-- qs
-- qg
-- prr_gsp
-- pri_gsp
-- prs_gsp
-- prg_gsp
-- pflx
-- pre_gsp
+args:
+  dz: (ke, nvec)
+  p: (ke, nvec)
+  rho: (ke, nvec)
+  t: {shape: "(ke, nvec)", out: true}
+  qv: {shape: "(ke, nvec)", out: true}
+  qc: {shape: "(ke, nvec)", out: true}
+  qi: {shape: "(ke, nvec)", out: true}
+  qr: {shape: "(ke, nvec)", out: true}
+  qs: {shape: "(ke, nvec)", out: true}
+  qg: {shape: "(ke, nvec)", out: true}
+  qnc: (nvec,)
+  prr_gsp: {shape: "(nvec,)", out: true}
+  pri_gsp: {shape: "(nvec,)", out: true}
+  prs_gsp: {shape: "(nvec,)", out: true}
+  prg_gsp: {shape: "(nvec,)", out: true}
+  pflx: {shape: "(ke, nvec)", out: true}
+  pre_gsp: {shape: "(nvec,)", out: true}
+  ivstart: {value: 1, returned: false}
+  kstart: {value: 10, returned: false}
 allowed_precisions:
 - fp64

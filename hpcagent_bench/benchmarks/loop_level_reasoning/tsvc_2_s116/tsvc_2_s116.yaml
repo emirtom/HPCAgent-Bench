@@ -11,8 +11,5 @@ parameters:
     NBLK: 57050678
   XL:
     NBLK: 130191196
-init:
-  arrays:
-    a: (4 * NBLK,)
-output_args:
-- a
+args:
+  a: {shape: "(4 * NBLK,)", out: true}

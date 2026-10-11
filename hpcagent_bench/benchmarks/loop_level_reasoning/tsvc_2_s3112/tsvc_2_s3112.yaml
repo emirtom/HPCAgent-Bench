@@ -11,12 +11,9 @@ parameters:
     LEN_1D: 183982909
   XL:
     LEN_1D: 260382392
-init:
-  arrays:
-    a: (LEN_1D,)
-    b: (LEN_1D,)
-output_args:
-- b
+args:
+  a: (LEN_1D,)
+  b: {shape: "(LEN_1D,)", out: true}
 # The reassociation floor's l: b[i] is the i-th running sum, a sequential scan over up to LEN_1D
 # terms, so l = LEN_1D (the cumsum manifests declare the same). Shape-derived l is 1 (b keeps
 # a's only axis), which put atol at one ulp of ||b||_inf while a parallel scan -- the kernel's

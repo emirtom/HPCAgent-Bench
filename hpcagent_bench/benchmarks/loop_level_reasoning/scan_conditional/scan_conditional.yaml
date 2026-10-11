@@ -12,14 +12,9 @@ parameters:
     LEN_1D: 111016965
   XL:
     LEN_1D: 173588261
-init:
-  arrays:
-    out: (LEN_1D,)
-    delta: (LEN_1D,)
-    mask:
-      shape: (LEN_1D,)
-      dtype: int64
-output_args:
-- out
+args:
+  out: {shape: "(LEN_1D,)", out: true}
+  delta: (LEN_1D,)
+  mask: {shape: "(LEN_1D,)", dtype: int64}
 chain_length:
   out: LEN_1D

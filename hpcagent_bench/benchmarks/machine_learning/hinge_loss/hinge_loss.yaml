@@ -11,12 +11,7 @@ parameters:
     batch_size: 184118154
   XL:
     batch_size: 260382391
-init:
-  arrays:
-    predictions: (batch_size,)
-    targets:
-      shape: (batch_size,)
-      dtype: int64
-    out: (1,)
-output_args:
-- out
+args:
+  predictions: (batch_size,)
+  targets: {shape: "(batch_size,)", dtype: int64}
+  out: {shape: "(1,)", out: true}

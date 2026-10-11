@@ -15,31 +15,12 @@ parameters:
   XL:
     M: 4959
     N: 5951
-init:
-  input_args:
-  - M
-  - N
-  output_args:
-  - float_n
-  - data
-  - cov
-  arrays:
-    data:
-      shape: (N, M)
-    cov:
-      shape: (M, M)
-array_args:
-- data
-- cov
-output_args:
-- data
-- cov
+args:
+  float_n: {}
+  data: {shape: "(N, M)", out: true, partitioned: true}
+  cov: {shape: "(M, M)", out: true}
 mpi:
   decomposition:
     axis:
     - N
     work_exponent: 1
-  arrays:
-    data:
-    - N
-    - M

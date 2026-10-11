@@ -24,28 +24,14 @@ parameters:
     N: [12, 162]
     k: [4, 60]
     m: [2, 16]
-init:
-  input_args:
-  - N
-  - k
-  output_args:
-  - a
-  - b
-  - a0
-  - half_inv_h2
-  - vloc
-  - X
-  - out
-  arrays:
-    vloc: {shape: "(N, N, N)", dtype: float64}
-    X: {shape: "(N, N, N, k)", dtype: float64}
-    out: {shape: "(N, N, N, k)", dtype: float64}
-array_args:
-- vloc
-- X
-- out
-output_args:
-- out
+args:
+  a: {}
+  b: {}
+  a0: {}
+  half_inv_h2: {}
+  vloc: {shape: "(N, N, N)", dtype: float64}
+  X: {shape: "(N, N, N, k)", dtype: float64}
+  out: {shape: "(N, N, N, k)", dtype: float64, out: true}
 fuzz:
   constraints:
   - m >= 2

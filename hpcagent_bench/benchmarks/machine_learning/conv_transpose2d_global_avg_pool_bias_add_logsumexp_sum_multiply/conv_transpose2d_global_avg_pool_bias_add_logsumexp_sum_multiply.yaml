@@ -40,12 +40,9 @@ config:
     value: 0
   padding:
     value: 0
-init:
-  arrays:
-    x: (batch_size, in_channels, height, width)
-    conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size)
-    conv_transpose_bias: (out_channels,)
-    bias: (out_channels, 1, 1)
-    out: (batch_size, 1)
-output_args:
-- out
+args:
+  x: (batch_size, in_channels, height, width)
+  conv_transpose_weight: (in_channels, out_channels, kernel_size, kernel_size)
+  conv_transpose_bias: (out_channels,)
+  bias: (out_channels, 1, 1)
+  out: {shape: "(batch_size, 1)", out: true}

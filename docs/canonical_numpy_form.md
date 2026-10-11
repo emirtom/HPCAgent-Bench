@@ -120,7 +120,7 @@ manifest shapes are spelled in size symbols. Read an extent from its size symbol
 
 ## Returns
 
-Prefer writing results into argument buffers (`out[:] = ...`) and listing them in `output_args`.
+Prefer writing results into argument buffers (`out[:] = ...`) and marking them `out: true` in the manifest.
 The top-level kernel may also `return` an array, a tuple of arrays or a scalar. The translator
 turns each returned value into a caller-allocated output pointer and drops the `return`; a scalar
 becomes a 1-element buffer. Helpers may return; the translator inlines them where it can, and an

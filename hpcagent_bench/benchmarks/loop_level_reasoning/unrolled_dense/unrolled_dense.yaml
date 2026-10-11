@@ -12,15 +12,7 @@ parameters:
     NBLK: 45102521
   XL:
     NBLK: 65095598
-init:
-  output_args:
-  - alpha
-  - a
-  - b
-  scalars:
-    alpha: 1.0
-  arrays:
-    a: (4 * NBLK,)
-    b: (4 * NBLK,)
-output_args:
-- a
+args:
+  alpha: 1.0
+  a: {shape: "(4 * NBLK,)", out: true}
+  b: (4 * NBLK,)

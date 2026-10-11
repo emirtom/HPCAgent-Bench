@@ -21,13 +21,8 @@ parameters:
     V: 387298
   XL:
     V: 1000000
-init:
-  input_args: [V]
-  output_args: [forward_target, backward_target, p]
-  arrays:
-    forward_target: {shape: "(1,)", dtype: float64}
-    backward_target: {shape: "(1,)", dtype: float64}
-    p: {shape: "(V,)", dtype: float64}
-array_args: [forward_target, backward_target, p]
-output_args: [p]
+args:
+  forward_target: {shape: "(1,)", dtype: float64}
+  backward_target: {shape: "(1,)", dtype: float64}
+  p: {shape: "(V,)", dtype: float64, out: true}
 allowed_precisions: [fp64]

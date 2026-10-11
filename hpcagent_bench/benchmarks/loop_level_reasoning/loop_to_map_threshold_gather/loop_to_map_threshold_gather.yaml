@@ -12,15 +12,9 @@ parameters:
     LEN_2D: 9236
   XL:
     LEN_2D: 11410
-init:
-  arrays:
-    out: (LEN_2D,LEN_2D)
-    x: (LEN_2D,LEN_2D)
-    y: (LEN_2D,LEN_2D)
-    w: (LEN_2D,LEN_2D)
-    idx:
-      shape: (LEN_2D,)
-      dtype: int64
-      index_array: true
-output_args:
-- out
+args:
+  out: {shape: "(LEN_2D,LEN_2D)", out: true}
+  x: (LEN_2D,LEN_2D)
+  y: (LEN_2D,LEN_2D)
+  w: (LEN_2D,LEN_2D)
+  idx: {shape: "(LEN_2D,)", dtype: int64, index_array: true}

@@ -15,20 +15,8 @@ parameters:
   XL:
     rows: 5791
     cols: 92686
-init:
-  arrays:
-    grid: {shape: "(rows, cols)", dtype: int32}
-    dp: {shape: "(cols,)", dtype: int32}
+args:
   # Both are integer costs, and initialize() builds them as int32. Undeclared, they would be typed
   # at the run precision and the emitted signature would take double* for an int32 buffer.
-  input_args:
-  - rows
-  - cols
-  output_args:
-  - grid
-  - dp
-array_args:
-- grid
-- dp
-output_args:
-- dp
+  grid: {shape: "(rows, cols)", dtype: int32}
+  dp: {shape: "(cols,)", dtype: int32, out: true}

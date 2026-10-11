@@ -29,29 +29,11 @@ parameters:
     Lb: [4, 45]
     nfrag: [4, 158]
     k: [2, 32]
-init:
-  input_args:
-  - N
-  - Lb
-  - nfrag
-  - k
-  output_args:
-  - offsets
-  - alpha
-  - psi_frag
-  - rho
-  arrays:
-    offsets: {shape: "(nfrag, 3)", dtype: int64}
-    alpha: {shape: "(nfrag,)", dtype: float64}
-    psi_frag: {shape: "(nfrag, Lb, Lb, Lb, k)", dtype: float64}
-    rho: {shape: "(N, N, N)", dtype: float64}
-array_args:
-- offsets
-- alpha
-- psi_frag
-- rho
-output_args:
-- rho
+args:
+  offsets: {shape: "(nfrag, 3)", dtype: int64}
+  alpha: {shape: "(nfrag,)", dtype: float64}
+  psi_frag: {shape: "(nfrag, Lb, Lb, Lb, k)", dtype: float64}
+  rho: {shape: "(N, N, N)", dtype: float64, out: true}
 fuzz:
   constraints:
   - Lb <= N

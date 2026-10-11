@@ -12,14 +12,9 @@ parameters:
     LEN_1D: 122745436
   XL:
     LEN_1D: 173588261
-init:
-  input_args:
-  - LEN_1D
-  arrays:
-    y: (LEN_1D,)
-    c: (LEN_1D,)
-    x: (LEN_1D,)
-output_args:
-- y
+args:
+  y: {shape: "(LEN_1D,)", out: true}
+  c: (LEN_1D,)
+  x: (LEN_1D,)
 chain_length:
   y: LEN_1D

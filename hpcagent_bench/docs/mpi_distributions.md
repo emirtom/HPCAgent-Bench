@@ -56,16 +56,19 @@ single-node oracle is the same for every layout.
 replicated only if listed or single-element; every other array must bind at least one axis to a
 grid dimension. Violations are refused before the build (HTTP 400, submission not spent), otherwise
 replicating everything and communicating nothing would win. The prompt shows the list. A kernel
-without `mpi.replicatable` replicates any array left out of `arrays`.
+without `mpi.replicatable` replicates any array not marked `partitioned`.
 
 ## Manifest `mpi:` block
 
 ```yaml
+args:
+  C: {shape: "(NI, NJ)", out: true, partitioned: true}   # partitioned: in the default decomposition
+  A: {shape: "(NI, NK)", partitioned: true}
+  B: (NK, NJ)                                           # replicated by default
 mpi:
   decomposition:
     axis: [NI]          # size symbols the decomposed axes are sized by
     work_exponent: 1    # k: W(sN) = s^k W(N); absent = strong scaling only
-  arrays: {C: [NI, NJ], A: [NI, NK]}
 ```
 
 Scaling (`hpcagent_bench/harness/mpi_sizing.py`):

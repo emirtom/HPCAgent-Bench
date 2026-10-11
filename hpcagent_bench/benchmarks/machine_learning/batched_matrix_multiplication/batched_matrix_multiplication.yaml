@@ -23,10 +23,7 @@ parameters:
     k: 557
     m: 557
     n: 557
-init:
-  arrays:
-    A: (batch_size, m, k)
-    B: (batch_size, k, n)
-    out: (batch_size, m, n)
-output_args:
-- out
+args:
+  A: (batch_size, m, k)
+  B: (batch_size, k, n)
+  out: {shape: "(batch_size, m, n)", out: true}

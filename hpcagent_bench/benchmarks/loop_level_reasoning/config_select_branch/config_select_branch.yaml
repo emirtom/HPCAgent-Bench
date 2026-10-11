@@ -16,11 +16,7 @@ config:
   K:
     domain: [1, -1]
     selects: branch
-init:
-  arrays:
-    out_a: (LEN_1D,)
-    out_b: (LEN_1D,)
-    src: (LEN_1D,)
-output_args:
-- out_a
-- out_b
+args:
+  out_a: {shape: "(LEN_1D,)", out: true}
+  out_b: {shape: "(LEN_1D,)", out: true}
+  src: (LEN_1D,)

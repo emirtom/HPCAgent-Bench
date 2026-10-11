@@ -43,50 +43,17 @@ parameters:
     width: [8, 64]
     in_channels: [4, 64]
     out_channels: [4, 64]
-init:
-  input_args:
-  - batch_size
-  - height
-  - width
-  - in_channels
-  - out_channels
-  output_args:
-  - x
-  - conv_weight
-  - conv_bias
-  - out
-  arrays:
-    x:
-      shape: (batch_size, height, width, in_channels)
-      dtype: bf16
-    conv_weight:
-      shape: (3, 3, in_channels, out_channels)
-      dtype: bf16
-    conv_bias:
-      shape: (out_channels,)
-      dtype: bf16
-    out:
-      shape: (batch_size, height, width, out_channels)
-      dtype: bf16
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, height, width, in_channels)", dtype: bf16, partitioned: true}
+  conv_weight: {shape: "(3, 3, in_channels, out_channels)", dtype: bf16}
+  conv_bias: {shape: "(out_channels,)", dtype: bf16}
+  out: {shape: "(batch_size, height, width, out_channels)", dtype: bf16, out: true, partitioned: true}
 mpi:
   decomposition:
     axis:
     - height
     work_exponent: 1
     collective: halo exchange of one boundary row with each neighbouring rank (sendrecv)
-  arrays:
-    x:
-    - batch_size
-    - height
-    - width
-    - in_channels
-    out:
-    - batch_size
-    - height
-    - width
-    - out_channels
   split:
     x: height
     conv_weight: null

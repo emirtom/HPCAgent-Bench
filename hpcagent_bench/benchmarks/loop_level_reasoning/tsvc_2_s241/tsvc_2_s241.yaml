@@ -11,21 +11,9 @@ parameters:
     LEN_1D: 93395986
   XL:
     LEN_1D: 130191196
-init:
+args:
   # Input domains: degree-5 products of the inputs: unit magnitudes keep them in [-1, 1].
-  arrays:
-    a:
-      shape: (LEN_1D,)
-      domain: [-1.0, 1.0]
-    b:
-      shape: (LEN_1D,)
-      domain: [-1.0, 1.0]
-    c:
-      shape: (LEN_1D,)
-      domain: [-1.0, 1.0]
-    d:
-      shape: (LEN_1D,)
-      domain: [-1.0, 1.0]
-output_args:
-- a
-- b
+  a: {shape: "(LEN_1D,)", domain: [-1.0, 1.0], out: true}
+  b: {shape: "(LEN_1D,)", domain: [-1.0, 1.0], out: true}
+  c: {shape: "(LEN_1D,)", domain: [-1.0, 1.0]}
+  d: {shape: "(LEN_1D,)", domain: [-1.0, 1.0]}

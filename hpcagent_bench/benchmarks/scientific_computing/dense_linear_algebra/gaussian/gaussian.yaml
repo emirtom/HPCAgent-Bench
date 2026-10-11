@@ -12,20 +12,6 @@ parameters:
     N: 2534
   XL:
     N: 6307
-init:
-  input_args:
-  - N
-  output_args:
-  - A
-  - b
-  arrays:
-    A:
-      shape: (N, N)
-    b:
-      shape: (N,)
-array_args:
-- A
-- b
-output_args:
-- A
-- b
+args:
+  A: {shape: "(N, N)", out: true}
+  b: {shape: "(N,)", out: true}

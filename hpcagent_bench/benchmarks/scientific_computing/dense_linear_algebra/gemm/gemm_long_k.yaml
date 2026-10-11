@@ -23,27 +23,9 @@ parameters:
     NI: 3455
     NJ: 3455
     NK: 55280
-init:
-  input_args:
-  - NI
-  - NJ
-  - NK
-  output_args:
-  - alpha
-  - beta
-  - C
-  - A
-  - B
-  arrays:
-    C:
-      shape: (NI, NJ)
-    A:
-      shape: (NI, NK)
-    B:
-      shape: (NK, NJ)
-array_args:
-- C
-- A
-- B
-output_args:
-- C
+args:
+  alpha: {}
+  beta: {}
+  C: {shape: "(NI, NJ)", out: true}
+  A: (NI, NK)
+  B: (NK, NJ)

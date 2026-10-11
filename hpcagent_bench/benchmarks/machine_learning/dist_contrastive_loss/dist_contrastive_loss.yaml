@@ -30,43 +30,17 @@ parameters:
   fuzzed:
     batch_size: [16, 256]
     embed_dim: {set: [64, 128]}
-init:
-  input_args:
-  - batch_size
-  - embed_dim
-  output_args:
-  - image_embeds
-  - text_embeds
-  - out
-  arrays:
-    image_embeds:
-      shape: (batch_size, embed_dim)
-      dtype: bf16
-    text_embeds:
-      shape: (batch_size, embed_dim)
-      dtype: bf16
-    out:
-      shape: (batch_size,)
-      dtype: bf16
-  scalars:
-    logit_scale: 100.0
-output_args:
-- out
+args:
+  image_embeds: {shape: "(batch_size, embed_dim)", dtype: bf16, partitioned: true}
+  text_embeds: {shape: "(batch_size, embed_dim)", dtype: bf16, partitioned: true}
+  out: {shape: "(batch_size,)", dtype: bf16, out: true, partitioned: true}
+  logit_scale: {value: 100.0, returned: false}
 mpi:
   decomposition:
     axis:
     - batch_size
     work_exponent: 2
     collective: allgather (or ring pass) of the text embeddings; per-row logsumexp stays local
-  arrays:
-    image_embeds:
-    - batch_size
-    - embed_dim
-    text_embeds:
-    - batch_size
-    - embed_dim
-    out:
-    - batch_size
   split:
     image_embeds: batch_size
     text_embeds: batch_size

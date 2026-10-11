@@ -25,24 +25,9 @@ parameters:
   fuzzed:
     N: {set: [8, 16, 32, 64, 128, 256, 512]}
     ncycles: [2, 3]
-init:
-  input_args:
-  - N
-  output_args:
-  - f
-  - u
-  arrays:
-    f:
-      shape: (N * N * N,)
-      dtype: float64
-    u:
-      shape: (N * N * N,)
-      dtype: float64
-array_args:
-- f
-- u
-output_args:
-- u
+args:
+  f: {shape: "(N * N * N,)", dtype: float64}
+  u: {shape: "(N * N * N,)", dtype: float64, out: true}
 allowed_precisions:
 - fp64
 # Concurrency: Restriction and prolongation are the only operators in the corpus that change array

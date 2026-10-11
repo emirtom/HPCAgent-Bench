@@ -80,73 +80,19 @@ config:
     selects: branch
 constraints:
 - grid_type == 3 or hord == 6
-init:
-  input_args:
-  - ni
-  - nj
-  - nk
-  - hord
-  - grid_type
-  output_args:
-  - q
-  - crx
-  - cry
-  - x_area_flux
-  - y_area_flux
-  - q_x_flux
-  - q_y_flux
-  - dxa
-  - dya
-  - area
-  - rarea
-  - del6_v
-  - del6_u
-  - hord
-  - grid_type
-  arrays:
-    q: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    crx: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    cry: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    x_area_flux: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    y_area_flux: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    q_x_flux: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    q_y_flux: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    dxa: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    dya: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    area: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    rarea: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    del6_v: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-    del6_u: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
-input_args:
-- q
-- crx
-- cry
-- x_area_flux
-- y_area_flux
-- q_x_flux
-- q_y_flux
-- dxa
-- dya
-- area
-- nhalo
-- ni
-- nj
-- nk
-- hord
-- grid_type
-- nsteps
-array_args:
-- q
-- crx
-- cry
-- x_area_flux
-- y_area_flux
-- q_x_flux
-- q_y_flux
-- dxa
-- dya
-- area
-output_args:
-- q
-- q_x_flux
-- q_y_flux
+args:
+  q: {shape: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)", out: true}
+  crx: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  cry: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  x_area_flux: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  y_area_flux: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  q_x_flux: {shape: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)", out: true}
+  q_y_flux: {shape: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)", out: true}
+  dxa: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  dya: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  area: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  rarea: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  del6_v: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  del6_u: "(nhalo + ni + nhalo, nhalo + nj + nhalo, nk)"
+  hord: {}
+  grid_type: {}

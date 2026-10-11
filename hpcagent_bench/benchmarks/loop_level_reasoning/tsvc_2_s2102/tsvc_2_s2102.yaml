@@ -11,8 +11,5 @@ parameters:
     LEN_2D: 7018
   XL:
     LEN_2D: 16388
-init:
-  arrays:
-    aa: (LEN_2D,LEN_2D)
-output_args:
-- aa
+args:
+  aa: {shape: "(LEN_2D,LEN_2D)", out: true}

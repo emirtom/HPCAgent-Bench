@@ -29,40 +29,16 @@ parameters:
     M: [16, 64]
     N: [8, 64]
     K: [256, 4096]
-init:
-  input_args:
-  - M
-  - N
-  - K
-  output_args:
-  - A
-  - B
-  - out
-  arrays:
-    A:
-      shape: (M, K)
-      dtype: bf16
-    B:
-      shape: (K, N)
-      dtype: bf16
-    out:
-      shape: (M, N)
-      dtype: bf16
-output_args:
-- out
+args:
+  A: {shape: "(M, K)", dtype: bf16, partitioned: true}
+  B: {shape: "(K, N)", dtype: bf16, partitioned: true}
+  out: {shape: "(M, N)", dtype: bf16, out: true}
 mpi:
   decomposition:
     axis:
     - K
     work_exponent: 1
     collective: reduce-scatter of the (M, N) partial products over rows of out
-  arrays:
-    A:
-    - M
-    - K
-    B:
-    - K
-    - N
   split:
     A: K
     B: K

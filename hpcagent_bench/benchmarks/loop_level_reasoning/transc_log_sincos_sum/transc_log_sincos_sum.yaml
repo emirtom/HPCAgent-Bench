@@ -12,13 +12,10 @@ parameters:
     LEN_1D: 16777216
   XL:
     LEN_1D: 67108864
-init:
-  arrays:
-    x: {shape: "(LEN_1D,)", domain: [1.0, 10.0]}
-    t: {shape: "(LEN_1D,)", domain: [0.0, 1.5707963267948966]}
-    out: (1,)
-output_args:
-- out
+args:
+  x: {shape: "(LEN_1D,)", domain: [1.0, 10.0]}
+  t: {shape: "(LEN_1D,)", domain: [0.0, 1.5707963267948966]}
+  out: {shape: "(1,)", out: true}
 # category: transcendental in a reduction
 # optimization: polynomial approximation of log, sin and cos inside a sum
 # puzzle:

@@ -20,31 +20,11 @@ parameters:
     NR: 1601
     NQ: 1601
     NP: 203
-init:
-  input_args:
-  - NR
-  - NQ
-  - NP
-  output_args:
-  - A
-  - C4
-  arrays:
-    A:
-      shape: (NR, NQ, NP)
-    C4:
-      shape: (NP, NP)
-array_args:
-- A
-- C4
-output_args:
-- A
+args:
+  A: {shape: "(NR, NQ, NP)", out: true, partitioned: true}
+  C4: (NP, NP)
 mpi:
   decomposition:
     axis:
     - NR
     work_exponent: 1
-  arrays:
-    A:
-    - NR
-    - NQ
-    - NP

@@ -11,14 +11,8 @@ parameters:
     LEN_1D: 69376495
   XL:
     LEN_1D: 82984450
-init:
-  arrays:
-    a: (LEN_1D,)
-    b: (LEN_1D,)
-    ip:
-      shape: (LEN_1D,)
-      dtype: int32
-      index_array: true
-    sum_out: (1,)
-output_args:
-- sum_out
+args:
+  a: (LEN_1D,)
+  b: (LEN_1D,)
+  ip: {shape: "(LEN_1D,)", dtype: int32, index_array: true}
+  sum_out: {shape: "(1,)", out: true}

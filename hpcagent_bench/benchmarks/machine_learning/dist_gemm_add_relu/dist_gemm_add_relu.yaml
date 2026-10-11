@@ -29,48 +29,18 @@ parameters:
     batch_size: [16, 64]
     in_features: [32, 256]
     out_features: [8, 128]
-init:
-  input_args:
-  - batch_size
-  - in_features
-  - out_features
-  output_args:
-  - x
-  - gemm_weight
-  - gemm_bias
-  - bias
-  - out
-  arrays:
-    x:
-      shape: (batch_size, in_features)
-      dtype: bf16
-    gemm_weight:
-      shape: (out_features, in_features)
-      dtype: bf16
-    gemm_bias:
-      shape: (out_features,)
-      dtype: bf16
-    bias:
-      shape: (out_features,)
-      dtype: bf16
-    out:
-      shape: (batch_size, out_features)
-      dtype: bf16
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, in_features)", dtype: bf16, partitioned: true}
+  gemm_weight: {shape: "(out_features, in_features)", dtype: bf16, partitioned: true}
+  gemm_bias: {shape: "(out_features,)", dtype: bf16}
+  bias: {shape: "(out_features,)", dtype: bf16}
+  out: {shape: "(batch_size, out_features)", dtype: bf16, out: true}
 mpi:
   decomposition:
     axis:
     - in_features
     work_exponent: 1
     collective: reduce-scatter of the (batch, out) partial products over batch rows
-  arrays:
-    x:
-    - batch_size
-    - in_features
-    gemm_weight:
-    - out_features
-    - in_features
   split:
     x: in_features
     gemm_weight: in_features

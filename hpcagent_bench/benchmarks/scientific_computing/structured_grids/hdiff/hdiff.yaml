@@ -20,43 +20,12 @@ parameters:
     I: 1836
     J: 1836
     K: 53
-init:
-  input_args:
-  - I
-  - J
-  - K
-  output_args:
-  - in_field
-  - out_field
-  - coeff
-  arrays:
-    in_field:
-      shape: (I + 4, J + 4, K)
-    out_field:
-      shape: (I, J, K)
-    coeff:
-      shape: (I, J, K)
-array_args:
-- in_field
-- out_field
-- coeff
-output_args:
-- out_field
+args:
+  in_field: {shape: "(I + 4, J + 4, K)", partitioned: true}
+  out_field: {shape: "(I, J, K)", out: true, partitioned: true}
+  coeff: {shape: "(I, J, K)", partitioned: true}
 mpi:
   decomposition:
     axis:
     - K
     work_exponent: 1
-  arrays:
-    in_field:
-    - I + 4
-    - J + 4
-    - K
-    out_field:
-    - I
-    - J
-    - K
-    coeff:
-    - I
-    - J
-    - K

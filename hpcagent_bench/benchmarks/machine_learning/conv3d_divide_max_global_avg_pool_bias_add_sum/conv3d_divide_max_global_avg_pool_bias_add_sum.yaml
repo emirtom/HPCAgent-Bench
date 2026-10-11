@@ -51,12 +51,9 @@ constraints:
 - depth - kernel_size + 1 >= pool_size
 - height - kernel_size + 1 >= pool_size
 - width - kernel_size + 1 >= pool_size
-init:
-  arrays:
-    x: (batch_size, in_channels, depth, height, width)
-    conv_weight: (out_channels, in_channels, kernel_size, kernel_size, kernel_size)
-    conv_bias: (out_channels,)
-    bias: (out_channels, 1, 1, 1)
-    out: (batch_size, 1, 1, 1)
-output_args:
-- out
+args:
+  x: (batch_size, in_channels, depth, height, width)
+  conv_weight: (out_channels, in_channels, kernel_size, kernel_size, kernel_size)
+  conv_bias: (out_channels,)
+  bias: (out_channels, 1, 1, 1)
+  out: {shape: "(batch_size, 1, 1, 1)", out: true}

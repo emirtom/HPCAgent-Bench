@@ -23,28 +23,11 @@ parameters:
     nclusters: 100
     dim: 91
     niter: 20
-init:
-  input_args:
-  - npoints
-  - nclusters
-  - dim
-  output_args:
-  - X
-  - centroids
-  arrays:
-    X: "(npoints, dim)"
-    centroids: "(nclusters, dim)"
-array_args:
-- X
-- centroids
-output_args:
-- centroids
+args:
+  X: {shape: "(npoints, dim)", partitioned: true}
+  centroids: {shape: "(nclusters, dim)", out: true}
 mpi:
   decomposition:
     axis:
     - npoints
     work_exponent: 1
-  arrays:
-    X:
-    - npoints
-    - dim

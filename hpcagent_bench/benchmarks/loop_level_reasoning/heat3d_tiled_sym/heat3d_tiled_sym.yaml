@@ -16,9 +16,6 @@ parameters:
   XL:
     LEN_3D: 638
     T: 8
-init:
-  arrays:
-    a: (LEN_3D,LEN_3D,LEN_3D)
-    b: (LEN_3D,LEN_3D,LEN_3D)
-output_args:
-- b
+args:
+  a: (LEN_3D,LEN_3D,LEN_3D)
+  b: {shape: "(LEN_3D,LEN_3D,LEN_3D)", out: true}

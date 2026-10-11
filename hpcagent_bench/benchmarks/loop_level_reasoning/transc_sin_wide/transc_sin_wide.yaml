@@ -12,12 +12,9 @@ parameters:
     LEN_1D: 16777216
   XL:
     LEN_1D: 67108864
-init:
-  arrays:
-    x: {shape: "(LEN_1D,)", domain: [-100.0, 100.0]}
-    out: (LEN_1D,)
-output_args:
-- out
+args:
+  x: {shape: "(LEN_1D,)", domain: [-100.0, 100.0]}
+  out: {shape: "(LEN_1D,)", out: true}
 # category: transcendental in a loop
 # optimization: Cody-Waite range reduction plus polynomial approximation of sin
 # puzzle:

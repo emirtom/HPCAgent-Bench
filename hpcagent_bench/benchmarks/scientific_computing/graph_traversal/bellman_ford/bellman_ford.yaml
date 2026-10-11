@@ -11,19 +11,6 @@ parameters:
     N: 2683
   XL:
     N: 6000
-init:
-  input_args:
-  - N
-  output_args:
-  - graph
-  - dist
-  arrays:
-    graph:
-      shape: (N, N)
-    dist:
-      shape: (N,)
-array_args:
-- graph
-- dist
-output_args:
-- dist
+args:
+  graph: (N, N)
+  dist: {shape: "(N,)", out: true}

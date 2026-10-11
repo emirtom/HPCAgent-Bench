@@ -44,18 +44,14 @@ parameters:          # one symbol set per preset
   M: {LEN_1D: 180000000}
   L: {LEN_1D: 306166068}
   XL: {LEN_1D: 520764783}
-init:
-  arrays:            # shape over the symbols; optional dtype / dist per array
-    a: (LEN_1D,)
-    out: (1,)
-output_args:         # buffers the kernel writes
-- out
+args:                # each argument once: shape over the symbols, or a scalar value
+  a: (LEN_1D,)
+  out: {shape: "(1,)", out: true}   # out: true marks a graded buffer the kernel writes
 ```
 
-Kernels with a custom `initialize` (in `<kernel>.py`) also list `init.input_args`,
-`init.output_args`, and top-level `array_args` (see `gemm/gemm.yaml`). Non-array scalars take
-defaults from `init.scalars`: an integer default gives an integer C type (safe as a subscript), a
-float default gives `double`.
+A kernel with a custom `initialize` (in `<kernel>.py`) names the values it builds without a shape
+(`alpha: {}`, see `gemm/gemm.yaml`). A scalar's value types it: an integer gives an integer C type
+(safe as a subscript), a float gives `double`.
 
 ## 4. Translator surface
 

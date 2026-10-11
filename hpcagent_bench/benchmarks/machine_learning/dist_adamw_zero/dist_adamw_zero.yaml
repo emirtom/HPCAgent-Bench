@@ -26,58 +26,25 @@ parameters:
     num_params: 805306368
   fuzzed:
     num_params: [256, 4096]
-init:
-  input_args:
-  - num_params
-  output_args:
-  - param
-  - grad
-  - exp_avg
-  - exp_avg_sq
-  - out
-  arrays:
-    param:
-      shape: (num_params,)
-      dtype: bf16
-    grad:
-      shape: (num_params,)
-      dtype: bf16
-    exp_avg:
-      shape: (num_params,)
-      dtype: bf16
-    exp_avg_sq:
-      shape: (num_params,)
-      dtype: bf16
-    out:
-      shape: (num_params,)
-      dtype: bf16
-  scalars:
-    lr: 0.1
-    beta1: 0.9
-    beta2: 0.999
-    adam_eps: 1.0e-08
-    weight_decay: 0.01
-    max_grad_norm: 1.0
-    step: 1000
-output_args:
-- out
+args:
+  param: {shape: "(num_params,)", dtype: bf16, partitioned: true}
+  grad: {shape: "(num_params,)", dtype: bf16, partitioned: true}
+  exp_avg: {shape: "(num_params,)", dtype: bf16, partitioned: true}
+  exp_avg_sq: {shape: "(num_params,)", dtype: bf16, partitioned: true}
+  out: {shape: "(num_params,)", dtype: bf16, out: true, partitioned: true}
+  lr: {value: 0.1, returned: false}
+  beta1: {value: 0.9, returned: false}
+  beta2: {value: 0.999, returned: false}
+  adam_eps: {value: 1.0e-08, returned: false}
+  weight_decay: {value: 0.01, returned: false}
+  max_grad_norm: {value: 1.0, returned: false}
+  step: {value: 1000, returned: false}
 mpi:
   decomposition:
     axis:
     - num_params
     work_exponent: 1
     collective: allreduce(sum) of the shard's gradient sum of squares (the global clipping norm)
-  arrays:
-    param:
-    - num_params
-    grad:
-    - num_params
-    exp_avg:
-    - num_params
-    exp_avg_sq:
-    - num_params
-    out:
-    - num_params
   split:
     param: num_params
     grad: num_params

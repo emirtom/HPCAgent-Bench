@@ -12,9 +12,6 @@ parameters:
     N: 360820171
   XL:
     N: 520764783
-init:
-  arrays:
-    a: (N,)
-    out: (1,)
-output_args:
-- out
+args:
+  a: (N,)
+  out: {shape: "(1,)", out: true}

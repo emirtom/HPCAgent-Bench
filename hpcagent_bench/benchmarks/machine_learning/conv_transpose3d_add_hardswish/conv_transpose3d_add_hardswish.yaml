@@ -44,26 +44,21 @@ config:
     value: 0
   padding:
     value: 0
-init:
-  arrays:
-    x:
-      shape: (batch_size, in_channels, depth, height, width)
-      domain: [-1.0, 1.0]
-    add_input:
-      shape: (batch_size, out_channels, (depth - 1) * stride - 2 * padding + (kernel_size
+args:
+  x: {shape: "(batch_size, in_channels, depth, height, width)", domain: [-1.0, 1.0]}
+  add_input:
+    shape: (batch_size, out_channels, (depth - 1) * stride - 2 * padding + (kernel_size
         - 1) + output_padding + 1, (height - 1) * stride - 2 * padding + (kernel_size
         - 1) + output_padding + 1, (width - 1) * stride - 2 * padding + (kernel_size
         - 1) + output_padding + 1)
-      domain: [-1.0, 1.0]
-    conv_transpose_weight:
-      shape: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
-      domain: [-0.04603, 0.04603]
-    conv_transpose_bias:
-      shape: (out_channels,)
-      domain: [-0.1, 0.1]
-    out: (batch_size, out_channels, (depth - 1) * stride - 2 * padding + (kernel_size
+    domain: [-1.0, 1.0]
+  conv_transpose_weight:
+    shape: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
+    domain: [-0.04603, 0.04603]
+  conv_transpose_bias: {shape: "(out_channels,)", domain: [-0.1, 0.1]}
+  out:
+    shape: (batch_size, out_channels, (depth - 1) * stride - 2 * padding + (kernel_size
       - 1) + output_padding + 1, (height - 1) * stride - 2 * padding + (kernel_size
       - 1) + output_padding + 1, (width - 1) * stride - 2 * padding + (kernel_size
       - 1) + output_padding + 1)
-output_args:
-- out
+    out: true

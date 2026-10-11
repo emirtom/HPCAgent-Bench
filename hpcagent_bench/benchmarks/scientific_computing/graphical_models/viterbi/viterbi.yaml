@@ -19,40 +19,9 @@ parameters:
     T: 4000
     K: 8192
     M: 4096
-init:
-  input_args:
-  - T
-  - K
-  - M
-  output_args:
-  - log_init
-  - log_trans
-  - log_emit
-  - obs
-  - path
-  arrays:
-    log_init:
-      shape: (K,)
-      dtype: float64
-    log_trans:
-      shape: (K, K)
-      dtype: float64
-    log_emit:
-      shape: (K, M)
-      dtype: float64
-    obs:
-      shape: (T,)
-      dtype: int64
-      index_array: true
-    path:
-      shape: (T,)
-      dtype: int64
-      index_array: true
-array_args:
-- log_init
-- log_trans
-- log_emit
-- obs
-- path
-output_args:
-- path
+args:
+  log_init: {shape: "(K,)", dtype: float64}
+  log_trans: {shape: "(K, K)", dtype: float64}
+  log_emit: {shape: "(K, M)", dtype: float64}
+  obs: {shape: "(T,)", dtype: int64, index_array: true}
+  path: {shape: "(T,)", dtype: int64, index_array: true, out: true}

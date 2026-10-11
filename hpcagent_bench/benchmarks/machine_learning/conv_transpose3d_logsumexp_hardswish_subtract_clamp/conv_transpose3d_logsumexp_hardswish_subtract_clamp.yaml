@@ -42,20 +42,13 @@ parameters:
 config:
   padding:
     value: 0
-init:
-  arrays:
-    x:
-      shape: (batch_size, in_channels, D, H, W)
-      domain: [-1.0, 1.0]
-    conv_transpose_weight:
-      shape: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
-      domain: [-0.02549, 0.02549]
-    conv_transpose_bias:
-      shape: (out_channels,)
-      domain: [-0.1, 0.1]
-    bias:
-      shape: (1,)
-      domain: [-0.1, 0.1]
-    out: (batch_size, 1, (D - 1) * stride - 2 * padding + kernel_size, (H - 1) * stride - 2 * padding + kernel_size, (W - 1) * stride - 2 * padding + kernel_size)
-output_args:
-- out
+args:
+  x: {shape: "(batch_size, in_channels, D, H, W)", domain: [-1.0, 1.0]}
+  conv_transpose_weight:
+    shape: (in_channels, out_channels, kernel_size, kernel_size, kernel_size)
+    domain: [-0.02549, 0.02549]
+  conv_transpose_bias: {shape: "(out_channels,)", domain: [-0.1, 0.1]}
+  bias: {shape: "(1,)", domain: [-0.1, 0.1]}
+  out:
+    shape: (batch_size, 1, (D - 1) * stride - 2 * padding + kernel_size, (H - 1) * stride - 2 * padding + kernel_size, (W - 1) * stride - 2 * padding + kernel_size)
+    out: true

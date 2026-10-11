@@ -8,7 +8,7 @@ from hpcagent_bench.support.helpers.sparse.generators import DEFAULT_SCENARIO, r
 
 
 def initialize(
-    n: int,
+    N: int,
     nnz: int,
     datatype=np.float64,
     rng: np.random.Generator | None = None,
@@ -19,10 +19,10 @@ def initialize(
     if rng is None:
         rng = np.random.default_rng(0)
     scenario = perturbation.scenario if perturbation is not None and perturbation.scenario else DEFAULT_SCENARIO
-    A = square_system(scenario, n, nnz, datatype, rng, symmetric=True)
-    x_true = rng.random(n).astype(datatype)
+    A = square_system(scenario, N, nnz, datatype, rng, symmetric=True)
+    x_true = rng.random(N).astype(datatype)
     b = A @ x_true
-    x = rng.random(n).astype(datatype)
+    x = rng.random(N).astype(datatype)
     return A, x, b
 
 
