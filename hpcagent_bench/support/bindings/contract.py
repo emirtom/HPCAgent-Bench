@@ -27,6 +27,7 @@ from hpcagent_bench.translators.numpyto_common.lowering.signature import ArrayUs
 from hpcagent_bench.translators.numpyto_common.naming import entry_symbol
 
 __all__ = [
+    "CXX_COMPLEX_TYPE",
     "ABI_TAG",
     "DEFAULT_FLOAT_DTYPE",
     "DEFAULT_SYMBOL_DTYPE",
@@ -48,6 +49,7 @@ __all__ = [
     "dense_shape",
     "graded_datatype",
     "index_base",
+    "lang_type",
     "layout_scalar_names",
     "physical_names",
     "restrict_kw",
@@ -85,14 +87,27 @@ def restrict_kw(lang: str) -> str:
     return RESTRICT_KEYWORD.get(lang, "restrict")
 
 
+#: A complex element as every C++-parsed language spells it (``#include <complex>``): ``std::complex<T>`` is
+#: layout-compatible with C's ``T _Complex`` (two consecutive ``T``), which C++ has no standard spelling for.
+CXX_COMPLEX_TYPE = {"complex64": "std::complex<float>", "complex128": "std::complex<double>"}
+
+
+def lang_type(dtype: str, lang: str) -> str:
+    """``dtype``'s element type as ``lang`` spells it: ``std::complex<T>`` for a complex dtype in a C++-parsed
+    language (:data:`RESTRICT_KEYWORD`'s ``__restrict__`` ones), the registry's C type otherwise."""
+    if RESTRICT_KEYWORD.get(lang) == "__restrict__" and canonical(dtype) in CXX_COMPLEX_TYPE:
+        return CXX_COMPLEX_TYPE[canonical(dtype)]
+    return c_type(dtype)
+
+
 def c_param(arg: "Arg", lang: str = "c", element: str | None = None) -> str:
     """``arg`` as a C parameter declaration in ``lang``'s ``restrict`` spelling (Sec. 5): a pointer
     ``const``-qualified when read-only, a scalar always ``const``. ``element`` replaces a pointer's
     element type (a GPU language's vendor type for a storage-only dtype)."""
     if arg.kind == "ptr":
         const = "const " if arg.is_const else ""
-        return f"{const}{element or c_type(arg.dtype)} *{restrict_kw(lang)} {arg.name}"
-    return f"const {c_type(arg.dtype)} {arg.name}"
+        return f"{const}{element or lang_type(arg.dtype, lang)} *{restrict_kw(lang)} {arg.name}"
+    return f"const {lang_type(arg.dtype, lang)} {arg.name}"
 
 
 def workspace_c_params(lang: str = "c") -> tuple[str, str]:

@@ -83,6 +83,18 @@ def test_gemm_stub_has_signature_and_todo_not_reference() -> None:
     assert c_stub.index("beta") < c_stub.index("workspace")  # scratch pair is trailing
 
 
+def test_a_complex_array_is_std_complex_in_every_cxx_parsed_stub() -> None:
+    """C++ has no standard spelling of C's ``double _Complex``; CPF renders ``std::complex<double>``, which is
+    layout-compatible, so the C++/CUDA/HIP stubs spell it that way and C keeps ``_Complex``."""
+    b = binding_from_spec(BenchSpec.load("contour_integral"))
+    assert "double _Complex" in gen_call_stub(b, "c")
+    for lang in ("cpp", "cuda", "hip"):
+        stub = gen_call_stub(b, lang)
+        assert "std::complex<double>" in stub, lang
+        assert "_Complex" not in stub, lang
+        assert "#include <complex>" in stub, lang
+
+
 def test_stub_restrict_spelling_is_per_language() -> None:
     """Sec. 5: bare ``restrict`` is C99. A C++-parsed language (cpp / cuda / hip) must get
     ``__restrict__`` -- ``g++ -std=c++20`` rejects ``const double *restrict A`` with
@@ -332,3 +344,20 @@ def test_every_binding_is_references_then_scalars_each_sorted() -> None:
         "bindings violate references-then-scalars, each group sorted "
         "(abi_contract.md Sec. 4):\n  " + "\n  ".join(offenders)
     )
+
+
+if __name__ == "__main__":
+    test_gemm_canonical_order_and_constness()
+    test_gemm_has_no_timer_arg()
+    test_gemm_stub_has_signature_and_todo_not_reference()
+    test_a_complex_array_is_std_complex_in_every_cxx_parsed_stub()
+    test_stub_restrict_spelling_is_per_language()
+    test_gemm_host_glue_forwards_pure()
+    test_gemm_json_round_trip()
+    test_spmv_packed_group_and_order()
+    test_spmv_host_glue_unpacks_handle()
+    test_phantom_np_arg_filtered()
+    test_no_fractional_scalar_is_bound_as_an_integer()
+    test_no_integer_scalar_is_bound_as_a_float()
+    test_nbody_timestep_survives_the_abi()
+    test_every_binding_is_references_then_scalars_each_sorted()

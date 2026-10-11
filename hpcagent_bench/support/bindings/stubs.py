@@ -79,6 +79,7 @@ C_STUB_HEADERS = (
     "#include <omp.h>\n"
 )
 CPP_STUB_HEADERS = (
+    "#include <complex>\n"
     "#include <cstdint>\n"
     "#include <cstddef>\n"
     "#include <cstdlib>\n"
@@ -218,7 +219,7 @@ def gen_gpu(binding: Binding, lang: str, residency: str = "host") -> str:
         )
     else:
         note = f"    /* {STUB_BODY}: H2D copy, launch __global__ kernel(s), D2H copy. */\n"
-    return f'{header}\n#include <stdint.h>\n{c_constants(binding)}extern "C" void {sym}(\n    {sig}) {{\n{note}}}\n'
+    return f'{header}\n#include <complex>\n#include <stdint.h>\n{c_constants(binding)}extern "C" void {sym}(\n    {sig}) {{\n{note}}}\n'
 
 
 def gen_call_stub(binding: Binding, lang: str, residency: str = "host") -> str:

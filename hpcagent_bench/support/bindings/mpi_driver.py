@@ -16,6 +16,7 @@ from hpcagent_bench.harness.mpi_wire import TYPE_CODES
 from hpcagent_bench.support.bindings.contract import (
     Binding,
     c_param,
+    lang_type,
     workspace_c_params,
 )
 from hpcagent_bench.support.bindings.stubs import STUB_BODY
@@ -72,8 +73,8 @@ CXX_PARSED_LANGS = frozenset({"cpp", "hip", "cuda"})
 
 def element_type(dtype: str, lang: str = "c") -> str:
     """The element type a ``lang`` source spells ``dtype`` with: the vendor bf16 type on a GPU
-    language, the registry's C type everywhere else."""
-    return GPU_ELEMENT_TYPE.get((lang, canonical(dtype)), c_type(dtype))
+    language, else :func:`~hpcagent_bench.support.bindings.contract.lang_type`."""
+    return GPU_ELEMENT_TYPE.get((lang, canonical(dtype)), lang_type(dtype, lang))
 
 
 def kernel_signature(binding: Binding, sym: str, lang: str = "c") -> str:
