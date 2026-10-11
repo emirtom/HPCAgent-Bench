@@ -37,7 +37,23 @@ def test_the_timeout_defaults_to_the_vllm_pipeline_value() -> None:
     assert "${SGLANG_DIST_TIMEOUT_SECONDS:-${VLLM_DISTRIBUTED_TIMEOUT_SECONDS:-3600}}" in pp_branch()
 
 
+def test_pipeline_stages_default_to_one_per_node_and_tensor_parallelism_fills_the_rest() -> None:
+    """SGLANG_PP_SIZE=2 on four nodes serves tp=8 x pp=2: each stage spans two nodes."""
+    text = SCRIPT.read_text()
+    assert 'sgl_pp="${SGLANG_PP_SIZE:-${INFERENCE_NODES}}"' in text
+    assert "sgl_tp=$(( GPUS_PER_NODE * INFERENCE_NODES / sgl_pp ))" in text
+    assert '--tp-size "${sgl_tp}"' in text
+    assert '--pp-size "${sgl_pp}"' in pp_branch()
+
+
 def test_single_node_sglang_endpoints_do_not_carry_the_flag() -> None:
     """A single-node endpoint's command line stays exactly what it was."""
     code = [line for line in SCRIPT.read_text().splitlines() if not line.lstrip().startswith("#")]
     assert sum(line.count("--dist-timeout") for line in code) == 1, "the flag leaked outside the pipeline branch"
+
+
+if __name__ == "__main__":
+    test_the_sglang_pipeline_path_sets_the_distributed_timeout()
+    test_the_timeout_defaults_to_the_vllm_pipeline_value()
+    test_pipeline_stages_default_to_one_per_node_and_tensor_parallelism_fills_the_rest()
+    test_single_node_sglang_endpoints_do_not_carry_the_flag()

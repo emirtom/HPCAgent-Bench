@@ -380,13 +380,24 @@ PY
     fi
 
     if [[ "${INFERENCE_ENGINE:-vllm}" == "sglang" ]]; then
+        # One model over several nodes: SGLANG_PP_SIZE pipeline stages (default one per node), each stage
+        # tensor-parallel over the GPUs of INFERENCE_NODES / SGLANG_PP_SIZE nodes.
+        local sgl_pp=1 sgl_tp="${GPUS_PER_NODE}"
+        if (( INFERENCE_NODES > 1 )) && [[ "${INFERENCE_MODE}" != "replicas" ]]; then
+            sgl_pp="${SGLANG_PP_SIZE:-${INFERENCE_NODES}}"
+            if (( sgl_pp < 1 || INFERENCE_NODES % sgl_pp != 0 )); then
+                echo "SGLANG_PP_SIZE=${sgl_pp} does not divide INFERENCE_NODES=${INFERENCE_NODES}" >&2
+                return 2
+            fi
+            sgl_tp=$(( GPUS_PER_NODE * INFERENCE_NODES / sgl_pp ))
+        fi
         # SGLang serves the same OpenAI API, so judge and agent need no change -- only the
         # server command differs. The image's PATH omits its venv, so name its python3.
         command=(
             "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m sglang.launch_server
             --model-path "${model_path}"
             --served-model-name "${VLLM_SERVED_MODEL:-hpcagent-bench-vllm}"
-            --tp-size "${GPUS_PER_NODE}"
+            --tp-size "${sgl_tp}"
             --host 0.0.0.0 --port "${VLLM_PORT}"
         )
         # AITER attention, named: SGLang's ROCm default is triton, and SGLANG_USE_AITER=1 switches
@@ -407,7 +418,7 @@ PY
             # No headless rank unlike vLLM: every rank runs launch_server and only rank 0 binds
             # the HTTP port. dist-init is a single host:port, not master-addr plus master-port.
             command+=(
-                --pp-size "${INFERENCE_NODES}"
+                --pp-size "${sgl_pp}"
                 --nnodes "${INFERENCE_NODES}"
                 --node-rank "${node_rank}"
                 --dist-init-addr "${VLLM_MASTER_HOST}:${VLLM_MASTER_PORT}"
