@@ -30,9 +30,11 @@ env:
   # Every pytest collects coverage; the `coverage` job renders the only report.
   PYTEST_ADDOPTS: "--cov=hpcagent_bench --cov-append --cov-report="
 
+# A branch with an open PR is tested by its pull_request run only: listing it under push as well runs every
+# commit twice.
 on:
   push:
-    branches: [ main, extended, ci-fix, release-v0.1 ]
+    branches: [ main, extended, ci-fix ]
   pull_request:
     branches: [ main, extended, ci-fix ]
   merge_group:
