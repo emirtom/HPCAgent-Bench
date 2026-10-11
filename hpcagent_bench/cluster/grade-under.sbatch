@@ -33,6 +33,9 @@ set -euo pipefail
 ulimit -c 0
 # Every srun step below binds each task's memory to the NUMA domain of its cores (srun reads SLURM_MEM_BIND).
 export SLURM_MEM_BIND=local
+# One shard that dies (an out-of-memory submission) must not cancel the others; a resubmit regrades only what is
+# missing from each shard DB.
+export SLURM_KILL_ON_BAD_EXIT=0
 
 worklist=$(realpath "${1:?worklist.jsonl}")
 out=$(realpath -m "${2:?out dir}")

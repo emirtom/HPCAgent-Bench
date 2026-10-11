@@ -65,7 +65,7 @@ import yaml
 
 from hpcagent_bench import anticheat, config, experiments, owed, paths, protocols, recorded_rows
 from hpcagent_bench.api import InputMode, RunConfig
-from hpcagent_bench.harness import denominator, grading, metric, native_call, results_db, timing
+from hpcagent_bench.harness import denominator, grading, hidden_seeds, metric, native_call, results_db, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.recording import (
@@ -1494,6 +1494,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "apply":
         apply_shards(args.into, args.outputs, args.on_protocol_change)
         return 0
+    if public := hidden_seeds.public_seeds_refusal():  # every shard row lands in a results DB
+        print(f"grade-under: {public}", file=sys.stderr)
+        return 1
     from hpcagent_bench.harness import scaling_grade  # imports this module
 
     items = read_worklist(args.worklist)
