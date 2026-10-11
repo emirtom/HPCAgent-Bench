@@ -102,7 +102,7 @@ def _widget_kernel(benchmarks_root):
         "  S:\n"
         "    N: 8\n"
         "args:\n"
-        "  C: {shape: (N,), out: true}\n"
+        '  C: {shape: "(N,)", out: true}\n'
         "  A: (N,)\n"
     )
     (kdir / "widget_numpy.py").write_text("def kernel(C, A):\n    C[:] = A\n")

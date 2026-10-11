@@ -110,7 +110,7 @@ def test_manifest_rejects_an_odd_innermost_extent() -> None:
     with pytest.raises(ValueError) as excinfo:
         BenchSpec.from_dict(_manifest("(4, N)", {"S": {"N": 8}, "M": {"N": 15}}), source="<int4test>")
     message = str(excinfo.value)
-    assert "init.arrays['x']" in message
+    assert "args.x" in message
     assert "'int4'" in message
     assert "'M'" in message
     assert "15" in message
