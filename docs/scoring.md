@@ -26,8 +26,8 @@ Every side runs 1 untimed warmup call first (`grade_under.final_settings`). The 
 the registered `final` protocol. `/submit` is its own final grade: `grade_under.submit_grade` runs
 `grade_under.final_grade` under `grade_under.final_settings`, the same code and settings `grade-under run` uses,
 and records the `submit` grade and a `final` grade of it in one transaction without timing twice. `grade-under run`
-grades what no final row answers yet: a submission graded under another protocol, a final grade older than its
-kernel's entry in `harness/grading_cuts.yaml`, and an episode that never submitted, whose last correct `/score`
+grades what no final row answers yet: a submission graded under another protocol, a final grade older than a cut in
+`harness/grading_cuts.yaml` (its kernel's, or that of a reference kind its denominator races), and an episode that never submitted, whose last correct `/score`
 source it promotes into a submission first. The Harbor verifier grades a single-node artifact the same way
 (`harbor.grade` -> `final_reward`). The `agent` CLI grades each task once with the configured live reduction
 (`mwd-v3`), which is never credited.
