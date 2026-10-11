@@ -6,7 +6,7 @@ per-model pages and [`knobs.md`](knobs.md) carry the configuration that avoids t
 
 | # | Issue | Visible as | Status |
 |---|---|---|---|
-| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | open |
+| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | mitigated: CSCS CXI settings in the serving EDFs; long runs not yet confirmed |
 | 2 | A writable CE container freezes on fuse-overlayfs | every agent on the node stalls at once, no error | fixed in hb: the agent container is read-only |
 | 3 | vLLM `ROCM_AITER_FA` garbles Qwen3.8 under agent load | random tokens in reasoning, invented tool names | avoided: Qwen3.8 serves on SGLang |
 | 4 | Self-tuned GEMM kernel tables break Qwen3.8 numerics | agents loop on degenerate reasoning | avoided: stock aiter tables only |
@@ -44,10 +44,19 @@ SGLang's post-load barrier is hardcoded to 480 s and the two nodes of a group fi
 18 minutes apart; the sglang image now reads `SGLANG_UNBALANCED_MODEL_LOADING_TIMEOUT_S`.) So both a pipeline send
 and a tensor-parallel all-reduce fail inside RCCL whenever they cross nodes through the plugin.
 
-**Open.** We have not yet captured RCCL's own diagnostic (`NCCL_DEBUG=WARN` set for 676465 printed no RCCL
-lines into the server logs). Advice from CSCS is welcome on: CXI queue sizes (`FI_CXI_DEFAULT_CQ_SIZE`,
-`FI_CXI_DEFAULT_TX_SIZE`), the netstack artifact `gpu_rocm7-cxi_13.1.0-ofi_2.6.0-aws_1.20.0` (26.08.1) with
-RCCL 2.27.7, and any known RCCL/libfabric issue with long-lived cross-node traffic on MI300A.
+**CSCS's CXI settings.** The serving EDFs now set what CSCS documents for NCCL over Slingshot:
+`FI_MR_CACHE_MONITOR=userfaultfd` (was `disabled`), `FI_CXI_DISABLE_HOST_REGISTER=1`,
+`FI_CXI_DEFAULT_CQ_SIZE=131072`, `FI_CXI_DEFAULT_TX_SIZE=32768` and `NCCL_CROSS_NIC=1`. With them:
+
+- `tp=8 pp=2` (smoke 676500) raised no RCCL error through graph capture, but its warmup request timed out after
+  1800 s; that shape is not used.
+- `tp=4 pp=4` (smoke 676544) served: API up after 55 min of weight loading, tool-call and reasoning checks
+  passed, the long-context recall check passed 9/9.
+
+**Open.** Whether `tp=4 pp=4` now survives hours of agent load is what the next GLM-5.3 run shows; before, it
+failed after 1 to 4 h. If it fails again, we would welcome CSCS advice on the netstack artifact
+`gpu_rocm7-cxi_13.1.0-ofi_2.6.0-aws_1.20.0` (26.08.1) with RCCL 2.27.7 and on known RCCL/libfabric issues with
+long-lived cross-node traffic on MI300A.
 
 ## 2. A writable container freezes on fuse-overlayfs
 
