@@ -86,9 +86,9 @@ init:
       layouts: [csr, csc, coo, dia, ell]
 array_args:
 - A
-- b
 - Q
 - alpha
+- b
 - beta
 output_args:
 - Q

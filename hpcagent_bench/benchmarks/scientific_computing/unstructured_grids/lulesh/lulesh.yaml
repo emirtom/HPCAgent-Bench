@@ -94,6 +94,35 @@ init:
   # loop extent the scatter ``xdd[symmX[k]] = 0`` is emitted with, so the
   # native backends read edgeNodes**3 - edgeNodes**2 entries past the end.
   arrays:
+    e: "(numElem,)"
+    p: "(numElem,)"
+    q: "(numElem,)"
+    ql: "(numElem,)"
+    qq: "(numElem,)"
+    v: "(numElem,)"
+    volo: "(numElem,)"
+    vnew: "(numElem,)"
+    delv: "(numElem,)"
+    vdov: "(numElem,)"
+    arealg: "(numElem,)"
+    ss: "(numElem,)"
+    elemMass: "(numElem,)"
+    dxx: "(numElem,)"
+    dyy: "(numElem,)"
+    dzz: "(numElem,)"
+    delv_xi: "(numElem,)"
+    delv_eta: "(numElem,)"
+    delv_zeta: "(numElem,)"
+    delx_xi: "(numElem,)"
+    delx_eta: "(numElem,)"
+    delx_zeta: "(numElem,)"
+    lxim: {shape: "(numElem,)", dtype: int64}
+    lxip: {shape: "(numElem,)", dtype: int64}
+    letam: {shape: "(numElem,)", dtype: int64}
+    letap: {shape: "(numElem,)", dtype: int64}
+    lzetam: {shape: "(numElem,)", dtype: int64}
+    lzetap: {shape: "(numElem,)", dtype: int64}
+    elemBC: {shape: "(numElem,)", dtype: int64}
     x: "(numNode,)"
     y: "(numNode,)"
     z: "(numNode,)"
@@ -110,35 +139,6 @@ init:
     symmX: {shape: "(numSymm,)", dtype: int64, index_array: true}
     symmY: {shape: "(numSymm,)", dtype: int64, index_array: true}
     symmZ: {shape: "(numSymm,)", dtype: int64, index_array: true}
-    arealg: "(numElem,)"
-    delv: "(numElem,)"
-    delv_eta: "(numElem,)"
-    delv_xi: "(numElem,)"
-    delv_zeta: "(numElem,)"
-    delx_eta: "(numElem,)"
-    delx_xi: "(numElem,)"
-    delx_zeta: "(numElem,)"
-    dxx: "(numElem,)"
-    dyy: "(numElem,)"
-    dzz: "(numElem,)"
-    e: "(numElem,)"
-    elemBC: {shape: "(numElem,)", dtype: int64}
-    elemMass: "(numElem,)"
-    letam: {shape: "(numElem,)", dtype: int64}
-    letap: {shape: "(numElem,)", dtype: int64}
-    lxim: {shape: "(numElem,)", dtype: int64}
-    lxip: {shape: "(numElem,)", dtype: int64}
-    lzetam: {shape: "(numElem,)", dtype: int64}
-    lzetap: {shape: "(numElem,)", dtype: int64}
-    p: "(numElem,)"
-    q: "(numElem,)"
-    ql: "(numElem,)"
-    qq: "(numElem,)"
-    ss: "(numElem,)"
-    v: "(numElem,)"
-    vdov: "(numElem,)"
-    vnew: "(numElem,)"
-    volo: "(numElem,)"
     nodelist: {shape: "(numElem, 8)", dtype: int64, index_array: true}
   input_args:
   - numElem

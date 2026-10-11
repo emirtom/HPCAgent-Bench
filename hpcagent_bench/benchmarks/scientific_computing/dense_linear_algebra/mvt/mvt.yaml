@@ -47,8 +47,8 @@ mpi:
     - N
     work_exponent: 2
   arrays:
+    x1:
+    - N
     A:
     - N
-    - N
-    x1:
     - N

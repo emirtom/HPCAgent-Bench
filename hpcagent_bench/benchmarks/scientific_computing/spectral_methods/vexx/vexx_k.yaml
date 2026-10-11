@@ -302,15 +302,15 @@ init:
     erfc_scrlen: 0.0
     yukawa: 0.0
     eps_occ: 1.0e-08
-    current_ik: 0
-    current_k: 0
-    iexx_start: 0
-    jblock: 0
-    my_egrp_id: 0
     n: 0
     n1: 0
     n2: 0
     n3: 0
+    jblock: 0
+    iexx_start: 0
+    my_egrp_id: 0
+    current_k: 0
+    current_ik: 0
 input_args:
 - psi
 - hpsi

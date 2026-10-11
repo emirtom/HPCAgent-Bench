@@ -90,10 +90,10 @@ init:
   # neither an array (init.arrays) nor a fixed init.scalars default, so without
   # this they fell through _scalar_dtype's DEFAULT_FLOAT_DTYPE.
   scalars:
-    c1: 0
-    c2: 0
     r1: 0
     r2: 0
+    c1: 0
+    c2: 0
 array_args:
 - J
 - iN

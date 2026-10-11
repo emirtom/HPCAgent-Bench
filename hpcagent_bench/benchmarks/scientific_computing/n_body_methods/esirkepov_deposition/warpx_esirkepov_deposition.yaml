@@ -122,6 +122,8 @@ mpi:
     - np_particles
     work_exponent: 1
   arrays:
+    ion_lev:
+    - np_particles
     uxp:
     - np_particles
     uyp:
@@ -135,6 +137,4 @@ mpi:
     yp:
     - np_particles
     zp:
-    - np_particles
-    ion_lev:
     - np_particles

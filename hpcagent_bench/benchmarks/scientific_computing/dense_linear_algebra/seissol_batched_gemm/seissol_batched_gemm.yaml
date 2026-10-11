@@ -53,8 +53,8 @@ init:
   - I
   - star
   arrays:
-    I: "(batch, nb, 9)"
     Q: "(batch, nb, 9)"
+    I: "(batch, nb, 9)"
     star: "(9, 9)"
 array_args:
 - Q

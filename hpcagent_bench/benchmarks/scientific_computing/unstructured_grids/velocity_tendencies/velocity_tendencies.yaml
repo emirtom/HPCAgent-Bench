@@ -231,9 +231,9 @@ init:
     ddt_vn_cor_associated: 0
     dtime: 60.0
     dt_linintp_ubc: 0.0
+    nrdmax_jg: 0
     nflatlev_jg: 0
     nlevp1: 0
-    nrdmax_jg: 0
 input_args:
   - p_patch_cells_area
   - p_patch_cells_neighbor_idx

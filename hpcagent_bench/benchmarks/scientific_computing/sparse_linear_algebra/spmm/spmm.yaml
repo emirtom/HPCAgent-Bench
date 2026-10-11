@@ -59,9 +59,9 @@ init:
       description: a full diagonal plus nnz / 10 entries scattered uniformly
       layouts: [csr, csc, coo, "bsr:2"]
 array_args:
+- C
 - A
 - B
-- C
 output_args:
 - C
 # Sparse arrays: every format is derived (docs/sparse_abi.md); a submission requests one per run.

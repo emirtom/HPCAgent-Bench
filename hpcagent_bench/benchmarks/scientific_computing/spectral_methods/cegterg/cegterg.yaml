@@ -134,10 +134,10 @@ init:
   dtypes:
     npwx: int64
     nvecx: int64
-    nkb: int64
     n1: int64
     n2: int64
     n3: int64
+    nkb: int64
 input_args:
 - g2kin
 - vrs

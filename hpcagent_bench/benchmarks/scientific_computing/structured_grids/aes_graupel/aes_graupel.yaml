@@ -97,21 +97,21 @@ init:
 array_args:
 - dz
 - p
-- rho
-- t
-- qv
-- qc
-- qi
-- qr
-- qs
-- qg
-- qnc
-- prr_gsp
-- pri_gsp
-- prs_gsp
-- prg_gsp
 - pflx
 - pre_gsp
+- prg_gsp
+- pri_gsp
+- prr_gsp
+- prs_gsp
+- qc
+- qg
+- qi
+- qnc
+- qr
+- qs
+- qv
+- rho
+- t
 output_args:
 - t
 - qv
