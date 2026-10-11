@@ -119,7 +119,7 @@ _OUTPUT_NAMES = (
 )
 
 # the index base seam
-# The vendored baseline is ICON's own Fortran, so its connectivity tables are 1-based; the numpy
+# The native reference is ICON's own Fortran, so its connectivity tables are 1-based; the numpy
 # reference is the corpus-wide 0-based truth. hpcagent_bench reconciles the two at the ABI seam
 # (native_call.call_with), and for the ctypes path THIS TEST is that seam -- so it rebases here.
 # The names come from the manifest rather than being restated, so tagging or untagging a table
