@@ -39,6 +39,29 @@ live reduction (`timing_reduction` `mwd-v3`); the credited number of a study is 
 `fuzzed` (around XL). Rules for the code you return: [abi_contract.md](../../hpcagent_bench/docs/abi_contract.md),
 [numerical_validation.md](../../hpcagent_bench/docs/numerical_validation.md).
 
+## A student project, end to end
+
+The path for a course or thesis project that evaluates its own optimizer, compiler pass or library:
+
+1. **Pick the kernels.** Start small and fixed: one tag at one level, e.g. `loop_level_reasoning@lvl1`, or a
+   short comma-separated list. `uv run python -m hpcagent_bench.tags --help` lists the tags.
+2. **Measure the reference first.** `noop` submits the generated reference unchanged, so its rows are your floor:
+   ```sh
+   uv run hpcagent-bench agent noop --kernels loop_level_reasoning@lvl1 --native --output noop.jsonl
+   ```
+3. **Plug your tool in** as an optimizer (section A) if it emits source or a `.so` per kernel, or as a framework
+   column (section B) if it is a Python-callable backend. Run it on the same kernels with `--output mine.jsonl`.
+4. **Check correctness before speed.** A row with `correct: false` or `hidden_passed < hidden_total` is not a
+   result; read its `detail`. The rules a submission must follow:
+   [abi_contract.md](../../hpcagent_bench/docs/abi_contract.md).
+5. **Measure at size.** `--preset S` only checks wiring. Leave the preset at its default (fuzzed, around XL) for
+   numbers you report, on an idle node, and report the `speedup` against the same `baseline` for both runs.
+6. **Reproduce in the published image** when your numbers have to hold elsewhere: the images are public
+   (README, "Quick start"), and a run without `--native` builds and times inside the image.
+
+Each JSONL row names its kernel, `status`, `correct`, `speedup` and the `baselines` it was compared to, so two
+runs compare row by row; the CLI's closing line prints the geometric mean.
+
 ## A. Add an optimizer
 
 One class in `hpcagent_bench/harness/optimizers.py`: every `Agent` subclass there that declares its own `name`
