@@ -137,6 +137,27 @@ def test_omp_num_threads_is_not_a_source(monkeypatch) -> None:
     assert flags.ncores() == real, "ncores() read OMP_NUM_THREADS; a single-core parent can now poison the .so"
 
 
+def numba_threads_after_sizing(team: int) -> int:
+    """In a child: the numba pool size after :func:`size_loaded_numba_pool`, numba imported first."""
+    import numba
+
+    from hpcagent_bench.harness.native_call import size_loaded_numba_pool
+
+    size_loaded_numba_pool(team)
+    return int(numba.get_num_threads())
+
+
+def test_the_numba_pool_follows_the_slot_team() -> None:
+    """The parallel-numba baseline gets the same team as OpenMP/BLAS: by env var for a fresh interpreter, and by
+    resizing the pool a forked child inherited from a parent that imported numba on a wider affinity."""
+    from hpcagent_bench.frameworks.forked import run_forked
+
+    assert flags.cpu_env(flags.Mode.MULTI_CORE, threads=3)["NUMBA_NUM_THREADS"] == "3"
+    one = run_forked(numba_threads_after_sizing, 1, label="numba pool")
+    assert one.ok, one.error
+    assert one.result == 1
+
+
 def test_cpu_env_sizes_multi_core_from_ncores() -> None:
     """The consumer contract: MULTI_CORE pins OMP knobs to the physical core count; SINGLE_CORE pins to 1."""
     multi = flags.cpu_env(flags.Mode.MULTI_CORE)

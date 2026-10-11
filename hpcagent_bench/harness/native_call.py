@@ -147,6 +147,7 @@ __all__ = [
     "scrub_grading_secrets",
     "set_assigned_device",
     "settle_hook",
+    "size_loaded_numba_pool",
     "slot_threads",
     "spill_outputs",
     "stage_python_inputs",
@@ -516,6 +517,16 @@ def check_loaded_openmp_width(threads: int) -> None:
                 f"{path.name}, loaded before the grade, runs {team} OpenMP threads, below the slot's {threads}: "
                 f"its parent loaded it with {LAUNCH_WIDTH_ENV} below the grading width"
             )
+
+
+def size_loaded_numba_pool(team: int) -> None:
+    """Size the numba pool to the slot's ``team`` when numba is already loaded. A forked child inherits the
+    parent's ``numba.config.NUMBA_NUM_THREADS``, read when the parent imported numba from its own affinity (every
+    logical CPU it saw), so the env var :func:`flags.cpu_env` sets comes too late: the parallel-numba baseline
+    would run twice the slot's cores, or every core of the node, against an OpenMP team of ``team``."""
+    numba_mod = sys.modules.get("numba")
+    if numba_mod is not None:
+        numba_mod.set_num_threads(max(1, min(team, numba_mod.config.NUMBA_NUM_THREADS)))
 
 
 def slot_threads(cpus: set[int], requested: int | None = None) -> int:
@@ -1707,6 +1718,7 @@ def _native_call_worker(
             os.sched_setaffinity(0, cpus)
         os.environ.update(flags.cpu_env(flags.Mode.MULTI_CORE, threads=team))
         os.environ.update(CHILD_BIND_ENV)
+        size_loaded_numba_pool(team)
     check_launch_env()
     # Both before any device runtime loads (on a device grade, the harness's own cupy import):
     # HSA_XNACK is read at HSA initialisation, and the child must see one GPU (index 0).
