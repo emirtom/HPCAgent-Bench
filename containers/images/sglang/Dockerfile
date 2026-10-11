@@ -175,6 +175,23 @@ if text.count(OLD) != 1:
 SRC.write_text(text.replace(OLD, "        kv_indptr = self.kv_indptr[: bs + 1]\n"))
 PY
 
+# After loading weights every tensor-parallel group waits in a monitored barrier hardcoded to 480 s. A group
+# spanning two nodes (GLM-5.3 at tp=8 pp=2) finishes loading up to 18 min apart from the shared filesystem,
+# so the barrier fails with "TP rank N could finish the model loading, but there are other ranks that didn't".
+# SGLANG_UNBALANCED_MODEL_LOADING_TIMEOUT_S sets it; unset keeps upstream's 480.
+RUN /opt/venv/bin/python3 <<'PY'
+import pathlib
+import sys
+
+SRC = pathlib.Path("/sgl-workspace/sglang/python/sglang/srt/model_executor/model_runner_components/load_model_utils.py")
+OLD = "UNBALANCED_MODEL_LOADING_TIMEOUT_S = 480"
+NEW = 'UNBALANCED_MODEL_LOADING_TIMEOUT_S = int(__import__("os").environ.get("SGLANG_UNBALANCED_MODEL_LOADING_TIMEOUT_S", "480"))'
+text = SRC.read_text()
+if text.count(OLD) != 1:
+    sys.exit(f"{SRC}: expected one {OLD!r}, found {text.count(OLD)}; upstream changed, re-derive the edit")
+SRC.write_text(text.replace(OLD, NEW))
+PY
+
 # No RCCL plugin is shipped. CSCS provides one through com.hooks.aws_ofi_nccl.enabled
 # (/opt/cscs/netstack/librccl-net.so, "Using network AWS Libfabric", GPU Direct RDMA on cxi0-2).
 # This image ships no libfabric, libcxi or plugin of its own.
