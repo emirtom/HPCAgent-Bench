@@ -198,7 +198,6 @@ AGENT_LAUNCH_DIR="${AGENT_LAUNCH_DIR:-${RUN_ROOT}/.agent-launch/${SLURM_JOB_ID:-
 # /opt/moe-configs. NOT image-keyed: a lowering is pure text, valid for any image.
 GENERATED_CACHE_HOST="${HPCAGENT_BENCH_GENERATED_CACHE_HOST:-${HPCAGENT_BENCH_REPO}/.cache/generated}"
 GENERATED_CACHE_MOUNT="/opt/generated"
-mkdir -p "${GENERATED_CACHE_HOST}"
 export HPCAGENT_BENCH_GENERATED_CACHE="${GENERATED_CACHE_MOUNT}"
 export GENERATED_CACHE_HOST GENERATED_CACHE_MOUNT
 
