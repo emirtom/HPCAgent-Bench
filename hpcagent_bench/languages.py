@@ -967,9 +967,7 @@ def offload_runtime_rpath(model: str, vendor: str) -> str:
 def compiler_names() -> tuple[str, ...]:
     """Every compiler block name declared in ``compilers.yaml``, sorted.
 
-    The vocabulary an explicit ``compiler=`` argument must use; also what a manifest's
-    vendored-baseline ``compilers:`` list is validated against, so a typo is rejected at
-    spec load instead of quietly skipping that candidate at build time."""
+    The vocabulary an explicit ``compiler=`` argument must use."""
     return tuple(sorted(_load_compilers()))
 
 

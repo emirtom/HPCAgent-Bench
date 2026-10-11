@@ -44,7 +44,6 @@ except ImportError:  # PyYAML built without libyaml
 
 from hpcagent_bench import config, fuzz, paths
 from hpcagent_bench import dtypes as dtype_registry
-from hpcagent_bench.flags import Mode
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.support.distributions import domain as domain_mod
@@ -86,11 +85,7 @@ __all__ = [
     "SUPPORTED_DWARFS",
     "SUPPORTED_SCALES",
     "TRACK_DATATYPE_TRACK",
-    "VENDORED_BASELINE_KIND",
-    "VENDORED_BASELINE_LANGUAGES",
-    "VENDORED_BASELINE_MODES",
     "ArrayEntry",
-    "BaselineSpec",
     "BenchSpec",
     "ConfigKnob",
     "ConfigRow",
@@ -140,7 +135,6 @@ __all__ = [
     "numpy_reference_path",
     "outside_nested_scopes",
     "parse_array_entries",
-    "parse_baseline",
     "parse_config_list",
     "parse_config_space",
     "parse_init",
@@ -680,121 +674,6 @@ SUPPORTED_DWARFS = frozenset(
     }
 )
 
-#: The only ``baseline.kind`` a manifest may declare: ``vendored`` = "time the native
-#: source COMMITTED next to this kernel", not the one the NumpyToX translator generates
-#: from ``<kernel>_numpy.py``. The generated reference is effectively single-threaded, so
-#: using it as the speedup denominator for a kernel whose upstream form is block-parallel
-#: (ECMWF cloudsc over NPROMA blocks, ICON over nblks) inflates every framework's speedup.
-VENDORED_BASELINE_KIND = "vendored"
-
-#: Languages a vendored baseline source may be written in. Mirrors the languages of
-#: :data:`hpcagent_bench.harness.grading.AUTOPAR_BASELINES` (which also supplies the default
-#: candidate compilers per language); ``tests/test_vendored_baseline.py`` locks the two together.
-VENDORED_BASELINE_LANGUAGES: tuple[str, ...] = ("c", "cpp", "fortran")
-
-#: Evaluation modes a vendored baseline may be built in. ``multi_core`` is the default and
-#: the point of the feature (the upstream source parallelizes itself); ``single_core`` is for
-#: a vendored reference that is deliberately sequential.
-VENDORED_BASELINE_MODES: tuple[Mode, ...] = (Mode.MULTI_CORE, Mode.SINGLE_CORE)
-
-
-@dataclass(frozen=True, slots=True)
-class BaselineSpec:
-    """The kernel's OWN declared speedup denominator -- the ``baseline:`` manifest block.
-
-    A kernel opts in by committing an upstream-parallel native source next to its manifest::
-
-        baseline:
-          kind: vendored
-          source: cloudsc_reference.c   # co-located in the kernel directory
-          language: c                   # c | cpp | fortran
-          mode: multi_core              # multi_core (default) | single_core
-          compilers: [clang, gcc]       # optional; defaults to the language's autopar candidates
-
-    Declaring this makes the vendored source the DEFAULT denominator for the kernel (see
-    :func:`hpcagent_bench.harness.grading.resolve_baseline`); an explicit ``--baseline``
-    still overrides it, so the auto-generated reference stays available for an A/B.
-
-    :ivar source: File name relative to the kernel directory (never absolute, never ``..``).
-    :ivar language: One of :data:`VENDORED_BASELINE_LANGUAGES`.
-    :ivar mode: Build mode; :attr:`Mode.MULTI_CORE` unless the manifest says otherwise.
-    :ivar compilers: ``compilers.yaml`` block names to build with; the fastest that builds
-        becomes the denominator. Empty means "use the language's autopar candidates".
-    """
-
-    source: str
-    language: str
-    mode: Mode
-    compilers: tuple[str, ...] = ()
-
-
-def parse_baseline(raw: object, relative_path: str, source: str = "<spec>") -> BaselineSpec:
-    """Parse + validate a manifest ``baseline:`` block into a :class:`BaselineSpec`.
-
-    Every failure raises here, at load time, with the offending kernel named. A vendored
-    baseline that silently degraded to the auto-generated reference would restore the
-    inflated denominator this feature exists to remove, so there is no lenient path.
-    """
-    blk = as_block(raw)
-    if not isinstance(raw, dict):
-        raise ValueError(f"{source}: 'baseline' must be a mapping (got {type(raw).__name__})")
-    kind = blk.get("kind")
-    if kind != VENDORED_BASELINE_KIND:
-        raise ValueError(
-            f"{source}: baseline.kind must be {VENDORED_BASELINE_KIND!r} (got {kind!r}); it is the "
-            f"only kind a kernel may declare -- every other baseline is selected per run."
-        )
-    src = blk.get("source")
-    if not isinstance(src, str) or not src:
-        raise ValueError(
-            f"{source}: baseline.source must name the vendored file committed in the kernel directory (got {src!r})"
-        )
-    # The source is kernel-local by construction: an absolute path or a '..' escape would let a
-    # manifest time a file outside its own directory (unreviewable, and unbuildable elsewhere).
-    posix = pathlib.PurePosixPath(src)
-    if posix.is_absolute() or ".." in posix.parts or "\\" in src or src.startswith("~"):
-        raise ValueError(
-            f"{source}: baseline.source {src!r} must be a path relative to the kernel directory "
-            f"(no leading '/', no '..', no '~', no backslashes)"
-        )
-    language = blk.get("language")
-    if language not in VENDORED_BASELINE_LANGUAGES:
-        raise ValueError(
-            f"{source}: baseline.language {language!r} is not supported; "
-            f"choose from {list(VENDORED_BASELINE_LANGUAGES)}"
-        )
-    mode_names = {m.value: m for m in VENDORED_BASELINE_MODES}
-    mode_raw = blk.get("mode", Mode.MULTI_CORE.value)
-    if mode_raw not in mode_names:
-        raise ValueError(f"{source}: baseline.mode {mode_raw!r} is not supported; choose from {sorted(mode_names)}")
-    compilers = tuple(str(c) for c in as_list(blk.get("compilers")))
-    if compilers:
-        # A typo'd compiler block is skipped at build time, which would quietly drop the
-        # vendored denominator back to the numpy fallback -- reject it here instead.
-        from hpcagent_bench.languages import compiler_names
-
-        known = compiler_names()
-        unknown = [c for c in compilers if c not in known]
-        if unknown:
-            raise ValueError(
-                f"{source}: baseline.compilers {unknown} are not blocks in compilers.yaml; known blocks: {list(known)}"
-            )
-    unknown_keys = sorted(set(blk) - {"kind", "source", "language", "mode", "compilers"})
-    if unknown_keys:
-        raise ValueError(
-            f"{source}: unknown baseline field(s) {unknown_keys}; "
-            f"allowed: ['compilers', 'kind', 'language', 'mode', 'source']"
-        )
-    path = paths.BENCHMARKS / relative_path / src
-    if not path.is_file():
-        raise ValueError(
-            f"{source}: baseline.source {src!r} does not exist at {path} -- a kernel that declares "
-            f"a vendored baseline must commit the file; falling back to the auto-generated "
-            f"reference would silently restore an unparallelized speedup denominator."
-        )
-    return BaselineSpec(source=src, language=str(language), mode=mode_names[str(mode_raw)], compilers=compilers)
-
-
 #: Everything one ``init.arrays`` entry may declare. Closed on purpose: a key outside this set
 #: is a load error, not a silently ignored line.
 ARRAY_ENTRY_KEYS = frozenset({"shape", "dtype", "dist", "domain", "index_array"})
@@ -1305,7 +1184,6 @@ KNOWN_MANIFEST_KEYS = frozenset(
         "fuzz",
         "layouts",
         "mpi",
-        "baseline",
         "level",
         "timeout_s",
         "memory_cap_gb",
@@ -1989,11 +1867,6 @@ class BenchSpec:
     # values are mappings except that one list.
     mpi: dict[str, object] = field(default_factory=dict[str, object])
 
-    # The kernel's OWN speedup denominator (optional; absent => the track default applies).
-    # Present only for a kernel that commits an upstream-parallel native source beside its
-    # manifest -- see :class:`BaselineSpec` and ``harness.grading.resolve_baseline``.
-    baseline: BaselineSpec | None = None
-
     # SIZE DIMENSIONS vs CONFIG KNOBS. The manifest's 'parameters:' block is what a size preset
     # actually scales. 'config' is the execution-path selectors a preset must NEVER scale (branch
     # flags, tile sizes, iteration caps, ...), keyed by symbol -> :class:`ConfigKnob`. 'parameters'
@@ -2161,11 +2034,6 @@ class BenchSpec:
         validate_scenario_layouts(init_spec, sparse_layouts, source)
         mpi_blk = parse_mpi(ext.get("mpi", bench.get("mpi")), bool(sparse_layouts), source)
 
-        # The kernel's own speedup denominator; a declared vendored source that is missing or
-        # off-vocabulary fails here, never at scoring time.
-        baseline_raw = ext.get("baseline", bench.get("baseline"))
-        baseline_spec = None if baseline_raw is None else parse_baseline(baseline_raw, relative_path, source)
-
         # fuzz = DEFAULT_FUZZ when the manifest names none.
         fuzz_blk: dict[str, list[str]] = list_block_of(ext.get("fuzz", bench.get("fuzz")), "fuzz", source) or dict(
             DEFAULT_FUZZ
@@ -2235,7 +2103,6 @@ class BenchSpec:
             languages=tuple(str(lang) for lang in as_list(ext.get("languages", bench.get("languages")))),
             fuzz=fuzz_blk,
             mpi=mpi_blk,
-            baseline=baseline_spec,
             config=config_knobs,
             config_valid=config_valid,
             constraints=constraints,
@@ -2331,15 +2198,6 @@ class BenchSpec:
         if self.scale is not None:
             return self.scale
         return "micro" if self.track == Track.SCIENTIFIC_COMPUTING.value else None
-
-    @property
-    def baseline_source_path(self) -> pathlib.Path | None:
-        """Absolute path of the kernel's committed vendored baseline source, or ``None`` when the
-        kernel declares no ``baseline:`` block. Resolved against the kernel directory on every
-        access (never cached) so a relocated benchmarks root is honoured."""
-        if self.baseline is None:
-            return None
-        return paths.BENCHMARKS / self.relative_path / self.baseline.source
 
     @property
     def pinned_config(self) -> ConfigRow:

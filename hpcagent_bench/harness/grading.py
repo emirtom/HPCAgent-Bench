@@ -75,7 +75,6 @@ __all__ = [
     "TORCH_BASELINES",
     "TRACK_COMPILED_HEAD",
     "TRACK_DEFAULT_ORACLE",
-    "VENDORED_BASELINE",
     "ContractedExtent",
     "KernelResult",
     "ReferencePlan",
@@ -142,7 +141,6 @@ __all__ = [
     "typed_contracted_extents",
     "untouched_mask",
     "untouched_note",
-    "vendored_reference_source",
     "was_cut",
 ]
 
@@ -975,11 +973,6 @@ TORCH_BASELINES: dict[str, str] = {"torch-autotune-cpu": "cpu", "torch-autotune-
 #: device it runs on (:func:`torch_autotune_kind`), and only the resolved kind is ever recorded.
 TORCH_AUTOTUNE: str = "torch-autotune"
 
-#: The kind ``auto`` resolves to for a kernel that ships its own native reference (manifest
-#: ``baseline:`` block, :class:`hpcagent_bench.spec.BaselineSpec`). Not in :data:`BASELINE_CHOICES`;
-#: :func:`resolve_baseline` accepts it so a resolved kind re-resolves idempotently.
-VENDORED_BASELINE = "vendored"
-
 #: Concrete speedup-denominator kinds (one reference each), the values a grade records.
 BASELINE_CHOICES = ("numba", "c", *tuple(AUTOPAR_BASELINES), *tuple(TORCH_BASELINES))
 
@@ -1148,12 +1141,10 @@ def baseline_policy_stamp(kinds: Sequence[str]) -> str:
 
 def resolve_baseline_set(baseline: str | None, spec: BenchSpec, *, on_gpu: bool = False) -> tuple[str, ...]:
     """Every denominator candidate this grade times, in tie-break order. Only ``auto`` on a multi-kind
-    track is best-of; an explicit kind stays one kind, and a vendored reference stays alone.
+    track is best-of; an explicit kind stays one kind.
     ``on_gpu``: the grade runs on a GPU (:attr:`Task.on_gpu`), which picks the torch kind."""
     if baseline is not None and baseline != AUTO_BASELINE:
         return (resolve_baseline(baseline, spec, on_gpu=on_gpu),)
-    if spec.baseline is not None:
-        return (VENDORED_BASELINE,)
     kinds = track_baseline_set(spec.track)
     if len(kinds) > 1:
         unusable = [kind for kind in kinds if kind not in BEST_OF_KINDS]
@@ -1238,24 +1229,13 @@ def torch_autotune_kind(on_gpu: bool) -> str:
 
 
 def resolve_baseline(baseline: str | None, spec: BenchSpec, *, on_gpu: bool = False) -> str:
-    """Resolve a baseline selection to a concrete kind for spec. Precedence: an explicit choice > the
-    kernel's manifest ``baseline:`` block > the track default (``None`` / ``auto`` = no choice).
+    """Resolve a baseline selection to a concrete kind for spec: an explicit choice, else the track default
+    (``None`` / ``auto`` = no choice).
     :data:`TORCH_AUTOTUNE` resolves to the kind of the grade's device (``on_gpu``)."""
     if baseline is None or baseline == AUTO_BASELINE:
-        if spec.baseline is not None:
-            return VENDORED_BASELINE
         return resolve_baseline(default_baseline_for_track(spec.track), spec, on_gpu=on_gpu)
     if baseline == TORCH_AUTOTUNE:
         return torch_autotune_kind(on_gpu)
-    if baseline == VENDORED_BASELINE:
-        # Idempotent (score() and score_cells() both resolve); a kernel that vendors nothing must not
-        # pick up the generated reference under this name.
-        if spec.baseline is None:
-            raise ValueError(
-                f"baseline {VENDORED_BASELINE!r} requested but kernel {spec.short_name!r} declares no "
-                f"'baseline:' block in its manifest"
-            )
-        return VENDORED_BASELINE
     if baseline not in BASELINE_CHOICES:
         raise ValueError(f"baseline must be one of {BASELINE_OPTIONS}; got {baseline!r}")
     return baseline
@@ -1271,24 +1251,14 @@ def baseline_uses_numba(baseline: str) -> bool:
     return baseline == "numba"
 
 
-def baseline_compiled(baseline: str, spec: BenchSpec | None = None) -> tuple[str, str, tuple[str, ...], Mode] | None:
+def baseline_compiled(baseline: str) -> tuple[str, str, tuple[str, ...], Mode] | None:
     """The compiled reference a resolved baseline times: (label, language, candidate blocks, mode) or
-    None. ``spec`` is used only by :data:`VENDORED_BASELINE`."""
+    None."""
     if baseline == "c":
         return ("c", "c", ("",), Mode.SINGLE_CORE)
     if baseline in AUTOPAR_BASELINES:
         lang, compilers = AUTOPAR_BASELINES[baseline]
         return (baseline, lang, compilers, Mode.MULTI_CORE)
-    if baseline == VENDORED_BASELINE:
-        if spec is None or spec.baseline is None:
-            raise ValueError(
-                f"baseline {VENDORED_BASELINE!r} needs the kernel's spec (with a manifest "
-                f"'baseline:' block) to describe its compiled reference"
-            )
-        vendored = spec.baseline
-        # No declared compilers -> the language's autopar candidates.
-        compilers = vendored.compilers or AUTOPAR_BASELINES[f"{vendored.language}-autopar"][1]
-        return (VENDORED_BASELINE, vendored.language, tuple(compilers), vendored.mode)
     return None
 
 
@@ -1300,21 +1270,19 @@ class ReferencePlan:
     oracle_wants_c: bool
     #: The timed baseline IS the single-core C reference, so it reuses the oracle's build.
     bl_is_seq_c: bool
-    #: The timed baseline needs its own build (autopar, or any vendored source).
+    #: The timed baseline needs its own build (autopar).
     bl_own_build: bool
     bl_label: str
     bl_lang: str
     need_seq_c: bool
 
 
-def reference_plan(oracle: str, baseline_resolved: str, spec: BenchSpec | None = None) -> ReferencePlan:
+def reference_plan(oracle: str, baseline_resolved: str) -> ReferencePlan:
     """Decode which compiled reference(s) a concrete oracle kind (``numba`` / ``c`` / ``torch``) and a
-    resolved baseline select (pure). ``spec`` is required for :data:`VENDORED_BASELINE`."""
-    compiled = baseline_compiled(baseline_resolved, spec)
+    resolved baseline select (pure)."""
+    compiled = baseline_compiled(baseline_resolved)
     oracle_wants_c = oracle == "c"
-    # A vendored baseline always gets its own build from the committed file.
-    is_vendored = baseline_resolved == VENDORED_BASELINE
-    bl_is_seq_c = compiled is not None and not is_vendored and compiled[3] is Mode.SINGLE_CORE
+    bl_is_seq_c = compiled is not None and compiled[3] is Mode.SINGLE_CORE
     bl_own_build = compiled is not None and not bl_is_seq_c
     bl_label = compiled[0] if compiled is not None else ""
     bl_lang = compiled[1] if compiled is not None else "c"
@@ -1354,16 +1322,6 @@ def reference_compiler(submission: Submission, language: str) -> str | None:
     return languages.compiler_for_family(language, family)
 
 
-def vendored_reference_source(spec: BenchSpec) -> str:
-    """The text of the kernel's committed vendored baseline source; raises rather than fall back."""
-    path = spec.baseline_source_path
-    if path is None:
-        raise ValueError(f"{spec.short_name}: no vendored baseline declared (manifest has no 'baseline:' block)")
-    if not path.is_file():
-        raise FileNotFoundError(f"{spec.short_name}: vendored baseline source {path} is missing")
-    return path.read_text()
-
-
 class ReferenceRun(NamedTuple):
     """A compiled reference's run: public outputs, best timed ns, per-input hidden outputs, and every rep's ns."""
 
@@ -1382,16 +1340,11 @@ def build_reference_lib(
     language: str,
     mode: Mode,
     compiler: str | None,
-    baseline: str | None = None,
 ) -> BuildResult:
-    """Compile the reference for (kernel, language) into root/lib<short>.so. The
-    source is the committed vendored file for :data:`VENDORED_BASELINE`, else the NumpyToX emit."""
-    if baseline == VENDORED_BASELINE:
-        src_text = vendored_reference_source(spec)  # may raise: declared but missing on disk
-    else:
-        from hpcagent_bench.harness.agent import reference_source
+    """Compile the NumpyToX emit of the reference for (kernel, language) into root/lib<short>.so."""
+    from hpcagent_bench.harness.agent import reference_source
 
-        src_text = reference_source(reference_task(task, language))  # may raise: non-emittable kernel
+    src_text = reference_source(reference_task(task, language))  # may raise: non-emittable kernel
     ext = languages.LANG_EXT[language]
     root = pathlib.Path(root)
     src = root / f"{binding.symbol}.{ext}"
@@ -1473,14 +1426,13 @@ def run_compiled_reference(
     language: str = "c",
     mode: Mode = Mode.SINGLE_CORE,
     compiler: str | None = None,
-    baseline: str | None = None,
     warmup: int = 0,
     rep_data: Callable[[int], dict] | None = None,
     canonical: Callable[[], dict] | None = None,
 ) -> ReferenceRun:
     """Build the compiled reference once and run it on the public and hidden inputs (host residency).
 
-    ``baseline`` selects the source (:func:`build_reference_lib`). ``rep_data`` goes to the timed public
+    ``rep_data`` goes to the timed public
     call only (:mod:`hpcagent_bench.harness.rep_variation`). ``canonical``
     (:func:`rep_variation.timed_seeds`) builds the public inputs for one untimed call after the timed
     reps, whose outputs are returned; None = the last timed rep's outputs."""
@@ -1494,11 +1446,9 @@ def run_compiled_reference(
                 language=language,
                 mode=mode,
                 compiler=compiler,
-                baseline=baseline,
             )
         except Exception as exc:
-            stage = "vendored source" if baseline == VENDORED_BASELINE else "emit"
-            raise RuntimeError(f"{language} reference {stage} failed: {exc}") from exc
+            raise RuntimeError(f"{language} reference emit failed: {exc}") from exc
         if not built.ok or built.lib is None:
             raise RuntimeError(f"{language} reference build failed:\n{built.log[-1500:]}")
         lib = built.lib

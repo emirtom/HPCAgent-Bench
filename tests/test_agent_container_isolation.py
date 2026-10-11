@@ -128,7 +128,7 @@ def test_the_generated_reference_cache_reaches_the_judge_and_not_the_agent(tmp_p
     """emit_reference_source lowers the reference into the target language.
 
     materialize_shared.sh:13 is explicit that those lowerings reach no agent -- copyable material
-    is the numpy reference plus any vendored baseline. The judge is the role that calls the
+    is the numpy reference plus any hand-written ``*_reference.*``. The judge is the role that calls the
     emitter to grade, so the cache has to reach it; mounting the same path into the agent hands
     over a correct implementation of the kernel the agent is being graded on writing.
     """

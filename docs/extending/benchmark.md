@@ -89,8 +89,8 @@ the join key. Rules, checked by `tests/test_display_names.py`:
   selectable as `all@llr40`; `@lvl2` selects by level (`python -m hpcagent_bench.tags --help`).
 - **Languages.** `languages: [c, fortran]` is the set used under `--languages all`
   (`python -m hpcagent_bench tasks --kernels <kernel> --languages all`).
-- **Reference source.** Offered to the agent when `prompt.include_reference` is on; a `baseline:`
-  block makes it the timed denominator ([benchmarks.md](../benchmarks.md#vendored-native-baseline-optional)).
+- **Reference source.** Offered to the agent when `prompt.include_reference` is on; a hand-written
+  `<kernel>_reference.*` is staged beside it ([benchmarks.md](../benchmarks.md#hand-written-native-reference-optional)).
 - **More.** [sparse_abi.md](../../hpcagent_bench/docs/sparse_abi.md),
   [kernel_extraction.md](../kernel_extraction.md),
   [mpi_distributions.md](../../hpcagent_bench/docs/mpi_distributions.md).

@@ -8,7 +8,7 @@
 # vector and thread work is. ke (ICON's 90-level grid) is held constant across the ladder; nvec, the column
 # count, is the axis a preset grows: M ~1 GiB, L at the M-XL geometric midpoint, XL at the working-set ceiling.
 # nsteps repeats the call, the temperature and vapour of each step brought back halfway to their initial values
-# by a forcing, so a step reads the previous one and the cloud keeps forming; six steps put the vendored baseline
+# by a forcing, so a step reads the previous one and the cloud keeps forming; six steps put the native reference
 # at XL near 5 s. The kernel runs the columns ivstart to nvec - 1 and the levels kstart to ke - 1, as ICON runs a
 # block above its model's moist top; both are fixed here.
 name: ICON AES Graupel
@@ -126,10 +126,5 @@ output_args:
 - prg_gsp
 - pflx
 - pre_gsp
-baseline:
-  kind: vendored
-  source: aes_graupel_reference.f90
-  language: fortran
-  mode: multi_core
 allowed_precisions:
 - fp64

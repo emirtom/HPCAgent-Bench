@@ -10,7 +10,7 @@
 # rendered one is per task (agent_driver.py substitutes {{TASK}} per agent). Kernel names come from
 # the problems JSON/JSONL, or from $KERNELS when there is no such file. Per-language task sources
 # are emitted on demand into a temp dir (harness/agent.py:emit_reference_source) and exist nowhere
-# in the repo, so a kernel's copyable material is its numpy reference plus any vendored baseline.
+# in the repo, so a kernel's copyable material is its numpy reference plus any hand-written ``*_reference.*``.
 set -euo pipefail
 
 # A core dump lands in the crashing process's CWD (the checkout) and Slurm propagates the
