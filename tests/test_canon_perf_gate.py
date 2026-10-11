@@ -5,7 +5,7 @@
 Correctness is the ordinary CI's job; this is the speed half, run by the separate ``perf`` job one test at a
 time (no xdist), with ``OMP_NUM_THREADS`` at the runner's core count. Each kernel is timed at preset M (big
 enough to amortize the thread team, small enough for a CI runner) as the median of 3 runs, under
-``dace_cpu_canonicalize`` and under both compiled baselines; the gate is canon <= 2x the faster baseline.
+``dace_cpu_canonicalize`` and under the compiled baselines (both, unless KERNEL_BASELINES narrows them); the gate is canon <= 2x the faster baseline.
 
 The list is curated, not the corpus: each entry is a case canon has been slow on.
 """
@@ -34,6 +34,9 @@ CURATED = {
 
 CANON = "dace_cpu_canonicalize"
 BASELINES = ("numba", "cc")
+#: kernel -> the baselines it is timed against, where not both. numba spends over 25 minutes compiling the
+#: monolith on one core (cold cache, preset S), more than a CI runner's whole budget for the job.
+KERNEL_BASELINES = {"cloudsc_monolith": ("cc",)}
 PRESET = "M"
 REPEAT = 3
 MAX_SLOWDOWN = 2.0
@@ -53,12 +56,13 @@ def median_ms(db: pathlib.Path, column: str, kernel: str) -> float:
 @pytest.mark.parametrize("kernel", sorted(CURATED))
 def test_canon_is_within_2x_of_the_compiled_baseline(kernel: str, tmp_path: pathlib.Path) -> None:
     db = tmp_path / "perf.db"
+    baselines = KERNEL_BASELINES.get(kernel, BASELINES)
     failed = run_framework_sweep(
-        kernel, [CANON, *BASELINES], PRESET, True, REPEAT, TIMEOUT_S, True, None, canon=CanonTarget(db, "perf")
+        kernel, [CANON, *baselines], PRESET, True, REPEAT, TIMEOUT_S, True, None, canon=CanonTarget(db, "perf")
     )
     assert not failed, f"{kernel}: the timed child failed"
     canon = median_ms(db, CANON, kernel)
-    baseline = min(median_ms(db, column, kernel) for column in BASELINES)
+    baseline = min(median_ms(db, column, kernel) for column in baselines)
     assert canon <= MAX_SLOWDOWN * baseline, (
         f"{kernel}: canon {canon:.2f} ms is {canon / baseline:.2f}x the compiled baseline {baseline:.2f} ms"
     )
