@@ -3,8 +3,6 @@
 name: Mixed-Precision Refinement
 short-name: Mixed-Prec IR
 level: 2
-# the kernel's subject IS the precision split: rerun at fp32 the refinement loop is a no-op.
-min_precision: fp64
 # S/M follow the sibling dense_linear_algebra/lu ladder (60/3107). XL is 6000: the fastest baseline (numba)
 # runs ~5 s on one mi300 node, and every timed rep redraws A, two dense QRs that cost ~140 s on one BLAS thread
 # at N 9000 (~42 s at 6000); the sequential C reference takes ~35 s at 6000. L sits between M and XL.
@@ -75,7 +73,6 @@ conditioning_rtol: 1.0e-5
 conditioning_atol: 1.0e-7
 # The fp32 factorization survives an fp32 rerun trivially (the refinement loop becomes a no-op over
 # an already-fp32 problem): the precision split IS the kernel, so it runs at fp64 only.
-min_precision: fp64
 allowed_precisions:
 - fp64
 # Concurrency: Three separate sequential recurrences, none of them removable by retagging a loop.

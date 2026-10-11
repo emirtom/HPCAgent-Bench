@@ -74,7 +74,7 @@ narrower SIMD width flips which side of that budget wall a borderline solve land
 under 1% at N=64. With both, none of the flags above move either field past 2e-10 at N=64 under a
 1-ULP input perturbation; see ``tests/test_bdf_newton_krylov_numpy_reference.py``.
 
-The manifest declares ``min_precision: fp64``, and that floor is a property of the algorithm rather
+The manifest declares ``allowed_precisions: [fp64]``, and that floor is a property of the algorithm rather
 than of any backend. The Newton corrector stops on ``wrms(res, newton_rtol, newton_rtol) < 1``,
 which asks for a residual of ``newton_rtol = 1e-12`` RELATIVE; the residual
 ``u - h*beta_0*f(u) - rhs`` cannot be held below the round-off of its own operands, about

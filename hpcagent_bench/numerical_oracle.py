@@ -144,7 +144,7 @@ NO_SCALE = (
 #: produces, so it still fails every structural defect. ``test_a_chaotic_band_cannot_hide_a_wrong
 #: _answer`` pins that reasoning.
 #:
-#: mandelbrot1 declares ``min_precision: fp64`` and is SKIPPED below it, so this entry only ever
+#: mandelbrot1 declares ``allowed_precisions: [fp64]`` and is SKIPPED below it, so this entry only ever
 #: replaces fp64's 1e-9 -- there is no fp32 or fp16 run of it to widen or narrow. The ``max`` at the
 #: use site is therefore inert today; it is the rule for an entry that carries no such floor, whose
 #: fp32 band (1e-3) is already looser than anything sensible here and must not be tightened.

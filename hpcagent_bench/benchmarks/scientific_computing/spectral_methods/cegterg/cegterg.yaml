@@ -186,4 +186,4 @@ output_args:
 # LAPACK build) reproduces it. Grading it made the kernel's verdict a fingerprint of one library
 # path rather than a statement about the answer. The eigenVALUES are phase-independent and stay.
 - e
-min_precision: fp64
+allowed_precisions: [fp64]

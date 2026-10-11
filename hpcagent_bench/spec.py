@@ -46,7 +46,6 @@ from hpcagent_bench import config, fuzz, paths
 from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
-from hpcagent_bench.precision import Precision
 from hpcagent_bench.support.distributions import domain as domain_mod
 from hpcagent_bench.support.helpers.sparse.abi import (
     BLOCK_FORMAT,
@@ -172,7 +171,6 @@ __all__ = [
     "validate_init_kinds",
     "validate_kernel",
     "validate_level",
-    "validate_min_precision",
     "validate_scale",
     "validate_scenario_layouts",
     "validate_sparse_layouts",
@@ -1310,7 +1308,6 @@ KNOWN_MANIFEST_KEYS = frozenset(
         "timeout_s",
         "memory_cap_gb",
         "floor_bytes_fraction",
-        "min_precision",
         "conditioning_rtol",
         "conditioning_atol",
         "scale_axes",
@@ -1438,19 +1435,6 @@ def validate_level(level: int | None, track: str = "", source: str = "<spec>") -
             f"{source}: loop_level_reasoning is single loop nests -- level 3 is the "
             f"full-application tier and no kernel on this track is one"
         )
-
-
-def validate_min_precision(min_precision: str | None, source: str = "<spec>") -> None:
-    """Raise ``ValueError`` unless ``min_precision`` is ``None`` or a name in
-    :class:`hpcagent_bench.precision.Precision` -- the numerical-reproducibility floor a kernel
-    declares for itself (e.g. a chaotic escape-time iteration is not reproducible below fp64;
-    a typo here must not silently mean "no constraint")."""
-    if min_precision is None:
-        return
-    try:
-        Precision.from_str(min_precision)
-    except ValueError as exc:
-        raise ValueError(f"{source}: min_precision {min_precision!r}: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -1943,13 +1927,6 @@ class BenchSpec:
     #: it in the manifest; 1.0 (the default) charges every declared byte. Judge-side, never an agent
     #: signal, like the floor itself.
     floor_bytes_fraction: float = 1.0
-    #: Numerical-reproducibility floor this kernel's output needs, as a
-    #: :class:`hpcagent_bench.precision.Precision` name (e.g. ``"fp64"``). Set only by a kernel whose
-    #: result is not implementation-stable below some precision (chaotic escape-time iteration:
-    #: rounding/FMA differences flip which loop iteration a point escapes at, so the retained value
-    #: differs by O(1) -- not a translator bug, and not fixable by loosening a tolerance).
-    #: ``None`` => no floor; the kernel sweeps every precision its own ``allowed_precisions`` list allows.
-    min_precision: str | None = None
     #: A floor on the grading rtol, for a kernel whose answer the precision band cannot resolve: the
     #: reference itself moves by more than the band under a 1-ulp input change (an ill-conditioned
     #: solve), so any reordered implementation fails. Set only with that measurement beside it in the
@@ -2194,7 +2171,6 @@ class BenchSpec:
         floor_fraction = ext.get("floor_bytes_fraction", bench.get("floor_bytes_fraction", 1.0))
         if not 0 < number_of(floor_fraction, "floor_bytes_fraction", source) <= 1:
             raise ValueError(f"{source}: floor_bytes_fraction must be in (0, 1] (got {floor_fraction!r})")
-        min_precision = ext.get("min_precision", bench.get("min_precision"))
         conditioning_rtol = ext.get("conditioning_rtol", bench.get("conditioning_rtol"))
         if conditioning_rtol is not None and not 0 < number_of(conditioning_rtol, "conditioning_rtol", source) < 1:
             raise ValueError(f"{source}: conditioning_rtol must be in (0, 1) (got {conditioning_rtol!r})")
@@ -2221,7 +2197,6 @@ class BenchSpec:
             memory_cap_gb=None if memory_cap_gb is None else number_of(memory_cap_gb, "memory_cap_gb", source),
             floor_bytes_fraction=number_of(floor_fraction, "floor_bytes_fraction", source),
             scale_axes=scale_axes_of(bench.get("scale_axes"), parameters_view, config_syms, source),
-            min_precision=None if min_precision is None else str(min_precision),
             conditioning_rtol=(
                 None if conditioning_rtol is None else number_of(conditioning_rtol, "conditioning_rtol", source)
             ),
@@ -2313,7 +2288,6 @@ class BenchSpec:
         validate_dwarf(spec.dwarf, source)
         validate_scale(spec.scale, spec.track, source)
         validate_level(spec.level, spec.track, source)
-        validate_min_precision(spec.min_precision, source)
         return spec
 
     @property

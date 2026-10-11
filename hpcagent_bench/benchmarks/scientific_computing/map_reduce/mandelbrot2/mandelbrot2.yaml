@@ -4,8 +4,8 @@ name: Mandelbrot Escape Stamp
 short-name: Mandelbrot 2
 level: 2
 # chaotic escape-time iteration: fp32 rounding flips which iteration a point escapes at,
-# so Z_out moves by O(1) across implementations. Not a translator bug.
-min_precision: fp64
+# so Z_out moves by O(1) across implementations. Not a translator bug. fp64 only.
+allowed_precisions: [fp64]
 parameters:
   S:
     maxiter: 20
@@ -82,5 +82,3 @@ mpi:
     N_out:
     - YN
     - XN
-# chaotic escape-time iteration, same as mandelbrot1.
-min_precision: fp64

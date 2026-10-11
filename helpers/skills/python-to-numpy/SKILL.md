@@ -610,7 +610,7 @@ taxonomy: {track: machine_learning, subtrack: kernelbench, domain: Learning}
 ```
 
 Two that are easy to get wrong: `dist:` exists because the default fill is not legal for every array
-(a variance, a denominator, an index); and `min_precision: fp64` belongs on any kernel whose result
+(a variance, a denominator, an index); and `allowed_precisions: [fp64]` belongs on any kernel whose result
 is chaotic, so the fp32 sweep does not report drift as a defect.
 
 Argument order is the manifest's `init.arrays` + `init.scalars`, output last and named in
