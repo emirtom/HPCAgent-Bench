@@ -167,6 +167,11 @@ if [ -n "${nvc}" ]; then
         found="$(ls "${nvlib}/lib${stem}.so" "${nvlib}/lib${stem}.so."* 2>/dev/null | head -1 || true)"
         [ -n "${found}" ] || { echo "omp_contexts: NVHPC at ${nvlib} ships no lib${stem}.so" >&2; exit 1; }
         link "${found}" "${root}/nvhpc/lib/lib${stem}.so"
+        # Newer NVHPC splits each into a dispatch library DT_NEEDED on lib${stem}_lp64.so.0 / _ilp64: link the
+        # siblings too, or the shim below fails to load (numpy: libblas_lp64.so.0: cannot open shared object file).
+        for sibling in "${nvlib}/lib${stem}"_*.so*; do
+            if [ -e "${sibling}" ]; then link "${sibling}" "${root}/nvhpc/lib/$(basename "${sibling}")"; fi
+        done
     done
     # numpy and scipy were built against libopenblas.so.0: one soname that carries BLAS and LAPACK, here the two
     # libraries NVHPC ships (a library with no code of its own, DT_NEEDED on both).
