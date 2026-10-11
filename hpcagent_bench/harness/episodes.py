@@ -18,6 +18,7 @@ from hpcagent_bench import config, fused
 from hpcagent_bench.harness import recording, results_db
 
 __all__ = [
+    "ENDED_BY",
     "MIN_TOKEN_FOLD",
     "OUTCOME_COLUMNS",
     "RECORD_GLOB",
@@ -40,6 +41,15 @@ OUTCOME_COLUMNS: dict[str, str] = {
     "turns": "turns",
     "wall_ms": "wall_ms",
     "api_ms": "api_ms",
+}
+#: The driver's own exit codes (agent_driver.py RC_*) -> ``result``. The record's ``result`` is the agent CLI's closing
+#: subtype, which an episode the driver ended (a budget, a submission) never reaches, so it arrives empty.
+ENDED_BY: dict[int, str] = {
+    123: "submitted",
+    124: "timeout",
+    125: "budget",
+    126: "context",
+    127: "api_timeout",
 }
 #: record key -> ``episodes`` column, for what it cost.
 TOKEN_COLUMNS: dict[str, str] = {
@@ -80,9 +90,12 @@ def episode_values(record: Mapping[str, object]) -> dict[str, results_db.Value]:
     """The ``episodes`` columns a record fills: how the episode ended, the kernel it was assigned, how
     often it was relaunched and when its final attempt began, and -- from a trusted fold only -- its
     token counts."""
+    values: dict[str, results_db.Value] = {column: whole(record.get(key)) for key, column in OUTCOME_COLUMNS.items()}
     result = record.get("result")
-    values: dict[str, results_db.Value] = {"result": None if result is None else str(result)}
-    values |= {column: whole(record.get(key)) for key, column in OUTCOME_COLUMNS.items()}
+    returncode = values["returncode"]
+    if not result and isinstance(returncode, int):
+        result = ENDED_BY.get(returncode)
+    values["result"] = None if result is None else str(result)
     if trusted_fold(record):
         values |= {column: whole(record.get(key)) for key, column in TOKEN_COLUMNS.items()}
     kernel = record.get("kernel")
@@ -123,5 +136,10 @@ def ingest(conn: sqlite3.Connection, job_dir: pathlib.Path) -> tuple[int, int]:
             episode_id = recording.open_episode_in_job(conn, label, job)
         fill(conn, episode_id, episode_values(record))
         filled += 1
+    # An episode cut off before its driver wrote a record (the job died) still names its kernel in its grades.
+    conn.execute(
+        "UPDATE episodes SET kernel = (SELECT g.kernel FROM grades g WHERE g.episode_id = episodes.id LIMIT 1)"
+        " WHERE kernel = '' AND EXISTS (SELECT 1 FROM grades g WHERE g.episode_id = episodes.id)"
+    )
     conn.commit()
     return filled, unattributed

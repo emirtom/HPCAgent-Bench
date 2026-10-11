@@ -115,9 +115,9 @@ def test_an_episode_that_never_reached_the_judge_still_yields_its_episode_row(tm
     job_dir = job(tmp_path)
     write_record(job_dir, 3)
 
-    (row,) = episode_rows(merged(job_dir))
+    rows = {row["episode_id"]: row for row in episode_rows(merged(job_dir))}
 
-    assert (row["episode_id"], row["setup"], row["tokens"]) == ("setup-a.n0.p3.w3", "setup-a", 5_000)
+    assert (rows["setup-a.n0.p3.w3"]["setup"], rows["setup-a.n0.p3.w3"]["tokens"]) == ("setup-a", 5_000)
 
 
 def test_a_record_from_the_double_counting_fold_keeps_its_row_without_a_total(tmp_path: pathlib.Path) -> None:
