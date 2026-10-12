@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness.mpi_descriptor import (
     ArrayDist,
@@ -89,7 +90,9 @@ def test_replicated_layout_roundtrip_real_mpi(ranks: int, shape: tuple[int, ...]
 # logic; every P above must have exercised only the layouts these accept).
 def test_cyclic_layout_that_does_not_tile_the_contiguous_block_is_named() -> None:
     grid = Grid((3,))  # 10 % 3 != 0: cyclic width 1 deals a DIFFERENT index set than block does
-    desc = Descriptor(grid=grid, arrays={"x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="cyclic", block_size=1),))})
+    desc = Descriptor(
+        grid=grid, arrays={"x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.CYCLIC, block_size=1),))}
+    )
     msg = block_partition_mismatch(desc, {"x": (10,)})
     assert msg is not None
     assert "cyclic" in msg
@@ -97,7 +100,7 @@ def test_cyclic_layout_that_does_not_tile_the_contiguous_block_is_named() -> Non
 
 def test_block_scheme_is_never_refused_for_a_mismatch() -> None:
     grid = Grid((3,))
-    desc = Descriptor(grid=grid, arrays={"x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))})
+    desc = Descriptor(grid=grid, arrays={"x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))})
     assert block_partition_mismatch(desc, {"x": (10,)}) is None
 
 

@@ -8,12 +8,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
+from relayout.ops import Scheme
 
-from hpcagent_bench.harness.requests_api import Requests
-from relayout.ops import SCHEMES
+from hpcagent_bench.harness.requests_api import Location, Requests
 
 __all__ = [
-    "AXIS_SCHEMES",
     "MAX_CHECKED_RANKS",
     "ArrayDist",
     "AxisDist",
@@ -58,9 +57,6 @@ if TYPE_CHECKING:  # hints only; the math core stays free of binding/envelope im
     from hpcagent_bench.spec import BenchSpec
     from hpcagent_bench.support.bindings.contract import Binding
 
-#: The per-axis SPLIT schemes (a layout lowers to one of them); replication is structural (unbound
-#: grid_dim, not a scheme here).
-AXIS_SCHEMES = SCHEMES
 #: The largest graded rank count the even-split check covers.
 MAX_CHECKED_RANKS = 16
 
@@ -70,7 +66,7 @@ class AxisDist:
     """How ONE array axis is laid out: replicated (grid_dim=None) or split by scheme; no ghost cells."""
 
     grid_dim: int | None = None
-    scheme: str = "block"
+    scheme: Scheme = Scheme.BLOCK
     block_size: int = 1
 
 
@@ -116,7 +112,7 @@ def _block_bounds(n: int, parts: int, coord: int) -> tuple[int, int]:
 
 def effective_block_size(axis: AxisDist) -> int:
     """Block width owned_indices applies on a split axis: declared width for block_cyclic, else 1."""
-    return max(1, axis.block_size) if axis.scheme == "block_cyclic" else 1
+    return max(1, axis.block_size) if axis.scheme is Scheme.BLOCK_CYCLIC else 1
 
 
 def owned_indices(n: int, axis: AxisDist, grid: Grid, coords: Sequence[int]) -> np.ndarray:
@@ -125,17 +121,11 @@ def owned_indices(n: int, axis: AxisDist, grid: Grid, coords: Sequence[int]) -> 
         return np.arange(n, dtype=np.int64)
     parts = grid.dims[axis.grid_dim]
     coord = coords[axis.grid_dim]
-    if axis.scheme == "block":
+    if axis.scheme is Scheme.BLOCK:
         lo, hi = _block_bounds(n, parts, coord)
         return np.arange(lo, hi, dtype=np.int64)
-    if axis.scheme in ("block_cyclic", "cyclic"):
-        block_size = effective_block_size(axis)
-        idx = np.arange(n, dtype=np.int64)
-        return idx[(idx // block_size) % parts == coord]
-    raise ValueError(
-        f"unknown axis scheme {axis.scheme!r}; split schemes are {AXIS_SCHEMES} "
-        f"(to replicate an axis leave grid_dim=None)"
-    )
+    idx = np.arange(n, dtype=np.int64)
+    return idx[(idx // effective_block_size(axis)) % parts == coord]
 
 
 def axis_index_lists(shape: Sequence[int], dist: ArrayDist, grid: Grid, coords: Sequence[int]) -> list[np.ndarray]:
@@ -230,17 +220,17 @@ def default_distribution(shape: Sequence[int], grid: Grid, block_size: int = 1) 
     axes: list[AxisDist] = []
     for d in range(len(shape)):
         if d < len(grid.dims) and grid.dims[d] > 1:
-            axes.append(AxisDist(grid_dim=d, scheme="block_cyclic", block_size=max(1, block_size)))
+            axes.append(AxisDist(grid_dim=d, scheme=Scheme.BLOCK_CYCLIC, block_size=max(1, block_size)))
         else:
             axes.append(AxisDist(grid_dim=None))
     return ArrayDist(axes=tuple(axes))
 
 
-def split_axis_entry(scheme: str, block_size: int) -> dict:
+def split_axis_entry(scheme: Scheme, block_size: int) -> dict:
     """One split axis of a submission-style ``axes[]`` list over grid dim 0 (a fresh dict per call);
     ``block_size`` is meaningful (and included) only for block_cyclic."""
-    ax = {"grid_dim": 0, "scheme": scheme}
-    if scheme == "block_cyclic":
+    ax: dict[str, object] = {"grid_dim": 0, "scheme": scheme.value}
+    if scheme is Scheme.BLOCK_CYCLIC:
         ax["block_size"] = int(block_size)
     return ax
 
@@ -250,7 +240,7 @@ def distribution_from_split(
     split: dict[str, str | None],
     ranks: int,
     *,
-    scheme: str = "block",
+    scheme: Scheme = Scheme.BLOCK,
     block_size: int = 1,
 ) -> dict:
     """A submission-style distribution dict from a manifest ``mpi.split`` map: over a 1-D grid,
@@ -284,7 +274,7 @@ def distribution_from_shapes(
     axis_symbols: Sequence[str],
     ranks: int,
     *,
-    scheme: str = "block",
+    scheme: Scheme = Scheme.BLOCK,
     block_size: int = 1,
 ) -> dict:
     """A submission-style distribution dict: over a 1-D grid, split the first axis named by axis_symbols."""
@@ -308,7 +298,7 @@ def axis_to_dict(ax: AxisDist) -> dict:
     """Serialize one AxisDist back to a submission-style axes[] entry (inverse of _array_dist_from_layout)."""
     if ax.grid_dim is None:
         return {"grid_dim": None}
-    return {"grid_dim": ax.grid_dim, "scheme": ax.scheme, "block_size": ax.block_size}
+    return {"grid_dim": ax.grid_dim, "scheme": ax.scheme.value, "block_size": ax.block_size}
 
 
 def array_dist_to_dict(ad: ArrayDist) -> dict:
@@ -364,7 +354,7 @@ def binding_shapes(binding: "Binding") -> dict[str, Sequence[str]]:
 
 
 def distribution_over_symbol(
-    binding: "Binding", axis_symbols: Sequence[str], ranks: int, *, scheme: str = "block", block_size: int = 1
+    binding: "Binding", axis_symbols: Sequence[str], ranks: int, *, scheme: Scheme = Scheme.BLOCK, block_size: int = 1
 ) -> dict:
     """A submission-style distribution dict splitting, over a 1-D grid, each array axis named by axis_symbols."""
     return distribution_from_shapes(binding_shapes(binding), axis_symbols, ranks, scheme=scheme, block_size=block_size)
@@ -397,10 +387,10 @@ def distribution_for_kernel(mpi_block: dict | None, binding: "Binding", ranks: i
     decomp = mpi.get("decomposition", {})
     axis_syms = list(decomp.get("axis", []))
     manifest_shapes = mpi.get("arrays")
-    decomp_scheme = decomp.get("scheme", "block")
+    decomp_scheme = Scheme(decomp.get("scheme", Scheme.BLOCK.value))
     grid_ndim = int(decomp.get("grid_ndim", 1))
     block_size = int(decomp.get("block_size", 1))
-    if decomp_scheme in ("block_cyclic", "cyclic") and grid_ndim > 1:
+    if decomp_scheme is not Scheme.BLOCK and grid_ndim > 1:
         # A multi-dim block-cyclic decomposition deals array-axis-d over grid-dim-d, so it needs
         # each array's rank (axis count), not a named split axis.
         shapes = manifest_shapes or binding_shapes(binding)
@@ -431,7 +421,11 @@ def _array_dist_from_layout(layout: dict) -> ArrayDist:
         return ArrayDist(replicated=True)
     axes: list[AxisDist] = []
     axes.extend(
-        AxisDist(grid_dim=ax.get("grid_dim"), scheme=ax.get("scheme", "block"), block_size=int(ax.get("block_size", 1)))
+        AxisDist(
+            grid_dim=ax.get("grid_dim"),
+            scheme=Scheme(ax.get("scheme", Scheme.BLOCK.value)),
+            block_size=int(ax.get("block_size", 1)),
+        )
         for ax in layout["axes"]
     )
     return ArrayDist(axes=tuple(axes))
@@ -457,8 +451,8 @@ class Descriptor:
     grid: Grid
     arrays: dict[str, ArrayDist]
     symbol_axes: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
-    #: Per-array residency ("host" default or "device"); harness scatters on host then moves device tiles (untimed).
-    locations: dict[str, str] = field(default_factory=dict)
+    #: Per-array residency; the harness scatters on the host, then moves device tiles (untimed).
+    locations: dict[str, Location] = field(default_factory=dict)
 
     @classmethod
     def from_submission(
@@ -468,7 +462,7 @@ class Descriptor:
         ranks: int,
         *,
         symbol_axes: dict[str, tuple[str, int]] | None = None,
-        default_location: str = "host",
+        default_location: Location = Location.HOST,
         ndims: Mapping[str, int] | None = None,
     ) -> "Descriptor":
         """Lower + semantically validate ``submission.requests`` (grid + layout) against binding and the fixed
@@ -483,7 +477,7 @@ class Descriptor:
                 f"(identical on every rank) and cannot be distributed"
             )
         return cls.from_plan(
-            submission.requests.plan(binding_ndims(binding) if ndims is None else ndims),
+            submission.requests.plan(binding_ndims(binding) if ndims is None else ndims, ranks),
             binding,
             ranks,
             symbol_axes=symbol_axes,
@@ -498,7 +492,7 @@ class Descriptor:
         ranks: int,
         *,
         symbol_axes: dict[str, tuple[str, int]] | None = None,
-        default_location: str = "host",
+        default_location: Location = Location.HOST,
     ) -> "Descriptor":
         """Resolve + semantically validate a lowered plan (:meth:`Requests.plan`) against binding and the fixed ranks."""
         grid = Grid(tuple(dist["grid"]))
@@ -531,10 +525,11 @@ class Descriptor:
         for name in ptrs:
             resolved.setdefault(name, ArrayDist(replicated=True))
 
-        if default_location not in ("host", "device"):
-            raise ValueError(f"default_location must be 'host' or 'device'; got {default_location!r}")
         # per-array residency: each declared array's `location`, else the run-wide default
-        locations = {name: str(layout.get("location", default_location)) for name, layout in dist["arrays"].items()}
+        locations = {
+            name: Location(layout["location"]) if "location" in layout else default_location
+            for name, layout in dist["arrays"].items()
+        }
         for name in ptrs:
             locations.setdefault(name, default_location)
 
@@ -627,7 +622,9 @@ class Descriptor:
 
     def device_pointer_indices(self, binding: "Binding") -> tuple[int, ...]:
         """Indices (in binding.pointers order) of the arrays the agent placed on the GPU; empty = all-host."""
-        return tuple(i for i, p in enumerate(binding.pointers) if self.locations.get(p.name, "host") == "device")
+        return tuple(
+            i for i, p in enumerate(binding.pointers) if self.locations.get(p.name, Location.HOST) is Location.DEVICE
+        )
 
     def any_device(self, binding: "Binding") -> bool:
         """True iff any array is GPU-resident (the run needs a GPU build + a device kernel)."""
@@ -644,7 +641,7 @@ def degenerates_to_block(n: int, parts: int, axis: AxisDist) -> bool:
     element). Anything else deals the SAME number of elements to each rank out of DIFFERENT global
     indices, which is why a tile-shape check cannot see the difference.
     """
-    if axis.scheme == "block":
+    if axis.scheme is Scheme.BLOCK:
         return True
     if parts <= 1 or n <= 1:
         return True
@@ -676,7 +673,7 @@ def block_partition_mismatch(descriptor: "Descriptor", shapes: Mapping[str, Sequ
                 continue
             return (
                 f"requests.layout[{name!r}] distributes dimension {axis_index} with scheme "
-                f"{axis.scheme!r} (block_size {effective_block_size(axis)}) over {parts} rank(s) "
+                f"{axis.scheme.value!r} (block_size {effective_block_size(axis)}) over {parts} rank(s) "
                 f"of extent {n}, but each rank is given the CONTIGUOUS block "
                 f"{_block_bounds(n, parts, 0)} .. of that extent. Distribute the whole dimension (block), or a "
                 f"block_cyclic width of exactly {n // parts if n % parts == 0 else 'n / ranks'} "
@@ -754,7 +751,7 @@ def layout_divisibility_refusal(
         if dist.replicated or shape is None:
             continue
         for axis_index, axis in enumerate(dist.axes):
-            if axis.grid_dim is None or axis.scheme == "block":
+            if axis.grid_dim is None or axis.scheme is Scheme.BLOCK:
                 continue
             n = int(shape[axis_index])
             width = effective_block_size(axis)
@@ -762,7 +759,7 @@ def layout_divisibility_refusal(
                 if n % p != 0 or n % width != 0:
                     return (
                         f"requests.layout[{name!r}] distributes dimension {axis_index} with scheme "
-                        f"{axis.scheme!r} (block_size {width}) over an extent of {n}, which does "
+                        f"{axis.scheme.value!r} (block_size {width}) over an extent of {n}, which does "
                         f"not divide evenly by block_size and by every graded rank count "
                         f"(P={p} among {sorted(graded_ranks)}). Pick a block_size and extent that "
                         f"divide evenly at every graded P<=16, or distribute the whole dimension (block)"

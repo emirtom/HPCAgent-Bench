@@ -39,6 +39,8 @@ dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 dtensor_mod = pytest.importorskip("torch.distributed.tensor")
 
+from relayout.ops import Scheme
+
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Grid
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support import shard_torch
@@ -51,15 +53,15 @@ SHAPES = [(256, 512), (1024, 192)]  # multiples of 64; evenly divisible by mesh 
 
 
 def _harness_dist_shard0_1d() -> ArrayDist:
-    return ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"), AxisDist(grid_dim=None)))
+    return ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK), AxisDist(grid_dim=None)))
 
 
 def _harness_dist_shard1_1d() -> ArrayDist:
-    return ArrayDist(axes=(AxisDist(grid_dim=None), AxisDist(grid_dim=0, scheme="block")))
+    return ArrayDist(axes=(AxisDist(grid_dim=None), AxisDist(grid_dim=0, scheme=Scheme.BLOCK)))
 
 
 def _harness_dist_shard01_2d() -> ArrayDist:
-    return ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"), AxisDist(grid_dim=1, scheme="block")))
+    return ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK), AxisDist(grid_dim=1, scheme=Scheme.BLOCK)))
 
 
 #: label -> (mesh_shape, placements() factory, harness ArrayDist() factory). Factories, not

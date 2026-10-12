@@ -14,6 +14,8 @@ import dataclasses
 import json
 import re
 
+from relayout.ops import Scheme
+
 from hpcagent_bench import config
 from hpcagent_bench.harness.mpi_descriptor import (
     AxisDist,
@@ -43,7 +45,7 @@ def test_build_context_sets_node_mode_and_mpi_fields() -> None:
     assert ctx["k_repeats"] >= 1
     assert ctx["mpi_symbol"] == mpi_symbol(binding) == "jacobi_2d_mpi"
     assert ctx["mpi_stub"] == gen_kernel_mpi_stub(binding)  # the Sec. 12 stub, not the single-node one
-    assert ctx["mpi_residency"] in ("host", "device")  # the pointer residency the scorer delivers
+    assert isinstance(ctx["mpi_device"], bool)  # the pointer residency the scorer delivers
 
 
 def test_host_context_is_single_and_mpi_fields_inert() -> None:
@@ -52,7 +54,7 @@ def test_host_context_is_single_and_mpi_fields_inert() -> None:
     assert ctx["scaling"] == ""
     assert ctx["mpi_symbol"] == ""
     assert ctx["mpi_stub"] == ""
-    assert ctx["mpi_residency"] == ""
+    assert ctx["mpi_device"] is False
 
 
 def test_multi_prompt_is_comms_agnostic_and_states_pointer_residency() -> None:
@@ -74,12 +76,11 @@ def test_multi_prompt_is_comms_agnostic_and_states_pointer_residency() -> None:
 
 def test_multi_prompt_shows_the_distributed_contract() -> None:
     p = build_prompt(DIST)
-    ranks = int(config.get("mpi.ranks", 4))
     assert "## Distributed (multi-node MPI) contract" in p
     assert "jacobi_2d_mpi" in p  # the Sec. 12 symbol
     assert "MPI_Comm_f2c(comm)" in p
     assert "MPI_Cart_shift" in p
-    assert f'"grid": [{ranks}]' in p  # the layout example, ranks interpolated
+    assert '"grid": ["P"]' in p  # the layout example: a 1-D grid at every rank count
     assert "no prebuilt" in p  # no `.so` delivery on this track
     assert "kernel_mpi(*tiles" in p  # the mpi4py delivery convention
     assert "STRONG scaling" in p  # config default mode
@@ -135,7 +136,7 @@ def test_documented_layout_example_lowers_to_what_it_says() -> None:
     p = build_prompt(DIST)
     section = p[p.index("### Data distribution") : p.index("### Delivery")]
     body = section[section.index("```json") + len("```json") :]
-    plan = Requests.from_obj(json.loads(body[: body.index("```")])).plan({"A": 2, "B": 2, "C": 2})
+    plan = Requests.from_obj(json.loads(body[: body.index("```")])).plan({"A": 2, "B": 2, "C": 2}, 4)
     axes = {name: entry["axes"] for name, entry in plan["arrays"].items()}
     assert axes == {
         "A": [{"grid_dim": 0, "scheme": "block", "block_size": 1}, {"grid_dim": None}],
@@ -145,16 +146,16 @@ def test_documented_layout_example_lowers_to_what_it_says() -> None:
 
 
 def test_distribution_section_lists_every_layout_with_its_exact_json() -> None:
-    """Every op the layout lowers is spelled with its exact JSON, plus the grid rules."""
+    """Every op the layout lowers is named, the example spells their exact JSON, plus the grid rules."""
     p = build_prompt(DIST)
     for form in (
-        '{"op": "distribute", "digit": k, "grid_dim": g}',
-        '{"op": "block", "dim": d, "factor": F}',
-        '{"op": "permute", "perm": [...]}',
+        '{"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]}',
+        '{"op": "block", "digit": "i1", "factor": "P0", "into": ["i1", "r"]}',
+        '{"op": "distribute", "digit": "r", "grid_dim": 0}',
+        "`permute` lists every digit in a",
     ):
         assert form in p
-    assert "a multi-dimensional grid" in p.lower()
-    assert '"grid": [2, 2]' in p
+    assert '`["root(P, 2)", "root(P, 2)"]` square' in p
 
 
 def test_distribution_section_is_at_most_forty_lines() -> None:
@@ -168,7 +169,7 @@ def test_worked_example_formulas_match_owned_indices() -> None:
     global<->local formulas -- must be what ``owned_indices`` actually does, or the prompt teaches
     the agent an indexing scheme the harness will not scatter."""
     n, block = 2000, 1024
-    axis = AxisDist(grid_dim=0, scheme="block_cyclic", block_size=block)
+    axis = AxisDist(grid_dim=0, scheme=Scheme.BLOCK_CYCLIC, block_size=block)
     two = [owned_indices(n, axis, Grid((2,)), (c,)).tolist() for c in range(2)]
     assert two[0] == list(range(1024))
     assert two[1] == list(range(1024, 2000))
@@ -185,7 +186,7 @@ def test_block_formula_matches_owned_indices() -> None:
     """`base, rem = divmod(n, P)` with `lo = p*base + min(p, rem)` is the prompt's block rule."""
     n, parts = 2000, 3
     base, rem = divmod(n, parts)
-    axis = AxisDist(grid_dim=0, scheme="block")
+    axis = AxisDist(grid_dim=0, scheme=Scheme.BLOCK)
     for coord in range(parts):
         lo = coord * base + min(coord, rem)
         expected = list(range(lo, lo + base + (1 if coord < rem else 0)))
@@ -248,8 +249,8 @@ def test_sweep_libraries_and_single_submission_are_stated() -> None:
     assert "re-run UNCHANGED at a larger" in p
     assert "not disclosed" in p
     assert "read the world size from" in p  # the consequence an agent has to act on
-    assert "re-gridded to span each P" in p
-    assert "perfect d-th powers" in p
+    assert "Your `grid` is evaluated at each P" in p
+    assert "scores NOTHING for that point" in p
     assert "`submit` your best version ONCE" in p  # the single-submission rule
     assert "`mpi` (MPICH" in p
     assert "`rccl` (RCCL collectives)" in p
@@ -340,7 +341,7 @@ def test_an_ml_kernel_states_its_default_layout_per_array() -> None:
     ranks = int(config.get("mpi.ranks", 4))
     spec = BenchSpec.load("dist_softmax")
     layout = json.dumps(default_requests(spec.mpi, binding_from_spec(spec), ranks).to_json())
-    assert '"op": "distribute", "digit": 1' in layout  # both arrays split on their second dimension
+    assert '"op": "distribute", "digit": "r1"' in layout  # both arrays split on their second dimension
     assert f"`{layout}`" in ml
     assert "Return `requests` = this default layout" in ml
     assert "- `x` (batch_size, dim): split on `dim`, block" in ml
@@ -418,7 +419,7 @@ def test_a_gpu_distributed_prompt_states_its_two_unit_delivery() -> None:
 def test_a_fortran_prompt_states_that_layout_dimensions_are_numpys_reversed() -> None:
     """Layout ops act in numpy's row-major index space; Fortran reverses the extents at codegen."""
     fortran = build_prompt(Task(kernel="jacobi_2d", language="fortran", residency="distributed"))
-    assert "`A(N, M)` for numpy `A[M, N]`, so `dim` 0 is your LAST subscript" in fortran
+    assert "`A(N, M)` for numpy `A[M, N]`, so `i0` is your LAST subscript" in fortran
     section = fortran[fortran.index("### Data distribution") : fortran.index("### Delivery")].rstrip()
     assert len(section.splitlines()) <= 40
     assert "LAST subscript" not in build_prompt(DIST)

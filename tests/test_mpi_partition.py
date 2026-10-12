@@ -16,6 +16,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness import metric
 from hpcagent_bench.harness.mpi_descriptor import (
@@ -31,7 +32,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
 from hpcagent_bench.spec import BenchSpec
 
 
-def split(scheme: str, block_size: int = 1) -> ArrayDist:
+def split(scheme: Scheme, block_size: int = 1) -> ArrayDist:
     """One 2-D array split on axis 0 over grid dim 0, replicated on axis 1."""
     return ArrayDist(axes=(AxisDist(grid_dim=0, scheme=scheme, block_size=block_size), AxisDist()))
 
@@ -39,18 +40,18 @@ def split(scheme: str, block_size: int = 1) -> ArrayDist:
 def block_tiles(n: int, parts: int) -> list[list[int]]:
     """The contiguous blocks the shard generator hands out, as index lists."""
     grid = Grid((parts,))
-    axis = AxisDist(grid_dim=0, scheme="block")
+    axis = AxisDist(grid_dim=0, scheme=Scheme.BLOCK)
     return [list(owned_indices(n, axis, grid, (c,))) for c in range(parts)]
 
 
 @pytest.mark.parametrize(
     ("n", "parts", "scheme", "block_size"),
     [
-        (8192, 4, "block", 1),
-        (8192, 4, "block_cyclic", 2048),
-        (4, 4, "cyclic", 1),
-        (10, 3, "block", 1),
-        (7, 1, "cyclic", 1),
+        (8192, 4, Scheme.BLOCK, 1),
+        (8192, 4, Scheme.BLOCK_CYCLIC, 2048),
+        (4, 4, Scheme.CYCLIC, 1),
+        (10, 3, Scheme.BLOCK, 1),
+        (7, 1, Scheme.CYCLIC, 1),
     ],
 )
 def test_a_scheme_that_realizes_the_block_partition_is_accepted(n, parts, scheme, block_size) -> None:
@@ -66,7 +67,12 @@ def test_a_scheme_that_realizes_the_block_partition_is_accepted(n, parts, scheme
 
 @pytest.mark.parametrize(
     ("n", "parts", "scheme", "block_size"),
-    [(8192, 4, "block_cyclic", 1024), (8, 4, "cyclic", 1), (8192, 4, "block_cyclic", 4096), (9, 3, "block_cyclic", 2)],
+    [
+        (8192, 4, Scheme.BLOCK_CYCLIC, 1024),
+        (8, 4, Scheme.CYCLIC, 1),
+        (8192, 4, Scheme.BLOCK_CYCLIC, 4096),
+        (9, 3, Scheme.BLOCK_CYCLIC, 2),
+    ],
 )
 def test_a_decorative_scheme_is_named_and_refused(n, parts, scheme, block_size) -> None:
     """block_cyclic(1024) at 8192 over 4 ranks deals the same COUNT as a block split (2048 rows
@@ -80,7 +86,7 @@ def test_a_decorative_scheme_is_named_and_refused(n, parts, scheme, block_size) 
     reason = block_partition_mismatch(Descriptor(grid, {"A": split(scheme, block_size)}), {"A": (n, 3)})
     assert reason is not None
     assert "'A'" in reason
-    assert scheme in reason
+    assert scheme.value in reason
     assert "CONTIGUOUS block" in reason
 
 
@@ -92,9 +98,9 @@ def test_same_tile_count_is_not_the_same_tile() -> None:
         scheme: [
             len(owned_indices(8192, AxisDist(grid_dim=0, scheme=scheme, block_size=1024), grid, (c,))) for c in range(4)
         ]
-        for scheme in ("block", "cyclic", "block_cyclic")
+        for scheme in (Scheme.BLOCK, Scheme.CYCLIC, Scheme.BLOCK_CYCLIC)
     }
-    assert counts["block"] == counts["cyclic"] == counts["block_cyclic"] == [2048] * 4
+    assert counts[Scheme.BLOCK] == counts[Scheme.CYCLIC] == counts[Scheme.BLOCK_CYCLIC] == [2048] * 4
 
 
 def test_a_replicated_array_is_skipped_by_the_partition_check() -> None:
@@ -107,7 +113,7 @@ def test_a_replicated_array_is_skipped_by_the_partition_check() -> None:
 def test_replicating_an_unlisted_array_is_refused_with_the_list() -> None:
     """The rule: without an allowlist the winning strategy is to replicate everything
     and communicate nothing. The message names the offending array AND what is permitted."""
-    desc = Descriptor(Grid((4,)), {"x": ArrayDist(replicated=True), "w": split("block")})
+    desc = Descriptor(Grid((4,)), {"x": ArrayDist(replicated=True), "w": split(Scheme.BLOCK)})
     reason = replication_refusal(desc, {"x": (1024, 64), "w": (64, 64)}, ["gate_weight"])
     assert reason is not None
     assert "'x'" in reason
@@ -208,5 +214,5 @@ def test_owned_indices_still_tiles_the_array_exactly_once() -> None:
     grid = Grid((4,))
     seen = np.zeros(8192, dtype=np.int64)
     for c in range(4):
-        seen[owned_indices(8192, AxisDist(grid_dim=0, scheme="block"), grid, (c,))] += 1
+        seen[owned_indices(8192, AxisDist(grid_dim=0, scheme=Scheme.BLOCK), grid, (c,))] += 1
     assert bool(np.all(seen == 1))

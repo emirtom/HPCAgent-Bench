@@ -22,7 +22,15 @@ from hpcagent_bench.spec import KERNELS, load_spec, parse_mpi
 SPARSE = "spmv"
 DENSE_ML = "dist_softmax"
 #: A well-formed layout, so a refusal can only come from the kernel being sparse.
-LAYOUT = {"grid": [4], "layout": {"x": [{"op": "distribute", "digit": 0, "grid_dim": 0}]}}
+LAYOUT = {
+    "grid": ["P"],
+    "layout": {
+        "x": [
+            {"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]},
+            {"op": "distribute", "digit": "r", "grid_dim": 0},
+        ]
+    },
+}
 
 
 def sparse_submission(requests: dict | None) -> Submission:
@@ -56,7 +64,7 @@ def test_a_sparse_task_without_a_grid_is_graded_as_usual() -> None:
 
 def test_a_layout_op_on_a_sparse_array_is_refused() -> None:
     """Layout ops apply to dense arrays only: a sparse array changes layout through its format."""
-    requests = {"layout": {"A": [{"op": "permute", "perm": [1, 0]}]}}
+    requests = {"layout": {"A": [{"op": "permute", "order": ["i1", "i0"]}]}}
     refusal = service.requests_refusal(sparse_submission(requests), Task(SPARSE, residency="host"), "float64")
     assert refusal is not None
     assert "dense arrays only" in refusal

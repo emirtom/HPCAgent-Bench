@@ -642,16 +642,19 @@ def mpi_instruction_md(kt: KernelTask, language: str, ranks: int, mode: ScalingL
 - Write your `{language}` implementation to: `{kt.submission_path(language)}`
 - Declare your data layout in `{kt.requests_path()}` -- the starter holds this kernel's default
   layout and is valid as is. The harness scatters inputs and gathers outputs with EXACTLY this layout
-  (it never re-lays-out the data), then grades the reconstructed whole-domain result. `grid` must
-  multiply to {ranks} (a multi-dimensional grid is legal). `layout` maps each array to an op list over
-  its digit tuple, which starts as one digit per dimension in row-major order:
-  `{{"op": "distribute", "digit": k, "grid_dim": g}}` hands digit `k` to grid dimension `g` (a whole
-  dimension's digit is split into contiguous load-balanced bands);
-  `{{"op": "block", "dim": d, "factor": F}}` splits dimension `d`'s finest digit into an outer digit (in
-  place) and an inner digit of extent `F` (appended), where `F` may name the grid extents `P0`, `P1`, ...;
-  `{{"op": "permute", "perm": [...]}}` reorders the digits. Cyclic: `block(d, P0)` then distribute the
-  inner digit; block-cyclic of width `B`: `block(d, "B*P0")`, `block(d, B)`, then distribute the digit of
-  extent `P0`. A rank's local digits must stay row-major (a refusal names the `permute` to append).
+  (it never re-lays-out the data), then grades the reconstructed whole-domain result. `grid` lists the
+  processor grid's extents as expressions over the rank count `P` that multiply to it (`["P"]` is 1-D;
+  this grade runs at P = {ranks}). `layout` maps each array to an op list over its digits: dimension `d`
+  starts as one digit named `i<d>`, row-major, and every op names the digits it acts on;
+  `{{"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]}}` cuts a whole dimension into
+  `parts` contiguous load-balanced bands (band index `r`, index within the band `i0`);
+  `{{"op": "block", "digit": "i0", "factor": F, "into": ["i0", "f"]}}` cuts a digit into a coarse digit and
+  a fine digit `f` of extent `F`, where `F` may name the grid extents `P0`, `P1`, ...;
+  `{{"op": "permute", "order": [...]}}` lists every digit in a new order;
+  `{{"op": "distribute", "digit": "r", "grid_dim": g}}` hands a digit of extent `P<g>` to grid dimension
+  `g`. Cyclic: block by `P0` and distribute the fine digit; block-cyclic of width `B`: block by `B*P0`,
+  block the fine digit by `B`, distribute its coarse part. A rank's local digits must stay row-major (a
+  refusal names the `permute` to append).
   An array with an empty op list, or not listed, is held whole on every rank. `location` maps an array
   to `"host"` or `"device"`.
   {replication_rule}

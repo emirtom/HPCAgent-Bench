@@ -66,7 +66,11 @@ def test_a_promoted_score_is_submitted_with_its_requests_and_scratch(
         # No layout at all.
         ("dist_cross_entropy", None, "needs requests.grid + requests.layout"),
         # An op on a dimension the array does not have.
-        ("dist_mlp_tp", {"grid": [1], "layout": {"out": [{"op": "block", "dim": 5, "factor": 2}]}}, "dimension 5"),
+        (
+            "dist_mlp_tp",
+            {"grid": ["P"], "layout": {"out": [{"op": "block", "digit": "i5", "factor": 2, "into": ["o", "f"]}]}},
+            "no digit 'i5'",
+        ),
     ],
 )
 def test_a_layout_the_grade_cannot_resolve_is_a_400_before_any_build(
@@ -95,15 +99,14 @@ def test_a_layout_the_grade_cannot_resolve_is_a_400_before_any_build(
 
 
 @pytest.mark.parametrize("kernel", ["dist_cross_entropy", "dist_layer_norm"])
-def test_a_grid_of_one_rank_is_re_verified_as_it_was_graded(
+def test_a_grid_over_p_is_re_verified_as_it_was_graded(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, kernel: str
 ) -> None:
-    """``grid: [1]`` is re-sized to every P by the grade (as the prompt says), so the re-verify
-    launches the layout the grade graded instead of refusing a grid that "spans 1 rank(s) but the
-    run is configured for 4", and the submission is recorded."""
+    """``grid: ["P"]`` is evaluated at every P the grade launches (as the prompt says), so the
+    re-verify launches the layout the grade graded, and the submission is recorded."""
     with setup_judge(tmp_path, monkeypatch) as (url, launches, _baselines):
         body = agent_body(kernel)
-        body["requests"] = {**dict(body["requests"]), "grid": [1]}
+        body["requests"] = {**dict(body["requests"]), "grid": ["P"]}
         code, graded = post(f"{url}/submit", body)
     assert code == 200, graded.get("detail")
     assert graded["correct"] is True, graded.get("detail")

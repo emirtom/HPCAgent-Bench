@@ -25,6 +25,7 @@ import sys
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness.metric import MIN_CURVE_POINTS, scaling_score
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
@@ -52,7 +53,7 @@ def sum_binding() -> Binding:
 
 
 def sum_descriptor(ranks: int) -> Descriptor:
-    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(
         grid=Grid((ranks,)), arrays={"x": block0, "y": ArrayDist(replicated=True)}, symbol_axes={"N": [("x", 0)]}
     )

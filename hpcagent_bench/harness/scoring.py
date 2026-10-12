@@ -13,7 +13,6 @@ import dataclasses
 import functools
 import hashlib
 import json
-import math
 import pathlib
 import secrets
 import sys
@@ -120,6 +119,7 @@ from hpcagent_bench.harness.native_call import (
     grading_cpus,
 )
 from hpcagent_bench.harness.precision_casts import CastPlan
+from hpcagent_bench.harness.requests_api import Location, mpi_residency
 from hpcagent_bench.harness.sandbox import BuildResult, Sandbox, submission_omp_context
 from hpcagent_bench.harness.task import Task, device_plausibility_row
 from hpcagent_bench.harness.torch_baseline import TorchBaselineUnavailable
@@ -2608,9 +2608,6 @@ def _verify_distributed(
     cfg = _mpi_launch_cfg()  # the shared mpi.* / seed resolution -- one source of truth
     launcher, mode, k_repeats, timeout, env = cfg.launcher, cfg.mode, cfg.k_repeats, cfg.timeout, cfg.env
     public_seed, default_location = cfg.seed, cfg.default_location
-    if ml_track:
-        # The layout score_ml graded at mpi.ranks, its grid re-sized to span them as every P was.
-        submission = _regrid_for_ranks(submission, ranks) or submission
     try:
         descriptor = Descriptor.from_submission(
             submission,
@@ -2764,7 +2761,7 @@ class MpiLaunch:
     timeout: float
     env: dict[str, str]
     seed: int
-    default_location: str
+    default_location: Location
 
 
 def mpi_cc_override() -> dict[str, str] | None:
@@ -2782,7 +2779,7 @@ def _mpi_launch_cfg() -> MpiLaunch:
         env=config.get_str_map("mpi.env"),
         # score_distributed takes no route flag, so this track has one seed: the recorded one.
         seed=secret_seed_second(),
-        default_location=config.get_str("mpi.residency", "host"),
+        default_location=mpi_residency(),
     )
 
 
@@ -3231,26 +3228,6 @@ def distributed_score(
     )
 
 
-def _regrid_for_ranks(submission: Submission, ranks: int) -> Submission | None:
-    """Re-grid ``submission.requests.grid`` to an equal-edge hypercube spanning ``ranks`` for a
-    scaling-sweep point.
-
-    A ``d``-D grid becomes ``[edge]*d`` iff ``edge**d == ranks`` (:func:`mpi_descriptor.hypercube_grid`);
-    the layout ops are kept and their ``P<g>`` factors re-evaluate on the new grid. Unchanged when the grid
-    already spans ``ranks``; ``None`` (skip the point) when ``ranks < 1``, there is no grid, or no such
-    grid exists."""
-    grid = submission.requests.grid
-    if int(ranks) < 1 or not grid:
-        return None
-    if math.prod(grid) == ranks:
-        return submission
-    d = len(grid)
-    edge = round(int(ranks) ** (1.0 / d))
-    if edge >= 1 and edge**d == int(ranks):
-        return replace(submission, requests=submission.requests.with_grid([edge] * d))
-    return None
-
-
 @dataclass(frozen=True, slots=True)
 class ScalingRuns:
     """Raw measurements of a rank-count sweep, before :func:`metric.scaling_score` turns them into
@@ -3476,16 +3453,10 @@ def score_scaling(
             if rounded:
                 note(p, rounded.removeprefix(f"P={p}: "))
 
-        # T_i(P): the submission re-gridded to span P, run on this P's problem.
-        sub_p = _regrid_for_ranks(submission, p)
-        if sub_p is None:
-            grid = submission.requests.grid
-            reason = "no requests.grid" if not grid else f"{list(grid)} has no equal-edge grid spanning {p}"
-            note(p, f"cannot re-grid ({reason})")
-            continue
+        # T_i(P): the submission's grid evaluated at P, run on this P's problem.
         try:
             descriptor = Descriptor.from_submission(
-                sub_p,
+                submission,
                 binding,
                 p,
                 symbol_axes=mpi_symbol_axes(spec),
@@ -3495,13 +3466,13 @@ def score_scaling(
         except ValueError as exc:
             note(p, f"invalid MPI layout ({exc})")
             continue
-        if descriptor.any_device(binding) and not sub_p.is_python and sub_p.language not in ("cuda", "hip"):
-            note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {sub_p.language}")
+        if descriptor.any_device(binding) and not submission.is_python and submission.language not in ("cuda", "hip"):
+            note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {submission.language}")
             continue
         try:
             # The placement from this launch's own launcher and environment.
             placed[p] = mpi_gang.launch_nodes(cfg.launcher, p, cfg.env)
-            p_correct, p_detail, tp_samples = measure_point(sub_p, descriptor, cand_params)
+            p_correct, p_detail, tp_samples = measure_point(submission, descriptor, cand_params)
         except MpiBuildError:
             note(p, "mpi build failed")
             continue
@@ -3612,20 +3583,14 @@ def curve_point_ns(samples: Sequence[int]) -> int:
 
 
 def ml_descriptors(
-    submission: Submission, spec: BenchSpec, binding: Binding, counts: Sequence[int], default_location: str
+    submission: Submission, spec: BenchSpec, binding: Binding, counts: Sequence[int], default_location: Location
 ) -> dict[int, Descriptor | str]:
-    """The submission's layout re-gridded to each P (:func:`_regrid_for_ranks`), or why it cannot be."""
+    """The submission's layout at each P (its grid evaluated there), or why it cannot be."""
     out: dict[int, Descriptor | str] = {}
     for p in counts:
-        sub_p = _regrid_for_ranks(submission, p)
-        if sub_p is None:
-            grid = submission.requests.grid
-            why = f"{list(grid)} has no equal-edge grid spanning {p}" if grid else "no requests.grid"
-            out[p] = f"cannot re-grid ({why})"
-            continue
         try:
             out[p] = Descriptor.from_submission(
-                sub_p,
+                submission,
                 binding,
                 p,
                 symbol_axes=mpi_symbol_axes(spec),

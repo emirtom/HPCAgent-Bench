@@ -132,7 +132,7 @@ def test_the_judge_refuses_a_precision_this_kernel_cannot_take(
 
 
 def test_a_layout_without_a_grid_is_refused() -> None:
-    submission = requested({}, layout={"x": [{"op": "permute", "perm": [0]}]})
+    submission = requested({}, layout={"x": [{"op": "permute", "order": ["i0"]}]})
     assert "without requests.grid" in str(requests_refusal(submission, Task(KERNEL, "restricted", "c"), "float64"))
 
 
@@ -180,8 +180,13 @@ def legacy_db(path: pathlib.Path) -> None:
 
 
 EXPECTED = {
-    "grid": [4],
-    "layout": {"x": [{"op": "block", "dim": 0, "factor": "P0"}, {"op": "distribute", "digit": 1, "grid_dim": 0}]},
+    "grid": ["P"],
+    "layout": {
+        "x": [
+            {"op": "block", "digit": "i0", "factor": "P0", "into": ["i0", "r0"]},
+            {"op": "distribute", "digit": "r0", "grid_dim": 0},
+        ]
+    },
     "libraries": ["blas"],
 }
 

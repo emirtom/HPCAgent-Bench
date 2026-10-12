@@ -97,7 +97,7 @@ def test_a_source_file_submission_is_delivered_by_the_python_client(
     (tmp_path / "gemm.c").write_text(inline.source)
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="source", repeat=2))
     by_file = Submission(language="c", source_file="gemm.c")
-    assert by_file.to_json() == {"language": "c", "build": [], "libraries": [], "source_file": "gemm.c"}
+    assert by_file.to_json() == {"language": "c", "build": [], "source_file": "gemm.c"}
     s = tools.JudgeClient(url).score(by_file, "gemm")
     assert s["correct"] is True
     assert s["speedup"] > 0.0
@@ -105,7 +105,7 @@ def test_a_source_file_submission_is_delivered_by_the_python_client(
 
     # The judge 400s 'source' + 'source_file' as an ambiguous request (tests/test_agent_service.py);
     # the client cannot even build one, so it never picks a delivery on the agent's behalf.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="together is refused, not merged"):
         Submission(language="c", source=inline.source, source_file="gemm.c")
 
 

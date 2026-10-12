@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import mpi_call
@@ -42,7 +43,7 @@ def _yax_binding() -> Binding:
 
 
 def _descriptor(locations=None) -> Descriptor:
-    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(
         grid=Grid((RANKS,)), arrays={"x": block0, "y": block0}, symbol_axes={"N": [("x", 0)]}, locations=locations or {}
     )

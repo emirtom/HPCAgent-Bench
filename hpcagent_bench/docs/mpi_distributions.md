@@ -45,12 +45,14 @@ pytest tests/test_mpi_scatter_gather_roundtrip.py --maxfail=10
 
 ## End to end
 
-The submission carries `requests.grid` plus `requests.layout`: per array an op list over its digit
-tuple (`block`, `permute`, `distribute`; [requests_api.md](../../docs/requests_api.md)), and
-`requests.location` per array (`host` | `device`). `Requests.plan` lowers each op list to the
-per-axis scheme the descriptor scatters with (`block` = distribute a whole dimension, `cyclic` =
-`block(d, P)` + distribute its inner digit, `block_cyclic` of width `B` = `block(d, B*P)`,
-`block(d, B)` + distribute the digit of extent `P`), refusing a sequence it cannot lower yet;
+The submission carries `requests.grid` (extents over the rank count `P`) plus `requests.layout`: per
+array an op list over its named digits (`split`, `block`, `permute`, `distribute`;
+[requests_api.md](../../docs/requests_api.md) and relayout's `docs/layout.md`), and
+`requests.location` per array (`host` | `device`). `Requests.plan` evaluates the grid at the rank
+count and lowers each op list to the per-axis scheme the descriptor scatters with (`block` = a
+`split` into `P` bands with the band index distributed, `cyclic` = `block` by `P` with the fine digit
+distributed, `block_cyclic` of width `B` = `block` by `B*P`, its fine digit blocked by `B`, the digit of
+extent `P` distributed), refusing a sequence it cannot lower yet;
 `Descriptor.from_submission` validates the result against the binding and rank count; the driver scatters inputs (untimed), the kernel computes on its tiles, the driver gathers
 outputs in the declared layout. Data is never re-laid-out, so verification against the whole-domain
 single-node oracle is the same for every layout.

@@ -71,7 +71,13 @@ from hpcagent_bench.harness.mpi_descriptor import (
 )
 from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
-from hpcagent_bench.harness.requests_api import Location, Requests, precision_problem_dtypes, precision_refusal
+from hpcagent_bench.harness.requests_api import (
+    Location,
+    Requests,
+    mpi_residency,
+    precision_problem_dtypes,
+    precision_refusal,
+)
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
@@ -822,7 +828,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
 
     A precision for an array that is not floating and dense, or equal to its problem precision; a
     sparse kernel with a grid (distributed sparse formats are not implemented yet); a layout on a
-    sparse array; layout ops without a grid; and an op sequence that does not lower at ``mpi.ranks``
+    sparse array; layout ops without a grid; and a grid or op sequence that does not lower at ``mpi.ranks``
     are the request's fault -- 400, no build, the submission is not spent."""
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
@@ -848,7 +854,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
             )
         return None
     try:
-        requests.plan(kernel_ndims(spec.mpi, binding), grid=requests.grid)
+        requests.plan(kernel_ndims(spec.mpi, binding), config.get_int("mpi.ranks", 4))
     except ValueError as exc:
         return str(exc)
     return None
@@ -864,11 +870,11 @@ def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec)
         return None
     if torch_reference.has_torch_reference(spec):
         return "requests.precision is not implemented on the ML track yet (its ranks generate their own inputs)"
-    default = config.get_str("mpi.residency", "host")
+    default = mpi_residency()
     device = sorted(
         name
         for name in submission.requests.precision
-        if submission.requests.location.get(name, Location(default)) is Location.DEVICE
+        if submission.requests.location.get(name, default) is Location.DEVICE
     )
     if device:
         return (
@@ -983,7 +989,7 @@ def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: 
         counts = sorted({1, ranks, *torch_reference.graded_rank_counts(spec)})
     except ValueError:
         return None  # a broken mpi.rank_counts / ml.rank_counts config is a SCORED failure, not a 400
-    descriptors = ml_descriptors(submission, spec, binding, counts, config.get_str("mpi.residency", "host"))
+    descriptors = ml_descriptors(submission, spec, binding, counts, mpi_residency())
     for p, resolved in descriptors.items():
         if isinstance(resolved, str):
             return (

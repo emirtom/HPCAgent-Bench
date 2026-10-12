@@ -18,6 +18,8 @@ import sys
 
 import numpy as np
 
+from relayout.ops import Scheme
+
 from hpcagent_bench.harness.mpi_descriptor import (
     ArrayDist,
     AxisDist,
@@ -47,7 +49,7 @@ def axis_dist_for(shape: tuple, grid: Grid, scheme: str, block_size: int) -> Arr
     axes = []
     for d in range(len(shape)):
         if d < len(grid.dims) and grid.dims[d] > 1:
-            axes.append(AxisDist(grid_dim=d, scheme=scheme, block_size=block_size))
+            axes.append(AxisDist(grid_dim=d, scheme=Scheme(scheme), block_size=block_size))
         else:
             axes.append(AxisDist(grid_dim=None))
     return ArrayDist(axes=tuple(axes))

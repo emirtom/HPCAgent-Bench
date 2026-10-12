@@ -35,7 +35,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
     replicatable_allowlist,
 )
 from hpcagent_bench.harness.native import display_run_dir
-from hpcagent_bench.harness.requests_api import precision_problem_dtypes
+from hpcagent_bench.harness.requests_api import Location, mpi_residency, precision_problem_dtypes
 from hpcagent_bench.harness.resources import available_resources
 from hpcagent_bench.harness.sandbox import shared_dir
 from hpcagent_bench.harness.task import Residency, Task
@@ -1013,7 +1013,7 @@ def build_context(
         "ranks": config.get_int("mpi.ranks", 4),
         "k_repeats": config.get_int("mpi.k_repeats", 5),
         # host | device: the pointer residency of each rank's tiles.
-        "mpi_residency": (config.get_str("mpi.residency", "host") if is_mpi else ""),
+        "mpi_device": is_mpi and mpi_residency() is Location.DEVICE,
         "mpi_symbol": (mpi_symbol(binding) if is_mpi else ""),
         "mpi_stub": (gen_kernel_mpi_stub(binding, task.language) if is_mpi else ""),
         # The arrays a submission may leave replicated (``mpi.replicatable``); ``None`` (absent) differs

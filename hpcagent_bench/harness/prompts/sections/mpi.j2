@@ -34,7 +34,7 @@ whole on every rank.
   submission is run at, and every size drawn for the correctness checks is a multiple of {{ rank_block_quantum }}{{ ' (except `' ~ ml_layout.exempt | join('`, `') ~ '`, split in whole units)' if ml_layout.exempt else '' }}.
 - Per-rank tiles can exceed 2^31 elements: index with 64-bit integers (`size_t` / `int64_t`) and
   grid-stride loops; a 32-bit index silently wraps.
-- Return `requests` = this default layout (its `grid` is re-sized to every P the run measures, and the
+- Return `requests` = this default layout (its `grid` is evaluated at every P the run measures, and the
   layout ops re-evaluate there): `{{ mpi_fixed_layout }}`
 {% if mpi_replicatable %}- Replicatable arrays (allowlist): {{ '`' ~ mpi_replicatable | join('`, `') ~ '`' }}. You MAY give any of them an
   empty op list (`[]`) in `requests.layout`; every rank then receives the WHOLE array (the harness
@@ -45,11 +45,11 @@ whole on every rank.
 {% else %}- This kernel allowlists NO array for replication.
 {% endif %}
 {% if ml_layout.flexible %}- Layout-flexible arrays (allowlist): {{ '`' ~ ml_layout.flexible | join('`, `') ~ '`' }}. You MAY declare any of
-  them a DIFFERENT SCHEME on the SAME axis `d` shown above, over the SAME 1-D grid: cyclic is
-  `{"op": "block", "dim": d, "factor": "P0"}` then a `distribute` of the inner digit it appends;
-  block-cyclic of width `B` is `block(d, "B*P0")`, `block(d, B)`, then a `distribute` of the digit of
-  extent `P0` (on an array of more than one dimension, append the `permute` a refusal names). Every rank then GENERATES exactly that scheme's tile (the harness realizes it for
-  real, not just the default block), and the reference is graded against the same tiles.
+  them a DIFFERENT SCHEME on the SAME dimension `d` shown above, over the SAME 1-D grid: cyclic is
+  `{"op": "block", "digit": "i<d>", "factor": "P0", "into": ["i<d>", "r"]}` then a `distribute` of `r`;
+  block-cyclic of width `B` blocks `i<d>` by `"B*P0"` into `["i<d>", "c"]`, blocks `c` by `B` into
+  `["r", "b"]`, then distributes `r`. Every rank then GENERATES exactly that scheme's tile (the harness
+  realizes it for real, not just the default block), and the reference is graded against the same tiles.
   The 64-rule: on a cyclic or block-cyclic scheme the axis extent must divide evenly by `B` AND by
   every P your submission is graded at (P<=16); a value that does not is
   refused with an HTTP 400 BEFORE the build, so an impossible request never spends your one
@@ -146,7 +146,7 @@ LOCAL tiles and does all of its own communication.
   rank/size). The harness only requires that each output tile comes back in its declared layout.
   Do NO global I/O -- never read or write the whole array, a file, or stdin -- only your tiles and
   your communication.
-{% if mpi_residency == "device" %}
+{% if mpi_device %}
 - Pointer residency is DEVICE: each pointer/tile arrives ALREADY on the GPU (the harness does the
   per-rank H2D before your kernel and the D2H after, both untimed). Compute on the device buffers
   and communicate device-to-device (CUDA-aware MPI, or NCCL/RCCL) -- do not copy back to host
@@ -167,30 +167,29 @@ LOCAL tiles and does all of its own communication.
   returning.
 
 ### Data distribution (you declare it; the harness uses it verbatim)
-`requests.grid` and `requests.layout` say how every array is laid out over the {{ ranks }}-rank grid. The
-harness scatters inputs and gathers outputs with EXACTLY this layout -- it never re-lays-out the data
--- then grades the reconstructed whole-domain result against the reference.
+`requests.grid` and `requests.layout` say how every array is laid out over the ranks. The harness
+scatters inputs and gathers outputs with EXACTLY this layout -- it never re-lays-out the data -- then
+grades the reconstructed whole-domain result against the reference.
 ```json
-{"grid": [{{ ranks }}], "layout": {
-  "A": [{"op": "distribute", "digit": 0, "grid_dim": 0}],
-  "B": [{"op": "block", "dim": 0, "factor": "1024*P0"}, {"op": "block", "dim": 0, "factor": 1024},
-        {"op": "permute", "perm": [0, 2, 3, 1]}, {"op": "distribute", "digit": 1, "grid_dim": 0}],
-  "C": [{"op": "block", "dim": 1, "factor": "P0"}, {"op": "distribute", "digit": 2, "grid_dim": 0}]}}
+{"grid": ["P"], "layout": {
+  "A": [{"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]}, {"op": "distribute", "digit": "r", "grid_dim": 0}],
+  "B": [{"op": "block", "digit": "i0", "factor": "1024*P0", "into": ["i0", "c"]},
+        {"op": "block", "digit": "c", "factor": 1024, "into": ["r", "b"]}, {"op": "distribute", "digit": "r", "grid_dim": 0}],
+  "C": [{"op": "block", "digit": "i1", "factor": "P0", "into": ["i1", "r"]}, {"op": "distribute", "digit": "r", "grid_dim": 0}]}}
 ```
-- `grid` is the processor grid and its dimensions multiply to {{ ranks }}. A multi-dimensional grid is
-  legal (`"grid": [2, 2]`); `P0`, `P1`, ... name its extents inside a `factor`, so one layout stays
-  valid at every rank count the run measures.
-- Each array is an op list over its DIGIT TUPLE: one digit per dimension, row-major. The ops, in order:
-  `{"op": "distribute", "digit": k, "grid_dim": g}` hands digit `k` (its position now) to grid dimension
-  `g`: a whole unblocked dimension splits into contiguous load-balanced bands (`A`), a digit of extent
-  `P_g` becomes the rank coordinate and leaves the tuple (`C`: cyclic columns).
-  `{"op": "block", "dim": d, "factor": F}` splits dimension `d`'s finest digit into an outer digit, in
-  place, and an inner digit of extent `F`, appended. `{"op": "permute", "perm": [...]}` reorders digits.
-{% if language == "fortran" %}- `dim` and the digits count numpy (row-major) dimensions: declare each tile with its extents reversed,
-  `A(N, M)` for numpy `A[M, N]`, so `dim` 0 is your LAST subscript.
-{% endif %}- Block-cyclic of width `B`: `block(d, "B*P0")`, `block(d, B)`, distribute the digit of extent `P0`
-  (`B`); cyclic is `block(d, "P0")` then the inner digit. A rank's local digits must stay row-major
-  (a refusal names the `permute` to append); one grid dimension drives at most one dimension.
+- `grid` lists the grid's extents over the rank count `P` (they multiply to `P`): `["P"]` is 1-D,
+  `["root(P, 2)", "root(P, 2)"]` square; this grade runs at `P` = {{ ranks }}. `P0`, `P1`, ... name the
+  extents inside a `factor` or `parts`, so one layout holds at every rank count the run measures.
+- Each array is an op list over its DIGITS: dimension `d` starts as digit `i<d>`, row-major; every op
+  names its digits, and a cut names the two it leaves (`into`, coarse then fine). `split` cuts a whole
+  dimension into `parts` contiguous load-balanced bands (`A`: block rows); `block` cuts a digit into a
+  coarse one and a fine one of extent `factor` (`C`: cyclic columns); `permute` lists every digit in a
+  new `order`; `distribute` hands a digit of extent `P<g>` to grid dimension `g` as the rank coordinate.
+{% if language == "fortran" %}- `i0`, `i1`, ... count numpy (row-major) dimensions: declare each tile with its extents reversed,
+  `A(N, M)` for numpy `A[M, N]`, so `i0` is your LAST subscript.
+{% endif %}- Block-cyclic of width `B` (`B`): block by `B*P0`, block the fine digit by `B`, distribute its coarse
+  part. Local digits must stay row-major (a refusal names the `permute` to append); one grid
+  dimension drives at most one dimension.
 - `location` maps an array to `"host"` or `"device"` (default: the run's residency).
 {% if mpi_replicatable is not none %}
 - THE RULE: every array in the signature is GENUINELY DISTRIBUTED -- at least one dimension
@@ -245,11 +244,11 @@ Pick one form:
   caught by the gather + grade.
 {% if rank_counts %}- Sweep: ONE submission carries your whole result. Iterate with `score` as long as
   you like, then `submit` your best version ONCE. Here `score` is one run at P = {{ ranks }};
-  the version you `submit` is measured at P = {{ rank_counts | join(', ') }} ranks{% if mpi_residency == "device" %}, one GPU per rank{% endif %}. That same submission is afterwards re-run UNCHANGED at a larger
+  the version you `submit` is measured at P = {{ rank_counts | join(', ') }} ranks{% if mpi_device %}, one GPU per rank{% endif %}. That same submission is afterwards re-run UNCHANGED at a larger
   rank count, spanning more nodes, and that count is not disclosed -- so read the world size from
   the communicator, never assume it, and keep the kernel correct and fast at any P.
-- Your declared `grid` is re-gridded to span each P. A 1-D grid spans every rank count; a d-D grid
-  spans only perfect d-th powers, and a P it cannot span scores NOTHING for that point.
+- Your `grid` is evaluated at each P. `["P"]` spans every rank count; a P your grid does not span (a
+  square grid at a P that is not a square) scores NOTHING for that point.
 {% endif %}
 {% if scaling == "weak" %}
 - Sizing (WEAK scaling): the per-rank problem is held at the one-node base and the TOTAL grows with

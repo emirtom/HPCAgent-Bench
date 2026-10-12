@@ -544,7 +544,7 @@ def test_generates_distributed_task_layout(kernel: str, tmp_path: pathlib.Path) 
     requests = json.loads((td / f"environment/{sub}/requests.json").read_text())
     submission = Submission.from_obj({"language": "c", "source": stub, "requests": requests})
     assert submission.requests.distributed
-    submission.requests.plan(binding_ndims(binding_from_spec(BenchSpec.load(kernel))))  # must not raise
+    submission.requests.plan(binding_ndims(binding_from_spec(BenchSpec.load(kernel))), 4)  # must not raise
 
 
 def test_distributed_test_sh_passes_loadable_kernel_and_requests(tmp_path: pathlib.Path) -> None:
