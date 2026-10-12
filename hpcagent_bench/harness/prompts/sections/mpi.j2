@@ -186,7 +186,9 @@ harness scatters inputs and gathers outputs with EXACTLY this layout -- it never
   `P_g` becomes the rank coordinate and leaves the tuple (`C`: cyclic columns).
   `{"op": "block", "dim": d, "factor": F}` splits dimension `d`'s finest digit into an outer digit, in
   place, and an inner digit of extent `F`, appended. `{"op": "permute", "perm": [...]}` reorders digits.
-- Block-cyclic of width `B`: `block(d, "B*P0")`, `block(d, B)`, distribute the digit of extent `P0`
+{% if language == "fortran" %}- `dim` and the digits count numpy (row-major) dimensions: declare each tile with its extents reversed,
+  `A(N, M)` for numpy `A[M, N]`, so `dim` 0 is your LAST subscript.
+{% endif %}- Block-cyclic of width `B`: `block(d, "B*P0")`, `block(d, B)`, distribute the digit of extent `P0`
   (`B`); cyclic is `block(d, "P0")` then the inner digit. A rank's local digits must stay row-major
   (a refusal names the `permute` to append); one grid dimension drives at most one dimension.
 - `location` maps an array to `"host"` or `"device"` (default: the run's residency).

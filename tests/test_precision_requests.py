@@ -67,6 +67,18 @@ def test_every_host_cast_is_bit_exact_against_the_reference_conversion() -> None
             assert np.array_equal(got.view(np.uint8), want.view(np.uint8)), (src, dst)
 
 
+def test_a_host_cast_refuses_a_strided_buffer() -> None:
+    """The loop walks raw pointers over row-major buffers, so a view with gaps is refused, not misread."""
+    if not gcc_available():
+        pytest.skip("no C compiler")
+    casts = precision_casts.HostCasts(str(precision_casts.built_library("")))
+    source = np.arange(16.0).reshape(4, 4)
+    with pytest.raises(ValueError, match="C-contiguous"):
+        casts.convert(source[:, ::2], np.empty(8, np.float32), "float64", "float32")
+    with pytest.raises(ValueError, match="C-contiguous"):
+        casts.convert(source.T, np.empty((4, 4), np.float32), "float64", "float32")
+
+
 def test_every_device_cast_matches_the_host_cast() -> None:
     """The cupy kernels share the host's conversion table, so a device cast is the same bits."""
     cp = pytest.importorskip("cupy")
@@ -237,6 +249,7 @@ if __name__ == "__main__":
     import tempfile
 
     test_every_host_cast_is_bit_exact_against_the_reference_conversion()
+    test_a_host_cast_refuses_a_strided_buffer()
     test_every_device_cast_matches_the_host_cast()
     test_the_storage_formats_are_ml_dtypes()
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32", "y": "bf16"}, "float64", "c", None)

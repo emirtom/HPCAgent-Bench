@@ -145,7 +145,9 @@ class HostCasts:
         self.lib = ctypes.CDLL(library)
 
     def convert(self, src: np.ndarray, dst: np.ndarray, src_dtype: str, dst_dtype: str) -> None:
-        """``dst[...] = src`` converted, both contiguous and of one size."""
+        """``dst[...] = src`` converted; the loop walks raw pointers, so both must be C-contiguous and of one size."""
+        if not (src.flags.c_contiguous and dst.flags.c_contiguous) or src.size != dst.size:
+            raise ValueError(f"a {src_dtype} -> {dst_dtype} cast needs two C-contiguous buffers of one size")
         fn = self.lib[symbol(src_dtype, dst_dtype)]
         fn.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int64)
         fn.restype = None

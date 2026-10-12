@@ -117,6 +117,11 @@ An array starts as its row-major **digit tuple**, one digit `(dim, stride, exten
 dimension. A digit's value is `(i[dim] // stride) % extent`. Ops rewrite the tuple, and the final
 tuple, read left to right, is the storage order.
 
+Dimensions are numpy's: every buffer the harness hands a kernel is C-contiguous, and the ops act in
+that row-major index space. A Fortran kernel declares the same buffer with reversed extents (numpy
+`A[M, N]` is Fortran `A(N, M)`), so its column-major view reads the same memory; reversing the
+dimensions and the accesses is a codegen step after the transformations, never an op.
+
 | Op | JSON | Effect on the digit tuple | Inverse |
 | --- | --- | --- | --- |
 | pad | `{"op": "pad", "dim": d, "amount": a}` | grows the coarsest digit of `d` by `a` dead cells | `unpad` (pad by `-a`) |
@@ -232,7 +237,9 @@ given that we accept arbitrary functions?
    This is a bijection on the padded extent, quasi-affine (floor and mod only), and is applied
    before the blocks.
 3. `distribute(P-digit, g)`.
-4. Column-major local storage (ScaLAPACK's) is `permute` after the distribute.
+4. ScaLAPACK's column-major local storage of the numpy matrix is `permute` after the distribute.
+   A Fortran kernel needs none: its reversed-extent declaration of the row-major tile is already
+   column-major, over the transposed matrix (so it calls ScaLAPACK with the transposed operation).
 5. `LLD > LOCr` is `pad` on the local row digit after the distribute.
 6. BLACS row-major or column-major process ordering is a property of the grid, not of an array.
    It is a `grid_order` field of the request, with row-major as today's `Grid.coords_of`.

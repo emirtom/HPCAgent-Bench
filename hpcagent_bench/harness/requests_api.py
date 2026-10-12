@@ -10,7 +10,9 @@ the layout distributes over), ``location`` (per-array residency of a distributed
 
 A layout is the mixed-radix digit algebra of dace extended ``dace/libraries/layout/algebra.py``: an
 array starts as one digit per dimension, ``block`` splits a dimension's finest digit, ``permute``
-reorders the digits and ``distribute`` hands a digit to a grid dimension. The judge lowers a sequence
+reorders the digits and ``distribute`` hands a digit to a grid dimension. Dimensions are numpy's, over
+the C-contiguous buffer the harness stages; a Fortran kernel sees it with reversed extents, a codegen
+step after the ops. The judge lowers a sequence
 to the :class:`~hpcagent_bench.harness.mpi_descriptor.ArrayDist` it scatters with; a sequence the
 lowering does not cover yet (pad, shuffle, zip, unzip, a non-canonical local order) is refused as a
 request fault, never approximated.
