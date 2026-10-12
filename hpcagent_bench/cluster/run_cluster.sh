@@ -378,6 +378,12 @@ PY
 )"
     fi
 
+    # The CSCS netstack hook (EDF com.hooks.netstack) writes its own NCCL/libfabric defaults into the
+    # container AFTER the step environment, NCCL_NET_GDR_LEVEL=PHB among them, so a layer's value only
+    # reaches RCCL set inside the container, on the server command itself. With PHB, GPU-direct RDMA stayed
+    # on in every multi-node run despite pp.env, and a cross-node connect could fail registering GPU memory
+    # (NET/OFI regattr RC -22); see docs/serving/known-issues.md #5.
+    local -a server_env=(env ${NCCL_NET_GDR_LEVEL:+"NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL}"})
     if [[ "${INFERENCE_ENGINE:-vllm}" == "sglang" ]]; then
         # One model over several nodes: SGLANG_PP_SIZE pipeline stages (default one per node), each stage
         # tensor-parallel over the GPUs of INFERENCE_NODES / SGLANG_PP_SIZE nodes.
@@ -395,7 +401,8 @@ PY
         # SGLANG_PYTORCH_HIP_ALLOC_CONF reaches the server alone: every step inherits the layer env, and
         # an allocator setting in the judge would move graded torch timings.
         command=(
-            env ${SGLANG_PYTORCH_HIP_ALLOC_CONF:+"PYTORCH_HIP_ALLOC_CONF=${SGLANG_PYTORCH_HIP_ALLOC_CONF}"}
+            "${server_env[@]}"
+            ${SGLANG_PYTORCH_HIP_ALLOC_CONF:+"PYTORCH_HIP_ALLOC_CONF=${SGLANG_PYTORCH_HIP_ALLOC_CONF}"}
             "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m sglang.launch_server
             --model-path "${model_path}"
             --served-model-name "${VLLM_SERVED_MODEL:-hpcagent-bench-vllm}"
@@ -437,6 +444,7 @@ PY
         fi
     else
         command=(
+            "${server_env[@]}"
             "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m vllm.entrypoints.cli.main serve "${model_path}"
             --served-model-name "${VLLM_SERVED_MODEL:-hpcagent-bench-vllm}"
             --tensor-parallel-size "${GPUS_PER_NODE}"
