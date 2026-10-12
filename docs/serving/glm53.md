@@ -21,7 +21,7 @@ bakes in what GLM-5.3 needs (`torch.Tensor.format_ue8m0` kept false, and
 ```
 --trust-remote-code --watchdog-timeout 1800
 --kv-cache-dtype fp8_e4m3 --page-size 64 --context-length 262144
---mem-fraction-static 0.57 --max-total-tokens 2800000
+--mem-fraction-static 0.57 --max-total-tokens 1800000
 --chunked-prefill-size 4096 --max-running-requests 48 --cuda-graph-max-bs-decode 64
 --enable-metrics --pre-warm-nccl
 --reasoning-parser glm45 --tool-call-parser glm47
@@ -39,11 +39,15 @@ The fraction caps weights plus KV, so `pool(f) = 39.0M * (f - 0.4838)` tokens:
 | below 0.486 | refuses: weights alone exceed the budget |
 | 0.50 | 632,384-token pool |
 | 0.55 | 2.58 M pool; OOM-killed on a PP node at concurrency 20 |
-| **0.57 + `--max-total-tokens 2800000`** | pool pinned at 2.8 M; concurrency 40, peak 485 of 501 GiB step cgroup |
+| 0.57 + `--max-total-tokens 2800000` | pool pinned at 2.8 M; a 40-request leg peaked at 485 of 501 GiB, but hours of 12-agent load OOM-kill the heaviest stage |
+| **0.57 + `--max-total-tokens 1800000`** | pool pinned at 1.8 M, about 44 GB per node below 2.8 M |
 | 0.62 | OOM killer takes the heaviest stage |
 
 Host memory, not the pool, kills a stage; `--chunked-prefill-size` and `--max-running-requests` bound
-what grows with load. Stages are uneven (172.4 / 197.2 / 203.8 / 206.1 GB). Time to a live API is the
+what grows with load. The dynamic (non-pool) allocations ratchet up as agent contexts grow: in 676681
+(12 agents, pool 2.8 M, peak pool use 0.33) the heaviest stage's GPU memory rose from 401 to 446 GB in
+3 h of serving, the node reached 504-508 of 513 GB, and Slurm OOM-killed it. The 1.8 M pool still holds
+the observed 0.92 M working set and gives that ratchet about 44 GB more. Stages are uneven (172.4 / 197.2 / 203.8 / 206.1 GB). Time to a live API is the
 slowest stage's weight load (up to 5400 s) plus about 130 s KV allocation and 1080 s graph capture;
 `AGENT_READY_TIMEOUT_SECONDS=10800` covers it.
 
