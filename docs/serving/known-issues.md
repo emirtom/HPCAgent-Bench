@@ -6,7 +6,7 @@ per-model pages and [`knobs.md`](knobs.md) carry the configuration that avoids t
 
 | # | Issue | Visible as | Status |
 |---|---|---|---|
-| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | mitigated: CSCS CXI settings in the serving EDFs; long runs not yet confirmed |
+| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | tp=4 pp=4: the 1-4 h deaths are host OOM on a stage (pool cut to 1.8 M); tp=8 pp=2: CSCS CXI settings |
 | 2 | A writable CE container freezes on fuse-overlayfs | every agent on the node stalls at once, no error | fixed in hb: the agent container is read-only |
 | 3 | vLLM `ROCM_AITER_FA` garbles Qwen3.8 under agent load | random tokens in reasoning, invented tool names | avoided: Qwen3.8 serves on SGLang |
 | 4 | Self-tuned GEMM kernel tables break Qwen3.8 numerics | agents loop on degenerate reasoning | avoided: stock aiter tables only |
@@ -53,7 +53,14 @@ and a tensor-parallel all-reduce fail inside RCCL whenever they cross nodes thro
 - `tp=4 pp=4` (smoke 676544) served: API up after 55 min of weight loading, tool-call and reasoning checks
   passed, the long-context recall check passed 9/9.
 
-**Open.** Whether `tp=4 pp=4` now survives hours of agent load is what the next GLM-5.3 run shows; before, it
+**Host memory, not RCCL, ends the long `tp=4 pp=4` runs.** With the CXI settings, 676621 ended in `NODE_FAIL`
+after 3 h and 676681 after 2 h 49 min, where Slurm recorded an `oom_kill` in the inference step; the surviving
+stages then failed with `gloo ... Connection closed by peer`. The node monitors of 675850, 675956, 675957, 676621
+and 676681 all show the heaviest stage at 502-512 of 513 GB when serving stopped (675958, at 18 min and
+441 GB, is the exception). A peer killed mid-send explains the RCCL internal error. The KV pool is now pinned at
+1.8 M tokens instead of 2.8 M ([glm53.md](glm53.md)).
+
+**Previously open.** Whether `tp=4 pp=4` now survives hours of agent load is what the next GLM-5.3 run shows; before, it
 failed after 1 to 4 h. If it fails again, we would welcome CSCS advice on the netstack artifact
 `gpu_rocm7-cxi_13.1.0-ofi_2.6.0-aws_1.20.0` (26.08.1) with RCCL 2.27.7 and on known RCCL/libfabric issues with
 long-lived cross-node traffic on MI300A.
