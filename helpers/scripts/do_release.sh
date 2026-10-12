@@ -17,7 +17,7 @@
 # dir, so untracked build products never reach the wheel. `uv build` builds both distributions, twine runs
 # through uvx, and the smoke venv is a fresh uv venv under that temp dir; the shared repo venv is never
 # touched. The smoke installs both wheels with their dependencies from PyPI and dace at the pin from GitHub
-# (helpers/scripts/dace_pin.sh), so it needs network access.
+# (helpers/scripts/pins.sh), so it needs network access.
 #
 # Credentials for --upload come from the environment (TWINE_USERNAME=__token__ plus
 # TWINE_PASSWORD=<api token>) or ~/.pypirc; this script never asks for or stores one.
@@ -144,7 +144,8 @@ package = false
 [tool.uv.sources]
 hpcagent-bench = { path = "${WHEEL}" }
 hpcagent-agent = { path = "${AGENT_WHEEL}" }
-dace = { git = "https://github.com/spcl/dace.git", rev = "$("${REPO_ROOT}/helpers/scripts/dace_pin.sh")" }
+dace = { git = "https://github.com/spcl/dace.git", rev = "$("${REPO_ROOT}/helpers/scripts/pins.sh")" }
+relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "$("${REPO_ROOT}/helpers/scripts/pins.sh" relayout)" }
 TOML
   (cd "${WORK}/smoke-project" && UV_PROJECT_ENVIRONMENT="${WORK}/smoke" uv sync --quiet --python "${PY}")
   SPY="${WORK}/smoke/bin/python"

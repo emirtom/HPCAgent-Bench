@@ -531,13 +531,16 @@ ce_build_args() {
     for name in "$@"; do BUILD_ARGS+=(--build-arg "${name}=${!name}"); done
 }
 
-# Exports DACE_COMMIT, the release's dace pin (pyproject.toml [tool.uv.sources] dace): the commit the git mirror must
-# hold for the build's launch gate (the image carries no dace; a job installs it, containers/images/lib/launch_venv.sh).
-ce_dace_commit() {
-    DACE_COMMIT="$("${CE_IMAGES_DIR}/../../helpers/scripts/dace_pin.sh")"
+# Exports DACE_COMMIT and RELAYOUT_COMMIT, the release's pins (pyproject.toml [tool.uv.sources]): the commits the git
+# mirror must hold for the build's launch gate (the image carries neither; a job installs them,
+# containers/images/lib/launch_venv.sh).
+ce_pin_commits() {
+    DACE_COMMIT="$("${CE_IMAGES_DIR}/../../helpers/scripts/pins.sh" dace)"
+    RELAYOUT_COMMIT="$("${CE_IMAGES_DIR}/../../helpers/scripts/pins.sh" relayout)"
     [[ "${DACE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve spcl/dace@${DACE_COMMIT}" >&2; return 2; }
-    export DACE_COMMIT
-    printf 'dace @ %s\n' "${DACE_COMMIT}"
+    [[ "${RELAYOUT_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve relayout@${RELAYOUT_COMMIT}" >&2; return 2; }
+    export DACE_COMMIT RELAYOUT_COMMIT
+    printf 'dace @ %s, relayout @ %s\n' "${DACE_COMMIT}" "${RELAYOUT_COMMIT}"
 }
 
 # Exports LIBFABRIC_REF (default v2.6.0) and LIBFABRIC_COMMIT, the tag resolved to its commit here so

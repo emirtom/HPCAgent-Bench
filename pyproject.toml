@@ -38,7 +38,7 @@ classifiers = [
 # What the library imports at module level (hpcagent_bench/ outside benchmarks/ and tests/). The
 # framework matrix (torch/jax/tvm/triton/...) is per platform and lives in the extras; numba is core
 # because it is the default LLR/SciComp baseline.
-# dace resolves to the spcl/dace@extended commit [tool.uv.sources] pins; hpcagent-agent is the agent-side
+# dace and relayout resolve to the commits [tool.uv.sources] pins; hpcagent-agent is the agent-side
 # runtime (agent/), a workspace member.
 dependencies = [
     # numpy 2: the references are graded under its NEP 50 scalar promotion; 2.3.2 is the first
@@ -55,6 +55,8 @@ dependencies = [
     "sympy",
     "numba",
     "dace",
+    # The layout op schema (requests.layout) and its lowering: relayout.ops.
+    "relayout",
     "hpcagent-agent",
     # The grading stack, judge, HF export and agent clients every framework set shares.
     "pygount",
@@ -195,9 +197,10 @@ harbor = ["harbor>=0.23.0", "podman-compose>=1.6"]
 members = ["agent", "adapters/hpcagent_bench"]
 
 [tool.uv.sources]
-# The spcl/dace@extended commit this release is tested with, and the ONE place it is written: uv.lock
-# records it, and the image builds and jobs read it through helpers/scripts/dace_pin.sh.
+# The spcl/dace@extended and relayout@main commits this release is tested with, and the ONE place each is
+# written: uv.lock records them, and the image builds and jobs read them through helpers/scripts/pins.sh.
 dace = { git = "https://github.com/spcl/dace.git", rev = "40ecebeeb0b5f436ef6a1b9706b373e488733c9c" }
+relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "e3eeeff0c0d62c8150728a7f7a353a07dc9411c7" }
 hpcagent-agent = { workspace = true }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },

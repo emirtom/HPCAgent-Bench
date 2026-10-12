@@ -2499,6 +2499,7 @@ dependencies = [
     { name = "pygount" },
     { name = "pythran" },
     { name = "pyyaml" },
+    { name = "relayout" },
     { name = "rich", version = "13.9.4", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-cpu') or (extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra == 'extra-14-hpcagent-bench-cpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-bench-judge-proxy') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-openhands' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-openhands' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra != 'group-14-hpcagent-bench-harbor' and extra == 'group-14-hpcagent-bench-judge-proxy') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra != 'group-14-hpcagent-agent-harness-miniswe' and extra != 'group-14-hpcagent-agent-harness-openhands' and extra == 'group-14-hpcagent-bench-judge-proxy')" },
     { name = "rich", version = "15.0.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-cpu') or (extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra == 'extra-14-hpcagent-bench-cpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-miniswe') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra != 'group-14-hpcagent-bench-judge-proxy') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-miniswe') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra != 'group-14-hpcagent-bench-judge-proxy')" },
     { name = "scipy" },
@@ -2683,6 +2684,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "pythran", specifier = "<0.19" },
     { name = "pyyaml" },
+    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=e3eeeff0c0d62c8150728a7f7a353a07dc9411c7" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },
@@ -8221,6 +8223,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/00/06/6bfded72d043240c6b52bbb5e16f639d81affbf7484b4fe2ec45f3d4afc9/regex-2026.9.29-cp315-cp315t-musllinux_1_2_riscv64.whl", hash = "sha256:446654b29bfaa30500d80947eda42cef1449dc8a87f4e3cf061cc8485d3a1f0b", size = 782970, upload-time = "2026-09-29T00:49:42.581Z" },
     { url = "https://files.pythonhosted.org/packages/5a/20/9f418a50baa78b3ed8308fcb0cc49e472dd000b7ef935a7295af202ea744/regex-2026.9.29-cp315-cp315t-musllinux_1_2_s390x.whl", hash = "sha256:bf3c49863c23a1ad6da9c30351aed6cff8d5ddbeb63c5c8420ae54e98c7d0138", size = 865441, upload-time = "2026-09-29T00:49:45.238Z" },
     { url = "https://files.pythonhosted.org/packages/2c/29/817c7eacdeaf8463123e949bd394c39ad024eea1ec38ddf5ad141da2f3bd/regex-2026.9.29-cp315-cp315t-musllinux_1_2_x86_64.whl", hash = "sha256:01000ddf0e3ffef97f2413ceb514f6313040106b6d18a03ee00a4fe35c1eb1db", size = 809431, upload-time = "2026-09-29T00:49:47.878Z" },
+]
+
+[[package]]
+name = "relayout"
+version = "0.1.0"
+source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=e3eeeff0c0d62c8150728a7f7a353a07dc9411c7#e3eeeff0c0d62c8150728a7f7a353a07dc9411c7" }
+dependencies = [
+    { name = "dace" },
+    { name = "islpy" },
+    { name = "numpy" },
+    { name = "z3-solver" },
 ]
 
 [[package]]

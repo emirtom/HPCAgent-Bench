@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from hpcagent_bench.harness.requests_api import SCHEMES, Requests
+from hpcagent_bench.harness.requests_api import Requests
+from relayout.ops import SCHEMES
 
 __all__ = [
     "AXIS_SCHEMES",

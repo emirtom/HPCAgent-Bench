@@ -12,7 +12,7 @@ BASE_IMAGE="${BASE_IMAGE:-docker.io/library/ubuntu:24.04@sha256:008173c23f95b170
 ce_image_args() {
     ce_spack_target
     ce_march
-    ce_dace_commit
+    ce_pin_commits
     IMAGE_VERSION="${IMAGE_VERSION:-dev}"
     ce_build_args IMAGE_VERSION SPACK_TARGET MARCH
 }
@@ -22,6 +22,7 @@ ce_image_inputs() {
     ce_require_kernelbench
     ce_mirror_args
     ce_require_mirror_commit "spcl/dace.git" "${DACE_COMMIT}"
+    ce_require_mirror_commit "ThrudPrimrose/relayout.git" "${RELAYOUT_COMMIT}"
     BASE_CACHE="${BASE_CACHE:-${SCRATCH:?}/base-images-$(uname -m)}"
     ce_cache_base_image
     # One spack cache per image: the cuda llvm context reused the cpu image's apt-llvm OpenBLAS.
