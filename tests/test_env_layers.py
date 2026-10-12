@@ -143,8 +143,8 @@ def test_a_model_layer_wins_over_the_experiment_and_a_models_entry_over_both() -
     assert env_spec.render("t:kimi27sglang", spec)["SGLANG_ROCM_FUSED_DECODE_MLA"] == "0"
     assert env_spec.render("t:qwen38", spec)["SGLANG_ROCM_FUSED_DECODE_MLA"] == "7"
     assert env_spec.render("u:kimi27sglang", spec)["INFERENCE_NODES"] == "9"
-    assert flat(rendered("llrbase-c:glm53"))["AGENTS_PER_NODE"] == "12"
-    assert flat(rendered("llrbase-fortran:glm53"))["AGENTS_PER_NODE"] == "20"
+    assert "--mem-fraction-static 0.57" in flat(rendered("llrbase-c:glm53"))["SGLANG_EXTRA_ARGS"]
+    assert "--mem-fraction-static 0.55" in flat(rendered("llrbase-fortran:glm53"))["SGLANG_EXTRA_ARGS"]
 
 
 BUDGET_KEYS = ("AGENT_TIMEOUT_SECONDS", "AGENT_MAX_TOKENS")

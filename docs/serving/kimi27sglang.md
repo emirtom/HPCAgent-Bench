@@ -20,13 +20,14 @@ EDF `hpcagent-bench-sglang-mi300-latest`. Port 8000 on rank 0 only, served name
 ```
 --trust-remote-code --language-only --watchdog-timeout 1800
 --kv-cache-dtype fp8_e4m3 --page-size 64 --context-length 262144
---mem-fraction-static 0.55 --cuda-graph-max-bs-decode 64
+--mem-fraction-static 0.55 --max-running-requests 24 --cuda-graph-max-bs-decode 24
 --enable-metrics --pre-warm-nccl
 --reasoning-parser kimi_k2 --tool-call-parser kimi_k2 --enable-cache-report
 ```
 
 Environment: `SGLANG_USE_AITER=1`, `SGLANG_ROCM_FUSED_DECODE_MLA=0`, `SGLANG_SET_CPU_AFFINITY=0`,
-`NCCL_NET_GDR_LEVEL=0`, `AITER_USE_FLYDSL_MOE_SORTING=1`, `AITER_LOG_TUNED_CONFIG=1`.
+`NCCL_NET_GDR_LEVEL=0`, `AITER_USE_FLYDSL_MOE_SORTING=1`, `AITER_LOG_TUNED_CONFIG=1`, and
+`PYTORCH_HIP_ALLOC_CONF=expandable_segments:True` on the server alone (`SGLANG_PYTORCH_HIP_ALLOC_CONF`).
 
 | Quantity at `pp=4` | Value |
 |---|---|
@@ -42,8 +43,9 @@ conversations, since the fraction has no headroom left.
 ## Rules
 
 - Serve on SGLang (engine numbers are re-measured when agent tuning is done).
-- Keep `--cuda-graph-max-bs-decode 64` (graph capture takes memory after KV sizing; without the cap
-  the failure looks like a fraction problem), `--page-size 64` (vendor `gfx942` recipe) and the
+- Keep `--cuda-graph-max-bs-decode` at the live agent count plus slack (24 for 20 agents; graph capture
+  takes memory after KV sizing; without the cap the failure looks like a fraction problem),
+  `--max-running-requests` the same, `--page-size 64` (vendor `gfx942` recipe) and the
   fraction at or below 0.55.
 - Set `NCCL_NET_GDR_LEVEL=0`, keep PyNCCL on (about 20x slower decode without it), and confirm
   `grep -a "Using network" server-0.log` says `AWS Libfabric` ([`knobs.md`](knobs.md#multi-node-fabric)).
