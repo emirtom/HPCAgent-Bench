@@ -22,6 +22,7 @@ from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.rep_variation import classify_args, variant_for
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.helpers.sparse.abi import (
@@ -205,13 +206,13 @@ def test_a_block_edge_that_does_not_tile_the_matrix_is_refused() -> None:
 )
 def test_a_malformed_sparse_config_is_a_request_fault(raw: object, match: str) -> None:
     with pytest.raises(ValueError, match=match):
-        Submission(language="c", source="x", sparse_config=raw)  # type: ignore[arg-type]
+        Requests.from_obj({"sparse": raw})
 
 
 def test_the_sparse_config_rides_the_envelope_both_ways() -> None:
-    sub = Submission(language="c", source="x", sparse_config={"A": "bsr:4"})
-    assert Submission.from_obj(sub.to_json()).sparse_config == sub.sparse_config
-    assert parse_sparse_config(sub.sparse_config) == {"A": ArrayLayout("bsr", 4)}
+    sub = Submission(language="c", source="x", requests=Requests(sparse={"A": "bsr:4"}))
+    assert Submission.from_obj(sub.to_json()).requests.sparse == sub.requests.sparse
+    assert parse_sparse_config(sub.requests.sparse) == {"A": ArrayLayout("bsr", 4)}
 
 
 @pytest.mark.parametrize(

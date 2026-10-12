@@ -92,7 +92,7 @@ def test_softmax_is_layout_flexible_on_its_default_axis_only() -> None:
     ranks = 4
     flexible = layout_flexible_allowlist(spec)
     assert flexible == ["out", "x"]
-    default = Descriptor.from_distribution(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
+    default = Descriptor.from_plan(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
     shapes = {"x": (256, 1024), "out": (256, 1024)}
 
     same_axis_cyclic = Descriptor(
@@ -124,7 +124,7 @@ def test_cross_entropy_stays_default_only_predictions_is_position_sensitive() ->
     assert layout_flexible_allowlist(spec) == []
     binding = binding_from_spec(spec)
     ranks = 4
-    default = Descriptor.from_distribution(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
+    default = Descriptor.from_plan(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
     shapes = {"predictions": (64, 1024), "targets": (64,), "out": (64,)}
     cyclic = Descriptor(
         grid=Grid((ranks,)),

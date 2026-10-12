@@ -10,6 +10,7 @@ import pytest
 from hpcagent_bench.harness.agent import reference_mpi_source
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
 from hpcagent_bench.harness.optimizers import NoOpMPIOptimizer, optimizer_registry
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -29,10 +30,10 @@ def test_c_delivery_is_reference_source_plus_block_distribution() -> None:
     sub = NoOpMPIOptimizer().solve(DISTRIBUTED_C)
     assert sub.language == "c"
     assert sub.library is None
-    assert sub.distribution is not None
+    assert sub.requests.distributed
     assert sub.source == reference_mpi_source(DISTRIBUTED_C)
     # 1-D grid = mpi.ranks (config default 4); both arrays block-split on their LEN_1D axis.
-    assert sub.distribution == {"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}}
+    assert sub.requests == Requests.from_plan({"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}})
 
 
 def test_python_delivery_is_the_mpi4py_twin_with_the_same_distribution() -> None:
@@ -41,7 +42,7 @@ def test_python_delivery_is_the_mpi4py_twin_with_the_same_distribution() -> None
     assert sub.source == reference_mpi_source(DISTRIBUTED_PY)
     assert "def kernel_mpi(" in sub.source
     # The delivery differs, the data distribution does not: the harness scatters identically.
-    assert sub.distribution == NoOpMPIOptimizer().solve(DISTRIBUTED_C).distribution
+    assert sub.requests == NoOpMPIOptimizer().solve(DISTRIBUTED_C).requests
 
 
 def test_declared_distribution_resolves_and_round_trips() -> None:
@@ -90,7 +91,7 @@ def test_square_stencil_gets_a_block_row_distribution(kernel, expected) -> None:
     """The no-op optimizer serves a 1-D block-row layout: leading axis block-split, every other axis
     replicated, both fields identically over the mpi.ranks(=4) grid."""
     sub = NoOpMPIOptimizer().solve(Task(kernel=kernel, language="c", residency="distributed"))
-    assert sub.distribution == {"grid": [4], "arrays": {"A": expected, "B": expected}}
+    assert sub.requests == Requests.from_plan({"grid": [4], "arrays": {"A": expected, "B": expected}})
 
 
 @pytest.mark.parametrize(("kernel", "gshape"), [("jacobi_2d", (150, 150)), ("heat_3d", (25, 25, 25))])

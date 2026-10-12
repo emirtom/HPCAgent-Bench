@@ -515,8 +515,9 @@ def _env_subdir(kernel: str) -> str:
 
 @pytest.mark.parametrize("kernel", _MPI_STENCILS)
 def test_generates_distributed_task_layout(kernel: str, tmp_path: pathlib.Path) -> None:
-    """A distributed task ships the Sec. 12 kernel_mpi stub plus a valid default distribution.json."""
+    """A distributed task ships the Sec. 12 kernel_mpi stub plus a valid default requests.json."""
     from hpcagent_bench.harness.envelope import Submission
+    from hpcagent_bench.harness.mpi_descriptor import binding_ndims
     from hpcagent_bench.spec import BenchSpec
     from hpcagent_bench.support.bindings import binding_from_spec
     from hpcagent_bench.support.bindings.mpi_driver import mpi_symbol
@@ -531,7 +532,7 @@ def test_generates_distributed_task_layout(kernel: str, tmp_path: pathlib.Path) 
         f"environment/{sub}/reference.py",
         f"environment/{sub}/signature.json",
         f"environment/{sub}/submission.c",
-        f"environment/{sub}/distribution.json",
+        f"environment/{sub}/requests.json",
     ):
         assert (td / rel).is_file(), f"missing {rel}"
     assert pathlib.Path(td / "tests" / "test.sh").stat().st_mode & 0o111  # executable
@@ -539,17 +540,19 @@ def test_generates_distributed_task_layout(kernel: str, tmp_path: pathlib.Path) 
     stub = (td / f"environment/{sub}/submission.c").read_text()
     assert mpi_symbol(binding_from_spec(BenchSpec.load(kernel))) in stub
     assert STUB_BODY in stub
-    # distribution.json starter is a structurally valid layout (the envelope validates it)
-    dist = json.loads((td / f"environment/{sub}/distribution.json").read_text())
-    Submission(language="c", source=stub, distribution=dist)  # must not raise
+    # the requests.json starter is a valid envelope block whose layout lowers
+    requests = json.loads((td / f"environment/{sub}/requests.json").read_text())
+    submission = Submission.from_obj({"language": "c", "source": stub, "requests": requests})
+    assert submission.requests.distributed
+    submission.requests.plan(binding_ndims(binding_from_spec(BenchSpec.load(kernel))))  # must not raise
 
 
-def test_distributed_test_sh_passes_loadable_kernel_and_distribution(tmp_path: pathlib.Path) -> None:
-    """The verifier gets the loadable kernel stem, each artifact's --distribution, and --residency."""
+def test_distributed_test_sh_passes_loadable_kernel_and_requests(tmp_path: pathlib.Path) -> None:
+    """The verifier gets the loadable kernel stem, each artifact's --requests, and --residency."""
     td = A.generate(str(tmp_path), selector="jacobi_2d", residency="distributed")[0]
     sh = (td / "tests" / "test.sh").read_text()
     assert "--kernel jacobi_2d" in sh  # the BenchSpec.load-able stem, NOT the short_name jacobi_2d
-    assert "--distribution /app/jacobi_2d/distribution.json" in sh
+    assert "--requests /app/jacobi_2d/requests.json" in sh
     assert "--residency distributed" in sh
     assert "--baseline auto" in sh
 
@@ -568,7 +571,7 @@ def test_distributed_instruction_references_files_and_mpi_contract(tmp_path: pat
     assert "SPMD" in instr
     assert "/app/jacobi_2d/reference.py" in instr
     assert "/app/jacobi_2d/submission.c" in instr
-    assert "/app/jacobi_2d/distribution.json" in instr
+    assert "/app/jacobi_2d/requests.json" in instr
     assert mpi_symbol(binding_from_spec(spec)) in instr  # the Sec. 12 symbol to implement
     assert row.numpy_reference
     assert row.numpy_reference not in instr
@@ -612,7 +615,7 @@ def test_distributed_task_toml_validates_against_real_harbor_model(tmp_path: pat
     assert cfg.metadata["baseline"] == "auto"
     srcs = {a.source for a in cfg.artifacts}
     assert "/app/jacobi_2d/submission.c" in srcs
-    assert "/app/jacobi_2d/distribution.json" in srcs
+    assert "/app/jacobi_2d/requests.json" in srcs
 
 
 def test_distributed_generation_skips_non_mpi_kernels(
@@ -634,14 +637,14 @@ def test_distributed_group_dir_rejected(tmp_path: pathlib.Path) -> None:
 
 
 @pytest.mark.parametrize("kernel", _MPI_STENCILS)
-def test_distributed_distribution_json_matches_noop_optimizer(kernel: str, tmp_path: pathlib.Path) -> None:
-    """The shipped distribution.json starter is exactly what the no-op MPI optimizer submits."""
+def test_distributed_requests_json_matches_noop_optimizer(kernel: str, tmp_path: pathlib.Path) -> None:
+    """The shipped requests.json starter is exactly what the no-op MPI optimizer submits."""
     from hpcagent_bench.harness.optimizers import NoOpMPIOptimizer
     from hpcagent_bench.harness.task import Task
 
     td = A.generate(str(tmp_path), selector=kernel, residency="distributed")[0]
-    shipped = json.loads((td / f"environment/{_env_subdir(kernel)}/distribution.json").read_text())
-    served = NoOpMPIOptimizer().solve(Task(kernel, language="c", residency="distributed")).distribution
+    shipped = json.loads((td / f"environment/{_env_subdir(kernel)}/requests.json").read_text())
+    served = NoOpMPIOptimizer().solve(Task(kernel, language="c", residency="distributed")).requests.to_json()
     assert shipped == served
 
 
@@ -660,8 +663,8 @@ def test_harbor_grade_distributed_scores_reference_solved(
     sub = NoOpMPIOptimizer().solve(Task("jacobi_2d", language="c", residency="distributed"))
     src = tmp_path / "submission.c"
     src.write_text(sub.source)
-    dist = tmp_path / "distribution.json"
-    dist.write_text(json.dumps(sub.distribution))
+    requests = tmp_path / "requests.json"
+    requests.write_text(json.dumps(sub.requests.to_json()))
     reward_file = tmp_path / "reward.json"
     config.set_override("mpi.leaderboard_preset", "S")  # XL (16383^2) would be multi-GB
     try:
@@ -676,8 +679,8 @@ def test_harbor_grade_distributed_scores_reference_solved(
                 "distributed",
                 "--source",
                 str(src),
-                "--distribution",
-                str(dist),
+                "--requests",
+                str(requests),
                 "--reward",
                 str(reward_file),
                 "--k",

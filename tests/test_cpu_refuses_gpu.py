@@ -493,9 +493,7 @@ def test_the_score_route_never_answers_with_device_runtime(make_judge) -> None:
     this test rather than shipping to every agent unseen.
     """
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
-    body = json.dumps(
-        {"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "libraries": [], "rank": 0}
-    ).encode()
+    body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
         payload = json.loads(reply.read())
@@ -513,9 +511,7 @@ def test_the_build_commands_are_recorded_never_answered_even_under_full_feedback
     no reader to answer them to: under ``service.submit_feedback=full`` too, the agent gets the
     frozen keys and nothing else."""
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
-    body = json.dumps(
-        {"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "libraries": [], "rank": 0}
-    ).encode()
+    body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with config.overridden("service.submit_feedback", "full"), urlopen(request, timeout=60) as reply:
         payload = json.loads(reply.read())
@@ -533,9 +529,7 @@ def test_the_score_route_redacts_the_refusal_reason_too(
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(fake_runtime.parent))
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
     source = SMUGGLING_SOURCE.format(library=str(fake_runtime))
-    body = json.dumps(
-        {"kernel": KERNEL, "language": "c", "source": source, "build": [], "libraries": [], "rank": 0}
-    ).encode()
+    body = json.dumps({"kernel": KERNEL, "language": "c", "source": source, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
         payload = json.loads(reply.read())
@@ -616,7 +610,6 @@ def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(make_judge, monkeyp
             "language": "hip",
             "source": "__device__ void x(){}",
             "build": [],
-            "libraries": [],
             "rank": 0,
         }
     ).encode()
@@ -635,9 +628,7 @@ def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(make_judge, monk
     reach scoring exactly as it always has, never a 400 from the new check."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
-    body = json.dumps(
-        {"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "libraries": [], "rank": 0}
-    ).encode()
+    body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
         payload = json.loads(reply.read())

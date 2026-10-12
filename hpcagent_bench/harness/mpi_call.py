@@ -43,6 +43,7 @@ __all__ = [
     "Draw",
     "LaunchInfraFault",
     "LaunchTimeout",
+    "MpiRun",
     "ShardedDraw",
     "SubmissionCrash",
     "gather_outputs",
@@ -123,6 +124,16 @@ def _program_argv(
     return [str(artifact), str(infile), str(outfile)]
 
 
+class MpiRun(NamedTuple):
+    """One launch: the gathered outputs, and per timed repeat the MAX-over-ranks kernel time and the
+    precision cast-in / cast-out times around it (0 without ``requests.precision``), in ns."""
+
+    outputs: dict[str, np.ndarray]
+    samples_ns: list[int]
+    convert_in_ns: list[int]
+    convert_out_ns: list[int]
+
+
 def run(
     artifact: Path,
     binding: Binding,
@@ -136,8 +147,8 @@ def run(
     workspace_bytes: str | None = None,
     env: Mapping[str, str] | None = None,
     workdir: Path | None = None,
-) -> tuple[dict[str, np.ndarray], list[int]]:
-    """Launch artifact on descriptor.grid.nranks ranks; return (outputs, samples_ns).
+) -> MpiRun:
+    """Launch artifact on descriptor.grid.nranks ranks; return its :class:`MpiRun`.
 
     ``samples_ns`` is every one of the ``k_repeats`` timed reps in nanoseconds, in launch order --
     the raw per-repeat sample list a timing-reduction backend needs (:mod:`harness.timing`). Raises on
@@ -175,10 +186,14 @@ def run(
         )
         launch(launcher, ranks, program, outfile, timeout=timeout, env=env)
 
-        samples, decoded = unpack_outfile(outfile.read_bytes())
-        outputs = gather_outputs(binding, descriptor, arrays, decoded)
-        samples_ns = [int(s * NS_PER_S) for s in samples]
-        return outputs, samples_ns
+        decoded = unpack_outfile(outfile.read_bytes())
+        outputs = gather_outputs(binding, descriptor, arrays, decoded.outputs)
+        return MpiRun(
+            outputs,
+            [int(s * NS_PER_S) for s in decoded.samples],
+            [int(s * NS_PER_S) for s in decoded.cast_in],
+            [int(s * NS_PER_S) for s in decoded.cast_out],
+        )
     finally:
         if tmp is not None:
             tmp.cleanup()

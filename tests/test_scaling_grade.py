@@ -3,7 +3,7 @@
 """The scaling grade of a worklist item (hpcagent_bench/harness/scaling_grade.py, grade_under.Scaling).
 
 ``grade-under`` replays each scaling item's submission at rank counts the agent job never ran, under
-its laws, so a replay that drops the distribution or the catalog libraries grades a different
+its laws, so a replay that drops the requests (layout, catalog libraries) grades a different
 submission than the one the agent sent -- and a curve spliced from two jobs is not one curve. Every
 row it writes names its law, and a gang grades only the sweeps it can place.
 """
@@ -21,6 +21,7 @@ from hpcagent_bench.anticheat import Judgement
 from hpcagent_bench.harness import grade_under, metric, recording, scaling_grade, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.support.bindings.contract import graded_datatype
@@ -56,9 +57,8 @@ def hip_submission(host: str = "// host", distribution: dict | None = None) -> S
         language="hip",
         source=host,
         device_source="// device",
-        libraries=["rccl"],
+        requests=Requests.from_plan(DISTRIBUTION if distribution is None else distribution, libraries=("rccl",)),
         workspace_bytes="4096",
-        distribution=DISTRIBUTION if distribution is None else distribution,
     )
 
 
@@ -109,12 +109,12 @@ def scaling_worklist(dbs: list[pathlib.Path], env_dirs: list[pathlib.Path]) -> t
     return items, problems + unscalable
 
 
-def test_a_recorded_submission_keeps_its_distribution_and_scratch_request(judge_db: pathlib.Path) -> None:
+def test_a_recorded_submission_keeps_its_requests_and_scratch_request(judge_db: pathlib.Path) -> None:
     """Without these two columns no MPI submission can be replayed at another rank count."""
     record(judge_db, hip_submission())
     with contextlib.closing(sqlite3.connect(judge_db)) as conn:
-        distribution, workspace = conn.execute("SELECT distribution, workspace_bytes FROM grades").fetchone()
-    assert (json.loads(distribution), workspace) == (DISTRIBUTION, "4096")
+        requests, workspace = conn.execute("SELECT requests, workspace_bytes FROM grades").fetchone()
+    assert (Requests.from_obj(json.loads(requests)), workspace) == (hip_submission().requests, "4096")
 
 
 def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib.Path, tmp_path) -> None:
@@ -122,8 +122,8 @@ def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib
     items, problems = grade_under.build_owed_worklist([judge_db], setup_env_dir(tmp_path))
     assert problems == []
     (item,) = grade_under.scaled_items(items, SWEEP.rank_counts)[0]
-    got = (item.kernel, item.setup, item.language, item.distribution, item.libraries, item.workspace_bytes)
-    assert got == (KERNEL, SETUP, "hip", DISTRIBUTION, ["rccl"], "4096")
+    got = (item.kernel, item.setup, item.language, item.requests, item.workspace_bytes)
+    assert got == (KERNEL, SETUP, "hip", hip_submission().requests.to_json(), "4096")
     assert item.scaling == SWEEP
     assert grade_under.submission_of(item).device_source == "// device"
     assert item.job == "650000"
@@ -142,27 +142,22 @@ def test_a_single_node_kernel_gets_no_sweep() -> None:
     assert grade_under.scaled(item, SWEEP.rank_counts).scaling is None
 
 
-def test_a_submission_without_a_recorded_distribution_is_reported_not_guessed(judge_db: pathlib.Path, tmp_path) -> None:
+def test_a_submission_without_a_recorded_layout_is_reported_not_guessed(judge_db: pathlib.Path, tmp_path) -> None:
     """A manifest-default layout is not the agent's layout; replaying it would grade other code."""
     submission = hip_submission()
-    submission.distribution = None
+    submission.requests = Requests(libraries=("rccl",))
     record(judge_db, submission)
     owed = grade_under.build_owed_worklist([judge_db], setup_env_dir(tmp_path))[0]
     items, problems = grade_under.scaled_items(owed, SWEEP.rank_counts)
     assert items == []
-    assert [line.split(":")[0] for line in problems] == ["no recorded distribution"]
+    assert [line.split(":")[0] for line in problems] == ["no recorded requests.grid"]
 
 
 def test_the_replayed_envelope_is_the_recorded_one(judge_db: pathlib.Path) -> None:
     submission = hip_submission()
-    submission.libraries = ["rccl", "mpi"]
+    submission.requests = Requests.from_plan(DISTRIBUTION, libraries=("rccl", "mpi"))
     got = grade_under.submission_of(stored_item(judge_db, submission))
-    assert (got.distribution, got.libraries, got.source, got.device_source) == (
-        DISTRIBUTION,
-        ["rccl", "mpi"],
-        "// host",
-        "// device",
-    )
+    assert (got.requests, got.source, got.device_source) == (submission.requests, "// host", "// device")
 
 
 def test_the_setups_launch_shape_never_reaches_the_sweep() -> None:

@@ -1,11 +1,15 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The results database, schema version 6 (``schema.sql``): open, write, read and merge.
+"""The results database, schema version 7 (``schema.sql``): open, write, read and merge.
 
 One schema serves a judge rank's shard, a job's database, a regrade's output and the whole dataset.
 Rows are written with surrogate ids; every table also has a natural key, and :func:`merge` folds any
 number of results files into one by those keys, remapping the ids and filling a row's unrecorded columns from
 another copy of the same row (a final grade's file carries a copy of the grade it re-timed).
+
+A version-6 file is still read, merged and copied: its per-request columns (``requested_libraries``,
+``distribution``, ``layout_request``, ``layout_prep_ns``) fold into v7's ``requests`` and
+``convert_in_ns`` (:func:`fold_legacy_grade`), and opening one for writing upgrades it in place.
 
 A file holding tables of no schema version (the framework sweep's ``results`` table) is merged by
 copying those rows.
@@ -16,11 +20,13 @@ import dataclasses
 import enum
 import functools
 import hashlib
+import json
 import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
 from hpcagent_bench import paths
+from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
     "BUSY_TIMEOUT_S",
@@ -28,6 +34,8 @@ __all__ = [
     "DEFAULT_HARNESS",
     "GRADE_CHILDREN",
     "GRADE_KEY",
+    "LEGACY_GRADE_COLUMNS",
+    "LEGACY_VERSIONS",
     "NATURAL_KEYS",
     "SCHEMA_PATH",
     "SCHEMA_VERSION",
@@ -51,6 +59,8 @@ __all__ = [
     "ensure_episode",
     "ensure_setup",
     "final_row_groups",
+    "fold_legacy_grade",
+    "grade_columns",
     "grade_sources",
     "insert",
     "merge",
@@ -59,16 +69,22 @@ __all__ = [
     "open_db",
     "open_ro",
     "reading",
+    "requests_of_row",
     "schema_version",
     "source_rows",
     "store_source",
     "table_names",
+    "upgrade_legacy",
     "upsert",
 ]
 
 #: The schema every writer creates and every reader expects.
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
+#: Older versions a reader still opens and a merge still folds in (:func:`fold_legacy_grade`).
+LEGACY_VERSIONS = frozenset({6})
+#: v6's per-request ``grades`` columns, folded into ``requests`` / ``convert_in_ns`` in v7.
+LEGACY_GRADE_COLUMNS = ("requested_libraries", "distribution", "layout_request", "layout_prep_ns")
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.
 BUSY_TIMEOUT_S = 30.0
 #: The harness of a setup that names none: Claude Code.
@@ -122,10 +138,10 @@ def table_names(conn: sqlite3.Connection, schema: str = "main") -> set[str]:
 
 
 def check_schema(conn: sqlite3.Connection, where: str) -> bool:
-    """Whether ``conn`` holds the current schema; ``False`` for a file with no results tables at all.
-    Raises :class:`SchemaVersionError` for a results database of another schema version."""
+    """Whether ``conn`` holds the current or a legacy (:data:`LEGACY_VERSIONS`) schema; ``False`` for a
+    file with no results tables at all. Raises :class:`SchemaVersionError` for any other version."""
     version = schema_version(conn)
-    if version == SCHEMA_VERSION:
+    if version == SCHEMA_VERSION or version in LEGACY_VERSIONS:
         return True
     if version or table_names(conn) & set(TABLES):
         raise SchemaVersionError(f"{where} has results schema version {version}, not {SCHEMA_VERSION}")
@@ -143,11 +159,78 @@ def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode = WAL")
         if not check_schema(conn, str(target)):
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        elif schema_version(conn) in LEGACY_VERSIONS:
+            upgrade_legacy(conn)
         conn.execute("PRAGMA foreign_keys = ON")
     except BaseException:
         conn.close()
         raise
     return conn
+
+
+def fold_legacy_grade(row: dict[str, Value]) -> dict[str, Value]:
+    """``row`` (a ``grades`` row as a column dict) with v6's per-request columns folded into v7's
+    ``requests`` and ``convert_in_ns``; a v7 row is returned unchanged. An MPI distribution becomes
+    its op-sequence layout (:meth:`Requests.from_plan`), the sparse request ``requests.sparse``."""
+    if not any(name in row for name in LEGACY_GRADE_COLUMNS):
+        return row
+    libraries = json.loads(str(row.pop("requested_libraries", "") or "[]"))
+    distribution = str(row.pop("distribution", "") or "")
+    sparse = str(row.pop("layout_request", "") or "")
+    prep = int(row.pop("layout_prep_ns", 0) or 0)
+    requests = (
+        Requests.from_plan(json.loads(distribution), libraries)
+        if distribution
+        else Requests(libraries=tuple(libraries))
+    )
+    block = requests.to_json()
+    if sparse:
+        block["sparse"] = json.loads(sparse)
+    row["requests"] = json.dumps(block, sort_keys=True) if block else ""
+    row["convert_in_ns"] = prep
+    return row
+
+
+def upgrade_legacy(conn: sqlite3.Connection) -> None:
+    """Upgrade an open v6 file to the current schema in place: add v7's columns, fold every grade's
+    per-request columns into them (:func:`fold_legacy_grade`), drop the folded columns."""
+    for name, ddl in (
+        ("requests", "TEXT NOT NULL DEFAULT ''"),
+        ("convert_in_ns", "INTEGER NOT NULL DEFAULT 0"),
+        ("convert_out_ns", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        conn.execute(f"ALTER TABLE grades ADD COLUMN {name} {ddl}")
+    legacy = ", ".join(LEGACY_GRADE_COLUMNS)
+    for row in conn.execute(f"SELECT id, {legacy} FROM grades").fetchall():
+        folded = fold_legacy_grade(dict(zip(("id", *LEGACY_GRADE_COLUMNS), row, strict=True)))
+        conn.execute(
+            "UPDATE grades SET requests = ?, convert_in_ns = ? WHERE id = ?",
+            (folded["requests"], folded["convert_in_ns"], folded["id"]),
+        )
+    for name in LEGACY_GRADE_COLUMNS:
+        conn.execute(f"ALTER TABLE grades DROP COLUMN {name}")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    conn.commit()
+
+
+def grade_columns(conn: sqlite3.Connection, alias: str, names: Sequence[str]) -> str:
+    """A SELECT list of ``names`` from ``grades`` (as ``alias``) that reads a column the file does not
+    have as its current-schema default (``''`` for a legacy one), so one query serves v6 and v7 files."""
+    present = {str(row[1]) for row in conn.execute("PRAGMA table_info(grades)")}
+    defaults = column_defaults("grades")
+    columns: list[str] = []
+    for name in names:
+        default = defaults.get(name, "''")
+        columns.append(f"{alias}.{name}" if name in present else f"{default} AS {name}")
+    return ", ".join(columns)
+
+
+def requests_of_row(row: Mapping[str, Value]) -> Requests:
+    """The :class:`Requests` a grade row recorded: v7's ``requests``, else v6's per-request columns."""
+    if row.get("requests"):
+        return Requests.from_obj(json.loads(str(row["requests"])))
+    folded = fold_legacy_grade({name: row[name] for name in LEGACY_GRADE_COLUMNS if name in row})
+    return Requests.from_obj(json.loads(str(folded.get("requests") or "{}")))
 
 
 def open_ro(path: str | pathlib.Path) -> sqlite3.Connection:
@@ -354,6 +437,7 @@ def merge_rows(conn: sqlite3.Connection, table: str, ids: IdMap) -> int:
     for row in source_rows(conn, table, order):
         old = row.pop("id", None)
         if table == "grades":
+            fold_legacy_grade(row)  # in place
             row["episode_id"] = ids.episodes[int(row["episode_id"])]  # type: ignore[arg-type]
             of = row.get("of_grade_id")
             row["of_grade_id"] = None if of is None else ids.grades[int(of)]
@@ -386,7 +470,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
         version = int(conn.execute("PRAGMA src.user_version").fetchone()[0])
         copied: dict[str, int] = {}
         ids = IdMap()
-        if version == SCHEMA_VERSION:
+        if version == SCHEMA_VERSION or version in LEGACY_VERSIONS:
             copied = {table: merge_rows(conn, table, ids) for table in TABLES}
         elif version or names & set(TABLES):
             raise SchemaVersionError(f"{path} has results schema version {version}, not {SCHEMA_VERSION}")
@@ -437,7 +521,7 @@ def copy_grade(src: pathlib.Path, grade_id: int, dest: sqlite3.Connection) -> in
 
 def copy_one_grade(conn: sqlite3.Connection, grade_id: int, dest: sqlite3.Connection, copied: dict[int, int]) -> int:
     """:func:`copy_grade` of one grade whose original, if any, ``copied`` already maps."""
-    grade = dict(conn.execute("SELECT * FROM grades WHERE id = ?", (grade_id,)).fetchone())
+    grade = fold_legacy_grade(dict(conn.execute("SELECT * FROM grades WHERE id = ?", (grade_id,)).fetchone()))
     run = dict(conn.execute("SELECT * FROM episodes WHERE id = ?", (grade["episode_id"],)).fetchone())
     setup = dict(conn.execute("SELECT * FROM setups WHERE setup = ?", (run["setup"],)).fetchone())
     upsert(dest, "setups", *NATURAL_KEYS["setups"], setup)

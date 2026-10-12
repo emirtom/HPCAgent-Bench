@@ -12,6 +12,7 @@ from hpcagent_bench.harness import metric as M
 from hpcagent_bench.harness import native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import _data_seeded
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -216,7 +217,9 @@ def test_score_task_fuzzed_failure_floors_at_one() -> None:
 
 def _mpi_submission():
     """A distributed submission with a minimal valid 1-D distribution."""
-    return Submission(language="c", source="mpi", distribution={"grid": [4], "arrays": {"a": {"replicated": True}}})
+    return Submission(
+        language="c", source="mpi", requests=Requests.from_plan({"grid": [4], "arrays": {"a": {"replicated": True}}})
+    )
 
 
 def _run_distributed(
@@ -513,7 +516,7 @@ def test_grade_items_delivers_harness_anchor_source(monkeypatch, tmp_path) -> No
         [None],
         language="c",
         residency="distributed",
-        distributions=[None],
+        requests_files=[None],
         anchor_sources=[str(anchor_file)],
         libraries=["/some/agent.so"],
     )  # MPI submission delivered as a lib; anchor as source
@@ -521,7 +524,7 @@ def test_grade_items_delivers_harness_anchor_source(monkeypatch, tmp_path) -> No
     assert anchor is not None
     assert anchor.language == "c"
     assert anchor.source == "void scaled_add(){/* best single-node */}"
-    assert anchor.distribution is None  # the anchor is a SINGLE-NODE submission, no MPI layout
+    assert not anchor.requests.distributed  # the anchor is a SINGLE-NODE submission, no MPI layout
 
 
 def test_grade_items_anchor_library_and_absent(monkeypatch, tmp_path) -> None:

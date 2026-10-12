@@ -2,9 +2,12 @@
 
 One SQLite file holds a dataset: every grade the judges made, the agent episodes they belong to,
 the sources they graded and the re-gradings of them. There is one schema, and it is frozen:
-`hpcagent_bench/harness/schema.sql` (`PRAGMA user_version = 6`). `hpcagent_bench/harness/results_db.py` is the one
-module that opens, writes and merges such a file, and it refuses a file of any other schema
-(`results_db.SchemaVersionError`).
+`hpcagent_bench/harness/schema.sql` (`PRAGMA user_version = 7`). `hpcagent_bench/harness/results_db.py` is the one
+module that opens, writes and merges such a file. It also reads, merges and copies a version-6 file, whose
+per-request columns (`requested_libraries`, `distribution`, `layout_request`, `layout_prep_ns`) fold into
+v7's `requests` and `convert_in_ns` (`results_db.fold_legacy_grade`; a query written for both versions
+selects through `results_db.grade_columns`), and opening a v6 file for writing upgrades it in place
+(`results_db.upgrade_legacy`). A file of any other schema is refused (`results_db.SchemaVersionError`).
 
 **Defaults, not NULL.** Every optional column has a default, so a check never branches on NULL: `''` for text and `0` for a number, where `0` means not recorded (`speedup` 0: not timed; `credited_speedup` 0: not on the leaderboard; `call_index` 0: not an agent call; `size_scale` 0, `nodes` 0, a token count 0). NULL stays only where it is a value of its own: the episode's `job` (recovered from a merged database), `returncode`, `of_grade_id`, the three-state `build_ok` / `correct` / `suspect` and `significant`, `device_index`, the device-sync readings (`timing_residual_ns`, `timing_host_ns`, `timing_event_ns`, `residual_ns`, `host_event_delta_ns`), `p_value`, `work_ratio` and `reference_scaling_points.job`. The extractor writes a number whose 0 means not recorded as an empty CSV cell (`observations_extract.unmeasured`), so a reader never averages the default in.
 
@@ -82,9 +85,12 @@ framework's version from the grading environment instead, e.g. `["triton==3.4.0"
 (`sandbox.JIT_FRAMEWORKS`). `''` when nothing was built: a prebuilt `.so`, a request refused before
 its build, no verdict, a distributed (MPI) grade, or an in-process trajectory row.
 
-Layout and size, per grade: `layout` is the sparse layout the grade ran (`''` for dense),
-`layout_prep_ns` its untimed conversion from the stored matrix, `layout_request` the request as
-sent (JSON). Stored data stays CSR, so these are the only trace of a layout. `size_scale` is the
+Requests, layout and size, per grade: `requests` is the submission's `requests` block as sent
+(JSON: libraries, precision, grid + layout, location, sparse; [requests_api.md](requests_api.md)),
+`layout` the sparse layout the grade ran (`''` for dense). `convert_in_ns` is what converting the
+inputs into what the requests ask cost on the credited rep (the sparse format conversion plus the
+precision cast-in), `convert_out_ns` the precision cast-out; neither is part of the score. Stored
+data stays CSR at the problem precision, so these are the only trace of a conversion. `size_scale` is the
 constant-bytes size factor a lower precision ran at (1 at fp64) and `scale_axes` the size symbols it
 scaled (JSON list), beside `datatype`.
 

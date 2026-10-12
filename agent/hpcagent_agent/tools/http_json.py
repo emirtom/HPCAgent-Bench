@@ -37,12 +37,13 @@ __all__ = [
     "DEFAULT_RANK",
     "DELIVERY_LANGUAGES",
     "DISTRIBUTED_ENV",
-    "DISTRIBUTION_PROPERTY",
+    "DISTRIBUTED_REQUESTS_PROPERTY",
     "ENFORCED_INPUT_MODES",
     "IDENTITY_ENV",
     "KERNEL_ENV",
     "LANGUAGE_PROPERTY",
     "PATH_FIELDS",
+    "REQUESTS_TEXT",
     "SUBMISSION_PROPERTIES",
     "TERMINAL_ROUTES",
     "TOKENS_READ_OK",
@@ -412,6 +413,16 @@ def post_judge(path: str, body: dict[str, Any]) -> dict[str, Any]:
 #: The submission fields ``/score``, ``/submit`` and ``/profile`` share, in the judge's spelling.
 #: ``source_file`` is wire-only: the judge reads it, ``Submission`` has no field for it, so
 #: ``JudgeClient`` cannot express it.
+#: What the ``requests`` field holds (the judge's ``Submission.requests``; docs/requests_api.md).
+REQUESTS_TEXT = (
+    "Optional asks about how your data reaches your kernel, all checked before any build (a request "
+    "this kernel cannot honour is a 400 that does not spend your submission): 'libraries' (catalog "
+    "names from your task's resources section, e.g. ['fftw']), 'precision' ({array: 'fp32' | 'fp16' | "
+    "'bf16' | ... }, converted outside your score), 'sparse' ({array: format} on a sparse kernel), and "
+    "on a distributed run 'grid' + 'layout' (+ 'location'). Your task's requests section lists what "
+    "applies."
+)
+
 SUBMISSION_PROPERTIES: dict[str, Any] = {
     "source": {
         "type": "string",
@@ -451,17 +462,12 @@ SUBMISSION_PROPERTIES: dict[str, Any] = {
         "type": "array",
         "items": {"type": "string"},
         "description": "Extra tokens for the judge's server-side build, e.g. ['-lmylib'], only for a library "
-        "you built yourself into the shared folder -- for a pre-installed vendor library, use "
-        "'libraries' instead. Your prompt says whether this track applies them.",
+        "you built yourself into the shared folder -- for a pre-installed vendor library, name it in "
+        "requests.libraries instead. Your prompt says whether this track applies them.",
     },
-    "libraries": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": "Named requests against the advertised catalog (your task's resources section, when "
-        "it lists one) -- e.g. ['fftw']. The judge resolves the exact include/link/rpath "
-        "tokens; a name not on that list is refused with a 400 before any build runs and "
-        "does not spend your one submission. Present and effective only when your task's "
-        "resources section names a catalog at all.",
+    "requests": {
+        "type": "object",
+        "description": REQUESTS_TEXT,
     },
     "workspace_bytes": {
         "type": "string",
@@ -490,19 +496,17 @@ LANGUAGE_PROPERTY: dict[str, Any] = {
 
 #: The switch the launcher exports to the judge (config ``mpi.grade_distributed``): set, every kernel
 #: with an ``mpi:`` block grades at residency ``distributed``, and that grade REFUSES a submission
-#: without a ``distribution``. The agent's environment carries the same setup .env, so the tools read it.
+#: without ``requests.grid`` + ``requests.layout``. The agent's environment carries the same setup .env, so the tools read it.
 DISTRIBUTED_ENV = "HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED"
 
-#: The ``distribution`` field, offered ONLY on a distributed run: elsewhere the judge grades
-#: single-node and the field would be a choice that changes nothing.
-DISTRIBUTION_PROPERTY: dict[str, Any] = {
+#: The ``requests`` field on a distributed run, where its grid + layout are required.
+DISTRIBUTED_REQUESTS_PROPERTY: dict[str, Any] = {
     "type": "object",
-    "description": "REQUIRED on this distributed run, on score, submit and profile alike: the MPI data "
-    "layout, exactly as your task's data layout / distribution section gives it -- {'grid': [4], "
-    "'arrays': {name: {'axes': [...]}}}, where 'grid' lists positive rank counts (a number such as 4, "
-    "never a symbol or 0), one axes entry per array axis, each {'grid_dim': d, 'scheme': 'block'} (or "
-    "'block_cyclic' with 'block_size', or 'cyclic') or {'grid_dim': null} for a replicated axis. "
-    "Copy the task's default layout unless you mean to change it; without it every grade is refused.",
+    "description": "REQUIRED on this distributed run, on score, submit and profile alike: 'grid' and "
+    "'layout' as your task's data distribution section gives them -- {'grid': [4], 'layout': {name: "
+    "[op, ...]}}, where 'grid' lists positive rank counts (a number such as 4, never a symbol or 0) and "
+    "each array's ops are 'block' / 'permute' / 'distribute' over its digits. Copy the task's default "
+    "layout unless you mean to change it; without it every grade is refused. " + REQUESTS_TEXT,
 }
 
 
@@ -520,7 +524,7 @@ def distributed_run() -> bool:
 
 def schema_with_language(properties: dict[str, Any]) -> dict[str, Any]:
     """A route's INPUT_SCHEMA: ``properties``, plus ``language`` only where the track pins none, plus
-    ``distribution`` only on a distributed run (:func:`distributed_run`).
+    the ``requests`` description that requires a grid + layout on a distributed run (:func:`distributed_run`).
 
     The field is ABSENT on an enforced track on purpose -- a schema that invites a choice the judge
     will refuse spends the model's attempts teaching it that the choice was never real.
@@ -529,7 +533,7 @@ def schema_with_language(properties: dict[str, Any]) -> dict[str, Any]:
     if not language_is_enforced():
         out["language"] = LANGUAGE_PROPERTY
     if distributed_run():
-        out["distribution"] = DISTRIBUTION_PROPERTY
+        out["requests"] = DISTRIBUTED_REQUESTS_PROPERTY
     return {"type": "object", "properties": out, "required": []}
 
 
@@ -564,8 +568,8 @@ def submission_body(payload: dict[str, Any]) -> dict[str, Any]:
     """The body ``/score``, ``/submit`` and ``/profile`` all take -- built ONE way.
 
     Field-for-field ``{"kernel", **Submission.to_json()}`` as ``JudgeClient`` sends it (``language``,
-    ``build``, ``libraries``, ``source`` / ``library``, optional ``workspace_bytes`` / ``compiler`` /
-    ``distribution``), plus the wire-only ``source_file``. ``language`` is resolved by :func:`request_language` (the
+    ``build``, ``source`` / ``library``, optional ``workspace_bytes`` / ``compiler`` / ``requests``), plus the
+    wire-only ``source_file``. ``language`` is resolved by :func:`request_language` (the
     task's on an enforced track, the agent's where none is pinned) and ``rank`` is added by
     :func:`post_judge`.
 
@@ -575,7 +579,6 @@ def submission_body(payload: dict[str, Any]) -> dict[str, Any]:
     body: dict[str, Any] = {
         "language": request_language(payload),
         "build": list(payload.get("build") or []),
-        "libraries": list(payload.get("libraries") or []),
     }
     # ``device_source`` / ``device_source_file`` carry the DEVICE unit of a two-unit delivery (a hip
     # setup submits a host entry plus its device kernels). Forwarded like every other optional field:
@@ -593,8 +596,9 @@ def submission_body(payload: dict[str, Any]) -> dict[str, Any]:
         "compiler",
         "device_source",
         "device_source_file",
-        # The MPI layout (``Submission.distribution``): without it a distributed grade is refused.
-        "distribution",
+        # Libraries, precision, sparse format, and the MPI grid + layout (``Submission.requests``):
+        # without the layout a distributed grade is refused.
+        "requests",
     ):
         value = payload.get(key)
         if value is not None:

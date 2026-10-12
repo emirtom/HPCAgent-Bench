@@ -75,7 +75,7 @@ def kernel_mpi(*args, comm=None, workspace=None):
 def plan_for(key: str, ranks: int, artifact: pathlib.Path, seed: int) -> dict:
     spec = BenchSpec.load(key)
     binding = binding_from_spec(spec)
-    descriptor = Descriptor.from_distribution(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
+    descriptor = Descriptor.from_plan(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
     band = tolerance_band(Precision.BF16)
     return mpi_shard_driver.build_plan(
         spec,

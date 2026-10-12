@@ -22,6 +22,7 @@ from hpcagent_bench.harness import metric, mpi_call, native_call, scoring, timin
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
 
@@ -34,7 +35,7 @@ def mpi_sub(scheme: str = "block", block_size: int = 1) -> Submission:
         language="hip",
         source="mpi",
         device_source="kernels",
-        distribution={"grid": [1], "arrays": {"A": {"axes": axes}, "B": {"axes": axes}}},
+        requests=Requests.from_plan({"grid": [1], "arrays": {"A": {"axes": axes}, "B": {"axes": axes}}}),
     )
 
 
@@ -214,7 +215,10 @@ def test_replicating_an_unlisted_array_is_a_request_fault(monkeypatch: pytest.Mo
     task = Task("dist_softmax", "restricted", "hip", residency="distributed")
     split = {"axes": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "block"}]}
     sub = Submission(
-        language="hip", source="mpi", device_source="k", distribution={"grid": [4], "arrays": {"x": split}}
+        language="hip",
+        source="mpi",
+        device_source="k",
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": split}}),
     )
     # The real manifest allowlists NOTHING for dist_softmax: replicating `out` is refused by name.
     reason = service.distribution_refusal(sub, task, "S")
@@ -255,7 +259,9 @@ def softmax_sub(scheme: str = "block") -> Submission:
     """dist_softmax's default layout (x and out split on ``dim``), at mpi.ranks = 4."""
     axes = [{"grid_dim": None}, {"grid_dim": 0, "scheme": scheme}]
     arrays = {"x": {"axes": axes}, "out": {"axes": axes}}
-    return Submission(language="hip", source="mpi", device_source="k", distribution={"grid": [4], "arrays": arrays})
+    return Submission(
+        language="hip", source="mpi", device_source="k", requests=Requests.from_plan({"grid": [4], "arrays": arrays})
+    )
 
 
 XL_DIM = scoring.BenchSpec.load("dist_softmax").parameters["XL"]["dim"]
@@ -511,7 +517,7 @@ def test_a_different_split_axis_is_still_a_400_before_any_build(monkeypatch: pyt
         language="hip",
         source="mpi",
         device_source="k",
-        distribution={"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}},
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}}),
     )
     reason = service.distribution_refusal(sub, ML_TASK, "XL")
     assert reason is not None
@@ -616,7 +622,7 @@ def test_an_allowlisted_array_may_be_replicated_and_any_other_layout_is_refused(
     layout = distribution_for_kernel(spec.mpi, scoring.binding_from_spec(spec), 4)
 
     def refusal(dist: dict) -> str | None:
-        sub = Submission(language="hip", source="mpi", device_source="k", distribution=dist)
+        sub = Submission(language="hip", source="mpi", device_source="k", requests=Requests.from_plan(dist))
         return service.distribution_refusal(sub, task, "XL")
 
     assert refusal(layout) is None
@@ -642,7 +648,7 @@ def test_a_fuzzed_judge_preset_sizes_the_ml_refusal_at_the_leaderboard_preset() 
         language="hip",
         source="mpi",
         device_source="k",
-        distribution={"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}},
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}}),
     )
     reason = service.distribution_refusal(split_batch, ML_TASK, "fuzzed")
     assert reason is not None
@@ -652,7 +658,7 @@ def test_a_fuzzed_judge_preset_sizes_the_ml_refusal_at_the_leaderboard_preset() 
         language="hip",
         source="mpi",
         device_source="k",
-        distribution={"grid": [4], "arrays": {"x": {"axes": whole}, "out": {"axes": whole}}},
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": whole}, "out": {"axes": whole}}}),
     )
     assert service.distribution_refusal(replicated_out, ML_TASK, "fuzzed") is not None
 

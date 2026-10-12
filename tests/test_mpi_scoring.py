@@ -16,6 +16,7 @@ from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.optimizers import NoOpMPIOptimizer
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -171,7 +172,9 @@ def test_distributed_bad_kernel_is_a_scored_failure_not_a_crash(mpi_c) -> None:
     binding = binding_from_spec(BenchSpec.load("scaled_add"))
     stub = gen_kernel_mpi_stub(binding)
     broken = stub[: stub.index("{")] + "{\n    this is not C;\n}\n"
-    sub = Submission(language="c", source=broken, distribution={"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}})
+    sub = Submission(
+        language="c", source=broken, requests=Requests.from_plan({"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}})
+    )
     result = scoring.score(sub, Task(kernel="scaled_add", language="c", residency="distributed"), preset="S")
     assert not result.correct
 
@@ -233,7 +236,7 @@ def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
 def test_distributed_block_cyclic_2d_scores_solved(mpi_c) -> None:
     task = Task(kernel="mat_scaled_add", language="c", residency="distributed")
     sub = NoOpMPIOptimizer().solve(task)
-    assert sub.distribution["grid"] == [2, 2]  # the equal-edge 2-D hypercube for R=4
+    assert sub.requests.grid == (2, 2)  # the equal-edge 2-D hypercube for R=4
     result = scoring.score(sub, task, preset="S")
     assert result.correct, result.detail
     assert result.build_ok
@@ -322,7 +325,7 @@ def test_distributed_scaled_add_device_cuda_source_scores_solved(mpi_c) -> None:
         language="cuda",
         source=_CUDA_SCALED_ADD_HOST,
         device_source=_CUDA_SCALED_ADD_KERNELS,
-        distribution=_noop_submission("c").distribution,
+        requests=_noop_submission("c").requests,
     )
     task = Task(kernel="scaled_add", language="cuda", residency="distributed")
     config.set_override("mpi.residency", "device")
@@ -391,7 +394,7 @@ def test_distributed_scaled_add_mixed_host_device_scores_solved(mpi_c) -> None:
         language="cuda",
         source=_CUDA_SCALED_ADD_MIXED_HOST,
         device_source=_CUDA_SCALED_ADD_MIXED_KERNELS,
-        distribution=distribution,
+        requests=Requests.from_plan(distribution),
     )
     task = Task(kernel="scaled_add", language="cuda", residency="distributed")
     result = scoring.score(sub, task, preset="S")
@@ -429,12 +432,16 @@ def test_regrid_for_ranks_reshapes_1d_and_skips_unfactorable_nd() -> None:
     from hpcagent_bench.harness.scoring import _regrid_for_ranks
 
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    one_d = Submission(language="c", source="x", distribution={"grid": [4], "arrays": {"x": block, "y": block}})
-    assert _regrid_for_ranks(one_d, 2).distribution["grid"] == [2]  # 1-D re-grids to [P]
+    one_d = Submission(
+        language="c", source="x", requests=Requests.from_plan({"grid": [4], "arrays": {"x": block, "y": block}})
+    )
+    assert _regrid_for_ranks(one_d, 2).requests.grid == (2,)  # 1-D re-grids to [P]
     assert _regrid_for_ranks(one_d, 4) is one_d  # already spans P => unchanged (verbatim)
-    two_d = Submission(language="c", source="x", distribution={"grid": [2, 2], "arrays": {"x": {"replicated": True}}})
+    two_d = Submission(
+        language="c", source="x", requests=Requests.from_plan({"grid": [2, 2], "arrays": {"x": {"replicated": True}}})
+    )
     assert _regrid_for_ranks(two_d, 4) is two_d  # product matches => used verbatim
-    assert _regrid_for_ranks(two_d, 9).distribution["grid"] == [3, 3]  # perfect square => equal-edge hypercube
+    assert _regrid_for_ranks(two_d, 9).requests.grid == (3, 3)  # perfect square => equal-edge hypercube
     assert _regrid_for_ranks(two_d, 8) is None  # 8 is not a perfect square => no equal-edge 2-D grid
     assert _regrid_for_ranks(two_d, 3) is None  # 3 is not a perfect square => skipped
 
@@ -443,16 +450,18 @@ def test_regrid_for_ranks_guards() -> None:
     from hpcagent_bench.harness.scoring import _regrid_for_ranks
 
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    one_d = Submission(language="c", source="x", distribution={"grid": [4], "arrays": {"x": block}})
+    one_d = Submission(language="c", source="x", requests=Requests.from_plan({"grid": [4], "arrays": {"x": block}}))
     assert _regrid_for_ranks(one_d, 0) is None
     assert _regrid_for_ranks(one_d, -4) is None
-    assert _regrid_for_ranks(Submission(language="c", source="x"), 4) is None  # no distribution
-    # empty grid can't pass Submission validation, so exercise the defensive guard with a bare object
-    assert _regrid_for_ranks(types.SimpleNamespace(distribution={"grid": []}), 4) is None
+    assert _regrid_for_ranks(Submission(language="c", source="x"), 4) is None  # no requests.grid
+    # an empty grid can't pass Requests.from_obj, so exercise the defensive guard with a bare object
+    assert _regrid_for_ranks(types.SimpleNamespace(requests=Requests(grid=())), 4) is None
     three_d = Submission(
-        language="c", source="x", distribution={"grid": [2, 2, 2], "arrays": {"x": {"replicated": True}}}
+        language="c",
+        source="x",
+        requests=Requests.from_plan({"grid": [2, 2, 2], "arrays": {"x": {"replicated": True}}}),
     )
-    assert _regrid_for_ranks(three_d, 27).distribution["grid"] == [3, 3, 3]  # perfect cube
+    assert _regrid_for_ranks(three_d, 27).requests.grid == (3, 3, 3)  # perfect cube
     assert _regrid_for_ranks(three_d, 10) is None  # not a perfect cube
 
 
@@ -476,7 +485,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
     def _fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
-        p = int(math.prod(submission.distribution["grid"]))
+        p = int(math.prod(submission.requests.grid or ()))
         if p == 4:
             raise S.MpiBuildError("boom")  # one P fails to build => a note, not a point
         return ({}, [1000 * p])  # T_i(P) grows with P here (irrelevant; we assert wiring, not eta)
@@ -500,7 +509,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    sub = Submission(language="c", source="mpi", distribution={"grid": [1], "arrays": {"x": block}})
+    sub = Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}}))
     anchor = Submission(language="c", source="serial")
     runs = S.score_scaling(
         sub,
@@ -540,7 +549,7 @@ def gang_strong_sweep(
         )
 
     def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
-        p = int(math.prod(submission.distribution["grid"]))
+        p = int(math.prod(submission.requests.grid or ()))
         if p == fails_at:
             raise fail("boom")
         return ({}, [1000 * p])
@@ -568,7 +577,7 @@ def gang_strong_sweep(
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
     return S.score_scaling(
-        Submission(language="c", source="mpi", distribution={"grid": [1], "arrays": {"x": block}}),
+        Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}})),
         Task("scaled_add", "restricted", "c", residency="distributed"),
         Submission(language="c", source="serial"),
         rank_counts=(1, 2, 4, 8),
@@ -654,7 +663,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
     def _fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
-        p = int(math.prod(submission.distribution["grid"]))
+        p = int(math.prod(submission.requests.grid or ()))
         return ({}, [1000 * p])
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
@@ -672,7 +681,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     grid1 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    sub = Submission(language="c", source="mpi", distribution={"grid": [1], "arrays": {"A": grid1}})
+    sub = Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"A": grid1}}))
     anchor = Submission(language="c", source="serial")
     return S.score_scaling(
         sub,

@@ -36,6 +36,7 @@ from hpcagent_bench.harness import (
     mpi_shard_driver,
     mpi_sizing,
     native_call,
+    precision_casts,
     rep_variation,
     sanitizers,
     timing,
@@ -99,7 +100,12 @@ from hpcagent_bench.harness.hidden_seeds import (
     secret_seed_harden,
     secret_seed_second,
 )
-from hpcagent_bench.harness.mpi_descriptor import Descriptor, block_partition_mismatch, layout_flexible_allowlist
+from hpcagent_bench.harness.mpi_descriptor import (
+    Descriptor,
+    block_partition_mismatch,
+    kernel_ndims,
+    layout_flexible_allowlist,
+)
 from hpcagent_bench.harness.native_call import (
     CallProbes,
     Followup,
@@ -113,11 +119,12 @@ from hpcagent_bench.harness.native_call import (
     assigned_device,
     grading_cpus,
 )
+from hpcagent_bench.harness.precision_casts import CastPlan
 from hpcagent_bench.harness.sandbox import BuildResult, Sandbox, submission_omp_context
 from hpcagent_bench.harness.task import Task, device_plausibility_row
 from hpcagent_bench.harness.torch_baseline import TorchBaselineUnavailable
 from hpcagent_bench.harness.torch_baseline import time_samples as torch_time_samples
-from hpcagent_bench.precision import UngradeableTolerance, accumulation_eps, precision_from_datatype
+from hpcagent_bench.precision import UngradeableTolerance, accumulation_eps, numpy_dtype, precision_from_datatype
 from hpcagent_bench.spec import BenchSpec, as_block
 from hpcagent_bench.stats import score_rule, summary
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -164,6 +171,7 @@ __all__ = [
     "build_run_sharded",
     "cached_reference",
     "candidate_builder",
+    "candidate_casts",
     "cell_shape",
     "curve_point_ns",
     "distributed_score",
@@ -580,11 +588,12 @@ class Score:
     #: the compile and link commands, ``<framework>==<version>`` for a python delivery, empty for a
     #: prebuilt library. Recorded (``calls.build_commands``); redacted from ``/score``.
     build_commands: tuple[str, ...] = ()
-    #: The sparse layout the grade ran (empty = dense), its untimed conversion from the stored CSR, and
-    #: the layout request as sent (JSON). Recorded, redacted from ``/score``.
+    #: The sparse layout the grade ran (empty = dense). Recorded, redacted from ``/score``.
     layout: str = ""
-    layout_prep_ns: int = 0
-    layout_request: str = ""
+    #: What converting the candidate's data into what its requests ask for cost, outside the score:
+    #: the sparse format conversion plus the credited rep's precision cast-in, and its cast-out.
+    convert_in_ns: int = 0
+    convert_out_ns: int = 0
     #: The constant-bytes size factor of a lower precision (1 at fp64) and the size symbols it scaled.
     size_scale: float = 1.0
     scale_axes: tuple[str, ...] = ()
@@ -1056,6 +1065,7 @@ def independent_verify(
                     memory_gb=memory_gb,
                     workspace_bytes=submission.workspace_bytes,
                     omp_context_name=submission_omp_context(submission),
+                    casts=candidate_casts(submission, built.require_lib(), device),
                 )
                 return outs
 
@@ -1535,7 +1545,6 @@ def score(
         seed_nonce=nonce,
         grading_protocol=graded_protocol(task),
         layout=layout_label(task, submission),
-        layout_request=json.dumps(submission.sparse_config, sort_keys=True) if submission.sparse_config else "",
     )
 
 
@@ -1543,14 +1552,28 @@ def layout_label(task: Task, submission: Submission) -> str:
     """What :attr:`Score.layout` records for ``submission``: its resolved sparse layout (the defaults
     when it requested none), "" for a dense kernel."""
     spec = BenchSpec.load(task.kernel)
-    choice = resolve_layout(spec, submission.sparse_config) or default_choice(spec)
+    choice = resolve_layout(spec, submission.requests.sparse) or default_choice(spec)
     return choice.label if choice is not None else ""
+
+
+def candidate_casts(submission: Submission, lib: pathlib.Path, device: bool) -> CastPlan | None:
+    """The precision casts the candidate's calls run (``requests.precision``), or None when it requests
+    none. A host grade's cast library is built in the submission's OpenMP context and copied beside ``lib``."""
+    if not submission.requests.precision:
+        return None
+    targets = tuple(
+        sorted(
+            (name, np.dtype(numpy_dtype(precision)).name) for name, precision in submission.requests.precision.items()
+        )
+    )
+    host = "" if device else str(precision_casts.host_library(submission_omp_context(submission), lib))
+    return CastPlan(targets, host)
 
 
 def requested_layout(spec: BenchSpec, submission: Submission) -> ResolvedLayout | None:
     """The layout the candidate runs in when it differs from the default, else ``None`` (the
     candidate then shares the reference's binding and data bag, untouched)."""
-    choice = resolve_layout(spec, submission.sparse_config)
+    choice = resolve_layout(spec, submission.requests.sparse)
     return None if is_default(spec, choice) else choice
 
 
@@ -1783,11 +1806,11 @@ def graded_score(
     # The candidate's inputs in its layout, converted before the build and outside every timer: a
     # padded layout past its limit on these inputs (or on a held-out case) is refused here
     # (LayoutRefused -> 400), before anything is compiled.
-    cand_data, layout_prep_ns = data, 0
+    cand_data, sparse_convert_ns = data, 0
     if choice is not None and not skipped:
         layout_start = time.perf_counter_ns()
         cand_data = laid_out(spec, choice, data)
-        layout_prep_ns = time.perf_counter_ns() - layout_start
+        sparse_convert_ns = time.perf_counter_ns() - layout_start
     if choice is not None and choice.padded:
         for _label, make_hidden in hidden_data:
             check_layout(spec.sparse_layouts, choice, make_hidden())
@@ -2339,6 +2362,7 @@ def graded_score(
                     followups=canonical_followups + hidden_followups,
                     rep_data=candidate_builder(task.kernel, choice, rep_data),
                     omp_context_name=submission_omp_context(submission),
+                    casts=candidate_casts(submission, built.require_lib(), device),
                 )
 
             try:
@@ -2553,7 +2577,8 @@ def graded_score(
         l_rule=residuals.get("l_rule"),
         p_value=p_value,
         build_commands=built.commands,
-        layout_prep_ns=layout_prep_ns,
+        convert_in_ns=sparse_convert_ns + probe.convert_in_ns,
+        convert_out_ns=probe.convert_out_ns,
     )
 
 
@@ -2588,7 +2613,12 @@ def _verify_distributed(
         submission = _regrid_for_ranks(submission, ranks) or submission
     try:
         descriptor = Descriptor.from_submission(
-            submission, binding, ranks, symbol_axes=mpi_symbol_axes(spec), default_location=default_location
+            submission,
+            binding,
+            ranks,
+            symbol_axes=mpi_symbol_axes(spec),
+            default_location=default_location,
+            ndims=kernel_ndims(spec.mpi, binding),
         )
         decomp = spec.mpi_decomposition
         cand_params = mpi_sizing.sized_params(
@@ -2598,8 +2628,8 @@ def _verify_distributed(
             ranks,
             decomp.work_exponent,  # None = strong-only: weak refuses it
         )
-    except ValueError as exc:  # invalid distribution / manifest / sizing -> a failed (not crashed) re-verify
-        return VerifyResult(False, False, False, False, False, f"invalid MPI distribution: {exc}")
+    except ValueError as exc:  # invalid layout / manifest / sizing -> a failed (not crashed) re-verify
+        return VerifyResult(False, False, False, False, False, f"invalid MPI layout: {exc}")
 
     if ml_track:
         # ML track: no whole-domain host data; a re-run on the public seed and one on a fresh seed, each
@@ -2651,7 +2681,7 @@ def _verify_distributed(
             artifact = built.require_artifact()
 
             def _run(d: dict) -> dict:
-                outputs, samples_ns = mpi_call.run(
+                return mpi_call.run(
                     artifact,
                     binding,
                     descriptor,
@@ -2662,9 +2692,7 @@ def _verify_distributed(
                     timeout=timeout,
                     env=env,
                     workspace_bytes=submission.workspace_bytes,
-                )
-                del samples_ns  # re-verify only checks the gathered output, not the timing
-                return outputs
+                ).outputs  # re-verify only checks the gathered output, not the timing
 
             o1, o2 = _run(data), _run(data)
             determinism_ok, reverify_ok, _, _ = verify_triad(
@@ -2767,9 +2795,9 @@ def _build_run_mpi(
     cfg: MpiLaunch,
     *,
     k_repeats: int | None = None,
-) -> tuple[dict[str, np.ndarray], list[int]]:
-    """Build ``submission`` for ``descriptor`` and run it on ``cand_data`` over its ranks, returning
-    ``(gathered_outputs, samples_ns)``. Raises :class:`MpiBuildError` on a build failure and
+) -> mpi_call.MpiRun:
+    """Build ``submission`` for ``descriptor`` and run it on ``cand_data`` over its ranks, returning its
+    :class:`~hpcagent_bench.harness.mpi_call.MpiRun`. Raises :class:`MpiBuildError` on a build failure and
     ``RuntimeError``/``ValueError`` on a launch/run crash.
 
     ``k_repeats`` overrides ``mpi.k_repeats``: :func:`score_distributed` passes its ``repeat``; the
@@ -2955,7 +2983,7 @@ def score_distributed(
 ) -> Score:
     """Score a distributed (multi-node MPI) submission, the ``residency=="distributed"`` path.
 
-    The submission's per-array ``distribution`` drives a harness-owned scatter/gather over
+    The submission's ``requests`` grid + layout drives a harness-owned scatter/gather over
     ``mpi.ranks`` ranks; only the parallel region is timed and the gathered whole-domain output is
     graded against NumPy. The problem is sized off ``preset`` by ``mpi.mode``: ``strong`` keeps it;
     ``weak`` grows each decomposition-axis symbol (:func:`mpi_sizing.weak`, rounding disclosed in
@@ -2976,7 +3004,12 @@ def score_distributed(
     # default; the distribution may override it.
     try:
         descriptor = Descriptor.from_submission(
-            submission, binding, ranks, symbol_axes=mpi_symbol_axes(spec), default_location=cfg.default_location
+            submission,
+            binding,
+            ranks,
+            symbol_axes=mpi_symbol_axes(spec),
+            default_location=cfg.default_location,
+            ndims=kernel_ndims(spec.mpi, binding),
         )
         decomp = spec.mpi_decomposition
         axis_syms = decomp.axis
@@ -2984,7 +3017,7 @@ def score_distributed(
         base_params = dict(spec.parameters[preset])
         cand_params = mpi_sizing.sized_params(base_params, cfg.mode, axis_syms, ranks, work_exp)
     except ValueError as exc:
-        return Score(False, float("inf"), 0, False, f"invalid MPI distribution or sizing: {exc}")
+        return Score(False, float("inf"), 0, False, f"invalid MPI layout or sizing: {exc}")
     # Weak: the realized work ratio r (exactly R at R = m**k) and, for a rounded R, its disclosure.
     weak_ratio = rounded = None
     if (
@@ -3013,7 +3046,7 @@ def score_distributed(
         try:
             mismatch = realized_tiles_refusal(spec, binding, descriptor, cand_params)
         except ValueError as exc:
-            return Score(False, float("inf"), 0, False, f"invalid MPI distribution or sizing: {exc}", baseline=kind)
+            return Score(False, float("inf"), 0, False, f"invalid MPI layout or sizing: {exc}", baseline=kind)
         if mismatch is not None:
             return Score(False, float("inf"), 0, False, mismatch, baseline=kind)
         baseline_samples, baseline_note = distributed_torch_baseline(task, kind, base_params, cfg.seed, repeat)
@@ -3082,9 +3115,8 @@ def score_distributed(
     fallback_baseline_ns = min(baseline_samples) if baseline_samples else 0
 
     try:
-        outputs, native_samples = _build_run_mpi(
-            task, binding, submission, descriptor, cand_data, cfg, k_repeats=repeat
-        )
+        launched = _build_run_mpi(task, binding, submission, descriptor, cand_data, cfg, k_repeats=repeat)
+        outputs, native_samples = launched.outputs, launched.samples_ns
     except MpiBuildError as exc:
         return Score(False, float("inf"), 0, False, str(exc), baseline_ns=fallback_baseline_ns, baseline=baseline)
     except (RuntimeError, ValueError) as exc:  # launch/timeout crash, or a pack_infile dtype error
@@ -3128,7 +3160,7 @@ def score_distributed(
             baseline=baseline,
             ungradeable=is_ungradeable,
         )
-    return distributed_score(
+    graded = distributed_score(
         correct,
         max_err,
         detail,
@@ -3139,6 +3171,13 @@ def score_distributed(
         ranks,
         backend=backend,
         baseline=baseline,
+    )
+    if not native_samples:
+        return graded
+    # The casts around the fastest repeat (requests.precision): recorded, never in the score.
+    fastest = native_samples.index(min(native_samples))
+    return replace(
+        graded, convert_in_ns=launched.convert_in_ns[fastest], convert_out_ns=launched.convert_out_ns[fastest]
     )
 
 
@@ -3193,24 +3232,22 @@ def distributed_score(
 
 
 def _regrid_for_ranks(submission: Submission, ranks: int) -> Submission | None:
-    """Re-grid ``submission.distribution`` to an equal-edge hypercube spanning ``ranks`` for a
+    """Re-grid ``submission.requests.grid`` to an equal-edge hypercube spanning ``ranks`` for a
     scaling-sweep point.
 
     A ``d``-D grid becomes ``[edge]*d`` iff ``edge**d == ranks`` (:func:`mpi_descriptor.hypercube_grid`);
-    ``grid_dim`` and ``block_size`` are preserved. Unchanged when the grid already spans ``ranks``;
-    ``None`` (skip the point) when ``ranks < 1``, the grid is empty, or no such grid exists."""
-    dist = submission.distribution
-    if int(ranks) < 1 or dist is None:
-        return None
-    grid = list(dist.get("grid", []))
-    if not grid:
+    the layout ops are kept and their ``P<g>`` factors re-evaluate on the new grid. Unchanged when the grid
+    already spans ``ranks``; ``None`` (skip the point) when ``ranks < 1``, there is no grid, or no such
+    grid exists."""
+    grid = submission.requests.grid
+    if int(ranks) < 1 or not grid:
         return None
     if math.prod(grid) == ranks:
         return submission
     d = len(grid)
     edge = round(int(ranks) ** (1.0 / d))
     if edge >= 1 and edge**d == int(ranks):
-        return replace(submission, distribution={**dist, "grid": [edge] * d})
+        return replace(submission, requests=submission.requests.with_grid([edge] * d))
     return None
 
 
@@ -3406,7 +3443,8 @@ def score_scaling(
         """``(correct, detail, samples_ns)`` of one P; raises like :func:`_build_run_mpi`, and
         :class:`UngradeableTolerance` / RuntimeError from the numpy route's grade."""
         cand_data, oracle, lengths = _size_state(cand_params)
-        outputs, samples = _build_run_mpi(task, binding, sub_p, descriptor, cand_data, cfg)
+        launched = _build_run_mpi(task, binding, sub_p, descriptor, cand_data, cfg)
+        outputs, samples = launched.outputs, launched.samples_ns
         try:
             ok, _err, detail = _grade(
                 spec, oracle, outputs, rtol, atol, initial=cand_data, lengths=lengths, eps_acc=eps_acc
@@ -3441,16 +3479,21 @@ def score_scaling(
         # T_i(P): the submission re-gridded to span P, run on this P's problem.
         sub_p = _regrid_for_ranks(submission, p)
         if sub_p is None:
-            grid = submission.distribution.get("grid") if submission.distribution else None
-            reason = "no distribution grid" if not grid else f"{grid} has no equal-edge grid spanning {p}"
+            grid = submission.requests.grid
+            reason = "no requests.grid" if not grid else f"{list(grid)} has no equal-edge grid spanning {p}"
             note(p, f"cannot re-grid ({reason})")
             continue
         try:
             descriptor = Descriptor.from_submission(
-                sub_p, binding, p, symbol_axes=mpi_symbol_axes(spec), default_location=cfg.default_location
+                sub_p,
+                binding,
+                p,
+                symbol_axes=mpi_symbol_axes(spec),
+                default_location=cfg.default_location,
+                ndims=kernel_ndims(spec.mpi, binding),
             )
         except ValueError as exc:
-            note(p, f"invalid MPI distribution ({exc})")
+            note(p, f"invalid MPI layout ({exc})")
             continue
         if descriptor.any_device(binding) and not sub_p.is_python and sub_p.language not in ("cuda", "hip"):
             note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {sub_p.language}")
@@ -3576,16 +3619,21 @@ def ml_descriptors(
     for p in counts:
         sub_p = _regrid_for_ranks(submission, p)
         if sub_p is None:
-            grid = submission.distribution.get("grid") if submission.distribution else None
-            why = f"{grid} has no equal-edge grid spanning {p}" if grid else "no distribution grid"
+            grid = submission.requests.grid
+            why = f"{list(grid)} has no equal-edge grid spanning {p}" if grid else "no requests.grid"
             out[p] = f"cannot re-grid ({why})"
             continue
         try:
             out[p] = Descriptor.from_submission(
-                sub_p, binding, p, symbol_axes=mpi_symbol_axes(spec), default_location=default_location
+                sub_p,
+                binding,
+                p,
+                symbol_axes=mpi_symbol_axes(spec),
+                default_location=default_location,
+                ndims=kernel_ndims(spec.mpi, binding),
             )
         except ValueError as exc:
-            out[p] = f"invalid MPI distribution ({exc})"
+            out[p] = f"invalid MPI layout ({exc})"
     return out
 
 
@@ -3647,7 +3695,7 @@ def score_ml(
 
     lead = descriptors[ranks]
     if isinstance(lead, str):
-        return refused(f"invalid MPI distribution or sizing: {lead}")
+        return refused(f"invalid MPI layout or sizing: {lead}")
     if lead.any_device(binding) and not submission.is_python and submission.language not in ("cuda", "hip"):
         return refused(
             f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language}"
@@ -3815,7 +3863,7 @@ def ml_launch(
         try:
             refusals.append(realized_tiles_refusal(spec, binding, descriptor, params))
         except ValueError as exc:
-            refusals.append(f"invalid MPI distribution or sizing: {exc}")
+            refusals.append(f"invalid MPI layout or sizing: {exc}")
     runnable = [params for params, refusal in zip(draws, refusals, strict=False) if refusal is None]
     # Captured HERE, from the launcher this very launch goes through: the recorded placement.
     nodes = mpi_gang.launch_nodes(cfg.launcher, ranks, cfg.env) if runnable else None
@@ -4028,6 +4076,7 @@ def score_cells(
         warmup: int = 0,
         call_binding: Binding = binding,
         context: str = cand_context,
+        casts: CastPlan | None = None,
     ) -> tuple[dict[str, np.ndarray], list[int], int, CallProbes]:
         # One child per cell's rep budget; ``peak`` is per call (sampled after the first rep). Warmup reps
         # are discarded. The probes feed the same suspect decision as score().
@@ -4043,6 +4092,7 @@ def score_cells(
             reps=reps,
             warmup=warmup,
             omp_context_name=context,
+            casts=casts,
         )
         return outs, samples, int(mem.memory.increment_bytes), mem
 
@@ -4143,6 +4193,7 @@ def score_cells(
                         workspace_bytes=submission.workspace_bytes,
                         warmup=warmup,
                         call_binding=cand_binding,
+                        casts=candidate_casts(submission, built.require_lib(), device),
                     )
                 except RuntimeError as exc:
                     is_ungradeable = isinstance(exc, UngradeableTolerance)
@@ -4322,6 +4373,7 @@ def score_cells(
                                 1,
                                 memory_gb,
                                 call_binding=cand_binding,
+                                casts=candidate_casts(submission, built.require_lib(), device),
                             )
                             # The same determinism formula as independent_verify.
                             determinism_ok = _determinism_check(
@@ -4337,7 +4389,13 @@ def score_cells(
                         )
                         re_cand = redata if choice is None else laid_out(spec, choice, redata)
                         re_actual, _, _, _ = _run(
-                            built.require_lib(), submission.language, re_cand, 1, memory_gb, call_binding=cand_binding
+                            built.require_lib(),
+                            submission.language,
+                            re_cand,
+                            1,
+                            memory_gb,
+                            call_binding=cand_binding,
+                            casts=candidate_casts(submission, built.require_lib(), device),
                         )
                         re_expected = cell_reference(redata)
                         # Same size as `data` (only the reverify SEED differs), so the SAME `lengths`.

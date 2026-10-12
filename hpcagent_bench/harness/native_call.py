@@ -34,7 +34,8 @@ from hpcagent_bench import config, flags, languages, omp_context, openmp_runtime
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
-from hpcagent_bench.harness import timing
+from hpcagent_bench.harness import precision_casts, timing
+from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, storage_view_dtype
 from hpcagent_bench.harness.task import setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import WORKSPACE_DTYPE, Binding, index_base
 from hpcagent_bench.units import BYTES_PER_GIB, BYTES_PER_KIB, NS_PER_MS
@@ -546,8 +547,10 @@ def slot_threads(cpus: set[int], requested: int | None = None) -> int:
 
 
 def _ptr_cdecl(dtype: "str | np.dtype[np.generic]") -> str:
-    """The cffi pointer type for a numpy dtype, e.g. ``"double *"``."""
-    return f"{c_type(np.dtype(dtype).name)} *"
+    """The cffi pointer type for a numpy dtype, e.g. ``"double *"``. cffi's parser has no ``_Float16``, and
+    a pointer's pointee type does not change the ABI, so a half pointer is declared over its bits."""
+    name = np.dtype(dtype).name
+    return "uint16_t *" if name == "float16" else f"{c_type(name)} *"
 
 
 #: cffi pointer type of the reserved scratch buffer (Sec. 11).
@@ -904,15 +907,23 @@ def kernel_entry(ffi: FFI, lib: "Lib", symbol: str) -> CKernel:
     return ffi.addressof(cast("FFI.CData", lib), symbol)
 
 
+#: Converts a source buffer into a destination buffer of another element type (logical dtype names given,
+#: since a device buffer of a storage-only format is an unsigned view).
+type Converter = Callable[["ArrayBuffer", "ArrayBuffer", str, str], None]
+
+
 @dataclass(frozen=True, slots=True)
 class RepTiming:
     """One timed rep. ``ns`` is the credited sample (GPU events on a device grade, the host bracket on
     a host one); ``host_ns`` is the host bracket either way; ``residual_ns`` is
-    :func:`quiescence_residual` after the clock stopped."""
+    :func:`quiescence_residual` after the clock stopped. ``convert_in_ns`` / ``convert_out_ns`` time the
+    precision casts around the call (requests.precision), in their own brackets: never in ``ns``."""
 
     ns: int
     host_ns: int
     residual_ns: int = 0
+    convert_in_ns: int = 0
+    convert_out_ns: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -925,6 +936,9 @@ class TimingProbe:
     event_ns: int = 0
     host_ns: int = 0
     device_index: int = -1
+    #: The fastest rep's precision casts (:attr:`RepTiming.convert_in_ns`), recorded, never scored.
+    convert_in_ns: int = 0
+    convert_out_ns: int = 0
 
 
 def summarize_reps(reps: Sequence[RepTiming], device_index: int) -> TimingProbe:
@@ -939,6 +953,8 @@ def summarize_reps(reps: Sequence[RepTiming], device_index: int) -> TimingProbe:
         event_ns=best.ns,
         host_ns=best.host_ns,
         device_index=device_index,
+        convert_in_ns=best.convert_in_ns,
+        convert_out_ns=best.convert_out_ns,
     )
 
 
@@ -1036,9 +1052,15 @@ def _call_native_impl(
     after_first_rep: Callable[[], None] | None = None,
     followups: Sequence["Followup"] = (),
     rep_data: Callable[[int], KernelData] | None = None,
+    casts: CastPlan | None = None,
+    convert: "Converter | None" = None,
 ) -> tuple[list[SpilledMap], list[int], list[FollowupResult], list[RepTiming]]:
     """Shared FFI body of the host and device native calls: marshal ``data`` to the canonical symbol of
     ``lib_path`` and time ``reps`` calls (plus ``warmup`` discarded ones).
+
+    ``casts`` (requests.precision) names the arrays the kernel takes in another precision: each is staged
+    at the problem precision as usual, converted by ``convert`` into a buffer of its requested type before
+    the call and back after it, in brackets of their own (:attr:`RepTiming.convert_in_ns`), never the score.
 
     ``rep_data`` (None = reuse ``data``) maps the 0-based call index (warmup included) to that call's
     inputs (:mod:`hpcagent_bench.harness.rep_variation`); ``data`` stays the dtype/shape template.
@@ -1054,7 +1076,10 @@ def _call_native_impl(
     [RepTiming per timed rep])``."""
     ffi = FFI()
     sym = binding.symbols[lang]
-    marshal = CallMarshal.of(binding, data, lang)
+    targets = dict(casts.targets) if casts is not None else {}
+    # The C signature follows the requested element types, so it is declared off a retyped template.
+    template = {**data, **{name: np.empty(0, np.dtype(dtype)) for name, dtype in targets.items()}}
+    marshal = CallMarshal.of(binding, template, lang)
     ptr_cdecl, scalar_cast, rebase = marshal.ptr_cdecl, marshal.scalar_cast, marshal.rebase
     signature = f"void {sym}({', '.join(marshal.params)});"
     ffi.cdef(" ".join(part for part in (marshal.typedefs, signature, SETTLE_DECLS) if part))
@@ -1091,6 +1116,9 @@ def _call_native_impl(
         budget: Callable[[], contextlib.AbstractContextManager[None]]
         budget = grading_memory_budget if is_followup else contextlib.nullcontext
         buffers: dict[str, ArrayBuffer] = {}
+        # A requested array's problem-precision staging buffer, its requested-type twin (the one passed),
+        # and the two element types.
+        staged: dict[str, tuple[ArrayBuffer, ArrayBuffer, str, str]] = {}
         c_args: list[CArgument] = []
         with budget():
             for a in binding.args:
@@ -1100,6 +1128,10 @@ def _call_native_impl(
                     if rebase[a.name]:
                         host += rebase[a.name]
                     buf: ArrayBuffer = xp.asarray(host)
+                    if a.name in targets:
+                        twin: ArrayBuffer = xp.empty(host.shape, buffer_dtype(xp, targets[a.name]))
+                        staged[a.name] = (buf, twin, host.dtype.name, targets[a.name])
+                        buf = twin
                     buffers[a.name] = buf
                     c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(buf)))
                 else:
@@ -1111,9 +1143,23 @@ def _call_native_impl(
         if ws is not None:
             ws[...] = 0
 
+        # Every requested array is cast in: the ABI declares outputs intent(inout), so one may be read.
+        cast_start = time.perf_counter_ns()
+        for problem, requested, problem_dtype, requested_dtype in staged.values():
+            convert(problem, requested, problem_dtype, requested_dtype)  # type: ignore[misc]  # set whenever staged is
+        convert_in_ns = time.perf_counter_ns() - cast_start
         # The cap is re-armed for the kernel's own call. The only timed region: fn(*c_args) and the
         # settle waits.
         rep = timed_call(fn, c_args, settle)
+        cast_start = time.perf_counter_ns()
+        for a in binding.args:
+            if a.role == "output" and a.name in staged:
+                problem, requested, problem_dtype, requested_dtype = staged[a.name]
+                convert(requested, problem, requested_dtype, problem_dtype)  # type: ignore[misc]
+                buffers[a.name] = problem
+        rep = dataclasses.replace(
+            rep, convert_in_ns=convert_in_ns, convert_out_ns=time.perf_counter_ns() - cast_start if staged else 0
+        )
         if not warming and not is_followup:
             reps_seen.append(rep)  # a warmup / held-out rep is not a sample, so it is not evidence
         if warming:
@@ -1167,6 +1213,7 @@ def _call_native(
     after_first_rep: Callable[[], None] | None = None,
     followups: Sequence["Followup"] = (),
     rep_data: Callable[[int], KernelData] | None = None,
+    casts: CastPlan | None = None,
 ) -> tuple[list[SpilledMap], list[int], list[FollowupResult], list[RepTiming]]:
     """dlopen ``lib_path`` and time ``reps`` calls of the canonical symbol with ``data`` on the host.
 
@@ -1185,6 +1232,7 @@ def _call_native(
         elapsed = time.perf_counter_ns() - t0
         return RepTiming(ns=elapsed, host_ns=elapsed, residual_ns=quiescence_residual(device_settle))
 
+    host_casts = HostCasts(casts.host_library) if casts is not None and casts.targets else None
     return _call_native_impl(
         lib_path,
         binding,
@@ -1200,7 +1248,20 @@ def _call_native(
         after_first_rep=after_first_rep,
         followups=followups,
         rep_data=rep_data,
+        casts=casts,
+        convert=None if host_casts is None else functools.partial(host_convert, host_casts),
     )
+
+
+def host_convert(casts: HostCasts, src: "ArrayBuffer", dst: "ArrayBuffer", src_dtype: str, dst_dtype: str) -> None:
+    """A host call's :data:`Converter`: its buffers are numpy arrays (:func:`host_buffer`)."""
+    casts.convert(host_buffer(src), host_buffer(dst), src_dtype, dst_dtype)
+
+
+def buffer_dtype(xp: types.ModuleType, dtype: str) -> "np.dtype[np.generic]":
+    """The element type a buffer of ``dtype`` is allocated in by ``xp``: numpy holds the ml_dtypes formats
+    natively, cupy holds their bits (:func:`precision_casts.storage_view_dtype`)."""
+    return np.dtype(dtype) if xp is np else storage_view_dtype(dtype)
 
 
 #: clang's CUDA wrapper header directory, which must not reach HIPRTC
@@ -1347,6 +1408,7 @@ def _call_native_device(
     after_first_rep: Callable[[], None] | None = None,
     followups: Sequence["Followup"] = (),
     rep_data: Callable[[int], KernelData] | None = None,
+    casts: CastPlan | None = None,
 ) -> tuple[list[SpilledMap], list[int], list[FollowupResult], list[RepTiming]]:
     """Device-resident call: array buffers live on the GPU.
 
@@ -1384,6 +1446,11 @@ def _call_native_device(
             residual_ns=quiescence_residual(device_settle),
         )
 
+    def device_convert(src: "ArrayBuffer", dst: "ArrayBuffer", src_dtype: str, dst_dtype: str) -> None:
+        # One kernel per array, drained before the bracket closes so its time is the cast's own.
+        precision_casts.device_cast(cp, src, dst, src_dtype, dst_dtype)
+        device_settle()
+
     return _call_native_impl(
         lib_path,
         binding,
@@ -1399,6 +1466,8 @@ def _call_native_device(
         after_first_rep=after_first_rep,
         followups=followups,
         rep_data=rep_data,
+        casts=casts,
+        convert=device_convert,
     )
 
 
@@ -1684,6 +1753,7 @@ def _native_call_worker(
     preloaded_runtimes: tuple[str, ...] = (),
     gpu_graded: bool = False,
     timed_rep_s: float = 0.0,
+    casts: CastPlan | None = None,
 ) -> ChildPayload | None:
     """Child-process entry: run the whole measurement and return its payload
     ``(outputs per timed rep, samples, peak_bytes, increment_bytes, followup_outputs, device_bytes,
@@ -1781,6 +1851,7 @@ def _native_call_worker(
             after_first_rep=probe_first_rep,
             followups=followups,
             rep_data=rep_data,
+            casts=casts,
         )
     else:
         timed_outputs, samples, extras, rep_timings = _call_native(
@@ -1795,6 +1866,7 @@ def _native_call_worker(
             probe_first_rep,
             followups,
             rep_data,
+            casts=casts,
         )
     openmp_note = openmp_runtime_gate()
     # ANTI-CHEAT: a host grade with a GPU runtime mapped ran work the graded unit cannot express.
@@ -1913,6 +1985,7 @@ def _call_isolated(
     threads: int | None = None,
     rep_data: Callable[[int], KernelData] | None = None,
     omp_context_name: str = "",
+    casts: CastPlan | None = None,
 ) -> "IsolatedCall":
     """Run a whole measurement in one child process, so a segfault, hang or over-allocation is a scored
     failure rather than the runner's death.
@@ -1936,7 +2009,10 @@ def _call_isolated(
     ``omp_context_name`` (``""`` = the image default) is the OpenMP context of the code being called
     (:mod:`hpcagent_bench.omp_context`, chosen from the toolchain family that built it). A context other
     than the default runs in a SPAWNED child whose ``LD_LIBRARY_PATH`` puts that context's libraries first,
-    so exactly that family's OpenMP runtime, BLAS and numba pool are what the child maps."""
+    so exactly that family's OpenMP runtime, BLAS and numba pool are what the child maps.
+
+    ``casts`` (requests.precision) are the arrays the call converts into their requested types around every
+    call (:func:`_call_native_impl`); a host grade's cast library sits beside ``lib_path``."""
     # Residency picks the child for every delivery, python included.
     use_device = device
     if lang == "python" and py_meta is None:
@@ -2012,6 +2088,7 @@ def _call_isolated(
                 host_only=host_only,
                 preloaded_runtimes=preloaded,
                 env=child_env,
+                casts=casts,
             )
             child_stderr = forward_child_stderr(spill_root)
             # A kill inside the timed section under a guillotine (a followup's alarm is not one).

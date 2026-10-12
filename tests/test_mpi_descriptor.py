@@ -26,6 +26,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
     scatter,
 )
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import Arg, Binding, binding_from_spec
 
@@ -104,7 +105,7 @@ def test_default_distribution_rejects_grid_wider_than_array() -> None:
         default_distribution((12,), Grid((2, 2)))
 
 
-# Descriptor.from_submission: semantic layer over the raw distribution dict
+# Descriptor.from_submission: semantic layer over the lowered requests plan
 
 
 def _binding_2d() -> Binding:
@@ -118,8 +119,14 @@ def _binding_2d() -> Binding:
     return Binding(kernel="k2d", config="dense", args=args, symbols={})
 
 
-def _sub(dist) -> Submission:
-    return Submission(language="c", source="x", distribution=dist)
+def _sub(plan) -> Submission:
+    """A submission whose requests lower to ``plan`` (:meth:`Requests.from_plan` writes the op lists)."""
+    return Submission(language="c", source="x", requests=Requests.from_plan(plan))
+
+
+def _ops(grid: list[int], layout: dict) -> Submission:
+    """A submission carrying ``layout`` op lists over ``grid`` as an agent would send them."""
+    return Submission(language="c", source="x", requests=Requests.from_obj({"grid": grid, "layout": layout}))
 
 
 def _block_axis0(scheme: str = "block", block_size: int = 1):
@@ -162,37 +169,33 @@ def test_from_submission_rejects_unknown_array() -> None:
 def test_from_submission_rejects_distributing_a_scalar() -> None:
     b = _binding_2d()
     # alpha is a scalar -> broadcast by value, never distributed.
-    dist = {"grid": [2], "arrays": {"alpha": {"axes": [{"grid_dim": 0, "scheme": "block"}]}}}
     with pytest.raises(ValueError, match="scalar 'alpha'"):
-        Descriptor.from_submission(_sub(dist), b, ranks=2)
+        Descriptor.from_submission(_ops([2], {"alpha": [{"op": "distribute", "digit": 0, "grid_dim": 0}]}), b, ranks=2)
 
 
-def test_from_submission_rejects_axis_count_mismatch() -> None:
+def test_from_submission_rejects_an_op_on_a_missing_dimension() -> None:
     b = _binding_2d()  # A is 2-D
-    dist = {"grid": [2], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "block"}]}}}  # only 1 axis
-    with pytest.raises(ValueError, match="declares 1 axis/axes but the array has 2"):
-        Descriptor.from_submission(_sub(dist), b, ranks=2)
+    with pytest.raises(ValueError, match="dimension 2 does not exist"):
+        Descriptor.from_submission(_ops([2], {"A": [{"op": "block", "dim": 2, "factor": 2}]}), b, ranks=2)
 
 
-def test_validate_distribution_rejects_two_axes_on_one_split_grid_dim() -> None:
-    # Both axes bound to grid_dim 0 (size 2): each coordinate owns only the diagonal (block x
-    # block) sub-tile, so the off-diagonal blocks are unowned and gather returns uninit holes.
-    # Structural (shape-free) rejection at Submission construction.
-    dist = {"grid": [2, 1], "arrays": {"C": {"axes": [{"grid_dim": 0}, {"grid_dim": 0}]}}}
-    with pytest.raises(ValueError, match="at most one array axis"):
-        _sub(dist)
+def test_layout_rejects_two_dimensions_on_one_grid_dim() -> None:
+    # Both dimensions on grid_dim 0: each coordinate would own only the diagonal (block x block)
+    # sub-tile, so the off-diagonal blocks are unowned and gather returns uninit holes. Refused even
+    # at extent 1, since the grid is re-sized to every P a scaling run measures.
+    for grid in ([2, 1], [1, 1]):
+        layout = {
+            "C": [{"op": "distribute", "digit": 1, "grid_dim": 0}, {"op": "distribute", "digit": 0, "grid_dim": 0}]
+        }
+        with pytest.raises(ValueError, match="grid_dim 0 is already distributed"):
+            Descriptor.from_submission(_ops(grid, layout), _binding_2d(), ranks=math.prod(grid))
 
 
-def test_validate_distribution_allows_repeated_size1_grid_dim() -> None:
-    # A size-1 grid dim is a no-op split, so two axes may reference it (full ownership, no holes).
-    _sub({"grid": [1, 1], "arrays": {"C": {"axes": [{"grid_dim": 0}, {"grid_dim": 0}]}}})
-
-
-def test_validate_distribution_rejects_zero_block_size() -> None:
-    # block_size 0 was silently coerced to 1 by owned_indices; reject it structurally instead.
-    dist = {"grid": [2], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 0}]}}}
-    with pytest.raises(ValueError, match="block_size must be a positive int"):
-        _sub(dist)
+def test_layout_rejects_zero_block_factor() -> None:
+    # A zero factor would be a zero-width block; refused before anything is scattered.
+    layout = {"A": [{"op": "block", "dim": 0, "factor": 0}, {"op": "distribute", "digit": 2, "grid_dim": 0}]}
+    with pytest.raises(ValueError, match="block factor must be >= 1"):
+        Descriptor.from_submission(_ops([2], layout), _binding_2d(), ranks=2)
 
 
 def test_descriptor_scatter_gather_roundtrip_declared_and_replicated() -> None:
@@ -255,10 +258,11 @@ def test_local_size_scalars_no_shapes_leaves_symbols_global() -> None:
     b = Binding(kernel="legacy", config="dense", args=args, symbols={})
     sub = _sub({"grid": [2], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "block"}]}}})
     # no shapes -> global unchanged
-    d = Descriptor.from_submission(sub, b, ranks=2)
+    # The shapeless pointer's rank comes from the manifest (kernel_ndims), here given directly.
+    d = Descriptor.from_submission(sub, b, ranks=2, ndims={"A": 1})
     assert d.local_size_scalars({"N": 8}, 0)["N"] == 8
     # explicit manifest mapping N -> A:0 makes it local
-    d2 = Descriptor.from_submission(sub, b, ranks=2, symbol_axes={"N": ("A", 0)})
+    d2 = Descriptor.from_submission(sub, b, ranks=2, symbol_axes={"N": ("A", 0)}, ndims={"A": 1})
     assert d2.local_size_scalars({"N": 8}, 0)["N"] == 4
 
 
@@ -482,32 +486,25 @@ def test_block_cyclic_roundtrips_on_equal_hypercube() -> None:
     assert np.array_equal(back, a)
 
 
-def test_envelope_rejects_block_cyclic_on_unequal_grid() -> None:
-    # grid [2, 4] is not an equal-edge hypercube, so a block_cyclic axis on it is rejected.
-    bad = {
-        "grid": [2, 4],
-        "arrays": {
-            "A": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic"}, {"grid_dim": 1, "scheme": "block_cyclic"}]}
-        },
-    }
+def test_plan_rejects_block_cyclic_on_unequal_grid() -> None:
+    # grid [2, 4] is not an equal-edge hypercube, so a block-cyclic layout on it is rejected.
+    cyclic = [(0, "block_cyclic", 2), (1, "block_cyclic", 2)]
+    bad = Requests.from_plan({"grid": [2, 2], "arrays": {"A": {"axes": [axis_entry(a) for a in cyclic]}}})
     with pytest.raises(ValueError, match="equal-edge hypercube"):
-        Submission(language="c", source="x", distribution=bad)
+        bad.plan({"A": 2}, grid=[2, 4])
 
 
-def test_envelope_allows_block_cyclic_on_equal_hypercube() -> None:
-    ok = {
-        "grid": [2, 2],
-        "arrays": {
-            "A": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic"}, {"grid_dim": 1, "scheme": "block_cyclic"}]}
-        },
-    }
-    Submission(language="c", source="x", distribution=ok)  # no raise
+def test_plan_allows_block_cyclic_on_equal_hypercube() -> None:
+    cyclic = [(0, "block_cyclic", 2), (1, "block_cyclic", 2)]
+    ok = Requests.from_plan({"grid": [2, 2], "arrays": {"A": {"axes": [axis_entry(a) for a in cyclic]}}})
+    ok.plan({"A": 2})  # no raise
     # a 1-D block-cyclic grid is trivially equal-edge (one dimension).
-    Submission(
-        language="c",
-        source="x",
-        distribution={"grid": [4], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic"}]}}},
-    )
+    Requests.from_plan({"grid": [4], "arrays": {"A": {"axes": [axis_entry((0, "block_cyclic", 2))]}}}).plan({"A": 1})
+
+
+def axis_entry(axis: tuple[int, str, int]) -> dict:
+    """One plan ``axes`` entry of ``(grid_dim, scheme, block_size)``."""
+    return {"grid_dim": axis[0], "scheme": axis[1], "block_size": axis[2]}
 
 
 # 2-D block-cyclic builder: default for block_cyclic/grid_ndim>1 kernels
@@ -603,9 +600,8 @@ def test_from_submission_default_location_applies() -> None:
 
 
 def test_envelope_rejects_bad_location() -> None:
-    bad = {"grid": [2], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "block"}], "location": "gpu"}}}
-    with pytest.raises(ValueError, match="location must be"):
-        Submission(language="c", source="x", distribution=bad)
+    with pytest.raises(ValueError, match="must be 'host' or 'device'"):
+        Submission.from_obj({"language": "c", "source": "x", "requests": {"grid": [2], "location": {"A": "gpu"}}})
 
 
 if __name__ == "__main__":
@@ -621,10 +617,9 @@ if __name__ == "__main__":
     test_from_submission_rejects_grid_rank_mismatch()
     test_from_submission_rejects_unknown_array()
     test_from_submission_rejects_distributing_a_scalar()
-    test_from_submission_rejects_axis_count_mismatch()
-    test_validate_distribution_rejects_two_axes_on_one_split_grid_dim()
-    test_validate_distribution_allows_repeated_size1_grid_dim()
-    test_validate_distribution_rejects_zero_block_size()
+    test_from_submission_rejects_an_op_on_a_missing_dimension()
+    test_layout_rejects_two_dimensions_on_one_grid_dim()
+    test_layout_rejects_zero_block_factor()
     test_descriptor_scatter_gather_roundtrip_declared_and_replicated()
     test_descriptor_length1_array_is_replicated_and_gathers_from_rank0()
     test_local_size_scalars_localises_distributed_symbol_only()
@@ -651,8 +646,8 @@ if __name__ == "__main__":
         test_hypercube_grid_equal_edges(nranks, ndim, dims)
     test_hypercube_grid_rejects_non_perfect_power()
     test_block_cyclic_roundtrips_on_equal_hypercube()
-    test_envelope_rejects_block_cyclic_on_unequal_grid()
-    test_envelope_allows_block_cyclic_on_equal_hypercube()
+    test_plan_rejects_block_cyclic_on_unequal_grid()
+    test_plan_allows_block_cyclic_on_equal_hypercube()
     test_blockcyclic_builder_deals_leading_axes_over_hypercube()
     test_blockcyclic_builder_replicates_low_rank_arrays_and_rejects_bad_ranks()
     test_distribution_for_kernel_dispatches_blockcyclic_2d()

@@ -17,6 +17,7 @@ from hpcagent_bench.harness import mpi_call, mpi_shard_driver
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor, distribution_for_kernel
 from hpcagent_bench.harness.optimizers import binding_from_spec
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.mpi_driver import kernel_library_path
 
@@ -46,7 +47,10 @@ def plan_for(ranks: int, grid: dict, **overrides: object) -> dict:
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
         Submission(
-            language="hip", source="kernel_mpi", device_source="kernels", distribution={**grid, "grid": [ranks]}
+            language="hip",
+            source="kernel_mpi",
+            device_source="kernels",
+            requests=Requests.from_plan({**grid, "grid": [ranks]}),
         ),
         binding,
         ranks,
@@ -96,7 +100,11 @@ def test_the_plan_is_json(tmp_path: Path) -> None:
     spec = BenchSpec.load(KERNEL)
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
-        Submission(language="hip", source="kernel_mpi", device_source="kernels", distribution=ROW_SPLIT), binding, 4
+        Submission(
+            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+        ),
+        binding,
+        4,
     )
     plan = mpi_shard_driver.build_plan(
         spec,
@@ -140,7 +148,11 @@ def test_run_sharded_returns_rank_verdicts_and_ns_samples(monkeypatch: pytest.Mo
     spec = BenchSpec.load(KERNEL)
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
-        Submission(language="hip", source="kernel_mpi", device_source="kernels", distribution=ROW_SPLIT), binding, 4
+        Submission(
+            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+        ),
+        binding,
+        4,
     )
     ((verdicts, samples),) = mpi_call.run_sharded(
         exe,
@@ -190,7 +202,11 @@ def test_run_sharded_runs_every_draw_in_one_launch(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(mpi_call, "launch", fake_launch)
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     descriptor = Descriptor.from_submission(
-        Submission(language="hip", source="kernel_mpi", device_source="kernels", distribution=ROW_SPLIT), binding, 4
+        Submission(
+            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+        ),
+        binding,
+        4,
     )
     answered = mpi_call.run_sharded(
         exe,
@@ -228,7 +244,11 @@ def test_run_sharded_answering_for_fewer_ranks_than_launched_is_an_infra_fault(
     monkeypatch.setattr(mpi_call, "launch", short_launch)
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     descriptor = Descriptor.from_submission(
-        Submission(language="hip", source="kernel_mpi", device_source="kernels", distribution=ROW_SPLIT), binding, 4
+        Submission(
+            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+        ),
+        binding,
+        4,
     )
     with pytest.raises(mpi_call.LaunchInfraFault, match="3 rank verdicts for 4 ranks"):
         mpi_call.run_sharded(
@@ -252,7 +272,7 @@ def test_run_sharded_without_a_kernel_library_is_a_launch_failure(tmp_path: Path
     spec = BenchSpec.load(KERNEL)
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
-        Submission(language="c", source="kernel_mpi", distribution=ROW_SPLIT), binding, 4
+        Submission(language="c", source="kernel_mpi", requests=Requests.from_plan(ROW_SPLIT)), binding, 4
     )
     with pytest.raises(RuntimeError, match="no kernel library"):
         mpi_call.run_sharded(
@@ -470,7 +490,7 @@ def test_every_ml_kernel_plans_at_xl_with_its_init_scalars(kernel: str) -> None:
     raised in build_plan and graded 'mpi run failed'."""
     spec = BenchSpec.load(kernel)
     binding = binding_from_spec(spec)
-    descriptor = Descriptor.from_distribution(distribution_for_kernel(spec.mpi, binding, 4), binding, 4)
+    descriptor = Descriptor.from_plan(distribution_for_kernel(spec.mpi, binding, 4), binding, 4)
     plan = mpi_shard_driver.build_plan(
         spec,
         binding,

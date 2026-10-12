@@ -8,6 +8,7 @@ import pytest
 from hpcagent_bench.harness import mpi_call
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.sandbox import Sandbox
 from hpcagent_bench.support.bindings.contract import Arg, Binding
 from hpcagent_bench.support.bindings.stubs import LANGS
@@ -71,7 +72,7 @@ def _oracle():
 def _run(language, source, launcher, grid, layout, *, is_python, cc_override=None):
     """Build + launch the distributed elem kernel and return the gathered global ``B``."""
     binding = _elem_binding()
-    sub = Submission(language=language, source=source, distribution=_distribution(grid, layout))
+    sub = Submission(language=language, source=source, requests=Requests.from_plan(_distribution(grid, layout)))
     desc = Descriptor.from_submission(sub, binding, ranks=int(np.prod(grid)))
     a_in, _ = _oracle()
     data = {"A": a_in, "B": np.zeros((M, N)), "M": M, "N": N, "a": A_VAL, "c": C_VAL}

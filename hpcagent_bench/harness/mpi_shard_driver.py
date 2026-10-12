@@ -163,7 +163,7 @@ def build_plan(
     # reference_dist is written against the kernel's DEFAULT layout: it gathers a replicatable input
     # from its split tiles itself. Handed the whole copy the submission asked for, it gathered P
     # copies of it and graded a (P*batch, ...) shard against the submission's (batch, ...) one.
-    default = Descriptor.from_distribution(
+    default = Descriptor.from_plan(
         distribution_for_kernel(spec.mpi, binding, descriptor.grid.nranks), binding, descriptor.grid.nranks
     )
     reference_layout = {**layout, **{n: array_dist_to_dict(default.dist_for(n, shapes[n])) for n in whole}}
@@ -198,7 +198,7 @@ def build_plan(
         # Seconds the warmup plus the timed repeats may take (time_kernel), or None for no cap.
         "timed_budget_s": None if timed_budget_s is None else float(timed_budget_s),
         "grid": [int(d) for d in descriptor.grid.dims],
-        # The RESOLVED per-array layout (mirrors submission.distribution['arrays'] exactly, so a
+        # The RESOLVED per-array layout (the lowered submission.requests plan, exactly, so a
         # rank never re-derives it from the manifest): make_inputs(layout=..., grid=...) realizes
         # whichever axis/scheme each array actually declared, not just the manifest default.
         "layout": layout,

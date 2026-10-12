@@ -5,7 +5,7 @@ A submission reaches a library two ways, both behind a closed allowlist:
 1. **`build`**: tokens `-I`, `-D`, `-l<name>`, `-L<dir>`, for example a library the agent built into
    the shared folder. The judge adds `-L<shared>/lib -Wl,-rpath,<shared>/lib`, so a self-built `.so`
    resolves identically at `/score` and `/submit`.
-2. **`libraries`**: catalog names from `hpcagent_bench/envs/libraries.yaml` (`blas`, `fftw`, ...).
+2. **`requests.libraries`**: catalog names from `hpcagent_bench/envs/libraries.yaml` (`blas`, `fftw`, ...).
    The judge resolves each into include, link and rpath tokens itself.
 
 Neither passes optimization flags. `sandbox.split_build` drops every other token (`-O3`,
@@ -30,7 +30,7 @@ lowers dense 2-D GEMM to `cblas_dgemm`/`cblas_sgemm`.
 per-setup switch. Code default: on. Experiment default: off (`experiments/layers/common.env`).
 
 - **Off:** `split_build` drops the whole `build` list (so `build_link_refusal` steps aside),
-  `sandbox.catalog_refusal` refuses every `libraries` name, and neither prompt mentions libraries.
+  `sandbox.catalog_refusal` refuses every `requests.libraries` name, and neither prompt mentions libraries.
   Exception: with `mpi.grade_distributed` on, `mpi` and `rccl` stay honoured
   (`sandbox.DISTRIBUTED_CONTRACT_LIBRARIES`).
 - **On:** both paths work and the prompt lists the catalog and the shared-folder workflow.
@@ -91,8 +91,8 @@ hip). Python deliveries (plain, triton, tvm) use what the venv can import.
 
 ## Recording
 
-Every grade of a request that set `build` or `libraries`, pass or fail, records them as
-`grades.requested_build` and `grades.requested_libraries` (JSON, as asked;
+Every grade records the request's `build` tokens as `grades.requested_build` and its
+`requests.libraries` inside `grades.requests` (JSON, as asked;
 `hpcagent_bench/harness/recording.py`, [results_db.md](../../docs/results_db.md)).
 
 ## Tests
@@ -109,7 +109,7 @@ pytest --maxfail=10 tests/test_library_requests.py tests/test_catalog_library_re
 - `test_sandbox_security.py`: allowlist, `test_build_link_refusal_*`,
   `test_unresolvable_libraries_closes_the_linker_probe_fallback`.
 - `test_sandbox_shared_lib_loads.py`: a shared-folder `.so` actually `dlopen`s.
-- `test_catalog_library_requests.py`: `libraries` end to end; a refusal is a 400 that does not spend
+- `test_catalog_library_requests.py`: `requests.libraries` end to end; a refusal is a 400 that does not spend
   the submission.
 - `test_recording_submission_libraries.py`: the recorded request.
 - `test_skill_isolation_matrix.py` (section E): `packets.libraries_enabled` and both rendered

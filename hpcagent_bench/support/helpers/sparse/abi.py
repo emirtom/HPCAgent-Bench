@@ -12,7 +12,7 @@ drops the value buffer where its indices already say which entries are stored (c
 and keeps a ``uint8`` mask in its place where a stored block or diagonal also holds padding (bsr,
 dia).
 
-A request names one format per sparse array (``"sparse_config": {"A": "bsr:4"}``);
+A request names one format per sparse array (``"requests": {"sparse": {"A": "bsr:4"}}``);
 :func:`parse_sparse_config` checks its shape, :mod:`.request` resolves it against a kernel."""
 
 from collections.abc import Mapping
@@ -239,29 +239,31 @@ class ArrayLayout:
 
 
 def array_layout(name: str, label: object) -> ArrayLayout:
-    """One ``sparse_config`` entry, shape-checked (the kernel is not consulted here): a format name,
+    """One ``requests.sparse`` entry, shape-checked (the kernel is not consulted here): a format name,
     ``bsr:<block_size>`` for bsr."""
     if not isinstance(label, str):
-        raise ValueError(f"sparse_config[{name!r}] must be a format name such as 'csc' or 'bsr:4'; got {label!r}")
+        raise ValueError(f"requests.sparse[{name!r}] must be a format name such as 'csc' or 'bsr:4'; got {label!r}")
     fmt, sep, edge = label.partition(":")
     if fmt not in FORMATS:
         raise ValueError(
-            f"sparse_config[{name!r}] must be one of {list(FORMATS)} (bsr as 'bsr:<block_size>'); got {label!r}"
+            f"requests.sparse[{name!r}] must be one of {list(FORMATS)} (bsr as 'bsr:<block_size>'); got {label!r}"
         )
     if fmt != BLOCK_FORMAT:
         if sep:
-            raise ValueError(f"sparse_config[{name!r}]: a block size applies to 'bsr' only, not {fmt!r}")
+            raise ValueError(f"requests.sparse[{name!r}]: a block size applies to 'bsr' only, not {fmt!r}")
         return ArrayLayout(fmt)
     if not edge.isdigit() or int(edge) <= 0:
-        raise ValueError(f"sparse_config[{name!r}]: a bsr request names a positive block size, 'bsr:4'; got {label!r}")
+        raise ValueError(
+            f"requests.sparse[{name!r}]: a bsr request names a positive block size, 'bsr:4'; got {label!r}"
+        )
     return ArrayLayout(fmt, int(edge))
 
 
 def parse_sparse_config(raw: object) -> dict[str, ArrayLayout]:
-    """The ``sparse_config`` field of a submission, shape-checked: ``{name: "csc"}`` (``"bsr:4"``
+    """The ``requests.sparse`` block of a submission, shape-checked: ``{name: "csc"}`` (``"bsr:4"``
     for bsr) -> ``{name: ArrayLayout}``. Raises ``ValueError`` (a 400)."""
     if not isinstance(raw, Mapping) or not raw:
-        raise ValueError("sparse_config must be a non-empty object {array_name: format}, e.g. {'A': 'csc'}")
+        raise ValueError("requests.sparse must be a non-empty object {array_name: format}, e.g. {'A': 'csc'}")
     return {str(name): array_layout(str(name), label) for name, label in raw.items()}
 
 

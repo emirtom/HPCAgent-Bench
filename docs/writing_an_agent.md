@@ -136,10 +136,11 @@ wire contract: [agent_service_contract.md](../hpcagent_bench/docs/agent_service_
 
   A GPU language also sets `device_source` or `device_source_file`.
 - `build`: extra `-I`/`-D`/`-l`/`-L` tokens. The judge sets the optimization flags itself.
-- `libraries`: named requests from `envs/libraries.yaml`.
 - `compiler`: a toolchain family.
 - `workspace_bytes`: untimed scratch, as a byte count or a size expression such as `"8*NI*NJ + 256"`.
-- `distribution`: the MPI data layout, for the distributed track.
+- `requests`: what the judge changes about the data and build -- `libraries` (named requests from
+  `envs/libraries.yaml`), per-array `precision`, `sparse` formats, and on the distributed track the MPI
+  `grid` + `layout` ([requests_api.md](requests_api.md)).
 
 ## The score
 

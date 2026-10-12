@@ -11,12 +11,19 @@ sections. The single-node prompt must be byte-unchanged (no MPI leak). Pure: no 
 """
 
 import dataclasses
+import json
 import re
 
 from hpcagent_bench import config
-from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.mpi_descriptor import AxisDist, Descriptor, Grid, owned_indices, replicatable_allowlist
+from hpcagent_bench.harness.mpi_descriptor import (
+    AxisDist,
+    Grid,
+    default_requests,
+    owned_indices,
+    replicatable_allowlist,
+)
 from hpcagent_bench.harness.prompts import build_context, build_prompt, prompt_env
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.torch_reference import graded_rank_counts
 from hpcagent_bench.spec import BenchSpec
@@ -72,12 +79,12 @@ def test_multi_prompt_shows_the_distributed_contract() -> None:
     assert "jacobi_2d_mpi" in p  # the Sec. 12 symbol
     assert "MPI_Comm_f2c(comm)" in p
     assert "MPI_Cart_shift" in p
-    assert f'"grid": [{ranks}]' in p  # the distribution example, ranks interpolated
+    assert f'"grid": [{ranks}]' in p  # the layout example, ranks interpolated
     assert "no prebuilt" in p  # no `.so` delivery on this track
     assert "kernel_mpi(*tiles" in p  # the mpi4py delivery convention
     assert "STRONG scaling" in p  # config default mode
-    # the response envelope carries the distribution, not a library path
-    assert '"distribution":' in p
+    # the response envelope carries the requests (grid + layout), not a library path
+    assert '"requests":' in p
 
 
 def test_multi_prompt_drops_single_node_only_sections() -> None:
@@ -117,31 +124,33 @@ def test_python_distributed_prompt_builds_and_targets_python() -> None:
     # cannot emit for python -- it must be swallowed, not crash the multi-node prompt.
     p = build_prompt(Task(kernel="jacobi_2d", language="python", residency="distributed"))
     assert '"language": "python"' in p
-    assert '"distribution":' in p
+    assert '"requests":' in p
     assert "jacobi_2d_mpi" in p
     assert "kernel_mpi(*tiles" in p
 
 
-def test_documented_distribution_shape_resolves() -> None:
-    """The exact distribution object the prompt documents must be accepted by the resolver the
-    harness runs -- guards against prompt/envelope drift."""
-    binding = binding_from_spec(BenchSpec.load("jacobi_2d"))
-    block0, repl = {"grid_dim": 0, "scheme": "block"}, {"grid_dim": None}
-    dist = {"grid": [4], "arrays": {"A": {"axes": [block0, repl]}, "B": {"axes": [block0, repl]}}}
-    desc = Descriptor.from_submission(Submission(language="c", source="x", distribution=dist), binding, 4)
-    assert desc.grid.dims == (4,)
+def test_documented_layout_example_lowers_to_what_it_says() -> None:
+    """The exact JSON example the prompt documents lowers to the block / block-cyclic / cyclic splits its
+    bullets name -- guards against prompt/envelope drift."""
+    p = build_prompt(DIST)
+    section = p[p.index("### Data distribution") : p.index("### Delivery")]
+    body = section[section.index("```json") + len("```json") :]
+    plan = Requests.from_obj(json.loads(body[: body.index("```")])).plan({"A": 2, "B": 2, "C": 2})
+    axes = {name: entry["axes"] for name, entry in plan["arrays"].items()}
+    assert axes == {
+        "A": [{"grid_dim": 0, "scheme": "block", "block_size": 1}, {"grid_dim": None}],
+        "B": [{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 1024}, {"grid_dim": None}],
+        "C": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "cyclic", "block_size": 1}],
+    }
 
 
 def test_distribution_section_lists_every_layout_with_its_exact_json() -> None:
-    """The contract must name every layout ``mpi_descriptor`` honours, in the exact JSON the
-    agent has to return -- a layout the prompt omits is one the agent cannot use, and a form it
-    spells wrong is a submission refused for a reason the prompt caused."""
+    """Every op the layout lowers is spelled with its exact JSON, plus the grid rules."""
     p = build_prompt(DIST)
     for form in (
-        '{"grid_dim": d, "scheme": "block"}',
-        '{"grid_dim": d, "scheme": "block_cyclic", "block_size": B}',
-        '{"grid_dim": d, "scheme": "cyclic"}',
-        '{"grid_dim": null}',
+        '{"op": "distribute", "digit": k, "grid_dim": g}',
+        '{"op": "block", "dim": d, "factor": F}',
+        '{"op": "permute", "perm": [...]}',
     ):
         assert form in p
     assert "a multi-dimensional grid" in p.lower()
@@ -212,7 +221,7 @@ def test_allowlist_is_printed_and_absence_keeps_the_legacy_rule() -> None:
     legacy = template.render(ctx)
     assert "replicatable allowlist" not in legacy
     assert "GENUINELY DISTRIBUTED" not in legacy
-    assert "An array you omit from `arrays` is replicated on every rank." in legacy
+    assert "An array with an empty op list (or not listed) is held whole on every rank." in legacy
 
 
 def test_legacy_distributed_kernel_is_not_given_the_allowlist_rule() -> None:
@@ -329,10 +338,11 @@ def test_an_ml_kernel_states_its_default_layout_per_array() -> None:
     off the ML track keeps its free choice and is told nothing of the kind."""
     ml = ml_prompt()
     ranks = int(config.get("mpi.ranks", 4))
-    axes = '[{"grid_dim": null}, {"grid_dim": 0, "scheme": "block"}]'
-    layout = f'{{"grid": [{ranks}], "arrays": {{"x": {{"axes": {axes}}}, "out": {{"axes": {axes}}}}}}}'
+    spec = BenchSpec.load("dist_softmax")
+    layout = json.dumps(default_requests(spec.mpi, binding_from_spec(spec), ranks).to_json())
+    assert '"op": "distribute", "digit": 1' in layout  # both arrays split on their second dimension
     assert f"`{layout}`" in ml
-    assert "Return `distribution` = this default layout" in ml
+    assert "Return `requests` = this default layout" in ml
     assert "- `x` (batch_size, dim): split on `dim`, block" in ml
     assert "LOCAL extent: `dim`." in ml
     assert "Arriving GLOBAL: `batch_size`." in ml
@@ -345,7 +355,7 @@ def test_an_ml_kernel_names_its_replicatable_arrays_and_their_whole_copy() -> No
     then receives the whole array; anything else is a 400 that does not spend the submission."""
     ml = ml_prompt("dist_matmul_gelu_softmax")
     assert "Replicatable arrays (allowlist): `x`." in ml
-    assert '`{"replicated": true}`' in ml
+    assert "empty op list (`[]`) in `requests.layout`" in ml
     assert "receives the WHOLE array" in ml
     assert "refused with an HTTP 400 before the build" in ml
     assert "does not spend your one" in ml

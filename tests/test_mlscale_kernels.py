@@ -33,6 +33,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
     owned_indices,
 )
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.precision import Precision, accumulation_eps, tolerance_band, ungradeable
 from hpcagent_bench.spec import KERNELS, BenchSpec, load_yaml
 from hpcagent_bench.support import shard_torch
@@ -368,7 +369,9 @@ def test_the_harness_tile_is_the_generated_tile(stem: str, ranks: int) -> None:
     spec, module = spec_of(stem), torch_module(stem)
     binding = binding_from_spec(spec)
     submission = Submission(
-        language="c", source="reference_dist", distribution=distribution_for_kernel(spec.mpi, binding, ranks)
+        language="c",
+        source="reference_dist",
+        requests=Requests.from_plan(distribution_for_kernel(spec.mpi, binding, ranks)),
     )
     descriptor = Descriptor.from_submission(submission, binding, ranks)
     params = UNEVEN[stem]

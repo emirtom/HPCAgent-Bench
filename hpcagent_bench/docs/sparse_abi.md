@@ -4,8 +4,8 @@ How a manifest declares a sparse array, how a submission requests its layout, an
 receives. The native symbol and the per-format buffer table are in
 [abi_contract.md](abi_contract.md) (Sec. 3, 4, 7).
 
-A sparse array works like an MPI `distribution`: the manifest says which layouts it offers, the
-submission asks for one, a request the kernel cannot honour is refused before anything is built
+A sparse array works like any other `requests` entry ([requests_api.md](../../docs/requests_api.md)): the
+manifest says which layouts it offers, the submission asks for one, a request the kernel cannot honour is refused before anything is built
 (HTTP 400, the submission is not spent), and the judge converts the data into that layout outside
 the timed region.
 
@@ -46,10 +46,10 @@ init:
 - A sparse kernel cannot declare `mpi:` or `configurations:`; a manifest with the old `variants:`,
   `sparse_layouts:` or `distributions:` blocks is refused at load.
 
-## Request: `sparse_config`
+## Request: `requests.sparse`
 
 ```json
-{"language": "c", "source": "...", "sparse_config": {"A": "bsr:4"}}
+{"language": "c", "source": "...", "requests": {"sparse": {"A": "bsr:4"}}}
 ```
 
 - One entry per sparse array, `{array_name: format}`; an array left out gets its default. All sparse
@@ -57,7 +57,9 @@ init:
 - `bsr` names its block size, `"bsr:<size>"`, one of `sparse.bsr_block_sizes`; no other format takes
   one.
 - Refused with 400, before the build: an unknown array, a format the array does not offer, a block
-  size off the list, arrays in different formats, and a `sparse_config` on a dense kernel.
+  size off the list, arrays in different formats, and a `requests.sparse` on a dense kernel. A sparse
+  array takes no `requests.layout` ops, and a sparse kernel no `requests.grid`: distributing sparse
+  formats (one converter per format and split axis) is designed in requests_api.md, not implemented.
 
 ## Which inputs a layout grades on
 
@@ -97,10 +99,9 @@ only on the inputs that ran, so each per-input ratio is apples-to-apples and a p
 pick an easier mix: a `dia` submission cannot hold the uniform and diagonal inputs, so it fails
 on any kernel whose grade draws one. `Score.layout` records the layout of every grade.
 
-- `/profile` runs the default layout; a `sparse_config` there is refused.
-- Harbor: a sparse host task ships `sparse_config.json` (the request, starting at the defaults); its
-  instruction names every format's symbol and arguments, and `harbor grade --sparse-config` mirrors
-  `--distribution`.
+- `/profile` runs the default layout; a `requests.sparse` there is refused.
+- Harbor: a sparse host task's `requests.json` starts at `{"sparse": <the defaults>}`; its instruction
+  names every format's symbol and arguments, and `harbor grade --requests` reads it.
 
 ## What the kernel receives
 
@@ -111,8 +112,8 @@ symbol (`nnz`) to the number of entries actually stored (`materialize.expand_def
 layout is converted from that same canonical matrix (`materialize.apply_layout`), so every layout
 holds exactly the same entries. Buffers and scalars per format: abi_contract.md Sec. 3.
 
-- The conversion is never timed; `Score.layout_prep_ns` records its cost on the public input and
-  `Score.layout` the layout graded (`A:csr`, `A:bsr:4`).
+- The conversion is never part of the score; `Score.convert_in_ns` records its cost on the public
+  input and `Score.layout` the layout graded (`A:csr`, `A:bsr:4`).
 - A timed repeat keeps the sparsity pattern, nnz and buffer sizes (the very same index arrays) and
   redraws the values with the kernel's `init.revalue` (still symmetric and diagonally dominant for
   the solvers, seeded by the repeat's seed); the dense operands vary too. The conversion into the

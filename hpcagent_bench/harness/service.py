@@ -57,18 +57,21 @@ from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import hidden_seeds, metric, mpi_shard_driver, native_call, sandbox, torch_reference
-from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
+from hpcagent_bench.harness.envelope import LEGACY_FIELDS, PYTHON_LANG, Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_capacity_bytes
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     default_layout_refusal,
+    default_requests,
     distribution_for_kernel,
+    kernel_ndims,
     layout_flexible_allowlist,
     replicatable_allowlist,
     replication_refusal,
 )
 from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
+from hpcagent_bench.harness.requests_api import Location, Requests, precision_problem_dtypes, precision_refusal
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
@@ -143,12 +146,14 @@ __all__ = [
     "local_device_slots",
     "make_server",
     "ml_layout",
+    "precision_scope_refusal",
     "preload_lazy_imports",
     "python_residency_refusal",
     "rank_error",
     "record_result",
     "request_label",
     "request_tokens",
+    "requests_refusal",
     "scales",
     "serve",
     "service_prompt",
@@ -247,8 +252,8 @@ SCORE_ROUTE_REDACTED_FIELDS = frozenset(
         "floor_ns",
         "build_commands",
         "layout",
-        "layout_prep_ns",
-        "layout_request",
+        "convert_in_ns",
+        "convert_out_ns",
         "size_scale",
         "scale_axes",
     }
@@ -782,9 +787,17 @@ def _submission_from_body(
         if device_source_file
         else body.optional_text("device_source")
     )
-    catalog_names = body.argv("libraries")
+    moved = sorted(set(body.fields) & set(LEGACY_FIELDS))
+    if moved:
+        raise ValueError(
+            "these request fields moved under 'requests': "
+            + "; ".join(f"{name} -> {LEGACY_FIELDS[name]}" for name in moved)
+        )
+    # Submission.requests's shape is checked here (ValueError -> 400); requests_refusal checks it
+    # against the kernel.
+    requests = Requests.from_obj(body.raw("requests"))
     refusal = sandbox.catalog_refusal(
-        catalog_names, language, sandbox.compiled_omp_context(language, body.optional_text("compiler"))
+        requests.libraries, language, sandbox.compiled_omp_context(language, body.optional_text("compiler"))
     )
     if refusal:
         raise ValueError(refusal)
@@ -798,20 +811,74 @@ def _submission_from_body(
         device_source=device_source,
         library=str(sandbox.resolve_shared(library, episode_id)) if library else None,
         build=build_tokens,
-        libraries=catalog_names,
         workspace_bytes=body.optional_text("workspace_bytes"),
         compiler=body.optional_text("compiler"),
-        # The agent's MPI layout; without it a distributed task would silently grade single-node.
-        # Submission.__post_init__ validates the shape (ValueError -> 400).
-        distribution=body.block("distribution"),
-        # The agent's sparse layout request; Submission.__post_init__ checks its shape (-> 400),
-        # layout_refusal checks it against the kernel.
-        sparse_config=body.block("sparse_config"),
+        requests=requests,
     )
 
 
+def requests_refusal(submission: Submission, task: Task, datatype: str) -> str | None:
+    """Why ``submission.requests`` cannot be honoured for ``task`` at ``datatype``, or ``None``.
+
+    A precision for an array that is not floating and dense, or equal to its problem precision; a
+    sparse kernel with a grid (distributed sparse formats are not implemented yet); a layout on a
+    sparse array; layout ops without a grid; and an op sequence that does not lower at ``mpi.ranks``
+    are the request's fault -- 400, no build, the submission is not spent."""
+    spec = BenchSpec.load(task.kernel)
+    binding = binding_from_spec(spec)
+    requests = submission.requests
+    refused = precision_refusal(requests.precision, precision_problem_dtypes(spec, binding, datatype))
+    if refused is None and requests.precision:
+        refused = precision_scope_refusal(submission, task, spec)
+    if refused is not None:
+        return refused
+    if spec.sparse_layouts and requests.distributed:
+        return (
+            f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "
+            "no requests.grid; nothing was graded"
+        )
+    sparse = sorted({group.logical for group in binding.packed} & set(requests.layout))
+    if sparse:
+        return f"requests.layout applies to dense arrays only; {sparse} are sparse (request their format in requests.sparse)"
+    if not requests.distributed:
+        if any(requests.layout.values()) or requests.location or requests.zip:
+            return (
+                "requests.layout / location / zip without requests.grid: single-node layout changes are not "
+                "implemented yet (see docs/requests_api.md)"
+            )
+        return None
+    try:
+        requests.plan(kernel_ndims(spec.mpi, binding), grid=requests.grid)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec) -> str | None:
+    """Why ``requests.precision`` is not offered for this delivery, or None: the casts run around a
+    C-ABI call (single-node, host or device) and around the MPI driver's call on host tiles; a python
+    delivery, the ML track's rank-generated shards and device-resident MPI tiles are not covered yet."""
+    if submission.is_python:
+        return "requests.precision is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
+    if task.residency != "distributed":
+        return None
+    if torch_reference.has_torch_reference(spec):
+        return "requests.precision is not implemented on the ML track yet (its ranks generate their own inputs)"
+    default = config.get_str("mpi.residency", "host")
+    device = sorted(
+        name
+        for name in submission.requests.precision
+        if submission.requests.location.get(name, Location(default)) is Location.DEVICE
+    )
+    if device:
+        return (
+            f"requests.precision on device-resident MPI tiles ({device}) is not implemented yet; keep them on the host"
+        )
+    return None
+
+
 def layout_refusal(submission: Submission, task: Task) -> str | None:
-    """Why ``submission``'s ``sparse_config`` request cannot be graded for ``task``, or ``None``.
+    """Why ``submission``'s ``requests.sparse`` cannot be graded for ``task``, or ``None``.
 
     The sparse sibling of :func:`distribution_refusal`: a format the array does not offer, an
     unknown array, a bsr block edge outside ``sparse.bsr_block_sizes``, or a request on a dense
@@ -819,7 +886,7 @@ def layout_refusal(submission: Submission, task: Task) -> str | None:
     (dia / ell) whose storage would blow past its limit on the graded input is refused the same
     way by the grade itself, before the build (:class:`~hpcagent_bench.support.helpers.sparse.abi.LayoutRefused`)."""
     try:
-        resolve_layout(BenchSpec.load(task.kernel), submission.sparse_config)
+        resolve_layout(BenchSpec.load(task.kernel), submission.requests.sparse)
     except LayoutRefused as exc:
         return str(exc)
     return None
@@ -861,18 +928,10 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
        (:func:`mpi_descriptor.default_layout_refusal`).
     3. ML track: the layout must resolve at every rank count the grade launches (:func:`ml_layout`).
 
-    0. A sparse kernel takes no ``distribution`` at all, whatever the residency: its format is fixed
-       by the task and distributed sparse layouts are unsupported (:func:`spec.parse_mpi`).
-
     A violation is the request's fault: 400, no build, no recorded attempt. ``None`` for
     non-distributed tasks and for legacy MPI kernels whose distribution cannot be resolved here
     (those stay scored failures)."""
     spec = BenchSpec.load(task.kernel)
-    if spec.sparse_layouts and submission.distribution is not None:
-        return (
-            f"{task.kernel} is a sparse kernel: its format is fixed by the task and it takes no "
-            "'distribution' (distributed sparse layouts are unsupported); nothing was graded"
-        )
     if task.residency != "distributed":
         return None
     ml_track = torch_reference.has_torch_reference(spec)
@@ -881,7 +940,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
     lead = ml_layout(submission, spec, binding, ranks) if ml_track else None
     if isinstance(lead, str):
         return lead
-    if submission.distribution is None:
+    if not submission.requests.distributed:
         return None
     allowed = replicatable_allowlist(spec)
     if allowed is None:
@@ -891,14 +950,16 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         preset = config.get_str("mpi.leaderboard_preset", "XL")
     try:
         # Only the layout decides which tiles a rank holds; the ML track checks it at mpi.ranks.
-        descriptor = lead or Descriptor.from_submission(submission, binding, ranks)
+        descriptor = lead or Descriptor.from_submission(
+            submission, binding, ranks, ndims=kernel_ndims(spec.mpi, binding)
+        )
         shapes = mpi_shard_driver.global_shapes(spec, spec.parameters[preset], [ptr.name for ptr in binding.pointers])
     except (KeyError, ValueError, TypeError):  # TypeError: a range-valued preset (fuzzed) has no shapes
         return None
     refused = replication_refusal(descriptor, shapes, allowed)
     if refused is not None or not torch_reference.has_torch_reference(spec):
         return refused
-    default = Descriptor.from_distribution(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
+    default = Descriptor.from_plan(distribution_for_kernel(spec.mpi, binding, ranks), binding, ranks)
     try:
         graded_ranks = torch_reference.graded_rank_counts(spec)
     except ValueError:
@@ -909,14 +970,14 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
 
 
 def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: int) -> Descriptor | str | None:
-    """An ML-track ``distribution`` re-gridded for ``ranks``, or why it cannot be graded at some rank
+    """An ML-track ``requests`` layout re-gridded for ``ranks``, or why it cannot be graded at some rank
     count the grade launches (:func:`ml_descriptors`). ``None`` when the kernel's rank-count config is
     itself broken (a scored failure)."""
-    default = json.dumps(distribution_for_kernel(spec.mpi, binding, ranks), sort_keys=True)
-    if submission.distribution is None:
+    default = json.dumps(default_requests(spec.mpi, binding, ranks).to_json(), sort_keys=True)
+    if not submission.requests.distributed:
         return (
-            "a distributed grade needs 'distribution' (the MPI data layout) in the request; nothing "
-            f"was graded. This kernel's default layout is {default}"
+            "a distributed grade needs requests.grid + requests.layout (the MPI data layout); nothing "
+            f"was graded. This kernel's default requests are {default}"
         )
     try:
         counts = sorted({1, ranks, *torch_reference.graded_rank_counts(spec)})
@@ -926,8 +987,8 @@ def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: 
     for p, resolved in descriptors.items():
         if isinstance(resolved, str):
             return (
-                f"distribution cannot be graded at P={p}: {resolved}; nothing was graded. This "
-                f"kernel's default layout is {default}"
+                f"requests.layout cannot be graded at P={p}: {resolved}; nothing was graded. This "
+                f"kernel's default requests are {default}"
             )
     return descriptors[ranks]
 
@@ -1179,7 +1240,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         try:
             source_mode = "any" if body.raw("library") else "restricted"
             task = Task(kernel, source_mode, body.text("language", default_request_language()))
-            distribution = body.raw("distribution")
+            requests = body.raw("requests")
             recording.record_call(
                 None,
                 task,
@@ -1191,10 +1252,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 datatype=self.cfg.datatype,
                 tokens=request_tokens(body),
                 detail=detail,
-                distribution=json.dumps(distribution) if isinstance(distribution, dict) else None,
+                requests=json.dumps(requests, sort_keys=True) if isinstance(requests, dict) else None,
                 workspace_bytes=body.optional_text("workspace_bytes"),
                 build=body.argv("build"),
-                libraries=body.argv("libraries"),
             )
         except Exception:  # noqa: BLE001 -- bookkeeping must never break an answer
             print(f"judge: recording a refused {kernel} failed\n{traceback.format_exc()}", file=sys.stderr, flush=True)
@@ -1220,10 +1280,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 preset=cfg.preset,
                 datatype=cfg.datatype,
                 tokens=request_tokens(body),
-                distribution=None if submission.distribution is None else json.dumps(submission.distribution),
+                requests=submission.requests_json(),
                 workspace_bytes=submission.workspace_bytes,
                 build=submission.build,
-                libraries=submission.libraries,
                 submission=submission,
             )
         except Exception:  # noqa: BLE001 -- bookkeeping must never break an answer
@@ -1499,15 +1558,19 @@ class JudgeHandler(BaseHTTPRequestHandler):
         except ValueError as exc:  # a malformed mpi.replicatable list is the MANIFEST's fault
             return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
         if refused is None:
+            refused = requests_refusal(submission, task, self.cfg.datatype)
+        if refused is None:
             refused = layout_refusal(submission, task)
         if refused is None:
             refused = workspace_refusal(submission, task)
         if (
             refused is None
             and route == "profile"
-            and not is_default(BenchSpec.load(kernel), resolve_layout(BenchSpec.load(kernel), submission.sparse_config))
+            and not is_default(
+                BenchSpec.load(kernel), resolve_layout(BenchSpec.load(kernel), submission.requests.sparse)
+            )
         ):
-            refused = "profiling runs the default sparse layout; drop 'sparse_config' from a /profile request"
+            refused = "profiling runs the default sparse layout; drop requests.sparse from a /profile request"
         if refused is not None:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": refused})
         if route == "profile":
