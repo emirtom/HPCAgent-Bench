@@ -2,10 +2,11 @@
 
 **Status.** Implemented: `libraries`, `precision`, `sparse`, and MPI distribution as layout op lists
 (`grid` + `layout` with `block` / `unblock` / `permute` / `distribute`, and `location`), with the
-results schema at version 7. Designed, not implemented: the `pad`, `shuffle`, `zip` and `unzip` ops,
-single-node layout changes, and distributing sparse formats (§4.6). The code lives in
-`hpcagent_bench/harness/requests_api.py` (the block and its lowering) and
-`hpcagent_bench/harness/precision_casts.py` (the casts).
+results schema at version 7. Parsed and refused as not implemented yet: `pad` / `unpad`, `shuffle`,
+`linear_shuffle`, `zip` / `unzip`, single-node layout changes and distributing sparse formats (§4.6).
+The layout ops, their JSON, inverses and lowering live in relayout (`relayout.ops`,
+github.com/ThrudPrimrose/relayout, a pinned dependency); hb keeps the block
+(`hpcagent_bench/harness/requests_api.py`) and the casts (`hpcagent_bench/harness/precision_casts.py`).
 
 A submission asks the judge to change how its data reaches the kernel through one `requests`
 object in the envelope. Four kinds of request exist:
@@ -98,20 +99,24 @@ section tables the C type of every precision.
 
 `requests.libraries` replaces the top-level `libraries` field, which is deleted. The semantics
 are unchanged: each name must be one `languages.library_offered` accepts for the submission's
-language, else the request is refused (`sandbox.catalog_refusal`). Places that change:
-`Submission`, `service.submission_from_body`, the agent tool schema
-(`agent/hpcagent_agent/tools/http_json.py`), `promote_unsubmitted.py`, recording, `grade_under`,
-the prompt sections (`resources.j2`, `mpi.j2`) and `agent/build-*.md`.
+language, else the request is refused (`sandbox.catalog_refusal`).
 
 ## 3. Layout primitives
 
-The five primitives of the SC'26 layout paper (pad, permute, block, shuffle, zip), each with its
-inverse. Each primitive is injective, so any composition keeps physical addresses distinct. The
-algebra is the one in dace extended `dace/libraries/layout/algebra.py`; the implementation will
-live in the `relayouter` repository, which both DaCe and hb depend on.
+The five primitives of the SC'26 layout paper (pad, permute, block, shuffle, zip). Each is
+injective, so any composition keeps physical addresses distinct. The algebra is the one in dace
+extended `dace/libraries/layout/algebra.py`; the request schema and its lowering are relayout's
+`relayout.ops`, which depends on dace and which hb depends on.
+
+**One registered class per op.** A layout op is a frozen dataclass registered under its JSON name
+(`@layout_op`); it declares its fields, its inverse and its effect on the digit tuple. A field's type
+names its JSON codec, so parsing, writing back and the "not implemented yet" refusal all come from the
+registry, and adding an op is one class. `zip` and `unzip` change how many arrays there are, so they
+are group ops of their own registry (`@group_op`), listed under their own request keys, with no
+inverse link between them.
 
 **Dense arrays only.** A `layout` sequence on a sparse array is refused; sparse arrays change
-layout through their format (`sparse_config`) and are distributed per format (§4.6).
+layout through their format (`requests.sparse`) and are distributed per format (§4.6).
 
 An array starts as its row-major **digit tuple**, one digit `(dim, stride, extent)` per
 dimension. A digit's value is `(i[dim] // stride) % extent`. Ops rewrite the tuple, and the final
@@ -124,20 +129,37 @@ dimensions and the accesses is a codegen step after the transformations, never a
 
 | Op | JSON | Effect on the digit tuple | Inverse |
 | --- | --- | --- | --- |
-| pad | `{"op": "pad", "dim": d, "amount": a}` | grows the coarsest digit of `d` by `a` dead cells | `unpad` (pad by `-a`) |
+| pad | `{"op": "pad", "dim": d, "amount": a}` | grows the coarsest digit of `d` by `a` dead cells | `unpad` |
+| unpad | `{"op": "unpad", "dim": d, "amount": a}` | drops `a` dead cells from the coarsest digit of `d` | `pad` |
 | permute | `{"op": "permute", "perm": [...]}` | `new[k] = old[perm[k]]`, over digit positions | permute by `perm⁻¹` |
-| block | `{"op": "block", "dim": d, "factor": b}` | splits the finest digit of `d` into outer `(d, s·b, ⌈e/b⌉)` in place and inner `(d, s, b)` appended | `unblock` (same `d`, `b`) |
-| shuffle | `{"op": "shuffle", "dim": d, "f": "<expr>", "f_inv": "<expr>"}` | renumbers index `i[d]` by the bijection `f` | the same op with `f` and `f_inv` swapped |
-| zip | top-level `"zip": [{"name": n, "fields": [...]}]` | fuses arrays of the same logical shape into one array of C structs | `unzip` |
-| unzip | `{"op": "unzip"}` on a complex array | splits complex AoS into `re` and `im` fields, as separate arrays | `zip` back |
+| block | `{"op": "block", "dim": d, "factor": b}` | splits the finest digit of `d` into outer `(d, s·b, ⌈e/b⌉)` in place and inner `(d, s, b)` appended | `unblock` |
+| unblock | `{"op": "unblock", "dim": d, "factor": b}` | merges `d`'s inner digit of extent `b` back into its outer partner | `block` |
+| shuffle | `{"op": "shuffle", "dims": [d, ...], "f": [...], "f_inv": [...]}` | renumbers the indices of `dims` by the bijection `f`, one expression per dimension over `i0, i1, ...` | the same op with `f` and `f_inv` swapped |
+| linear_shuffle | `{"op": "linear_shuffle", "dims": [d, ...], "bits": [b, ...], "matrix": [[0/1, ...], ...]}` | renumbers the indices of `dims` (extents `2^b`) by an invertible linear map over GF(2) on their bits | the inverse matrix, computed by the judge |
+| distribute | `{"op": "distribute", "digit": k, "grid_dim": g}` | §4 | undone by the gather |
+
+| Group op | JSON (top level of `requests`) | Effect |
+| --- | --- | --- |
+| zip | `"zip": [{"name": n, "fields": [a, b, ...]}]` | fuses arrays of one logical shape into one array `n` of C structs, one member per field in order |
+| unzip | `"unzip": [{"name": n, "fields": [a, b, ...]}]` | splits the struct array `n` into one array per member; a complex array is the struct `(re, im)` |
+
+Unzips run before zips. Arrays an unzip creates are ordinary arrays: they take a `precision`
+(so `complex128` can become two fp32 arrays) and a `layout`; a new name that clashes with a kernel
+argument is refused. `zip(re, im)` gives back the complex interleave, and `zip(im, re)` swaps it.
 
 The agent writes only the forward sequence. The judge derives the inverse sequence (reversed,
-each op inverted) for the way back. Shuffle is the one primitive whose inverse the agent must
-supply. `f` and `f_inv` are integer expressions over the index variable `i`, the size symbols
-and the grid symbols `P0, P1, ...`, using `+ - * // % min max`. They are parsed by the same
-restricted evaluator as fuzz expressions (`fuzz.safe_eval`), never `eval`. Before the build the
-judge checks `f_inv(f(i)) == i` for every `i` in the padded extent. That check is O(N) and
-untimed, and a failure is a request fault.
+each op inverted) for the way back.
+
+**Shuffle.** The paper's shuffle maps the whole index vector, so each output index may read every
+shuffled index: an XOR swizzle `col' = col ^ (row % 8)` is `"dims": [0, 1], "f": ["i0", "i1 ^ (i0 % 8)"]`.
+`f` and `f_inv` are integer expressions over `i0, i1, ...`, the size symbols and `P0, P1, ...`, using
+`+ - * // % ^ & | << >> min max` with Python's floor semantics; relayout parses and evaluates them
+itself, never with `eval`. The agent supplies `f_inv`, and before the build the judge checks
+`f_inv(f(i)) == i` over the padded extent at every measured rank count (O(N), untimed; a failure is a
+request fault). `linear_shuffle` is the form of Linear Layouts (Zhou et al., arXiv:2505.23819): the
+input bit vector is each dimension's bits, least significant first, in `dims` order, and row `r` of
+the matrix is output bit `r` as the XOR of the input bits it marks. Its inverse is the inverse
+matrix, and a singular matrix is refused when the request is parsed, so no O(N) check is needed.
 
 `factor`, `amount` and every extent may be expressions over size symbols and grid symbols, so one
 request stays valid at every rank count a scaling run measures. The judge checks every measured
@@ -151,7 +173,8 @@ where zero is not neutral (max, division).
 ### 3.1 Zip and the C ABI
 
 Zip emits a plain C struct with data members only: no methods and no classes. The kernel gets one
-pointer to it in place of the field pointers.
+pointer to it in place of the field pointers. An unzip does the reverse: the kernel gets one pointer
+per member in place of the struct array's.
 
 ```c
 typedef struct { float u; double v; } hb_zip_uv;   /* field order = request order */
@@ -164,28 +187,28 @@ void kernel(const hb_zip_uv *restrict uv, ..., void *workspace, int64_t workspac
 - **Fortran** sees `type, bind(C) :: hb_zip_uv; real(c_float) :: u; real(c_double) :: v; end type`.
 - **Signature position:** the struct pointer takes the position of its first field, and the other
   fields' parameters are dropped.
-- **Zip group rules:** the arrays of a group share one layout sequence, applied after the zip, and
-  one distribution.
+- **Zip group rules:** the fields take no layout of their own; the zipped array's `layout` (keyed by
+  its `name`) is the group's, and its distribution.
 - **Roles:** an input field is cast and relaid in. An output field is cast and relaid out.
 
 ## 4. Distribution as a layout op
 
-**Decision under review:** MPI distribution becomes one more op in the same sequence, not a
-separate request.
+MPI distribution is one more op in the same sequence, not a separate request.
 
 | Op | JSON | Effect |
 | --- | --- | --- |
-| distribute | `{"op": "distribute", "digit": k, "grid_dim": g}` | digit `k` (extent must equal `P_g`) becomes rank coordinate `g` and leaves the local digit tuple |
+| distribute | `{"op": "distribute", "digit": k, "grid_dim": g}` | digit `k` (extent `P_g`) becomes rank coordinate `g` and leaves the local digit tuple; a whole undivided dimension is split into `P_g` load-balanced bands instead |
 
 - Ops **before** a `distribute` shape ownership: they decide which global elements each rank
   gets.
 - Ops **after** a `distribute` shape each rank's local storage.
 - **Replication:** a grid dimension that no `distribute` of an array names replicates that array
   across it. An array with no `distribute` is fully replicated, as `{"replicated": true}` is today.
-- **Scatter and gather:** the judge evaluates the composed map once per element. Rank `r` receives
-  the elements whose distributed digits equal `r`'s grid coordinates, already in its local layout
-  and its requested precision. One fused pack kernel runs per array per rank, and the gather uses
-  the inverse.
+- **Scatter and gather (design target):** the judge evaluates the composed map once per element.
+  Rank `r` receives the elements whose distributed digits equal `r`'s grid coordinates, already in
+  its local layout and its requested precision. One fused pack kernel runs per array per rank, and
+  the gather uses the inverse. Today the lowered distribution is scattered by the descriptor and the
+  precision casts run on each rank's tiles after it (§1).
 
 ### 4.1 Today's schemes, lowered
 
@@ -193,17 +216,17 @@ For axis `d` of extent `N` on grid dimension `g` of size `P`:
 
 | Scheme (today's `distribution`) | Op sequence |
 | --- | --- |
-| block, ScaLAPACK style (`⌈N/P⌉` per rank, last rank short) | `block(d, ⌈N/P⌉)` then `distribute(outer, g)` |
+| block, ScaLAPACK style (`⌈N/P⌉` per rank, last rank short; not lowered yet) | `block(d, ⌈N/P⌉)` then `distribute(outer, g)` |
 | block, load-balanced (hb's `block`, `_block_bounds`: parts differ by one) | `distribute(d's whole digit, g)`: a whole undivided dimension is split into load-balanced bands. (In the pure algebra it is `pad`, a `shuffle` that spreads the dead cells, `block(d, ⌈N/P⌉)`, `distribute(outer, g)`; the shorthand lowers to the same tiles.) |
 | cyclic | `block(d, P)` then `distribute(inner, g)` |
 | block-cyclic `b` | `block(d, b·P)`, then `block(d, b)` (splits the finest `(d, 1, b·P)` into `(d, b, P)` and `(d, 1, b)`), then `distribute((d, b, P), g)`. The local tuple `[(d, bP, ⌈N/bP⌉), (d, 1, b)]` is exactly ScaLAPACK's local storage. |
 | replicated axis | no `distribute` on `d` |
 
 The old `distribution` JSON is not accepted any more. A kernel's default distribution is shown to
-the agent as these op sequences (`requests_api.ops_for_axes`), and a schema-6 grade's recorded
+the agent as these op sequences (`relayout.ops.ops_for_axes`), and a schema-6 grade's recorded
 distribution is folded into them (`results_db.fold_legacy_grade`). The refusals keep their meaning
 on the lowered ops:
-- `validate_axes`: one array axis per split grid dimension;
+- one array dimension per distributed grid dimension (`DigitTuple.distribute`);
 - the equal-edge hypercube rule for cyclic;
 - `layout_flexible_allowlist` and `replicatable_allowlist`.
 
@@ -218,10 +241,7 @@ dead i in [N, P*m) -> slot (rem + i - N)*m + base
 
 ### 4.2 ScaLAPACK coverage
 
-Question under review: can we support `distribute` for every distribution ScaLAPACK supports,
-given that we accept arbitrary functions?
-
-**Yes for dense descriptors (DTYPE=1).** For one dimension with `MB` (or `NB`), source process
+`distribute` covers every distribution ScaLAPACK supports for dense descriptors (DTYPE=1). For one dimension with `MB` (or `NB`), source process
 `RSRC` (or `CSRC`) and leading dimension `LLD`:
 
 1. `block(d, MB·P)` then `block(d, MB)`: block-cyclic as above.
@@ -241,8 +261,8 @@ given that we accept arbitrary functions?
    A Fortran kernel needs none: its reversed-extent declaration of the row-major tile is already
    column-major, over the transposed matrix (so it calls ScaLAPACK with the transposed operation).
 5. `LLD > LOCr` is `pad` on the local row digit after the distribute.
-6. BLACS row-major or column-major process ordering is a property of the grid, not of an array.
-   It is a `grid_order` field of the request, with row-major as today's `Grid.coords_of`.
+6. BLACS row-major or column-major process ordering is a property of the grid, not of an array:
+   today's grid is row-major (`Grid.coords_of`); a `grid_order` field is an open item (§6).
 
 **Completeness beyond ScaLAPACK.** Take any partition of `[N]` into `P` parts whose largest part
 has `m` elements. It is `pad(d, P·m − N)`, then `shuffle(d, σ)`, then `block(d, m)`, then
@@ -264,11 +284,9 @@ expression with its inverse is expressible. The cost is O(N) σ evaluations in t
 3. Each grid dimension is distributed at most once per array.
 4. Every shuffle passes the exhaustive inverse check.
 5. All extents are positive at every measured `P`.
-6. Zip groups share shape (after padding to the maximum, as in the paper), sequence and
-   distribution.
+6. Zip fields share one shape (after padding to the maximum, as in the paper).
 7. `layout` ops apply to dense arrays only; a sparse array is distributed through §4.6.
-8. `unzip` applies to complex arrays only. A zip immediately undone is dropped by
-   `simplify_ops`, not refused.
+8. `unzip` applies to struct (today: complex) arrays only.
 9. MPI collectives inside the kernel are the agent's: the judge relays only scatter and gather.
    (DaCe's `MpiPackUnpack` refuses shuffled halo buffers, but that limits generated halo
    exchanges, not the judge's scatter.)
@@ -285,13 +303,13 @@ cast goes:
 
 ### 4.5 What lowers today
 
-`block`, `unblock`, `permute` and `distribute`, where every distributed digit is a whole undivided
+`block`, `unblock`, `permute` and `distribute` (the ops whose class defines `apply`), where every distributed digit is a whole undivided
 dimension (load-balanced block) or a digit of extent `P_g` sitting between a coarse digit of stride
 `s·P_g` and, for `s > 1`, a fine digit `(d, 1, s)` (cyclic, block-cyclic of width `s`), and the
 rank-local digits end row-major (otherwise the refusal names the `permute` to append). That is
-every distribution hb graded before plus ScaLAPACK's without source offsets. `pad`, `shuffle`, `zip`,
-`unzip`, a local relayout and arbitrary shaping sequences are refused as not implemented yet; they
-follow once relayouter generates the pack kernels.
+every distribution hb graded before plus ScaLAPACK's without source offsets. `pad`, `unpad`,
+`shuffle`, `linear_shuffle`, `zip`, `unzip`, a local relayout and arbitrary shaping sequences are
+refused as not implemented yet; they follow once relayout generates the pack kernels.
 
 ### 4.6 Sparse arrays: distribution only, one converter per format
 
@@ -309,8 +327,8 @@ each rank's local array in the requested format.
 | dia | 1 (columns, scipy's `data[k, j]` convention) | the owned columns of every stored diagonal; the offsets are global and the same on every rank |
 
 - **Owner function:** any of today's 1-D schemes on the split axis (block, load-balanced block,
-  cyclic, block-cyclic). The request is the `distribution` entry it is today, with `grid_dim` set
-  on the split axis only.
+  cyclic, block-cyclic), requested as the matrix's `requests.layout` op list with its one
+  `distribute` on the split axis.
 - **The other axis is never split**, so indices along it stay global. A 2-D split of a sparse
   array, or a split on the wrong axis for the format, is refused. A replicated sparse array is
   allowed, with a whole copy on every rank.
@@ -337,8 +355,9 @@ Agents then check a sequence before paying for a build.
 The judge renders the starter stub in the requested layout. A Python-AST pass over the numpy
 reference rewrites each subscript `A[i, j]` to the laid-out index (the digit expressions and
 `shuffle_*` calls). This is the hb counterpart of the SDFG subscript rewrite in
-`dace/transformation/layout/subscript_rewrite.py`, and a starter is all it produces. Grading
-never runs rewritten code: the judge moves data, and the reference runs on canonical arrays.
+`dace/transformation/layout/subscript_rewrite.py` (which rewrites SDFG subscripts, not Python), and
+a starter is all it produces. It belongs in relayout beside the ops. Grading never runs rewritten
+code: the judge moves data, and the reference runs on canonical arrays.
 
 ## 5. Database schema (version 7)
 
@@ -374,3 +393,10 @@ v7 columns, fold every grade, drop the folded columns). New files are created at
   request (the converter would cast it).
 - **Grid ordering:** whether `grid_order` (BLACS row-major or column-major) is needed before any
   kernel asks for it.
+- **One algebra:** `relayout.ops` simulates its own digit tuple over concrete grids; moving it onto
+  dace's symbolic `LayoutMap` (`dace/libraries/layout/algebra.py`) gives one algebra and the symbolic
+  extents `pad` and dead cells need.
+- **AoSoA:** fields interleaved per block (`u0..u63, v0..v63, u64..`), the middle ground between a
+  struct (zip) and separate arrays, as an option of `zip`.
+- **Compact op syntax:** `"block(0, 32*P0); distribute(1, 0)"` beside the JSON objects, parsed into the
+  same registered ops (fewer agent tokens; JSON stays the stored form).
