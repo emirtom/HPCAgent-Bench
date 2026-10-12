@@ -392,7 +392,10 @@ PY
         fi
         # SGLang serves the same OpenAI API, so judge and agent need no change -- only the
         # server command differs. The image's PATH omits its venv, so name its python3.
+        # SGLANG_PYTORCH_HIP_ALLOC_CONF reaches the server alone: every step inherits the layer env, and
+        # an allocator setting in the judge would move graded torch timings.
         command=(
+            env ${SGLANG_PYTORCH_HIP_ALLOC_CONF:+"PYTORCH_HIP_ALLOC_CONF=${SGLANG_PYTORCH_HIP_ALLOC_CONF}"}
             "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m sglang.launch_server
             --model-path "${model_path}"
             --served-model-name "${VLLM_SERVED_MODEL:-hpcagent-bench-vllm}"

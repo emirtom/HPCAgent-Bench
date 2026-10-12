@@ -22,7 +22,7 @@ bakes in what GLM-5.3 needs (`torch.Tensor.format_ue8m0` kept false, and
 --trust-remote-code --watchdog-timeout 1800
 --kv-cache-dtype fp8_e4m3 --page-size 64 --context-length 262144
 --mem-fraction-static 0.57 --max-total-tokens 1800000
---chunked-prefill-size 4096 --max-running-requests 48 --cuda-graph-max-bs-decode 64
+--chunked-prefill-size 4096 --max-running-requests 24 --cuda-graph-max-bs-decode 24
 --enable-metrics --pre-warm-nccl
 --reasoning-parser glm45 --tool-call-parser glm47
 --dsa-prefill-backend tilelang --dsa-decode-backend tilelang --enable-cache-report
@@ -30,7 +30,14 @@ bakes in what GLM-5.3 needs (`torch.Tensor.format_ue8m0` kept false, and
 
 Environment: `SGLANG_ATTENTION_BACKEND=` (assigned empty), `SGLANG_USE_AITER=1`,
 `SGLANG_ROCM_FUSED_DECODE_MLA=0`, `SGLANG_SET_CPU_AFFINITY=0`, `NCCL_NET_GDR_LEVEL=0`,
-`AITER_LOG_TUNED_CONFIG=1`.
+`AITER_LOG_TUNED_CONFIG=1`, and `PYTORCH_HIP_ALLOC_CONF=expandable_segments:True` on the server alone
+(`SGLANG_PYTORCH_HIP_ALLOC_CONF`; the judge must not inherit an allocator setting).
+
+Twenty agents are live at once (`AGENTS_PER_NODE: 20`). `--max-running-requests 24` and
+`--cuda-graph-max-bs-decode 24` size the request slots and decode graphs for them plus slack, not for
+48/64 nobody reaches. Twelve agents peaked at 0.92 M pool tokens, so twenty should reach about 1.5 M of
+the 1.8 M pool; a full pool queues requests, it does not crash. The first 20-agent run is the
+measurement: the heaviest stage must stay under about 480 of 513 GB, else serve 16.
 
 The fraction caps weights plus KV, so `pool(f) = 39.0M * (f - 0.4838)` tokens:
 
