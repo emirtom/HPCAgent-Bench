@@ -26,7 +26,7 @@ EDF `hpcagent-bench-sglang-mi300-latest`. Port 8000 on rank 0 only, served name
 ```
 
 Environment: `SGLANG_USE_AITER=1`, `SGLANG_ROCM_FUSED_DECODE_MLA=0`, `SGLANG_SET_CPU_AFFINITY=0`,
-`NCCL_NET_GDR_LEVEL=0`, `AITER_USE_FLYDSL_MOE_SORTING=1`, `AITER_LOG_TUNED_CONFIG=1`, and
+`NCCL_NET_GDR_LEVEL=LOC`, `AITER_USE_FLYDSL_MOE_SORTING=1`, `AITER_LOG_TUNED_CONFIG=1`, and
 `PYTORCH_HIP_ALLOC_CONF=expandable_segments:True` on the server alone (`SGLANG_PYTORCH_HIP_ALLOC_CONF`).
 
 | Quantity at `pp=4` | Value |
@@ -47,7 +47,7 @@ conversations, since the fraction has no headroom left.
   takes memory after KV sizing; without the cap the failure looks like a fraction problem),
   `--max-running-requests` the same, `--page-size 64` (vendor `gfx942` recipe) and the
   fraction at or below 0.55.
-- Set `NCCL_NET_GDR_LEVEL=0`, keep PyNCCL on (about 20x slower decode without it), and confirm
+- Set `NCCL_NET_GDR_LEVEL=LOC`, keep PyNCCL on (about 20x slower decode without it), and confirm
   `grep -a "Using network" server-0.log` says `AWS Libfabric` ([`knobs.md`](knobs.md#multi-node-fabric)).
 - Gate a `--kv-cache-dtype` change on long context: fp8 checkpoints ship no calibrated KV scales, and
   a broken attention path still answers short prompts (`containers/inference/accuracy-gate.py`, about

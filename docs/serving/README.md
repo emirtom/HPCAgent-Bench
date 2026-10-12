@@ -64,7 +64,10 @@ single-node server, see [`experiments/README.md`](../../experiments/README.md#co
 An EDF is a TOML file in `~/.edf` naming the image, bind mounts, environment and CE hooks. The CE does
 not reliably keep the image's own `ENV`, so the EDFs re-declare `PATH`, `LD_LIBRARY_PATH` and cache
 dirs. The fabric comes from three pinned hooks (`netstack`, `cxi`, `aws_ofi_nccl`); without the RCCL
-plugin, multi-node RCCL silently falls back to TCP.
+plugin, multi-node RCCL silently falls back to TCP. The `netstack` hook also writes CSCS's NCCL and libfabric
+defaults into the container after the step environment (`NCCL_NET_GDR_LEVEL=PHB`, `NCCL_MIN_NCHANNELS=112`,
+`FI_CXI_RDZV_*`, ...), so a value we need different is set on the server command in `run_cluster.sh`, not in a
+layer alone ([known issue 5](known-issues.md#5-8-fabric-and-memory)).
 
 | EDF | Engine | Models | Rendered by `install_edfs.sh` |
 |---|---|---|---|
@@ -158,7 +161,7 @@ thrashing ([`knobs.md`](knobs.md#the-kv-pool-threshold)). For vLLM, grep
 | API never answers, log ends mid-JIT | CPU trap | `--cpus-per-task` |
 | tool calls arrive as prose, or a 400 logged as success | only one parser named | pass `--reasoning-parser` **and** `--tool-call-parser` |
 | RCCL watchdog abort after ~600 s | peer blocked: CPU trap or fabric fallback | check CPUs, then `Using network` |
-| wrong numbers across nodes, no error | GPU-direct RDMA on this fabric | `NCCL_NET_GDR_LEVEL=0` |
+| wrong numbers across nodes, no error; or `regattr. RC: -22` at the first cross-node send | GPU-direct RDMA on this fabric | `NCCL_NET_GDR_LEVEL=LOC` on the server command ([known issue 5](known-issues.md#5-8-fabric-and-memory)) |
 | multi-node throughput several times low | RCCL on TCP | `grep -a "Using network" server-0.log` must say `AWS Libfabric` |
 
 ## 6. How configuration becomes flags
