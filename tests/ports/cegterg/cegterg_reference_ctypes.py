@@ -80,17 +80,19 @@ def library() -> ctypes.CDLL:
     return lib
 
 
-def _f(a: Any, dtype: Any) -> np.ndarray | None:
-    """Fortran-order contiguous copy in ``dtype``; ``None`` passes through."""
-    return np.asfortranarray(np.asarray(a, dtype=dtype)) if a is not None else None
+def _c(a: Any, dtype: Any) -> np.ndarray | None:
+    """C-order contiguous copy in ``dtype``; ``None`` passes through. The kernel's arrays are QE's
+    column-major arrays with their dimensions reversed, so a C-order buffer of one IS the
+    column-major buffer the C++ reads."""
+    return np.ascontiguousarray(np.asarray(a, dtype=dtype)) if a is not None else None
 
 
 def _split(a: Any) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """Complex array -> (real plane, imag plane), both Fortran-order float64 -- the SoA ABI."""
+    """Complex array -> (real plane, imag plane), both C-order float64 -- the SoA ABI."""
     if a is None:
         return None, None
-    z = np.asfortranarray(np.asarray(a, dtype=np.complex128))
-    return np.asfortranarray(z.real), np.asfortranarray(z.imag)
+    z = np.asarray(a, dtype=np.complex128)
+    return np.ascontiguousarray(z.real), np.ascontiguousarray(z.imag)
 
 
 def _p(a: np.ndarray | None) -> Any:
@@ -151,33 +153,33 @@ def cegterg(
     npw_k = int(np.asarray(npw).reshape(-1)[ck0])
 
     # slice per current_k + coerce layout (mirrors cegterg_numpy preprocessing)
-    g2 = _f(np.asarray(g2kin)[:, ck0], np.float64)
+    g2 = _c(np.asarray(g2kin)[ck0, :], np.float64)
     vrs_a = np.asarray(vrs)
     if vrs_a.ndim == 1:
-        vrs_a = vrs_a[:, None]
-    vrs_f = _f(vrs_a, np.float64)
-    nspin_mag = vrs_f.shape[1]
+        vrs_a = vrs_a[None, :]
+    vrs_f = _c(vrs_a, np.float64)
+    nspin_mag = vrs_f.shape[0]
     # NO -1. nlk is already 0-based (cegterg.py builds it with ravel_multi_index, and the numpy
     # kernel subscripts it directly); the C++ subscripts it directly too. The stale 1-based
     # conversion shifted every G-vector down one and turned the Gamma entry, nl == 0, into -1 --
     # a size_t(-1) subscript that wrote 8 bytes BEFORE psic and aborted the process.
-    gmap = _f(np.asarray(nlk)[:npw_k, ck0].astype(np.int32), np.int32)
-    vkb_re, vkb_im = _split(np.asarray(vkb)[:npw_k, :, ck0]) if nkb > 0 else (None, None)
-    deeq_f = _f(deeq, np.float64) if nkb > 0 else None
-    qq_f = _f(qq, np.float64) if nkb > 0 else None
-    # The four noncollinear spin blocks cross the ABI side by side as (nkb, 4*nkb).
+    gmap = _c(np.asarray(nlk)[ck0, :npw_k].astype(np.int32), np.int32)
+    vkb_re, vkb_im = _split(np.asarray(vkb)[ck0, :, :npw_k]) if nkb > 0 else (None, None)
+    deeq_f = _c(deeq, np.float64) if nkb > 0 else None
+    qq_f = _c(qq, np.float64) if nkb > 0 else None
+    # The four noncollinear spin blocks cross the ABI one after the other, (4, nkb, nkb).
     has_dnc = noncolin and nkb > 0 and deeq_nc is not None
-    dnc_re, dnc_im = _split(np.asarray(deeq_nc).reshape(nkb, 4 * nkb, order="F") if has_dnc else None)
-    h_diag_f = _f(np.asarray(h_diag).reshape(npwx, npol, order="F"), np.float64)
-    s_diag_f = _f(np.asarray(s_diag).reshape(npwx, npol, order="F"), np.float64)
+    dnc_re, dnc_im = _split(deeq_nc if has_dnc else None)
+    h_diag_f = _c(np.asarray(h_diag).reshape(npol, npwx), np.float64)
+    s_diag_f = _c(np.asarray(s_diag).reshape(npol, npwx), np.float64)
     nwfcU = 0
     wfcu_re = wfcu_im = vhub_f = None
     if lda_plus_u and wfcu is not None:
         wfcu_re, wfcu_im = _split(wfcu)
-        vhub_f = _f(vhub, np.float64)
-        nwfcU = wfcu_re.shape[1]
-    kedtau_f = _f(kedtau, np.float64) if is_meta else None
-    kplusg_f = _f(np.asarray(kplusg)[:, :npw_k], np.float64) if is_meta else None
+        vhub_f = _c(vhub, np.float64)
+        nwfcU = wfcu_re.shape[0]
+    kedtau_f = _c(kedtau, np.float64) if is_meta else None
+    kplusg_f = _c(np.asarray(kplusg)[:npw_k, :], np.float64) if is_meta else None
 
     evc_re, evc_im = _split(evc)
     e_out = np.ascontiguousarray(np.asarray(e, dtype=np.float64).copy())
