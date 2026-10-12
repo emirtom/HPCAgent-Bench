@@ -1504,7 +1504,7 @@ wheels = [
 [[package]]
 name = "dace"
 version = "2.0.0a10"
-source = { git = "https://github.com/spcl/dace.git?rev=40ecebeeb0b5f436ef6a1b9706b373e488733c9c#40ecebeeb0b5f436ef6a1b9706b373e488733c9c" }
+source = { git = "https://github.com/spcl/dace.git?rev=844ebcadb55f5e6645eb39174b1bbe960194b81c#844ebcadb55f5e6645eb39174b1bbe960194b81c" }
 dependencies = [
     { name = "astunparse" },
     { name = "click" },
@@ -2634,7 +2634,7 @@ requires-dist = [
     { name = "cuda-tile", marker = "extra == 'nvgpu'" },
     { name = "cupy", marker = "platform_machine == 'x86_64' and extra == 'amdgpu'" },
     { name = "cupy-cuda13x", marker = "extra == 'nvgpu'" },
-    { name = "dace", git = "https://github.com/spcl/dace.git?rev=40ecebeeb0b5f436ef6a1b9706b373e488733c9c" },
+    { name = "dace", git = "https://github.com/spcl/dace.git?rev=844ebcadb55f5e6645eb39174b1bbe960194b81c" },
     { name = "datasets", specifier = ">=2.17" },
     { name = "einops" },
     { name = "fastapi" },
