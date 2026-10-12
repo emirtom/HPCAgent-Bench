@@ -25,8 +25,8 @@ parameters:
     nblks: 3636
     nnbr: 4
 args:
-  val: {shape: "(nproma, nlev, nblks)", dtype: float64}
-  nbr_idx: {shape: "(nproma, nblks, nnbr)", dtype: int64, index_array: true}
-  nbr_blk: {shape: "(nproma, nblks, nnbr)", dtype: int64, index_array: true}
-  out: {shape: "(nproma, nlev, nblks)", dtype: float64, out: true}
-  out_semi: {shape: "(nproma, nlev, nblks)", dtype: float64, out: true}
+  val: {shape: "(nblks, nlev, nproma)", dtype: float64}
+  nbr_idx: {shape: "(nnbr, nblks, nproma)", dtype: int64, index_array: true}
+  nbr_blk: {shape: "(nnbr, nblks, nproma)", dtype: int64, index_array: true}
+  out: {shape: "(nblks, nlev, nproma)", dtype: float64, out: true}
+  out_semi: {shape: "(nblks, nlev, nproma)", dtype: float64, out: true}
