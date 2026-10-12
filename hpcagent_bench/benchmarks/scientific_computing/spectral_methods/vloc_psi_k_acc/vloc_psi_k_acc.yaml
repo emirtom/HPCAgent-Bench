@@ -53,10 +53,10 @@ parameters:
     ngrid: [6, 20]
     m: [1, 9]
 args:
-  psi: {shape: "(lda, m)", dtype: complex128}
-  hpsi: {shape: "(lda, m)", dtype: complex128, out: true}
+  psi: {shape: "(m, lda)", dtype: complex128}
+  hpsi: {shape: "(m, lda)", dtype: complex128, out: true}
   v: {shape: "(nnr,)", dtype: float64}
-  igk_k: {shape: "(lda, nks)", dtype: int32, index_array: true}
+  igk_k: {shape: "(nks, lda)", dtype: int32, index_array: true}
   nl: {shape: "(ngm,)", dtype: int32, index_array: true}
   # No scalar values: the derived sizes (lda, n, nnr, nr1..3, ngm, ngw, nks,
   # current_k) are ordinary kernel arguments, which already makes them resolvable
