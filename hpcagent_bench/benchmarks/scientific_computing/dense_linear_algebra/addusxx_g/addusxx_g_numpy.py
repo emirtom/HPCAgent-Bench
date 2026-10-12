@@ -28,8 +28,9 @@
 #      complex arithmetic may fuse multiply-adds).
 #
 # Conventions: all index arrays (nl, ofsbeta, ijtoh, nij_type, ityp) are
-# 0-based; eigts* span [-nr, nr] so eigts1(mill(1,ig), na) becomes
-# eigts1[mill[0, ig] + nr1, na]; ijtoh entries beyond a species' nh are -1
+# 0-based; QE's column-major arrays are reversed for C order (tau(3, nat) is tau[nat, 3], qgm(ngms, nij)
+# is qgm[nij, ngms], ijtoh(nhm, nhm, ntyp) is ijtoh[ntyp, nhm, nhm]); eigts* span [-nr, nr] so
+# eigts1(mill(1,ig), na) becomes eigts1[na, mill[ig, 0] + nr1]; ijtoh entries beyond a species' nh are -1
 # (never read).
 
 import numpy as np
@@ -69,7 +70,7 @@ def addusxx_g(
 
     eigqts = np.zeros(nat, dtype=rhoc.dtype)
     for na in range(nat):
-        arg = tpi * np.sum((xk - xkq) * tau[:, na])
+        arg = tpi * np.sum((xk - xkq) * tau[na, :])
         eigqts[na] = np.cos(arg) - 1j * np.sin(arg)
 
     for nt in range(ntyp):
@@ -86,13 +87,13 @@ def addusxx_g(
                         aux1 = 0.0 + 0.0j
                         for jh in range(nh_type[nt]):
                             jkb = ijkb0 + jh
-                            aux1 = aux1 + qgm[ig, nij + ijtoh[ih, jh, nt]] * becpsi_c[jkb]
+                            aux1 = aux1 + qgm[nij + ijtoh[nt, jh, ih], ig] * becpsi_c[jkb]
                         aux2 = aux2 + aux1 * np.conj(becphi_c[ikb])
                     aux2 = (
                         aux2
                         * eigqts[na]
-                        * eigts1[mill[0, ig] + nr1, na]
-                        * eigts2[mill[1, ig] + nr2, na]
-                        * eigts3[mill[2, ig] + nr3, na]
+                        * eigts1[na, mill[ig, 0] + nr1]
+                        * eigts2[na, mill[ig, 1] + nr2]
+                        * eigts3[na, mill[ig, 2] + nr3]
                     )
                     rhoc[nl[ig]] = rhoc[nl[ig]] + aux2
