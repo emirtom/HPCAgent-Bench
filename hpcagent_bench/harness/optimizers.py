@@ -361,6 +361,43 @@ class PpcgHipOptimizer(Agent):
         return Submission(language="hip", source=host, device_source=device)
 
 
+class AlloyOptimizer(LibraryOptimizer):
+    """Alloy (github.com/ThrudPrimrose/alloy) on the SDFG one DaCe pipeline produces. Alloy builds, verifies and
+    screens every region candidate locally, scores the best few per region on the judge, and returns the library
+    linking every region's best scored archive. CPU C/C++ libraries only; Alloy is an optional install."""
+
+    __slots__ = ()
+
+    #: The DaCe pipeline (``dace_framework.PIPELINES_BY_NAME``) whose output Alloy starts from.
+    pipeline: ClassVar[str]
+
+    def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
+        from alloy import bench  # pyright: ignore[reportMissingImports] -- Alloy is an optional install
+
+        def deliver(code: str, link: Sequence[str]) -> Submission:
+            return self._library_submission(task, code, extra_link=link)
+
+        return bench.optimize(task, self.pipeline, deliver)
+
+
+class AlloyParOptimizer(AlloyOptimizer):
+    """Alloy on DaCe's parallelization pipeline (the ``dace_cpu`` column's)."""
+
+    __slots__ = ()
+
+    name = "alloy-par"
+    pipeline = "parallel_cpu"
+
+
+class AlloyCanonOptimizer(AlloyOptimizer):
+    """Alloy on DaCe's canonicalization pipeline (the ``dace_cpu_canonicalize`` column's)."""
+
+    __slots__ = ()
+
+    name = "alloy-canon"
+    pipeline = "canon_cpu"
+
+
 def optimizer_registry() -> dict[str, type[Agent]]:
     """Name -> non-AI optimizer class: every :class:`Agent` subclass defined in this module that
     declares its own ``name``. The harness runs each through the SAME procedure as an LLM agent
