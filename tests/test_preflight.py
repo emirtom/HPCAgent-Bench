@@ -38,6 +38,8 @@ def test_deterministic_frameworks_matches_the_frozen_pre_derivation_list() -> No
         "dace_gpu_autoopt",
         "dace_gpu_canonicalize",
         "dace_gpu_parallel",
+        "dace_cpu_alloy",
+        "dace_cpu_canonicalize_alloy",
     }
     assert set(preflight.DETERMINISTIC_FRAMEWORKS) == frozen
 

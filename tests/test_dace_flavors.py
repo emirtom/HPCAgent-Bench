@@ -76,7 +76,7 @@ def test_unknown_pipeline_is_rejected() -> None:
 
 def test_only_canonicalize_columns_need_the_fork() -> None:
     """The gate is derived from what a flavor RUNS, not from a second hand-maintained list."""
-    every = framework_flavors("dace")
+    every = framework_flavors("dace") + framework_flavors("alloy")
     gated = set(preflight.needs_canonicalize(every))
     for name in every:
         # By PREFIX: the pipelines are named per target (``canon_cpu`` / ``canon_gpu``), so an
@@ -88,6 +88,7 @@ def test_only_canonicalize_columns_need_the_fork() -> None:
         "the only column that can be measured on both trees"
     )
     assert "dace_cpu_canonicalize" in gated
+    assert "dace_cpu_canonicalize_alloy" in gated, "Alloy compiles canon_cpu's output, so it needs the fork too"
 
 
 def test_every_dace_flavor_is_a_deterministic_column() -> None:
