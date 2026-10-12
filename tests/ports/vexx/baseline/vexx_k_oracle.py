@@ -138,6 +138,12 @@ def _F(a, dt):
     return np.asfortranarray(np.asarray(a, dtype=dt)) if a is not None else None
 
 
+def _C(a: object, dt: type) -> np.ndarray | None:
+    """C-order copy: the kernel's arrays are QE's column-major ones with their dimensions reversed, so a
+    C-order buffer of one IS the column-major buffer the C++ reads."""
+    return np.ascontiguousarray(np.asarray(a, dtype=dt)) if a is not None else None
+
+
 def _p(a):
     return a.ctypes.data_as(_VP) if a is not None else _VP(0)
 
@@ -243,54 +249,54 @@ def vexx_k(
     # pre-slice per (current_k, egrp)
     # Every index table out of vexx_k.initialize is 0-based, the corpus-wide rule; the C++ core
     # subscripts them bare, so nothing is renumbered on the way in.
-    nl0 = _F(nl[:ngm].astype(np.int64), np.int32)
-    gki = igk[:n, ck0].astype(np.int64)
-    nlg = _F(nl[gki].astype(np.int64), np.int32)
-    ibands_eg = _F(np.asarray(ibands)[:my_n, eg], np.int32)
-    egrp_eg = _F(np.asarray(egrp_pairs)[:, :, eg], np.int32)
-    all_s = _F(np.asarray(all_start), np.int32)
-    all_e = _F(np.asarray(all_end), np.int32)
-    xk_cur = _F(np.asarray(xk)[:, ck0], np.float64)
-    ixkq = np.asarray(index_xkq).reshape(-1, nqs) if np.asarray(index_xkq).ndim == 1 else np.asarray(index_xkq)
-    ikq_iq = np.array([int(ixkq[cik0, iq]) for iq in range(nqs)], np.int64)
-    ik_iq = _F(np.array([int(np.asarray(index_xk)[k]) for k in ikq_iq], np.int32), np.int32)
+    nl0 = _C(nl[:ngm].astype(np.int64), np.int32)
+    gki = igk[ck0, :n].astype(np.int64)
+    nlg = _C(nl[gki].astype(np.int64), np.int32)
+    ibands_eg = _C(np.asarray(ibands)[eg, :my_n], np.int32)
+    egrp_eg = _C(np.asarray(egrp_pairs)[eg, :, :], np.int32)
+    all_s = _C(np.asarray(all_start), np.int32)
+    all_e = _C(np.asarray(all_end), np.int32)
+    xk_cur = _C(np.asarray(xk)[ck0, :], np.float64)
+    ixkq = np.asarray(index_xkq).reshape(nqs, -1) if np.asarray(index_xkq).ndim == 1 else np.asarray(index_xkq)
+    ikq_iq = np.array([int(ixkq[iq, cik0]) for iq in range(nqs)], np.int64)
+    ik_iq = _C(np.array([int(np.asarray(index_xk)[k]) for k in ikq_iq], np.int32), np.int32)
     xkqc = np.asarray(xkq_collect)
-    xkq_all = _F(np.stack([xkqc[:, k] for k in ikq_iq], axis=1), np.float64)  # (3,nqs)
-    ikq_iq32 = _F(ikq_iq.astype(np.int32), np.int32)
+    xkq_all = _C(np.stack([xkqc[k, :] for k in ikq_iq], axis=0), np.float64)  # (nqs, 3)
+    ikq_iq32 = _C(ikq_iq.astype(np.int32), np.int32)
 
-    exxbuff_f = _F(exxbuff, np.complex128)
-    nkq = exxbuff_f.shape[2]
-    psi_f = _F(psi, np.complex128)
-    hpsi_f = np.asfortranarray(np.asarray(hpsi, dtype=np.complex128).copy())
-    x_occ = _F(x_occupation, np.float64)
-    nks = x_occ.shape[1]
-    g_f = _F(g, np.float64)
-    becpsi_f = _F(becpsi, np.complex128) if okvan or okpaw else _F(np.zeros((nkb, m)), np.complex128)
-    becxx_f = _F(becxx, np.complex128) if okvan or okpaw else _F(np.zeros((nkb, 1, nkq)), np.complex128)
+    exxbuff_f = _C(exxbuff, np.complex128)
+    nkq = exxbuff_f.shape[0]
+    psi_f = _C(psi, np.complex128)
+    hpsi_f = np.ascontiguousarray(np.asarray(hpsi, dtype=np.complex128).copy())
+    x_occ = _C(x_occupation, np.float64)
+    nks = x_occ.shape[0]
+    g_f = _C(g, np.float64)
+    becpsi_f = _C(becpsi, np.complex128) if okvan or okpaw else _C(np.zeros((m, nkb)), np.complex128)
+    becxx_f = _C(becxx, np.complex128) if okvan or okpaw else _C(np.zeros((nkq, 1, nkb)), np.complex128)
     becxx_nbnd = becxx_f.shape[1]
-    vkb_f = _F(vkb, np.complex128)
-    ijtoh_f = _F(ijtoh, np.int32)
-    ofsbeta_f = _F(ofsbeta, np.int32)
-    eigqts_f = _F(eigqts, np.complex128)
+    vkb_f = _C(vkb, np.complex128)
+    ijtoh_f = _C(ijtoh, np.int32)
+    ofsbeta_f = _C(ofsbeta, np.int32)
+    eigqts_f = _C(eigqts, np.complex128)
 
     has_qgmq = qgm_q is not None
     has_sfq = sf_q is not None
-    qgm_f = _F(qgm, np.complex128)
-    qgm_q_f = _F(qgm_q, np.complex128) if has_qgmq else None
-    sfac_f = _F(sfac, np.complex128)
-    sf_q_f = _F(sf_q, np.complex128) if has_sfq else None
-    nij = int(qgm_q_f.shape[1]) if has_qgmq else (int(qgm_f.shape[1]) if qgm_f.size else nh * (nh + 1) // 2)
+    qgm_f = _C(qgm, np.complex128)
+    qgm_q_f = _C(qgm_q, np.complex128) if has_qgmq else None
+    sfac_f = _C(sfac, np.complex128)
+    sf_q_f = _C(sf_q, np.complex128) if has_sfq else None
+    nij = int(qgm_q_f.shape[1]) if has_qgmq else (int(qgm_f.shape[0]) if qgm_f.size else nh * (nh + 1) // 2)
 
-    ke_f = _F(ke, np.float64) if okpaw else None
+    ke_f = _C(ke, np.float64) if okpaw else None
     tqr = bool(tqr)
-    # C++ tabxx layout: box (nat, maxbox) row-major; qr per-atom (maxbox, nij)
-    # column-major -> pass qr transposed to (nat, nij, maxbox) C-contiguous.
+    # C++ tabxx layout: box (nat, maxbox) row-major; qr per-atom (maxbox, nij) column-major, which is
+    # the kernel's (nat, nij, maxbox).
     tb_f = np.ascontiguousarray(np.asarray(tabxx_box), np.int32) if tqr else None
-    tq_f = np.ascontiguousarray(np.asarray(tabxx_qr).transpose(0, 2, 1), np.float64) if tqr else None
+    tq_f = np.ascontiguousarray(np.asarray(tabxx_qr), np.float64) if tqr else None
     maxbox = int(tb_f.shape[1]) if tqr else 0
 
     has_cfq = coulomb_fac_q is not None
-    cfq_f = _F(coulomb_fac_q, np.float64) if has_cfq else None
+    cfq_f = _C(coulomb_fac_q, np.float64) if has_cfq else None
     at_f = _F(at if at is not None else np.eye(3), np.float64)
     vcut_a_f = _F(vcut_a if vcut_a is not None else np.eye(3), np.float64)
     vcut_corr_f = _F(vcut_corrected, np.float64) if vcut_corrected is not None else None
