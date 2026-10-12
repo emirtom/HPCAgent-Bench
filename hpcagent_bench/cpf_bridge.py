@@ -454,6 +454,9 @@ class RenderedForm(NamedTuple):
     lines: int
     #: The gpu target's device unit (``.hip``): the kernels and the launchers ``code`` calls; empty on cpu.
     device_code: str = ""
+    #: What the units link against beyond the system's, in order: the archives and flags of the SDFG's
+    #: ``ExternCall`` nodes (CPF's ``Rendering.link``); empty for a kernel that calls nothing external.
+    link: tuple[str, ...] = ()
 
     @property
     def binding_name(self) -> str:
@@ -526,6 +529,7 @@ def render_canonical(
         forced=forced,
         lines=code.count("\n") + rendering.device_code.count("\n") + 1,
         device_code=clean_form(rendering.device_code, forced) if rendering.device_code else "",
+        link=rendering.link,
     )
 
 
