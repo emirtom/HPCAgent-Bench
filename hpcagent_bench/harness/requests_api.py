@@ -75,11 +75,13 @@ def grid_request(grid: Sequence[int]) -> tuple[str, ...]:
 
 def kernel_arrays(binding: "Binding", ndims: Mapping[str, int]) -> list[ArraySpec]:
     """The arrays a request's operations start from: every shaped dense pointer of ``ndims`` (a complex
-    one is the struct ``(re, im)``) and every sparse logical array."""
+    one is the native struct ``(re, im)``: laid out as one element, unzipped into its parts) and every
+    sparse logical array."""
     sparse = {member for group in binding.packed for member in group.members}
     dtypes = {arg.name: arg.dtype for arg in binding.pointers}
+    complex_names = {name for name, dtype in dtypes.items() if np.dtype(canonical(dtype)).kind == "c"}
     dense = [
-        ArraySpec(name, ndim, members=("re", "im") if np.dtype(canonical(dtypes[name])).kind == "c" else ())
+        ArraySpec(name, ndim, members=("re", "im"), native=True) if name in complex_names else ArraySpec(name, ndim)
         for name, ndim in ndims.items()
         if name in dtypes and name not in sparse
     ]
