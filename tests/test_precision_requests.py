@@ -154,7 +154,7 @@ def test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score() ->
         language="c", source=WIDENED, requests=Requests.of(precision={"x": Precision.FP64, "y": Precision.FP64})
     )
     task = Task(KERNEL, "restricted", "c")
-    result = score(submission, task, preset="S", datatype="float32", repeat=5, hidden=False, baseline="numba")
+    result = score(submission, task, preset="S", datatype="float32", repeat=5, hidden=False, baseline="c")
     assert result.build_ok, result.detail
     assert result.correct, result.detail
     assert result.native_ns > 0
