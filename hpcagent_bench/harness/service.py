@@ -841,7 +841,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     if sparse:
         return f"requests.layout applies to dense arrays only; {sparse} are sparse (request their format in requests.sparse)"
     if not requests.distributed:
-        if any(requests.layout.values()) or requests.location or requests.zip:
+        if any(requests.layout.values()) or requests.location or requests.groups:
             return (
                 "requests.layout / location / zip without requests.grid: single-node layout changes are not "
                 "implemented yet (see docs/requests_api.md)"

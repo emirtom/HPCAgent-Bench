@@ -30,6 +30,7 @@ from hpcagent_bench import languages, omp_context
 from hpcagent_bench.dtypes import c_type, canonical, is_storage_only
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import disk_cache
+from hpcagent_bench.precision import Precision, numpy_dtype
 from hpcagent_bench.translators.numpyto_c.emit import FP8_HELPERS
 
 __all__ = [
@@ -46,8 +47,9 @@ __all__ = [
     "symbol",
 ]
 
-#: Every element type a cast reads or writes: the :class:`~hpcagent_bench.precision.Precision` realizations.
-CAST_DTYPES = ("float64", "float32", "float16", "bfloat16", "float8_e4m3fn", "float8_e5m2")
+#: Every element type a cast reads or writes: the :class:`~hpcagent_bench.precision.Precision` realizations,
+#: so a new precision is cast everywhere (host, device, MPI driver) once it is a member.
+CAST_DTYPES = tuple(np.dtype(numpy_dtype(precision)).name for precision in Precision)
 #: The ``__npb_<short>_to_f32`` / ``__npb_f32_to_<short>`` helper name of each storage-only format.
 STORAGE_SHORT = {"bfloat16": "bf16", "float8_e4m3fn": "e4m3", "float8_e5m2": "e5m2"}
 #: OpenMP context -> the toolchain family whose C compiler builds the host casts in it.
