@@ -228,7 +228,6 @@ def collect_inlinable_helpers(tree: ast.Module, kernel_fn: ast.FunctionDef) -> d
         return all(isinstance(s, INLINABLE_STMTS) for s in body) and not any(
             isinstance(sub, ast.Return) for s in body for sub in ast.walk(s)
         )
-        return False
 
     # Top-level helpers defined ABOVE the kernel...
     for node in tree.body:

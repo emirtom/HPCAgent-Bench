@@ -26,7 +26,6 @@ __all__ = [
     "DATATYPE_ALIAS",
     "DATATYPE_CHOICES",
     "DTYPES",
-    "MANTISSA_BITS",
     "SAFE_MAGNITUDE",
     "TOLERANCE_MATRIX",
     "Precision",
@@ -67,23 +66,6 @@ class Precision(enum.Enum):
         except ValueError:
             raise ValueError(f"Unknown precision {name!r}; supported: {[p.value for p in cls]}") from None
 
-    @property
-    def mantissa_bits(self) -> int:
-        """Stored significand bits -- how finely this format resolves a value."""
-        return MANTISSA_BITS[self]
-
-
-#: Stored significand bits per format (the implicit leading 1 excluded), the one ordering the
-#: harness compares precisions on. bf16 trades mantissa for exponent, so it is COARSER than fp16
-#: despite being the wider-range format -- which is exactly why this is a table and not an index.
-MANTISSA_BITS: dict["Precision", int] = {
-    Precision.FP64: 52,
-    Precision.FP32: 23,
-    Precision.FP16: 10,
-    Precision.BF16: 7,
-    Precision.FP8_E4M3: 3,
-    Precision.FP8_E5M2: 2,
-}
 
 #: CLI ``--datatype`` choices -- the numpy spellings ``float32`` / ``float64``
 #: (NOT the :class:`Precision` values ``fp32`` / ``fp64``), so this is an authored
