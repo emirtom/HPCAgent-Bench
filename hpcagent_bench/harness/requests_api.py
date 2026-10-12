@@ -19,8 +19,8 @@ request fault, never approximated.
 import enum
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
@@ -46,6 +46,7 @@ __all__ = [
     "Permute",
     "Requests",
     "Shuffle",
+    "Split",
     "Unblock",
     "Unzip",
     "Zip",
@@ -262,11 +263,12 @@ def canonical_permutation(digits: Sequence[Digit]) -> tuple[int, ...]:
     return tuple(sorted(range(len(digits)), key=lambda k: (digits[k].dim, -digits[k].stride)))
 
 
-@dataclass(slots=True)
-class Lowered:
-    """One array's lowering: per dimension ``(grid_dim, scheme, block_size)`` or None (not split)."""
+class Split(NamedTuple):
+    """How one dimension is split over the grid: one of :data:`SCHEMES` along ``grid_dim``."""
 
-    axes: list[tuple[int, str, int] | None]
+    grid_dim: int
+    scheme: str
+    block_size: int
 
 
 def finest(digits: Sequence[Digit], dim: int, where: str) -> int:
@@ -306,8 +308,8 @@ def unblock_digits(digits: list[Digit], dim: int, factor: int, where: str) -> No
     raise ValueError(f"{where}: no blocked digit pair of dimension {dim} with factor {factor} to unblock")
 
 
-def lower_layout(ops: Sequence[LayoutOp], ndim: int, grid: Sequence[int], where: str) -> Lowered:
-    """Lower one array's op sequence over ``grid`` to its per-dimension split, or raise the request
+def lower_layout(ops: Sequence[LayoutOp], ndim: int, grid: Sequence[int], where: str) -> list[Split | None]:
+    """Lower one array's op sequence over ``grid`` to its per-dimension split (None = not split), or raise the request
     fault that says why it cannot be (yet).
 
     Lowerable: any blocks, unblocks and permutes, then distributes of either a whole undivided
@@ -323,7 +325,7 @@ def lower_layout(ops: Sequence[LayoutOp], ndim: int, grid: Sequence[int], where:
             distribute_digit(digits, op, grid, distributed, here)
         else:
             apply_shape_op(digits, op, names, here)
-    axes: list[tuple[int, str, int] | None] = [None] * ndim
+    axes: list[Split | None] = [None] * ndim
     for dim, (digit, grid_dim) in distributed.items():
         axes[dim] = split_scheme(digits, digit, grid[grid_dim], grid_dim, where)
     order = canonical_permutation(digits)
@@ -332,7 +334,7 @@ def lower_layout(ops: Sequence[LayoutOp], ndim: int, grid: Sequence[int], where:
             f"{where}: the rank-local digits are not row-major, which is a local relayout and not implemented "
             f'yet; append {{"op": "permute", "perm": {list(order)}}}'
         )
-    return Lowered(axes)
+    return axes
 
 
 def apply_shape_op(digits: list[Digit], op: LayoutOp, names: Mapping[str, int], where: str) -> None:
@@ -378,8 +380,8 @@ def distribute_digit(
         del digits[op.digit]  # the rank coordinate; split_scheme checks the extent is P_g
 
 
-def split_scheme(digits: Sequence[Digit], digit: Digit, parts: int, grid_dim: int, where: str) -> tuple[int, str, int]:
-    """``(grid_dim, scheme, block_size)`` of the distributed ``digit`` against the local ``digits`` left."""
+def split_scheme(digits: Sequence[Digit], digit: Digit, parts: int, grid_dim: int, where: str) -> Split:
+    """The split of the distributed ``digit`` against the local ``digits`` left."""
     own = sorted((d for d in digits if d.dim == digit.dim), key=lambda d: -d.stride)
     if digit.extent is None:
         if digit.stride != 1 or len(own) != 1:
@@ -387,7 +389,7 @@ def split_scheme(digits: Sequence[Digit], digit: Digit, parts: int, grid_dim: in
                 f"{where}: distributing the coarse digit of a blocked dimension {digit.dim} is not implemented yet; "
                 f"distribute the whole dimension (block) or a digit of extent P{grid_dim} (cyclic / block-cyclic)"
             )
-        return grid_dim, "block", 1
+        return Split(grid_dim, "block", 1)
     if digit.extent != parts:
         raise ValueError(
             f"{where}: a distributed digit of a blocked dimension must have extent P{grid_dim} = {parts}; "
@@ -400,12 +402,19 @@ def split_scheme(digits: Sequence[Digit], digit: Digit, parts: int, grid_dim: in
             f"{where}: dimension {digit.dim} must be blocked as block(d, b*P{grid_dim}) then block(d, b) for a "
             f"block-cyclic distribution of width b (or block(d, P{grid_dim}) for cyclic); its local digits are {own}"
         )
-    return grid_dim, ("cyclic" if width == 1 else "block_cyclic"), width
+    return Split(grid_dim, "cyclic" if width == 1 else "block_cyclic", width)
 
 
-def ops_for_axes(axes: Sequence[tuple[int, str, int] | None]) -> tuple[LayoutOp, ...]:
-    """The op sequence whose lowering is ``axes`` (``(grid_dim, scheme, block_size)`` per dimension,
-    None = not split): the inverse of :func:`lower_layout`, used to show a kernel's default layout.
+def normal_split(grid_dim: int, scheme: str, block_size: int) -> Split:
+    """The split :func:`lower_layout` gives back for ``scheme``: block and cyclic carry width 1, and a
+    block-cyclic of width 1 is cyclic."""
+    if scheme == "block_cyclic" and block_size == 1:
+        scheme = "cyclic"
+    return Split(grid_dim, scheme, 1 if scheme in ("block", "cyclic") else block_size)
+
+
+def ops_for_axes(axes: Sequence[Split | None]) -> tuple[LayoutOp, ...]:
+    """The op sequence whose lowering is ``axes`` (None = not split): the inverse of :func:`lower_layout`, used to show a kernel's default layout.
 
     Digit positions do not depend on the grid's extents, only on stride order, so they are found by
     simulating on a representative grid of 2s; the result is lowered back as a self-check."""
@@ -439,17 +448,8 @@ def ops_for_axes(axes: Sequence[tuple[int, str, int] | None]) -> tuple[LayoutOp,
         targets += [(k, axis[0]) for k, d in enumerate(digits) if (d.dim, d.stride, d.extent) == (dim, width, extent)]
     # Descending positions, so a removed digit never shifts one distributed after it.
     ops += [Distribute(position, grid_dim) for position, grid_dim in sorted(targets, reverse=True)]
-    lowered = lower_layout(ops, len(axes), sample, "default layout").axes
-    expected = [
-        None
-        if a is None
-        else (
-            a[0],
-            "cyclic" if a[1] == "block_cyclic" and a[2] == 1 else a[1],
-            1 if a[1] in ("block", "cyclic") else a[2],
-        )
-        for a in axes
-    ]
+    lowered = lower_layout(ops, len(axes), sample, "default layout")
+    expected = [None if a is None else normal_split(*a) for a in axes]
     if lowered != expected:
         raise AssertionError(f"ops_for_axes({list(axes)}) lowers to {lowered}")
     return tuple(ops)
@@ -536,17 +536,10 @@ class Requests:
             if name not in ndims:
                 raise ValueError(f"requests.layout names unknown array {name!r}; arrays are {sorted(ndims)}")
             lowered = lower_layout(ops, ndims[name], dims, f"requests.layout[{name!r}]")
-            if all(axis is None for axis in lowered.axes):
+            if all(axis is None for axis in lowered):
                 entry: dict[str, Any] = {"replicated": True}
             else:
-                entry = {
-                    "axes": [
-                        {"grid_dim": None}
-                        if axis is None
-                        else {"grid_dim": axis[0], "scheme": axis[1], "block_size": axis[2]}
-                        for axis in lowered.axes
-                    ]
-                }
+                entry = {"axes": [{"grid_dim": None} if axis is None else axis._asdict() for axis in lowered]}
             arrays[name] = entry
         cyclic = any(
             axis.get("scheme") in ("cyclic", "block_cyclic")
@@ -579,7 +572,7 @@ class Requests:
             axes = [
                 None
                 if axis.get("grid_dim") is None
-                else (int(axis["grid_dim"]), str(axis.get("scheme", "block")), int(axis.get("block_size", 1)))
+                else Split(int(axis["grid_dim"]), str(axis.get("scheme", "block")), int(axis.get("block_size", 1)))
                 for axis in entry["axes"]
             ]
             layout[name] = ops_for_axes(axes)
@@ -589,7 +582,7 @@ class Requests:
 
     def with_grid(self, grid: Sequence[int]) -> "Requests":
         """These requests over another grid; factor expressions re-evaluate there."""
-        return Requests(self.libraries, self.precision, tuple(grid), self.layout, self.location, self.zip, self.sparse)
+        return replace(self, grid=tuple(grid))
 
 
 def parse_precision(raw: object) -> dict[str, Precision]:

@@ -910,6 +910,29 @@ def kernel_entry(ffi: FFI, lib: "Lib", symbol: str) -> CKernel:
 #: Converts a source buffer into a destination buffer of another element type (logical dtype names given,
 #: since a device buffer of a storage-only format is an unsigned view).
 type Converter = Callable[["ArrayBuffer", "ArrayBuffer", str, str], None]
+#: One staged precision cast: source buffer, destination buffer, and their element types.
+type StagedCast = tuple["ArrayBuffer", "ArrayBuffer", str, str]
+
+
+def no_converter(src: "ArrayBuffer", dst: "ArrayBuffer", src_dtype: str, dst_dtype: str) -> None:
+    """The :data:`Converter` of a call that requests no precision: it never stages a cast."""
+    raise AssertionError(f"no converter for the {src_dtype} -> {dst_dtype} cast")
+
+
+def inverse_cast(cast: StagedCast) -> StagedCast:
+    """The cast back: ``cast``'s destination into its source."""
+    src, dst, src_dtype, dst_dtype = cast
+    return dst, src, dst_dtype, src_dtype
+
+
+def timed_casts(casts: Sequence[StagedCast], convert: Converter) -> int:
+    """Run ``casts`` in one bracket of their own and return its nanoseconds (0 when there are none)."""
+    if not casts:
+        return 0
+    start = time.perf_counter_ns()
+    for src, dst, src_dtype, dst_dtype in casts:
+        convert(src, dst, src_dtype, dst_dtype)
+    return time.perf_counter_ns() - start
 
 
 @dataclass(frozen=True, slots=True)
@@ -1053,7 +1076,7 @@ def _call_native_impl(
     followups: Sequence["Followup"] = (),
     rep_data: Callable[[int], KernelData] | None = None,
     casts: CastPlan | None = None,
-    convert: "Converter | None" = None,
+    convert: Converter = no_converter,
 ) -> tuple[list[SpilledMap], list[int], list[FollowupResult], list[RepTiming]]:
     """Shared FFI body of the host and device native calls: marshal ``data`` to the canonical symbol of
     ``lib_path`` and time ``reps`` calls (plus ``warmup`` discarded ones).
@@ -1118,7 +1141,7 @@ def _call_native_impl(
         buffers: dict[str, ArrayBuffer] = {}
         # A requested array's problem-precision staging buffer, its requested-type twin (the one passed),
         # and the two element types.
-        staged: dict[str, tuple[ArrayBuffer, ArrayBuffer, str, str]] = {}
+        staged: dict[str, StagedCast] = {}
         c_args: list[CArgument] = []
         with budget():
             for a in binding.args:
@@ -1144,22 +1167,15 @@ def _call_native_impl(
             ws[...] = 0
 
         # Every requested array is cast in: the ABI declares outputs intent(inout), so one may be read.
-        cast_start = time.perf_counter_ns()
-        for problem, requested, problem_dtype, requested_dtype in staged.values():
-            convert(problem, requested, problem_dtype, requested_dtype)  # type: ignore[misc]  # set whenever staged is
-        convert_in_ns = time.perf_counter_ns() - cast_start
+        convert_in_ns = timed_casts(list(staged.values()), convert)
         # The cap is re-armed for the kernel's own call. The only timed region: fn(*c_args) and the
         # settle waits.
         rep = timed_call(fn, c_args, settle)
-        cast_start = time.perf_counter_ns()
-        for a in binding.args:
-            if a.role == "output" and a.name in staged:
-                problem, requested, problem_dtype, requested_dtype = staged[a.name]
-                convert(requested, problem, requested_dtype, problem_dtype)  # type: ignore[misc]
-                buffers[a.name] = problem
-        rep = dataclasses.replace(
-            rep, convert_in_ns=convert_in_ns, convert_out_ns=time.perf_counter_ns() - cast_start if staged else 0
-        )
+        cast_back = [a.name for a in binding.args if a.role == "output" and a.name in staged]
+        convert_out_ns = timed_casts([inverse_cast(staged[name]) for name in cast_back], convert)
+        for name in cast_back:
+            buffers[name] = staged[name][0]  # the problem-precision buffer is what gets graded
+        rep = dataclasses.replace(rep, convert_in_ns=convert_in_ns, convert_out_ns=convert_out_ns)
         if not warming and not is_followup:
             reps_seen.append(rep)  # a warmup / held-out rep is not a sample, so it is not evidence
         if warming:
@@ -1249,7 +1265,7 @@ def _call_native(
         followups=followups,
         rep_data=rep_data,
         casts=casts,
-        convert=None if host_casts is None else functools.partial(host_convert, host_casts),
+        convert=no_converter if host_casts is None else functools.partial(host_convert, host_casts),
     )
 
 

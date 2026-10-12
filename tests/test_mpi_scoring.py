@@ -30,6 +30,11 @@ from tests.test_mpi_call import cupy_device_available
 _BLOCK0 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
 
 
+def launched(samples_ns: list[int]) -> mpi_call.MpiRun:
+    """A stubbed launch: no outputs, ``samples_ns`` per repeat, no precision casts."""
+    return mpi_call.MpiRun({}, samples_ns, [0] * len(samples_ns), [0] * len(samples_ns))
+
+
 @pytest.fixture
 def mpi_c():
     """The discovered C MPI toolchain (a real 2-rank launch), wired into the config the scoring path reads."""
@@ -484,15 +489,15 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         # (outputs, samples, mem, followup outputs) -- constant serial anchor time
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def _fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
         p = int(math.prod(submission.requests.grid or ()))
         if p == 4:
             raise S.MpiBuildError("boom")  # one P fails to build => a note, not a point
-        return ({}, [1000 * p])  # T_i(P) grows with P here (irrelevant; we assert wiring, not eta)
+        return launched([1000 * p])  # T_i(P) grows with P here (irrelevant; we assert wiring, not eta)
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
     monkeypatch.setattr(S, "_call_isolated", _fake_call_isolated)
-    monkeypatch.setattr(S, "_build_run_mpi", _fake_build_run)
+    monkeypatch.setattr(S, "_build_run_mpi", fake_build_run)
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
     # **kw, not the five positionals alone: score_scaling passes initial=cand_data so the grader can
@@ -552,7 +557,7 @@ def gang_strong_sweep(
         p = int(math.prod(submission.requests.grid or ()))
         if p == fails_at:
             raise fail("boom")
-        return ({}, [1000 * p])
+        return launched([1000 * p])
 
     overrides = {"mpi.mode": "strong", "mpi.launcher": GANG_LAUNCHER}
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GANG_NODELIST", "nid001,nid002")
@@ -662,13 +667,13 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     def _fake_call_isolated(lib, binding, data, lang, reps: int = 1, followups=(), **kw):
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def _fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
         p = int(math.prod(submission.requests.grid or ()))
-        return ({}, [1000 * p])
+        return launched([1000 * p])
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
     monkeypatch.setattr(S, "_call_isolated", _fake_call_isolated)
-    monkeypatch.setattr(S, "_build_run_mpi", _fake_build_run)
+    monkeypatch.setattr(S, "_build_run_mpi", fake_build_run)
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
     monkeypatch.setattr(S, "_grade", lambda spec, oracle, out, rtol, atol, **kw: (True, 0.0, ""))
@@ -839,7 +844,7 @@ def mock_mpi_runners(monkeypatch: pytest.MonkeyPatch, *, native: list[int], base
         k_repeats: int | None = None,
     ) -> tuple[dict[str, np.ndarray], list[int]]:
         n = k_repeats if k_repeats is not None else cfg.k_repeats
-        return {}, (native * n)[:n] if native else []
+        return launched((native * n)[:n] if native else [])
 
     monkeypatch.setattr(S, "_build_run_mpi", fake_build_run_mpi)
     monkeypatch.setattr(

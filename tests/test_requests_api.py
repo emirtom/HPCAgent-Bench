@@ -20,6 +20,7 @@ from hpcagent_bench.harness.requests_api import (
     Permute,
     Requests,
     Shuffle,
+    Split,
     Unblock,
     inverse_sequence,
     lower_layout,
@@ -41,8 +42,8 @@ def block(dim: int, factor: int | str) -> dict[str, object]:
     return {"op": "block", "dim": dim, "factor": factor}
 
 
-def lowered(ops: list[dict[str, object]], ndim: int, grid: list[int]) -> list[tuple[int, str, int] | None]:
-    return lower_layout([parse_op(op, "t") for op in ops], ndim, grid, "t").axes
+def lowered(ops: list[dict[str, object]], ndim: int, grid: list[int]) -> list[Split | None]:
+    return lower_layout([parse_op(op, "t") for op in ops], ndim, grid, "t")
 
 
 def test_the_three_schemes_lower_from_their_op_sequences() -> None:
@@ -69,7 +70,7 @@ def test_the_default_layout_raises_to_ops_that_lower_back(ndim: int) -> None:
         ops = ops_for_axes(list(axes))
         for grid in ([1, 1], [2, 3], [4, 4]):
             expected = [None if a is None else (a[0], a[1], 1 if a[1] in ("block", "cyclic") else a[2]) for a in axes]
-            assert lower_layout(ops, ndim, grid, "t").axes == expected, (axes, grid)
+            assert lower_layout(ops, ndim, grid, "t") == expected, (axes, grid)
 
 
 def test_a_non_row_major_local_order_is_refused_with_the_permute_that_fixes_it() -> None:
