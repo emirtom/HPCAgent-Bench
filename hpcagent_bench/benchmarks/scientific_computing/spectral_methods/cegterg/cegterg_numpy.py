@@ -575,9 +575,10 @@ def cegterg(
         else:
             psi_k = psi[:nbase, :kdim]
             ritz_s[:notcnv, :kdim] = vc_u @ psi_k
-        resid = -ew[nb1 : nb1 + notcnv][:, None] * ritz_s[:notcnv, :kdim]
         hpsi_k = hpsi[:nbase, :kdim]
-        resid += vc_u @ hpsi_k
+        resid = vc_u @ hpsi_k
+        for j in range(notcnv):  # per band, not ew[:, None]: numba's parallel arrays refuse a column broadcast
+            resid[j, :] = resid[j, :] - ew[nb1 + j] * ritz_s[j, :kdim]
         psi[nb1 : nb1 + notcnv, :kdim] = resid
 
         # Inline _apply_g_psi: avoid passing a slice view that in-place division turns
@@ -592,7 +593,8 @@ def cegterg(
         # ... normalise: ew = <psi|psi>,  psi /= sqrt(ew)
         cv = psi[nb1 : nb1 + notcnv, :kdim]
         ew[:notcnv] = np.sum(cv.real * cv.real, axis=1) + np.sum(cv.imag * cv.imag, axis=1)
-        psi[nb1 : nb1 + notcnv, :kdim] = cv / np.sqrt(ew[:notcnv])[:, None]
+        for j in range(notcnv):
+            psi[nb1 + j, :kdim] = cv[j, :] / np.sqrt(ew[j])
         psi1 = psi[nb1 : nb1 + notcnv, :]
 
         if noncolin:

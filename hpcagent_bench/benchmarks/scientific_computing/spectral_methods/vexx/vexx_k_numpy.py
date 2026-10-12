@@ -444,14 +444,14 @@ def vexx_k(
     vcut_a_ = np.eye(3, dtype=g.dtype) if vcut_a is None else np.asarray(vcut_a)
 
     def invfft(col, batch=None):  # G/recip -> real space (normalised); col is (nrxxs,) or (batch, nrxxs)
-        if col.ndim == 1:
-            return np.fft.ifftn(col.reshape(grid), axes=(0, 1, 2)).reshape(nrxxs)
-        return np.fft.ifftn(col.reshape((batch,) + grid), axes=(1, 2, 3)).reshape(batch, nrxxs)
+        shape = grid if col.ndim == 1 else (batch,) + grid
+        out = np.fft.ifftn(col.reshape(shape), axes=(-3, -2, -1))
+        return out.reshape((nrxxs,) if col.ndim == 1 else (batch, nrxxs))
 
     def fwfft(col, batch=None):  # real -> G/recip space (unnormalised); col is (nrxxs,) or (batch, nrxxs)
-        if col.ndim == 1:
-            return np.fft.fftn(col.reshape(grid), axes=(0, 1, 2)).reshape(nrxxs)
-        return np.fft.fftn(col.reshape((batch,) + grid), axes=(1, 2, 3)).reshape(batch, nrxxs)
+        shape = grid if col.ndim == 1 else (batch,) + grid
+        out = np.fft.fftn(col.reshape(shape), axes=(-3, -2, -1))
+        return out.reshape((nrxxs,) if col.ndim == 1 else (batch, nrxxs))
 
     nl0 = nl[:ngm]  # G-sphere -> FFT grid (0-based)
     gki = igk_exx[current_k - 1, :n]  # wavefunction G-index -> G-sphere
