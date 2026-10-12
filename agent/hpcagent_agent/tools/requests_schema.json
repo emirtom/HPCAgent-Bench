@@ -58,7 +58,7 @@
      },
      {
       "additionalProperties": false,
-      "description": "Fuse whole arrays ``arrays`` of one shape into one array ``into`` of structs, one member per array in order, each keeping its precision.",
+      "description": "Fuse whole arrays ``arrays`` of one shape into one array ``into``. Arrays of one precision become a new last dimension, the field (``into[..., k]`` is ``arrays[k]``), which the digit operations then place like any other (field-outer is SoA, field-inner AoS, blocked between AoSoA); arrays of different precisions become one array of structs, one member per array in order, each keeping its precision.",
       "properties": {
        "action": {
         "const": "zip"
@@ -85,7 +85,7 @@
      },
      {
       "additionalProperties": false,
-      "description": "Split the whole struct array ``array`` into one array per member, named ``into`` in member order, each keeping its member's precision. A complex array is the struct ``(re, im)``.",
+      "description": "Split the whole array ``array`` into the arrays ``into``: a struct into one array per member (a complex array is the struct ``(re, im)``), a zipped array along its field, or, with ``dim``, any array along dimension ``dim``, one array per index (its extent must be ``len(into)``). Each keeps the precision and placement it had.",
       "properties": {
        "action": {
         "const": "unzip"
@@ -93,6 +93,10 @@
        "array": {
         "minLength": 1,
         "type": "string"
+       },
+       "dim": {
+        "minimum": 0,
+        "type": "integer"
        },
        "into": {
         "items": {

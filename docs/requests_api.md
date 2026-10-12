@@ -102,20 +102,24 @@ are not implemented yet.
 
 ### 3.1 Zip and the C ABI
 
-`zip` (`{"action": "zip", "arrays": ["u", "v"], "into": "uv"}`) gives the kernel one pointer to a plain C
-struct in place of the fields' pointers, at the position of the first field; `unzip` (`{"action":
-"unzip", "array": "z", "into": ["z_re", "z_im"]}`) gives one pointer per member. Neither changes a
-precision: each field keeps the type its casts left.
+`zip` (`{"action": "zip", "arrays": ["u", "v"], "into": "uv"}`) gives the kernel one pointer in place
+of the fields' pointers, at the position of the first field. Fields of one precision become a last
+dimension of the new array (`uv[i][k]` is field `k`), which the digit operations then place like any
+dimension (permute it outermost for SoA, block between for AoSoA); fields of different precisions
+become a plain C struct. `unzip` (`{"action": "unzip", "array": "z", "into": ["z_re", "z_im"]}`) gives
+one pointer per member or field, and with `dim` splits an array along a small dimension, one pointer
+per index. Neither changes a precision: each field keeps the type its casts left.
 
 ```c
-typedef struct { float u; double v; } hb_zip_uv;   /* field order = request order */
+typedef struct { float u; double v; } hb_zip_uv;   /* mixed precisions; field order = request order */
 void kernel(const hb_zip_uv *restrict uv, ..., void *workspace, int64_t workspace_bytes);
 ```
 
 Padding and alignment follow C (the judge allocates a numpy structured dtype with `align=True`);
 Fortran sees `type, bind(C) :: hb_zip_uv`. The route is relayout's Python-AST rewrite of the numpy
-reference to the requested layout, from which hb emits C, so its numpy-to-C lowering needs struct
-support before `zip` is graded.
+reference to the requested layout (`relayout.frontends.python`, which regroups and lays out element
+accesses), from which hb emits C, so its numpy-to-C lowering needs struct support before a mixed `zip`
+is graded.
 
 ### 3.2 Sparse arrays
 
