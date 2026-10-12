@@ -40,13 +40,8 @@ KERNEL = "gemm"
 #: A legal MPI layout for a 2-D array: rows block-split over a 4-rank grid, columns replicated.
 #: A requests block distributing ``A``'s rows over a 4-rank grid, as an agent sends it.
 ROW_SPLIT = {
-    "grid": ["P"],
-    "layout": {
-        "A": [
-            {"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]},
-            {"op": "distribute", "digit": "r", "grid_dim": 0},
-        ]
-    },
+    "startup": {"grid": ["P"]},
+    "operations": [{"action": "distribute", "array": "A", "grid_dim": 0, "dim": 0, "scheme": "block"}],
 }
 
 #: The tool modules, in import order (each imports the one before it).

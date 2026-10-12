@@ -1557,7 +1557,7 @@ def layout_label(task: Task, submission: Submission) -> str:
 
 
 def candidate_casts(submission: Submission, lib: pathlib.Path, device: bool) -> CastPlan | None:
-    """The precision casts the candidate's calls run (``requests.precision``), or None when it requests
+    """The precision casts the candidate's calls run (its ``cast`` operations), or None when it requests
     none. A host grade's cast library is built in the submission's OpenMP context and copied beside ``lib``."""
     if not submission.requests.precision:
         return None

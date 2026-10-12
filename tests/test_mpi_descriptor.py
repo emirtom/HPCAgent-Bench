@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from relayout.ops import Scheme
+from relayout.ops import Scheme, Startup
 
 from hpcagent_bench.harness import mpi_sizing
 from hpcagent_bench.harness.envelope import Submission
@@ -126,9 +126,11 @@ def submitted(plan) -> Submission:
     return Submission(language="c", source="x", requests=Requests.from_plan(plan))
 
 
-def requested(grid: list[int], layout: dict) -> Submission:
-    """A submission carrying ``layout`` op lists over ``grid`` as an agent would send them."""
-    return Submission(language="c", source="x", requests=Requests.from_obj({"grid": grid, "layout": layout}))
+def requested(grid: list[int], operations: list[dict]) -> Submission:
+    """A submission carrying ``operations`` over ``grid`` as an agent would send them."""
+    return Submission(
+        language="c", source="x", requests=Requests.from_obj({"startup": {"grid": grid}, "operations": operations})
+    )
 
 
 def block_axis0(scheme: Scheme = Scheme.BLOCK, block_size: int = 1):
@@ -164,7 +166,7 @@ def test_from_submission_rejects_grid_rank_mismatch() -> None:
 
 def test_from_submission_rejects_unknown_array() -> None:
     b = binding_2d()
-    with pytest.raises(ValueError, match="unknown array 'Z'"):
+    with pytest.raises(ValueError, match="no array 'Z'"):
         Descriptor.from_submission(submitted({"grid": [2, 1], "arrays": {"Z": block_axis0()}}), b, ranks=2)
 
 
@@ -173,13 +175,13 @@ def test_from_submission_rejects_distributing_a_scalar() -> None:
     # alpha is a scalar -> broadcast by value, never distributed.
     with pytest.raises(ValueError, match="scalar 'alpha'"):
         Descriptor.from_submission(
-            requested([2], {"alpha": [{"op": "distribute", "digit": "i0", "grid_dim": 0}]}), b, ranks=2
+            requested([2], [{"action": "distribute", "array": "alpha", "grid_dim": 0, "digit": "i0"}]), b, ranks=2
         )
 
 
 def test_from_submission_rejects_an_op_on_a_missing_dimension() -> None:
     b = binding_2d()  # A is 2-D
-    layout = {"A": [{"op": "block", "digit": "i2", "factor": 2, "into": ["o", "f"]}]}
+    layout = [{"action": "block", "array": "A", "digit": "i2", "factor": 2, "into": ["o", "f"]}]
     with pytest.raises(ValueError, match="no digit 'i2'"):
         Descriptor.from_submission(requested([2], layout), b, ranks=2)
 
@@ -189,21 +191,17 @@ def test_layout_rejects_two_dimensions_on_one_grid_dim() -> None:
     # sub-tile, so the off-diagonal blocks are unowned and gather returns uninit holes. Refused even
     # at extent 1, since the grid is re-sized to every P a scaling run measures.
     for grid in ([2, 1], [1, 1]):
-        layout = {
-            "C": [
-                {"op": "split", "digit": "i1", "parts": "P0", "into": ["r1", "i1"]},
-                {"op": "distribute", "digit": "r1", "grid_dim": 0},
-                {"op": "split", "digit": "i0", "parts": "P0", "into": ["r0", "i0"]},
-                {"op": "distribute", "digit": "r0", "grid_dim": 0},
-            ]
-        }
+        layout = [
+            {"action": "distribute", "array": "C", "grid_dim": 0, "dim": 1, "scheme": "block"},
+            {"action": "distribute", "array": "C", "grid_dim": 0, "dim": 0, "scheme": "block"},
+        ]
         with pytest.raises(ValueError, match="grid_dim 0 is already distributed"):
             Descriptor.from_submission(requested(grid, layout), binding_2d(), ranks=math.prod(grid))
 
 
 def test_layout_rejects_zero_block_factor() -> None:
     # A zero factor would be a zero-width block; refused before anything is scattered.
-    layout = {"A": [{"op": "block", "digit": "i0", "factor": 0, "into": ["o", "f"]}]}
+    layout = [{"action": "block", "array": "A", "digit": "i0", "factor": 0, "into": ["o", "f"]}]
     with pytest.raises(ValueError, match="a factor or part count must be >= 1"):
         Descriptor.from_submission(requested([2], layout), binding_2d(), ranks=2)
 
@@ -501,7 +499,7 @@ def test_plan_rejects_block_cyclic_on_unequal_grid() -> None:
     cyclic = [(0, Scheme.BLOCK_CYCLIC, 2), (1, Scheme.BLOCK_CYCLIC, 2)]
     bad = Requests.from_plan({"grid": [2, 2], "arrays": {"A": {"axes": [axis_entry(a) for a in cyclic]}}})
     with pytest.raises(ValueError, match="needs an equal-edge grid"):
-        replace(bad, grid=("2", "4")).plan({"A": 2}, 8)
+        replace(bad, startup=Startup(grid=("2", "4"))).plan({"A": 2}, 8)
 
 
 def test_plan_allows_block_cyclic_on_equal_hypercube() -> None:
@@ -611,8 +609,9 @@ def test_from_submission_default_location_applies() -> None:
 
 
 def test_envelope_rejects_bad_location() -> None:
-    with pytest.raises(ValueError, match="must be 'host' or 'device'"):
-        Submission.from_obj({"language": "c", "source": "x", "requests": {"grid": [2], "location": {"A": "gpu"}}})
+    place = {"action": "place", "array": "A", "on": "gpu"}
+    with pytest.raises(ValueError, match=r"on must be one of \['host', 'device'\]"):
+        Submission.from_obj({"language": "c", "source": "x", "requests": {"operations": [place]}})
 
 
 if __name__ == "__main__":

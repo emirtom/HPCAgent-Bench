@@ -2032,7 +2032,7 @@ class BenchSpec:
     # When present it declares how the distributed track may decompose this kernel:
     # ``decomposition`` (the size symbol(s) sizing the block-partitioned axis + the
     # stencil ``halo``), the ``allowed_schemes`` / ``distributable_axes`` bounds an
-    # agent's ``requests.layout`` must stay within, and an optional ``symbol_axes`` map
+    # agent's layout operations must stay within, and an optional ``symbol_axes`` map
     # ({size_symbol: [array, axis]}) that pins per-rank local extents for legacy
     # kernels whose shapes are not declarative, and ``replicatable`` -- the LIST of array names a
     # submission may hold whole on every rank (everything else must be

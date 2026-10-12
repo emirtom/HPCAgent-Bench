@@ -1,47 +1,47 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The envelope's ``requests`` block: how a submission asks the judge to change what reaches its kernel.
+"""The envelope's ``requests``: how a submission asks the judge to change what reaches its kernel.
 
-``libraries`` (catalog names), ``precision`` (per-array element type), ``layout`` (per-array op
-sequence, MPI ``distribute`` included), ``grid`` (the processor grid, extents over the rank count ``P``),
-``location`` (per-array residency of a distributed run), ``sparse`` (per-array sparse format) and the
-group ops ``zip`` / ``unzip``. See docs/requests_api.md.
-
-The layout ops, the grid expressions, their JSON, inverses and lowering are relayout's
-(:mod:`relayout.ops`): this module parses the block around them and lowers it, at a rank count, to the
-distribution plan the scatter descriptor reads.
+A request is relayout's (:mod:`relayout.ops`, its JSON :mod:`relayout.requests`): ``startup`` loads
+catalog libraries and sets the processor grid, and ``operations`` run top to bottom over the kernel's
+arrays (``cast``, ``format``, ``zip`` / ``unzip``, the digit cuts, ``distribute``, ``replicate``,
+``place``). This module reads it against a kernel: which arrays exist, which precisions and sparse
+formats apply, and the distribution plan the scatter descriptor reads at a rank count. See
+docs/requests_api.md.
 """
 
-import enum
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import relayout.ops
 from relayout.ops import (
-    GROUP_OPS,
     RANKS_SYMBOL,
+    ArrayName,
+    ArraySpec,
     AxisSplit,
-    GroupOp,
-    LayoutOp,
+    Cast,
+    Format,
+    FormatLabel,
+    Location,
+    Operation,
+    Place,
+    Replicate,
     Scheme,
-    expr_json,
-    grid_extents,
-    groups_from_json,
-    groups_json,
-    lower_layout,
-    op_json,
-    ops_for_axes,
-    parse_grid,
-    parse_op,
+    Startup,
+    State,
+    lower,
+    operations_for_axes,
 )
+from relayout.requests import parse_requests, requests_json
 
 from hpcagent_bench import config
 from hpcagent_bench.dtypes import canonical, is_float_dtype
 from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.support.bindings.contract import graded_datatype
-from hpcagent_bench.support.helpers.sparse.abi import parse_sparse_config
+from hpcagent_bench.support.helpers.sparse.abi import array_layout
 
 if TYPE_CHECKING:
     from hpcagent_bench.spec import BenchSpec
@@ -51,26 +51,20 @@ __all__ = [
     "Location",
     "Requests",
     "grid_request",
+    "kernel_arrays",
     "mpi_residency",
     "precision_problem_dtypes",
     "precision_refusal",
 ]
 
 
-class Location(enum.Enum):
-    """Where a distributed array's tiles live during the call; the harness scatters on the host."""
-
-    HOST = "host"
-    DEVICE = "device"
-
-
 def mpi_residency() -> Location:
-    """The run-wide residency of a distributed array no ``requests.location`` names (``mpi.residency``)."""
+    """The run-wide residency of a distributed array no ``place`` names (``mpi.residency``)."""
     return Location(config.get_str("mpi.residency", Location.HOST.value))
 
 
 def grid_request(grid: Sequence[int]) -> tuple[str, ...]:
-    """The ``requests.grid`` that is ``grid`` at its rank count and follows ``P`` like a scaling run does:
+    """The ``startup.grid`` that is ``grid`` at its rank count and follows ``P`` like a scaling run does:
     ``[P]`` in 1-D, ``root(P, d)`` per edge of an equal-edge ``d``-D grid, else the literal extents."""
     if len(grid) == 1:
         return (RANKS_SYMBOL,)
@@ -79,142 +73,141 @@ def grid_request(grid: Sequence[int]) -> tuple[str, ...]:
     return tuple(str(int(extent)) for extent in grid)
 
 
+def kernel_arrays(binding: "Binding", ndims: Mapping[str, int]) -> list[ArraySpec]:
+    """The arrays a request's operations start from: every shaped dense pointer of ``ndims`` (a complex
+    one is the struct ``(re, im)``) and every sparse logical array."""
+    sparse = {member for group in binding.packed for member in group.members}
+    dtypes = {arg.name: arg.dtype for arg in binding.pointers}
+    dense = [
+        ArraySpec(name, ndim, members=("re", "im") if np.dtype(canonical(dtypes[name])).kind == "c" else ())
+        for name, ndim in ndims.items()
+        if name in dtypes and name not in sparse
+    ]
+    return dense + [ArraySpec(group.logical, 2, sparse=True) for group in binding.packed]
+
+
 @dataclass(frozen=True, slots=True)
-class Requests:
-    """One submission's ``requests`` block, structurally validated; checks against the kernel (array
-    names, dtypes, the binding's ranks) are the judge's."""
-
-    libraries: tuple[str, ...] = ()
-    precision: Mapping[str, Precision] = field(default_factory=dict)
-    #: The processor grid's extents as expressions over the rank count ``P`` (:func:`relayout.ops.grid_extents`).
-    grid: tuple[str, ...] | None = None
-    layout: Mapping[str, tuple[LayoutOp, ...]] = field(default_factory=dict)
-    location: Mapping[str, Location] = field(default_factory=dict)
-    #: The group ops (``zip`` / ``unzip``), unzips first.
-    groups: tuple[GroupOp, ...] = ()
-    sparse: Mapping[str, Any] | None = None
-
-    @property
-    def distributed(self) -> bool:
-        """Whether this asks for an MPI run: it names a processor grid."""
-        return self.grid is not None
+class Requests(relayout.ops.Requests):
+    """One submission's request, structurally validated; its checks against a kernel (array names,
+    dtypes, the binding's ranks) are the judge's."""
 
     @classmethod
     def from_obj(cls, raw: object) -> "Requests":
-        """Parse the ``requests`` JSON object (None = no requests); a malformed block raises ValueError."""
-        if raw is None:
-            return cls()
-        if not isinstance(raw, dict):
-            raise ValueError(f"requests must be an object; got {type(raw).__name__}")
-        known = ["libraries", "precision", "grid", "layout", "location", "sparse", *GROUP_OPS.keys()]
-        unknown = set(raw) - set(known)
-        if unknown:
-            raise ValueError(f"requests has unknown field(s) {sorted(unknown)}; fields are {', '.join(known)}")
-        libraries = raw.get("libraries") or []
-        if not isinstance(libraries, list) or not all(isinstance(name, str) for name in libraries):
-            raise ValueError("requests.libraries must be a list of catalog names")
-        grid = None if raw.get("grid") is None else parse_grid(raw["grid"], "requests.grid")
-        location = parse_location(raw.get("location"))
-        if location and grid is None:
-            raise ValueError("requests.location places the tiles of a distributed run; it needs requests.grid")
-        groups = [
-            group
-            for key in ("unzip", "zip")
-            if key in raw
-            for group in groups_from_json(key, raw[key], f"requests.{key}")
-        ]
-        return cls(
-            libraries=tuple(libraries),
-            precision=parse_precision(raw.get("precision")),
-            grid=grid,
-            layout=parse_layout(raw.get("layout")),
-            location=location,
-            groups=tuple(groups),
-            sparse=parse_sparse(raw.get("sparse")),
-        )
+        """Parse the ``requests`` JSON object (None = no requests); a malformed one raises ValueError."""
+        parsed = parse_requests(raw)
+        for op in parsed.operations:
+            if isinstance(op, Format):
+                array_layout(op.array, op.to)
+        return cls(parsed.startup, parsed.operations)
+
+    @classmethod
+    def of(
+        cls,
+        *,
+        libraries: Sequence[str] = (),
+        precision: Mapping[str, Precision] | None = None,
+        sparse: Mapping[str, str] | None = None,
+    ) -> "Requests":
+        """The single-node request loading ``libraries``, casting by ``precision`` and storing each sparse
+        array in its ``sparse`` format."""
+        ops: list[Operation] = []
+        ops += [Cast(ArrayName(name), relayout.ops.Precision(p.value)) for name, p in (precision or {}).items()]
+        ops += [Format(ArrayName(name), FormatLabel(label)) for name, label in (sparse or {}).items()]
+        return cls(Startup(tuple(libraries)), tuple(ops))
 
     def to_json(self) -> dict[str, Any]:
-        """The block as JSON, empty fields left out (``{}`` = no requests)."""
-        out: dict[str, Any] = {}
-        if self.libraries:
-            out["libraries"] = list(self.libraries)
-        if self.precision:
-            out["precision"] = {name: p.value for name, p in sorted(self.precision.items())}
-        if self.grid is not None:
-            out["grid"] = [expr_json(extent) for extent in self.grid]
-        if self.layout:
-            out["layout"] = {name: [op_json(op) for op in ops] for name, ops in sorted(self.layout.items())}
-        if self.location:
-            out["location"] = {name: loc.value for name, loc in sorted(self.location.items())}
-        out.update(groups_json(self.groups))
-        if self.sparse is not None:
-            out["sparse"] = dict(self.sparse)
-        return out
+        """The request as JSON, empty parts left out (``{}`` = no requests)."""
+        return requests_json(self)
 
-    def grid_at(self, ranks: int) -> tuple[int, ...] | None:
-        """The grid's extents at ``ranks`` ranks; None when there is no grid or it does not span ``ranks``."""
-        return None if self.grid is None else grid_extents(self.grid, ranks, "requests.grid")
+    @property
+    def libraries(self) -> tuple[str, ...]:
+        """The catalog libraries ``startup.load`` names."""
+        return self.startup.load
+
+    @property
+    def grid(self) -> tuple[str, ...] | None:
+        """``startup.grid``: the grid's extents over the rank count ``P``."""
+        return self.startup.grid
+
+    @property
+    def precision(self) -> dict[str, Precision]:
+        """Each array a ``cast`` names, with the precision its last cast leaves."""
+        return {name: Precision(p.value) for name, p in self.precisions().items()}
+
+    @property
+    def location(self) -> dict[str, Location]:
+        """Each array a ``place`` names, with the memory its last one leaves."""
+        return self.locations()
+
+    @property
+    def sparse(self) -> dict[str, str] | None:
+        """Each sparse array a ``format`` names, with its format label; None when none does."""
+        return self.formats() or None
+
+    def lowered(self, ndims: Mapping[str, int], ranks: int) -> State:
+        """The operations run over the arrays of ``ndims`` on the grid at ``ranks`` ranks."""
+        return self.run([ArraySpec(name, ndim) for name, ndim in ndims.items()], ranks)
 
     def plan(self, ndims: Mapping[str, int], ranks: int) -> dict[str, Any]:
         """The distribution plan the descriptor scatters with at ``ranks`` ranks (``{"grid", "arrays": {name:
-        {"axes" | "replicated", "location"}}}``). Every op sequence is lowered here, so a sequence that cannot
-        be is refused before anything is built."""
-        if self.grid is None:
-            raise ValueError("requests.layout distributes nothing without requests.grid")
-        dims = self.grid_at(ranks)
-        if dims is None:
-            raise ValueError(f"requests.grid {list(self.grid)} does not span {ranks} rank(s)")
-        if self.groups:
-            raise ValueError(f"requests.{self.groups[0].op} is not implemented yet")
-        lowered: dict[str, list[AxisSplit | None]] = {}
-        for name, ops in sorted(self.layout.items()):
-            if name not in ndims:
-                raise ValueError(f"requests.layout names unknown array {name!r}; arrays are {sorted(ndims)}")
-            lowered[name] = lower_layout(ops, ndims[name], dims, f"requests.layout[{name!r}]")
-        cyclic = any(axis is not None and axis.scheme is not Scheme.BLOCK for axes in lowered.values() for axis in axes)
-        if cyclic and len(set(dims)) > 1:
+        {"axes" | "replicated", "location"}}}``); an array no operation lays out is left out (replicated)."""
+        state = self.lowered(ndims, ranks)
+        splits = lower(state)
+        cyclic = any(
+            axis is not None and axis.scheme is not Scheme.BLOCK for axes in splits.values() for axis in axes or ()
+        )
+        grid = state.grid or ()
+        if cyclic and len(set(grid)) > 1:
             raise ValueError(
                 f"a cyclic / block-cyclic layout needs an equal-edge grid so the cyclic wrap is symmetric; "
-                f"requests.grid {list(self.grid)} is {list(dims)} at {ranks} rank(s)"
+                f"startup.grid {list(self.grid or ())} is {list(grid)} at {ranks} rank(s)"
             )
-        arrays: dict[str, dict[str, Any]] = {name: axes_json(axes) for name, axes in lowered.items()}
-        for name, location in self.location.items():
-            if name not in ndims:
-                raise ValueError(f"requests.location names unknown array {name!r}; arrays are {sorted(ndims)}")
-            arrays.setdefault(name, {"replicated": True})["location"] = location.value
-        return {"grid": list(dims), "arrays": arrays}
+        arrays: dict[str, dict[str, Any]] = {name: axes_json(axes) for name, axes in splits.items()}
+        for name, array in state.arrays.items():
+            if array.location is not None:
+                arrays.setdefault(name, {"replicated": True})["location"] = array.location.value
+        return {"grid": list(grid), "arrays": arrays}
+
+    def unplaced(self, ndims: Mapping[str, int], ranks: int) -> list[str]:
+        """The arrays of ``ndims`` the operations neither distribute nor replicate."""
+        state = self.lowered(ndims, ranks)
+        return sorted(
+            name for name, array in state.arrays.items() if not (array.digits.distributed or array.replicated)
+        )
 
     @classmethod
-    def from_plan(cls, plan: Mapping[str, Any], libraries: Sequence[str] = ()) -> "Requests":
-        """The requests whose :meth:`plan` at the plan's rank count is ``plan``, with the grid following ``P``
-        (:func:`grid_request`): how a kernel's default distribution (and a grade recorded before the
-        ``requests`` column) is shown as op sequences."""
-        layout: dict[str, tuple[LayoutOp, ...]] = {}
-        location: dict[str, Location] = {}
+    def from_plan(
+        cls, plan: Mapping[str, Any], libraries: Sequence[str] = (), arrays: Sequence[str] = ()
+    ) -> "Requests":
+        """The request whose :meth:`plan` at the plan's rank count is ``plan``, with the grid following ``P``
+        (:func:`grid_request`) and every array of ``arrays`` the plan leaves out replicated: how a kernel's
+        default distribution (and a grade recorded before the ``requests`` column) is shown."""
+        ops: list[Operation] = []
         for name, entry in plan["arrays"].items():
-            if "location" in entry:
-                location[name] = Location(entry["location"])
             if entry.get("replicated"):
-                layout[name] = ()
-                continue
-            axes = [
-                None
-                if axis.get("grid_dim") is None
-                else AxisSplit(
-                    int(axis["grid_dim"]),
-                    Scheme(axis.get("scheme", Scheme.BLOCK.value)),
-                    int(axis.get("block_size", 1)),
-                )
-                for axis in entry["axes"]
-            ]
-            layout[name] = ops_for_axes(axes)
+                ops.append(Replicate(ArrayName(name)))
+            else:
+                axes = [
+                    None
+                    if axis.get("grid_dim") is None
+                    else AxisSplit(
+                        int(axis["grid_dim"]),
+                        Scheme(axis.get("scheme", Scheme.BLOCK.value)),
+                        int(axis.get("block_size", 1)),
+                    )
+                    for axis in entry["axes"]
+                ]
+                ops += operations_for_axes(name, axes)
+            if "location" in entry:
+                ops.append(Place(ArrayName(name), Location(entry["location"])))
+        ops += [Replicate(ArrayName(name)) for name in arrays if name not in plan["arrays"]]
         grid = grid_request([int(extent) for extent in plan["grid"]])
-        return cls(libraries=tuple(libraries), grid=grid, layout=layout, location=location)
+        return cls(Startup(tuple(libraries), grid), tuple(ops))
 
 
-def axes_json(axes: Sequence[AxisSplit | None]) -> dict[str, Any]:
+def axes_json(axes: Sequence[AxisSplit | None] | None) -> dict[str, Any]:
     """One array's plan entry: ``{"replicated": true}`` when no dimension is split, else its ``axes``."""
-    if all(axis is None for axis in axes):
+    if axes is None or all(axis is None for axis in axes):
         return {"replicated": True}
     return {
         "axes": [
@@ -226,66 +219,17 @@ def axes_json(axes: Sequence[AxisSplit | None]) -> dict[str, Any]:
     }
 
 
-def parse_precision(raw: object) -> dict[str, Precision]:
-    if raw is None:
-        return {}
-    if not isinstance(raw, dict):
-        raise ValueError("requests.precision must be an object {array: precision}")
-    out: dict[str, Precision] = {}
-    for name, value in raw.items():
-        if not isinstance(value, str):
-            raise ValueError(f"requests.precision[{name!r}] must be a precision name; got {value!r}")
-        out[str(name)] = Precision.from_str(value)
-    return out
-
-
-def parse_layout(raw: object) -> dict[str, tuple[LayoutOp, ...]]:
-    if raw is None:
-        return {}
-    if not isinstance(raw, dict):
-        raise ValueError("requests.layout must be an object {array: [op, ...]}")
-    out: dict[str, tuple[LayoutOp, ...]] = {}
-    for name, ops in raw.items():
-        if not isinstance(ops, list):
-            raise ValueError(f"requests.layout[{name!r}] must be a list of ops")
-        out[str(name)] = tuple(parse_op(op, f"requests.layout[{name!r}][{k}]") for k, op in enumerate(ops))
-    return out
-
-
-def parse_location(raw: object) -> dict[str, Location]:
-    if raw is None:
-        return {}
-    if not isinstance(raw, dict):
-        raise ValueError("requests.location must be an object {array: 'host' | 'device'}")
-    out: dict[str, Location] = {}
-    for name, value in raw.items():
-        try:
-            out[str(name)] = Location(value)
-        except ValueError:
-            raise ValueError(f"requests.location[{name!r}] must be 'host' or 'device'; got {value!r}") from None
-    return out
-
-
-def parse_sparse(raw: object) -> dict[str, Any] | None:
-    if raw is None:
-        return None
-    parse_sparse_config(raw)  # the shape only, with its own refusals; the kernel is consulted by the judge
-    if not isinstance(raw, dict):  # unreachable past parse_sparse_config; narrows the type
-        raise ValueError("requests.sparse must be an object {array: format}")
-    return {str(name): label for name, label in raw.items()}
-
-
 def precision_refusal(precision: Mapping[str, Precision], problem: Mapping[str, str]) -> str | None:
     """Why ``precision`` cannot be honoured, or None. ``problem`` maps every array a precision may be
     requested for (floating, dense, not an index array) to its dtype at the problem precision."""
     for name, wanted in sorted(precision.items()):
         if name not in problem:
             return (
-                f"requests.precision names {name!r}, which is not a floating dense array of this kernel; "
+                f"a cast names {name!r}, which is not a floating dense array of this kernel; "
                 f"precision may be requested for {sorted(problem)}"
             )
         if np.dtype(numpy_dtype(wanted)) == np.dtype(problem[name]):
-            return f"requests.precision[{name!r}] = {wanted.value!r} is already the array's problem precision; drop it"
+            return f"cast of {name!r} to {wanted.value!r}: that is already the array's problem precision; drop it"
     return None
 
 

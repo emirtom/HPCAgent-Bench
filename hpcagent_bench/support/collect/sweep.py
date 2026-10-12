@@ -442,7 +442,7 @@ def discover_sparse_benches(filter_names: Sequence[str] | None = None) -> list[s
 
 
 def sparse_config_for(spec: BenchSpec, fmt: str, block_size: int) -> dict[str, str]:
-    """The ``requests.sparse`` block asking every sparse array of ``spec`` for ``fmt``."""
+    """The sparse formats asking every sparse array of ``spec`` for ``fmt``."""
     label = f"{fmt}:{block_size}" if fmt == BLOCK_FORMAT else fmt
     return dict.fromkeys(sorted(spec.sparse_layouts), label)
 
@@ -476,7 +476,7 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
     if source is None:
         return SparseCase(kernel, label, "untranslated", "no reference translation for this layout")
     submission = Submission(
-        language="c", source=source, requests=Requests(sparse=sparse_config_for(spec, fmt, block_size))
+        language="c", source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, block_size))
     )
     task = Task(kernel, language="c")
     try:

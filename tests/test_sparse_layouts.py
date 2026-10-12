@@ -193,24 +193,22 @@ def test_a_block_edge_that_does_not_tile_the_matrix_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw", "match"),
+    ("label", "match"),
     [
-        ({"A": "jds"}, "must be one of"),
-        ({"A": "bsr"}, "positive block size"),
-        ({"A": "bsr:0"}, "positive block size"),
-        ({"A": "csr:2"}, "applies to 'bsr' only"),
-        ({"A": {"format": "csr"}}, "must be a format name"),
-        ({}, "non-empty"),
-        ("csr", "non-empty object"),
+        ("jds", "must be one of"),
+        ("bsr", "positive block size"),
+        ("bsr:0", "positive block size"),
+        ("csr:2", "applies to 'bsr' only"),
+        ({"format": "csr"}, r"operations\[0\].to must be a name"),
     ],
 )
-def test_a_malformed_sparse_config_is_a_request_fault(raw: object, match: str) -> None:
+def test_a_malformed_format_is_a_request_fault(label: object, match: str) -> None:
     with pytest.raises(ValueError, match=match):
-        Requests.from_obj({"sparse": raw})
+        Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": label}]})
 
 
 def test_the_sparse_config_rides_the_envelope_both_ways() -> None:
-    sub = Submission(language="c", source="x", requests=Requests(sparse={"A": "bsr:4"}))
+    sub = Submission(language="c", source="x", requests=Requests.of(sparse={"A": "bsr:4"}))
     assert Submission.from_obj(sub.to_json()).requests.sparse == sub.requests.sparse
     assert parse_sparse_config(sub.requests.sparse) == {"A": ArrayLayout("bsr", 4)}
 

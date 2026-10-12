@@ -105,7 +105,7 @@ def test_sandbox_build_resolves_an_offered_catalog_request(tmp_path) -> None:
         "  (void)workspace; (void)workspace_size; C[0] = 0.0;\n"
         "}\n"
     )
-    submission = Submission(language="c", source=source, requests=Requests(libraries=tuple([name])))
+    submission = Submission(language="c", source=source, requests=Requests.of(libraries=tuple([name])))
     with Sandbox(binding) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
     assert built.ok, built.log
@@ -115,7 +115,7 @@ def test_sandbox_build_refuses_an_unoffered_catalog_request_before_compiling(tmp
     spec = BenchSpec.load("gemm")
     binding = binding_from_spec(spec)
     submission = Submission(
-        language="c", source="void gemm_fp64(void) {}\n", requests=Requests(libraries=("not-a-real-library",))
+        language="c", source="void gemm_fp64(void) {}\n", requests=Requests.of(libraries=("not-a-real-library",))
     )
     with Sandbox(binding) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
@@ -138,7 +138,7 @@ def test_an_unoffered_catalog_request_is_a_400_and_does_not_spend_the_submission
                 "language": "c",
                 "rank": RANK,
                 "source": "void gemm_fp64(void) {}\n",
-                "requests": {"libraries": ["not-a-real-library"]},
+                "requests": {"startup": {"load": ["not-a-real-library"]}},
                 "episode_id": "test-catalog-refusal",
             },
         )

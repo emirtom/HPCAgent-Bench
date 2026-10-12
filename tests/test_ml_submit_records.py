@@ -48,6 +48,12 @@ from tests.conftest import RANK_ENV_VARS
 from tests.fresh_module import fresh
 from tests.test_scaling_grade import SWEEP, scaling_worklist
 
+
+def with_libraries(requests: dict, libraries: list[str]) -> dict:
+    """``requests`` (JSON) with ``startup.load`` set to ``libraries``."""
+    return {**requests, "startup": {**requests.get("startup", {}), "load": libraries}}
+
+
 #: The setups' fuzz draws, uncapped: conftest's size cap would grade cells no setup ever launches.
 pytestmark = pytest.mark.real_fuzz
 
@@ -213,7 +219,7 @@ def agent_body(kernel: str, *, wrong: bool = False) -> dict[str, object]:
         "source": 'extern "C" void entry() {}\n',
         "device_source": (WRONG if wrong else "") + "__global__ void k() {}\n",
         "workspace_bytes": workspace_request(spec),
-        "requests": {**default_requests(spec.mpi, binding_from_spec(spec), 4).to_json(), "libraries": ["mpi", "rccl"]},
+        "requests": with_libraries(default_requests(spec.mpi, binding_from_spec(spec), 4).to_json(), ["mpi", "rccl"]),
         "episode_id": f"{SETUP}.n0.p0.w0",
     }
     body = load_http_json().submission_body(payload)

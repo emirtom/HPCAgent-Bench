@@ -171,21 +171,19 @@ def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
 def fold_legacy_grade(row: dict[str, Value]) -> dict[str, Value]:
     """``row`` (a ``grades`` row as a column dict) with v6's per-request columns folded into v7's
     ``requests`` and ``convert_in_ns``; a v7 row is returned unchanged. An MPI distribution becomes
-    its op-sequence layout (:meth:`Requests.from_plan`), the sparse request ``requests.sparse``."""
+    its ``distribute`` / ``replicate`` operations (:meth:`Requests.from_plan`), a sparse request its
+    ``format`` operations."""
     if not any(name in row for name in LEGACY_GRADE_COLUMNS):
         return row
     libraries = json.loads(str(row.pop("requested_libraries", "") or "[]"))
     distribution = str(row.pop("distribution", "") or "")
     sparse = str(row.pop("layout_request", "") or "")
     prep = int(row.pop("layout_prep_ns", 0) or 0)
+    formats = Requests.of(sparse=json.loads(sparse)).operations if sparse else ()
     requests = (
-        Requests.from_plan(json.loads(distribution), libraries)
-        if distribution
-        else Requests(libraries=tuple(libraries))
+        Requests.from_plan(json.loads(distribution), libraries) if distribution else Requests.of(libraries=libraries)
     )
-    block = requests.to_json()
-    if sparse:
-        block["sparse"] = json.loads(sparse)
+    block = Requests(requests.startup, requests.operations + formats).to_json()
     row["requests"] = json.dumps(block, sort_keys=True) if block else ""
     row["convert_in_ns"] = prep
     return row

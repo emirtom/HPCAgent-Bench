@@ -120,7 +120,7 @@ _PROMPTS_DIR = pathlib.Path(__file__).parent / "prompts"
 #: Package top level, where ``skills/`` and ``tools/`` ship as package data (the templates live in
 #: :data:`_PROMPTS_DIR`); :func:`discover` resolves both from here.
 _PACKAGE_DIR = pathlib.Path(__file__).parent.parent
-#: Each precision ``requests.precision`` may ask for, with the C element type its pointer then takes.
+#: Each precision a ``cast`` may ask for, with the C element type its pointer then takes.
 PRECISION_CTYPES = tuple({"precision": p.value, "ctype": c_type(np.dtype(numpy_dtype(p)).name)} for p in Precision)
 
 #: What ``prompt.sections`` holds: section key -> ``off`` (False) or the template that replaces it.
@@ -907,7 +907,9 @@ def sparse_layout_context(spec: BenchSpec, language: str) -> dict[str, object]:
         "block_sizes": list(bsr_block_sizes()),
         "quantum": math.lcm(*bsr_block_sizes()),
         "scenarios": list(spec.init.scenarios) if spec.init is not None else [],
-        "example": json.dumps({"requests": {"sparse": dict.fromkeys(arrays, "csc")}}),
+        "example": json.dumps(
+            {"requests": {"operations": [{"action": "format", "array": name, "to": "csc"} for name in arrays]}}
+        ),
     }
 
 

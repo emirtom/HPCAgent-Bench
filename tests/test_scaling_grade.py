@@ -145,12 +145,12 @@ def test_a_single_node_kernel_gets_no_sweep() -> None:
 def test_a_submission_without_a_recorded_layout_is_reported_not_guessed(judge_db: pathlib.Path, tmp_path) -> None:
     """A manifest-default layout is not the agent's layout; replaying it would grade other code."""
     submission = hip_submission()
-    submission.requests = Requests(libraries=("rccl",))
+    submission.requests = Requests.of(libraries=("rccl",))
     record(judge_db, submission)
     owed = grade_under.build_owed_worklist([judge_db], setup_env_dir(tmp_path))[0]
     items, problems = grade_under.scaled_items(owed, SWEEP.rank_counts)
     assert items == []
-    assert [line.split(":")[0] for line in problems] == ["no recorded requests.grid"]
+    assert [line.split(":")[0] for line in problems] == ["no recorded startup.grid"]
 
 
 def test_the_replayed_envelope_is_the_recorded_one(judge_db: pathlib.Path) -> None:
@@ -337,7 +337,7 @@ def test_a_layout_the_live_route_refuses_is_refused_on_replay_before_any_build(j
     item = stored_item(judge_db, hip_submission(distribution={"grid": [4], "arrays": {"out": SPLIT}}))
     graded = scaling_grade.grade(item)
     assert (graded.status, graded.curves) == (scaling_grade.GradeStatus.REFUSED, ())
-    assert "replicates 'x'" in graded.detail, graded.detail
+    assert "replicate 'x'" in graded.detail, graded.detail
 
 
 def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol(

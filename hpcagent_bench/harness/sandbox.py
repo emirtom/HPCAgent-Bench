@@ -192,7 +192,7 @@ def build_link_refusal(build: Sequence[str], lang: str) -> str | None:
     return (
         f"'build' names {', '.join('-l' + name for name in missing)}, not installed in the shared "
         f"folder and not on the advertised catalog for {lang!r}; on offer here: {offered}. Install "
-        "it into the shared folder yourself, or request it by name via 'requests.libraries'."
+        "it into the shared folder yourself, or request it by name via 'startup.load'."
     )
 
 
@@ -225,7 +225,7 @@ def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str |
         # Name what was refused and what is still honoured (agents otherwise dropped rccl too).
         honoured = f"; {', '.join(sorted(contract))} are still honoured here" if contract else ""
         return (
-            f"'requests.libraries' are not enabled on this track (grading.allow_agent_build_tokens is off): "
+            f"'startup.load' are not enabled on this track (grading.allow_agent_build_tokens is off): "
             f"refused {', '.join(switched)}{honoured}"
         )
     unoffered = [name for name in names if not languages.library_offered(name, lang, context)]
@@ -233,9 +233,9 @@ def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str |
         return None
     unserved = [why for name in unoffered if (why := languages.library_served(name, context))]
     if unserved:
-        return "'requests.libraries' refused: " + "; ".join(unserved)
+        return "'startup.load' refused: " + "; ".join(unserved)
     offered = ", ".join(languages.available_libraries(lang, context)) or "(none for this language)"
-    return f"'requests.libraries' names {', '.join(unoffered)}, not on the advertised catalog for {lang!r}; on offer here: {offered}"
+    return f"'startup.load' names {', '.join(unoffered)}, not on the advertised catalog for {lang!r}; on offer here: {offered}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -686,7 +686,7 @@ class Sandbox:
                     gpu_compile, gpu_link = languages.mpich_wrapper_flags(wrappers)
 
         driver_src = self.root / f"{short}_mpi_driver.{driver_ext}"
-        # requests.precision: the driver converts each requested (host) tile around every call.
+        # cast operations: the driver converts each requested (host) tile around every call.
         casts = {name: np.dtype(numpy_dtype(p)).name for name, p in submission.requests.precision.items()}
         driver_src.write_text(gen_mpi_driver(self.binding, descriptor.grid.dims, device_arrays=device_idx, casts=casts))
         # Every translation unit the delivery carries (a GPU submission has two).

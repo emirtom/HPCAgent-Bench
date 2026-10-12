@@ -248,7 +248,7 @@ def last_passing(run_dir: pathlib.Path, bench: str, episode_id: str, since_ms: i
     is absent). None when no such grade exists.
 
     The source alone is not the submission. An MPI grade without its layout is refused ("no
-    requests.grid"), one without ``rccl`` in its requested libraries does not link, one without its scratch runs on a NULL
+    startup.grid"), one without ``rccl`` in its requested libraries does not link, one without its scratch runs on a NULL
     workspace -- and on a single-submission setup that failed grade is the episode's one recorded
     answer. A hip/cuda submission is TWO translation units; sending only ``source`` builds fine on a
     host-only setup but fails a GPU one for a reason that looks like the agent's fault.

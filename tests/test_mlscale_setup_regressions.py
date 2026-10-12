@@ -11,7 +11,7 @@ faked.
 * A ``grid: [1]`` layout, re-gridded to every P by the grade, is re-verified as it was graded.
 * The reference receives a replicated input on the kernel's default split, so a correct kernel
   holding ``x`` replicated grades against a reference shard of its own shape.
-* The prompt and the refusal name which ``requests.libraries`` still link (``rccl``, ``mpi``).
+* The prompt and the refusal name which ``requests.startup.load`` still link (``rccl``, ``mpi``).
 * A wrong answer at any graded rank count fails the grade; a timed-out rank count is a hole in the
   curve.
 """
@@ -31,6 +31,12 @@ from tests.test_ml_submit_records import JOB, SETUP, SETUP_ENV, agent_body, post
 from tests.test_promote_unsubmitted import load_example_module
 from tests.test_prompt_contract_consistency import driver_module
 from tests.test_scaling_grade import scaling_worklist
+
+
+def with_libraries(requests: dict, libraries: list[str]) -> dict:
+    """``requests`` (JSON) with ``startup.load`` set to ``libraries``."""
+    return {**requests, "startup": {**requests.get("startup", {}), "load": libraries}}
+
 
 #: The setups' fuzz draws, uncapped, as in test_ml_submit_records.
 pytestmark = pytest.mark.real_fuzz
@@ -64,11 +70,14 @@ def test_a_promoted_score_is_submitted_with_its_requests_and_scratch(
     ("kernel", "layout", "names"),
     [
         # No layout at all.
-        ("dist_cross_entropy", None, "needs requests.grid + requests.layout"),
+        ("dist_cross_entropy", None, "needs startup.grid and the operations"),
         # An op on a dimension the array does not have.
         (
             "dist_mlp_tp",
-            {"grid": ["P"], "layout": {"out": [{"op": "block", "digit": "i5", "factor": 2, "into": ["o", "f"]}]}},
+            {
+                "startup": {"grid": ["P"]},
+                "operations": [{"action": "block", "array": "out", "digit": "i5", "factor": 2, "into": ["o", "f"]}],
+            },
             "no digit 'i5'",
         ),
     ],
@@ -86,8 +95,8 @@ def test_a_layout_the_grade_cannot_resolve_is_a_400_before_any_build(
     the refused turn was -- so it cannot spend the one submission."""
     with setup_judge(tmp_path, monkeypatch) as (url, launches, baselines):
         body = agent_body(kernel)
-        libraries = dict(body["requests"])["libraries"]
-        body["requests"] = {"libraries": libraries} if layout is None else {**layout, "libraries": libraries}
+        libraries = dict(body["requests"])["startup"]["load"]
+        body["requests"] = with_libraries(layout or {}, libraries)
         code, answer = post(f"{url}/{route}", body)
     assert code == HTTP_BAD_REQUEST, answer
     error = str(answer["error"])
@@ -106,7 +115,7 @@ def test_a_grid_over_p_is_re_verified_as_it_was_graded(
     re-verify launches the layout the grade graded, and the submission is recorded."""
     with setup_judge(tmp_path, monkeypatch) as (url, launches, _baselines):
         body = agent_body(kernel)
-        body["requests"] = {**dict(body["requests"]), "grid": ["P"]}
+        body["requests"] = {**dict(body["requests"]), "startup": {**dict(body["requests"])["startup"], "grid": ["P"]}}
         code, graded = post(f"{url}/submit", body)
     assert code == 200, graded.get("detail")
     assert graded["correct"] is True, graded.get("detail")
@@ -125,7 +134,8 @@ def test_a_replicated_input_reaches_the_reference_on_the_kernels_default_split(
     with setup_judge(tmp_path, monkeypatch) as (url, launches, _baselines):
         body = agent_body("dist_gemm_gn_swish")
         requests = dict(body["requests"])
-        body["requests"] = {**requests, "layout": {**dict(requests["layout"]), "x": []}}
+        operations = [op for op in requests["operations"] if op["array"] != "x"]
+        body["requests"] = {**requests, "operations": [*operations, {"action": "replicate", "array": "x"}]}
         code, graded = post(f"{url}/score", body)
     assert code == 200, graded
     assert graded["correct"] is True, graded
@@ -212,7 +222,7 @@ def test_a_libraries_refusal_names_what_it_refused_and_what_it_still_links(
     honoured: a bare refusal makes an agent drop rccl and fail to link ncclAllGather."""
     with setup_judge(tmp_path, monkeypatch) as (url, launches, _baselines):
         body = agent_body("dist_mlp_tp")
-        body["requests"] = {**dict(body["requests"]), "libraries": ["rccl", "mpi", "rocblas"]}
+        body["requests"] = with_libraries(dict(body["requests"]), ["rccl", "mpi", "rocblas"])
         code, answer = post(f"{url}/score", body)
         assert code == HTTP_BAD_REQUEST, answer
         assert launches == [], answer
@@ -232,7 +242,7 @@ def test_hipcub_is_refused_on_a_setup_that_does_not_widen_the_contract(
     monkeypatch.delenv("HPCAGENT_BENCH_GRADING_DISTRIBUTED_LIBRARIES", raising=False)
     with setup_judge(tmp_path, monkeypatch) as (url, launches, _baselines):
         body = agent_body("dist_matmul_large_k")
-        body["requests"] = {**dict(body["requests"]), "libraries": ["rccl", "mpi", "hipcub"]}
+        body["requests"] = with_libraries(dict(body["requests"]), ["rccl", "mpi", "hipcub"])
         code, answer = post(f"{url}/score", body)
     assert code == HTTP_BAD_REQUEST, answer
     assert launches == [], answer
@@ -252,11 +262,11 @@ def test_a_gemmhint_setup_honours_hipcub_and_still_refuses_blas(
             languages, "library_offered", lambda name, lang, *rest: name == "hipcub" or offered(name, lang, *rest)
         )
         body = agent_body("dist_matmul_large_k")
-        body["requests"] = {**dict(body["requests"]), "libraries": ["rccl", "mpi", "hipcub"]}
+        body["requests"] = with_libraries(dict(body["requests"]), ["rccl", "mpi", "hipcub"])
         code, answer = post(f"{url}/score", body)
         assert code == 200, answer
         assert launches, answer
-        body["requests"] = {**dict(body["requests"]), "libraries": ["rccl", "mpi", "hipcub", "rocblas"]}
+        body["requests"] = with_libraries(dict(body["requests"]), ["rccl", "mpi", "hipcub", "rocblas"])
         code, answer = post(f"{url}/score", body)
     assert code == HTTP_BAD_REQUEST, answer
     assert "refused rocblas; hipcub, mpi, rccl are still honoured here" in str(answer["error"]), answer
@@ -284,7 +294,7 @@ def gemm_contract(hint: bool) -> str:
 def test_the_compute_hint_renders_only_when_the_setup_sets_it() -> None:
     """The -gemmhint task text carries the local-compute paragraph: matrix cores (MFMA / rocWMMA,
     whose headers the mi300 agent and judge images ship), LDS tiling, coalescing, register reuse, the
-    torch baseline it is scored against, and hipCUB by its `requests.libraries` name. It names no plausibility
+    torch baseline it is scored against, and hipCUB by its `requests.startup.load` name. It names no plausibility
     check. Every other setup's contract is the one it had, without the paragraph."""
     hinted, plain = gemm_contract(True), gemm_contract(False)
     assert "### Local compute" in hinted
@@ -300,7 +310,7 @@ def test_the_compute_hint_renders_only_when_the_setup_sets_it() -> None:
         "registers",
         "PyTorch baseline",
         "hipcub/hipcub.hpp",
-        "name `hipcub` in `requests.libraries`",
+        "name `hipcub` in `startup.load`",
     ):
         assert needle in hinted, needle
     assert not any(word in hinted.lower() for word in ("floor", "plausib", "suspect"))
@@ -308,18 +318,18 @@ def test_the_compute_hint_renders_only_when_the_setup_sets_it() -> None:
 
 def test_the_distributed_prompt_tells_the_agent_to_name_rccl(monkeypatch: pytest.MonkeyPatch) -> None:
     """On the mlscale setups (tokens off, distributed on) the build-list text names ``rccl`` and
-    ``mpi`` as linkable, never "every name in `requests.libraries` is refused" beside a contract saying
-    "name `rccl` in `requests.libraries`" (an agent believing the refusal requests no library and fails to
+    ``mpi`` as linkable, never "every name in `requests.startup.load` is refused" beside a contract saying
+    "name `rccl` in `requests.startup.load`" (an agent believing the refusal requests no library and fails to
     link nccl* symbols)."""
     driver = driver_module()
     monkeypatch.setenv("HPCAGENT_BENCH_GRADING_ALLOW_AGENT_BUILD_TOKENS", "false")
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "true")
     text = driver.build_list_status_text()
-    assert "every name in `requests.libraries` is refused" not in text, text
+    assert "every name in `requests.startup.load` is refused" not in text, text
     assert "`rccl` and `mpi`" in text, text
     assert "name `rccl` whenever your code calls RCCL" in text, text
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "false")
-    assert "every name in `requests.libraries` is refused" in driver.build_list_status_text()
+    assert "every name in `requests.startup.load` is refused" in driver.build_list_status_text()
 
 
 def test_the_judge_records_the_link_request_on_the_calls_grade(
@@ -336,17 +346,18 @@ def test_the_judge_records_the_link_request_on_the_calls_grade(
     assert SETUP in str(body["episode_id"])
 
 
-def test_the_requests_field_shows_a_numeric_grid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The tool schema's example grid is a number: a symbolic ``{'grid': [P], ...}`` example draws
-    ``grid: ['P']`` and ``grid: [0]`` requests, which are refused."""
+def test_the_requests_field_shows_the_grid_over_p(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On a distributed run the tool schema requires ``startup.grid`` as extents over the rank count, and
+    carries relayout's request schema."""
     from tests.test_ml_submit_records import load_http_json
 
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "true")
     schema = load_http_json().schema_with_language({})
-    described = str(schema["properties"]["requests"]["description"])
-    assert "'grid': [4]" in described, described
-    assert "[P]" not in described, described
-    assert "scatters" not in described, described
+    requests = schema["properties"]["requests"]
+    described = str(requests["description"])
+    assert "REQUIRED on this distributed run" in described, described
+    assert "{'startup': {'grid': ['P']}" in described, described
+    assert set(requests["properties"]) == {"startup", "operations"}
 
 
 def launch_by_rank_count(

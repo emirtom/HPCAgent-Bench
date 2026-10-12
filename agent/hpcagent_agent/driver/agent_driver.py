@@ -1141,18 +1141,18 @@ def env_flag(name: str, default: bool) -> bool:
 
 
 def build_list_status_text() -> str:
-    """The {{BUILD_LIST_STATUS}} sentence: whether `build`/`requests.libraries` reach the compiler here.
+    """The {{BUILD_LIST_STATUS}} sentence: whether `build`/`requests.startup.load` reach the compiler here.
 
     Reads HPCAGENT_BENCH_GRADING_ALLOW_AGENT_BUILD_TOKENS -- the exact env key
     ``grading.allow_agent_build_tokens`` resolves to, the one ``sandbox.split_build`` gates the
-    whole ``build``/``requests.libraries`` path on -- so this sentence and the grader cannot drift apart.
+    whole ``build``/``requests.startup.load`` path on -- so this sentence and the grader cannot drift apart.
     When it is on, WHICH libraries are on the catalog is named in the build note above
     ({{BUILD_COMMAND}}, via helpers/scripts/gen_build_fragments.py's own read of the same key) rather than
     restated here, which has no way to probe the image.
     """
     if env_flag("HPCAGENT_BENCH_GRADING_ALLOW_AGENT_BUILD_TOKENS", True):
         return (
-            "Your `build` field and `requests.libraries` ARE applied on this track: `requests.libraries` names the catalog "
+            "Your `build` field and `requests.startup.load` ARE applied on this track: `requests.startup.load` names the catalog "
             "names above, and a `-l<name>` in `build` links a library you built yourself into `/shared/lib`, "
             "which the judge searches and rpaths."
         )
@@ -1169,13 +1169,13 @@ def build_list_status_text() -> str:
         )
         return (
             "Your `build` field is NOT applied on this track: every token in it is dropped, "
-            f"`-I`/`-l` included. `requests.libraries` accepts {accepted} -- "
+            f"`-I`/`-l` included. `requests.startup.load` accepts {accepted} -- "
             "name `rccl` whenever your code calls RCCL, or it does not link -- and refuses every "
             "other name."
         )
     return (
-        "Your `build` field and `requests.libraries` are NOT applied on this track: every token in "
-        "`build` is dropped, `-I`/`-l` included, and every name in `requests.libraries` is refused."
+        "Your `build` field and `requests.startup.load` are NOT applied on this track: every token in "
+        "`build` is dropped, `-I`/`-l` included, and every name in `requests.startup.load` is refused."
     )
 
 

@@ -336,7 +336,7 @@ def blockcyclic_distribution_from_shapes(
 
 
 def binding_ndims(binding: "Binding") -> dict[str, int]:
-    """Each shaped pointer's dimension count: what a layout op sequence is lowered over."""
+    """Each shaped pointer's dimension count: what a request's operations are run over."""
     return {name: len(shape) for name, shape in binding_shapes(binding).items()}
 
 
@@ -409,7 +409,7 @@ def distribution_for_kernel(mpi_block: dict | None, binding: "Binding", ranks: i
 
 def default_requests(mpi_block: dict | None, binding: "Binding", ranks: int) -> Requests:
     """The kernel's default distribution as the ``requests`` block an agent would send for it."""
-    return Requests.from_plan(distribution_for_kernel(mpi_block, binding, ranks))
+    return Requests.from_plan(distribution_for_kernel(mpi_block, binding, ranks), arrays=list(binding_ndims(binding)))
 
 
 # Descriptor: the semantic layer over a lowered requests plan; replicates whatever wasn't named.
@@ -469,11 +469,11 @@ class Descriptor:
         ranks. ``ndims`` is each array's rank (default: the binding's shapes; :func:`kernel_ndims` adds a
         legacy kernel's manifest shapes)."""
         if not submission.requests.distributed:
-            raise ValueError("submission names no requests.grid; not an MPI submission")
-        scalars = sorted({a.name for a in binding.scalars} & set(submission.requests.layout))
+            raise ValueError("submission names no startup.grid; not an MPI submission")
+        scalars = sorted({a.name for a in binding.scalars} & submission.requests.named())
         if scalars:
             raise ValueError(
-                f"requests.layout names scalar {scalars[0]!r}; scalars are broadcast by value "
+                f"the operations name scalar {scalars[0]!r}; scalars are broadcast by value "
                 f"(identical on every rank) and cannot be distributed"
             )
         return cls.from_plan(
@@ -498,7 +498,7 @@ class Descriptor:
         grid = Grid(tuple(dist["grid"]))
         if grid.nranks != ranks:
             raise ValueError(
-                f"requests.grid {grid.dims} spans {grid.nranks} rank(s) but the run is configured for {ranks}"
+                f"startup.grid is {list(grid.dims)}, spanning {grid.nranks} rank(s) but the run is configured for {ranks}"
             )
 
         ptrs = {a.name: a for a in binding.pointers}
@@ -509,15 +509,15 @@ class Descriptor:
         for name, layout in dist["arrays"].items():
             if name in scalar_names:
                 raise ValueError(
-                    f"requests.layout names scalar {name!r}; scalars are broadcast by value "
+                    f"the operations name scalar {name!r}; scalars are broadcast by value "
                     f"(identical on every rank) and cannot be distributed"
                 )
             if name not in ptrs:
-                raise ValueError(f"requests.layout names unknown array {name!r}; binding arrays are {sorted(ptrs)}")
+                raise ValueError(f"the operations name unknown array {name!r}; binding arrays are {sorted(ptrs)}")
             ad = _array_dist_from_layout(layout)
             if not ad.replicated and name in ndims and len(ad.axes) != ndims[name]:
                 raise ValueError(
-                    f"requests.layout[{name!r}] lowers to {len(ad.axes)} axis/axes but "
+                    f"the layout of {name!r} lowers to {len(ad.axes)} axis/axes but "
                     f"the array has {ndims[name]} dimension(s)"
                 )
             resolved[name] = ad
@@ -672,7 +672,7 @@ def block_partition_mismatch(descriptor: "Descriptor", shapes: Mapping[str, Sequ
             if degenerates_to_block(n, parts, axis):
                 continue
             return (
-                f"requests.layout[{name!r}] distributes dimension {axis_index} with scheme "
+                f"the layout of {name!r} distributes dimension {axis_index} with scheme "
                 f"{axis.scheme.value!r} (block_size {effective_block_size(axis)}) over {parts} rank(s) "
                 f"of extent {n}, but each rank is given the CONTIGUOUS block "
                 f"{_block_bounds(n, parts, 0)} .. of that extent. Distribute the whole dimension (block), or a "
@@ -705,7 +705,7 @@ def replication_refusal(
             continue
         if dist.replicated or all(axis.grid_dim is None for axis in dist.axes):
             return (
-                f"requests.layout replicates {name!r}, which this kernel does not list under "
+                f"the operations replicate {name!r}, which this kernel does not list under "
                 f"mpi.replicatable; replicatable arrays are {sorted(permitted)} (plus any "
                 f"single-element array). Split {name!r} across the grid, or drop it from the "
                 f"layout only if it is on that list"
@@ -758,7 +758,7 @@ def layout_divisibility_refusal(
             for p in sorted({int(r) for r in graded_ranks if 1 <= int(r) <= MAX_CHECKED_RANKS}):
                 if n % p != 0 or n % width != 0:
                     return (
-                        f"requests.layout[{name!r}] distributes dimension {axis_index} with scheme "
+                        f"the layout of {name!r} distributes dimension {axis_index} with scheme "
                         f"{axis.scheme.value!r} (block_size {width}) over an extent of {n}, which does "
                         f"not divide evenly by block_size and by every graded rank count "
                         f"(P={p} among {sorted(graded_ranks)}). Pick a block_size and extent that "
@@ -801,11 +801,11 @@ def default_layout_refusal(
         wanted = [default.local_shape(name, shape, r) for r in range(default.grid.nranks)]
         if not axis_match or tiles != wanted:
             return (
-                f"requests.layout[{name!r}] is not this kernel's layout: each rank generates "
+                f"the layout of {name!r} is not this kernel's layout: each rank generates "
                 f"{name!r} as the contiguous block of the default layout (tiles {wanted}), got "
                 f"tiles {tiles}. Declare the default layout for {name!r}, "
                 + ("any scheme on the SAME axis (it is layout_flexible), " if name in permitted else "")
-                + "or an empty op list (replicated) if it is on the replicatable allowlist"
+                + "or a replicate operation if it is on the replicatable allowlist"
             )
     refused = layout_divisibility_refusal(descriptor, flexible, shapes, graded_ranks)
     if refused is not None:

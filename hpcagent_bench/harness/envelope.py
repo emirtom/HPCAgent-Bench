@@ -33,9 +33,9 @@ DELIVERY_LANGS = (*LANGS, PYTHON_LANG)
 #: Envelope fields that moved under ``requests``, with where they went: a submission still sending one is
 #: refused with the new spelling rather than graded without it.
 LEGACY_FIELDS = {
-    "libraries": "requests.libraries",
-    "distribution": "requests.grid + requests.layout (distribute ops)",
-    "sparse_config": "requests.sparse",
+    "libraries": "requests.startup.load",
+    "distribution": "requests.startup.grid + distribute operations",
+    "sparse_config": "format operations",
 }
 
 

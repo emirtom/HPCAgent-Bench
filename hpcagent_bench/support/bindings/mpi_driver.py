@@ -218,7 +218,7 @@ static void recv_bytes(char *buf, size_t n, int peer, MPI_Comm comm) {
 
 
 class CastBlocks(NamedTuple):
-    """The C fragments of a driver's precision casts (all empty without ``requests.precision``)."""
+    """The C fragments of a driver's precision casts (all empty without a ``cast``)."""
 
     functions: str
     alloc: str
@@ -286,7 +286,7 @@ def gen_mpi_driver(
     and writes the outfile. ``device_arrays`` marks GPU-resident pointers (Sec. 10): those tiles get a
     ``dwork[i]`` GPU mirror seeded/drained outside the timed region; empty -> the all-host driver.
 
-    ``casts`` (requests.precision, host tiles only) maps an array to the dtype its kernel argument takes:
+    ``casts`` (the ``cast`` operations, host tiles only) maps an array to the dtype its kernel argument takes:
     every repeat converts that tile into a ``cwork[i]`` of the type before the call and back after it,
     each cast timed MAX-over-ranks in its own bracket and written beside the kernel samples."""
     sym = mpi_symbol(binding)
@@ -583,7 +583,7 @@ int main(int argc, char **argv) {{
 {cast_blocks.alloc}
     /* Timed loop: MAX-over-ranks per repeat; the slowest rank sets the time. */
     double *samples = (rank == 0) ? (double *)xmalloc(sizeof(double) * (size_t)(K > 0 ? K : 1)) : NULL;
-    /* requests.precision: each repeat's MAX-over-ranks cast-in / cast-out seconds; 0 without casts. */
+    /* cast operations: each repeat's MAX-over-ranks cast-in / cast-out seconds; 0 without casts. */
     double *cast_in = (rank == 0) ? (double *)calloc((size_t)(K > 0 ? K : 1), sizeof(double)) : NULL;
     double *cast_out = (rank == 0) ? (double *)calloc((size_t)(K > 0 ? K : 1), sizeof(double)) : NULL;
     for (int64_t k = 0; k < K; k++) {{

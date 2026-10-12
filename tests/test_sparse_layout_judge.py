@@ -90,12 +90,14 @@ def test_a_translated_layout_scores_correct_through_the_judge(judge: JudgeClient
     spec = BenchSpec.load(kernel)
     source = layout_reference_source(spec, fmt)
     assert source is not None
-    submission = Submission(language="c", source=source, requests=Requests(sparse=sparse_config_for(spec, fmt, EDGE)))
+    submission = Submission(
+        language="c", source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, EDGE))
+    )
     assert judge.score(submission, kernel, preset="S")["correct"] is True
 
 
 def test_an_agents_own_kernel_in_another_layout_scores_correct(judge: JudgeClient) -> None:
-    submission = Submission(language="c", source=SPMV_CSC, requests=Requests(sparse={"A": "csc"}))
+    submission = Submission(language="c", source=SPMV_CSC, requests=Requests.of(sparse={"A": "csc"}))
     assert judge.score(submission, "spmv", preset="S")["correct"] is True
 
 
@@ -105,7 +107,7 @@ def test_a_csr_kernel_submitted_as_csc_grades_wrong(judge: JudgeClient) -> None:
     csr = layout_reference_source(spec, "csr")
     assert csr is not None
     source = csr.replace("bicgstab_csr_fp64", "bicgstab_csc_fp64")
-    submission = Submission(language="c", source=source, requests=Requests(sparse={"A": "csc"}))
+    submission = Submission(language="c", source=source, requests=Requests.of(sparse={"A": "csc"}))
     assert judge.score(submission, "bicgstab", preset="S")["correct"] is False
 
 
@@ -113,14 +115,14 @@ def test_a_csr_kernel_submitted_as_csc_grades_wrong(judge: JudgeClient) -> None:
     ("kernel", "sparse_config", "match"),
     [
         ("bicgstab", {"A": "bsr:3"}, "block_size 3"),
-        ("bicgstab", {"B": "csr"}, "not sparse arrays"),
-        ("gemm", {"A": "csr"}, "no sparse arrays"),
+        ("bicgstab", {"B": "csr"}, "no array 'B'"),
+        ("gemm", {"A": "csr"}, "format applies to sparse arrays; 'A' is dense"),
     ],
 )
 def test_a_request_the_kernel_cannot_honour_is_a_400_before_the_build(
     judge: JudgeClient, kernel: str, sparse_config: dict, match: str
 ) -> None:
-    submission = Submission(language="c", source="this does not compile", requests=Requests(sparse=sparse_config))
+    submission = Submission(language="c", source="this does not compile", requests=Requests.of(sparse=sparse_config))
     assert match in refusal(judge, submission, kernel)
 
 
@@ -135,7 +137,7 @@ def test_the_conversion_is_never_timed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(scoring, "apply_layout", slow)
     spec = BenchSpec.load("spmv")
-    submission = Submission(language="c", source=SPMV_CSC, requests=Requests(sparse={"A": "csc"}))
+    submission = Submission(language="c", source=SPMV_CSC, requests=Requests.of(sparse={"A": "csc"}))
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
             submission, Task("spmv", language="c"), preset="S", repeat=2, hidden=False, baseline="auto"
@@ -191,7 +193,9 @@ def stored_by_a_grade(fmt: str, inputs: list[dict]) -> tuple[list[dict], dict[st
     spec = BenchSpec.load("spmv")
     source = layout_reference_source(spec, fmt)
     assert source is not None
-    submission = Submission(language="c", source=source, requests=Requests(sparse=sparse_config_for(spec, fmt, EDGE)))
+    submission = Submission(
+        language="c", source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, EDGE))
+    )
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
             submission, Task("spmv", language="c"), preset="S", repeat=2, hidden=False, baseline="auto"
@@ -244,7 +248,9 @@ def test_harbor_ships_one_request_file_and_names_every_layouts_signature(tmp_pat
     spec = BenchSpec.load("spmm")
     (task,) = harbor.generate(str(tmp_path), selector="spmm")
     kdir = task / "environment" / "spmm"
-    assert json.loads((kdir / harbor.REQUESTS_FILE).read_text()) == {"sparse": {"A": "csr", "B": "csr"}}
+    assert json.loads((kdir / harbor.REQUESTS_FILE).read_text()) == {
+        "operations": [{"action": "format", "array": "A", "to": "csr"}, {"action": "format", "array": "B", "to": "csr"}]
+    }
     assert sorted(p.name for p in kdir.glob("*.json")) == sorted([harbor.REQUESTS_FILE, "signature.json"])
     assert f"--requests /app/spmm/{harbor.REQUESTS_FILE}" in (task / "tests" / "test.sh").read_text()
     instruction = (task / "instruction.md").read_text()
@@ -266,7 +272,7 @@ def dia_spmv() -> Submission:
     """spmv's dia translation, requested as dia: dia holds only the banded scenario of the three."""
     source = layout_reference_source(BenchSpec.load("spmv"), "dia")
     assert source is not None
-    return Submission(language="c", source=source, requests=Requests(sparse={"A": "dia"}))
+    return Submission(language="c", source=source, requests=Requests.of(sparse={"A": "dia"}))
 
 
 def graded_at(scenario: str, **kwargs: object) -> scoring.Score:
@@ -356,7 +362,7 @@ def test_a_public_input_the_layout_cannot_hold_fails_though_the_held_out_cases_f
     assert source is not None
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
-            Submission(language="c", source=source, requests=Requests(sparse={"A": "ell"})),
+            Submission(language="c", source=source, requests=Requests.of(sparse={"A": "ell"})),
             Task("spmv", language="c"),
             preset="S",
             repeat=2,

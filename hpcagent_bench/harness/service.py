@@ -51,6 +51,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
+from relayout.ops import Cast, Format
+
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
 from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
 from hpcagent_bench.flags import Mode
@@ -74,6 +76,7 @@ from hpcagent_bench.harness.profiling import as_float, as_int
 from hpcagent_bench.harness.requests_api import (
     Location,
     Requests,
+    kernel_arrays,
     mpi_residency,
     precision_problem_dtypes,
     precision_refusal,
@@ -826,10 +829,11 @@ def _submission_from_body(
 def requests_refusal(submission: Submission, task: Task, datatype: str) -> str | None:
     """Why ``submission.requests`` cannot be honoured for ``task`` at ``datatype``, or ``None``.
 
-    A precision for an array that is not floating and dense, or equal to its problem precision; a
-    sparse kernel with a grid (distributed sparse formats are not implemented yet); a layout on a
-    sparse array; layout ops without a grid; and a grid or op sequence that does not lower at ``mpi.ranks``
-    are the request's fault -- 400, no build, the submission is not spent."""
+    A cast of an array that is not floating and dense, or to its problem precision; a sparse kernel with
+    a grid (distributed sparse formats are not implemented yet); an operation that cannot apply to this
+    kernel's arrays; a layout operation without a grid; and, on a distributed run, a grid or program that
+    does not lower at ``mpi.ranks`` or leaves an array neither distributed nor replicated are the
+    request's fault -- 400, no build, the submission is not spent."""
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     requests = submission.requests
@@ -841,35 +845,45 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     if spec.sparse_layouts and requests.distributed:
         return (
             f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "
-            "no requests.grid; nothing was graded"
+            "no startup.grid; nothing was graded"
         )
-    sparse = sorted({group.logical for group in binding.packed} & set(requests.layout))
-    if sparse:
-        return f"requests.layout applies to dense arrays only; {sparse} are sparse (request their format in requests.sparse)"
-    if not requests.distributed:
-        if any(requests.layout.values()) or requests.location or requests.groups:
-            return (
-                "requests.layout / location / zip without requests.grid: single-node layout changes are not "
-                "implemented yet (see docs/requests_api.md)"
-            )
-        return None
+    ndims = kernel_ndims(spec.mpi, binding)
     try:
-        requests.plan(kernel_ndims(spec.mpi, binding), config.get_int("mpi.ranks", 4))
+        requests.run(kernel_arrays(binding, ndims))
     except ValueError as exc:
         return str(exc)
+    if not requests.distributed:
+        layout = sorted({op.action.value for op in requests.operations if not isinstance(op, Cast | Format)})
+        if layout:
+            return (
+                f"{', '.join(layout)} without startup.grid: single-node layout changes are not implemented yet "
+                "(see docs/requests_api.md)"
+            )
+        return None
+    ranks = config.get_int("mpi.ranks", 4)
+    try:
+        requests.plan(ndims, ranks)
+        unplaced = requests.unplaced(ndims, ranks)
+    except ValueError as exc:
+        return str(exc)
+    if unplaced:
+        return (
+            f"the operations neither distribute nor replicate {unplaced}; on a distributed run every array "
+            "needs one (replicate an array to hold it whole on every rank)"
+        )
     return None
 
 
 def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec) -> str | None:
-    """Why ``requests.precision`` is not offered for this delivery, or None: the casts run around a
+    """Why a ``cast`` is not offered for this delivery, or None: the casts run around a
     C-ABI call (single-node, host or device) and around the MPI driver's call on host tiles; a python
     delivery, the ML track's rank-generated shards and device-resident MPI tiles are not covered yet."""
     if submission.is_python:
-        return "requests.precision is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
+        return "cast is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
     if task.residency != "distributed":
         return None
     if torch_reference.has_torch_reference(spec):
-        return "requests.precision is not implemented on the ML track yet (its ranks generate their own inputs)"
+        return "cast is not implemented on the ML track yet (its ranks generate their own inputs)"
     default = mpi_residency()
     device = sorted(
         name
@@ -877,14 +891,12 @@ def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec)
         if submission.requests.location.get(name, default) is Location.DEVICE
     )
     if device:
-        return (
-            f"requests.precision on device-resident MPI tiles ({device}) is not implemented yet; keep them on the host"
-        )
+        return f"cast on device-resident MPI tiles ({device}) is not implemented yet; keep them on the host"
     return None
 
 
 def layout_refusal(submission: Submission, task: Task) -> str | None:
-    """Why ``submission``'s ``requests.sparse`` cannot be graded for ``task``, or ``None``.
+    """Why ``submission``'s ``format`` operations cannot be graded for ``task``, or ``None``.
 
     The sparse sibling of :func:`distribution_refusal`: a format the array does not offer, an
     unknown array, a bsr block edge outside ``sparse.bsr_block_sizes``, or a request on a dense
@@ -982,7 +994,7 @@ def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: 
     default = json.dumps(default_requests(spec.mpi, binding, ranks).to_json(), sort_keys=True)
     if not submission.requests.distributed:
         return (
-            "a distributed grade needs requests.grid + requests.layout (the MPI data layout); nothing "
+            "a distributed grade needs startup.grid and the operations that distribute every array; nothing "
             f"was graded. This kernel's default requests are {default}"
         )
     try:
@@ -993,7 +1005,7 @@ def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: 
     for p, resolved in descriptors.items():
         if isinstance(resolved, str):
             return (
-                f"requests.layout cannot be graded at P={p}: {resolved}; nothing was graded. This "
+                f"the layout cannot be graded at P={p}: {resolved}; nothing was graded. This "
                 f"kernel's default requests are {default}"
             )
     return descriptors[ranks]
@@ -1576,7 +1588,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 BenchSpec.load(kernel), resolve_layout(BenchSpec.load(kernel), submission.requests.sparse)
             )
         ):
-            refused = "profiling runs the default sparse layout; drop requests.sparse from a /profile request"
+            refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"
         if refused is not None:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": refused})
         if route == "profile":

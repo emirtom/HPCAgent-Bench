@@ -46,19 +46,19 @@ init:
 - A sparse kernel cannot declare `mpi:` or `configurations:`; a manifest with the old `variants:`,
   `sparse_layouts:` or `distributions:` blocks is refused at load.
 
-## Request: `requests.sparse`
+## Request: `format` operations
 
 ```json
-{"language": "c", "source": "...", "requests": {"sparse": {"A": "bsr:4"}}}
+{"language": "c", "source": "...", "requests": {"operations": [{"action": "format", "array": "A", "to": "bsr:4"}]}}
 ```
 
-- One entry per sparse array, `{array_name: format}`; an array left out gets its default. All sparse
+- One `format` per sparse array; an array left out gets its default. All sparse
   arrays of one kernel use one format per run (spmm: `A` and `B` both csc).
 - `bsr` names its block size, `"bsr:<size>"`, one of `sparse.bsr_block_sizes`; no other format takes
   one.
 - Refused with 400, before the build: an unknown array, a format the array does not offer, a block
-  size off the list, arrays in different formats, and a `requests.sparse` on a dense kernel. A sparse
-  array takes no `requests.layout` ops, and a sparse kernel no `requests.grid`: distributing sparse
+  size off the list, arrays in different formats, and a `format` on a dense array. A sparse array takes
+  no digit operation, and a sparse kernel no `startup.grid`: distributing sparse
   formats (one converter per format and split axis) is designed in requests_api.md, not implemented.
 
 ## Which inputs a layout grades on
@@ -99,8 +99,8 @@ only on the inputs that ran, so each per-input ratio is apples-to-apples and a p
 pick an easier mix: a `dia` submission cannot hold the uniform and diagonal inputs, so it fails
 on any kernel whose grade draws one. `Score.layout` records the layout of every grade.
 
-- `/profile` runs the default layout; a `requests.sparse` there is refused.
-- Harbor: a sparse host task's `requests.json` starts at `{"sparse": <the defaults>}`; its instruction
+- `/profile` runs the default layout; a `format` there is refused.
+- Harbor: a sparse host task's `requests.json` starts at one `format` per sparse array, the defaults; its instruction
   names every format's symbol and arguments, and `harbor grade --requests` reads it.
 
 ## What the kernel receives

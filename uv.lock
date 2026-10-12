@@ -2684,7 +2684,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "pythran", specifier = "<0.19" },
     { name = "pyyaml" },
-    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=2af7e3554d186a9769ca11082a7c80a709dddbe3" },
+    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=d972c9ced2f1828ba6e2b66fff96a3ae77650b2f" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },
@@ -8228,7 +8228,7 @@ wheels = [
 [[package]]
 name = "relayout"
 version = "0.1.0"
-source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=2af7e3554d186a9769ca11082a7c80a709dddbe3#2af7e3554d186a9769ca11082a7c80a709dddbe3" }
+source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=d972c9ced2f1828ba6e2b66fff96a3ae77650b2f#d972c9ced2f1828ba6e2b66fff96a3ae77650b2f" }
 dependencies = [
     { name = "dace" },
     { name = "islpy" },

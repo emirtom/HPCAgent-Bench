@@ -21,15 +21,12 @@ KERNEL = "tsvc_2_s212"  # any real, fast-loading kernel: the writers load its sp
 TASK = Task(KERNEL, "restricted", "c")
 #: A cyclic ``a`` and a replicated ``b`` over 4 ranks, as an agent sends it.
 LAYOUT = {
-    "grid": ["P"],
-    "layout": {
-        "a": [
-            {"op": "block", "digit": "i0", "factor": "P0", "into": ["i0", "r"]},
-            {"op": "distribute", "digit": "r", "grid_dim": 0},
-        ],
-        "b": [],
-    },
-    "precision": {"a": "fp32"},
+    "startup": {"grid": ["P"]},
+    "operations": [
+        {"action": "cast", "array": "a", "to": "fp32"},
+        {"action": "distribute", "array": "a", "grid_dim": 0, "dim": 0, "scheme": "cyclic"},
+        {"action": "replicate", "array": "b"},
+    ],
 }
 REFUSAL = 'HTTP 400: {"error":"b: replicated is not in mpi.replicatable"}'
 

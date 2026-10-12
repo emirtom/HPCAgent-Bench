@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The harness's own precision casts for ``requests.precision``: an array is converted from the problem
+"""The harness's own precision casts for ``cast`` operations: an array is converted from the problem
 precision into the requested one before every call and back after it, outside the score.
 
 One conversion table serves every backend, so a cast is the same bits wherever it runs: the storage-only

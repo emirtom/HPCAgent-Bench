@@ -307,7 +307,7 @@ def requests_starter(spec: BenchSpec, distributed_binding: Binding | None, ranks
     if distributed_binding is not None:
         return default_requests(spec.mpi, distributed_binding, ranks).to_json()
     if spec.sparse_layouts:
-        return {"sparse": {name: lay.default for name, lay in sorted(spec.sparse_layouts.items())}}
+        return Requests.of(sparse={name: lay.default for name, lay in sorted(spec.sparse_layouts.items())}).to_json()
     return {}
 
 
@@ -449,8 +449,9 @@ def layout_lines(kt: KernelTask) -> str:
         for binding in (binding_from_spec(spec, config=fmt),)
     )
     return (
-        f"\n- Sparse layout (optional): `sparse` in `{kt.requests_path()}` names the format each sparse "
-        f'array arrives in (`{{"sparse": {{"A": "csc"}}}}`; `"bsr:4"` names bsr\'s block size), default '
+        f"\n- Sparse layout (optional): a `format` operation in `{kt.requests_path()}` names the format each "
+        f'sparse array arrives in (`{{"action": "format", "array": "A", "to": "csc"}}`; `"bsr:4"` names bsr\'s '
+        f"block size), default "
         f"`{spec.default_layout}`. The judge converts the same matrix outside the timed region; "
         f"indices are 0-based int64. The C-ABI per format:{signatures}"
     )
@@ -642,21 +643,15 @@ def mpi_instruction_md(kt: KernelTask, language: str, ranks: int, mode: ScalingL
 - Write your `{language}` implementation to: `{kt.submission_path(language)}`
 - Declare your data layout in `{kt.requests_path()}` -- the starter holds this kernel's default
   layout and is valid as is. The harness scatters inputs and gathers outputs with EXACTLY this layout
-  (it never re-lays-out the data), then grades the reconstructed whole-domain result. `grid` lists the
-  processor grid's extents as expressions over the rank count `P` that multiply to it (`["P"]` is 1-D;
-  this grade runs at P = {ranks}). `layout` maps each array to an op list over its digits: dimension `d`
-  starts as one digit named `i<d>`, row-major, and every op names the digits it acts on;
-  `{{"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]}}` cuts a whole dimension into
-  `parts` contiguous load-balanced bands (band index `r`, index within the band `i0`);
-  `{{"op": "block", "digit": "i0", "factor": F, "into": ["i0", "f"]}}` cuts a digit into a coarse digit and
-  a fine digit `f` of extent `F`, where `F` may name the grid extents `P0`, `P1`, ...;
-  `{{"op": "permute", "order": [...]}}` lists every digit in a new order;
-  `{{"op": "distribute", "digit": "r", "grid_dim": g}}` hands a digit of extent `P<g>` to grid dimension
-  `g`. Cyclic: block by `P0` and distribute the fine digit; block-cyclic of width `B`: block by `B*P0`,
-  block the fine digit by `B`, distribute its coarse part. A rank's local digits must stay row-major (a
-  refusal names the `permute` to append).
-  An array with an empty op list, or not listed, is held whole on every rank. `location` maps an array
-  to `"host"` or `"device"`.
+  (it never re-lays-out the data), then grades the reconstructed whole-domain result. `startup.grid` lists
+  the processor grid's extents over the rank count `P`, multiplying to it (`["P"]` is 1-D; this grade runs
+  at P = {ranks}). `operations` run top to bottom: `{{"action": "distribute", "array": "A", "grid_dim": 0,
+  "dim": 0, "scheme": "block"}}` deals dimension 0 of `A` to grid dimension 0 (`block` = contiguous
+  balanced bands, `cyclic` = round robin, `block_cyclic` with a `block_size` = round robin of blocks), and
+  `{{"action": "replicate", "array": "x"}}` holds `x` whole on every rank; every array is distributed or
+  replicated. Finer layouts cut digits (dimension `d` is digit `i<d>`): `split` into `parts` bands, `block`
+  by a `factor` (both may name `P0`, `P1`, ...), `permute` by name, and `distribute` with a `digit` of
+  extent `P<g>`. `{{"action": "place", "array": "A", "on": "device"}}` keeps `A`'s tiles on the device.
   {replication_rule}
 - Block-cyclic worked example, `B` = 1024 on a 2000 x 2000 array split on rows: the owner
   of global row `i` is `(i // 1024) % P`, so at `P = 2` rank 0 owns rows 0..1023 and rank 1 owns

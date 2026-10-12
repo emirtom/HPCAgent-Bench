@@ -272,7 +272,7 @@ class Item:
     reduction: str = ""  # the stamp it was credited under, for the shift check
     promoted: bool = False  # grades an unsubmitted episode's last correct source, not a submission
     workspace_bytes: str | None = None  # the agent's scratch request, when recorded; None = unknown
-    # The recorded ``requests`` block as JSON (libraries, precision, grid + layout, sparse); {} = none.
+    # The recorded ``requests`` as JSON (startup + operations); {} = none.
     requests: dict[str, Any] = dataclasses.field(default_factory=dict)
     # How many submission rows the item's (setup, kernel) held; above 1 is a multi-submission group.
     submissions: int = 1
@@ -1569,8 +1569,8 @@ def scaled_items(items: Iterable[Item], rank_counts: tuple[int, ...]) -> tuple[l
     kept: list[Item] = []
     problems: list[str] = []
     for item in (scaled(one, rank_counts) for one in items):
-        if item.scaling is not None and "grid" not in item.requests:
-            problems.append(f"no recorded requests.grid: {item.db} {item.episode_id} {item.kernel} {item.ts_ms}")
+        if item.scaling is not None and "grid" not in item.requests.get("startup", {}):
+            problems.append(f"no recorded startup.grid: {item.db} {item.episode_id} {item.kernel} {item.ts_ms}")
         else:
             kept.append(item)
     return kept, problems

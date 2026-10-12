@@ -126,7 +126,7 @@ def _program_argv(
 
 class MpiRun(NamedTuple):
     """One launch: the gathered outputs, and per timed repeat the MAX-over-ranks kernel time and the
-    precision cast-in / cast-out times around it (0 without ``requests.precision``), in ns."""
+    precision cast-in / cast-out times around it (0 without a ``cast``), in ns."""
 
     outputs: dict[str, np.ndarray]
     samples_ns: list[int]

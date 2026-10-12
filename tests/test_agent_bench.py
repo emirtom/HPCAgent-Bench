@@ -272,7 +272,7 @@ def test_bind_kernel_outputs_matches_reference_for_lists_and_tuples() -> None:
 
 
 def test_submission_requests_grid_selects_the_distributed_track() -> None:
-    """``requests.grid`` selects the multi-node track; the envelope checks only the block's structure."""
+    """``startup.grid`` selects the multi-node track; the envelope checks only the request's structure."""
     ok = {
         "grid": [2, 2],
         "arrays": {
@@ -285,11 +285,9 @@ def test_submission_requests_grid_selects_the_distributed_track() -> None:
     assert Submission.from_obj(s.to_json()).requests == s.requests
     assert not Submission(language="c", source="void k(){}").requests.distributed  # default single-node
     with pytest.raises(ValueError, match="grid"):
-        Submission.from_obj({"language": "c", "source": "x", "requests": {"grid": []}})
-    with pytest.raises(ValueError, match="not a layout op"):
-        Submission.from_obj(
-            {"language": "c", "source": "x", "requests": {"grid": [2], "layout": {"A": [{"op": "bogus"}]}}}
-        )
+        Submission.from_obj({"language": "c", "source": "x", "requests": {"startup": {"grid": []}}})
+    with pytest.raises(ValueError, match="action must be one of"):
+        Submission.from_obj({"language": "c", "source": "x", "requests": {"operations": [{"action": "bogus"}]}})
     with pytest.raises(ValueError, match="moved under 'requests'"):
         Submission.from_obj({"language": "c", "source": "x", "distribution": ok})
 

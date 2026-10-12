@@ -21,6 +21,7 @@ import pytest
 from hpcagent_bench.harness import mpi_wire, precision_casts, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
+from hpcagent_bench.precision import Precision
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
 from hpcagent_bench.harness.service import requests_refusal
@@ -111,7 +112,8 @@ def test_the_storage_formats_are_ml_dtypes() -> None:
 
 def requested(precision: dict[str, str], language: str = "c", **fields: object) -> Submission:
     source = "def scaled_add(x, y, LEN_1D, alpha):\n    pass\n" if language == "python" else "void k(void) {}"
-    return Submission(language=language, source=source, requests=Requests.from_obj({"precision": precision, **fields}))
+    casts = [{"action": "cast", "array": name, "to": to} for name, to in precision.items()]
+    return Submission(language=language, source=source, requests=Requests.from_obj({"operations": casts, **fields}))
 
 
 @pytest.mark.parametrize(
@@ -132,8 +134,14 @@ def test_the_judge_refuses_a_precision_this_kernel_cannot_take(
 
 
 def test_a_layout_without_a_grid_is_refused() -> None:
-    submission = requested({}, layout={"x": [{"op": "permute", "order": ["i0"]}]})
-    assert "without requests.grid" in str(requests_refusal(submission, Task(KERNEL, "restricted", "c"), "float64"))
+    submission = Submission(
+        language="c",
+        source="void k(void) {}",
+        requests=Requests.from_obj({"operations": [{"action": "permute", "array": "x", "order": ["i0"]}]}),
+    )
+    assert "permute without startup.grid" in str(
+        requests_refusal(submission, Task(KERNEL, "restricted", "c"), "float64")
+    )
 
 
 @isolated
@@ -143,7 +151,7 @@ def test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score() ->
     if not gcc_available():
         pytest.skip("no C compiler")
     submission = Submission(
-        language="c", source=WIDENED, requests=Requests.from_obj({"precision": {"x": "fp64", "y": "fp64"}})
+        language="c", source=WIDENED, requests=Requests.of(precision={"x": Precision.FP64, "y": Precision.FP64})
     )
     task = Task(KERNEL, "restricted", "c")
     result = score(submission, task, preset="S", datatype="float32", repeat=5, hidden=False, baseline="numba")
@@ -180,14 +188,8 @@ def legacy_db(path: pathlib.Path) -> None:
 
 
 EXPECTED = {
-    "grid": ["P"],
-    "layout": {
-        "x": [
-            {"op": "block", "digit": "i0", "factor": "P0", "into": ["i0", "r0"]},
-            {"op": "distribute", "digit": "r0", "grid_dim": 0},
-        ]
-    },
-    "libraries": ["blas"],
+    "startup": {"load": ["blas"], "grid": ["P"]},
+    "operations": [{"action": "distribute", "array": "x", "grid_dim": 0, "dim": 0, "scheme": "cyclic"}],
 }
 
 

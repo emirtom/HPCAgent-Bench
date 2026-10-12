@@ -136,12 +136,12 @@ def test_documented_layout_example_lowers_to_what_it_says() -> None:
     p = build_prompt(DIST)
     section = p[p.index("### Data distribution") : p.index("### Delivery")]
     body = section[section.index("```json") + len("```json") :]
-    plan = Requests.from_obj(json.loads(body[: body.index("```")])).plan({"A": 2, "B": 2, "C": 2}, 4)
-    axes = {name: entry["axes"] for name, entry in plan["arrays"].items()}
-    assert axes == {
-        "A": [{"grid_dim": 0, "scheme": "block", "block_size": 1}, {"grid_dim": None}],
-        "B": [{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 1024}, {"grid_dim": None}],
-        "C": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "cyclic", "block_size": 1}],
+    plan = Requests.from_obj(json.loads(body[: body.index("```")])).plan({"A": 2, "B": 2, "C": 2, "x": 1}, 4)
+    assert plan["arrays"] == {
+        "A": {"axes": [{"grid_dim": 0, "scheme": "block", "block_size": 1}, {"grid_dim": None}]},
+        "B": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 1024}, {"grid_dim": None}]},
+        "C": {"axes": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "cyclic", "block_size": 1}]},
+        "x": {"replicated": True},
     }
 
 
@@ -149,10 +149,10 @@ def test_distribution_section_lists_every_layout_with_its_exact_json() -> None:
     """Every op the layout lowers is named, the example spells their exact JSON, plus the grid rules."""
     p = build_prompt(DIST)
     for form in (
-        '{"op": "split", "digit": "i0", "parts": "P0", "into": ["r", "i0"]}',
-        '{"op": "block", "digit": "i1", "factor": "P0", "into": ["i1", "r"]}',
-        '{"op": "distribute", "digit": "r", "grid_dim": 0}',
-        "`permute` lists every digit in a",
+        '{"action": "distribute", "array": "A", "grid_dim": 0, "dim": 0, "scheme": "block"}',
+        '"scheme": "block_cyclic", "block_size": 1024}',
+        '{"action": "replicate", "array": "x"}',
+        "`permute` reorders them by name",
     ):
         assert form in p
     assert '`["root(P, 2)", "root(P, 2)"]` square' in p
@@ -222,7 +222,7 @@ def test_allowlist_is_printed_and_absence_keeps_the_legacy_rule() -> None:
     legacy = template.render(ctx)
     assert "replicatable allowlist" not in legacy
     assert "GENUINELY DISTRIBUTED" not in legacy
-    assert "An array with an empty op list (or not listed) is held whole on every rank." in legacy
+    assert "Replicate only what your algorithm genuinely shares" in legacy
 
 
 def test_legacy_distributed_kernel_is_not_given_the_allowlist_rule() -> None:
@@ -341,9 +341,9 @@ def test_an_ml_kernel_states_its_default_layout_per_array() -> None:
     ranks = int(config.get("mpi.ranks", 4))
     spec = BenchSpec.load("dist_softmax")
     layout = json.dumps(default_requests(spec.mpi, binding_from_spec(spec), ranks).to_json())
-    assert '"op": "distribute", "digit": "r1"' in layout  # both arrays split on their second dimension
+    assert '"dim": 1, "scheme": "block"' in layout  # both arrays split on their second dimension
     assert f"`{layout}`" in ml
-    assert "Return `requests` = this default layout" in ml
+    assert "Return `requests` = this default request" in ml
     assert "- `x` (batch_size, dim): split on `dim`, block" in ml
     assert "LOCAL extent: `dim`." in ml
     assert "Arriving GLOBAL: `batch_size`." in ml
@@ -356,7 +356,7 @@ def test_an_ml_kernel_names_its_replicatable_arrays_and_their_whole_copy() -> No
     then receives the whole array; anything else is a 400 that does not spend the submission."""
     ml = ml_prompt("dist_matmul_gelu_softmax")
     assert "Replicatable arrays (allowlist): `x`." in ml
-    assert "empty op list (`[]`) in `requests.layout`" in ml
+    assert "You MAY `replicate` any of them" in ml
     assert "receives the WHOLE array" in ml
     assert "refused with an HTTP 400 before the build" in ml
     assert "does not spend your one" in ml
@@ -419,7 +419,7 @@ def test_a_gpu_distributed_prompt_states_its_two_unit_delivery() -> None:
 def test_a_fortran_prompt_states_that_layout_dimensions_are_numpys_reversed() -> None:
     """Layout ops act in numpy's row-major index space; Fortran reverses the extents at codegen."""
     fortran = build_prompt(Task(kernel="jacobi_2d", language="fortran", residency="distributed"))
-    assert "`A(N, M)` for numpy `A[M, N]`, so `i0` is your LAST subscript" in fortran
+    assert "`A(N, M)` for numpy `A[M, N]`, so `dim` 0 is your LAST subscript" in fortran
     section = fortran[fortran.index("### Data distribution") : fortran.index("### Delivery")].rstrip()
     assert len(section.splitlines()) <= 40
     assert "LAST subscript" not in build_prompt(DIST)
