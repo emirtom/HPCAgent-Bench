@@ -286,7 +286,9 @@ def velocity_tendencies(
             for jk in range(nf, nlev):
                 for jc in range(lo, hi):
                     wc = wgtfac_c[jb, jk, jc]
-                    w_concorr_c[jb, jk, jc] = wc * z_w_concorr_mc[jk, jc - lo] + (1.0 - wc) * z_w_concorr_mc[jk - 1, jc - lo]
+                    w_concorr_c[jb, jk, jc] = (
+                        wc * z_w_concorr_mc[jk, jc - lo] + (1.0 - wc) * z_w_concorr_mc[jk - 1, jc - lo]
+                    )
         for jk in range(nlev):
             for jc in range(lo, hi):
                 z_w_con_c[jb, jk, jc] = w[jb, jk, jc]
