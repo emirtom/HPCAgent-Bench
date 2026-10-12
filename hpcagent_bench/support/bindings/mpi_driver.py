@@ -243,7 +243,7 @@ def timed_casts(lines: Sequence[str], into: str) -> str:
 
 
 def cast_driver_blocks(ptrs: Sequence[Arg], cast_index: Mapping[int, str]) -> CastBlocks:
-    """The driver's precision-cast fragments: the cast loops (:func:`precision_casts.host_function`), one
+    """The driver's precision-cast fragments: the cast loops (:func:`precision_casts.host_functions`), one
     ``cwork[i]`` per requested tile, and the per-repeat cast-in (every requested tile: outputs are
     intent(inout)) and cast-out (the outputs) brackets."""
     if not cast_index:
@@ -252,8 +252,7 @@ def cast_driver_blocks(ptrs: Sequence[Arg], cast_index: Mapping[int, str]) -> Ca
         {(ptrs[i].dtype, dst) for i, dst in cast_index.items()}
         | {(dst, ptrs[i].dtype) for i, dst in cast_index.items()}
     )
-    dtypes = tuple(sorted({dt for pair in pairs for dt in pair}))
-    functions = "\n" + precision_casts.prelude(dtypes) + "".join(precision_casts.host_function(s, d) for s, d in pairs)
+    functions = "\n" + precision_casts.host_functions({dt for pair in pairs for dt in pair})
     alloc = "    void *cwork[N_PTR] = {0};\n" + "".join(
         f"    cwork[{i}] = xmalloc((size_t)count[(size_t){i} * nranks + rank] * {np.dtype(dst).itemsize} + 1);\n"
         for i, dst in sorted(cast_index.items())
@@ -261,7 +260,7 @@ def cast_driver_blocks(ptrs: Sequence[Arg], cast_index: Mapping[int, str]) -> Ca
 
     def call(i: int, src: str, dst: str, from_buf: str, to_buf: str) -> str:
         return (
-            f"{precision_casts.symbol(src, dst)}(({c_type(src)} *){from_buf}, ({c_type(dst)} *){to_buf}, "
+            f"{precision_casts.symbol(src, dst)}((const void *){from_buf}, (void *){to_buf}, "
             f"count[(size_t){i} * nranks + rank]);"
         )
 

@@ -199,7 +199,7 @@ def test_a_block_edge_that_does_not_tile_the_matrix_is_refused() -> None:
         ("bsr", "positive block size"),
         ("bsr:0", "positive block size"),
         ("csr:2", "applies to 'bsr' only"),
-        ({"format": "csr"}, r"operations\[0\].to must be a name"),
+        ({"format": "csr"}, r"operations\[0\].to must be a string"),
     ],
 )
 def test_a_malformed_format_is_a_request_fault(label: object, match: str) -> None:

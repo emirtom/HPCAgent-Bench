@@ -4,13 +4,13 @@
 """The harness's own precision casts for ``cast`` operations: an array is converted from the problem
 precision into the requested one before every call and back after it, outside the score.
 
-One conversion table serves every backend, so a cast is the same bits wherever it runs: the storage-only
-formats (bf16, the fp8 pair) convert through float with the emitter's ``FP8_HELPERS`` (bit-exact against
-ml_dtypes), the native ones by a C cast. The host runs them as one OpenMP loop per array from a library
-built once per OpenMP context, so the timed process maps the submission's own runtime and no other
-(:func:`host_library`); a device grade runs one cupy elementwise kernel per array (:func:`device_cast`).
-An A/B on MI300A put threaded numpy at 26-32 GB/s against 150-200 GB/s for the OpenMP loop, and cupy at
-2.4 TB/s.
+The conversion kernels are relayout's (:mod:`relayout.convert`): one kernel per pair of element types,
+the same rounding wherever it runs (bf16 and the fp8 pair are narrowed from double in one rounding,
+bit-exact against ml_dtypes). The host runs them as OpenMP loops from a library built once per OpenMP
+context, so the timed process maps the submission's own runtime and no other (:func:`host_library`); a
+device grade runs the same kernels through cupy (:func:`device_cast`); the MPI driver inlines them
+(:func:`host_functions`). An A/B on MI300A put threaded numpy at 26-32 GB/s against 150-200 GB/s for
+the OpenMP loop, and the device kernels at 2.4 TB/s.
 """
 
 import ctypes
@@ -22,27 +22,27 @@ import shutil
 import subprocess
 import tempfile
 import types
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
+from relayout.convert import Conversion, device_source, host_source
+from relayout.layout import IndexMap
 
 from hpcagent_bench import languages, omp_context
-from hpcagent_bench.dtypes import c_type, canonical, is_storage_only
+from hpcagent_bench.dtypes import is_storage_only
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import disk_cache
 from hpcagent_bench.precision import Precision, numpy_dtype
-from hpcagent_bench.translators.numpyto_c.emit import FP8_HELPERS
 
 __all__ = [
     "CAST_DTYPES",
     "CastPlan",
     "HostCasts",
-    "cast_expr",
     "device_cast",
-    "host_function",
+    "host_functions",
     "host_library",
-    "host_source",
-    "prelude",
     "storage_view_dtype",
     "symbol",
 ]
@@ -50,10 +50,19 @@ __all__ = [
 #: Every element type a cast reads or writes: the :class:`~hpcagent_bench.precision.Precision` realizations,
 #: so a new precision is cast everywhere (host, device, MPI driver) once it is a member.
 CAST_DTYPES = tuple(np.dtype(numpy_dtype(precision)).name for precision in Precision)
-#: The ``__npb_<short>_to_f32`` / ``__npb_f32_to_<short>`` helper name of each storage-only format.
-STORAGE_SHORT = {"bfloat16": "bf16", "float8_e4m3fn": "e4m3", "float8_e5m2": "e5m2"}
 #: OpenMP context -> the toolchain family whose C compiler builds the host casts in it.
 CONTEXT_FAMILY = {context: family for family, context in omp_context.FAMILY_CONTEXT.items()}
+#: A flat buffer of ``n`` elements: a cast changes no layout.
+FLAT = IndexMap.identity(["n"])
+#: Device launch shape: grid-stride loops, so the grid only bounds the parallelism.
+DEVICE_BLOCK, DEVICE_GRID_LIMIT = 256, 4096
+
+
+class DeviceArray(Protocol):
+    """A C-contiguous device buffer (a cupy array) as a kernel argument."""
+
+    @property
+    def size(self) -> int: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,48 +78,31 @@ class CastPlan:
         return dict(self.targets).get(name)
 
 
+def conversion(src: str, dst: str) -> Conversion:
+    """The conversion kernel pair serving both ``src`` -> ``dst`` and back: named by the ordered pair."""
+    low, high = sorted((src, dst))
+    return Conversion(f"{low}_{high}", FLAT, low, high)
+
+
 def symbol(src: str, dst: str) -> str:
-    """The C symbol of the ``src`` -> ``dst`` cast."""
-    return f"hb_cast_{src}_{dst}"
+    """The C symbol of the ``src`` -> ``dst`` cast, ``(const void *src, void *dst, int64_t n)``."""
+    return f"relayout_{'in' if src < dst else 'out'}_{conversion(src, dst).name}"
 
 
-def prelude(dtypes: tuple[str, ...] = CAST_DTYPES) -> str:
-    """The storage typedefs and float conversions of every storage-only format in ``dtypes``."""
-    return "".join(FP8_HELPERS[canonical(dt)].format(ct=c_type(dt)) for dt in dtypes if is_storage_only(dt))
+def pairs(dtypes: Iterable[str]) -> list[Conversion]:
+    ordered = sorted(set(dtypes))
+    return [conversion(a, b) for k, a in enumerate(ordered) for b in ordered[k + 1 :]]
 
 
-def cast_expr(src: str, dst: str, value: str, half: str = "_Float16") -> str:
-    """The C expression converting ``value`` (a ``src`` element) to a ``dst`` element. Storage-only formats
-    go through float; ``half`` spells the native 2-byte float (cupy's ``float16`` on a device)."""
-    if is_storage_only(src):
-        value = f"__npb_{STORAGE_SHORT[src]}_to_f32({value})"
-    if is_storage_only(dst):
-        return f"__npb_f32_to_{STORAGE_SHORT[dst]}((float)({value}))"
-    return f"({half if dst == 'float16' else c_type(dst)})({value})"
-
-
-def host_function(src: str, dst: str) -> str:
-    """The C function of the ``src`` -> ``dst`` cast: one OpenMP loop."""
-    return (
-        f"static void {symbol(src, dst)}(const {c_type(src)} *restrict in, {c_type(dst)} *restrict out, int64_t n) {{\n"
-        f"#pragma omp parallel for simd schedule(static)\n"
-        f"    for (int64_t i = 0; i < n; ++i) out[i] = {cast_expr(src, dst, 'in[i]')};\n"
-        f"}}\n"
-    )
-
-
-def host_source() -> str:
-    """The host cast library: one exported OpenMP loop per ordered pair of :data:`CAST_DTYPES`."""
-    loops = (
-        host_function(src, dst).removeprefix("static ") for src in CAST_DTYPES for dst in CAST_DTYPES if src != dst
-    )
-    return "#include <stdint.h>\n#include <string.h>\n" + prelude() + "".join(loops)
+def host_functions(dtypes: Iterable[str]) -> str:
+    """The C source of the casts between every two of ``dtypes``, for inlining (the MPI driver)."""
+    return host_source(pairs(dtypes))
 
 
 @functools.lru_cache(maxsize=4, typed=True)
 def built_library(context: str) -> pathlib.Path:
     """The host cast library of OpenMP ``context``, built once per source and context and cached."""
-    source = host_source()
+    source = host_functions(CAST_DTYPES)
     digest = hashlib.sha256(f"{context}\0{source}".encode()).hexdigest()[:16]
     cached = disk_cache.root() / "precision_casts" / f"hb_casts_{context or 'default'}_{digest}.so"
     if cached.is_file():
@@ -165,22 +157,14 @@ def storage_view_dtype(dtype: str) -> np.dtype:
 
 
 @functools.lru_cache(maxsize=64, typed=True)
-def device_kernel(cp: types.ModuleType, src: str, dst: str) -> object:
-    """The cupy elementwise kernel of the ``src`` -> ``dst`` cast (compiled on first use, cached by cupy)."""
-    in_t, out_t = storage_view_dtype(src).name, storage_view_dtype(dst).name
-    # The helpers spell ``memcpy``; hipRTC and NVRTC take the builtin.
-    preamble = "#define memcpy __builtin_memcpy\n" + prelude((src, dst))
-    return cp.ElementwiseKernel(
-        f"{in_t} x",
-        f"{out_t} y",
-        f"y = {cast_expr(src, dst, 'x', half='float16')};",
-        symbol(src, dst),
-        preamble=preamble,
-    )
+def device_kernel(cp: types.ModuleType, src: str, dst: str) -> Callable[..., None]:
+    """The device kernel of the ``src`` -> ``dst`` cast (compiled on first use, cached by cupy)."""
+    return cp.RawModule(code=device_source([conversion(src, dst)])).get_function(symbol(src, dst))
 
 
-def device_cast(cp: types.ModuleType, src: object, dst: object, src_dtype: str, dst_dtype: str) -> None:
+def device_cast(cp: types.ModuleType, src: DeviceArray, dst: DeviceArray, src_dtype: str, dst_dtype: str) -> None:
     """``dst[...] = src`` converted on the device; the dtypes are the logical element types (a storage-only
-    buffer is an unsigned view, :func:`storage_view_dtype`)."""
-    kernel = device_kernel(cp, src_dtype, dst_dtype)
-    kernel(src, dst)  # type: ignore[operator]
+    buffer is an unsigned view, :func:`storage_view_dtype`). Both buffers are C-contiguous cupy arrays."""
+    size = int(src.size)
+    grid = max(1, min(DEVICE_GRID_LIMIT, -(-size // DEVICE_BLOCK)))
+    device_kernel(cp, src_dtype, dst_dtype)((grid,), (DEVICE_BLOCK,), (src, dst, np.int64(size)))

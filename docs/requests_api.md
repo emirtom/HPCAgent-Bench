@@ -60,12 +60,13 @@ own brackets (`convert_in_ns`, `convert_out_ns`) and never enter the speedup.
 **Grading stays at the problem precision's tolerance.** Narrowing is the agent's accuracy risk: an output
 cast to bf16 or fp8 is graded against the fp64 band like any other.
 
-**Cast kernels** are harness-owned, one table of conversions (`precision_casts.cast_expr`, through the
-emitter's `FP8_HELPERS` for bf16 and fp8, bit-exact against ml_dtypes):
-- host: one `#pragma omp parallel for simd` loop per type pair, built once per OpenMP context with that
-  family's C compiler and loaded beside the submission, so the timed process maps one OpenMP runtime
-  (150-200 GB/s on an MI300A slot, against 26-32 GB/s for threaded numpy);
-- device: one `cupy.ElementwiseKernel` per pair (2.3-2.5 TB/s); bf16 and fp8 ride in unsigned buffers;
+**Cast kernels** are relayout's conversion kernels (`relayout.convert`, wrapped by
+`precision_casts`): one kernel per pair of types, narrowing from double in one rounding, bit-exact
+against numpy and ml_dtypes:
+- host: an OpenMP loop per type pair, built once per OpenMP context with that family's C compiler and
+  loaded beside the submission, so the timed process maps one OpenMP runtime (150-200 GB/s on an MI300A
+  slot, against 26-32 GB/s for threaded numpy);
+- device: the same kernels through `cupy.RawModule`; bf16 and fp8 ride in unsigned buffers;
 - MPI: the generated driver inlines the same loops around every repeat on each rank's host tiles, in
   MAX-over-ranks brackets; the credited repeat's cast times are recorded.
 

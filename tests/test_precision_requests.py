@@ -45,9 +45,7 @@ void scaled_add_fp64(const double *restrict x, double *restrict y, const int64_t
 
 
 def reference_cast(src: np.ndarray, dst: str) -> np.ndarray:
-    """What the casts promise: storage formats through float32 (the emitter's rounding), else numpy's cast."""
-    if precision_casts.is_storage_only(dst) or precision_casts.is_storage_only(src.dtype.name):
-        return src.astype(np.float32).astype(np.dtype(dst))
+    """What the casts promise: numpy's (ml_dtypes') conversion, one rounding from any source."""
     return src.astype(np.dtype(dst))
 
 
@@ -58,13 +56,15 @@ def test_every_host_cast_is_bit_exact_against_the_reference_conversion() -> None
     rng = np.random.default_rng(7)
     values = np.concatenate([rng.standard_normal(4099) * 5, [0.0, -0.0, 1e-8, 65504.0, 448.0, 3.4e38, np.nan]])
     for src in precision_casts.CAST_DTYPES:
-        source = values.astype(np.float32).astype(np.dtype(src))
+        with np.errstate(over="ignore"):  # 3.4e38 overflows the narrow formats on purpose
+            source = values.astype(np.dtype(src))
         for dst in precision_casts.CAST_DTYPES:
             if src == dst:
                 continue
             got = np.empty(source.shape, np.dtype(dst))
             casts.convert(source, got, src, dst)
-            want = reference_cast(source, dst)
+            with np.errstate(over="ignore"):
+                want = reference_cast(source, dst)
             assert np.array_equal(got.view(np.uint8), want.view(np.uint8)), (src, dst)
 
 
@@ -223,13 +223,14 @@ def test_the_mpi_driver_calls_the_kernel_on_converted_tiles() -> None:
     assert "const float *restrict x" in declared
     assert "float *restrict y" in declared
     # x and y are cast in (y is intent(inout)); only the output y is cast back.
-    assert source.count("hb_cast_float64_float32((double *)work[") == 2
-    assert source.count("hb_cast_float32_float64((float *)cwork[1], (double *)work[1]") == 1
+    narrow, widen = precision_casts.symbol("float64", "float32"), precision_casts.symbol("float32", "float64")
+    assert source.count(f"{narrow}((const void *)work[") == 2
+    assert source.count(f"{widen}((const void *)cwork[1], (void *)work[1]") == 1
     assert "fwrite(cast_in, 8" in source
     assert "fwrite(cast_out, 8" in source
     plain = gen_mpi_driver(binding, (4,))
     assert "cwork" not in plain
-    assert "hb_cast_" not in plain
+    assert "relayout_" not in plain
     if shutil.which("mpicc"):
         pytest.importorskip("subprocess").run(
             ["mpicc", "-fsyntax-only", "-x", "c", "-"], input=source.encode(), check=True
