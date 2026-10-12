@@ -29,7 +29,7 @@ bakes in what GLM-5.3 needs (`torch.Tensor.format_ue8m0` kept false, and
 ```
 
 Environment: `SGLANG_ATTENTION_BACKEND=` (assigned empty), `SGLANG_USE_AITER=1`,
-`SGLANG_ROCM_FUSED_DECODE_MLA=0`, `SGLANG_SET_CPU_AFFINITY=0`, `NCCL_NET_GDR_LEVEL=0`,
+`SGLANG_ROCM_FUSED_DECODE_MLA=0`, `SGLANG_SET_CPU_AFFINITY=0`, `NCCL_NET_GDR_LEVEL=LOC`,
 `AITER_LOG_TUNED_CONFIG=1`, and `PYTORCH_HIP_ALLOC_CONF=expandable_segments:True` on the server alone
 (`SGLANG_PYTORCH_HIP_ALLOC_CONF`; the judge must not inherit an allocator setting).
 

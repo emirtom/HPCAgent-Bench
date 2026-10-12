@@ -131,8 +131,10 @@ call returned as prose instead of `tool_calls`. Nothing in the log says "parser"
 
 ## Multi-node fabric
 
-- **`NCCL_NET_GDR_LEVEL=0`** (not `NCCL_GDR_LEVEL`). RCCL enables GPU-direct RDMA by itself, and on
-  this fabric it silently corrupts cross-node sums.
+- **`NCCL_NET_GDR_LEVEL=LOC`** (not `NCCL_GDR_LEVEL`, not `0`). RCCL enables GPU-direct RDMA by itself, and on
+  this fabric it silently corrupts cross-node sums and can fail its connect registering GPU memory. It must be set
+  on the server command inside the container: the CSCS netstack hook overwrites the step's value with `PHB`
+  ([known issue 5](known-issues.md#5-8-fabric-and-memory)). `run_cluster.sh` does this for the layer's value.
 - **Keep PyNCCL.** Disabling it breaks graph capture and drops decode from about 17 to 1.4 tok/s per
   request on the four-node shape.
 - **Check the plugin:** `grep -a "Using network" server-0.log` must say `AWS Libfabric`.
@@ -149,7 +151,7 @@ call returned as prose instead of `tool_calls`. Nothing in the log says "parser"
 | `SGLANG_WARMUP_TIMEOUT` | `1800` (`run_cluster.sh`) | the warmup request's read timeout, 600 s unset; a cold aiter cache compiles on that request |
 | `TRITON_CACHE_DIR` | persistent (`run_cluster.sh` derives it from `JIT_CACHE_ROOT`) | unset, every job re-JITs kernels during inference and generation stalls in bursts |
 | `HF_HOME` | on `iopsstor` (`$FAST_SCRATCH`, default from `helpers/scripts/cache_env.sh`) | 11x faster than general scratch at 16 concurrent readers; `run_cluster.sh` stripes `$HF_HOME/hub` wide |
-| `NCCL_NET_GDR_LEVEL` | `0` | multi-node only |
+| `NCCL_NET_GDR_LEVEL` | `LOC` (`pp.env`, applied on the server command by `run_cluster.sh`) | multi-node only; GPU-direct RDMA off |
 | `TOKENIZERS_PARALLELISM` | `false` | silences a fork warning |
 
 ## Cheap flags worth setting everywhere (SGLang)
