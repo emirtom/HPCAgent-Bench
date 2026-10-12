@@ -76,7 +76,7 @@ def needs_canonicalize(frameworks: Sequence[str]) -> list[str]:
     out: list[str] = []
     for name in frameworks:
         meta = FRAMEWORKS.entries.get(name)
-        if meta is None or meta.get("base") != "dace":
+        if meta is None or meta.get("base") not in ("dace", "alloy"):
             continue
         # ``canon_cpu`` / ``canon_gpu``, by prefix: the pipelines are named per target.
         if any(p.startswith("canon") for p in meta.get("pipelines", DEFAULT_PIPELINES)):

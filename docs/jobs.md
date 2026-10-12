@@ -97,7 +97,8 @@ The CPF view of a tag, for the cpf-tool and cpf-src setups on CPU (C drop-ins gr
         [--preset fuzzed] [--phase begin|run|finish|all] [--opt CHECKOUT]
 
 The canon compiler baselines: a deterministic column (`numba`, `cc`, `cc_autopar`, `dace_cpu[_canonicalize]`,
-`dace_gpu[_canonicalize]`, `pluto`, `ppcg_hip`, ...) over a tag, no agents and no judge. The tag is
+`dace_gpu[_canonicalize]`, `dace_cpu[_canonicalize]_alloy`, `pluto`, `ppcg_hip`, ...) over a tag, no agents and no
+judge. The tag is
 `--kernels-file` (one name per line, `#` comments), else `--kernels`, else the tag's; every name is checked
 against the registry, and so is the column, before a node is held.
 
@@ -107,6 +108,12 @@ against the registry, and so is the column, before a node is held.
 | `run` | every task | task `r` of `n` runs `kernels[r::n]`, one `run-framework` process per kernel, each recording its row into `$HPCAGENT_BENCH_RESULTS_DIR/canon.db` |
 | `finish` | one | deletes the column's DaCe build tree and shard DB |
 | `all` | one (default) | the three in order; refused with more than one task, where there is no barrier between them |
+
+The two `_alloy` columns compile their DaCe pipeline's SDFG with [Alloy](https://github.com/ThrudPrimrose/alloy): every
+region's candidates are built, verified and timed on the node, and DaCe builds the program linking each region's
+winner. They need `alloy` installed in `HPCAGENT_BENCH_IMAGE_PYTHON` (same dace pin) and its compilers on `PATH`. Run
+one task per node: Alloy times on every physical core. A kernel with no loop nest left after the pipeline (a reduction
+canonicalize keeps as a library node) records `unsupported`.
 
 Every row carries the run label `<out-root>`'s name. Only an `--out-root` under `$HPCAGENT_BENCH_RUNS_ROOT` is
 managed (shard DB redirected to `<out-root>/db/<col>/`, earlier rows dropped, build tree deleted); any other

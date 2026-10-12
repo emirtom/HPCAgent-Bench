@@ -112,6 +112,8 @@ PINNED_FRAMEWORKS = {
     "tvm_cpu": 30,
     "dace_cpu_parallel": 31,
     "dace_gpu_parallel": 32,
+    "dace_cpu_alloy": 33,
+    "dace_cpu_canonicalize_alloy": 34,
 }
 
 PINNED = {

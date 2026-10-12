@@ -134,6 +134,7 @@ BASE_CLASS_NAMES = {
     "jax": "JaxFramework",
     "pythran": "PythranFramework",
     "dace": "DaceFramework",
+    "alloy": "AlloyFramework",
     "native": "NativeFramework",
     "pluto": "PlutoFramework",
     "triton": "TritonFramework",
