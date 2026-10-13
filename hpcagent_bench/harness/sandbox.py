@@ -564,7 +564,7 @@ class Sandbox:
         src, extra_sources = paths[-1], paths[:-1]
         # The judge wires the shared folder's include and lib paths; the agent's -l/-L follow -L<shared>/lib.
         omp = submission_omp_context(submission)
-        catalog_error = catalog_refusal(submission.requests.libraries, submission.language, omp)
+        catalog_error = catalog_refusal(submission.requests.startup.load, submission.language, omp)
         if catalog_error:
             return BuildResult(False, None, catalog_error)
         link_error = build_link_refusal(submission.build, submission.language)
@@ -585,7 +585,7 @@ class Sandbox:
         shared = shared_dir()
         agent_compile, agent_link = split_build(submission.build, allow_flags=agent_flags_allowed())
         catalog_compile, catalog_link = languages.library_build_flags(
-            submission.language, submission.requests.libraries, omp
+            submission.language, submission.requests.startup.load, omp
         )
         # Offload flags go on both argvs: clang embeds the device image at link, and a link without
         # --offload-arch yields a host-only .so that still verifies. Empty on non-offload setups.
@@ -687,7 +687,7 @@ class Sandbox:
 
         driver_src = self.root / f"{short}_mpi_driver.{driver_ext}"
         # cast operations: the driver converts each requested (host) tile around every call.
-        casts = {name: np.dtype(numpy_dtype(p)).name for name, p in submission.requests.precision.items()}
+        casts = {name: np.dtype(numpy_dtype(p)).name for name, p in submission.requests.precisions().items()}
         driver_src.write_text(gen_mpi_driver(self.binding, descriptor.grid.dims, device_arrays=device_idx, casts=casts))
         # Every translation unit the delivery carries (a GPU submission has two).
         units = languages.source_units(submission.language, mpi_symbol(self.binding))
@@ -698,7 +698,7 @@ class Sandbox:
             path.write_text(text or "")
         exe = self.root / f"{short}_bench"
 
-        catalog_error = catalog_refusal(submission.requests.libraries, submission.language)
+        catalog_error = catalog_refusal(submission.requests.startup.load, submission.language)
         if catalog_error:
             return BuildResult(False, None, catalog_error)
         link_error = build_link_refusal(submission.build, submission.language)
@@ -708,7 +708,7 @@ class Sandbox:
         shared = shared_dir()
         agent_compile, agent_link = split_build(submission.build, allow_flags=agent_flags_allowed())
         catalog_compile, catalog_link = languages.library_build_flags(
-            submission.language, submission.requests.libraries
+            submission.language, submission.requests.startup.load
         )
         extra_compile = [f"-I{shared}/include", *gpu_compile, *agent_compile, *list(catalog_compile)]
         extra_link = [f"-L{shared}/lib", f"-Wl,-rpath,{shared}/lib", *gpu_link, *agent_link, *list(catalog_link)]

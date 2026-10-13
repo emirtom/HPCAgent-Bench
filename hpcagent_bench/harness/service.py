@@ -811,7 +811,7 @@ def _submission_from_body(
     # against the kernel.
     requests = Requests.from_obj(body.raw("requests"))
     refusal = sandbox.catalog_refusal(
-        requests.libraries, language, sandbox.compiled_omp_context(language, body.optional_text("compiler"))
+        requests.startup.load, language, sandbox.compiled_omp_context(language, body.optional_text("compiler"))
     )
     if refusal:
         raise ValueError(refusal)
@@ -847,8 +847,8 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.
         declared = {arg.name: arg.dtype for arg in binding.pointers}
         problem = {name: declared[name] for name in problem}
-    refused = precision_refusal(requests.precision, problem)
-    if refused is None and requests.precision:
+    refused = precision_refusal(requests.precisions(), problem)
+    if refused is None and requests.precisions():
         refused = precision_scope_refusal(submission, task, spec)
     if refused is not None:
         return refused
@@ -897,7 +897,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
     ndims = kernel_ndims(spec.mpi, binding)
     regroups, layouts = requests.single_node(kernel_arrays(binding, ndims, problem))
     stored = dict(problem)
-    stored.update({name: np.dtype(numpy_dtype(p)).name for name, p in requests.precision.items()})
+    stored.update({name: np.dtype(numpy_dtype(p)).name for name, p in requests.precisions().items()})
     templates = {name: np.dtype(dtype) for name, dtype in stored.items()}
     arrays: dict[str, object] = {
         name: {"dtype": dtype, **({"extents": list(layouts[name].extents())} if name in layouts else {})}
@@ -940,7 +940,7 @@ def converts_kernel_arrays(requests: Requests) -> bool:
     """Whether the judge converts the kernel's arrays around the call: a ``cast``, or without a grid a
     layout, ``zip`` or ``unzip``."""
     regroups = not requests.distributed and any(isinstance(op, Zip | Unzip) for op in requests.operations)
-    return bool(requests.precision or single_node_layout_ops(requests)) or regroups
+    return bool(requests.precisions() or single_node_layout_ops(requests)) or regroups
 
 
 def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSpec, datatype: str) -> str | None:
@@ -1002,8 +1002,8 @@ def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec)
     default = mpi_residency()
     device = sorted(
         name
-        for name in submission.requests.precision
-        if submission.requests.location.get(name, default) is Location.DEVICE
+        for name in submission.requests.precisions()
+        if submission.requests.locations().get(name, default) is Location.DEVICE
     )
     if device:
         return f"cast on device-resident MPI tiles ({device}) is not implemented yet; keep them on the host"
@@ -1019,7 +1019,7 @@ def layout_refusal(submission: Submission, task: Task) -> str | None:
     (dia / ell) whose storage would blow past its limit on the graded input is refused the same
     way by the grade itself, before the build (:class:`~hpcagent_bench.support.helpers.sparse.abi.LayoutRefused`)."""
     try:
-        resolve_layout(BenchSpec.load(task.kernel), submission.requests.sparse)
+        resolve_layout(BenchSpec.load(task.kernel), submission.requests.formats())
     except LayoutRefused as exc:
         return str(exc)
     return None
@@ -1721,7 +1721,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             refused is None
             and route == "profile"
             and not is_default(
-                BenchSpec.load(kernel), resolve_layout(BenchSpec.load(kernel), submission.requests.sparse)
+                BenchSpec.load(kernel), resolve_layout(BenchSpec.load(kernel), submission.requests.formats())
             )
         ):
             refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"

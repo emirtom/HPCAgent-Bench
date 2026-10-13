@@ -26,7 +26,6 @@ from relayout.sparse import plan as sparse_plan
 
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.support.helpers.sparse.abi import (
-    BLOCK_FORMAT,
     DEFAULT_FORMAT,
     FORMAT_SPECS,
     INDEX_DTYPE,
@@ -34,7 +33,6 @@ from hpcagent_bench.support.helpers.sparse.abi import (
     MASK_ROLE,
     SPARSE_BUFFERS_KEY,
     SPARSE_LAYOUT_KEY,
-    ArrayLayout,
     LayoutRefused,
     ResolvedLayout,
     scalar_name,
@@ -57,7 +55,6 @@ __all__ = [
     "check_layout",
     "convert",
     "converted",
-    "divisibility_refusal",
     "expand_default",
     "fill",
     "indices",
@@ -105,18 +102,11 @@ def canonical_csr(matrix: object) -> sp.csr_matrix:
     return m
 
 
-def divisibility_refusal(shape: tuple[int, int], logical: str, block_size: int) -> str | None:
-    """Why a ``bsr`` block edge cannot tile a ``shape`` matrix, or ``None``."""
-    if any(extent % block_size for extent in shape):
-        return f"layout bsr for {logical!r}: block_size {block_size} does not divide the {shape[0]} x {shape[1]} matrix"
-    return None
-
-
-def plan(m: sp.csr_matrix, layout: ArrayLayout) -> SparsePlan:
+def plan(m: sp.csr_matrix, layout: SparseFormat) -> SparsePlan:
     """``m``'s pattern in ``layout`` (relayout's :func:`~relayout.sparse.plan`): its index buffers and
     the table each draw of values is gathered by."""
     pattern = Csr(shape_of(m), indices(m.indptr), indices(m.indices))
-    return sparse_plan(pattern, SparseFormat(layout.format, layout.block_size))
+    return sparse_plan(pattern, layout)
 
 
 def structure(scheme: SparsePlan, p: str) -> Materialized:
@@ -149,25 +139,24 @@ def realize(scheme: SparsePlan, m: sp.csr_matrix, logical: str, pattern: bool) -
     return pattern_of(scheme, logical) if pattern else fill(scheme, logical, m.data)
 
 
-def convert(m: sp.csr_matrix, logical: str, layout: ArrayLayout, pattern: bool = False) -> Materialized:
+def convert(m: sp.csr_matrix, logical: str, layout: SparseFormat, pattern: bool = False) -> Materialized:
     """``m`` (canonical CSR) in ``layout``; refuses a block edge that does not tile the matrix before
     allocating anything (:class:`LayoutRefused`). A ``pattern`` array gets index buffers (and a mask)
     only."""
     refused = layout_refusal(m, logical, layout)
     if refused is not None:
         raise LayoutRefused(refused)
-    if layout.format == DEFAULT_FORMAT and not pattern:
+    if layout.name == DEFAULT_FORMAT and not pattern:
         return Materialized(
             {f"{logical}_indptr": m.indptr, f"{logical}_indices": m.indices, f"{logical}_data": m.data}, {}
         )
     return realize(plan(m, layout), m, logical, pattern)
 
 
-def layout_refusal(m: sp.csr_matrix, logical: str, layout: ArrayLayout) -> str | None:
+def layout_refusal(m: sp.csr_matrix, logical: str, layout: SparseFormat) -> str | None:
     """Why ``m`` cannot be converted into ``layout`` (a block edge that does not tile it), or ``None``."""
-    if layout.format == BLOCK_FORMAT:
-        return divisibility_refusal(shape_of(m), logical, layout.block_size)
-    return None
+    refused = layout.refusal(shape_of(m))
+    return None if refused is None else f"layout {layout.label} for {logical!r}: {refused}"
 
 
 def buffer_map(data: Mapping[str, object], key: str) -> dict[str, object]:
@@ -177,7 +166,7 @@ def buffer_map(data: Mapping[str, object], key: str) -> dict[str, object]:
 
 
 def record(
-    data: dict[str, object], logical: str, layout: ArrayLayout, done: Materialized, nnz_symbol: str, nnz: int
+    data: dict[str, object], logical: str, layout: SparseFormat, done: Materialized, nnz_symbol: str, nnz: int
 ) -> None:
     """Put ``done`` into ``data`` as ``logical``'s layout and bind its count symbol to ``nnz``. A
     count spelled as an expression of the sizes (a stencil's exact entry count) is not rebound: it
@@ -213,7 +202,7 @@ def expand_default(layouts: Mapping[str, "SparseLayout"], data: dict[str, object
         if m is None:
             continue
         data[logical] = m
-        default = ArrayLayout(layout.default)
+        default = SparseFormat(layout.default)
         done = convert(m, logical, default, pattern=layout.pattern)
         record(data, logical, default, done, layout.nnz, m.nnz)
         written.extend(done.buffers)
@@ -225,7 +214,7 @@ def check_layout(layouts: Mapping[str, "SparseLayout"], choice: ResolvedLayout, 
     would, without allocating the converted buffers: the pre-build check of the held-out cases."""
     for logical, layout in choice.arrays:
         matrix = data.get(logical)
-        if not isinstance(matrix, sp.csr_matrix) or layout == ArrayLayout(layouts[logical].default):
+        if not isinstance(matrix, sp.csr_matrix) or layout == SparseFormat(layouts[logical].default):
             continue
         refused = layout_refusal(matrix, logical, layout)
         if refused is not None:
@@ -236,13 +225,13 @@ def check_layout(layouts: Mapping[str, "SparseLayout"], choice: ResolvedLayout, 
 #: grade redraw a sparse array's VALUES on one pattern (the same ``indptr`` / ``indices`` objects,
 #: :func:`hpcagent_bench.harness.rep_variation.variant_for`), so every repeat after the first is a
 #: gather instead of a conversion.
-PLANS: list[tuple[npt.NDArray[np.integer], npt.NDArray[np.integer], ArrayLayout, SparsePlan]] = []
+PLANS: list[tuple[npt.NDArray[np.integer], npt.NDArray[np.integer], SparseFormat, SparsePlan]] = []
 
 #: How many plans :data:`PLANS` keeps (the public draw and one held-out case).
 PLAN_CACHE_SIZE = 2
 
 
-def converted(matrix: sp.csr_matrix, logical: str, layout: ArrayLayout, pattern: bool = False) -> Materialized:
+def converted(matrix: sp.csr_matrix, logical: str, layout: SparseFormat, pattern: bool = False) -> Materialized:
     """:func:`convert`, with the pattern's plan memoized on its index arrays (:data:`PLANS`). The
     refusal depends on the pattern alone, so a pattern that has a plan has passed it."""
     for indptr, indices_, held_layout, scheme in PLANS:
@@ -271,7 +260,7 @@ def apply_layout(
     out = dict(data)
     held = buffer_map(data, SPARSE_BUFFERS_KEY)
     for logical, layout in choice.arrays:
-        if layout == ArrayLayout(layouts[logical].default):
+        if layout == SparseFormat(layouts[logical].default):
             continue
         matrix = data.get(logical)
         if not isinstance(matrix, sp.csr_matrix):

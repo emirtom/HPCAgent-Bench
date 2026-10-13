@@ -25,7 +25,7 @@ FP16_KERNELS = ("jacobi_2d", "arc_distance")
 
 
 def test_fp16_dtype_and_tolerance() -> None:
-    assert Precision.from_str("fp16") is Precision.FP16
+    assert Precision("fp16") is Precision.FP16
     assert numpy_dtype(Precision.FP16) is np.float16
     assert DTYPES[Precision.FP16] is np.float16
     # The LIVE validation-tolerance table (the one Test.run actually uses).

@@ -14,13 +14,13 @@ registers them with numpy at import time so ``arr.astype(dtype)`` and
 ``np.allclose`` work uniformly.
 """
 
-import enum
 import math
 from dataclasses import dataclass
 
 import ml_dtypes
 import numpy as np
 from numpy.typing import DTypeLike
+from relayout.ops import Precision
 
 __all__ = [
     "DATATYPE_ALIAS",
@@ -46,25 +46,6 @@ __all__ = [
     "tolerance_band",
     "ungradeable",
 ]
-
-
-class Precision(enum.Enum):
-    """Supported floating-point precisions for kernel inputs/outputs."""
-
-    FP64 = "fp64"
-    FP32 = "fp32"
-    FP16 = "fp16"
-    BF16 = "bf16"
-    FP8_E4M3 = "fp8_e4m3"
-    FP8_E5M2 = "fp8_e5m2"
-
-    @classmethod
-    def from_str(cls, name: str) -> "Precision":
-        """Look up by string value (e.g. ``"fp32"`` -> :attr:`FP32`)."""
-        try:
-            return cls(name)
-        except ValueError:
-            raise ValueError(f"Unknown precision {name!r}; supported: {[p.value for p in cls]}") from None
 
 
 #: CLI ``--datatype`` choices -- the numpy spellings ``float32`` / ``float64``
@@ -132,7 +113,11 @@ def precision_from_datatype(datatype: str | None) -> Precision:
     """
     if datatype is None:
         return Precision.FP64
-    return Precision.from_str(DATATYPE_ALIAS.get(datatype, datatype))
+    name = DATATYPE_ALIAS.get(datatype, datatype)
+    try:
+        return Precision(name)
+    except ValueError:
+        raise ValueError(f"Unknown precision {name!r}; supported: {[p.value for p in Precision]}") from None
 
 
 def float_complex_for(datatype):

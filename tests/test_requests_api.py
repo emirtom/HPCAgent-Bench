@@ -38,10 +38,10 @@ def test_the_request_round_trips_through_json() -> None:
         ],
     }
     requests = Requests.from_obj(raw)
-    assert requests.libraries == ("blas",)
-    assert requests.precision == {"A": Precision.FP32, "x": Precision.BF16}
-    assert requests.location == {"A": Location.DEVICE}
-    assert requests.sparse == {"M": "csc"}
+    assert requests.startup.load == ("blas",)
+    assert requests.precisions() == {"A": Precision.FP32, "x": Precision.BF16}
+    assert requests.locations() == {"A": Location.DEVICE}
+    assert requests.formats() == {"M": "csc"}
     assert requests.to_json() == raw
     assert Requests.from_obj(None).to_json() == {}
     assert Requests.of(libraries=["blas"], precision={"A": Precision.FP32}).to_json() == {
@@ -55,7 +55,7 @@ def test_the_request_round_trips_through_json() -> None:
     [
         ({"startup": {"grid": []}}, "non-empty list of extents over P"),
         ({"operations": [{"action": "cast", "array": "A", "to": "fp42"}]}, r"operations\[0\].to must be one of"),
-        ({"operations": [{"action": "format", "array": "M", "to": "csr2"}]}, "the format of 'M' must be one of"),
+        ({"operations": [{"action": "format", "array": "M", "to": "csr2"}]}, "sparse format 'csr2': the formats are"),
         ({"operations": [{"action": "bogus"}]}, r"operations\[0\].action must be one of"),
         ({"precision": {"A": "fp32"}}, "takes startup and operations"),
     ],

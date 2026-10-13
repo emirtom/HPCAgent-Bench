@@ -31,6 +31,8 @@ from hpcagent_bench.harness import recording
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.collect import canon_db
+from relayout.sparse import SparseFormat
+
 from hpcagent_bench.support.helpers.sparse.abi import BLOCK_FORMAT, LayoutRefused
 
 __all__ = [
@@ -443,7 +445,7 @@ def discover_sparse_benches(filter_names: Sequence[str] | None = None) -> list[s
 
 def sparse_config_for(spec: BenchSpec, fmt: str, block_size: int) -> dict[str, str]:
     """The sparse formats asking every sparse array of ``spec`` for ``fmt``."""
-    label = f"{fmt}:{block_size}" if fmt == BLOCK_FORMAT else fmt
+    label = SparseFormat(fmt, block_size if fmt == BLOCK_FORMAT else 0).label
     return dict.fromkeys(sorted(spec.sparse_layouts), label)
 
 
@@ -470,7 +472,7 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
     from hpcagent_bench.harness.task import Task
 
     spec = BenchSpec.load(kernel)
-    label = f"{fmt}:{block_size}" if fmt == BLOCK_FORMAT else fmt
+    label = SparseFormat(fmt, block_size if fmt == BLOCK_FORMAT else 0).label
     started = time.time()
     source = layout_reference_source(spec, fmt)
     if source is None:

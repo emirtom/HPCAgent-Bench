@@ -196,7 +196,7 @@ def sparse_bytes(
     fmt = layout.format if layout is not None else spec.default_layout
     if fmt is None or fmt not in spec.configurations:
         return None
-    edge = max((lay.block_size for unused, lay in layout.arrays), default=1) if layout is not None else 1
+    edge = max((lay.block for unused, lay in layout.arrays), default=1) if layout is not None else 1
     bounded = layout_bound_namespace(spec, namespace, edge)
     return configuration_bytes(spec, spec.configurations[fmt].arrays, bounded, dense, wanted) if bounded else None
 

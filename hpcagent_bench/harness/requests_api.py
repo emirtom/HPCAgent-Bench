@@ -47,7 +47,6 @@ from hpcagent_bench.dtypes import canonical, is_float_dtype
 from hpcagent_bench.harness.precision_casts import Regroup, extent_names
 from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.support.bindings.contract import graded_datatype
-from hpcagent_bench.support.helpers.sparse.abi import array_layout
 
 if TYPE_CHECKING:
     from hpcagent_bench.spec import BenchSpec
@@ -126,9 +125,6 @@ class Requests(relayout.ops.Requests):
     def from_obj(cls, raw: object) -> "Requests":
         """Parse the ``requests`` JSON object (None = no requests); a malformed one raises ValueError."""
         parsed = parse_requests(raw)
-        for op in parsed.operations:
-            if isinstance(op, Format):
-                array_layout(op.array, op.to)
         return cls(parsed.startup, parsed.operations)
 
     @classmethod
@@ -142,38 +138,13 @@ class Requests(relayout.ops.Requests):
         """The single-node request loading ``libraries``, casting by ``precision`` and storing each sparse
         array in its ``sparse`` format."""
         ops: list[Operation] = []
-        ops += [Cast(ArrayName(name), relayout.ops.Precision(p.value)) for name, p in (precision or {}).items()]
+        ops += [Cast(ArrayName(name), p) for name, p in (precision or {}).items()]
         ops += [Format(ArrayName(name), FormatLabel(label)) for name, label in (sparse or {}).items()]
         return cls(Startup(tuple(libraries)), tuple(ops))
 
     def to_json(self) -> dict[str, Any]:
         """The request as JSON, empty parts left out (``{}`` = no requests)."""
         return requests_json(self)
-
-    @property
-    def libraries(self) -> tuple[str, ...]:
-        """The catalog libraries ``startup.load`` names."""
-        return self.startup.load
-
-    @property
-    def grid(self) -> tuple[str, ...] | None:
-        """``startup.grid``: the grid's extents over the rank count ``P``."""
-        return self.startup.grid
-
-    @property
-    def precision(self) -> dict[str, Precision]:
-        """Each array a ``cast`` names, with the precision its last cast leaves."""
-        return {name: Precision(p.value) for name, p in self.precisions().items()}
-
-    @property
-    def location(self) -> dict[str, Location]:
-        """Each array a ``place`` names, with the memory its last one leaves."""
-        return self.locations()
-
-    @property
-    def sparse(self) -> dict[str, str] | None:
-        """Each sparse array a ``format`` names, with its format label; None when none does."""
-        return self.formats() or None
 
     def single_node(self, arrays: Sequence[ArraySpec]) -> SingleNode:
         """The :class:`SingleNode` conversions of the kernel's ``arrays`` (:func:`kernel_arrays`, with their
@@ -219,7 +190,7 @@ class Requests(relayout.ops.Requests):
         if cyclic and len(set(grid)) > 1:
             raise ValueError(
                 f"a cyclic / block-cyclic layout needs an equal-edge grid so the cyclic wrap is symmetric; "
-                f"startup.grid {list(self.grid or ())} is {list(grid)} at {ranks} rank(s)"
+                f"startup.grid {list(self.startup.grid or ())} is {list(grid)} at {ranks} rank(s)"
             )
         arrays: dict[str, dict[str, Any]] = {name: axes_json(axes) for name, axes in splits.items()}
         for name, array in state.arrays.items():
