@@ -27,10 +27,6 @@ PINNED_OPTIMIZERS = {
     "cpf": 1,
     "pluto": 2,
     "ppcg_hip": 3,
-    "dace_alloy_profile": 4,
-    "dace_alloy_heuristic": 5,
-    "cpf_alloy_profile": 6,
-    "cpf_alloy_heuristic": 7,
 }
 
 PINNED_HARNESSES = {

@@ -82,7 +82,15 @@ class Glm53:
 # device variants are aliases, since the optimizer is the same one on either device.
 
 
-@optimizer("dace", order=0, aliases=("dace_cpu_parallel", "dace_gpu_parallel", "dace_cpu", "dace_gpu"))
+@optimizer(
+    "dace",
+    order=0,
+    aliases=(
+        *(f"dace_{arch}_parallel{alloy}" for arch in ("cpu", "gpu") for alloy in ("", "_alloy_profile", "_alloy_heuristic")),
+        "dace_cpu",
+        "dace_gpu",
+    ),
+)
 class Dace:
     __slots__ = ()
 
@@ -90,7 +98,13 @@ class Dace:
 
 
 @optimizer(
-    "cpf", order=1, aliases=("dace_cpu_canon", "dace_gpu_canon", "dace_cpu_canonicalize", "dace_gpu_canonicalize")
+    "cpf",
+    order=1,
+    aliases=(
+        *(f"dace_{arch}_canon{alloy}" for arch in ("cpu", "gpu") for alloy in ("", "_alloy_profile", "_alloy_heuristic")),
+        "dace_cpu_canonicalize",
+        "dace_gpu_canonicalize",
+    ),
 )
 class Cpf:
     __slots__ = ()
@@ -110,38 +124,6 @@ class PpcgHip:
     __slots__ = ()
 
     name = "PPCG (CUDA via hipify)"
-
-
-@optimizer(
-    "dace_alloy_profile", order=4, aliases=("dace_cpu_parallel_alloy_profile", "dace_gpu_parallel_alloy_profile")
-)
-class DaceAlloyProfile:
-    __slots__ = ()
-
-    name = "DaCe + Alloy (profile)"
-
-
-@optimizer(
-    "dace_alloy_heuristic", order=5, aliases=("dace_cpu_parallel_alloy_heuristic", "dace_gpu_parallel_alloy_heuristic")
-)
-class DaceAlloyHeuristic:
-    __slots__ = ()
-
-    name = "DaCe + Alloy (heuristic)"
-
-
-@optimizer("cpf_alloy_profile", order=6, aliases=("dace_cpu_canon_alloy_profile", "dace_gpu_canon_alloy_profile"))
-class CpfAlloyProfile:
-    __slots__ = ()
-
-    name = "Canonical Parallel Form + Alloy (profile)"
-
-
-@optimizer("cpf_alloy_heuristic", order=7, aliases=("dace_cpu_canon_alloy_heuristic", "dace_gpu_canon_alloy_heuristic"))
-class CpfAlloyHeuristic:
-    __slots__ = ()
-
-    name = "Canonical Parallel Form + Alloy (heuristic)"
 
 
 # Agent harnesses

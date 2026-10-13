@@ -108,8 +108,10 @@ class Sweep:
 
 
 def is_device_column(column: str) -> bool:
-    """Whether ``column`` builds for a GPU, so its step needs one: the device it registers (``arch``)."""
-    return FRAMEWORKS.entries[FRAMEWORKS.canonical(column)]["arch"] == "gpu"
+    """Whether ``column`` builds for a GPU, so its step needs one: the device it registers (``arch``). An
+    unregistered name is no device column; :func:`check_column` refuses it before a sweep runs."""
+    meta = FRAMEWORKS.entries.get(FRAMEWORKS.canonical(column))
+    return meta is not None and meta["arch"] == "gpu"
 
 
 def shell_environment(script: pathlib.Path, base: Mapping[str, str]) -> dict[str, str]:

@@ -375,7 +375,7 @@ class AlloyOptimizer(LibraryOptimizer):
     the flavor's one pipeline, on the flavor's device. Constructed with the flavor's name, which is the label its rows
     carry; :func:`optimizer_registry` binds it. CPU C/C++ libraries only; Alloy is an optional install."""
 
-    __slots__ = ("fname", "name")
+    __slots__ = ("fname",)
 
     def __init__(self, fname: str, workdir: pathlib.Path | None = None) -> None:
         super().__init__(workdir)

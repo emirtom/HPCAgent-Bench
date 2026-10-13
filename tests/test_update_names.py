@@ -65,7 +65,7 @@ def test_a_framework_shard_moves_to_the_current_names_once(tmp_path: pathlib.Pat
     shard = tmp_path / "shard.db"
     old_framework_shard(shard)
 
-    assert update_names.update(shard) == 6
+    assert update_names.update(shard) == 5
     assert update_names.update(shard) == 0
 
     assert rows(shard, "SELECT framework, flavor FROM results ORDER BY rowid") == EXPECTED_PAIRS
@@ -113,6 +113,6 @@ def test_a_new_database_is_written_under_the_current_names(tmp_path: pathlib.Pat
 
     canon_db.record(canon, [canon_row("dace_cpu_parallel")])
 
-    assert rows(canon, "PRAGMA user_version") == [(update_names.NAMES_VERSION,)]
+    assert rows(canon, "PRAGMA application_id") == [(update_names.NAMES_VERSION,)]
     assert update_names.update(canon) == 0
     assert rows(canon, "SELECT column FROM canon") == [("dace_cpu_parallel",)]

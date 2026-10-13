@@ -5,7 +5,8 @@
     python -m hpcagent_bench.support.update_names DB [DB ...]
 
 A framework results shard (``results``: ``framework`` + ``flavor``) and the canon DB (``canon``: the flat ``column``)
-carry the names scheme they were written under as ``PRAGMA user_version``; :func:`guard` stamps a new one with
+carry the names scheme they were written under as ``PRAGMA application_id`` (``user_version`` is the results schema's,
+and a framework shard can share its file with that schema); :func:`guard` stamps a new one with
 :data:`NAMES_VERSION` and refuses to write into an older one, so a database never mixes two schemes. Agent results
 (``setups.harness``) only rename the retired Alloy optimizers. Running the script twice changes nothing the second
 time. Standard library only, like :mod:`hpcagent_bench.support.collect.canon_db`.
@@ -58,7 +59,7 @@ def has_table(conn: sqlite3.Connection, table: str) -> bool:
 
 
 def names_version(conn: sqlite3.Connection) -> int:
-    return int(conn.execute("PRAGMA user_version").fetchone()[0])
+    return int(conn.execute("PRAGMA application_id").fetchone()[0])
 
 
 def guard(path: str | pathlib.Path, table: str) -> None:
@@ -72,7 +73,7 @@ def guard(path: str | pathlib.Path, table: str) -> None:
                 f"{path} holds rows under the old framework names; run `python -m hpcagent_bench.support.update_names "
                 f"{path}` or write a new database"
             )
-        conn.execute(f"PRAGMA user_version = {NAMES_VERSION}")
+        conn.execute(f"PRAGMA application_id = {NAMES_VERSION}")
 
 
 def update(path: pathlib.Path) -> int:
@@ -95,7 +96,7 @@ def update(path: pathlib.Path) -> int:
                     "UPDATE canon SET column = ? WHERE column = ?", (flat(new_fw, new_flavor), flat(old_fw, old_flavor))
                 ).rowcount
         if has_table(conn, "results") or has_table(conn, "canon"):
-            conn.execute(f"PRAGMA user_version = {NAMES_VERSION}")
+            conn.execute(f"PRAGMA application_id = {NAMES_VERSION}")
     return changed
 
 
