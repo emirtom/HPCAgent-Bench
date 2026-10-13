@@ -70,6 +70,7 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.recording import (
     ADHOC_EPISODE_ID,
+    STOPPED_REASON,
     FinalRecord,
     cell_values,
     credit_values,
@@ -1036,6 +1037,8 @@ def cell_row(index: int, label: str, cell: TimedCell | None, result: Score, resi
     status = "graded" if measured else ("error" if result.harness_fault else "unmeasured")
     if cell is not None and cell.uncovered:  # not run for its layout (sparse.request.uncovered)
         status, reason = UNCOVERED, cell.uncovered
+    elif cell is not None and cell.stopped and not reason:
+        reason = STOPPED_REASON  # an upper bound the guillotine measured, never read as a min-of-k fallback
     row: dict[str, Any] = {"cell": index, "label": label, "timed": 0, "correct": int(result.correct)}
     row["baseline"] = result.baseline
     if cell is not None:

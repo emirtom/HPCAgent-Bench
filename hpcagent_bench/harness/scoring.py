@@ -469,6 +469,9 @@ class TimedCell:
     correct: bool = True
     suspect: bool = False  # implausible ratio at THIS cell (flagged, not failed)
     significant: bool = True  # the gate credited the measured ratio rather than flooring it to 1.0
+    #: The guillotine stopped the candidate: ``native_ns`` is the cap and ``ratio`` baseline/cap, an upper bound
+    #: (:func:`timing.reduce_stopped`). No test ran, so there is no p-value, and it is NOT a min-of-k fallback.
+    stopped: bool = False
     baseline: str = ""
     timing_reduction: str | None = None
     #: Every reference that was TIMED at this cell, sorted and "+"-joined -- the set the denominator
@@ -2541,6 +2544,7 @@ def graded_score(
                 ratio=float(speedup),
                 graded=bool(expected_public),
                 correct=bool(public_correct),
+                stopped=bool(stopped_ns),
                 suspect=suspect_timing(
                     speedup,
                     baseline_ns,

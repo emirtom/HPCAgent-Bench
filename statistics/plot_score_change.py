@@ -736,7 +736,11 @@ def build_parser() -> argparse.ArgumentParser:
     kernel.add_argument(
         "--canon-columns", default="", help="comma-separated canon columns drawn as rows, e.g. pluto,dace_cpu"
     )
-    kernel.add_argument("--baseline", default=signed.BASELINE, help="speedup denominator (default: numba)")
+    kernel.add_argument(
+        "--baseline",
+        default=None,
+        help="speedup denominator (default: the observations' own, e.g. best-of(numba,c); numba for a canon-only figure)",
+    )
     kernel.add_argument(
         "--baseline-fallback", default="cc_autopar", help="canon column timing a kernel the baseline did not verify"
     )
@@ -761,7 +765,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     kernel.add_argument("--title", default="", help="figure title; default none")
     parser.add_argument("--out", type=pathlib.Path, default=pathlib.Path("figures/score_change.pdf"))
-    parser.add_argument("--table", type=pathlib.Path, default=pathlib.Path("data/score_change.csv"))
+    parser.add_argument(
+        "--table", type=pathlib.Path, default=None, help="stats table (default: the figure's path with .csv)"
+    )
     cost.add_arguments(parser)
     return parser
 
@@ -934,6 +940,12 @@ def figure_per_kernel(args: argparse.Namespace, card: cost.CostModel) -> None:
             studies.read_observations(args.observations[0]), args.experiment, args.setups
         )
         observations = cost.priced(observations, card)
+    baseline = args.baseline
+    if baseline is None:
+        submitted = observations[observations.row_kind == "submission"] if observations is not None else None
+        baseline = (
+            population.rows_denominator(submitted) if submitted is not None and not submitted.empty else signed.BASELINE
+        )
     stem = signed.kernel_comparison(
         canon_frame,
         observations,
@@ -944,7 +956,7 @@ def figure_per_kernel(args: argparse.Namespace, card: cost.CostModel) -> None:
         conditions=[study_tags.canonical("packets", c) for c in args.conditions.split(",")]
         if args.conditions
         else None,
-        baseline=args.baseline,
+        baseline=baseline,
         title=args.title,
         labels=dict(item.split("=", 1) for item in args.series_label),
         offset=args.offset,
@@ -958,6 +970,8 @@ def figure_per_kernel(args: argparse.Namespace, card: cost.CostModel) -> None:
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.table is None:
+        args.table = args.out.with_suffix(".csv")
     significance.configured()  # an unknown test name stops here, before any data is read
     card = cost.resolve(args.cost_model, args.cost_models)
     if args.per_kernel:

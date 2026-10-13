@@ -59,7 +59,7 @@ from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
 from hpcagent_agent.driver.promote_unsubmitted import PROMOTED_TAG
 
 from hpcagent_bench import config, data_guard, recorded_rows
-from hpcagent_bench.harness import denominator, results_db, scoring, timing
+from hpcagent_bench.harness import denominator, recording, results_db, scoring, timing
 from hpcagent_bench.harness.native_call import TimingProbe
 from hpcagent_bench.observation_columns import CANON_FIELDS, NUMERIC_COLUMNS, OBSERVATION_FIELDS, SOURCE_FIELDS
 from hpcagent_bench.spec import BenchSpec, load_spec
@@ -1019,11 +1019,13 @@ ORDER BY f.ts_ms, f.id
 #: inputs the judge failed to grade (``grade_under.cell_row`` status ``error``: a harness fault), and
 #: measured inputs whose ratio is a min-of-k FALLBACK rather than a Mann-Whitney credit: no p-value,
 #: yet a ratio other than the exactly-1.0 that equal medians give (scoring's fallback when one side
-#: had no samples). An ``uncovered`` input (not run: its sparse layout cannot hold it) counts as
-#: measured and unchecked, and fails its grade.
+#: had no samples). A cell the guillotine stopped (``reason`` :data:`recording.STOPPED_REASON`) has no p-value
+#: either, but is a measured upper bound, never a fallback. An ``uncovered`` input (not run: its sparse layout
+#: cannot hold it) counts as measured and unchecked, and fails its grade.
 CELL_TALLY = (
     "SELECT grade_id, COUNT(*), SUM(timed), SUM(timed AND correct IS NOT NULL), SUM(timed AND correct = 0), "
-    "SUM(status = 'error'), SUM(timed AND p_value IS NULL AND ratio != 1.0) FROM grade_cells GROUP BY grade_id"
+    "SUM(status = 'error'), SUM(timed AND p_value IS NULL AND ratio != 1.0 "
+    f"AND COALESCE(reason, '') != '{recording.STOPPED_REASON}') FROM grade_cells GROUP BY grade_id"
 )
 
 

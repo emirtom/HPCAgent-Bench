@@ -52,7 +52,12 @@ Every figure in the HPCAgent-Bench papers follows these rules. A figure that bre
 6. **Per-kernel figure** (`plot_score_change.py --per-kernel`): wide, two rows on one kernel axis: log2 speedup per kernel with
    its interval on top, tokens per kernel below. Past a dashed separator, one summary slot per
    series: speedup = geomean with 95% bootstrap interval over the SOLVED kernels, tokens = median over
-   the served kernels. The tokens row is omitted when no series carries tokens.
+   the served kernels. The tokens row is omitted when no series carries tokens and is labelled by the
+   priced cost card (`efficacy.cost_axis_label`, e.g. `Billed Tokens (1, 0.1, 1)`). A setup is coloured by
+   its model and shaped by its packet, hollow for no packet (`palette.model_color`, `palette.packet_marker`),
+   as every model x packet figure is. The speedup axis names the observations' own denominator
+   (`best-of(numba,c)` reads "Best of GCC and Numba"; `--baseline` overrides it, numba for a canon-only figure),
+   and without `--canon-db` only the setups are drawn, over the kernels of `--tag-file`.
 7. **Missing value = hollow cross.** A kernel without a verified answer enters at 1x
    (`population.NOT_DELIVERED`), is drawn crossed, named `style.NOT_DELIVERED_LABEL` in the key, and
    left out of every summary. Hollow alone means control. A `?` marks data not run yet
