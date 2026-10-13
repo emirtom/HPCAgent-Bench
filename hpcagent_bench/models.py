@@ -86,7 +86,11 @@ class Glm53:
     "dace",
     order=0,
     aliases=(
-        *(f"dace_{arch}_parallel{alloy}" for arch in ("cpu", "gpu") for alloy in ("", "_alloy_profile", "_alloy_heuristic")),
+        *(
+            f"dace_{arch}_parallel{alloy}"
+            for arch in ("cpu", "gpu")
+            for alloy in ("", "_alloy_profile", "_alloy_heuristic")
+        ),
         "dace_cpu",
         "dace_gpu",
     ),
@@ -101,7 +105,11 @@ class Dace:
     "cpf",
     order=1,
     aliases=(
-        *(f"dace_{arch}_canon{alloy}" for arch in ("cpu", "gpu") for alloy in ("", "_alloy_profile", "_alloy_heuristic")),
+        *(
+            f"dace_{arch}_canon{alloy}"
+            for arch in ("cpu", "gpu")
+            for alloy in ("", "_alloy_profile", "_alloy_heuristic")
+        ),
         "dace_cpu_canonicalize",
         "dace_gpu_canonicalize",
     ),
