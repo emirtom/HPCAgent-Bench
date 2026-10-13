@@ -26,7 +26,7 @@ from hpcagent_bench.harness.prompts import build_prompt
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
-from hpcagent_bench.harness.service import requests_check, requests_refusal
+from hpcagent_bench.harness.service import converts_kernel_arrays, requests_check, requests_refusal
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -117,7 +117,7 @@ def test_a_device_layout_conversion_matches_the_host_one() -> None:
     except cp.cuda.runtime.CUDARuntimeError:
         pytest.skip("no GPU")
     requests = Requests.from_obj({"operations": LAYOUT_OPERATIONS})
-    layouts = requests.layouts({"A": 2, "B": 2})
+    layouts = requests.single_node([ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float64")]).layouts
     logical = np.random.default_rng(5).standard_normal((7, 10))
     cases = [("A", "float64"), ("B", "float64"), ("B", "float32")]
     conversions = tuple(precision_casts.layout_conversion(n, layouts[n], "float64", d) for n, d in cases)
@@ -144,8 +144,11 @@ def test_a_device_regroup_matches_the_host_one() -> None:
         cp.cuda.runtime.getDeviceCount()
     except cp.cuda.runtime.CUDARuntimeError:
         pytest.skip("no GPU")
-    arrays = [ArraySpec("A", 2), ArraySpec("B", 2), ArraySpec("Q", 2)]
-    dtypes = {"A": "float64", "B": "float64", "Q": "float64"}
+    arrays = [
+        ArraySpec("A", 2, element="float64"),
+        ArraySpec("B", 2, element="float64"),
+        ArraySpec("Q", 2, extents=(3, None), element="float64"),
+    ]
     requests = Requests.from_obj(
         {
             "operations": [
@@ -155,7 +158,7 @@ def test_a_device_regroup_matches_the_host_one() -> None:
             ]
         }
     )
-    stacked, unzipped = requests.regroups(arrays, dtypes)
+    stacked, unzipped = requests.single_node(arrays).regroups
     struct_requests = Requests.from_obj(
         {
             "operations": [
@@ -164,7 +167,7 @@ def test_a_device_regroup_matches_the_host_one() -> None:
             ]
         }
     )
-    (struct,) = struct_requests.regroups(arrays, dtypes)
+    (struct,) = struct_requests.single_node(arrays).regroups
     groups = tuple(regroup.group for regroup in (stacked, unzipped, struct))
     host = precision_casts.HostCasts(str(precision_casts.built_library("", (), groups)))
     rng = np.random.default_rng(12)
@@ -261,6 +264,29 @@ def test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where
     assert "place without startup.grid" in str(requests_refusal(laid_out(operations=placed), jacobi, "float64"))
     unzip_real = [{"action": "unzip", "array": "A", "into": ["a0", "a1"]}]
     assert "name the dim to split along" in str(requests_refusal(laid_out(operations=unzip_real), jacobi, "float64"))
+    unzip_symbolic = [{"action": "unzip", "array": "A", "into": ["a0", "a1"], "dim": 0}]
+    refused = requests_refusal(laid_out(operations=unzip_symbolic), jacobi, "float64")
+    assert "no constant extent" in str(refused)
+    s132 = Task("tsvc_2_s132", "restricted", "c")
+    unzip_three = [{"action": "unzip", "array": "aa", "into": ["a0", "a1", "a2"], "dim": 0}]
+    assert "splits into 2 array(s)" in str(requests_refusal(laid_out(operations=unzip_three), s132, "float64"))
+    assert converts_kernel_arrays(
+        Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
+    )
+    assert not converts_kernel_arrays(
+        Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": "csr"}]})
+    )
+
+
+def test_a_zip_of_problem_arrays_of_different_types_is_a_struct() -> None:
+    """The problem's own element types decide stack or struct, as the casts do."""
+    arrays = [ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float32")]
+    zipped = Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
+    (struct,) = zipped.single_node(arrays).regroups
+    assert struct.group.struct == "hb_zip_Z" and struct.part_dtypes == ("float64", "float32")
+    cast_first = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
+    (stacked,) = Requests.from_obj({"operations": cast_first}).single_node(arrays).regroups
+    assert stacked.group.dim == 2 and stacked.whole_dtype == np.float32
 
 
 STACKED_JACOBI = """
@@ -339,6 +365,11 @@ def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal(
         "B": {"dtype": "float32", "extents": ["d0", "(d1 + 3) // 4", "4"]},
     }
     assert answer["signature"] == "void jacobi_2d_fp64(double *, float *, int64_t, int64_t, uint8_t *, int64_t);"
+    struct = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
+    assert requests_check("jacobi_2d", "c", {"operations": struct}, "float64")["signature"] == (
+        "typedef struct { float A; double B; } hb_zip_Z;\n"
+        "void jacobi_2d_fp64(hb_zip_Z *, int64_t, int64_t, uint8_t *, int64_t);"
+    )
     refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64")
     assert refused["accepted"] is False and "python" in str(refused["refusal"])
 
@@ -506,6 +537,7 @@ if __name__ == "__main__":
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"alpha": "fp32"}, "float64", "c", "not a floating")
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32"}, "float64", "python", "not implemented")
     test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where_it_is_not_carried()
+    test_a_zip_of_problem_arrays_of_different_types_is_a_struct()
     test_zipped_and_unzipped_grades_regroup_around_the_call()
     test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal()
     test_a_laid_out_grade_converts_in_and_out_and_is_correct()

@@ -119,7 +119,7 @@ from hpcagent_bench.harness.native_call import (
     grading_cpus,
 )
 from hpcagent_bench.harness.precision_casts import CastPlan
-from hpcagent_bench.harness.requests_api import Location, kernel_arrays, mpi_residency, precision_problem_dtypes
+from hpcagent_bench.harness.requests_api import Location, kernel_arrays, kernel_dtypes, mpi_residency
 from hpcagent_bench.harness.sandbox import BuildResult, Sandbox, submission_omp_context
 from hpcagent_bench.harness.task import Task, device_plausibility_row
 from hpcagent_bench.harness.torch_baseline import TorchBaselineUnavailable
@@ -1565,14 +1565,11 @@ def candidate_casts(
     built in the submission's OpenMP context (with the layout kernels of this request) and copied beside
     ``lib``."""
     requests = submission.requests
-    arrays = kernel_arrays(binding, kernel_ndims(spec.mpi, binding))
-    problem = {arg.name: arg.dtype for arg in binding.pointers}
-    problem.update(precision_problem_dtypes(spec, binding, datatype))
-    regroups = requests.regroups(arrays, problem)
-    # A zipped or unzipped array's casts and layouts are its group's, not a conversion of its own.
+    problem = kernel_dtypes(spec, binding, datatype)
+    regroups, layouts = requests.single_node(kernel_arrays(binding, kernel_ndims(spec.mpi, binding), problem))
+    # A zipped or unzipped array's casts are its group's, not a conversion of its own.
     grouped = {name for regroup in regroups for name in (*regroup.parts, regroup.group.name)}
     precision = {name: p for name, p in requests.precision.items() if name not in grouped}
-    layouts = {name: layout for name, layout in requests.layouts(arrays).items() if name not in grouped}
     if not precision and not layouts and not regroups:
         return None
     stored = {name: np.dtype(numpy_dtype(p)).name for name, p in precision.items()}

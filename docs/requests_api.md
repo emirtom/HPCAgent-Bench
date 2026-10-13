@@ -115,16 +115,16 @@ void jacobi_2d_fp64(double *A /* [N][N] transposed */, double *B /* [N][ceil(N/4
 ### 3.1 Zip and the C ABI
 
 `zip` (`{"action": "zip", "arrays": ["u", "v"], "into": "uv"}`) gives the kernel one pointer in place
-of the fields' pointers, at the position of the first field. Fields of one precision are stacked along
-a new dimension at `dim` (default last: `uv[i][k]` is field `k`; `"dim": 0` stacks them first, SoA),
-which the digit operations then place like any dimension (block between for AoSoA); fields of different
-precisions become a plain C struct. `unzip` is its inverse (`{"action": "unzip", "array": "z", "into":
+of the fields' pointers, at the position of the first field. Fields of one element type (the problem's,
+or the one a cast left) are stacked along a new dimension at `dim` (default last: `uv[i][k]` is field
+`k`; `"dim": 0` stacks them first, SoA), which the digit operations then place like any dimension (block
+between for AoSoA); fields of different element types become a plain C struct. `unzip` is its inverse (`{"action": "unzip", "array": "z", "into":
 ["z_re", "z_im"]}`): one pointer per member or field, and with `dim` it splits any array along a
 dimension of constant extent, one pointer per index (`q[4][N]` into four `[N]` arrays). Neither changes a
 precision: each field keeps the type its casts left.
 
 ```c
-typedef struct { float u; double v; } hb_zip_uv;   /* mixed precisions; field order = request order */
+typedef struct { float u; double v; } hb_zip_uv;   /* mixed element types; field order = request order */
 void kernel(const hb_zip_uv *restrict uv, ..., void *workspace, int64_t workspace_bytes);
 ```
 
@@ -135,7 +135,9 @@ whole from the problem's arrays (a zip) or the parts from the problem's array (a
 the type its casts left and laid out as the later digit operations leave it; after the call an output
 goes back the other way, and the problem's arrays are graded. Both directions are timed in
 `convert_in_ns` / `convert_out_ns`, outside the score. Only the kernel's own dense arrays regroup (no
-sparse or index array, and no zip of an unzip's part); `/requests/check` shows the pointer list.
+sparse or index array, and no zip of an unzip's part), an unzip `dim` must be a constant in the kernel's
+declared shape, and `/profile` takes none of them; `/requests/check` shows the pointer list, a struct's
+`typedef` first.
 
 ### 3.2 Sparse arrays
 

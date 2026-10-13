@@ -122,6 +122,11 @@ class Regroup:
         """The pointers the kernel takes in their place, in order."""
         return (self.group.name,) if self.zipped else self.parts
 
+    @property
+    def kernel_dtypes(self) -> tuple[np.dtype, ...]:
+        """The element types of :attr:`kernel`'s pointers, in order."""
+        return (self.whole_dtype,) if self.zipped else tuple(np.dtype(dtype) for dtype in self.part_dtypes)
+
     def part_shape(self, problem_shape: tuple[int, ...]) -> tuple[int, ...]:
         """The parts' logical shape from a problem array's (a part's for a zip, the whole's for an unzip)."""
         if self.zipped or self.group.dim is None:
@@ -273,10 +278,16 @@ def device_kernel(cp: types.ModuleType, src: str, dst: str) -> Callable[..., Non
 
 
 @functools.lru_cache(maxsize=64, typed=True)
+def device_functions(cp: types.ModuleType, source: str) -> Callable[[str], Callable[..., None]]:
+    """The kernel lookup of ``source``'s device module, compiled once per process for all its kernels."""
+    return cp.RawModule(code=source).get_function
+
+
+@functools.lru_cache(maxsize=64, typed=True)
 def device_layout_kernel(cp: types.ModuleType, conversion: Conversion, inward: bool) -> Callable[..., None]:
-    """The device kernel of ``conversion`` one way (compiled on first use, cached by cupy)."""
+    """The device kernel of ``conversion`` one way."""
     name = f"relayout_{'in' if inward else 'out'}_{conversion.name}"
-    return cp.RawModule(code=device_source([conversion])).get_function(name)
+    return device_functions(cp, device_source([conversion]))(name)
 
 
 def device_relayout(
@@ -296,9 +307,9 @@ def device_relayout(
 
 @functools.lru_cache(maxsize=64, typed=True)
 def device_group_kernel(cp: types.ModuleType, group: Group, to_whole: bool) -> Callable[..., None]:
-    """The device kernel of ``group`` one way (compiled on first use, cached by cupy)."""
+    """The device kernel of ``group`` one way."""
     name = f"relayout_{'zip' if to_whole else 'unzip'}_{group.name}"
-    return cp.RawModule(code=device_source([], groups=[group])).get_function(name)
+    return device_functions(cp, device_source([], groups=[group]))(name)
 
 
 def device_regroup(

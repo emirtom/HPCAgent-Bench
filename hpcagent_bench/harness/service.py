@@ -79,6 +79,7 @@ from hpcagent_bench.harness.requests_api import (
     Location,
     Requests,
     kernel_arrays,
+    kernel_dtypes,
     mpi_residency,
     precision_problem_dtypes,
     precision_refusal,
@@ -853,7 +854,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         )
     ndims = kernel_ndims(spec.mpi, binding)
     try:
-        requests.run(kernel_arrays(binding, ndims))
+        requests.run(kernel_arrays(binding, ndims, kernel_dtypes(spec, binding, datatype)))
     except ValueError as exc:
         return str(exc)
     if not requests.distributed:
@@ -887,12 +888,9 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
     spec = BenchSpec.load(kernel)
     choice = requested_layout(spec, probe)
     binding = binding_from_spec(spec) if choice is None else binding_from_spec(spec, config=choice.format)
-    problem = {arg.name: arg.dtype for arg in binding.pointers}
-    problem.update(precision_problem_dtypes(spec, binding, datatype))
+    problem = kernel_dtypes(spec, binding, datatype)
     ndims = kernel_ndims(spec.mpi, binding)
-    specs = kernel_arrays(binding, ndims)
-    regroups = requests.regroups(specs, problem)
-    layouts = requests.layouts(specs)
+    regroups, layouts = requests.single_node(kernel_arrays(binding, ndims, problem))
     stored = dict(problem)
     stored.update({name: np.dtype(numpy_dtype(p)).name for name, p in requests.precision.items()})
     templates = {name: np.dtype(dtype) for name, dtype in stored.items()}
@@ -904,6 +902,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
         group = regroup.group
         for name in regroup.problem:
             arrays.pop(name, None)
+        templates |= dict(zip(regroup.kernel, regroup.kernel_dtypes, strict=True))
         if regroup.zipped:
             entry: dict[str, object] = {"extents": list(group.layout.extents()), "zips": list(regroup.parts)}
             if group.struct:
@@ -911,17 +910,15 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
             else:
                 entry |= {"dtype": regroup.whole_dtype.name, "dim": group.dim}
             arrays[group.name] = entry
-            templates[group.name] = regroup.whole_dtype
         else:
             for part, dtype in zip(group.parts, regroup.part_dtypes, strict=True):
                 arrays[part.name] = {"dtype": dtype, "extents": list(part.layout.extents()), "unzips": group.name}
-                templates[part.name] = np.dtype(dtype)
     answer: dict[str, object] = {"accepted": True, "arrays": arrays}
     if language != PYTHON_LANG:
         call = native_call.kernel_binding(binding, regroups)
         template: native_call.KernelData = {name: np.empty(0, dtype) for name, dtype in templates.items()}
-        marshal = native_call.CallMarshal.of(call, template, language)
-        answer["signature"] = f"void {binding.symbols[language]}({', '.join(marshal.params)});"
+        marshal = native_call.CallMarshal.of(call, template, language, regroups)
+        answer["signature"] = f"{marshal.typedefs}void {binding.symbols[language]}({', '.join(marshal.params)});"
     if requests.distributed:
         answer["plan"] = requests.plan(ndims, config.get_int("mpi.ranks", 4))
     return answer
@@ -932,6 +929,13 @@ def single_node_layout_ops(requests: Requests) -> list[DigitOperation]:
     if requests.distributed:
         return []
     return [op for op in requests.operations if isinstance(op, DigitOperation) and not isinstance(op, Distribute)]
+
+
+def converts_kernel_arrays(requests: Requests) -> bool:
+    """Whether the judge converts the kernel's arrays around the call: a ``cast``, or without a grid a
+    layout, ``zip`` or ``unzip``."""
+    regroups = not requests.distributed and any(isinstance(op, Zip | Unzip) for op in requests.operations)
+    return bool(requests.precision or single_node_layout_ops(requests)) or regroups
 
 
 def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSpec, datatype: str) -> str | None:
@@ -966,10 +970,10 @@ def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSp
     for op in regroup_ops:
         if isinstance(op, Zip) and len({shapes.get(name) for name in op.arrays}) != 1:
             return f"zip of {list(op.arrays)}: the arrays must have one shape"
-    problem = {arg.name: arg.dtype for arg in binding.pointers}
-    problem.update(precision_problem_dtypes(spec, binding, datatype))
     try:
-        requests.regroups(kernel_arrays(binding, kernel_ndims(spec.mpi, binding)), problem)
+        requests.single_node(
+            kernel_arrays(binding, kernel_ndims(spec.mpi, binding), kernel_dtypes(spec, binding, datatype))
+        )
     except ValueError as exc:
         return str(exc)
     return None
@@ -1716,14 +1720,10 @@ class JudgeHandler(BaseHTTPRequestHandler):
             )
         ):
             refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"
-        if (
-            refused is None
-            and route == "profile"
-            and (submission.requests.precision or single_node_layout_ops(submission.requests))
-        ):
+        if refused is None and route == "profile" and converts_kernel_arrays(submission.requests):
             refused = (
-                "profiling runs the kernel on the problem's arrays as they are; drop the cast and layout operations "
-                "from a /profile request"
+                "profiling runs the kernel on the problem's arrays as they are; drop the cast, layout, zip and unzip "
+                "operations from a /profile request"
             )
         if refused is not None:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": refused})

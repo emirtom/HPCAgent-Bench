@@ -554,10 +554,7 @@ def slot_threads(cpus: set[int], requested: int | None = None) -> int:
 def _ptr_cdecl(dtype: "str | np.dtype[np.generic]") -> str:
     """The cffi pointer type for a numpy dtype, e.g. ``"double *"``. cffi's parser has no ``_Float16``, and
     a pointer's pointee type does not change the ABI, so a half pointer is declared over its bits."""
-    resolved = np.dtype(dtype)
-    if resolved.fields is not None:
-        return "void *"  # a struct (a zip of different element types): the pointee type does not change the ABI
-    name = resolved.name
+    name = np.dtype(dtype).name
     return "uint16_t *" if name == "float16" else f"{c_type(name)} *"
 
 
@@ -968,8 +965,10 @@ def kernel_binding(binding: Binding, regroups: Sequence[Regroup]) -> Binding:
         replaced = [a for a in binding.args if a.name in regroup.problem]
         role = "output" if any(a.role == "output" for a in replaced) else arg.role
         const = all(a.is_const for a in replaced)
-        dtypes = [regroup.whole_dtype.name] if regroup.zipped else list(regroup.part_dtypes)
-        args += [Arg(name, "ptr", dtype, const, None, role) for name, dtype in zip(regroup.kernel, dtypes, strict=True)]
+        args += [
+            Arg(name, "ptr", dtype.name, const, None, role)
+            for name, dtype in zip(regroup.kernel, regroup.kernel_dtypes, strict=True)
+        ]
     return dataclasses.replace(binding, args=tuple(args))
 
 
@@ -1120,12 +1119,14 @@ class CallMarshal:
     ptr_cdecl: dict[str, str]
     scalar_cast: dict[str, Callable[[KernelValue], CArgument]]
     rebase: dict[str, int]
-    #: The declarations of the storage-only element types the pointers name (``__npb_bf16``).
+    #: The declarations of the element types the pointers name: storage-only (``__npb_bf16``) and zip structs.
     typedefs: str = ""
 
     @classmethod
-    def of(cls, binding: Binding, data: KernelData, lang: str) -> "CallMarshal":
-        """The marshal for ``binding`` called from ``lang`` on ``data``."""
+    def of(cls, binding: Binding, data: KernelData, lang: str, regroups: Sequence[Regroup] = ()) -> "CallMarshal":
+        """The marshal for ``binding`` called from ``lang`` on ``data``; the whole of a struct zip of
+        ``regroups`` is passed as a pointer to its C struct (``hb_zip_<into>``)."""
+        structs = {r.group.name: r.group for r in regroups if r.zipped and r.group.struct}
         base = index_base(lang)
         rebase: dict[str, int] = {}
         ptr_cdecl: dict[str, str] = {}
@@ -1133,7 +1134,9 @@ class CallMarshal:
         params: list[str] = []
         for a in binding.args:
             if a.kind == "ptr":
-                cdecl = _ptr_cdecl(np.asarray(data[a.name]).dtype)
+                cdecl = (
+                    f"{structs[a.name].struct} *" if a.name in structs else _ptr_cdecl(np.asarray(data[a.name]).dtype)
+                )
                 ptr_cdecl[a.name] = cdecl
                 rebase[a.name] = base if a.is_index else 0
                 params.append(cdecl)
@@ -1150,9 +1153,10 @@ class CallMarshal:
             else:
                 scalar_cast[a.name] = float
                 params.append("double")
-        names = {np.asarray(data[name]).dtype.name for name in ptr_cdecl}
+        names = {np.asarray(data[name]).dtype.name for name in ptr_cdecl if name not in structs}
         storage = sorted(name for name in names if is_storage_only(name))
-        typedefs = " ".join(storage_typedef(dtype) for dtype in storage)
+        declared = [storage_typedef(dtype) for dtype in storage] + [group.typedef() for group in structs.values()]
+        typedefs = " ".join(declared)
         return cls((*params, WORKSPACE_PTYPE, "int64_t"), ptr_cdecl, scalar_cast, rebase, typedefs)
 
 
@@ -1203,14 +1207,12 @@ def _call_native_impl(
     call_binding = kernel_binding(binding, regroups)
     # The C signature follows the requested element types and groups, so it is declared off a retyped template.
     kernel_side = {
-        name: np.empty(0, regroup.whole_dtype if regroup.zipped else np.dtype(dtype))
+        name: np.empty(0, dtype)
         for regroup in regroups
-        for name, dtype in zip(
-            regroup.kernel, [regroup.whole_dtype.name] if regroup.zipped else regroup.part_dtypes, strict=True
-        )
+        for name, dtype in zip(regroup.kernel, regroup.kernel_dtypes, strict=True)
     }
     template = {**data, **{name: np.empty(0, np.dtype(dtype)) for name, dtype in targets.items()}, **kernel_side}
-    marshal = CallMarshal.of(call_binding, template, lang)
+    marshal = CallMarshal.of(call_binding, template, lang, regroups)
     ptr_cdecl, scalar_cast, rebase = marshal.ptr_cdecl, marshal.scalar_cast, marshal.rebase
     signature = f"void {sym}({', '.join(marshal.params)});"
     ffi.cdef(" ".join(part for part in (marshal.typedefs, signature, SETTLE_DECLS) if part))

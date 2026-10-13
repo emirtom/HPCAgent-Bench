@@ -141,9 +141,10 @@ def _run(kernel, ndim, *, language, launcher, cc_override, N, TSTEPS, R):
         assert built.ok, built.log
         artifact = built.lib if language == "python" else built.exe
         assert artifact is not None
-        outputs, samples_ns = mpi_call.run(
+        launched = mpi_call.run(
             artifact, binding, desc, data, is_python=(language == "python"), launcher=launcher, k_repeats=2, timeout=120
         )
+        outputs, samples_ns = launched.outputs, launched.samples_ns
     assert len(samples_ns) == 2
     assert min(samples_ns) >= 0
     return outputs

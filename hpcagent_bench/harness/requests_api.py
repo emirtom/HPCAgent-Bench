@@ -13,7 +13,7 @@ docs/requests_api.md.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 import relayout.ops
@@ -58,6 +58,7 @@ __all__ = [
     "Requests",
     "grid_request",
     "kernel_arrays",
+    "kernel_dtypes",
     "mpi_residency",
     "precision_problem_dtypes",
     "precision_refusal",
@@ -79,19 +80,41 @@ def grid_request(grid: Sequence[int]) -> tuple[str, ...]:
     return tuple(str(int(extent)) for extent in grid)
 
 
-def kernel_arrays(binding: "Binding", ndims: Mapping[str, int]) -> list[ArraySpec]:
+def kernel_dtypes(spec: "BenchSpec", binding: "Binding", datatype: str) -> dict[str, str]:
+    """Every pointer's problem dtype at ``datatype``: a floating dense array's per
+    :func:`precision_problem_dtypes`, every other its declared one."""
+    return {arg.name: arg.dtype for arg in binding.pointers} | precision_problem_dtypes(spec, binding, datatype)
+
+
+def kernel_arrays(
+    binding: "Binding", ndims: Mapping[str, int], dtypes: Mapping[str, str] | None = None
+) -> list[ArraySpec]:
     """The arrays a request's operations start from: every shaped dense pointer of ``ndims`` (a complex
-    one is the native struct ``(re, im)``: laid out as one element, unzipped into its parts) and every
-    sparse logical array."""
+    one is the native struct ``(re, im)``: laid out as one element, unzipped into its parts), with its
+    constant extents and its element type from ``dtypes`` (:func:`kernel_dtypes`; the declared dtypes
+    without it), and every sparse logical array."""
     sparse = {member for group in binding.packed for member in group.members}
-    dtypes = {arg.name: arg.dtype for arg in binding.pointers}
-    complex_names = {name for name, dtype in dtypes.items() if np.dtype(canonical(dtype)).kind == "c"}
-    dense = [
-        ArraySpec(name, ndim, members=("re", "im"), native=True) if name in complex_names else ArraySpec(name, ndim)
-        for name, ndim in ndims.items()
-        if name in dtypes and name not in sparse
-    ]
+    pointers = {arg.name: arg for arg in binding.pointers}
+    elements = {name: np.dtype(canonical(dtype)).name for name, dtype in (dtypes or {}).items()}
+    dense = []
+    for name, ndim in ndims.items():
+        arg = pointers.get(name)
+        if arg is None or name in sparse:
+            continue
+        shape = arg.shape or ()
+        extents = tuple(int(token) if token.isdigit() else None for token in shape) if len(shape) == ndim else ()
+        element = elements.get(name, np.dtype(canonical(arg.dtype)).name)
+        members = ("re", "im") if np.dtype(element).kind == "c" else ()
+        dense.append(ArraySpec(name, ndim, members=members, native=bool(members), extents=extents, element=element))
     return dense + [ArraySpec(group.logical, 2, sparse=True) for group in binding.packed]
+
+
+class SingleNode(NamedTuple):
+    """What a request without a grid converts around a C-ABI call: its zips and unzips, and each other dense
+    array it lays out over the logical extents ``d0``, ``d1``, ... (:func:`precision_casts.extent_names`)."""
+
+    regroups: tuple[Regroup, ...]
+    layouts: dict[str, IndexMap]
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,39 +175,33 @@ class Requests(relayout.ops.Requests):
         """Each sparse array a ``format`` names, with its format label; None when none does."""
         return self.formats() or None
 
-    def layouts(self, arrays: Sequence[ArraySpec]) -> dict[str, IndexMap]:
-        """Each dense array of ``arrays`` (the kernel's, :func:`kernel_arrays`) the digit operations lay out on a
-        single node, as its layout over the logical extents ``d0``, ``d1``, ... (:func:`precision_casts.extent_names`);
-        an identity is left out, and a request with no digit operation runs nothing."""
-        if self.distributed or not any(isinstance(op, DigitOperation) for op in self.operations):
-            return {}
+    def single_node(self, arrays: Sequence[ArraySpec]) -> SingleNode:
+        """The :class:`SingleNode` conversions of the kernel's ``arrays`` (:func:`kernel_arrays`, with their
+        dtypes), one run of the operations: each ``zip`` / ``unzip`` as the relayout group between its parts
+        and its whole, each part at the type its casts left and laid out as the later digit operations leave
+        it, and each other array a digit operation lays out (an identity is left out). A request with a grid
+        or without such an operation runs nothing; a zip or unzip of an array another one made, or an unzip
+        along a dimension of no constant extent, is refused (ValueError)."""
+        if self.distributed or not any(isinstance(op, DigitOperation | Zip | Unzip) for op in self.operations):
+            return SingleNode((), {})
         state = self.run(arrays)
-        laid = {
-            spec.name: state.layout(spec.name, extent_names(spec.ndim))
-            for spec in arrays
-            if not spec.sparse and spec.name in state.arrays and state.arrays[spec.name].touched
-        }
-        return {name: layout for name, layout in laid.items() if not layout.is_identity()}
-
-    def regroups(self, arrays: Sequence[ArraySpec], dtypes: Mapping[str, str]) -> tuple[Regroup, ...]:
-        """Each single-node ``zip`` / ``unzip`` of the kernel's arrays (``arrays``, :func:`kernel_arrays`, with
-        their problem ``dtypes``) as the relayout group between its parts and its whole, each part at the type
-        its casts left and each laid out as the later digit operations leave it; a request without either
-        runs nothing. A zip or unzip of an array another one made is refused (ValueError)."""
-        if self.distributed or not any(isinstance(op, Zip | Unzip) for op in self.operations):
-            return ()
-        state = self.run(arrays)
-        ndims = {spec.name: spec.ndim for spec in arrays if not spec.sparse}
+        specs = {spec.name: spec for spec in arrays if not spec.sparse}
         cast_to: dict[str, str] = {}
-        out = []
+        regroups = []
         for op in self.operations:
             if isinstance(op, Cast):
-                cast_to[op.array] = np.dtype(numpy_dtype(Precision(op.to.value))).name
+                cast_to[op.array] = op.to.element
             elif isinstance(op, Zip):
-                out.append(zip_group(op, state, ndims, dtypes, cast_to))
+                regroups.append(zip_group(op, state, specs, cast_to))
             elif isinstance(op, Unzip):
-                out.append(unzip_group(op, state, ndims, dtypes, cast_to))
-        return tuple(out)
+                regroups.append(unzip_group(op, state, specs, cast_to))
+        laid = {
+            name: state.layout(name, extent_names(spec.ndim))
+            for name, spec in specs.items()
+            if name in state.arrays and state.arrays[name].touched
+        }
+        layouts = {name: layout for name, layout in laid.items() if not layout.is_identity()}
+        return SingleNode(tuple(regroups), layouts)
 
     def lowered(self, ndims: Mapping[str, int], ranks: int) -> State:
         """The operations run over the arrays of ``ndims`` on the grid at ``ranks`` ranks."""
@@ -247,51 +264,56 @@ class Requests(relayout.ops.Requests):
         return cls(Startup(tuple(libraries), grid), tuple(ops))
 
 
-def own_arrays(names: Sequence[str], ndims: Mapping[str, int], action: str) -> None:
-    unknown = [name for name in names if name not in ndims]
+def own_arrays(names: Sequence[str], specs: Mapping[str, ArraySpec], action: str) -> None:
+    unknown = [name for name in names if name not in specs]
     if unknown:
         raise ValueError(f"{action} of {unknown}: on a single node only the kernel's own dense arrays regroup")
 
 
-def zip_group(
-    op: Zip, state: State, ndims: Mapping[str, int], dtypes: Mapping[str, str], cast_to: Mapping[str, str]
-) -> Regroup:
-    """A zip's parts (the problem's arrays) and its whole (the kernel's): one element type stacks along ``dim``,
-    several make the C struct ``hb_zip_<into>`` with one member per part, named after it."""
-    own_arrays(op.arrays, ndims, "zip")
-    names = extent_names(ndims[op.arrays[0]])
-    types = [canonical(cast_to.get(part, dtypes[part])) for part in op.arrays]
-    if len(set(types)) == 1:
-        dim = len(names) if op.dim is None else int(op.dim)
+def zip_group(op: Zip, state: State, specs: Mapping[str, ArraySpec], cast_to: Mapping[str, str]) -> Regroup:
+    """A zip's parts (the problem's arrays) and its whole (the kernel's): relayout stacks one element type
+    along a field dimension, and several make the C struct ``hb_zip_<into>`` with one member per part, named
+    after it."""
+    own_arrays(op.arrays, specs, "zip")
+    names = extent_names(specs[op.arrays[0]].ndim)
+    logical = [str(specs[part].element) for part in op.arrays]
+    types = [cast_to.get(part, element) for part, element in zip(op.arrays, logical, strict=True)]
+    whole = state.arrays[op.into]
+    if whole.fields:
+        dim = whole.field_dim
         shape = [*names[:dim], str(len(op.arrays)), *names[dim:]]
         struct, whole_dtype = "", np.dtype(types[0])
     else:
         dim, shape, struct = None, names, f"hb_zip_{op.into}"
         whole_dtype = np.dtype([(part, np.dtype(t)) for part, t in zip(op.arrays, types, strict=True)], align=True)
     members = tuple(
-        Member(part, IndexMap.identity(names), canonical(dtypes[part]), t, part)
-        for part, t in zip(op.arrays, types, strict=True)
+        Member(part, IndexMap.identity(names), element, t, part)
+        for part, element, t in zip(op.arrays, logical, types, strict=True)
     )
     group = Group(op.into, state.layout(op.into, shape), members, dim, struct)
-    return Regroup(group, True, whole_dtype, tuple(canonical(dtypes[part]) for part in op.arrays))
+    return Regroup(group, True, whole_dtype, tuple(logical))
 
 
-def unzip_group(
-    op: Unzip, state: State, ndims: Mapping[str, int], dtypes: Mapping[str, str], cast_to: Mapping[str, str]
-) -> Regroup:
-    """An unzip's whole (the problem's array) and its parts (the kernel's): along ``dim`` one part per index,
-    or a complex array into its real and imaginary parts."""
-    own_arrays([op.array], ndims, "unzip")
-    whole = np.dtype(canonical(dtypes[op.array]))
-    target = np.dtype(canonical(cast_to.get(op.array, dtypes[op.array])))
+def unzip_group(op: Unzip, state: State, specs: Mapping[str, ArraySpec], cast_to: Mapping[str, str]) -> Regroup:
+    """An unzip's whole (the problem's array) and its parts (the kernel's): along ``dim`` of constant extent
+    one part per index, or a complex array into its real and imaginary parts."""
+    own_arrays([op.array], specs, "unzip")
+    spec = specs[op.array]
+    whole = np.dtype(str(spec.element))
+    target = np.dtype(cast_to.get(op.array, whole.name))
     if op.dim is not None:
-        names = extent_names(ndims[op.array] - 1)
         dim = int(op.dim)
+        if not spec.extents or spec.extents[dim] is None:
+            raise ValueError(
+                f"unzip of {op.array!r} along dim {dim}: that dimension has no constant extent in the kernel's "
+                "declared shape; unzip along a dimension the shape fixes"
+            )
+        names = extent_names(spec.ndim - 1)
         shape = [*names[:dim], str(len(op.into)), *names[dim:]]
         members = tuple(Member(part, state.layout(part, names), target.name, whole.name) for part in op.into)
         group = Group(op.array, IndexMap.identity(shape), members, dim)
     elif whole.kind == "c":
-        names = extent_names(ndims[op.array])
+        names = extent_names(spec.ndim)
         part, element = np.dtype(f"float{target.itemsize * 4}").name, np.dtype(f"float{whole.itemsize * 4}").name
         members = tuple(
             Member(name, state.layout(name, names), part, element, field)
