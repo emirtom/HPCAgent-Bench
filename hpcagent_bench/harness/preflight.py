@@ -71,15 +71,13 @@ def needs_canonicalize(frameworks: Sequence[str]) -> list[str]:
 
     Derived from the flavor's own ``pipelines``, never from a second list here: a new flavor is one
     registered framework column, and whether it needs spcl/dace@extended follows from what it runs."""
-    from hpcagent_bench.frameworks.dace_framework import DEFAULT_PIPELINES
-
     out: list[str] = []
     for name in frameworks:
         meta = FRAMEWORKS.entries.get(name)
-        if meta is None or meta.get("base") not in ("dace", "alloy"):
+        if meta is None or meta.get("base") != "dace":
             continue
         # ``canon_cpu`` / ``canon_gpu``, by prefix: the pipelines are named per target.
-        if any(p.startswith("canon") for p in meta.get("pipelines", DEFAULT_PIPELINES)):
+        if any(p.startswith("canon") for p in meta.get("pipelines", ())):
             out.append(name)
     return out
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The baseline sweep: the deterministic compiler columns over a kernel tag, no agents and no judge.
 
-One column (numba, cc, cc_autopar, dace_cpu[_canonicalize], dace_gpu[_canonicalize], pluto, ppcg_hip, ...)
+One column (numba, cc, cc_autopar, dace_cpu_{parallel,canon}, dace_gpu_{parallel,canon}, pluto, ppcg_hip, ...)
 is one sweep, timed at the graded width: the tasks of a step take one socket each, ``--hint=nomultithread``,
 and a baseline timed on another core count is not a baseline for the graded numbers. A sweep has three steps,
 each an ``srun`` of ``hpcagent-bench job baseline --phase <step>``:
@@ -23,7 +23,6 @@ accumulates rows run after run and is left exactly as it was.
 import argparse
 import contextlib
 import dataclasses
-import fnmatch
 import os
 import pathlib
 import resource
@@ -35,12 +34,12 @@ from collections.abc import Callable, Mapping, Sequence
 
 from hpcagent_bench import cpf_canonical, paths
 from hpcagent_bench.cluster import jobs
+from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.support.collect import canon_db
 from hpcagent_bench.units import BYTES_PER_KIB
 
 __all__ = [
     "DEFAULT_KERNEL_MEM_KB",
-    "DEVICE_COLUMNS",
     "KILL_GRACE_SECONDS",
     "PHASES",
     "TIMEOUT_CODES",
@@ -72,12 +71,6 @@ PHASES = ("begin", "run", "finish", "all")
 #: An XL kernel peaks at ~50 GB resident, and RLIMIT_DATA also counts the heap a forked grading child inherits from the
 #: sweep process, so the cap sits at about twice that peak.
 DEFAULT_KERNEL_MEM_KB = 125829120
-
-#: Glob patterns of the columns that build for a device: ``dace_gpu*`` and the PPCG family (``ppcg_hip``). The
-#: name decides, so a submitter needs no Python environment; ``tests/test_baseline_sweep.py`` keeps the patterns
-#: equal to the set ``native_runtime.FRAMEWORK_LANG`` marks as hip/cuda (``*gpu*`` alone would send
-#: ``ppcg_hip`` to a node with no GPU).
-DEVICE_COLUMNS = ("*gpu*", "ppcg*")
 
 #: ``timeout -k`` grace between TERM and KILL, and the exit codes ``timeout`` reports for each.
 KILL_GRACE_SECONDS = 30
@@ -115,8 +108,10 @@ class Sweep:
 
 
 def is_device_column(column: str) -> bool:
-    """Whether ``column`` builds for a GPU, so its step needs one."""
-    return any(fnmatch.fnmatchcase(column, pattern) for pattern in DEVICE_COLUMNS)
+    """Whether ``column`` builds for a GPU, so its step needs one: the device it registers (``arch``). An
+    unregistered name is no device column; :func:`check_column` refuses it before a sweep runs."""
+    meta = FRAMEWORKS.entries.get(FRAMEWORKS.canonical(column))
+    return meta is not None and meta["arch"] == "gpu"
 
 
 def shell_environment(script: pathlib.Path, base: Mapping[str, str]) -> dict[str, str]:
@@ -368,7 +363,9 @@ def finish(sweep: Sweep) -> int:
 
 def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--column", required=True, help="one framework column (numba, cc, dace_cpu, dace_gpu, pluto, ...)"
+        "--column",
+        required=True,
+        help="one framework column (numba, cc, dace_cpu_canon, dace_gpu_parallel, pluto, ...)",
     )
     parser.add_argument("--out-root", required=True, type=pathlib.Path, help="the sweep's work directory")
     parser.add_argument("--tag", default="", help="the tag: a study tag (hpcagent_bench/tags/<tag>.txt) or track")

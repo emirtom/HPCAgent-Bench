@@ -24,9 +24,12 @@ The checks run when the decorator is applied, at import, never at first use:
 The cross-entry rules a single decorator cannot check run once everything is registered
 (`vocabulary.check_vocabulary()`, called by `study_tags.registry()`): every kind but the packets gives
 every entry a slot, the control is the only packet without one, a composed packet exists and a packet's
-`device` is `cpu`, `amd` or `nvidia`, every column of one framework `base` names one adapter, exactly one
+`device` is `cpu`, `amd` or `nvidia`, every column of one framework `base` names one `Framework` adapter (autotuning
+flavors name an `Agent`), exactly one
 grading protocol has the role `preview`, and `measurement.credited_protocol` names a grade protocol
-(`protocols.check_protocols()`).
+(`protocols.check_protocols()`). The framework naming scheme (`<column>[_<flavor>]`, a two-device backend's
+column `<base>_<arch>`, a flavor on its column's `arch`) is checked at import by
+`frameworks.framework.check_flavor_registry()`; see [optimizer.md](optimizer.md).
 
 ## The slot
 

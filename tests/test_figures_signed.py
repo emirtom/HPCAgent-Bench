@@ -49,7 +49,7 @@ def test_a_ratio_table_with_no_costs_is_refused() -> None:
 # experiment, all against numba. The helpers below stand in for canon.read_times/population.kernel_answers/
 # graded_episode_rows without a real sweep or a real experiment DB.
 
-CANON_COLUMNS: tuple[str, ...] = ("dace_cpu", "dace_cpu_canonicalize")
+CANON_COLUMNS: tuple[str, ...] = ("dace_cpu", "dace_cpu_canon")
 CPF_CONDITIONS: tuple[str, ...] = ("cpf-tool", "cpf-src")
 
 
@@ -122,13 +122,13 @@ def token_row(setup: str, kernel: str, tokens: float, run_suffix: str = "1") -> 
 
 @pytest.fixture(name="llr40_canon")
 def llr40_canon_fixture() -> pd.DataFrame:
-    """dace_cpu and dace_cpu_canonicalize against numba: k1 and k2 validated on every column, k3
+    """dace_cpu and dace_cpu_canon against numba: k1 and k2 validated on every column, k3
     validated on numba alone (a compiler that never timed it) -- TAG40 names all three."""
     return canon_table(
         [
             ("numba", "k1", 100.0), ("numba", "k2", 200.0), ("numba", "k3", 100.0),
             ("dace_cpu", "k1", 50.0), ("dace_cpu", "k2", 100.0),
-            ("dace_cpu_canonicalize", "k1", 10.0), ("dace_cpu_canonicalize", "k2", 20.0),
+            ("dace_cpu_canon", "k1", 10.0), ("dace_cpu_canon", "k2", 20.0),
         ]
     )  # fmt: skip
 
@@ -160,18 +160,18 @@ def llr40_observations_fixture() -> pd.DataFrame:
 
 
 def test_canon_row_matches_the_ratio_and_scopes_to_the_tag(llr40_canon: pd.DataFrame) -> None:
-    row = signed.canon_kernel_row(llr40_canon, "dace_cpu_canonicalize", TAG40)
+    row = signed.canon_kernel_row(llr40_canon, "dace_cpu_canon", TAG40)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": pytest.approx(10.0), "k3": 1.0}
     assert row.numerator_ms["k1"] == pytest.approx(100.0)
     assert row.numerator_ms["k2"] == pytest.approx(200.0)
     assert row.denominator_ms["k1"] == pytest.approx(10.0)
     assert row.denominator_ms["k2"] == pytest.approx(20.0)
-    # k3 is FILLED at 1x, not dropped (rule): numba timed it, dace_cpu_canonicalize
+    # k3 is FILLED at 1x, not dropped (rule): numba timed it, dace_cpu_canon
     # never did, and that "no result" is flagged rather than made to look like a real measurement.
     assert row.ratios["k3"] == 1.0
     assert math.isnan(row.denominator_ms["k3"])
     assert row.delivered == {"k1": True, "k2": True, "k3": False}
-    assert row.color == palette.framework_color("dace_cpu_canonicalize")
+    assert row.color == palette.framework_color("dace_cpu_canon")
     assert row.marker == palette.marker("cpf")
     assert row.label == "Canonical Parallel Form"
     # No repetition and no agent: nothing to bound, nothing spent.
@@ -226,7 +226,7 @@ def test_agent_row_carries_rule4_costs_and_a_repeat_interval(llr40_observations:
 
 
 def test_the_summary_slot_leaves_out_a_compilers_1x_placeholders(llr40_canon: pd.DataFrame) -> None:
-    """dace_cpu_canonicalize never timed k3, which is drawn crossed at 1x; entering that 1x would
+    """dace_cpu_canon never timed k3, which is drawn crossed at 1x; entering that 1x would
     make the summary partly a statement about coverage (solved kernels only). Its two
     solved kernels are both 10x, so the printed geomean is 10x -- not 4.6x with the placeholder."""
     rows = kernel_rows(llr40_canon, None, TAG40)
@@ -248,7 +248,7 @@ def test_rows_keep_only_tag_complete_conditions(llr40_canon: pd.DataFrame, llr40
     rows = kernel_rows(llr40_canon, llr40_observations, TAG40)
     setups = {row.framework for row in rows}
     assert setups == {
-        "dace_cpu", "dace_cpu_canonicalize",
+        "dace_cpu", "dace_cpu_canon",
         "llr40-qwen38-c-cpf-tool", "llr40-qwen38-c-cpf-src",
         "llr40-oss120b-c-cpf-tool", "llr40-oss120b-c-cpf-src",
     }  # fmt: skip
@@ -339,9 +339,9 @@ def test_a_tokens_table_too_thin_for_any_interval_fails_rule_5(
 
 
 def test_the_summary_table_leaves_out_a_compilers_placeholders(llr40_canon: pd.DataFrame) -> None:
-    """dace_cpu_canonicalize solved k1 and k2 (10x each) and never timed k3 (1x, crossed): the
+    """dace_cpu_canon solved k1 and k2 (10x each) and never timed k3 (1x, crossed): the
     summary row is the slot's number, 10x over n=2, not 4.6x over three."""
-    (row,) = kernel_rows(llr40_canon, None, TAG40, ("dace_cpu_canonicalize",))
+    (row,) = kernel_rows(llr40_canon, None, TAG40, ("dace_cpu_canon",))
     summary_row = signed.summary_table([row]).iloc[0]
     assert summary_row["n"] == 2
     assert summary_row["geomean"] == pytest.approx(10.0)
@@ -491,13 +491,13 @@ def test_render_at_150dpi_matches_the_requested_dpi(
 def pending_canon_fixture() -> pd.DataFrame:
     """numba times k1-k3; the CPF column validates k1, runs k2 and fails it, and has no row for k3."""
     frame = canon_table([("numba", "k1", 100.0), ("numba", "k2", 100.0), ("numba", "k3", 100.0),
-                         ("dace_cpu_canonicalize", "k1", 10.0), ("dace_cpu_canonicalize", "k2", 50.0)])  # fmt: skip
-    frame.loc[(frame["column"] == "dace_cpu_canonicalize") & (frame["kernel"] == "k2"), "validated"] = "False"
+                         ("dace_cpu_canon", "k1", 10.0), ("dace_cpu_canon", "k2", 50.0)])  # fmt: skip
+    frame.loc[(frame["column"] == "dace_cpu_canon") & (frame["kernel"] == "k2"), "validated"] = "False"
     return frame
 
 
 def test_by_default_a_kernel_never_attempted_is_a_failure_at_one(pending_canon: pd.DataFrame) -> None:
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canonicalize", TAG40)
+    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": 1.0, "k3": 1.0}
     assert row.pending == frozenset()
     assert row.excluded == "none"
@@ -507,7 +507,7 @@ def test_mark_pending_splits_a_kernel_never_attempted_from_one_that_failed(pendi
     """k2 ran and failed: it keeps its cross at 1x, a kernel row, and -- solved kernels only -- no
     place in the summary. k3 has no row yet: it leaves the ratios and the geomean and is named
     pending."""
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canonicalize", TAG40, mark_pending=True)
+    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": 1.0}
     assert row.delivered == {"k1": True, "k2": False}
     assert row.pending == frozenset({"k3"})
@@ -523,7 +523,7 @@ def test_a_failed_kernel_draws_at_one_and_enters_no_summary(pending_canon: pd.Da
     """The 1x placeholder is a drawing convention, not a measurement: k2 failed, so it draws in its
     kernel slot and stays out of the geomean, which would otherwise credit the failure with parity
     and pull a 10x row down to 3.2x. The success rate is the separate number (``excluded``)."""
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canonicalize", TAG40)
+    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": 1.0, "k3": 1.0}
     summary_row = signed.summary_table([row]).iloc[0]
     assert summary_row["n"] == 1
@@ -534,7 +534,7 @@ def test_a_failed_kernel_draws_at_one_and_enters_no_summary(pending_canon: pd.Da
 
 def test_a_kernel_the_baseline_never_ran_is_pending_too(pending_canon: pd.DataFrame) -> None:
     frame = pending_canon[~((pending_canon["column"] == "numba") & (pending_canon["kernel"] == "k1"))]
-    row = signed.canon_kernel_row(frame, "dace_cpu_canonicalize", TAG40, mark_pending=True)
+    row = signed.canon_kernel_row(frame, "dace_cpu_canon", TAG40, mark_pending=True)
     assert row.pending == frozenset({"k1", "k3"})
 
 
@@ -554,18 +554,18 @@ def test_mark_pending_keeps_a_setup_not_yet_served_every_kernel(
 
 def test_the_legend_keys_pending_apart_from_the_cross(pending_canon: pd.DataFrame) -> None:
     """A pending-only kernel adds the pending entry and not the cross; a failure adds the cross."""
-    only_pending = signed.canon_kernel_row(pending_canon, "dace_cpu_canonicalize", ("k1", "k3"), mark_pending=True)
+    only_pending = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", ("k1", "k3"), mark_pending=True)
     metrics = signed.kernel_metrics([only_pending], ("k1", "k3"))
     labels = [handle.get_label() for handle in signed.legend_handles([only_pending], metrics)]
     assert labels == ["Canonical Parallel Form", style.PENDING_LABEL]
-    both = signed.canon_kernel_row(pending_canon, "dace_cpu_canonicalize", TAG40, mark_pending=True)
+    both = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
     metrics = signed.kernel_metrics([both], TAG40)
     labels = [handle.get_label() for handle in signed.legend_handles([both], metrics)]
     assert labels == ["Canonical Parallel Form", style.NOT_DELIVERED_LABEL, style.PENDING_LABEL]
 
 
 def test_the_figure_draws_one_pending_mark_per_pending_kernel(pending_canon: pd.DataFrame) -> None:
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canonicalize", TAG40, mark_pending=True)
+    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
     fig = signed.kernel_figure([row], TAG40)
     try:
         assert sum(c.get_gid() == style.PENDING_GID for c in fig.axes[0].collections) == 1
@@ -576,12 +576,12 @@ def test_the_figure_draws_one_pending_mark_per_pending_kernel(pending_canon: pd.
 def test_a_kernel_numba_did_not_verify_is_timed_against_the_fallback() -> None:
     """Where Numba fails, C autopar is the baseline; the row says how many kernels took it."""
     frame = canon_table([("numba", "k1", 100.0), ("cc_autopar", "k1", 80.0), ("cc_autopar", "k2", 40.0),
-                         ("dace_cpu_canonicalize", "k1", 10.0), ("dace_cpu_canonicalize", "k2", 10.0)])  # fmt: skip
-    row = signed.canon_kernel_row(frame, "dace_cpu_canonicalize", ("k1", "k2"), baseline_fallback="cc_autopar")
+                         ("dace_cpu_canon", "k1", 10.0), ("dace_cpu_canon", "k2", 10.0)])  # fmt: skip
+    row = signed.canon_kernel_row(frame, "dace_cpu_canon", ("k1", "k2"), baseline_fallback="cc_autopar")
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": pytest.approx(4.0)}
     assert row.numerator_ms["k2"] == pytest.approx(40.0)
     assert row.excluded == "1 over cc_autopar"
-    unfilled = signed.canon_kernel_row(frame, "dace_cpu_canonicalize", ("k1", "k2"))
+    unfilled = signed.canon_kernel_row(frame, "dace_cpu_canon", ("k1", "k2"))
     assert unfilled.ratios["k2"] == 1.0
     assert unfilled.delivered["k2"] is False
 

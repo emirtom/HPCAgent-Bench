@@ -82,14 +82,38 @@ class Glm53:
 # device variants are aliases, since the optimizer is the same one on either device.
 
 
-@optimizer("dace", order=0, aliases=("dace_cpu", "dace_gpu"))
+@optimizer(
+    "dace",
+    order=0,
+    aliases=(
+        *(
+            f"dace_{arch}_parallel{alloy}"
+            for arch in ("cpu", "gpu")
+            for alloy in ("", "_alloy_profile", "_alloy_heuristic")
+        ),
+        "dace_cpu",
+        "dace_gpu",
+    ),
+)
 class Dace:
     __slots__ = ()
 
     name = "DaCe"
 
 
-@optimizer("cpf", order=1, aliases=("dace_cpu_canonicalize", "dace_gpu_canonicalize"))
+@optimizer(
+    "cpf",
+    order=1,
+    aliases=(
+        *(
+            f"dace_{arch}_canon{alloy}"
+            for arch in ("cpu", "gpu")
+            for alloy in ("", "_alloy_profile", "_alloy_heuristic")
+        ),
+        "dace_cpu_canonicalize",
+        "dace_gpu_canonicalize",
+    ),
+)
 class Cpf:
     __slots__ = ()
 

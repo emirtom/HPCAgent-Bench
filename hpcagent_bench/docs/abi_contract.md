@@ -251,7 +251,7 @@ Invariants (`task.py`, `scoring.py`):
 2. Scalars are always host, by value.
 3. Timing is judge-owned (Sec. 6).
 4. The signature is byte-identical for `host` and `device`; only pointer targets change.
-5. Judge GPU framework columns (`dace_gpu*`, `cupy`, `triton`, `tvm`, `ppcg`) receive device arrays
+5. Judge GPU framework columns (`dace_gpu_*`, `cupy`, `triton`, `tvm_gpu`, `ppcg`) receive device arrays
    and host scalars through the same path (`Framework.copy_func`). For DaCe,
    `dace_framework.enforce_gpu_residency` promotes every non-transient array to `GPU_Global`,
    returns device scalars to the host, and refuses an array read on an interstate edge.
