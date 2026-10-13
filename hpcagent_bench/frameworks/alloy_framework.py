@@ -13,6 +13,8 @@ from hpcagent_bench.frameworks.framework import BenchData, KernelImpl, OutputVal
 from hpcagent_bench.precision import precision_from_datatype
 from hpcagent_bench.spec import BenchSpec
 
+__all__ = ["AlloyFramework"]
+
 
 class AlloyFramework(DaceFramework):
     """A DaCe flavor whose pipeline output is compiled by Alloy instead of DaCe's default CPU code generator."""
