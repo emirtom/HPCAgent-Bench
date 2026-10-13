@@ -40,7 +40,9 @@ __all__ = [
     "Cpp",
     "Cupy",
     "DaceCpu",
+    "DaceCpuAlloy",
     "DaceCpuAutoopt",
+    "DaceCpuCanonicalizeAlloy",
     "DaceCpuCanonicalize",
     "DaceCpuParallel",
     "DaceGpu",
@@ -291,6 +293,45 @@ class DaceGpuParallel:
     pipelines = ("loop2map_gpu",)
     column = "dace_gpu"
     flavor = "parallel"
+
+
+@framework("dace_cpu_alloy", order=33)
+class DaceCpuAlloy:
+    """``parallel_cpu``'s SDFG compiled by Alloy (``alloy_framework``): every region's candidates built, verified and
+    timed locally, the program linking each region's winner. Needs the optional ``alloy`` install."""
+
+    __slots__ = ()
+
+    display = "DaCe CPU + Alloy"
+    adapter = "hpcagent_bench.frameworks.alloy_framework:AlloyFramework"
+    base = "alloy"
+    full_name = "DaCe CPU parallel + Alloy"
+    postfix = "dace"
+    arch = "cpu"
+    sweep_deterministic = True
+    precisions = IEEE_PRECISIONS
+    pipelines = ("parallel_cpu",)
+    column = "dace_cpu"
+    flavor = "alloy"
+
+
+@framework("dace_cpu_canonicalize_alloy", order=34)
+class DaceCpuCanonicalizeAlloy:
+    """``canon_cpu``'s SDFG compiled by Alloy."""
+
+    __slots__ = ()
+
+    display = "DaCe CPU canonicalized + Alloy"
+    adapter = "hpcagent_bench.frameworks.alloy_framework:AlloyFramework"
+    base = "alloy"
+    full_name = "DaCe CPU canonicalize + Alloy"
+    postfix = "dace"
+    arch = "cpu"
+    sweep_deterministic = True
+    precisions = IEEE_PRECISIONS
+    pipelines = ("canon_cpu",)
+    column = "dace_cpu"
+    flavor = "canonicalize_alloy"
 
 
 @framework("cc", order=2, aliases=("c",))
