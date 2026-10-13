@@ -261,7 +261,8 @@ def test_numpy_matches_fortran_baseline(caller_lib: ctypes.CDLL, grid: tuple[int
 
     # Snapshot for the numpy run BEFORE Fortran mutates the buffers in place. init_inputs_random_c
     # is ICON's own Fortran, so it fills the connectivity in Fortran's base; numpy wants 0-based.
-    bufs_np = {k: v.copy(order="F") for k, v in bufs.items()}
+    # Fortran is column-major: the numpy reference reads each buffer reversed, as its C-order ``.T``.
+    bufs_np = {k: v.copy(order="F").T for k, v in bufs.items()}
     _rebase(bufs_np, -_FORTRAN_BASE)
 
     zr = {k: np.zeros(bufs["p_diag_vt"].shape if k != "z_vt_ie" else (nproma, nlevp1, nblks_e), order="F") for k in _Z}
@@ -311,7 +312,7 @@ def test_numpy_matches_fortran_baseline(caller_lib: ctypes.CDLL, grid: tuple[int
 
     # numpy run on the identical snapshot.
     velocity_tendencies = load_kernel()
-    znp = {k: np.zeros(zr[k].shape, order="F") for k in _Z}
+    znp = {k: np.zeros(zr[k].shape[::-1]) for k in _Z}
     mvc_np = np.zeros(1, dtype=np.float64)
     l_vert_nested = 1 if (lvert_nest and nshift > 0) else 0
     arrays = list(_INIT_ARRAY_ORDER)
@@ -328,8 +329,7 @@ def test_numpy_matches_fortran_baseline(caller_lib: ctypes.CDLL, grid: tuple[int
     refs = dict(bufs)
     refs.update(zr)
     refs["p_diag_max_vcfl_dyn"] = mvc_f
-    gots = dict(bufs_np)
-    gots.update(znp)
+    gots = {k: v.T for k, v in (bufs_np | znp).items()}
 
     mism = []
     for nm in _OUTPUT_NAMES:
@@ -384,10 +384,11 @@ def test_initialize_numpy_matches_fortran(
     nlevp1 = nlev + 1
     nrdmax, nflat = max(3, nlev // 3), max(1, nlev // 4)
     gen = _gen_inputs(nproma, nlev, nblks_c, nblks_e, nblks_v, seed)
-    bufs = {k: np.asfortranarray(gen[k]) for k in _INIT_ARRAY_ORDER}
-    zr = {k: np.asfortranarray(gen[k]) for k in _Z}
-    bufs_np = {k: v.copy(order="F") for k, v in bufs.items()}
-    znp = {k: v.copy(order="F") for k, v in zr.items()}
+    # initialize() is C order; Fortran gets each array reversed, column-major.
+    bufs = {k: np.asfortranarray(gen[k].T) for k in _INIT_ARRAY_ORDER}
+    zr = {k: np.asfortranarray(gen[k].T) for k in _Z}
+    bufs_np = {k: gen[k].copy() for k in _INIT_ARRAY_ORDER}
+    znp = {k: gen[k].copy() for k in _Z}
     # initialize() is the 0-based truth; only the Fortran side is rebased, after the numpy copy.
     _rebase(bufs, _FORTRAN_BASE)
 
@@ -451,8 +452,7 @@ def test_initialize_numpy_matches_fortran(
     refs = dict(bufs)
     refs.update(zr)
     refs["p_diag_max_vcfl_dyn"] = mvc_f
-    gots = dict(bufs_np)
-    gots.update(znp)
+    gots = {k: v.T for k, v in (bufs_np | znp).items()}
     mism = [nm for nm in _OUTPUT_NAMES if not np.allclose(gots[nm], refs[nm], rtol=1e-10, atol=1e-10, equal_nan=True)]
     assert not mism, "numpy != Fortran on initialize() data: " + ", ".join(mism)
 

@@ -25,9 +25,9 @@ parameters:
     nblks: 3599
     nnbr: 4
 args:
-  A: {shape: "(nproma, nlev, nblks)", dtype: float64}
-  nbr_idx: {shape: "(nproma, nblks, nnbr)", dtype: int64, index_array: true}
-  nbr_blk: {shape: "(nproma, nblks, nnbr)", dtype: int64, index_array: true}
-  coef: {shape: "(nproma, nnbr, nblks)", dtype: float64}
-  out: {shape: "(nproma, nlev, nblks)", dtype: float64, out: true}
-  out_semi: {shape: "(nproma, nlev, nblks)", dtype: float64, out: true}
+  A: {shape: "(nblks, nlev, nproma)", dtype: float64}
+  nbr_idx: {shape: "(nnbr, nblks, nproma)", dtype: int64, index_array: true}
+  nbr_blk: {shape: "(nnbr, nblks, nproma)", dtype: int64, index_array: true}
+  coef: {shape: "(nblks, nnbr, nproma)", dtype: float64}
+  out: {shape: "(nblks, nlev, nproma)", dtype: float64, out: true}
+  out_semi: {shape: "(nblks, nlev, nproma)", dtype: float64, out: true}

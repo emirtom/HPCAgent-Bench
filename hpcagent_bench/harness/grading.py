@@ -21,7 +21,7 @@ from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import ArrayVerdict, compare_arrays, resolve_outputs
 from hpcagent_bench.fuzz import safe_eval
-from hpcagent_bench.harness import denominator, disk_cache, timing
+from hpcagent_bench.harness import denominator, disk_cache, precision_casts, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.native_call import (
     Followup,
@@ -30,6 +30,7 @@ from hpcagent_bench.harness.native_call import (
     assigned_device,
     import_device_array_module,
 )
+from hpcagent_bench.harness.precision_casts import CastPlan
 from hpcagent_bench.harness.sandbox import BuildResult, Sandbox
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.precision import UngradeableTolerance, accumulation_growth, dtype_eps
@@ -1413,6 +1414,28 @@ def reference_omp_context(language: str, compiler: str | None) -> str:
     return languages.block_omp_context(block)
 
 
+def reference_cast_targets(binding: Binding, data: dict) -> tuple[tuple[str, str], ...]:
+    """``(array, dtype)`` for each floating array of ``data`` the compiled reference takes in another element
+    type: the reference crosses the ABI in the binding's dtype (fp64 for a lone-precision kernel)."""
+    return tuple(
+        sorted(
+            (a.name, a.dtype)
+            for a in binding.args
+            if a.kind == "ptr"
+            and a.name in data
+            and np.dtype(data[a.name].dtype).kind == "f"
+            and np.dtype(data[a.name].dtype).name != a.dtype
+        )
+    )
+
+
+def reference_casts(binding: Binding, data: dict, context: str, lib: pathlib.Path) -> CastPlan | None:
+    """The casts carrying a grade in another precision into the reference's ABI: arrays widened in, outputs
+    narrowed back, outside the timed call (:func:`reference_cast_targets`); None when the data matches."""
+    targets = reference_cast_targets(binding, data)
+    return CastPlan(targets, str(precision_casts.host_library(context, lib))) if targets else None
+
+
 def run_compiled_reference(
     spec: BenchSpec,
     task: Task,
@@ -1456,6 +1479,7 @@ def run_compiled_reference(
         # The judge's own code: capped at the rank's reference share, not the kernel's array budget.
         memory_gb = sizing.reference_memory_gb(memory_gb)
         context = reference_omp_context(language, compiler)
+        casts = reference_casts(binding, public_data, context, lib)
         # One child for the whole rep budget, warmed by timing.sampled_reps.
         outputs, samples, _mem, extra, _timed = _call_isolated(
             lib,
@@ -1470,6 +1494,7 @@ def run_compiled_reference(
             rep_data=rep_data,
             followups=[Followup(build=canonical)] if canonical is not None else [],
             omp_context_name=context,
+            casts=casts,
         )
         if canonical is not None:
             outputs = extra[0]
@@ -1488,6 +1513,7 @@ def run_compiled_reference(
                     timeout=timeout,
                     memory_gb=memory_gb,
                     omp_context_name=context,
+                    casts=casts,
                 )
             finally:
                 del hdata

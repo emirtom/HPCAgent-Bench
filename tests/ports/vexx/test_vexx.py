@@ -43,7 +43,7 @@ _AUG = {
 def _apply_vx_to_zero(
     cfg: dict[str, bool], ngrid: int = 8, nbnd: int = 3, m: int = 4, negrp: int = 1, **kw: object
 ) -> tuple[np.ndarray, np.ndarray, int, int, int]:
-    """Run Vx on a zero hpsi accumulator -> dV[:,b] = Vx|psi_b>; return (psi, dV, n, npwx, npol).
+    """Run Vx on a zero hpsi accumulator -> dV[b] = Vx|psi_b>; return (psi, dV, n, npwx, npol).
     Extra ``**kw`` are forwarded to the kernel (e.g. the Coulomb config)."""
     init = module_at(_BENCH / "vexx_k.py").initialize
     kernel = module_at(_BENCH / "vexx_k_numpy.py").vexx_k
@@ -55,9 +55,10 @@ def _apply_vx_to_zero(
 
 
 def _hermiticity(psi: np.ndarray, dV: np.ndarray, n: int, npwx: int, npol: int) -> float:
-    rows = np.concatenate([np.arange(ip * npwx, ip * npwx + n) for ip in range(npol)])
-    p, d = psi[rows], dV[rows]
-    mtx = p.conj().T @ d
+    """``<psi_i|Vx|psi_j>`` over the active plane waves; psi and dV hold one band per row."""
+    cols = np.concatenate([np.arange(ip * npwx, ip * npwx + n) for ip in range(npol)])
+    p, d = psi[:, cols], dV[:, cols]
+    mtx = p.conj() @ d.T
     return np.abs(mtx - mtx.conj().T).max() / (np.abs(mtx).max() + 1e-300)
 
 

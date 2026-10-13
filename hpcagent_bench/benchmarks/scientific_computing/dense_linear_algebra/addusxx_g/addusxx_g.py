@@ -101,9 +101,9 @@ def _gsphere(ngrid):
     h1, h2, h3 = h1[keep], h2[keep], h3[keep]
     g2 = (h1 * h1 + h2 * h2 + h3 * h3).astype(np.float64)
     order = np.lexsort((h3, h2, h1, g2))
-    mill = np.stack((h1[order], h2[order], h3[order])).astype(np.int64)
+    mill = np.stack((h1[order], h2[order], h3[order]), axis=1).astype(np.int64)
     g2 = g2[order]
-    nl = np.ravel_multi_index((mill[0] % nr, mill[1] % nr, mill[2] % nr), (nr, nr, nr)).astype(np.int64)
+    nl = np.ravel_multi_index((mill[:, 0] % nr, mill[:, 1] % nr, mill[:, 2] % nr), (nr, nr, nr)).astype(np.int64)
     assert np.unique(nl).size == nl.size  # QE invariant: nl duplicate-free
     return mill, g2, nl
 
@@ -131,15 +131,15 @@ def _species(nat, nh):
     nkb = int(nbeta.sum())
     nhm = int(nh_type.max())
     # Packed symmetric pair index per species (QE ijtoh); -1 marks unused slots.
-    ijtoh = np.full((nhm, nhm, ntyp), -1, dtype=np.int64)
+    ijtoh = np.full((ntyp, nhm, nhm), -1, dtype=np.int64)
     nij_type = np.zeros(ntyp, dtype=np.int64)
     nij = 0
     for t in range(ntyp):
         ijh = 0
         for ih in range(int(nh_type[t])):
             for jh in range(ih, int(nh_type[t])):
-                ijtoh[ih, jh, t] = ijh
-                ijtoh[jh, ih, t] = ijh
+                ijtoh[t, jh, ih] = ijh
+                ijtoh[t, ih, jh] = ijh
                 ijh += 1
         nij_type[t] = nij
         if tvanp[t]:
@@ -156,12 +156,12 @@ def initialize(ngrid, nat, nh, datatype=np.complex128, rng: np.random.Generator 
     nr1 = nr2 = nr3 = int(ngrid)
     nnr = nr1 * nr2 * nr3
     mill, g2, nl = _gsphere(ngrid)
-    ngms = int(mill.shape[1])
+    ngms = int(mill.shape[0])
 
     ntyp, ityp, nh_type, tvanp, ofsbeta, nij_type, ijtoh, nkb, nhm, nij_tot = _species(nat, nh)
 
     # Atomic positions (crystal coordinates) and the k / k+q pair.
-    tau = rng.random((3, int(nat))).astype(np.float64)
+    tau = rng.random((int(nat), 3)).astype(np.float64)
     xk = (0.1 * rng.standard_normal(3)).astype(np.float64)
     xkq = (0.1 * rng.standard_normal(3)).astype(np.float64)
 
@@ -170,13 +170,13 @@ def initialize(ngrid, nat, nh, datatype=np.complex128, rng: np.random.Generator 
     eigts = []
     for d, nr in ((0, nr1), (1, nr2), (2, nr3)):
         hh = np.arange(-nr, nr + 1, dtype=np.float64)
-        eigts.append(np.exp(-1j * tpi * np.outer(hh, tau[d])).astype(cdtype))
+        eigts.append(np.exp(-1j * tpi * np.outer(tau[:, d], hh)).astype(cdtype))
     eigts1, eigts2, eigts3 = eigts
 
     # Augmentation form factors: random complex with the physical ~1/(1+|G|^2)
     # low-shell dominance of Q_ij(G).
     qgm = (
-        (rng.standard_normal((ngms, nij_tot)) + 1j * rng.standard_normal((ngms, nij_tot))) / (1.0 + g2)[:, None]
+        (rng.standard_normal((nij_tot, ngms)) + 1j * rng.standard_normal((nij_tot, ngms))) / (1.0 + g2)[None, :]
     ).astype(cdtype)
 
     # <beta|phi> / <beta|psi> projections and a non-zero accumulation target.

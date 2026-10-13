@@ -135,6 +135,8 @@ def host_library(context: str, beside: pathlib.Path) -> pathlib.Path:
 class HostCasts:
     """The host cast library loaded in the grading child; :meth:`convert` converts one array."""
 
+    __slots__ = ("lib",)
+
     def __init__(self, library: str) -> None:
         self.lib = ctypes.CDLL(library)
 

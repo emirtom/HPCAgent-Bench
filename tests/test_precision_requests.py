@@ -18,7 +18,7 @@ import ml_dtypes
 import numpy as np
 import pytest
 
-from hpcagent_bench.harness import mpi_wire, precision_casts, results_db
+from hpcagent_bench.harness import grading, mpi_wire, precision_casts, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
 from hpcagent_bench.precision import Precision
@@ -142,6 +142,16 @@ def test_a_layout_without_a_grid_is_refused() -> None:
     assert "permute without startup.grid" in str(
         requests_refusal(submission, Task(KERNEL, "restricted", "c"), "float64")
     )
+
+
+def test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi() -> None:
+    """The C reference is emitted with the binding's fp64 ABI; a float32 grade's floating arrays are widened
+    into it (and the output narrowed back) instead of being read as doubles past their end."""
+    binding = binding_from_spec(BenchSpec.load(KERNEL))
+    data = {"x": np.zeros(4, np.float32), "y": np.zeros(4, np.float32), "LEN_1D": 4, "alpha": 1.0}
+    assert grading.reference_cast_targets(binding, data) == (("x", "float64"), ("y", "float64"))
+    widened = {**data, "x": data["x"].astype(np.float64), "y": data["y"].astype(np.float64)}
+    assert grading.reference_cast_targets(binding, widened) == ()
 
 
 @isolated
@@ -268,6 +278,7 @@ if __name__ == "__main__":
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"alpha": "fp32"}, "float64", "c", "not a floating")
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32"}, "float64", "python", "not implemented")
     test_a_layout_without_a_grid_is_refused()
+    test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi()
     test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score()
     with tempfile.TemporaryDirectory() as scratch:
         test_a_schema_6_file_is_read_through_the_new_columns(pathlib.Path(scratch))

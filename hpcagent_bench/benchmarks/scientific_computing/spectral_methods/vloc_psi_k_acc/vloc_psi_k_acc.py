@@ -11,11 +11,12 @@ only the unbatched path is modeled):
     Fortran-order flat grid cell -- injective by construction (distinct Miller triples, asserted);
   * the wave sphere is the first ngw entries (|h| <= 0.75*hmax), standing in for the
     ecutwfc < ecutrho split, so nl covers MORE G's than the wavefunctions use (ngw < ngm);
-  * nks=2 k-points with different fractional shifts; per k, igk_k(:,ik) lists the G-sphere
+  * nks=2 k-points with different fractional shifts; per k, igk_k[ik, :] lists the G-sphere
     indices with |k+G|^2 inside the k-reduced wave cutoff, sorted ascending by |k+G|^2 --
     QE's gk_sort ordering, a genuine non-identity gather.  npwx = max(ngk); current_k = 2
-    selects the SMALLER sphere so lda > n and the trailing psi/igk_k rows must stay untouched;
-  * psi/hpsi dense random complex (lda, m) -- rows n..lda-1 are never-read garbage, as in QE;
+    selects the SMALLER sphere so lda > n and the trailing psi/igk_k entries must stay untouched;
+  * psi/hpsi dense random complex [m, lda], QE's column-major psi(lda, m) in C order: one contiguous
+    row per band, entries n..lda-1 never-read garbage, as in QE;
     v random real on the full grid (vrs has either sign).
 
 Index conventions: nl and igk_k are 0-based (corpus rule); current_k stays 1-based like the
@@ -98,13 +99,13 @@ def initialize(ngrid, m, datatype=np.complex128, rng: np.random.Generator | None
     nks = _NKS
     current_k = _CURRENT_K
     n = int(ngk[current_k - 1])
-    igk_k = np.zeros((lda, nks), dtype=np.int32)  # QE inits igk_k to 0; tail never read
+    igk_k = np.zeros((nks, lda), dtype=np.int32)  # QE inits igk_k to 0; tail never read
     for ik in range(nks):
-        igk_k[: ngk[ik], ik] = cols[ik]
+        igk_k[ik, : ngk[ik]] = cols[ik]
 
     # psi/hpsi dense random complex, v random real on the smooth grid.
-    psi = (rng.standard_normal((lda, m)) + 1j * rng.standard_normal((lda, m))).astype(cdtype)
-    hpsi = (rng.standard_normal((lda, m)) + 1j * rng.standard_normal((lda, m))).astype(cdtype)
+    psi = (rng.standard_normal((m, lda)) + 1j * rng.standard_normal((m, lda))).astype(cdtype)
+    hpsi = (rng.standard_normal((m, lda)) + 1j * rng.standard_normal((m, lda))).astype(cdtype)
     v = rng.standard_normal(nnr).astype(rdtype)
 
     # Positional bind to the manifest init.output_args order (== kernel arg order).

@@ -38,8 +38,8 @@ def test_a_constant_potential_scales_the_retained_plane_waves() -> None:
     hpsi[:] = 0.0
     kernel(*args)
 
-    igk = igk_k[:, current_k - 1]
-    np.testing.assert_allclose(hpsi[:n, :], 2.5 * psi[:n, :], rtol=1e-11, atol=1e-11)
+    igk = igk_k[current_k - 1, :]
+    np.testing.assert_allclose(hpsi[:, :n], 2.5 * psi[:, :n], rtol=1e-11, atol=1e-11)
     assert np.unique(nl[igk[:n]]).size == n, "the gather must hit n distinct grid cells"
 
 
@@ -62,11 +62,11 @@ def test_the_rows_past_n_are_never_written() -> None:
     the trailing rows belong to a different k. QE leaves them alone and so must the port."""
     kernel, args = _case()
     hpsi, n = args[1], args[6]
-    assert n < hpsi.shape[0], "the fixture must have a k-point with lda > n or this is vacuous"
-    tail = hpsi[n:, :].copy()
+    assert n < hpsi.shape[1], "the fixture must have a k-point with lda > n or this is vacuous"
+    tail = hpsi[:, n:].copy()
     kernel(*args)
 
-    np.testing.assert_array_equal(hpsi[n:, :], tail)
+    np.testing.assert_array_equal(hpsi[:, n:], tail)
 
 
 def test_the_operator_is_linear_in_psi() -> None:
@@ -96,9 +96,9 @@ def test_each_band_is_transformed_independently() -> None:
     wide = hpsi.copy()
 
     narrow_args = list(args)
-    narrow_args[0] = psi[:, :1].copy()
-    narrow_args[1] = np.zeros_like(psi[:, :1])
+    narrow_args[0] = psi[:1, :].copy()
+    narrow_args[1] = np.zeros_like(psi[:1, :])
     narrow_args[7] = 1  # m
     kernel(*narrow_args)
 
-    np.testing.assert_allclose(narrow_args[1][:, 0], wide[:, 0], rtol=1e-11, atol=1e-11)
+    np.testing.assert_allclose(narrow_args[1][0, :], wide[0, :], rtol=1e-11, atol=1e-11)
