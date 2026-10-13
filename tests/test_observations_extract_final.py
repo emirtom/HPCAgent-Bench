@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import observations_extract as extract
-from hpcagent_bench.harness import grade_under, results_db, timing
+from hpcagent_bench.harness import grade_under, recording, results_db, timing
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.stats import score_rule
 from tests import results_seed
@@ -77,15 +77,18 @@ POLICY = "best-of-v2:c+numba"
 def answering(*outcomes: float | str) -> Callable[..., Score]:
     """A scorer grading one input per call: its credited ratio r_j measured correct, ``wrong``
     (measured, wrong answer), ``crash`` (no measurement), ``fault`` (the JUDGE failed), ``fallback``
-    (a min-of-k ratio, no Mann-Whitney ran), ``tie`` (equal medians: no p-value, ratio exactly 1.0)
-    or ``suspect`` (a measured ratio flagged implausible)."""
+    (a min-of-k ratio, no Mann-Whitney ran), ``tie`` (equal medians: no p-value, ratio exactly 1.0),
+    ``stopped`` (the guillotine cut the candidate: baseline/cap = 0.5, no p-value) or ``suspect`` (a measured
+    ratio flagged implausible)."""
     remaining = iter(outcomes)
 
     def scorer(*_args: Any, **_kwargs: Any) -> Score:
         outcome = next(remaining)
         if outcome in ("crash", "fault"):
             return Score(False, 0.0, 0, False, harness_fault=outcome == "fault", timing_reduction="mwd-v3")
-        ratio = {"wrong": 3.0, "fallback": 2.5, "tie": 1.0, "suspect": 5000.0}.get(str(outcome)) or float(outcome)
+        ratio = {"wrong": 3.0, "fallback": 2.5, "tie": 1.0, "stopped": 0.5, "suspect": 5000.0}.get(
+            str(outcome)
+        ) or float(outcome)
         correct = outcome != "wrong"
         cell = TimedCell(
             "XL",
@@ -95,6 +98,7 @@ def answering(*outcomes: float | str) -> Callable[..., Score]:
             ratio,
             correct=correct,
             suspect=outcome == "suspect",
+            stopped=outcome == "stopped",
             timing_reduction="mwd-v3",
             baseline="c",
             baseline_candidates="c+numba",
@@ -110,7 +114,7 @@ def answering(*outcomes: float | str) -> Callable[..., Score]:
             timing_reduction="mwd-v3",
             baseline="c",
             baseline_policy=POLICY,
-            p_value=None if outcome in ("fallback", "tie") else 0.01,
+            p_value=None if outcome in ("fallback", "tie", "stopped") else 0.01,
         )
 
     return scorer
@@ -333,6 +337,18 @@ def test_a_min_of_k_fallback_input_is_a_judge_fault_not_a_credit(tmp_path: pathl
     assert (row["row_kind"], row["speedup"], row["timing_reduction"]) == ("submission", 9.0, "mwd-v3")
     assert (row["grade_final_status"], row["reason"]) == ("error", extract.FALLBACK_REASON)
     assert (counts["errored"], counts["fallback"], counts["unsolved"], counts["replaced"]) == (1, 1, 0, 0)
+
+
+def test_a_candidate_the_guillotine_stopped_is_a_measured_upper_bound_not_a_fallback(tmp_path: pathlib.Path) -> None:
+    """A stopped candidate's cells carry no p-value and a ratio of baseline/cap, like a fallback, but the judge
+    measured them: they are recorded as ``stopped`` and the final grade credits the upper bound."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading("stopped", "stopped", "stopped", "stopped"), regrade_ts=1)
+    with connect(tmp_path / "v5" / "regrade-cells-0.db") as conn:
+        reasons = {r for (r,) in conn.execute("SELECT reason FROM grade_cells")}
+    assert reasons == {recording.STOPPED_REASON}
+    by_ts, counts, _ = extracted([submission(10)], str(tmp_path / "v5"))
+    assert by_ts[10]["speedup"] == pytest.approx(0.5)
+    assert (counts["errored"], counts["fallback"], counts["replaced"]) == (0, 0, 1)
 
 
 def test_equal_medians_carry_no_p_value_and_are_still_a_measurement(tmp_path: pathlib.Path) -> None:
