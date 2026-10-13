@@ -115,12 +115,13 @@ void jacobi_2d_fp64(double *A /* [N][N] transposed */, double *B /* [N][ceil(N/4
 ### 3.1 Zip and the C ABI
 
 `zip` (`{"action": "zip", "arrays": ["u", "v"], "into": "uv"}`) gives the kernel one pointer in place
-of the fields' pointers, at the position of the first field. Fields of one precision become a last
-dimension of the new array (`uv[i][k]` is field `k`), which the digit operations then place like any
-dimension (permute it outermost for SoA, block between for AoSoA); fields of different precisions
-become a plain C struct. `unzip` (`{"action": "unzip", "array": "z", "into": ["z_re", "z_im"]}`) gives
-one pointer per member or field, and with `dim` splits an array along a small dimension, one pointer
-per index. Neither changes a precision: each field keeps the type its casts left.
+of the fields' pointers, at the position of the first field. Fields of one precision are stacked along
+a new dimension at `dim` (default last: `uv[i][k]` is field `k`; `"dim": 0` stacks them first, SoA),
+which the digit operations then place like any dimension (block between for AoSoA); fields of different
+precisions become a plain C struct. `unzip` is its inverse (`{"action": "unzip", "array": "z", "into":
+["z_re", "z_im"]}`): one pointer per member or field, and with `dim` it splits any array along a
+dimension of constant extent, one pointer per index (`q[4][N]` into four `[N]` arrays). Neither changes a
+precision: each field keeps the type its casts left.
 
 ```c
 typedef struct { float u; double v; } hb_zip_uv;   /* mixed precisions; field order = request order */

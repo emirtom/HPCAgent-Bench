@@ -58,7 +58,7 @@
      },
      {
       "additionalProperties": false,
-      "description": "Fuse whole arrays ``arrays`` of one shape into one array ``into``. Arrays of one precision become a new last dimension, the field (``into[..., k]`` is ``arrays[k]``), which the digit operations then place like any other (field-outer is SoA, field-inner AoS, blocked between AoSoA); arrays of different precisions become one array of structs, one member per array in order, each keeping its precision.",
+      "description": "Fuse whole arrays ``arrays`` of one shape into one array ``into``, the inverse of :class:`Unzip`. Arrays of one precision are stacked along a new dimension, the field, at position ``dim`` (None: last; ``into[..., k]`` is ``arrays[k]``), which the digit operations then place like any other (field-outer is SoA, field-inner AoS, blocked between AoSoA); arrays of different precisions become one array of structs, one member per array in order, each keeping its precision (and take no ``dim``).",
       "properties": {
        "action": {
         "const": "zip"
@@ -70,6 +70,10 @@
         },
         "minItems": 2,
         "type": "array"
+       },
+       "dim": {
+        "minimum": 0,
+        "type": "integer"
        },
        "into": {
         "minLength": 1,
@@ -85,7 +89,7 @@
      },
      {
       "additionalProperties": false,
-      "description": "Split the whole array ``array`` into the arrays ``into``: a struct into one array per member (a complex array is the struct ``(re, im)``), a zipped array along its field, or, with ``dim``, any array along dimension ``dim``, one array per index (its extent must be ``len(into)``). Each keeps the precision and placement it had.",
+      "description": "Split the whole array ``array`` into the arrays ``into``, the inverse of :class:`Zip`: a struct into one array per member (a complex array is the struct ``(re, im)``), a zipped array along its field, or, with ``dim``, any array along dimension ``dim``, one array per index (its extent must be ``len(into)``: ``A[N, M, 4]`` into four ``[N, M]`` arrays). Each keeps the precision and placement it had.",
       "properties": {
        "action": {
         "const": "unzip"
