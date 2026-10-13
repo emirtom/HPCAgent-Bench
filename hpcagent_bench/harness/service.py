@@ -51,7 +51,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
-from relayout.ops import Cast, Format
+from relayout.ops import Cast, DigitOperation, Distribute, Format
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
 from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
@@ -853,13 +853,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     except ValueError as exc:
         return str(exc)
     if not requests.distributed:
-        layout = sorted({op.action.value for op in requests.operations if not isinstance(op, Cast | Format)})
-        if layout:
-            return (
-                f"{', '.join(layout)} without startup.grid: single-node layout changes are not implemented yet "
-                "(see docs/requests_api.md)"
-            )
-        return None
+        return single_node_layout_refusal(submission, task, spec)
     ranks = config.get_int("mpi.ranks", 4)
     try:
         requests.plan(ndims, ranks)
@@ -871,6 +865,29 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
             f"the operations neither distribute nor replicate {unplaced}; on a distributed run every array "
             "needs one (replicate an array to hold it whole on every rank)"
         )
+    return None
+
+
+def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSpec) -> str | None:
+    """Why the operations of a request without a grid cannot be honoured, or None: the judge converts a dense
+    array into the layout its digit operations leave around a C-ABI call; ``zip`` / ``unzip`` (a struct or new
+    arrays), ``place``, python deliveries, sparse arrays and distributed kernels are not covered yet."""
+    operations = submission.requests.operations
+    layout_ops = [op for op in operations if isinstance(op, DigitOperation) and not isinstance(op, Distribute)]
+    other = sorted({op.action.value for op in operations if not isinstance(op, Cast | Format) and op not in layout_ops})
+    if other:
+        return f"{', '.join(other)} without startup.grid is not implemented yet (see docs/requests_api.md)"
+    if not layout_ops:
+        return None
+    actions = ", ".join(sorted({op.action.value for op in layout_ops}))
+    if submission.is_python:
+        return f"{actions} is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
+    if task.residency == "distributed":
+        return f"{actions} without startup.grid on a distributed kernel: lay its arrays out per rank with a grid"
+    sparse = {group.logical for group in binding_from_spec(spec).packed}
+    named = sorted({op.array for op in layout_ops} & sparse)
+    if named:
+        return f"{actions} of the sparse arrays {named}: a sparse array takes a format, not a dense layout"
     return None
 
 

@@ -31,11 +31,17 @@ from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     default_requests,
     distribution_for_kernel,
+    kernel_ndims,
     layout_flexible_allowlist,
     replicatable_allowlist,
 )
 from hpcagent_bench.harness.native import display_run_dir
-from hpcagent_bench.harness.requests_api import Location, mpi_residency, precision_problem_dtypes
+from hpcagent_bench.harness.requests_api import (
+    Location,
+    kernel_arrays,
+    mpi_residency,
+    precision_problem_dtypes,
+)
 from hpcagent_bench.harness.resources import available_resources
 from hpcagent_bench.harness.sandbox import shared_dir
 from hpcagent_bench.harness.task import Residency, Task
@@ -913,6 +919,12 @@ def sparse_layout_context(spec: BenchSpec, language: str) -> dict[str, object]:
     }
 
 
+def layout_arrays(spec: BenchSpec, binding: Binding) -> list[dict[str, str | int]]:
+    """The dense arrays a single-node request may lay out, each with its rank: ``[{"name", "ndim"}]``."""
+    ndims = kernel_ndims(spec.mpi, binding)
+    return [{"name": a.name, "ndim": a.ndim} for a in kernel_arrays(binding, ndims) if not a.sparse]
+
+
 def build_context(
     task: Task,
     *,
@@ -1030,6 +1042,8 @@ def build_context(
         ),
         # Every array a precision may be requested for (requests_api.precision_problem_dtypes).
         "precision_arrays": sorted(precision_problem_dtypes(spec, binding, precision)),
+        # The dense arrays a single-node layout may name (service.single_node_layout_refusal); none on MPI.
+        "layout_arrays": ([] if is_mpi else layout_arrays(spec, binding)),
         "problem_precision": precision_from_datatype(precision).value,
         "precision_ctypes": PRECISION_CTYPES,
         # The ML track's per-array table and symbol lists (mpi_sizing.aligned_symbols); empty elsewhere.

@@ -1065,7 +1065,7 @@ def independent_verify(
                     memory_gb=memory_gb,
                     workspace_bytes=submission.workspace_bytes,
                     omp_context_name=submission_omp_context(submission),
-                    casts=candidate_casts(submission, built.require_lib(), device),
+                    casts=candidate_casts(submission, built.require_lib(), device, d),
                 )
                 return outs
 
@@ -1556,18 +1556,28 @@ def layout_label(task: Task, submission: Submission) -> str:
     return choice.label if choice is not None else ""
 
 
-def candidate_casts(submission: Submission, lib: pathlib.Path, device: bool) -> CastPlan | None:
-    """The precision casts the candidate's calls run (its ``cast`` operations), or None when it requests
-    none. A host grade's cast library is built in the submission's OpenMP context and copied beside ``lib``."""
-    if not submission.requests.precision:
-        return None
-    targets = tuple(
-        sorted(
-            (name, np.dtype(numpy_dtype(precision)).name) for name, precision in submission.requests.precision.items()
-        )
+def candidate_casts(
+    submission: Submission, lib: pathlib.Path, device: bool, data: Mapping[str, Any]
+) -> CastPlan | None:
+    """The conversions the candidate's calls run (its ``cast`` operations and its single-node layouts), or
+    None when it requests none. A host grade's library is built in the submission's OpenMP context (with the
+    layout kernels of this request) and copied beside ``lib``."""
+    precision = submission.requests.precision
+    arrays = {name: value for name, value in data.items() if isinstance(value, np.ndarray)}
+    layouts = (
+        {} if submission.requests.distributed else submission.requests.layouts({n: a.ndim for n, a in arrays.items()})
     )
-    host = "" if device else str(precision_casts.host_library(submission_omp_context(submission), lib))
-    return CastPlan(targets, host)
+    if not precision and not layouts:
+        return None
+    stored = {name: np.dtype(numpy_dtype(p)).name for name, p in precision.items()}
+    stored.update({name: arrays[name].dtype.name for name in layouts if name not in stored})
+    targets = tuple(sorted(stored.items()))
+    conversions = tuple(
+        precision_casts.layout_conversion(name, layout, arrays[name].dtype.name, stored[name])
+        for name, layout in sorted(layouts.items())
+    )
+    host = "" if device else str(precision_casts.host_library(submission_omp_context(submission), lib, conversions))
+    return CastPlan(targets, host, tuple(sorted(layouts.items())))
 
 
 def requested_layout(spec: BenchSpec, submission: Submission) -> ResolvedLayout | None:
@@ -2362,7 +2372,7 @@ def graded_score(
                     followups=canonical_followups + hidden_followups,
                     rep_data=candidate_builder(task.kernel, choice, rep_data),
                     omp_context_name=submission_omp_context(submission),
-                    casts=candidate_casts(submission, built.require_lib(), device),
+                    casts=candidate_casts(submission, built.require_lib(), device, cand_data),
                 )
 
             try:
@@ -4158,7 +4168,7 @@ def score_cells(
                         workspace_bytes=submission.workspace_bytes,
                         warmup=warmup,
                         call_binding=cand_binding,
-                        casts=candidate_casts(submission, built.require_lib(), device),
+                        casts=candidate_casts(submission, built.require_lib(), device, cand_data),
                     )
                 except RuntimeError as exc:
                     is_ungradeable = isinstance(exc, UngradeableTolerance)
@@ -4338,7 +4348,7 @@ def score_cells(
                                 1,
                                 memory_gb,
                                 call_binding=cand_binding,
-                                casts=candidate_casts(submission, built.require_lib(), device),
+                                casts=candidate_casts(submission, built.require_lib(), device, cand_data),
                             )
                             # The same determinism formula as independent_verify.
                             determinism_ok = _determinism_check(
@@ -4360,7 +4370,7 @@ def score_cells(
                             1,
                             memory_gb,
                             call_binding=cand_binding,
-                            casts=candidate_casts(submission, built.require_lib(), device),
+                            casts=candidate_casts(submission, built.require_lib(), device, re_cand),
                         )
                         re_expected = cell_reference(redata)
                         # Same size as `data` (only the reverify SEED differs), so the SAME `lengths`.

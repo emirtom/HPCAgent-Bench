@@ -97,8 +97,20 @@ layout needs an equal-edge grid, `replicatable_allowlist` and `layout_flexible_a
 
 `place` puts a distributed array's tiles in `host` or `device` memory (default: `mpi.residency`).
 
-Without `startup.grid`, every operation but `cast` and `format` is refused: single-node layout changes
-are not implemented yet.
+Without `startup.grid`, the digit operations lay a dense array out on the single node: the kernel's
+pointer is the packed row-major buffer of the layout's physical extents (a cut digit is an axis of its
+own, a padded one is longer, dead cells read zero), filled from the problem array before every call and
+read back after it for an output (`grades.convert_in_ns` / `convert_out_ns`, outside the score). The
+conversion kernels are relayout's, built once per request into the host cast library (or launched
+through cupy on a device grade) and fused with the array's `cast` if it has one. `zip`, `unzip`,
+`distribute`, `replicate` and `place` need a grid; a python delivery, a sparse array and a distributed
+kernel take no single-node layout.
+
+```c
+/* {"operations": [{"action": "permute", "array": "A", "order": ["i1", "i0"]},
+ *                 {"action": "block", "array": "B", "digit": "i1", "factor": 4, "into": ["b", "f"]}]} */
+void jacobi_2d_fp64(double *A /* [N][N] transposed */, double *B /* [N][ceil(N/4)][4] */, int64_t N, ...);
+```
 
 ### 3.1 Zip and the C ABI
 

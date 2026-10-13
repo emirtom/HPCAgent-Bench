@@ -36,6 +36,8 @@ from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_fo
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.harness import precision_casts, timing
 from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, storage_view_dtype
+from relayout.convert import Conversion
+from relayout.layout import IndexMap
 from hpcagent_bench.harness.task import setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import WORKSPACE_DTYPE, Binding, index_base
 from hpcagent_bench.units import BYTES_PER_GIB, BYTES_PER_KIB, NS_PER_MS
@@ -912,29 +914,37 @@ def kernel_entry(ffi: FFI, lib: "Lib", symbol: str) -> CKernel:
 
 #: Converts a source buffer into a destination buffer of another element type (logical dtype names given,
 #: since a device buffer of a storage-only format is an unsigned view).
-type Converter = Callable[["ArrayBuffer", "ArrayBuffer", str, str], None]
+@dataclass(frozen=True, slots=True)
+class Staged:
+    """One converted array of a call: its problem buffer (``logical``, what is graded), the buffer the kernel
+    gets (``stored``), both element types, its logical shape, and its layout (None: cast only)."""
+
+    name: str
+    logical: "ArrayBuffer"
+    stored: "ArrayBuffer"
+    logical_dtype: str
+    stored_dtype: str
+    shape: tuple[int, ...]
+    layout: IndexMap | None
+
+
+#: Converts one :class:`Staged` array into the kernel's buffer (``inward``) or back.
+type Converter = Callable[[Staged, bool], None]
+
+
 #: One staged precision cast: source buffer, destination buffer, and their element types.
-type StagedCast = tuple["ArrayBuffer", "ArrayBuffer", str, str]
+def no_converter(staged: Staged, inward: bool) -> None:
+    """The :data:`Converter` of a call that requests no conversion: it never stages one."""
+    raise AssertionError(f"no converter for {staged.name!r}")
 
 
-def no_converter(src: "ArrayBuffer", dst: "ArrayBuffer", src_dtype: str, dst_dtype: str) -> None:
-    """The :data:`Converter` of a call that requests no precision: it never stages a cast."""
-    raise AssertionError(f"no converter for the {src_dtype} -> {dst_dtype} cast")
-
-
-def inverse_cast(cast: StagedCast) -> StagedCast:
-    """The cast back: ``cast``'s destination into its source."""
-    src, dst, src_dtype, dst_dtype = cast
-    return dst, src, dst_dtype, src_dtype
-
-
-def timed_casts(casts: Sequence[StagedCast], convert: Converter) -> int:
-    """Run ``casts`` in one bracket of their own and return its nanoseconds (0 when there are none)."""
-    if not casts:
+def timed_conversions(staged: Sequence[Staged], convert: Converter, inward: bool) -> int:
+    """Convert ``staged`` one way in one bracket of their own and return its nanoseconds (0 when there are none)."""
+    if not staged:
         return 0
     start = time.perf_counter_ns()
-    for src, dst, src_dtype, dst_dtype in casts:
-        convert(src, dst, src_dtype, dst_dtype)
+    for array in staged:
+        convert(array, inward)
     return time.perf_counter_ns() - start
 
 
@@ -1103,6 +1113,7 @@ def _call_native_impl(
     ffi = FFI()
     sym = binding.symbols[lang]
     targets = dict(casts.targets) if casts is not None else {}
+    layouts = dict(casts.layouts) if casts is not None else {}
     # The C signature follows the requested element types, so it is declared off a retyped template.
     template = {**data, **{name: np.empty(0, np.dtype(dtype)) for name, dtype in targets.items()}}
     marshal = CallMarshal.of(binding, template, lang)
@@ -1142,9 +1153,9 @@ def _call_native_impl(
         budget: Callable[[], contextlib.AbstractContextManager[None]]
         budget = grading_memory_budget if is_followup else contextlib.nullcontext
         buffers: dict[str, ArrayBuffer] = {}
-        # A requested array's problem-precision staging buffer, its requested-type twin (the one passed),
-        # and the two element types.
-        staged: dict[str, StagedCast] = {}
+        # A requested array's problem-precision staging buffer and the twin the kernel gets: of the
+        # requested type, and packed in the requested layout.
+        staged: dict[str, Staged] = {}
         c_args: list[CArgument] = []
         with budget():
             for a in binding.args:
@@ -1155,8 +1166,12 @@ def _call_native_impl(
                         host += rebase[a.name]
                     buf: ArrayBuffer = xp.asarray(host)
                     if a.name in targets:
-                        twin: ArrayBuffer = xp.empty(host.shape, buffer_dtype(xp, targets[a.name]))
-                        staged[a.name] = (buf, twin, host.dtype.name, targets[a.name])
+                        layout = layouts.get(a.name)
+                        cells = host.shape if layout is None else (layout_cells(layout, host.shape),)
+                        twin: ArrayBuffer = xp.empty(cells, buffer_dtype(xp, targets[a.name]))
+                        staged[a.name] = Staged(
+                            a.name, buf, twin, host.dtype.name, targets[a.name], tuple(host.shape), layout
+                        )
                         buf = twin
                     buffers[a.name] = buf
                     c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(buf)))
@@ -1170,14 +1185,14 @@ def _call_native_impl(
             ws[...] = 0
 
         # Every requested array is cast in: the ABI declares outputs intent(inout), so one may be read.
-        convert_in_ns = timed_casts(list(staged.values()), convert)
+        convert_in_ns = timed_conversions(list(staged.values()), convert, inward=True)
         # The cap is re-armed for the kernel's own call. The only timed region: fn(*c_args) and the
         # settle waits.
         rep = timed_call(fn, c_args, settle)
         cast_back = [a.name for a in binding.args if a.role == "output" and a.name in staged]
-        convert_out_ns = timed_casts([inverse_cast(staged[name]) for name in cast_back], convert)
+        convert_out_ns = timed_conversions([staged[name] for name in cast_back], convert, inward=False)
         for name in cast_back:
-            buffers[name] = staged[name][0]  # the problem-precision buffer is what gets graded
+            buffers[name] = staged[name].logical  # the problem buffer is what gets graded
         rep = dataclasses.replace(rep, convert_in_ns=convert_in_ns, convert_out_ns=convert_out_ns)
         if not warming and not is_followup:
             reps_seen.append(rep)  # a warmup / held-out rep is not a sample, so it is not evidence
@@ -1272,9 +1287,30 @@ def _call_native(
     )
 
 
-def host_convert(casts: HostCasts, src: "ArrayBuffer", dst: "ArrayBuffer", src_dtype: str, dst_dtype: str) -> None:
+def layout_cells(layout: IndexMap, shape: Sequence[int]) -> int:
+    """The cells of the buffer ``layout`` packs an array of logical ``shape`` into."""
+    return layout.size(dict(zip(precision_casts.extent_names(len(shape)), shape, strict=True)))
+
+
+def staged_ends(staged: Staged, inward: bool) -> tuple["ArrayBuffer", "ArrayBuffer", str, str]:
+    """``(source, target, source dtype, target dtype)`` of converting ``staged`` one way."""
+    if inward:
+        return staged.logical, staged.stored, staged.logical_dtype, staged.stored_dtype
+    return staged.stored, staged.logical, staged.stored_dtype, staged.logical_dtype
+
+
+def staged_conversion(staged: Staged) -> Conversion:
+    assert staged.layout is not None
+    return precision_casts.layout_conversion(staged.name, staged.layout, staged.logical_dtype, staged.stored_dtype)
+
+
+def host_convert(casts: HostCasts, staged: Staged, inward: bool) -> None:
     """A host call's :data:`Converter`: its buffers are numpy arrays (:func:`host_buffer`)."""
-    casts.convert(host_buffer(src), host_buffer(dst), src_dtype, dst_dtype)
+    src, dst, src_dtype, dst_dtype = staged_ends(staged, inward)
+    if staged.layout is None:
+        casts.convert(host_buffer(src), host_buffer(dst), src_dtype, dst_dtype)
+    else:
+        casts.relayout(host_buffer(src), host_buffer(dst), staged_conversion(staged), inward, staged.shape)
 
 
 def buffer_dtype(xp: types.ModuleType, dtype: str) -> "np.dtype[np.generic]":
@@ -1465,9 +1501,13 @@ def _call_native_device(
             residual_ns=quiescence_residual(device_settle),
         )
 
-    def device_convert(src: "ArrayBuffer", dst: "ArrayBuffer", src_dtype: str, dst_dtype: str) -> None:
-        # One kernel per array, drained before the bracket closes so its time is the cast's own.
-        precision_casts.device_cast(cp, src, dst, src_dtype, dst_dtype)
+    def device_convert(staged: Staged, inward: bool) -> None:
+        # One kernel per array, drained before the bracket closes so its time is the conversion's own.
+        src, dst, src_dtype, dst_dtype = staged_ends(staged, inward)
+        if staged.layout is None:
+            precision_casts.device_cast(cp, src, dst, src_dtype, dst_dtype)
+        else:
+            precision_casts.device_relayout(cp, src, dst, staged_conversion(staged), inward, staged.shape)
         device_settle()
 
     return _call_native_impl(

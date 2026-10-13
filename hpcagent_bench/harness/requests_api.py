@@ -35,10 +35,12 @@ from relayout.ops import (
     lower,
     operations_for_axes,
 )
+from relayout.layout import IndexMap
 from relayout.requests import parse_requests, requests_json
 
 from hpcagent_bench import config
 from hpcagent_bench.dtypes import canonical, is_float_dtype
+from hpcagent_bench.harness.precision_casts import extent_names
 from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.support.bindings.contract import graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import array_layout
@@ -145,6 +147,15 @@ class Requests(relayout.ops.Requests):
     def sparse(self) -> dict[str, str] | None:
         """Each sparse array a ``format`` names, with its format label; None when none does."""
         return self.formats() or None
+
+    def layouts(self, ndims: Mapping[str, int]) -> dict[str, IndexMap]:
+        """Each array of ``ndims`` the digit operations lay out on a single node, as its layout over the logical
+        extents ``d0``, ``d1``, ... (:func:`precision_casts.extent_names`); an identity is left out."""
+        state = self.run([ArraySpec(name, ndim) for name, ndim in ndims.items()])
+        laid = {
+            name: state.layout(name, extent_names(ndim)) for name, ndim in ndims.items() if state.arrays[name].touched
+        }
+        return {name: layout for name, layout in laid.items() if not layout.is_identity()}
 
     def lowered(self, ndims: Mapping[str, int], ranks: int) -> State:
         """The operations run over the arrays of ``ndims`` on the grid at ``ranks`` ranks."""
