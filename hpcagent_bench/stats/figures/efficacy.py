@@ -135,6 +135,7 @@ __all__ = [
     "control_key_marks",
     "control_legend_mark",
     "cost_card_name",
+    "cost_axis_label",
     "cost_row_label",
     "delivery_markers",
     "delivery_order",
@@ -951,6 +952,13 @@ def cost_row_label(name: str) -> str:
     The weight vector goes into the caption; spelled on the axis it folds the title onto three lines."""
     card = cost_card_name(name)
     return f"{card} Tokens" if card else "Tokens"
+
+
+def cost_axis_label(card: cost_models.CostModel) -> str:
+    """The token-cost Y title of a panel figure (per-kernel, temperature): the card's name over its (fresh input,
+    cached input, output) weights; no-break spaces keep each line whole when the axis folds a tall label."""
+    weights = f"({card.fresh_input:g}, {card.cached_input:g}, {card.output:g})"
+    return f"{cost_row_label(card.key)}\n{weights}".replace(" ", "\N{NO-BREAK SPACE}")
 
 
 def thin_rules(ax: Axes, config: FigureConfig) -> None:

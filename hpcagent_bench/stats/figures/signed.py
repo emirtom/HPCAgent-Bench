@@ -88,6 +88,7 @@ class Row:
     tokens: dict[str, float] = dataclasses.field(default_factory=dict)  # per-kernel token spend
     delivered: dict[str, bool] = dataclasses.field(default_factory=dict)  # ratio vs 1x placeholder
     pending: frozenset[str] = frozenset()  # kernels not attempted yet (mark_pending only)
+    filled: bool = True  # hollow = the no-packet control (palette.CONTROL_MARKER)
 
 
 def sign_test(ratios: Mapping[str, float]) -> tuple[int, int]:
@@ -295,9 +296,12 @@ def agent_kernel_row(
     del tokens_low, tokens_high  # under "latest" both are empty; a repeat's own range is not this figure's concern
     tokens = {k: v for k, v in raw_tokens.items() if k in kernels}
     label = f"{study_tags.model_name(model)} - {setup_names.condition_label(condition, treatments)}"
+    # Colour is the model's and shape the packet's, hollow for no packet, as every model x packet figure draws them
+    # (palette.packet_marker).
     return Row(
         setup, label, ratios, numerator_ms, denominator_ms, pending_note(pending),
-        palette.color(condition), palette.marker(model), ratios_low, ratios_high, tokens, pending=pending,
+        palette.model_color(model), palette.packet_marker(condition), ratios_low, ratios_high, tokens,
+        pending=pending, filled=bool(condition),
     )  # fmt: skip
 
 
@@ -425,15 +429,15 @@ def row_color(row: Row) -> str:
 
 
 def kernel_metrics(
-    rows: Sequence[Row], tag_kernels: Sequence[str], baseline: str = BASELINE
+    rows: Sequence[Row], tag_kernels: Sequence[str], baseline: str = BASELINE, cost_label: str = "Billed Tokens"
 ) -> list[per_kernel.Metric]:
     """The compiler figure's panels over ``sorted(tag)``, as :mod:`per_kernel` draws them.
 
     Speedup for every row: a kernel's own repeat interval (SC15 rules 5/7) as its whisker, a
     compiler's 1x placeholder crossed (``Row.delivered``), an unanswered agent kernel filled at 1x and
     crossed, a pending kernel as "?"; the 1x line wears the baseline's own colour, since it IS the
-    baseline. Tokens spent only when some row spends any -- a compiler-only render has nothing to
-    put there, and an empty panel is omitted rather than left blank; a row that spends none (a canon
+    baseline. Token cost only when some row spends any -- a compiler-only render has nothing to
+    put there (``cost_label`` names the priced card, :func:`efficacy.cost_axis_label`), and an empty panel is omitted rather than left blank; a row that spends none (a canon
     column) keeps its dodge offset and summary slot on it and draws nothing.
     """
     kernels = sorted(tag_kernels)
@@ -446,6 +450,7 @@ def kernel_metrics(
             ),
             row_color(row),
             row.marker,
+            row.filled,
         )
         for row in rows
     ]  # fmt: skip
@@ -453,11 +458,12 @@ def kernel_metrics(
     if any(row.tokens for row in rows):
         tokens = [
             per_kernel.Series(
-                row.label, per_kernel.kernel_cells(row.tokens, kernels, fill=False), row_color(row), row.marker
+                row.label, per_kernel.kernel_cells(row.tokens, kernels, fill=False), row_color(row), row.marker,
+                row.filled,
             )
             for row in rows
-        ]
-        metrics.append(per_kernel.token_series_metric(tokens, "Tokens spent"))
+        ]  # fmt: skip
+        metrics.append(per_kernel.token_series_metric(tokens, cost_label))
     return metrics
 
 
@@ -469,7 +475,7 @@ def legend_handles(rows: Sequence[Row], metrics: Sequence[per_kernel.Metric]) ->
     handles: list[Artist] = [
         Line2D(
             [], [], marker=row.marker, linestyle="none", color=row_color(row), markersize=per_kernel.LEGEND_MARK_PT,
-            label=row.label,
+            markerfacecolor=row_color(row) if row.filled else "none", label=row.label,
         )
         for row in rows
     ]  # fmt: skip
@@ -483,8 +489,9 @@ def kernel_figure(
     baseline: str = BASELINE,
     offset: float = 0.0,
     panel_height_in: float = PANEL_HEIGHT_IN,
+    cost_label: str = "Billed Tokens",
 ) -> matplotlib.figure.Figure:
-    """The per-kernel figure: canon-sweep columns and setups on ONE kernel axis, a speedup panel (log2, ratio-labelled ticks) over a tokens-spent panel when
+    """The per-kernel figure: canon-sweep columns and setups on ONE kernel axis, a speedup panel (log2, ratio-labelled ticks) over a token-cost panel when
     any row spends tokens (:func:`kernel_metrics`), each with per_kernel's summary column past a
     dashed separator -- one slot per row, the geomean with its 95% interval on both panels, over
     the kernels the row solved, value printed.
@@ -497,7 +504,7 @@ def kernel_figure(
     if not rows:
         raise ValueError("no row to draw")
     style.apply()
-    metrics = kernel_metrics(rows, tag_kernels, baseline)
+    metrics = kernel_metrics(rows, tag_kernels, baseline, cost_label)
     return per_kernel.figure_panels(
         metrics,
         sorted(tag_kernels),
@@ -554,6 +561,7 @@ def kernel_comparison(
     mark_pending: bool = False,
     baseline_fallback: str = "",
     panel_height_in: float = PANEL_HEIGHT_IN,
+    cost_label: str = "Billed Tokens",
 ) -> pathlib.Path:
     """Build the per-kernel rows (:func:`kernel_rows`), write their tables (Rule 4's costs, rules 5/7's
     intervals -- :func:`write_tables`, :func:`token_summary_table`) and render the two-panel
@@ -579,7 +587,7 @@ def kernel_comparison(
     tokens = token_summary_table(rows)
     if not tokens.empty:
         tokens.to_csv(out.with_name(f"{out.name}-tokens-summary.csv"), index=False)
-    fig = kernel_figure(rows, tag_kernels, title, baseline, offset, panel_height_in)
+    fig = kernel_figure(rows, tag_kernels, title, baseline, offset, panel_height_in, cost_label)
     return style.save(fig, out, formats=("pdf", "png"), fixed=True, dpi=dpi)
 
 

@@ -950,6 +950,7 @@ def figure_per_kernel(args: argparse.Namespace, card: cost.CostModel) -> None:
         offset=args.offset,
         mark_pending=args.mark_pending,
         baseline_fallback=args.baseline_fallback,
+        cost_label=efficacy_figures.cost_axis_label(card),
     )
     print(f"figure -> {stem}.pdf (+ .png)")
     print(f"tables -> {stem}-kernels.csv, {stem}-summary.csv")
