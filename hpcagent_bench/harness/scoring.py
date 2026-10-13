@@ -1565,20 +1565,26 @@ def candidate_casts(
     built in the submission's OpenMP context (with the layout kernels of this request) and copied beside
     ``lib``."""
     requests = submission.requests
-    precision = requests.precision
-    layouts = requests.layouts(kernel_arrays(binding, kernel_ndims(spec.mpi, binding)))
-    if not precision and not layouts:
-        return None
+    arrays = kernel_arrays(binding, kernel_ndims(spec.mpi, binding))
     problem = {arg.name: arg.dtype for arg in binding.pointers}
     problem.update(precision_problem_dtypes(spec, binding, datatype))
+    regroups = requests.regroups(arrays, problem)
+    # A zipped or unzipped array's casts and layouts are its group's, not a conversion of its own.
+    grouped = {name for regroup in regroups for name in (*regroup.parts, regroup.group.name)}
+    precision = {name: p for name, p in requests.precision.items() if name not in grouped}
+    layouts = {name: layout for name, layout in requests.layouts(arrays).items() if name not in grouped}
+    if not precision and not layouts and not regroups:
+        return None
     stored = {name: np.dtype(numpy_dtype(p)).name for name, p in precision.items()}
     stored.update({name: problem[name] for name in layouts if name not in stored})
     conversions = tuple(
         precision_casts.layout_conversion(name, layout, problem[name], stored[name])
         for name, layout in sorted(layouts.items())
     )
-    host = "" if device else str(precision_casts.host_library(submission_omp_context(submission), lib, conversions))
-    return CastPlan(tuple(sorted(stored.items())), host, tuple(sorted(layouts.items())))
+    groups = tuple(regroup.group for regroup in regroups)
+    context = submission_omp_context(submission)
+    host = "" if device else str(precision_casts.host_library(context, lib, conversions, groups))
+    return CastPlan(tuple(sorted(stored.items())), host, tuple(sorted(layouts.items())), regroups)
 
 
 def requested_layout(spec: BenchSpec, submission: Submission) -> ResolvedLayout | None:

@@ -35,11 +35,11 @@ from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.harness import precision_casts, timing
-from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, storage_view_dtype
+from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, Regroup, storage_view_dtype
 from relayout.convert import Conversion
 from relayout.layout import IndexMap
 from hpcagent_bench.harness.task import setup_declared_host_only
-from hpcagent_bench.support.bindings.contract import WORKSPACE_DTYPE, Binding, index_base
+from hpcagent_bench.support.bindings.contract import WORKSPACE_DTYPE, Arg, Binding, index_base
 from hpcagent_bench.units import BYTES_PER_GIB, BYTES_PER_KIB, NS_PER_MS
 
 __all__ = [
@@ -554,7 +554,10 @@ def slot_threads(cpus: set[int], requested: int | None = None) -> int:
 def _ptr_cdecl(dtype: "str | np.dtype[np.generic]") -> str:
     """The cffi pointer type for a numpy dtype, e.g. ``"double *"``. cffi's parser has no ``_Float16``, and
     a pointer's pointee type does not change the ABI, so a half pointer is declared over its bits."""
-    name = np.dtype(dtype).name
+    resolved = np.dtype(dtype)
+    if resolved.fields is not None:
+        return "void *"  # a struct (a zip of different element types): the pointee type does not change the ABI
+    name = resolved.name
     return "uint16_t *" if name == "float16" else f"{c_type(name)} *"
 
 
@@ -930,6 +933,90 @@ class Staged:
 type Converter = Callable[[Staged, bool], None]
 
 
+@dataclass(frozen=True, slots=True)
+class StagedGroup:
+    """One zip or unzip of a call: its ``regroup``, the whole's buffer and the parts' (the problem's or the
+    kernel's, as the regroup says), the parts' logical shape, and whether the problem side is an output."""
+
+    regroup: Regroup
+    whole: "ArrayBuffer"
+    parts: tuple["ArrayBuffer", ...]
+    shape: tuple[int, ...]
+    output: bool
+
+
+#: Fills a :class:`StagedGroup`'s whole from its parts (``True``) or its parts from its whole.
+type GroupConverter = Callable[[StagedGroup, bool], None]
+
+
+def no_group_converter(staged: StagedGroup, to_whole: bool) -> None:
+    raise AssertionError(f"no converter for the group {staged.regroup.group.name!r}")
+
+
+def kernel_binding(binding: Binding, regroups: Sequence[Regroup]) -> Binding:
+    """The binding the kernel is called through: each zip's parts replaced by its whole at the first part's
+    position, each unzip's whole by its parts, an output when any array it replaces is."""
+    owner = {name: regroup for regroup in regroups for name in regroup.problem}
+    args: list[Arg] = []
+    for arg in binding.args:
+        regroup = owner.get(arg.name)
+        if regroup is None:
+            args.append(arg)
+            continue
+        if arg.name != regroup.problem[0]:
+            continue
+        replaced = [a for a in binding.args if a.name in regroup.problem]
+        role = "output" if any(a.role == "output" for a in replaced) else arg.role
+        const = all(a.is_const for a in replaced)
+        dtypes = [regroup.whole_dtype.name] if regroup.zipped else list(regroup.part_dtypes)
+        args += [Arg(name, "ptr", dtype, const, None, role) for name, dtype in zip(regroup.kernel, dtypes, strict=True)]
+    return dataclasses.replace(binding, args=tuple(args))
+
+
+def group_buffer(xp: types.ModuleType, cells: int, dtype: np.dtype) -> "ArrayBuffer":
+    """A zeroed kernel-side buffer of ``cells`` elements: a struct's as raw bytes (cupy has no record type)."""
+    if dtype.fields is not None:
+        return xp.zeros(cells * dtype.itemsize, np.uint8)
+    return xp.zeros(cells, buffer_dtype(xp, dtype.name))
+
+
+def stage_group(
+    xp: types.ModuleType,
+    regroup: Regroup,
+    problem: Mapping[str, "ArrayBuffer"],
+    problem_shape: tuple[int, ...],
+    outputs: set[str],
+) -> tuple[StagedGroup, dict[str, "ArrayBuffer"]]:
+    """The group's staging for one call from its problem buffers (the first of shape ``problem_shape``): the
+    kernel-side buffers (zeroed, so a laid-out buffer's dead cells read zero), returned by name."""
+    group = regroup.group
+    shape = regroup.part_shape(problem_shape)
+    if not regroup.zipped and group.dim is not None and problem_shape[group.dim] != len(group.parts):
+        raise ValueError(
+            f"unzip of {group.name!r}: dimension {group.dim} has {problem_shape[group.dim]} entries, not {len(group.parts)}"
+        )
+    extents = dict(zip(precision_casts.extent_names(len(shape)), shape, strict=True))
+    if regroup.zipped:
+        whole = group_buffer(xp, group.layout.size(extents), regroup.whole_dtype)
+        staged = StagedGroup(
+            regroup, whole, tuple(problem[name] for name in regroup.parts), shape, bool(outputs & set(regroup.parts))
+        )
+        return staged, {group.name: whole}
+    parts = tuple(group_buffer(xp, member.layout.size(extents), np.dtype(member.logical)) for member in group.parts)
+    staged = StagedGroup(regroup, problem[group.name], parts, shape, group.name in outputs)
+    return staged, dict(zip(regroup.parts, parts, strict=True))
+
+
+def timed_groups(groups: Sequence[StagedGroup], regroup: GroupConverter, to_kernel: bool) -> int:
+    """Move every group to the kernel's side (``to_kernel``) or back to the problem's, in one bracket."""
+    if not groups:
+        return 0
+    start = time.perf_counter_ns()
+    for staged in groups:
+        regroup(staged, staged.regroup.zipped == to_kernel)
+    return time.perf_counter_ns() - start
+
+
 def no_converter(staged: Staged, inward: bool) -> None:
     """The :data:`Converter` of a call that requests no conversion: it never stages one."""
     raise AssertionError(f"no converter for {staged.name!r}")
@@ -1087,6 +1174,7 @@ def _call_native_impl(
     rep_data: Callable[[int], KernelData] | None = None,
     casts: CastPlan | None = None,
     convert: Converter = no_converter,
+    regroup: GroupConverter = no_group_converter,
 ) -> tuple[list[SpilledMap], list[int], list[FollowupResult], list[RepTiming]]:
     """Shared FFI body of the host and device native calls: marshal ``data`` to the canonical symbol of
     ``lib_path`` and time ``reps`` calls (plus ``warmup`` discarded ones).
@@ -1111,9 +1199,18 @@ def _call_native_impl(
     sym = binding.symbols[lang]
     targets = dict(casts.targets) if casts is not None else {}
     layouts = dict(casts.layouts) if casts is not None else {}
-    # The C signature follows the requested element types, so it is declared off a retyped template.
-    template = {**data, **{name: np.empty(0, np.dtype(dtype)) for name, dtype in targets.items()}}
-    marshal = CallMarshal.of(binding, template, lang)
+    regroups = casts.regroups if casts is not None else ()
+    call_binding = kernel_binding(binding, regroups)
+    # The C signature follows the requested element types and groups, so it is declared off a retyped template.
+    kernel_side = {
+        name: np.empty(0, regroup.whole_dtype if regroup.zipped else np.dtype(dtype))
+        for regroup in regroups
+        for name, dtype in zip(
+            regroup.kernel, [regroup.whole_dtype.name] if regroup.zipped else regroup.part_dtypes, strict=True
+        )
+    }
+    template = {**data, **{name: np.empty(0, np.dtype(dtype)) for name, dtype in targets.items()}, **kernel_side}
+    marshal = CallMarshal.of(call_binding, template, lang)
     ptr_cdecl, scalar_cast, rebase = marshal.ptr_cdecl, marshal.scalar_cast, marshal.rebase
     signature = f"void {sym}({', '.join(marshal.params)});"
     ffi.cdef(" ".join(part for part in (marshal.typedefs, signature, SETTLE_DECLS) if part))
@@ -1153,10 +1250,24 @@ def _call_native_impl(
         # A requested array's problem-precision staging buffer and the twin the kernel gets: of the
         # requested type, and packed in the requested layout.
         staged: dict[str, Staged] = {}
+        groups: list[StagedGroup] = []
+        kernel_buffers: dict[str, ArrayBuffer] = {}
         c_args: list[CArgument] = []
+        outputs_named = {a.name for a in binding.args if a.role == "output"}
+        owner = {name: g for g in regroups for name in g.kernel}
         with budget():
-            for a in binding.args:
-                if a.kind == "ptr":
+            for a in call_binding.args:
+                if a.name in owner and a.name not in kernel_buffers:
+                    regroup_of = owner[a.name]
+                    for name in regroup_of.problem:
+                        buffers[name] = xp.asarray(np.array(src[name], copy=True, order="C"))
+                    first_shape = tuple(int(n) for n in np.shape(src[regroup_of.problem[0]]))
+                    group_staged, made = stage_group(xp, regroup_of, buffers, first_shape, outputs_named)
+                    groups.append(group_staged)
+                    kernel_buffers.update(made)
+                if a.name in owner:
+                    c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(kernel_buffers[a.name])))
+                elif a.kind == "ptr":
                     host = np.array(src[a.name], copy=True, order="C")
                     # Rebase on the host copy, so the device path gets it in the existing transfer.
                     if rebase[a.name]:
@@ -1183,11 +1294,13 @@ def _call_native_impl(
 
         # Every requested array is cast in: the ABI declares outputs intent(inout), so one may be read.
         convert_in_ns = timed_conversions(list(staged.values()), convert, inward=True)
+        convert_in_ns += timed_groups(groups, regroup, to_kernel=True)
         # The cap is re-armed for the kernel's own call. The only timed region: fn(*c_args) and the
         # settle waits.
         rep = timed_call(fn, c_args, settle)
         cast_back = [a.name for a in binding.args if a.role == "output" and a.name in staged]
         convert_out_ns = timed_conversions([staged[name] for name in cast_back], convert, inward=False)
+        convert_out_ns += timed_groups([g for g in groups if g.output], regroup, to_kernel=False)
         for name in cast_back:
             buffers[name] = staged[name].logical  # the problem buffer is what gets graded
         rep = dataclasses.replace(rep, convert_in_ns=convert_in_ns, convert_out_ns=convert_out_ns)
@@ -1202,7 +1315,8 @@ def _call_native_impl(
                 if a.role != "output":
                     continue
                 got = to_host(buffers[a.name])
-                outputs[a.name] = got - rebase[a.name] if rebase[a.name] else got
+                base = rebase.get(a.name, 0)  # a regrouped array is none of the kernel's own pointers
+                outputs[a.name] = got - base if base else got
         return outputs, rep.ns
 
     timed_outputs, samples, extras = sampled_calls(
@@ -1263,7 +1377,7 @@ def _call_native(
         elapsed = time.perf_counter_ns() - t0
         return RepTiming(ns=elapsed, host_ns=elapsed, residual_ns=quiescence_residual(device_settle))
 
-    host_casts = HostCasts(casts.host_library) if casts is not None and casts.targets else None
+    host_casts = HostCasts(casts.host_library) if casts is not None and casts.host_library else None
     return _call_native_impl(
         lib_path,
         binding,
@@ -1281,6 +1395,7 @@ def _call_native(
         rep_data=rep_data,
         casts=casts,
         convert=no_converter if host_casts is None else functools.partial(host_convert, host_casts),
+        regroup=no_group_converter if host_casts is None else functools.partial(host_regroup, host_casts),
     )
 
 
@@ -1299,6 +1414,13 @@ def staged_ends(staged: Staged, inward: bool) -> tuple["ArrayBuffer", "ArrayBuff
 def staged_conversion(staged: Staged) -> Conversion:
     assert staged.layout is not None
     return precision_casts.layout_conversion(staged.name, staged.layout, staged.logical_dtype, staged.stored_dtype)
+
+
+def host_regroup(casts: HostCasts, staged: StagedGroup, to_whole: bool) -> None:
+    """A host call's :data:`GroupConverter`."""
+    casts.regroup(
+        staged.regroup, host_buffer(staged.whole), [host_buffer(part) for part in staged.parts], to_whole, staged.shape
+    )
 
 
 def host_convert(casts: HostCasts, staged: Staged, inward: bool) -> None:
@@ -1498,6 +1620,10 @@ def _call_native_device(
             residual_ns=quiescence_residual(device_settle),
         )
 
+    def device_regroup(staged: StagedGroup, to_whole: bool) -> None:
+        precision_casts.device_regroup(cp, staged.regroup, staged.whole, list(staged.parts), to_whole, staged.shape)
+        device_settle()
+
     def device_convert(staged: Staged, inward: bool) -> None:
         # One kernel per array, drained before the bracket closes so its time is the conversion's own.
         src, dst, src_dtype, dst_dtype = staged_ends(staged, inward)
@@ -1524,6 +1650,7 @@ def _call_native_device(
         rep_data=rep_data,
         casts=casts,
         convert=device_convert,
+        regroup=device_regroup,
     )
 
 

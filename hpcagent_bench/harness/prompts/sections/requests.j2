@@ -32,6 +32,13 @@ submission.
   {% for a in layout_arrays %}`{{ a.name }}` ({{ a.ndim }}-D){{ ", " if not loop.last else "." }}{% endfor +%}
   The judge converts each laid-out array in before every timed call and each output back after it
   (fused with its `cast`), timed separately and NOT part of your score.
+- `zip` fuses arrays of one shape into one pointer at the first one's position:
+  `{"action": "zip", "arrays": ["A", "B"], "into": "Z", "dim": 0}` stacks them along a new dimension
+  (`Z[k]` is the k-th array; without `dim`, the last); arrays you cast to different types become one struct
+  per element, `typedef struct { <type> A; <type> B; } hb_zip_Z;` (members in request order, C alignment).
+  `unzip` is its inverse: `{"action": "unzip", "array": "Q", "into": ["q0", "q1", "q2"], "dim": 0}` passes
+  one pointer per index of a dimension of constant extent, and a complex array unzips (no `dim`) into its real
+  and imaginary parts. Digit operations after a zip or unzip lay out the new arrays.
 {% endif %}
 
 {% endif %}

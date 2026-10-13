@@ -102,9 +102,9 @@ pointer is the packed row-major buffer of the layout's physical extents (a cut d
 own, a padded one is longer, dead cells read zero), filled from the problem array before every call and
 read back after it for an output (`grades.convert_in_ns` / `convert_out_ns`, outside the score). The
 conversion kernels are relayout's, built once per request into the host cast library (or launched
-through cupy on a device grade) and fused with the array's `cast` if it has one. `zip`, `unzip`,
-`distribute`, `replicate` and `place` need a grid; a python delivery, a sparse array and a distributed
-kernel take no single-node layout.
+through cupy on a device grade) and fused with the array's `cast` if it has one. `zip` and `unzip`
+regroup around the call too (§3.1); `distribute`, `replicate` and `place` need a grid; a python delivery,
+a sparse array and a distributed kernel take no single-node layout.
 
 ```c
 /* {"operations": [{"action": "permute", "array": "A", "order": ["i1", "i0"]},
@@ -128,11 +128,14 @@ typedef struct { float u; double v; } hb_zip_uv;   /* mixed precisions; field or
 void kernel(const hb_zip_uv *restrict uv, ..., void *workspace, int64_t workspace_bytes);
 ```
 
-Padding and alignment follow C (the judge allocates a numpy structured dtype with `align=True`);
-Fortran sees `type, bind(C) :: hb_zip_uv`. The route is relayout's Python-AST rewrite of the numpy
-reference to the requested layout (`relayout.frontends.python`, which regroups and lays out element
-accesses), from which hb emits C, so its numpy-to-C lowering needs struct support before a mixed `zip`
-is graded.
+Padding and alignment follow C (natural alignment, as a numpy structured dtype with `align=True`);
+Fortran sees `type, bind(C) :: hb_zip_uv`. On a single node the judge regroups around the call: before
+every call relayout's group kernels (`relayout.convert.Group`, C with OpenMP or a cupy kernel) fill the
+whole from the problem's arrays (a zip) or the parts from the problem's array (an unzip), each part at
+the type its casts left and laid out as the later digit operations leave it; after the call an output
+goes back the other way, and the problem's arrays are graded. Both directions are timed in
+`convert_in_ns` / `convert_out_ns`, outside the score. Only the kernel's own dense arrays regroup (no
+sparse or index array, and no zip of an unzip's part); `/requests/check` shows the pointer list.
 
 ### 3.2 Sparse arrays
 
@@ -168,7 +171,7 @@ and `copy_grade` fold a v6 row into v7 (`fold_legacy_grade`); `open_db` upgrades
 
 ## 5. Open items
 
-- **Python-AST rewrite and struct lowering** for `zip` / `unzip`, `pad` and `shuffle` (§3.1).
+- **Python delivery** of `zip` / `unzip` (the callable would get the regrouped arrays).
 - **Python delivery** of casts and layouts: the callable would get converted arrays.
 - **Casts on the ML track, on device-resident MPI tiles and on sparse values.**
 - **`/requests/check`, distributed:** each rank's local shapes and which size symbols arrive local
