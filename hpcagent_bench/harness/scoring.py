@@ -1352,7 +1352,7 @@ def guillotine_seconds(baseline_ns: int, timeout: float) -> float:
     factor = config.get_float("timeouts.guillotine_factor", 0)
     if factor <= 0 or baseline_ns <= 0:
         return 0.0
-    floor = config.get_float("timeouts.guillotine_floor_s", 5)
+    floor = config.get_float("timeouts.guillotine_floor_s", 1)
     return min(timeout, max(floor, factor * baseline_ns * 1e-9))
 
 

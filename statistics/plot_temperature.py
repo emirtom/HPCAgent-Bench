@@ -23,13 +23,6 @@ from hpcagent_bench.stats import cost, population, reliability
 from hpcagent_bench.stats.figures import efficacy, per_kernel, temperature
 
 
-def cost_label(card: cost.CostModel) -> str:
-    """The token row's Y title, the card's (fresh input, cached input, output) weights under it; no-break
-    spaces keep each line whole when the axis folds a label that is too tall."""
-    weights = f"({card.fresh_input:g}, {card.cached_input:g}, {card.output:g})"
-    return f"{efficacy.cost_row_label(card.key)}\n{weights}".replace(" ", "\N{NO-BREAK SPACE}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("observations", type=pathlib.Path, help="observations db (python -m hpcagent_bench.dataset)")
@@ -72,7 +65,7 @@ def main() -> None:
     try:
         mode = temperature.Mode(args.style)
         fig = temperature.temperature_figure(
-            runs, kernels, args.title, args.width, args.allow_owed, cost_label(card), mode
+            runs, kernels, args.title, args.width, args.allow_owed, efficacy.cost_axis_label(card), mode
         )
     except reliability.OwedRunsError as refused:
         raise SystemExit(str(refused)) from refused
