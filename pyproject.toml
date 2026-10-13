@@ -149,6 +149,9 @@ amdgpu = [
 nvgpu = ["hpcagent_bench[dev]", "torch", "jax[cuda13]", "cupy-cuda13x", "triton", "cuda-tile"]
 # The Sphinx build of docs/ (`sphinx-build -W -b html docs docs/_build`).
 docs = ["sphinx", "myst-parser", "furo"]
+# Alloy, the code generation backend of the `_alloy` columns and the alloy-par / alloy-canon optimizers. It pins the
+# same dace commit, so it joins any of the framework sets.
+alloy = ["alloy"]
 # Tests and formatters, also part of every framework set so the suite runs inside each image.
 dev = [
     "pytest",
@@ -199,6 +202,8 @@ members = ["agent", "adapters/hpcagent_bench"]
 # records it, and the image builds and jobs read it through helpers/scripts/dace_pin.sh.
 dace = { git = "https://github.com/spcl/dace.git", rev = "a161a3e626e1083d549d9530778350e9738defcc" }
 hpcagent-agent = { workspace = true }
+# Moves with the dace pin above: Alloy's own dace pin must be the same commit.
+alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "f4e7a381fb10155f515529a89e5da63765897366" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },

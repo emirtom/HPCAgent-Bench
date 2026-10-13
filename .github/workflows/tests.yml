@@ -751,6 +751,33 @@ jobs:
         with:
           coverage: dace-numeric
 
+  # Alloy (the optional `alloy` extra): one kernel's region variants built, verified and screened, and both Alloy
+  # optimizers' libraries graded by an in-process judge. gcc and the setup's LLVM clang are its compilers.
+  alloy:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
+    name: alloy (the optional Alloy backend end to end)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup
+        with:
+          sync-args: "--extra alloy"
+          ccache: alloy
+      - name: Alloy variants and optimizers @ S
+        if: ${{ !cancelled() }}
+        timeout-minutes: 38
+        env:
+          HPCAGENT_BENCH_SERVICE_PRESET: S
+        run: |
+          python -m pytest -v -p no:cacheprovider -rfEs --maxfail=10 --timeout=2000 tests/test_alloy_optimizer.py
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          coverage: alloy
+
   # The compiled (numba) numpy reference agrees with the interpreted one for every kernel, dealt
   # round-robin over two containers so each takes half of every kernel family.
   njit-oracle:
@@ -848,7 +875,7 @@ jobs:
     name: coverage (combined total)
     # Every job that uploads coverage data, or the total is built from a subset.
     needs: [ unit, e2e, integration, translators, native, mpi, dace-numeric,
-             dace-frontend, njit-oracle ]
+             dace-frontend, njit-oracle, alloy ]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

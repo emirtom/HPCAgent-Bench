@@ -111,9 +111,9 @@ against the registry, and so is the column, before a node is held.
 
 The two `_alloy` columns compile their DaCe pipeline's SDFG with [Alloy](https://github.com/ThrudPrimrose/alloy): every
 region's candidates are built, verified and timed on the node, and DaCe builds the program linking each region's
-winner. They need `alloy` installed in `HPCAGENT_BENCH_IMAGE_PYTHON` (same dace pin) and its compilers on `PATH`. Run
-one task per node: Alloy times on every physical core. A kernel with no loop nest left after the pipeline (a reduction
-canonicalize keeps as a library node) records `unsupported`.
+winner. They need the `alloy` extra (`uv sync --extra cpu --extra alloy`) in `HPCAGENT_BENCH_IMAGE_PYTHON` and its
+compilers on `PATH`. Run one task per node: Alloy times on every physical core. A kernel with no loop nest left after
+the pipeline (canonicalize folded it to a closed form) is DaCe's default build.
 
 Every row carries the run label `<out-root>`'s name. Only an `--out-root` under `$HPCAGENT_BENCH_RUNS_ROOT` is
 managed (shard DB redirected to `<out-root>/db/<col>/`, earlier rows dropped, build tree deleted); any other
