@@ -973,12 +973,14 @@ def fit_canvas(
     type_: plotstyle.TypeScale,
     panel_height_in: float = PANEL_HEIGHT_IN,
     pitch_in: float | None = None,
+    height_in: float | None = None,
 ) -> None:
     """Size the canvas around panels of ``panel_height_in`` each, every band measured: the left
     margin from the Y labels, the right one from the summary text, the gap and top band from what
     each panel prints above its frame, the bottom band from the kernel names and the key under
     them. ``pitch_in`` makes the canvas as wide as the kernel axis at that pitch plus the measured
-    left margin, instead of fitting the axis into the canvas.
+    left margin, instead of fitting the axis into the canvas. ``height_in`` fixes the canvas height
+    instead: the panels take what the measured bands leave.
     """
     # Measure with every panel already at its final height: a rotated Y label is centred on its
     # frame, so a shorter probe frame would bill it for a band the final panel never draws.
@@ -1008,6 +1010,8 @@ def fit_canvas(
         else 0.0
     )
     bottom = names + CHROME_PAD_IN + (key + CHROME_PAD_IN if legend else 0.0)
+    if height_in is not None:
+        panel_height_in = (height_in - top - bottom - (len(axes) - 1) * gap) / len(axes)
     height = top + len(axes) * panel_height_in + (len(axes) - 1) * gap + bottom
     fig.set_size_inches(width, height)
     fig.subplots_adjust(top=1.0 - top / height, bottom=bottom / height, hspace=gap / panel_height_in)
