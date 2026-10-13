@@ -203,7 +203,7 @@ members = ["agent", "adapters/hpcagent_bench"]
 dace = { git = "https://github.com/spcl/dace.git", rev = "a161a3e626e1083d549d9530778350e9738defcc" }
 hpcagent-agent = { workspace = true }
 # Moves with the dace pin above: Alloy's own dace pin must be the same commit.
-alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "f4e7a381fb10155f515529a89e5da63765897366" }
+alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "439663658a932c3f2ff017a66b0a3d0fbac1d1d8" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },
