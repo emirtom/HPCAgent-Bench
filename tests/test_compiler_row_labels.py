@@ -28,9 +28,9 @@ def canon_fixture() -> pd.DataFrame:
     return canon_table(
         [
             ("numba", "k1", 100.0), ("numba", "k2", 200.0), ("numba", "k3", 100.0),
-            ("dace_cpu_canonicalize", "k1", 10.0), ("dace_cpu_canonicalize", "k2", 20.0),
-            ("dace_cpu_canonicalize", "k3", 50.0),
-            ("dace_gpu_canonicalize", "k1", 1.0), ("dace_gpu_canonicalize", "k2", 2.0),
+            ("dace_cpu_canon", "k1", 10.0), ("dace_cpu_canon", "k2", 20.0),
+            ("dace_cpu_canon", "k3", 50.0),
+            ("dace_gpu_canon", "k1", 1.0), ("dace_gpu_canon", "k2", 2.0),
             ("pluto", "k1", 50.0),
         ]
     )  # fmt: skip
@@ -39,14 +39,14 @@ def canon_fixture() -> pd.DataFrame:
 def test_two_device_variants_of_one_optimizer_get_distinct_row_labels(canon: pd.DataFrame) -> None:
     """The compiler per-kernel figure labels a canon row by its optimizer, and the registry aliases
     both DaCe device variants to one. Drawn together they printed one name twice in the legend."""
-    rows = signed.kernel_rows(canon, None, TAG_KERNELS, ("dace_cpu_canonicalize", "dace_gpu_canonicalize"))
+    rows = signed.kernel_rows(canon, None, TAG_KERNELS, ("dace_cpu_canon", "dace_gpu_canon"))
     labels = [row.label for row in rows]
     assert len(set(labels)) == 2, labels
 
 
 def test_one_device_variant_keeps_its_optimizer_name(canon: pd.DataFrame) -> None:
     """The fallback fires only on a collision; a figure drawing one variant is unchanged."""
-    (row,) = signed.kernel_rows(canon, None, TAG_KERNELS, ("dace_cpu_canonicalize",))
+    (row,) = signed.kernel_rows(canon, None, TAG_KERNELS, ("dace_cpu_canon",))
     assert row.label == "Canonical Parallel Form"
 
 

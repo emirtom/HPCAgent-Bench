@@ -263,7 +263,7 @@ def distinct_canon_labels(rows: Sequence[Row]) -> list[Row]:
     """``rows`` with every label two of them share replaced by the framework's own name.
 
     A canon column is labelled by its optimizer, and the registry aliases both device variants of
-    one optimizer to one name (``dace_cpu_canonicalize`` and ``dace_gpu_canonicalize`` are both
+    one optimizer to one name (``dace_cpu_canon`` and ``dace_gpu_canon`` are both
     "Canonical Parallel Form"). Only a shared label falls back to the ``frameworks`` name, which
     carries the device.
     """

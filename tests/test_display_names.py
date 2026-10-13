@@ -238,7 +238,7 @@ def test_llms_and_standalone_optimizers_never_share_a_shape() -> None:
     tags = [*study_tags.order("models"), *study_tags.order("optimizers")]
     shapes = [palette.marker(tag) for tag in tags]
     assert len(set(shapes)) == len(shapes), dict(zip(tags, shapes, strict=True))
-    assert palette.marker("dace_gpu_canonicalize") == palette.marker("cpf")
+    assert palette.marker("dace_gpu_canon") == palette.marker("cpf")
 
 
 if __name__ == "__main__":

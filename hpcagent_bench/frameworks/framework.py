@@ -20,7 +20,7 @@ import numpy as np
 from hpcagent_bench import config, precision
 from hpcagent_bench.columns import ALL_PRECISIONS, FRAMEWORKS, IEEE_PRECISIONS
 from hpcagent_bench.frameworks import Benchmark
-from hpcagent_bench.vocabulary import FrameworkMeta
+from hpcagent_bench.vocabulary import FRAMEWORK_ARCHS, FrameworkMeta, is_optimizer_adapter
 
 __all__ = [
     "ALL_PRECISIONS",
@@ -406,11 +406,20 @@ def split_flavor(fname: str) -> tuple[str, str | None]:
 
 
 def check_flavor_registry() -> None:
-    """Validate every ``column`` / ``flavor`` declaration at import: a ``flavor`` without ``column``, a
-    ``column`` that is not a framework, or a pair that does not compose back into the name."""
+    """Validate the naming scheme (``hpcagent_bench.columns``) at import: a flavor declares both ``column`` and
+    ``flavor``, names a registered column, composes back into its name and runs on its column's ``arch``; a column
+    named ``<backend>_<arch>`` declares that ``arch``, and a backend with such a column has no bare ``<backend>`` one;
+    an autotuning (Agent) adapter is a flavor no deterministic sweep selects."""
     for name, meta in FRAMEWORKS.entries.items():
         flavor, column = meta.get("flavor"), meta.get("column")
+        if is_optimizer_adapter(meta["adapter"]) and (flavor is None or meta["sweep_deterministic"]):
+            raise KeyError(f"framework {name!r} runs as an optimizer, so it is a flavor no deterministic sweep selects")
         if flavor is None and column is None:
+            device = name.rpartition("_")[2]
+            if device in FRAMEWORK_ARCHS and device != meta["arch"]:
+                raise KeyError(f"framework {name!r} is named for {device} but runs on {meta['arch']}")
+            if any(f"{name}_{arch}" in FRAMEWORKS.entries for arch in FRAMEWORK_ARCHS):
+                raise KeyError(f"framework {name!r} runs on one device of a two-device backend: name it {name}_<arch>")
             continue
         if flavor is None or column is None:
             raise KeyError(f"framework {name!r} declares only one of column/flavor; a flavor entry needs both")
@@ -421,6 +430,8 @@ def check_flavor_registry() -> None:
                 f"framework {name!r} must be named {column}_{flavor} so the CLI name and the stored "
                 "(framework, flavor) pair cannot drift apart"
             )
+        if meta["arch"] != FRAMEWORKS.entries[column]["arch"]:
+            raise KeyError(f"framework {name!r} runs on {meta['arch']}, but its column {column!r} is the other device")
 
 
 def framework_bases() -> tuple[str, ...]:
@@ -450,17 +461,25 @@ def adapter_class(adapter: str) -> "type[Framework]":
 
 def base_framework_class(base: str) -> "type[Framework]":
     """The adapter class every column of ``base`` shares (``tvm`` -> ``TVMFramework``)."""
-    adapters = {meta["adapter"] for meta in FRAMEWORKS.entries.values() if meta["base"] == base}
+    adapters = {
+        meta["adapter"]
+        for meta in FRAMEWORKS.entries.values()
+        if meta["base"] == base and not is_optimizer_adapter(meta["adapter"])
+    }
     if len(adapters) != 1:
-        raise KeyError(f"framework base {base!r} has adapters {sorted(adapters)}; it needs exactly one")
+        raise KeyError(f"framework base {base!r} has Framework adapters {sorted(adapters)}; it needs exactly one")
     return adapter_class(adapters.pop())
 
 
 def framework_class(fname: str) -> "type[Framework]":
-    """The :class:`Framework` subclass a registered column runs through (its ``adapter``)."""
+    """The :class:`Framework` subclass a registered column runs through (its ``adapter``); an autotuning
+    flavor runs as an optimizer instead, which is an error naming the command that runs it."""
     if fname not in FRAMEWORKS.entries:
         raise KeyError(f"unknown framework {fname!r}; known: {sorted(FRAMEWORKS.entries)}")
-    return adapter_class(FRAMEWORKS.entries[fname]["adapter"])
+    adapter = FRAMEWORKS.entries[fname]["adapter"]
+    if is_optimizer_adapter(adapter):
+        raise ValueError(f"{fname} autotunes against the judge: run it as `hpcagent-bench agent {fname}`")
+    return adapter_class(adapter)
 
 
 def load_impl(bench: Benchmark, postfix: str) -> KernelImpl:

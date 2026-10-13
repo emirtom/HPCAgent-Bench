@@ -36,6 +36,7 @@ __all__ = [
     "MODELS",
     "NAME",
     "OPTIMIZERS",
+    "OPTIMIZER_ADAPTER_MODULE",
     "PACKETS",
     "PACKET_DEVICES",
     "FrameworkMeta",
@@ -46,6 +47,7 @@ __all__ = [
     "framework",
     "framework_meta",
     "harness",
+    "is_optimizer_adapter",
     "language",
     "llm",
     "named",
@@ -117,6 +119,9 @@ class FrameworkMeta(TypedDict):
 NAME = Field(str, doc="the display name a figure prints")
 ADAPTER_PATTERN = re.compile(r"^[a-z_][a-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 FRAMEWORK_ARCHS = frozenset({"cpu", "gpu"})
+#: The module whose :class:`~hpcagent_bench.harness.agent.Agent` classes an autotuning flavor's ``adapter`` names;
+#: every other adapter is a :class:`~hpcagent_bench.frameworks.framework.Framework` subclass.
+OPTIMIZER_ADAPTER_MODULE = "hpcagent_bench.harness.optimizers"
 #: The optional descriptor fields; one a class leaves out is absent from its entry, not ``None``.
 FRAMEWORK_OPTIONAL = (
     "pipelines",
@@ -181,11 +186,13 @@ FRAMEWORKS = Kind(
     "frameworks",
     {
         "display": Field(str, doc="the name a figure prints: the compiler or library, not the flavor"),
-        "adapter": Field(str, doc="'package.module:Class' of the Framework subclass, imported on first use"),
+        "adapter": Field(
+            str, doc="'package.module:Class' of the Framework (or autotuning Agent), imported on first use"
+        ),
         "base": Field(str, doc="the backend this column is a flavor of; columns sharing a base share an adapter"),
         "full_name": Field(str, doc="the long name a table prints"),
         "postfix": Field(str, doc="selects the kernel impl file, <module>_<postfix>.py"),
-        "arch": Field(str, doc="cpu or gpu"),
+        "arch": Field(str, doc="cpu or gpu: the device it runs on, so the device anti-cheats a grade meets"),
         "sweep_deterministic": Field(bool, doc="a deterministic (unjudged, no-agent) sweep may select it"),
         "precisions": Field(frozenset, doc="the Precision set it can execute; else the sweep records skip"),
         "pipelines": Field(tuple, None, "the SDFG pipelines a DaCe flavor compiles and scores"),
@@ -291,12 +298,18 @@ def framework(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Ca
     (see ``docs/extending/registry.md``): ``display``, ``adapter``, ``base``, ``full_name``, ``postfix``,
     ``arch``, ``sweep_deterministic`` and ``precisions``; the rest describe a native, pluto or DaCe flavor.
 
-    ``adapter`` names the :class:`~hpcagent_bench.frameworks.framework.Framework` subclass as
-    ``package.module:Class`` and is imported on first use, so registering a column never imports its
-    backend. ``order`` is the hue slot, append-only like every kind; ``aliases`` are other spellings of
-    the name. A flavor (``column`` + ``flavor``) must be named ``<column>_<flavor>``, and its column must
-    be a registered framework: both are checked in :func:`check_vocabulary`."""
+    ``adapter`` names the :class:`~hpcagent_bench.frameworks.framework.Framework` subclass (an autotuning
+    flavor: an Agent in :data:`OPTIMIZER_ADAPTER_MODULE`) as ``package.module:Class`` and is imported on first
+    use, so registering a column never imports its backend. ``order`` is the hue slot, append-only like every
+    kind; ``aliases`` are other spellings of the name (a rename keeps the old one). The naming scheme
+    (``<column>[_<flavor>]``, a two-device backend's column ``<base>_<arch>``, a flavor on its column's ``arch``)
+    is checked at import by :func:`hpcagent_bench.frameworks.framework.check_flavor_registry`."""
     return FRAMEWORKS.register(key, order=order, aliases=aliases)
+
+
+def is_optimizer_adapter(adapter: str) -> bool:
+    """Whether ``adapter`` names an autotuning :class:`~hpcagent_bench.harness.agent.Agent`, not a Framework."""
+    return adapter.partition(":")[0] == OPTIMIZER_ADAPTER_MODULE
 
 
 #: The devices a packet's ``device`` may name: whose tools its pages teach.
@@ -312,9 +325,15 @@ def check_vocabulary() -> None:
         if slotless:
             raise RegistryError(f"{kind.name}: {slotless} have no order, so no colour or marker slot")
     for base in {meta["base"] for meta in FRAMEWORKS.entries.values()}:
-        adapters = {meta["adapter"] for meta in FRAMEWORKS.entries.values() if meta["base"] == base}
+        adapters = {
+            meta["adapter"]
+            for meta in FRAMEWORKS.entries.values()
+            if meta["base"] == base and not is_optimizer_adapter(meta["adapter"])
+        }
         if len(adapters) != 1:
-            raise RegistryError(f"frameworks: base {base!r} names adapters {sorted(adapters)}; it needs exactly one")
+            raise RegistryError(
+                f"frameworks: base {base!r} names Framework adapters {sorted(adapters)}; it needs exactly one"
+            )
     if PACKETS.orders.get("", 0) is not None or "" not in PACKETS.entries:
         raise RegistryError("packets: the no-packet control (key '') must be registered with order=None")
     for key, definition in PACKETS.entries.items():

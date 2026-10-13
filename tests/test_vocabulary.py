@@ -88,13 +88,13 @@ PINNED_FRAMEWORKS = {
     "cpp": 5,
     "pythran": 6,
     "cc_autopar": 7,
-    "dace_cpu_canonicalize": 8,
+    "dace_cpu_canon": 8,
     "dace_cpu_autoopt": 9,
     "llvm": 10,
     "pluto": 11,
     "polly": 12,
     "jax": 13,
-    "tvm": 14,
+    "tvm_gpu": 14,
     "cc_llvm": 15,
     "cc_llvm_autopar": 16,
     "cc_nvhpc": 17,
@@ -103,17 +103,23 @@ PINNED_FRAMEWORKS = {
     "fortran_autopar": 21,
     "dace_gpu": 22,
     "dace_gpu_autoopt": 23,
-    "dace_gpu_canonicalize": 24,
+    "dace_gpu_canon": 24,
     "cupy": 25,
     "triton": 26,
     "ppcg": 27,
     "ppcg_cuda": 28,
     "ppcg_hip": 29,
     "tvm_cpu": 30,
-    "dace_cpu_parallel": 31,
-    "dace_gpu_parallel": 32,
-    "dace_cpu_alloy": 33,
-    "dace_cpu_canonicalize_alloy": 34,
+    "dace_cpu_parallel": 35,
+    "dace_gpu_parallel": 36,
+    "dace_cpu_canon_alloy_profile": 37,
+    "dace_cpu_canon_alloy_heuristic": 38,
+    "dace_cpu_parallel_alloy_profile": 39,
+    "dace_cpu_parallel_alloy_heuristic": 40,
+    "dace_gpu_canon_alloy_profile": 41,
+    "dace_gpu_canon_alloy_heuristic": 42,
+    "dace_gpu_parallel_alloy_profile": 43,
+    "dace_gpu_parallel_alloy_heuristic": 44,
 }
 
 PINNED = {
@@ -200,6 +206,8 @@ def test_the_registered_vocabulary_passes_its_own_cross_checks() -> None:
 
 def test_an_alias_resolves_to_the_entity_it_names_and_takes_no_slot() -> None:
     assert vocabulary.FRAMEWORKS.canonical("jax_cpu") == "jax"
+    assert vocabulary.FRAMEWORKS.canonical("dace_cpu_canonicalize") == "dace_cpu_canon"
+    assert vocabulary.FRAMEWORKS.canonical("tvm") == "tvm_gpu"
     assert vocabulary.OPTIMIZERS.canonical("dace_cpu") == "dace"
     for kind in vocabulary.KINDS.values():
         assert not set(kind.aliases) & set(kind.orders)

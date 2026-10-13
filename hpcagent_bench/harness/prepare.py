@@ -220,7 +220,9 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--preset", default=config.get_str("service.preset", "XL+fuzz"))
     parser.add_argument("--datatype", default=config.get_str("service.datatype", "float64"))
     parser.add_argument("--baseline", default=None, help="the setup's baseline token (default: measurement.baseline)")
-    parser.add_argument("--frameworks", default="", help="comma-separated framework columns (e.g. dace_cpu,jax)")
+    parser.add_argument(
+        "--frameworks", default="", help="comma-separated framework columns (e.g. dace_cpu_parallel,jax)"
+    )
     parser.add_argument(
         "--steps",
         default="",

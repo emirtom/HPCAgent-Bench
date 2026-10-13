@@ -2761,7 +2761,7 @@ def augmented_arrays() -> dict[str, np.ndarray]:
 
 def parsed_augmented_program(tmp: pathlib.Path, body: str) -> "SDFG":
     """The SDFG dace's frontend builds, read off disk as dace requires, at fp64."""
-    generate_framework("dace_cpu").set_datatype("float64")
+    generate_framework("dace_cpu_parallel").set_datatype("float64")
     path = tmp / "aug_dace.py"
     path.write_text(augmented_program(tmp, body))
     spec = importlib.util.spec_from_file_location(f"aug_dace_{tmp.name}", path)

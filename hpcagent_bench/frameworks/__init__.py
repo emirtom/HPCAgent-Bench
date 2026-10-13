@@ -44,7 +44,6 @@ _LAZY_EXPORTS: dict[str, str] = {
     "tolerances_for": "test",
     "kernel_tolerances": "test",
     "DACE_PIPELINES": "dace_framework",
-    "DEFAULT_PIPELINES": "dace_framework",
     "PIPELINES_BY_NAME": "dace_framework",
     "SdfgPipeline": "dace_framework",
     "TimedCompiledSDFG": "dace_framework",

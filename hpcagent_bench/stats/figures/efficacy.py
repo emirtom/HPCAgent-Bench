@@ -2241,9 +2241,9 @@ SHORT_NAMES: dict[str, str] = {
     "oss120b": "OSS",
     "kimi27sglang": "Kimi",
     "glm53": "GLM",
-    "dace_cpu_canonicalize": "DaCe",
-    "dace_gpu_canonicalize": "DaCe",
-    "dace_cpu": "DaCe",
+    "dace_cpu_canon": "DaCe",
+    "dace_gpu_canon": "DaCe",
+    "dace_cpu_parallel": "DaCe",
     "pluto": "Pluto",
     "ppcg_hip": "PPCG",
 }

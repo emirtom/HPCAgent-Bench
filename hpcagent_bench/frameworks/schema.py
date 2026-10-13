@@ -12,6 +12,8 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from sqlmodel import Field, SQLModel, create_engine
 
+from hpcagent_bench.support import update_names
+
 __all__ = [
     "CONCURRENT_SCHEMA_RACE",
     "RESULTS_TABLE",
@@ -45,9 +47,9 @@ class Result(SQLModel, table=True):
     kernel: str  # kernel short_name
     domain: str | None = None  # taxonomy label; used as a heatmap grouping key
     preset: str  # S | M | L | XL
-    framework: str  # numpy | dace_cpu | jax | ... -- the backend, WITHOUT its flavor suffix
-    # Optimizer inside the framework (dace_cpu's parallel / autoopt / canonicalize); NULL == the
-    # framework's default path. framework.split_flavor maps the flat CLI name to this pair.
+    framework: str  # numpy | dace_cpu | jax | ... -- the column, WITHOUT its flavor suffix
+    # Optimizer inside the column (dace_cpu's parallel / autoopt / canon); NULL == a column with no
+    # flavors. framework.split_flavor maps the flat CLI name to this pair.
     flavor: str | None = None
     agent: str | None = None  # who produced the optimization (None == direct framework run)
     validated: bool  # output matched the NumPy oracle
@@ -70,9 +72,11 @@ class Result(SQLModel, table=True):
 
 def results_engine(db_path: str) -> Engine:
     """A SQLModel engine for the results DB at ``db_path``, with the table created from :class:`Result`
-    when absent. A lost CREATE TABLE race (:data:`CONCURRENT_SCHEMA_RACE`) is ignored: the winner built
+    when absent; a shard written under older framework names is refused
+    (:func:`hpcagent_bench.support.update_names.guard`). A lost CREATE TABLE race (:data:`CONCURRENT_SCHEMA_RACE`) is ignored: the winner built
     the same table. No pool: a connection closes when its Session does, so a caller never owns a
     connection the garbage collector would find still open."""
+    update_names.guard(db_path, RESULTS_TABLE)
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False}, poolclass=NullPool)
     try:
         SQLModel.metadata.create_all(engine)
