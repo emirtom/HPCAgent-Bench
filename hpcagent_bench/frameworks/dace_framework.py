@@ -67,9 +67,7 @@ __all__ = [
     "DACE_FAMILY_ENV",
     "DACE_PIPELINES",
     "DACE_SUPPLIED_FLAGS",
-    "DEFAULT_PIPELINES",
     "GPU_RESIDENT_STORAGE",
-    "LOOP2MAP_FUSION_ROUNDS",
     "NEW_GPU_OFFLOADING",
     "PARALLEL_FUSION_ROUNDS",
     "PIPELINES_BY_NAME",
@@ -100,7 +98,6 @@ __all__ = [
     "pin_single_stream",
     "pipeline_auto_opt",
     "pipeline_canonicalize",
-    "pipeline_loop2map",
     "pipeline_named",
     "pipeline_parallel",
     "row_major_copy",
@@ -456,38 +453,6 @@ def pipeline_canonicalize(sdfg: dace.SDFG, ctx: PipelineContext) -> None:
     finalize_for_target(sdfg, target=target)
 
 
-#: Rounds of (FuseMaps, StateFusionExtended) after the lift: fusing maps frees state boundaries,
-#: whose fusion exposes new adjacent maps.
-LOOP2MAP_FUSION_ROUNDS = 2
-
-
-def pipeline_loop2map(sdfg: dace.SDFG, ctx: PipelineContext) -> None:
-    """The ``dace_*_parallel`` recipe, a separate, shorter optimizer than :func:`pipeline_parallel`:
-
-    ``ShortLoopUnroll -> simplify -> StateFusionExtended -> LoopToMap ->
-    (FuseMaps, StateFusionExtended) x LOOP2MAP_FUSION_ROUNDS``.
-
-    Modelled on DaCe's ``ParallelizePipeline`` without the re-uniquification and scalar
-    privatization stages, with ``LoopToMap`` applied directly. On GPU the offload runs last, via
-    ``offload_to_gpu``. Every pass ships on upstream DaCe."""
-    from dace.transformation.interstate.loop_to_map import LoopToMap
-    from dace.transformation.interstate.state_fusion_with_happens_before import StateFusionExtended
-    from dace.transformation.passes.fuse_maps import FuseMaps
-    from dace.transformation.passes.parallelization_prep import ShortLoopUnroll
-
-    ShortLoopUnroll().apply_pass(sdfg, {})
-    sdfg.simplify()
-    sdfg.apply_transformations_repeated(StateFusionExtended)
-    sdfg.apply_transformations_repeated(LoopToMap)
-    for _ in range(LOOP2MAP_FUSION_ROUNDS):
-        FuseMaps().apply_pass(sdfg, {})
-        sdfg.apply_transformations_repeated(StateFusionExtended)
-    if ctx.device is dace_dtypes.DeviceType.GPU:
-        from dace.transformation.passes.canonicalize.finalize import offload_to_gpu
-
-        offload_to_gpu(sdfg)
-
-
 #: Storage classes that put the bytes in device memory (pinned host memory is still host).
 GPU_RESIDENT_STORAGE: tuple[dace_dtypes.StorageType, ...] = (
     dace_dtypes.StorageType.GPU_Global,
@@ -529,11 +494,11 @@ def enforce_gpu_residency(sdfg: dace.SDFG) -> None:
         raise ValueError(msg)
 
 
-#: Four optimizers x two targets. All offload last, so a GPU column is its CPU column's map
+#: Three optimizers x two targets. All offload last, so a GPU column is its CPU column's map
 #: structure moved to the device. Each pipeline is scored on every kernel (no search reporting a
-#: winner). ``autoopt`` is upstream's own optimizer; ``loop2map`` is a second upstream-only recipe.
+#: winner). ``autoopt`` is upstream's own optimizer.
 #:
-#: ``parallel``, ``loop2map`` and ``autoopt`` use the classic generators with tree reductions and the
+#: ``parallel`` and ``autoopt`` use the classic generators with tree reductions and the
 #: explicit-copy lift off (byte-identical to upstream); ``canon`` uses the experimental generators.
 #: Both tuples set the same keys, because ``apply_pipeline_config`` writes process-global config and
 #: an omitted key would be inherited. ``optimizer.new_gpu_offloading_pass`` is true for all.
@@ -572,14 +537,9 @@ DACE_PIPELINES: tuple[SdfgPipeline, ...] = (
     SdfgPipeline("canon_gpu", pipeline_canonicalize, config=READABLE_CODEGEN),
     SdfgPipeline("autoopt_cpu", pipeline_auto_opt, config=CLASSIC_CODEGEN),
     SdfgPipeline("autoopt_gpu", pipeline_auto_opt, config=CLASSIC_CODEGEN),
-    SdfgPipeline("loop2map_cpu", pipeline_loop2map, config=CLASSIC_CODEGEN),
-    SdfgPipeline("loop2map_gpu", pipeline_loop2map, config=CLASSIC_CODEGEN),
 )
 
 PIPELINES_BY_NAME: dict[str, SdfgPipeline] = {p.name: p for p in DACE_PIPELINES}
-
-#: The fallback for a flavor that names no ``pipelines``: CPU parallel.
-DEFAULT_PIPELINES: tuple[str, ...] = ("parallel_cpu",)
 
 
 def pipeline_named(name: str) -> SdfgPipeline:
@@ -688,7 +648,7 @@ class DaceFramework(Framework):
     def scored_pipelines(self) -> tuple[str, ...]:
         """The one pipeline this FLAVOR compiles, verifies and times (a flavor is one optimizer, never a
         search over several)."""
-        scored = tuple(self.info.get("pipelines", DEFAULT_PIPELINES))
+        scored = tuple(self.info.get("pipelines", ()))
         if len(scored) != 1:
             raise ValueError(f"{self.fname} names pipelines {scored}; a dace flavor scores exactly one")
         return scored

@@ -96,9 +96,8 @@ The CPF view of a tag, for the cpf-tool and cpf-src setups on CPU (C drop-ins gr
     hpcagent-bench job baseline --column COL --out-root DIR (--tag TAG | --kernels a,b | --kernels-file FILE)
         [--preset fuzzed] [--phase begin|run|finish|all] [--opt CHECKOUT]
 
-The canon compiler baselines: a deterministic column (`numba`, `cc`, `cc_autopar`, `dace_cpu[_canonicalize]`,
-`dace_gpu[_canonicalize]`, `dace_cpu[_canonicalize]_alloy`, `pluto`, `ppcg_hip`, ...) over a tag, no agents and no
-judge. The tag is
+The canon compiler baselines: a deterministic column (`numba`, `cc`, `cc_autopar`, `dace_cpu_{parallel,canon,autoopt}`,
+`dace_gpu_{parallel,canon,autoopt}`, `pluto`, `ppcg_hip`, ...) over a tag, no agents and no judge. The tag is
 `--kernels-file` (one name per line, `#` comments), else `--kernels`, else the tag's; every name is checked
 against the registry, and so is the column, before a node is held.
 
@@ -109,11 +108,12 @@ against the registry, and so is the column, before a node is held.
 | `finish` | one | deletes the column's DaCe build tree and shard DB |
 | `all` | one (default) | the three in order; refused with more than one task, where there is no barrier between them |
 
-The two `_alloy` columns compile their DaCe pipeline's SDFG with [Alloy](https://github.com/ThrudPrimrose/alloy): every
-region's candidates are built, verified and timed on the node, and DaCe builds the program linking each region's
-winner. They need the `alloy` extra (`uv sync --extra cpu --extra alloy`) in `HPCAGENT_BENCH_IMAGE_PYTHON` and its
-compilers on `PATH`. Run one task per node: Alloy times on every physical core. A kernel with no loop nest left after
-the pipeline (canonicalize folded it to a closed form) is DaCe's default build.
+The Alloy flavors (`dace_<arch>_<canon|parallel>_alloy_<profile|heuristic>`) autotune, so they are no baseline
+column: they run as `hpcagent-bench agent <flavor> --native`, Alloy building, verifying and timing every region
+candidate of the flavor's DaCe pipeline on the node and ranking the best few on the judge's `/score`. They need the
+`alloy` extra (`uv sync --extra cpu --extra alloy`) and its compilers on `PATH`; run one task per node, since Alloy
+times on every physical core. The GPU and heuristic flavors are registered and refuse with `NotImplementedError`
+until Alloy builds them.
 
 Every row carries the run label `<out-root>`'s name. Only an `--out-root` under `$HPCAGENT_BENCH_RUNS_ROOT` is
 managed (shard DB redirected to `<out-root>/db/<col>/`, earlier rows dropped, build tree deleted); any other

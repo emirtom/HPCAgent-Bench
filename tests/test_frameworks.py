@@ -114,7 +114,7 @@ def test_tvm_gpu_executes(monkeypatch) -> None:
     if not has_cuda_gpu():
         pytest.skip("no CUDA GPU for TVM (gpu) target")
     monkeypatch.setenv("HPCAGENT_BENCH_TVM_NOTUNE", "1")
-    _assert_validated("tvm")
+    _assert_validated("tvm_gpu")
 
 
 # Triton (GPU-only: Triton has no CPU backend in HPCAgent-Bench)

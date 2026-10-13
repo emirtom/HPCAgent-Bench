@@ -9,11 +9,14 @@ harness treats them exactly like an LLM agent.
 * :class:`BlasReductionOptimizer` -- lower a reduction kernel to OpenBLAS.
 * :class:`PlutoOptimizer` / :class:`PpcgHipOptimizer` -- the polyhedral compilers (Pluto on CPU C,
   PPCG on GPU HIP).
+* :class:`AlloyProfileOptimizer` / :class:`AlloyHeuristicOptimizer` -- the adapters of the autotuning DaCe flavors
+  (``dace_<arch>_<pipeline>_alloy_<mode>``), one instance per flavor.
 
 Submissions are source (``restricted`` mode, compiled by the judge) or a ``.so`` built here
 (``any`` mode). Signatures come from the kernel's :class:`Binding` via :func:`gen_call_stub`.
 :func:`optimizer_registry` names them for ``hpcagent-bench agent``."""
 
+import functools
 import json
 import pathlib
 import re
@@ -21,11 +24,12 @@ import shutil
 import subprocess
 import tempfile
 import weakref
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import ClassVar
 
 from hpcagent_bench import config, languages, paths, pluto_transform, ppcg_transform
 from hpcagent_bench.emit_bridge import emit_kernel
+from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.harness.agent import Agent, reference_mpi_source, reference_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import distribution_for_kernel
@@ -34,14 +38,19 @@ from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import Binding, binding_from_spec
 from hpcagent_bench.support.bindings.stubs import c_constants, gen_call_stub
+from hpcagent_bench.vocabulary import is_optimizer_adapter
 
 __all__ = [
+    "AlloyHeuristicOptimizer",
+    "AlloyOptimizer",
+    "AlloyProfileOptimizer",
     "BlasReductionOptimizer",
     "LibraryOptimizer",
     "NoOpMPIOptimizer",
     "NoOpOptimizer",
     "PlutoOptimizer",
     "PpcgHipOptimizer",
+    "agent_class",
     "call_argument",
     "emit_scops",
     "have_openblas",
@@ -362,48 +371,77 @@ class PpcgHipOptimizer(Agent):
 
 
 class AlloyOptimizer(LibraryOptimizer):
-    """Alloy (github.com/ThrudPrimrose/alloy) on the SDFG one DaCe pipeline produces. Alloy builds, verifies and
-    screens every region candidate locally, scores the best few per region on the judge, and returns the library
-    linking every region's best scored archive. CPU C/C++ libraries only; Alloy is an optional install."""
+    """An autotuning DaCe flavor (``hpcagent_bench.columns``): Alloy (github.com/ThrudPrimrose/alloy) on the SDFG of
+    the flavor's one pipeline, on the flavor's device. Constructed with the flavor's name, which is the label its rows
+    carry; :func:`optimizer_registry` binds it. CPU C/C++ libraries only; Alloy is an optional install."""
+
+    __slots__ = ("fname", "name")
+
+    def __init__(self, fname: str, workdir: pathlib.Path | None = None) -> None:
+        super().__init__(workdir)
+        self.fname = fname
+        self.name = fname
+
+    def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
+        meta = FRAMEWORKS.entries[self.fname]
+        device = "cpu" if task.image == "cpu" else "gpu"
+        if device != meta["arch"]:
+            raise NotImplementedError(f"{self.fname} runs on {meta['arch']}; got a {task.image} task")
+        pipelines = meta.get("pipelines", ())
+        if len(pipelines) != 1:
+            raise ValueError(f"{self.fname} names pipelines {pipelines}; an Alloy flavor tunes exactly one")
+        return self.tune(task, pipelines[0])
+
+    def tune(self, task: Task, pipeline: str) -> Submission:
+        """The library this mode picks for ``task`` from ``pipeline``'s output."""
+        raise NotImplementedError
+
+
+class AlloyProfileOptimizer(AlloyOptimizer):
+    """Alloy's profile mode: every region candidate built, verified and timed locally, the best few per region
+    ranked on the judge's ``/score`` while the kernel's budget allows."""
 
     __slots__ = ()
 
-    #: The DaCe pipeline (``dace_framework.PIPELINES_BY_NAME``) whose output Alloy starts from.
-    pipeline: ClassVar[str]
-
-    def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
+    def tune(self, task: Task, pipeline: str) -> Submission:
         from alloy import bench  # pyright: ignore[reportMissingImports] -- Alloy is an optional install
 
         def deliver(code: str, link: Sequence[str]) -> Submission:
             return self._library_submission(task, code, extra_link=link)
 
-        return bench.optimize(task, self.pipeline, deliver)
+        return bench.optimize(task, pipeline, deliver)
 
 
-class AlloyParOptimizer(AlloyOptimizer):
-    """Alloy on DaCe's parallelization pipeline (the ``dace_cpu`` column's)."""
-
-    __slots__ = ()
-
-    name = "alloy-par"
-    pipeline = "parallel_cpu"
-
-
-class AlloyCanonOptimizer(AlloyOptimizer):
-    """Alloy on DaCe's canonicalization pipeline (the ``dace_cpu_canonicalize`` column's)."""
+class AlloyHeuristicOptimizer(AlloyOptimizer):
+    """Alloy's heuristic mode: one candidate per region picked from build signals, verified, then scored."""
 
     __slots__ = ()
 
-    name = "alloy-canon"
-    pipeline = "canon_cpu"
+    def tune(self, task: Task, pipeline: str) -> Submission:
+        raise NotImplementedError("Alloy's heuristic mode is not built yet")
 
 
-def optimizer_registry() -> dict[str, type[Agent]]:
-    """Name -> non-AI optimizer class: every :class:`Agent` subclass defined in this module that
-    declares its own ``name``. The harness runs each through the SAME procedure as an LLM agent
-    (``hpcagent-bench agent --agent <name>``), so a new optimizer is one class here."""
-    return {
+def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
+    """The :class:`Agent` subclass an :func:`optimizer_registry` value constructs."""
+    target = factory.func if isinstance(factory, functools.partial) else factory
+    if not (isinstance(target, type) and issubclass(target, Agent)):
+        raise TypeError(f"{factory!r} constructs no Agent subclass")
+    return target
+
+
+def optimizer_registry() -> dict[str, Callable[..., Agent]]:
+    """Name -> non-AI optimizer factory: every :class:`Agent` subclass defined in this module that declares its
+    own ``name``, and every autotuning framework flavor (``hpcagent_bench.columns``) bound to its adapter class. The
+    harness runs each through the SAME procedure as an LLM agent (``hpcagent-bench agent --agent <name>``), so a new
+    optimizer is one class here or one flavor there."""
+    classes: dict[str, Callable[..., Agent]] = {
         vars(cls)["name"]: cls
         for cls in list(globals().values())
         if isinstance(cls, type) and issubclass(cls, Agent) and cls.__module__ == __name__ and "name" in vars(cls)
     }
+    flavors: dict[str, Callable[..., Agent]] = {
+        name: functools.partial(globals()[meta["adapter"].partition(":")[2]], name)
+        for name, meta in FRAMEWORKS.entries.items()
+        if is_optimizer_adapter(meta["adapter"])
+    }
+    return {**classes, **flavors}

@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Alloy (the optional ``alloy`` extra) end to end on one kernel: every region gets several verified, screened
-variants, and both Alloy optimizers submit a library the judge grades correct. The ``alloy`` CI job runs it."""
+variants, and both CPU profile flavors submit a library the judge grades correct. The ``alloy`` CI job runs it."""
 
 import pathlib
 from collections.abc import Callable
@@ -11,7 +11,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import tools
-from hpcagent_bench.harness.optimizers import AlloyCanonOptimizer, AlloyOptimizer, AlloyParOptimizer
+from hpcagent_bench.harness.optimizers import optimizer_registry
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.precision import Precision
@@ -34,9 +34,9 @@ def test_every_region_gets_several_verified_screened_variants(tmp_path: pathlib.
         assert len(screened) >= 2, f"{rep.region.symbol}: {[b.name for b in screened]}"
 
 
-@pytest.mark.parametrize("optimizer", [AlloyParOptimizer, AlloyCanonOptimizer])
-def test_the_optimizer_submits_a_library_the_judge_grades_correct(
-    optimizer: type[AlloyOptimizer],
+@pytest.mark.parametrize("flavor", ["dace_cpu_parallel_alloy_profile", "dace_cpu_canon_alloy_profile"])
+def test_the_profile_flavor_submits_a_library_the_judge_grades_correct(
+    flavor: str,
     make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -45,7 +45,7 @@ def test_the_optimizer_submits_a_library_the_judge_grades_correct(
     url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=3))[1]
     monkeypatch.setenv("JUDGE_URL", url)  # the optimizer scores its variants on this judge
 
-    sub = optimizer(workdir=tmp_path).solve(Task(KERNEL, "any", "c"))
+    sub = optimizer_registry()[flavor](workdir=tmp_path).solve(Task(KERNEL, "any", "c"))
 
     assert sub.library is not None
     with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
