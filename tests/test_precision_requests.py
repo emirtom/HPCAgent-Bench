@@ -24,7 +24,7 @@ from hpcagent_bench.harness.prompts import build_prompt
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
-from hpcagent_bench.harness.service import requests_refusal
+from hpcagent_bench.harness.service import requests_check, requests_refusal
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -175,6 +175,18 @@ def test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where
     assert "zip without startup.grid" in str(requests_refusal(laid_out(operations=zipped), jacobi, "float64"))
 
 
+def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal() -> None:
+    operations = [*LAYOUT_OPERATIONS, {"action": "cast", "array": "B", "to": "fp32"}]
+    answer = requests_check("jacobi_2d", "c", {"operations": operations}, "float64")
+    assert answer["arrays"] == {
+        "A": {"dtype": "float64", "extents": ["d1", "d0"]},
+        "B": {"dtype": "float32", "extents": ["d0", "(d1 + 3) // 4", "4"]},
+    }
+    assert answer["signature"] == "void jacobi_2d_fp64(double *, float *, int64_t, int64_t, uint8_t *, int64_t);"
+    refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64")
+    assert refused["accepted"] is False and "python" in str(refused["refusal"])
+
+
 @isolated
 def test_a_laid_out_grade_converts_in_and_out_and_is_correct() -> None:
     """jacobi_2d with A transposed and B blocked (and padded): the kernel works on the laid-out buffers, both
@@ -321,6 +333,7 @@ if __name__ == "__main__":
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"alpha": "fp32"}, "float64", "c", "not a floating")
     test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32"}, "float64", "python", "not implemented")
     test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where_it_is_not_carried()
+    test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal()
     test_a_laid_out_grade_converts_in_and_out_and_is_correct()
     test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi()
     test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score()

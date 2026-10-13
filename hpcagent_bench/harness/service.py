@@ -47,6 +47,8 @@ import types
 import uuid
 from collections.abc import Generator, Mapping, Sequence
 from http import HTTPStatus
+
+import numpy as np
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
@@ -97,6 +99,7 @@ from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_pres
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
 from hpcagent_bench.support.helpers.sparse.request import is_default, resolve_layout
+from hpcagent_bench.precision import numpy_dtype
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
@@ -868,6 +871,39 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     return None
 
 
+def requests_check(kernel: str, language: str, raw: object, datatype: str) -> dict[str, object]:
+    """What ``requests`` (JSON ``raw``) resolves to for ``kernel`` in ``language`` at ``datatype``, built and
+    graded nothing: the refusal a submission would get, or the C signature the kernel is called with, each
+    pointer's element type and, laid out on one node, the extents of its packed buffer over the logical
+    extents ``d0``, ``d1``, ...; with a grid, the distribution plan at ``mpi.ranks``. A malformed request
+    raises ValueError."""
+    requests = Requests.from_obj(raw)
+    task = Task(kernel, "restricted", language, residency=grading_residency(kernel, language))
+    probe = Submission(language=language, source="/* checked, not built */", requests=requests)
+    refusal = requests_refusal(probe, task, datatype)
+    if refusal is not None:
+        return {"accepted": False, "refusal": refusal}
+    spec = BenchSpec.load(kernel)
+    binding = binding_from_spec(spec)
+    problem = precision_problem_dtypes(spec, binding, datatype)
+    stored = {a.name: problem.get(a.name, a.dtype) for a in binding.pointers}
+    stored.update({name: np.dtype(numpy_dtype(p)).name for name, p in requests.precision.items()})
+    ndims = kernel_ndims(spec.mpi, binding)
+    layouts = {} if requests.distributed else requests.layouts(ndims)
+    arrays: dict[str, object] = {
+        name: {"dtype": dtype, **({"extents": list(layouts[name].extents())} if name in layouts else {})}
+        for name, dtype in stored.items()
+    }
+    answer: dict[str, object] = {"accepted": True, "arrays": arrays}
+    if language != PYTHON_LANG:
+        template: native_call.KernelData = {name: np.empty(0, np.dtype(dtype)) for name, dtype in stored.items()}
+        marshal = native_call.CallMarshal.of(binding, template, language)
+        answer["signature"] = f"void {binding.symbols[language]}({', '.join(marshal.params)});"
+    if requests.distributed:
+        answer["plan"] = requests.plan(ndims, config.get_int("mpi.ranks", 4))
+    return answer
+
+
 def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSpec) -> str | None:
     """Why the operations of a request without a grid cannot be honoured, or None: the judge converts a dense
     array into the layout its digit operations leave around a C-ABI call; ``zip`` / ``unzip`` (a struct or new
@@ -1534,9 +1570,30 @@ class JudgeHandler(BaseHTTPRequestHandler):
             precision="" if fptype == "fp64" else fptype,
         )
 
+    def serve_requests_check(self) -> None:
+        """``POST /requests/check`` ``{"kernel", "language", "requests"}``: :func:`requests_check`, free and
+        unrecorded."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = RequestBody.parse(self.rfile.read(length))
+        except (ValueError, TypeError) as exc:
+            return self._send(HTTPStatus.BAD_REQUEST, {"error": f"invalid JSON body: {exc}"})
+        kernel = body.raw("kernel")
+        if not isinstance(kernel, str) or kernel not in KERNELS:
+            return self._send(HTTPStatus.NOT_FOUND, {"error": f"no task for {kernel!r}: unknown kernel"})
+        language = delivery_language(body.text("language", default_request_language()), self.cfg.input_mode)
+        try:
+            datatype = graded_datatype(BenchSpec.load(kernel), self.cfg.datatype)
+            answer = requests_check(kernel, language, body.raw("requests"), datatype)
+        except ValueError as exc:
+            return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        return self._send(HTTPStatus.OK, answer)
+
     def serve_post(self) -> None:
         parts = urlparse(self.path).path.strip("/").split("/")
         route = parts[0]  # str.split("/") is never empty, so parts[0] is always safe
+        if route == "requests" and parts[1:] == ["check"]:
+            return self.serve_requests_check()
         if route not in ("oracle", "submit", "score", "profile"):
             return self._send(HTTPStatus.NOT_FOUND, {"error": f"unknown route {self.path!r}"})
         try:

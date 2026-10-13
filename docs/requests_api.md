@@ -140,6 +140,14 @@ format is not implemented yet (a sparse kernel with a `startup.grid` is refused)
 converter per format from the canonical CSR to each rank's local array, split along the axis the format
 stores row-wise, with the conversion time in `convert_in_ns`.
 
+## 3.3 Checking a request
+
+`POST /requests/check` with `{"kernel", "language", "requests"}` builds and grades nothing and records
+nothing: it answers `{"accepted": false, "refusal"}` with the reason a submission would get, or
+`{"accepted": true, "arrays", "signature"}`: each pointer's element type and, laid out on one node, the
+extents of its packed buffer over the logical extents `d0`, `d1`, ...; the C signature the kernel is
+called with; and with a grid the distribution `plan` at `mpi.ranks`.
+
 ## 4. Database schema (version 7)
 
 | Change | Column(s) | Notes |
@@ -162,5 +170,5 @@ and `copy_grade` fold a v6 row into v7 (`fold_legacy_grade`); `open_db` upgrades
 - **Python-AST rewrite and struct lowering** for `zip` / `unzip`, `pad` and `shuffle` (§3.1).
 - **Python delivery** of casts and layouts: the callable would get converted arrays.
 - **Casts on the ML track, on device-resident MPI tiles and on sparse values.**
-- **`/requests/check`:** a free route returning the resolved request for a kernel (C signature, each
-  rank's local shapes, which size symbols arrive local).
+- **`/requests/check`, distributed:** each rank's local shapes and which size symbols arrive local
+  (the route returns the plan today).
