@@ -22,6 +22,7 @@ from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 
 from hpcagent_bench import study_tags
+from hpcagent_bench.harness import denominator
 from hpcagent_bench.stats import canon, palette, population, rules, style
 from hpcagent_bench.stats.figures import per_kernel, setup_names
 from hpcagent_bench.stats.summary import geomean_ci, signed_change, usable_ratios
@@ -36,7 +37,9 @@ __all__ = [
     "Row",
     "agent_kernel_row",
     "answer_ratios",
+    "baseline_color",
     "baseline_label",
+    "baseline_references",
     "canon_kernel_row",
     "canon_label",
     "distinct_canon_labels",
@@ -394,9 +397,26 @@ def kernel_rows(
 PANEL_HEIGHT_IN: float = 1.5
 
 
+def baseline_references(baseline: str) -> tuple[str, ...]:
+    """The references a speedup denominator races: one framework, or every reference of a best-of
+    denominator (:data:`~hpcagent_bench.harness.denominator.KINDS`, ``best-of(numba,c)``)."""
+    try:
+        return denominator.KINDS[denominator.Denominator(baseline)]
+    except ValueError:
+        return (baseline,)
+
+
 def baseline_label(baseline: str) -> str:
-    """The speedup axis label, naming the baseline by its registry display name."""
-    return f"Speedup over {study_tags.names('frameworks').get(baseline, baseline)}"
+    """The speedup axis label, naming the baseline by its registry display name; a best-of denominator
+    names each reference it races (``Speedup over Best of GCC and Numba``)."""
+    names = [study_tags.framework_name(reference) for reference in baseline_references(baseline)]
+    return f"Speedup over {names[0] if len(names) == 1 else 'Best of ' + ' and '.join(names)}"
+
+
+def baseline_color(baseline: str) -> str:
+    """The 1x reference line's colour: its framework's, or ink for a best-of denominator (no one framework)."""
+    references = baseline_references(baseline)
+    return palette.framework_color(references[0]) if len(references) == 1 else style.INK
 
 
 def row_color(row: Row) -> str:
@@ -429,7 +449,7 @@ def kernel_metrics(
         )
         for row in rows
     ]  # fmt: skip
-    metrics = [per_kernel.speedup_series_metric(speed, baseline_label(baseline), palette.framework_color(baseline))]
+    metrics = [per_kernel.speedup_series_metric(speed, baseline_label(baseline), baseline_color(baseline))]
     if any(row.tokens for row in rows):
         tokens = [
             per_kernel.Series(

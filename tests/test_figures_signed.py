@@ -595,3 +595,17 @@ def test_a_shorter_panel_makes_a_shorter_figure_at_the_same_width(llr40_canon: p
     finally:
         plt.close(tall)
         plt.close(short)
+
+
+@pytest.mark.parametrize(
+    ("baseline", "label", "ink"),
+    [
+        pytest.param("numba", "Speedup over Numba", False, id="one-framework"),
+        pytest.param("best-of(numba,c)", "Speedup over Best of GCC and Numba", True, id="best-of"),
+    ],
+)
+def test_the_reference_line_names_every_reference_a_best_of_denominator_races(
+    baseline: str, label: str, ink: bool
+) -> None:
+    assert signed.baseline_label(baseline) == label
+    assert (signed.baseline_color(baseline) == style.INK) is ink

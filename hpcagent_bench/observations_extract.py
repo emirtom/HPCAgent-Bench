@@ -737,10 +737,11 @@ def call_row(db: Database, grade: Mapping[str, Any]) -> dict[str, Any]:
 
 def verdict_row(db: Database, grade: Mapping[str, Any], index: int) -> dict[str, Any]:
     """The ``submission`` (credited) or ``attempt`` row of one /submit verdict, the ``index``-th of its
-    kind for the episode's kernel."""
+    kind for the episode's kernel. A voided correct answer (:func:`awaits_final`) is a submission with no
+    speedup and its void reason, until :func:`apply_final_regrades` re-times it."""
     credited = grade["credited_speedup"] != 0
     return (
-        identity_row(db, grade, "submission" if credited else "attempt")
+        identity_row(db, grade, "submission" if credited or awaits_final(grade) else "attempt")
         | grade_columns(grade)
         | {
             "attempt_index": index,
@@ -777,13 +778,20 @@ def graded_rows(
             and not grade["disqualified"]
             and (grade["credited_speedup"] != 0 or grade["reason"] != "")
         ):
-            record = "submission" if grade["credited_speedup"] != 0 else "attempt"
+            record = "submission" if grade["credited_speedup"] != 0 or awaits_final(grade) else "attempt"
             ordinals[(record, grade["label"], grade["kernel"])] += 1
             rows.append(verdict_row(db, grade, ordinals[(record, grade["label"], grade["kernel"])]))
         observations.extend(rows)
         if grade["source_hash"] is not None:
             sources.extend(source_entry(db, grade, row) for row in rows)
     return observations, sources
+
+
+def awaits_final(grade: Mapping[str, Any]) -> bool:
+    """Whether a submit-kind ``grade`` is a correct answer whose live grade an operator voided
+    (``recorded_rows.RERUN_PREFIXES``, e.g. a judge on one thread): not a refusal but a submission the
+    final grade decides, so :func:`apply_final_regrades` re-times it (never credited until it does)."""
+    return grade["correct"] == 1 and str(grade["reason"] or "").startswith(recorded_rows.RERUN_PREFIXES)
 
 
 def source_entry(db: Database, grade: Mapping[str, Any], row: Mapping[str, Any]) -> dict[str, Any]:
@@ -1236,7 +1244,9 @@ def apply_final_regrades(
         new = final.get(final_key(row)) if row.get("row_kind") == "submission" else None
         if new is None:
             counts["not_retimed"] += row.get("row_kind") == "submission"
-            kept.append(row)
+            voided = str(row.get("reason") or "").startswith(recorded_rows.RERUN_PREFIXES)
+            # a voided answer no final grade re-timed stays the voided attempt it was: owed, never credited
+            kept.append({**row, "row_kind": "attempt"} if voided and row.get("row_kind") == "submission" else row)
             continue
         matched.add(final_key(row))
         status = new["regrade_status"]

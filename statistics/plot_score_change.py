@@ -62,7 +62,7 @@ def compare_slice(
     values, over the kernels :func:`~hpcagent_bench.stats.figures.efficacy.paired_kernels` covers."""
     graded = pd.concat([control, treated])
     graded = graded[graded.row_kind == "submission"]
-    population.one_denominator(graded.baseline.tolist(), label=f"{model}/{leg}")
+    population.rows_denominator(graded, label=f"{model}/{leg}")
     paired = efficacy_figures.paired_kernels(control, treated, card)
     if paired.empty:
         return None
@@ -910,16 +910,19 @@ def figure_from_treatments(
 
 
 def figure_per_kernel(args: argparse.Namespace, card: cost.CostModel) -> None:
-    """The ``--per-kernel`` route: one row per canon column and per ``--experiment`` setup over the tag."""
-    if args.canon_db is None:
-        raise SystemExit("--per-kernel needs --canon-db")
+    """The ``--per-kernel`` route: one row per canon column and per ``--experiment`` setup over the tag. Without
+    ``--canon-db`` only the setups are drawn, over the kernels of ``--tag-file``."""
+    if args.canon_db is None and args.canon_columns:
+        raise SystemExit("--canon-columns needs --canon-db")
+    if args.canon_db is None and args.tag_file is None:
+        raise SystemExit("--per-kernel without --canon-db needs --tag-file")
     if len(args.observations) > 1:
         raise SystemExit("--per-kernel reads one observations file")
     if args.observations and not args.experiment:
         raise SystemExit("--per-kernel with observations needs --experiment (the setup prefix)")
-    canon_frame = studies.read_table(args.canon_db, "canon")
+    canon_frame = studies.read_table(args.canon_db, "canon") if args.canon_db is not None else pd.DataFrame()
     tag_kernels = (
-        [line.strip() for line in args.tag_file.read_text().splitlines() if line.strip()]
+        [line.strip() for line in args.tag_file.read_text().splitlines() if line.strip() and not line.startswith("#")]
         if args.tag_file is not None
         else setup_names.tag_of(canon_frame)
     )

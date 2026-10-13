@@ -182,9 +182,13 @@ dot; nothing is averaged away.
 suffix; a setup without it served the model's own `generation_config.json` value (`DEFAULT_TEMPERATURE`,
 1.0). Inside a group one column per kernel of `--tag`, its short name horizontal on up to three lines;
 inside a column the models side by side in their registry colours, close together (`DODGE_SPAN`).
+`--temperatures 0,default` draws only those groups (`default` names `DEFAULT_TEMPERATURE`; all when unset).
+
+**Size.** Up to two groups (`SQUARE_GROUPS`) make a square figure one ACM column wide, its group titles
+short (`T = 0`) and its key entries compact; more groups are ACM text width. `--width` overrides the width.
 
 **Rows** (the efficacy dot row's labels and height fractions, `efficacy.MEASURE_LABELS`,
-`MEASURE_HEIGHT` x `DOT_ROW_HEIGHT_IN`, at print type, `--width` = ACM text width by default):
+`MEASURE_HEIGHT` x `DOT_ROW_HEIGHT_IN`, at print type; the square figure scales the rows to its height):
 
 | Row | Value per run | Notes |
 |---|---|---|
@@ -212,6 +216,7 @@ state, speedup and tokens.
 python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
 python statistics/plot_temperature.py data/temperature3.db --out figures/temperature3.pdf
 python statistics/plot_temperature.py data/temperature3.db --style violin --out figures/temperature3-violin.pdf
+python statistics/plot_temperature.py data/temperature3.db --temperatures 0,default --out figures/temperature3-t0-t1.pdf
 ```
 
 ## Efficacy figure

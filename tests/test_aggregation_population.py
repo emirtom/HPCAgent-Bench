@@ -75,6 +75,21 @@ def test_a_recoverable_blank_denominator_is_not_read_as_a_second_reference() -> 
     assert population.one_denominator(["c", None, float("nan"), " c "]) == "c"
 
 
+def test_a_best_of_population_is_one_denominator_whichever_reference_won_each_kernel() -> None:
+    """``baseline`` names the reference that won a kernel; the score rule's ``denominator`` is the population's."""
+    rows = pd.DataFrame({"baseline": ["c", "numba"], "denominator": ["best-of(numba,c)", "best-of(numba,c)"]})
+    assert population.rows_denominator(rows) == "best-of(numba,c)"
+
+
+def test_rows_without_a_denominator_fall_back_to_their_baseline() -> None:
+    assert (
+        population.rows_denominator(pd.DataFrame({"baseline": ["numba", "numba"], "denominator": ["", None]}))
+        == "numba"
+    )
+    with pytest.raises(population.MixedPopulationError):
+        population.rows_denominator(pd.DataFrame({"baseline": ["c", "numba"]}))
+
+
 def test_two_setups_graded_against_different_references_do_not_divide() -> None:
     """The ratio of two setups is a statement about the setups. Divided across denominators it is partly
     a statement about which reference each was measured against, and nothing in the number says so."""

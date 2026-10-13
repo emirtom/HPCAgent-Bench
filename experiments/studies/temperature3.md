@@ -17,4 +17,5 @@ Figure (speedup, token cost and solved runs per model, kernel and temperature; [
 python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
 python statistics/plot_temperature.py data/temperature3.db --out figures/temperature3.pdf
 python statistics/plot_temperature.py data/temperature3.db --style violin --out figures/temperature3-violin.pdf
+python statistics/plot_temperature.py data/temperature3.db --temperatures 0,default --out figures/temperature3-t0-t1.pdf  # square, one column
 ```
