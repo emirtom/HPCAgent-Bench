@@ -10,7 +10,7 @@ per-model pages and [`knobs.md`](knobs.md) carry the configuration that avoids t
 | 2 | A writable CE container freezes on fuse-overlayfs | every agent on the node stalls at once, no error | fixed in hb: the agent container is read-only |
 | 3 | vLLM `ROCM_AITER_FA` garbles Qwen3.8 under agent load | random tokens in reasoning, invented tool names | avoided: Qwen3.8 serves on SGLang |
 | 4 | Self-tuned GEMM kernel tables break Qwen3.8 numerics | agents loop on degenerate reasoning | avoided: stock aiter tables only |
-| 5 | RCCL GPU-direct RDMA corrupts cross-node sums; its connect can fail registering GPU memory | wrong outputs, no error; or `NET/OFI Couldn't register memory region with regattr. RC: -22` and the server dies at the first cross-node send | avoided since 2026-10-12: `NCCL_NET_GDR_LEVEL=LOC` on the server command (the CSCS hook overwrote the earlier setting; GDR was on in every multi-node run before) |
+| 5 | RCCL GPU-direct RDMA corrupts cross-node sums; its connect can fail registering GPU memory | wrong outputs, no error; or `NET/OFI Couldn't register memory region with regattr. RC: -22` and the server dies at the first cross-node send | avoided since 2026-10-13: `NCCL_NET_GDR_LEVEL=LOC` on the server command (the CSCS hook overwrote every earlier setting; GDR was on in every multi-node run before) |
 | 6 | RCCL silently falls back to TCP | several times slower, correct | check the `Using network` log line |
 | 7 | SGLang split groups hang on the RCCL/ROCm build | init hang | avoided: `VLLM_DISTRIBUTED_USE_SPLIT_GROUP=0` |
 | 8 | APU out-of-memory kills without a traceback | log stops, exit by signal | fraction rules in [`knobs.md`](knobs.md#the-mi300a-memory-model) |
@@ -107,15 +107,18 @@ for numerical tolerance against a reference, not only for throughput.
 ## 5-8. Fabric and memory
 
 - **GPU-direct RDMA.** RCCL enables it by itself, and on this fabric it silently corrupts cross-node sums.
-  Its connect can also fail outright: GLM-5.3 jobs 675958 (2026-10-11) and 677231 (2026-10-12) died at the first
-  cross-node pipeline send with `NET/OFI Couldn't register memory region with regattr. RC: -22` /
+  Its connect can also fail outright: GLM-5.3 jobs 675958 (2026-10-11), 677231 (2026-10-12) and 678947
+  (2026-10-13) died at the first cross-node pipeline send with `NET/OFI Couldn't register memory region with regattr. RC: -22` /
   `Unable to register memory (type = 1)` in the NCCL log and `cxil_map: write error` in the server log.
   Turn it off with `NCCL_NET_GDR_LEVEL=LOC` (not `NCCL_GDR_LEVEL`, and not `0`: RCCL reads a number as an
   old-style path level). The value has to be set **inside the container, on the server command**: the CSCS
   netstack hook (`com.hooks.netstack` in the EDF) writes its own defaults into the container after the step
   environment, `NCCL_NET_GDR_LEVEL=PHB` among them. `pp.env` set `0` from the start and every multi-node run
-  until 2026-10-12 still logged `NCCL_NET_GDR_LEVEL set by environment to PHB` and connected via `GDRDMA`.
-  `run_cluster.sh` now passes the layer's value on the server command. Check the NCCL log
+  until 2026-10-13 still logged `NCCL_NET_GDR_LEVEL set by environment to PHB` and connected via `GDRDMA`.
+  `run_cluster.sh` passes the layer's value on the server command, taken from the batch shell
+  (`SERVER_NCCL_NET_GDR_LEVEL`): the role step cannot re-read the layer env inside its container (the EDF does
+  not mount `experiments/`), so reading `NCCL_NET_GDR_LEVEL` there returned the hook's PHB, and the first
+  version of this fix (2026-10-12) passed PHB on. Check the NCCL log
   (`vllm/nccl.<host>.<pid>.log`): `set by environment to LOC`, `use ring ... GDR 0`, and channels `via NET/AWS
   Libfabric/<n>` without `/GDRDMA`. The hook sets other values the same way (`NCCL_MIN_NCHANNELS=112`,
   `FI_MR_CACHE_MAX_COUNT`, `FI_CXI_RDZV_*`, `FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD`); any of them we want different
