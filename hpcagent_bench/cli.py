@@ -89,7 +89,8 @@ def agent_registry() -> dict[str, Any]:
 
     An "agent" is any optimizer: an LLM backend OR a non-AI optimizer, all sharing the
     Agent.solve(task) contract: the LLM backends (:data:`hpcagent_bench.harness.agent.BACKENDS`), ``local``
-    (in-process Qwen-Coder) and the non-AI noop / noop-mpi / blas-reduction (hpcagent_bench.harness.optimizers).
+    (in-process Qwen-Coder) and the non-AI noop / noop-mpi / blas-reduction plus the autotuning framework flavors
+    (hpcagent_bench.harness.optimizers).
     """
     from hpcagent_bench.harness.agent import BACKENDS, LocalHFAgent
     from hpcagent_bench.harness.optimizers import optimizer_registry
@@ -204,7 +205,7 @@ def make_agent_builder(registry: dict[str, Any], agent_name: str) -> Callable[[s
     local run without the mount) the optimizer keeps its own throwaway dir, unchanged -- the folder is
     never created here. The serial in-process path builds its agent itself and is untouched.
     """
-    from hpcagent_bench.harness.optimizers import LibraryOptimizer
+    from hpcagent_bench.harness.optimizers import LibraryOptimizer, agent_class
     from hpcagent_bench.harness.sandbox import shared_dir
 
     cls = registry[agent_name]
@@ -212,7 +213,7 @@ def make_agent_builder(registry: dict[str, Any], agent_name: str) -> Callable[[s
     shared = pathlib.Path(shared_dir())
     builds = (
         tempfile.mkdtemp(prefix="agent_builds_", dir=shared)
-        if issubclass(cls, LibraryOptimizer) and shared.is_dir()
+        if issubclass(agent_class(cls), LibraryOptimizer) and shared.is_dir()
         else None
     )
 
@@ -918,7 +919,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "agent",
         help="an agent_registry() key: an LLM backend (claude, openai, vllm, stub, local) or a non-AI optimizer "
-        "(noop, noop-mpi, blas-reduction, pluto, ppcg-hip)",
+        "(noop, noop-mpi, blas-reduction, pluto, ppcg-hip) or an autotuning flavor (dace_cpu_canon_alloy_profile, ...)",
     )
     a.add_argument(
         "--fail-if-none-correct",

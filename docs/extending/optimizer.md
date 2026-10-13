@@ -126,7 +126,14 @@ new column takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on e
 - `postfix` picks the file `<module>_<postfix>.py` beside the NumPy reference; `arch` is `cpu` or `gpu`; other
   precisions record `skip`. `sweep_deterministic` admits the column to the unjudged baseline sweeps
   (`hpcagent-bench job baseline`).
-- A column with `column` and `flavor` is registered as `<column>_<flavor>`.
+- Naming scheme, checked at import: a name is `<column>[_<flavor>]`. The column is `<backend>` for a backend on
+  one device and `<backend>_<arch>` for one on both (`dace_cpu`/`dace_gpu`, `tvm_cpu`/`tvm_gpu`). A flavor is the
+  optimizer, never the device: it declares `column` and `flavor` and runs on its column's `arch`, which picks the
+  device anti-cheats its grades meet. A rename keeps the old name in `aliases`;
+  `python -m hpcagent_bench.support.update_names DB...` moves existing databases to the current names.
+- An autotuning flavor (local timing plus the judge's `/score`, e.g. `dace_cpu_canon_alloy_profile`) names an
+  `Agent` in `hpcagent_bench/harness/optimizers.py` as its `adapter`, is not `sweep_deterministic`, and runs as
+  `hpcagent-bench agent <name>` (`--native` keeps the judge in the same process).
 - A native column also declares `language`, plus `emit_language` when it starts from another translator's
   output, and `compiler` for a non-default `compilers.yaml` block.
 - New base: subclass `Framework` in `<base>_framework.py` (smallest: `pythran_framework.py`). To generate the

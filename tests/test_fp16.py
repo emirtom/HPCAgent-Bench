@@ -16,7 +16,7 @@ import pytest
 from hpcagent_bench.precision import DTYPES, Precision, numpy_dtype, precision_from_datatype
 from tests.optional_imports import import_or_skip
 
-FP16_FRAMEWORKS = ("numpy", "jax", "tvm", "tvm_cpu", "triton", "cupy")
+FP16_FRAMEWORKS = ("numpy", "jax", "tvm_gpu", "tvm_cpu", "triton", "cupy")
 NON_FP16_FRAMEWORKS = ("cc", "llvm", "polly", "pluto", "fortran", "numba", "pythran")
 
 # fp16-safe kernels (bounded values; no big fp16 matmul accumulation) that
