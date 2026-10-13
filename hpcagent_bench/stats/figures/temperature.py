@@ -45,7 +45,9 @@ __all__ = [
     "TEMPERATURE_SUFFIX",
     "Mode",
     "column_key",
+    "parse_temperatures",
     "run_costs",
+    "select_temperatures",
     "temperature_figure",
     "temperature_label",
     "temperature_of",
@@ -84,6 +86,9 @@ UNSOLVED_LABEL: str = "Unsolved Run (at 1x)"
 #: The box: every run is drawn, so its whiskers reach the extremes rather than a Tukey fence.
 BOX_LABEL: str = "Box: Median and Quartiles of the Graded Runs, Whiskers to Min and Max"
 WHISKERS: tuple[float, float] = (0.0, 100.0)
+#: The square one-column figure's shorter key entries and group titles (``T = 0``).
+COMPACT_BOX_LABEL: str = "Box: Median, Quartiles, Min to Max"
+COMPACT_VIOLIN_LABEL: str = "Violin: Run Density"
 #: The violin mode's key entries, how many lightness steps darker than its model the interval is drawn,
 #: and its line weights (interval, median tick) in points.
 VIOLIN_LABEL: str = "Violin: Density of the Graded Runs"
@@ -97,6 +102,8 @@ NAME_LINES: int = 3
 OWED_LABEL: str = "Not Final-Graded Yet"
 #: The column key's separator between the temperature and the kernel.
 KEY_SEP: str = "|"
+#: Up to this many temperature groups the figure is one ACM column wide and square.
+SQUARE_GROUPS: int = 2
 
 
 def temperature_of(setup: str) -> float:
@@ -105,10 +112,21 @@ def temperature_of(setup: str) -> float:
     return float(match.group("value")) if match else DEFAULT_TEMPERATURE
 
 
-def temperature_label(value: float, defaults: bool) -> str:
-    """``Temperature = 1.5``; ``defaults`` adds ``(Default)`` to the group the unsuffixed setups served."""
-    text = f"Temperature = {value:g}"
+def temperature_label(value: float, defaults: bool, compact: bool = False) -> str:
+    """``Temperature = 1.5`` (``T = 1.5`` when ``compact``); ``defaults`` adds ``(Default)`` to the group the
+    unsuffixed setups served."""
+    text = f"{'T' if compact else 'Temperature'} = {value:g}"
     return f"{text} (Default)" if defaults else text
+
+
+def parse_temperatures(text: str) -> tuple[float, ...]:
+    """``"0,default"`` -> ``(0.0, 1.0)``: comma-separated temperatures, ``default`` naming :data:`DEFAULT_TEMPERATURE`."""
+    return tuple(DEFAULT_TEMPERATURE if item == "default" else float(item) for item in text.split(",") if item)
+
+
+def select_temperatures(runs: pd.DataFrame, values: Sequence[float]) -> pd.DataFrame:
+    """The rows of ``runs`` whose setup served one of ``values``."""
+    return runs.loc[runs["setup"].map(lambda setup: temperature_of(str(setup)) in values)]
 
 
 def column_key(value: float, kernel: str) -> str:
@@ -196,6 +214,7 @@ def draw_groups(
     n_kernels: int,
     type_: plotstyle.TypeScale,
     defaults: frozenset[float],
+    compact: bool = False,
 ) -> None:
     """A dashed rule between consecutive temperature groups on every row, the temperature over its group
     on the top row."""
@@ -207,7 +226,7 @@ def draw_groups(
     for index, value in enumerate(temperatures):
         centre = index * n_kernels + (n_kernels - 1) / 2.0
         axes[0].annotate(
-            temperature_label(value, value in defaults), xy=(centre, 1.0), xycoords=("data", "axes fraction"),
+            temperature_label(value, value in defaults, compact), xy=(centre, 1.0), xycoords=("data", "axes fraction"),
             xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=type_.label_pt,
             color=plotstyle.INK, annotation_clip=False,
         )  # fmt: skip
@@ -299,15 +318,19 @@ def draw_rates(
 
 
 def key_entries(
-    series: Sequence[pk.Series], states: set[population.RunState], mode: Mode
+    series: Sequence[pk.Series], states: set[population.RunState], mode: Mode, compact: bool = False
 ) -> list[matplotlib.artist.Artist]:
-    """The models, the ``mode`` statistic, and the run states the figure actually draws."""
+    """The models, the ``mode`` statistic, and the run states the figure actually draws; ``compact`` for the
+    one-column figure."""
     mark = pk.LEGEND_MARK_PT
     entries: list[matplotlib.artist.Artist] = [
         matplotlib.lines.Line2D([], [], marker="o", linestyle="none", color=one.color, markersize=mark, label=one.label)
         for one in series
     ]
-    summary_label = BOX_LABEL if mode == Mode.BOX else VIOLIN_LABEL
+    if mode == Mode.BOX:
+        summary_label = COMPACT_BOX_LABEL if compact else BOX_LABEL
+    else:
+        summary_label = COMPACT_VIOLIN_LABEL if compact else VIOLIN_LABEL
     entries.append(matplotlib.patches.Patch(facecolor=plotstyle.MUTED, alpha=pk.RUN_BOX_ALPHA, label=summary_label))
     if mode == Mode.VIOLIN:
         entries.append(matplotlib.lines.Line2D([], [], color=plotstyle.INK, linewidth=CI_LINE_WIDTH, label=CI_LABEL))
@@ -329,13 +352,14 @@ def temperature_figure(
     runs: pd.DataFrame,
     kernels: Sequence[str],
     title: str = "",
-    width_in: float = plotstyle.ACM_TEXT_WIDTH_IN,
+    width_in: float | None = None,
     allow_owed: bool = False,
     cost_label: str = efficacy.MEASURE_LABELS["cost"],
     mode: Mode = Mode.BOX,
 ) -> matplotlib.figure.Figure:
     """The three rows over (temperature, kernel) columns for ``runs`` (:func:`run_costs`), drawn at
-    ``width_in`` on the print scale, each cell's runs summarized by ``mode``. Refuses owed runs (:class:`reliability.OwedRunsError`) unless
+    ``width_in`` on the print scale, each cell's runs summarized by ``mode``. Without ``width_in``, up to
+    :data:`SQUARE_GROUPS` temperatures make a square one-column figure, more a text-wide one. Refuses owed runs (:class:`reliability.OwedRunsError`) unless
     ``allow_owed``, which draws them as "?"."""
     if not allow_owed:
         reliability.cell_runs(runs)
@@ -346,6 +370,9 @@ def temperature_figure(
     score = pk.speedup_series_metric(score_series, efficacy.MEASURE_LABELS["speedup"])
     cost = pk.token_series_metric(cost_series, cost_label)
 
+    square = len(temperatures) <= SQUARE_GROUPS
+    if width_in is None:
+        width_in = plotstyle.ACM_COLUMN_WIDTH_IN if square else plotstyle.ACM_TEXT_WIDTH_IN
     type_ = plotstyle.PRINT_SCALE
     heights = [efficacy.DOT_ROW_HEIGHT_IN * efficacy.MEASURE_HEIGHT[measure] for measure in MEASURES]
     fig, grid = plt.subplots(
@@ -357,9 +384,10 @@ def temperature_figure(
     for ax, metric in zip(axes[:2], (score, cost), strict=True):
         pk.style_panel(ax, metric, columns, False, False, type_)
     style_rate_panel(axes[2], columns, type_)
-    draw_groups(axes, temperatures, len(kernels), type_, defaults)
+    draw_groups(axes, temperatures, len(kernels), type_, defaults, square)
     states = {run.state for cell in score.cells for run in cell.runs}
-    pk.fit_canvas(fig, axes, title, key_entries(score_series, states, mode), type_, statistics.fmean(heights))
+    legend = key_entries(score_series, states, mode, square)
+    pk.fit_canvas(fig, axes, title, legend, type_, statistics.fmean(heights), height_in=width_in if square else None)
 
     x_of = {key: index for index, key in enumerate(columns)}
     for ax, metric in zip(axes[:2], (score, cost), strict=True):

@@ -339,7 +339,7 @@ def graded_rows(observations: pd.DataFrame, setups: list[str]) -> pd.DataFrame:
     references is not one quantity, and the setups of two experiments are exactly where that happens.
     """
     rows = observations[(observations.row_kind == "submission") & observations.setup.isin(setups)]
-    population.one_denominator(rows.baseline.tolist(), label="graded rows")
+    population.rows_denominator(rows, label="graded rows")
     return rows
 
 
@@ -893,7 +893,7 @@ def main(argv: list[str]) -> int:
         setups = sorted({setup for pair in pairs for setup in pair})
 
     graded = graded_rows(observations, setups)
-    baseline = population.one_denominator(graded.baseline.tolist(), label="family")
+    baseline = population.rows_denominator(graded, label="family")
     best = best_by_setup_kernel(observations[observations.setup.isin(setups)])
     served = served_by_setup(observations[observations.setup.isin(setups)])
     table = setup_aggregates(best, served, baseline, args.policy)

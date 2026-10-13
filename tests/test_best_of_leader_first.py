@@ -3,8 +3,8 @@
 """best-of-v4: best-of(numba,c) raced leader first, the other reference cut by the early stop.
 
 The expected winner is timed first -- this judge's last winner of the kernel, else the shipped hint,
-else numba -- and the other one, numba included, is cut once a rep outlasts floor + 3 x the leader's
-slowest rep. In the XL sweep channel_flow's numba took 348 s against 7.8 s for sequential C, and
+else numba -- and the other one, numba included, is cut once a rep outlasts max(floor, 2 x the
+leader's slowest rep). In the XL sweep channel_flow's numba took 348 s against 7.8 s for sequential C, and
 seidel_2d's 161 s against 4.6 s: every grade waited for the loser.
 """
 
@@ -27,8 +27,9 @@ KERNEL = "jacobi_2d"
 #: channel_flow at XL: sequential C 7.8 s a rep, numba 348 s.
 C_LEADS_NS = 7_800_000_000
 NUMBA_TRAILS_NS = 348_000_000_000
-#: The early-stop floor these tests grade under, seconds.
-FLOOR_S = 5.0
+#: The early-stop rule these tests grade under: the shipped max(1 s, 2 x the leader's slowest rep).
+FLOOR_S = 1.0
+FACTOR = 2.0
 
 
 pytestmark = pytest.mark.usefixtures("numba_oracle_from_numpy")
@@ -100,7 +101,7 @@ def grade(
     submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
     with (
         config.overridden("measurement.baseline_race", race),
-        config.overridden("measurement.early_stop_factor", 3.0),
+        config.overridden("measurement.early_stop_factor", FACTOR),
         config.overridden("measurement.early_stop_floor_s", FLOOR_S),
         config.overridden("timeouts.kernel_s", 1000),
         config.overridden("measurement.timing_backend", "mannwhitney_delta"),
@@ -129,13 +130,13 @@ def test_the_default_race_is_leader_first_with_its_own_stamp() -> None:
 
 
 def test_a_leader_hint_puts_c_first_and_cuts_the_slow_numba(monkeypatch: pytest.MonkeyPatch) -> None:
-    """channel_flow's shape: the hint names c, so c is timed first and numba is cut at 5 + 3 x 7.8 s."""
+    """channel_flow's shape: the hint names c, so c is timed first and numba is cut at 2 x 7.8 s."""
     monkeypatch.setattr(grading, "leader_hints", lambda: {KERNEL: {"S": "c"}})
     result, timed, budgets = grade(monkeypatch, c_ns=C_LEADS_NS, numba_ns=NUMBA_TRAILS_NS)
     # The race is c then numba. Past it, c is also the ORACLE (the leader), and its write probe runs the C
     # reference once more on the perturbed buffer: the third entry, not a denominator.
     assert timed == ["c", "numba", "c"]
-    assert budgets == [pytest.approx(FLOOR_S + 3 * max(rep_samples(C_LEADS_NS)) * 1e-9)]
+    assert budgets == [pytest.approx(max(FLOOR_S, FACTOR * max(rep_samples(C_LEADS_NS)) * 1e-9))]
     assert result.correct, result.detail
     assert not result.harness_fault, result.detail
     assert result.baseline == "c"
@@ -143,10 +144,10 @@ def test_a_leader_hint_puts_c_first_and_cuts_the_slow_numba(monkeypatch: pytest.
     assert "numba" not in result.baselines
 
 
-def test_the_cut_never_changes_the_winner_when_the_loser_is_more_than_3x_slower(
+def test_the_cut_never_changes_the_winner_when_the_loser_is_more_than_2x_slower(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cut or timed in full, a loser past 3x the leader loses: the winner and its time are the
+    """Cut or timed in full, a loser past 2x the leader loses: the winner and its time are the
     complete race's."""
     monkeypatch.setattr(grading, "leader_hints", lambda: {KERNEL: {"S": "c"}})
     for numba_ns in (4 * C_LEADS_NS, NUMBA_TRAILS_NS):
@@ -158,9 +159,9 @@ def test_the_cut_never_changes_the_winner_when_the_loser_is_more_than_3x_slower(
 
 
 def test_a_close_race_times_both_references_in_full(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Within 3x (seidel_2d's C against a numba only twice as slow) nothing is cut."""
+    """Within 2x (a C leader against a numba only 1.5x as slow) nothing is cut."""
     monkeypatch.setattr(grading, "leader_hints", lambda: {KERNEL: {"S": "c"}})
-    result, timed, _ = grade(monkeypatch, c_ns=4_600_000_000, numba_ns=9_200_000_000)
+    result, timed, _ = grade(monkeypatch, c_ns=4_600_000_000, numba_ns=6_900_000_000)
     assert timed == ["c", "numba", "c"]  # the third is the C oracle's write probe, not a denominator
     assert result.baselines.keys() == {"c", "numba"}
     assert result.baseline == "c"

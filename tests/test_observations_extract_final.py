@@ -413,3 +413,35 @@ def test_a_gh200_row_that_earned_no_credit_keeps_no_speedup(
         (record, status, "", "gh200")
     ]
     assert counts["unmatched"] == 1
+
+
+@pytest.mark.parametrize(
+    ("correct", "reason", "awaits"),
+    [
+        pytest.param(1, "infra: judge-one-thread", True, id="voided-correct"),
+        pytest.param(1, "budget: token cap", True, id="budget-voided-correct"),
+        pytest.param(0, "infra: judge-one-thread", False, id="voided-wrong"),
+        pytest.param(1, "sanitizer: heap overflow", False, id="refused"),
+    ],
+)
+def test_only_a_correct_answer_an_operator_voided_awaits_its_final_grade(
+    correct: int, reason: str, awaits: bool
+) -> None:
+    assert extract.awaits_final({"correct": correct, "reason": reason}) is awaits
+
+
+def test_a_voided_correct_answer_takes_the_final_grade_that_re_timed_it(tmp_path: pathlib.Path) -> None:
+    """A correct answer whose live grade was voided (a judge on one thread) is a submission the final grade
+    decides, not a refusal: its re-timing credits it."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading(2.0, 2.0, 2.0, 2.0), regrade_ts=1)
+    voided = submission(10) | {"speedup": "", "reason": "infra: judge-one-thread"}
+    by_ts, counts, _ = extracted([voided], str(tmp_path / "v5"))
+    assert (by_ts[10]["row_kind"], by_ts[10]["speedup"]) == ("submission", pytest.approx(2.0))
+    assert counts["unmatched"] == 0
+
+
+def test_a_voided_answer_no_final_grade_re_timed_stays_an_owed_attempt() -> None:
+    voided = submission(10) | {"speedup": "", "reason": "infra: judge-one-thread"}
+    rows, counts = extract.apply_final_regrades([voided], {})
+    assert [row["row_kind"] for row in rows] == ["attempt"]
+    assert counts["not_retimed"] == 1

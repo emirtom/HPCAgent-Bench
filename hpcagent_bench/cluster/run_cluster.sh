@@ -61,6 +61,10 @@ fi
 # ...) and the host interpreter; every role step inherits them through srun --export.
 if (( $# == 0 )); then
     . "${SCRIPT_DIR}/env.sh"
+    # Inside a container the CSCS netstack hook overwrites NCCL_NET_GDR_LEVEL with PHB, and a role step there
+    # cannot re-read ENV_FILE (its EDF does not mount experiments/), so the layer's value reaches the server
+    # command (run_vllm_node) under a name the hook leaves alone.
+    export SERVER_NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-}"
 fi
 
 INFERENCE_NODES="${INFERENCE_NODES:-2}"
@@ -380,10 +384,10 @@ PY
 
     # The CSCS netstack hook (EDF com.hooks.netstack) writes its own NCCL/libfabric defaults into the
     # container AFTER the step environment, NCCL_NET_GDR_LEVEL=PHB among them, so a layer's value only
-    # reaches RCCL set inside the container, on the server command itself. With PHB, GPU-direct RDMA stayed
-    # on in every multi-node run despite pp.env, and a cross-node connect could fail registering GPU memory
-    # (NET/OFI regattr RC -22); see docs/serving/known-issues.md #5.
-    local -a server_env=(env ${NCCL_NET_GDR_LEVEL:+"NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL}"})
+    # reaches RCCL set on the server command itself, from SERVER_NCCL_NET_GDR_LEVEL (the batch shell's copy;
+    # NCCL_NET_GDR_LEVEL here is already the hook's). With PHB, GPU-direct RDMA stays on and a cross-node
+    # connect can fail registering GPU memory (NET/OFI regattr RC -22); see docs/serving/known-issues.md #5.
+    local -a server_env=(env ${SERVER_NCCL_NET_GDR_LEVEL:+"NCCL_NET_GDR_LEVEL=${SERVER_NCCL_NET_GDR_LEVEL}"})
     if [[ "${INFERENCE_ENGINE:-vllm}" == "sglang" ]]; then
         # One model over several nodes: SGLANG_PP_SIZE pipeline stages (default one per node), each stage
         # tensor-parallel over the GPUs of INFERENCE_NODES / SGLANG_PP_SIZE nodes.

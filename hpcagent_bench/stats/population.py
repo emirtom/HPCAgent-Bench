@@ -103,6 +103,7 @@ __all__ = [
     "one_baseline_policy",
     "one_bracket",
     "one_denominator",
+    "rows_denominator",
     "one_platform",
     "one_reduction",
     "per_episode_max",
@@ -277,6 +278,19 @@ def is_named(value: object) -> bool:
         return False
     text = str(value).strip()
     return bool(text) and text.lower() != "nan"
+
+
+def rows_denominator(rows: "pd.DataFrame", label: str = "") -> str:
+    """The single denominator ``rows`` were scored against (:func:`one_denominator`): the ``denominator``
+    the score rule named (``best-of(numba,c)``) where the rows record one, else their ``baseline``. A
+    best-of denominator's ``baseline`` names the reference that won per kernel, so it varies inside one
+    population."""
+    named = (
+        [value for value in rows["denominator"].tolist() if is_named(value)] if "denominator" in rows.columns else []
+    )
+    if named:
+        return one_denominator(named, label)
+    return one_denominator(rows["baseline"].tolist(), label)
 
 
 def one_denominator(values: Iterable[object], label: str = "") -> str:

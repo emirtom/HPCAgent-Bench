@@ -12,6 +12,7 @@ a "?" for a look at an unfinished study.
 
     python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
     python statistics/plot_temperature.py data/temperature3.db --out figures/temperature3.pdf
+    python statistics/plot_temperature.py data/temperature3.db --temperatures 0,default --out figures/t0-t1.pdf
 """
 
 import argparse
@@ -19,15 +20,7 @@ import pathlib
 
 from hpcagent_bench import studies, tags
 from hpcagent_bench.stats import cost, population, reliability
-from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import efficacy, per_kernel, temperature
-
-
-def cost_label(card: cost.CostModel) -> str:
-    """The token row's Y title, the card's (fresh input, cached input, output) weights under it; no-break
-    spaces keep each line whole when the axis folds a label that is too tall."""
-    weights = f"({card.fresh_input:g}, {card.cached_input:g}, {card.output:g})"
-    return f"{efficacy.cost_row_label(card.key)}\n{weights}".replace(" ", "\N{NO-BREAK SPACE}")
 
 
 def main() -> None:
@@ -36,6 +29,12 @@ def main() -> None:
     parser.add_argument("--tag", default="temperature3", help="the kernels and their order")
     parser.add_argument("--experiment", default="temperature3", help="setup prefix selecting the study")
     parser.add_argument("--setups", default="", help="regex; keep only setups whose full name matches")
+    parser.add_argument(
+        "--temperatures",
+        type=temperature.parse_temperatures,
+        default=(),
+        help="comma-separated temperatures to draw, 'default' for the model's own (e.g. 0,default); all when unset",
+    )
     parser.add_argument("--allow-owed", action="store_true", help="draw owed runs (final grade or rerun) as '?'")
     parser.add_argument(
         "--style",
@@ -44,7 +43,12 @@ def main() -> None:
         help="box: median, quartiles, whiskers to min/max; violin: run density and the median's bootstrap interval",
     )
     parser.add_argument("--title", default="")
-    parser.add_argument("--width", type=float, default=plotstyle.ACM_TEXT_WIDTH_IN, help="print width in inches")
+    parser.add_argument(
+        "--width",
+        type=float,
+        default=None,
+        help="print width in inches; default one ACM column (square) for up to two temperatures, else text width",
+    )
     parser.add_argument("--out", type=pathlib.Path, required=True, help="figure .pdf (a .png and .csv beside it)")
     cost.add_arguments(parser)
     args = parser.parse_args()
@@ -52,6 +56,8 @@ def main() -> None:
     card = cost.resolve(args.cost_model, args.cost_models)
     frame = population.select_setups(studies.read_observations(args.observations), args.experiment, args.setups)
     kernels = list(tags.kernels_of(args.tag))
+    if args.temperatures:
+        frame = temperature.select_temperatures(frame, args.temperatures)
     runs = population.designed_runs(frame)
     runs = temperature.run_costs(cost.priced(frame, card), runs.loc[runs["kernel"].isin(kernels)])
     if runs.empty:
@@ -59,7 +65,7 @@ def main() -> None:
     try:
         mode = temperature.Mode(args.style)
         fig = temperature.temperature_figure(
-            runs, kernels, args.title, args.width, args.allow_owed, cost_label(card), mode
+            runs, kernels, args.title, args.width, args.allow_owed, efficacy.cost_axis_label(card), mode
         )
     except reliability.OwedRunsError as refused:
         raise SystemExit(str(refused)) from refused

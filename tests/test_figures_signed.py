@@ -187,23 +187,31 @@ def test_canon_row_ignores_kernels_outside_the_tag(llr40_canon: pd.DataFrame) ->
     assert set(row.ratios) == {"k1"}
 
 
-def test_two_setups_of_one_model_share_shape_and_differ_in_hue(llr40_observations: pd.DataFrame) -> None:
-    """Channel rule: SHAPE is the LLM, COLOUR is the packet/condition."""
+def test_two_setups_of_one_model_share_colour_and_differ_in_shape(llr40_observations: pd.DataFrame) -> None:
+    """Channel rule of every model x packet figure: COLOUR is the model, SHAPE is the packet."""
     cpf_tool = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-tool", "qwen38", "cpf-tool", TAG40)
     cpf_src = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
-    assert cpf_tool.marker == cpf_src.marker == palette.marker("qwen38")
-    assert cpf_tool.color != cpf_src.color
-    assert cpf_tool.color == palette.color("cpf-tool")
-    assert cpf_src.color == palette.color("cpf-src")
+    assert cpf_tool.color == cpf_src.color == palette.model_color("qwen38")
+    assert (cpf_tool.marker, cpf_src.marker) == (palette.packet_marker("cpf-tool"), palette.packet_marker("cpf-src"))
+    assert cpf_tool.marker != cpf_src.marker
 
 
-def test_two_models_same_condition_share_hue_and_differ_in_shape(llr40_observations: pd.DataFrame) -> None:
+def test_two_models_same_condition_share_shape_and_differ_in_colour(llr40_observations: pd.DataFrame) -> None:
     qwen = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
     oss = signed.agent_kernel_row(llr40_observations, "llr40-oss120b-c-cpf-src", "oss120b", "cpf-src", TAG40)
-    assert qwen.color == oss.color == palette.color("cpf-src")
-    assert qwen.marker != oss.marker
-    assert qwen.marker == palette.marker("qwen38")
-    assert oss.marker == palette.marker("oss120b")
+    assert qwen.marker == oss.marker == palette.packet_marker("cpf-src")
+    assert (qwen.color, oss.color) == (palette.model_color("qwen38"), palette.model_color("oss120b"))
+    assert qwen.filled and oss.filled
+
+
+def test_the_no_packet_control_is_hollow_in_its_models_colour(llr40_observations: pd.DataFrame) -> None:
+    # the fixture's rows under the control's condition ("" = no packet)
+    control = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "", TAG40)
+    assert (control.marker, control.filled, control.color) == (
+        palette.CONTROL_MARKER,
+        False,
+        palette.model_color("qwen38"),
+    )
 
 
 def test_agent_row_carries_rule4_costs_and_a_repeat_interval(llr40_observations: pd.DataFrame) -> None:
@@ -408,7 +416,7 @@ def test_figure_keeps_the_tokens_panel_when_a_row_spends_tokens(
     fig = signed.kernel_figure(rows, TAG40, "title")
     try:
         assert len(fig.axes) == 2
-        assert fig.axes[1].get_ylabel() == "Tokens spent"
+        assert fig.axes[1].get_ylabel() == "Billed Tokens"
     finally:
         plt.close(fig)
 
@@ -595,3 +603,17 @@ def test_a_shorter_panel_makes_a_shorter_figure_at_the_same_width(llr40_canon: p
     finally:
         plt.close(tall)
         plt.close(short)
+
+
+@pytest.mark.parametrize(
+    ("baseline", "label", "ink"),
+    [
+        pytest.param("numba", "Speedup over Numba", False, id="one-framework"),
+        pytest.param("best-of(numba,c)", "Speedup over Best of GCC and Numba", True, id="best-of"),
+    ],
+)
+def test_the_reference_line_names_every_reference_a_best_of_denominator_races(
+    baseline: str, label: str, ink: bool
+) -> None:
+    assert signed.baseline_label(baseline) == label
+    assert (signed.baseline_color(baseline) == style.INK) is ink

@@ -17,6 +17,7 @@ import pytest
 
 from hpcagent_bench import paths, study_tags
 from hpcagent_bench.stats import palette, population, reliability
+from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import temperature
 from tests import repeat_runs_stub as stub
 
@@ -71,6 +72,19 @@ def test_three_rows_share_one_column_per_temperature_and_kernel_with_rules_betwe
         groups = [text.get_text() for text in fig.axes[0].texts]
         assert groups == ["Temperature = 0", "Temperature = 1 (Default)", "Temperature = 1.5"]
         assert len(fig.axes[1].patches) == columns * len(stub.SETUPS), "one cost box per model and column"
+    finally:
+        plt.close(fig)
+
+
+def test_two_temperatures_make_a_square_one_column_figure_with_short_group_titles() -> None:
+    frame = temperature.select_temperatures(stub_observations(), temperature.parse_temperatures("0,default"))
+    fig = temperature.temperature_figure(costed_runs(frame), list(stub.KERNELS), allow_owed=True)
+    try:
+        width, height = fig.get_size_inches()
+        assert width == pytest.approx(plotstyle.ACM_COLUMN_WIDTH_IN)
+        assert height == pytest.approx(width)
+        assert [text.get_text() for text in fig.axes[0].texts] == ["T = 0", "T = 1 (Default)"]
+        assert len(fig.axes[-1].get_xticks()) == 2 * len(stub.KERNELS)
     finally:
         plt.close(fig)
 
@@ -131,13 +145,27 @@ def test_the_script_writes_the_figure_and_the_runs_behind_it(tmp_path: pathlib.P
     assert len(table) == len(SUFFIXES) * len(stub.SETUPS) * len(stub.KERNELS) * stub.RUNS
 
 
+def test_the_script_draws_only_the_temperatures_asked_for(tmp_path: pathlib.Path) -> None:
+    observations = tmp_path / "stub.csv"
+    stub_observations().to_csv(observations, index=False)
+    out = tmp_path / "temperature.pdf"
+    command = [
+        sys.executable, str(SCRIPT), str(observations), "--tag", "repeat5", "--allow-owed",
+        "--cost-model", "effective", "--temperatures", "0,default", "--out", str(out),
+    ]  # fmt: skip
+    subprocess.run(command, check=True, capture_output=True, cwd=paths.ROOT)
+    assert sorted(pd.read_csv(tmp_path / "temperature.csv")["temperature"].unique()) == [0.0, 1.0]
+
+
 if __name__ == "__main__":
     test_the_temperature_is_read_off_the_setup_suffix("temperature3-qwen38-c-t1.5", 1.5)
     test_the_temperature_is_read_off_the_setup_suffix("temperature3-qwen38-c-t0", 0.0)
     test_the_temperature_is_read_off_the_setup_suffix("temperature3-qwen38-c", temperature.DEFAULT_TEMPERATURE)
     test_every_run_carries_its_own_token_cost()
     test_three_rows_share_one_column_per_temperature_and_kernel_with_rules_between_groups()
+    test_two_temperatures_make_a_square_one_column_figure_with_short_group_titles()
     test_the_rate_row_prints_solved_over_graded_per_model_and_column()
     test_the_violin_mode_draws_a_violin_and_a_darker_interval_per_spread_cell()
     test_owed_runs_are_refused_unless_allowed()
     test_the_script_writes_the_figure_and_the_runs_behind_it(pathlib.Path(tempfile.mkdtemp()))
+    test_the_script_draws_only_the_temperatures_asked_for(pathlib.Path(tempfile.mkdtemp()))

@@ -106,7 +106,7 @@ def grade(
     *,
     c_ns: int,
     numba_samples: list[int] | None,
-    factor: float = 3.0,
+    factor: float = 2.0,
     hidden: bool = True,
 ) -> tuple[scoring.Score, list[str], list[float]]:
     """One real grade of the NoOp C submission; returns it, the references in the order they were
@@ -120,7 +120,7 @@ def grade(
     submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
     with (
         config.overridden("measurement.early_stop_factor", factor),
-        config.overridden("measurement.early_stop_floor_s", 5.0),
+        config.overridden("measurement.early_stop_floor_s", 1.0),
         config.overridden("timeouts.kernel_s", 300),
         config.overridden("measurement.timing_backend", "mannwhitney_delta"),
         config.overridden("measurement.mannwhitney.repeats", 5),
@@ -143,10 +143,10 @@ def grade(
 
 
 def test_a_candidate_slower_than_the_leader_is_cut_on_its_first_rep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """xsbench: numba first, then C under a budget of floor + 3 x numba's slowest rep, not 300 s."""
+    """xsbench: numba first, then C under a budget of max(floor, 2 x numba's slowest rep), not 300 s."""
     _result, timed, budgets = grade(monkeypatch, c_ns=C_SLOW_NS, numba_samples=NUMBA_FAST)
     assert timed == ["numba", "c"]
-    assert budgets == [pytest.approx(5.0 + 3 * max(NUMBA_FAST) * 1e-9)]
+    assert budgets == [pytest.approx(max(1.0, 2 * max(NUMBA_FAST) * 1e-9))]
 
 
 def test_a_cut_candidate_leaves_the_winner_of_the_full_race_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,22 +220,20 @@ def test_a_crashing_candidate_under_the_budget_is_still_lost(monkeypatch: pytest
 @pytest.mark.parametrize(
     ("kinds", "samples", "timeout", "want"),
     [
-        (("numba", "c"), {"numba": [1_000_000_000, 2_000_000_000]}, 300.0, 10.0 + 3 * 2.0),  # slowest rep
-        (("numba", "c"), {"numba": [], "c": [4_000_000_000]}, 300.0, 10.0 + 3 * 4.0),  # leader = c
+        (("numba", "c"), {"numba": [1_000_000_000, 2_000_000_000]}, 300.0, 2 * 2.0),  # slowest rep
+        (("numba", "c"), {"numba": [], "c": [4_000_000_000]}, 300.0, 2 * 4.0),  # leader = c
         (("numba", "c"), {"numba": []}, 300.0, 0.0),  # nothing finished: no budget to derive
-        (("numba", "c"), {"numba": [100_000_000_000]}, 300.0, 0.0),  # at/above the flat timeout
-        (("c", "numba"), {"numba": [1_000_000_000]}, 300.0, 10.0 + 3 * 1.0),  # best-of-v4: numba led
+        (("numba", "c"), {"numba": [200_000_000_000]}, 300.0, 0.0),  # at/above the flat timeout
+        (("c", "numba"), {"numba": [1_000_000_000]}, 300.0, 2 * 1.0),  # best-of-v4: numba led
+        (("numba", "c"), {"numba": [200_000_000]}, 300.0, 1.0),  # a fast leader: the 1 s floor
         (("c-autopar", "c", "numba"), {"c": [1_000_000_000]}, 300.0, 0.0),  # best-of-v1
     ],
 )
 def test_the_early_stop_budget(
     kinds: tuple[str, ...], samples: dict[str, list[int]], timeout: float, want: float
 ) -> None:
-    with (
-        config.overridden("measurement.early_stop_factor", 3.0),
-        config.overridden("measurement.early_stop_floor_s", 10.0),
-    ):
-        assert grading.early_stop_seconds(samples, kinds, timeout) == pytest.approx(want)
+    """The shipped rule: ``max(1 s, 2 x the leader's slowest rep)``, the candidate guillotine's shape."""
+    assert grading.early_stop_seconds(samples, kinds, timeout) == pytest.approx(want)
 
 
 @pytest.mark.parametrize(
