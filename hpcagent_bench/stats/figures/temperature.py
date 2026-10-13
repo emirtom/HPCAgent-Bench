@@ -387,9 +387,7 @@ def temperature_figure(
     draw_groups(axes, temperatures, len(kernels), type_, defaults, square)
     states = {run.state for cell in score.cells for run in cell.runs}
     legend = key_entries(score_series, states, mode, square)
-    pk.fit_canvas(
-        fig, axes, title, legend, type_, statistics.fmean(heights), height_in=width_in if square else None
-    )
+    pk.fit_canvas(fig, axes, title, legend, type_, statistics.fmean(heights), height_in=width_in if square else None)
 
     x_of = {key: index for index, key in enumerate(columns)}
     for ax, metric in zip(axes[:2], (score, cost), strict=True):
