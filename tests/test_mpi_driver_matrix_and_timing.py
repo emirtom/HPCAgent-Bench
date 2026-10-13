@@ -125,7 +125,8 @@ def mpirun_cmd(launch: list[str], args: list[str], timeout: int = 60) -> subproc
 def gather_output(
     desc: Descriptor, outfile: pathlib.Path, shape: tuple[int, ...], dtype: type[np.float64] = np.float64
 ) -> tuple[list[float], np.ndarray]:
-    samples, outputs = unpack_outfile(pathlib.Path(outfile).read_bytes())
+    decoded = unpack_outfile(pathlib.Path(outfile).read_bytes())
+    samples, outputs = decoded.samples, decoded.outputs
     dtype_code, tiles = outputs[0]
     shaped = [t.reshape(desc.local_shape("y", shape, r)) for r, t in enumerate(tiles)]
     return samples, desc.gather("y", shaped, shape, dtype)
