@@ -29,4 +29,6 @@ def test_a_helper_called_by_a_helper_with_two_literal_sets_runs_each_set() -> No
         "  out[i] = a * 100.0 + b\n"
     )
     x = np.linspace(0.0, 1.0, 8)
-    assert_all_ok(run_op(src, "f", {"x": x}, {"out": (8,)}, {"n": 8}, shapes={"x": "(n,)", "out": "(n,)"}, backends=BACKENDS))
+    assert_all_ok(
+        run_op(src, "f", {"x": x}, {"out": (8,)}, {"n": 8}, shapes={"x": "(n,)", "out": "(n,)"}, backends=BACKENDS)
+    )
