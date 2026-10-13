@@ -272,6 +272,30 @@ def test_a_slow_but_finite_run_is_not_killed_by_the_per_rep_guard(tmp_path) -> N
     assert len(samples) == 30  # 31 x 0.05s = 1.55s total, over the 1.0s PER-REP bound
 
 
+@pytest.mark.skipif(not osinfo.IS_LINUX, reason="the per-rep guard uses SIGALRM, which is POSIX-only")
+def test_the_guillotine_bounds_the_kernel_not_its_argument_copies(tmp_path: pathlib.Path) -> None:
+    """The 2026-10-13 paper regrade: tsvc_2_s1244 answers ran in 67 ms against a 98 ms baseline, but each
+    rep also copied 300 MB of arguments in and out and spilled its outputs, about 1 s, under the alarm of the
+    1 s guillotine, so every answer was cut and credited baseline/cap. A kernel that does no work on large
+    arrays must finish all its reps under a guillotine far below its copy time."""
+    kernel = tmp_path / "copy_only.py"
+    kernel.write_text("def kern(x):\n    return x\n")
+    _, samples, _, _, timed = native_call._call_isolated(
+        str(kernel),
+        _BINDING,
+        {"x": np.zeros(40_000_000)},
+        "python",
+        device=False,
+        timeout=60.0,
+        py_meta=("kern", ("x",), ("y",)),
+        reps=3,
+        warmup=1,
+        guillotine_s=0.05,
+    )
+    assert len(samples) == 3
+    assert len(timed) == 3
+
+
 def slow_draw(seconds: float, rep: int) -> dict[str, np.ndarray]:
     """A rep's inputs from an initializer that takes ``seconds``."""
     time.sleep(seconds)

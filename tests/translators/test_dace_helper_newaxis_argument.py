@@ -92,7 +92,7 @@ def test_a_newaxis_argument_is_staged_with_the_axis_it_inserts(tmp_path: pathlib
 
 @pytest.mark.integration
 def test_the_program_parses_compiles_and_agrees_with_numpy(tmp_path: pathlib.Path) -> None:
-    generate_framework("dace_cpu").set_datatype("float64")
+    generate_framework("dace_cpu_parallel").set_datatype("float64")
     rng = np.random.default_rng(7)
     a = rng.standard_normal((BATCH, FEAT))
     w = rng.standard_normal((FEAT, FEAT))

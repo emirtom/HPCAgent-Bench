@@ -5,7 +5,7 @@
 Correctness is the ordinary CI's job; this is the speed half, run by the separate ``perf`` jobs (:data:`PERF_JOBS`) one test at a
 time (no xdist), with ``OMP_NUM_THREADS`` at the runner's core count. Each kernel is timed at preset M (big
 enough to amortize the thread team, small enough for a CI runner; KERNEL_PRESETS names the exceptions) as the median of 3 runs, under
-``dace_cpu_canonicalize`` and under the compiled baselines (both, unless KERNEL_BASELINES narrows them); the gate is canon <= 2x the faster baseline.
+``dace_cpu_canon`` and under the compiled baselines (both, unless KERNEL_BASELINES narrows them); the gate is canon <= 2x the faster baseline.
 
 The list is curated, not the corpus: each entry is a case canon has been slow on.
 """
@@ -40,7 +40,7 @@ PERF_JOBS: dict[str, tuple[str, ...]] = {
     "kernels": tuple(sorted(set(CURATED) - {"cloudsc", "cloudsc_monolith"})),
 }
 
-CANON = "dace_cpu_canonicalize"
+CANON = "dace_cpu_canon"
 BASELINES = ("numba", "cc")
 #: kernel -> the baselines it is timed against, where not both. numba spends over 25 minutes compiling the
 #: monolith on one core (cold cache, preset S), more than a CI runner's whole budget for the job.

@@ -299,7 +299,7 @@ def test_sdfg_cache_roundtrip_invalidation_and_corruption(tmp_path, monkeypatch)
     # gemm/.cache stays clean, then use a plain tmp dir for the SDFG cache calls below.
     monkeypatch.setattr(fc, "kernel_cache_dir", lambda kdir: tmp_path / "src")
     (tmp_path / "src").mkdir()
-    fw = generate_framework("dace_cpu")
+    fw = generate_framework("dace_cpu_parallel")
     fw.set_datatype("float64")
     bench = Benchmark("gemm")
     ct_impl = fw.implementations(bench)[0][0]
@@ -336,7 +336,7 @@ def test_dace_build_with_cache_bypasses_build_on_hit_and_invalidates_on_precisio
     # Redirect BOTH the source cache and the SDFG cache into tmp so the real gemm/.cache stays clean.
     monkeypatch.setattr(fc, "kernel_cache_dir", lambda kdir: cache)
 
-    fw = generate_framework("dace_cpu")
+    fw = generate_framework("dace_cpu_parallel")
     fw.set_datatype("float64")
     bench = Benchmark("gemm")
     ct_impl = fw.implementations(bench)[0][0]

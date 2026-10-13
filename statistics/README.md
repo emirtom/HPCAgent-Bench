@@ -132,7 +132,7 @@ python3 statistics/plot_score_change.py "$OBS" --experiment llr40 --setups 'llr4
 
 ```bash
 python3 statistics/plot_score_change.py "$OBS" --per-kernel \
-  --canon-db "$CANON_DB" --canon-columns pluto,dace_cpu_canonicalize,dace_gpu_canonicalize,ppcg_hip \
+  --canon-db "$CANON_DB" --canon-columns pluto,dace_cpu_canon,dace_gpu_canon,ppcg_hip \
   --experiment llr40 --setups 'llr40-(qwen38|oss120b)-c.*' --conditions ,lang-skills --tag-file tag-llr40.txt \
   --offset 0.6 --out figures/compilers-per-kernel.pdf
 ```

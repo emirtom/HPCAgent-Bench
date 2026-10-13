@@ -15,6 +15,8 @@ import pathlib
 import sqlite3
 from collections.abc import Iterable, Mapping
 
+from hpcagent_bench.support import update_names
+
 __all__ = ["KEY", "SCHEMA", "TABLE", "connect", "delete_run", "read", "record"]
 
 TABLE = "canon"
@@ -44,8 +46,10 @@ KEY = ("run", "column", "kernel", "preset", "datatype")
 
 
 def connect(path: pathlib.Path) -> sqlite3.Connection:
-    """``path`` with the table and its key index present."""
+    """``path`` with the table and its key index present; a canon DB written under older framework names is refused
+    (:func:`hpcagent_bench.support.update_names.guard`)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    update_names.guard(path, TABLE)
     conn = sqlite3.connect(path, timeout=60.0)
     conn.row_factory = sqlite3.Row
     conn.execute(f"CREATE TABLE IF NOT EXISTS {TABLE} ({', '.join(f'{n} {t}' for n, t in SCHEMA)})")

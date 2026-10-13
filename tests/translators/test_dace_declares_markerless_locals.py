@@ -70,7 +70,7 @@ def test_the_emitted_program_parses_and_runs_in_dace() -> None:
     # program annotates every parameter with it, so binding it is part of running the artifact.
     from hpcagent_bench.frameworks import generate_framework
 
-    generate_framework("dace_cpu").set_datatype("float64")
+    generate_framework("dace_cpu_parallel").set_datatype("float64")
     # np.copy, not ascontiguousarray: dace refuses a numpy VIEW argument outright to keep a
     # program analyzable, and a reshape of an arange is one -- ascontiguousarray hands the
     # already-contiguous view straight back, so only a real copy clears it.

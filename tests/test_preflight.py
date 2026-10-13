@@ -11,7 +11,7 @@ from hpcagent_bench.harness import preflight
 def test_an_agent_column_is_not_a_deterministic_one() -> None:
     """A deterministic sweep has no inference or judge role to place, so naming an agent column is
     a submission error -- caught before the allocation is spent, not during it."""
-    assert preflight.check_deterministic(["numpy", "dace_cpu"]) == []
+    assert preflight.check_deterministic(["numpy", "dace_cpu_parallel"]) == []
     assert preflight.check_deterministic(["numpy", "openai_agent"]) == ["openai_agent"]
 
 
@@ -30,16 +30,12 @@ def test_deterministic_frameworks_matches_the_frozen_pre_derivation_list() -> No
         "fortran",
         "fortran_autopar",
         "flang",
-        "dace_cpu",
         "dace_cpu_autoopt",
-        "dace_cpu_canonicalize",
+        "dace_cpu_canon",
         "dace_cpu_parallel",
-        "dace_gpu",
         "dace_gpu_autoopt",
-        "dace_gpu_canonicalize",
+        "dace_gpu_canon",
         "dace_gpu_parallel",
-        "dace_cpu_alloy",
-        "dace_cpu_canonicalize_alloy",
     }
     assert set(preflight.DETERMINISTIC_FRAMEWORKS) == frozen
 
