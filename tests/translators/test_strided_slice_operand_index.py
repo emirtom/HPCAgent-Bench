@@ -26,17 +26,11 @@ import ast
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import iter_extent_of, scalarize_at_iters
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 A12 = np.arange(1.0, 13.0)
 ZERO6 = np.zeros(6)
-
-
-def assert_ok(res) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def index_of(expr: str, shape) -> str:
@@ -76,7 +70,7 @@ def test_extent_and_index_agree_on_the_last_element() -> None:
 
 def test_strided_operand_of_elementwise_matches_numpy() -> None:
     src = "import numpy as np\ndef f(a, b, out):\n    out[:] = np.maximum(a[0::2], b)\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -91,7 +85,7 @@ def test_strided_operand_of_elementwise_matches_numpy() -> None:
 
 def test_reverse_operand_of_elementwise_matches_numpy() -> None:
     src = "import numpy as np\ndef f(a, b, out):\n    out[:] = np.maximum(a[::-1], b)\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -106,7 +100,7 @@ def test_reverse_operand_of_elementwise_matches_numpy() -> None:
 
 def test_strided_operand_of_dot_matches_numpy() -> None:
     src = "import numpy as np\ndef f(a, b, out):\n    out[0] = np.dot(a[0::2], b)\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -123,7 +117,7 @@ def test_strided_slice_assign_still_matches_numpy() -> None:
     # dwt2d's Haar shape: a bare strided slice ASSIGN, which lowering (not the
     # operand scalarizer) rewrites. Was always correct -- pinned against regression.
     src = "import numpy as np\ndef f(a, lo, hi):\n    lo[:] = a[0::2]\n    hi[:] = a[1::2]\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

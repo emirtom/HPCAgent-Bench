@@ -11,15 +11,9 @@
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
-
-
-def assert_native_ok(res: dict[str, str]) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all backends skipped (vacuous): {res}"
 
 
 def test_compound_int_floordiv_and_mod_match_numpy() -> None:
@@ -48,7 +42,7 @@ def test_compound_int_floordiv_and_mod_match_numpy() -> None:
         dtypes={"a": "int64", "b": "int64", "q": "int64", "r": "int64"},
         backends=NATIVE,
     )
-    assert_native_ok(res)
+    assert_all_ok(res)
 
 
 def test_literal_grid_unpack_does_not_overflow_int32() -> None:
@@ -56,7 +50,7 @@ def test_literal_grid_unpack_does_not_overflow_int32() -> None:
     # pairwise product exceeds 2^31 (46341*46341 = 2147488281) wrapped negative.
     src = "import numpy as np\ndef f(out):\n    nx, ny = 46341, 46341\n    out[0] = nx * ny\n"
     res = run_op(src, "f", {}, {"out": (1,)}, {}, shapes={"out": "(1,)"}, backends=("c", "cpp"))
-    assert_native_ok(res)
+    assert_all_ok(res)
 
 
 def test_floordiv_float_matches_numpy_over_overflow_range() -> None:
@@ -73,7 +67,7 @@ def test_floordiv_float_matches_numpy_over_overflow_range() -> None:
         shapes={"a": "(N,)", "b": "(N,)", "out": "(N,)"},
         backends=NATIVE,
     )
-    assert_native_ok(res)
+    assert_all_ok(res)
 
 
 def test_int_cast_floordiv_and_mod_floor_like_numpy() -> None:
@@ -99,7 +93,7 @@ def test_int_cast_floordiv_and_mod_floor_like_numpy() -> None:
         dtypes={"q": "int64", "r": "int64"},
         backends=NATIVE,
     )
-    assert_native_ok(res)
+    assert_all_ok(res)
 
 
 def test_integer_floordiv_index_emits_integer_index() -> None:
@@ -109,4 +103,4 @@ def test_integer_floordiv_index_emits_integer_index() -> None:
     src = "import numpy as np\ndef f(a, b):\n    for i in range(a.shape[0]):\n        b[i // 2] = b[i // 2] + a[i]\n"
     a = np.arange(1.0, 9.0)
     res = run_op(src, "f", {"a": a}, {"b": (4,)}, {"N": 8}, shapes={"a": "(N,)", "b": "(4,)"}, backends=NATIVE)
-    assert_native_ok(res)
+    assert_all_ok(res)

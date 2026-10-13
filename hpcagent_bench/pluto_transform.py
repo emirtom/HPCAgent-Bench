@@ -73,8 +73,6 @@ FRAMEWORK = "pluto"
 #:                     pragma, which is not automatic -- see ``flags.PLUTO_PAR``.
 POLYCC_ARGS: tuple[str, ...] = ("--pet", "--tile", "--parallel")
 
-#: The report's invocation: :data:`POLYCC_ARGS` plus verbosity, never a different transform.
-
 
 def polycc_exe() -> str | None:
     """``polycc`` on PATH, or ``None`` when Pluto is not installed."""

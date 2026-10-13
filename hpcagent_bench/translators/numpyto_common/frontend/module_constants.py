@@ -206,9 +206,9 @@ def shadowed_names(fn: ast.FunctionDef, input_args: list[str]) -> set[str]:
     return shadowed
 
 
-def single_name_assigns(tree: ast.Module) -> Iterator[tuple[str, ast.expr]]:
-    """``(name, value)`` for every module-level ``name = value``."""
-    for stmt in tree.body:
+def single_name_assigns(scope: ast.Module | ast.FunctionDef) -> Iterator[tuple[str, ast.expr]]:
+    """``(name, value)`` for every top-level ``name = value`` of a module or a function body."""
+    for stmt in scope.body:
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
             yield stmt.targets[0].id, stmt.value
 

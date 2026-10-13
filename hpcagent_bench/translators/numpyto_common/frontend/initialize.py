@@ -2,11 +2,14 @@
 
 import ast
 import pathlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 
 from hpcagent_bench.spec import as_block, as_list
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
-from hpcagent_bench.translators.numpyto_common.frontend.module_constants import inline_module_constants
+from hpcagent_bench.translators.numpyto_common.frontend.module_constants import (
+    inline_module_constants,
+    single_name_assigns,
+)
 from hpcagent_bench.translators.numpyto_common.frontend.shape_arith import (
     collect_inlined_scalar_defs,
     substitute_inlined_scalar_defs,
@@ -27,7 +30,6 @@ __all__ = [
     "elementwise_operands",
     "initialize_function",
     "kernel_array_args_",
-    "named_assigns",
     "return_targets_",
     "shape_first_arg",
     "shape_from_constructor",
@@ -142,13 +144,6 @@ def initialize_function(
     return None
 
 
-def named_assigns(init_fn: ast.FunctionDef) -> Iterator[tuple[str, ast.expr]]:
-    """``(name, value)`` for each top-level ``name = value`` of ``init_fn``."""
-    for stmt in init_fn.body:
-        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
-            yield stmt.targets[0].id, stmt.value
-
-
 def return_targets_(init_fn: ast.FunctionDef) -> list[str]:
     """The names the last ``return`` of ``init_fn`` hands back, in order."""
     for stmt in reversed(init_fn.body):
@@ -176,7 +171,7 @@ def dtypes_from_initialize(numpy_py: pathlib.Path, info: Mapping[str, object]) -
         return {}
     tree_, init_fn = loaded
     dtypes: dict[str, str] = {}
-    for name, value in named_assigns(init_fn):
+    for name, value in single_name_assigns(init_fn):
         dt = dtype_from_constructor(value)
         if dt is not None:
             dtypes[name] = dt
@@ -204,11 +199,11 @@ def shapes_from_initialize(numpy_py: pathlib.Path, info: Mapping[str, object]) -
     # ``sizes = [S0, S1]`` so ``sizes[0]`` in a shape resolves to ``S0``.
     list_locals = {
         name: [ast.unparse(e) for e in value.elts]
-        for name, value in named_assigns(init_fn)
+        for name, value in single_name_assigns(init_fn)
         if isinstance(value, ast.List)
     }
     shapes: dict[str, str] = {}
-    for name, value in named_assigns(init_fn):
+    for name, value in single_name_assigns(init_fn):
         shape = shape_from_constructor(value, shapes)
         if shape is None:
             continue

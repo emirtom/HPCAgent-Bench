@@ -18,15 +18,10 @@ import ast
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.numpy_desugar import IxWriteToLoop, rank_table
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 from tests.translators.source_module import run_source
 
 BACKENDS = ("c", "fortran")
-
-
-def all_ok(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_meshgrid_ij_3d() -> None:

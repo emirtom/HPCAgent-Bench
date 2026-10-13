@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lowering import SliceFusion
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -31,12 +31,6 @@ NATIVE = ("c", "cpp", "fortran")
 def fuse(src: str, shapes: dict) -> str:
     tree = SliceFusion(shapes).visit(ast.parse(src))
     return ast.unparse(ast.fix_missing_locations(tree))
-
-
-def assert_ok(res: dict) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 # structural: the emitted store carries the stride
@@ -100,7 +94,7 @@ def test_interleave_matches_numpy() -> None:
     # The inverse of dwt2d's Haar deinterleave, written as a strided slice assignment
     # rather than an index loop.
     src = "import numpy as np\ndef f(lo, hi, out):\n    out[0::2] = lo\n    out[1::2] = hi\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -115,7 +109,7 @@ def test_interleave_matches_numpy() -> None:
 
 def test_strided_target_with_offset_start_matches_numpy() -> None:
     src = "import numpy as np\ndef f(a, out):\n    out[1:10:3] = a\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -130,7 +124,7 @@ def test_strided_target_with_offset_start_matches_numpy() -> None:
 
 def test_strided_target_of_a_strided_read_matches_numpy() -> None:
     src = "import numpy as np\ndef f(a, out):\n    out[0::2] = a[1::2]\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -145,7 +139,7 @@ def test_strided_target_of_a_strided_read_matches_numpy() -> None:
 
 def test_strided_row_target_of_a_2d_array_matches_numpy() -> None:
     src = "import numpy as np\ndef f(a, out):\n    out[0::2, :] = a\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

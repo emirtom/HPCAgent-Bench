@@ -2,12 +2,26 @@
 
 import ast
 import re
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
 
-__all__ = ["IDENT_RE", "is_word_char", "loop_target_names", "mentions_ident", "mentions_word"]
+__all__ = ["IDENT_RE", "expand_definitions", "is_word_char", "loop_target_names", "mentions_ident", "mentions_word"]
 
 #: One C / Fortran / Python identifier. ASCII only: that is what every target language accepts.
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def expand_definitions(text: str, defs: Mapping[str, str], active: tuple[str, ...] = ()) -> str:
+    """``text`` with every identifier in ``defs`` replaced by its parenthesised definition, expanded
+    recursively. Cycle-guarded: a name already on the active substitution chain stays as written,
+    so a self- or mutually-referential definition stops expanding instead of recursing forever."""
+
+    def repl(m: re.Match[str]) -> str:
+        ident = m.group(0)
+        if ident not in defs or ident in active:
+            return ident
+        return "(" + expand_definitions(defs[ident], defs, (*active, ident)) + ")"
+
+    return IDENT_RE.sub(repl, text)
 
 
 def is_word_char(ch: str) -> bool:

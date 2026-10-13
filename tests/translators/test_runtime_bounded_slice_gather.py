@@ -19,15 +19,10 @@ permutation applied to the wrong axes -- is a wrong answer rather than a compile
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 BACKENDS = ("c", "fortran")
 TOL = 1e-9
-
-
-def ok(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_a_gather_index_bounded_by_a_runtime_scalar_shorter_than_the_buffer() -> None:
@@ -60,7 +55,7 @@ def test_a_gather_index_bounded_by_a_runtime_scalar_shorter_than_the_buffer() ->
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -91,7 +86,7 @@ def test_b_a_gathered_slice_with_a_non_zero_lower_bound_keeps_its_offset() -> No
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -119,5 +114,5 @@ def test_c_moveaxis_over_a_contraction_permutes_the_contraction_result_rank() ->
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r

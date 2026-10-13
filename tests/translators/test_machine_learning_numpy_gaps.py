@@ -14,18 +14,13 @@ Fortran + numba / pythran / jax, skip-tolerant):
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
 
 
-def ok_(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
-
-
 def run_(src, ins, outs, syms, shapes):
-    return ok_(run_op(src, "f", ins, outs, syms, shapes=shapes, backends=ALL))
+    return all_ok(run_op(src, "f", ins, outs, syms, shapes=shapes, backends=ALL))
 
 
 X = np.linspace(-2.0, 2.0, 6)

@@ -30,14 +30,9 @@ from hpcagent_bench.translators.numpyto_common import lowering
 from hpcagent_bench.translators.numpyto_common.frontend import collect_bool_preset_names
 from hpcagent_bench.translators.numpyto_common.lib_nodes import reads_complex
 from hpcagent_bench.translators.numpyto_common.lowering import ChainedSubscriptFlattener, lower
-from tests.translators.op_oracle import parse_source, run_op
+from tests.translators.op_oracle import all_ok, parse_source, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def ok_(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def expr_(s: str) -> ast.AST:
@@ -130,7 +125,7 @@ def test_a_gather_then_a_row_index_reads_the_gathered_row() -> None:
         shapes={"A": "(M,M)", "idx": "(M,)", "out": "(M,M)"},
         backends=ABI_BACKENDS,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -150,7 +145,7 @@ def test_a_gather_through_a_partial_slice_offsets_the_index_array() -> None:
         shapes={"a": "(N,)", "jdx": "(P,)", "out": "(P,)"},
         backends=ABI_BACKENDS,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -194,7 +189,7 @@ def check_chain_case(case: ChainCase, syms: Mapping[str, int]) -> None:
         backends=ABI_BACKENDS,
         dtypes=dtypes,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -403,7 +398,7 @@ def test_chained_column_dot_matches_numpy() -> None:
         shapes={"A": "(nat,K,ncol)", "box": "(nat,K)", "v": "(N,)", "out": "(nat,)"},
         backends=ALL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -431,7 +426,7 @@ def test_slice_assign_gather_offset_matches_numpy() -> None:
         shapes={"r": "(M,)", "idx": "(n,)", "out": "(P,)"},
         backends=ALL,
     )
-    ok, rr = ok_(res)
+    ok, rr = all_ok(res)
     assert ok, rr
 
 
@@ -450,7 +445,7 @@ def test_shape_of_complex_array_is_integer_bound() -> None:
     rng = np.random.default_rng(2)
     z = (rng.standard_normal(N) + 1j * rng.standard_normal(N)).astype(np.complex128)
     res = run_op(src, "f", {"z": z}, {"out": (N,)}, {"N": N}, shapes={"z": "(N,)", "out": "(N,)"}, backends=ALL)
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
