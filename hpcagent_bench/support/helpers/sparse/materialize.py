@@ -156,7 +156,7 @@ def convert(m: sp.csr_matrix, logical: str, layout: SparseFormat, pattern: bool 
 def layout_refusal(m: sp.csr_matrix, logical: str, layout: SparseFormat) -> str | None:
     """Why ``m`` cannot be converted into ``layout`` (a block edge that does not tile it), or ``None``."""
     refused = layout.refusal(shape_of(m))
-    return None if refused is None else f"layout {layout.label} for {logical!r}: {refused}"
+    return None if refused is None else f"the layout of {logical!r}: {refused}"
 
 
 def buffer_map(data: Mapping[str, object], key: str) -> dict[str, object]:

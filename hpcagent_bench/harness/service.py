@@ -52,7 +52,6 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
-
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
@@ -87,10 +86,10 @@ from hpcagent_bench.harness.requests_api import (
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
-    requested_layout,
     measure_baselines,
     ml_descriptors,
     public_detail,
+    requested_layout,
     score,
     suspect_threshold,
 )
@@ -100,8 +99,7 @@ from hpcagent_bench.harness.tools import DEFAULT_RANK
 from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
-from hpcagent_bench.support.helpers.sparse.request import is_default, resolve_layout
-from hpcagent_bench.precision import numpy_dtype
+from hpcagent_bench.support.helpers.sparse.request import resolve_layout
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
@@ -847,8 +845,9 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.
         declared = {arg.name: arg.dtype for arg in binding.pointers}
         problem = {name: declared[name] for name in problem}
-    refused = precision_refusal(requests.precisions(), problem)
-    if refused is None and requests.precisions():
+    precisions = requests.precisions()
+    refused = precision_refusal(precisions, problem)
+    if refused is None and precisions:
         refused = precision_scope_refusal(submission, task, spec)
     if refused is not None:
         return refused
@@ -897,7 +896,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
     ndims = kernel_ndims(spec.mpi, binding)
     regroups, layouts = requests.single_node(kernel_arrays(binding, ndims, problem))
     stored = dict(problem)
-    stored.update({name: np.dtype(numpy_dtype(p)).name for name, p in requests.precisions().items()})
+    stored.update({name: p.element for name, p in requests.precisions().items()})
     templates = {name: np.dtype(dtype) for name, dtype in stored.items()}
     arrays: dict[str, object] = {
         name: {"dtype": dtype, **({"extents": list(layouts[name].extents())} if name in layouts else {})}
@@ -999,11 +998,9 @@ def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec)
         return None
     if torch_reference.has_torch_reference(spec):
         return "cast is not implemented on the ML track yet (its ranks generate their own inputs)"
-    default = mpi_residency()
+    default, locations = mpi_residency(), submission.requests.locations()
     device = sorted(
-        name
-        for name in submission.requests.precisions()
-        if submission.requests.locations().get(name, default) is Location.DEVICE
+        name for name in submission.requests.precisions() if locations.get(name, default) is Location.DEVICE
     )
     if device:
         return f"cast on device-resident MPI tiles ({device}) is not implemented yet; keep them on the host"
@@ -1717,13 +1714,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             refused = layout_refusal(submission, task)
         if refused is None:
             refused = workspace_refusal(submission, task)
-        if (
-            refused is None
-            and route == "profile"
-            and not is_default(
-                BenchSpec.load(kernel), resolve_layout(BenchSpec.load(kernel), submission.requests.formats())
-            )
-        ):
+        if refused is None and route == "profile" and requested_layout(BenchSpec.load(kernel), submission) is not None:
             refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"
         if refused is None and route == "profile" and converts_kernel_arrays(submission.requests):
             refused = (

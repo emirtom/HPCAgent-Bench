@@ -12,7 +12,6 @@ import ast
 import numpy as np
 import pytest
 import scipy.sparse as sp
-
 from relayout.sparse import SparseFormat
 
 from hpcagent_bench.support.helpers.sparse.abi import FORMAT_SPECS, FORMATS, scalar_name

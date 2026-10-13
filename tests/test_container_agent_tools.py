@@ -436,7 +436,7 @@ def test_the_requests_field_requires_a_layout_exactly_where_the_judge_grades_dis
     monkeypatch, value, offered
 ) -> None:
     """The mlscale setups export ``HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED=true`` to judge AND agent. There
-    the judge refuses any submission without ``requests.grid`` + ``requests.layout``, so the tool schema
+    the judge refuses any submission without ``startup.grid`` and layout operations, so the tool schema
     describes ``requests`` as carrying them; everywhere else it describes the optional block."""
     tools = load_tools(monkeypatch, "source", "hip", distributed=value)
     expected = (

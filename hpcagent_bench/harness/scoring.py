@@ -124,7 +124,7 @@ from hpcagent_bench.harness.sandbox import BuildResult, Sandbox, submission_omp_
 from hpcagent_bench.harness.task import Task, device_plausibility_row
 from hpcagent_bench.harness.torch_baseline import TorchBaselineUnavailable
 from hpcagent_bench.harness.torch_baseline import time_samples as torch_time_samples
-from hpcagent_bench.precision import UngradeableTolerance, accumulation_eps, numpy_dtype, precision_from_datatype
+from hpcagent_bench.precision import UngradeableTolerance, accumulation_eps, precision_from_datatype
 from hpcagent_bench.spec import BenchSpec, as_block
 from hpcagent_bench.stats import score_rule, summary
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -1553,7 +1553,7 @@ def layout_label(task: Task, submission: Submission) -> str:
     """What :attr:`Score.layout` records for ``submission``: its resolved sparse layout (the defaults
     when it requested none), "" for a dense kernel."""
     spec = BenchSpec.load(task.kernel)
-    choice = resolve_layout(spec, submission.requests.formats()) or default_choice(spec)
+    choice = resolve_layout(spec, submission.requests.formats())
     return choice.label if choice is not None else ""
 
 
@@ -1572,7 +1572,7 @@ def candidate_casts(
     precision = {name: p for name, p in requests.precisions().items() if name not in grouped}
     if not precision and not layouts and not regroups:
         return None
-    stored = {name: np.dtype(numpy_dtype(p)).name for name, p in precision.items()}
+    stored = {name: p.element for name, p in precision.items()}
     stored.update({name: problem[name] for name in layouts if name not in stored})
     conversions = tuple(
         precision_casts.layout_conversion(name, layout, problem[name], stored[name])
@@ -3186,7 +3186,7 @@ def score_distributed(
     )
     if not native_samples:
         return graded
-    # The casts around the fastest repeat (requests.precision): recorded, never in the score.
+    # The casts around the fastest repeat (requests.precisions()): recorded, never in the score.
     fastest = native_samples.index(min(native_samples))
     return replace(
         graded, convert_in_ns=launched.convert_in_ns[fastest], convert_out_ns=launched.convert_out_ns[fastest]

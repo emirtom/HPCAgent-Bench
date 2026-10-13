@@ -23,6 +23,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from relayout.sparse import SparseFormat
+
 from hpcagent_bench import config, sizing
 from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 from hpcagent_bench.frameworks.forked import RunResult, forked_failure_reason, run_forked
@@ -31,8 +33,6 @@ from hpcagent_bench.harness import recording
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.collect import canon_db
-from relayout.sparse import SparseFormat
-
 from hpcagent_bench.support.helpers.sparse.abi import BLOCK_FORMAT, LayoutRefused
 
 __all__ = [
@@ -472,14 +472,13 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
     from hpcagent_bench.harness.task import Task
 
     spec = BenchSpec.load(kernel)
-    label = SparseFormat(fmt, block_size if fmt == BLOCK_FORMAT else 0).label
+    formats = sparse_config_for(spec, fmt, block_size)
+    label = next(iter(formats.values()))
     started = time.time()
     source = layout_reference_source(spec, fmt)
     if source is None:
         return SparseCase(kernel, label, "untranslated", "no reference translation for this layout")
-    submission = Submission(
-        language="c", source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, block_size))
-    )
+    submission = Submission(language="c", source=source, requests=Requests.of(sparse=formats))
     task = Task(kernel, language="c")
     try:
         # A correctness sweep: the translation is sequential and naive, so no speed guillotine, and

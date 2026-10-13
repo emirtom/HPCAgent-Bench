@@ -6,10 +6,10 @@ sparse layouts, and every kernel declaring the whole ladder within its ceilings.
 
 import dataclasses
 
-from hpcagent_bench.sizing import PRESETS, S_BYTE_CEILING, XL_BYTE_CEILING, working_bytes
-from hpcagent_bench.spec import KERNELS
 from relayout.sparse import SparseFormat
 
+from hpcagent_bench.sizing import PRESETS, S_BYTE_CEILING, XL_BYTE_CEILING, working_bytes
+from hpcagent_bench.spec import KERNELS
 from hpcagent_bench.support.helpers.sparse.abi import ResolvedLayout
 
 

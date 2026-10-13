@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``requests.precision``: the judge converts the requested arrays around every call, outside the score.
+"""``requests.precisions()``: the judge converts the requested arrays around every call, outside the score.
 
 The harness's casts are bit-exact against the ml_dtypes/numpy conversions; the judge refuses a request
 that changes nothing or that this delivery cannot take; a grade records the conversion time beside the
@@ -17,17 +17,16 @@ import sqlite3
 import ml_dtypes
 import numpy as np
 import pytest
-
 from relayout.ops import ArraySpec
 
 from hpcagent_bench.harness import grading, mpi_wire, precision_casts, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
-from hpcagent_bench.precision import Precision
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
 from hpcagent_bench.harness.service import converts_kernel_arrays, requests_check, requests_refusal
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.mpi_driver import gen_mpi_driver
@@ -283,10 +282,12 @@ def test_a_zip_of_problem_arrays_of_different_types_is_a_struct() -> None:
     arrays = [ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float32")]
     zipped = Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
     (struct,) = zipped.single_node(arrays).regroups
-    assert struct.group.struct == "hb_zip_Z" and struct.part_dtypes == ("float64", "float32")
+    assert struct.group.struct == "hb_zip_Z"
+    assert struct.part_dtypes == ("float64", "float32")
     cast_first = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
     (stacked,) = Requests.from_obj({"operations": cast_first}).single_node(arrays).regroups
-    assert stacked.group.dim == 2 and stacked.whole_dtype == np.float32
+    assert stacked.group.dim == 2
+    assert stacked.whole_dtype == np.float32
 
 
 STACKED_JACOBI = """
@@ -353,8 +354,10 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
         submission = Submission(language="c", source=source, requests=Requests.from_obj({"operations": operations}))
         assert requests_refusal(submission, task, "float64") is None
         result = score(submission, task, preset="S", repeat=2, hidden=False, baseline="c", **tolerance)
-        assert result.build_ok and result.correct, result.detail
-        assert result.convert_in_ns > 0 and result.convert_out_ns > 0
+        assert result.build_ok, result.detail
+        assert result.correct, result.detail
+        assert result.convert_in_ns > 0
+        assert result.convert_out_ns > 0
 
 
 def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal() -> None:
@@ -371,7 +374,8 @@ def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal(
         "void jacobi_2d_fp64(hb_zip_Z *, int64_t, int64_t, uint8_t *, int64_t);"
     )
     refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64")
-    assert refused["accepted"] is False and "python" in str(refused["refusal"])
+    assert refused["accepted"] is False
+    assert "python" in str(refused["refusal"])
 
 
 @isolated
@@ -383,7 +387,8 @@ def test_a_laid_out_grade_converts_in_and_out_and_is_correct() -> None:
     result = score(laid_out(), Task("jacobi_2d", "restricted", "c"), preset="S", repeat=3, hidden=False, baseline="c")
     assert result.build_ok, result.detail
     assert result.correct, result.detail
-    assert result.convert_in_ns > 0 and result.convert_out_ns > 0
+    assert result.convert_in_ns > 0
+    assert result.convert_out_ns > 0
 
 
 def test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi() -> None:

@@ -9,12 +9,12 @@ request the kernel cannot honour is refused before anything is built (HTTP 400, 
 not spent). The judge then converts the canonical matrix into that layout, untimed
 (:func:`hpcagent_bench.support.helpers.sparse.materialize.apply_layout`)."""
 
-from hpcagent_bench.spec import BenchSpec, bsr_block_sizes
-from hpcagent_bench.support.distributions.perturbation import Perturbation
 from collections.abc import Mapping
 
 from relayout.sparse import SparseFormat
 
+from hpcagent_bench.spec import BenchSpec, bsr_block_sizes
+from hpcagent_bench.support.distributions.perturbation import Perturbation
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused, ResolvedLayout
 
 __all__ = [
@@ -142,7 +142,10 @@ def resolve_layout(spec: BenchSpec, raw: Mapping[str, str] | None) -> ResolvedLa
                 f"{spec.short_name} has no sparse arrays; a format operation applies to sparse kernels only"
             )
         return None
-    requested = {name: SparseFormat.parse(label) for name, label in (raw or {}).items()}
+    try:
+        requested = {name: SparseFormat.parse(label) for name, label in (raw or {}).items()}
+    except ValueError as exc:
+        raise LayoutRefused(str(exc)) from None
     unknown = sorted(set(requested) - set(spec.sparse_layouts))
     if unknown:
         raise LayoutRefused(

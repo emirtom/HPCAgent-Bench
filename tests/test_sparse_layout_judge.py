@@ -112,7 +112,7 @@ def test_a_csr_kernel_submitted_as_csc_grades_wrong(judge: JudgeClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kernel", "sparse_config", "match"),
+    ("kernel", "formats", "match"),
     [
         ("bicgstab", {"A": "bsr:3"}, "block_size 3"),
         ("bicgstab", {"B": "csr"}, "no array 'B'"),
@@ -120,9 +120,9 @@ def test_a_csr_kernel_submitted_as_csc_grades_wrong(judge: JudgeClient) -> None:
     ],
 )
 def test_a_request_the_kernel_cannot_honour_is_a_400_before_the_build(
-    judge: JudgeClient, kernel: str, sparse_config: dict, match: str
+    judge: JudgeClient, kernel: str, formats: dict, match: str
 ) -> None:
-    submission = Submission(language="c", source="this does not compile", requests=Requests.of(sparse=sparse_config))
+    submission = Submission(language="c", source="this does not compile", requests=Requests.of(sparse=formats))
     assert match in refusal(judge, submission, kernel)
 
 

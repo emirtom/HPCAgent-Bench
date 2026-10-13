@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import scipy.sparse as sp
+from relayout.sparse import SparseFormat
 
 from hpcagent_bench import fuzz, paths
 from hpcagent_bench.emit_bridge import emit_kernel
@@ -23,8 +24,6 @@ from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.rep_variation import classify_args, variant_for
 from hpcagent_bench.harness.requests_api import Requests
-from relayout.sparse import SparseFormat
-
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.helpers.sparse.abi import (
@@ -207,7 +206,7 @@ def test_a_malformed_format_is_a_request_fault(label: object, match: str) -> Non
         Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": label}]})
 
 
-def test_the_sparse_config_rides_the_envelope_both_ways() -> None:
+def test_the_format_operations_ride_the_envelope_both_ways() -> None:
     sub = Submission(language="c", source="x", requests=Requests.of(sparse={"A": "bsr:4"}))
     assert Submission.from_obj(sub.to_json()).requests.formats() == sub.requests.formats()
     assert sub.requests.formats() == {"A": "bsr:4"}

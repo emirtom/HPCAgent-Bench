@@ -17,7 +17,6 @@ Exits 0 on success (assertions raise -> non-zero exit -> the pytest wrapper read
 import sys
 
 import numpy as np
-
 from relayout.ops import Scheme
 
 from hpcagent_bench.harness.mpi_descriptor import (

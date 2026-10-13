@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 import relayout.ops
+from relayout.convert import Group, Member
+from relayout.layout import IndexMap
 from relayout.ops import (
     RANKS_SYMBOL,
     ArrayName,
@@ -38,8 +40,6 @@ from relayout.ops import (
     lower,
     operations_for_axes,
 )
-from relayout.convert import Group, Member
-from relayout.layout import IndexMap
 from relayout.requests import parse_requests, requests_json
 
 from hpcagent_bench import config

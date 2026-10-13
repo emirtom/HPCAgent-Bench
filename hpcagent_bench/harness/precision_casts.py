@@ -50,9 +50,9 @@ __all__ = [
     "device_regroup",
     "device_relayout",
     "extent_names",
-    "layout_conversion",
     "host_functions",
     "host_library",
+    "layout_conversion",
     "storage_view_dtype",
     "symbol",
 ]

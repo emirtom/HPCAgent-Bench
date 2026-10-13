@@ -22,12 +22,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Self
 
-import numpy as np
-
 from hpcagent_bench import config, flags, languages, omp_context, seal
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
-from hpcagent_bench.precision import numpy_dtype
 from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_mpi_driver, kernel_library_path, mpi_symbol
 
@@ -687,7 +684,7 @@ class Sandbox:
 
         driver_src = self.root / f"{short}_mpi_driver.{driver_ext}"
         # cast operations: the driver converts each requested (host) tile around every call.
-        casts = {name: np.dtype(numpy_dtype(p)).name for name, p in submission.requests.precisions().items()}
+        casts = {name: p.element for name, p in submission.requests.precisions().items()}
         driver_src.write_text(gen_mpi_driver(self.binding, descriptor.grid.dims, device_arrays=device_idx, casts=casts))
         # Every translation unit the delivery carries (a GPU submission has two).
         units = languages.source_units(submission.language, mpi_symbol(self.binding))

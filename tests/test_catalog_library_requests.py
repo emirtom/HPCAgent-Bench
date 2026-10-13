@@ -1,8 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``requests.libraries``: named requests against the advertised catalog (envs/libraries.yaml),
+"""``requests.startup.load``: named requests against the advertised catalog (envs/libraries.yaml),
 distinct from ``build``'s free-form ``-l<name>`` (a library the agent built itself). Covers the
-end-to-end wiring this module adds -- Submission.requests.libraries -> Sandbox.build /
+end-to-end wiring this module adds -- Submission.requests.startup.load -> Sandbox.build /
 service._submission_from_body -- not the catalog's own resolution logic, which
 tests/test_library_requests.py already pins.
 """
@@ -127,7 +127,7 @@ def test_an_unoffered_catalog_request_is_a_400_and_does_not_spend_the_submission
     """The HTTP boundary: a 400 is a request fault the agent may retry, never a graded (and thus
     single-submission-spending) attempt. submit.py's own SINGLE_SUBMISSION marker keys off exactly
     this status range (request_refused), so proving the refusal IS a 4xx here is what makes that
-    contract hold for 'requests.libraries' the same way it already does for every other malformed body."""
+    contract hold for 'requests.startup.load' the same way it already does for every other malformed body."""
     srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
     try:
         status, body = _post(

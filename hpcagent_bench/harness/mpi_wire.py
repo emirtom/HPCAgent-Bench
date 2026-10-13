@@ -36,7 +36,7 @@ OUTFILE::
     header   : int64[5] = [MAGIC, VERSION, nranks, K, n_out]
     samples  : float64[K]                             # per-repeat MAX-over-ranks kernel seconds
     cast_in  : float64[K]                             # per-repeat MAX-over-ranks precision cast-in
-    cast_out : float64[K]                             #   and cast-out seconds (0 = no requests.precision)
+    cast_out : float64[K]                             #   and cast-out seconds (0 = no requests.precisions())
     out_meta : n_out * (int64 elem_size, int64 type_code)
     counts   : n_out * nranks * int64                 # per-rank tile element counts
     payload  : for each output, the nranks gathered tiles concatenated in rank order (raw LE)

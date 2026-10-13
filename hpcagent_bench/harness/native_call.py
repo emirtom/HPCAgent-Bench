@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol, cast
 
 import numpy as np
 from cffi import FFI
+from relayout.convert import Conversion
+from relayout.layout import IndexMap
 
 from hpcagent_bench import config, flags, languages, omp_context, openmp_runtimes, osinfo, seal
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
@@ -36,8 +38,6 @@ from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_fo
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.harness import precision_casts, timing
 from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, Regroup, storage_view_dtype
-from relayout.convert import Conversion
-from relayout.layout import IndexMap
 from hpcagent_bench.harness.task import setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import WORKSPACE_DTYPE, Arg, Binding, index_base
 from hpcagent_bench.units import BYTES_PER_GIB, BYTES_PER_KIB, NS_PER_MS
@@ -1036,7 +1036,7 @@ class RepTiming:
     """One timed rep. ``ns`` is the credited sample (GPU events on a device grade, the host bracket on
     a host one); ``host_ns`` is the host bracket either way; ``residual_ns`` is
     :func:`quiescence_residual` after the clock stopped. ``convert_in_ns`` / ``convert_out_ns`` time the
-    precision casts around the call (requests.precision), in their own brackets: never in ``ns``."""
+    precision casts around the call (requests.precisions()), in their own brackets: never in ``ns``."""
 
     ns: int
     host_ns: int
@@ -1183,7 +1183,7 @@ def _call_native_impl(
     """Shared FFI body of the host and device native calls: marshal ``data`` to the canonical symbol of
     ``lib_path`` and time ``reps`` calls (plus ``warmup`` discarded ones).
 
-    ``casts`` (requests.precision) names the arrays the kernel takes in another precision: each is staged
+    ``casts`` (requests.precisions()) names the arrays the kernel takes in another precision: each is staged
     at the problem precision as usual, converted by ``convert`` into a buffer of its requested type before
     the call and back after it, in brackets of their own (:attr:`RepTiming.convert_in_ns`), never the score.
 
@@ -2196,7 +2196,7 @@ def _call_isolated(
     than the default runs in a SPAWNED child whose ``LD_LIBRARY_PATH`` puts that context's libraries first,
     so exactly that family's OpenMP runtime, BLAS and numba pool are what the child maps.
 
-    ``casts`` (requests.precision) are the arrays the call converts into their requested types around every
+    ``casts`` (requests.precisions()) are the arrays the call converts into their requested types around every
     call (:func:`_call_native_impl`); a host grade's cast library sits beside ``lib_path``."""
     # Residency picks the child for every delivery, python included.
     use_device = device
