@@ -172,7 +172,7 @@ def fold_legacy_grade(row: dict[str, Value]) -> dict[str, Value]:
     """``row`` (a ``grades`` row as a column dict) with v6's per-request columns folded into v7's
     ``requests`` and ``convert_in_ns``; a v7 row is returned unchanged. An MPI distribution becomes
     its ``distribute`` / ``replicate`` operations (:meth:`Requests.from_plan`), a sparse request its
-    ``format`` operations."""
+    ``format`` operations; a recorded distribution that is no plan (a refused call's) is left out."""
     if not any(name in row for name in LEGACY_GRADE_COLUMNS):
         return row
     libraries = json.loads(str(row.pop("requested_libraries", "") or "[]"))
@@ -180,9 +180,14 @@ def fold_legacy_grade(row: dict[str, Value]) -> dict[str, Value]:
     sparse = str(row.pop("layout_request", "") or "")
     prep = int(row.pop("layout_prep_ns", 0) or 0)
     formats = Requests.of(sparse=json.loads(sparse)).operations if sparse else ()
-    requests = (
-        Requests.from_plan(json.loads(distribution), libraries) if distribution else Requests.of(libraries=libraries)
-    )
+    requests = Requests.of(libraries=libraries)
+    if distribution:
+        try:
+            requests = Requests.from_plan(json.loads(distribution), libraries)
+        except (KeyError, TypeError, ValueError):
+            # v6 also recorded the distribution a refused call sent, which need not be a plan: such a call
+            # graded nothing, and its request keeps what does fold.
+            pass
     block = Requests(requests.startup, requests.operations + formats).to_json()
     row["requests"] = json.dumps(block, sort_keys=True) if block else ""
     row["convert_in_ns"] = prep
@@ -191,7 +196,18 @@ def fold_legacy_grade(row: dict[str, Value]) -> dict[str, Value]:
 
 def upgrade_legacy(conn: sqlite3.Connection) -> None:
     """Upgrade an open v6 file to the current schema in place: add v7's columns, fold every grade's
-    per-request columns into them (:func:`fold_legacy_grade`), drop the folded columns."""
+    per-request columns into them (:func:`fold_legacy_grade`), drop the folded columns; one transaction, so
+    a failure leaves the file at version 6."""
+    conn.execute("BEGIN")
+    try:
+        upgrade_legacy_columns(conn)
+    except BaseException:
+        conn.rollback()
+        raise
+    conn.commit()
+
+
+def upgrade_legacy_columns(conn: sqlite3.Connection) -> None:
     for name, ddl in (
         ("requests", "TEXT NOT NULL DEFAULT ''"),
         ("convert_in_ns", "INTEGER NOT NULL DEFAULT 0"),
@@ -208,7 +224,6 @@ def upgrade_legacy(conn: sqlite3.Connection) -> None:
     for name in LEGACY_GRADE_COLUMNS:
         conn.execute(f"ALTER TABLE grades DROP COLUMN {name}")
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-    conn.commit()
 
 
 def grade_columns(conn: sqlite3.Connection, alias: str, names: Sequence[str]) -> str:

@@ -47,11 +47,11 @@ import types
 import uuid
 from collections.abc import Generator, Mapping, Sequence
 from http import HTTPStatus
-
-import numpy as np
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
+
+import numpy as np
 
 from relayout.ops import Cast, DigitOperation, Distribute, Format
 
@@ -86,6 +86,7 @@ from hpcagent_bench.harness.requests_api import (
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
+    requested_layout,
     measure_baselines,
     ml_descriptors,
     public_detail,
@@ -884,12 +885,13 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
     if refusal is not None:
         return {"accepted": False, "refusal": refusal}
     spec = BenchSpec.load(kernel)
-    binding = binding_from_spec(spec)
+    choice = requested_layout(spec, probe)
+    binding = binding_from_spec(spec) if choice is None else binding_from_spec(spec, config=choice.format)
     problem = precision_problem_dtypes(spec, binding, datatype)
     stored = {a.name: problem.get(a.name, a.dtype) for a in binding.pointers}
     stored.update({name: np.dtype(numpy_dtype(p)).name for name, p in requests.precision.items()})
     ndims = kernel_ndims(spec.mpi, binding)
-    layouts = {} if requests.distributed else requests.layouts(ndims)
+    layouts = requests.layouts(kernel_arrays(binding, ndims))
     arrays: dict[str, object] = {
         name: {"dtype": dtype, **({"extents": list(layouts[name].extents())} if name in layouts else {})}
         for name, dtype in stored.items()
@@ -904,12 +906,19 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
     return answer
 
 
+def single_node_layout_ops(requests: Requests) -> list[DigitOperation]:
+    """The digit operations a request without a grid lays its arrays out by (none with a grid)."""
+    if requests.distributed:
+        return []
+    return [op for op in requests.operations if isinstance(op, DigitOperation) and not isinstance(op, Distribute)]
+
+
 def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSpec) -> str | None:
     """Why the operations of a request without a grid cannot be honoured, or None: the judge converts a dense
     array into the layout its digit operations leave around a C-ABI call; ``zip`` / ``unzip`` (a struct or new
     arrays), ``place``, python deliveries, sparse arrays and distributed kernels are not covered yet."""
     operations = submission.requests.operations
-    layout_ops = [op for op in operations if isinstance(op, DigitOperation) and not isinstance(op, Distribute)]
+    layout_ops = single_node_layout_ops(submission.requests)
     other = sorted({op.action.value for op in operations if not isinstance(op, Cast | Format) and op not in layout_ops})
     if other:
         return f"{', '.join(other)} without startup.grid is not implemented yet (see docs/requests_api.md)"
@@ -1663,6 +1672,15 @@ class JudgeHandler(BaseHTTPRequestHandler):
             )
         ):
             refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"
+        if (
+            refused is None
+            and route == "profile"
+            and (submission.requests.precision or single_node_layout_ops(submission.requests))
+        ):
+            refused = (
+                "profiling runs the kernel on the problem's arrays as they are; drop the cast and layout operations "
+                "from a /profile request"
+            )
         if refused is not None:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": refused})
         if route == "profile":

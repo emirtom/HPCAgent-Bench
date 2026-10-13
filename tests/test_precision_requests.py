@@ -235,6 +235,8 @@ def test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64
     assert grading.reference_cast_targets(binding, data) == (("x", "float64"), ("y", "float64"))
     widened = {**data, "x": data["x"].astype(np.float64), "y": data["y"].astype(np.float64)}
     assert grading.reference_cast_targets(binding, widened) == ()
+    narrow = {**data, "x": np.zeros(4, ml_dtypes.bfloat16)}
+    assert grading.reference_cast_targets(binding, narrow) == (("x", "float64"), ("y", "float64"))
 
 
 @isolated
@@ -308,6 +310,19 @@ def test_a_schema_6_file_merges_and_upgrades_in_place(tmp_path: pathlib.Path) ->
             assert not columns & set(results_db.LEGACY_GRADE_COLUMNS), name
 
 
+def test_a_refused_calls_distribution_folds_to_what_it_can_and_the_file_upgrades(tmp_path: pathlib.Path) -> None:
+    """v6 recorded the distribution a refused call sent, which need not be a plan: it folds to the libraries
+    alone, and the upgrade in place still completes."""
+    legacy_db(tmp_path / "v6.db")
+    with contextlib.closing(sqlite3.connect(tmp_path / "v6.db")) as conn:
+        conn.execute("UPDATE grades SET distribution = ?", (json.dumps({"grid": [4]}),))
+        conn.commit()
+    with contextlib.closing(results_db.open_db(tmp_path / "v6.db")) as upgraded:
+        assert results_db.schema_version(upgraded) == results_db.SCHEMA_VERSION
+        (requests,) = upgraded.execute("SELECT requests FROM grades").fetchone()
+    assert json.loads(requests) == {"startup": {"load": ["blas"]}}
+
+
 def test_the_mpi_driver_calls_the_kernel_on_converted_tiles() -> None:
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     source = gen_mpi_driver(binding, (4,), casts={"x": "float32", "y": "float32"})
@@ -370,6 +385,8 @@ if __name__ == "__main__":
         test_a_schema_6_file_is_read_through_the_new_columns(pathlib.Path(scratch))
     with tempfile.TemporaryDirectory() as scratch:
         test_a_schema_6_file_merges_and_upgrades_in_place(pathlib.Path(scratch))
+    with tempfile.TemporaryDirectory() as scratch:
+        test_a_refused_calls_distribution_folds_to_what_it_can_and_the_file_upgrades(pathlib.Path(scratch))
     test_the_mpi_driver_calls_the_kernel_on_converted_tiles()
     test_the_outfile_carries_the_cast_samples()
     test_the_prompt_tables_the_precisions_for_a_compiled_task_only()

@@ -119,7 +119,7 @@ from hpcagent_bench.harness.native_call import (
     grading_cpus,
 )
 from hpcagent_bench.harness.precision_casts import CastPlan
-from hpcagent_bench.harness.requests_api import Location, mpi_residency
+from hpcagent_bench.harness.requests_api import Location, kernel_arrays, mpi_residency, precision_problem_dtypes
 from hpcagent_bench.harness.sandbox import BuildResult, Sandbox, submission_omp_context
 from hpcagent_bench.harness.task import Task, device_plausibility_row
 from hpcagent_bench.harness.torch_baseline import TorchBaselineUnavailable
@@ -1053,6 +1053,7 @@ def independent_verify(
             built = sb.build(submission, mode=Mode.SINGLE_CORE)
             if not built.ok:
                 return VerifyResult(False, False, False, False, False, "rebuild failed")
+            cand_casts = candidate_casts(submission, built.require_lib(), device, spec, cand_binding, datatype)
 
             def _run(d: KernelData) -> dict[str, np.ndarray]:
                 outs, _samples, _mem, _extra, _timed = _call_isolated(
@@ -1065,7 +1066,7 @@ def independent_verify(
                     memory_gb=memory_gb,
                     workspace_bytes=submission.workspace_bytes,
                     omp_context_name=submission_omp_context(submission),
-                    casts=candidate_casts(submission, built.require_lib(), device, d),
+                    casts=cand_casts,
                 )
                 return outs
 
@@ -1557,27 +1558,27 @@ def layout_label(task: Task, submission: Submission) -> str:
 
 
 def candidate_casts(
-    submission: Submission, lib: pathlib.Path, device: bool, data: Mapping[str, Any]
+    submission: Submission, lib: pathlib.Path, device: bool, spec: BenchSpec, binding: Binding, datatype: str
 ) -> CastPlan | None:
     """The conversions the candidate's calls run (its ``cast`` operations and its single-node layouts), or
-    None when it requests none. A host grade's library is built in the submission's OpenMP context (with the
-    layout kernels of this request) and copied beside ``lib``."""
-    precision = submission.requests.precision
-    arrays = {name: value for name, value in data.items() if isinstance(value, np.ndarray)}
-    layouts = (
-        {} if submission.requests.distributed else submission.requests.layouts({n: a.ndim for n, a in arrays.items()})
-    )
+    None when it requests none; one plan per build, whatever the size of a call. A host grade's library is
+    built in the submission's OpenMP context (with the layout kernels of this request) and copied beside
+    ``lib``."""
+    requests = submission.requests
+    precision = requests.precision
+    layouts = requests.layouts(kernel_arrays(binding, kernel_ndims(spec.mpi, binding)))
     if not precision and not layouts:
         return None
+    problem = {arg.name: arg.dtype for arg in binding.pointers}
+    problem.update(precision_problem_dtypes(spec, binding, datatype))
     stored = {name: np.dtype(numpy_dtype(p)).name for name, p in precision.items()}
-    stored.update({name: arrays[name].dtype.name for name in layouts if name not in stored})
-    targets = tuple(sorted(stored.items()))
+    stored.update({name: problem[name] for name in layouts if name not in stored})
     conversions = tuple(
-        precision_casts.layout_conversion(name, layout, arrays[name].dtype.name, stored[name])
+        precision_casts.layout_conversion(name, layout, problem[name], stored[name])
         for name, layout in sorted(layouts.items())
     )
     host = "" if device else str(precision_casts.host_library(submission_omp_context(submission), lib, conversions))
-    return CastPlan(targets, host, tuple(sorted(layouts.items())))
+    return CastPlan(tuple(sorted(stored.items())), host, tuple(sorted(layouts.items())))
 
 
 def requested_layout(spec: BenchSpec, submission: Submission) -> ResolvedLayout | None:
@@ -1844,6 +1845,7 @@ def graded_score(
                 oracle=oracle,
                 build_commands=built.commands,
             )
+        cand_casts = candidate_casts(submission, built.require_lib(), device, spec, cand_binding, datatype)
         if skipped:  # nothing is timed: an input the layout cannot hold fails the kernel
             return uncovered_grade(
                 built,
@@ -2372,7 +2374,7 @@ def graded_score(
                     followups=canonical_followups + hidden_followups,
                     rep_data=candidate_builder(task.kernel, choice, rep_data),
                     omp_context_name=submission_omp_context(submission),
-                    casts=candidate_casts(submission, built.require_lib(), device, cand_data),
+                    casts=cand_casts,
                 )
 
             try:
@@ -4080,6 +4082,7 @@ def score_cells(
                 CellScore(c["label"], bool(c.get("timed")), False, False, False, 0.0, 0, 0, baseline, log)
                 for c in cells
             ]
+        cand_casts = candidate_casts(submission, built.require_lib(), device, spec, cand_binding, datatype)
 
         # The single-core C reference, built once and kept open; unavailable C degrades to numpy per cell.
         c_lib = None
@@ -4168,7 +4171,7 @@ def score_cells(
                         workspace_bytes=submission.workspace_bytes,
                         warmup=warmup,
                         call_binding=cand_binding,
-                        casts=candidate_casts(submission, built.require_lib(), device, cand_data),
+                        casts=cand_casts,
                     )
                 except RuntimeError as exc:
                     is_ungradeable = isinstance(exc, UngradeableTolerance)
@@ -4348,7 +4351,7 @@ def score_cells(
                                 1,
                                 memory_gb,
                                 call_binding=cand_binding,
-                                casts=candidate_casts(submission, built.require_lib(), device, cand_data),
+                                casts=cand_casts,
                             )
                             # The same determinism formula as independent_verify.
                             determinism_ok = _determinism_check(
@@ -4370,7 +4373,7 @@ def score_cells(
                             1,
                             memory_gb,
                             call_binding=cand_binding,
-                            casts=candidate_casts(submission, built.require_lib(), device, re_cand),
+                            casts=cand_casts,
                         )
                         re_expected = cell_reference(redata)
                         # Same size as `data` (only the reverify SEED differs), so the SAME `lengths`.

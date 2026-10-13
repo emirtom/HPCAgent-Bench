@@ -23,6 +23,7 @@ from relayout.ops import (
     ArraySpec,
     AxisSplit,
     Cast,
+    DigitOperation,
     Format,
     FormatLabel,
     Location,
@@ -148,12 +149,17 @@ class Requests(relayout.ops.Requests):
         """Each sparse array a ``format`` names, with its format label; None when none does."""
         return self.formats() or None
 
-    def layouts(self, ndims: Mapping[str, int]) -> dict[str, IndexMap]:
-        """Each array of ``ndims`` the digit operations lay out on a single node, as its layout over the logical
-        extents ``d0``, ``d1``, ... (:func:`precision_casts.extent_names`); an identity is left out."""
-        state = self.run([ArraySpec(name, ndim) for name, ndim in ndims.items()])
+    def layouts(self, arrays: Sequence[ArraySpec]) -> dict[str, IndexMap]:
+        """Each dense array of ``arrays`` (the kernel's, :func:`kernel_arrays`) the digit operations lay out on a
+        single node, as its layout over the logical extents ``d0``, ``d1``, ... (:func:`precision_casts.extent_names`);
+        an identity is left out, and a request with no digit operation runs nothing."""
+        if self.distributed or not any(isinstance(op, DigitOperation) for op in self.operations):
+            return {}
+        state = self.run(arrays)
         laid = {
-            name: state.layout(name, extent_names(ndim)) for name, ndim in ndims.items() if state.arrays[name].touched
+            spec.name: state.layout(spec.name, extent_names(spec.ndim))
+            for spec in arrays
+            if not spec.sparse and spec.name in state.arrays and state.arrays[spec.name].touched
         }
         return {name: layout for name, layout in laid.items() if not layout.is_identity()}
 

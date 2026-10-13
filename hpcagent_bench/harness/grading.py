@@ -1415,18 +1415,21 @@ def reference_omp_context(language: str, compiler: str | None) -> str:
 
 
 def reference_cast_targets(binding: Binding, data: dict) -> tuple[tuple[str, str], ...]:
-    """``(array, dtype)`` for each floating array of ``data`` the compiled reference takes in another element
-    type: the reference crosses the ABI in the binding's dtype (fp64 for a lone-precision kernel)."""
-    return tuple(
-        sorted(
-            (a.name, a.dtype)
-            for a in binding.args
-            if a.kind == "ptr"
-            and a.name in data
-            and np.dtype(data[a.name].dtype).kind == "f"
-            and np.dtype(data[a.name].dtype).name != a.dtype
-        )
-    )
+    """``(array, dtype)`` for each floating (bf16 and fp8 included) or complex array of ``data`` the compiled
+    reference takes in another element type: the reference crosses the ABI in the binding's dtype (fp64 /
+    complex128 for a lone-precision kernel)."""
+
+    def kind(dtype: np.dtype) -> str:
+        return "complex" if dtype.kind == "c" else "float" if dtype_registry.is_float_dtype(dtype) else ""
+
+    targets = []
+    for a in binding.args:
+        if a.kind != "ptr" or a.name not in data:
+            continue
+        given, abi = np.dtype(data[a.name].dtype), np.dtype(dtype_registry.canonical(a.dtype))
+        if given != abi and kind(given) and kind(given) == kind(abi):
+            targets.append((a.name, abi.name))
+    return tuple(sorted(targets))
 
 
 def reference_casts(binding: Binding, data: dict, context: str, lib: pathlib.Path) -> CastPlan | None:

@@ -912,8 +912,6 @@ def kernel_entry(ffi: FFI, lib: "Lib", symbol: str) -> CKernel:
     return ffi.addressof(cast("FFI.CData", lib), symbol)
 
 
-#: Converts a source buffer into a destination buffer of another element type (logical dtype names given,
-#: since a device buffer of a storage-only format is an unsigned view).
 @dataclass(frozen=True, slots=True)
 class Staged:
     """One converted array of a call: its problem buffer (``logical``, what is graded), the buffer the kernel
@@ -932,7 +930,6 @@ class Staged:
 type Converter = Callable[[Staged, bool], None]
 
 
-#: One staged precision cast: source buffer, destination buffer, and their element types.
 def no_converter(staged: Staged, inward: bool) -> None:
     """The :data:`Converter` of a call that requests no conversion: it never stages one."""
     raise AssertionError(f"no converter for {staged.name!r}")

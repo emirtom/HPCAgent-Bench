@@ -20,6 +20,7 @@ the OpenMP loop, and the device kernels at 2.4 TB/s.
 import ctypes
 import functools
 import hashlib
+import math
 import os
 import pathlib
 import shutil
@@ -187,6 +188,16 @@ class HostCasts:
     ) -> None:
         """``dst`` = ``src`` through ``conversion`` (into the layout when ``inward``, back otherwise); ``shape``
         is the logical shape."""
+        logical, stored = (src, dst) if inward else (dst, src)
+        cells = conversion.layout.size(dict(zip(extent_names(len(shape)), shape, strict=True)))
+        if (
+            not (src.flags.c_contiguous and dst.flags.c_contiguous)
+            or logical.size != math.prod(shape)
+            or stored.size != cells
+        ):
+            raise ValueError(
+                f"{conversion.name}: a layout conversion needs C-contiguous buffers of the logical and laid-out sizes"
+            )
         fn = self.lib[f"relayout_{'in' if inward else 'out'}_{conversion.name}"]
         fn.argtypes = (ctypes.c_void_p, ctypes.c_void_p, *(ctypes.c_int64,) * len(conversion.symbols()))
         fn.restype = None
