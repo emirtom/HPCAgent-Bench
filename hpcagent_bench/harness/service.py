@@ -842,7 +842,12 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     requests = submission.requests
-    refused = precision_refusal(requests.precision, precision_problem_dtypes(spec, binding, datatype))
+    problem = precision_problem_dtypes(spec, binding, datatype)
+    if task.residency == "distributed":
+        # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.
+        declared = {arg.name: arg.dtype for arg in binding.pointers}
+        problem = {name: declared[name] for name in problem}
+    refused = precision_refusal(requests.precision, problem)
     if refused is None and requests.precision:
         refused = precision_scope_refusal(submission, task, spec)
     if refused is not None:

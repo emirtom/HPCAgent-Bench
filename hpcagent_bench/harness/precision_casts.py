@@ -191,10 +191,16 @@ def built_library(context: str, layouts: tuple[Conversion, ...] = (), groups: tu
         env = {**os.environ, **omp_context.context_build_env(context)}
         for argv in languages.build_shared_lib_commands("c", src, out, mode=Mode.MULTI_CORE, compiler=compiler):
             subprocess.run(argv, check=True, capture_output=True, env=env, cwd=work)
-        staged = cached.with_suffix(f".{os.getpid()}.tmp")
-        shutil.copy2(out, staged)
-        staged.replace(cached)  # a concurrent grade sees the whole library or none
+        publish(out, cached)
     return cached
+
+
+def publish(source: pathlib.Path, target: pathlib.Path) -> None:
+    """Copy ``source`` to ``target`` through a staged file and a rename: a concurrent grade loading
+    ``target`` sees the whole library or none."""
+    staged = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    shutil.copy2(source, staged)
+    staged.replace(target)
 
 
 def host_library(
@@ -205,7 +211,7 @@ def host_library(
     built = built_library(context, layouts, groups)
     target = beside.parent / built.name
     if not target.is_file():
-        shutil.copy2(built, target)
+        publish(built, target)
     return target
 
 
