@@ -82,7 +82,7 @@ class Row:
     denominator_ms: dict[str, float]
     excluded: str
     color: str | None = None
-    marker: str = "o"
+    marker: study_tags.Marker = "o"
     ratios_low: dict[str, float] = dataclasses.field(default_factory=dict)  # per-kernel CI, SC15 5/7
     ratios_high: dict[str, float] = dataclasses.field(default_factory=dict)
     tokens: dict[str, float] = dataclasses.field(default_factory=dict)  # per-kernel token spend
@@ -474,7 +474,8 @@ def legend_handles(rows: Sequence[Row], metrics: Sequence[per_kernel.Metric]) ->
     whisker on this figure is a 95% interval."""
     handles: list[Artist] = [
         Line2D(
-            [], [], marker=row.marker, linestyle="none", color=row_color(row), markersize=per_kernel.LEGEND_MARK_PT,
+            [], [], marker=palette.marker_style(row.marker), linestyle="none", color=row_color(row),
+            markersize=per_kernel.LEGEND_MARK_PT,
             markerfacecolor=row_color(row) if row.filled else "none", label=row.label,
         )
         for row in rows
