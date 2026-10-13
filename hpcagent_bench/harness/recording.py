@@ -42,6 +42,7 @@ from hpcagent_bench.support.helpers.sparse.request import UNCOVERED
 
 __all__ = [
     "ADHOC_EPISODE_ID",
+    "STOPPED_REASON",
     "DETAIL_CAP",
     "DETAIL_HEAD_FRACTION",
     "FINAL_SHARED",
@@ -627,6 +628,11 @@ def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submissi
             results_db.store_source(conn, grade_id, part, submission.language, body)
 
 
+#: ``grade_cells.reason`` of a cell the guillotine stopped (:attr:`scoring.TimedCell.stopped`): measured, credited
+#: baseline/cap, with no p-value.
+STOPPED_REASON = "stopped"
+
+
 def cell_values(cell: TimedCell) -> dict[str, results_db.Value]:
     """One ``grade_cells`` row of a timed input."""
     return {
@@ -648,6 +654,8 @@ def cell_values(cell: TimedCell) -> dict[str, results_db.Value]:
         # An input not run for its layout says so (sparse.request.uncovered); a run input leaves both
         # to the writer.
         **({"status": UNCOVERED, "reason": cell.uncovered} if cell.uncovered else {}),
+        # A cut candidate is a measured upper bound with no p-value, never a min-of-k fallback.
+        **({"reason": STOPPED_REASON} if cell.stopped and not cell.uncovered else {}),
     }
 
 
