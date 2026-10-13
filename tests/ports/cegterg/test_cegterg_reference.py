@@ -188,7 +188,7 @@ def test_residual_and_s_orthonormal_after_convergence(cfg: dict[str, int | bool]
     )
     kdim = H.shape[0]
     e, evc, notcnv, outer = scf(args, K)
-    X = evc[:kdim, :]
+    X = evc[:, :kdim].T  # evc holds one band per row; the eigenvectors as columns
     R = H @ X - (S @ X) * e[None, :]
     assert (np.linalg.norm(R, axis=0) / (np.abs(e) + 1.0)).max() < 1e-2, f"{cfg}: residual"
     G = X.conj().T @ (S @ X)

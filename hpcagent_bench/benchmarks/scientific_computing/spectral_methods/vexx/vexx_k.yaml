@@ -119,36 +119,38 @@ config:
 constraints:
 - okpaw <= okvan     # PAW is an ultrasoft feature
 - tqr <= okvan       # real-space augmentation needs the ultrasoft Q-tables
+# Layout: QE's column-major a(i, j, k) is a[k, j, i] here, C order with the same memory --
+# psi / hpsi are [m, npwx * npol], one contiguous row per band.
 args:
-  psi: {shape: "(npwx * npol, m)", dtype: complex128}
-  hpsi: {shape: "(npwx * npol, m)", dtype: complex128, out: true}
-  exxbuff: {shape: "(nrxxs * npol, nbnd, 1)", dtype: complex128}
-  x_occupation: {shape: "(nbnd, 1)", dtype: float64}
-  g: {shape: "(3, ngm)", dtype: float64}
+  psi: {shape: "(m, npwx * npol)", dtype: complex128}
+  hpsi: {shape: "(m, npwx * npol)", dtype: complex128, out: true}
+  exxbuff: {shape: "(1, nbnd, nrxxs * npol)", dtype: complex128}
+  x_occupation: {shape: "(1, nbnd)", dtype: float64}
+  g: {shape: "(ngm, 3)", dtype: float64}
   nl: {shape: "(ngm,)", dtype: int32}
   nlm: {shape: "(ngm,)", dtype: int32}
-  igk_exx: {shape: "(npwx, 1)", dtype: int32}
+  igk_exx: {shape: "(1, npwx)", dtype: int32}
   index_xk: {shape: "(1,)", dtype: int32}
-  index_xkq: {shape: "(1, nqs)", dtype: int32}
-  xk: {shape: "(3, 1)", dtype: float64}
-  xkq_collect: {shape: "(3, 1)", dtype: float64}
-  ibands: {shape: "(m, negrp)", dtype: int32}
+  index_xkq: {shape: "(nqs, 1)", dtype: int32}
+  xk: {shape: "(1, 3)", dtype: float64}
+  xkq_collect: {shape: "(1, 3)", dtype: float64}
+  ibands: {shape: "(negrp, m)", dtype: int32}
   nibands: {shape: "(negrp,)", dtype: int32}
-  egrp_pairs: {shape: "(2, max_pairs, negrp)", dtype: int32}
+  egrp_pairs: {shape: "(negrp, max_pairs, 2)", dtype: int32}
   all_start: {shape: "(negrp,)", dtype: int32}
   all_end: {shape: "(negrp,)", dtype: int32}
   iexx_istart: {shape: "(negrp,)", dtype: int32}
   iexx_iend: {shape: "(negrp,)", dtype: int32}
-  becpsi: {shape: "(nkb, m)", dtype: complex128}
-  becxx: {shape: "(nkb, nbnd, 1)", dtype: complex128}
-  qgm: {shape: "(ngm, nij)", dtype: complex128}
+  becpsi: {shape: "(m, nkb)", dtype: complex128}
+  becxx: {shape: "(1, nbnd, nkb)", dtype: complex128}
+  qgm: {shape: "(nij, ngm)", dtype: complex128}
   ijtoh: {shape: "(nh, nh)", dtype: int32, index_array: true}
   ofsbeta: {shape: "(nat,)", dtype: int32}
   eigqts: {shape: "(nat,)", dtype: complex128}
-  sfac: {shape: "(ngm, nat)", dtype: complex128}
-  vkb: {shape: "(npwx, nkb)", dtype: complex128}
+  sfac: {shape: "(nat, ngm)", dtype: complex128}
+  vkb: {shape: "(nkb, npwx)", dtype: complex128}
   tabxx_box: {shape: "(nat, maxbox)", dtype: int64}
-  tabxx_qr: {shape: "(nat, maxbox, nij)", dtype: float64}
+  tabxx_qr: {shape: "(nat, nij, maxbox)", dtype: float64}
   ke: {shape: "(nh, nh, nh, nh)", dtype: float64}
   exxalfa: 0.25
   omega: 1.0

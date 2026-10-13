@@ -25,8 +25,9 @@
 #      necessarily bitwise.
 #
 # Conventions: all index arrays (nl, ofsbeta, ijtoh, nij_type, ityp) are
-# 0-based; eigts* span [-nr, nr] so eigts1(mill(1,ig), na) becomes
-# eigts1[mill[0, :] + nr1, na]; ijtoh entries beyond a species' nh are -1
+# 0-based; QE's column-major arrays are reversed for C order (tau(3, nat) is tau[nat, 3], qgm(ngms, nij)
+# is qgm[nij, ngms], ijtoh(nhm, nhm, ntyp) is ijtoh[ntyp, nhm, nhm]); eigts* span [-nr, nr] so
+# eigts1(mill(1,ig), na) becomes eigts1[na, mill[:, 0] + nr1]; ijtoh entries beyond a species' nh are -1
 # (never read).
 
 import numpy as np
@@ -68,7 +69,7 @@ def newdxx_g(
 
     eigqts = np.zeros(nat, dtype=dtype)
     for na in range(nat):
-        arg = tpi * np.sum((xk - xkq) * tau[:, na])
+        arg = tpi * np.sum((xk - xkq) * tau[na, :])
         eigqts[na] = np.cos(arg) - 1j * np.sin(arg)
 
     auxvc = vc[nl]
@@ -82,9 +83,9 @@ def newdxx_g(
             aux2 = (
                 np.conj(auxvc)
                 * eigqts[na]
-                * eigts1[mill[0, :] + nr1, na]
-                * eigts2[mill[1, :] + nr2, na]
-                * eigts3[mill[2, :] + nr3, na]
+                * eigts1[na, mill[:, 0] + nr1]
+                * eigts2[na, mill[:, 1] + nr2]
+                * eigts3[na, mill[:, 2] + nr3]
             )
             for ih in range(nh_type[nt]):
                 ikb = ijkb0 + ih
@@ -93,6 +94,6 @@ def newdxx_g(
                     aux1 = 0.0 + 0.0j
                     for jh in range(nh_type[nt]):
                         jkb = ijkb0 + jh
-                        aux1 = aux1 + becphi_c[jkb] * np.conj(qgm[ig, nij + ijtoh[ih, jh, nt]])
+                        aux1 = aux1 + becphi_c[jkb] * np.conj(qgm[nij + ijtoh[nt, jh, ih], ig])
                     acc = acc + np.conj(aux2[ig]) * aux1
                 deexx[ikb] = deexx[ikb] + fact * acc

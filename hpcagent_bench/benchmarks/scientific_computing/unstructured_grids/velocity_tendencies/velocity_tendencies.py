@@ -254,7 +254,9 @@ def initialize(nproma, nlev, nblks_c, nblks_e, nblks_v, datatype=np.float64, rng
         vn[:, nf:, :] * p_metrics_ddxn_z_full[:, nf:, :] + vt[:, nf:, :] * p_metrics_ddxt_z_full[:, nf:, :]
     )
 
-    return (
+    # Built in ICON's own index order, then reversed: Fortran's column-major (nproma, ..., nblks) is the C-order
+    # [nblks, ..., nproma] the kernel takes, nproma unit stride.
+    values = (
         p_patch_cells_area,
         p_patch_cells_neighbor_idx,
         p_patch_cells_neighbor_blk,
@@ -339,6 +341,7 @@ def initialize(nproma, nlev, nblks_c, nblks_e, nblks_v, datatype=np.float64, rng
         nblks_e,
         nblks_v,
     )
+    return tuple(np.ascontiguousarray(v.transpose()) if isinstance(v, np.ndarray) and v.ndim > 1 else v for v in values)
 
 
 def _partition_signed(rng, shape, datatype, axis=1):

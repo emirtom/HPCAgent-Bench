@@ -22,7 +22,7 @@ parameters:
     NPROMA: 523
 args:
   e_bln: {shape: "(NB, 3, NPROMA)", dtype: float64}
-  edge_idx: {shape: "(NB, NPROMA, 3)", dtype: int32, index_array: true}
-  edge_blk: {shape: "(NB, NPROMA, 3)", dtype: int32, index_array: true}
+  edge_idx: {shape: "(3, NB, NPROMA)", dtype: int32, index_array: true}
+  edge_blk: {shape: "(3, NB, NPROMA)", dtype: int32, index_array: true}
   z_kin_hor_e: {shape: "(NB, NLEV, NPROMA)", dtype: float64}
   z_ekinh: {shape: "(NB, NLEV, NPROMA)", dtype: float64, out: true}

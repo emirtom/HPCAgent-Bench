@@ -13,6 +13,9 @@
 #   * diaghg = laxlib_cdiaghg, the Cholesky-based LAPACK zhegv/zhegvx solve.
 # Exact exchange and real-space augmentation are left out.
 #
+# Layout: QE's column-major a(i, j, k) is a[k, j, i] here, C order with the same memory --
+# evc is [nvec, npwx * npol], one contiguous row per band.
+#
 # The config space is the TOP-LEVEL 'config:' list (every preset evaluates it);
 # size symbols (ngrid / nvec) are INTERVALS.  npw / npwx / nvecx=4*nvec / nkb are
 # DERIVED in initialize() (ngrid clamped so npw >> nvecx), which is why they carry
@@ -52,18 +55,18 @@ config:
 - {npol: 2, uspp: true, lrot: false, nks: 4, current_k: 3, maxter: 20}
 - {npol: 2, uspp: true, lrot: true, nks: 4, current_k: 1, maxter: 20}
 args:
-  g2kin: {shape: "(npwx, nks)", dtype: float64}
-  vrs: {shape: "(n1 * n2 * n3, npol)", dtype: float64}
-  nlk: {shape: "(npwx, nks)", dtype: int64}
+  g2kin: {shape: "(nks, npwx)", dtype: float64}
+  vrs: {shape: "(npol, n1 * n2 * n3)", dtype: float64}
+  nlk: {shape: "(nks, npwx)", dtype: int64}
   # Not declared as an index_array: the Fortran emitter adds its own +1 when
   # subscripting with the copied gmap local, so the harness's Fortran index
   # base would shift it a second time and write past the FFT grid.
-  vkb: {shape: "(npwx, nkb, nks)", dtype: complex128}
+  vkb: {shape: "(nks, nkb, npwx)", dtype: complex128}
   deeq: {shape: "(nkb, nkb)", dtype: float64}
   qq: {shape: "(nkb, nkb)", dtype: float64}
-  h_diag: {shape: "(npwx, npol)", dtype: float64}
-  s_diag: {shape: "(npwx, npol)", dtype: float64}
-  evc: {shape: "(npwx * npol, nvec)", dtype: complex128}
+  h_diag: {shape: "(npol, npwx)", dtype: float64}
+  s_diag: {shape: "(npol, npwx)", dtype: float64}
+  evc: {shape: "(nvec, npwx * npol)", dtype: complex128}
   # Only e (the eigenvalues) is graded: the eigenvectors evc carry an unobservable
   # per-root gauge / degenerate-subspace rotation, so they are computed in place but
   # not compared.

@@ -114,7 +114,7 @@ def _wave_r2g(psic, f_out, nl, igk, ngw, nnr, nr1, nr2, nr3):
 def vloc_psi_k_acc(psi, hpsi, v, igk_k, nl, lda, n, m, nnr, nr1, nr2, nr3, ngm, ngw, nks, current_k):
     """hpsi += V_loc psi for m bands at k-point current_k (unbatched single-band path)."""
     nl = nl[:ngm]  # smooth-grid G-sphere -> grid-cell map
-    igk = igk_k[:, current_k - 1]  # (k+G) -> G-sphere map of the current k-point
+    igk = igk_k[current_k - 1, :]  # (k+G) -> G-sphere map of the current k-point
     dffts_nnr = nnr
     psi1 = np.zeros((n, 1), dtype=psi.dtype)  # one-band staging buffer
     psic = np.zeros(dffts_nnr, dtype=psi.dtype)  # real-space work grid
@@ -122,7 +122,7 @@ def vloc_psi_k_acc(psi, hpsi, v, igk_k, nl, lda, n, m, nnr, nr1, nr2, nr3, ngm, 
     for ibnd in range(m):
         idx = 0
         for j in range(n):
-            psi1[j, idx] = psi[j, ibnd + idx]
+            psi1[j, idx] = psi[ibnd + idx, j]
         _wave_g2r(psi1[:, idx : idx + 1], psic, nl, igk, dffts_nnr, nr1, nr2, nr3)
 
         for j in range(dffts_nnr):
@@ -130,4 +130,4 @@ def vloc_psi_k_acc(psi, hpsi, v, igk_k, nl, lda, n, m, nnr, nr1, nr2, nr3, ngm, 
         _wave_r2g(psic, psi1, nl, igk, ngw, dffts_nnr, nr1, nr2, nr3)
 
         for i in range(n):
-            hpsi[i, ibnd] = hpsi[i, ibnd] + psi1[i, idx]
+            hpsi[ibnd, i] = hpsi[ibnd, i] + psi1[i, idx]

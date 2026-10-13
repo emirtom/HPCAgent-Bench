@@ -1989,7 +1989,7 @@ def test_a_builtin_used_as_a_dtype_is_spelled_the_way_dace_accepts() -> None:
 
 
 def test_scalar_used_only_as_a_body_extent_is_promoted_to_a_symbol() -> None:
-    """velocity_tendencies' ``nlevp1`` sizes ``np.zeros((nproma, nlevp1, nblks_v))`` and appears in
+    """velocity_tendencies' ``nlevp1`` sizes ``np.zeros((nblks_v, nlevp1, nproma))`` and appears in
     no DECLARED array shape, so the shape-symbol scan missed it and it stayed a runtime scalar.
 
     DaCe cannot take a data descriptor as an extent: the frontend mints a symbol of that name and

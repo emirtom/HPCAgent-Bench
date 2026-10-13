@@ -35,18 +35,18 @@ args:
   becphi_c: {shape: "(nkb,)", dtype: complex128}
   xk: {shape: "(3,)", dtype: float64}
   xkq: {shape: "(3,)", dtype: float64}
-  tau: {shape: "(3, nat)", dtype: float64}
+  tau: {shape: "(nat, 3)", dtype: float64}
   ityp: {shape: "(nat,)", dtype: int64}
   tvanp: {shape: "(ntyp,)", dtype: int64}
   nh_type: {shape: "(ntyp,)", dtype: int64}
   ofsbeta: {shape: "(nat,)", dtype: int64}
   nij_type: {shape: "(ntyp,)", dtype: int64}
-  ijtoh: {shape: "(nhm, nhm, ntyp)", dtype: int64}
-  qgm: {shape: "(ngms, nij_tot)", dtype: complex128}
-  mill: {shape: "(3, ngms)", dtype: int64}
-  eigts1: {shape: "(2 * nr1 + 1, nat)", dtype: complex128}
-  eigts2: {shape: "(2 * nr2 + 1, nat)", dtype: complex128}
-  eigts3: {shape: "(2 * nr3 + 1, nat)", dtype: complex128}
+  ijtoh: {shape: "(ntyp, nhm, nhm)", dtype: int64}
+  qgm: {shape: "(nij_tot, ngms)", dtype: complex128}
+  mill: {shape: "(ngms, 3)", dtype: int64}
+  eigts1: {shape: "(nat, 2 * nr1 + 1)", dtype: complex128}
+  eigts2: {shape: "(nat, 2 * nr2 + 1)", dtype: complex128}
+  eigts3: {shape: "(nat, 2 * nr3 + 1)", dtype: complex128}
   nl: {shape: "(ngms,)", dtype: int64}
   omega: {}
   ngms: {dtype: int64}
