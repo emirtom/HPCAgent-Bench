@@ -58,7 +58,7 @@
      },
      {
       "additionalProperties": false,
-      "description": "Fuse whole arrays ``arrays`` of one shape into one array ``into``, the inverse of :class:`Unzip`. Arrays of one precision are stacked along a new dimension, the field, at position ``dim`` (None: last; ``into[..., k]`` is ``arrays[k]``), which the digit operations then place like any other (field-outer is SoA, field-inner AoS, blocked between AoSoA); arrays of different precisions become one array of structs, one member per array in order, each keeping its precision (and take no ``dim``).",
+      "description": "Fuse whole arrays ``arrays`` of one shape into one array ``into``, the inverse of :class:`Unzip`. Arrays of one element type (:attr:`ArrayState.element_type`) are stacked along a new dimension, the field, at position ``dim`` (None: last; ``into[..., k]`` is ``arrays[k]``), which the digit operations then place like any other (field-outer is SoA, field-inner AoS, blocked between AoSoA); arrays of different element types become one array of structs, one member per array in order, each keeping its precision (and take no ``dim``).",
       "properties": {
        "action": {
         "const": "zip"
@@ -367,7 +367,7 @@
      },
      {
       "additionalProperties": false,
-      "description": "Renumber the digits ``digits`` by the bijection ``f`` (one expression per digit, over their names); the caller supplies its inverse ``f_inv``, checked exhaustively before the build.",
+      "description": "Renumber the digits ``digits`` by the bijection ``f`` (one expression per digit, over their names); the caller supplies its inverse ``f_inv``, checked exhaustively where the digits' extents are known (otherwise the kernels bound every value ``f_inv`` gives back, so a wrong one cannot leave the buffer).",
       "properties": {
        "action": {
         "const": "shuffle"
