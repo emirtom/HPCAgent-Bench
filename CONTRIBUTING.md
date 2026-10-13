@@ -79,6 +79,14 @@ cases fail outside it for that reason alone), with the checkout mounted as the i
 srun --partition=<partition> --environment=hpcagent-bench-judge-mi300-latest helpers/scripts/run_tests.sh -n 64
 ```
 
+That EDF mounts the checkout it was installed from. A worktree or another checkout runs its own tree as a batch job,
+the EDF's package mount pointed at the submitting checkout:
+
+```sh
+JUDGE_EDF=~/.edf/hpcagent-bench-judge-mi300-latest.toml sbatch -p <partition> -A <account> \
+    helpers/scripts/run_tests.sbatch -n 64 -rfEs tests/
+```
+
 **`-m sealed`.** The judge grades agent code in a child that unshares a user, mount and pid
 namespace (`hpcagent_bench/seal.py`). Tests of that child carry the `sealed` marker and skip on a
 host that cannot enter a user namespace; CI runs them in the `mpi` job's sealed phase. Ask the
