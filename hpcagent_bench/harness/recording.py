@@ -704,8 +704,9 @@ class Recorded(NamedTuple):
 
 
 def graded_detail(score: Score, judgement: Judgement) -> str:
-    """A grade's ``detail``: the grade's own text, then the anti-cheat flags that marked it suspect, capped."""
-    return cap_detail("; ".join(text for text in (score.detail, judgement.flags) if text))
+    """A grade's ``detail``: the grade's own text, then the anti-cheat flags that marked it suspect and the
+    notes of the gates that did not apply, capped."""
+    return cap_detail("; ".join(text for text in (score.detail, judgement.flags, judgement.notes) if text))
 
 
 def credit_values(score: Score, judgement: Judgement) -> tuple[dict[str, results_db.Value], tuple[str, str]]:
