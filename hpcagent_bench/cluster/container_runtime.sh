@@ -158,8 +158,9 @@ derived_edf() {
     #
     # Comm hooks: an EDF's [annotations] cxi/aws_ofi_nccl hooks and its forced NCCL_NET/NCCL_NET_PLUGIN
     # serve cross-node collectives only. With them, a single-node tensor-parallel server fails at init
-    # with "Failed to initialize any NET plugin". The agent and a single-node inference step get both
-    # switched off; the judge (MPI gang ranks reuse its EDF) and multi-node inference keep them.
+    # with "Failed to initialize any NET plugin". The agent and a single-node inference step (one node, or
+    # INFERENCE_MODE=replicas: a standalone server per node) get both switched off; the judge (MPI gang
+    # ranks reuse its EDF) and multi-node pipeline inference keep them.
     #
     # The agent container is READ-ONLY (writable = false). A writable CE container is a fuse-overlayfs upper layer,
     # and one agent command that copies up a large image tree (`rm -rf /root`, `chmod -R /opt`) blocks every
@@ -168,7 +169,7 @@ derived_edf() {
     # with EROFS. What an agent writes lives in bind mounts (RUN_DIR, /shared), the seal's per-worker tmpfs
     # and the node's /tmp, bound in for the launch venv the entrypoint builds before the seal.
     local name="$1" role="${2:-role}" dir src="" tmp hooks_off=0 read_only=0
-    if [[ "${role}" == agent-node || ( "${role}" == vllm-node && "${INFERENCE_NODES:-1}" -eq 1 ) ]]; then
+    if [[ "${role}" == agent-node || ( "${role}" == vllm-node && ( "${INFERENCE_NODES:-1}" -eq 1 || "${INFERENCE_MODE:-pp}" == replicas ) ) ]]; then
         hooks_off=1
     fi
     [[ "${role}" == agent* ]] && read_only=1

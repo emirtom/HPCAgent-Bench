@@ -27,7 +27,7 @@ import re
 from collections.abc import Callable, Iterator, KeysView
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple, TypeGuard, cast
+from typing import Any, NamedTuple, TypeGuard, cast
 
 import yaml
 
@@ -110,6 +110,7 @@ __all__ = [
     "as_block",
     "as_domain",
     "as_list",
+    "as_tuple",
     "as_value",
     "block_of",
     "bound_names",
@@ -226,6 +227,11 @@ def as_block(raw: object) -> dict[str, object]:
 def as_list(raw: object) -> list[object]:
     """One YAML sequence, with the weakest TRUE statement about its members (see :func:`as_block`)."""
     return cast("list[object]", raw) if isinstance(raw, list) else []
+
+
+def as_tuple(result: object) -> tuple[Any, ...]:
+    """A reference or ``make_inputs`` return value as a tuple of outputs (a single tensor is one output)."""
+    return tuple(cast("list[Any]", result)) if isinstance(result, (tuple, list)) else (result,)
 
 
 def block_of(raw: object, field_name: str, source: str) -> dict[str, object]:

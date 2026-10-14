@@ -37,7 +37,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pytest
 
-from hpcagent_bench import config, paths
+from hpcagent_bench import config, languages, paths
 from hpcagent_bench.api import Baseline
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.forked import RunResult
@@ -421,6 +421,7 @@ def test_the_child_sees_only_the_grades_gpu_and_runs_on_the_slots_cores(monkeypa
     another grade's timed launch may be using -- sees ONE GPU, and a CPU child runs on the slot's cores."""
     import os
 
+    monkeypatch.setattr(languages, "offload_vendor", lambda: "amd")
     monkeypatch.setenv("ROCR_VISIBLE_DEVICES", "4,5,6,7")
     monkeypatch.setenv("HIP_VISIBLE_DEVICES", "0")
     torch_baseline.pin_child(torch_baseline.Job(SHIPPED_KERNEL, GPU_KIND, repeat=1, warmup=0, device_index=2))

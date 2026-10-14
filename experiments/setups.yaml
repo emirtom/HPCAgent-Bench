@@ -125,7 +125,9 @@ llrbase-fortran:
     LANGUAGE: fortran
   models:
     glm53:
-      SGLANG_EXTRA_ARGS: '"--trust-remote-code --watchdog-timeout 1800 --kv-cache-dtype fp8_e4m3 --page-size 64 --context-length 262144 --mem-fraction-static 0.55 --max-running-requests 24 --cuda-graph-max-bs-decode 24 --enable-metrics --pre-warm-nccl --reasoning-parser glm45 --tool-call-parser glm47 --dsa-prefill-backend tilelang --dsa-decode-backend tilelang --enable-cache-report"'
+      # 20 agents, as llrbase-c: --max-total-tokens pins the pool at 1.5M like glm53-serving (0.55 alone is a
+      # 2.58M pool, which OOM-killed a PP stage at 20 agents; docs/serving/glm53.md).
+      SGLANG_EXTRA_ARGS: '"--trust-remote-code --watchdog-timeout 1800 --kv-cache-dtype fp8_e4m3 --page-size 64 --context-length 262144 --mem-fraction-static 0.55 --max-total-tokens 1500000 --chunked-prefill-size 4096 --max-running-requests 24 --cuda-graph-max-bs-decode 24 --enable-metrics --pre-warm-nccl --reasoning-parser glm45 --tool-call-parser glm47 --dsa-prefill-backend tilelang --dsa-decode-backend tilelang --enable-cache-report"'
 
 # The blind setup (PACKETS=no-score-tool, which sets AGENT_SUBMISSION_MODE=blind: one submission, no score
 # or profile, and a killed agent's workspace is graded). The experiment itself is single, like every one

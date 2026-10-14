@@ -41,6 +41,7 @@ translator_desugarings_and_tool_bugs
 kernel_extraction
 mpi_patterns
 tvm_authoring
+triton_authoring
 input_fuzzing
 ```
 
@@ -48,6 +49,7 @@ input_fuzzing
 :caption: Extending
 :maxdepth: 1
 
+extending/README
 extending/protocol
 extending/registry
 extending/benchmark
@@ -56,6 +58,7 @@ extending/agent-harness
 extending/skills-and-tools
 extending/packets
 extending/inference
+code_reuse
 ```
 
 ```{toctree}

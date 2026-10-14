@@ -376,6 +376,16 @@ def test_a_command_past_its_timeout_raises_with_what_it_printed() -> None:
     assert wedged.value.stdout == "early\n"
 
 
+def test_a_command_past_its_timeout_kills_every_process_it_started(tmp_path: pathlib.Path) -> None:
+    """Outside an :func:`forked.abandoned_by` block the timeout still kills the whole group: a profiler
+    killed alone at its timeout leaves its measurement on the cores the next grade is timed on."""
+    pid_file = tmp_path / "grandchild.pid"
+    with pytest.raises(subprocess.TimeoutExpired):
+        forked.run_command(["sh", "-c", f"sleep 60 & echo $! > {pid_file}; wait"], timeout=0.5)
+    grandchild = int(pid_file.read_text())
+    assert process_gone(grandchild, within=10), f"grandchild {grandchild} outlived the timed-out command"
+
+
 def refuse_the_seal(plan: SealPlan) -> None:
     """Stand-in for a host that refuses a user namespace, with the real exception type."""
     raise SealError("seal: cannot enter new namespaces: [Errno 1] Operation not permitted")

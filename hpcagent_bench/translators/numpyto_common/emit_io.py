@@ -13,6 +13,7 @@ refreshes it but never clobbers an override. To turn a generated file into
 an override, delete the marker line (or replace the file).
 """
 
+import ast
 import pathlib
 
 from hpcagent_bench.cache_files import write_atomic
@@ -21,6 +22,7 @@ from hpcagent_bench.translators.numpyto_common.naming import short_for
 __all__ = [
     "AUTO_MARKER",
     "DACE_MARKERS",
+    "assemble_python_module",
     "first_line",
     "is_generated",
     "is_override",
@@ -35,6 +37,24 @@ AUTO_MARKER = "hpcagent_bench-autogen"
 
 #: The line-1 docstring ``numpyto_c.dace_emit`` stamps on a DaCe program: a file carrying it is generated.
 DACE_MARKERS = ("auto-generated from the numpy reference",)
+
+
+def assemble_python_module(header: str, preamble: str, source: str) -> str:
+    """A Python sibling module: ``header`` (its docstring), ``preamble`` (the backend's imports), then
+    ``source`` verbatim -- except its ``from __future__`` imports, which move ahead of the preamble.
+
+    A future import is legal only as a module's first statement (after a docstring), so a preamble
+    or a second docstring in front of the kernel's own makes the sibling a SyntaxError."""
+    lines = source.splitlines(keepends=True)
+    future = {
+        i
+        for stmt in ast.parse(source).body
+        if isinstance(stmt, ast.ImportFrom) and stmt.module == "__future__"
+        for i in range(stmt.lineno - 1, stmt.end_lineno or stmt.lineno)
+    }
+    hoisted = "".join(lines[i].rstrip("\n") + "\n" for i in sorted(future))
+    rest = "".join(line for i, line in enumerate(lines) if i not in future)
+    return header + hoisted + preamble + rest
 
 
 def first_line(path: pathlib.Path) -> str:

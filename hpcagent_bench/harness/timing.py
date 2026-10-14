@@ -85,7 +85,9 @@ REDUCTIONS_VARIED: dict[str, str] = {
 FINAL_GRADE_REDUCTION: str = protocols.credited_name()
 
 #: The registered timing test the final grade and its calibration declare (:mod:`hpcagent_bench.protocols`); every
-#: ``mannwhitney_delta`` reduction is gated by it. :func:`protocols.check_protocols` refuses the import otherwise.
+#: ``mannwhitney_delta`` reduction is gated by it. :func:`protocols.final_timing_test` refuses the import when the
+#: credited grade declares none; the "exactly one preview" rule of :func:`protocols.check_protocols` is enforced
+#: by ``tests/test_protocols.py`` only, not at import.
 TIMING_TEST: str = protocols.final_timing_test()
 
 # An unknown reporting test name stops every grading path here, at import, listing the registered names.

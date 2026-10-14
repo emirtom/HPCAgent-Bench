@@ -412,7 +412,7 @@ def table_exists(path: str, table: str) -> bool:
     """Whether ``path`` holds ``table``, without creating an absent file (``sqlite3.connect`` would)."""
     if not pathlib.Path(path).exists():
         return False
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = results_db.connect_ro(path)
     try:
         return (
             conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
@@ -430,9 +430,8 @@ def aggregate(dest: str | None = None, sources: Sequence[str] | None = None) -> 
     shards = [s for s in candidates if os.path.abspath(s) != os.path.abspath(target)]
     if not shards:
         return 0
-    for suffix in ("", "-wal", "-shm"):
-        pathlib.Path(target + suffix).unlink(missing_ok=True)
-    return sum(results_db.merge(target, shards).values())
+    with results_db.rebuilding(target) as scratch:
+        return sum(results_db.merge(scratch, shards).values())
 
 
 def ensure_aggregated(path: str | None = None) -> str:

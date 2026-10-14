@@ -292,6 +292,43 @@ def test_a_logical_operand_of_a_comparison_is_left_alone() -> None:
     assert not compiles_with_implicit_none(text)
 
 
+#: Two mask locals combined with ``&`` and the result used as a condition: the combine is logical
+#: only because its operands are, which a bare-RHS look at ``c1 & c2`` cannot see.
+MASK_COMBINE = (
+    "import numpy as np\n"
+    "def f(a, out):\n"
+    " for i in range(a.shape[0]):\n"
+    "  c1 = a[i] > 0.0\n"
+    "  c2 = a[i] < 1.0\n"
+    "  both = c1 & c2\n"
+    "  if both:\n"
+    "   out[i] = 1.0\n"
+    "  else:\n"
+    "   out[i] = 0.0\n"
+)
+
+
+def test_a_combine_of_mask_locals_is_declared_logical() -> None:
+    """The declaration pass and the body emitter read one logical set: the body emits
+    ``both = (c1 .AND. c2)`` and ``if (both)``, so ``both`` must not be declared an integer
+    (gfortran: 'IF clause at (1) requires a scalar LOGICAL expression')."""
+    text = fortran(MASK_COMBINE, "f", ["a"], ["out"], LOGICAL_SHAPES, LOGICAL_SYMS)
+    assert re.search(r"logical\(c_bool\) :: both$", text, re.MULTILINE), f"the combined mask is not LOGICAL:\n{text}"
+    diag = compiles_with_implicit_none(text)
+    assert not diag, diag
+    status = run_op(
+        MASK_COMBINE,
+        "f",
+        {"a": np.random.default_rng(2).uniform(-1.0, 2.0, 8)},
+        {"out": (8,)},
+        LOGICAL_SYMS,
+        shapes=LOGICAL_SHAPES,
+        backends=("c", "fortran"),
+    )
+    assert status["fortran"] == "ok", status
+    assert status["c"] == "ok", status
+
+
 #: A helper that is KEPT (the early return blocks inlining) and builds a boolean mask of its own,
 #: so the mask is declared by the helper's own declaration pass and used by the helper's own body
 #: emitter -- two tables that have to say the same thing.

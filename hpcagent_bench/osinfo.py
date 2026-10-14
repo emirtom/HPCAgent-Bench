@@ -13,6 +13,7 @@ import pathlib
 import platform
 import signal
 import sys
+from collections.abc import Mapping
 from functools import lru_cache
 
 from hpcagent_bench import config
@@ -20,9 +21,11 @@ from hpcagent_bench import config
 __all__ = [
     "IS_LINUX",
     "IS_MACOS",
+    "VISIBLE_DEVICE_ENV",
     "cpu_model",
     "default_mp_context",
     "gpu_model",
+    "inherited_visible",
     "is_arm",
     "machine",
     "mp_context",
@@ -35,6 +38,16 @@ __all__ = [
 IS_MACOS = sys.platform == "darwin"
 #: True on Linux, INCLUDING WSL2 (a genuine Linux kernel).
 IS_LINUX = sys.platform.startswith("linux")
+
+#: The device-visibility variables, in the order read. ``ROCR_VISIBLE_DEVICES`` and
+#: ``HIP_VISIBLE_DEVICES`` compose (HIP indexes what ROCr left), so setting both is
+#: ``hipErrorNoDevice``; this harness sets ROCr only.
+VISIBLE_DEVICE_ENV: tuple[str, ...] = ("ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
+
+
+def inherited_visible(env: Mapping[str, str]) -> str:
+    """The first non-blank :data:`VISIBLE_DEVICE_ENV` value of ``env`` (a comma list), or ``""``."""
+    return next((env[name] for name in VISIBLE_DEVICE_ENV if env.get(name, "").strip()), "")
 
 
 def machine() -> str:

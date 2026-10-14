@@ -46,7 +46,6 @@ import csv
 import dataclasses
 import functools
 import glob
-import hashlib
 import json
 import pathlib
 import shutil
@@ -59,6 +58,7 @@ from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
 from hpcagent_agent.driver.promote_unsubmitted import PROMOTED_TAG
 
 from hpcagent_bench import config, data_guard, recorded_rows
+from hpcagent_bench.cache_files import sha256_hex
 from hpcagent_bench.harness import denominator, recording, results_db, scoring, timing
 from hpcagent_bench.harness.native_call import TimingProbe
 from hpcagent_bench.observation_columns import CANON_FIELDS, NUMERIC_COLUMNS, OBSERVATION_FIELDS, SOURCE_FIELDS
@@ -316,7 +316,7 @@ def copy_into(origin: pathlib.Path, target: pathlib.Path) -> tuple[int, str] | N
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(origin, target)
     payload = target.read_bytes()
-    return len(payload), hashlib.sha256(payload).hexdigest()
+    return len(payload), sha256_hex(payload)
 
 
 def canon_rows(log: pathlib.Path) -> list[dict[str, Any]]:
@@ -664,11 +664,16 @@ def discover_databases(run_globs: Iterable[str], skip: Iterable[pathlib.Path] = 
 
 
 def results_database(path: pathlib.Path) -> bool:
-    """Whether ``path`` is a results DB of the current schema (any other file is not read)."""
+    """Whether ``path`` is a results DB of the current schema (any other file is not read). A file SQLite
+    cannot read (a shard truncated by an OOM-killed rank) is named on stderr: skipped in silence, the
+    extraction would read as if that rank had graded nothing."""
     try:
         with results_db.reading(path):
             return True
-    except (sqlite3.Error, results_db.SchemaVersionError):
+    except sqlite3.Error as exc:
+        print(f"WARNING: unreadable results DB skipped: {path}: {exc}", file=sys.stderr)
+        return False
+    except results_db.SchemaVersionError:
         return False
 
 
@@ -1298,7 +1303,7 @@ def write_into(text: str, target: pathlib.Path) -> tuple[int, str]:
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = text.encode("utf-8")
     target.write_bytes(payload)
-    return len(payload), hashlib.sha256(payload).hexdigest()
+    return len(payload), sha256_hex(payload)
 
 
 def export_agent(

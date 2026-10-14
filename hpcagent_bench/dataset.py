@@ -28,7 +28,6 @@ from hpcagent_bench.stats import databases
 __all__ = [
     "EXTRACTED_AT",
     "LOG",
-    "PROVENANCE",
     "STUDY_COLUMN",
     "Owned",
     "Provenance",
@@ -55,9 +54,6 @@ EXTRACTED_AT: str = "extracted_at"
 
 #: Column naming the study the rows were selected for.
 STUDY_COLUMN: str = "study_key"
-
-#: Columns this module adds to whatever the extractor recorded.
-PROVENANCE: tuple[str, ...] = (EXTRACTED_AT, STUDY_COLUMN)
 
 
 def now() -> str:
@@ -231,7 +227,7 @@ def build(
     frame, provenance = select(selection, rows, extracted_at)
     if frame.empty:
         raise SystemExit(f"no observations for study {study!r} under {list(selection.run_globs())}")
-    write_db(frame, out) if out.suffix == ".db" else write_csv(frame, out)
+    write_db(frame, out) if out.suffix in studies.OBSERVATION_DB_SUFFIXES else write_csv(frame, out)
     if csv_out is not None:
         write_csv(frame, csv_out)
     return frame, provenance

@@ -150,3 +150,84 @@ def test_the_removed_seed_disclosure_is_gone_everywhere(forbidden: str) -> None:
     hits = [str(p) for p, text in doc_text() if forbidden in text]
     hits += [str(p) for p in PROMPTS_DIR.rglob("*.j2") if forbidden in p.read_text()]
     assert not hits, f"{forbidden!r} still referenced in: {hits}"
+
+
+def test_every_docs_page_has_an_inbound_link() -> None:
+    """A page only the Sphinx toctree names is invisible on GitHub, where the README is the way in."""
+    linked = {
+        (path.parent / m.group(1)).resolve()
+        for path, text in doc_text()
+        for m in re.finditer(r"\]\(([^)#\s]+)(?:#[^)]*)?\)", text)
+        if (path.parent / m.group(1)).resolve() != path.resolve()
+    }
+    orphans = [str(p) for p in pathlib.Path("docs").rglob("*.md") if p.name != "index.md" and p.resolve() not in linked]
+    assert not orphans, f"docs pages no other doc links to: {orphans}"
+
+
+def test_the_readme_has_a_students_section_naming_every_shipped_optimizer() -> None:
+    """The student entry point sits near the top of the README and names what `hpcagent-bench agent` registers."""
+    from hpcagent_bench.columns import FRAMEWORKS
+    from hpcagent_bench.harness.optimizers import optimizer_registry
+
+    readme = pathlib.Path("README.md").read_text()
+    section = readme.partition("\n## For students\n")[2].partition("\n## ")[0]
+    assert section, "README.md has no '## For students' section"
+    assert readme.index("## For students") < readme.index("## Concepts")
+    for target in ("docs/extending/optimizer.md", "docs/triton_authoring.md", "docs/index.md"):
+        assert f"]({target}" in section, f"the students section does not link {target}"
+    shipped = set(optimizer_registry()) - set(FRAMEWORKS.entries)
+    missing = sorted(name for name in shipped if f"`{name}`" not in section)
+    assert not missing, f"optimizers the students section does not name: {missing}"
+
+
+def test_no_doc_raises_the_stack_to_unlimited() -> None:
+    """`check_launch_env` wants the soft stack limit AT the hard one; `ulimit -s unlimited` fails for a non-root
+    shell whose hard limit is finite, and aborts a `set -e` job script copied from the docs."""
+    sources = [*doc_text(), *((p, p.read_text()) for p in pathlib.Path("hpcagent_bench/cluster").glob("*.sh"))]
+    stale = [str(path) for path, text in sources if "ulimit -s unlimited" in text]
+    assert not stale, f"`ulimit -s unlimited` instead of the hard limit in: {stale}"
+
+
+def test_docs_never_pass_the_agent_name_as_an_option() -> None:
+    """`agent` takes the optimizer as a positional; `--agent <name>` is no option of it."""
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["agent", "--agent", "noop"])
+    python = [*pathlib.Path("hpcagent_bench").rglob("*.py"), *pathlib.Path("tests").glob("*.py")]
+    sources = [*doc_text(), *((p, p.read_text()) for p in python if p.resolve() != pathlib.Path(__file__).resolve())]
+    stale = [str(path) for path, text in sources if "hpcagent-bench agent --agent" in text]
+    assert not stale, f"`hpcagent-bench agent --agent` in: {stale}"
+
+
+def test_docs_name_only_tags_subcommands_that_exist() -> None:
+    """`python -m hpcagent_bench.tags <command>` in a doc is a command the module defines."""
+    known = {"resolve", "version", "sample"}
+    stale = [
+        f"{path}: {m.group(0)}"
+        for path, text in doc_text()
+        for m in re.finditer(r"hpcagent_bench\.tags (\S+)", text)
+        if m.group(1).strip("`") not in known
+    ]
+    assert not stale, f"documented tags commands the module does not have: {stale}"
+
+
+def test_docs_name_only_autogen_registries_that_exist() -> None:
+    """An upper-case name a paragraph places in `hpcagent_bench/autogen.py` is one of its attributes."""
+    import hpcagent_bench.autogen
+
+    stale = [
+        f"{path}: {name}"
+        for path, text in doc_text()
+        for paragraph in text.split("\n\n")
+        if "hpcagent_bench/autogen.py" in paragraph
+        for name in re.findall(r"`([A-Z][A-Z_]+)`", paragraph)
+        if not hasattr(hpcagent_bench.autogen, name)
+    ]
+    assert not stale, f"documented autogen names that do not exist: {stale}"
+
+
+def test_no_doc_promises_a_skip_row_for_an_unsupported_precision() -> None:
+    """`run-framework` never reads a column's `precisions`, so nothing writes a `skip` row for one (a `skip:<why>`
+    status of another cause is not this claim)."""
+    sources = [*doc_text(), *((p, p.read_text()) for p in pathlib.Path("hpcagent_bench").glob("*.py"))]
+    stale = [str(path) for path, text in sources if re.search(r"records `?skip`?(?![:\w])|status=\"skip\"", text)]
+    assert not stale, f"a `skip` row for an unsupported precision is promised in: {stale}"

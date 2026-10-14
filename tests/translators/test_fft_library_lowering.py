@@ -25,7 +25,6 @@ numpy, the way ``test_diag_fftfreq_einsum_ops.py`` does for its own ops.
 
 import os
 import pathlib
-import shutil
 import subprocess
 
 import numpy as np
@@ -37,7 +36,7 @@ from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from hpcagent_bench.translators.numpyto_fortran.emit import emit_fortran
 from hpcagent_bench.translators.numpyto_fortran.intrinsics import renders_natively as fortran_renders_natively
-from tests.translators.op_oracle import assert_all_ok, parse_source, run_op
+from tests.translators.op_oracle import assert_all_ok, native, parse_source, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -94,11 +93,6 @@ def fft_library_available(lang: str) -> bool:
     return bool(languages.library_build_flags(lang, ["fftw"])[1])
 
 
-def oracle_available() -> None:
-    if not (shutil.which("gcc") and shutil.which("g++") and shutil.which("gfortran")):
-        pytest.skip("gcc/g++/gfortran needed for the native numerical check")
-
-
 #: 8388608 (fft_1d's own "M" preset, 2**23): a standalone (non-pytest) ctypes call into this
 #: exact fft_op hangs past a 480s timeout when
 #: OMP_NUM_THREADS/OPENBLAS_NUM_THREADS/MKL_NUM_THREADS/BLIS_NUM_THREADS are all unset (see
@@ -118,7 +112,7 @@ def test_thread_caps_are_set_before_any_native_call() -> None:
 
 @pytest.mark.parametrize("n", [16, 17, 97, 1024, 8388608])  # pow2 + non-pow2, small + past one radix
 def test_fft_library_matches_numpy_fft_and_ifft_roundtrip(n: int) -> None:
-    oracle_available()
+    native()
     rng = np.random.default_rng(0)
     x = (rng.standard_normal(n) + 1j * rng.standard_normal(n)).astype(np.complex128)
     skip = {b: "no-fftw3" for b in NATIVE if not fft_library_available(b)}
@@ -215,7 +209,7 @@ def test_without_the_nd_flag_an_nd_fft_keeps_the_naive_loop() -> None:
 
 @pytest.mark.parametrize("sizes", [(4, 3, 5), (8, 7, 1), (1, 6, 9)])
 def test_nd_fft_library_matches_numpy_on_every_axis_placement(sizes: tuple) -> None:
-    oracle_available()
+    native()
     n, m, k = sizes
     rng = np.random.default_rng(1)
     a = (rng.standard_normal(sizes) + 1j * rng.standard_normal(sizes)).astype(np.complex128)
