@@ -635,6 +635,50 @@ def test_a_host_only_python_grade_never_synchronizes_a_device_framework(
     assert synced == ["cupy"]
 
 
+#: A python delivery that returns a stand-in whose ``__array__`` does the kernel's work: converted to a
+#: host array after the clock stopped, all of it went untimed and graded correct.
+DEFERRED_SUBMISSION = """import numpy as np
+
+
+class Deferred:
+    def __init__(self, x):
+        self.x = x
+
+    def __array__(self, dtype=None, copy=None):
+        return 2.0 * self.x
+
+
+def kern(x):
+    return Deferred(x)
+"""
+
+
+def test_a_python_delivery_that_defers_its_work_to_the_output_conversion_is_refused(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The python bracket closes when the callable returns; ``python_output_to_host`` runs after. An
+    output whose conversion does the work is refused rather than timed as free."""
+    monkeypatch.setitem(sys.modules, "hpcagent_bench_agent_submission", None)
+    path = tmp_path / "deferred.py"
+    path.write_text(DEFERRED_SUBMISSION)
+    with pytest.raises(TypeError, match="Deferred"):
+        native_call._call_python(path, ("kern", ("x",), ("y",)), {"x": np.arange(4, dtype=np.float64)})
+
+
+def test_a_python_delivery_returning_arrays_and_scalars_is_graded(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Concrete returns stay valid: a numpy array, a numpy scalar and a Python float, as a tuple."""
+    monkeypatch.setitem(sys.modules, "hpcagent_bench_agent_submission", None)
+    path = tmp_path / "concrete.py"
+    path.write_text("def kern(x):\n    return 2.0 * x, x.sum(), float(x[0])\n")
+    data = {"x": np.arange(4, dtype=np.float64)}
+    (outputs,), _samples, _extras, _reps = native_call._call_python(path, ("kern", ("x",), ("y", "s", "f")), data)
+    np.testing.assert_array_equal(outputs["y"], 2.0 * data["x"])
+    np.testing.assert_array_equal(outputs["s"], 6.0)
+    np.testing.assert_array_equal(outputs["f"], 0.0)
+
+
 STAGED_KERNEL = """#include <stdint.h>
 
 void staged_fp64(const double *x, double *y, const int64_t N, uint8_t *workspace, const int64_t workspace_size) {

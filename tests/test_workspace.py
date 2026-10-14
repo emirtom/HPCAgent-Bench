@@ -16,6 +16,7 @@ Covers the reserved ``workspace`` / ``workspace_size`` pair end to end:
   size with the sampled shape, and passes NULL when unrequested.
 """
 
+import pathlib
 import re
 import shutil
 import subprocess
@@ -25,7 +26,13 @@ import pytest
 
 from hpcagent_bench import languages
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.native_call import WORKSPACE_ALIGN, _call_native, alloc_workspace, workspace_bytes_of
+from hpcagent_bench.harness.native_call import (
+    WORKSPACE_ALIGN,
+    Followup,
+    _call_native,
+    alloc_workspace,
+    workspace_bytes_of,
+)
 from hpcagent_bench.support.bindings.contract import RESERVED_ARG_NAMES, Arg, Binding
 from hpcagent_bench.support.bindings.glue import gen_host_glue
 from hpcagent_bench.support.bindings.stubs import LANGS, gen_call_stub
@@ -199,6 +206,33 @@ def test_native_call_passes_workspace(tmp_path) -> None:
     # real size and declines it: proves workspace_size is delivered accurately.
     (outs_small,), _, _, _ = _call_native(str(so), b, {**base, "y": np.zeros(n)}, "c", workspace_bytes="8")
     assert np.allclose(outs_small["y"], 2.0 * x)
+
+
+@pytest.mark.skipif(not shutil.which("gcc"), reason="gcc required for the native round-trip")
+def test_a_held_out_case_gets_the_workspace_its_own_sizes_request(tmp_path: pathlib.Path) -> None:
+    """The scratch request is an expression over the call's sizes, and a held-out case is larger than the
+    timed cell (the first is drawn at XL). Resolved once on the timed cell, the case got the cell's bytes:
+    a kernel using the documented ``8*N`` scratch wrote past the buffer on it. Each followup's request is
+    resolved on its own sizes; the timed reps keep theirs."""
+    src = tmp_path / "wstest.c"
+    src.write_text(_WS_KERNEL)
+    so = tmp_path / "libwstest.so"
+    subprocess.run(["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC", str(src), "-o", str(so)], check=True)
+
+    def inputs(n: int) -> dict[str, object]:
+        return {"x": np.arange(n, dtype=np.float64) + 1.0, "y": np.zeros(n), "N": n, "a": 2.0}
+
+    small, large = 4, 64
+    (timed,), _, (case,), _ = _call_native(
+        str(so),
+        _binding(),
+        inputs(small),
+        "c",
+        workspace_bytes="8*N",
+        followups=[Followup(build=lambda: inputs(large))],
+    )
+    np.testing.assert_allclose(timed["y"], 2.0 * inputs(small)["x"] + _MARKER)
+    np.testing.assert_allclose(case["y"], 2.0 * inputs(large)["x"] + _MARKER)
 
 
 #: A callee that never heard of the reserved pair: the NumpyToX references and every hand-written
