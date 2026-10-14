@@ -142,14 +142,9 @@ def trigger_line(skill: Skill) -> str:
 
 
 def skill_index(skills: list[Skill], harness: str = harnesses.CLAUDE) -> str:
-    """The whole skill section: a heading, and one trigger line per page.
-
-    ONE renderer for every setup -- the default packet and a single-page `--skill` setup differ in
-    WHICH pages they carry, never in how a page is presented, so an ablation cannot be reading a
-    difference in framing. It replaced a two-page layout (a "language page" plus "the parallelism
-    model pages") that predates every page being indexed: with 21 pages it put all 20 non-language
-    names into each row of a symptom table and told the reader that `nsys` and `rccl` were "only
-    what a DIRECTIVE adds". No body is inlined; materialize_shared.sh stages the files.
+    """The skill section: a heading, then one :func:`trigger_line` per page in ``skills``, and a note to
+    read the language page when a ``lang-*`` page is present. The same renderer serves every setup; setups
+    differ only in ``skills``. Page bodies are not inlined (materialize_shared.sh stages the files).
 
     ``harness`` names the tool a page is opened with (:func:`harnesses.page_opening`): only claude has
     one called Read.

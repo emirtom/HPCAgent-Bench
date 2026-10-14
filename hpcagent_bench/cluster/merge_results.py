@@ -3,12 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fold a cluster run's results into one results DB.
 
-Every judge rank records into its own SQLite DB (run_cluster.sh --judge-node points
-``HPCAGENT_BENCH_RECORD_DB_PATH`` at ``<run dir>/judge/rank-<k>/``). That is not a workaround for
-SQLite's locking but the only correct arrangement on a cluster: WAL needs a ``-shm`` mapping, which
-Lustre/NFS/GPFS do not provide, and rollback-journal locking over them is unreliable. So a finished
-run leaves one shard per rank (each ``/submit`` recorded with its own final grade) and one
-``tokens.json`` per agent episode, and no single file to read -- this builds it.
+Every judge rank records into its own SQLite shard (run_cluster.sh --judge-node points
+``HPCAGENT_BENCH_RECORD_DB_PATH`` at ``<run dir>/judge/rank-<k>/``; docs/results_db.md states why ranks never
+share a file). A finished run holds one shard per rank (each ``/submit`` recorded with its own final grade)
+and one ``tokens.json`` per agent episode; this merges them into one DB.
 
     python3 merge_results.py <run dir> [--out DB]
 

@@ -122,17 +122,8 @@ RENDER_TIMEOUT_DEFAULT_S = 14400.0
 
 
 def render_timeout_s() -> float:
-    """Wall clock one kernel's render is given, in seconds.
-
-    Read per call rather than bound once: the default is a whole-corpus compromise and a sweep over
-    the large end of a track raises it through ``HPCAGENT_BENCH_TIMEOUTS_CPF_RENDER_S``, which a
-    module-level constant or a default argument would have frozen at import.
-
-    The budget is deliberately far above the observed cost of an ordinary kernel (seconds to a few
-    minutes). The two largest references on scientific_computing spent a full half hour in the
-    frontend parse without finishing, which bounds the budget from BELOW and says nothing about
-    where the parse actually lands, so the cap is set where an answer is still worth the wall clock
-    and its job is only to stop a wedged render from taking the sweep with it.
+    """``timeouts.cpf_render_s`` (float s, default :data:`RENDER_TIMEOUT_DEFAULT_S`): wall-clock cap on one
+    kernel's render. Read per call, so ``HPCAGENT_BENCH_TIMEOUTS_CPF_RENDER_S`` set after import applies.
     """
     return float(cast("float", config.get(RENDER_TIMEOUT_KEY, RENDER_TIMEOUT_DEFAULT_S)))
 

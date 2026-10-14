@@ -127,7 +127,8 @@ A base is `<experiment>:<model>`, rendered by `env_spec.py`; later keys win:
 
 | Layer | Holds |
 | --- | --- |
-| `layers/common.env` | judge sizing, images, budgets, paths |
+| `layers/common.env` | judge sizing and ports, EDF names, run paths, judge config overrides |
+| `layers/{served,replicas,sglang,pp,service}.env` | serving shape a model layer extends (`# extends:`) |
 | `setups.yaml` `<experiment>.env` | the experiment's keys (budget, submission mode, grading) |
 | `layers/model-<m>.env` | one model's serving config (layers name their parent on `# extends:`) |
 | `setups.yaml` `<experiment>.models.<m>` | what differs for that model in that experiment (effort ladder, engine args) |
@@ -270,7 +271,7 @@ DaCe build tree and shard DB.
 | Route | Purpose |
 | --- | --- |
 | `GET /health` | Health, rank, routes. |
-| `POST /score` (`/bench`) | Feedback timing: one input, fastest of five runs. |
+| `POST /score` (`/bench`) | Feedback grade under the preview protocol `mw2x5`: 2 timed inputs x 5 runs per side, Mann-Whitney reduction. A distributed task's `/score` takes `measurement.local_repeat` runs reduced by median. |
 | `POST /submit` | Terminal grade: fuzzed correctness plus the m x n timed protocol. |
 | `POST /profile` | Profiler run; `tool` selects the profiler. |
 | `POST /search` (`/web-search`) | Web search with model synthesis; 503 `not_provisioned` without a key. |

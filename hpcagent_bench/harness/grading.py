@@ -891,17 +891,15 @@ TRACK_DEFAULT_ORACLE: dict[str, str] = {
 DEFAULT_ORACLE = COMPILED_ORACLE
 
 #: The compiled reference a track's oracle tries FIRST when no measured race leader says otherwise
-#: (:func:`compiled_order`). ``loop_level_reasoning`` graded against C before numba joined the oracle, so
-#: it keeps its verdicts on the same reference; every other track starts from numba, the race's default.
+#: (:func:`compiled_order`): ``c`` on ``loop_level_reasoning``; every other track starts from numba, the
+#: race's default.
 TRACK_COMPILED_HEAD: dict[str, str] = {"loop_level_reasoning": "c"}
 
-#: Kernels whose oracle starts from a compiled reference other than the race leader's, because the
-#: leader does not reproduce the NumPy reference at the sizes the judge grades. Measured on one mi300
-#: node at preset M over the public input and the five held-out cases, ``tests/test_e2e_numerical.py``
-#: only proving S:
+#: Kernels whose oracle starts from a compiled reference other than the race leader, because the leader
+#: does not match the NumPy reference at the graded sizes (preset M, public input and held-out cases):
 #:
-#: ``bdf_newton_krylov``: numba equals NumPy, the sequential C reference (the XL race leader, 1.2 s beside
-#: numba's 6.8 s) differs by 4e-9 relative, 2.6e5 times the tolerance band, in five of six cases.
+#: ``bdf_newton_krylov``: numba matches NumPy; the sequential C reference (the XL race leader) differs by
+#: 4e-9 relative, 2.6e5 x the tolerance band.
 KERNEL_COMPILED_HEAD: dict[str, str] = {"bdf_newton_krylov": "numba"}
 
 #: Tracks whose C oracle never runs the write probe (:func:`probe_write_mask`): their tolerance floor keeps
@@ -993,8 +991,8 @@ BASELINE_OPTIONS = (*BASELINE_CHOICES, AUTO_BASELINE, TORCH_AUTOTUNE)
 #: stamps.
 SINGLE_BASELINE_POLICY: str = "single-v1"
 BEST_OF_BASELINE_POLICY: str = "best-of-v1"
-#: Best-of over ``c`` and ``numba`` (:data:`NUMBA_C_BASELINE_SET`); earlier builds timed ``c-autopar``
-#: when numba produced no time.
+#: Best-of over ``c`` and ``numba`` (:data:`NUMBA_C_BASELINE_SET`). Rows stamped ``best-of-v2`` may hold
+#: ``c-autopar`` as the denominator where numba produced no time.
 NUMBA_C_BASELINE_POLICY: str = "best-of-v2"
 #: ``best-of-v2``'s set raced numba first with an early stop: a compiled candidate is cut once one
 #: rep outlasts :func:`early_stop_seconds`, and a cut is "not fastest", never lost. Not provably the

@@ -849,10 +849,9 @@ def call_memory_cap(held_bytes: int, memory_gb: float = 0.0) -> Generator[None]:
 
 @contextlib.contextmanager
 def grading_memory_budget() -> Generator[None]:
-    """Run the correctness comparison under the harness's memory limit, not the kernel's.
-
-    The cap bounds the kernel's allocations, but the harness's own staging (held-out inputs, copies,
-    spills) runs in the same child and was failing XL grades against it. A no-op when no cap is armed."""
+    """Restore ``RLIMIT_DATA`` to :data:`MEMORY_CAP_BASELINE` for the block (the correctness comparison:
+    held-out inputs, copies, spills in the same child), then restore the kernel cap. No-op when no cap is
+    armed."""
     if MEMORY_CAP_BASELINE is None:
         yield
         return

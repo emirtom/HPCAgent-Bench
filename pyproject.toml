@@ -304,6 +304,9 @@ hpcagent_bench = [
 
 # Third-party warnings only (zero-warning policy for our own code).
 [tool.pytest.ini_options]
+markers = [
+    "smoke: fast end-to-end check of one feature; `pytest -m smoke` runs the set",
+]
 filterwarnings = [
     # starlette's TestClient portal teardown, inside anyio/starlette.
     "ignore:.*BlockingPortal.*:DeprecationWarning:anyio",
