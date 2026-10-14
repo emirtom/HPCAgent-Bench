@@ -91,6 +91,7 @@ __all__ = [
     "SCALING_ROWS",
     "SOURCE_SUFFIX",
     "TORCH_DIST_SETUP",
+    "UNREADABLE",
     "UNSOLVED",
     "VERDICT_KINDS",
     "Agent",
@@ -675,16 +676,17 @@ def discover_databases(run_globs: Iterable[str], skip: Iterable[pathlib.Path] = 
 
 
 def results_database(path: pathlib.Path) -> bool:
-    """Whether ``path`` is a results DB of the current schema (any other file is not read). A file SQLite
-    cannot read (a shard truncated by an OOM-killed rank) is named on stderr: skipped in silence, the
-    extraction would read as if that rank had graded nothing."""
+    """Whether ``path`` is a results DB of a schema this reader opens (a file with no results tables is
+    not read, in silence). A file SQLite cannot read (a shard truncated by an OOM-killed rank) and a
+    results DB of another schema version are named on stderr: skipped in silence, the extraction would
+    read as if that rank had graded nothing."""
     try:
         with results_db.reading(path):
             return True
-    except sqlite3.Error as exc:
-        print(f"WARNING: unreadable results DB skipped: {path}: {exc}", file=sys.stderr)
+    except results_db.NoResultsError:
         return False
-    except results_db.SchemaVersionError:
+    except (sqlite3.Error, results_db.SchemaVersionError) as exc:
+        print(f"WARNING: unreadable results DB skipped: {path}: {exc}", file=sys.stderr)
         return False
 
 
@@ -946,9 +948,14 @@ def read_db(
             observations += episode_rows(conn, db, setup_selection) + scaling_rows(conn, db, setup_selection)
             observations += baseline_rows(conn, db)
     except (sqlite3.Error, results_db.SchemaVersionError) as exc:
-        broken = {"run_root": db.run_root, "job": db.job, "judge_db": str(db.path), "row_kind": f"unreadable:{exc}"}
+        broken = {"run_root": db.run_root, "job": db.job, "judge_db": str(db.path), "row_kind": f"{UNREADABLE}{exc}"}
         return DbResult([broken], [])
     return DbResult(observations, sources)
+
+
+#: ``row_kind`` prefix of the one row :func:`read_db` returns for a database that failed mid-read;
+#: :func:`read_all` names it on stderr and never passes it on as an observation.
+UNREADABLE: str = "unreadable:"
 
 
 #: What makes two observation rows one: a grade read from a shard and from the job DB merged from it.
@@ -1523,12 +1530,20 @@ class Extracted(NamedTuple):
 
 
 def read_all(databases: list[Database], args: Options) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """The rows and graded sources of every database, a grade read twice kept once."""
+    """The rows and graded sources of every database, a grade read twice kept once. A database that
+    failed mid-read (:data:`UNREADABLE`) is named on stderr and contributes no row: passed on, its row
+    would carry no setup and read as another study's."""
     excluded = frozenset(args.exclude_setup)
     observations: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.threads)) as pool:
         for result in pool.map(lambda db: read_db(db, args.setup_prefix, excluded, args.c_reference_fix_ms), databases):
+            broken = [row for row in result.observations if str(row.get("row_kind")).startswith(UNREADABLE)]
+            for row in broken:
+                reason = str(row["row_kind"]).removeprefix(UNREADABLE)
+                print(f"WARNING: results DB unreadable mid-read, skipped: {row['judge_db']}: {reason}", file=sys.stderr)
+            if broken:
+                continue
             observations.extend(result.observations)
             sources.extend(result.sources)
     return distinct(observations), distinct(sources)

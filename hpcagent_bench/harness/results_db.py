@@ -44,6 +44,7 @@ __all__ = [
     "SUBMIT_KINDS",
     "TABLES",
     "IdMap",
+    "NoResultsError",
     "ProtocolChange",
     "SchemaVersionError",
     "Setup",
@@ -132,6 +133,11 @@ def column_defaults(table: str) -> dict[str, str]:
 
 class SchemaVersionError(ValueError):
     """A results database of another schema version."""
+
+
+class NoResultsError(SchemaVersionError):
+    """A file :func:`open_ro` was asked to read that holds no results tables at all: not a results
+    database, as opposed to one of another schema version."""
 
 
 def schema_version(conn: sqlite3.Connection) -> int:
@@ -270,7 +276,7 @@ def open_ro(path: str | pathlib.Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     try:
         if not check_schema(conn, str(path)):
-            raise SchemaVersionError(f"{path} holds no results")
+            raise NoResultsError(f"{path} holds no results")
     except BaseException:
         conn.close()
         raise
