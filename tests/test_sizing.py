@@ -6,9 +6,11 @@ sparse layouts, and every kernel declaring the whole ladder within its ceilings.
 
 import dataclasses
 
+from relayout.sparse import SparseFormat
+
 from hpcagent_bench.sizing import PRESETS, S_BYTE_CEILING, XL_BYTE_CEILING, working_bytes
 from hpcagent_bench.spec import KERNELS
-from hpcagent_bench.support.helpers.sparse.abi import ArrayLayout, ResolvedLayout
+from hpcagent_bench.support.helpers.sparse.abi import ResolvedLayout
 
 
 def spec_for(short_name: str):
@@ -84,7 +86,7 @@ def test_sparse_buffers_no_dense_shape_declares_are_counted() -> None:
 
 
 def requested(spec, fmt: str, block_size: int = 0) -> ResolvedLayout:
-    return ResolvedLayout(tuple((name, ArrayLayout(fmt, block_size)) for name in sorted(spec.sparse_layouts)))
+    return ResolvedLayout(tuple((name, SparseFormat(fmt, block_size)) for name in sorted(spec.sparse_layouts)))
 
 
 def test_a_requested_layout_is_sized_as_that_layout() -> None:

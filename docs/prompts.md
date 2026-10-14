@@ -123,14 +123,16 @@ hpcagent_bench/harness/prompts/
   scoring.j2, optimizations.j2
   lang/{cpp,fortran}.j2
   sections/  intro benchmark reference api delivery build_flags residency resources
-             timing correctness fuzzing sparse skills response mpi
+             timing correctness fuzzing sparse requests skills response mpi
   partials/  text two sections share: source-file-note.j2, submission-field.j2 (macros)
 hpcagent_bench/skills/<name>/SKILL.md   skill pages (frontmatter: name, description, optional when)
 hpcagent_bench/tools/<tool>.md          per-tool fragments for service_task.j2
 ```
 
-`service_task.j2` reuses `api`, `sparse`, `correctness`, `fuzzing`, `scoring`, `optimizations` and
-`build_flags`, so each of those texts has one source for both prompts.
+`service_task.j2` reuses `api`, `sparse`, `requests`, `correctness`, `fuzzing`, `scoring`, `optimizations`
+and `build_flags`, so each of those texts has one source for both prompts. `requests` explains the
+envelope's `requests` block (catalog libraries, per-array precision and its C types;
+[requests_api.md](requests_api.md)); the MPI layout ops live in `mpi`.
 
 Every section starts at its heading and ends with one blank line of its own. A section that renders
 nothing therefore leaves no gap, which is what lets one be turned off. `tests/test_prompt_sections.py`

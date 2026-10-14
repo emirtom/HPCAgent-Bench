@@ -12,11 +12,13 @@ drops the value buffer where its indices already say which entries are stored (c
 and keeps a ``uint8`` mask in its place where a stored block or diagonal also holds padding (bsr,
 dia).
 
-A request names one format per sparse array (``"sparse_config": {"A": "bsr:4"}``);
-:func:`parse_sparse_config` checks its shape, :mod:`.request` resolves it against a kernel."""
+A request names one format per sparse array (a ``format`` operation, ``{"action": "format", "array": "A", "to": "bsr:4"}``);
+relayout parses its label (:class:`relayout.sparse.SparseFormat`), :mod:`.request` resolves it against a kernel."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass
+
+import relayout.sparse
+from relayout.sparse import SparseFormat
 
 __all__ = [
     "BLOCK_FORMAT",
@@ -30,22 +32,19 @@ __all__ = [
     "PADDED_FORMATS",
     "SPARSE_BUFFERS_KEY",
     "SPARSE_LAYOUT_KEY",
-    "ArrayLayout",
     "BufferTemplate",
     "FormatSpec",
     "LayoutBuffer",
     "LayoutRefused",
     "ResolvedLayout",
-    "array_layout",
     "format_buffers",
     "layout_buffers",
     "layout_scalars",
-    "parse_sparse_config",
     "scalar_name",
 ]
 
-#: Every format a sparse array may be requested in, in the order the prompt lists them.
-FORMATS: tuple[str, ...] = ("csr", "csc", "coo", "bsr", "dia", "ell")
+#: Every format a sparse array may be requested in (relayout's), in the order the prompt lists them.
+FORMATS: tuple[str, ...] = tuple(relayout.sparse.FORMATS)
 
 #: The layout a sparse array arrives in when the submission requests none, and the one every
 #: baseline and reference runs in.
@@ -226,56 +225,16 @@ def layout_scalars(fmt: str, logical: str) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True, slots=True)
-class ArrayLayout:
-    """One array's requested layout; ``block_size`` is set for bsr only."""
-
-    format: str
-    block_size: int = 0
-
-    @property
-    def label(self) -> str:
-        """``csr``, or ``bsr:4`` -- the spelling recorded per array."""
-        return f"{self.format}:{self.block_size}" if self.format == BLOCK_FORMAT else self.format
-
-
-def array_layout(name: str, label: object) -> ArrayLayout:
-    """One ``sparse_config`` entry, shape-checked (the kernel is not consulted here): a format name,
-    ``bsr:<block_size>`` for bsr."""
-    if not isinstance(label, str):
-        raise ValueError(f"sparse_config[{name!r}] must be a format name such as 'csc' or 'bsr:4'; got {label!r}")
-    fmt, sep, edge = label.partition(":")
-    if fmt not in FORMATS:
-        raise ValueError(
-            f"sparse_config[{name!r}] must be one of {list(FORMATS)} (bsr as 'bsr:<block_size>'); got {label!r}"
-        )
-    if fmt != BLOCK_FORMAT:
-        if sep:
-            raise ValueError(f"sparse_config[{name!r}]: a block size applies to 'bsr' only, not {fmt!r}")
-        return ArrayLayout(fmt)
-    if not edge.isdigit() or int(edge) <= 0:
-        raise ValueError(f"sparse_config[{name!r}]: a bsr request names a positive block size, 'bsr:4'; got {label!r}")
-    return ArrayLayout(fmt, int(edge))
-
-
-def parse_sparse_config(raw: object) -> dict[str, ArrayLayout]:
-    """The ``sparse_config`` field of a submission, shape-checked: ``{name: "csc"}`` (``"bsr:4"``
-    for bsr) -> ``{name: ArrayLayout}``. Raises ``ValueError`` (a 400)."""
-    if not isinstance(raw, Mapping) or not raw:
-        raise ValueError("sparse_config must be a non-empty object {array_name: format}, e.g. {'A': 'csc'}")
-    return {str(name): array_layout(str(name), label) for name, label in raw.items()}
-
-
-@dataclass(frozen=True, slots=True)
 class ResolvedLayout:
-    """A resolved layout request: one :class:`ArrayLayout` per logical sparse array, in name order.
+    """A resolved layout request: one :class:`~relayout.sparse.SparseFormat` per logical sparse array, in name order.
     Every array shares one format (the configuration key and the symbol's layout segment)."""
 
-    arrays: tuple[tuple[str, ArrayLayout], ...]
+    arrays: tuple[tuple[str, SparseFormat], ...]
 
     @property
     def format(self) -> str:
         """The shared format: the configuration key, ``spmv_<format>_fp64``'s segment."""
-        return self.arrays[0][1].format
+        return self.arrays[0][1].name
 
     @property
     def label(self) -> str:

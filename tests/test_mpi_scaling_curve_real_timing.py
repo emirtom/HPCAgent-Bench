@@ -25,6 +25,7 @@ import sys
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness.metric import MIN_CURVE_POINTS, scaling_score
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
@@ -52,7 +53,7 @@ def sum_binding() -> Binding:
 
 
 def sum_descriptor(ranks: int) -> Descriptor:
-    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(
         grid=Grid((ranks,)), arrays={"x": block0, "y": ArrayDist(replicated=True)}, symbol_axes={"N": [("x", 0)]}
     )
@@ -86,7 +87,8 @@ def median_max_over_ranks_ns(launch: list[str], ranks: int, tmp_path: pathlib.Pa
     )
     assert r is not None, r and r.stderr
     assert r.returncode == 0, r and r.stderr
-    samples, outputs = unpack_outfile(outp.read_bytes())
+    decoded = unpack_outfile(outp.read_bytes())
+    samples, outputs = decoded.samples, decoded.outputs
     assert len(samples) == k_repeats  # k_repeats MAX-over-ranks samples, one per repeat
     dtype_code, tiles = outputs[0]
     got_sum = float(np.frombuffer(tiles[0], dtype=np.float64)[0])

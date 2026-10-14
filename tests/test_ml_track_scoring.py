@@ -16,29 +16,31 @@ import types
 from collections.abc import Callable, Iterator, Mapping, Sequence
 
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import metric, mpi_call, native_call, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
 
 TASK = Task("jacobi_2d", "restricted", "hip", residency="distributed")
 
 
-def mpi_sub(scheme: str = "block", block_size: int = 1) -> Submission:
-    axes = [{"grid_dim": 0, "scheme": scheme, "block_size": block_size}, {"grid_dim": None}]
+def mpi_sub(scheme: Scheme = Scheme.BLOCK, block_size: int = 1) -> Submission:
+    axes = [{"grid_dim": 0, "scheme": scheme.value, "block_size": block_size}, {"grid_dim": None}]
     return Submission(
         language="hip",
         source="mpi",
         device_source="kernels",
-        distribution={"grid": [1], "arrays": {"A": {"axes": axes}, "B": {"axes": axes}}},
+        requests=Requests.from_plan({"grid": [1], "arrays": {"A": {"axes": axes}, "B": {"axes": axes}}}),
     )
 
 
-def descriptor_for(ranks: int, scheme: str = "block", block_size: int = 1) -> Descriptor:
+def descriptor_for(ranks: int, scheme: Scheme = Scheme.BLOCK, block_size: int = 1) -> Descriptor:
     """A REAL descriptor spanning ``ranks``: jacobi_2d's A and B split on their first axis. The
     launch is faked in these tests, the layout is not -- the scorer validates the declared scheme
     against the tiles the run would materialize, which a stub descriptor cannot answer."""
@@ -47,7 +49,7 @@ def descriptor_for(ranks: int, scheme: str = "block", block_size: int = 1) -> De
 
 
 def fake_ml_track(
-    monkeypatch: pytest.MonkeyPatch, mode: str, verdict=None, scheme: str = "block", block_size: int = 1
+    monkeypatch: pytest.MonkeyPatch, mode: str, verdict=None, scheme: Scheme = Scheme.BLOCK, block_size: int = 1
 ) -> list[tuple[int, int]]:
     """Put jacobi_2d on the ML track with T(P) = 8000/P ns (T_1 = 8000); returns the (P, seed) calls."""
     calls: list[tuple[int, int]] = []
@@ -179,7 +181,7 @@ def test_a_decorative_scheme_fails_the_leaderboard_grade(monkeypatch: pytest.Mon
     """block_cyclic(3) over 4 ranks deals the same tile SHAPE the ranks build but names different
     global rows, so the declared layout is not the one that ran: a scored refusal before the timed
     launch, never a graded run of a layout nobody executed."""
-    fake_ml_track(monkeypatch, "strong", scheme="block_cyclic", block_size=3)
+    fake_ml_track(monkeypatch, "strong", scheme=Scheme.BLOCK_CYCLIC, block_size=3)
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_RANKS", "4")
     monkeypatch.setattr(
         scoring.torch_baseline,
@@ -214,7 +216,10 @@ def test_replicating_an_unlisted_array_is_a_request_fault(monkeypatch: pytest.Mo
     task = Task("dist_softmax", "restricted", "hip", residency="distributed")
     split = {"axes": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "block"}]}
     sub = Submission(
-        language="hip", source="mpi", device_source="k", distribution={"grid": [4], "arrays": {"x": split}}
+        language="hip",
+        source="mpi",
+        device_source="k",
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": split}}),
     )
     # The real manifest allowlists NOTHING for dist_softmax: replicating `out` is refused by name.
     reason = service.distribution_refusal(sub, task, "S")
@@ -251,11 +256,13 @@ def test_the_curve_is_never_an_agent_facing_signal() -> None:
 ML_TASK = Task("dist_softmax", "restricted", "hip", residency="distributed")
 
 
-def softmax_sub(scheme: str = "block") -> Submission:
+def softmax_sub(scheme: Scheme = Scheme.BLOCK) -> Submission:
     """dist_softmax's default layout (x and out split on ``dim``), at mpi.ranks = 4."""
-    axes = [{"grid_dim": None}, {"grid_dim": 0, "scheme": scheme}]
+    axes = [{"grid_dim": None}, {"grid_dim": 0, "scheme": scheme.value}]
     arrays = {"x": {"axes": axes}, "out": {"axes": axes}}
-    return Submission(language="hip", source="mpi", device_source="k", distribution={"grid": [4], "arrays": arrays})
+    return Submission(
+        language="hip", source="mpi", device_source="k", requests=Requests.from_plan({"grid": [4], "arrays": arrays})
+    )
 
 
 XL_DIM = scoring.BenchSpec.load("dist_softmax").parameters["XL"]["dim"]
@@ -493,7 +500,7 @@ def test_a_flexible_scheme_is_realized_not_refused_on_the_leaderboard_launch(mon
     cyclic on `dim` realizes for real (shard_torch.make_tiles honours the declared scheme), so
     it reaches the (faked) launch instead of being refused as decorative."""
     fake_ml_grade(monkeypatch)
-    graded = scoring.score_ml(softmax_sub("cyclic"), ML_TASK, rank_counts=(1, 2, 4), preset="XL", repeat=3)
+    graded = scoring.score_ml(softmax_sub(Scheme.CYCLIC), ML_TASK, rank_counts=(1, 2, 4), preset="XL", repeat=3)
     assert graded.score.correct
     assert graded.score.baseline == "torch-autotune-gpu"
 
@@ -511,7 +518,7 @@ def test_a_different_split_axis_is_still_a_400_before_any_build(monkeypatch: pyt
         language="hip",
         source="mpi",
         device_source="k",
-        distribution={"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}},
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}}),
     )
     reason = service.distribution_refusal(sub, ML_TASK, "XL")
     assert reason is not None
@@ -616,7 +623,7 @@ def test_an_allowlisted_array_may_be_replicated_and_any_other_layout_is_refused(
     layout = distribution_for_kernel(spec.mpi, scoring.binding_from_spec(spec), 4)
 
     def refusal(dist: dict) -> str | None:
-        sub = Submission(language="hip", source="mpi", device_source="k", distribution=dist)
+        sub = Submission(language="hip", source="mpi", device_source="k", requests=Requests.from_plan(dist))
         return service.distribution_refusal(sub, task, "XL")
 
     assert refusal(layout) is None
@@ -642,7 +649,7 @@ def test_a_fuzzed_judge_preset_sizes_the_ml_refusal_at_the_leaderboard_preset() 
         language="hip",
         source="mpi",
         device_source="k",
-        distribution={"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}},
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}}),
     )
     reason = service.distribution_refusal(split_batch, ML_TASK, "fuzzed")
     assert reason is not None
@@ -652,7 +659,7 @@ def test_a_fuzzed_judge_preset_sizes_the_ml_refusal_at_the_leaderboard_preset() 
         language="hip",
         source="mpi",
         device_source="k",
-        distribution={"grid": [4], "arrays": {"x": {"axes": whole}, "out": {"axes": whole}}},
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": whole}, "out": {"axes": whole}}}),
     )
     assert service.distribution_refusal(replicated_out, ML_TASK, "fuzzed") is not None
 

@@ -16,22 +16,22 @@ from pathlib import Path
 import numpy as np
 import pytest
 import scipy.sparse as sp
+from relayout.sparse import SparseFormat
 
 from hpcagent_bench import fuzz, paths
 from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.rep_variation import classify_args, variant_for
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.helpers.sparse.abi import (
     ELL_PAD_INDEX,
     FORMATS,
     INDEX_DTYPE,
-    ArrayLayout,
     LayoutRefused,
     ResolvedLayout,
-    parse_sparse_config,
 )
 from hpcagent_bench.support.helpers.sparse.materialize import (
     Materialized,
@@ -122,8 +122,8 @@ def same_matrix(got: sp.spmatrix, want: sp.spmatrix, pattern: bool) -> bool:
     return difference.nnz == 0
 
 
-def layout_of(fmt: str) -> ArrayLayout:
-    return ArrayLayout(fmt, EDGE) if fmt == "bsr" else ArrayLayout(fmt)
+def layout_of(fmt: str) -> SparseFormat:
+    return SparseFormat(fmt, EDGE) if fmt == "bsr" else SparseFormat(fmt)
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
@@ -171,47 +171,45 @@ def test_the_canonical_form_sums_duplicates_and_sorts_each_row() -> None:
 
 
 def test_coo_entries_are_sorted_by_row_then_column() -> None:
-    done = convert(canonical_csr(MATRICES["random"]()), "A", ArrayLayout("coo"))
+    done = convert(canonical_csr(MATRICES["random"]()), "A", SparseFormat("coo"))
     keys = done.buffers["A_row"] * 8 + done.buffers["A_col"]
     assert np.all(np.diff(keys) > 0)
 
 
 def test_the_format_scalars_describe_the_buffers() -> None:
     m = canonical_csr(MATRICES["random"]())
-    bsr = convert(m, "A", ArrayLayout("bsr", EDGE))
+    bsr = convert(m, "A", SparseFormat("bsr", EDGE))
     assert bsr.scalars == {"A_bs": EDGE, "A_mb": 8 // EDGE, "A_nnzb": bsr.buffers["A_indices"].size}
-    dia = convert(m, "A", ArrayLayout("dia"))
+    dia = convert(m, "A", SparseFormat("dia"))
     assert dia.scalars == {"A_ndiag": dia.buffers["A_offsets"].size}
-    ell = convert(m, "A", ArrayLayout("ell"))
+    ell = convert(m, "A", SparseFormat("ell"))
     assert ell.scalars == {"A_width": int(np.diff(m.indptr).max())}
 
 
 def test_a_block_edge_that_does_not_tile_the_matrix_is_refused() -> None:
-    with pytest.raises(LayoutRefused, match="does not divide"):
-        convert(canonical_csr(MATRICES["rectangular"]()), "A", ArrayLayout("bsr", 4))
+    with pytest.raises(LayoutRefused, match="does not tile"):
+        convert(canonical_csr(MATRICES["rectangular"]()), "A", SparseFormat("bsr", 4))
 
 
 @pytest.mark.parametrize(
-    ("raw", "match"),
+    ("label", "match"),
     [
-        ({"A": "jds"}, "must be one of"),
-        ({"A": "bsr"}, "positive block size"),
-        ({"A": "bsr:0"}, "positive block size"),
-        ({"A": "csr:2"}, "applies to 'bsr' only"),
-        ({"A": {"format": "csr"}}, "must be a format name"),
-        ({}, "non-empty"),
-        ("csr", "non-empty object"),
+        ("jds", "the formats are"),
+        ("bsr", "bsr takes a block edge"),
+        ("bsr:0", "must be a positive int"),
+        ("csr:2", "bsr takes a block edge"),
+        ({"format": "csr"}, r"operations\[0\].to must be a string"),
     ],
 )
-def test_a_malformed_sparse_config_is_a_request_fault(raw: object, match: str) -> None:
+def test_a_malformed_format_is_a_request_fault(label: object, match: str) -> None:
     with pytest.raises(ValueError, match=match):
-        Submission(language="c", source="x", sparse_config=raw)  # type: ignore[arg-type]
+        Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": label}]})
 
 
-def test_the_sparse_config_rides_the_envelope_both_ways() -> None:
-    sub = Submission(language="c", source="x", sparse_config={"A": "bsr:4"})
-    assert Submission.from_obj(sub.to_json()).sparse_config == sub.sparse_config
-    assert parse_sparse_config(sub.sparse_config) == {"A": ArrayLayout("bsr", 4)}
+def test_the_format_operations_ride_the_envelope_both_ways() -> None:
+    sub = Submission(language="c", source="x", requests=Requests.of(sparse={"A": "bsr:4"}))
+    assert Submission.from_obj(sub.to_json()).requests.formats() == sub.requests.formats()
+    assert sub.requests.formats() == {"A": "bsr:4"}
 
 
 @pytest.mark.parametrize(
@@ -241,7 +239,7 @@ def test_a_format_the_array_does_not_offer_is_refused() -> None:
 
 def test_no_request_is_every_array_in_its_default_layout() -> None:
     choice = resolve_layout(BenchSpec.load("spmm"), None)
-    assert choice == ResolvedLayout((("A", ArrayLayout("csr")), ("B", ArrayLayout("csr"))))
+    assert choice == ResolvedLayout((("A", SparseFormat("csr")), ("B", SparseFormat("csr"))))
     assert choice.label == "A:csr,B:csr"
 
 
@@ -561,9 +559,9 @@ def test_a_redrawn_system_stays_diagonally_dominant(kernel: str, symmetric: bool
 def test_a_conversion_is_planned_once_per_pattern() -> None:
     """The timed repeats share one pattern, so the child converts it once and gathers each draw."""
     m = canonical_csr(MATRICES["random"]())
-    first = converted(m, "A", ArrayLayout("ell"))
+    first = converted(m, "A", SparseFormat("ell"))
     other = sp.csr_matrix(m.shape, dtype=np.float64)
     other.indptr, other.indices, other.data = m.indptr, m.indices, m.data * 2
-    second = converted(other, "A", ArrayLayout("ell"))
+    second = converted(other, "A", SparseFormat("ell"))
     assert second.buffers["A_indices"] is first.buffers["A_indices"]
     assert np.array_equal(second.buffers["A_data"], 2 * first.buffers["A_data"])

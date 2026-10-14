@@ -13,7 +13,7 @@ through an fp16-native framework (JAX) within the looser fp16 tolerance.
 import numpy as np
 import pytest
 
-from hpcagent_bench.precision import DTYPES, Precision, numpy_dtype
+from hpcagent_bench.precision import DTYPES, Precision, numpy_dtype, precision_from_datatype
 from tests.optional_imports import import_or_skip
 
 FP16_FRAMEWORKS = ("numpy", "jax", "tvm_gpu", "tvm_cpu", "triton", "cupy")
@@ -25,7 +25,7 @@ FP16_KERNELS = ("jacobi_2d", "arc_distance")
 
 
 def test_fp16_dtype_and_tolerance() -> None:
-    assert Precision.from_str("fp16") is Precision.FP16
+    assert precision_from_datatype("float16") is Precision.FP16
     assert numpy_dtype(Precision.FP16) is np.float16
     assert DTYPES[Precision.FP16] is np.float16
     # The LIVE validation-tolerance table (the one Test.run actually uses).

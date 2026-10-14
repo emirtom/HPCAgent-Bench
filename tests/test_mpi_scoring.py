@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """End-to-end scoring of a distributed (MPI) submission via scoring.score on a distributed task."""
 
-import math
 import pathlib
 import shutil
 import types
@@ -16,6 +15,7 @@ from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.optimizers import NoOpMPIOptimizer
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -27,6 +27,11 @@ from tests.mpi_launch_helpers import c_toolchain, cc_override_for, mpi4py_launch
 from tests.test_mpi_call import cupy_device_available
 
 _BLOCK0 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
+
+
+def launched(samples_ns: list[int]) -> mpi_call.MpiRun:
+    """A stubbed launch: no outputs, ``samples_ns`` per repeat, no precision casts."""
+    return mpi_call.MpiRun({}, samples_ns, [0] * len(samples_ns), [0] * len(samples_ns))
 
 
 @pytest.fixture
@@ -171,7 +176,9 @@ def test_distributed_bad_kernel_is_a_scored_failure_not_a_crash(mpi_c) -> None:
     binding = binding_from_spec(BenchSpec.load("scaled_add"))
     stub = gen_kernel_mpi_stub(binding)
     broken = stub[: stub.index("{")] + "{\n    this is not C;\n}\n"
-    sub = Submission(language="c", source=broken, distribution={"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}})
+    sub = Submission(
+        language="c", source=broken, requests=Requests.from_plan({"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}})
+    )
     result = scoring.score(sub, Task(kernel="scaled_add", language="c", residency="distributed"), preset="S")
     assert not result.correct
 
@@ -233,7 +240,7 @@ def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
 def test_distributed_block_cyclic_2d_scores_solved(mpi_c) -> None:
     task = Task(kernel="mat_scaled_add", language="c", residency="distributed")
     sub = NoOpMPIOptimizer().solve(task)
-    assert sub.distribution["grid"] == [2, 2]  # the equal-edge 2-D hypercube for R=4
+    assert sub.requests.grid_at(4) == (2, 2)  # the equal-edge 2-D grid for R=4
     result = scoring.score(sub, task, preset="S")
     assert result.correct, result.detail
     assert result.build_ok
@@ -322,7 +329,7 @@ def test_distributed_scaled_add_device_cuda_source_scores_solved(mpi_c) -> None:
         language="cuda",
         source=_CUDA_SCALED_ADD_HOST,
         device_source=_CUDA_SCALED_ADD_KERNELS,
-        distribution=_noop_submission("c").distribution,
+        requests=_noop_submission("c").requests,
     )
     task = Task(kernel="scaled_add", language="cuda", residency="distributed")
     config.set_override("mpi.residency", "device")
@@ -391,7 +398,7 @@ def test_distributed_scaled_add_mixed_host_device_scores_solved(mpi_c) -> None:
         language="cuda",
         source=_CUDA_SCALED_ADD_MIXED_HOST,
         device_source=_CUDA_SCALED_ADD_MIXED_KERNELS,
-        distribution=distribution,
+        requests=Requests.from_plan(distribution),
     )
     task = Task(kernel="scaled_add", language="cuda", residency="distributed")
     result = scoring.score(sub, task, preset="S")
@@ -422,38 +429,9 @@ def test_distributed_scaled_add_device_python_scores_solved() -> None:
     assert result.speedup > 0
 
 
-# multi-node scaling curve (paper sec:distributed): P-sweep needs P a perfect d-th power
-
-
-def test_regrid_for_ranks_reshapes_1d_and_skips_unfactorable_nd() -> None:
-    from hpcagent_bench.harness.scoring import _regrid_for_ranks
-
-    block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    one_d = Submission(language="c", source="x", distribution={"grid": [4], "arrays": {"x": block, "y": block}})
-    assert _regrid_for_ranks(one_d, 2).distribution["grid"] == [2]  # 1-D re-grids to [P]
-    assert _regrid_for_ranks(one_d, 4) is one_d  # already spans P => unchanged (verbatim)
-    two_d = Submission(language="c", source="x", distribution={"grid": [2, 2], "arrays": {"x": {"replicated": True}}})
-    assert _regrid_for_ranks(two_d, 4) is two_d  # product matches => used verbatim
-    assert _regrid_for_ranks(two_d, 9).distribution["grid"] == [3, 3]  # perfect square => equal-edge hypercube
-    assert _regrid_for_ranks(two_d, 8) is None  # 8 is not a perfect square => no equal-edge 2-D grid
-    assert _regrid_for_ranks(two_d, 3) is None  # 3 is not a perfect square => skipped
-
-
-def test_regrid_for_ranks_guards() -> None:
-    from hpcagent_bench.harness.scoring import _regrid_for_ranks
-
-    block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    one_d = Submission(language="c", source="x", distribution={"grid": [4], "arrays": {"x": block}})
-    assert _regrid_for_ranks(one_d, 0) is None
-    assert _regrid_for_ranks(one_d, -4) is None
-    assert _regrid_for_ranks(Submission(language="c", source="x"), 4) is None  # no distribution
-    # empty grid can't pass Submission validation, so exercise the defensive guard with a bare object
-    assert _regrid_for_ranks(types.SimpleNamespace(distribution={"grid": []}), 4) is None
-    three_d = Submission(
-        language="c", source="x", distribution={"grid": [2, 2, 2], "arrays": {"x": {"replicated": True}}}
-    )
-    assert _regrid_for_ranks(three_d, 27).distribution["grid"] == [3, 3, 3]  # perfect cube
-    assert _regrid_for_ranks(three_d, 10) is None  # not a perfect cube
+def described(cls: type, submission: object, binding: object, ranks: int, **kw: object) -> types.SimpleNamespace:
+    """A stand-in descriptor that knows only its rank count and that no array is on the device."""
+    return types.SimpleNamespace(any_device=lambda binding: False, nranks=ranks)
 
 
 def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) -> None:
@@ -475,15 +453,15 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         # (outputs, samples, mem, followup outputs) -- constant serial anchor time
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def _fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
-        p = int(math.prod(submission.distribution["grid"]))
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+        p = descriptor.nranks
         if p == 4:
             raise S.MpiBuildError("boom")  # one P fails to build => a note, not a point
-        return ({}, [1000 * p])  # T_i(P) grows with P here (irrelevant; we assert wiring, not eta)
+        return launched([1000 * p])  # T_i(P) grows with P here (irrelevant; we assert wiring, not eta)
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
     monkeypatch.setattr(S, "_call_isolated", _fake_call_isolated)
-    monkeypatch.setattr(S, "_build_run_mpi", _fake_build_run)
+    monkeypatch.setattr(S, "_build_run_mpi", fake_build_run)
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
     # **kw, not the five positionals alone: score_scaling passes initial=cand_data so the grader can
@@ -493,14 +471,14 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
     monkeypatch.setattr(
         S.Descriptor,
         "from_submission",
-        classmethod(lambda cls, *a, **k: types.SimpleNamespace(any_device=lambda binding: False)),
+        classmethod(described),
     )
     monkeypatch.setattr(S.config, "get", lambda key, default=None: "strong" if key == "mpi.mode" else default)
     # warmup_count() is a separate config from S.config; zero it so anchor calls == 1, not warmup+1.
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    sub = Submission(language="c", source="mpi", distribution={"grid": [1], "arrays": {"x": block}})
+    sub = Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}}))
     anchor = Submission(language="c", source="serial")
     runs = S.score_scaling(
         sub,
@@ -522,11 +500,11 @@ GANG_LAUNCHER = ["python3", "-m", "hpcagent_bench.harness.mpi_gang", "-n"]
 
 
 def gang_strong_sweep(
-    monkeypatch: pytest.MonkeyPatch, fails_at: int, *, error: type[Exception] | None = None
+    monkeypatch: pytest.MonkeyPatch, fails_at: int, *, error: type[Exception] | None = None, refused_at: int = 0
 ) -> scoring.ScalingRuns:
     """A strong scaled_add sweep over P = 1, 2, 4, 8 through the GANG launcher on 4-GPU nodes, every
-    seam faked: the anchor takes 4000 ns, T_i(P) = 1000*P ns, and P = ``fails_at`` fails its build
-    (or raises ``error``)."""
+    seam faked: the anchor takes 4000 ns, T_i(P) = 1000*P ns, P = ``fails_at`` fails its build (or
+    raises ``error``) and P = ``refused_at``'s layout is refused before the launch."""
     import contextlib
 
     from hpcagent_bench.harness import scoring as S
@@ -540,10 +518,10 @@ def gang_strong_sweep(
         )
 
     def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
-        p = int(math.prod(submission.distribution["grid"]))
+        p = descriptor.nranks
         if p == fails_at:
             raise fail("boom")
-        return ({}, [1000 * p])
+        return launched([1000 * p])
 
     overrides = {"mpi.mode": "strong", "mpi.launcher": GANG_LAUNCHER}
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GANG_NODELIST", "nid001,nid002")
@@ -559,16 +537,18 @@ def gang_strong_sweep(
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
     monkeypatch.setattr(S, "_grade", lambda spec, oracle, out, rtol, atol, **kw: (True, 0.0, ""))
-    monkeypatch.setattr(
-        S.Descriptor,
-        "from_submission",
-        classmethod(lambda cls, *a, **k: types.SimpleNamespace(any_device=lambda binding: False)),
-    )
+
+    def refusing(cls: type, submission: object, binding: object, ranks: int, **kw: object) -> types.SimpleNamespace:
+        if ranks == refused_at:
+            raise ValueError(f"requests.grid does not span {ranks} rank(s)")
+        return described(cls, submission, binding, ranks)
+
+    monkeypatch.setattr(S.Descriptor, "from_submission", classmethod(refusing))
     monkeypatch.setattr(S.config, "get", lambda key, default=None: overrides.get(key, default))
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
     return S.score_scaling(
-        Submission(language="c", source="mpi", distribution={"grid": [1], "arrays": {"x": block}}),
+        Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}})),
         Task("scaled_add", "restricted", "c", residency="distributed"),
         Submission(language="c", source="serial"),
         rank_counts=(1, 2, 4, 8),
@@ -619,14 +599,10 @@ def test_score_scaling_keeps_the_sized_problem_of_every_p(monkeypatch) -> None:
 
 def test_score_scaling_a_p_refused_before_launch_has_a_shape_but_no_placement(monkeypatch) -> None:
     """A P that never reached a launch was placed nowhere, so it records no node count."""
-    from hpcagent_bench.harness import scoring as S
-
-    real = S._regrid_for_ranks
-    monkeypatch.setattr(S, "_regrid_for_ranks", lambda sub, p: None if p == 2 else real(sub, p))
-    runs = gang_strong_sweep(monkeypatch, fails_at=0)
+    runs = gang_strong_sweep(monkeypatch, fails_at=0, refused_at=2)
     assert 2 not in runs.nodes
     assert 2 in runs.shapes
-    assert runs.rank_notes[2].startswith("cannot re-grid"), runs.rank_notes
+    assert runs.rank_notes[2].startswith("invalid MPI layout"), runs.rank_notes
 
 
 def test_score_scaling_weak_rounding_note_joins_its_p_without_the_prefix(monkeypatch) -> None:
@@ -653,26 +629,26 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     def _fake_call_isolated(lib, binding, data, lang, reps: int = 1, followups=(), **kw):
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def _fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
-        p = int(math.prod(submission.distribution["grid"]))
-        return ({}, [1000 * p])
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+        p = descriptor.nranks
+        return launched([1000 * p])
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
     monkeypatch.setattr(S, "_call_isolated", _fake_call_isolated)
-    monkeypatch.setattr(S, "_build_run_mpi", _fake_build_run)
+    monkeypatch.setattr(S, "_build_run_mpi", fake_build_run)
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
     monkeypatch.setattr(S, "_grade", lambda spec, oracle, out, rtol, atol, **kw: (True, 0.0, ""))
     monkeypatch.setattr(
         S.Descriptor,
         "from_submission",
-        classmethod(lambda cls, *a, **k: types.SimpleNamespace(any_device=lambda binding: False)),
+        classmethod(described),
     )
     monkeypatch.setattr(S.config, "get", lambda key, default=None: "weak" if key == "mpi.mode" else default)
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     grid1 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    sub = Submission(language="c", source="mpi", distribution={"grid": [1], "arrays": {"A": grid1}})
+    sub = Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"A": grid1}}))
     anchor = Submission(language="c", source="serial")
     return S.score_scaling(
         sub,
@@ -830,7 +806,7 @@ def mock_mpi_runners(monkeypatch: pytest.MonkeyPatch, *, native: list[int], base
         k_repeats: int | None = None,
     ) -> tuple[dict[str, np.ndarray], list[int]]:
         n = k_repeats if k_repeats is not None else cfg.k_repeats
-        return {}, (native * n)[:n] if native else []
+        return launched((native * n)[:n] if native else [])
 
     monkeypatch.setattr(S, "_build_run_mpi", fake_build_run_mpi)
     monkeypatch.setattr(

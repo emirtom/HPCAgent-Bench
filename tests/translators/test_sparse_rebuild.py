@@ -12,8 +12,9 @@ import ast
 import numpy as np
 import pytest
 import scipy.sparse as sp
+from relayout.sparse import SparseFormat
 
-from hpcagent_bench.support.helpers.sparse.abi import FORMAT_SPECS, FORMATS, ArrayLayout, scalar_name
+from hpcagent_bench.support.helpers.sparse.abi import FORMAT_SPECS, FORMATS, scalar_name
 from hpcagent_bench.support.helpers.sparse.materialize import canonical_csr, convert
 from hpcagent_bench.translators.numpyto_common.frontend.sparse_rebuild import (
     RebuildSpec,
@@ -57,8 +58,8 @@ def spec_for(fmt: str, valued: bool) -> RebuildSpec:
     )
 
 
-def layout_of(fmt: str) -> ArrayLayout:
-    return ArrayLayout(fmt, EDGE) if fmt == "bsr" else ArrayLayout(fmt)
+def layout_of(fmt: str) -> SparseFormat:
+    return SparseFormat(fmt, EDGE) if fmt == "bsr" else SparseFormat(fmt)
 
 
 def roles(fmt: str, valued: bool) -> list[str]:

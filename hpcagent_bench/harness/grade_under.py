@@ -82,6 +82,7 @@ from hpcagent_bench.harness.recording import (
     record_scaling,
     snapshot_commit,
 )
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import ML_LAWS, Score, TimedCell, VerifyResult, score
 from hpcagent_bench.harness.service import delivery_language, from_config, scales
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, grading_residency
@@ -110,6 +111,7 @@ __all__ = [
     "PROMOTION_KIND",
     "REPEAT_ENV",
     "REPEAT_FLOOR_ENV",
+    "REQUEST_COLUMNS",
     "SCORE",
     "SUBMIT_SH",
     "TIMING_BACKEND_ENV",
@@ -119,6 +121,7 @@ __all__ = [
     "WARMUP_ENV",
     "FinalGrade",
     "FinalInput",
+    "GradingCuts",
     "Item",
     "Launch",
     "Scaling",
@@ -141,6 +144,7 @@ __all__ = [
     "env_files",
     "env_names",
     "environment_scope",
+    "epoch_ms",
     "final_denominator",
     "final_env",
     "final_grade",
@@ -150,8 +154,6 @@ __all__ = [
     "grade",
     "grade_cells",
     "grade_rank_counts",
-    "GradingCuts",
-    "epoch_ms",
     "grading_cuts",
     "grading_env",
     "hide_experiment_data",
@@ -166,6 +168,7 @@ __all__ = [
     "protocol_inputs",
     "read_worklist",
     "recorded_setup",
+    "requests_select",
     "run_cells_shard",
     "run_shard",
     "scaled",
@@ -272,12 +275,8 @@ class Item:
     reduction: str = ""  # the stamp it was credited under, for the shift check
     promoted: bool = False  # grades an unsubmitted episode's last correct source, not a submission
     workspace_bytes: str | None = None  # the agent's scratch request, when recorded; None = unknown
-    # The MPI envelope (distribution and linked catalog libraries); defaults keep single-node items as
-    # they were.
-    distribution: dict[str, Any] | None = None
-    libraries: list[str] = dataclasses.field(default_factory=list)
-    # The sparse layout request (``Submission.sparse_config``), when recorded; None = the defaults.
-    sparse_config: dict[str, Any] | None = None
+    # The recorded ``requests`` as JSON (startup + operations); {} = none.
+    requests: dict[str, Any] = dataclasses.field(default_factory=dict)
     # How many submission rows the item's (setup, kernel) held; above 1 is a multi-submission group.
     submissions: int = 1
     # The scaling sweep this item is graded over (:func:`scaling_of`); None = the single-node final grade.
@@ -517,7 +516,7 @@ CREDITED_SUBMISSIONS = f"""
 SELECT g.id AS grade_id, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
        coalesce(g.credited_speedup, p.credited_speedup) AS speedup,
        coalesce(p.timing_reduction, g.timing_reduction) AS timing_reduction,
-       g.workspace_bytes, g.distribution, g.requested_libraries, p.id IS NOT NULL AS promoted,
+       g.workspace_bytes, {{requests}}, p.id IS NOT NULL AS promoted,
        gs.language, gs.hash, a.study
 FROM grades g
 JOIN episodes r ON r.id = g.episode_id
@@ -535,15 +534,16 @@ ORDER BY r.job, r.label, g.kernel, g.ts_ms
 def credited_rows(db: pathlib.Path) -> list[dict[str, Any]]:
     """:data:`CREDITED_SUBMISSIONS` of ``db``, one dict per row, ``db`` included."""
     with results_db.reading(db) as conn:
-        return [{**dict(row), "db": str(db)} for row in conn.execute(CREDITED_SUBMISSIONS)]
+        query = CREDITED_SUBMISSIONS.format(requests=requests_select(conn))
+        return [{**dict(row), "db": str(db)} for row in conn.execute(query)]
 
 
 #: The submissions :data:`CREDITED_SUBMISSIONS` leaves out (no live credit) of the kernels named by
 #: ``{kernels}``, in its columns; :func:`stale_rows` keeps those graded before their kernel's cut.
 UNCREDITED_SUBMISSIONS = f"""
 SELECT g.id AS grade_id, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
-       g.credited_speedup AS speedup, g.timing_reduction, g.workspace_bytes, g.distribution,
-       g.requested_libraries, 0 AS promoted, gs.language, gs.hash, a.study
+       g.credited_speedup AS speedup, g.timing_reduction, g.workspace_bytes, {{requests}},
+       0 AS promoted, gs.language, gs.hash, a.study
 FROM grades g
 JOIN episodes r ON r.id = g.episode_id
 JOIN setups a ON a.setup = r.setup
@@ -563,15 +563,19 @@ def stale_rows(db: pathlib.Path) -> list[dict[str, Any]]:
     cuts = grading_cuts().kernels
     if not cuts:
         return []
-    query = UNCREDITED_SUBMISSIONS.format(kernels=", ".join("?" * len(cuts)))
     with results_db.reading(db) as conn:
+        query = UNCREDITED_SUBMISSIONS.format(kernels=", ".join("?" * len(cuts)), requests=requests_select(conn))
         rows = conn.execute(query, tuple(cuts)).fetchall()
     return [{**dict(row), "db": str(db)} for row in rows if int(row["ts_ms"]) < cuts[str(row["kernel"])]]
 
 
-def as_libraries(requested: object) -> list[str]:
-    """A grade's ``requested_libraries`` (a JSON list) as names; empty when it asked for none."""
-    return [str(name) for name in json.loads(str(requested))] if requested else []
+#: The ``grades`` columns a grade's requests are read from: v7's ``requests``, and the v6 columns it folded.
+REQUEST_COLUMNS = ("requests", "requested_libraries", "distribution", "layout_request")
+
+
+def requests_select(conn: sqlite3.Connection) -> str:
+    """The SELECT list of :data:`REQUEST_COLUMNS` for ``conn``'s schema version (a missing one reads '')."""
+    return results_db.grade_columns(conn, "g", REQUEST_COLUMNS)
 
 
 def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
@@ -593,8 +597,7 @@ def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
         reduction=str(row.get("timing_reduction") or ""),
         promoted=bool(row.get("promoted")),
         workspace_bytes=str(row["workspace_bytes"]) if row.get("workspace_bytes") else None,
-        distribution=json.loads(str(row["distribution"])) if row.get("distribution") else None,
-        libraries=as_libraries(row.get("requested_libraries")),
+        requests=results_db.requests_of_row(row).to_json(),
     )
 
 
@@ -641,7 +644,7 @@ def build_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib.Path]) ->
 #: fault, or a promotion already credited.
 UNPROMOTED_EPISODES = f"""
 SELECT g.id AS grade_id, r.id AS run, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
-       coalesce(r.final_attempt_start_ms, 0) AS cut, g.workspace_bytes, g.distribution, g.requested_libraries, gs.language, gs.hash,
+       coalesce(r.final_attempt_start_ms, 0) AS cut, g.workspace_bytes, {{requests}}, gs.language, gs.hash,
        (SELECT max(c.speedup) FROM grades c WHERE c.episode_id = g.episode_id AND c.kernel = g.kernel
             AND c.kind = 'score' AND c.correct = 1 AND c.ts_ms >= coalesce(r.final_attempt_start_ms, 0)) AS speedup
 FROM grades g
@@ -754,7 +757,7 @@ def build_promotion_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib
     for db in dbs:
         with results_db.reading(db) as conn:
             newest: dict[tuple[str, str, int], dict[str, Any]] = {}
-            for row in conn.execute(UNPROMOTED_EPISODES):
+            for row in conn.execute(UNPROMOTED_EPISODES.format(requests=requests_select(conn))):
                 newest[(str(row["setup"]), str(row["kernel"]), int(row["slot"]))] = {**dict(row), "db": str(db)}
             owed = [
                 row
@@ -811,8 +814,7 @@ def delivered_language(language: str) -> str:
 
 def submission_of(item: Item) -> Submission:
     """The envelope ``item`` recorded, rebuilt for a re-grade: both source units as the grade stored
-    them, the scratch request (:data:`UNKNOWN_WORKSPACE` when none), and the MPI distribution, sparse
-    configuration and libraries when present."""
+    them, the scratch request (:data:`UNKNOWN_WORKSPACE` when none), and the recorded requests."""
     with results_db.reading(item.db) as conn:
         units = results_db.grade_sources(conn, item.grade_id)
     if "host" not in units:
@@ -823,9 +825,7 @@ def submission_of(item: Item) -> Submission:
         source=units["host"][1],
         device_source=device[1] if device is not None else None,
         workspace_bytes=item.workspace_bytes or UNKNOWN_WORKSPACE,
-        libraries=list(item.libraries),
-        distribution=item.distribution,
-        sparse_config=item.sparse_config,
+        requests=Requests.from_obj(item.requests or None),
     )
 
 
@@ -1594,13 +1594,13 @@ def scaled(item: Item, rank_counts: tuple[int, ...]) -> Item:
 
 def scaled_items(items: Iterable[Item], rank_counts: tuple[int, ...]) -> tuple[list[Item], list[str]]:
     """``items`` with their scaling sweeps (:func:`scaled`), and one line per scaling item that cannot be
-    replayed: a manifest-default layout is not the agent's, so a sweep without the recorded distribution
+    replayed: a manifest-default layout is not the agent's, so a sweep without the recorded requests layout
     would grade other code."""
     kept: list[Item] = []
     problems: list[str] = []
     for item in (scaled(one, rank_counts) for one in items):
-        if item.scaling is not None and not item.distribution:
-            problems.append(f"no recorded distribution: {item.db} {item.episode_id} {item.kernel} {item.ts_ms}")
+        if item.scaling is not None and "grid" not in item.requests.get("startup", {}):
+            problems.append(f"no recorded startup.grid: {item.db} {item.episode_id} {item.kernel} {item.ts_ms}")
         else:
             kept.append(item)
     return kept, problems

@@ -27,6 +27,7 @@ measurement_statistics
 token_accounting
 anti_cheat
 results_db
+requests_api
 observations
 plotting
 hf_dataset_and_harbor

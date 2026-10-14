@@ -45,10 +45,12 @@ pytest tests/test_mpi_scatter_gather_roundtrip.py --maxfail=10
 
 ## End to end
 
-The submission carries a `distribution`: a `grid` plus per-array
-`{"axes": [{"grid_dim": d, "scheme": ..., "block_size": B}], "location": "host"|"device"}` or
-`{"replicated": true}`. `Descriptor.from_submission` validates it against the binding and rank
-count; the driver scatters inputs (untimed), the kernel computes on its tiles, the driver gathers
+The submission's `requests` carry `startup.grid` (extents over the rank count `P`) and operations
+run top to bottom ([requests_api.md](../../docs/requests_api.md), relayout's `docs/layout.md`):
+`distribute` in its short form (`dim` + `scheme`) or on a digit cut by `split` / `block`, `replicate`,
+and `place` (`host` | `device`). `Requests.plan` evaluates the grid at the rank count and lowers the
+operations to the per-axis scheme the descriptor scatters with, refusing a program it cannot lower yet;
+`Descriptor.from_submission` validates the result against the binding and rank count; the driver scatters inputs (untimed), the kernel computes on its tiles, the driver gathers
 outputs in the declared layout. Data is never re-laid-out, so verification against the whole-domain
 single-node oracle is the same for every layout.
 
@@ -103,18 +105,19 @@ text prints it. Three checks run before any build (400, not spent):
    the extent and any `block_size` to divide evenly at every graded `P <= 16`:
 
    ```yaml
-   # extent 65536, graded at P in {1, 2, 4, 8, 16}
-   {grid_dim: 0, scheme: cyclic}                          # accepted
-   {grid_dim: 0, scheme: block_cyclic, block_size: 4096}  # accepted
-   {grid_dim: 0, scheme: block_cyclic, block_size: 3}     # refused
+   # extent 65536 on dimension 0 of a 1-D array, graded at P in {1, 2, 4, 8, 16}
+   [{op: block, dim: 0, factor: P0}, {op: distribute, digit: 1, grid_dim: 0}]           # cyclic: accepted
+   [{op: block, dim: 0, factor: "4096*P0"}, {op: block, dim: 0, factor: 4096},
+    {op: distribute, digit: 1, grid_dim: 0}]                                            # B = 4096: accepted
+   [{op: block, dim: 0, factor: "3*P0"}, {op: block, dim: 0, factor: 3},
+    {op: distribute, digit: 1, grid_dim: 0}]                                            # B = 3: refused
    ```
-3. **Replication** (`replication_refusal`). An array counts as replicated if it sets
-   `replicated: true` or binds no `grid_dim`, judged on the declaration, so `P=1` refuses what
-   `P=16` refuses:
+3. **Replication** (`replication_refusal`). An array counts as replicated if the operations replicate
+   it, judged on the declaration, so `P=1` refuses what `P=16` refuses:
 
    ```
    $ curl -s -XPOST $JUDGE/submit -d @sub.json | jq -r .error
-   distribution replicates 'x', which this kernel does not list under mpi.replicatable;
+   the operations replicate 'x', which this kernel does not list under mpi.replicatable;
    replicatable arrays are ['gate_weight'] (plus any single-element array). ...
    ```
 

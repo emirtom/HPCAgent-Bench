@@ -8,6 +8,7 @@ base image and takes minutes, so CI gives this file a step of its own."""
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -111,8 +112,10 @@ def test_wheel_is_pip_installable_and_complete(tmp_path: pathlib.Path) -> None:
     assert_the_installed_wheel_imports_without_the_checkout(whl[0], tmp_path)
 
 
-def locked_base_dependencies() -> tuple[list[str], str]:
-    """uv.lock's pins of the package's own dependencies (no extra) as requirement strings, and the dace pin."""
+def locked_base_dependencies() -> tuple[list[str], dict[str, str]]:
+    """uv.lock's pins of the package's own dependencies (no extra) as requirement strings, and the
+    git-pinned ones (dace, relayout) as ``{name: uv source}``: a git package must come from its pin, not
+    from a same-named index package."""
     done = subprocess.run(
         ["uv", "export", "--frozen", "--no-emit-workspace", "--no-hashes", "--project", str(_ROOT)],
         capture_output=True,
@@ -120,16 +123,18 @@ def locked_base_dependencies() -> tuple[list[str], str]:
         check=True,
     )
     pins = [line.strip() for line in done.stdout.splitlines() if line and not line.startswith((" ", "#"))]
-    dace = next(line for line in pins if line.startswith("dace @ "))
-    return [line for line in pins if line != dace], dace.partition("@ git+https://github.com/spcl/dace.git@")[
-        2
-    ].split()[0]
+    sources: dict[str, str] = {}
+    for line in pins:
+        if match := re.match(r"(\S+) @ git\+(\S+)@([0-9a-f]+)", line):
+            name, url, rev = match.groups()
+            sources[name] = f"{{ git = {json.dumps(url)}, rev = {json.dumps(rev)} }}"
+    return [line for line in pins if line.split()[0] not in sources], sources
 
 
 def assert_the_installed_wheel_imports_without_the_checkout(whl: pathlib.Path, tmp_path: pathlib.Path) -> None:
     """The installed package imports its translators and every module, none reaching into
     ``tests/`` or ``experiments/``, from outside the checkout: a throwaway uv project synced into a fresh venv,
-    with the wheel, the agent runtime from agent/ and dace at the pin, and every other dependency held to the
+    with the wheel, the agent runtime from agent/ dace and relayout at their pins, and every other dependency held to the
     version uv.lock pins."""
     venv = tmp_path / "venv"
     project = tmp_path / "project"
@@ -137,7 +142,7 @@ def assert_the_installed_wheel_imports_without_the_checkout(whl: pathlib.Path, t
     # A copy: setuptools writes build/ beside the project it builds, and the checkout is shared.
     agent = tmp_path / "agent"
     shutil.copytree(_ROOT / "agent", agent, ignore=shutil.ignore_patterns("__pycache__", "build", "*.egg-info"))
-    constraints, dace_rev = locked_base_dependencies()
+    constraints, git_sources = locked_base_dependencies()
     (project / "pyproject.toml").write_text(
         "\n".join(
             [
@@ -145,14 +150,14 @@ def assert_the_installed_wheel_imports_without_the_checkout(whl: pathlib.Path, t
                 'name = "wheel-smoke"',
                 'version = "0"',
                 'requires-python = ">=3.12"',
-                'dependencies = ["hpcagent-bench", "hpcagent-agent", "dace"]',
+                f"dependencies = {json.dumps(['hpcagent-bench', 'hpcagent-agent', *git_sources])}",
                 "[tool.uv]",
                 "package = false",
                 f"constraint-dependencies = {json.dumps(constraints)}",
                 "[tool.uv.sources]",
                 f"hpcagent-bench = {{ path = {json.dumps(str(whl))} }}",
                 f"hpcagent-agent = {{ path = {json.dumps(str(agent))} }}",
-                f'dace = {{ git = "https://github.com/spcl/dace.git", rev = "{dace_rev}" }}',
+                *(f"{name} = {source}" for name, source in git_sources.items()),
                 "",
             ]
         ),

@@ -22,6 +22,7 @@ import textwrap
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
 from hpcagent_bench.harness.mpi_wire import pack_infile, unpack_outfile
@@ -53,7 +54,7 @@ def yax_binding() -> Binding:
 
 
 def yax_descriptor(ranks: int) -> Descriptor:
-    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(grid=Grid((ranks,)), arrays={"x": block0, "y": block0}, symbol_axes={"N": [("x", 0)]})
 
 
@@ -69,7 +70,7 @@ def sum_binding() -> Binding:
 
 
 def sum_descriptor(ranks: int) -> Descriptor:
-    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(
         grid=Grid((ranks,)),
         arrays={"x": block0, "y": ArrayDist(replicated=True)},
@@ -124,7 +125,8 @@ def mpirun_cmd(launch: list[str], args: list[str], timeout: int = 60) -> subproc
 def gather_output(
     desc: Descriptor, outfile: pathlib.Path, shape: tuple[int, ...], dtype: type[np.float64] = np.float64
 ) -> tuple[list[float], np.ndarray]:
-    samples, outputs = unpack_outfile(pathlib.Path(outfile).read_bytes())
+    decoded = unpack_outfile(pathlib.Path(outfile).read_bytes())
+    samples, outputs = decoded.samples, decoded.outputs
     dtype_code, tiles = outputs[0]
     shaped = [t.reshape(desc.local_shape("y", shape, r)) for r, t in enumerate(tiles)]
     return samples, desc.gather("y", shaped, shape, dtype)

@@ -1,14 +1,14 @@
 -- Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- The HPCAgent-Bench results database, schema version 6 (PRAGMA user_version = 6).
+-- The HPCAgent-Bench results database, schema version 7 (PRAGMA user_version = 7).
 --
 -- One file holds everything an experiment produced: a judge rank's shard, a job and the whole
 -- dataset use this same schema, and merging remaps the surrogate ids through the natural keys.
 -- Third normal form: every non-key column depends on its table's key and on nothing else, and
 -- nothing derivable from other rows (geomeans, counts, a curve's mean) is stored. One deliberate
--- exception: a list that is always read whole (a cell's shape, a grade's build commands and
--- requested libraries, a reference's repetition times) is one JSON value, not a child table. grades_flat
+-- exception: a value that is always read whole (a cell's shape, a grade's build commands and
+-- requests, a reference's repetition times) is one JSON value, not a child table. grades_flat
 -- is the one-relation view analyses read. Times are UTC epoch milliseconds (``*_ms``) or host-measured nanoseconds
 -- (``*_ns``). Open with PRAGMA foreign_keys = ON.
 --
@@ -19,7 +19,7 @@
 -- indices (0 is real), the device-synchronization readings (0 ns is real; CPU grades have none), p_value
 -- (no test ran) and work_ratio (strong scaling has none).
 
-PRAGMA user_version = 6;
+PRAGMA user_version = 7;
 
 -- One experimental condition: everything a run's identity has in common across its repetitions.
 CREATE TABLE setups (
@@ -101,7 +101,9 @@ CREATE TABLE grades (
                                                  'torch-autotune', '')),  -- '': not known
     score_rule       TEXT NOT NULL DEFAULT '',
     requested_build     TEXT NOT NULL DEFAULT '',       -- JSON list; '' = none requested
-    requested_libraries TEXT NOT NULL DEFAULT '',       -- JSON list; '' = none requested
+    requests         TEXT NOT NULL DEFAULT '',          -- JSON: the submission's requests block as sent
+                                                        -- (libraries, precision, grid, layout, location,
+                                                        -- sparse); '' = none
     build_commands   TEXT NOT NULL DEFAULT '',          -- JSON list of the grade's own commands
     build_ok         INTEGER CHECK (build_ok IN (0, 1)),
     correct          INTEGER CHECK (correct IN (0, 1)),
@@ -124,11 +126,11 @@ CREATE TABLE grades (
     timing_event_ns  INTEGER,
     device_index     INTEGER,
     detail           TEXT NOT NULL DEFAULT '',
-    distribution     TEXT NOT NULL DEFAULT '',          -- MPI envelope as sent
     workspace_bytes  TEXT NOT NULL DEFAULT '',
     layout           TEXT NOT NULL DEFAULT '',          -- the sparse layout the grade ran; '' = dense
-    layout_prep_ns   INTEGER NOT NULL DEFAULT 0,        -- untimed conversion into it from the stored CSR
-    layout_request   TEXT NOT NULL DEFAULT '',          -- JSON: the layout request as sent; '' = none
+    convert_in_ns    INTEGER NOT NULL DEFAULT 0,        -- converting the inputs into what the requests ask
+                                                        -- (sparse format, precision cast-in), not scored
+    convert_out_ns   INTEGER NOT NULL DEFAULT 0,        -- the precision cast-out of the outputs, not scored
     size_scale       REAL NOT NULL DEFAULT 0.0,         -- constant-bytes size factor (1 at fp64); 0 = not recorded
     scale_axes       TEXT NOT NULL DEFAULT '',          -- JSON list of the size symbols it scaled; '' = not recorded
     node             TEXT NOT NULL DEFAULT '',

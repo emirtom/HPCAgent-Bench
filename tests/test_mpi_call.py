@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from relayout.ops import Location, Scheme
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import mpi_call
@@ -42,7 +43,7 @@ def _yax_binding() -> Binding:
 
 
 def _descriptor(locations=None) -> Descriptor:
-    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(
         grid=Grid((RANKS,)), arrays={"x": block0, "y": block0}, symbol_axes={"N": [("x", 0)]}, locations=locations or {}
     )
@@ -220,7 +221,7 @@ def test_build_mpi_device_rejects_non_gpu_kernel() -> None:
     b = _yax_binding()
     sub = Submission(language="c", source=_C_KERNEL)
     with Sandbox(b) as sb:
-        res = sb.build_mpi(sub, _descriptor(locations={"x": "device", "y": "device"}))
+        res = sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
     assert not res.ok
     assert "cuda/hip" in res.log
 
@@ -240,7 +241,7 @@ def test_build_mpi_writes_both_gpu_translation_units() -> None:
     sub = Submission(language="cuda", source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
     stem = mpi_symbol(b)
     with Sandbox(b) as sb:
-        sb.build_mpi(sub, _descriptor(locations={"x": "device", "y": "device"}))
+        sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
         names = {path.name for path in sb.root.iterdir() if path.is_file()}
         host_tu, device_tu = sb.root / f"{stem}.cpp", sb.root / f"{stem}.cu"
         assert names >= {host_tu.name, device_tu.name}, f"only {sorted(names)} reached the build"
@@ -268,7 +269,7 @@ def test_build_mpi_compiles_the_gpu_host_unit_with_the_gpu_compiler(monkeypatch,
     sub = Submission(language=language, source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
     stem = mpi_symbol(b)
     with Sandbox(b) as sb:
-        sb.build_mpi(sub, _descriptor(locations={"x": "device", "y": "device"}))
+        sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
     compiles = {Path(cmd[cmd.index("-c") + 1]).name: Path(cmd[0]).name for cmd in seen if "-c" in cmd}
     assert compiles.get(f"{stem}.cpp") == compiler, compiles
     assert set(compiles.values()) == {compiler}, compiles
@@ -291,9 +292,8 @@ def test_build_mpi_and_run_round_trip(tmp_path) -> None:
         assert built.ok, built.log
         assert built.exe is not None
         assert built.exe.exists()
-        outputs, samples_ns = mpi_call.run(
-            built.exe, b, desc, data, is_python=False, launcher=launch, k_repeats=5, timeout=60
-        )
+        launched = mpi_call.run(built.exe, b, desc, data, is_python=False, launcher=launch, k_repeats=5, timeout=60)
+        outputs, samples_ns = launched.outputs, launched.samples_ns
     assert set(outputs) == {"y"}  # only the output pointer is gathered
     assert np.allclose(outputs["y"], 3.0 * x)
     assert len(samples_ns) == 5

@@ -32,7 +32,7 @@ from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.harness.agent import Agent, reference_mpi_source, reference_source
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.mpi_descriptor import distribution_for_kernel
+from hpcagent_bench.harness.mpi_descriptor import default_requests
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
@@ -203,8 +203,8 @@ class NoOpMPIOptimizer(Agent):
         ranks = config.get_int("mpi.ranks", 4)
         # The default 1-D block layout from the kernel's ``mpi:`` block: split axes from declarative
         # binding shapes, or the ``arrays`` block for legacy ``initialize`` stencils (N stays global).
-        distribution = distribution_for_kernel(spec.mpi, binding, ranks)
-        return Submission(language=task.language, source=reference_mpi_source(task), distribution=distribution)
+        requests = default_requests(spec.mpi, binding, ranks)
+        return Submission(language=task.language, source=reference_mpi_source(task), requests=requests)
 
 
 class BlasReductionOptimizer(LibraryOptimizer):

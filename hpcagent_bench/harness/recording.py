@@ -544,12 +544,13 @@ def build_commands_json(score: Score | None) -> str | None:
 
 
 def layout_values(score: Score) -> dict[str, results_db.Value]:
-    """How the grade's inputs were laid out and sized: the sparse layout (NULL = dense) with its
-    conversion time and request, and the lower-precision size factor with the symbols it scaled."""
+    """How the grade's inputs were laid out, converted and sized: the sparse layout (NULL = dense), what
+    converting into what the requests ask cost (not scored), and the lower-precision size factor with
+    the symbols it scaled."""
     return {
         "layout": score.layout or None,
-        "layout_prep_ns": score.layout_prep_ns if score.layout else None,
-        "layout_request": score.layout_request or None,
+        "convert_in_ns": score.convert_in_ns,
+        "convert_out_ns": score.convert_out_ns,
         "size_scale": float(score.size_scale),
         "scale_axes": json.dumps(list(score.scale_axes)),
     }
@@ -602,22 +603,20 @@ def measured_values(score: Score | None) -> dict[str, results_db.Value]:
 
 
 def envelope_values(
-    build: Sequence[str], libraries: Sequence[str], distribution: str | None, workspace_bytes: str | None
+    build: Sequence[str], requests: str | None, workspace_bytes: str | None
 ) -> dict[str, results_db.Value]:
-    """The request's link request (JSON lists, '' when it asked for nothing) and MPI envelope as sent."""
-    asked = bool(build or libraries)
+    """The request's build tokens (a JSON list, '' when it asked for none), its ``requests`` block (JSON
+    as sent) and its scratch request."""
     return {
-        "requested_build": json.dumps(list(build)) if asked else "",
-        "requested_libraries": json.dumps(list(libraries)) if asked else "",
-        "distribution": distribution,
+        "requested_build": json.dumps(list(build)) if build else "",
+        "requests": requests,
         "workspace_bytes": workspace_bytes,
     }
 
 
 def submission_envelope(submission: Submission) -> dict[str, results_db.Value]:
     """:func:`envelope_values` of a parsed submission."""
-    distribution = None if submission.distribution is None else json.dumps(submission.distribution)
-    return envelope_values(submission.build, submission.libraries, distribution, submission.workspace_bytes)
+    return envelope_values(submission.build, submission.requests_json(), submission.workspace_bytes)
 
 
 def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submission) -> None:
@@ -814,10 +813,9 @@ def record_call(
     tokens: int = 0,
     detail: str = "",
     path: str | None = None,
-    distribution: str | None = None,
+    requests: str | None = None,
     workspace_bytes: str | None = None,
     build: Sequence[str] = (),
-    libraries: Sequence[str] = (),
     submission: Submission | None = None,
 ) -> int:
     """Persist ONE request that earns no leaderboard verdict -- a ``/score`` grade, or a ``/score`` or
@@ -827,14 +825,14 @@ def record_call(
     Every such request is recorded, failures included, because the failures before a success and the
     speedup over time are what a trajectory IS. ``score`` is ``None`` when the request produced no
     verdict (``status`` ``score_error``); ``detail`` is WHY (the refusal, else the score's own
-    detail), capped at :data:`DETAIL_CAP`. ``distribution`` / ``workspace_bytes`` / ``build`` /
-    ``libraries`` are the request's envelope as sent. ``submission``, when given, is the delivery:
+    detail), capped at :data:`DETAIL_CAP`. ``requests`` (JSON) / ``workspace_bytes`` / ``build`` are
+    the request's envelope as sent. ``submission``, when given, is the delivery:
     its source is kept behind a passing grade (``status`` ``ok``), so an agent killed at its wall
     clock holding a verified answer leaves something to promote."""
     if not config.get("record.log_calls", True):
         return 0
     values = stamp_values(task, preset, datatype, score) | measured_values(score)
-    values |= envelope_values(build, libraries, distribution, workspace_bytes)
+    values |= envelope_values(build, requests, workspace_bytes)
     reason = detail or (score.detail if score is not None else "")
     values |= {"status": status, "tokens_so_far": int(tokens), "detail": cap_detail(reason) or None}
     kind = ORIGIN_KINDS.get(optimizer or "", route) if route == "submit" else route

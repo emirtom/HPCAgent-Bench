@@ -35,6 +35,8 @@ OUTFILE::
 
     header   : int64[5] = [MAGIC, VERSION, nranks, K, n_out]
     samples  : float64[K]                             # per-repeat MAX-over-ranks kernel seconds
+    cast_in  : float64[K]                             # per-repeat MAX-over-ranks precision cast-in
+    cast_out : float64[K]                             #   and cast-out seconds (0 = no requests.precisions())
     out_meta : n_out * (int64 elem_size, int64 type_code)
     counts   : n_out * nranks * int64                 # per-rank tile element counts
     payload  : for each output, the nranks gathered tiles concatenated in rank order (raw LE)
@@ -44,6 +46,7 @@ import struct
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
@@ -56,6 +59,7 @@ __all__ = [
     "MAGIC",
     "TYPE_CODES",
     "VERSION",
+    "OutFile",
     "ParsedInfile",
     "PtrPlan",
     "i64",
@@ -71,7 +75,7 @@ if sys.byteorder != "little":  # the C driver assumes host-native LE reads; fail
 
 #: Stamped into both files so a truncated / mismatched file is caught, not misread.
 MAGIC = 0x4F4D5049  # 'OMPI'
-VERSION = 1
+VERSION = 2
 
 #: dtype name -> wire type code (also the C ``MPI_Datatype`` / numpy selector). Explicit
 #: rather than derived, so the C codegen and the Python reader share one table.
@@ -244,10 +248,21 @@ def unpack_infile(raw: bytes) -> ParsedInfile:
     )
 
 
+class OutFile(NamedTuple):
+    """A decoded outfile: per-repeat kernel, cast-in and cast-out seconds, and per output its dtype and
+    per-rank flat tiles in output order."""
+
+    samples: list[float]
+    cast_in: list[float]
+    cast_out: list[float]
+    outputs: list[tuple[str, list[np.ndarray]]]
+
+
 def pack_outfile(
     nranks: int, k_repeats: int, samples: Sequence[float], outputs: list[tuple[str, str, list[np.ndarray]]]
 ) -> bytes:
-    """Serialise the gathered outputs + timing samples (written by rank 0 of either driver).
+    """Serialise the gathered outputs + timing samples (written by rank 0 of the python driver, which
+    casts nothing: its cast samples are 0).
 
     ``outputs`` is ``[(name, dtype, per_rank_tiles)]`` in binding output order; each output is
     the ``Gatherv``-assembled per-rank owned tiles in rank order. ``samples`` are the K
@@ -260,6 +275,7 @@ def pack_outfile(
     out = bytearray()
     out += i64([MAGIC, VERSION, nranks, k_repeats, len(outputs)])
     out += np.asarray(list(samples), dtype="<f8").tobytes()
+    out += np.zeros(2 * k_repeats, dtype="<f8").tobytes()
     for _name, dtype, _tiles in outputs:
         out += i64([np.dtype(dtype).itemsize, TYPE_CODES[dtype]])
     for _name, _dtype, tiles in outputs:
@@ -270,17 +286,17 @@ def pack_outfile(
     return bytes(out)
 
 
-def unpack_outfile(raw: bytes) -> tuple[list[float], list[tuple[str, list[np.ndarray]]]]:
-    """Decode :func:`pack_outfile`: ``(samples, [(dtype, per_rank_flat_tiles)])`` in output
-    order. The harness reshapes each tile to its local shape and feeds
-    :meth:`Descriptor.gather`; this returns the raw per-rank flat tiles."""
+def unpack_outfile(raw: bytes) -> OutFile:
+    """Decode :func:`pack_outfile` (or the C driver's outfile). The harness reshapes each tile to its local
+    shape and feeds :meth:`Descriptor.gather`; this returns the raw per-rank flat tiles."""
     header = np.frombuffer(raw, dtype="<i8", count=5)
     magic, version, nranks, k_repeats, n_out = (int(x) for x in header)
     if magic != MAGIC or version != VERSION:
         raise ValueError(f"bad MPI outfile (magic {magic:#x}, version {version})")
     off = 8 * 5
-    samples = [float(x) for x in np.frombuffer(raw, dtype="<f8", count=k_repeats, offset=off)]
-    off += 8 * k_repeats
+    timings = np.frombuffer(raw, dtype="<f8", count=3 * k_repeats, offset=off).reshape(3, k_repeats)
+    samples, cast_in, cast_out = ([float(x) for x in row] for row in timings)
+    off += 8 * 3 * k_repeats
     metas = np.frombuffer(raw, dtype="<i8", count=2 * n_out, offset=off).reshape(n_out, 2)
     off += 8 * 2 * n_out
     counts = np.frombuffer(raw, dtype="<i8", count=n_out * nranks, offset=off).reshape(n_out, nranks)
@@ -296,4 +312,4 @@ def unpack_outfile(raw: bytes) -> tuple[list[float], list[tuple[str, list[np.nda
             off += count * elem_size
             tiles.append(np.array(tile, copy=True))
         outputs.append((dtype, tiles))
-    return samples, outputs
+    return OutFile(samples, cast_in, cast_out, outputs)

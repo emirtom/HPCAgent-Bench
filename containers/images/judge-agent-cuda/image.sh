@@ -22,7 +22,7 @@ BASE_IMAGE="${BASE_IMAGE:-nvcr.io/nvidia/pytorch:26.09-py3@sha256:6e8ccc607fc2a5
 ce_image_args() {
     ce_spack_target
     ce_march
-    ce_dace_commit
+    ce_pin_commits
     ce_libfabric_commit
     IMAGE_VERSION="${IMAGE_VERSION:-dev}"
     SPACK_BUILD_JOBS="${SPACK_BUILD_JOBS:-64}"
@@ -35,6 +35,7 @@ ce_image_inputs() {
     ce_require_kernelbench
     ce_mirror_args
     ce_require_mirror_commit "spcl/dace.git" "${DACE_COMMIT}"
+    ce_require_mirror_commit "ThrudPrimrose/relayout.git" "${RELAYOUT_COMMIT}"
     ce_require_mirror_commit "ofiwg/libfabric.git" "${LIBFABRIC_COMMIT}"
     BASE_CACHE="${BASE_CACHE:-${SCRATCH:?}/base-images-$(uname -m)}"
     ce_cache_base_image

@@ -34,6 +34,7 @@ from hpcagent_agent.tools.http_json import (
 )
 
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
     "DEFAULT_RANK",
@@ -230,7 +231,7 @@ def score(
     source_file: str | None = None,
     library: str | None = None,
     build: list[str] | None = None,
-    libraries: list[str] | None = None,
+    requests: Requests | None = None,
     workspace_bytes: str | None = None,
     base_url: str | None = None,
     rank: int = DEFAULT_RANK,
@@ -243,7 +244,7 @@ def score(
         source_file=source_file,
         library=library,
         build=list(build or []),
-        libraries=list(libraries or []),
+        requests=requests or Requests(),
         workspace_bytes=workspace_bytes,
     )
     return JudgeClient(base_url, rank=rank).score(sub, kernel, preset=preset)

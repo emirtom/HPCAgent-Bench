@@ -11,6 +11,7 @@ reconstruct the global array bit-for-bit -- the same round-trip the C / mpi4py d
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
 from hpcagent_bench.harness.mpi_wire import pack_infile, pack_outfile, unpack_infile, unpack_outfile
@@ -33,7 +34,7 @@ def _yax_binding() -> Binding:
 
 
 def _block0(nranks: int, arrays) -> Descriptor:
-    ad = ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))
+    ad = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(grid=Grid((nranks,)), arrays=dict.fromkeys(arrays, ad), symbol_axes={"N": [("x", 0)]})
 
 
@@ -74,7 +75,7 @@ def test_infile_replicated_array_full_copy_each_rank() -> None:
     )
     desc = Descriptor(
         grid=Grid((3,)),
-        arrays={"w": ArrayDist(replicated=True), "y": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))},
+        arrays={"w": ArrayDist(replicated=True), "y": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))},
         symbol_axes={"N": [("y", 0)]},
     )
     w = np.arange(5.0)
@@ -92,7 +93,7 @@ def test_infile_2d_block_rows() -> None:
     )
     desc = Descriptor(
         grid=Grid((2,)),
-        arrays={"A": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"), AxisDist(grid_dim=None)))},
+        arrays={"A": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK), AxisDist(grid_dim=None)))},
         symbol_axes={"N": [("A", 0)]},
     )
     A = np.arange(20.0).reshape(5, 4)
@@ -110,7 +111,7 @@ def test_infile_dtypes_roundtrip(dtype) -> None:
     )
     desc = Descriptor(
         grid=Grid((4,)),
-        arrays={"A": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),))},
+        arrays={"A": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))},
         symbol_axes={"N": [("A", 0)]},
     )
     A = np.arange(9, dtype=dtype)
@@ -136,7 +137,8 @@ def test_unpack_rejects_bad_magic() -> None:
 def test_outfile_roundtrip() -> None:
     tiles = [np.arange(3.0), np.arange(3.0, 5.0)]  # ragged per-rank output tiles
     raw = pack_outfile(2, 4, [0.1, 0.2, 0.3, 0.05], [("y", "float64", tiles)])
-    samples, outputs = unpack_outfile(raw)
+    decoded = unpack_outfile(raw)
+    samples, outputs = decoded.samples, decoded.outputs
     assert samples == [0.1, 0.2, 0.3, 0.05]
     dtype, got = outputs[0]
     assert dtype == "float64"
@@ -157,7 +159,7 @@ def _full_roundtrip(b, desc, data, scalars, N, kernel, expected, dtype=np.float6
         for name in out_names:
             per_rank_out[name].append(np.asarray(produced[name]))
     outputs = [(b.pointers[i].name, b.pointers[i].dtype, per_rank_out[b.pointers[i].name]) for i in out_idx]
-    _samples, decoded = unpack_outfile(pack_outfile(desc.grid.nranks, 2, [1.0, 2.0], outputs))
+    decoded = unpack_outfile(pack_outfile(desc.grid.nranks, 2, [1.0, 2.0], outputs)).outputs
     result = {}
     for (odtype, tiles), i in zip(decoded, out_idx, strict=False):
         name = b.pointers[i].name
@@ -191,7 +193,7 @@ def test_full_roundtrip_replicated_reduction_reads_rank0() -> None:
     )
     desc = Descriptor(
         grid=Grid((4,)),
-        arrays={"x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),)), "s": ArrayDist(replicated=True)},
+        arrays={"x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),)), "s": ArrayDist(replicated=True)},
         symbol_axes={"N": [("x", 0)]},
     )
     x = np.arange(8.0) + 1.0

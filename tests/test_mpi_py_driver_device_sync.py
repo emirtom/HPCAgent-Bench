@@ -17,6 +17,7 @@ import types
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness import mpi_py_driver
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
@@ -125,8 +126,8 @@ def test_run_brackets_each_kernel_call_with_a_device_sync(
     desc = Descriptor(
         grid=Grid((1,)),
         arrays={
-            "x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),)),
-            "y": ArrayDist(axes=(AxisDist(grid_dim=0, scheme="block"),)),
+            "x": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),)),
+            "y": ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),)),
         },
         symbol_axes={"N": [("x", 0)]},
     )
@@ -144,6 +145,6 @@ def test_run_brackets_each_kernel_call_with_a_device_sync(
     # k_repeat (2 repeats). The kernel call itself is silent here; what is under test is that a
     # "sync" marker brackets both sides of every repeat's timed window, never just one side.
     assert events == ["sync", "barrier", "wtime", "sync", "barrier", "wtime"] * 2
-    samples, _outputs = unpack_outfile(outfile.read_bytes())
-    assert len(samples) == 2
-    assert np.array_equal(_outputs[0][1][0], x)  # the kernel actually ran: y == x
+    decoded = unpack_outfile(outfile.read_bytes())
+    assert len(decoded.samples) == 2
+    assert np.array_equal(decoded.outputs[0][1][0], x)  # the kernel actually ran: y == x

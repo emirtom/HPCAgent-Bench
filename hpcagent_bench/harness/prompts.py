@@ -20,21 +20,32 @@ from collections.abc import Callable, Collection, Mapping, MutableMapping, Seque
 from typing import NamedTuple, Protocol, TypedDict, cast
 
 import jinja2
+import numpy as np
 import yaml
 
 from hpcagent_bench import config, cpf_cache, fuzz, languages, packets, paths, protocols
+from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
 from hpcagent_bench.harness.envelope import PYTHON_LANG
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
+    default_requests,
     distribution_for_kernel,
+    kernel_ndims,
     layout_flexible_allowlist,
     replicatable_allowlist,
 )
 from hpcagent_bench.harness.native import display_run_dir
+from hpcagent_bench.harness.requests_api import (
+    Location,
+    kernel_arrays,
+    mpi_residency,
+    precision_problem_dtypes,
+)
 from hpcagent_bench.harness.resources import available_resources
 from hpcagent_bench.harness.sandbox import shared_dir
 from hpcagent_bench.harness.task import Residency, Task
+from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.spec import BenchSpec, as_block, as_list, bsr_block_sizes
 from hpcagent_bench.support.bindings import binding_from_spec, gen_call_stub
 from hpcagent_bench.support.bindings.contract import Binding
@@ -115,6 +126,8 @@ _PROMPTS_DIR = pathlib.Path(__file__).parent / "prompts"
 #: Package top level, where ``skills/`` and ``tools/`` ship as package data (the templates live in
 #: :data:`_PROMPTS_DIR`); :func:`discover` resolves both from here.
 _PACKAGE_DIR = pathlib.Path(__file__).parent.parent
+#: Each precision a ``cast`` may ask for, with the C element type its pointer then takes.
+PRECISION_CTYPES = tuple({"precision": p.value, "ctype": c_type(np.dtype(numpy_dtype(p)).name)} for p in Precision)
 
 #: What ``prompt.sections`` holds: section key -> ``off`` (False) or the template that replaces it.
 SectionOverrides = dict[str, str | bool]
@@ -829,14 +842,14 @@ def ml_layout(spec: BenchSpec, binding: Binding, ranks: int) -> dict[str, object
     when it is replicated."""
     split = cast("dict[str, str | None]", (spec.mpi or {}).get("split") or {})
     default = distribution_for_kernel(spec.mpi, binding, ranks)
-    descriptor = Descriptor.from_distribution(default, binding, ranks)
+    descriptor = Descriptor.from_plan(default, binding, ranks)
     symbols = [a.name for a in binding.scalars if a.role == "symbol"]
     local = descriptor.local_symbols()
     globalized = []
     for name in replicatable_allowlist(spec) or ():
         arrays = cast("dict[str, object]", default["arrays"])
         replicated = {**default, "arrays": {**arrays, name: {"replicated": True}}}
-        moved = local - Descriptor.from_distribution(replicated, binding, ranks).local_symbols()
+        moved = local - Descriptor.from_plan(replicated, binding, ranks).local_symbols()
         if moved:
             globalized.append({"array": name, "symbols": [s for s in symbols if s in moved]})
     flexible = set(layout_flexible_allowlist(spec))
@@ -898,8 +911,16 @@ def sparse_layout_context(spec: BenchSpec, language: str) -> dict[str, object]:
         "block_sizes": list(bsr_block_sizes()),
         "quantum": math.lcm(*bsr_block_sizes()),
         "scenarios": list(spec.init.scenarios) if spec.init is not None else [],
-        "example": json.dumps({"sparse_config": dict.fromkeys(arrays, "csc")}),
+        "example": json.dumps(
+            {"requests": {"operations": [{"action": "format", "array": name, "to": "csc"} for name in arrays]}}
+        ),
     }
+
+
+def layout_arrays(spec: BenchSpec, binding: Binding) -> list[dict[str, str | int]]:
+    """The dense arrays a single-node request may lay out, each with its rank: ``[{"name", "ndim"}]``."""
+    ndims = kernel_ndims(spec.mpi, binding)
+    return [{"name": a.name, "ndim": a.ndim} for a in kernel_arrays(binding, ndims) if not a.sparse]
 
 
 def build_context(
@@ -1004,18 +1025,25 @@ def build_context(
         "ranks": config.get_int("mpi.ranks", 4),
         "k_repeats": config.get_int("mpi.k_repeats", 5),
         # host | device: the pointer residency of each rank's tiles.
-        "mpi_residency": (config.get_str("mpi.residency", "host") if is_mpi else ""),
+        "mpi_device": is_mpi and mpi_residency() is Location.DEVICE,
         "mpi_symbol": (mpi_symbol(binding) if is_mpi else ""),
         "mpi_stub": (gen_kernel_mpi_stub(binding, task.language) if is_mpi else ""),
         # The arrays a submission may leave replicated (``mpi.replicatable``); ``None`` (absent) differs
         # from an empty list.
         "mpi_replicatable": replicatable_allowlist(spec) if is_mpi else None,
-        # The ML track's one accepted layout: each rank's contiguous block of the manifest's split.
+        # The ML track's one accepted layout (each rank's contiguous block of the manifest's split) as
+        # the requests block that asks for it.
         "mpi_fixed_layout": (
-            json.dumps(distribution_for_kernel(spec.mpi, binding, config.get_int("mpi.ranks", 4)))
+            json.dumps(default_requests(spec.mpi, binding, config.get_int("mpi.ranks", 4)).to_json())
             if is_mpi and torch_reference.has_torch_reference(spec)
             else ""
         ),
+        # Every array a precision may be requested for (requests_api.precision_problem_dtypes).
+        "precision_arrays": sorted(precision_problem_dtypes(spec, binding, precision)),
+        # The dense arrays a single-node layout may name (service.single_node_layout_refusal); none on MPI.
+        "layout_arrays": ([] if is_mpi else layout_arrays(spec, binding)),
+        "problem_precision": precision_from_datatype(precision).value,
+        "precision_ctypes": PRECISION_CTYPES,
         # The ML track's per-array table and symbol lists (mpi_sizing.aligned_symbols); empty elsewhere.
         "ml_layout": (
             ml_layout(spec, binding, config.get_int("mpi.ranks", 4))
@@ -1251,9 +1279,9 @@ def cluster_facts(task: Task) -> dict[str, str]:
         # Every distributed grade refuses a body without its layout: the ML track's one accepted layout,
         # else the one the agent declares (a file it writes beside its source).
         layout = str(ctx["mpi_fixed_layout"])
-        body_text = body_text[:-1] + f', "distribution": {layout or "<your distribution>"}}}'
+        body_text = body_text[:-1] + f', "requests": {layout or "<your requests: grid + layout>"}}}'
         literal = re.sub(r"\b(null|true|false)\b", lambda m: JSON_TO_PYTHON[m.group(1)], layout)
-        fields.append('"distribution":' + (literal or 'json.load(open("distribution.json"))'))
+        fields.append('"requests":' + (literal or 'json.load(open("requests.json"))'))
     return {
         "GRADING": strip_host_paths(grading),
         "SCORE_INPUTS": str(score_sampling()["n"]),

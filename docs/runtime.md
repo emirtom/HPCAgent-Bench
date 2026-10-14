@@ -98,7 +98,7 @@ apptainer run hpcagent_bench-cpu.sif mpirun.mpich --oversubscribe -n 4 ./bench .
 
 Multi-node launch is in [launch.md](launch.md#problem-decomposition-p-ranks-one-kernel).
 
-- **Residency per array.** Each array's distribution entry carries `location: host|device`;
+- **Residency per array.** a `place` operation puts an array in `host` or `device` memory;
   `mpi.residency` is the default. The harness scatters on the host, then copies each device tile
   to the GPU untimed. Device arrays need a `cuda`/`hip` `kernel_mpi` (or the python mpi4py + cupy
   delivery); a plain `c`/`cpp`/`fortran` kernel with a device array is a scored config error. A

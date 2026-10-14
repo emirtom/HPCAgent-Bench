@@ -229,26 +229,52 @@ def promotable(
 
 #: The request fields a correct score carried beside its source, as :func:`last_passing` reads them
 #: back: each value JSON text, decoded by :func:`promote` into the body it re-sends.
-ENVELOPE_FIELDS = ("distribution", "workspace_bytes", "build", "libraries")
+ENVELOPE_FIELDS = ("requests", "workspace_bytes", "build")
 
 #: A worker's passing /score grades on one kernel with their stored units, newest first: the grade id,
 #: kernel, stamp, request envelope, and each unit's part, language and text.
 PASSING_GRADES = (
-    "select g.id, g.kernel, g.ts_ms, g.distribution, g.workspace_bytes, g.requested_build, "
-    "g.requested_libraries, gs.part, gs.language, s.text from grades g "
+    "select g.id, g.kernel, g.ts_ms, {requests}, g.workspace_bytes, g.requested_build, "
+    "gs.part, gs.language, s.text from grades g "
     "join episodes r on r.id = g.episode_id join grade_sources gs on gs.grade_id = g.id join sources s on s.hash = gs.hash "
     "where r.label = ? and g.kind = 'score' and g.correct = 1 and g.ts_ms >= ? order by g.ts_ms desc, g.id desc"
 )
+
+#: The ``requests`` column of a shard, or for a shard written before it (schema 6) the per-request columns
+#: it folded, as one JSON text :func:`legacy_requests` reads.
+REQUESTS_COLUMN = "g.requests"
+LEGACY_REQUESTS = "json_array(g.requested_libraries, g.distribution, g.layout_request)"
+
+
+def grade_requests_column(db: str) -> str:
+    """The request expression for ``db``'s grades: its ``requests`` column, or the legacy columns."""
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        columns = {str(row[1]) for row in con.execute("PRAGMA table_info(grades)")}
+    finally:
+        con.close()
+    return REQUESTS_COLUMN if "requests" in columns or not columns else LEGACY_REQUESTS
+
+
+def legacy_requests(text: str) -> str | None:
+    """A schema-6 grade's request as ``requests`` JSON: its libraries as ``startup.load``. None when it also
+    recorded a distribution or a sparse layout, which only the judge can fold (resubmitting the grade
+    without them would be refused or run another layout)."""
+    libraries, distribution, sparse = json.loads(text)
+    if distribution or sparse:
+        return None
+    load = json.loads(libraries or "[]")
+    return json.dumps({"startup": {"load": load}}, sort_keys=True) if load else ""
 
 
 def last_passing(run_dir: pathlib.Path, bench: str, episode_id: str, since_ms: int = 0) -> dict[str, str] | None:
     """The submittable item of this worker's newest CORRECT score on ``bench`` that kept its source:
     the source, the device unit of a two-unit delivery, and the request envelope it was graded under
-    (``distribution`` / ``workspace_bytes`` / ``build`` / ``libraries``, each as JSON text; a field the
-    grade did not carry is absent). None when no such grade exists.
+    (``requests`` / ``workspace_bytes`` / ``build``, each as JSON text; a field the grade did not carry
+    is absent). None when no such grade exists.
 
     The source alone is not the submission. An MPI grade without its layout is refused ("no
-    distribution grid"), one without ``rccl`` does not link, one without its scratch runs on a NULL
+    startup.grid"), one without ``rccl`` in its requested libraries does not link, one without its scratch runs on a NULL
     workspace -- and on a single-submission setup that failed grade is the episode's one recorded
     answer. A hip/cuda submission is TWO translation units; sending only ``source`` builds fine on a
     host-only setup but fails a GPU one for a reason that looks like the agent's fault.
@@ -258,9 +284,15 @@ def last_passing(run_dir: pathlib.Path, bench: str, episode_id: str, since_ms: i
     """
     graded: dict[tuple[int, int, str], tuple[tuple, dict[str, tuple[str, str]]]] = {}
     for db in db_files(run_dir):
+        column = grade_requests_column(db)
         for grade, stored_bench, ts, *envelope, part, language, text in shard_rows(
-            db, PASSING_GRADES, (episode_id, since_ms)
+            db, PASSING_GRADES.format(requests=column), (episode_id, since_ms)
         ):
+            if column == LEGACY_REQUESTS:
+                folded = legacy_requests(envelope[0])
+                if folded is None:
+                    continue
+                envelope[0] = folded
             # Matched on the short name, not the stored string (see short_name).
             if short_name(stored_bench) == short_name(bench):
                 graded.setdefault((int(ts), int(grade), db), (tuple(envelope), {}))[1][part] = (language, text)
@@ -272,18 +304,13 @@ def last_passing(run_dir: pathlib.Path, bench: str, episode_id: str, since_ms: i
     item = {"kernel": bench, "episode_id": episode_id, "language": language, "source": text}
     if "device" in units:
         item["device_source"] = units["device"][1]
-    distribution, workspace, build, libraries = newest[0]
-    if distribution:
-        item["distribution"] = distribution
+    requests, workspace, build = newest[0]
+    if requests:
+        item["requests"] = requests
     if workspace:
         item["workspace_bytes"] = json.dumps(workspace)
-    item.update(
-        {
-            key: requested
-            for key, requested in (("build", build), ("libraries", libraries))
-            if requested and json.loads(requested)
-        }
-    )
+    if build and json.loads(build):
+        item["build"] = build
     return item
 
 
@@ -608,12 +635,6 @@ def main() -> int:
         default=PROMOTE_BUDGET_S,
         help="ceiling on the whole pass; this runs inside the job's remaining wall clock",
     )
-    ap.add_argument(
-        "--libraries",
-        default="",
-        help="comma list of catalog names (e.g. mpi,rccl) sent where the recorded envelope names none: "
-        "a shard written before the router logged each call's link request",
-    )
     args = ap.parse_args()
     if not args.run_dir.is_dir():
         print(f"no such run dir: {args.run_dir}", file=sys.stderr)
@@ -623,10 +644,6 @@ def main() -> int:
         return 2
 
     items = swept_candidates(args.run_dir)
-    fallback = [name.strip() for name in args.libraries.split(",") if name.strip()]
-    for item in items:
-        if fallback and not item.get("libraries"):
-            item["libraries"] = json.dumps(fallback)
     if not items:
         print("nothing to promote: every verified kernel already has a submission")
         return 0

@@ -8,6 +8,7 @@ import pytest
 
 from hpcagent_bench.harness.agent import Agent, ClaudeAgent, StubAgent, reference_source
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, score
 from hpcagent_bench.harness.task import Task, expand_tasks
 from hpcagent_bench.support.bindings.stubs import STUB_BODY
@@ -270,8 +271,8 @@ def test_bind_kernel_outputs_matches_reference_for_lists_and_tuples() -> None:
     assert ri["b"] is y
 
 
-def test_submission_distribution_structural_validation() -> None:
-    """The optional MPI `distribution` selects the multi-node track; the envelope checks only its structure."""
+def test_submission_requests_grid_selects_the_distributed_track() -> None:
+    """``startup.grid`` selects the multi-node track; the envelope checks only the request's structure."""
     ok = {
         "grid": [2, 2],
         "arrays": {
@@ -279,27 +280,16 @@ def test_submission_distribution_structural_validation() -> None:
             "b": {"replicated": True},
         },
     }
-    s = Submission(language="c", source="void k(){}", distribution=ok)
-    assert s.distribution is not None
-    assert Submission.from_obj(s.to_json()).distribution == ok
-    assert Submission(language="c", source="void k(){}").distribution is None  # default single-node
+    s = Submission(language="c", source="void k(){}", requests=Requests.from_plan(ok))
+    assert s.requests.distributed
+    assert Submission.from_obj(s.to_json()).requests == s.requests
+    assert not Submission(language="c", source="void k(){}").requests.distributed  # default single-node
     with pytest.raises(ValueError, match="grid"):
-        Submission(language="c", source="x", distribution={"grid": [], "arrays": {"A": {"replicated": True}}})
-    with pytest.raises(ValueError, match="scheme"):
-        Submission(
-            language="c",
-            source="x",
-            distribution={"grid": [2], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "bogus"}]}}},
-        )
-    # 'replicated' is structural (grid_dim: null or replicated: true), not a per-axis scheme.
-    with pytest.raises(ValueError, match="scheme"):
-        Submission(
-            language="c",
-            source="x",
-            distribution={"grid": [2], "arrays": {"A": {"axes": [{"grid_dim": 0, "scheme": "replicated"}]}}},
-        )
-    with pytest.raises(ValueError, match="arrays"):
-        Submission(language="c", source="x", distribution={"grid": [2]})
+        Submission.from_obj({"language": "c", "source": "x", "requests": {"startup": {"grid": []}}})
+    with pytest.raises(ValueError, match="action must be one of"):
+        Submission.from_obj({"language": "c", "source": "x", "requests": {"operations": [{"action": "bogus"}]}})
+    with pytest.raises(ValueError, match="moved under 'requests'"):
+        Submission.from_obj({"language": "c", "source": "x", "distribution": ok})
 
 
 def test_reference_source_multitarget_renames_symbol() -> None:

@@ -11,12 +11,21 @@ sections. The single-node prompt must be byte-unchanged (no MPI leak). Pure: no 
 """
 
 import dataclasses
+import json
 import re
 
+from relayout.ops import Scheme
+
 from hpcagent_bench import config
-from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.mpi_descriptor import AxisDist, Descriptor, Grid, owned_indices, replicatable_allowlist
+from hpcagent_bench.harness.mpi_descriptor import (
+    AxisDist,
+    Grid,
+    default_requests,
+    owned_indices,
+    replicatable_allowlist,
+)
 from hpcagent_bench.harness.prompts import build_context, build_prompt, prompt_env
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.torch_reference import graded_rank_counts
 from hpcagent_bench.spec import BenchSpec
@@ -36,7 +45,7 @@ def test_build_context_sets_node_mode_and_mpi_fields() -> None:
     assert ctx["k_repeats"] >= 1
     assert ctx["mpi_symbol"] == mpi_symbol(binding) == "jacobi_2d_mpi"
     assert ctx["mpi_stub"] == gen_kernel_mpi_stub(binding)  # the Sec. 12 stub, not the single-node one
-    assert ctx["mpi_residency"] in ("host", "device")  # the pointer residency the scorer delivers
+    assert isinstance(ctx["mpi_device"], bool)  # the pointer residency the scorer delivers
 
 
 def test_host_context_is_single_and_mpi_fields_inert() -> None:
@@ -45,7 +54,7 @@ def test_host_context_is_single_and_mpi_fields_inert() -> None:
     assert ctx["scaling"] == ""
     assert ctx["mpi_symbol"] == ""
     assert ctx["mpi_stub"] == ""
-    assert ctx["mpi_residency"] == ""
+    assert ctx["mpi_device"] is False
 
 
 def test_multi_prompt_is_comms_agnostic_and_states_pointer_residency() -> None:
@@ -67,17 +76,16 @@ def test_multi_prompt_is_comms_agnostic_and_states_pointer_residency() -> None:
 
 def test_multi_prompt_shows_the_distributed_contract() -> None:
     p = build_prompt(DIST)
-    ranks = int(config.get("mpi.ranks", 4))
     assert "## Distributed (multi-node MPI) contract" in p
     assert "jacobi_2d_mpi" in p  # the Sec. 12 symbol
     assert "MPI_Comm_f2c(comm)" in p
     assert "MPI_Cart_shift" in p
-    assert f'"grid": [{ranks}]' in p  # the distribution example, ranks interpolated
+    assert '"grid": ["P"]' in p  # the layout example: a 1-D grid at every rank count
     assert "no prebuilt" in p  # no `.so` delivery on this track
     assert "kernel_mpi(*tiles" in p  # the mpi4py delivery convention
     assert "STRONG scaling" in p  # config default mode
-    # the response envelope carries the distribution, not a library path
-    assert '"distribution":' in p
+    # the response envelope carries the requests (grid + layout), not a library path
+    assert '"requests":' in p
 
 
 def test_multi_prompt_drops_single_node_only_sections() -> None:
@@ -117,35 +125,37 @@ def test_python_distributed_prompt_builds_and_targets_python() -> None:
     # cannot emit for python -- it must be swallowed, not crash the multi-node prompt.
     p = build_prompt(Task(kernel="jacobi_2d", language="python", residency="distributed"))
     assert '"language": "python"' in p
-    assert '"distribution":' in p
+    assert '"requests":' in p
     assert "jacobi_2d_mpi" in p
     assert "kernel_mpi(*tiles" in p
 
 
-def test_documented_distribution_shape_resolves() -> None:
-    """The exact distribution object the prompt documents must be accepted by the resolver the
-    harness runs -- guards against prompt/envelope drift."""
-    binding = binding_from_spec(BenchSpec.load("jacobi_2d"))
-    block0, repl = {"grid_dim": 0, "scheme": "block"}, {"grid_dim": None}
-    dist = {"grid": [4], "arrays": {"A": {"axes": [block0, repl]}, "B": {"axes": [block0, repl]}}}
-    desc = Descriptor.from_submission(Submission(language="c", source="x", distribution=dist), binding, 4)
-    assert desc.grid.dims == (4,)
+def test_documented_layout_example_lowers_to_what_it_says() -> None:
+    """The exact JSON example the prompt documents lowers to the block / block-cyclic / cyclic splits its
+    bullets name -- guards against prompt/envelope drift."""
+    p = build_prompt(DIST)
+    section = p[p.index("### Data distribution") : p.index("### Delivery")]
+    body = section[section.index("```json") + len("```json") :]
+    plan = Requests.from_obj(json.loads(body[: body.index("```")])).plan({"A": 2, "B": 2, "C": 2, "x": 1}, 4)
+    assert plan["arrays"] == {
+        "A": {"axes": [{"grid_dim": 0, "scheme": "block", "block_size": 1}, {"grid_dim": None}]},
+        "B": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 1024}, {"grid_dim": None}]},
+        "C": {"axes": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "cyclic", "block_size": 1}]},
+        "x": {"replicated": True},
+    }
 
 
 def test_distribution_section_lists_every_layout_with_its_exact_json() -> None:
-    """The contract must name every layout ``mpi_descriptor`` honours, in the exact JSON the
-    agent has to return -- a layout the prompt omits is one the agent cannot use, and a form it
-    spells wrong is a submission refused for a reason the prompt caused."""
+    """Every op the layout lowers is named, the example spells their exact JSON, plus the grid rules."""
     p = build_prompt(DIST)
     for form in (
-        '{"grid_dim": d, "scheme": "block"}',
-        '{"grid_dim": d, "scheme": "block_cyclic", "block_size": B}',
-        '{"grid_dim": d, "scheme": "cyclic"}',
-        '{"grid_dim": null}',
+        '{"action": "distribute", "array": "A", "grid_dim": 0, "dim": 0, "scheme": "block"}',
+        '"scheme": "block_cyclic", "block_size": 1024}',
+        '{"action": "replicate", "array": "x"}',
+        "`permute` reorders them by name",
     ):
         assert form in p
-    assert "a multi-dimensional grid" in p.lower()
-    assert '"grid": [2, 2]' in p
+    assert '`["root(P, 2)", "root(P, 2)"]` square' in p
 
 
 def test_distribution_section_is_at_most_forty_lines() -> None:
@@ -159,7 +169,7 @@ def test_worked_example_formulas_match_owned_indices() -> None:
     global<->local formulas -- must be what ``owned_indices`` actually does, or the prompt teaches
     the agent an indexing scheme the harness will not scatter."""
     n, block = 2000, 1024
-    axis = AxisDist(grid_dim=0, scheme="block_cyclic", block_size=block)
+    axis = AxisDist(grid_dim=0, scheme=Scheme.BLOCK_CYCLIC, block_size=block)
     two = [owned_indices(n, axis, Grid((2,)), (c,)).tolist() for c in range(2)]
     assert two[0] == list(range(1024))
     assert two[1] == list(range(1024, 2000))
@@ -176,7 +186,7 @@ def test_block_formula_matches_owned_indices() -> None:
     """`base, rem = divmod(n, P)` with `lo = p*base + min(p, rem)` is the prompt's block rule."""
     n, parts = 2000, 3
     base, rem = divmod(n, parts)
-    axis = AxisDist(grid_dim=0, scheme="block")
+    axis = AxisDist(grid_dim=0, scheme=Scheme.BLOCK)
     for coord in range(parts):
         lo = coord * base + min(coord, rem)
         expected = list(range(lo, lo + base + (1 if coord < rem else 0)))
@@ -212,7 +222,7 @@ def test_allowlist_is_printed_and_absence_keeps_the_legacy_rule() -> None:
     legacy = template.render(ctx)
     assert "replicatable allowlist" not in legacy
     assert "GENUINELY DISTRIBUTED" not in legacy
-    assert "An array you omit from `arrays` is replicated on every rank." in legacy
+    assert "Replicate only what your algorithm genuinely shares" in legacy
 
 
 def test_legacy_distributed_kernel_is_not_given_the_allowlist_rule() -> None:
@@ -239,8 +249,8 @@ def test_sweep_libraries_and_single_submission_are_stated() -> None:
     assert "re-run UNCHANGED at a larger" in p
     assert "not disclosed" in p
     assert "read the world size from" in p  # the consequence an agent has to act on
-    assert "re-gridded to span each P" in p
-    assert "perfect d-th powers" in p
+    assert "Your `grid` is evaluated at each P" in p
+    assert "scores NOTHING for that point" in p
     assert "`submit` your best version ONCE" in p  # the single-submission rule
     assert "`mpi` (MPICH" in p
     assert "`rccl` (RCCL collectives)" in p
@@ -329,10 +339,11 @@ def test_an_ml_kernel_states_its_default_layout_per_array() -> None:
     off the ML track keeps its free choice and is told nothing of the kind."""
     ml = ml_prompt()
     ranks = int(config.get("mpi.ranks", 4))
-    axes = '[{"grid_dim": null}, {"grid_dim": 0, "scheme": "block"}]'
-    layout = f'{{"grid": [{ranks}], "arrays": {{"x": {{"axes": {axes}}}, "out": {{"axes": {axes}}}}}}}'
+    spec = BenchSpec.load("dist_softmax")
+    layout = json.dumps(default_requests(spec.mpi, binding_from_spec(spec), ranks).to_json())
+    assert '"dim": 1, "scheme": "block"' in layout  # both arrays split on their second dimension
     assert f"`{layout}`" in ml
-    assert "Return `distribution` = this default layout" in ml
+    assert "Return `requests` = this default request" in ml
     assert "- `x` (batch_size, dim): split on `dim`, block" in ml
     assert "LOCAL extent: `dim`." in ml
     assert "Arriving GLOBAL: `batch_size`." in ml
@@ -345,7 +356,7 @@ def test_an_ml_kernel_names_its_replicatable_arrays_and_their_whole_copy() -> No
     then receives the whole array; anything else is a 400 that does not spend the submission."""
     ml = ml_prompt("dist_matmul_gelu_softmax")
     assert "Replicatable arrays (allowlist): `x`." in ml
-    assert '`{"replicated": true}`' in ml
+    assert "You MAY `replicate` any of them" in ml
     assert "receives the WHOLE array" in ml
     assert "refused with an HTTP 400 before the build" in ml
     assert "does not spend your one" in ml
@@ -403,3 +414,44 @@ def test_a_gpu_distributed_prompt_states_its_two_unit_delivery() -> None:
     assert "`device_source` holds your kernels" in hip
     assert "compiled by `hipcc`" in hip
     assert "two units, both compiled" not in build_prompt(DIST)
+
+
+def test_a_fortran_prompt_states_that_layout_dimensions_are_numpys_reversed() -> None:
+    """Layout ops act in numpy's row-major index space; Fortran reverses the extents at codegen."""
+    fortran = build_prompt(Task(kernel="jacobi_2d", language="fortran", residency="distributed"))
+    assert "`A(N, M)` for numpy `A[M, N]`, so `dim` 0 is your LAST subscript" in fortran
+    section = fortran[fortran.index("### Data distribution") : fortran.index("### Delivery")].rstrip()
+    assert len(section.splitlines()) <= 40
+    assert "LAST subscript" not in build_prompt(DIST)
+
+
+if __name__ == "__main__":
+    test_build_context_sets_node_mode_and_mpi_fields()
+    test_host_context_is_single_and_mpi_fields_inert()
+    test_multi_prompt_is_comms_agnostic_and_states_pointer_residency()
+    test_multi_prompt_shows_the_distributed_contract()
+    test_multi_prompt_drops_single_node_only_sections()
+    test_single_node_prompt_unchanged_no_mpi_leak()
+    test_weak_scaling_framing()
+    test_python_distributed_prompt_builds_and_targets_python()
+    test_documented_layout_example_lowers_to_what_it_says()
+    test_distribution_section_lists_every_layout_with_its_exact_json()
+    test_distribution_section_is_at_most_forty_lines()
+    test_worked_example_formulas_match_owned_indices()
+    test_block_formula_matches_owned_indices()
+    test_replicatable_allowlist_reads_the_manifest_key()
+    test_allowlist_is_printed_and_absence_keeps_the_legacy_rule()
+    test_legacy_distributed_kernel_is_not_given_the_allowlist_rule()
+    test_sweep_libraries_and_single_submission_are_stated()
+    test_a_device_distributed_prompt_directs_rccl_to_every_setup()
+    test_a_host_distributed_prompt_does_not_direct_rccl()
+    test_the_prompt_never_names_a_rank_count_beyond_one_node()
+    test_ml_track_prompt_states_the_sweep_the_grader_actually_uses()
+    test_explicit_mpi_rank_counts_win_over_the_ml_default()
+    test_an_ml_kernel_states_its_default_layout_per_array()
+    test_an_ml_kernel_names_its_replicatable_arrays_and_their_whole_copy()
+    test_the_prompt_names_the_symbol_a_replicated_array_turns_global()
+    test_the_ml_prompt_states_both_laws_the_sizes_and_the_real_harness()
+    test_the_moe_expert_axis_is_named_as_the_exception_to_the_64_rule()
+    test_a_gpu_distributed_prompt_states_its_two_unit_delivery()
+    test_a_fortran_prompt_states_that_layout_dimensions_are_numpys_reversed()

@@ -39,13 +39,20 @@ from hpcagent_bench.harness import (
 )
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
-from hpcagent_bench.harness.mpi_descriptor import Descriptor, distribution_for_kernel
+from hpcagent_bench.harness.mpi_descriptor import Descriptor, default_requests
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from tests.conftest import RANK_ENV_VARS
 from tests.fresh_module import fresh
 from tests.test_scaling_grade import SWEEP, scaling_worklist
+
+
+def with_libraries(requests: dict, libraries: list[str]) -> dict:
+    """``requests`` (JSON) with ``startup.load`` set to ``libraries``."""
+    return {**requests, "startup": {**requests.get("startup", {}), "load": libraries}}
+
 
 #: The setups' fuzz draws, uncapped: conftest's size cap would grade cells no setup ever launches.
 pytestmark = pytest.mark.real_fuzz
@@ -211,9 +218,8 @@ def agent_body(kernel: str, *, wrong: bool = False) -> dict[str, object]:
         "kernel": spec.relative_path + "/" + spec.module_name,
         "source": 'extern "C" void entry() {}\n',
         "device_source": (WRONG if wrong else "") + "__global__ void k() {}\n",
-        "libraries": ["mpi", "rccl"],
         "workspace_bytes": workspace_request(spec),
-        "distribution": distribution_for_kernel(spec.mpi, binding_from_spec(spec), 4),
+        "requests": with_libraries(default_requests(spec.mpi, binding_from_spec(spec), 4).to_json(), ["mpi", "rccl"]),
         "episode_id": f"{SETUP}.n0.p0.w0",
     }
     body = load_http_json().submission_body(payload)
@@ -232,6 +238,11 @@ def workspace_request(spec: BenchSpec) -> str:
 #: The judge's leaderboard grades and its failed /submit grades, as views of ``grades_flat``.
 SUBMISSIONS = "(SELECT * FROM grades_flat WHERE kind IN ('submit', 'promoted') AND credited_speedup > 0)"
 ATTEMPTS = "(SELECT * FROM grades_flat WHERE kind = 'submit' AND credited_speedup = 0)"
+
+
+def recorded_requests(body: Mapping[str, object]) -> str:
+    """``grades.requests`` as the judge records the body's ``requests`` block (sorted JSON)."""
+    return json.dumps(Requests.from_obj(body["requests"]).to_json(), sort_keys=True)
 
 
 def rows(query: str, *args: object) -> list[tuple[object, ...]]:
@@ -287,13 +298,13 @@ def test_a_correct_ml_submit_at_the_setups_config_records_its_row_and_both_curve
     inputs = graded_inputs(kernel)
     assert baselines == [dict(cell["params"]) for cell in inputs], "one torch baseline per graded input, near XL"
     short = BenchSpec.load(kernel).short_name
-    submitted = rows("SELECT id, kernel, datatype, distribution, workspace_bytes FROM {submissions}")
+    submitted = rows("SELECT id, kernel, datatype, requests, workspace_bytes FROM {submissions}")
     assert submitted == [
         (
             graded["recorded"]["grade"],
             short,
             "bf16",
-            json.dumps(body["distribution"]),
+            recorded_requests(body),
             workspace_request(BenchSpec.load(kernel)),
         )
     ]
@@ -371,9 +382,8 @@ def test_the_grade_jobs_worklist_finds_the_setups_submit_and_replays_both_laws(
         with results_db.reading(item.db) as conn:
             units = results_db.grade_sources(conn, item.grade_id)
         assert (units["host"][1], units["device"][1]) == (body["source"], body["device_source"])
-        assert (item.distribution, item.libraries, item.workspace_bytes) == (
-            body["distribution"],
-            ["mpi", "rccl"],
+        assert (item.requests, item.workspace_bytes) == (
+            Requests.from_obj(body["requests"]).to_json(),
             body["workspace_bytes"],
         )
         # grade-under.sbatch's gang shape: the job owns the gang, the item its sweep.

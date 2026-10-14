@@ -4,6 +4,7 @@
 
 import numpy as np
 import pytest
+from relayout.ops import Scheme
 
 from hpcagent_bench.harness import mpi_call
 from hpcagent_bench.harness.agent import reference_mpi_source
@@ -61,13 +62,13 @@ def _seq_heat(TSTEPS, A, B):
 
 def _block_partition(n, R):
     """Per-rank owned indices of a length-`n` axis under a 1-D block over R ranks."""
-    grid, ax = Grid((R,)), AxisDist(grid_dim=0, scheme="block")
+    grid, ax = Grid((R,)), AxisDist(grid_dim=0, scheme=Scheme.BLOCK)
     return [owned_indices(n, ax, grid, (r,)) for r in range(R)]
 
 
 def _row_band_descriptor(ndim, R):
     """The stencils' distribution: block the leading axis over an R-rank 1-D grid, replicate the rest."""
-    axes = (AxisDist(grid_dim=0, scheme="block"),) + (AxisDist(grid_dim=None),) * (ndim - 1)
+    axes = (AxisDist(grid_dim=0, scheme=Scheme.BLOCK),) + (AxisDist(grid_dim=None),) * (ndim - 1)
     band = ArrayDist(axes=axes)
     return Descriptor(grid=Grid((R,)), arrays={"A": band, "B": band}, symbol_axes={})
 
@@ -140,9 +141,10 @@ def _run(kernel, ndim, *, language, launcher, cc_override, N, TSTEPS, R):
         assert built.ok, built.log
         artifact = built.lib if language == "python" else built.exe
         assert artifact is not None
-        outputs, samples_ns = mpi_call.run(
+        launched = mpi_call.run(
             artifact, binding, desc, data, is_python=(language == "python"), launcher=launcher, k_repeats=2, timeout=120
         )
+        outputs, samples_ns = launched.outputs, launched.samples_ns
     assert len(samples_ns) == 2
     assert min(samples_ns) >= 0
     return outputs

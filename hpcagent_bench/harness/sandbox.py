@@ -189,7 +189,7 @@ def build_link_refusal(build: Sequence[str], lang: str) -> str | None:
     return (
         f"'build' names {', '.join('-l' + name for name in missing)}, not installed in the shared "
         f"folder and not on the advertised catalog for {lang!r}; on offer here: {offered}. Install "
-        "it into the shared folder yourself, or request it by name via 'libraries'."
+        "it into the shared folder yourself, or request it by name via 'startup.load'."
     )
 
 
@@ -222,7 +222,7 @@ def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str |
         # Name what was refused and what is still honoured (agents otherwise dropped rccl too).
         honoured = f"; {', '.join(sorted(contract))} are still honoured here" if contract else ""
         return (
-            f"'libraries' requests are not enabled on this track (grading.allow_agent_build_tokens is off): "
+            f"'startup.load' are not enabled on this track (grading.allow_agent_build_tokens is off): "
             f"refused {', '.join(switched)}{honoured}"
         )
     unoffered = [name for name in names if not languages.library_offered(name, lang, context)]
@@ -230,9 +230,9 @@ def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str |
         return None
     unserved = [why for name in unoffered if (why := languages.library_served(name, context))]
     if unserved:
-        return "'libraries' request refused: " + "; ".join(unserved)
+        return "'startup.load' refused: " + "; ".join(unserved)
     offered = ", ".join(languages.available_libraries(lang, context)) or "(none for this language)"
-    return f"'libraries' names {', '.join(unoffered)}, not on the advertised catalog for {lang!r}; on offer here: {offered}"
+    return f"'startup.load' names {', '.join(unoffered)}, not on the advertised catalog for {lang!r}; on offer here: {offered}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,7 +561,7 @@ class Sandbox:
         src, extra_sources = paths[-1], paths[:-1]
         # The judge wires the shared folder's include and lib paths; the agent's -l/-L follow -L<shared>/lib.
         omp = submission_omp_context(submission)
-        catalog_error = catalog_refusal(submission.libraries, submission.language, omp)
+        catalog_error = catalog_refusal(submission.requests.startup.load, submission.language, omp)
         if catalog_error:
             return BuildResult(False, None, catalog_error)
         link_error = build_link_refusal(submission.build, submission.language)
@@ -581,7 +581,9 @@ class Sandbox:
 
         shared = shared_dir()
         agent_compile, agent_link = split_build(submission.build, allow_flags=agent_flags_allowed())
-        catalog_compile, catalog_link = languages.library_build_flags(submission.language, submission.libraries, omp)
+        catalog_compile, catalog_link = languages.library_build_flags(
+            submission.language, submission.requests.startup.load, omp
+        )
         # Offload flags go on both argvs: clang embeds the device image at link, and a link without
         # --offload-arch yields a host-only .so that still verifies. Empty on non-offload setups.
         offload = languages.agent_offload_flags()
@@ -681,7 +683,9 @@ class Sandbox:
                     gpu_compile, gpu_link = languages.mpich_wrapper_flags(wrappers)
 
         driver_src = self.root / f"{short}_mpi_driver.{driver_ext}"
-        driver_src.write_text(gen_mpi_driver(self.binding, descriptor.grid.dims, device_arrays=device_idx))
+        # cast operations: the driver converts each requested (host) tile around every call.
+        casts = {name: p.element for name, p in submission.requests.precisions().items()}
+        driver_src.write_text(gen_mpi_driver(self.binding, descriptor.grid.dims, device_arrays=device_idx, casts=casts))
         # Every translation unit the delivery carries (a GPU submission has two).
         units = languages.source_units(submission.language, mpi_symbol(self.binding))
         # A device build compiles every unit with the GPU compiler: the host entry uses vendor types the
@@ -691,7 +695,7 @@ class Sandbox:
             path.write_text(text or "")
         exe = self.root / f"{short}_bench"
 
-        catalog_error = catalog_refusal(submission.libraries, submission.language)
+        catalog_error = catalog_refusal(submission.requests.startup.load, submission.language)
         if catalog_error:
             return BuildResult(False, None, catalog_error)
         link_error = build_link_refusal(submission.build, submission.language)
@@ -700,7 +704,9 @@ class Sandbox:
 
         shared = shared_dir()
         agent_compile, agent_link = split_build(submission.build, allow_flags=agent_flags_allowed())
-        catalog_compile, catalog_link = languages.library_build_flags(submission.language, submission.libraries)
+        catalog_compile, catalog_link = languages.library_build_flags(
+            submission.language, submission.requests.startup.load
+        )
         extra_compile = [f"-I{shared}/include", *gpu_compile, *agent_compile, *list(catalog_compile)]
         extra_link = [f"-L{shared}/lib", f"-Wl,-rpath,{shared}/lib", *gpu_link, *agent_link, *list(catalog_link)]
         try:

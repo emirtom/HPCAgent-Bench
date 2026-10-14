@@ -4,8 +4,9 @@
 
 A sparse kernel's format is fixed by its task (one sub-benchmark per format configuration), and
 distributed sparse layouts are unsupported. Three places hold that line: the manifest (no ``mpi:``
-block beside ``sparse_layouts``), the request (a ``distribution`` on a sparse task is refused
-before any build), and the grade (no weak or strong scaling curve for a sparse kernel).
+block beside ``sparse_layouts``), the request (a ``requests.grid`` on a sparse task, or a layout op on a
+sparse array, is refused before any build), and the grade (no weak or strong scaling curve for a
+sparse kernel).
 """
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from hpcagent_bench import config
 from hpcagent_bench.harness import metric, scoring, service
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import KERNELS, load_spec, parse_mpi
@@ -20,11 +22,14 @@ from hpcagent_bench.spec import KERNELS, load_spec, parse_mpi
 SPARSE = "spmv"
 DENSE_ML = "dist_softmax"
 #: A well-formed layout, so a refusal can only come from the kernel being sparse.
-LAYOUT = {"grid": [4], "arrays": {"x": {"axes": [{"grid_dim": 0, "scheme": "block"}]}}}
+LAYOUT = {
+    "startup": {"grid": ["P"]},
+    "operations": [{"action": "distribute", "array": "x", "grid_dim": 0, "dim": 0, "scheme": "block"}],
+}
 
 
-def sparse_submission(distribution: dict | None) -> Submission:
-    return Submission(language="c", source="void spmv(void) {}", distribution=distribution)
+def sparse_submission(requests: dict | None) -> Submission:
+    return Submission(language="c", source="void spmv(void) {}", requests=Requests.from_obj(requests))
 
 
 def test_the_manifest_refuses_an_mpi_block_beside_sparse_layouts() -> None:
@@ -40,16 +45,24 @@ def test_no_registered_sparse_kernel_declares_an_mpi_block() -> None:
 
 
 @pytest.mark.parametrize("residency", ["host", "distributed"])
-def test_a_sparse_task_refuses_any_distribution(residency: str) -> None:
+def test_a_sparse_task_refuses_any_grid(residency: str) -> None:
     """Refused whatever the residency: a host task would otherwise ignore the layout silently."""
-    refusal = service.distribution_refusal(sparse_submission(LAYOUT), Task(SPARSE, residency=residency), "S")
+    refusal = service.requests_refusal(sparse_submission(LAYOUT), Task(SPARSE, residency=residency), "float64")
     assert refusal is not None
     assert "sparse kernel" in refusal
     assert "nothing was graded" in refusal
 
 
-def test_a_sparse_task_without_a_distribution_is_graded_as_usual() -> None:
-    assert service.distribution_refusal(sparse_submission(None), Task(SPARSE, residency="host"), "S") is None
+def test_a_sparse_task_without_a_grid_is_graded_as_usual() -> None:
+    assert service.requests_refusal(sparse_submission(None), Task(SPARSE, residency="host"), "float64") is None
+
+
+def test_a_layout_op_on_a_sparse_array_is_refused() -> None:
+    """Digit operations apply to dense arrays only: a sparse array changes layout through its format."""
+    requests = {"operations": [{"action": "permute", "array": "A", "order": ["i1", "i0"]}]}
+    refusal = service.requests_refusal(sparse_submission(requests), Task(SPARSE, residency="host"), "float64")
+    assert refusal is not None
+    assert "dense arrays only" in refusal
 
 
 def test_a_sparse_task_is_never_on_the_ml_scaling_track() -> None:

@@ -6,14 +6,18 @@ agent's kernel_mpi against a harness-owned C main that owns MPI_Init/Finalize, t
 communicator, the untimed scatter/gather (mpi_wire layout), and the MPI_Wtime-timed loop; links an
 executable (MPI_Init must own main) rather than a dlopen'd .so like the single-node path."""
 
-from collections.abc import Sequence
+import dataclasses
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
 from hpcagent_bench.dtypes import c_type, canonical, is_storage_only, storage_typedef
-from hpcagent_bench.harness.mpi_wire import TYPE_CODES
+from hpcagent_bench.harness import precision_casts
+from hpcagent_bench.harness.mpi_wire import TYPE_CODES, VERSION
 from hpcagent_bench.support.bindings.contract import (
+    Arg,
     Binding,
     c_param,
     lang_type,
@@ -213,12 +217,85 @@ static void recv_bytes(char *buf, size_t n, int peer, MPI_Comm comm) {
 """
 
 
-def gen_mpi_driver(binding: Binding, grid_dims: Sequence[int], *, device_arrays: Sequence[int] = ()) -> str:
+class CastBlocks(NamedTuple):
+    """The C fragments of a driver's precision casts (all empty without a ``cast``)."""
+
+    functions: str
+    alloc: str
+    cast_in: str
+    cast_out: str
+
+
+def timed_casts(lines: Sequence[str], into: str) -> str:
+    """``lines`` (one cast call each) in a MAX-over-ranks MPI_Wtime bracket recorded in ``into[k]``; its
+    locals are named after ``into`` so the cast-in and cast-out brackets share one loop body."""
+    if not lines:
+        return ""
+    body = "".join(f"        {line}\n" for line in lines)
+    return (
+        "        MPI_Barrier(cart);\n"
+        f"        double {into}_t0 = MPI_Wtime();\n"
+        f"{body}"
+        f"        double {into}_dt = MPI_Wtime() - {into}_t0, {into}_g = 0.0;\n"
+        f"        MPI_Reduce(&{into}_dt, &{into}_g, 1, MPI_DOUBLE, MPI_MAX, 0, cart);\n"
+        f"        if (rank == 0) {into}[k] = {into}_g;"
+    )
+
+
+def cast_driver_blocks(ptrs: Sequence[Arg], cast_index: Mapping[int, str]) -> CastBlocks:
+    """The driver's precision-cast fragments: the cast loops (:func:`precision_casts.host_functions`), one
+    ``cwork[i]`` per requested tile, and the per-repeat cast-in (every requested tile: outputs are
+    intent(inout)) and cast-out (the outputs) brackets."""
+    if not cast_index:
+        return CastBlocks("", "", "", "")
+    pairs = sorted(
+        {(ptrs[i].dtype, dst) for i, dst in cast_index.items()}
+        | {(dst, ptrs[i].dtype) for i, dst in cast_index.items()}
+    )
+    functions = "\n" + precision_casts.host_functions({dt for pair in pairs for dt in pair})
+    alloc = "    void *cwork[N_PTR] = {0};\n" + "".join(
+        f"    cwork[{i}] = xmalloc((size_t)count[(size_t){i} * nranks + rank] * {np.dtype(dst).itemsize} + 1);\n"
+        for i, dst in sorted(cast_index.items())
+    )
+
+    def call(i: int, src: str, dst: str, from_buf: str, to_buf: str) -> str:
+        return (
+            f"{precision_casts.symbol(src, dst)}((const void *){from_buf}, (void *){to_buf}, "
+            f"count[(size_t){i} * nranks + rank]);"
+        )
+
+    cast_in = [call(i, ptrs[i].dtype, dst, f"work[{i}]", f"cwork[{i}]") for i, dst in sorted(cast_index.items())]
+    cast_out = [
+        call(i, dst, ptrs[i].dtype, f"cwork[{i}]", f"work[{i}]")
+        for i, dst in sorted(cast_index.items())
+        if ptrs[i].role == "output"
+    ]
+    return CastBlocks(functions, alloc, timed_casts(cast_in, "cast_in"), timed_casts(cast_out, "cast_out"))
+
+
+def gen_mpi_driver(
+    binding: Binding,
+    grid_dims: Sequence[int],
+    *,
+    device_arrays: Sequence[int] = (),
+    casts: Mapping[str, str] | None = None,
+) -> str:
     """Render the self-contained C main MPI driver for ``binding`` on ``grid_dims``: reads the per-rank
     infile, Scatterv's each tile, runs the kernel K times with MAX-over-ranks timing, Gatherv's outputs,
     and writes the outfile. ``device_arrays`` marks GPU-resident pointers (Sec. 10): those tiles get a
-    ``dwork[i]`` GPU mirror seeded/drained outside the timed region; empty -> the all-host driver."""
+    ``dwork[i]`` GPU mirror seeded/drained outside the timed region; empty -> the all-host driver.
+
+    ``casts`` (the ``cast`` operations, host tiles only) maps an array to the dtype its kernel argument takes:
+    every repeat converts that tile into a ``cwork[i]`` of the type before the call and back after it,
+    each cast timed MAX-over-ranks in its own bracket and written beside the kernel samples."""
     sym = mpi_symbol(binding)
+    casts = dict(casts or {})
+    cast_index = {i: casts[a.name] for i, a in enumerate(binding.pointers) if a.name in casts}
+    # The kernel is declared and called with the requested element types.
+    called = dataclasses.replace(
+        binding,
+        args=tuple(dataclasses.replace(a, dtype=casts[a.name]) if a.name in casts else a for a in binding.args),
+    )
     ptrs = binding.pointers
     scalars = binding.scalars
     n_ptr = len(ptrs)
@@ -233,10 +310,10 @@ def gen_mpi_driver(binding: Binding, grid_dims: Sequence[int], *, device_arrays:
     # Cast each tile to its declared C type; a device pointer uses its dwork[i] mirror via the
     # compile-time g_on_device[] mask, a host one uses work[i].
     call_parts: list[str] = []
-    for i, a in enumerate(ptrs):
+    for i, a in enumerate(called.pointers):
         const = "const " if a.is_const else ""
         buf = f"(g_on_device[{i}] ? dwork[{i}] : work[{i}])" if device else f"work[{i}]"
-        call_parts.append(f"({const}{c_type(a.dtype)} *){buf}")
+        call_parts.append(f"({const}{c_type(a.dtype)} *){'cwork[' + str(i) + ']' if i in cast_index else buf}")
     call_parts.extend(f"s_{a.name}" for a in scalars)
     call_parts.append("comm_f")
     call_parts.append("(uint8_t *)dws" if device else "(uint8_t *)ws")
@@ -244,7 +321,7 @@ def gen_mpi_driver(binding: Binding, grid_dims: Sequence[int], *, device_arrays:
     call_args = ", ".join(call_parts)
 
     # Device path compiles as C++/CUDA, so declare extern "C" to keep the symbol name stable (no mangling).
-    sig = kernel_signature(binding, sym)
+    sig = kernel_signature(called, sym)
     kernel_extern_decl = f'extern "C" {sig}' if device else f"extern {sig}"
 
     # A storage-only element type (bf16) has no C spelling of its own, so the driver names it with
@@ -254,8 +331,9 @@ def gen_mpi_driver(binding: Binding, grid_dims: Sequence[int], *, device_arrays:
     # declare the same pointer as __hip_bfloat16 * : both are 2-byte types passed by address.
     storage_typedefs = "".join(
         f"{storage_typedef(dt)}  /* {dt}: storage only */\n"
-        for dt in sorted({a.dtype for a in ptrs if is_storage_only(a.dtype)})
+        for dt in sorted({a.dtype for a in (*ptrs, *called.pointers) if is_storage_only(a.dtype)})
     )
+    cast_blocks = cast_driver_blocks(ptrs, cast_index)
 
     # Device-residency C fragments; empty on the all-host path so host output is unchanged.
     dev_include = GPU_SHIM if device else ""
@@ -343,9 +421,9 @@ def gen_mpi_driver(binding: Binding, grid_dims: Sequence[int], *, device_arrays:
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-{storage_typedefs}{dev_include}
+{storage_typedefs}{dev_include}{cast_blocks.functions}
 #define MPI_WIRE_MAGIC   0x4F4D5049
-#define MPI_WIRE_VERSION 1
+#define MPI_WIRE_VERSION {VERSION}
 #define N_PTR    {n_ptr}
 #define N_OUT    {n_out}
 #define N_SCALAR {len(scalars)}
@@ -501,11 +579,15 @@ int main(int argc, char **argv) {{
     }}
 {dev_alloc}
 {ws_alloc_block}
-
+{cast_blocks.alloc}
     /* Timed loop: MAX-over-ranks per repeat; the slowest rank sets the time. */
     double *samples = (rank == 0) ? (double *)xmalloc(sizeof(double) * (size_t)(K > 0 ? K : 1)) : NULL;
+    /* cast operations: each repeat's MAX-over-ranks cast-in / cast-out seconds; 0 without casts. */
+    double *cast_in = (rank == 0) ? (double *)calloc((size_t)(K > 0 ? K : 1), sizeof(double)) : NULL;
+    double *cast_out = (rank == 0) ? (double *)calloc((size_t)(K > 0 ? K : 1), sizeof(double)) : NULL;
     for (int64_t k = 0; k < K; k++) {{
 {reseed_block}
+{cast_blocks.cast_in}
 {dev_sync_before}
         MPI_Barrier(cart);
         double t0 = MPI_Wtime();
@@ -515,6 +597,7 @@ int main(int argc, char **argv) {{
         double dt = MPI_Wtime() - t0, g = 0.0;
         MPI_Reduce(&dt, &g, 1, MPI_DOUBLE, MPI_MAX, 0, cart);
         if (rank == 0) samples[k] = g;
+{cast_blocks.cast_out}
     }}
 {dev_d2h}
     /* Gather the output tiles back to rank 0, then write the outfile. */
@@ -545,6 +628,8 @@ int main(int argc, char **argv) {{
         int64_t oh[5] = {{ MPI_WIRE_MAGIC, MPI_WIRE_VERSION, nranks, K, N_OUT }};
         fwrite(oh, 8, 5, f);
         fwrite(samples, 8, (size_t)(K > 0 ? K : 0), f);
+        fwrite(cast_in, 8, (size_t)(K > 0 ? K : 0), f);
+        fwrite(cast_out, 8, (size_t)(K > 0 ? K : 0), f);
         for (int j = 0; j < N_OUT; j++) {{
             int i = g_out_index[j];
             int64_t m[2] = {{ g_elem_size[i], g_type_code[i] }};

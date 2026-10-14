@@ -80,7 +80,7 @@ def build_dist_softmax_plan(ranks: int, artifact: pathlib.Path, k_repeats: int) 
     spec = BenchSpec.load(f"machine_learning/{KERNEL}/{KERNEL}")
     binding = binding_from_spec(spec)
     dist = distribution_for_kernel(spec.mpi, binding, ranks)
-    descriptor = Descriptor.from_distribution(dist, binding, ranks)
+    descriptor = Descriptor.from_plan(dist, binding, ranks)
     params = dict(spec.parameters["S"])  # batch_size=8, dim=64: small, still a real column split
     return mpi_shard_driver.build_plan(
         spec,

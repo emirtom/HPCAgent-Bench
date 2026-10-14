@@ -26,6 +26,7 @@ from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
 from hpcagent_bench.harness.mpi_wire import TYPE_CODES, pack_infile
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub, gen_mpi_driver
@@ -270,7 +271,9 @@ def test_the_fuzzed_bf16_inputs_now_cross_the_wire() -> None:
     assert data["x"].dtype == np.dtype(BF16)
     tile = {"axes": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "block"}]}
     dist = {"grid": [4], "arrays": {"x": tile, "out": tile}}
-    desc = Descriptor.from_submission(Submission(language="c", source="x", distribution=dist), binding, 4)
+    desc = Descriptor.from_submission(
+        Submission(language="c", source="x", requests=Requests.from_plan(dist)), binding, 4
+    )
     raw = pack_infile(binding, desc, {k: data[k] for k in ("x", "out")}, {"batch_size": 8, "dim": 64}, 1)
     assert len(raw) < data["x"].nbytes * 4 + 4096  # 2-byte payloads, not a float64 widening
 
