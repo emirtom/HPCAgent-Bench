@@ -384,7 +384,7 @@ def test_aggregate_db_cli_merges_explicit_per_rank_sources_once(
         directory = tmp_path / "judge" / f"rank-{rank}"
         directory.mkdir(parents=True)
         shard = str(directory / "hpcagent_bench.db")
-        seed_shard(shard, run=f"s{rank}.r{rank}", kernels=kernels)
+        seed_shard(shard, run=f"s{rank}.r{rank}", kernels=kernels, timestamp=rank + 1)
         shards.append(shard)
     dest = str(tmp_path / "merged.db")
     argv = ["aggregate-db", "--db", dest, "--source", shards[0], "--source", shards[1]]
@@ -405,6 +405,6 @@ def test_aggregate_db_cli_without_sources_scans_beside_the_destination(
     assert "nothing to aggregate" in capsys.readouterr().out
     assert not pathlib.Path(dest).exists()
     seed_shard(recording.shard_db_path(0, dest), run="s0.r0", kernels=["gemm"])
-    seed_shard(recording.shard_db_path(1, dest), run="s1.r1", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(1, dest), run="s1.r1", kernels=["gemm"], timestamp=2)
     assert cli.main(["aggregate-db", "--db", dest]) == 0
     assert _count(dest, "grades") == 4

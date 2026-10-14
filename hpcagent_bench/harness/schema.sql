@@ -1,7 +1,8 @@
 -- Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- The HPCAgent-Bench results database: the v0.2 results schema (PRAGMA user_version = 2, the release's minor).
+-- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 10: the name's 1.0,
+-- above every pre-release schema, which stopped at 8, so no older file is ever mistaken for it).
 --
 -- One file holds everything an experiment produced: a judge rank's shard, a job and the whole
 -- dataset use this same schema, and merging remaps the surrogate ids through the natural keys.
@@ -19,7 +20,7 @@
 -- indices (0 is real), the device-synchronization readings (0 ns is real; CPU grades have none), p_value
 -- (no test ran) and work_ratio (strong scaling has none).
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 10;
 
 -- One experimental condition: everything a run's identity has in common across its repetitions.
 CREATE TABLE setups (
