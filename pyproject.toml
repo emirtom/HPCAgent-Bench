@@ -49,8 +49,8 @@ dependencies = [
     "matplotlib",
     "ml_dtypes",
     "pyyaml",
-    # Validated models: config, request allowances, manifests.
-    "pydantic>=2.11",
+    # Validated models: config, request allowances, manifests, the Harbor grade (2.12: Field(exclude_if=...)).
+    "pydantic>=2.12",
     "sqlmodel",
     "jinja2",
     "cffi",

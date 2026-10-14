@@ -52,6 +52,21 @@ from typing import Any
 import yaml
 
 from hpcagent_bench import config, containers, hf_export, languages, paths
+from hpcagent_bench.harbor_grade import (
+    BundleGrade,
+    DistributedGrade,
+    FailedGrade,
+    FuzzedIteration,
+    Grade,
+    HostGrade,
+    HostInput,
+    KernelGrade,
+    PrRecord,
+    ScalingCurve,
+    UnmeasuredInput,
+    grade_text,
+    parse_grade,
+)
 from hpcagent_bench.harness import repo_pr
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.grading import BASELINE_OPTIONS
@@ -1265,8 +1280,8 @@ def grade(
     speedup_min: float | None = None,
     seed_sha: str | None = None,
     single_rank_anchor: Submission | None = None,
-) -> dict:
-    """Grade one artifact and return its reward dict; unset measurement args come from the config.
+) -> HostGrade | DistributedGrade:
+    """Grade one artifact and return its grade; unset measurement args come from the config.
 
     A single-node artifact is graded exactly as the final grade grades a submission
     (:func:`hpcagent_bench.harness.grade_under.final_grade` under :func:`grade_under.final_settings`: every
@@ -1289,9 +1304,7 @@ def grade(
     task = Task(kernel, mode, language, residency=residency)
     if residency != Residency.DISTRIBUTED.value:
         reward = final_reward(submission, task, baseline=baseline, datatype=datatype)
-        if repo_dir is not None:
-            _gate_repo_pr(reward, repo_dir, speedup_min, seed_sha)
-        return reward
+        return reward if repo_dir is None else _gate_repo_pr(reward, repo_dir, speedup_min, seed_sha)
     ts = score_task_fuzzed(
         submission,
         task,
@@ -1302,41 +1315,39 @@ def grade(
         verify=verify,
         single_rank_anchor=single_rank_anchor,
     )
-    valid = [
-        {
-            "speedup": it.speedup,
-            "native_ns": it.native_ns,
-            "baseline_ns": it.baseline_ns,
-            "timing_reduction": it.timing_reduction,
-        }
-        for it in ts.iterations
-        if it.correct and it.verified and it.speedup > 0
-    ]
-    # The reward IS the metric's S_i, so the native aggregate and the Harbor reward agree.
-    reward = {
-        "reward": ts.s_i,
-        "solved": ts.solved,
-        "speedup": ts.raw_speedup,  # g_i, the geomean of the credited ratios
-        "gsd": ts.gsd,
-        "score_rule": ts.score_rule,
-        "baseline": ts.baseline,
-        "kernel": kernel,
-        "iterations": valid,
-        "suspect": ts.suspect_count > 0,
-    }
     # The multi-node scaling curve is disclosed next to the scalar reward, never folded into it.
+    curve = None
     if ts.scaling is not None:
-        curve = dataclasses.asdict(ts.scaling, dict_factory=json_fields)
-        curve.pop("kernel", None)
-        reward["scaling"] = curve
-    if ts.scaling_notes:
-        reward["scaling_notes"] = list(ts.scaling_notes)
-    if repo_dir is not None:
-        _gate_repo_pr(reward, repo_dir, speedup_min, seed_sha)
-    return reward
+        fields = dataclasses.asdict(ts.scaling, dict_factory=json_fields)
+        fields.pop("kernel", None)
+        curve = ScalingCurve.model_validate(fields)
+    # The reward IS the metric's S_i, so the native aggregate and the Harbor reward agree.
+    swept = DistributedGrade(
+        reward=ts.s_i,
+        solved=ts.solved,
+        speedup=ts.raw_speedup,  # g_i, the geomean of the credited ratios
+        gsd=ts.gsd,
+        score_rule=ts.score_rule,
+        baseline=ts.baseline,
+        kernel=kernel,
+        iterations=tuple(
+            FuzzedIteration(
+                speedup=it.speedup,
+                native_ns=it.native_ns,
+                baseline_ns=it.baseline_ns,
+                timing_reduction=it.timing_reduction,
+            )
+            for it in ts.iterations
+            if it.correct and it.verified and it.speedup > 0
+        ),
+        suspect=ts.suspect_count > 0,
+        scaling=curve,
+        scaling_notes=ts.scaling_notes,
+    )
+    return swept if repo_dir is None else _gate_repo_pr(swept, repo_dir, speedup_min, seed_sha)
 
 
-def final_reward(submission: Submission, task: Task, *, baseline: str, datatype: str) -> dict:
+def final_reward(submission: Submission, task: Task, *, baseline: str, datatype: str) -> HostGrade:
     """The reward of one single-node artifact under the final grade (see :func:`grade`)."""
     from hpcagent_bench.harness import grade_under
 
@@ -1348,86 +1359,85 @@ def final_reward(submission: Submission, task: Task, *, baseline: str, datatype:
         grade_under.apply_env(grade_under.final_settings({}), set())
         graded = grade_under.final_grade(submission, task)
     policies = sorted({one.result.baseline_policy for one in graded.inputs if one.result.baseline_policy})
-    return {
-        "reward": graded.credit.score,
-        "solved": graded.solved,
-        "speedup": graded.credit.geomean,  # g_i, the geomean of the credited per-input ratios
-        "gsd": graded.credit.gsd,
-        "score_rule": score_rule.SCORE_RULE,
+    return HostGrade(
+        reward=graded.credit.score,
+        solved=graded.solved,
+        speedup=graded.credit.geomean,  # g_i, the geomean of the credited per-input ratios
+        gsd=graded.credit.gsd,
+        score_rule=score_rule.SCORE_RULE,
         # The denominator's identity is the raced set (policy), as the results DB pools by it; the
         # per-input winners are disclosed beside it.
-        "baseline": "+".join(policies),
-        "baseline_winner": "+".join(sorted({cell.baseline for cell in graded.measured})),
-        "kernel": task.kernel,
-        "iterations": [
-            {
-                "label": one.label,
-                "speedup": one.cell.ratio,
-                "native_ns": one.cell.native_ns,
-                "baseline_ns": one.cell.baseline_ns,
-                "timing_reduction": one.cell.timing_reduction,
-                "correct": one.cell.correct,
-                "suspect": one.cell.suspect,
-            }
+        baseline="+".join(policies),
+        baseline_winner="+".join(sorted({cell.baseline for cell in graded.measured})),
+        kernel=task.kernel,
+        iterations=tuple(
+            HostInput(
+                label=one.label,
+                speedup=one.cell.ratio,
+                native_ns=one.cell.native_ns,
+                baseline_ns=one.cell.baseline_ns,
+                timing_reduction=one.cell.timing_reduction,
+                correct=one.cell.correct,
+                suspect=one.cell.suspect,
+            )
             for one in graded.inputs
             if one.cell is not None
-        ],
-        "unmeasured": [
-            {"label": one.label, "reason": one.refused or (one.result.detail or "")[-400:]}
+        ),
+        unmeasured=tuple(
+            UnmeasuredInput(label=one.label, reason=one.refused or (one.result.detail or "")[-400:])
             for one in graded.inputs
             if one.cell is None
-        ],
-        "suspect": any(cell.suspect for cell in graded.measured),
-    }
+        ),
+        suspect=any(cell.suspect for cell in graded.measured),
+    )
 
 
-def _gate_repo_pr(reward: dict, repo_dir: str, speedup_min: float | None, seed_sha: str | None = None) -> None:
-    """Apply the repo-task PR acceptance rule in place; a rejected PR scores as a non-win everywhere."""
+def _gate_repo_pr(
+    reward: HostGrade | DistributedGrade, repo_dir: str, speedup_min: float | None, seed_sha: str | None = None
+) -> HostGrade | DistributedGrade:
+    """``reward`` under the repo-task PR acceptance rule, the verdict recorded beside it; a rejected PR
+    scores as a non-win everywhere."""
     smin = speedup_min if speedup_min is not None else config.current().repo.speedup_min
     pr = repo_pr.evaluate(repo_dir, seed_sha=seed_sha)
     # Gate on S_i (after the dispersion gate), so the two gates agree.
-    accepted, why = repo_pr.accepts(pr, solved=bool(reward["solved"]), speedup=reward["reward"], speedup_min=smin)
-    reward.update(
-        pr=repo_pr.PR_STATUS_ADAPTER.dump_python(pr, mode="json"),
-        accepted=accepted,
-        accept_reason=why,
-        speedup_min=smin,
-    )
-    if not accepted:
-        reward.update(reward=1.0, solved=False, speedup=1.0)
+    accepted, why = repo_pr.accepts(pr, solved=reward.solved, speedup=reward.reward, speedup_min=smin)
+    verdict = {"pr": PrRecord.of(pr), "accepted": accepted, "accept_reason": why, "speedup_min": smin}
+    floor = {} if accepted else {"reward": 1.0, "solved": False, "speedup": 1.0}
+    return reward.model_copy(update={**verdict, **floor})
 
 
-def combine(rewards: Sequence[dict]) -> dict:
+def combine(rewards: Sequence[KernelGrade]) -> BundleGrade:
     """One task reward from per-kernel rewards: geomean of S_i, gated to 1.0 unless all are solved.
 
     Refuses a bundle divided by two different baselines (``one_denominator``). A row naming no
     baseline (a neutral 1.0 from a failed item) does not vote.
     """
-    named = [r["baseline"] for r in rewards if is_named(r.get("baseline"))]
+    graded = [r for r in rewards if not isinstance(r, FailedGrade)]
+    named = [r.baseline for r in graded if is_named(r.baseline)]
     denominator = one_denominator(named, label="combine") if named else ""
-    gm = geomean([float(r.get("reward", 1.0)) for r in rewards])
-    solved = all(bool(r.get("solved")) for r in rewards)
-    return {
-        "reward": gm if solved else 1.0,
-        "geomean": gm,
-        "solved": solved,
-        "baseline": denominator,
-        "kernels": [r.get("kernel") for r in rewards],
-        "n_kernels": len(rewards),
-        "suspect": any(bool(r.get("suspect")) for r in rewards),
-        "per_kernel": list(rewards),
-        "score_rule": score_rule.SCORE_RULE,
-    }
+    gm = geomean([float(r.reward) for r in rewards])
+    solved = all(r.solved for r in rewards)
+    return BundleGrade(
+        reward=gm if solved else 1.0,
+        geomean=gm,
+        solved=solved,
+        baseline=denominator,
+        kernels=tuple(r.kernel for r in rewards),
+        n_kernels=len(rewards),
+        suspect=any(r.suspect for r in graded),
+        per_kernel=tuple(rewards),
+        score_rule=score_rule.SCORE_RULE,
+    )
 
 
-def harbor_reward(reward: dict) -> dict[str, float | int]:
+def harbor_reward(reward: Grade) -> dict[str, float | int]:
     """The flat, numeric reward Harbor accepts in ``reward.json`` (it rejects any non-numeric value).
 
-    Keeps the finite scalar numbers of ``reward`` (booleans as 0/1); the full dict goes to the
-    detail file next to it.
+    Keeps the finite scalar numbers of ``reward``'s ``grade.json`` object (booleans as 0/1); the full
+    grade goes to the detail file next to it.
     """
     flat: dict[str, float | int] = {}
-    for key, value in reward.items():
+    for key, value in reward.model_dump().items():
         if isinstance(value, bool):
             flat[key] = int(value)
         elif isinstance(value, int | float) and math.isfinite(value):
@@ -1463,7 +1473,7 @@ def _grade_one(
     anchor_source_path: str | None = None,
     anchor_library: str | None = None,
     anchor_language: str | None = None,
-) -> dict:
+) -> KernelGrade:
     """Grade one item, never raising: any failure is the neutral 1.0 reward."""
     try:
         source = pathlib.Path(source_path).read_text() if source_path else None
@@ -1489,7 +1499,7 @@ def _grade_one(
             single_rank_anchor=anchor,
         )
     except Exception as exc:  # noqa: BLE001 -- neutral reward, never a crash
-        return {"reward": 1.0, "solved": False, "error": f"{type(exc).__name__}: {exc}", "kernel": kernel}
+        return FailedGrade(reward=1.0, solved=False, error=f"{type(exc).__name__}: {exc}", kernel=kernel)
 
 
 def grade_items(
@@ -1509,7 +1519,7 @@ def grade_items(
     anchor_sources: Sequence[str | None] | None = None,
     anchor_libraries: Sequence[str | None] | None = None,
     anchor_language: str | None = None,
-) -> dict:
+) -> Grade:
     """Grade one or more items: one item's reward verbatim, several ``combine()``-d."""
 
     def col(seq: Sequence[str | None] | None) -> list[str | None]:
@@ -1647,9 +1657,9 @@ def launch(build_argv: Callable[[], list[str]]) -> int | None:
     return subprocess.run(cmd, check=False, env=env).returncode
 
 
-def read_rewards(job_dir: str | pathlib.Path) -> list[dict]:
+def read_rewards(job_dir: str | pathlib.Path) -> list[Grade]:
     """The full grade of every finished trial under a Harbor job dir (``<trial>/verifier/grade.json``)."""
-    return [json.loads(p.read_text()) for p in sorted(pathlib.Path(job_dir).glob(f"*/verifier/{DETAIL_NAME}"))]
+    return [parse_grade(p.read_text()) for p in sorted(pathlib.Path(job_dir).glob(f"*/verifier/{DETAIL_NAME}"))]
 
 
 def run_agent(
@@ -1660,7 +1670,7 @@ def run_agent(
     language: str = "c",
     hardware: str | None = None,
     extra: Sequence[str] = (),
-) -> tuple[int, list[dict]]:
+) -> tuple[int, list[Grade]]:
     """Run one of our agent backends on ``selector`` under Harbor; return (exit code, grades).
 
     Generates the tasks under ``<out_dir>/tasks`` (with oracle solutions for ``noop``), runs
@@ -1878,14 +1888,14 @@ def cmd_grade(p: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     pin_threads()
     reward_path = pathlib.Path(args.reward)
     if importlib.util.find_spec("hpcagent_bench.harness.hidden_tests.seeds") is None:
-        reward = {
-            "reward": 1.0,
-            "solved": False,
-            "error": f"hidden seeds missing: the verifier needs {HIDDEN_TESTS_MOUNT} ({HIDDEN_TESTS_ENV})",
-        }
-        reward_path.write_text(json.dumps(harbor_reward(reward)))
-        reward_path.with_name(DETAIL_NAME).write_text(json.dumps(reward))
-        print(json.dumps(reward), file=sys.stderr)
+        refused = FailedGrade(
+            reward=1.0,
+            solved=False,
+            error=f"hidden seeds missing: the verifier needs {HIDDEN_TESTS_MOUNT} ({HIDDEN_TESTS_ENV})",
+        )
+        reward_path.write_text(json.dumps(harbor_reward(refused)))
+        reward_path.with_name(DETAIL_NAME).write_text(grade_text(refused))
+        print(grade_text(refused), file=sys.stderr)
         return 2
     with timing_lock():  # serialize timing; agents still solve in parallel
         reward = grade_items(
@@ -1906,8 +1916,8 @@ def cmd_grade(p: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             anchor_language=args.anchor_language,
         )
     reward_path.write_text(json.dumps(harbor_reward(reward)))
-    reward_path.with_name(DETAIL_NAME).write_text(json.dumps(reward))
-    print(json.dumps(reward))
+    reward_path.with_name(DETAIL_NAME).write_text(grade_text(reward))
+    print(grade_text(reward))
     return 0
 
 

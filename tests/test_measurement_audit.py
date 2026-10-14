@@ -19,6 +19,7 @@ import pytest
 from hpcagent_bench import harbor
 from hpcagent_bench.harness import metric, timing
 from hpcagent_bench.support.collect import sweep
+from tests.grade_records import host_grade
 
 
 # 1. The disclosed timings must reproduce the credited speedup.
@@ -97,8 +98,8 @@ def test_speedups_over_different_denominators_do_not_silently_aggregate() -> Non
     identified.
     """
     mixed = [
-        {"reward": 96.0, "solved": True, "kernel": "k1", "baseline": "c"},
-        {"reward": 1.8, "solved": True, "kernel": "k1", "baseline": "numba"},
+        host_grade(reward=96.0, solved=True, kernel="k1", baseline="c"),
+        host_grade(reward=1.8, solved=True, kernel="k1", baseline="numba"),
     ]
     with pytest.raises(ValueError, match="baseline"):
         harbor.combine(mixed)
