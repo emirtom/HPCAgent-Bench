@@ -28,7 +28,6 @@ import argparse
 import collections
 import dataclasses
 import enum
-import json
 import math
 import os
 import pathlib
@@ -43,6 +42,7 @@ from hpcagent_bench import tags
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import episodes, results_db
 from hpcagent_bench.harness.recording import slot_of
+from hpcagent_bench.problem_file import ProblemLine, read_lines
 from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
@@ -115,10 +115,9 @@ def parse_run(line: str) -> Run:
     return Run(kernel, int(slot) if slot else 1)
 
 
-def problem_run(problem: dict[str, object]) -> Run:
+def problem_run(problem: ProblemLine) -> Run:
     """The :class:`Run` a problems-file line is."""
-    slot = problem.get("slot")
-    return Run(kernel_stem(problem.get("kernel")), slot if isinstance(slot, int) else 1)
+    return Run(kernel_stem(problem.kernel), problem.slot or 1)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -342,16 +341,16 @@ def launch_files(job_dir: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     return problems.parent / ".env", problems
 
 
-def read_problems(problems: pathlib.Path) -> list[dict[str, object]]:
-    """The problems of a problems file, one JSON object per line."""
-    return [json.loads(line) for line in problems.read_text(encoding="utf-8").splitlines() if line.strip()]
+def read_problems(problems: pathlib.Path) -> list[ProblemLine]:
+    """The problems of a problems file."""
+    return read_lines(problems)
 
 
 def rerun_problems(problems: pathlib.Path, runs: set[Run]) -> list[str]:
     """The problem lines of ``problems`` that are one of ``runs``; refuses a run it lacks."""
     lines = [line for line in problems.read_text(encoding="utf-8").splitlines() if line.strip()]
-    kept = [line for line in lines if problem_run(json.loads(line)) in runs]
-    missing = runs - {problem_run(json.loads(line)) for line in kept}
+    kept = [line for line in lines if problem_run(ProblemLine.model_validate_json(line)) in runs]
+    missing = runs - {problem_run(ProblemLine.model_validate_json(line)) for line in kept}
     if missing:
         raise SystemExit(f"{problems} holds no problem for {sorted(run.line() for run in missing)}")
     return kept
