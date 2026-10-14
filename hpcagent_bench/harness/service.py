@@ -60,7 +60,7 @@ from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import hidden_seeds, metric, mpi_shard_driver, native_call, sandbox, torch_reference
-from hpcagent_bench.harness.envelope import LEGACY_FIELDS, PYTHON_LANG, Submission
+from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_capacity_bytes
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
@@ -342,7 +342,7 @@ def canonical_parallel_form_cache(view: pathlib.Path) -> pathlib.Path | None:
     if configured:
         return pathlib.Path(configured)
     try:
-        return pathlib.Path(cpf_cache.read_view(view)["cache_root"])
+        return pathlib.Path(cpf_cache.read_view(view).cache_root)
     except (cpf_cache.CacheMiss, KeyError):
         return None
 
@@ -831,12 +831,6 @@ def _submission_from_body(
         if device_source_file
         else body.optional_text("device_source")
     )
-    moved = sorted(set(body.fields) & set(LEGACY_FIELDS))
-    if moved:
-        raise ValueError(
-            "these request fields moved under 'requests': "
-            + "; ".join(f"{name} -> {LEGACY_FIELDS[name]}" for name in moved)
-        )
     # Submission.requests's shape is checked here (ValueError -> 400); requests_refusal checks it
     # against the kernel.
     requests = Requests.from_obj(body.raw("requests"))

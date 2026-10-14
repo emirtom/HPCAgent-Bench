@@ -350,7 +350,7 @@ def cached_cache_root(view: str) -> str:
     forever once the view finishes rendering."""
     from hpcagent_bench import cpf_cache
 
-    return str(cpf_cache.read_view(pathlib.Path(view)).get("cache_root", ""))
+    return cpf_cache.read_view(pathlib.Path(view)).cache_root
 
 
 def cpf_paths(view: str) -> tuple[str, ...]:

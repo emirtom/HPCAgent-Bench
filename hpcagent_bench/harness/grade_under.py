@@ -61,6 +61,8 @@ import tempfile
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, NamedTuple
 
+import pydantic
+import pydantic.dataclasses
 import yaml
 
 from hpcagent_bench import anticheat, config, experiments, owed, paths, protocols, recorded_rows
@@ -248,7 +250,8 @@ Scorer = Callable[..., Score]
 Verifier = Callable[..., VerifyResult]
 
 
-class Scaling(NamedTuple):
+@pydantic.dataclasses.dataclass(frozen=True)
+class Scaling:
     """An item's scaling request: the laws to sweep and the rank counts P of the sweep. A job places the
     sweep only when its launch spans max(``rank_counts``) ranks (:func:`scaling_grade.placeable_ranks`); a
     one-node sweep is the same grade stopping at one node's ranks."""
@@ -256,15 +259,8 @@ class Scaling(NamedTuple):
     laws: tuple[ScalingLaw, ...]
     rank_counts: tuple[int, ...]
 
-    def as_json(self) -> dict[str, list[Any]]:
-        return {"laws": [law.value for law in self.laws], "rank_counts": list(self.rank_counts)}
 
-    @classmethod
-    def of_json(cls, raw: Mapping[str, Sequence[Any]]) -> "Scaling":
-        return cls(tuple(ScalingLaw(law) for law in raw["laws"]), tuple(int(p) for p in raw["rank_counts"]))
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
+@pydantic.dataclasses.dataclass(frozen=True)
 class Item:
     """One recorded grade to grade again, and everything grading it needs: the results DB holding it
     and its id there (its stored sources are what is graded)."""
@@ -298,15 +294,16 @@ class Item:
 
     def as_json(self) -> str:
         """One worklist line."""
-        raw = dataclasses.asdict(self)
-        raw["scaling"] = None if self.scaling is None else self.scaling.as_json()
-        return json.dumps(raw)
+        return ITEM_ADAPTER.dump_json(self).decode()
 
     @classmethod
     def of_json(cls, line: str) -> "Item":
-        raw = json.loads(line)
-        scaling = raw.pop("scaling", None)
-        return cls(**raw, scaling=None if scaling is None else Scaling.of_json(scaling))
+        """One worklist line as an :class:`Item` (``pydantic.ValidationError`` when it is not one)."""
+        return ITEM_ADAPTER.validate_json(line)
+
+
+#: Validator and serializer of a worklist line.
+ITEM_ADAPTER: pydantic.TypeAdapter[Item] = pydantic.TypeAdapter(Item)
 
 
 #: The scratch handed to a submission whose ``workspace_bytes`` request was not recorded

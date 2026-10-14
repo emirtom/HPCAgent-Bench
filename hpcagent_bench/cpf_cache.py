@@ -32,7 +32,9 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Generator, Mapping, Sequence
-from typing import NamedTuple
+from typing import Literal, NamedTuple
+
+import pydantic
 
 from hpcagent_bench.cache_files import file_sha256, json_digest, sha256_hex, write_atomic
 
@@ -121,6 +123,35 @@ VERIFIED_NAME = "verified"
 #: Canonical SDFG entries live under this directory of a cache root, apart from rendered forms.
 CANONICAL_DIR = "canonical"
 CANONICAL_SDFG_NAME = "canonical.sdfgz"
+
+
+class ViewHeader(pydantic.BaseModel):
+    """A view's :data:`VIEW_NAME`: the layout, cache root, target and dace commit every render into it shares."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    layout: int
+    cache_root: str
+    target: Literal["cpu", "gpu"]
+    dace_commit: str
+
+    @pydantic.field_validator("layout")
+    @classmethod
+    def current_layout(cls, layout: int) -> int:
+        if layout != LAYOUT:
+            raise ValueError(f"layout {layout}, this reader expects {LAYOUT}")
+        return layout
+
+    @classmethod
+    def of(cls, cache_root: pathlib.Path, target: str, dace_commit: str) -> "ViewHeader":
+        return cls.model_validate(
+            {"layout": LAYOUT, "cache_root": str(cache_root.resolve()), "target": target, "dace_commit": dace_commit}
+        )
+
+
+def read_header(view: pathlib.Path) -> ViewHeader:
+    """``view``'s header; ``OSError`` when unreadable, ``ValueError`` (a ``ValidationError``) when it is not one."""
+    return ViewHeader.model_validate_json((view / VIEW_NAME).read_bytes())
 
 
 class CacheMiss(LookupError):
@@ -284,42 +315,35 @@ def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_co
     """
     if error := pin_error(view, cache_root, target, dace_commit):
         raise ValueError(error)
-    header = view / VIEW_NAME
-    if not header.is_file():
-        wanted = {
-            "layout": LAYOUT,
-            "cache_root": str(cache_root.resolve()),
-            "target": target,
-            "dace_commit": dace_commit,
-        }
-        write_json(header, wanted)
+    if not (view / VIEW_NAME).is_file():
+        write_json(view / VIEW_NAME, ViewHeader.of(cache_root, target, dace_commit).model_dump())
 
 
 def pin_error(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> str:
     """Why ``view`` cannot take renders from this cache, target and dace commit; "" when it is
     absent (it will be created) or pinned to exactly them."""
     try:
-        existing = json.loads((view / VIEW_NAME).read_text())
+        existing = read_header(view)
     except FileNotFoundError:
         return ""
     except (OSError, ValueError) as exc:
         return f"view {view} has an unreadable {VIEW_NAME} ({type(exc).__name__})"
-    wanted = {"layout": LAYOUT, "cache_root": str(cache_root.resolve()), "target": target, "dace_commit": dace_commit}
+    wanted = ViewHeader.of(cache_root, target, dace_commit)
     if existing != wanted:
         return f"view {view} is pinned to {existing}; render {wanted} into a new view"
     return ""
 
 
-def read_view(view: pathlib.Path) -> dict[str, str]:
+def read_view(view: pathlib.Path) -> ViewHeader:
+    """``view``'s header; :class:`CacheMiss` when it has none or one of another layout."""
     try:
-        header = json.loads((view / VIEW_NAME).read_text())
-    except (OSError, ValueError) as exc:
+        return read_header(view)
+    except OSError as exc:
         raise CacheMiss(
             f"{view} is not a CPF cache view yet (no {VIEW_NAME}); the judge creates it on the first request"
         ) from exc
-    if header.get("layout") != LAYOUT:
-        raise CacheMiss(f"view {view} has layout {header.get('layout')!r}, this reader expects {LAYOUT}")
-    return header
+    except ValueError as exc:
+        raise CacheMiss(f"view {view} has a header this reader (layout {LAYOUT}) cannot read: {exc}") from exc
 
 
 def short_name(kernel: str) -> str:
@@ -362,12 +386,12 @@ def render_lock(cache_root: pathlib.Path, view: pathlib.Path, kernel: str, fptyp
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def served_dialect(header: Mapping[str, str], language: str) -> str:
+def served_dialect(header: ViewHeader, language: str) -> str:
     """The device form is the only dialect a gpu view holds, whatever host dialect was asked for."""
-    return "hip" if header.get("target") == "gpu" else DIALECT[language]
+    return "hip" if header.target == "gpu" else DIALECT[language]
 
 
-def pointer_outcome(view: pathlib.Path, kernel: str, language: str, fptype: str) -> tuple[str, str, dict[str, str]]:
+def pointer_outcome(view: pathlib.Path, kernel: str, language: str, fptype: str) -> tuple[str, str, ViewHeader]:
     """``(pointer name, key, view header)`` of one exact (kernel, language, precision) render."""
     header = read_view(view)
     name = pointer_name(kernel, fptype, served_dialect(header, language))
@@ -399,7 +423,7 @@ class Form(NamedTuple):
 def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form:
     """The :class:`Form` in the cache for one exact (kernel, language, precision)."""
     _, key, header = pointer_outcome(view, kernel, language, fptype)
-    cache_root = pathlib.Path(header["cache_root"])
+    cache_root = pathlib.Path(header.cache_root)
     manifest = verified_manifest(cache_root, key)
     artefacts = manifest["artefacts"]
     assert isinstance(artefacts, dict)
@@ -441,7 +465,7 @@ def wrong_target(view: pathlib.Path, target: str) -> str:
     A cpu view answers a hip setup with C++, and a gpu view stages a .hip file into a C task.
     """
     try:
-        held = read_view(view).get("target")
+        held = read_view(view).target
     except CacheMiss:
         return ""
     return "" if held == target else f"view {view} holds {held} forms, not the {target} forms this setup runs on"

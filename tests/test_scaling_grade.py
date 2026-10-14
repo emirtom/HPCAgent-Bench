@@ -337,7 +337,8 @@ def test_a_sweep_beyond_the_gang_stays_owed(
     assert scaling_grade.run_shard(shard_items(tmp_path), 0, 1, out, grader, None, baseline=False) == 0
     assert "beyond 4 ranks; owed" in capsys.readouterr().out
     one_node = [
-        dataclasses.replace(item, scaling=SWEEP._replace(rank_counts=(1, 2, 4))) for item in shard_items(tmp_path)
+        dataclasses.replace(item, scaling=dataclasses.replace(SWEEP, rank_counts=(1, 2, 4)))
+        for item in shard_items(tmp_path)
     ]
     assert scaling_grade.run_shard(one_node, 0, 1, out, grader, None, baseline=False) == 1
     assert seen == ["[1, 2, 4]"]
@@ -368,7 +369,7 @@ def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol
     monkeypatch.setenv(scaling_grade.GANG_NODELIST_ENV, GANG)
     monkeypatch.setattr(scaling_grade, "distribution_refusal", lambda *args: None)
     item = stored_item(judge_db, hip_submission())
-    item = dataclasses.replace(item, scaling=SWEEP._replace(rank_counts=(1, 2, 4)))
+    item = dataclasses.replace(item, scaling=dataclasses.replace(SWEEP, rank_counts=(1, 2, 4)))
     measured = {
         ScalingLaw.STRONG: {1: 100_000, 2: 62_500, 4: 40_000},
         ScalingLaw.WEAK: {1: 100_000, 2: 125_000, 4: 160_000},

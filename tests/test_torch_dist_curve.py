@@ -233,7 +233,7 @@ def test_the_real_rank_driver_times_reference_dist_on_cpu_gloo_ranks(
     out = tmp_path / "out"
     (item,) = shard_items(tmp_path)
     assert item.scaling is not None
-    item = dataclasses.replace(item, scaling=item.scaling._replace(rank_counts=(1, 2)))
+    item = dataclasses.replace(item, scaling=dataclasses.replace(item.scaling, rank_counts=(1, 2)))
     baseline = scaling_grade.BaselineCurve.of_items([item])
     assert baseline.where.arch == "cpu"
     out.mkdir()
