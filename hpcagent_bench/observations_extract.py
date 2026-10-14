@@ -80,6 +80,7 @@ __all__ = [
     "FINAL_RULES",
     "GRADE_ROWS",
     "KIND_OPTIMIZER",
+    "LIVE_REASON_COLUMN",
     "NO_MEASUREMENT_REASON",
     "PLATFORM",
     "REGRADE_ROWS",
@@ -90,7 +91,9 @@ __all__ = [
     "SCALING_ROWS",
     "SOURCE_SUFFIX",
     "TORCH_DIST_SETUP",
+    "UNREADABLE",
     "UNSOLVED",
+    "VERDICT_KINDS",
     "Agent",
     "CellTally",
     "Database",
@@ -386,6 +389,15 @@ FINAL_RULES: dict[str, str] = {score_rule.SCORE_RULE: timing.FINAL_GRADE_REDUCTI
 RETIMED: str = "graded"
 
 
+#: The verdict rows a final grade decides (:func:`apply_final_regrades`): a credited answer, and an
+#: answer the live grade refused that the grade-under worklist re-timed anyway.
+VERDICT_KINDS: tuple[str, ...] = ("submission", "attempt")
+
+
+#: The reason the LIVE grade gave a verdict row the final grade then decided, kept for audit.
+LIVE_REASON_COLUMN: str = "grade_live_reason"
+
+
 UNSOLVED: str = "unsolved"
 
 
@@ -440,12 +452,14 @@ def final_outcome(task: dict[str, Any], tally: CellTally | None) -> tuple[str, s
     input the judge failed to grade (a harness fault) says nothing about the submission, so a task
     with one and no wrong input is an error, not unsolved -- and so is an input whose ratio is a
     min-of-k fallback (no Mann-Whitney ran: :data:`CELL_TALLY`). A task row the pass could not grade
-    at all (``status`` error) is an error too, and so is one whose cell rows do not add up. A task no
+    at all (``status`` error) is an error too, and so is one with no cell rows. Nothing records how
+    many inputs a final grade owed, so one whose pass wrote fewer cell rows than its protocol's m
+    inputs is decided over the cells it wrote. A task no
     input of which produced a measurement (:data:`NO_MEASUREMENT_REASON`: the per-run time limit, a
     crash) is unsolved, like an incorrect one. Credit is
     ``s_i`` alone: ``s_bar`` holds the geomean even for an unsolved task and ``gated`` means nothing
     under this rule, so neither is read here."""
-    if tally is None or tally.cells != int(task.get("n_cells") or 0):
+    if tally is None:
         return ERRORED, str(task.get("reason") or "mw4x5: cell rows missing")
     if task.get("status") != "graded" and (tally.measured or tally.faulted or not tally.cells):
         return ERRORED, str(task.get("reason") or "mw4x5: not graded")
@@ -525,15 +539,15 @@ PLATFORM: str = population.PLATFORM_COLUMN
 def platform_rows(
     rows: Iterable[dict[str, Any]], final: dict[FinalKey, dict[str, Any]], platform: str
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """A SECOND row per submission the final-grade pass re-timed on ``platform``, beside its own.
+    """A SECOND row per verdict the final-grade pass re-timed on ``platform``, beside its own.
 
-    ``rows`` are the finished MI300A rows; each submission ``final`` holds a row for is copied and
+    ``rows`` are the finished MI300A rows; each verdict row (:data:`VERDICT_KINDS`) ``final`` holds a row for is copied and
     graded by :func:`apply_final_regrades` exactly as its MI300A final grade was -- credited, an
     unsolved attempt, or a judge error -- then stamped ``platform``, the node that timed it and its
     commit. An errored re-timing keeps no speedup: the one it would keep is the MI300A grade. The
-    MI300A rows are not touched; a re-timed key no submission matched is counted (``unmatched``).
+    MI300A rows are not touched; a re-timed key no verdict row matched is counted (``unmatched``).
     """
-    answers = [row for row in rows if row.get("row_kind") == "submission" and final_key(row) in final]
+    answers = [row for row in rows if row.get("row_kind") in VERDICT_KINDS and final_key(row) in final]
     graded, counts = apply_final_regrades(answers, final)
     found: list[dict[str, Any]] = []
     for row in graded:
@@ -664,16 +678,17 @@ def discover_databases(run_globs: Iterable[str], skip: Iterable[pathlib.Path] = 
 
 
 def results_database(path: pathlib.Path) -> bool:
-    """Whether ``path`` is a results DB of the current schema (any other file is not read). A file SQLite
-    cannot read (a shard truncated by an OOM-killed rank) is named on stderr: skipped in silence, the
-    extraction would read as if that rank had graded nothing."""
+    """Whether ``path`` is a results DB of a schema this reader opens (a file with no results tables is
+    not read, in silence). A file SQLite cannot read (a shard truncated by an OOM-killed rank) and a
+    results DB of another schema version are named on stderr: skipped in silence, the extraction would
+    read as if that rank had graded nothing."""
     try:
         with results_db.reading(path):
             return True
-    except sqlite3.Error as exc:
-        print(f"WARNING: unreadable results DB skipped: {path}: {exc}", file=sys.stderr)
+    except results_db.NoResultsError:
         return False
-    except results_db.SchemaVersionError:
+    except (sqlite3.Error, results_db.SchemaVersionError) as exc:
+        print(f"WARNING: unreadable results DB skipped: {path}: {exc}", file=sys.stderr)
         return False
 
 
@@ -935,9 +950,14 @@ def read_db(
             observations += episode_rows(conn, db, setup_selection) + scaling_rows(conn, db, setup_selection)
             observations += baseline_rows(conn, db)
     except (sqlite3.Error, results_db.SchemaVersionError) as exc:
-        broken = {"run_root": db.run_root, "job": db.job, "judge_db": str(db.path), "row_kind": f"unreadable:{exc}"}
+        broken = {"run_root": db.run_root, "job": db.job, "judge_db": str(db.path), "row_kind": f"{UNREADABLE}{exc}"}
         return DbResult([broken], [])
     return DbResult(observations, sources)
+
+
+#: ``row_kind`` prefix of the one row :func:`read_db` returns for a database that failed mid-read;
+#: :func:`read_all` names it on stderr and never passes it on as an observation.
+UNREADABLE: str = "unreadable:"
 
 
 #: What makes two observation rows one: a grade read from a shard and from the job DB merged from it.
@@ -1047,7 +1067,7 @@ def final_episodes(
     conn: sqlite3.Connection, path: str
 ) -> Iterator[tuple[RegradeKey, dict[str, Any], CellTally | None]]:
     """Every final grade of one results DB as ``(key, task, tally)``: the task in the terms
-    :func:`final_outcome` reads (``s_i`` the grade's reported S_i, ``n_cells`` / ``n_credited`` its
+    :func:`final_outcome` reads (``s_i`` the grade's reported S_i, ``n_credited`` its credited
     inputs), with its cells under ``cells``."""
     tallies = {int(row[0]): CellTally(*(int(v or 0) for v in row[1:])) for row in conn.execute(CELL_TALLY)}
     cells: dict[int, list[dict[str, Any]]] = collections.defaultdict(list)
@@ -1061,7 +1081,6 @@ def final_episodes(
             "db": path,
             "kernel": row["original_benchmark"],
             "s_i": row["speedup"],
-            "n_cells": tally.cells if tally is not None else 0,
             "n_credited": credited_cells(cells[grade]),
             "regrade_ts": row["ts_ms"],
             "cells": [{**cell, "kernel": row["original_benchmark"]} for cell in cells[grade]],
@@ -1170,7 +1189,8 @@ def apply_promotions(
 
     A promotion that verified becomes the episode's ``submission``, tagged
     :data:`PROMOTED_TAG`; one that failed the held-out inputs becomes an ``attempt`` with its
-    reason, so the episode stays unsolved. Identity columns come from the episode's newest ``call``
+    reason, so the episode stays unsolved -- unless :func:`apply_final_regrades` then re-times it
+    and the final grade passes it. Identity columns come from the episode's newest ``call``
     row in the same job. An episode that already holds a submission or attempt is left alone -- it
     spent its own submission, which is why the promotion was never owed -- unless that row is a
     judge fault (:func:`recorded_rows.is_judge_fault`), which graded nothing.
@@ -1228,7 +1248,7 @@ def apply_final_regrades(
     rows: Iterable[dict[str, Any]],
     final: dict[FinalKey, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Rows with every submission the final-grade pass re-timed put on that FINAL grade.
+    """Rows with every verdict the final-grade pass re-timed put on that FINAL grade.
 
     Applied AFTER :func:`apply_promotions`: a run-mode regrade decides whether a promotion is a
     submission at all (the per-cell pass re-times, it does not re-verify), then the final grade
@@ -1240,7 +1260,15 @@ def apply_final_regrades(
     -- read neither as unsolved nor as re-timed, and refused if pooled with final-grade rows
     (``population.one_reduction``). A submission the pass never re-timed is kept under its live stamp
     and counted: it is never credited (``timing.credited_protocol``) and is owed a final grade. A
-    re-timed key no submission row matched is counted too. No row is dropped.
+    re-timed key no verdict row matched is counted too, and one the rule credited is named on stderr:
+    that is a credited answer the plot would lose. No row is dropped.
+
+    The final grade decides an ``attempt`` it re-timed exactly as it decides a submission (the
+    grade-under worklist re-times correct answers a gate refused, and uncredited answers graded
+    before their kernel's grading cut): credited, it becomes a submission. The live reason of every
+    row the final grade decided is kept in :data:`LIVE_REASON_COLUMN`. The final pass does not re-run
+    the sanitizer or ``independent_verify`` gates, so an answer one of them refused is credited
+    whenever its re-timing passes.
     """
     kept: list[dict[str, Any]] = []
     counts = dict.fromkeys(
@@ -1248,7 +1276,7 @@ def apply_final_regrades(
     )
     matched: set[FinalKey] = set()
     for row in rows:
-        new = final.get(final_key(row)) if row.get("row_kind") == "submission" else None
+        new = final.get(final_key(row)) if row.get("row_kind") in VERDICT_KINDS else None
         if new is None:
             counts["not_retimed"] += row.get("row_kind") == "submission"
             voided = str(row.get("reason") or "").startswith(recorded_rows.RERUN_PREFIXES)
@@ -1257,14 +1285,19 @@ def apply_final_regrades(
             continue
         matched.add(final_key(row))
         status = new["regrade_status"]
+        live_reason = row.get("reason") or ""
         if status == ERRORED:
-            kept.append({**row, "grade_final_status": status, "reason": new["regrade_reason"]})
+            # an errored re-timing decided nothing: an attempt keeps the live verdict it was (a judge fault
+            # or an operator's void stays one, never read as a refusal); a submission names the fault
+            reason = new["regrade_reason"] if row.get("row_kind") == "submission" else live_reason
+            kept.append({**row, "grade_final_status": status, "reason": reason, LIVE_REASON_COLUMN: live_reason})
             counts["errored"] += 1
             counts["fallback"] += new["regrade_reason"] == FALLBACK_REASON
             continue
         changed = {
             **row,
             "grade_final_status": status,
+            LIVE_REASON_COLUMN: live_reason,
             "grade_regraded": "1",
             # the speedup the judge first recorded, not a run-mode regrade's in-between one
             "grade_live_speedup": row.get("grade_live_speedup", "")
@@ -1277,13 +1310,19 @@ def apply_final_regrades(
         }
         counts[new["timing_reduction"]] += 1
         if status == RETIMED:
-            changed.update(speedup=new["s_i"], timing_suspect=int(not new.get("n_credited")))
+            changed.update(
+                row_kind="submission", reason="", speedup=new["s_i"], timing_suspect=int(not new.get("n_credited"))
+            )
             counts["replaced"] += 1
         else:
             changed.update(row_kind="attempt", speedup="", reason=new["regrade_reason"])
             counts["unsolved"] += 1
         kept.append(changed)
-    counts["unmatched"] = len(final.keys() - matched)
+    unmatched = final.keys() - matched
+    counts["unmatched"] = len(unmatched)
+    for key in sorted(unmatched):
+        if final[key]["regrade_status"] == RETIMED:
+            print(f"WARNING: a credited final grade matched no verdict row: {key}", file=sys.stderr)
     return kept, counts
 
 
@@ -1492,12 +1531,20 @@ class Extracted(NamedTuple):
 
 
 def read_all(databases: list[Database], args: Options) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """The rows and graded sources of every database, a grade read twice kept once."""
+    """The rows and graded sources of every database, a grade read twice kept once. A database that
+    failed mid-read (:data:`UNREADABLE`) is named on stderr and contributes no row: passed on, its row
+    would carry no setup and read as another study's."""
     excluded = frozenset(args.exclude_setup)
     observations: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.threads)) as pool:
         for result in pool.map(lambda db: read_db(db, args.setup_prefix, excluded, args.c_reference_fix_ms), databases):
+            broken = [row for row in result.observations if str(row.get("row_kind")).startswith(UNREADABLE)]
+            for row in broken:
+                reason = str(row["row_kind"]).removeprefix(UNREADABLE)
+                print(f"WARNING: results DB unreadable mid-read, skipped: {row['judge_db']}: {reason}", file=sys.stderr)
+            if broken:
+                continue
             observations.extend(result.observations)
             sources.extend(result.sources)
     return distinct(observations), distinct(sources)

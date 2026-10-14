@@ -67,6 +67,7 @@ def roots(src: pathlib.Path) -> list[collect.Root]:
         (DataSource.RUNS, "900/judge/rank-0/hpcagent_bench0.db", True),
         (DataSource.RUNS, "900/.env", True),
         (DataSource.RUNS, "900/agents/p0/tokens.json", True),
+        (DataSource.RUNS, "900/MERGE_FAILED", True),
         (DataSource.RUNS, "900/observations/curve.bin", True),
         (DataSource.RUNS, "900/agents/p0/claude.log", False),
         (DataSource.RUNS, "900/home/x.json", False),
