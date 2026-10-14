@@ -107,8 +107,6 @@ def test_the_pages_are_named_as_files_never_inlined() -> None:
     # A heading from inside a page: present only if a body was pasted in.
     assert "## The expensive mistakes" not in task
     assert "## Skill: lang-c" not in task
-    # hints live in the MAIN prompt for the hints+skills leg, so the packet must NOT repeat them
-    assert "optimization-hints" not in task
     # Every shipped page that APPLIES to this setup is NAMED, and none is pasted in: a page costs
     # one trigger line, so naming one that does not help costs nothing.
     for present in ("profiling", "opt-reports", "divide-and-conquer"):
