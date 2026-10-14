@@ -124,7 +124,7 @@ def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib
     assert problems == []
     (item,) = grade_under.scaled_items(items, SWEEP.rank_counts)[0]
     got = (item.kernel, item.setup, item.language, item.requests, item.workspace_bytes)
-    assert got == (KERNEL, SETUP, "hip", hip_submission().requests.to_json(), "4096")
+    assert got == (KERNEL, SETUP, "hip", hip_submission().requests, "4096")
     assert item.scaling == SWEEP
     assert grade_under.submission_of(item).device_source == "// device"
     assert item.job == "650000"

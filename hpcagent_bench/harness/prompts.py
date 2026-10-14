@@ -37,6 +37,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
 from hpcagent_bench.harness.native import display_run_dir
 from hpcagent_bench.harness.requests_api import (
     Location,
+    PlannedArray,
     RequestAllowances,
     kernel_arrays,
     mpi_residency,
@@ -833,8 +834,7 @@ def ml_layout(spec: BenchSpec, binding: Binding, ranks: int) -> dict[str, object
     local = descriptor.local_symbols()
     globalized = []
     for name in replicatable_allowlist(spec) or ():
-        arrays = cast("dict[str, object]", default["arrays"])
-        replicated = {**default, "arrays": {**arrays, name: {"replicated": True}}}
+        replicated = default.model_copy(update={"arrays": {**default.arrays, name: PlannedArray(replicated=True)}})
         moved = local - Descriptor.from_plan(replicated, binding, ranks).local_symbols()
         if moved:
             globalized.append({"array": name, "symbols": [s for s in symbols if s in moved]})

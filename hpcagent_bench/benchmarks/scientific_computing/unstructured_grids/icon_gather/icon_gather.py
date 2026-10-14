@@ -7,14 +7,16 @@
 # ICON's get_indices_* connectivity).
 
 
+from types import ModuleType
 import numpy as np
+from hpcagent_bench.support.counter_generator import CounterGenerator
 
 
-def initialize(nproma, nlev, nblks, nnbr, datatype=np.float64, rng: np.random.Generator | None = None):
+def initialize(
+    nproma, nlev, nblks, nnbr, datatype=np.float64, rng: CounterGenerator | None = None, xp: ModuleType = np
+):
     if rng is None:
-        from numpy.random import default_rng
-
-        rng = default_rng(42)
+        rng = CounterGenerator(42, xp)
     A = rng.random((nblks, nlev, nproma)).astype(datatype)
     coef = rng.random((nblks, nnbr, nproma)).astype(datatype)
     # 0-based, like every index array in this corpus: the kernel subscripts them directly.
@@ -23,6 +25,6 @@ def initialize(nproma, nlev, nblks, nnbr, datatype=np.float64, rng: np.random.Ge
     # already gets when the reference is lowered.
     nbr_idx = rng.integers(0, nproma, size=(nnbr, nblks, nproma)).astype(np.int64)
     nbr_blk = rng.integers(0, nblks, size=(nnbr, nblks, nproma)).astype(np.int64)
-    out = np.zeros((nblks, nlev, nproma), dtype=datatype)
-    out_semi = np.zeros((nblks, nlev, nproma), dtype=datatype)
+    out = xp.zeros((nblks, nlev, nproma), dtype=datatype)
+    out_semi = xp.zeros((nblks, nlev, nproma), dtype=datatype)
     return A, nbr_idx, nbr_blk, coef, out, out_semi

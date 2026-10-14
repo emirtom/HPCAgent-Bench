@@ -360,18 +360,27 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
 
 def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal() -> None:
     operations = [*LAYOUT_OPERATIONS, {"action": "cast", "array": "B", "to": "fp32"}]
-    answer = requests_check("jacobi_2d", "c", {"operations": operations}, "float64")
+    answer = requests_check("jacobi_2d", "c", {"operations": operations}, "float64").to_json()
+    assert answer["accepted"] is True
+    assert "plan" not in answer
     assert answer["arrays"] == {
         "A": {"dtype": "float64", "extents": ["d1", "d0"]},
         "B": {"dtype": "float32", "extents": ["d0", "(d1 + 3) // 4", "4"]},
     }
     assert answer["signature"] == "void jacobi_2d_fp64(double *, float *, int64_t, int64_t, uint8_t *, int64_t);"
     struct = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
-    assert requests_check("jacobi_2d", "c", {"operations": struct}, "float64")["signature"] == (
+    zipped = requests_check("jacobi_2d", "c", {"operations": struct}, "float64").to_json()
+    assert zipped["arrays"]["Z"] == {
+        "extents": ["d0", "d1"],
+        "zips": ["A", "B"],
+        "struct": {"type": "hb_zip_Z", "members": {"A": "float32", "B": "float64"}},
+    }
+    assert zipped["signature"] == (
         "typedef struct { float A; double B; } hb_zip_Z;\n"
         "void jacobi_2d_fp64(hb_zip_Z *, int64_t, int64_t, uint8_t *, int64_t);"
     )
-    refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64")
+    refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64").to_json()
+    assert set(refused) == {"accepted", "refusal"}
     assert refused["accepted"] is False
     assert "python" in str(refused["refusal"])
 
