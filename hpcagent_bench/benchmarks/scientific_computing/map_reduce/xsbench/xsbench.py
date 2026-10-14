@@ -19,6 +19,7 @@ from hpcagent_bench.benchmarks.scientific_computing.map_reduce.xsbench.xsbench_n
     _build_material_data,
     _production_index_grid,
 )
+from hpcagent_bench.support import exact_math
 
 #: ``x % LCG_M`` for a uint64 ``x``: LCG_M is 2**63, which divides the 2**64 uint64 arithmetic wraps at.
 LCG_MASK = np.uint64(LCG_M - 1)
@@ -52,7 +53,7 @@ def pick_materials(rolls: np.ndarray, n_materials: int, xp: ModuleType = np) -> 
         probabilities, fallback = MATERIAL_PROBABILITIES, 11
     else:
         probabilities = MATERIAL_PROBABILITIES[:n_materials].copy()
-        probabilities /= np.sum(probabilities)
+        probabilities /= exact_math.sum(probabilities, xp=xp)
         fallback = n_materials - 1
     running, total = [], 0.0
     for probability in probabilities:
@@ -76,7 +77,7 @@ def index_grid_of(egrid: np.ndarray, nuclide_grid: np.ndarray, xp: ModuleType = 
     first = xp.searchsorted(egrid, thresholds, side="left")
     index_grid = xp.zeros((egrid.shape[0], n_isotopes), dtype=np.int32)
     index_grid[first, xp.arange(n_isotopes)[:, None]] = 1
-    index_grid = np.cumsum(index_grid, axis=0, dtype=np.int32)
+    index_grid = exact_math.cumsum(index_grid, axis=0, xp=xp).astype(np.int32)
     index_grid[:] = xp.minimum(index_grid, n_gridpoints - 2)
     return index_grid
 
@@ -116,7 +117,9 @@ def xsbench_inputs(
 
     concs = xp.zeros((n_materials, max_num_nucs), dtype=datatype)
     filled = xp.arange(max_num_nucs)[None, :] < num_nucs[:, None]
-    concs[filled] = lcg_doubles(lcg_states(starting_seed * starting_seed + seed, int(np.sum(num_nucs)), xp=xp))
+    concs[filled] = lcg_doubles(
+        lcg_states(starting_seed * starting_seed + seed, int(exact_math.sum(num_nucs, xp=xp)), xp=xp)
+    )
 
     grid_draws = lcg_doubles(lcg_states(42 + seed, n_isotopes * n_gridpoints * 6, xp=xp))
     nuclide_grid = grid_draws.reshape(n_isotopes, n_gridpoints, 6).astype(datatype)

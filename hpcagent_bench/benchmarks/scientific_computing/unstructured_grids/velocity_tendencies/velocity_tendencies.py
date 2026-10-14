@@ -193,7 +193,7 @@ def initialize(nproma, nlev, nblks_c, nblks_e, nblks_v, datatype=np.float64, rng
     # cells_aw_verts: cell->vertex AREA weighting, 6 nonneg weights summing to 1
     # (provenance: mo_intp_coeffs_lsq_bln.f90:2261-2272). All positive (areas).
     aw = rng.random((nproma, 6, nblks_v))
-    p_int_cells_aw_verts = (aw / aw.sum(axis=1, keepdims=True)).astype(datatype)
+    p_int_cells_aw_verts = (aw / exact_math.sum(aw, axis=1, keepdims=True, xp=xp)).astype(datatype)
     # rbf_vec_coeff_e: 4 RBF reconstruction weights, O(1) signed, sum-normalised
     # (provenance: mo_intp_rbf_coeffs.f90:2031-2058, checksum_vt normalisation).
     p_int_rbf_vec_coeff_e = _partition_signed(rng, (4, nproma, nblks_e), datatype, axis=0)
@@ -204,7 +204,7 @@ def initialize(nproma, nlev, nblks_c, nblks_e, nblks_v, datatype=np.float64, rng
     p_int_geofac_rot = (_rand((nproma, 6, nblks_v)) / MEAN_EDGE_LENGTH).astype(datatype)
     # n2s is the Laplacian: centre opposite-sign to neighbours, stencil sums ~0.
     n2s = _rand((nproma, 4, nblks_c)) / (MEAN_EDGE_LENGTH * MEAN_EDGE_LENGTH)
-    n2s[:, 0, :] = -n2s[:, 1:, :].sum(axis=1)
+    n2s[:, 0, :] = -exact_math.sum(n2s[:, 1:, :], axis=1, xp=xp)
     p_int_geofac_n2s = n2s.astype(datatype)
 
     # prognostic / diagnostic fields (atmospheric scales)
@@ -352,4 +352,4 @@ def _partition_signed(rng, shape, datatype, axis=1):
     # axis sums to exactly 1 -- the partition-of-unity precondition.
     raw = 2.0 * rng.random(shape) - 1.0
     k = shape[axis]
-    return (raw - raw.mean(axis=axis, keepdims=True) + 1.0 / k).astype(datatype)
+    return (raw - exact_math.mean(raw, axis=axis, keepdims=True) + 1.0 / k).astype(datatype)

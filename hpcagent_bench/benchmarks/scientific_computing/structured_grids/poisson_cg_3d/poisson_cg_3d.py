@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 
 def initialize(N, datatype=np.float64, rng: CounterGenerator | None = None, xp: ModuleType = np):
@@ -18,7 +19,7 @@ def initialize(N, datatype=np.float64, rng: CounterGenerator | None = None, xp: 
     inv_h2 = datatype(1.0 / (h * h))
     tol = datatype(1.0e-8)
     rho = rng.standard_normal((N, N, N)).astype(datatype)
-    rho -= rho.mean()  # net-neutral source, as the periodic solve requires
+    rho -= exact_math.mean(rho, xp=xp)  # net-neutral source, as the periodic solve requires
     V = xp.zeros((N, N, N), dtype=datatype)
 
     return inv_h2, tol, rho, V

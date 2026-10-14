@@ -129,8 +129,8 @@ def _species(nat, nh, xp: ModuleType = np):
     tvanp = xp.ones(ntyp, dtype=np.int64)  # all BaTiO3 species are ultrasoft
     ityp = xp.repeat(xp.arange(ntyp, dtype=np.int64), counts)
     nbeta = nh_type[ityp]
-    ofsbeta = xp.concatenate(([0], np.cumsum(nbeta)[:-1])).astype(np.int64)
-    nkb = int(nbeta.sum())
+    ofsbeta = xp.concatenate(([0], exact_math.cumsum(nbeta, xp=xp)[:-1])).astype(np.int64)
+    nkb = int(exact_math.sum(nbeta, xp=xp))
     nhm = int(nh_type.max())
     # Packed symmetric pair index per species (QE ijtoh); -1 marks unused slots.
     ijtoh = xp.full((ntyp, nhm, nhm), -1, dtype=np.int64)
@@ -172,7 +172,7 @@ def initialize(ngrid, nat, nh, datatype=np.complex128, rng: CounterGenerator | N
     eigts = []
     for d, nr in ((0, nr1), (1, nr2), (2, nr3)):
         hh = xp.arange(-nr, nr + 1, dtype=np.float64)
-        eigts.append(exact_math.exp(-1j * tpi * np.outer(tau[:, d], hh), xp=xp).astype(cdtype))
+        eigts.append(exact_math.exp(-1j * tpi * (tau[:, d][:, None] * hh[None, :]), xp=xp).astype(cdtype))
     eigts1, eigts2, eigts3 = eigts
 
     # Augmentation form factors: random complex with the physical ~1/(1+|G|^2)

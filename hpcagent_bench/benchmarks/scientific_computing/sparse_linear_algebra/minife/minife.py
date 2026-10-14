@@ -10,6 +10,7 @@ from hpcagent_bench.benchmarks.scientific_computing.sparse_linear_algebra.minife
 )
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 #: 64-bit mixing constants of ``minife_numpy._symmetric_edge_weight`` (splitmix64 finalizer).
 LO_MIX, HI_MIX, SEED_MIX = 0x9E3779B185EBCA87, 0xC2B2AE3D27D4EB4F, 0x165667B19E3779F9
@@ -57,7 +58,7 @@ def minife_inputs(nx: int, ny: int, nz: int, seed: int, dtype, xp: ModuleType = 
             diag += weight[:, k]  # adding 0.0 for a missing neighbour leaves the running sum unchanged
     weight[:, offsets.index((0, 0, 0))] = -(diag + 1.0)
     row_offsets = xp.zeros(nrows + 1, dtype=INDEX_DTYPE)
-    row_offsets[1:] = np.cumsum(valid.sum(axis=1))
+    row_offsets[1:] = exact_math.cumsum(exact_math.sum(valid, axis=1, xp=xp), xp=xp)
     packed_cols = xp.ascontiguousarray(col[valid])
     packed_coefs = xp.ascontiguousarray((-weight[valid]).astype(dtype))
     x = xp.ascontiguousarray(CounterGenerator(seed, xp).random(nrows), dtype=dtype)

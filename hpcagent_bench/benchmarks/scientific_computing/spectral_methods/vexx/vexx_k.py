@@ -101,7 +101,7 @@ def initialize(
         return xp.ascontiguousarray((rng.standard_normal((rows, cols)) + 1j * rng.standard_normal((rows, cols))).T)
 
     def _norm_rows(a):
-        return a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-300)
+        return a / (exact_math.norm(a, axis=1, keepdims=True, xp=xp) + 1e-300)
 
     psi = _norm_rows(_bands(npwx * npol, m)).astype(cdtype)
     hpsi = _bands(npwx * npol, m).astype(cdtype)
@@ -157,9 +157,9 @@ def initialize(
     qgm = qgm.astype(cdtype)
     # eigqts/sfac: per-atom structure-factor phases exp(-i G.tau).
     eigqts = xp.ones(nat, dtype=cdtype)
-    sfac = xp.ascontiguousarray(exact_math.exp(2j * np.pi * (g @ rng.standard_normal((3, nat))), xp=xp).T).astype(
-        cdtype
-    )  # (nat, ngm)
+    sfac = xp.ascontiguousarray(
+        exact_math.exp(2j * np.pi * exact_math.matmul(g, rng.standard_normal((3, nat)), xp=xp), xp=xp).T
+    ).astype(cdtype)  # (nat, ngm)
     # becpsi/becxx = <beta|psi>/<beta|phi> beta projections; random (not self-consistent), so augmentation is not Hermitian here (see qgm note).
     becpsi = (_bands(nkb, m) * 0.1).astype(cdtype)
     becxx = (rng.standard_normal((nkb, nbnd, nks)) + 1j * rng.standard_normal((nkb, nbnd, nks))) * 0.1

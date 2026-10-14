@@ -45,7 +45,7 @@ def initialize(
             well = well_of_d2[dx2[i] :][dyz2]
             v_plane -= 2.0 * well
             rho_plane += well
-    rho *= (nfrag * nstate) / (float(rho.sum()) * float(dvol))  # normalize to the electron count
+    rho *= (nfrag * nstate) / (float(exact_math.sum(rho, xp=xp)) * float(dvol))  # normalize to the electron count
 
     offsets = rng.integers(0, N, size=(nfrag, 3)).astype(np.int64)
     alpha = (rng.integers(0, 2, size=nfrag) * 2 - 1).astype(datatype)  # +/-1 fragment signs

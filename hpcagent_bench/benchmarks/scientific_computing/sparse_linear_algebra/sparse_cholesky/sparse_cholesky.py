@@ -27,6 +27,7 @@ from hpcagent_bench.benchmarks.scientific_computing.sparse_linear_algebra.sparse
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
 from hpcagent_bench.support.helpers.sparse.generators import rescale_diagonally
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 #: 7-point Poisson stencil neighbor offsets (dx, dy, dz), row-major grid id (x*EDGE+y)*EDGE+z.
 NEIGHBOR_OFFSETS = ((-1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1))
@@ -62,7 +63,7 @@ def poisson_csr(EDGE, dtype, xp: ModuleType = np):
     order = xp.argsort(rows, kind="stable")
     rows, cols, vals = rows[order], cols[order], vals[order]
     indptr = xp.zeros(n + 1, dtype=np.int64)
-    indptr[1:] = np.cumsum(xp.bincount(rows, minlength=n))
+    indptr[1:] = exact_math.cumsum(xp.bincount(rows, minlength=n), xp=xp)
     return indptr, cols.astype(np.int64), vals.astype(dtype), rows, cols, vals
 
 
@@ -75,7 +76,7 @@ def permute_csr(indptr, indices, data, iperm, n, xp: ModuleType = np):
     order = xp.argsort(new_rows, kind="stable")
     new_rows, new_cols, new_data = new_rows[order], new_cols[order], data[order]
     new_indptr = xp.zeros(n + 1, dtype=np.int64)
-    new_indptr[1:] = np.cumsum(xp.bincount(new_rows, minlength=n))
+    new_indptr[1:] = exact_math.cumsum(xp.bincount(new_rows, minlength=n), xp=xp)
     return new_indptr, new_cols.astype(np.int64), new_data
 
 

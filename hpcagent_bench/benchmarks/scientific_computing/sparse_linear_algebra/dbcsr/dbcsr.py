@@ -15,6 +15,7 @@ import numpy as np
 
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 
 def _normalize_block_index(index, xp: ModuleType = np):
@@ -286,7 +287,7 @@ def initialize(
     )
     max_a_blocks = int(n_block_rows) * int(n_block_inner)
     max_b_blocks = int(n_block_inner) * int(n_block_cols)
-    C = xp.zeros((int(np.sum(m_sizes)), int(np.sum(n_sizes))), dtype=datatype)
+    C = xp.zeros((int(exact_math.sum(m_sizes, xp=xp)), int(exact_math.sum(n_sizes, xp=xp))), dtype=datatype)
     return (
         _pad_block_index(a_index, max_a_blocks, xp=xp),
         _pad_block_index(b_index, max_b_blocks, xp=xp),

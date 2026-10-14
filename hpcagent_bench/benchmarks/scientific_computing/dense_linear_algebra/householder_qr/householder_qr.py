@@ -28,6 +28,7 @@ from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
 from hpcagent_bench.support import exact_math
+from hpcagent_bench.support.helpers.dense_inputs import reflected_spectrum
 
 
 def initialize(
@@ -39,11 +40,10 @@ def initialize(
         rng = CounterGenerator(42, xp)
 
     if graded:
-        # A = U diag(s) V^T: U (M x N) and V (N x N) orthonormal, s log-spaced over [1e-12, 1].
-        U = np.linalg.qr(rng.standard_normal((M, N)), mode="reduced")[0]
-        Vt = np.linalg.qr(rng.standard_normal((N, N)))[0]
+        # Singular values s log-spaced over [1e-12, 1], placed between two random Householder reflections
+        # (orthogonal, and built without a matrix product).
         s = exact_math.logspace(0.0, -12.0, N, xp=xp)
-        A = (U * s) @ Vt.T
+        A = reflected_spectrum(rng.standard_normal(M), s, rng.standard_normal(N), xp)
     else:
         A = rng.standard_normal((M, N))
     A = A.astype(datatype)

@@ -163,7 +163,11 @@ class Benchmark:
     ) -> None:
         """Materialize the input arrays into ``data``: declaratively (``init`` without ``func_name``) via
         :func:`hpcagent_bench.initialize.auto_initialize`, else by calling the kernel's ``initialize``.
-        ``params_override`` is set for a fuzzed draw only."""
+        ``params_override`` is set for a fuzzed draw only.
+
+        A kernel with a sparse array (:attr:`BenchSpec.sparse_layouts`) is built on the host whatever ``xp`` is:
+        its matrix is a scipy object (often a SuiteSparse file) expanded into CSR buffers there, and its buffers
+        then move to ``xp``."""
         from hpcagent_bench.initialize import (
             allocate_declared_buffers,
             auto_initialize,
@@ -183,10 +187,11 @@ class Benchmark:
         if not dist_name:
             dist_name = config.current().fuzz.data_distribution if is_fuzz else "uniform"
         precision = precision_from_datatype(datatype)
+        build_on = np if spec.sparse_layouts else xp
         init = self.info.get("init")
         if init is not None and init.get("func_name"):
             # A custom initialize() has no per-array spec surface, so a hidden variant does not reach it.
-            self.call_initializer(data, init, datatype, seed, dist_name, scenarios, xp)
+            self.call_initializer(data, init, datatype, seed, dist_name, scenarios, build_on)
         else:
             values = auto_initialize(
                 spec,
@@ -196,7 +201,7 @@ class Benchmark:
                 seed=seed,
                 params_override=params_override,
                 hidden_variant=hidden_variant,
-                xp=xp,
+                xp=build_on,
             )
             if spec.init is None:
                 raise ValueError(f"{self.bname} declares no init block to materialize its inputs from")
@@ -213,6 +218,10 @@ class Benchmark:
         bind_shape_params(spec, data)
         expand_sparse_arrays(spec, data)
         allocate_declared_buffers(spec, data, precision)
+        if build_on is not xp:
+            for name, value in data.items():
+                if isinstance(value, np.ndarray):
+                    data[name] = xp.asarray(value)
 
     def call_initializer(
         self,

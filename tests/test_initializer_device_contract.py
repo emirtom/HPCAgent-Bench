@@ -15,6 +15,9 @@ bits, so an initializer module (a kernel's ``<module>.py``) may use only:
   ``linalg``), no ``linspace`` (numpy and cupy compute it differently) and no ``**`` on an array;
 * ``xp`` for every array it creates: ``np`` only for dtypes and constants.
 
+A kernel with a sparse array is exempt: its matrix is a scipy object (often a SuiteSparse file) that is built and
+expanded into CSR buffers on the host, whatever the grade's device (``Benchmark.initialize``).
+
 The static check runs everywhere; :func:`test_device_inputs_equal_host_inputs` compares the bits on a GPU.
 """
 
@@ -52,7 +55,7 @@ def initializer_modules() -> dict[str, pathlib.Path]:
     for name in sorted(KERNELS.select("all")):
         bench = Benchmark(name)
         init = bench.info.get("init") or {}
-        if not init.get("func_name"):
+        if not init.get("func_name") or bench.spec.sparse_layouts:
             continue
         spec = importlib.util.find_spec(bench.impl_module())
         if spec is not None and spec.origin is not None:
@@ -83,7 +86,7 @@ def violations(path: pathlib.Path) -> list[str]:
             elif node.value.id != "xp" and node.attr not in NUMPY_ALLOWED:
                 found.append(f"{node.lineno}: {node.value.id}.{node.attr} (build arrays with xp)")
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"sum", "mean"}:
-            if not (isinstance(node.func.value, ast.Name) and node.func.value.id in ARRAY_MODULES):
+            if not (isinstance(node.func.value, ast.Name) and node.func.value.id in {*ARRAY_MODULES, "exact_math"}):
                 found.append(f"{node.lineno}: .{node.func.attr}() (a reduction whose order the library chooses)")
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names = [alias.name for alias in node.names]

@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Elementary functions that give the same bits on numpy and on cupy, for kernel initializers.
+"""Elementary functions and reductions that give the same bits on numpy and on cupy, for kernel initializers.
 
 glibc and a GPU's math library round ``exp``, ``log``, ``sin`` and ``pow`` differently in the last place, so an
 initializer that calls them builds different inputs on the host and on the device. These versions use only
@@ -9,6 +9,11 @@ operations IEEE 754 rounds exactly the same everywhere -- ``+ - * /``, ``sqrt``,
 comparisons and ``where`` -- each as its own array operation, so no compiler fuses two of them into an FMA.
 They are accurate to a few ulp of float64, which is all an input distribution needs. Arguments are converted to
 float64 first; a float32 result is the float64 one rounded once.
+
+A floating reduction is summed in an order the array library chooses (numpy's pairwise blocks, a GPU's tree), so
+:func:`sum`, :func:`cumsum`, :func:`matvec` and :func:`norm` fix the order themselves: a binary tree of whole-array
+additions (halves added elementwise until one row is left), and a Hillis-Steele scan. An integer or boolean
+reduction is exact in any order and runs as the library's own.
 """
 
 import math
@@ -22,14 +27,20 @@ __all__ = [
     "EXP_LIMIT",
     "EXPM1_SERIES_LIMIT",
     "cos",
+    "cumsum",
     "exp",
     "expm1",
     "ipow",
     "linspace",
     "log",
     "logspace",
+    "matmul",
+    "matvec",
+    "mean",
+    "norm",
     "pow",
     "sin",
+    "sum",
     "tanh",
 ]
 
@@ -190,3 +201,73 @@ def linspace(start: float, stop: float, num: int, endpoint: bool = True, xp: Mod
 def logspace(start: float, stop: float, num: int, base: float = 10.0, xp: ModuleType = np) -> Array:
     """``base ** linspace(start, stop, num)``."""
     return pow(xp.full(int(num), base, dtype=xp.float64), linspace(start, stop, num, xp=xp), xp)
+
+
+def exact_in_any_order(values: Array) -> bool:
+    """Whether a reduction of ``values`` is exact whatever its order: integers and booleans."""
+    return values.dtype.kind in "biu"
+
+
+def sum(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType = np) -> Array:  # noqa: A001 -- numpy's name
+    """``x`` summed over ``axis`` (every element for ``None``) in a fixed binary-tree order."""
+    values = xp.asarray(x)
+    if exact_in_any_order(values):
+        return values.sum(axis=axis, keepdims=keepdims)
+    if axis is None:
+        flat = sum(values.reshape(-1), 0, False, xp)
+        return flat.reshape((1,) * values.ndim) if keepdims else flat
+    axis = axis % values.ndim
+    rows = xp.moveaxis(values, axis, 0)
+    if rows.shape[0] == 0:
+        total = xp.zeros(rows.shape[1:], dtype=values.dtype)
+    else:
+        while rows.shape[0] > 1:
+            half = rows.shape[0] // 2
+            paired = rows[:half] + rows[half : 2 * half]
+            rows = xp.concatenate((paired, rows[2 * half :]), axis=0) if rows.shape[0] % 2 else paired
+        total = rows[0]
+    return xp.expand_dims(total, axis) if keepdims else total
+
+
+def mean(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType = np) -> Array:
+    """:func:`sum` divided by the count, as float64 for an integer ``x``."""
+    values = xp.asarray(x)
+    count = values.size if axis is None else values.shape[axis]
+    total = sum(values.astype(xp.float64) if exact_in_any_order(values) else values, axis, keepdims, xp)
+    return total / max(count, 1)
+
+
+def cumsum(x: Any, axis: int | None = None, xp: ModuleType = np) -> Array:
+    """Running sum over ``axis`` (the flattened ``x`` for ``None``) by a Hillis-Steele scan: step ``d`` adds the
+    element ``d`` back to every element, for ``d = 1, 2, 4, ...``."""
+    values = xp.asarray(x)
+    if exact_in_any_order(values):
+        return xp.cumsum(values, axis=axis)
+    if axis is None:
+        values, axis = values.reshape(-1), 0
+    rows = xp.moveaxis(values, axis % values.ndim, 0).copy()
+    step = 1
+    while step < rows.shape[0]:
+        shifted = rows[:-step].copy()
+        rows[step:] = rows[step:] + shifted
+        step *= 2
+    return xp.moveaxis(rows, 0, axis % values.ndim)
+
+
+def matvec(a: Any, x: Any, xp: ModuleType = np) -> Array:
+    """``a @ x`` for a matrix ``a`` and a vector ``x``: each row's products summed by :func:`sum`."""
+    return sum(xp.asarray(a) * xp.asarray(x)[None, :], 1, False, xp)
+
+
+def norm(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType = np) -> Array:
+    """The Euclidean norm over ``axis``: ``sqrt`` of the :func:`sum` of squares (``|x|**2`` for complex)."""
+    values = xp.asarray(x)
+    squares = (values * values.conj()).real if values.dtype.kind == "c" else values * values
+    return xp.sqrt(sum(squares, axis, keepdims, xp))
+
+
+def matmul(a: Any, b: Any, xp: ModuleType = np) -> Array:
+    """``a @ b`` for matrices: every product formed, then summed over the inner axis by :func:`sum`. Memory is
+    ``m k n``, so this is for the small products of an initializer (a few projectors, three coordinates)."""
+    left, right = xp.asarray(a), xp.asarray(b)
+    return sum(left[:, :, None] * right[None, :, :], 1, False, xp)

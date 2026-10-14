@@ -8,6 +8,7 @@
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 
 def _dedup_undirected(u, v, NV, xp: ModuleType = np):
@@ -73,7 +74,7 @@ def initialize(NV, NE, datatype=np.int64, rng: CounterGenerator | None = None, x
         v = xp.minimum(base + b, NV - 1)
         # ~10% of edges bridge communities, so the graph is one connected regime
         bridge = rng.random(draw) < 0.10
-        nb = int(bridge.sum())
+        nb = int(exact_math.sum(bridge, xp=xp))
         if nb:
             u[bridge] = rng.integers(0, NV, size=nb)
             v[bridge] = rng.integers(0, NV, size=nb)
@@ -118,7 +119,7 @@ def initialize(NV, NE, datatype=np.int64, rng: CounterGenerator | None = None, x
     esrc = src[keep].astype(np.int64)
     colidx = dst[keep].astype(np.int64)
     rowptr = xp.zeros(NV + 1, dtype=np.int64)
-    rowptr[1:] = np.cumsum(xp.bincount(esrc, minlength=NV).astype(np.int64))
+    rowptr[1:] = exact_math.cumsum(xp.bincount(esrc, minlength=NV).astype(np.int64), xp=xp)
 
     total = xp.zeros(1, dtype=np.int64)
     return colidx, esrc, rowptr, total

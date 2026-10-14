@@ -13,6 +13,7 @@ import numpy as np
 
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
 from hpcagent_bench.support import exact_math
+from hpcagent_bench.support.counter_generator import CounterGenerator
 
 MAX_COSET = 10
 MAX_CUBE_RADIUS = 2
@@ -36,7 +37,7 @@ def initialize(
 
     num_tasks = int(num_tasks)
     npts = int(npts)
-    rng = np.random.default_rng(int(seed))
+    rng = CounterGenerator(int(seed), xp)
 
     noise = rng.uniform(-0.015, 0.015, size=(npts, npts, npts))
     # grid[k, j, i] = ((0.31 + a_i) - b_j) + c_(k+i) + noise, in the scalar loop's operation order.

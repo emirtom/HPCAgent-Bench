@@ -41,6 +41,7 @@ count ``nks`` (with ``current_k``) come from the manifest's ``config:`` list.
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 _NAT = 2  # atoms carrying beta projectors
 _NH = 2  # beta functions per atom  ->  nkb = nat*nh
@@ -97,7 +98,7 @@ def initialize(
     A = xp.array([AX, AY, AZ])
     for k in range(nks):
         kpg = mill + xk[:, k][None, :]  # (ngm, 3)  (k+G in crystal)
-        g2kin[k, :] = (A[None, :] * (kpg * kpg)).sum(axis=1)
+        g2kin[k, :] = exact_math.sum(A[None, :] * (kpg * kpg), axis=1, xp=xp)
     # sort each k's plane waves by ascending kinetic energy (QE gk_sort), and
     # carry the grid map along so nlk[k, :] stays the map for that ordering.
     nlk = xp.zeros((nks, npwx), dtype=np.int64)
@@ -109,7 +110,7 @@ def initialize(
 
     # spin-resolved local potential V(r) (k-independent)
     vrs = xp.ascontiguousarray((0.5 * rng.standard_normal((nnr, npol))).astype(real_dtype).T)
-    vrs -= vrs.mean(axis=1, keepdims=True)
+    vrs -= exact_math.mean(vrs, axis=1, keepdims=True, xp=xp)
 
     # ultrasoft non-local projectors + block-diagonal deeq / qq_at
     nat, nh = _NAT, _NH
@@ -117,7 +118,7 @@ def initialize(
     if uspp:
         vkb = rng.standard_normal((npwx, nkb, nks)) + 1j * rng.standard_normal((npwx, nkb, nks))
         vkb = xp.ascontiguousarray(vkb.transpose(2, 1, 0))
-        vkb /= np.linalg.norm(vkb, axis=2, keepdims=True)  # normalise each projector
+        vkb /= exact_math.norm(vkb, axis=2, keepdims=True, xp=xp)  # normalise each projector
         vkb = vkb.astype(complex_dtype)
         # block-diagonal (one nh x nh block per atom): deeq real symmetric,
         # qq_at real symmetric positive-semidefinite (-> S positive-definite).
@@ -128,7 +129,7 @@ def initialize(
             d = 0.1 * rng.standard_normal((nh, nh))
             deeq[sl, sl] = 0.5 * (d + d.T)
             b = rng.standard_normal((nh, nh))
-            qq[sl, sl] = 0.05 * (b @ b.T)
+            qq[sl, sl] = 0.05 * exact_math.matmul(b, b.T, xp=xp)
     else:
         vkb = xp.zeros((nks, 0, npwx), dtype=complex_dtype)
         deeq = xp.zeros((0, 0), dtype=real_dtype)
@@ -143,7 +144,7 @@ def initialize(
     if lrot:
         g0 = g0 * 0.05
         g0[xp.arange(nvec), xp.arange(nvec) % kdim] += 1.0
-    g0 = g0 / np.linalg.norm(g0, axis=1, keepdims=True)
+    g0 = g0 / exact_math.norm(g0, axis=1, keepdims=True, xp=xp)
     if npol == 1:
         evc[:, :npw] = g0.astype(complex_dtype)
     else:
@@ -159,11 +160,14 @@ def initialize(
     s_diag = xp.ones((npol, npwx), dtype=real_dtype)
     g2c = g2kin[ck0, :npw]
     for ip in range(npol):
-        h_diag[ip, :npw] = g2c + float(vrs[ip, :].mean())  # V(G=0) = cell average
+        h_diag[ip, :npw] = g2c + float(exact_math.mean(vrs[ip, :], xp=xp))  # V(G=0) = cell average
         if uspp:
             vkbc = vkb[ck0, :, :npw]
-            h_diag[ip, :npw] += xp.real(np.einsum("ki,kl,li->i", vkbc, deeq, vkbc.conj()))
-            s_diag[ip, :npw] += xp.real(np.einsum("ki,kl,li->i", vkbc, qq, vkbc.conj()))
+            # diag(vkb^T M conj(vkb)) for M = deeq, qq: two fixed-order products of a few projectors.
+            h_diag[ip, :npw] += xp.real(
+                exact_math.sum(vkbc * exact_math.matmul(deeq, vkbc.conj(), xp=xp), axis=0, xp=xp)
+            )
+            s_diag[ip, :npw] += xp.real(exact_math.sum(vkbc * exact_math.matmul(qq, vkbc.conj(), xp=xp), axis=0, xp=xp))
 
     e = xp.zeros(nvec, dtype=real_dtype)
     btype = xp.ones(nvec, dtype=np.int32)

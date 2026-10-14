@@ -59,7 +59,7 @@ def initialize(nlev, klon, datatype=np.float64, rng: CounterGenerator | None = N
         mean = xp.maximum(prof(name + "_mean"), 0.0)  # q >= 0 (mass mixing ratio)
         out = xp.zeros((shape_lev, klon), dtype=datatype)
         cloudy = rng.random((shape_lev, klon)) < occ[:, None]
-        ncloudy = xp.maximum(cloudy.sum(axis=1), 1)
+        ncloudy = xp.maximum(exact_math.sum(cloudy, axis=1, xp=xp), 1)
         # Scaled so the LEVEL mean (incl. zeros) matches the reference: mean_level = occ * mean_cloudy.
         scale = mean / xp.maximum(occ, 1e-12) * (occ * shape_lev / ncloudy)
         # Exponential draw: positive, heavy-tailed like real condensate.
