@@ -25,7 +25,6 @@ judge, which never imports torch.
 
 import ctypes
 import faulthandler
-import json
 import math
 import os
 import socket
@@ -175,6 +174,24 @@ class ShardPlan(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="forbid")
 
     draws: list[DrawPlan]
+
+
+class DrawResult(pydantic.BaseModel):
+    """One draw's answer: the max-over-ranks seconds per repeat and each rank's ``(ok, max error, detail)``."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    samples: list[float]
+    verdicts: list[tuple[bool, float, str]]
+
+
+class ShardResult(pydantic.BaseModel):
+    """The result file rank 0 writes: one :class:`DrawResult` per draw, and the wall time per phase."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    draws: list[DrawResult]
+    phases_s: dict[str, float] = pydantic.Field(default_factory=dict)
 
 
 def read_plan(path: Path) -> list[dict[str, Any]]:
@@ -657,11 +674,11 @@ def run(plan_path: str, out_path: str) -> None:
     results = []
     for draw in draws:
         samples, verdicts = run_draw(draw, rank, size, module, device, sync, cart, out_path)
-        results.append({"samples": samples, "verdicts": verdicts})
+        results.append(DrawResult(samples=samples, verdicts=verdicts))
     if rank == 0:
         # Rank 0's seconds: launch init, then every draw (inputs, timed calls, reference and verdict).
         phases = {"init": round(init_s, 3), "draws": round(time.perf_counter() - started - init_s, 3)}
-        Path(out_path).write_text(json.dumps({"draws": results, "phases_s": phases}))
+        Path(out_path).write_text(ShardResult(draws=results, phases_s=phases).model_dump_json())
     dist.destroy_process_group()
     MPI.Finalize()
 
