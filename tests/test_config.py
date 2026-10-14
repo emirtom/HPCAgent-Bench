@@ -13,7 +13,7 @@ from typing import get_args
 import pydantic
 import pytest
 
-from hpcagent_bench import config, containers, flags, languages, seal, spec
+from hpcagent_bench import config, containers, flags, languages, paths, seal, spec
 from hpcagent_bench.api import InputMode, Oracle
 from hpcagent_bench.cli import Execution
 from hpcagent_bench.harness import (
@@ -33,7 +33,7 @@ from hpcagent_bench.harness import (
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.requests_api import Location
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 
 def field_values(dotted: str) -> set[object]:

@@ -17,7 +17,9 @@ from typing import NamedTuple
 
 import pytest
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+from hpcagent_bench import paths
+
+REPO = paths.ROOT
 #: Roots whose ``.py`` docstrings are scanned, relative to :data:`REPO`.
 DOCSTRING_ROOTS = ("hpcagent_bench", "agent")
 #: Root whose ``.md`` pages are scanned whole, relative to :data:`REPO`.

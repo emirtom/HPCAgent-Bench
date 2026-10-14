@@ -103,9 +103,9 @@ def test_a_pydantic_field_reads_and_writes_the_request() -> None:
     assert field.value.errors()[0]["ctx"]["error"].args == direct.value.args
 
 
-@pytest.mark.parametrize("field", ["libraries", "distribution", "sparse_config"])
-def test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling(field: str) -> None:
-    with pytest.raises(ValueError, match=f"moved under 'requests': {field} -> "):
+@pytest.mark.parametrize("field", ["libraries", "distribution", "sparse_config", "notes"])
+def test_an_envelope_field_the_model_does_not_name_is_refused(field: str) -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         Submission.from_obj({"language": "c", "source": "x", field: []})
 
 
@@ -179,9 +179,10 @@ if __name__ == "__main__":
     test_a_malformed_request_is_a_request_fault({"startup": {"grid": []}}, r"startup.grid\n  Tuple should have at least 1 item")
     test_a_malformed_request_is_a_request_fault({"precision": {"A": "fp32"}}, r"\nprecision\n  Unexpected keyword argument")
     test_a_pydantic_field_reads_and_writes_the_request()
-    test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling("libraries")
-    test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling("distribution")
-    test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling("sparse_config")
+    test_an_envelope_field_the_model_does_not_name_is_refused("libraries")
+    test_an_envelope_field_the_model_does_not_name_is_refused("distribution")
+    test_an_envelope_field_the_model_does_not_name_is_refused("sparse_config")
+    test_an_envelope_field_the_model_does_not_name_is_refused("notes")
     test_the_plan_lowers_the_operations_and_carries_location()
     test_an_array_the_operations_neither_distribute_nor_replicate_is_unplaced()
     test_the_grid_is_evaluated_at_each_rank_count()

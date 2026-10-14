@@ -17,7 +17,6 @@ Submissions are source (``restricted`` mode, compiled by the judge) or a ``.so``
 :func:`optimizer_registry` names them for ``hpcagent-bench agent``."""
 
 import functools
-import json
 import pathlib
 import re
 import shutil
@@ -38,6 +37,7 @@ from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import Binding, binding_from_spec
 from hpcagent_bench.support.bindings.stubs import c_constants, gen_call_stub
+from hpcagent_bench.translators.numpyto_c.bindings import read_binding
 from hpcagent_bench.vocabulary import is_optimizer_adapter
 
 __all__ = [
@@ -300,7 +300,7 @@ def pluto_source(task: Task) -> str:
         if len(transformed) != 1:
             raise NotImplementedError(f"{task.kernel}: expected one polycc output for {symbol}, got {transformed}")
         body = transformed[0].read_text()
-        order = [str(arg["name"]) for arg in json.loads((backend / f"{symbol}_pluto_binding.json").read_text())["args"]]
+        order = [arg.name for arg in read_binding(backend / f"{symbol}_pluto_binding.json").args]
     renamed = re.sub(rf"\b{re.escape(symbol)}\s*\(", f"{symbol}_pluto(", body)
     header = gen_call_stub(binding, "c").split(") {", 1)[0] + ") {"
     call = ", ".join(call_argument(name, binding) for name in order)

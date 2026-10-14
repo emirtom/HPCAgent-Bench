@@ -12,13 +12,14 @@ import sys
 
 import pytest
 
+from hpcagent_bench import paths
 from tests.bash_stub import bash_stub
 from tests.test_submit import submit, tree
 
 BASH = shutil.which("bash")
 assert BASH is not None
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 CLUSTER_DIR = REPO / "hpcagent_bench" / "cluster"
 
 #: The first job id the chain stub prints; every later call prints the next integer.

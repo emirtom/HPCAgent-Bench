@@ -28,7 +28,6 @@ import argparse
 import collections
 import dataclasses
 import enum
-import json
 import math
 import os
 import pathlib
@@ -41,15 +40,14 @@ from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER, RC_TIMEOUT, RC_
 
 from hpcagent_bench import tags
 from hpcagent_bench.cluster import merge_results
-from hpcagent_bench.harness import results_db
+from hpcagent_bench.harness import episodes, results_db
 from hpcagent_bench.harness.recording import slot_of
+from hpcagent_bench.problem_file import ProblemLine, read_lines
 from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
-from hpcagent_bench.run_layout import TOKENS_NAME, WORKER_GLOB
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
 __all__ = [
     "BUDGET_RETURNCODES",
-    "EPISODE_GLOB",
     "LAUNCH_DIR",
     "SUBMIT_SCRIPT",
     "TASK_CHANGED_FINALS",
@@ -86,8 +84,6 @@ __all__ = [
 #: The driver's exit codes for an agent stopped by its own caps, as it writes them into ``tokens.json``.
 BUDGET_RETURNCODES = frozenset({RC_TIMEOUT, RC_TOKEN_BUDGET})
 
-#: Where a job's worker episodes live under its run directory (its judge shards: :func:`merge_results.judge_shards`).
-EPISODE_GLOB = f"{WORKER_GLOB}/{TOKENS_NAME}"
 
 #: What run_cluster.sh stages for a job's agents, beside the job's run directory.
 LAUNCH_DIR = ".agent-launch"
@@ -119,10 +115,9 @@ def parse_run(line: str) -> Run:
     return Run(kernel, int(slot) if slot else 1)
 
 
-def problem_run(problem: dict[str, object]) -> Run:
+def problem_run(problem: ProblemLine) -> Run:
     """The :class:`Run` a problems-file line is."""
-    slot = problem.get("slot")
-    return Run(kernel_stem(problem.get("kernel")), slot if isinstance(slot, int) else 1)
+    return Run(kernel_stem(problem.kernel), problem.slot or 1)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -229,17 +224,14 @@ def latest_classes(job_dirs: Iterable[pathlib.Path]) -> dict[Run, OwedClass]:
     """run -> the class of its latest episode (``final_attempt_start_ms``, else the file's mtime)."""
     latest: dict[Run, tuple[int, OwedClass]] = {}
     for job_dir in job_dirs:
-        for path in job_dir.glob(EPISODE_GLOB):
-            try:
-                record = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+        for path in job_dir.glob(episodes.RECORD_GLOB):
+            record = episodes.read_record(path)
+            kernel = kernel_stem(record.kernel) if record is not None else ""
+            if record is None or not kernel:
                 continue
-            kernel = kernel_stem(record.get("kernel"))
-            if not kernel:
-                continue
-            run = Run(kernel, slot_of(str(record.get("episode_id") or "")))
-            order = int(record.get("final_attempt_start_ms") or path.stat().st_mtime * 1000)
-            budget = record.get("returncode") in BUDGET_RETURNCODES and not (path.parent / CANCELLED_MARKER).exists()
+            run = Run(kernel, slot_of(record.episode_id))
+            order = record.final_attempt_start_ms or int(path.stat().st_mtime * 1000)
+            budget = record.returncode in BUDGET_RETURNCODES and not (path.parent / CANCELLED_MARKER).exists()
             if run not in latest or order >= latest[run][0]:
                 latest[run] = (order, OwedClass.BUDGET if budget else OwedClass.INFRA)
     return {run: entry[1] for run, entry in latest.items()}
@@ -349,16 +341,16 @@ def launch_files(job_dir: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     return problems.parent / ".env", problems
 
 
-def read_problems(problems: pathlib.Path) -> list[dict[str, object]]:
-    """The problems of a problems file, one JSON object per line."""
-    return [json.loads(line) for line in problems.read_text(encoding="utf-8").splitlines() if line.strip()]
+def read_problems(problems: pathlib.Path) -> list[ProblemLine]:
+    """The problems of a problems file."""
+    return read_lines(problems)
 
 
 def rerun_problems(problems: pathlib.Path, runs: set[Run]) -> list[str]:
     """The problem lines of ``problems`` that are one of ``runs``; refuses a run it lacks."""
     lines = [line for line in problems.read_text(encoding="utf-8").splitlines() if line.strip()]
-    kept = [line for line in lines if problem_run(json.loads(line)) in runs]
-    missing = runs - {problem_run(json.loads(line)) for line in kept}
+    kept = [line for line in lines if problem_run(ProblemLine.model_validate_json(line)) in runs]
+    missing = runs - {problem_run(ProblemLine.model_validate_json(line)) for line in kept}
     if missing:
         raise SystemExit(f"{problems} holds no problem for {sorted(run.line() for run in missing)}")
     return kept

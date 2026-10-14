@@ -32,7 +32,9 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Generator, Mapping, Sequence
-from typing import NamedTuple
+from typing import Literal, NamedTuple
+
+import pydantic
 
 from hpcagent_bench.cache_files import file_sha256, json_digest, sha256_hex, write_atomic
 
@@ -53,6 +55,9 @@ __all__ = [
     "VIEW_NAME",
     "CacheMiss",
     "Form",
+    "Pointer",
+    "Verification",
+    "ViewHeader",
     "cache_key",
     "canonical_entry",
     "canonical_key",
@@ -121,6 +126,64 @@ VERIFIED_NAME = "verified"
 #: Canonical SDFG entries live under this directory of a cache root, apart from rendered forms.
 CANONICAL_DIR = "canonical"
 CANONICAL_SDFG_NAME = "canonical.sdfgz"
+
+
+class ViewHeader(pydantic.BaseModel):
+    """A view's :data:`VIEW_NAME`: the layout, cache root, target and dace commit every render into it shares."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    layout: int
+    cache_root: str
+    target: Literal["cpu", "gpu"]
+    dace_commit: str
+
+    @pydantic.field_validator("layout")
+    @classmethod
+    def current_layout(cls, layout: int) -> int:
+        if layout != LAYOUT:
+            raise ValueError(f"layout {layout}, this reader expects {LAYOUT}")
+        return layout
+
+    @classmethod
+    def of(cls, cache_root: pathlib.Path, target: str, dace_commit: str) -> "ViewHeader":
+        return cls.model_validate(
+            {"layout": LAYOUT, "cache_root": str(cache_root.resolve()), "target": target, "dace_commit": dace_commit}
+        )
+
+
+def read_header(view: pathlib.Path) -> ViewHeader:
+    """``view``'s header; ``OSError`` when unreadable, ``ValueError`` (a ``ValidationError``) when it is not one."""
+    return ViewHeader.model_validate_json((view / VIEW_NAME).read_bytes())
+
+
+class Pointer(pydantic.BaseModel):
+    """One file under a view's :data:`ENTRIES_NAME`: the outcome of rendering one (kernel, dialect, precision).
+    The render's own detail (entry symbol, artefact paths, line counts) rides along as extra fields."""
+
+    model_config = pydantic.ConfigDict(extra="allow", frozen=True)
+
+    kernel: str
+    language: str
+    precision: str
+    verdict: str
+    key: str | None = None
+    error: str = ""
+    cached: bool = False
+
+
+class Verification(pydantic.BaseModel):
+    """One file under a view's :data:`VERIFIED_NAME`: the judge's grade of the form a pointer serves."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    key: str
+    verdict: Literal["ok", "unverified"]
+    reason: str = ""
+    preset: str = ""
+    build_ok: bool = False
+    correct: bool = False
+    speedup: float = 0.0
 
 
 class CacheMiss(LookupError):
@@ -284,42 +347,35 @@ def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_co
     """
     if error := pin_error(view, cache_root, target, dace_commit):
         raise ValueError(error)
-    header = view / VIEW_NAME
-    if not header.is_file():
-        wanted = {
-            "layout": LAYOUT,
-            "cache_root": str(cache_root.resolve()),
-            "target": target,
-            "dace_commit": dace_commit,
-        }
-        write_json(header, wanted)
+    if not (view / VIEW_NAME).is_file():
+        write_json(view / VIEW_NAME, ViewHeader.of(cache_root, target, dace_commit).model_dump())
 
 
 def pin_error(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> str:
     """Why ``view`` cannot take renders from this cache, target and dace commit; "" when it is
     absent (it will be created) or pinned to exactly them."""
     try:
-        existing = json.loads((view / VIEW_NAME).read_text())
+        existing = read_header(view)
     except FileNotFoundError:
         return ""
     except (OSError, ValueError) as exc:
         return f"view {view} has an unreadable {VIEW_NAME} ({type(exc).__name__})"
-    wanted = {"layout": LAYOUT, "cache_root": str(cache_root.resolve()), "target": target, "dace_commit": dace_commit}
+    wanted = ViewHeader.of(cache_root, target, dace_commit)
     if existing != wanted:
         return f"view {view} is pinned to {existing}; render {wanted} into a new view"
     return ""
 
 
-def read_view(view: pathlib.Path) -> dict[str, str]:
+def read_view(view: pathlib.Path) -> ViewHeader:
+    """``view``'s header; :class:`CacheMiss` when it has none or one of another layout."""
     try:
-        header = json.loads((view / VIEW_NAME).read_text())
-    except (OSError, ValueError) as exc:
+        return read_header(view)
+    except OSError as exc:
         raise CacheMiss(
             f"{view} is not a CPF cache view yet (no {VIEW_NAME}); the judge creates it on the first request"
         ) from exc
-    if header.get("layout") != LAYOUT:
-        raise CacheMiss(f"view {view} has layout {header.get('layout')!r}, this reader expects {LAYOUT}")
-    return header
+    except ValueError as exc:
+        raise CacheMiss(f"view {view} has a header this reader (layout {LAYOUT}) cannot read: {exc}") from exc
 
 
 def short_name(kernel: str) -> str:
@@ -334,17 +390,18 @@ def pointer_name(kernel: str, fptype: str, dialect: str) -> str:
 
 def record(view: pathlib.Path, kernel: str, dialect: str, fptype: str, outcome: Mapping[str, object]) -> None:
     """Point ``view`` at the outcome of one render: a key and a verdict, or why there is none."""
-    pointer = {**outcome, "kernel": short_name(kernel), "language": dialect, "precision": fptype}
-    write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect), pointer)
+    pointer = Pointer.model_validate(
+        {**outcome, "kernel": short_name(kernel), "language": dialect, "precision": fptype}
+    )
+    write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect), pointer.model_dump())
 
 
-def recorded(view: pathlib.Path, kernel: str, dialect: str, fptype: str) -> dict[str, object] | None:
+def recorded(view: pathlib.Path, kernel: str, dialect: str, fptype: str) -> Pointer | None:
     """The pointer a render filed for (kernel, dialect, precision), or None when none did."""
     try:
-        pointer = json.loads((view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect)).read_text())
+        return Pointer.model_validate_json((view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect)).read_bytes())
     except (OSError, ValueError):
         return None
-    return pointer if isinstance(pointer, dict) else None
 
 
 @contextlib.contextmanager
@@ -362,26 +419,25 @@ def render_lock(cache_root: pathlib.Path, view: pathlib.Path, kernel: str, fptyp
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def served_dialect(header: Mapping[str, str], language: str) -> str:
+def served_dialect(target: str, language: str) -> str:
     """The device form is the only dialect a gpu view holds, whatever host dialect was asked for."""
-    return "hip" if header.get("target") == "gpu" else DIALECT[language]
+    return "hip" if target == "gpu" else DIALECT[language]
 
 
-def pointer_outcome(view: pathlib.Path, kernel: str, language: str, fptype: str) -> tuple[str, str, dict[str, str]]:
+def pointer_outcome(view: pathlib.Path, kernel: str, language: str, fptype: str) -> tuple[str, str, ViewHeader]:
     """``(pointer name, key, view header)`` of one exact (kernel, language, precision) render."""
     header = read_view(view)
-    name = pointer_name(kernel, fptype, served_dialect(header, language))
+    name = pointer_name(kernel, fptype, served_dialect(header.target, language))
     try:
-        pointer = json.loads((view / ENTRIES_NAME / name).read_text())
+        pointer = Pointer.model_validate_json((view / ENTRIES_NAME / name).read_bytes())
     except (OSError, ValueError) as exc:
-        raise CacheMiss(f"view {view} has no entry {name}: no prerender covered it") from exc
-    key = pointer.get("key")
-    if pointer.get("verdict") != "ok" or not key:
+        raise CacheMiss(f"view {view} has no readable entry {name}: no prerender covered it ({exc})") from exc
+    if pointer.verdict != "ok" or not pointer.key:
         raise CacheMiss(
-            f"view {view} entry {name} has no form (verdict {pointer.get('verdict')!r}, key {key}): "
-            f"{pointer.get('error', 'not rendered')}"
+            f"view {view} entry {name} has no form (verdict {pointer.verdict!r}, key {pointer.key}): "
+            f"{pointer.error or 'not rendered'}"
         )
-    return name, str(key), header
+    return name, pointer.key, header
 
 
 class Form(NamedTuple):
@@ -399,7 +455,7 @@ class Form(NamedTuple):
 def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form:
     """The :class:`Form` in the cache for one exact (kernel, language, precision)."""
     _, key, header = pointer_outcome(view, kernel, language, fptype)
-    cache_root = pathlib.Path(header["cache_root"])
+    cache_root = pathlib.Path(header.cache_root)
     manifest = verified_manifest(cache_root, key)
     artefacts = manifest["artefacts"]
     assert isinstance(artefacts, dict)
@@ -418,20 +474,20 @@ def record_verification(
 ) -> None:
     """File the judge's ``verdict`` on the form the view serves for this kernel, tied to its key."""
     name, key, _ = pointer_outcome(view, kernel, language, fptype)
-    write_json(view / VERIFIED_NAME / name, {**verdict, "key": key})
+    write_json(view / VERIFIED_NAME / name, Verification.model_validate({**verdict, "key": key}).model_dump())
 
 
 def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str) -> str:
     """Why the served form is not judge-verified; "" when a grade of these exact bytes was correct."""
     name, key, _ = pointer_outcome(view, kernel, language, fptype)
     try:
-        verdict = json.loads((view / VERIFIED_NAME / name).read_text())
+        verdict = Verification.model_validate_json((view / VERIFIED_NAME / name).read_bytes())
     except (OSError, ValueError):
         return f"view {view} form {name} was never graded (run python -m hpcagent_bench.cpf_verify)"
-    if verdict.get("key") != key:
-        return f"view {view} form {name} was graded as {verdict.get('key')}, it now serves {key}"
-    if verdict.get("verdict") != "ok":
-        return f"view {view} form {name} is unverified: {verdict.get('reason', '')}"
+    if verdict.key != key:
+        return f"view {view} form {name} was graded as {verdict.key}, it now serves {key}"
+    if verdict.verdict != "ok":
+        return f"view {view} form {name} is unverified: {verdict.reason}"
     return ""
 
 
@@ -441,7 +497,7 @@ def wrong_target(view: pathlib.Path, target: str) -> str:
     A cpu view answers a hip setup with C++, and a gpu view stages a .hip file into a C task.
     """
     try:
-        held = read_view(view).get("target")
+        held = read_view(view).target
     except CacheMiss:
         return ""
     return "" if held == target else f"view {view} holds {held} forms, not the {target} forms this setup runs on"
@@ -492,11 +548,9 @@ def on_demand_plan(
     lines: list[str] = []
     for miss in missing(view, kernels, language, fptype, target):
         kernel = miss.split(":", 1)[0]
-        pointer = recorded(view, kernel, served_dialect({"target": target}, language), fptype)
-        if pointer and pointer.get("verdict") != "ok":
-            lines.append(
-                f"{kernel}: recorded {pointer.get('verdict')!r}, answered unavailable: {pointer.get('error', '')}"
-            )
+        pointer = recorded(view, kernel, served_dialect(target, language), fptype)
+        if pointer and pointer.verdict != "ok":
+            lines.append(f"{kernel}: recorded {pointer.verdict!r}, answered unavailable: {pointer.error}")
         else:
             lines.append(f"{kernel}: rendered by the judge on its first request")
     if not lines:

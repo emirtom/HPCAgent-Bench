@@ -54,7 +54,7 @@ CLUSTER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 OPT=${OPT:-$(cd -- "${CLUSTER_DIR}/../.." && pwd)}
 # The setups' generated files (.env.<setup>, problems-*.jsonl, .rendered/) live in experiments/, next to
 # the setups.yaml and layers/ they render from; every relative path below is relative to it.
-cd -- "${CLUSTER_DIR}/../../experiments"
+cd -- "${OPT}/experiments"
 . "${OPT}/hpcagent_bench/cluster/env.sh"
 . "${CLUSTER_DIR}/setup_nodes.sh"
 . "${CLUSTER_DIR}/pin_env_kv.sh"

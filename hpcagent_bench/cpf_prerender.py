@@ -174,7 +174,7 @@ def settled(view: pathlib.Path, cache: pathlib.Path, kernel: str, target: str, f
         pointer = cpf_cache.recorded(view, kernel, dialect, fptype)
         if pointer is None:
             return False
-        if pointer.get("verdict") == "ok" and not cpf_cache.is_hit(cache, str(pointer.get("key"))):
+        if pointer.verdict == "ok" and not cpf_cache.is_hit(cache, str(pointer.key)):
             return False
     return True
 

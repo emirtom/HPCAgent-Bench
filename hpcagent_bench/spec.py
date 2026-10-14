@@ -1497,6 +1497,23 @@ def parse_workspace_bytes(init_raw: dict[str, object], source: str) -> int | Non
     return declared_bytes
 
 
+#: The keys of an expanded ``init`` block (the dict :meth:`BenchSpec.from_dict` reads).
+RAW_INIT_KEYS = frozenset(
+    {
+        "func_name",
+        "input_args",
+        "output_args",
+        "arrays",
+        "scalars",
+        "dtypes",
+        "scenarios",
+        "revalue",
+        "constants",
+        "workspace",
+    }
+)
+
+
 def parse_init(raw: object, source: str) -> InitSpec:
     """The ``init:`` block -> :class:`InitSpec`.
 
@@ -1509,14 +1526,9 @@ def parse_init(raw: object, source: str) -> InitSpec:
     ``init.scenarios`` the named input conditions it builds. ``init.output_args`` defaults to every
     declared array and scalar."""
     init_raw = block_of(raw, "init", source)
-    for legacy in ("shapes", "dists"):
-        if legacy in init_raw:
-            raise ValueError(
-                f"{source}: init.{legacy} was replaced by the unified declaration surface. "
-                "An array is declared ONCE, under init.arrays[name], as a shape string or as "
-                "{shape, dtype?, dist?, domain?}. Scalar/knob/size-symbol ABI types stay in "
-                "init.dtypes. Two ways to say one thing is how a declaration goes unread."
-            )
+    unknown = sorted(set(init_raw) - RAW_INIT_KEYS)
+    if unknown:
+        raise ValueError(f"{source}: init carries unknown key(s) {unknown}; it may carry {sorted(RAW_INIT_KEYS)}")
     dtypes = {sym: str(dt) for sym, dt in block_of(init_raw.get("dtypes"), "init.dtypes", source).items()}
     arrays_named = sorted(set(dtypes) & set(block_of(init_raw.get("arrays"), "init.arrays", source)))
     if arrays_named:
@@ -2727,8 +2739,10 @@ def normalized_ast(path: pathlib.Path) -> str:
     and no source positions: two sources that differ only in docstrings, comments or layout dump equal."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
-        documented = isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-        if documented and ast.get_docstring(node, clean=False) is not None:
+        if (
+            isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and ast.get_docstring(node, clean=False) is not None
+        ):
             node.body = node.body[1:]
     return ast.dump(tree, include_attributes=False)
 

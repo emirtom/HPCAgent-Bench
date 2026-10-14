@@ -436,6 +436,7 @@ RegistryError: unknown paired test 'wilcox'; registered: sign-flip, wilcoxon, tt
 ```python
 from hpcagent_bench.stats import significance
 
+
 @significance.paired_test("median-sign", version="1")
 def median_sign(log_ratios, alpha):
     wins = int((log_ratios > 0).sum())

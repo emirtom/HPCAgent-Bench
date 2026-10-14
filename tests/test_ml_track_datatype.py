@@ -10,7 +10,6 @@ as its constraints and the one XL byte ceiling allow. The distributed operators 
 bf16 and their own XL, and keep both.
 """
 
-
 import numpy as np
 import pytest
 
