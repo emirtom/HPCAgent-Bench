@@ -52,8 +52,8 @@ def test_a_role_step_derives_its_thread_limit_from_the_cores_it_owns() -> None:
 
 
 def test_serve_only_reads_the_agents_readiness_key_first() -> None:
-    """The agent driver waits AGENT_READY_TIMEOUT_SECONDS first; Kimi's layer sets it to 7200 beside a
-    VLLM_READY_TIMEOUT_SECONDS of 3600, so serve-only must not give up after 3600 s."""
+    """The agent driver waits AGENT_READY_TIMEOUT_SECONDS first; a model layer sets it (Kimi: 7200) above the
+    VLLM_READY_TIMEOUT_SECONDS a base layer may carry, so serve-only must not give up at the lower one."""
     line = next(x for x in (CLUSTER / "serve-only.sbatch").read_text().splitlines() if x.startswith("READY_TIMEOUT="))
     done = bash(
         f'{line}\necho "${{READY_TIMEOUT}}"',
@@ -85,3 +85,62 @@ def test_grade_under_cleanup_survives_a_relay_that_already_died(tmp_path: pathli
     done = bash(script)
     assert done.returncode == 0, done.stderr
     assert not leftover.exists()
+
+
+#: A registered inference EDF as install_edfs.sh renders it: the forced fabric plugin and both comm hooks on.
+FABRIC_EDF = """image = "/images/sglang.sqsh"
+workdir = "/workspace"
+mounts = [
+    "/scratch:/scratch",
+]
+
+[env]
+NCCL_NET_PLUGIN = "ofi"
+NCCL_NET = "AWS Libfabric"
+FI_PROVIDER = "cxi"
+
+[annotations]
+com.hooks.cxi.enabled = "true"
+com.hooks.aws_ofi_nccl.enabled = "true"
+"""
+
+
+@pytest.mark.parametrize(("nodes", "mode", "hooks"), [("1", "pp", False), ("2", "replicas", False), ("2", "pp", True)])
+def test_serve_only_serves_from_the_inference_roles_derived_edf(
+    tmp_path: pathlib.Path, nodes: str, mode: str, hooks: bool
+) -> None:
+    """The registered EDF forces NCCL_NET and the cxi / aws-ofi-nccl hooks, with which a single-node or replica
+    server fails building its tensor-parallel group; serve-only launches what an experiment launches, the
+    role's derived EDF, which drops them there and keeps them for a multi-node pp server."""
+    text = (CLUSTER / "serve-only.sbatch").read_text()
+    assert '--environment="${INFERENCE_CE_ENV' not in text
+    assert '"${CONTAINER_SRUN_ARGS[@]}"' in lines_between(CLUSTER / "serve-only.sbatch", "srun --nodes=", '    "')
+    block = lines_between(CLUSTER / "serve-only.sbatch", "export RUN_ROOT RUN_DIR", "container_wrap vllm-node")
+    edfs = tmp_path / "edf"
+    edfs.mkdir()
+    (edfs / "sglang.toml").write_text(FABRIC_EDF)
+    run_dir = tmp_path / "root" / "1"
+    script = f'set -euo pipefail\n{block}\nprintf "%s\\n" "${{CONTAINER_SRUN_ARGS[@]}}"'
+    done = bash(
+        script,
+        env={
+            "RUN_ROOT": str(tmp_path / "root"),
+            "RUN_DIR": str(run_dir),
+            "SCRIPT_DIR": str(CLUSTER),
+            "HPCAGENT_BENCH_REPO": str(CLUSTER.parents[1]),
+            "HPCAGENT_BENCH_GENERATED_CACHE_HOST": str(tmp_path / "generated"),
+            "SCRATCH": str(tmp_path),
+            "FAST_SCRATCH": str(tmp_path / "fast"),
+            "EDF_PATH": str(edfs),
+            "INFERENCE_CE_ENV": "sglang",
+            "INFERENCE_NODES": nodes,
+            "INFERENCE_MODE": mode,
+        },
+    )
+    assert done.returncode == 0, done.stderr
+    edf = pathlib.Path(done.stdout.strip().removeprefix("--environment="))
+    assert edf.parent == run_dir / "edf"
+    rendered = edf.read_text()
+    assert ("NCCL_NET =" in rendered) is hooks
+    assert ('com.hooks.cxi.enabled = "false"' not in rendered) is hooks
+    assert f"{run_dir}/shared:/shared" in rendered

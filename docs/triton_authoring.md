@@ -9,8 +9,8 @@ A new framework, not a new kernel for this one, is [extending/optimizer.md](exte
 
 ## The entry point
 
-- **Name.** The function the manifest's `func_name` names, the same one `<kernel>_numpy.py` defines
-  (`load_impl` in `hpcagent_bench/frameworks/framework.py`).
+- **Name.** The entry function of `<kernel>_numpy.py`: its sole top-level `def`, else the one named for the
+  kernel (`spec.derive_func_name`; `load_impl` in `hpcagent_bench/frameworks/framework.py`). No manifest key names it.
 - **Arguments.** Bound by name from the manifest's `args:` (`Framework.call_args`): use the NumPy reference's
   parameter names. A parameter the manifest does not name needs a default, else the call falls back to the
   positional order of `input_args`.

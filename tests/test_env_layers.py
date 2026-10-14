@@ -281,3 +281,19 @@ def test_the_job_gets_the_snapshot_not_the_setup_env(tmp_path: pathlib.Path) -> 
     path = pathlib.Path(exported[0].split("CLUSTER_ENV_FILE=", 1)[1])
     assert path.parent == tmp_path / ".rendered"
     assert flat(path.read_text())["SETUP"] == "a"
+
+
+#: vLLM-only knobs: the engine-core handshake deadline vllm.envs reads, which sglang.launch_server never does.
+VLLM_ONLY_KNOBS = ("VLLM_ENGINE_READY_TIMEOUT_S",)
+
+
+@pytest.mark.parametrize("layer", sorted(LAYERS_DIR.glob("model-*.env")), ids=lambda path: path.stem)
+def test_a_model_layer_sets_no_knob_its_engine_or_readers_ignore(layer: pathlib.Path) -> None:
+    """A knob nothing reads implies a deadline that does not exist: a vLLM-only variable on an SGLang model, or a
+    VLLM_READY_TIMEOUT_SECONDS beside the AGENT_READY_TIMEOUT_SECONDS every reader takes first (serve-only.sbatch,
+    the agent driver)."""
+    own = env_spec.assignments(layer)
+    if env_spec.render_file(layer).get("INFERENCE_ENGINE") == "sglang":
+        assert not set(VLLM_ONLY_KNOBS) & own.keys()
+    if "AGENT_READY_TIMEOUT_SECONDS" in own:
+        assert "VLLM_READY_TIMEOUT_SECONDS" not in own

@@ -102,7 +102,7 @@ def test_every_setup_env_gives_claude_its_models_window_capped_at_256k(driver: M
     values = env_values(path)
     values["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "32768"  # the launcher's export (run_cluster.sh)
     served = SERVED[model_of(path)]
-    assert driver.served_context(values) == served
+    assert driver.harnesses.served_context(values) == served
     assert driver.claude_context_env(values) == EXPECTED[min(served, 262144)]
 
 
@@ -121,22 +121,6 @@ def test_the_trigger_leaves_the_reply_reserve_and_one_turn_under_the_window(
     reply, wanted = TRIGGERS[window, configured]
     assert environment["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == str(reply)
     assert wanted - 2 <= cli_trigger(environment) <= wanted
-
-
-def test_the_smallest_window_any_source_names_wins(driver: ModuleType) -> None:
-    """The engine enforces its own argument; a CONTEXT_LENGTH or a second engine's args naming a larger
-    window must not raise the limit past it."""
-    environment = {
-        "CONTEXT_LENGTH": "262144",
-        "SGLANG_EXTRA_ARGS": "--trust-remote-code --context-length 262144",
-        "VLLM_EXTRA_ARGS": "--dtype auto --max-model-len=131072 --gpu-memory-utilization 0.70",
-    }
-    assert driver.served_context(environment) == 131072
-
-
-def test_a_setup_naming_no_window_gets_the_policy_cap(driver: ModuleType) -> None:
-    """No committed setup and no pending snapshot does this; the cap is still a limit the policy allows."""
-    assert driver.served_context({}) == driver.CLAUDE_CONTEXT_CAP == 262144
 
 
 def test_claude_env_carries_the_context_variables_over_whatever_the_submitter_exported(

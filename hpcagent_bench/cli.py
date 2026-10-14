@@ -885,7 +885,10 @@ def add_grade_options(p: argparse.ArgumentParser) -> None:
         "--datatype", default="float64", choices=["float64", "float32"], help="element precision (default float64)"
     )
     p.add_argument(
-        "--repeat", type=int, default=5, help="timed reps per task; best (min) kept for the speedup (default 5)"
+        "--repeat",
+        type=int,
+        default=5,
+        help="timed reps per side and task, reduced by measurement.timing_backend (default 5)",
     )
     p.add_argument(
         "--oracle",
@@ -1111,7 +1114,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=preset_arg,
         help="data-size preset the judge scores at (default from config; 'fuzzed:<seed>' pins the RNG)",
     )
-    sv.add_argument("--repeat", type=int, default=None, help="timed reps; best kept (default from config)")
+    sv.add_argument(
+        "--repeat",
+        type=int,
+        default=None,
+        help="timed reps per side, reduced by measurement.timing_backend (default from config)",
+    )
     sv.add_argument(
         "--datatype",
         default=None,

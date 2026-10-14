@@ -268,7 +268,9 @@ def classify(driver_path: pathlib.Path, root: pathlib.Path, log_name: str) -> ob
                 "final_result": driver.final_result(path),
                 "context_overflow": driver.context_overflow(path),
                 "api_timeout": driver.api_timeout(path),
-                "crashed": {str(code): driver.crashed(code, path) for code in RETURN_CODES},
+                "crashed": {
+                    str(code): driver.closing_crashed(code, driver.transcript_closing(path)) for code in RETURN_CODES
+                },
             }
         )
 

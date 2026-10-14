@@ -33,9 +33,6 @@ set -euo pipefail
 ulimit -c 0
 # Every srun step below binds each task's memory to the NUMA domain of its cores (srun reads SLURM_MEM_BIND).
 export SLURM_MEM_BIND=local
-# One shard that dies (an out-of-memory submission) must not cancel the others; a resubmit regrades only what is
-# missing from each shard DB.
-export SLURM_KILL_BAD_EXIT=0
 
 worklist=$(realpath "${1:?worklist.jsonl}")
 out=$(realpath -m "${2:?out dir}")
@@ -45,23 +42,20 @@ if [[ "${3:-}" == aa ]]; then flags=(--aa); elif [[ -n "${3:-}" ]]; then echo "t
 python="${HPCAGENT_BENCH_PYTHON:-python3}"
 
 if [[ -z "${GANG_NODES:-}" ]]; then
-    # A task binds itself to one GPU (SLURM_LOCALID) and its cpuset's cores.
-    if [[ -z "${JUDGE_EDF:-}" ]]; then
-        srun --mem=0 "${python}" -m hpcagent_bench job grade-under "${worklist}" --out-dir "${out}" "${flags[@]}"
-        exit
-    fi
-    # Container-engine site: every task in the judge image (JUDGE_EDF) with this checkout mounted, carrying what
-    # the container's sanitised environment drops (SCRATCH holds the run root the worklist's paths live under).
+    # One step per shard (job_step.sh's run_job_shards): a shard that dies (an out-of-memory submission) cancels no
+    # other, and a resubmit regrades only what is missing from each shard DB. A shard binds itself to its GPU slot
+    # and its cores.
     repo=${HPCAGENT_BENCH_REPO:-$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel)}
-    . "${repo}/hpcagent_bench/cluster/env.sh"
-    . "${repo}/hpcagent_bench/cluster/container_runtime.sh"
-    mkdir -p "${out}"
-    edf="${out}/judge-${SLURM_JOB_ID}.edf.toml"
-    edf_with_checkout "${JUDGE_EDF}" "${repo}" "${edf}" || exit 2
-    trap 'rm -f "${edf}"' EXIT
-    srun --mem=0 --environment="${edf}" env SCRATCH="${SCRATCH:-}" HPCAGENT_BENCH_REPO="${repo}" \
-        bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m hpcagent_bench job grade-under "$@"' _ \
-        "${worklist}" --out-dir "${out}" "${flags[@]}"
+    . "${repo}/hpcagent_bench/cluster/job_step.sh"
+    JOB_STEP_PYTHON="${python}"
+    if [[ -n "${JUDGE_EDF:-}" ]]; then
+        # Container-engine site: every shard in the judge image (JUDGE_EDF) with this checkout mounted, carrying what
+        # the container's sanitised environment drops (SCRATCH holds the run root the worklist's paths live under).
+        . "${repo}/hpcagent_bench/cluster/env.sh"
+        job_step_judge_edf "${out}/judge-${SLURM_JOB_ID}.edf.toml" || exit 2
+        JOB_STEP_ENV=(SCRATCH="${SCRATCH:-}" HPCAGENT_BENCH_REPO="${repo}")
+    fi
+    run_job_shards grade-under "${worklist}" --out-dir "${out}" "${flags[@]}"
     exit
 fi
 

@@ -9,13 +9,14 @@ step for step, and the reference implements one of them. The usual permission --
 produces the same numbers -- is narrower here than anywhere else in the corpus, and that narrowing
 is the subject of this page.
 
-Read the kernel's test in `tests/ports/<kernel>/` before optimizing. These kernels are graded on a
-PROPERTY as well as an output, and the test names that property in assertions. A rewrite that
-returns plausible numbers while losing the property is the exact failure the tests exist to catch.
+Your rewrite is graded on its outputs, against the reference, on every timed and held-out input.
+For these kernels that agreement rests on a PROPERTY of the route the reference takes (section 8
+lists them per family). A rewrite that returns plausible numbers while losing the property computes
+a different answer, and no tuning brings it back to the reference's.
 
 ## 1. Classify the operator before touching a loop
 
-Every later decision follows from four questions the manifest and the initializer already answer.
+Every later decision follows from four questions the reference module and its input initializer already answer.
 
 - **Symmetric and positive definite?** Then a conjugate-gradient recurrence is legal and the
   preconditioner must preserve symmetry and definiteness. An unsymmetric preconditioner paired with
@@ -92,12 +93,13 @@ Greedy graph traversals, sequential in node order. A parallel aggregation produc
 aggregates and therefore a different coarse operator -- still a valid hierarchy, not this one. The
 same holds for a fill-reducing ordering and for supernode detection.
 
-This is why such kernels are graded on the SHAPE of what they build (level sizes, nonzero counts,
-operator complexity, coarsening ratios) and never on the coarse operator's entries. If a change
-alters which aggregates form, it must be defended on complexity and convergence, not on agreement.
+This is why such a hierarchy is characterized by the SHAPE of what it builds (level sizes, nonzero
+counts, operator complexity, coarsening ratios), not by the coarse operator's entries. A change that
+alters which aggregates form builds a different hierarchy, and the outputs it feeds stop matching
+the reference's.
 
-A symbolic phase does no floating-point work at all. It belongs outside the timed region and is
-graded separately.
+A symbolic phase does no floating-point work at all. Where the reference ships it as its own entry
+point, it stays one.
 
 ### Nested time, Newton and order loops
 
@@ -211,9 +213,11 @@ scale factor toward zero, flooring every real dimension.
   history that falls linearly means the Jacobian is wrong -- most often a badly scaled
   finite-difference step -- and such a solver still converges and still passes a naive test.
 
-## 8. What the acceptance tests actually assert
+## 8. What a correct rewrite must preserve
 
-Beyond output agreement, the gates in this subtrack check, per family:
+The judge compares outputs; it does not run these checks on your submission. They are the
+properties the references were validated on, per family, and losing one is how a rewrite ends up
+disagreeing with the reference:
 
 - the iteration ratio a preconditioner must buy against an unpreconditioned solve, with a weaker
   preconditioner carried alongside as the control that says the input distribution is right;
@@ -229,7 +233,8 @@ Beyond output agreement, the gates in this subtrack check, per family:
 - that a fill-reducing ordering beats the natural one by a growing margin, and that the dense blocks
   reached are large enough to matter.
 
-Several of these compare two problem SIZES inside one test, which no single preset can express.
+Several of these only show across two problem SIZES, so one input that happens to agree does not
+prove the property held.
 
 ## 9. Failure catalogue
 
@@ -242,7 +247,7 @@ Things that look like optimizations and are not:
 - computing a refinement residual in the working precision instead of the declared one;
 - skipping coarse levels because they hold little work;
 - refactoring an operator inside the loop that was meant to reuse one factorization;
-- raising a tolerance, lowering an iteration cap, or shrinking a problem until a gate passes;
+- raising a tolerance, lowering an iteration cap, or shrinking a problem until the outputs pass;
 - replacing the algorithm with a library call.
 
 That last one deserves its own sentence. The algorithm IS the benchmark. A call into a dense or

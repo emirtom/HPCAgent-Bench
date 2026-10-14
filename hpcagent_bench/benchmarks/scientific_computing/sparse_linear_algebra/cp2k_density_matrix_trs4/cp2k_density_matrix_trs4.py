@@ -12,6 +12,8 @@ from collections.abc import Callable
 
 import numpy as np
 
+from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+
 STATE_SIZE = 10
 
 #: HOMO-LUMO gap opened between orbital ``nelectron - 1`` and ``nelectron``, in the same units as
@@ -48,8 +50,10 @@ def initialize(
     spin_scale,
     seed,
     datatype=np.float64,
+    perturbation: Perturbation | None = None,
 ):
     """Create deterministic fixed-pattern blocked-CSR TRS4 inputs."""
+    seed = resolve(perturbation).reseed(seed)
 
     if int(n_block_rows) < 4:
         raise ValueError("n_block_rows must be at least 4")

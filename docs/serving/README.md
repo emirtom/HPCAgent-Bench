@@ -54,10 +54,10 @@ followed by a ready-to-paste `curl`. The job output is `serve-only-<jobid>.out`;
 `$SCRATCH/inference-server/<jobid>/server-<rank>.log`, and `serve.env` there is the merged env that
 actually ran.
 
-**Runtime caveat.** `serve-only.sbatch` launches the registered EDF as is. A single-node server
-(qwen38, oss120b) can fail building its tensor-parallel group with `Failed to initialize any NET
-plugin` when the EDF forces the fabric plugin; the experiment launcher switches the hooks off for a
-single-node server (one inference node, or `INFERENCE_MODE=replicas`), see [`experiments/README.md`](../../experiments/README.md#container-runtimes).
+`serve-only.sbatch` launches the inference role's derived EDF, as an experiment does: a single-node or replica
+server (one inference node, or `INFERENCE_MODE=replicas`) runs without the cxi / aws-ofi-nccl hooks and the forced
+`NCCL_NET`, with which its tensor-parallel group fails at init (`Failed to initialize any NET plugin`); a
+pipeline-parallel server keeps them. See [`experiments/README.md`](../../experiments/README.md#container-runtimes).
 
 ## 2. Images (EDFs)
 

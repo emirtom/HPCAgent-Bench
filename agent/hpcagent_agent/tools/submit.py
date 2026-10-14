@@ -34,11 +34,13 @@ from hpcagent_agent.tools import http_json
 __all__ = [
     "DESCRIPTION",
     "INPUT_SCHEMA",
+    "JUDGE_FAULT",
     "JUDGE_UNREACHABLE",
     "PROMPT",
     "SINGLE_SUBMISSION",
     "SPENT_AT_JUDGE",
     "SPENT_MARKER",
+    "judge_failed",
     "judge_never_reached",
     "request_refused",
     "run",
@@ -115,10 +117,31 @@ def judge_never_reached(result: dict[str, Any]) -> bool:
     return isinstance(detail, dict) and detail.get("cause") == JUDGE_UNREACHABLE
 
 
+#: The ``cause`` of a 500 the judge answers for its own failure before recording any grade
+#: (``hpcagent_bench.harness.service.JUDGE_FAULT_CAUSE``).
+JUDGE_FAULT = "judge_fault"
+
+
+def judge_failed(result: dict[str, Any]) -> bool:
+    """Whether the judge answered with a 500 naming its own failure: nothing was recorded, so a retry is
+    allowed, as for a verdict's ``judge_fault``."""
+    body = result.get("body")
+    return (
+        result.get("status") == HTTPStatus.INTERNAL_SERVER_ERROR
+        and isinstance(body, dict)
+        and body.get("cause") == JUDGE_FAULT
+    )
+
+
 def spends_submission(result: dict[str, Any]) -> bool:
     """Whether the judge's answer ``result`` uses up the one submission (writes the marker). A verdict the
     judge marks ``judge_fault`` is its own failure, recorded as one, and spends nothing there either."""
-    graded_nothing = request_refused(result) or judge_never_reached(result) or result.get("judge_fault") is True
+    graded_nothing = (
+        request_refused(result)
+        or judge_never_reached(result)
+        or judge_failed(result)
+        or result.get("judge_fault") is True
+    )
     return spent_at_judge(result) or not graded_nothing
 
 

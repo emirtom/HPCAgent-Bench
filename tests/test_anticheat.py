@@ -211,6 +211,23 @@ def test_a_memory_error_rejects_and_undefined_behaviour_flags(monkeypatch: pytes
     assert judgement.suspect
 
 
+def test_a_sanitizer_leg_that_did_not_run_is_disclosed_and_credits_as_it_was(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """docs/anti_cheat.md Sec. 12: a leg that cannot build or start is recorded as not applied and never
+    rejects -- the row says the memory gate did not run, so a skipped gate is never read as a clean one."""
+    from hpcagent_bench.harness import recording
+    from hpcagent_bench.harness.sanitizers import SanitizerVerdict
+
+    skipped = Reruns(monkeypatch, sanitized=SanitizerVerdict(False, note="gcc ships no sanitizer runtime"))
+    judgement = skipped.judge()
+    assert (judgement.ok, judgement.suspect, judgement.reason) == (True, False, "")
+    assert judgement.notes == "sanitizers: not applied: gcc ships no sanitizer runtime"
+    assert "not applied" in recording.graded_detail(graded(), judgement)
+    clean = Reruns(monkeypatch, sanitized=SanitizerVerdict(True)).judge()
+    assert (clean.findings, clean.notes) == ((), "")
+
+
 def test_an_expensive_gate_runs_only_when_the_setup_opts_in(monkeypatch: pytest.MonkeyPatch) -> None:
     gate = ANTICHEAT.entries["sanitizers"]
     monkeypatch.setitem(ANTICHEAT.entries, "sanitizers", dataclasses.replace(gate, expensive=True))

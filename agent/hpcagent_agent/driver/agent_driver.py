@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Generator, Mapping, Sequence
@@ -53,11 +54,8 @@ __all__ = [
     "BLANK_RUN",
     "CANCELLED_MARKER",
     "CLAUDE_BACKGROUND_TASKS_OFF",
-    "CLAUDE_CONTEXT_CAP",
     "CLAUDE_NATIVE_TOOLS",
-    "CLAUDE_REPLY_FRACTION_DENOMINATOR",
     "CLAUDE_SUMMARY_RESERVE",
-    "CLAUDE_TURN_HEADROOM_FRACTION",
     "CLEAN_ENDS",
     "CONTEXT_OVERFLOW_MARK",
     "COST_KEYS",
@@ -81,8 +79,10 @@ __all__ = [
     "OFFLOAD_LANGUAGES",
     "PROBE_MAX_TOKENS",
     "PROBE_PROMPT",
+    "RC_AGENT_FAULT",
     "RC_API_TIMEOUT",
     "RC_CONTEXT",
+    "RC_MCP_UNAVAILABLE",
     "RC_SUBMITTED",
     "RC_TIMEOUT",
     "RC_TOKEN_BUDGET",
@@ -101,6 +101,7 @@ __all__ = [
     "TOKEN_DIR_NAME",
     "TOKEN_FOLD",
     "TOKEN_POLL_SECONDS",
+    "UNREMINDED_PAGES",
     "AgentState",
     "AggregateState",
     "McpUnavailable",
@@ -110,10 +111,12 @@ __all__ = [
     "accumulate_total_tokens",
     "acquire_start_slot",
     "agent_cpus",
+    "agent_returncode",
     "agent_environment",
     "agent_runtime",
     "agent_tools",
     "aggregate_intervals",
+    "agent_returncode",
     "aggregate_probe_seconds",
     "allocate_agent_folder",
     "api_timeout",
@@ -143,7 +146,6 @@ __all__ = [
     "cost_breakdown",
     "cost_record_fields",
     "counter_notes",
-    "crashed",
     "crashed_attempt_records",
     "dead_stream_threshold_seconds",
     "directive_page",
@@ -211,7 +213,6 @@ __all__ = [
     "scrape_aggregate",
     "scrape_metrics",
     "seal_argv",
-    "served_context",
     "server_root",
     "set_aside_crash",
     "shared_dir",
@@ -1106,7 +1107,7 @@ def build_command_text(problem: Problem) -> str:
     ``helpers/scripts/gen_build_fragments.py``, and ``materialize_shared.sh`` regenerates them into the
     shared folder at launch, so the copy an agent reads was composed on the experiment's own node.
 
-    ``AGENT_BUILD_FILE`` pins one file (same override shape as AGENT_HINTS_FILE). Otherwise the LANGUAGE picks the fragment: the launch-fresh
+    ``AGENT_BUILD_FILE`` pins one file (same override shape as AGENT_PROMPT_FILE). Otherwise the LANGUAGE picks the fragment: the launch-fresh
     ``<shared>/build-<language>.md`` when materialize_shared wrote one, else the baked runtime,
     else this checkout -- the same runtime fallback the prompt template and
     :func:`mode_sections` use. A mixed-language setup cannot name one file in its .env, so
@@ -1181,8 +1182,7 @@ def build_list_status_text() -> str:
 
 #: A prompt slot the submission mode fills: ``{{MODE:<section>}}``, one per ``@@section <section>@@`` of the
 #: mode's template (``agent/submission-<mode>.md``).
-MODE_SLOT = re.compile(r"\{\{MODE:([a-z_]+)\}\}")
-MODE_SECTION = re.compile(r"^@@section ([a-z_]+)@@\n", re.MULTILINE)
+MODE_SLOT = submission_mode.SLOT
 
 
 def mode_sections(mode: submission_mode.SubmissionMode | None = None) -> dict[str, str]:
@@ -1190,20 +1190,12 @@ def mode_sections(mode: submission_mode.SubmissionMode | None = None) -> dict[st
     launch staged one, else the agent payload's."""
     mode = submission_mode.current() if mode is None else mode
     staged = resolve_shared_file(mode.template)
-    path = staged if staged.is_file() else agent_runtime() / mode.template
-    parts = MODE_SECTION.split(path.read_text(encoding="utf-8"))
-    if parts[0].strip():
-        raise SystemExit(f"{path}: text before the first @@section line")
-    return {name: body.strip("\n") for name, body in zip(parts[1::2], parts[2::2], strict=True)}
+    return submission_mode.template_sections(staged if staged.is_file() else agent_runtime() / mode.template)
 
 
 def fill_mode_slots(prompt: str) -> str:
     """``prompt`` with every ``{{MODE:<section>}}`` slot filled; a slot the mode's template lacks stops the launch."""
-    sections = mode_sections()
-    missing = sorted({name for name in MODE_SLOT.findall(prompt) if name not in sections})
-    if missing:
-        raise SystemExit(f"{submission_mode.current().template} has no section for the prompt slots {missing}")
-    return MODE_SLOT.sub(lambda match: sections[match.group(1)], prompt)
+    return submission_mode.fill_slots(prompt, mode_sections(), submission_mode.current().template)
 
 
 def resolve_shared_file(path: str) -> pathlib.Path:
@@ -1339,6 +1331,11 @@ RC_TOKEN_BUDGET = 125
 RC_CONTEXT = 126
 RC_API_TIMEOUT = 127
 RC_SUBMITTED = 123
+#: The agent never ran: its MCP server did not connect in AGENT_MCP_ATTEMPTS tries (:class:`McpUnavailable`).
+#: An infrastructure failure, recorded per agent so it costs the node nothing but this one episode.
+RC_MCP_UNAVAILABLE = 122
+#: An agent thread raised something the driver has no rc for; the node goes on with the others.
+RC_AGENT_FAULT = 1
 #: Episode ends that are results, not faults. An API timeout still counts as a failure.
 CLEAN_ENDS = frozenset({0, RC_SUBMITTED, RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT})
 
@@ -1394,6 +1391,10 @@ SKILL_PAGE_PATH = re.compile(r"(/(?:\S*/)?skills/([A-Za-z0-9._-]+)\.md)")
 #: The page the `cpf-tool` packet ships alone, promoted in the closing reminder like a language
 #: page so that setup is not promoted less than the one it is compared against.
 CPF_PAGE = "cpf-tool"
+#: Pages a setup without a language or CPF page ships that the closing reminder still does NOT name.
+#: ``cpf-src`` is a CPF paper arm that ran without a pointer; giving it one changes that arm's prompt
+#: mid-study, which is the user's call, not this file's.
+UNREMINDED_PAGES = frozenset({"cpf-src"})
 
 
 #: Languages whose directives on a GPU setup are OpenMP target offload rather than host OpenMP.
@@ -1422,7 +1423,7 @@ def directive_page(names: list[str], language: str, device: str) -> str:
     return own_page(names, "openmp-", language)
 
 
-def skill_reminder(task_text: str, language: str, device: str = "cpu") -> str:
+def skill_reminder(task_text: str, language: str, device: str = "cpu", harness: str = harnesses.CLAUDE) -> str:
     """A closing line naming the page FILES, or "" when the setup ships none.
 
     Names the PATH, not the page: the pages are staged on disk and opened with Read, so a name the
@@ -1453,7 +1454,12 @@ def skill_reminder(task_text: str, language: str, device: str = "cpu") -> str:
     # carries no lang- page. It must be promoted exactly as much as the lang-skills setup it is
     # compared against.
     cpf_page = CPF_PAGE if CPF_PAGE in paths else ""
-    if not lang_page and not cpf_page:
+    # A setup with neither ships its treatment as the pages themselves (solver, rccl,
+    # divide-and-conquer, caveman, distributed-amd): without a pointer of their own they reach the
+    # agent only as a conditional trigger thousands of tokens back -- the 17-29% uptake above -- and
+    # the setup is promoted less than lang-skills and cpf-tool are.
+    treatment_pages = [] if lang_page or cpf_page else [name for name in names if name not in UNREMINDED_PAGES]
+    if not lang_page and not cpf_page and not treatment_pages:
         return ""
     # Python is DELIVERED, not compiled -- the judge imports the module and calls it -- so the
     # compiled promise ("the mistakes that fail the build") describes a step this setup does not have.
@@ -1480,7 +1486,14 @@ def skill_reminder(task_text: str, language: str, device: str = "cpu") -> str:
             f"(`{paths[cpf_page]}` explains its answer) -- it returns a parallelized form of THIS kernel whose "
             "loop verdicts you trust, and it is the starting point, not background reading."
         )
-    parts.append("Open them with Read; they are files on disk, not text in this prompt.")
+    if treatment_pages:
+        named = ", ".join(f"`{paths[name]}`" for name in treatment_pages)
+        subject = "it is the page" if len(treatment_pages) == 1 else "they are the pages"
+        parts.append(
+            f"IMPORTANT: before you optimize, read {named} -- {subject} this setup ships for this task, "
+            "not background reading."
+        )
+    parts.append(f"{harnesses.page_opening(harness, 'them')}; they are files on disk, not text in this prompt.")
     return " ".join(parts)
 
 
@@ -2109,19 +2122,15 @@ def start_runner(
     return process
 
 
-def crashed(returncode: int, log_path: pathlib.Path) -> bool:
-    """True when the agent died on a fault rather than on a budget it was given.
+def closing_crashed(returncode: int, closing: Closing) -> bool:
+    """True when the agent died on a fault rather than on a budget it was given, read off the record
+    the attempt closed with (``harness.closing``; claude's is :func:`transcript_closing`).
 
     Our own caps are excluded by code: they mean the agent ran to the end of what it was allowed,
-    which is a result, not a failure. Everything else is a fault only if the transcript ALSO has no
-    closing result event -- a nonzero exit after the CLI reported a result is the CLI's own verdict
-    on the run, and relaunching would overwrite it.
+    which is a result, not a failure. Everything else is a fault only if the attempt ALSO left no
+    closing record -- a nonzero exit after the CLI reported a result is the CLI's own verdict on the
+    run, and relaunching would overwrite it.
     """
-    return closing_crashed(returncode, transcript_closing(log_path))
-
-
-def closing_crashed(returncode: int, closing: Closing) -> bool:
-    """:func:`crashed` for any harness, read off the record the attempt closed with."""
     if returncode in (RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT, RC_SUBMITTED):
         return False
     # A client-side request timeout is the ONE fault the CLI reports as a result, so the rule below
@@ -2542,31 +2551,19 @@ def claude_command(context: Context) -> list[str]:
     ]
 
 
-#: The context an agent may fill is min(served window, this), for every model -- a 1M-token service
-#: included.
-CLAUDE_CONTEXT_CAP = 262144
-
-#: The reply reserve is at most this fraction of the window: 32768 at 262144, 16384 at 131072, where
-#: GPT-OSS's replies peak at 9.4k (p99 5.6k over 487 requests). The server reserves max_tokens on
-#: EVERY request, so a smaller reserve is window handed back to the transcript.
-CLAUDE_REPLY_FRACTION_DENOMINATOR = 8
-
-#: Room for ONE turn between the last compaction check that passes and the compaction request after
-#: it, as a fraction of the window. That request re-sends the transcript with a ~1.3k summary prompt
-#: and reserves a full reply; when it overflows, 2.1.197 sends the main request anyway and dies on the
-#: same 400 (stub-measured). Per-turn prompt growth over 1583 requests of 28 llr40 transcripts:
-#: p99 11.5k, p99.9 30.0k, max 32.6k -- and 2.1.197 leaves the newest turn out of the compaction
-#: request (it is kept verbatim after the summary), so that request is the previous one plus ~2k.
-CLAUDE_TURN_HEADROOM_FRACTION = 0.12
+#: The window, the reply reserve and the compaction trigger are :func:`harnesses.context_policy`'s, the
+#: one policy every harness gets. Its reply fraction caps the reserve at 32768 at 262144 and 16384 at
+#: 131072, where GPT-OSS's replies peak at 9.4k (p99 5.6k over 487 requests): the server reserves
+#: max_tokens on EVERY request, so a smaller reserve is window handed back to the transcript. Its turn
+#: headroom is room for ONE turn between the last compaction check that passes and the compaction
+#: request after it: that request re-sends the transcript with a ~1.3k summary prompt and reserves a
+#: full reply, and when it overflows 2.1.197 sends the main request anyway and dies on the same 400
+#: (stub-measured). Per-turn prompt growth over 1583 requests of 28 llr40 transcripts: p99 11.5k,
+#: p99.9 30.0k, max 32.6k -- and 2.1.197 leaves the newest turn out of the compaction request (it is
+#: kept verbatim after the summary), so that request is the previous one plus ~2k.
 
 #: claude-code 2.1.197 compacts at floor(E * pct / 100), E = window - min(max output, this).
 CLAUDE_SUMMARY_RESERVE = 20000
-
-
-def served_context(environment: Mapping[str, str]) -> int:
-    """The window the engine enforces; ``harnesses.served_context`` is the one implementation (its
-    policy cap equals :data:`CLAUDE_CONTEXT_CAP`)."""
-    return harnesses.served_context(environment)
 
 
 def claude_context_env(environment: Mapping[str, str]) -> dict[str, str]:
@@ -2582,13 +2579,7 @@ def claude_context_env(environment: Mapping[str, str]) -> dict[str, str]:
     its 100000 floor (131072 served). The reply reserve is exported as CLAUDE_CODE_MAX_OUTPUT_TOKENS,
     so it is also the max_tokens every request asks the server to hold free.
     """
-    limit = min(served_context(environment), CLAUDE_CONTEXT_CAP)
-    configured = (
-        harnesses.positive_int(environment.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS", ""))
-        or harnesses.DEFAULT_MAX_OUTPUT_TOKENS
-    )
-    reply = min(configured, limit // CLAUDE_REPLY_FRACTION_DENOMINATOR)
-    threshold = limit - reply - round(CLAUDE_TURN_HEADROOM_FRACTION * limit)
+    limit, reply, threshold = harnesses.context_policy(environment)
     effective = limit - min(reply, CLAUDE_SUMMARY_RESERVE)
     # Truncated to the 4 decimals written out, so the CLI's floor(effective * pct / 100) never
     # lands above the threshold.
@@ -2692,7 +2683,10 @@ def render_prompt(problem: Problem, runtime: pathlib.Path, shared_note: str) -> 
             task,
             shared_note,
             skill_reminder(
-                task, str(problem.get("language") or ""), os.environ.get("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
+                task,
+                str(problem.get("language") or ""),
+                os.environ.get("HPCAGENT_BENCH_RECORD_DEVICE", "cpu"),
+                harnesses.selected_harness(),
             ),
         )
         if part
@@ -2886,6 +2880,8 @@ def ended_reason(returncode: int, timeout_s: float, max_tokens: int, tokens: int
         return " died=context"
     if returncode == RC_API_TIMEOUT:
         return " died=api_timeout"
+    if returncode == RC_MCP_UNAVAILABLE:
+        return " died=mcp_unavailable"
     return ""
 
 
@@ -3071,23 +3067,43 @@ def run_agent(
         # attempt 2 attempt 1's init verdict. The previous attempt is preserved by moving it aside
         # below instead, which keeps the evidence without breaking that assumption.
         with log_path.open("w", encoding="utf-8") as log:
+            process: subprocess.Popen[bytes] | None = None
             if harness.mcp_gate:
-                process, mcp_attempts = start_agent(command, agent_dir, environment, log, log_path, cpus)
+                try:
+                    process, mcp_attempts = start_agent(command, agent_dir, environment, log, log_path, cpus)
+                except McpUnavailable:
+                    # The agent never ran, and start_agent wrote why into the log. Recorded like any
+                    # other end -- ledger line, tokens.json, summary line -- never raised into main(),
+                    # where it ended the whole node and left this episode with no cost record.
+                    mcp_attempts = AGENT_MCP_ATTEMPTS
             else:
                 process = start_runner(command, agent_dir, environment, log, cpus)
-            watchers = start_watchers(
-                process, harness, (tokens_path, marker, log_path), max_tokens, dead_stream_threshold, state
-            )
-            returncode = wait_for_agent(process, deadline, log, timeout_s)
-            for watcher in watchers:
-                watcher.join(timeout=TOKEN_POLL_SECONDS * 4)
-            returncode = watched_returncode(returncode, state, marker, log, max_tokens, dead_stream_threshold)
-            spent = deadline and time.monotonic() >= deadline
-            attempt_crashed = closing_crashed(returncode, harness.closing(workdir))
-            relaunching = bool(attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent)
-            note_relaunch(
-                log, returncode, crash_attempts, out_of_clock=bool(spent and attempt_crashed), relaunching=relaunching
-            )
+            if process is None:
+                returncode, attempt_crashed, relaunching = RC_MCP_UNAVAILABLE, False, False
+            else:
+                watchers = start_watchers(
+                    process, harness, (tokens_path, marker, log_path), max_tokens, dead_stream_threshold, state
+                )
+                returncode = wait_for_agent(process, deadline, log, timeout_s)
+                for watcher in watchers:
+                    watcher.join(timeout=TOKEN_POLL_SECONDS * 4)
+                returncode = watched_returncode(returncode, state, marker, log, max_tokens, dead_stream_threshold)
+                spent = deadline and time.monotonic() >= deadline
+                attempt_crashed = closing_crashed(returncode, harness.closing(workdir))
+                if attempt_crashed and spent_its_submission(workdir):
+                    # It submitted and died inside one watcher poll, so the watcher never saw the
+                    # marker. A relaunch keeps the marker and is killed as RC_SUBMITTED at its first
+                    # poll, and its later start would become the X7 cut that drops the real grade.
+                    log.write("\nagent_driver: ended after its single submission (exited before the watcher saw it)\n")
+                    returncode, attempt_crashed = RC_SUBMITTED, False
+                relaunching = bool(attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent)
+                note_relaunch(
+                    log,
+                    returncode,
+                    crash_attempts,
+                    out_of_clock=bool(spent and attempt_crashed),
+                    relaunching=relaunching,
+                )
         # The ledger line goes down with the log closed, so what it reports about this attempt is
         # what the next reader of the directory finds -- including when the wipe below runs.
         append_attempt(attempts_path, crash_attempts, attempt_start_ms, returncode, attempt_crashed, relaunching)
@@ -3394,7 +3410,7 @@ def main() -> int:
             ): problem
             for worker_index, (problem_index, problem) in enumerate(local_problems)
         }
-        rcs.extend(future.result() for future in concurrent.futures.as_completed(futures))
+        rcs.extend(agent_returncode(future, futures[future]) for future in concurrent.futures.as_completed(futures))
 
     if sampler is not None:
         stop_sampling.set()
@@ -3406,6 +3422,21 @@ def main() -> int:
     failures = sum(rc not in CLEAN_ENDS for rc in rcs)
     print(f"node {node}: {failures}/{len(rcs)} agents failed (rcs {sorted(set(rcs))})", flush=True)
     return node_exit_status(rcs)
+
+
+def agent_returncode(future: concurrent.futures.Future[int], problem: Problem) -> int:
+    """One agent thread's rc; :data:`RC_AGENT_FAULT` when the thread raised instead of returning one.
+
+    ``future.result()`` re-raises in the main thread, so one agent's exception ended main() with a
+    traceback: no per-node summary, no throughput report, and node_exit_status never applied -- the
+    node exited 1 for a failure its docstring says must not cancel every service.
+    """
+    try:
+        return future.result()
+    except Exception:  # noqa: BLE001 -- one agent's fault is that agent's result, not the node's
+        traceback.print_exc()
+        print(f"problem={problem.get('id')} agent raised; recorded rc={RC_AGENT_FAULT}", file=sys.stderr, flush=True)
+        return RC_AGENT_FAULT
 
 
 def node_exit_status(rcs: Sequence[int]) -> int:

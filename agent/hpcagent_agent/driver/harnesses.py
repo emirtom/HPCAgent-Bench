@@ -42,6 +42,7 @@ __all__ = [
     "HARNESSES",
     "HARNESS_INTERPRETER",
     "OPENHANDS_RUNGS",
+    "PAGE_READER",
     "REPLY_FRACTION_DENOMINATOR",
     "REQUEST_TIMEOUT_ENV",
     "RUNNERS",
@@ -66,6 +67,7 @@ __all__ = [
     "openai_args",
     "openhands_command",
     "openhands_env",
+    "page_opening",
     "positive_int",
     "reasoning_effort",
     "request_timeout_args",
@@ -79,6 +81,10 @@ __all__ = [
 
 CLAUDE = "claude"
 
+#: The tool each harness opens a staged skill page with, by name. Only claude has a tool called Read;
+#: mini-SWE's one tool is the shell and OpenHands has its own editor, so a runner is named no tool.
+PAGE_READER = {CLAUDE: "Read"}
+
 USAGE_FILE = "usage.jsonl"
 END_FILE = "harness-end.json"
 
@@ -88,6 +94,13 @@ CONSUMED_FIELDS = ("input", "cached_input", "output", "reasoning")
 #: Environment only the claude CLI reads. A runner inheriting the base URL would be told the
 #: server root where it needs the ``/v1`` path, and the log path names a transcript it never writes.
 CLAUDE_ONLY_ENV = ("ANTHROPIC_BASE_URL", "CLAUDE_LOG_PATH")
+
+
+def page_opening(harness: str, subject: str) -> str:
+    """``Open <subject> with Read`` for claude, ``Open <subject>`` for a harness with no Read tool: the
+    prompt must not name a tool the agent does not have (``tools-cli.md``: "there are no file tools")."""
+    reader = PAGE_READER.get(harness, "")
+    return f"Open {subject} with {reader}" if reader else f"Open {subject}"
 
 
 def selected_harness() -> str:
@@ -231,8 +244,7 @@ def positive_int(raw: str) -> int | None:
 #: agent may fill is L = min(served window, CONTEXT_CAP); the reply reserve is R = min(reply cap,
 #: L // 8); history is compacted once the prompt passes T = L - R - round(0.12 * L), which leaves
 #: the reply and one turn of growth under L (197919 at 262144, 98959 at 131072).
-#: agent_driver.claude_context_env applies the same numbers to claude through the CLI's own variables;
-#: tests/test_harness_context_policy.py holds the two equal on every committed setup.
+#: agent_driver.claude_context_env applies these numbers to claude through the CLI's own variables.
 CONTEXT_CAP = 262144
 REPLY_FRACTION_DENOMINATOR = 8
 TURN_HEADROOM_FRACTION = 0.12
