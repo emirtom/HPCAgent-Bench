@@ -31,8 +31,8 @@ per-setup switch. Code default: on. Experiment default: off (`experiments/layers
 
 - **Off:** `split_build` drops the whole `build` list (so `build_link_refusal` steps aside),
   `sandbox.catalog_refusal` refuses every `startup.load` name, and neither prompt mentions libraries.
-  Exception: with `mpi.grade_distributed` on, `mpi` and `rccl` stay honoured
-  (`sandbox.DISTRIBUTED_CONTRACT_LIBRARIES`).
+  Exception: with `mpi.grade_distributed` on, the names of `grading.distributed_libraries` (`mpi`, `rccl`)
+  stay honoured (`sandbox.distributed_contract_libraries`).
 - **On:** both paths work and the prompt lists the catalog and the shared-folder workflow.
 
 Both prompt systems read the same key as the grader: `harness/prompts/sections/resources.j2`, and

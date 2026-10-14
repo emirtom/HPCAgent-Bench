@@ -90,7 +90,7 @@ Further conventions:
   `model_name`, `packet_name`, `framework_name`), never literals. Serving details (`sglang`, `-FP8`)
   stay out of names.
 - **Baseline is a property of the data**: `population.one_denominator` reads the column the judge
-  stamped and refuses a mix; `DEFAULT_BASELINE` (`numba`) is only the fallback.
+  stamped and refuses a mix, and a slice that records none.
 - **Costs.** A kernel's tokens come from its episode row (`population.kernel_tokens`), priced with the
   `billed` card unless `--cost-model` names another (`stats.cost.add_arguments`). A summary over
   kernels is the geometric mean, never a median, and never over episodes in a cell.

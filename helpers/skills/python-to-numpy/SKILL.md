@@ -353,8 +353,8 @@ Two SC-specific facts:
 
 - **No torch model behind it**, so rung 1b does not exist. Equivalence against the pre-port version
   is your ONLY functional check, which makes exactness matter more, not less.
-- **These kernels are GATED.** The KernelBench subtrack is excluded from `test_e2e_numerical`
-  (`UNGATED_SUBTRACKS`); `scientific_computing` is not. A break here is a CI red, not a quiet
+- **These kernels are GATED.** The `kernelbench` tag is excluded from `test_e2e_numerical`
+  (`UNGATED_TAGS`); `scientific_computing` is not. A break here is a CI red, not a quiet
   corpus regression.
 
 ## Landmines worth knowing before you hit them

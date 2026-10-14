@@ -53,7 +53,7 @@ timed shapes take the upper half, `[0.75, 1.0] x XL`.
 | route | inputs | runs/side | reduction | stamp |
 |---|---|---|---|---|
 | `/submit`, which is its own final grade; `grade-under` for the rest | 4 (`mw4x5`, the credited protocol) | 5, after `measurement.warmup` = 1 | Mann-Whitney, alpha = 0.1 | `mw4x5`, rule `mw4x5` |
-| `/score`, the preview of the final grade | 2, drawn from `seeds.secret_first` | 5, after 1 warmup | Mann-Whitney, alpha = 0.1 | `mw2x5`, a `score` call row, never a `final` row |
+| `/score`, the preview of the final grade | 2, drawn from `hidden_seeds.secret_seed_first` | 5, after 1 warmup | Mann-Whitney, alpha = 0.1 | `mw2x5`, a `score` call row, never a `final` row |
 | `/score` of a distributed (MPI / ML-scaling) task | 1 | `measurement.local_repeat` = 5 | median of 5 (`timing.LOCAL_BACKEND = median_of_k`) | as `/score` |
 
 A scaling task's final grade (`grade_under.scaling_protocol_grade`) times the protocol's 4 inputs drawn in

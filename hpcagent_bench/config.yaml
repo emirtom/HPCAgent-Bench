@@ -1,10 +1,10 @@
-# hpcagent_bench global configuration, read by hpcagent_bench/config.py (docs/configuration.md).
-# Precedence per key, highest first: config.set_override / config.overridden / assignment to a config.settings()
-# field > $HPCAGENT_BENCH_<KEY> in config.scoped_environment > $HPCAGENT_BENCH_<KEY> in os.environ > this file >
-# the reader's fallback. <KEY> = the dotted key upper-cased, "." -> "_" (HPCAGENT_BENCH_SEEDS_FUZZ=7); env text is
-# parsed by config.coerce. A map read whole (timeouts.kernel_s_by_level, attempts.token_budget_by_level,
-# oracle.overrides, mpi.env) is replaced whole by a JSON object in the variable of the map's own key; variables
-# of its entries are not read.
+# hpcagent_bench global configuration, validated by the pydantic models of hpcagent_bench/config.py
+# (docs/configuration.md#benchmark-settings). This file is the only place a default is written and must name every
+# key of the models and no other. Precedence per key, highest first: config.set_override / config.overridden >
+# $HPCAGENT_BENCH_<KEY> in config.scoped_environment > $HPCAGENT_BENCH_<KEY> in os.environ > this file.
+# <KEY> = the dotted key upper-cased, "." -> "_" (HPCAGENT_BENCH_SEEDS_FUZZ=7); env text is parsed by the key's type
+# (config.parse_env). A map (timeouts.kernel_s_by_level, attempts.token_budget_by_level, oracle.overrides, mpi.env)
+# is replaced whole by a JSON object in the variable of the map's own key; its entries have no variables.
 
 seeds:
   input_dist: 0          # int. Base seed of array-value generation for framework runs (frameworks/benchmark.py).
@@ -489,7 +489,7 @@ ml:
 runtime:
   # Container backend (containers.resolve_backend): a family oci | sif | ce | native, resolved to the first
   # installed member in containers.KNOWN_BACKENDS order (oci: docker, then podman), else to its first member; or
-  # a runtime docker | podman | apptainer | ce | native. "" = podman. Also selects the Harbor --env provider
+  # a runtime docker | podman | apptainer | ce | native. Also selects the Harbor --env provider
   # (containers.harbor_env_for: docker -> docker, podman -> podman, apptainer -> singularity; ce and native have
   # none). Env: HPCAGENT_BENCH_RUNTIME_BACKEND. $HPCAGENT_BENCH_CONTAINER_RUNTIME is read only by the bash
   # launcher.
