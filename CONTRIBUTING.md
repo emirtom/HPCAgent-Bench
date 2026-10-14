@@ -158,7 +158,7 @@ A compiled C-ABI target an agent can submit in:
 
 | File | Change |
 |---|---|
-| `hpcagent_bench/envs/compilers.yaml` | a compiler block with `lang: <language>` and its compile/link templates |
+| `hpcagent_bench/envs/compilers.yaml` | a compiler block with `lang: <language>`, `install`, `cc` and its `compile` / `link` templates (validated as `languages.CompilerBlock`) |
 | `hpcagent_bench/languages.py` | one `LANG_EXT` entry; a GPU language also a `GPU_HOST_LANG` entry |
 | `hpcagent_bench/support/bindings/stubs.py` | a branch in `gen_call_stub` rendering the empty entry point |
 
