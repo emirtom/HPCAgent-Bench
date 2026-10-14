@@ -325,9 +325,6 @@ record:
   db_path: results/hpcagent_bench.db  # path. Results DB (schema harness/results_db.py SCHEMA_NAME); a file with
                                   # another schema is refused. A relative path is resolved against the repo root
                                   # (recording.base_db_path). Refused on tmpfs/ramfs unless allow_memory_db.
-  expensive_gates: []             # list[str]. Anti-cheat gates labelled expensive that this setup
-                                  # enables (hpcagent_bench/anticheat.py, docs/anti_cheat.md); every other gate
-                                  # always runs.
   # A grade whose credited speedup or baseline_ns/native_ns exceeds the bound of its residency, or is not finite,
   # is flagged `suspect`: recorded and credited 1.0 (scoring.suspect_timing).
   speedup_suspect_above_host: 2000.0    # float, ratio. Bound for host grades.

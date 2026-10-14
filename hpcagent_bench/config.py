@@ -344,7 +344,6 @@ class Record(Section):
     temperature: NonNegativeFloat
     commit: str
     db_path: str
-    expensive_gates: tuple[str, ...]
     speedup_suspect_above_host: PositiveFloat
     speedup_suspect_above_device: PositiveFloat
     physical_bandwidth_gbps_device: PositiveFloat
