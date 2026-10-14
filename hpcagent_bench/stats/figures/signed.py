@@ -21,7 +21,7 @@ import pandas as pd  # pyright: ignore[reportMissingTypeStubs] -- pandas ships n
 from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 
-from hpcagent_bench import study_tags
+from hpcagent_bench import packets, study_tags
 from hpcagent_bench.harness import denominator
 from hpcagent_bench.stats import canon, palette, population, rules, style
 from hpcagent_bench.stats.figures import per_kernel, setup_names
@@ -382,7 +382,9 @@ def kernel_rows(
     kept, dropped = population.complete_setups(frame, tag_kernels)
     if mark_pending:
         kept = [*kept, *dropped]
-    kept = [setup for setup in kept if conditions is None or candidates[setup][1] in conditions]
+    # A condition may be spelled with a packet alias (``cpf-src``); the setups carry the canonical key.
+    wanted = None if conditions is None else {packets.canonical(condition) for condition in conditions}
+    kept = [setup for setup in kept if wanted is None or candidates[setup][1] in wanted]
     treatments = sorted({candidates[setup][1] for setup in kept} - {""})
     by_model: dict[str, list[str]] = {}
     for setup in kept:
