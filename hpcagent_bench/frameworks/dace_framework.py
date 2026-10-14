@@ -69,6 +69,7 @@ __all__ = [
     "DACE_SUPPLIED_FLAGS",
     "GPU_RESIDENT_STORAGE",
     "NEW_GPU_OFFLOADING",
+    "PARALLEL_CODEGEN",
     "PARALLEL_FUSION_ROUNDS",
     "PIPELINES_BY_NAME",
     "PROBE_TIMEOUT_S",
@@ -100,6 +101,7 @@ __all__ = [
     "pipeline_canonicalize",
     "pipeline_named",
     "pipeline_parallel",
+    "pool_gpu_transients",
     "row_major_copy",
     "stage_device_arguments",
     "stage_to_device",
@@ -207,16 +209,18 @@ def pin_cpp_standard(arch: str = "cpu") -> None:
         dace.Config.set("compiler", "cpp_standard", value=std)
 
 
-#: One GPU stream: concurrent streams overlap kernels, which breaks per-kernel counter brackets and
-#: timeline attribution, and adds timing variance.
-SINGLE_STREAM = 1
+#: The default (null) stream only: ``-1`` makes every DaCe GPU stream ``nullptr`` (``0`` would mean
+#: unbounded streams, ``1`` one created stream). Concurrent streams overlap kernels, which breaks
+#: per-kernel counter brackets and timeline attribution and adds timing variance, and canon's offload
+#: assumes the default stream for its copies (``offload_to_gpu`` sets the same value).
+SINGLE_STREAM = -1
 
 #: Seconds the compiler-family probe binary may run.
 PROBE_TIMEOUT_S: int = 30
 
 
 def pin_single_stream() -> None:
-    """Serialise the GPU variant onto one stream, so a profile of it means what it looks like."""
+    """Serialise every GPU variant onto the default stream, so a profile of it means what it looks like."""
     if dace.Config.get("compiler", "cuda", "max_concurrent_streams") != SINGLE_STREAM:
         dace.Config.set("compiler", "cuda", "max_concurrent_streams", value=SINGLE_STREAM)
 
@@ -453,6 +457,29 @@ def pipeline_canonicalize(sdfg: dace.SDFG, ctx: PipelineContext) -> None:
     finalize_for_target(sdfg, target=target)
 
 
+def pool_gpu_transients(sdfg: dace.SDFG) -> int:
+    """Allocate every device transient from the stream-ordered memory pool (``MallocAsync`` /
+    ``FreeAsync``): a transient allocated per call or per state then reuses the pool's memory instead
+    of paying a device ``malloc`` and ``free`` each time. Views alias their container and are left
+    alone. Returns how many containers were marked."""
+    from dace import data as dace_data
+
+    marked = 0
+    for nested in sdfg.all_sdfgs_recursive():
+        for desc in nested.arrays.values():
+            if (
+                desc.transient
+                and not isinstance(desc, dace_data.View)
+                and isinstance(desc, dace_data.Array)  # a Scalar has no pool to draw from
+                and desc.storage == dace_dtypes.StorageType.GPU_Global
+                and desc.lifetime != dace_dtypes.AllocationLifetime.External
+                and not desc.pool
+            ):
+                desc.pool = True
+                marked += 1
+    return marked
+
+
 #: Storage classes that put the bytes in device memory (pinned host memory is still host).
 GPU_RESIDENT_STORAGE: tuple[dace_dtypes.StorageType, ...] = (
     dace_dtypes.StorageType.GPU_Global,
@@ -498,15 +525,25 @@ def enforce_gpu_residency(sdfg: dace.SDFG) -> None:
 #: structure moved to the device. Each pipeline is scored on every kernel (no search reporting a
 #: winner). ``autoopt`` is upstream's own optimizer.
 #:
-#: ``parallel`` and ``autoopt`` use the classic generators with tree reductions and the
-#: explicit-copy lift off (byte-identical to upstream); ``canon`` uses the experimental generators.
-#: Both tuples set the same keys, because ``apply_pipeline_config`` writes process-global config and
-#: an omitted key would be inherited. ``optimizer.new_gpu_offloading_pass`` is true for all.
+#: ``autoopt`` uses the classic generators with tree reductions and the explicit-copy lift off
+#: (byte-identical to upstream); ``parallel`` keeps the classic CPU generator but takes the new GPU
+#: one; ``canon`` uses the new generators on both. Every tuple sets the same keys, because
+#: ``apply_pipeline_config`` writes process-global config and an omitted key would be inherited.
+#: ``optimizer.new_gpu_offloading_pass`` is true for all.
 NEW_GPU_OFFLOADING: tuple[tuple[str, ...], bool] = (("optimizer", "new_gpu_offloading_pass"), True)
 
 CLASSIC_CODEGEN: tuple[tuple[tuple[str, ...], str | bool], ...] = (
     (("compiler", "cpu", "implementation"), "legacy"),
     (("compiler", "cuda", "implementation"), "legacy"),
+    (("compiler", "emit_tree_reductions"), False),
+    (("compiler", "cpu", "explicit_copy"), False),
+    NEW_GPU_OFFLOADING,
+)
+#: The classic CPU generator and the new GPU one: the knobs the classic CPU generator reads keep
+#: their classic values (the new GPU generator ignores them).
+PARALLEL_CODEGEN: tuple[tuple[tuple[str, ...], str | bool], ...] = (
+    (("compiler", "cpu", "implementation"), "legacy"),
+    (("compiler", "cuda", "implementation"), "experimental"),
     (("compiler", "emit_tree_reductions"), False),
     (("compiler", "cpu", "explicit_copy"), False),
     NEW_GPU_OFFLOADING,
@@ -531,8 +568,8 @@ def apply_pipeline_config(pipe: SdfgPipeline) -> None:
 
 
 DACE_PIPELINES: tuple[SdfgPipeline, ...] = (
-    SdfgPipeline("parallel_cpu", pipeline_parallel, config=CLASSIC_CODEGEN),
-    SdfgPipeline("parallel_gpu", pipeline_parallel, config=CLASSIC_CODEGEN),
+    SdfgPipeline("parallel_cpu", pipeline_parallel, config=PARALLEL_CODEGEN),
+    SdfgPipeline("parallel_gpu", pipeline_parallel, config=PARALLEL_CODEGEN),
     SdfgPipeline("canon_cpu", pipeline_canonicalize, config=READABLE_CODEGEN),
     SdfgPipeline("canon_gpu", pipeline_canonicalize, config=READABLE_CODEGEN),
     SdfgPipeline("autoopt_cpu", pipeline_auto_opt, config=CLASSIC_CODEGEN),
@@ -746,6 +783,7 @@ class DaceFramework(Framework):
                 # The residency contract, once, after every GPU pipeline.
                 if self.info["arch"] == "gpu":
                     enforce_gpu_residency(sdfg)
+                    pool_gpu_transients(sdfg)
                 produced[pipe.name] = sdfg
             except Exception as exc:  # noqa: BLE001 -- a failed pipeline is recorded and the next one tried
                 print(f"DaCe {pipe.name} pipeline failed: {exc}")
