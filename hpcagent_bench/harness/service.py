@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+import pydantic
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
@@ -382,21 +383,55 @@ def as_json_object(value: object) -> dict[str, object]:
     return {str(key): item for key, item in cast("dict[object, object]", value).items()}
 
 
+class RequestFields(pydantic.BaseModel):
+    """Every field a POST body may carry (``/submit``, ``/oracle``, ``/score``, ``/profile``, ``/requests/check``),
+    typed. A field the model does not name is refused (400); a route reads only its own."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    #: Identity and routing.
+    kernel: str | None = None
+    rank: int | None = None
+    episode_id: str | None = None
+    language: str | None = None
+    tokens: int | None = None
+    optimizer: str | None = None
+    #: The submission envelope (:class:`~hpcagent_bench.harness.envelope.Submission`).
+    source: str | None = None
+    source_file: str | None = None
+    device_source: str | None = None
+    device_source_file: str | None = None
+    library: str | None = None
+    build: list[str] | None = None
+    workspace_bytes: str | int | None = None
+    compiler: str | None = None
+    requests: dict[str, object] | None = None
+    #: ``/profile`` only.
+    tool: str | None = None
+    residency: str | None = None
+    reps: int | None = None
+    threads: int | list[int] | None = None
+    device_kernel: str | None = None
+    counters: bool | None = None
+    counter_group: str | None = None
+    per_thread: bool | None = None
+    min_percent: float | None = None
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class RequestBody:
-    """One POST body, converted once at the trust boundary: text keys, ``object`` values, read through
-    typed accessors. ``text`` tells absent from null, ``optional_text`` tells "" from absent,
-    ``text_or_none`` treats every falsy value as absent."""
+    """One POST body, validated once at the trust boundary (:class:`RequestFields`) and read through typed
+    accessors. ``fields`` holds the fields the body sent. ``text`` tells absent from null, ``optional_text``
+    tells "" from absent, ``text_or_none`` treats every falsy value as absent."""
 
     fields: dict[str, object]
 
     @classmethod
     def parse(cls, raw: bytes) -> "RequestBody":
-        """One request body; a non-object document raises ValueError (answered 400)."""
-        document: object = json.loads(raw or b"{}")
-        if not isinstance(document, dict):
-            raise ValueError(f"body must be a JSON object, got {type(document).__name__}")
-        return cls({str(key): value for key, value in cast("dict[object, object]", document).items()})
+        """One request body; a non-object document, an unknown field or a field of the wrong type raises
+        ValueError (answered 400)."""
+        model = RequestFields.model_validate_json(raw or b"{}")
+        return cls(model.model_dump(exclude_unset=True))
 
     def raw(self, field: str) -> object:
         """The field as it arrived, for readers that convert it themselves (rank, kernel key)."""
@@ -469,10 +504,7 @@ def graded_kind(route: str) -> str:
 def request_tokens(body: RequestBody) -> int:
     """The agent's cumulative token spend the body reports, 0 for a client that sends none. Only the
     agent can count it (the judge never sees the transcript)."""
-    try:
-        return int(str(body.raw("tokens") or 0))
-    except ValueError:
-        return 0
+    return body.count("tokens", 0) if body.raw("tokens") is not None else 0
 
 
 class Refusal(NamedTuple):
@@ -1703,8 +1735,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         refusal = gpu_language_refusal(language) or python_residency_refusal(requested)
         if refusal is not None:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": refusal})
-        # The run's configured size on every route, never the body's; a sent preset is ignored (not
-        # refused) so older tool schemas keep working.
+        # The run's configured size on every route; a body cannot name one (RequestFields has no preset).
         preset = self.cfg.preset
         # A client preset naming nothing is a request fault (400, not a 500 from score()). Only bare
         # presets: ``+fuzz`` modifiers set process-global overrides.
