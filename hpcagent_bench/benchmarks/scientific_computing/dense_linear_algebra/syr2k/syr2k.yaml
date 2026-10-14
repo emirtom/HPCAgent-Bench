@@ -10,12 +10,17 @@ parameters:
   M:
     M: 1700
     N: 2400
+  # XL is bounded by time, not memory: the C reference is the translated triangular update (N^2 M multiply-adds,
+  # columns of A and B read at stride M), 39 s at N=3400, M=2393 (gcc-14 -O3 -march=native, EPYC 7A53) and the
+  # parallel numba reference 91 s (32 threads). The old XL (12869 x 9056) took ~1100 s (C) and ~5600 s (numba)
+  # a rep, past the 300 s per-rep cap for both baselines. Graded inputs drawn in [0.5, 1] x XL run 5-91 s; L sits
+  # between M and XL.
   L:
-    M: 3924
-    N: 5557
+    M: 2017
+    N: 2857
   XL:
-    M: 9056
-    N: 12869
+    M: 2393
+    N: 3400
 args:
   alpha: {}
   beta: {}
