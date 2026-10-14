@@ -164,7 +164,7 @@ def uniform_pattern(rng: CounterGenerator, rows: int, cols: int, target: int) ->
         flat = np.flatnonzero(rng.random(grid) < fraction)
         return flat // cols, flat % cols
     expected = fraction * cols
-    per_row = int(math.ceil(expected + ROW_MARGIN_SIGMAS * math.sqrt(expected) + ROW_MARGIN_MIN))
+    per_row = math.ceil(expected + ROW_MARGIN_SIGMAS * math.sqrt(expected) + ROW_MARGIN_MIN)
     gaps = 1 + np.floor(np.log1p(-rng.random((rows, per_row))) / math.log1p(-fraction)).astype(np.int64)
     position = np.cumsum(gaps, axis=1) - 1
     row, slot = np.nonzero(position < cols)
