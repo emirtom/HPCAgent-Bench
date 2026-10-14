@@ -47,6 +47,7 @@ __all__ = [
     "CHILD_STDERR",
     "CHILD_STDERR_TAIL",
     "CLANG_CUDA_WRAPPERS",
+    "CONCRETE_SCALARS",
     "DEVICE_MODULE_MARKERS",
     "DEVICE_RUNTIME_SONAMES",
     "DEVICE_VISIBILITY_ENV",
@@ -118,6 +119,7 @@ __all__ = [
     "check_grading_width",
     "check_launch_env",
     "check_loaded_openmp_width",
+    "concrete_output",
     "device_free_bytes",
     "device_ordinal",
     "forward_child_stderr",
@@ -143,6 +145,7 @@ __all__ = [
     "python_output_to_host",
     "quiescence_residual",
     "reclaim_memory",
+    "refuse_deferred_outputs",
     "rehydrated",
     "reject_impostor_device_module",
     "rep_guard",
@@ -1641,6 +1644,36 @@ def stage_python_inputs(src: KernelData, input_args: Sequence[str], xp: types.Mo
 TORCH_MODULE: str = "torch"
 
 
+#: Python scalar types a python delivery may return as an output: concrete values, nothing deferred.
+CONCRETE_SCALARS: tuple[type, ...] = (bool, int, float, complex)
+
+
+def concrete_output(value: object, xp: types.ModuleType) -> bool:
+    """Whether ``value``, one output a python delivery returned, is data the kernel already computed: a numpy,
+    ``xp`` (cupy) or torch array of exactly that type, a numpy scalar, or a Python number. A subclass or any
+    other object can defer its work to the conversion :func:`python_output_to_host` makes after the clock
+    stopped (``__array__``, ``__array_function__``)."""
+    kind = type(value)
+    if kind in (np.ndarray, xp.ndarray) or kind in CONCRETE_SCALARS or isinstance(value, np.generic):
+        return True
+    torch = sys.modules.get(TORCH_MODULE)  # a torch tensor exists only once torch is imported
+    return torch is not None and kind is torch.Tensor
+
+
+def refuse_deferred_outputs(result: object, xp: types.ModuleType) -> None:
+    """Raise ``TypeError`` unless every output in ``result`` (one value, a tuple or list of them, or None) is
+    :func:`concrete_output`: the bracket closes when the kernel returns, so work an output defers to its
+    conversion would go untimed."""
+    returned = list(result) if isinstance(result, (tuple, list)) else [result] if result is not None else []
+    deferred = sorted({type(value).__qualname__ for value in returned if not concrete_output(value, xp)})
+    if deferred:
+        raise TypeError(
+            f"the kernel returned {', '.join(deferred)}: a python delivery returns its outputs as numpy (or cupy / "
+            f"torch) arrays or scalars, computed before it returns (np.asarray(...) inside the kernel), or "
+            f"writes them into the output buffers and returns None"
+        )
+
+
 def python_output_to_host(value: object, xp: types.ModuleType) -> np.ndarray:
     """One python-ABI output as a host array: a cupy array, a torch tensor, or a host array. The D2H
     happens here, after the clock stopped. Dispatched on type, not on a probed method name."""
@@ -1883,6 +1916,7 @@ def _call_python(
         with budget():
             args = stage_python_inputs(src, input_args, xp)
         result, rep = timed_call(args)
+        refuse_deferred_outputs(result, xp)
         if not warming and not is_followup:
             reps_seen.append(rep)
         if warming:
