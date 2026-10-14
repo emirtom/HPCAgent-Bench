@@ -209,7 +209,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
         return manifest
 
     resolved_name, block = languages.resolved_compiler_for(lang, compiler_override)
-    driver = block.get("cc", "")
+    driver = block.cc
     family = languages.block_family(block)
     rflags = languages.report_flags(lang, compiler=resolved_name)
     reason = "" if rflags else f"compiler family {family!r} (driver {driver!r}) has no optimization-report channel"
