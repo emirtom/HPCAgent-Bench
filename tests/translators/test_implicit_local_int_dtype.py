@@ -27,17 +27,11 @@ fallback and is NOT fixed here (out of scope) -- hence the C/C++-only backend li
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 C_ONLY = ("c", "cpp")
 SYMS = {"N": 1}
 SHAPES = {"n": "(1,)", "out": "(1,)"}
-
-
-def assert_ok(res: dict[str, str]) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def test_integer_accumulator_stays_exact_past_2_53() -> None:
@@ -45,7 +39,7 @@ def test_integer_accumulator_stays_exact_past_2_53() -> None:
     src = (
         "import numpy as np\ndef f(n, out):\n    h = 1\n    for i in range(n[0]):\n        h = h * 3\n    out[0] = h\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -70,7 +64,7 @@ def test_bit_packing_accumulator_stays_exact() -> None:
         "        h = h * 2 + bits[i]\n"
         "    out[0] = h\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -94,7 +88,7 @@ def test_float_local_is_not_demoted_to_int() -> None:
         "        s = s + x[i] * 0.5\n"
         "    out[0] = s\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -117,7 +111,7 @@ def test_local_reading_a_float_array_stays_double() -> None:
         "        t = t * 3\n"
         "        out[i] = t\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

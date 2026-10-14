@@ -18,17 +18,12 @@ Four families, each validated numerically vs numpy across C / C++ / Fortran:
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 # Full backend matrix: native c/c++/fortran + numba + pythran + jax. A backend
 # that does not lower a pattern reports ``skip`` (pythran declines the fancy
 # slice/mask forms) and is accepted; only a real FAIL fails the test.
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def ok_(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def run_(
@@ -39,7 +34,7 @@ def run_(
     shapes: dict[str, str],
 ) -> tuple[bool, dict[str, str]]:
     src = "import numpy as np\ndef f(" + ", ".join(list(ins) + list(outs)) + "):\n" + body + "\n"
-    return ok_(run_op(src, "f", ins, outs, syms, shapes=shapes, backends=ALL))
+    return all_ok(run_op(src, "f", ins, outs, syms, shapes=shapes, backends=ALL))
 
 
 A = np.linspace(0.5, 3.0, 6)

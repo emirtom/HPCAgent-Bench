@@ -6,6 +6,7 @@ from collections.abc import Callable
 from functools import lru_cache
 
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int
+from hpcagent_bench.translators.numpyto_common.emit_helpers.tokens import expand_definitions
 
 __all__ = [
     "FOLD_OPS",
@@ -146,17 +147,7 @@ def substitute_inlined_scalar_defs(tokens: tuple[str, ...], defs: dict[str, str]
     if not defs:
         return tokens
 
-    def expand_(text: str, active: tuple[str, ...]) -> str:
-
-        def repl_(m: "re.Match[str]") -> str:
-            ident = m.group(0)
-            if ident not in defs or ident in active:
-                return ident
-            return "(" + expand_(defs[ident], (*active, ident)) + ")"
-
-        return IDENT_RE.sub(repl_, text)
-
-    return tuple(fold_shape_expr(expand_(str(tok), ())) for tok in tokens)
+    return tuple(fold_shape_expr(expand_definitions(str(tok), defs)) for tok in tokens)
 
 
 #: Binary ops foldable on two integer literals. ``/`` is absent on purpose: a shape token divides

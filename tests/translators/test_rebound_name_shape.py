@@ -20,7 +20,7 @@ plausible wrong number, over-counting reads off the end, and only the second one
 import numpy as np
 import pytest
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 #: ``(in_features, out_features)``. Deliberately unequal and tried both ways round.
 SHAPES = [(8, 6), (6, 8)]
@@ -52,12 +52,6 @@ def gemm_case(src, in_features, out_features, batch: int = 4):
             "out": "(batch, out_features)",
         },
     )
-
-
-def assert_all_ok(res) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all backends skipped (vacuous): {res}"
 
 
 @pytest.mark.parametrize(("in_features", "out_features"), SHAPES, ids=SHAPE_IDS)

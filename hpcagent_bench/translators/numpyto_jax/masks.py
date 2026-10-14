@@ -3,7 +3,7 @@
 import ast
 from collections.abc import Callable
 
-from hpcagent_bench.translators.numpyto_common.ast_build import name_, numpy_attribute, numpy_call
+from hpcagent_bench.translators.numpyto_common.ast_build import InlineDefinitions, name_, numpy_attribute, numpy_call
 from hpcagent_bench.translators.numpyto_common.parallelism import is_timestep_loop
 from hpcagent_bench.translators.numpyto_common.subscripts import is_full_slice
 from hpcagent_bench.translators.numpyto_jax.errors import EmitError
@@ -85,21 +85,7 @@ def inline_masked_subsets(fn: ast.FunctionDef, is_mask: Callable[[ast.expr], boo
     if not subset_map:
         return
 
-    class Substituter(ast.NodeTransformer):
-        __slots__ = ()
-
-        def visit_Assign(self, node):
-            if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in subset_map:
-                return None  # drop the now-inlined definition
-            self.generic_visit(node)
-            return node
-
-        def visit_Name(self, node):
-            if isinstance(node.ctx, ast.Load) and node.id in subset_map:
-                return deep_copy(subset_map[node.id])
-            return node
-
-    Substituter().visit(fn)
+    InlineDefinitions(subset_map).visit(fn)
     ast.fix_missing_locations(fn)
 
 

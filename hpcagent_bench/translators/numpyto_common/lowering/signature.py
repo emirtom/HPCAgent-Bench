@@ -1,12 +1,11 @@
 """Kernel signature fixes: integer-valued locals, output/index arrays, promoted params and shape symbols."""
 
 import ast
-import copy
 import re
 from collections.abc import Sequence
 
 from hpcagent_bench.translators.numpyto_common import dtypes
-from hpcagent_bench.translators.numpyto_common.ast_build import name_
+from hpcagent_bench.translators.numpyto_common.ast_build import InlineDefinitions, name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
 from hpcagent_bench.translators.numpyto_common.emit_helpers.tokens import IDENT_RE
 from hpcagent_bench.translators.numpyto_common.frontend import names_used_as_int
@@ -550,21 +549,7 @@ def fold_shape_aliases(kir: KernelIR) -> None:
     if not aliases:
         return
 
-    class Fold(ast.NodeTransformer):
-        __slots__ = ()
-
-        def visit_Assign(self, node: ast.Assign):
-            if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in aliases:
-                return None  # drop the now-dead defining stmt
-            self.generic_visit(node)
-            return node
-
-        def visit_Name(self, node: ast.Name):
-            if isinstance(node.ctx, ast.Load) and node.id in aliases:
-                return copy.deepcopy(aliases[node.id])
-            return node
-
-    Fold().visit(kir.tree)
+    InlineDefinitions(aliases).visit(kir.tree)
     ast.fix_missing_locations(kir.tree)
 
     def sub_(tok: str) -> str:

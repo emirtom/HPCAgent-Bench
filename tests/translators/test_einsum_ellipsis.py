@@ -13,15 +13,9 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_einsum_ellipsis
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
-
-
-def assert_ok(res, label) -> None:
-    fails = {b: s for b, s in res.items() if not (s == "ok" or s.startswith("skip"))}
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    assert not fails, f"{label}: {fails}"
 
 
 def test_expand_einsum_ellipsis_to_explicit_letters() -> None:
@@ -44,7 +38,7 @@ def test_einsum_ellipsis_batched_transpose_e2e() -> None:
     rng = np.random.default_rng(0)
     src = "import numpy as np\ndef f(a, out):\n    out[:] = np.einsum('...ij->...ji', a)\n"
     a = rng.random((2, 3, 4))
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -68,7 +62,7 @@ def test_einsum_ellipsis_batched_matmul_e2e() -> None:
     rng = np.random.default_rng(0)
     src = "import numpy as np\ndef f(a, b, out):\n    out[:] = np.einsum('...ij,...jk->...ik', a, b)\n"
     a, b = rng.random((2, 3, 4)), rng.random((2, 4, 5))
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

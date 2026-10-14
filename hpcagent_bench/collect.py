@@ -26,7 +26,6 @@ import contextlib
 import dataclasses
 import enum
 import fnmatch
-import hashlib
 import pathlib
 import shutil
 import sqlite3
@@ -36,6 +35,7 @@ import tarfile
 from collections.abc import Iterable, Iterator, Sequence
 
 from hpcagent_bench import data_guard, experiments, paths
+from hpcagent_bench.cache_files import file_sha256
 
 __all__ = [
     "DB_SUFFIXES",
@@ -58,7 +58,6 @@ __all__ = [
     "main",
     "quick_check",
     "roots_of",
-    "sha256",
     "skipped_dir",
     "verify",
     "walk",
@@ -158,11 +157,6 @@ def copy_file(src: pathlib.Path, dst: pathlib.Path) -> None:
         shutil.copy2(src, dst)
 
 
-def sha256(path: pathlib.Path) -> str:
-    with path.open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()
-
-
 def roots_of(args: argparse.Namespace) -> list[Root]:
     roots = [Root(kind=DataSource.RUNS, path=pathlib.Path(p)) for p in args.runs or [experiments.runs_root()]]
     roots += [Root(kind=DataSource.DB, path=pathlib.Path(p)) for p in args.db_root]
@@ -217,7 +211,7 @@ def files_of(out: pathlib.Path) -> list[pathlib.Path]:
 def write_sums(out: pathlib.Path, *, threads: int = 8) -> None:
     files = files_of(out)
     with concurrent.futures.ThreadPoolExecutor(threads) as pool:
-        digests = list(pool.map(sha256, files))
+        digests = list(pool.map(file_sha256, files))
     (out / SUMS).write_text(
         "".join(f"{d}  {p.relative_to(out).as_posix()}\n" for d, p in zip(digests, files, strict=True))
     )
@@ -234,7 +228,7 @@ def verify(out: pathlib.Path, *, threads: int = 8) -> list[str]:
     problems += [f"not in {SUMS}: {rel}" for rel in sorted(present.keys() - expected.keys())]
     common = sorted(expected.keys() & present.keys())
     with concurrent.futures.ThreadPoolExecutor(threads) as pool:
-        digests = list(pool.map(lambda rel: sha256(present[rel]), common))
+        digests = list(pool.map(lambda rel: file_sha256(present[rel]), common))
     problems += [f"checksum {rel}" for rel, got in zip(common, digests, strict=True) if got != expected[rel]]
     for rel in common:
         if is_db(pathlib.PurePath(rel)):

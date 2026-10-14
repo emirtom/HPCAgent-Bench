@@ -33,15 +33,10 @@ import numpy as np
 from hpcagent_bench.translators.numpyto_common.frontend import bare_index_list
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from tests.translators import op_oracle
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 BACKENDS = ("c", "fortran")
 TOL = 1e-12
-
-
-def ok(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def lowered(src: str, func: str, inputs, outputs, shapes, syms):
@@ -76,7 +71,7 @@ def test_a_strided_slice_composes_onto_the_partial_slice_it_indexes_through() ->
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -138,7 +133,7 @@ def test_a_masked_select_through_a_view_feeds_both_of_its_reductions() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -168,7 +163,7 @@ def test_a_gathered_row_widened_by_a_trailing_newaxis_compares_per_row() -> None
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -215,7 +210,7 @@ def test_a_chained_none_declaration_is_dropped_and_the_branches_still_compute() 
             rtol=TOL,
             atol=TOL,
         )
-        passed, r = ok(res)
+        passed, r = all_ok(res)
         assert passed, (flag_value, r)
 
 
@@ -268,7 +263,7 @@ def test_a_bare_list_index_scatters_to_exactly_the_named_columns() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 

@@ -64,8 +64,13 @@ def names_version(conn: sqlite3.Connection) -> int:
 
 def guard(path: str | pathlib.Path, table: str) -> None:
     """Stamp ``path`` with :data:`NAMES_VERSION` when ``table`` is not there yet; raise :class:`StaleNamesError`
-    when ``table`` holds rows written under an older names scheme."""
+    when ``table`` holds rows written under an older names scheme.
+
+    Read and stamp under one write lock: ranks sharing a fresh shard race here, and a rank that read the
+    unstamped version before a sibling stamped it and created ``table`` would otherwise call the fresh
+    database stale."""
     with contextlib.closing(sqlite3.connect(path, timeout=60.0)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
         if names_version(conn) >= NAMES_VERSION:
             return
         if has_table(conn, table):

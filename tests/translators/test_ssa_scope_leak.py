@@ -22,15 +22,9 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lowering import ssa_rename_reassigned
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
-
-
-def assert_ok(res: dict[str, str]) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def run_(src: str, n: int = 4) -> dict[str, str]:
@@ -84,7 +78,7 @@ def test_unconditional_rebinding_at_top_level_still_versions() -> None:
         "    for i in range(n):\n"
         "        out[i] = x[i] + a[i]\n"
     )
-    assert_ok(run_(src))
+    assert_all_ok(run_(src))
 
 
 def test_same_shape_rebinding_reuses_one_buffer() -> None:
@@ -103,7 +97,7 @@ def test_same_shape_rebinding_reuses_one_buffer() -> None:
         "    for i in range(n):\n"
         "        out[i] = x[i]\n"
     )
-    assert_ok(run_(src))
+    assert_all_ok(run_(src))
 
 
 def test_sibling_loop_nests_may_reuse_a_name_at_different_shapes() -> None:
@@ -126,7 +120,7 @@ def test_sibling_loop_nests_may_reuse_a_name_at_different_shapes() -> None:
         "            t[j] = a[i]\n"
         "        out[i] = out[i] + t[0]\n"
     )
-    assert_ok(run_(src))
+    assert_all_ok(run_(src))
 
 
 def test_two_shapes_per_loop_iteration_are_not_refused() -> None:
@@ -155,7 +149,7 @@ def test_two_shapes_per_loop_iteration_are_not_refused() -> None:
         "            e[j] = s\n"
         "        out[lvl] = e[0]\n"
     )
-    assert_ok(run_(src))
+    assert_all_ok(run_(src))
 
 
 def test_reentry_read_before_any_rebinding_is_still_refused() -> None:
@@ -195,7 +189,7 @@ def test_rebinding_confined_to_a_loop_body_does_not_escape() -> None:
         "            t[j] = a[i]\n"
         "        out[i] = t[0]\n"
     )
-    assert_ok(run_(src))
+    assert_all_ok(run_(src))
 
 
 # holes found by review of the first fix; each was CONFIRMED before being closed

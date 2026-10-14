@@ -30,18 +30,12 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
 #: 1..12, so a stride is visible in the RESULT: ``[::2]`` -> 1 3 5 7 9 11, ``[::3]`` -> 1 4 7 10.
 A12 = np.arange(1.0, 13.0)
-
-
-def assert_ok(res: dict[str, str]) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def parse(src: str, args: list[str], arrays: list[str], shapes: dict[str, str], preset: dict[str, int]):
@@ -142,7 +136,7 @@ def test_two_distinct_manifest_steps_walk_their_own_stride() -> None:
         "    out_a[:] = x[:(6 - 1) * stride_a + 1:stride_a] * 1.0\n"
         "    out_b[:] = x[:(4 - 1) * stride_b + 1:stride_b] * 1.0\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -173,7 +167,7 @@ def test_a_bounded_step_absent_from_the_manifest_lowers_symbolically() -> None:
 def test_a_bounded_step_absent_from_the_manifest_matches_numpy() -> None:
     """A lost stride reads 1..6 instead of 1 3 5 7 9 11 -- the discriminating output."""
     src = "import numpy as np\ndef f(x, step, out):\n    out[:] = x[:(6 - 1) * step + 1:step] * 1.0\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -215,7 +209,7 @@ def test_a_rebound_step_walks_the_rebound_stride_on_every_backend() -> None:
         "    stride = stride + 1\n"
         "    out[:] = x[:(4 - 1) * stride + 1:stride] * 1.0\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -253,7 +247,7 @@ def test_manifest_step_matches_numpy_on_every_backend() -> None:
         "def f(x, stride, out):\n"
         "    out[:] = pool(x, stride)\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -281,7 +275,7 @@ def test_one_helper_two_different_literal_steps_matches_numpy() -> None:
         "    out2[:] = pool(x, 2, 6)\n"
         "    out3[:] = pool(x, 3, 4)\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

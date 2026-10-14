@@ -26,15 +26,9 @@ import pytest
 
 from hpcagent_bench.translators.numpyto_c.emit import emit_c
 from hpcagent_bench.translators.numpyto_common.lowering import lower
-from tests.translators.op_oracle import parse_source, run_op
+from tests.translators.op_oracle import assert_all_ok, parse_source, run_op
 
 NATIVE = ("c", "cpp", "fortran")
-
-
-def assert_ok(res: dict[str, str], label: str) -> None:
-    fails = {b: s for b, s in res.items() if not (s == "ok" or s.startswith("skip"))}
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    assert not fails, f"{label}: {fails}"
 
 
 @pytest.mark.parametrize("mode", ["edge", "reflect", "wrap", "symmetric"])
@@ -57,7 +51,7 @@ def test_pad_boundary_mode(mode: str, n: int, w: int, symbolic: bool) -> None:
         )
     else:
         res = run_op(src, "pad_op", {"a": a}, {"out": out_shape}, {}, backends=NATIVE)
-    assert_ok(res, label)
+    assert_all_ok(res, label)
 
 
 def test_pad_reflect_size1_axis_repeats() -> None:
@@ -65,7 +59,7 @@ def test_pad_reflect_size1_axis_repeats() -> None:
     # element; the lowering guards this (no modulo-by-zero) and returns index 0.
     src = "import numpy as np\ndef pad_op(a, out):\n    out[:] = np.pad(a, 2, mode='reflect')\n"
     a = np.array([7.0])
-    assert_ok(run_op(src, "pad_op", {"a": a}, {"out": (5,)}, {}, backends=NATIVE), "pad-reflect-size1")
+    assert_all_ok(run_op(src, "pad_op", {"a": a}, {"out": (5,)}, {}, backends=NATIVE), "pad-reflect-size1")
 
 
 def emit_c_(mode: str) -> str:

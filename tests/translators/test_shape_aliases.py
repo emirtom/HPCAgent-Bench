@@ -21,14 +21,9 @@ import ast
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.lowering import is_newaxis_result_axis
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def ok_(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_swapaxes_negative_axes() -> None:
@@ -41,7 +36,7 @@ def test_swapaxes_negative_axes() -> None:
         "        for j in range(out.shape[1]):\n"
         "            out[i, j] = b[i, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "k",
@@ -68,7 +63,7 @@ def test_swapaxes_intermediate_local_operand() -> None:
         "        for j in range(out.shape[1]):\n"
         "            out[i, j] = b[i, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "k",
@@ -92,7 +87,7 @@ def test_expand_dims_middle_axis() -> None:
         "        for j in range(a.shape[1]):\n"
         "            out[i, 0, j] = b[i, 0, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "k",
@@ -116,7 +111,7 @@ def test_squeeze_named_axis() -> None:
         "        for j in range(out.shape[1]):\n"
         "            out[i, j] = b[i, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "k",
@@ -140,7 +135,7 @@ def test_squeeze_all_unit_axes() -> None:
         "        for j in range(out.shape[1]):\n"
         "            out[i, j] = b[i, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "k",
@@ -169,7 +164,7 @@ def test_squeeze_back_to_back_on_the_trailing_axes() -> None:
         "        for j in range(out.shape[1]):\n"
         "            out[i, j] = b[i, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "k",

@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import NP_CALL_EXPANDERS, expand_diff
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -29,12 +29,6 @@ def expand_(src: str, shapes: dict) -> str:
     assign = ast.parse(src).body[0]
     stmts = expand_diff(assign.targets[0], assign.value.args, shapes, assign.value.keywords)
     return "\n".join(ast.unparse(ast.fix_missing_locations(s)) for s in stmts)
-
-
-def assert_ok(res: dict) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def test_registered() -> None:
@@ -91,14 +85,16 @@ def test_nonconstant_axis_refused() -> None:
 def test_numeric_1d_matches_numpy() -> None:
     a = np.array([3.0, 5.0, 4.0, 9.0, 9.0, 1.0])
     src = "import numpy as np\n\ndef k(a, out):\n    out[:] = np.diff(a)\n"
-    assert_ok(run_op(src, "k", {"a": a}, {"out": (5,)}, {"n": 6}, shapes={"a": "(6,)", "out": "(5,)"}, backends=NATIVE))
+    assert_all_ok(
+        run_op(src, "k", {"a": a}, {"out": (5,)}, {"n": 6}, shapes={"a": "(6,)", "out": "(5,)"}, backends=NATIVE)
+    )
 
 
 def test_numeric_row_lengths_from_csr_row_ptr() -> None:
     """The idiom that found the gap: row lengths out of a CSR ``row_ptr``."""
     row_ptr = np.array([0, 2, 2, 5, 9], dtype=np.int64)
     src = "import numpy as np\n\ndef k(row_ptr, out):\n    out[:] = np.diff(row_ptr)\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "k",
@@ -116,4 +112,6 @@ def test_numeric_2d_axis_zero_matches_numpy() -> None:
     pow_base1 = np.arange(12, dtype=np.float64).reshape(3, 4)
     a = pow_base1 * pow_base1
     src = "import numpy as np\n\ndef k(a, out):\n    out[:, :] = np.diff(a, axis=0)\n"
-    assert_ok(run_op(src, "k", {"a": a}, {"out": (2, 4)}, {}, shapes={"a": "(3,4)", "out": "(2,4)"}, backends=NATIVE))
+    assert_all_ok(
+        run_op(src, "k", {"a": a}, {"out": (2, 4)}, {}, shapes={"a": "(3,4)", "out": "(2,4)"}, backends=NATIVE)
+    )
