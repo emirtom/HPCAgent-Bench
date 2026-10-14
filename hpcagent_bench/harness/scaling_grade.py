@@ -9,7 +9,8 @@ stopping at one node's ranks, and an item asking for more ranks than the gang pl
 
 Each item is one ``regrade`` grade with one ``scaling_grades`` row per law and each law's curve
 (``recording.record_scaling``) in ``<out-dir>/scaling-grade-<shard>.db``, plus a ``final`` grade (mw4x5 over
-the final inputs) when every input measured right. The shard then times its share of the torch.distributed
+the final inputs) when every input measured right, or an unsolved one when the replay found it incorrect or
+refused it. The shard then times its share of the torch.distributed
 baseline curve no grade DB holds yet (:mod:`torch_dist_curve`): ``reference_dist`` once per (kernel, law, P)
 into ``reference_scaling_points`` (``source = 'torch_dist'``)."""
 
@@ -28,7 +29,7 @@ from hpcagent_bench.harness.grade_under import Item
 from hpcagent_bench.harness.metric import LawCurve
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.recording import FinalRecord
-from hpcagent_bench.harness.scoring import ML_LAWS
+from hpcagent_bench.harness.scoring import ML_LAWS, Score
 from hpcagent_bench.harness.service import distribution_refusal, from_config
 from hpcagent_bench.harness.task import Task, grading_residency
 from hpcagent_bench.protocols import Protocol
@@ -46,6 +47,7 @@ __all__ = [
     "Recorder",
     "baseline_work",
     "curve_lines",
+    "decided_final",
     "fully_graded",
     "grade",
     "grade_into",
@@ -116,16 +118,25 @@ def grade(item: Item, protocol: Protocol | None = None) -> Graded:
         submission.language,
         residency=grading_residency(item.kernel, submission.language),
     )
+    protocol = protocol or grade_under.FINAL
     # At the leaderboard preset: the service default ``fuzzed`` holds ranges global_shapes cannot evaluate.
     refused = distribution_refusal(submission, task, config.get_str("mpi.leaderboard_preset", "XL"))
     if refused is not None:
-        return Graded(GradeStatus.REFUSED, refused)
+        unbuilt = Score(False, float("inf"), 0, False, refused)
+        return Graded(GradeStatus.REFUSED, refused, final=decided_final(task, unbuilt, protocol))
     datatype = graded_datatype(BenchSpec.load(item.kernel), cfg.datatype)
-    score, curves, final = grade_under.scaling_protocol_grade(
-        submission, task, cfg, protocol or grade_under.FINAL, datatype=datatype
-    )
+    score, curves, final = grade_under.scaling_protocol_grade(submission, task, cfg, protocol, datatype=datatype)
     status = GradeStatus.INCORRECT if not score.correct else (GradeStatus.GRADED if curves else GradeStatus.NO_CURVE)
+    if status is GradeStatus.INCORRECT and not score.harness_fault and final is None:
+        final = decided_final(task, score, protocol)
     return Graded(status, score.detail, curves, final)
+
+
+def decided_final(task: Task, result: Score, protocol: Protocol) -> FinalRecord | None:
+    """The unsolved ``final`` grade of a submission the replay decided failed (incorrect, or refused before
+    building; :func:`grade_under.unsolved_final`), so the item is owed no more and replaces an earlier
+    credited final; None under a protocol that writes no final grade (the preview)."""
+    return grade_under.unsolved_final(task, result, protocol) if protocol.hidden else None
 
 
 def curve_lines(item: Item, graded: Graded) -> list[str]:

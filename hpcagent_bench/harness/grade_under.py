@@ -103,6 +103,7 @@ __all__ = [
     "FINAL_GRADES",
     "FINAL_KIND",
     "GRADING_CUTS",
+    "LATER_SUBMITS",
     "LAUNCH_HARNESSES",
     "LAUNCH_LANGUAGES",
     "LAUNCH_OFFLOADS",
@@ -184,8 +185,10 @@ __all__ = [
     "stale_rows",
     "submission_of",
     "submit_grade",
+    "superseded",
     "task_of",
     "unmeasured_right",
+    "unsolved_final",
     "write_items",
     "write_regrade",
 ]
@@ -277,6 +280,8 @@ class Item:
     workspace_bytes: str | None = None  # the agent's scratch request, when recorded; None = unknown
     # The recorded ``requests`` as JSON (startup + operations); {} = none.
     requests: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # The recorded ``build`` tokens (``grades.requested_build``); [] = none asked for.
+    build: list[str] = dataclasses.field(default_factory=list)
     # How many submission rows the item's (setup, kernel) held; above 1 is a multi-submission group.
     submissions: int = 1
     # The scaling sweep this item is graded over (:func:`scaling_of`); None = the single-node final grade.
@@ -335,6 +340,10 @@ LAUNCH_SCRUB: tuple[str, ...] = (
     "AGENT_NODES",
     "JUDGE_NODES",
     "AGENTS_PER_NODE",
+    # The knobs a setup's name carries only when set (temperature, harness), and the tree whose env.sh runs.
+    "TEMPERATURES",
+    "HARNESSES",
+    "OPT",
 )
 
 
@@ -509,12 +518,13 @@ def on_track(kernel: str, track: str) -> bool:
 NOT_VOIDED = " AND ".join(f"g.reason NOT LIKE '{prefix}%'" for prefix in recorded_rows.RERUN_PREFIXES)
 
 #: Every correct submission of a results DB, with what an item of it needs: a submit-kind grade the
-#: judge found correct, or the grade a promotion (a ``regrade`` without a scaling curve) credited, keyed
+#: judge found correct and no gate rejected (``recording.credit_values`` keeps ``correct`` and names the
+#: gate in ``reason``), or the grade a promotion (a ``regrade`` without a scaling curve) credited, keyed
 #: by the grade it re-timed. An audit's disqualified grade is none. :func:`build_worklist` keeps the
 #: latest per (setup, kernel, slot): the submission the reader credits.
 CREDITED_SUBMISSIONS = f"""
 SELECT g.id AS grade_id, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
-       coalesce(g.credited_speedup, p.credited_speedup) AS speedup,
+       coalesce(nullif(g.credited_speedup, 0), p.credited_speedup) AS speedup,
        coalesce(p.timing_reduction, g.timing_reduction) AS timing_reduction,
        g.workspace_bytes, {{requests}}, p.id IS NOT NULL AS promoted,
        gs.language, gs.hash, a.study
@@ -525,7 +535,7 @@ LEFT JOIN grades p ON p.of_grade_id = g.id AND p.kind = '{PROMOTION_KIND}' AND p
     AND NOT EXISTS (SELECT 1 FROM scaling_grades s WHERE s.grade_id = p.id)
 LEFT JOIN grade_sources gs ON gs.grade_id = g.id AND gs.part = 'host'
 WHERE NOT EXISTS (SELECT 1 FROM disqualifications d WHERE d.grade_id = g.id) AND {NOT_VOIDED}
-  AND ((g.kind IN {results_db.SUBMIT_KINDS} AND g.correct = 1) OR p.id IS NOT NULL)
+  AND ((g.kind IN {results_db.SUBMIT_KINDS} AND g.correct = 1 AND g.reason = '') OR p.id IS NOT NULL)
 GROUP BY g.id
 ORDER BY r.job, r.label, g.kernel, g.ts_ms
 """
@@ -569,8 +579,9 @@ def stale_rows(db: pathlib.Path) -> list[dict[str, Any]]:
     return [{**dict(row), "db": str(db)} for row in rows if int(row["ts_ms"]) < cuts[str(row["kernel"])]]
 
 
-#: The ``grades`` columns a grade's requests are read from: v7's ``requests``, and the v6 columns it folded.
-REQUEST_COLUMNS = ("requests", "requested_libraries", "distribution", "layout_request")
+#: The ``grades`` columns a grade's requests are read from: v7's ``requests``, the v6 columns it folded,
+#: and the ``build`` tokens the submission asked for.
+REQUEST_COLUMNS = ("requests", "requested_libraries", "distribution", "layout_request", "requested_build")
 
 
 def requests_select(conn: sqlite3.Connection) -> str:
@@ -598,6 +609,7 @@ def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
         promoted=bool(row.get("promoted")),
         workspace_bytes=str(row["workspace_bytes"]) if row.get("workspace_bytes") else None,
         requests=results_db.requests_of_row(row).to_json(),
+        build=json.loads(str(row["requested_build"])) if row.get("requested_build") else [],
     )
 
 
@@ -609,10 +621,9 @@ def build_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib.Path]) ->
     problems: list[str] = []
     envs: dict[str, dict[str, str] | None] = {}
     for db in dbs:
-        rows = sorted(
-            credited_rows(db) + stale_rows(db),
-            key=lambda r: (str(r["setup"]), r["kernel"], int(r["slot"]), int(r["ts_ms"])),
-        )
+        # A grade both credited and stale is one submission: listed once.
+        unique = {int(r["grade_id"]): r for r in [*credited_rows(db), *stale_rows(db)]}
+        rows = sorted(unique.values(), key=lambda r: (str(r["setup"]), r["kernel"], int(r["slot"]), int(r["ts_ms"])))
         # A submission without its stored source cannot be graded again, so it is never a slot's final.
         last: dict[tuple[Any, ...], int] = {}
         for r in rows:
@@ -678,6 +689,24 @@ def spent(conn: sqlite3.Connection, run: int, kernel: str, since_ms: int) -> boo
         (run, kernel),
     ).fetchone()
     return promoted is not None
+
+
+#: The graded submits of a kernel by ANOTHER episode of the same (setup, slot) after a moment: a rerun of
+#: the slot that answered after that moment, voided submits aside.
+LATER_SUBMITS = f"""
+SELECT g.kernel, g.reason, g.credited_speedup FROM grades g
+JOIN episodes o ON o.id = g.episode_id JOIN episodes r ON r.id = ?
+WHERE o.setup = r.setup AND o.slot = r.slot AND o.id != r.id AND g.kernel = ? AND g.ts_ms > ?
+  AND g.kind IN {results_db.SUBMIT_KINDS} AND (g.credited_speedup != 0 OR g.reason != '') AND {NOT_VOIDED}
+"""
+
+
+def superseded(conn: sqlite3.Connection, run: int, kernel: str, since_ms: int) -> bool:
+    """Whether a newer episode of ``run``'s slot spent the slot's answer for ``kernel`` after ``since_ms``:
+    a submit the judge graded without faulting. The slot's newest episode is the one that answered, so an
+    older episode's unsubmitted score is not its answer."""
+    rows = conn.execute(LATER_SUBMITS, (run, kernel, since_ms)).fetchall()
+    return any(not recorded_rows.is_judge_fault(dict(row)) for row in rows)
 
 
 #: Every final grade of a results DB: the grade it re-timed, its kernel, stamp and denominator, and
@@ -750,7 +779,8 @@ def build_owed_worklist(
 
 def build_promotion_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib.Path]) -> tuple[list[Item], list[str]]:
     """One item per (setup, kernel, slot) whose newest episode scored correct in its final attempt and
-    never spent its answer (:func:`spent`): its newest passing source. Correct is enough, slower included."""
+    never spent its answer (:func:`spent`), and that no newer episode of the slot answered after
+    (:func:`superseded`): its newest passing source. Correct is enough, slower included."""
     items: list[Item] = []
     problems: list[str] = []
     envs: dict[str, dict[str, str] | None] = {}
@@ -763,6 +793,7 @@ def build_promotion_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib
                 row
                 for _, row in sorted(newest.items())
                 if not spent(conn, int(row["run"]), str(row["kernel"]), since_ms=int(row["cut"]))
+                and not superseded(conn, int(row["run"]), str(row["kernel"]), since_ms=int(row["ts_ms"]))
             ]
         for row in owed:
             env = setup_env_or_problem(str(row["setup"]), env_dirs, envs, problems)
@@ -814,16 +845,21 @@ def delivered_language(language: str) -> str:
 
 def submission_of(item: Item) -> Submission:
     """The envelope ``item`` recorded, rebuilt for a re-grade: both source units as the grade stored
-    them, the scratch request (:data:`UNKNOWN_WORKSPACE` when none), and the recorded requests."""
+    them, the build tokens, the scratch request (:data:`UNKNOWN_WORKSPACE` when none), and the recorded
+    requests. Raises LookupError when the grade stored no source, or a host source other than the one the
+    worklist listed (``source_hash``: a DB rebuilt since gave the id to another grade)."""
     with results_db.reading(item.db) as conn:
         units = results_db.grade_sources(conn, item.grade_id)
     if "host" not in units:
         raise LookupError(f"{item.db}: grade {item.grade_id} stored no source")
+    if item.source_hash and units["host"][2] != item.source_hash:
+        raise LookupError(f"{item.db}: grade {item.grade_id} is no longer the source the worklist listed")
     device = units.get("device")
     return Submission(
         language=delivered_language(item.language),
         source=units["host"][1],
         device_source=device[1] if device is not None else None,
+        build=list(item.build),
         workspace_bytes=item.workspace_bytes or UNKNOWN_WORKSPACE,
         requests=Requests.from_obj(item.requests or None),
     )
@@ -1085,13 +1121,18 @@ def grade_cells(
     protocol's :attr:`~hpcagent_bench.protocols.Protocol.aa`. The grade reports S_i (``speedup``); it is
     credited only when the task is solved. The per-input geomean and counts are the cells'."""
     task = task_of(item)
-    return final_rows(final_grade(submission_of(item), task, scorer, aa, protocol=protocol), task, item.kernel)
+    protocol = protocol or FINAL
+    graded = final_grade(submission_of(item), task, scorer, aa, protocol=protocol)
+    return final_rows(graded, task, item.kernel, stamp=protocol.aa if aa else protocol.stamp)
 
 
-def final_rows(graded: FinalGrade, task: Task, kernel: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def final_rows(
+    graded: FinalGrade, task: Task, kernel: str, stamp: str = FINAL.stamp
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """``graded`` as the rows of a ``final`` grade: one ``grade_cells`` row per input, and the grade's
     columns. One writer for a finalize pass and for the /submit that is its own final grade
-    (:func:`submit_grade`), so both record the same numbers."""
+    (:func:`submit_grade`), so both record the same numbers. ``stamp`` is the protocol's, the grade's
+    ``timing_reduction`` when no input measured because the submission failed every one: decided, unsolved."""
     rows: list[dict[str, Any]] = []
     for index, one in enumerate(graded.inputs):
         row = cell_row(index, one.label, one.cell, one.result, task.residency)
@@ -1106,8 +1147,9 @@ def final_rows(graded: FinalGrade, task: Task, kernel: str) -> tuple[list[dict[s
     }
     stamps = {cell.timing_reduction for cell in measured if cell.timing_reduction}
     # An input the judge faulted on decided nothing: the grade is a fault, owed again (no stamp, no rule).
+    # Inputs the submission itself failed (a build failure, a crash) decided it: unsolved, under the rule.
     faults = [fault for fault in map(input_fault, graded.inputs) if fault]
-    faulted = bool(faults) or not measured
+    faulted = bool(faults) or not graded.inputs
     values = {
         "speedup": float(graded.credit.score),
         "credited_speedup": float(graded.credit.score) if measured and graded.solved else None,
@@ -1115,7 +1157,7 @@ def final_rows(graded: FinalGrade, task: Task, kernel: str) -> tuple[list[dict[s
         "correct": int(graded.solved),
         "score_rule": None if faulted else score_rule.SCORE_RULE,
         # One stamp means one estimator; two means the cells are not poolable and the reader must know.
-        "timing_reduction": "" if faulted else "+".join(sorted(stamps)),
+        "timing_reduction": "" if faulted else "+".join(sorted(stamps)) or stamp,
         "grading_protocol": "+".join(sorted(p for p in protocols if p)) or None,
         # Every policy the cells ran under (or the default): disagreeing cells must stay visible.
         "baseline_policy": "+".join(sorted(p for p in policies if p)) or grading.SINGLE_BASELINE_POLICY,
@@ -1176,7 +1218,7 @@ def protocol_grade(
         if fault:  # right answer, no measurement under the protocol: the judge's fault
             result = dataclasses.replace(result, correct=False, harness_fault=True, detail=f"{protocol.stamp}: {fault}")
         return result, None
-    rows, values = final_rows(graded, task, BenchSpec.load(task.kernel).short_name)
+    rows, values = final_rows(graded, task, BenchSpec.load(task.kernel).short_name, stamp=protocol.stamp)
     measured = graded.measured
     natives = [cell.native_ns for cell in measured if cell.native_ns > 0]
     baselines = [cell.baseline_ns for cell in measured if cell.baseline_ns > 0]
@@ -1243,7 +1285,7 @@ def scaling_protocol_grade(
         refusal = next(one.refused for one in finals if one.refused)
         detail = f"{protocol.stamp}: {refusal}"
         return dataclasses.replace(result, correct=False, harness_fault=True, detail=detail), curves, None
-    rows, values = final_rows(graded, task, spec.short_name)
+    rows, values = final_rows(graded, task, spec.short_name, stamp=protocol.stamp)
     folded = dataclasses.replace(
         result,
         speedup=float(graded.credit.score),
@@ -1254,6 +1296,19 @@ def scaling_protocol_grade(
         p_value=None,
     )
     return folded, curves, FinalRecord(values, rows) if protocol.hidden else None
+
+
+def unsolved_final(task: Task, result: Score, protocol: Protocol | None = None) -> FinalRecord:
+    """The ``final`` rows of a submission a grade under ``protocol`` (default :data:`FINAL`) decided failed
+    before any input measured -- answered wrong, or refused before building (``result`` says why): every
+    input unmeasured on ``result``, unsolved under the rule, so the slot's final is decided and owed no
+    more. Never for a judge fault, which decided nothing."""
+    protocol = protocol or FINAL
+    labels = [str(cell["label"]) for cell in protocol_cells(task.kernel, protocol, anchored=True)]
+    inputs = tuple(FinalInput(label, None, result) for label in labels)
+    graded = FinalGrade(inputs, False, (), score_rule.credit((), solved=False))
+    rows, values = final_rows(graded, task, task.kernel, stamp=protocol.stamp)
+    return FinalRecord(values, rows)
 
 
 def final_denominator(measured: set[str | None], kernel: str) -> str | None:
