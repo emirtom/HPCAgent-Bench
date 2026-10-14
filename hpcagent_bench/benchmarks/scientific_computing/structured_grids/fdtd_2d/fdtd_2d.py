@@ -34,9 +34,9 @@ def initialize(TMAX, NX, NY, datatype=np.float32, perturbation: Perturbation | N
         magnitude = 1.0
     else:
         raise ValueError(f"fdtd_2d: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")
-    ex += draw.error(shape, magnitude, datatype, stream=0)
-    ey += draw.error(shape, magnitude, datatype, stream=1)
-    hz += draw.error(shape, magnitude, datatype, stream=2)
+    ex += draw.error(shape, magnitude, datatype, stream=0, xp=xp)
+    ey += draw.error(shape, magnitude, datatype, stream=1, xp=xp)
+    hz += draw.error(shape, magnitude, datatype, stream=2, xp=xp)
     fict = xp.fromfunction(lambda i: i, (TMAX,), dtype=datatype)
     # FDTD Courant coefficients (defaults keep the kernel numerically identical
     # to the hardcoded 0.5/0.5/0.7 they replaced).

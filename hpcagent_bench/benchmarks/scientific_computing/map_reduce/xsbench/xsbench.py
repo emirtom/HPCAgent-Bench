@@ -54,7 +54,7 @@ def pick_materials(rolls: np.ndarray, n_materials: int, xp: ModuleType = np) -> 
         probabilities, fallback = MATERIAL_PROBABILITIES, 11
     else:
         probabilities = MATERIAL_PROBABILITIES[:n_materials].copy()
-        probabilities /= exact_math.sum(probabilities, xp=xp)
+        probabilities /= exact_math.sum(probabilities)  # host weights: a dozen materials
         fallback = n_materials - 1
     running, total = [], 0.0
     for probability in probabilities:

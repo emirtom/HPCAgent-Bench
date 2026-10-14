@@ -22,5 +22,5 @@ def initialize(N, datatype=np.float32, perturbation: Perturbation | None = None,
         u = fields.sine_mode((N, N), datatype, 2.0)
     else:
         raise ValueError(f"adi: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")
-    u += draw.error((N, N), 2.0, datatype)
+    u += draw.error((N, N), 2.0, datatype, xp=xp)
     return u

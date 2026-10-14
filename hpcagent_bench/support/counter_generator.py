@@ -29,8 +29,9 @@ import numpy as np
 from numpy.typing import DTypeLike, NDArray
 
 from hpcagent_bench.support import counter_rng, exact_math
+from hpcagent_bench.support.array_module import module_of
 
-__all__ = ["SEED_BITS", "CounterGenerator", "OPEN_FLOOR", "Size", "shape_of"]
+__all__ = ["OPEN_FLOOR", "SEED_BITS", "CounterGenerator", "Size", "shape_of"]
 
 #: Bits of a seed drawn from fresh entropy (a non-negative int64).
 SEED_BITS = 63
@@ -148,7 +149,8 @@ class CounterGenerator:
         elif p is None:
             picked = self.integers(0, population, shape_of(size))
         else:
-            cumulative = np.cumsum(np.asarray(p, dtype=np.float64))
+            weights = p.get() if module_of(p) not in (None, np) else p  # thresholds are summed on the host
+            cumulative = np.cumsum(np.asarray(weights, dtype=np.float64))
             cumulative /= cumulative[-1]
             unit = counter_rng.uniform_field(shape_of(size), self.seed, self.next_stream(), self.xp)
             picked = self.xp.minimum(

@@ -41,7 +41,7 @@ def initialize(ny, nx, datatype=np.float32, perturbation: Perturbation | None = 
     # The draw's error is a small extra cell (amplitude ~1e-3 of the lid speed), not white noise:
     # pointwise noise has a divergence of order noise / dx, which the 1 / dt source of the pressure
     # solve amplifies into a spurious pressure spike that grows with the grid.
-    eu, ev = cell(y, x, float(draw.error((), 1.0)))
+    eu, ev = cell(y, x, float(draw.error((), 1.0, xp=xp)))
     u[1:-1, 1:-1] += eu[1:-1, 1:-1]
     v[1:-1, 1:-1] += ev[1:-1, 1:-1]
     dx = 2 / (nx - 1)

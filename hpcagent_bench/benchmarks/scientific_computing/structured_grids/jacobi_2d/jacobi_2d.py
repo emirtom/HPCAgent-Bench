@@ -33,7 +33,7 @@ def initialize(N, datatype=np.float32, perturbation: Perturbation | None = None,
         magnitude = 1.0
     else:
         raise ValueError(f"jacobi_2d: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")
-    A += draw.error((N, N), magnitude, datatype)
+    A += draw.error((N, N), magnitude, datatype, xp=xp)
     B = A.copy()
 
     return A, B

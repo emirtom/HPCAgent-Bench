@@ -79,7 +79,7 @@ def initialize(
                 if hx * hx + hy * hy + hz * hz <= cutoff2:
                     mill.append((hx, hy, hz))
                     # Fortran column-major grid index (matches QE dffts%nl storage)
-                    nl_list.append(xp.ravel_multi_index((hx % n1, hy % n2, hz % n3), grid, order="F"))
+                    nl_list.append((hx % n1) + n1 * ((hy % n2) + n2 * (hz % n3)))  # Fortran-order flat index
     mill = xp.asarray(mill, dtype=real_dtype)  # (ngm, 3)
     # 0-based, like every index array in this corpus: the kernel subscripts it directly.
     # QE stores this G -> FFT map 1-based upstream; the port carries the map, not the

@@ -28,7 +28,7 @@ def initialize(N, datatype=np.float32, perturbation: Perturbation | None = None,
         A = fields.sine_mode(shape, datatype, PEAK)
     else:
         raise ValueError(f"heat_3d: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")
-    A += draw.error(shape, PEAK, datatype)
+    A += draw.error(shape, PEAK, datatype, xp=xp)
     B = xp.copy(A)
 
     # Diffusion coefficient shared by all three stencil axes (default keeps the kernel numerically

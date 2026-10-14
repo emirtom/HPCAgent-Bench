@@ -41,6 +41,6 @@ def initialize(ny, nx, datatype=np.float64, perturbation: Perturbation | None = 
         )[1:-1, :]
     elif draw.scenario != "rest":
         raise ValueError(f"channel_flow: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")
-    u[1:-1, :] += draw.error((ny - 2, nx), step, datatype, stream=0)
-    v[1:-1, :] += draw.error((ny - 2, nx), step, datatype, stream=1)
+    u[1:-1, :] += draw.error((ny - 2, nx), step, datatype, stream=0, xp=xp)
+    v[1:-1, :] += draw.error((ny - 2, nx), step, datatype, stream=1, xp=xp)
     return u, v, p, dx, dy, dt

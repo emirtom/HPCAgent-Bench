@@ -107,7 +107,7 @@ def _gsphere(ngrid, xp: ModuleType = np):
     keep = h1 * h1 + h2 * h2 + h3 * h3 <= hmax * hmax
     h1, h2, h3 = h1[keep], h2[keep], h3[keep]
     g2 = (h1 * h1 + h2 * h2 + h3 * h3).astype(np.float64)
-    order = xp.lexsort((h3, h2, h1, g2))
+    order = xp.lexsort(xp.stack((h3, h2, h1, g2)))  # cupy takes the keys as one array
     mill = xp.stack((h1[order], h2[order], h3[order]), axis=1).astype(np.int64)
     g2 = g2[order]
     nl = xp.ravel_multi_index((mill[:, 0] % nr, mill[:, 1] % nr, mill[:, 2] % nr), (nr, nr, nr)).astype(np.int64)

@@ -23,9 +23,11 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from hpcagent_bench.support.array_module import module_of
+
 __all__ = [
-    "EXP_LIMIT",
     "EXPM1_SERIES_LIMIT",
+    "EXP_LIMIT",
     "cos",
     "cumsum",
     "exp",
@@ -66,6 +68,18 @@ TRIG_TERMS = 11
 ATANH_TERMS = 12
 
 
+def array_module(*values: Any, xp: ModuleType | None = None) -> ModuleType:
+    """``xp`` when given, else the array module of the first array among ``values`` (numpy for scalars), so a call on
+    a device array stays on the device without being told."""
+    if xp is not None:
+        return xp
+    for value in values:
+        module = module_of(value)
+        if module is not None:
+            return module
+    return np
+
+
 def as_f64(x: Any, xp: ModuleType) -> Array:
     """``x`` as a float64 array of ``xp``; a complex ``x`` is refused rather than silently made real."""
     value = xp.asarray(x)
@@ -83,9 +97,10 @@ def horner(r: Array, coefficients: list[float], xp: ModuleType) -> Array:
     return total
 
 
-def exp(x: Any, xp: ModuleType = np) -> Array:
+def exp(x: Any, xp: ModuleType | None = None) -> Array:
     """``e**x``: ``x = k ln2 + r``, ``exp(r)`` by its Taylor series, then ``ldexp`` by ``k``. A complex ``x = a + ib``
     gives ``e**a (cos b + i sin b)`` as complex128."""
+    xp = array_module(x, xp=xp)
     value = xp.asarray(x)
     if value.dtype.kind == "c":
         magnitude = exp(value.real, xp)
@@ -98,17 +113,19 @@ def exp(x: Any, xp: ModuleType = np) -> Array:
     return xp.ldexp(series, k.astype(xp.int32))
 
 
-def expm1(x: Any, xp: ModuleType = np) -> Array:
+def expm1(x: Any, xp: ModuleType | None = None) -> Array:
     """``e**x - 1``, without the cancellation of ``exp(x) - 1`` near 0 (the Taylor series ``x + x**2/2 + ...``
     there)."""
+    xp = array_module(x, xp=xp)
     value = as_f64(x, xp)
     series = value * horner(value, [1.0 / math.factorial(n + 1) for n in range(EXP_TERMS)], xp)
     return xp.where(xp.abs(value) < EXPM1_SERIES_LIMIT, series, exp(value, xp) - 1.0)
 
 
-def log(x: Any, xp: ModuleType = np) -> Array:
+def log(x: Any, xp: ModuleType | None = None) -> Array:
     """Natural logarithm of a positive ``x``: ``x = m 2**e`` with ``m`` in ``[sqrt(1/2), sqrt(2))``, then
     ``log m = 2 atanh((m - 1) / (m + 1))``. ``0`` gives ``-inf``; a negative ``x`` gives ``nan``."""
+    xp = array_module(x, xp=xp)
     value = as_f64(x, xp)
     # A non-positive x takes the series at 1.0, whose result the last two lines replace.
     mantissa, exponent = xp.frexp(xp.where(value > 0.0, value, 1.0))
@@ -143,30 +160,34 @@ def sin_cos_series(r: Array, xp: ModuleType) -> tuple[Array, Array]:
     return r * horner(r2, sin_terms, xp), horner(r2, cos_terms, xp)
 
 
-def sin(x: Any, xp: ModuleType = np) -> Array:
+def sin(x: Any, xp: ModuleType | None = None) -> Array:
     """``sin x``, for ``|x| < 2**20`` (larger arguments lose the reduction's exactness)."""
+    xp = array_module(x, xp=xp)
     r, quadrant = reduce_half_pi(x, xp)
     s, c = sin_cos_series(r, xp)
     return xp.where(quadrant == 0.0, s, xp.where(quadrant == 1.0, c, xp.where(quadrant == 2.0, -s, -c)))
 
 
-def cos(x: Any, xp: ModuleType = np) -> Array:
+def cos(x: Any, xp: ModuleType | None = None) -> Array:
     """``cos x``, for ``|x| < 2**20``."""
+    xp = array_module(x, xp=xp)
     r, quadrant = reduce_half_pi(x, xp)
     s, c = sin_cos_series(r, xp)
     return xp.where(quadrant == 0.0, c, xp.where(quadrant == 1.0, -s, xp.where(quadrant == 2.0, -c, s)))
 
 
-def tanh(x: Any, xp: ModuleType = np) -> Array:
+def tanh(x: Any, xp: ModuleType | None = None) -> Array:
     """``tanh x = (e**2x - 1) / (e**2x + 1)``, with the sign folded so the exponential never overflows."""
+    xp = array_module(x, xp=xp)
     value = as_f64(x, xp)
     e = exp(-2.0 * xp.abs(value), xp)
     magnitude = (1.0 - e) / (1.0 + e)
     return xp.where(value < 0.0, -magnitude, magnitude)
 
 
-def ipow(x: Any, n: int, xp: ModuleType = np) -> Array:
+def ipow(x: Any, n: int, xp: ModuleType | None = None) -> Array:
     """``x**n`` for a non-negative integer ``n`` by repeated squaring (``x**2`` is one multiply)."""
+    xp = array_module(x, xp=xp)
     if n < 0:
         raise ValueError(f"ipow: negative exponent {n}; divide by ipow(x, {-n})")
     base = xp.asarray(x)
@@ -180,8 +201,9 @@ def ipow(x: Any, n: int, xp: ModuleType = np) -> Array:
     return result
 
 
-def pow(x: Any, y: Any, xp: ModuleType = np) -> Array:  # noqa: A001 -- the function's own name in every math library
+def pow(x: Any, y: Any, xp: ModuleType | None = None) -> Array:  # noqa: A001 -- the function's own name in every math library
     """``x**y`` for a positive ``x``: ``exp(y log x)``."""
+    xp = array_module(x, y, xp=xp)
     return exp(as_f64(y, xp) * log(x, xp), xp)
 
 
@@ -208,8 +230,9 @@ def exact_in_any_order(values: Array) -> bool:
     return values.dtype.kind in "biu"
 
 
-def sum(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType = np) -> Array:  # noqa: A001 -- numpy's name
+def sum(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:  # noqa: A001 -- numpy's name
     """``x`` summed over ``axis`` (every element for ``None``) in a fixed binary-tree order."""
+    xp = array_module(x, xp=xp)
     values = xp.asarray(x)
     if exact_in_any_order(values):
         return values.sum(axis=axis, keepdims=keepdims)
@@ -229,17 +252,19 @@ def sum(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType 
     return xp.expand_dims(total, axis) if keepdims else total
 
 
-def mean(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType = np) -> Array:
+def mean(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:
     """:func:`sum` divided by the count, as float64 for an integer ``x``."""
+    xp = array_module(x, xp=xp)
     values = xp.asarray(x)
     count = values.size if axis is None else values.shape[axis]
     total = sum(values.astype(xp.float64) if exact_in_any_order(values) else values, axis, keepdims, xp)
     return total / max(count, 1)
 
 
-def cumsum(x: Any, axis: int | None = None, xp: ModuleType = np) -> Array:
+def cumsum(x: Any, axis: int | None = None, xp: ModuleType | None = None) -> Array:
     """Running sum over ``axis`` (the flattened ``x`` for ``None``) by a Hillis-Steele scan: step ``d`` adds the
     element ``d`` back to every element, for ``d = 1, 2, 4, ...``."""
+    xp = array_module(x, xp=xp)
     values = xp.asarray(x)
     if exact_in_any_order(values):
         return xp.cumsum(values, axis=axis)
@@ -254,20 +279,23 @@ def cumsum(x: Any, axis: int | None = None, xp: ModuleType = np) -> Array:
     return xp.moveaxis(rows, 0, axis % values.ndim)
 
 
-def matvec(a: Any, x: Any, xp: ModuleType = np) -> Array:
+def matvec(a: Any, x: Any, xp: ModuleType | None = None) -> Array:
     """``a @ x`` for a matrix ``a`` and a vector ``x``: each row's products summed by :func:`sum`."""
+    xp = array_module(a, x, xp=xp)
     return sum(xp.asarray(a) * xp.asarray(x)[None, :], 1, False, xp)
 
 
-def norm(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType = np) -> Array:
+def norm(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:
     """The Euclidean norm over ``axis``: ``sqrt`` of the :func:`sum` of squares (``|x|**2`` for complex)."""
+    xp = array_module(x, xp=xp)
     values = xp.asarray(x)
     squares = (values * values.conj()).real if values.dtype.kind == "c" else values * values
     return xp.sqrt(sum(squares, axis, keepdims, xp))
 
 
-def matmul(a: Any, b: Any, xp: ModuleType = np) -> Array:
+def matmul(a: Any, b: Any, xp: ModuleType | None = None) -> Array:
     """``a @ b`` for matrices: every product formed, then summed over the inner axis by :func:`sum`. Memory is
     ``m k n``, so this is for the small products of an initializer (a few projectors, three coordinates)."""
+    xp = array_module(a, b, xp=xp)
     left, right = xp.asarray(a), xp.asarray(b)
     return sum(left[:, :, None] * right[None, :, :], 1, False, xp)
