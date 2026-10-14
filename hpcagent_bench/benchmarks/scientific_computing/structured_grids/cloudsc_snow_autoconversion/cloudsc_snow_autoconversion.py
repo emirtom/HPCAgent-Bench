@@ -16,6 +16,7 @@ import numpy as np
 
 from hpcagent_bench.support import counter_rng
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+from hpcagent_bench.support import exact_math
 
 #: Share of columns without cloud ice.
 ICE_FREE_SHARE = 1.0 / 3.0
@@ -39,7 +40,7 @@ def initialize(
     column = (KLON,)
     ztp1 = uniform(column, seed, 0, 230.0, 290.0, xp)
     icy = counter_rng.uniform_field(column, seed, 1, xp) >= ICE_FREE_SHARE
-    ice = ICE_MEDIAN * xp.exp(ICE_LOG_SPREAD * counter_rng.normal_field(column, seed, 2, xp))
+    ice = ICE_MEDIAN * exact_math.exp(ICE_LOG_SPREAD * counter_rng.normal_field(column, seed, 2, xp), xp=xp)
     zicecld = xp.where(icy, ice, 0.0)
     pnice = uniform(column, seed, 3, 0.005, 0.1, xp)
     # (NCLDQI, NCLDQS, KLON): every slot holds the sinks earlier processes left; the nest adds to one.

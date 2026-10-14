@@ -1282,7 +1282,7 @@ INITIALIZER = "initialize"
 
 #: Kwargs the harness supplies BY NAME to an initializer that declares them. A positional value
 #: must never land in one of these slots: the same argument would then arrive twice.
-HARNESS_KWARGS = frozenset({"datatype", "rng", "dist", "perturbation", "variant_spec"})
+HARNESS_KWARGS = frozenset({"datatype", "rng", "dist", "perturbation", "variant_spec", "xp"})
 
 
 def initializer_inputs(module: pathlib.Path) -> tuple[str, ...]:

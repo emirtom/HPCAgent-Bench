@@ -242,7 +242,7 @@
  "tests/test_replay_cache_detection.py": 2,
  "tests/test_repo_pr.py": 28,
  "tests/test_resolve_outputs_and_validate.py": 2,
- "tests/test_rng_streams.py": 9,
+ "tests/test_rng_streams.py": 6,
  "tests/test_run_cluster_gang_judge.py": 3,
  "tests/test_run_in_judge_container.py": 6,
  "tests/test_run_sparse_sweep.py": 1,
