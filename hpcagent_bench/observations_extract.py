@@ -1446,7 +1446,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="append",
         default=[],
         metavar="GLOB",
-        help="results DBs from `hpcagent-bench regrade`, or directories holding them: a promotion or re-verify "
+        help="results DBs from `hpcagent-bench grade-under run`, or directories holding them: a promotion or re-verify "
         "(`grade-under run`) of a grade takes its place, and a final grade (`grade-under run`, mw4x5) sets the FINAL "
         "speedup of each submission it re-timed; repeatable",
     )
