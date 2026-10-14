@@ -336,3 +336,41 @@ def test_an_agent_thread_that_raises_costs_the_node_one_rc_not_its_summary(monke
         rcs = sorted(driver.agent_returncode(future, problem) for future, problem in futures.items())
     assert rcs == sorted([driver.RC_AGENT_FAULT, 0])
     assert driver.node_exit_status(rcs) == 0, "one failed agent must not fail the node"
+
+
+def test_a_submission_the_watcher_missed_is_not_relaunched(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """submit.py writes the marker, then the CLI dies (rc 1, no closing event) inside one watcher
+    poll. The attempt read as a crash and was relaunched; the kept marker killed the relaunch at its
+    first poll, and the relaunch's start became final_attempt_start_ms -- the X7 cut that drops
+    every judge row before it, the episode's only real submission included."""
+    monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path / "shared"))
+    driver = load_driver(
+        monkeypatch, AGENT_CRASH_ATTEMPTS="3", AGENT_TIMEOUT_SECONDS="0", AGENT_SUBMISSION_MODE="single"
+    )
+    problem = problem_line(0, "gemm", "Optimize gemm in c.")
+    node_dir = tmp_path / "node-0"
+    node_dir.mkdir()
+    marker = node_dir / "problem-0-worker-0" / driver.SUBMISSION_MARKER
+    base = crashing_popen_class([1, 0])
+
+    class SubmitThenDie(base):
+        def wait(self, timeout: float | None = None) -> int:
+            # The submission lands as the process exits, after the watcher's first look.
+            if self.attempt == 1:
+                marker.write_text('{"correct": true}\n', encoding="utf-8")
+            return super().wait(timeout)
+
+    monkeypatch.setattr(driver.subprocess, "Popen", SubmitThenDie)
+    monkeypatch.setattr(driver, "vllm_urls", lambda: ["http://127.0.0.1:8000"])
+    monkeypatch.setattr(driver, "agent_cpus", lambda worker_index, agents: [])
+    monkeypatch.setattr(driver, "promote_at_agent_exit", lambda *args, **kwargs: "")
+    monkeypatch.setattr(driver, "TOKEN_POLL_SECONDS", 0.5)
+    rc = driver.run_agent(problem, 0, node_dir, ["http://127.0.0.1:8800"], 0, 1)
+    workdir = node_dir / "problem-0-worker-0"
+    ledger = [json.loads(line) for line in (workdir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(ledger) == 1, f"the submitted attempt was relaunched: {ledger}"
+    assert rc == driver.RC_SUBMITTED
+    record = json.loads((workdir / "tokens.json").read_text(encoding="utf-8"))
+    assert record["final_attempt_start_ms"] == ledger[0]["start_ms"]

@@ -3117,6 +3117,12 @@ def run_agent(
                 returncode = watched_returncode(returncode, state, marker, log, max_tokens, dead_stream_threshold)
                 spent = deadline and time.monotonic() >= deadline
                 attempt_crashed = closing_crashed(returncode, harness.closing(workdir))
+                if attempt_crashed and spent_its_submission(workdir):
+                    # It submitted and died inside one watcher poll, so the watcher never saw the
+                    # marker. A relaunch keeps the marker and is killed as RC_SUBMITTED at its first
+                    # poll, and its later start would become the X7 cut that drops the real grade.
+                    log.write("\nagent_driver: ended after its single submission (exited before the watcher saw it)\n")
+                    returncode, attempt_crashed = RC_SUBMITTED, False
                 relaunching = bool(attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent)
                 note_relaunch(
                     log,
