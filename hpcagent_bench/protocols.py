@@ -37,6 +37,7 @@ __all__ = [
     "CREDITED_KEY",
     "PROTOCOLS",
     "TIMING_TESTS",
+    "WARMUP",
     "Protocol",
     "Role",
     "Statistic",
@@ -59,6 +60,8 @@ CREDITED_KEY = "measurement.credited_protocol"
 CREDITED_DEFAULT = "mw4x5"
 #: The stamp suffix of a grade protocol's A/A calibration.
 AA_SUFFIX = "-aa"
+#: Untimed warmup calls before the timed runs of each side of each input, under every grade and preview protocol.
+WARMUP: int = 1
 
 
 class Role(enum.Enum):

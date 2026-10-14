@@ -209,9 +209,9 @@ def fold_legacy_grade(row: dict[str, Value]) -> dict[str, Value]:
 
 
 def upgrade_legacy(conn: sqlite3.Connection) -> None:
-    """Upgrade an open v6 file to the current schema in place: add v7's columns, fold every grade's
-    per-request columns into them (:func:`fold_legacy_grade`), drop the folded columns; one transaction, so
-    a failure leaves the file at version 6."""
+    """Upgrade an open v6 file to the current schema in place: add the current columns v6 lacks, fold every
+    grade's per-request columns into them (:func:`fold_legacy_grade`), drop the folded columns; one
+    transaction, so a failure leaves the file at version 6."""
     conn.execute("BEGIN")
     try:
         upgrade_legacy_columns(conn)
@@ -226,6 +226,7 @@ def upgrade_legacy_columns(conn: sqlite3.Connection) -> None:
         ("requests", "TEXT NOT NULL DEFAULT ''"),
         ("convert_in_ns", "INTEGER NOT NULL DEFAULT 0"),
         ("convert_out_ns", "INTEGER NOT NULL DEFAULT 0"),
+        ("task_hash", "TEXT NOT NULL DEFAULT ''"),
     ):
         conn.execute(f"ALTER TABLE grades ADD COLUMN {name} {ddl}")
     legacy = ", ".join(LEGACY_GRADE_COLUMNS)

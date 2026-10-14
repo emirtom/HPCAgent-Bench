@@ -20,7 +20,9 @@ low: no import side effects, and language-agnostic introspection.
 import ast
 import difflib
 import functools
+import hashlib
 import itertools
+import json
 import math
 import pathlib
 import re
@@ -69,6 +71,7 @@ __all__ = [
     "C_KEYWORDS",
     "DEFAULT_FUZZ",
     "DEFAULT_FUZZ_ANCHOR",
+    "FINGERPRINT_MANIFEST_KEYS",
     "FUZZ_SUFFIX",
     "HARNESS_KWARGS",
     "IDENTIFIER",
@@ -140,6 +143,7 @@ __all__ = [
     "misplaced_initializer",
     "missing_level",
     "module_level_constants",
+    "normalized_ast",
     "number_of",
     "numpy_reference_path",
     "outside_nested_scopes",
@@ -171,6 +175,7 @@ __all__ = [
     "sparse_alignment_constraints",
     "stem_aliases",
     "target_names",
+    "task_fingerprint",
     "track_datatype",
     "unimportable_module_path",
     "validate_dwarf",
@@ -576,14 +581,14 @@ class InitSpec:
       kernel NEEDS, not what flatters it -- keep it as wide as the kernel allows.
     * The draws. The correctness gate grades the public seed plus the five hidden-rotation variants
       (:mod:`hpcagent_bench.support.distributions.hidden`); the timed window cycles over the cell's
-      pool of 4 seeds (:func:`hpcagent_bench.harness.rep_variation.pool_seeds`), so every kernel needs 4
-      DISTINCT inputs. A declarative init gets them from the seed.
+      pool of :data:`hpcagent_bench.harness.rep_variation.POOL_SIZE` (6) seeds
+      (:func:`hpcagent_bench.harness.rep_variation.pool_seeds`), so every kernel needs 6 DISTINCT inputs. A declarative init gets them from the seed.
     * Fallback ``initialize`` in ``<module>.py`` (:data:`INITIALIZER`; defining it there is what selects
       this path), only when no shape+distribution+domain can describe the
       inputs (a well-posed boundary value problem, a structured matrix, a physical initial
       condition). It must accept ``perturbation`` (a
       :class:`~hpcagent_bench.support.distributions.perturbation.Perturbation`: the draw's scenario
-      and a small error distribution), or an ``rng`` it draws every value field from, so the 4 timed
+      and a small error distribution), or an ``rng`` it draws every value field from, so the 6 timed
       draws still differ. A PDE/stencil/iterative kernel declares ``scenarios`` (named, physical
       initial/boundary conditions); the draw with seed ``s`` uses scenario ``s % len(scenarios)`` plus
       the perturbation's error, and every scenario must keep the scheme stable (CFL etc.).
@@ -2754,6 +2759,46 @@ def load_spec(short_name: str) -> BenchSpec:
     from hpcagent_bench.sizing import datatype_sized  # cycle: sizing imports this module
 
     return datatype_sized(BenchSpec.from_yaml(load_yaml(path.read_text()), source=str(path)))
+
+
+#: The manifest blocks :func:`task_fingerprint` covers: the arguments and the configuration space. The size
+#: presets (``parameters``) are left out, so a resized rung is the same task.
+FINGERPRINT_MANIFEST_KEYS: tuple[str, ...] = ("args", "config")
+
+
+def normalized_ast(path: pathlib.Path) -> str:
+    """``ast.dump`` of the Python module at ``path`` with every module, class and function docstring removed
+    and no source positions: two sources that differ only in docstrings, comments or layout dump equal."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        documented = isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        if documented and ast.get_docstring(node, clean=False) is not None:
+            node.body = node.body[1:]
+    return ast.dump(tree, include_attributes=False)
+
+
+@functools.lru_cache(maxsize=None, typed=True)
+def task_fingerprint(short_name: str) -> str:
+    """The sha256 hex digest of ``short_name``'s task as an agent is asked to solve it: the numpy reference
+    (:func:`numpy_reference_path`) and the fallback initializer module (``<module>.py`` when it defines
+    :data:`INITIALIZER`), each as :func:`normalized_ast`, the manifest's :data:`FINGERPRINT_MANIFEST_KEYS`
+    blocks as written, and the entry symbol (:attr:`BenchSpec.func_name`). Raises ``KeyError`` for an
+    unknown kernel."""
+    manifest = KERNELS[short_name]
+    raw = load_yaml(manifest.read_text(encoding="utf-8"))
+    spec = load_spec(short_name)
+    reference = numpy_reference_path(spec.relative_path, spec.module_name)
+    module = manifest.parent / f"{spec.module_name}.py"
+    task = {
+        "reference": normalized_ast(reference) if reference is not None else "",
+        "initializer": normalized_ast(module) if defines_function(module, INITIALIZER) else "",
+        "manifest": {key: raw.get(key) for key in FINGERPRINT_MANIFEST_KEYS},
+        "entry": spec.func_name,
+    }
+    return hashlib.sha256(json.dumps(task, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+register_manifest_cache(task_fingerprint.cache_clear)
 
 
 #: C and C++ reserved words no backend emitter renames, so a kernel variable spelled like one is a hard

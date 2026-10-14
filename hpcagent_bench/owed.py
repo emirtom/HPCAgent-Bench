@@ -11,7 +11,10 @@ still owed. A kernel is delivered when a job graded it: a credited /submit grade
 graded and refused. A refusal reasoned ``score_error`` (the judge's own reference failed) and any
 grade under the ``adhoc`` episode id (no episode) deliver nothing. Every other tag kernel is owed, classed
 by its latest episode's ``tokens.json``: ``budget`` when the agent hit its own time or token cap and
-the job did not cancel it (rerun at a scaled budget), ``infra`` otherwise (rerun as it was).
+the job did not cancel it (rerun at a scaled budget), ``infra`` otherwise (rerun as it was). A delivered
+run is owed again, class ``task``, when a final grade (in a job's shards or a ``--regrades`` results DB)
+found its kernel's task changed since the run and its submission failing every input (reason
+``recorded_rows.TASK_CHANGED_PREFIX``), until a job delivers the run after that submission.
 
 ``hpcagent-bench owed run`` reruns one setup on its owed runs: the job env the setup last launched
 with (``<run root>/.agent-launch/<job>/.env``) and its problems file filtered to those runs (a replayed
@@ -22,6 +25,7 @@ budget as ``submit.sh``'s TOKEN_SCALE/TIME_SCALE do.
 """
 
 import argparse
+import collections
 import dataclasses
 import enum
 import json
@@ -39,7 +43,7 @@ from hpcagent_bench import tags
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.harness.recording import slot_of
-from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES
+from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
 __all__ = [
@@ -47,6 +51,7 @@ __all__ = [
     "EPISODE_GLOB",
     "LAUNCH_DIR",
     "SUBMIT_SCRIPT",
+    "TASK_CHANGED_FINALS",
     "Job",
     "OwedClass",
     "Run",
@@ -54,7 +59,9 @@ __all__ = [
     "cmd_collect",
     "cmd_run",
     "collect_jobs",
+    "db_rows",
     "delivered",
+    "delivered_at",
     "designed_runs",
     "job_setup",
     "kernel_stem",
@@ -67,9 +74,11 @@ __all__ = [
     "problem_run",
     "read_env",
     "read_problems",
+    "regrade_dbs",
     "rerun_problems",
     "selected",
     "shard_rows",
+    "task_changed",
     "write_listing",
 ]
 
@@ -88,6 +97,8 @@ class OwedClass(enum.Enum):
 
     BUDGET = "budget"
     INFRA = "infra"
+    #: The kernel's task changed since the run and the submission failed every input: a fresh run as it was.
+    TASK = "task"
 
 
 class Run(NamedTuple):
@@ -122,13 +133,18 @@ class Job:
     setup: str
 
 
-def shard_rows(job_dir: pathlib.Path, query: str, args: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
-    """``query`` over every judge shard of ``job_dir``."""
+def db_rows(paths: Iterable[pathlib.Path], query: str, args: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
+    """``query`` over every results DB of ``paths``."""
     rows: list[tuple[object, ...]] = []
-    for path in merge_results.judge_shards(job_dir):
+    for path in paths:
         with results_db.reading(path) as conn:
             rows.extend(tuple(row) for row in conn.execute(query, args))
     return rows
+
+
+def shard_rows(job_dir: pathlib.Path, query: str, args: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
+    """``query`` over every judge shard of ``job_dir``."""
+    return db_rows(merge_results.judge_shards(job_dir), query, args)
 
 
 def job_setup(job_dir: pathlib.Path) -> str:
@@ -158,16 +174,18 @@ def collect_jobs(roots: Iterable[pathlib.Path], excluded: set[str]) -> tuple[dic
     return by_identity, empty
 
 
-def delivered(job_dir: pathlib.Path) -> set[Run]:
-    """Every run ``job_dir`` graded for an episode: a submission, or a refused real attempt -- never one
-    refused for the judge's own fault, nor one an operator voided for a rerun (``infra: ``/``budget: ``)."""
+def delivered_at(job_dir: pathlib.Path) -> dict[Run, int]:
+    """Every run ``job_dir`` graded for an episode, with the ``ts_ms`` of its newest such grade: a
+    submission, or a refused real attempt -- never one refused for the judge's own fault, nor one an operator
+    voided for a rerun (:data:`~hpcagent_bench.recorded_rows.RERUN_PREFIXES`)."""
     kinds = ", ".join("?" * len(results_db.SUBMIT_KINDS))
     voided = " ".join("and g.reason not like ?" for _ in RERUN_PREFIXES)
     graded = shard_rows(
         job_dir,
-        "select distinct g.kernel, r.slot from grades g join episodes r on r.id = g.episode_id where r.label != ? "
-        f"and g.kind in ({kinds}) and (g.credited_speedup != 0 or (g.reason != '' and g.reason != ? "
-        f"{voided})) and g.id not in (select grade_id from disqualifications)",
+        "select g.kernel, r.slot, max(g.ts_ms) from grades g join episodes r on r.id = g.episode_id "
+        f"where r.label != ? and g.kind in ({kinds}) and (g.credited_speedup != 0 or (g.reason != '' "
+        f"and g.reason != ? {voided})) and g.id not in (select grade_id from disqualifications) "
+        "group by g.kernel, r.slot",
         (
             ADHOC_EPISODE_ID,
             *results_db.SUBMIT_KINDS,
@@ -175,7 +193,31 @@ def delivered(job_dir: pathlib.Path) -> set[Run]:
             *(f"{prefix}%" for prefix in RERUN_PREFIXES),
         ),
     )
-    return {Run(str(kernel), int(str(slot))) for kernel, slot in graded}
+    return {Run(str(kernel), int(str(slot))): int(str(ts)) for kernel, slot, ts in graded}
+
+
+def delivered(job_dir: pathlib.Path) -> set[Run]:
+    """The runs of :func:`delivered_at`."""
+    return set(delivered_at(job_dir))
+
+
+#: Per final grade whose reason is :data:`~hpcagent_bench.recorded_rows.TASK_CHANGED_PREFIX`: the setup, slot
+#: and kernel of the submission it re-timed, and that submission's ``ts_ms``.
+TASK_CHANGED_FINALS = """
+select r.setup, r.slot, o.kernel, o.ts_ms from grades f join grades o on o.id = f.of_grade_id
+join episodes r on r.id = o.episode_id where f.kind = 'final' and f.reason like ? and r.label != ?
+"""
+
+
+def task_changed(dbs: Iterable[pathlib.Path], setup: str) -> dict[Run, int]:
+    """Every run of ``setup`` a final grade in ``dbs`` found failing every input after its kernel's task
+    changed (:data:`TASK_CHANGED_FINALS`), with the ``ts_ms`` of the newest such submission."""
+    changed: dict[Run, int] = {}
+    for found, slot, kernel, ts in db_rows(dbs, TASK_CHANGED_FINALS, (f"{TASK_CHANGED_PREFIX}%", ADHOC_EPISODE_ID)):
+        if found == setup:
+            run = Run(str(kernel), int(str(slot)))
+            changed[run] = max(changed.get(run, 0), int(str(ts)))
+    return changed
 
 
 def kernel_stem(kernel: object) -> str:
@@ -213,12 +255,30 @@ def designed_runs(jobs: Sequence[Job], tag_kernels: Sequence[str]) -> list[Run]:
     return [Run(kernel, slot) for kernel in tag_kernels for slot in sorted(slots)]
 
 
-def owed(jobs: Sequence[Job], runs: Sequence[Run]) -> dict[Run, OwedClass]:
-    """Every run of ``runs`` no job of the identity delivered, in order, with its class. A run no
-    episode ever started is ``infra``."""
-    done = set().union(*(delivered(job.path) for job in jobs))
+def owed(jobs: Sequence[Job], runs: Sequence[Run], regrades: Sequence[pathlib.Path] = ()) -> dict[Run, OwedClass]:
+    """Every run of ``runs`` the identity owes, in order, with its class: one no job delivered (a run no
+    episode ever started is ``infra``), and one whose newest delivery is no newer than a submission a final
+    grade in the jobs' shards or in ``regrades`` found failing every input after its task changed
+    (:func:`task_changed`, class ``task``)."""
+    done: dict[Run, int] = {}
+    for job in jobs:
+        for run, ts in delivered_at(job.path).items():
+            done[run] = max(done.get(run, ts), ts)
+    shards = [shard for job in jobs for shard in merge_results.judge_shards(job.path)]
+    changed = task_changed([*shards, *regrades], jobs[0].setup) if jobs else {}
     classes = latest_classes(job.path for job in jobs)
-    return {run: classes.get(run, OwedClass.INFRA) for run in runs if run not in done}
+    result: dict[Run, OwedClass] = {}
+    for run in runs:
+        if run in changed and done.get(run, changed[run]) <= changed[run]:
+            result[run] = OwedClass.TASK
+        elif run not in done:
+            result[run] = classes.get(run, OwedClass.INFRA)
+    return result
+
+
+def regrade_dbs(paths: Iterable[pathlib.Path]) -> list[pathlib.Path]:
+    """The results DBs ``paths`` name: each file itself, each directory's ``*.db`` files at any depth."""
+    return sorted({db for path in paths for db in ([path] if path.is_file() else path.rglob("*.db"))})
 
 
 def selected(name: str, prefixes: Sequence[str]) -> bool:
@@ -238,6 +298,7 @@ def write_listing(out_dir: pathlib.Path, name: str, runs: Sequence[Run]) -> None
 def cmd_collect(args: argparse.Namespace) -> int:
     tag_kernels = list(tags.kernels_of(args.tag))
     by_identity, empty = collect_jobs(args.runs, set(args.exclude_job))
+    regrades = regrade_dbs(args.regrades)
     only = OwedClass(args.owed_class) if args.owed_class else None
     print(f"tag {args.tag}: {len(tag_kernels)} kernels")
     if empty:
@@ -247,11 +308,11 @@ def cmd_collect(args: argparse.Namespace) -> int:
     for name in sorted(n for n in by_identity if selected(n, args.setups)):
         jobs = sorted(by_identity[name], key=lambda job: int(job.job))
         runs = designed_runs(jobs, tag_kernels)
-        classes = owed(jobs, runs)
-        budget = sum(owed_class is OwedClass.BUDGET for owed_class in classes.values())
+        classes = owed(jobs, runs, regrades)
+        counts = collections.Counter(owed_class.value for owed_class in classes.values())
         print(
             f"{name} done {len(runs) - len(classes)}/{len(runs)} owed {len(classes)} "
-            f"(budget {budget}, infra {len(classes) - budget}) newest {jobs[-1].path}"
+            f"({', '.join(f'{c.value} {counts[c.value]}' for c in OwedClass)}) newest {jobs[-1].path}"
         )
         if args.out:
             write_listing(args.out, name, [run for run, owed_class in classes.items() if only in (None, owed_class)])
@@ -384,6 +445,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="only this setup or its <setup>- family; repeatable",
     )
     collect.add_argument("--exclude-job", action="append", default=[], help="a job id that does not count; repeatable")
+    collect.add_argument(
+        "--regrades",
+        type=pathlib.Path,
+        action="append",
+        default=[],
+        help="a results DB, or a directory of them, holding final grades (grade-under run's output); repeatable",
+    )
     collect.add_argument("--out", type=pathlib.Path, help="write <setup>.txt run lists here (<kernel> [<slot>])")
     collect.add_argument(
         "--class", dest="owed_class", choices=[c.value for c in OwedClass], help="write only this class's kernels"
