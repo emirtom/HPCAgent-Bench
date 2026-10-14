@@ -94,7 +94,7 @@ def eligible_rows(rows: pd.DataFrame, include_incomplete: bool = False) -> pd.Da
 #: Fixed display order for the known conditions: the control, then the treatments in the order the
 #: experiments introduced them. A condition outside this set (an unregistered packet combination)
 #: still plots, just after every named one -- see :func:`condition_order`.
-CONDITION_ORDER: tuple[str, ...] = ("", "lang-skills", "cpf-tool", "cpf-src")
+CONDITION_ORDER: tuple[str, ...] = ("", "lang-skills", "cpf-tool-cpu", "cpf-cpu-src", "cpf-tool-gpu", "cpf-gpu-src")
 
 #: Below this many conditions a control and its treatment are joined by a dashed connector, which
 #: draws the DIFFERENCE between them. Two is a treatment and its control, which is a segment; three

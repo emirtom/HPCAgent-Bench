@@ -281,7 +281,7 @@ def test_the_impact_table_has_one_row_per_setup_with_the_ratio_on_the_treatment_
     assert treated.token_ratio == pytest.approx(2.0)
     assert pd.isna(control.speedup_ratio)
     assert pd.isna(control.token_ratio)
-    assert (treated.model, treated.language, treated.packet) == ("qwen38", "c", "cpf-tool")
+    assert (treated.model, treated.language, treated.packet) == ("qwen38", "c", "cpf-tool-cpu")
 
 
 def test_the_impact_table_carries_usage_and_the_setup_aggregates(
