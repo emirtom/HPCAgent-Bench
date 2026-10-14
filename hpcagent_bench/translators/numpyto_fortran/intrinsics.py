@@ -176,7 +176,7 @@ def operand_is_float(call: ast.Call, dtypes: dict[str, str]) -> bool:
 
 
 def conformable_operands(args: Sequence[ast.expr], shapes: dict[str, tuple[str, ...]]) -> bool:
-    """True when every array operand already has the SAME rank, with no broadcasting anywhere.
+    """True when every array operand already has the SAME shape, with no broadcasting anywhere.
 
     Fortran's elementwise intrinsics demand CONFORMANCE; they do not broadcast. An operand that
     reaches its rank by broadcasting -- ``keep[:, None, None]`` against a rank-3 block buffer --
@@ -184,7 +184,7 @@ def conformable_operands(args: Sequence[ast.expr], shapes: dict[str, tuple[str, 
     subscript slot. A newaxis is the reliable signal, since the extent it inserts is a legitimate
     rank on paper; a rank the shape table cannot resolve declines too, rather than guess.
     """
-    ranks: set[int] = set()
+    extents: list[list[str]] = []
     for arg in args:
         for sub in ast.walk(arg):
             if isinstance(sub, ast.Constant) and sub.value is None:
@@ -194,8 +194,14 @@ def conformable_operands(args: Sequence[ast.expr], shapes: dict[str, tuple[str, 
         ext = iter_extent_of(arg, shapes)
         if ext is None:
             return False
-        ranks.add(len(ext))
-    return len(ranks) <= 1
+        extents.append([ast.unparse(e) for e in ext])
+    if len({len(e) for e in extents}) > 1:
+        return False
+    # Same rank is not conformance: a size-1 axis (an ``(N, 1)`` mask against ``(N, M)`` branches)
+    # broadcasts in numpy, and MERGE then ran over the mask's one column and left the rest unset.
+    return all(
+        shape_exprs_equal(a, b) or a == b for other in extents[1:] for a, b in zip(extents[0], other, strict=True)
+    )
 
 
 def renders_natively(
