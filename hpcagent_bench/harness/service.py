@@ -76,6 +76,7 @@ from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
 from hpcagent_bench.harness.requests_api import (
     Location,
+    RequestAllowances,
     Requests,
     kernel_arrays,
     kernel_dtypes,
@@ -862,14 +863,18 @@ def _submission_from_body(
 def requests_refusal(submission: Submission, task: Task, datatype: str) -> str | None:
     """Why ``submission.requests`` cannot be honoured for ``task`` at ``datatype``, or ``None``.
 
-    A cast of an array that is not floating and dense, or to its problem precision; a sparse kernel with
-    a grid (distributed sparse formats are not implemented yet); an operation that cannot apply to this
-    kernel's arrays; a layout operation without a grid; and, on a distributed run, a grid or program that
+    A cast, layout, zip, unzip or format operation this setup does not allow
+    (:meth:`RequestAllowances.refusal`); a cast of an array that is not floating and dense, or to its
+    problem precision; a sparse kernel with a grid (distributed sparse formats are not implemented yet);
+    an operation that cannot apply to this kernel's arrays; a layout operation without a grid; and, on a distributed run, a grid or program that
     does not lower at ``mpi.ranks`` or leaves an array neither distributed nor replicated are the
     request's fault -- 400, no build, the submission is not spent."""
+    requests = submission.requests
+    disallowed = RequestAllowances.from_config().refusal(requests)
+    if disallowed is not None:
+        return disallowed
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
-    requests = submission.requests
     problem = precision_problem_dtypes(spec, binding, datatype)
     if task.residency == "distributed":
         # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.

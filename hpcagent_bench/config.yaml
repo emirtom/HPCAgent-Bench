@@ -546,6 +546,21 @@ sparse:
                               # of a sparse matrix is drawn a multiple of their lcm, so each one
                               # divides every graded size (spec.sparse_alignment_constraints).
 
+# What a submission's `requests` may ask the judge for (requests_api.RequestAllowances,
+# docs/requests_api.md). The prompt's requests section is rendered from these keys and names only
+# what they allow; the judge refuses anything else with an HTTP 400 that does not spend the submission.
+# `startup.load` is gated by grading.allow_agent_build_tokens; `startup.grid` and the distributed
+# track's layout over it are that track's contract, not gated here.
+requests:
+  precisions: []          # precisions a `cast` may target: any of fp64, fp32, fp16, bf16, fp8_e4m3,
+                          # fp8_e5m2 (a list, or a comma-separated string in the environment);
+                          # [] refuses every cast
+  layouts: false          # true: a request without startup.grid may lay dense arrays out (permute,
+                          # block, split, pad, shuffle, linear_shuffle and their inverses), and any
+                          # request may zip / unzip. false refuses them
+  sparse_formats: false   # true: a `format` operation may choose a sparse array's storage format among
+                          # the kernel's offered ones. false: every sparse array arrives in its default
+
 # Distributed (multi-node MPI) track -- additive: a submission with no `startup.grid`
 # runs the single-node path unchanged. These knobs configure how a `residency: distributed`
 # run is LAUNCHED and SIZED. Ship an ABI-compatible MPICH image; the multi-node

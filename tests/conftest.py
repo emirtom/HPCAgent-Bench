@@ -20,6 +20,7 @@ import pytest
 
 from hpcagent_bench import flags
 from tests.dace_build_isolation import pin_per_worker_dace_build_folder
+from tests.request_allowances import every_request_allowed as allowing_every_request
 
 # The suite is the outermost launch of every process it starts, so it sets the OpenMP environment grading
 # needs (flags.openmp_launch_env) before anything imports numpy, whose OpenBLAS loads the runtime that
@@ -391,6 +392,13 @@ def restore_module_config_overrides() -> Iterator[None]:
     snapshot = config.override_snapshot()
     yield
     config.restore_overrides(snapshot)
+
+
+@pytest.fixture
+def every_request_allowed() -> Iterator[None]:
+    """The test runs under a setup that allows every gated request (:mod:`tests.request_allowances`)."""
+    with allowing_every_request():
+        yield
 
 
 @pytest.fixture

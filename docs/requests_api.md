@@ -43,6 +43,23 @@ naming the new spelling. The agent tool ships relayout's JSON Schema of `request
 (`agent/hpcagent_agent/tools/requests_schema.json`, checked against the pinned relayout by
 `tests/test_requests_schema_vendored.py`).
 
+## 0. What a setup allows
+
+A setup allows a request only through these keys (`config.yaml` `requests:`, or
+`HPCAGENT_BENCH_REQUESTS_<KEY>` in its environment); `requests_api.RequestAllowances` reads them. The prompt's
+`requests` and `sparse` sections are rendered from them and name only what they allow, and the judge refuses
+everything else with a 400 before the kernel checks below (`service.requests_refusal`).
+
+| Key | Default | Allows |
+| --- | --- | --- |
+| `requests.precisions` | `[]` | a `cast` to each listed precision (a list, or `fp32,bf16` in the environment) |
+| `requests.layouts` | `false` | the digit operations of a request without `startup.grid`, and `zip` / `unzip` |
+| `requests.sparse_formats` | `false` | a `format` operation per sparse array |
+| `grading.allow_agent_build_tokens` | `true` | `startup.load` (section 2) |
+
+`startup.grid` and the operations that lay arrays out over it are the distributed track's contract and are
+not gated by these keys.
+
 ## 1. Precision (`cast`)
 
 `cast` sets an array's element type: `fp64`, `fp32`, `fp16`, `bf16`, `fp8_e4m3`, `fp8_e5m2`. An array no

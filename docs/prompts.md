@@ -131,8 +131,9 @@ hpcagent_bench/tools/<tool>.md          per-tool fragments for service_task.j2
 
 `service_task.j2` reuses `api`, `sparse`, `requests`, `correctness`, `fuzzing`, `scoring`, `optimizations`
 and `build_flags`, so each of those texts has one source for both prompts. `requests` explains the
-envelope's `requests` block (catalog libraries, per-array precision and its C types;
-[requests_api.md](requests_api.md)); the MPI layout ops live in `mpi`.
+envelope's `requests` block (catalog libraries, per-array precision and its C types, single-node
+layouts; [requests_api.md](requests_api.md)), naming only what the setup's `requests.*` keys allow; the MPI
+layout ops live in `mpi`. `sparse` offers the format choice only under `requests.sparse_formats`.
 
 Every section starts at its heading and ends with one blank line of its own. A section that renders
 nothing therefore leaves no gap, which is what lets one be turned off. `tests/test_prompt_sections.py`

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
+import pydantic
 import relayout.ops
 from relayout.convert import Group, Member
 from relayout.layout import IndexMap
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Location",
+    "RequestAllowances",
     "Requests",
     "grid_request",
     "kernel_arrays",
@@ -106,6 +108,75 @@ def kernel_arrays(
         members = ("re", "im") if np.dtype(element).kind == "c" else ()
         dense.append(ArraySpec(name, ndim, members=members, native=bool(members), extents=extents, element=element))
     return dense + [ArraySpec(group.logical, 2, sparse=True) for group in binding.packed]
+
+
+class RequestAllowances(pydantic.BaseModel):
+    """What a submission's ``requests`` may ask the judge for in this setup (config ``requests.*``). The
+    prompt's requests section states exactly these and the judge refuses every other request
+    (:meth:`refusal`). ``startup.load`` is gated by ``grading.allow_agent_build_tokens``
+    (``sandbox.catalog_refusal``); ``startup.grid`` and the operations that lay arrays out over it are the
+    distributed track's contract. Neither is gated here."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    #: The precisions a ``cast`` may target; empty refuses every ``cast``.
+    precisions: tuple[Precision, ...] = ()
+    #: Whether a request without ``startup.grid`` may lay a dense array out (the digit operations
+    #: ``permute``, ``block``, ``split``, ``pad``, ``shuffle``, ``linear_shuffle`` and their inverses) and
+    #: whether any request may ``zip`` / ``unzip``.
+    layouts: bool = False
+    #: Whether a ``format`` operation may choose a sparse array's storage format.
+    sparse_formats: bool = False
+
+    @pydantic.field_validator("precisions", mode="before")
+    @classmethod
+    def split_precisions(cls, raw: object) -> object:
+        """A comma-separated string (an environment value) as its list of precisions."""
+        if isinstance(raw, str):
+            return [token.strip() for token in raw.split(",") if token.strip()]
+        return raw
+
+    @classmethod
+    def from_config(cls) -> "RequestAllowances":
+        """The allowances of the setup this process (or this judge request's scoped environment) runs."""
+        return cls.model_validate(
+            {
+                "precisions": config.get("requests.precisions") or (),
+                "layouts": config.get_bool("requests.layouts", False),
+                "sparse_formats": config.get_bool("requests.sparse_formats", False),
+            }
+        )
+
+    def refusal(self, requests: "Requests") -> str | None:
+        """Why ``requests`` asks for something this setup does not allow, or None."""
+        casts = [op for op in requests.operations if isinstance(op, Cast)]
+        if casts and not self.precisions:
+            return (
+                "this setup does not allow precision requests: drop every cast operation; "
+                "every array stays in the problem precision"
+            )
+        offered = [p.value for p in self.precisions]
+        for op in casts:
+            if op.to not in self.precisions:
+                return f"cast of {op.array!r} to {op.to.value!r}: this setup allows casts to {offered} only"
+        laid = sorted(
+            {
+                op.action.value
+                for op in requests.operations
+                if isinstance(op, Zip | Unzip) or (isinstance(op, DigitOperation) and not requests.distributed)
+            }
+        )
+        if laid and not self.layouts:
+            return (
+                f"this setup does not allow layout requests: drop the {', '.join(laid)} operation(s); "
+                "every dense array arrives row-major as the signature declares"
+            )
+        if requests.formats() and not self.sparse_formats:
+            return (
+                "this setup does not allow sparse format requests: drop every format operation; "
+                "every sparse array arrives in its default format"
+            )
+        return None
 
 
 class SingleNode(NamedTuple):
