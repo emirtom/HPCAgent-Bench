@@ -279,6 +279,21 @@ def test_a_guillotine_kill_is_reported_as_too_slow(monkeypatch: pytest.MonkeyPat
     assert not isinstance(flat, native_call.NativeCallTooSlow)
 
 
+def test_a_batch_timeout_after_the_timed_section_is_not_a_guillotine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The timed reps finished (the child left its marker) and the batch budget ran out in a followup or
+    a spill: the candidate was not slower than its baseline, so it must not be credited as too slow."""
+
+    def fake_run_forked(*args: object, **_kw: object) -> types.SimpleNamespace:
+        spill_root = args[8]  # _native_call_worker's ninth argument
+        pathlib.Path(str(spill_root), native_call.TIMED_DONE_MARKER).touch()
+        return types.SimpleNamespace(ok=False, signal="TIMEOUT", exit_code=None, error="", result=None)
+
+    monkeypatch.setattr(native_call, "run_forked", fake_run_forked)
+    with pytest.raises(native_call.NativeCallTimeout) as caught:
+        native_call._call_isolated(None, STUB_BINDING, {}, "c", device=False, timeout=300.0, reps=20, guillotine_s=10.0)
+    assert not isinstance(caught.value, native_call.NativeCallTooSlow)
+
+
 def test_too_slow_still_counts_as_a_timeout_everywhere_else(monkeypatch: pytest.MonkeyPatch) -> None:
     """Subclass, not sibling: ``Score.timed_out`` and every reader keyed on it are unchanged."""
     assert issubclass(native_call.NativeCallTooSlow, native_call.NativeCallTimeout)

@@ -193,6 +193,42 @@ def test_the_setup_env_keeps_the_declared_device_a_grade_reads(tmp_path: pathlib
         assert native_call.host_only_grade(device=False), "a CPU setup's regrade still hides it"
 
 
+def test_a_job_level_key_survives_an_earlier_item_that_set_its_own(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item A's setup sets a key the job also exports; item B's does not. B is graded under the job's
+    value, as it would be had it come first, never the config default."""
+    key = "HPCAGENT_BENCH_TIMEOUTS_KERNEL_S"
+    monkeypatch.setenv(key, "600")
+    with grade_under.environment_scope() as base:
+        applied = grade_under.apply_env({key: "30"}, set(), base)
+        assert os.environ[key] == "30"
+        grade_under.apply_env({}, applied, base)
+        assert os.environ[key] == "600"
+
+
+def test_the_live_grade_reads_the_fused_setup_overlay(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, final_cells: list[dict[str, Any]]
+) -> None:
+    """/submit in a fused job runs inside the setup's scope (JudgeHandler.setup_scope); the protocol's own
+    scope must add its keys over it, so the scorer still reads the setup's declared device."""
+    from hpcagent_bench import config
+    from hpcagent_bench.harness.task import RECORD_DEVICE_ENV
+
+    item = listed_item(tmp_path)
+    monkeypatch.setattr(grade_under.BenchSpec, "load", lambda kernel: types.SimpleNamespace(short_name=kernel))
+    measured = final_scorer([2.0] * 4)
+    seen: list[str | None] = []
+
+    def scorer(*args: object, **kwargs: object) -> Score:
+        seen.append(config.env_value(RECORD_DEVICE_ENV))
+        return measured(*args, **kwargs)
+
+    with config.scoped_environment({RECORD_DEVICE_ENV: "fused-setup-device"}):
+        grade_under.submit_grade(
+            grade_under.submission_of(item), grade_under.task_of(item), grade_under.from_config(), scorer
+        )
+    assert seen and set(seen) == {"fused-setup-device"}, seen
+
+
 def test_the_setup_env_is_found_under_a_kernel_list_launchs_file_name(tmp_path: pathlib.Path) -> None:
     """A launch with a kernel list renders ``.env.<setup>-<list>`` and no ``.env.<setup>``: the live
     checkout holds only ``.env.scicomp40-qwen38-c-scicomp-perf-playbook-qwen38-plain``
@@ -1246,6 +1282,53 @@ def test_an_unmeasured_input_leaves_the_final_task_unsolved(
     assert (task["s_i"], task["s_bar"], task["n_credited"]) == (1.0, None, 3)
 
 
+def right_but_unmeasured(position: int) -> Callable[..., Score]:
+    """Three mwd-v3 inputs at 3x, and at ``position`` a right answer the judge could not time."""
+    measured = final_scorer([3.0] * 3)
+    answers = iter(index != position for index in range(4))
+
+    def scorer(*args: object, **kwargs: object) -> Score:
+        return measured(*args, **kwargs) if next(answers) else score_result(cells=(), detail="seal failed")
+
+    return scorer
+
+
+def test_a_right_but_unmeasured_input_makes_the_final_regrade_a_fault_owed_again(
+    tmp_path: pathlib.Path, final_cells: list[dict[str, Any]]
+) -> None:
+    """An input that built and answered right but timed nothing is the judge's fault (an OOM, a seal
+    failure), never an unsolved 1.000: the grade is an error with no stamp and no rule, so a resumed
+    shard and a rebuilt worklist both owe it again and it never wins over an earlier credited final."""
+    item = listed_item(tmp_path)
+    _rows, values = grade_under.grade_cells(item, scorer=right_but_unmeasured(1))
+    assert (values["status"], values["timing_reduction"], values["score_rule"]) == (grade_under.ERROR_STATUS, "", None)
+    assert values["credited_speedup"] is None
+    assert values["reason"] == "input cfg0:large1: not timed", values["reason"]
+    out = tmp_path / "out"
+    calls: list[int] = []
+
+    def grader(one: grade_under.Item) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        calls.append(one.ts_ms)
+        return grade_under.grade_cells(one, scorer=right_but_unmeasured(1))
+
+    assert grade_under.run_cells_shard([item], 0, 1, out, grader) == 1
+    assert grade_under.run_cells_shard([item], 0, 1, out, grader) == 1  # still owed: a fault decided nothing
+    assert item.grade_id not in grade_under.final_graded(out / "regrade-cells-0.db")
+    assert calls == [item.ts_ms] * 2
+
+
+def test_a_final_regrade_that_did_not_build_records_build_ok_0(
+    tmp_path: pathlib.Path, final_cells: list[dict[str, Any]]
+) -> None:
+    """A build failure on every input is the submission's own failure: the row must not claim it built."""
+
+    def failing(*_args: object, **_kwargs: object) -> Score:
+        return score_result(correct=False, build_ok=False, speedup=0.0, cells=(), detail="cc: error")
+
+    _rows, values = grade_under.grade_cells(listed_item(tmp_path), scorer=failing)
+    assert (values["build_ok"], values["correct"]) == (0, 0)
+
+
 def test_an_ungraded_input_leaves_the_final_task_unsolved(
     tmp_path: pathlib.Path, final_cells: list[dict[str, Any]]
 ) -> None:
@@ -1280,15 +1363,18 @@ def test_a_min_of_k_fallback_input_is_not_stamped_final(
 ) -> None:
     """The scorer falls back to min-of-k when a side produced no samples; that input was not reduced
     by the Mann-Whitney, so it carries no final stamp, reads as unmeasured with the reason, and the
-    task is unsolved."""
+    task is unsolved. A right answer with no measurement is the judge's fault (as /submit reads it): the
+    grade carries no stamp and no rule, so it is owed again and never replaces a credited final."""
     changes = [{}, {"timing_reduction": "mok-v1-varied"}, {}, {}]
-    rows, task = final_graded(tmp_path, final_scorer([2.0] * 4, changes))
+    rows, values = grade_under.grade_cells(listed_item(tmp_path), scorer=final_scorer([2.0] * 4, changes))
+    task = task_of(rows, values)
     fallback = rows[1]
     assert (fallback["timed"], fallback["status"]) == (0, "unmeasured")
     assert "mok-v1-varied" in fallback["reason"]
     assert timing.FINAL_GRADE_REDUCTION in fallback["reason"]
     assert (task["s_i"], task["s_bar"], task["n_credited"]) == (1.0, None, 3)
-    assert task["timing_reduction"] == timing.FINAL_GRADE_REDUCTION
+    assert (values["status"], task["timing_reduction"], task["score_rule"]) == (grade_under.ERROR_STATUS, "", None)
+    assert "mok-v1-varied" in values["reason"]
 
 
 def test_the_final_env_pins_one_warmup() -> None:

@@ -2034,10 +2034,9 @@ def _call_isolated(
                 env=child_env,
             )
             child_stderr = forward_child_stderr(spill_root)
-            # A kill inside the timed section under a guillotine (a followup's alarm is not one).
-            guillotined = bool(guillotine_s) and (
-                run.signal == "TIMEOUT" or (run.signal == signal.SIGALRM.name and not marker.exists())
-            )
+            # A kill inside the timed section under a guillotine (a followup's alarm, or the batch budget
+            # running out after the timed section, is not one).
+            guillotined = bool(guillotine_s) and run.signal in ("TIMEOUT", signal.SIGALRM.name) and not marker.exists()
             if run.ok or attempt == retries:
                 break
             if is_host_oom(run):
