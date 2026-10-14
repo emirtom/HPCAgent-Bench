@@ -40,7 +40,7 @@ from hpcagent_bench import config
 from hpcagent_bench.harness.agent import reference_mpi_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import distribution_for_kernel
-from hpcagent_bench.harness.requests_api import Requests
+from hpcagent_bench.harness.requests_api import DistributionPlan, Requests
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import JudgeClient, JudgeRefusal
@@ -81,7 +81,11 @@ def scaled_add_submission(distribution: dict | None = None) -> Submission:
     task = Task(kernel="scaled_add", language="c", residency="distributed")
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
-    dist = distribution if distribution is not None else distribution_for_kernel(spec.mpi, binding, RANKS)
+    dist = (
+        DistributionPlan.model_validate(distribution)
+        if distribution is not None
+        else distribution_for_kernel(spec.mpi, binding, RANKS)
+    )
     return Submission(language="c", source=reference_mpi_source(task), requests=Requests.from_plan(dist))
 
 
@@ -136,7 +140,9 @@ def test_a_distribution_the_route_refuses_is_400_before_any_build(
         bad = Submission(
             language="python",
             source="def kernel_mpi(*a, **k):\n    pass\n",
-            requests=Requests.from_plan({"grid": [RANKS], "arrays": {"x": {"replicated": True}}}),
+            requests=Requests.from_plan(
+                DistributionPlan.model_validate({"grid": [RANKS], "arrays": {"x": {"replicated": True}}})
+            ),
         )
         detail1 = refusal_detail(client, bad, "dist_softmax", "score")
         assert detail1["status"] == HTTP_BAD_REQUEST, detail1

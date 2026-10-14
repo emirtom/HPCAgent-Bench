@@ -54,9 +54,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "REQUESTS_ADAPTER",
+    "ArrayDist",
+    "AxisDist",
+    "CheckedArray",
+    "CheckedStruct",
+    "DistributionPlan",
     "Location",
+    "PlannedArray",
     "RequestAllowances",
     "Requests",
+    "RequestsCheck",
     "RequestsField",
     "grid_request",
     "kernel_arrays",
@@ -168,6 +175,113 @@ class RequestAllowances(pydantic.BaseModel):
         return None
 
 
+class AxisDist(pydantic.BaseModel):
+    """How one array dimension is laid out over the processor grid: whole on every rank (``grid_dim`` null)
+    or dealt to grid dimension ``grid_dim`` by ``scheme`` (``block_size`` applies to ``block_cyclic``); no
+    ghost cells. Written with its defaults left out (``{"grid_dim": null}``, ``{"grid_dim": 0}``,
+    ``{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 32}``)."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    #: The grid dimension this dimension is dealt to; None keeps it whole on every rank. Always written.
+    grid_dim: int | None
+    scheme: Scheme = Scheme.BLOCK
+    block_size: int = 1
+
+    @classmethod
+    def of(cls, split: AxisSplit | None) -> "AxisDist":
+        """relayout's lowered split of one dimension (None = whole) as a plan axis."""
+        if split is None:
+            return cls(grid_dim=None)
+        return cls(grid_dim=split.grid_dim, scheme=split.scheme, block_size=split.block_size)
+
+    def split(self) -> AxisSplit | None:
+        """This axis as relayout's split (None = whole): the inverse of :meth:`of`."""
+        return None if self.grid_dim is None else AxisSplit(self.grid_dim, self.scheme, self.block_size)
+
+
+class ArrayDist(pydantic.BaseModel):
+    """One array's distribution: one :class:`AxisDist` per dimension, or ``replicated`` for the whole
+    array on every rank. Written as ``{"axes": [...]}`` or ``{"replicated": true}``."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    axes: tuple[AxisDist, ...] = ()
+    replicated: bool = False
+
+
+class PlannedArray(ArrayDist):
+    """One array of a :class:`DistributionPlan`: its distribution and, when an operation places it, its
+    residency (None = the run-wide ``mpi.residency``)."""
+
+    location: Location | None = None
+
+    def dist(self) -> ArrayDist:
+        """The distribution alone, without the residency."""
+        return ArrayDist(axes=self.axes, replicated=self.replicated)
+
+
+class DistributionPlan(pydantic.BaseModel):
+    """What a distributed request lowers to at one rank count (:meth:`Requests.plan`), the scatter
+    descriptor's input: the grid's extents and each array an operation lays out or places; an array it
+    leaves out is replicated. A kernel's default distribution is one too
+    (:func:`hpcagent_bench.harness.mpi_descriptor.distribution_for_kernel`). Its JSON is
+    :meth:`to_json`."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    grid: tuple[int, ...]
+    arrays: dict[str, PlannedArray]
+
+    def to_json(self) -> dict[str, Any]:
+        """The plan as JSON, every field at its default left out (``grid_dim`` is always written)."""
+        return self.model_dump(mode="json", exclude_defaults=True)
+
+
+class CheckedStruct(pydantic.BaseModel):
+    """The C struct a zip of several element types passes: its ``typedef`` name and each member's type."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    type: str
+    members: dict[str, str]
+
+
+class CheckedArray(pydantic.BaseModel):
+    """One pointer the kernel is called with, as ``/requests/check`` shows it: its element type, and its
+    packed extents over the logical extents ``d0``, ``d1``, ... when laid out on one node; a zip's whole
+    names its parts (``zips``) and either its C ``struct`` or the stacked ``dtype`` and field ``dim``; an
+    unzip's part names its whole (``unzips``). A field that does not apply is left out."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    dtype: str | None = None
+    extents: tuple[str, ...] | None = None
+    zips: tuple[str, ...] | None = None
+    struct: CheckedStruct | None = None
+    dim: int | None = None
+    unzips: str | None = None
+
+
+class RequestsCheck(pydantic.BaseModel):
+    """The answer of ``POST /requests/check``: ``{"accepted": false, "refusal"}``, or ``{"accepted": true,
+    "arrays", "signature"}`` (no ``signature`` for a python delivery) with the distribution ``plan`` at
+    ``mpi.ranks`` when the request has a grid. Its JSON is :meth:`to_json`."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    accepted: bool
+    refusal: str | None = None
+    arrays: dict[str, CheckedArray] | None = None
+    signature: str | None = None
+    plan: DistributionPlan | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        """The answer as JSON, every field at its default left out (a plan axis's ``grid_dim`` is always
+        written)."""
+        return self.model_dump(mode="json", exclude_defaults=True)
+
+
 class SingleNode(NamedTuple):
     """What a request without a grid converts around a C-ABI call: its zips and unzips, and each other dense
     array it lays out over the logical extents ``d0``, ``d1``, ... (:func:`precision_casts.extent_names`)."""
@@ -191,9 +305,13 @@ class Requests(relayout.ops.Requests):
         parsed = raw if isinstance(raw, relayout.ops.Requests) else parse_requests(raw)
         return cls(parsed.startup, parsed.operations)
 
-    #: The envelope's entry point, kept for the callers that read ``requests`` by hand; a pydantic model
-    #: declares its field as :data:`RequestsField` instead.
+    #: :meth:`validate` under the name the recorders and the sweep harness read a stored ``requests`` with; a
+    #: pydantic model declares its field as :data:`RequestsField` instead.
     from_obj = validate
+
+    def asks_nothing(self) -> bool:
+        """True for the empty request (no startup, no operation), which a submission leaves out."""
+        return self.startup == Startup() and not self.operations
 
     @classmethod
     def of(
@@ -246,9 +364,9 @@ class Requests(relayout.ops.Requests):
         """The operations run over the arrays of ``ndims`` on the grid at ``ranks`` ranks."""
         return self.run([ArraySpec(name, ndim) for name, ndim in ndims.items()], ranks)
 
-    def plan(self, ndims: Mapping[str, int], ranks: int) -> dict[str, Any]:
-        """The distribution plan the descriptor scatters with at ``ranks`` ranks (``{"grid", "arrays": {name:
-        {"axes" | "replicated", "location"}}}``); an array no operation lays out is left out (replicated)."""
+    def plan(self, ndims: Mapping[str, int], ranks: int) -> DistributionPlan:
+        """The :class:`DistributionPlan` the descriptor scatters with at ``ranks`` ranks; an array no operation
+        lays out or places is left out (replicated)."""
         state = self.lowered(ndims, ranks)
         splits = lower(state)
         cyclic = any(
@@ -260,11 +378,9 @@ class Requests(relayout.ops.Requests):
                 f"a cyclic / block-cyclic layout needs an equal-edge grid so the cyclic wrap is symmetric; "
                 f"startup.grid {list(self.startup.grid or ())} is {list(grid)} at {ranks} rank(s)"
             )
-        arrays: dict[str, dict[str, Any]] = {name: axes_json(axes) for name, axes in splits.items()}
-        for name, array in state.arrays.items():
-            if array.location is not None:
-                arrays.setdefault(name, {"replicated": True})["location"] = array.location.value
-        return {"grid": list(grid), "arrays": arrays}
+        locations = {name: array.location for name, array in state.arrays.items() if array.location is not None}
+        arrays = {name: planned_array(splits.get(name), locations.get(name)) for name in splits | locations}
+        return DistributionPlan(grid=tuple(grid), arrays=arrays)
 
     def unplaced(self, ndims: Mapping[str, int], ranks: int) -> list[str]:
         """The arrays of ``ndims`` the operations neither distribute nor replicate."""
@@ -275,32 +391,23 @@ class Requests(relayout.ops.Requests):
 
     @classmethod
     def from_plan(
-        cls, plan: Mapping[str, Any], libraries: Sequence[str] = (), arrays: Sequence[str] = ()
+        cls, plan: DistributionPlan | Mapping[str, Any], libraries: Sequence[str] = (), arrays: Sequence[str] = ()
     ) -> "Requests":
-        """The request whose :meth:`plan` at the plan's rank count is ``plan``, with the grid following ``P``
-        (:func:`grid_request`) and every array of ``arrays`` the plan leaves out replicated: how a kernel's
-        default distribution (and a grade recorded before the ``requests`` column) is shown."""
+        """The request whose :meth:`plan` at the plan's rank count is ``plan`` (a :class:`DistributionPlan` or
+        its JSON), with the grid following ``P`` (:func:`grid_request`) and every array of ``arrays`` the plan
+        leaves out replicated: how a kernel's default distribution (and a grade recorded before the
+        ``requests`` column) is shown."""
+        plan = DistributionPlan.model_validate(plan)
         ops: list[Operation] = []
-        for name, entry in plan["arrays"].items():
-            if entry.get("replicated"):
+        for name, entry in plan.arrays.items():
+            if entry.replicated:
                 ops.append(Replicate(name))
             else:
-                axes = [
-                    None
-                    if axis.get("grid_dim") is None
-                    else AxisSplit(
-                        int(axis["grid_dim"]),
-                        Scheme(axis.get("scheme", Scheme.BLOCK.value)),
-                        int(axis.get("block_size", 1)),
-                    )
-                    for axis in entry["axes"]
-                ]
-                ops += operations_for_axes(name, axes)
-            if "location" in entry:
-                ops.append(Place(name, Location(entry["location"])))
-        ops += [Replicate(name) for name in arrays if name not in plan["arrays"]]
-        grid = grid_request([int(extent) for extent in plan["grid"]])
-        return cls(Startup(tuple(libraries), grid), tuple(ops))
+                ops += operations_for_axes(name, [axis.split() for axis in entry.axes])
+            if entry.location is not None:
+                ops.append(Place(name, entry.location))
+        ops += [Replicate(name) for name in arrays if name not in plan.arrays]
+        return cls(Startup(tuple(libraries), grid_request(plan.grid)), tuple(ops))
 
 
 def self_contained(schema: dict[str, Any], definitions: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -321,13 +428,13 @@ def self_contained(schema: dict[str, Any], definitions: dict[str, Any] | None = 
     return out
 
 
-#: ``requests`` as a pydantic field: validated by :meth:`Requests.validate`, written back as
-#: :meth:`Requests.to_json` (in JSON mode), and described by relayout's JSON Schema
+#: ``requests`` as a pydantic field: validated by :meth:`Requests.validate`, dumped (in both modes, so a
+#: dump validates back) as :meth:`Requests.to_json`, and described by relayout's JSON Schema
 #: (:func:`relayout.requests.requests_schema`, generated from its pydantic models) made self-contained.
 RequestsField = Annotated[
     Requests,
     pydantic.PlainValidator(Requests.validate),
-    pydantic.PlainSerializer(Requests.to_json, return_type=dict[str, Any], when_used="json"),
+    pydantic.PlainSerializer(Requests.to_json, return_type=dict[str, Any]),
     pydantic.WithJsonSchema(self_contained(requests_schema())),
 ]
 #: Validates, dumps and describes :data:`RequestsField` outside a model.
@@ -402,18 +509,12 @@ def unzip_group(op: Unzip, state: State, specs: Mapping[str, ArraySpec], cast_to
     return Regroup(group, False, whole, tuple(member.logical for member in group.parts))
 
 
-def axes_json(axes: Sequence[AxisSplit | None] | None) -> dict[str, Any]:
-    """One array's plan entry: ``{"replicated": true}`` when no dimension is split, else its ``axes``."""
+def planned_array(axes: Sequence[AxisSplit | None] | None, location: Location | None) -> PlannedArray:
+    """One array's plan entry from relayout's lowered splits (:func:`relayout.ops.lower`; None or no split
+    dimension = replicated) and its placed residency."""
     if axes is None or all(axis is None for axis in axes):
-        return {"replicated": True}
-    return {
-        "axes": [
-            {"grid_dim": None}
-            if axis is None
-            else {"grid_dim": axis.grid_dim, "scheme": axis.scheme.value, "block_size": axis.block_size}
-            for axis in axes
-        ]
-    }
+        return PlannedArray(replicated=True, location=location)
+    return PlannedArray(axes=tuple(AxisDist.of(axis) for axis in axes), location=location)
 
 
 def precision_refusal(precision: Mapping[str, Precision], problem: Mapping[str, str]) -> str | None:

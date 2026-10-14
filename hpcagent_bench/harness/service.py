@@ -76,9 +76,12 @@ from hpcagent_bench.harness.mpi_descriptor import (
 from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
 from hpcagent_bench.harness.requests_api import (
+    CheckedArray,
+    CheckedStruct,
     Location,
     RequestAllowances,
     Requests,
+    RequestsCheck,
     kernel_arrays,
     kernel_dtypes,
     mpi_residency,
@@ -865,7 +868,7 @@ def _submission_from_body(
     )
     # Submission.requests's shape is checked here (ValueError -> 400); requests_refusal checks it
     # against the kernel.
-    requests = Requests.from_obj(body.raw("requests"))
+    requests = Requests.validate(body.raw("requests"))
     refusal = sandbox.catalog_refusal(
         requests.startup.load, language, sandbox.compiled_omp_context(language, body.optional_text("compiler"))
     )
@@ -939,18 +942,18 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     return None
 
 
-def requests_check(kernel: str, language: str, raw: object, datatype: str) -> dict[str, object]:
+def requests_check(kernel: str, language: str, raw: object, datatype: str) -> RequestsCheck:
     """What ``requests`` (JSON ``raw``) resolves to for ``kernel`` in ``language`` at ``datatype``, built and
     graded nothing: the refusal a submission would get, or the C signature the kernel is called with, each
     pointer's element type and, laid out on one node, the extents of its packed buffer over the logical
     extents ``d0``, ``d1``, ...; with a grid, the distribution plan at ``mpi.ranks``. A malformed request
     raises ValueError."""
-    requests = Requests.from_obj(raw)
+    requests = Requests.validate(raw)
     task = Task(kernel, "restricted", language, residency=grading_residency(kernel, language))
     probe = Submission(language=language, source="/* checked, not built */", requests=requests)
     refusal = requests_refusal(probe, task, datatype)
     if refusal is not None:
-        return {"accepted": False, "refusal": refusal}
+        return RequestsCheck(accepted=False, refusal=refusal)
     spec = BenchSpec.load(kernel)
     choice = requested_layout(spec, probe)
     binding = binding_from_spec(spec) if choice is None else binding_from_spec(spec, config=choice.format)
@@ -960,8 +963,8 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
     stored = dict(problem)
     stored.update({name: p.element for name, p in requests.precisions().items()})
     templates = {name: np.dtype(dtype) for name, dtype in stored.items()}
-    arrays: dict[str, object] = {
-        name: {"dtype": dtype, **({"extents": list(layouts[name].extents())} if name in layouts else {})}
+    arrays = {
+        name: CheckedArray(dtype=dtype, extents=layouts[name].extents() if name in layouts else None)
         for name, dtype in stored.items()
     }
     for regroup in regroups:
@@ -970,24 +973,28 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
             arrays.pop(name, None)
         templates |= dict(zip(regroup.kernel, regroup.kernel_dtypes, strict=True))
         if regroup.zipped:
-            entry: dict[str, object] = {"extents": list(group.layout.extents()), "zips": list(regroup.parts)}
-            if group.struct:
-                entry["struct"] = {"type": group.struct, "members": {part.field: part.stored for part in group.parts}}
-            else:
-                entry |= {"dtype": regroup.whole_dtype.name, "dim": group.dim}
-            arrays[group.name] = entry
+            arrays[group.name] = (
+                CheckedArray(
+                    extents=group.layout.extents(),
+                    zips=regroup.parts,
+                    struct=CheckedStruct(type=group.struct, members={part.field: part.stored for part in group.parts}),
+                )
+                if group.struct
+                else CheckedArray(
+                    dtype=regroup.whole_dtype.name, extents=group.layout.extents(), zips=regroup.parts, dim=group.dim
+                )
+            )
         else:
             for part, dtype in zip(group.parts, regroup.part_dtypes, strict=True):
-                arrays[part.name] = {"dtype": dtype, "extents": list(part.layout.extents()), "unzips": group.name}
-    answer: dict[str, object] = {"accepted": True, "arrays": arrays}
+                arrays[part.name] = CheckedArray(dtype=dtype, extents=part.layout.extents(), unzips=group.name)
+    signature = None
     if language != PYTHON_LANG:
         call = native_call.kernel_binding(binding, regroups)
         template: native_call.KernelData = {name: np.empty(0, dtype) for name, dtype in templates.items()}
         marshal = native_call.CallMarshal.of(call, template, language, regroups)
-        answer["signature"] = f"{marshal.typedefs}void {binding.symbols[language]}({', '.join(marshal.params)});"
-    if requests.distributed:
-        answer["plan"] = requests.plan(ndims, config.current().mpi.ranks)
-    return answer
+        signature = f"{marshal.typedefs}void {binding.symbols[language]}({', '.join(marshal.params)});"
+    plan = requests.plan(ndims, config.current().mpi.ranks) if requests.distributed else None
+    return RequestsCheck(accepted=True, arrays=arrays, signature=signature, plan=plan)
 
 
 def single_node_layout_ops(requests: Requests) -> list[DigitOperation]:
@@ -1708,7 +1715,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             answer = requests_check(kernel, language, body.raw("requests"), datatype)
         except ValueError as exc:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        return self._send(HTTPStatus.OK, answer)
+        return self._send(HTTPStatus.OK, answer.to_json())
 
     def serve_post(self) -> None:
         parts = urlparse(self.path).path.strip("/").split("/")
