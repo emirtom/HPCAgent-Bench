@@ -48,7 +48,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from hpcagent_bench import config
+from hpcagent_bench import config, osinfo
 
 __all__ = [
     "GANG_MODULE",
@@ -61,7 +61,6 @@ __all__ = [
     "RELAY_FAULT_EXIT",
     "STALE_MARK",
     "STALL_S",
-    "VISIBLE_DEVICE_VARS",
     "Gang",
     "RelayFault",
     "launch_nodes",
@@ -116,10 +115,6 @@ RC_WAIT_SLACK_S = 120.0
 
 #: Variables a rank gets from its own step; never forwarded through the relay.
 RANK_OWNED_PREFIXES: tuple[str, ...] = ("SLURM_", "PMI_", "PMIX_", "PMI2_")
-
-#: The judge narrowed ITS OWN device view to a grading slot; the ranks must see the whole node so
-#: the driver's local-rank binding can pick GPU 0..3.
-VISIBLE_DEVICE_VARS: tuple[str, ...] = ("ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +228,9 @@ def relay_env_prefix(environ: Mapping[str, str]) -> list[str]:
     """``env K=V ...`` carrying the judge's environment into the ranks: the relay's srun exports the
     batch host's environment, not the judge container's. Slurm and PMI variables stay out -- each
     rank's own come from the step that starts it -- and so does the judge's narrowed device view."""
-    dropped = {*VISIBLE_DEVICE_VARS, LAUNCH_FAULT_ENV}  # the fault file is the judge's, never a rank's
+    # The judge narrowed ITS OWN device view to a grading slot; the ranks must see the whole node so the
+    # driver's local-rank binding can pick GPU 0..3. The fault file is the judge's, never a rank's.
+    dropped = {*osinfo.VISIBLE_DEVICE_ENV, LAUNCH_FAULT_ENV}
     keep = {k: v for k, v in environ.items() if not k.startswith(RANK_OWNED_PREFIXES) and k not in dropped}
     return ["/usr/bin/env", *(f"{k}={v}" for k, v in sorted(keep.items()))]
 

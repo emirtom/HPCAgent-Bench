@@ -67,7 +67,6 @@ __all__ = [
     "TIMED_DONE_MARKER",
     "TIMED_REP_S",
     "TORCH_MODULE",
-    "VISIBLE_DEVICE_ENV",
     "WORKSPACE_ALIGN",
     "WORKSPACE_PTYPE",
     "ArrayBuffer",
@@ -418,7 +417,7 @@ def assigned_device() -> int | None:
 #: The device-visibility variables, in the order read. ``ROCR_VISIBLE_DEVICES`` and
 #: ``HIP_VISIBLE_DEVICES`` compose (HIP indexes what ROCr left), so setting both is
 #: ``hipErrorNoDevice``; this harness sets one per vendor (:data:`NARROWING_ENV`) and removes the rest.
-VISIBLE_DEVICE_ENV: tuple[str, ...] = ("ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
+VISIBLE_DEVICE_ENV: tuple[str, ...] = osinfo.VISIBLE_DEVICE_ENV
 
 #: The variable that narrows a child to one GPU, per :func:`languages.offload_vendor`. HIP also reads
 #: ``CUDA_VISIBLE_DEVICES`` (composed with ROCr), and the CUDA runtime ignores ROCr.
@@ -434,7 +433,7 @@ def restrict_visible_device(env: MutableMapping[str, str], index: int | None, ve
     chosen device goes into ``vendor``'s variable (default: this host's, :data:`NARROWING_ENV`) and
     the other visibility variables are removed. Call in the child before any device runtime loads
     (hence the device path spawns rather than forks)."""
-    inherited = next((env[name] for name in VISIBLE_DEVICE_ENV if env.get(name, "").strip()), "")
+    inherited = osinfo.inherited_visible(env)
     devices = [d.strip() for d in inherited.split(",") if d.strip()]
     slot = index or 0
     chosen = devices[slot % len(devices)] if devices else str(slot)

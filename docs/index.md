@@ -58,6 +58,7 @@ extending/agent-harness
 extending/skills-and-tools
 extending/packets
 extending/inference
+code_reuse
 ```
 
 ```{toctree}

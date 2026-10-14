@@ -65,6 +65,7 @@ __all__ = [
     "csv_or_none",
     "expand_cli_tasks",
     "grade_params_of",
+    "kernel_selection",
     "main",
     "make_agent_builder",
     "parse_shard",
@@ -140,12 +141,34 @@ def residencies_arg(value: str) -> tuple[str, ...]:
     return tokens
 
 
+def kernel_selection(value: str) -> list[str] | None:
+    """``--kernels`` as kernel names: ``"all"`` -> None; a kernel name stays as given, and any other token
+    is a selector (a track, dwarf, ``@lvl<n>``/``@<tag>`` filter, or a tag) resolved to its path-keys by
+    :func:`hpcagent_bench.tags.selected`. A token that matches nothing exits naming it."""
+    tokens = csv_or_none(value)
+    if tokens is None:
+        return None
+    from hpcagent_bench import tags
+    from hpcagent_bench.spec import KERNELS
+
+    names: list[str] = []
+    for token in tokens:
+        if token in KERNELS:
+            names.append(token)
+            continue
+        try:
+            names.extend(tags.selected(token))
+        except (KeyError, ValueError) as exc:
+            raise SystemExit(f"--kernels {token!r}: {exc}") from None
+    return list(dict.fromkeys(names))
+
+
 def expand_cli_tasks(args: argparse.Namespace) -> "list[Task]":
     """The task cross-product the ``agent`` / ``launch`` / ``tasks`` selection arguments name."""
     from hpcagent_bench.harness.task import expand_tasks
 
     return expand_tasks(
-        kernels=csv_or_none(args.kernels),
+        kernels=kernel_selection(args.kernels),
         source_modes=(args.source_mode,),
         languages=csv_or_none(args.languages),
         residencies=residencies_arg(args.residency),
@@ -825,7 +848,12 @@ def add_task_selection(p: argparse.ArgumentParser) -> None:
     """The task-selection arguments ``agent``, ``launch`` and ``tasks`` share (:func:`expand_cli_tasks`)."""
     from hpcagent_bench.harness.task import SOURCE_MODES  # the vocabulary is Task's own, not a CLI copy
 
-    p.add_argument("--kernels", default="all", help="comma-separated kernel keys, or 'all' (default)")
+    p.add_argument(
+        "--kernels",
+        default="all",
+        help="comma-separated kernel keys or selectors (track, dwarf, tag, '<sel>@lvl<n>', '<sel>@<tag>'), "
+        "or 'all' (default)",
+    )
     p.add_argument(
         "--languages", default="c", help="comma-separated languages (c,cpp,fortran,cuda,hip) or 'all'; default 'c'"
     )

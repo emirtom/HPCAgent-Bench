@@ -36,6 +36,7 @@ from typing import NamedTuple
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER, RC_TIMEOUT, RC_TOKEN_BUDGET
 
 from hpcagent_bench import tags
+from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.harness.recording import slot_of
 from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES
@@ -45,7 +46,6 @@ __all__ = [
     "BUDGET_RETURNCODES",
     "EPISODE_GLOB",
     "LAUNCH_DIR",
-    "SHARD_GLOB",
     "SUBMIT_SCRIPT",
     "Job",
     "OwedClass",
@@ -76,8 +76,7 @@ __all__ = [
 #: The driver's exit codes for an agent stopped by its own caps, as it writes them into ``tokens.json``.
 BUDGET_RETURNCODES = frozenset({RC_TIMEOUT, RC_TOKEN_BUDGET})
 
-#: Where a job's judge shards and worker episodes live under its run directory.
-SHARD_GLOB = "judge/rank-*/hpcagent_bench*.db"
+#: Where a job's worker episodes live under its run directory (its judge shards: :func:`merge_results.judge_shards`).
 EPISODE_GLOB = "agents/node-*/problem-*-worker-*/tokens.json"
 
 #: What run_cluster.sh stages for a job's agents, beside the job's run directory.
@@ -126,7 +125,7 @@ class Job:
 def shard_rows(job_dir: pathlib.Path, query: str, args: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
     """``query`` over every judge shard of ``job_dir``."""
     rows: list[tuple[object, ...]] = []
-    for path in sorted(job_dir.glob(SHARD_GLOB)):
+    for path in merge_results.judge_shards(job_dir):
         with results_db.reading(path) as conn:
             rows.extend(tuple(row) for row in conn.execute(query, args))
     return rows
@@ -138,7 +137,7 @@ def job_setup(job_dir: pathlib.Path) -> str:
     setups = {str(setup) for (setup,) in shard_rows(job_dir, "select distinct setup from episodes") if setup}
     if len(setups) > 1:
         raise SystemExit(f"{job_dir}: episodes.setup names several setups: {sorted(setups)}")
-    if not setups and any(job_dir.glob(SHARD_GLOB)):
+    if not setups and merge_results.judge_shards(job_dir):
         raise SystemExit(f"{job_dir}: judge shards present but episodes.setup names no setup")
     return setups.pop() if setups else ""
 

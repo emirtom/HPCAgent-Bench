@@ -156,15 +156,12 @@ def run_command(
     """``subprocess.run(argv, capture_output=True, text=True, timeout=timeout)`` that, inside an
     :func:`abandoned_by` block, also stops once the event is set, returning what it printed so far.
 
-    Inside the block the command leads its own process group and every early end kills the whole
-    group: a profile is ``perf`` over a python child over a forked measurement, and killing ``perf``
-    alone leaves the measurement on the cores.
+    The command leads its own process group and every early end (the timeout, the abandon event, an
+    exception in the caller) kills the whole group: a profile is ``perf`` over a python child over a
+    forked measurement, and killing ``perf`` alone leaves the measurement on the cores.
     """
     abandoned = ABANDONED.get()
-    if abandoned is None:
-        return subprocess.run(
-            list(argv), capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout, check=False
-        )
+    poll = ABANDON_POLL_S if abandoned is not None else timeout
     started = time.monotonic()
     with subprocess.Popen(
         list(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd=cwd, start_new_session=True
@@ -172,13 +169,13 @@ def run_command(
         try:
             while True:
                 try:
-                    out, err = proc.communicate(timeout=ABANDON_POLL_S)
+                    out, err = proc.communicate(timeout=poll)
                     break
                 except subprocess.TimeoutExpired:
-                    if timeout is not None and time.monotonic() - started >= timeout:
+                    if timeout is not None and (abandoned is None or time.monotonic() - started >= timeout):
                         kill_group(proc)
                         raise subprocess.TimeoutExpired(proc.args, timeout, *proc.communicate()) from None
-                    if abandoned.is_set():
+                    if abandoned is not None and abandoned.is_set():
                         kill_group(proc)
                         out, err = proc.communicate()
                         break

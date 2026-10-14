@@ -129,7 +129,7 @@ def shard_rows(db: str, sql: str, args: tuple = ()) -> list[tuple]:
     A rank directory can hold an empty file named after another shard (a 0-byte
     ``hpcagent_bench2.db`` beside rank 3's real one); querying it would raise "no such table".
     """
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = sqlite3.connect(f"{pathlib.Path(db).resolve().as_uri()}?mode=ro", uri=True)
     try:
         return con.execute(sql, args).fetchall()
     except sqlite3.OperationalError as exc:

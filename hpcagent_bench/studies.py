@@ -12,12 +12,11 @@ reader must never be able to damage them by being re-run.
 import contextlib
 import math
 import pathlib
-import sqlite3
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, NamedTuple
 
 from hpcagent_bench import packets, recorded_rows, study_tags
-from hpcagent_bench.harness import recording
+from hpcagent_bench.harness import recording, results_db
 from hpcagent_bench.stats import population
 
 __all__ = [
@@ -216,7 +215,7 @@ def read_table(path: pathlib.Path, table: str) -> "pd.DataFrame":
     """
     import pandas as pd
 
-    with contextlib.closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
+    with contextlib.closing(results_db.connect_ro(path)) as conn:
         return pd.read_sql_query(f"SELECT * FROM {table} ORDER BY rowid", conn)
 
 

@@ -2,14 +2,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Guards that keep collection, extraction and cleanup code from deleting source data.
 
-Run roots and judge databases are the only copy of an experiment. Every tool that rewrites an output
-file or removes a tree calls one of these first:
+Run roots and judge databases are the only copy of an experiment.
 
 * :func:`check_output` -- the output must not be, contain, or sit inside any source it reads,
-  except inside a directory of that source the reader skips (its own output directory).
+  except inside a directory of that source the reader skips (its own output directory). The
+  collectors (:mod:`hpcagent_bench.collect`, :mod:`hpcagent_bench.observations_extract`) call it before
+  writing.
 * :func:`safe_rmtree` -- a tree is removed only when it holds no SQLite database, is not a
   protected root (or an ancestor of one) and, inside a protected root, only under an allowlisted
-  scratch subdirectory.
+  scratch subdirectory. Only the tests call it today: the tools that remove trees
+  (``cluster/baseline.py``, ``harbor.py``, ``cpf_prerender.py``) still call ``shutil.rmtree`` directly.
 
 Protected roots: the experiment run root (:func:`hpcagent_bench.experiments.runs_root`) and every entry of
 ``$HPCAGENT_BENCH_PROTECTED_ROOTS`` (``os.pathsep`` separated).

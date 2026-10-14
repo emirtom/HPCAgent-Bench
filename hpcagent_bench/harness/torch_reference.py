@@ -41,7 +41,7 @@ from hpcagent_bench.sizing import shape_namespace
 
 if TYPE_CHECKING:
     import torch
-from hpcagent_bench.spec import BenchSpec, as_list, shape_dims
+from hpcagent_bench.spec import BenchSpec, as_list, as_tuple, shape_dims
 
 __all__ = [
     "CACHE_DIRNAME",
@@ -50,7 +50,6 @@ __all__ = [
     "GRADE_CHUNK_ELEMENTS",
     "IMAGE_KEY_ENV",
     "MODULE_SUFFIX",
-    "as_tuple",
     "cache_dir",
     "cache_root",
     "chunk_pair",
@@ -150,11 +149,6 @@ def configure_inductor(cache: pathlib.Path) -> None:
 
     inductor.max_autotune_gemm_search_space = GEMM_SEARCH_SPACE
     inductor.triton.cudagraphs = False
-
-
-def as_tuple(result: object) -> tuple[object, ...]:
-    """A reference's return value as a tuple of outputs (a single tensor is one output)."""
-    return tuple(result) if isinstance(result, (tuple, list)) else (result,)
 
 
 def sync_for(device: object, torch: types.ModuleType) -> Callable[[], None]:

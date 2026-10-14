@@ -9,6 +9,6 @@ from hpcagent_bench.stats.figures import results as plotting
 
 
 def test_result_figures_carry_no_literal_hue() -> None:
-    """Every colour comes from a named palette or ``style.STAT_INK`` constant, never a bare hex
+    """Every colour comes from a named palette or style constant, never a bare hex
     string re-typed at a call site."""
     assert re.findall(r"#[0-9a-fA-F]{6}\b", inspect.getsource(plotting)) == []

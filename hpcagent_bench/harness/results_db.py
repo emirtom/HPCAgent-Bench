@@ -15,13 +15,13 @@ import contextlib
 import dataclasses
 import enum
 import functools
-import hashlib
 import os
 import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
 from hpcagent_bench import paths
+from hpcagent_bench.cache_files import sha256_hex
 
 __all__ = [
     "BUSY_TIMEOUT_S",
@@ -48,6 +48,7 @@ __all__ = [
     "check_schema",
     "collapse_finals",
     "column_defaults",
+    "connect_ro",
     "copy_foreign",
     "copy_grade",
     "copy_one_grade",
@@ -65,6 +66,7 @@ __all__ = [
     "rebuilding",
     "remove_db",
     "schema_version",
+    "source_hash",
     "source_rows",
     "store_source",
     "table_names",
@@ -155,11 +157,20 @@ def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
     return conn
 
 
+def connect_ro(path: str | pathlib.Path, *, timeout: float = BUSY_TIMEOUT_S) -> sqlite3.Connection:
+    """A read-only connection to any SQLite file ``path``, with no schema check.
+
+    The URI comes from :meth:`pathlib.Path.as_uri`, which percent-escapes the path: a raw
+    ``file:{path}`` URI reads a ``#`` or ``%xx`` in a directory name as a fragment or an escape and opens
+    a different file."""
+    return sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=timeout)
+
+
 def open_ro(path: str | pathlib.Path) -> sqlite3.Connection:
     """A read-only connection to the results database ``path`` with :class:`sqlite3.Row` rows."""
     if not pathlib.Path(path).is_file():
         raise FileNotFoundError(path)
-    conn = sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_S)
+    conn = connect_ro(path)
     conn.row_factory = sqlite3.Row
     try:
         if not check_schema(conn, str(path)):
@@ -263,9 +274,14 @@ def add_grade(
             ts_ms += 1
 
 
+def source_hash(text: str) -> str:
+    """The ``sources.hash`` key of ``text``: the sha256 of its UTF-8 bytes."""
+    return sha256_hex(text.encode("utf-8"))
+
+
 def store_source(conn: sqlite3.Connection, grade_id: int, part: str, language: str, text: str) -> str:
     """Store the ``part`` (``host`` / ``device``) source ``grade_id`` built; return its sha256."""
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    digest = source_hash(text)
     conn.execute("INSERT OR IGNORE INTO sources (hash, text) VALUES (?, ?)", (digest, text))
     upsert(
         conn,
