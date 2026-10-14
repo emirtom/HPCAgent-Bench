@@ -16,6 +16,7 @@ import os
 import pathlib
 import shlex
 import shutil
+import stat
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -125,6 +126,20 @@ def resolve_shared(path: str, episode_id: str | None = None) -> pathlib.Path:
         where = "your folder" if own else "the shared folder"
         raise ValueError(f"a submitted path must live in {where} {root}; got {path!r}")
     return resolved
+
+
+def read_resolved(resolved: pathlib.Path) -> str:
+    """The text of ``resolved`` (a :func:`resolve_shared` result), read only if the file opened is still that
+    path, or ``OSError``. The agent owns the folder: between the check and the read it can swap the name for a
+    symlink (the last component or any directory above it) to a file only the judge may read. Reading from one
+    descriptor whose real path is the checked one closes that race. A FIFO or device is refused too, never
+    opened for a blocking read."""
+    fd = os.open(resolved, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, encoding="utf-8") as handle:
+        opened = pathlib.Path(os.readlink(f"/proc/self/fd/{fd}")) if pathlib.Path("/proc/self/fd").is_dir() else None
+        if opened not in (None, resolved) or not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(f"{resolved.name!r} changed while it was read, or is not a regular file")
+        return handle.read()
 
 
 def preprocessed_name(language: str, name: str, text: str | None) -> str:

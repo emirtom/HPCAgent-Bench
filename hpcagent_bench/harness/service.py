@@ -748,7 +748,7 @@ def _source_from_file(path: str, kernel: str, language: str, episode_id: str | N
             f"extension; got {resolved.name!r}"
         )
     try:
-        return resolved.read_text()
+        return sandbox.read_resolved(resolved)
     except OSError as exc:
         raise ValueError(f"'{field}' {resolved.name!r} is not readable in the shared folder: {exc}") from exc
 
