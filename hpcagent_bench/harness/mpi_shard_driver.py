@@ -35,9 +35,10 @@ import traceback
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import numpy as np
+import pydantic
 
 from hpcagent_bench.fuzz import eval_int
 from hpcagent_bench.harness.mpi_descriptor import (
@@ -122,6 +123,65 @@ def global_shapes(spec: BenchSpec, params: Mapping[str, object], names: Sequence
     return out
 
 
+class RankPlan(pydantic.BaseModel):
+    """One rank's slice of a draw: its local tile shapes, its localized scalars and its scratch bytes."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    shapes: dict[str, list[int]]
+    scalars: dict[str, Annotated[int | float, pydantic.Field(union_mode="left_to_right")]]
+    workspace_bytes: int
+
+
+class ArgPlan(pydantic.BaseModel):
+    """One C-ABI argument of the kernel, in call order."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    name: str
+    kind: str
+    dtype: str
+
+
+class DrawPlan(pydantic.BaseModel):
+    """One draw of a sharded launch, as :func:`build_plan` documents each field."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    kernel: str
+    datatype: str
+    whole: list[str]
+    seed: int
+    rtol: float
+    atol: float
+    k_repeats: int
+    timed_budget_s: float | None
+    grid: list[int]
+    layout: dict[str, dict[str, Any]]
+    reference_layout: dict[str, dict[str, Any]]
+    params: dict[str, Any]
+    artifact: str
+    symbol: str
+    is_python: bool
+    args: list[ArgPlan]
+    inputs: list[str]
+    outputs: list[str]
+    ranks: list[RankPlan]
+
+
+class ShardPlan(pydantic.BaseModel):
+    """The plan file every rank reads: the draws, in order."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    draws: list[DrawPlan]
+
+
+def read_plan(path: Path) -> list[dict[str, Any]]:
+    """The draws of the plan file at ``path``, validated (``pydantic.ValidationError`` when malformed)."""
+    return [draw.model_dump() for draw in ShardPlan.model_validate_json(Path(path).read_bytes()).draws]
+
+
 def build_plan(
     spec: BenchSpec,
     binding: Binding,
@@ -183,35 +243,37 @@ def build_plan(
                 "workspace_bytes": workspace_bytes_of(workspace_bytes, binding, dict(scalars)),
             }
         )
-    return {
-        "kernel": kernel,
-        "datatype": datatype,
-        # Inputs the submission declared replicated (its allowlisted arrays): every rank generates
-        # them whole (make_inputs(..., whole=...)) instead of its block, as the layout says.
-        "whole": whole,
-        "seed": int(seed),
-        "rtol": float(rtol),
-        "atol": float(atol),
-        "k_repeats": int(k_repeats),
-        # Seconds the warmup plus the timed repeats may take (time_kernel), or None for no cap.
-        "timed_budget_s": None if timed_budget_s is None else float(timed_budget_s),
-        "grid": [int(d) for d in descriptor.grid.dims],
-        # The RESOLVED per-array layout (the lowered submission.requests plan, exactly, so a
-        # rank never re-derives it from the manifest): make_inputs(layout=..., grid=...) realizes
-        # whichever axis/scheme each array actually declared, not just the manifest default.
-        "layout": layout,
-        # The layout the REFERENCE regenerates its inputs in (:func:`check_rank`): ``layout`` with
-        # every whole-held input back on the kernel's default split.
-        "reference_layout": reference_layout,
-        "params": {k: (v.item() if isinstance(v, np.generic) else v) for k, v in params.items()},
-        "artifact": str(artifact),
-        "symbol": symbol,
-        "is_python": bool(is_python),
-        "args": [{"name": a.name, "kind": a.kind, "dtype": a.dtype} for a in binding.args],
-        "inputs": inputs,
-        "outputs": outputs,
-        "ranks": ranks,
-    }
+    return DrawPlan.model_validate(
+        {
+            "kernel": kernel,
+            "datatype": datatype,
+            # Inputs the submission declared replicated (its allowlisted arrays): every rank generates
+            # them whole (make_inputs(..., whole=...)) instead of its block, as the layout says.
+            "whole": whole,
+            "seed": int(seed),
+            "rtol": float(rtol),
+            "atol": float(atol),
+            "k_repeats": int(k_repeats),
+            # Seconds the warmup plus the timed repeats may take (time_kernel), or None for no cap.
+            "timed_budget_s": None if timed_budget_s is None else float(timed_budget_s),
+            "grid": [int(d) for d in descriptor.grid.dims],
+            # The RESOLVED per-array layout (the lowered submission.requests plan, exactly, so a
+            # rank never re-derives it from the manifest): make_inputs(layout=..., grid=...) realizes
+            # whichever axis/scheme each array actually declared, not just the manifest default.
+            "layout": layout,
+            # The layout the REFERENCE regenerates its inputs in (:func:`check_rank`): ``layout`` with
+            # every whole-held input back on the kernel's default split.
+            "reference_layout": reference_layout,
+            "params": {k: (v.item() if isinstance(v, np.generic) else v) for k, v in params.items()},
+            "artifact": str(artifact),
+            "symbol": symbol,
+            "is_python": bool(is_python),
+            "args": [{"name": a.name, "kind": a.kind, "dtype": a.dtype} for a in binding.args],
+            "inputs": inputs,
+            "outputs": outputs,
+            "ranks": ranks,
+        }
+    ).model_dump()
 
 
 def plan_layout(plan: Mapping[str, Any], key: str = "layout") -> tuple[dict[str, Any], Grid]:
@@ -554,7 +616,7 @@ def run(plan_path: str, out_path: str) -> None:
     if not MPI.Is_initialized():
         MPI.Init()
     world = MPI.COMM_WORLD
-    draws = json.loads(Path(plan_path).read_text())["draws"]
+    draws = read_plan(Path(plan_path))
     first = draws[0]
     dims = [int(d) for d in first["grid"]]
     if world.size != math.prod(dims):
