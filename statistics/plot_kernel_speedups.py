@@ -12,7 +12,7 @@ import pathlib
 
 import pandas as pd
 
-from hpcagent_bench import studies, study_tags
+from hpcagent_bench import paths, studies, study_tags
 from hpcagent_bench.stats import cost, population
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
 from hpcagent_bench.stats.figures import kernel_speedups, setup_names
@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--offset", type=float, default=0.0, help="spread a kernel's rows over this fraction of its slot"
     )
     parser.add_argument("--title", default="", help="figure title; default none")
-    parser.add_argument("--out", type=pathlib.Path, default=pathlib.Path("figures/kernel_speedups.pdf"))
+    parser.add_argument("--out", type=pathlib.Path, default=paths.ROOT / paths.PLOTS_DIR / "kernel_speedups.pdf")
     cost.add_arguments(parser)
     return parser
 
@@ -94,7 +94,9 @@ def draw(args: argparse.Namespace, card: cost.CostModel) -> None:
     if baseline is None:
         submitted = observations[observations.row_kind == "submission"] if observations is not None else None
         baseline = (
-            population.rows_denominator(submitted) if submitted is not None and not submitted.empty else kernel_speedups.BASELINE
+            population.rows_denominator(submitted)
+            if submitted is not None and not submitted.empty
+            else kernel_speedups.BASELINE
         )
     stem = kernel_speedups.kernel_comparison(
         canon_frame,

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from hpcagent_bench import languages, protocols, recorded_rows
+from hpcagent_bench import languages, paths, protocols, recorded_rows
 from hpcagent_bench.harness import (
     denominator,
     grade_under,
@@ -49,7 +49,7 @@ from tests.fresh_module import module_at
 from tests.results_rows import cells, grades
 from tests.sqlite_closing import connect
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 
 def load(name: str, relative: str) -> types.ModuleType:
@@ -822,7 +822,7 @@ def refile_as_adhoc(shard: pathlib.Path) -> None:
 
 
 def test_a_worklist_never_lists_a_grade_stored_under_the_adhoc_episode_id(tmp_path: pathlib.Path) -> None:
-    """No reader credits an ``adhoc`` grade, yet the v6 re-timing listed 10 of them: shard
+    """No reader credits an ``adhoc`` grade, yet an earlier re-timing listed 10 of them: shard
     time spent on rows every figure then drops. Each is named as a gap, with its source still stored."""
     shard = shard_db(tmp_path)
     refile_as_adhoc(shard)

@@ -9,10 +9,11 @@ import tempfile
 import pandas as pd
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.stats import cost
 from tests.fresh_module import module_at
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 plot = module_at(REPO / "statistics" / "plot_kernel_speedups.py")
 
@@ -47,9 +48,7 @@ def test_a_canon_db_alone_draws_its_columns_over_the_baseline(tmp_path: pathlib.
 
 
 def test_observations_need_the_experiment(tmp_path: pathlib.Path) -> None:
-    args = plot.build_parser().parse_args(
-        [str(tmp_path / "obs.db"), "--canon-db", str(tmp_path / "c.db")]
-    )
+    args = plot.build_parser().parse_args([str(tmp_path / "obs.db"), "--canon-db", str(tmp_path / "c.db")])
     with pytest.raises(SystemExit, match="--experiment"):
         plot.draw(args, cost.resolve())
 

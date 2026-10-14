@@ -57,6 +57,7 @@ def test_a_sparse_task_without_a_grid_is_graded_as_usual() -> None:
     assert service.requests_refusal(sparse_submission(None), Task(SPARSE, residency="host"), "float64") is None
 
 
+@pytest.mark.usefixtures("every_request_allowed")
 def test_a_layout_op_on_a_sparse_array_is_refused() -> None:
     """Digit operations apply to dense arrays only: a sparse array changes layout through its format."""
     requests = {"operations": [{"action": "permute", "array": "A", "order": ["i1", "i0"]}]}

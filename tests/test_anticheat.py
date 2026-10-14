@@ -5,12 +5,11 @@ and :func:`anticheat.judge`, the loop that runs the post-run gates on a finished
 
 import dataclasses
 import importlib
-import pathlib
 import re
 
 import pytest
 
-from hpcagent_bench import anticheat
+from hpcagent_bench import anticheat, paths
 from hpcagent_bench.anticheat import ANTICHEAT, Context, Found, Gate, Verdict, build, judge
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
@@ -18,7 +17,7 @@ from hpcagent_bench.harness.scoring import Score, VerifyResult
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.registry import Kind, RegistryError
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 #: The gates in the order a submission meets them. Adding one is an edit here and in docs/anti_cheat.md.
 PINNED_GATES = {

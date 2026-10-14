@@ -46,8 +46,10 @@ of the CSCS Alps MI300A partition, the reference setup of this repository's expe
 | `pyproject.toml` (`[tool.uv.sources] dace`) | the dace commit a release installs, bakes and runs ([below](#dace)) |
 | `hpcagent_bench/paths.py` | the Python side of the same roots |
 
-Experiment knobs (models, agents, judges, budgets) are not site values: they live in `experiments/layers/common.env`
-and the model layers ([launch.md](launch.md), [`experiments/LAUNCH.md`](../experiments/LAUNCH.md)).
+Experiment knobs (models, agents, judges, budgets) are not site values: they are set in `experiments/setups.yaml`,
+`experiments/layers/common.env` and the model layers ([launch.md](launch.md),
+[`experiments/LAUNCH.md`](../experiments/LAUNCH.md)). Benchmark settings are keys of `hpcagent_bench/config.yaml`
+([below](#benchmark-settings-hpcagent_benchconfigyaml)).
 
 ## Job shape per system
 
@@ -112,8 +114,9 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 |---|---|---|
 | `HPCAGENT_BENCH_SITE_ENV` | `experiments/layers/site.env` when it exists | which layer `helpers/scripts/site_env.sh` loads; a named file that does not exist is an error |
 | `SBATCH_PARTITION`, `SALLOC_PARTITION` | unset (the cluster's default) | the partition of every `sbatch` / `salloc`; Slurm reads it and it overrides a script's `#SBATCH --partition`, and `--partition=` on the command line overrides it (the submitters resolve it with their `--partition` flag, over this variable, over the system's entry) |
-| `SBATCH_ACCOUNT` | empty | the account every `sbatch` bills; `hpcagent_bench/cluster/submit.sh` refuses to submit without one, and `root`. `SLURM_ACCOUNT` and `SALLOC_ACCOUNT` follow it. No script passes `-A` |
-| `HPCAGENT_BENCH_LOGIN_HOST`, `HPCAGENT_BENCH_SSH_JUMP` | empty: a placeholder | the login host and ssh jump chain in the laptop tunnel commands `containers/inference/serve-private.sbatch` prints |
+| `SBATCH_ACCOUNT` | empty | the account every `sbatch` bills. `hpcagent_bench/cluster/submit.sh` refuses an empty account and the account `root`. `site_env.sh` exports `SLURM_ACCOUNT` and `SALLOC_ACCOUNT` from it. No script passes `-A` |
+| `HPCAGENT_BENCH_LOGIN_HOST`, `HPCAGENT_BENCH_SSH_JUMP` | empty: a placeholder | the login host and ssh jump chain in the laptop tunnel commands `containers/inference/serve-private.sbatch` prints, and the ssh hops of `containers/inference/ping-endpoint.sh` |
+| `HPCAGENT_BENCH_BIND_IFACE` | empty: `ACCESS=alps` is refused | the network interface whose IPv4 address `containers/inference/serve-private.sbatch` binds under `ACCESS=alps` (CSCS: `hsn0`) |
 | `HPCAGENT_BENCH_NICE` | `100` | the `--nice` every submitter passes (`NICE=<n>` for one submission); Slurm has no environment variable for it, so a bare `sbatch` runs at nice 0 |
 
 ### Storage
@@ -128,6 +131,7 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | `HPCAGENT_BENCH_CPF_PRERENDER_DIR`, `HPCAGENT_BENCH_CPF_CACHE` | under `$JIT_CACHE_ROOT` | Canonical Parallel Form views and their content-addressed cache (the judge renders a kernel on its first request, `python -m hpcagent_bench.cpf_prerender` warms it) |
 | `HPCAGENT_BENCH_TOOLS_DIR` | `$JIT_CACHE_ROOT/tools` | build tools not in the images (e.g. `ppcg`) |
 | `HPCAGENT_BENCH_RUNS_ROOT`, `HPCAGENT_BENCH_RESULTS_DIR` | under `$JIT_CACHE_ROOT` | per-job work directories of deterministic-framework jobs, and the persistent results they merge into |
+| `HPCAGENT_BENCH_NODE_TMPFS` | `/dev/shm/$USER` (`hpcagent_bench.paths.node_tmpfs_root`) | node-local memory-backed directory for per-user build caches (DaCe's build cache) |
 | `HPCAGENT_BENCH_DATA_ROOTS` | derived: top-level filesystems of `SCRATCH` and `FAST_SCRATCH` | what container EDFs bind-mount |
 
 ### Checkout, Python and containers
@@ -137,7 +141,8 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | `HPCAGENT_BENCH_REPO` | the checkout `cluster/env.sh` lives in | the tree scripts and jobs run from |
 | `HPCAGENT_BENCH_HOST_PYTHON` | `python3` on PATH | the host-side interpreter, with the package installed (`uv sync`) |
 | `HPCAGENT_BENCH_IMAGE_PYTHON` | the image's EDF | the interpreter of every step inside a container |
-| `EDF_PATH` | `$HOME/.edf` | where container EDFs are looked up |
+| `EDF_PATH` | `$HOME/.edf`, set by `helpers/scripts/site_env.sh` | where container EDFs are looked up (colon-separated); `install_edfs.sh` renders into its first directory |
+| `ROCM_PATH` | `/opt/rocm` (`hpcagent_bench.paths.rocm_root`) | the ROCm install the harness resolves `amdclang` and DaCe's HIP build from |
 | `CONTAINER_RUNTIME` | `ce` | how `cluster/services.sbatch` starts containers, through one seam (`cluster/container_runtime.sh`, [runtime.md](runtime.md)): `ce`, `apptainer`, `podman` or `docker` |
 | `HPCAGENT_BENCH_HARDWARE`, `HPCAGENT_BENCH_MAX_TIME_HOURS` | the system's `hardware`, `max_time_hours`; else unset | the hardware, and the longest time limit of the partition, which clamps a scaled wall clock (`TIME_SCALE`, minus `STAGING_HOURS`); unset, nothing is clamped |
 | `HPCAGENT_BENCH_HOST` | `SLURMD_NODENAME`, else the host name | the node name recorded with each result |
@@ -184,6 +189,29 @@ any other hardware, renames every `*_CE_ENV` to the `-<hardware>-` EDF and pins 
 must name it, so its rows never pool with the base hardware's. Under the Container Engine no hardware is an error;
 the other runtimes name an image per role (`INFERENCE_IMAGE`, `BENCH_IMAGE`) and need none.
 
+## Benchmark settings (`hpcagent_bench/config.yaml`)
+
+`hpcagent_bench/config.py` reads `hpcagent_bench/config.yaml` once per process. A value is addressed by its dotted
+key (`measurement.repeat`). The first source that sets a key wins:
+
+1. an in-process override: `config.set_override`, `config.overridden`, or an assignment to a field of
+   `config.settings()`; process-global;
+2. `HPCAGENT_BENCH_<KEY>` in the active `config.scoped_environment` (a name mapped to `None` there is unset);
+3. `HPCAGENT_BENCH_<KEY>` in `os.environ`;
+4. the value in `config.yaml`;
+5. the `default` argument of the reader (`config.get(key, default)` and the typed `get_*` accessors).
+
+`<KEY>` is the dotted key upper-cased with `.` replaced by `_` (`HPCAGENT_BENCH_MEASUREMENT_REPEAT=10`).
+Environment text is converted by `config.coerce`: `true`/`false` (any case) to bool, else text `int()` accepts to
+int, else text `float()` accepts to float, else text starting with `[` or `{` that parses as JSON to a list or
+map, else the text unchanged. The reader's `default` applies only when the key is absent from the file; a key set
+to `null` reads as `None`. Keys are not validated: an unknown key reads as the reader's `default`. A map read as
+one value (`timeouts.kernel_s_by_level`, `token_budget_by_level` of the `attempts` block, `oracle.overrides`,
+`mpi.env`) is
+replaced whole by a JSON object in its own variable; variables of its entries are not read.
+`config.reload()` re-reads the file and clears every in-process override. Each key's type, unit, valid values,
+reader and effect are in the comment beside it in `config.yaml`.
+
 ## The guard
 
 The `site-values` rule of `helpers/scripts/checks/check_repo_rules.py` (a pre-commit hook) scans every tracked file for storage mounts, home directories, user names,
@@ -192,3 +220,36 @@ partitions, one experiment's run directories and the site image registry, in liv
 name a site to explain it). A file that legitimately carries such a value is allowlisted in the check with one
 reason: the CSCS site layer, the system entries, the hardware layer, this page, and the MI300A serving
 recipe's partition check.
+
+## Benchmark settings
+
+Seeds, timeouts, measurement rigor, grading switches and every other benchmark setting are fields of one typed
+model, `hpcagent_bench/config.py` (pydantic). The model is the only place a default is written; code reads a
+value as `config.current().<section>.<key>`. A key resolves in this order, first match wins:
+
+1. a runtime override (`config.set_override`, `config.overridden`), process-global;
+2. the key's environment variable in the active `config.scoped_environment` (a fused judge's per-request setup
+   scope);
+3. the key's environment variable in the process environment;
+4. the model default.
+
+The environment variable of key `a.b_c` is `HPCAGENT_BENCH_A_B_C`. Its text is parsed by the key's type:
+
+| Type | Accepted text |
+|---|---|
+| nullable (`X \| null`) | `""`, `null` or `none` (any case) for null, else as `X` |
+| `str` | the text unchanged |
+| `bool` | `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`, `t`/`f`, `y`/`n` (any case) |
+| `int`, `float`, `one of ...` | the value; surrounding whitespace ignored |
+| `list[...]` | a JSON array, or a comma-separated list |
+| `map[...]` | a JSON object; the map is replaced whole |
+
+A value that does not parse, a constraint violation (`int >= 1` given `0`) and an `HPCAGENT_BENCH_<SECTION>_*`
+name that is no key are errors when the configuration is next read; names that other code owns under a section
+prefix (`HPCAGENT_BENCH_JUDGE_URLS`, `HPCAGENT_BENCH_MPI_GANG_*`, ...) are listed in `config.NON_CONFIG_ENV`, and
+`HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>` sets one entry of `prompt.sections`. `config.set_override` raises on an
+unknown key or a value of the wrong type.
+
+Every key, its default and its meaning: [`hpcagent_bench/config.yaml`](../hpcagent_bench/config.yaml). The models in
+`hpcagent_bench/config.py` give each key its type; a key missing from the file, or a key the models do not
+name, is an error at the first read.

@@ -17,10 +17,11 @@ from typing import Any
 
 import pytest
 
+from hpcagent_bench import paths
 from tests.check_yaml_style import violations as yaml_style_violations
 from tests.fresh_module import module_at
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = paths.ROOT
 
 
 def load_check_manifest_structure() -> Any:

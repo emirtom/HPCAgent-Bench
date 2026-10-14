@@ -17,11 +17,11 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.collections import PathCollection
 
-from hpcagent_bench import study_tags
+from hpcagent_bench import paths, study_tags
 from hpcagent_bench.stats import population, style
 from hpcagent_bench.stats.figures import per_kernel as pk
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 
 def speed_metric(cells: list[pk.KernelCell], color: str = "#1155cc") -> pk.Metric:

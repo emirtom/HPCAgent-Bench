@@ -32,7 +32,7 @@ import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 
-from hpcagent_bench import cpf_canonical, paths
+from hpcagent_bench import cpf_canonical, paths, run_layout
 from hpcagent_bench.cluster import jobs
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.support.collect import canon_db
@@ -92,7 +92,7 @@ class Sweep:
     def managed(self) -> bool:
         """Whether ``out_root`` is a work dir under ``$HPCAGENT_BENCH_RUNS_ROOT`` (see the module docstring)."""
         runs_root = self.environ.get("HPCAGENT_BENCH_RUNS_ROOT", "")
-        return bool(runs_root) and str(self.out_root).startswith(runs_root.rstrip("/") + "/")
+        return bool(runs_root) and self.out_root != pathlib.Path(runs_root) and self.out_root.is_relative_to(runs_root)
 
     @property
     def run_label(self) -> str:
@@ -259,14 +259,14 @@ def rank_environment(sweep: Sweep, rank: jobs.Rank) -> dict[str, str]:
     if dataclasses.replace(sweep, environ=env).managed:
         db_dir = sweep.out_root / "db" / sweep.column
         db_dir.mkdir(parents=True, exist_ok=True)
-        env["HPCAGENT_BENCH_RECORD_DB_PATH"] = str(db_dir / "hpcagent_bench.db")
+        env["HPCAGENT_BENCH_RECORD_DB_PATH"] = str(db_dir / run_layout.DB_FILENAME)
     env.update(OMPI_MCA_pml="ob1", OMPI_MCA_btl="self,vader,tcp", PMIX_MCA_gds="hash")
     env.update(UCX_VFS_ENABLE="n", HWLOC_COMPONENTS="-gl", MPI4PY_RC_INITIALIZE="0")
     sha = dace_sha()
     env.setdefault("HPCAGENT_BENCH_RECORD_BUILD", f"dace {sha}")
     harness = paths.git_head(sweep.opt, short=True)
     print(f"canon {sweep.column} rank {rank.index}: dace @{sha} harness {harness or 'notree'}")
-    env["DACE_BUILD_CACHE_DIR"] = f"/dev/shm/{env.get('USER', 'user')}/dace_bc_{sweep.column}_{sha}"
+    env["DACE_BUILD_CACHE_DIR"] = str(paths.node_tmpfs_root(f"dace_bc_{sweep.column}_{sha}"))
     build = sweep.out_root / f"dacecache-{sweep.column}"
     env["DACE_default_build_folder"] = str(build)
     build.mkdir(parents=True, exist_ok=True)
@@ -436,7 +436,7 @@ def cache_environment(opt: pathlib.Path, environ: Mapping[str, str]) -> dict[str
 
 def run_action(args: argparse.Namespace, rank: jobs.Rank) -> int:
     """``hpcagent-bench job baseline``: this task's part of the sweep phase named by ``--phase``."""
-    opt = (args.opt or pathlib.Path(__file__).resolve().parents[2]).resolve()
+    opt = (args.opt or paths.ROOT).resolve()
     check_column(args.column)
     phase = args.phase
     if phase == "all" and rank.size != 1:

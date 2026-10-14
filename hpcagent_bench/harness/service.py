@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+import pydantic
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
@@ -60,7 +61,7 @@ from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import hidden_seeds, metric, mpi_shard_driver, native_call, sandbox, torch_reference
-from hpcagent_bench.harness.envelope import LEGACY_FIELDS, PYTHON_LANG, Submission
+from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_capacity_bytes
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
@@ -76,6 +77,7 @@ from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
 from hpcagent_bench.harness.requests_api import (
     Location,
+    RequestAllowances,
     Requests,
     kernel_arrays,
     kernel_dtypes,
@@ -95,7 +97,7 @@ from hpcagent_bench.harness.scoring import (
 )
 from hpcagent_bench.harness.task import GPU_LANGUAGES, Task, grading_residency, setup_declared_host_only
 from hpcagent_bench.harness.timing import local_repeat, measurement_baseline, measurement_repeat
-from hpcagent_bench.harness.tools import DEFAULT_RANK
+from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
@@ -330,18 +332,18 @@ def canonical_parallel_form_root() -> pathlib.Path | None:
     """The CPF cache view this run serves from, or None when the setup names none. A run without one
     answers ``unavailable``; the ablation setup relies on that. The view need not exist yet: the first
     request for a kernel creates it (:func:`hpcagent_bench.cpf_prerender.render_on_demand`)."""
-    configured = str(config.get(cpf_cache.CONFIG_KEY, "") or "").strip()
+    configured = config.current().service.canonical_parallel_form_dir.strip()
     return pathlib.Path(configured) if configured else None
 
 
 def canonical_parallel_form_cache(view: pathlib.Path) -> pathlib.Path | None:
     """The cache root an on-demand render of ``view`` writes to: :data:`cpf_cache.CACHE_CONFIG_KEY`,
     else the root an existing view is pinned to; None when neither names one."""
-    configured = str(config.get(cpf_cache.CACHE_CONFIG_KEY, "") or "").strip()
+    configured = config.current().cpf.cache.strip()
     if configured:
         return pathlib.Path(configured)
     try:
-        return pathlib.Path(cpf_cache.read_view(view)["cache_root"])
+        return pathlib.Path(cpf_cache.read_view(view).cache_root)
     except (cpf_cache.CacheMiss, KeyError):
         return None
 
@@ -381,21 +383,55 @@ def as_json_object(value: object) -> dict[str, object]:
     return {str(key): item for key, item in cast("dict[object, object]", value).items()}
 
 
+class RequestFields(pydantic.BaseModel):
+    """Every field a POST body may carry (``/submit``, ``/oracle``, ``/score``, ``/profile``, ``/requests/check``),
+    typed. A field the model does not name is refused (400); a route reads only its own."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    #: Identity and routing.
+    kernel: str | None = None
+    rank: int | None = None
+    episode_id: str | None = None
+    language: str | None = None
+    tokens: int | None = None
+    optimizer: str | None = None
+    #: The submission envelope (:class:`~hpcagent_bench.harness.envelope.Submission`).
+    source: str | None = None
+    source_file: str | None = None
+    device_source: str | None = None
+    device_source_file: str | None = None
+    library: str | None = None
+    build: list[str] | None = None
+    workspace_bytes: str | int | None = None
+    compiler: str | None = None
+    requests: dict[str, object] | None = None
+    #: ``/profile`` only.
+    tool: str | None = None
+    residency: str | None = None
+    reps: int | None = None
+    threads: int | list[int] | None = None
+    device_kernel: str | None = None
+    counters: bool | None = None
+    counter_group: str | None = None
+    per_thread: bool | None = None
+    min_percent: float | None = None
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class RequestBody:
-    """One POST body, converted once at the trust boundary: text keys, ``object`` values, read through
-    typed accessors. ``text`` tells absent from null, ``optional_text`` tells "" from absent,
-    ``text_or_none`` treats every falsy value as absent."""
+    """One POST body, validated once at the trust boundary (:class:`RequestFields`) and read through typed
+    accessors. ``fields`` holds the fields the body sent. ``text`` tells absent from null, ``optional_text``
+    tells "" from absent, ``text_or_none`` treats every falsy value as absent."""
 
     fields: dict[str, object]
 
     @classmethod
     def parse(cls, raw: bytes) -> "RequestBody":
-        """One request body; a non-object document raises ValueError (answered 400)."""
-        document: object = json.loads(raw or b"{}")
-        if not isinstance(document, dict):
-            raise ValueError(f"body must be a JSON object, got {type(document).__name__}")
-        return cls({str(key): value for key, value in cast("dict[object, object]", document).items()})
+        """One request body; a non-object document, an unknown field or a field of the wrong type raises
+        ValueError (answered 400)."""
+        model = RequestFields.model_validate_json(raw or b"{}")
+        return cls(model.model_dump(exclude_unset=True))
 
     def raw(self, field: str) -> object:
         """The field as it arrived, for readers that convert it themselves (rank, kernel key)."""
@@ -468,10 +504,7 @@ def graded_kind(route: str) -> str:
 def request_tokens(body: RequestBody) -> int:
     """The agent's cumulative token spend the body reports, 0 for a client that sends none. Only the
     agent can count it (the judge never sees the transcript)."""
-    try:
-        return int(str(body.raw("tokens") or 0))
-    except ValueError:
-        return 0
+    return body.count("tokens", 0) if body.raw("tokens") is not None else 0
 
 
 class Refusal(NamedTuple):
@@ -490,7 +523,7 @@ def unrecordable(episode_id: str | None) -> Refusal | None:
         sandbox.episode_folder(episode_id)
     except ValueError as exc:
         return Refusal(HTTPStatus.FORBIDDEN, {"error": f"{exc}: nothing was graded or recorded"})
-    if config.get("record.enabled", False) and (public := hidden_seeds.public_seeds_refusal()):
+    if config.current().record.enabled and (public := hidden_seeds.public_seeds_refusal()):
         return Refusal(HTTPStatus.SERVICE_UNAVAILABLE, {"error": public, "cause": "public_seeds"})
     return None
 
@@ -699,15 +732,16 @@ def from_config() -> RunConfig:
     """Build the judge :class:`~hpcagent_bench.api.RunConfig` from the ``service:`` block;
     ``baseline`` is ``measurement.baseline`` (shared with the Harbor grader). CLI-overridable."""
     token = measurement_baseline()
+    service = config.current().service
     return RunConfig(
-        oracle=Oracle(config.get_str("service.oracle", "auto")),
+        oracle=Oracle(service.oracle),
         # "auto" is the boundary token for "resolve per kernel track", which RunConfig holds as None.
         baseline=None if token == "auto" else Baseline(token),
-        input_mode=InputMode(config.get_str("service.input_mode", "source")),
+        input_mode=InputMode(service.input_mode),
         # resolve_preset: ``service.preset`` may carry modifiers (``XL+fuzz``). Resolving once at startup
         # also applies the token's process-global overrides exactly once (the server is threaded).
-        preset=resolve_preset(config.get_str("service.preset", "fuzzed")),
-        datatype=config.get_str("service.datatype", "float64"),
+        preset=resolve_preset(service.preset),
+        datatype=service.datatype,
         repeat=measurement_repeat(),
     )
 
@@ -829,12 +863,6 @@ def _submission_from_body(
         if device_source_file
         else body.optional_text("device_source")
     )
-    moved = sorted(set(body.fields) & set(LEGACY_FIELDS))
-    if moved:
-        raise ValueError(
-            "these request fields moved under 'requests': "
-            + "; ".join(f"{name} -> {LEGACY_FIELDS[name]}" for name in moved)
-        )
     # Submission.requests's shape is checked here (ValueError -> 400); requests_refusal checks it
     # against the kernel.
     requests = Requests.from_obj(body.raw("requests"))
@@ -862,14 +890,18 @@ def _submission_from_body(
 def requests_refusal(submission: Submission, task: Task, datatype: str) -> str | None:
     """Why ``submission.requests`` cannot be honoured for ``task`` at ``datatype``, or ``None``.
 
-    A cast of an array that is not floating and dense, or to its problem precision; a sparse kernel with
-    a grid (distributed sparse formats are not implemented yet); an operation that cannot apply to this
-    kernel's arrays; a layout operation without a grid; and, on a distributed run, a grid or program that
+    A cast, layout, zip, unzip or format operation this setup does not allow
+    (:meth:`RequestAllowances.refusal`); a cast of an array that is not floating and dense, or to its
+    problem precision; a sparse kernel with a grid (distributed sparse formats are not implemented yet);
+    an operation that cannot apply to this kernel's arrays; a layout operation without a grid; and, on a distributed run, a grid or program that
     does not lower at ``mpi.ranks`` or leaves an array neither distributed nor replicated are the
     request's fault -- 400, no build, the submission is not spent."""
+    requests = submission.requests
+    disallowed = RequestAllowances.from_config().refusal(requests)
+    if disallowed is not None:
+        return disallowed
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
-    requests = submission.requests
     problem = precision_problem_dtypes(spec, binding, datatype)
     if task.residency == "distributed":
         # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.
@@ -893,7 +925,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         return str(exc)
     if not requests.distributed:
         return single_node_layout_refusal(submission, task, spec, datatype)
-    ranks = config.get_int("mpi.ranks", 4)
+    ranks = config.current().mpi.ranks
     try:
         requests.plan(ndims, ranks)
         unplaced = requests.unplaced(ndims, ranks)
@@ -954,7 +986,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
         marshal = native_call.CallMarshal.of(call, template, language, regroups)
         answer["signature"] = f"{marshal.typedefs}void {binding.symbols[language]}({', '.join(marshal.params)});"
     if requests.distributed:
-        answer["plan"] = requests.plan(ndims, config.get_int("mpi.ranks", 4))
+        answer["plan"] = requests.plan(ndims, config.current().mpi.ranks)
     return answer
 
 
@@ -1096,7 +1128,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         return None
     ml_track = torch_reference.has_torch_reference(spec)
     binding = binding_from_spec(spec)
-    ranks = config.get_int("mpi.ranks", 4)
+    ranks = config.current().mpi.ranks
     lead = ml_layout(submission, spec, binding, ranks) if ml_track else None
     if isinstance(lead, str):
         return lead
@@ -1107,7 +1139,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         return None
     # The ML track grades at mpi.leaderboard_preset (a ``fuzzed`` preset holds size ranges).
     if ml_track:
-        preset = config.get_str("mpi.leaderboard_preset", "XL")
+        preset = config.current().mpi.leaderboard_preset
     try:
         # Only the layout decides which tiles a rank holds; the ML track checks it at mpi.ranks.
         descriptor = lead or Descriptor.from_submission(
@@ -1222,7 +1254,7 @@ def record_result(
     ``record.enabled`` is honoured here, the one door into persistence. The answer names the outcome
     (``table``), its ``detail`` and the recorded ``grade`` id, and ``judge_fault`` when a gate faulted:
     a gate that crashed is the judge's fault, recorded as one (``score_error``), never a silent pass."""
-    if not config.get("record.enabled", False):
+    if not config.current().record.enabled:
         return {"skipped": "record.enabled is false"}
     from hpcagent_bench.harness import recording
     from hpcagent_bench.harness.runner import status_of
@@ -1393,7 +1425,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         ``score_error`` call of the agent's trajectory: its turn was spent either way. A body naming
         no known kernel is attributable to nothing and is not recorded."""
         kernel = body.raw("kernel")
-        if not config.get("record.enabled", False) or not isinstance(kernel, str) or kernel not in KERNELS:
+        if not config.current().record.enabled or not isinstance(kernel, str) or kernel not in KERNELS:
             return
         from hpcagent_bench.harness import recording
 
@@ -1424,7 +1456,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
     ) -> None:
         """Record one ``/score`` grade as a call of the agent's trajectory; its source is kept when it
         passed (:func:`recording.record_call`)."""
-        if not config.get("record.enabled", False):
+        if not config.current().record.enabled:
             return
         from hpcagent_bench.harness import recording
         from hpcagent_bench.harness.runner import status_of
@@ -1703,8 +1735,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         refusal = gpu_language_refusal(language) or python_residency_refusal(requested)
         if refusal is not None:
             return self._send(HTTPStatus.BAD_REQUEST, {"error": refusal})
-        # The run's configured size on every route, never the body's; a sent preset is ignored (not
-        # refused) so older tool schemas keep working.
+        # The run's configured size on every route; a body cannot name one (RequestFields has no preset).
         preset = self.cfg.preset
         # A client preset naming nothing is a request fault (400, not a 500 from score()). Only bare
         # presets: ``+fuzz`` modifiers set process-global overrides.
@@ -1839,7 +1870,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         print(f"judge: /submit {request_id} {kernel} recorded={recorded}", file=sys.stderr, flush=True)
         if recorded.get("judge_fault"):
             result = dataclasses.replace(result, harness_fault=True)
-        if config.get_str("service.submit_feedback", "verdict") != "full":
+        if config.current().service.submit_feedback != "full":
             return self._send(HTTPStatus.OK, submit_verdict(result, request_id))
         payload: dict[str, object] = dataclasses.asdict(result)
         payload.update(
@@ -2135,7 +2166,7 @@ def enable_crash_traces() -> None:
 
 def serve(
     host: str = "0.0.0.0",  # noqa: S104 -- the judge serves the agents of its allocation
-    port: int = 8800,
+    port: int = DEFAULT_JUDGE_PORT,
     cfg: RunConfig | None = None,
     rank: int = DEFAULT_RANK,
 ) -> int:
@@ -2146,7 +2177,7 @@ def serve(
     # Preload heavy modules into the forkserver so each timed fork skips the import.
     multiprocessing.set_forkserver_preload(FORKSERVER_PRELOAD)
     cfg = cfg or from_config()
-    if config.get("record.enabled", False) and (public := hidden_seeds.public_seeds_refusal()):
+    if config.current().record.enabled and (public := hidden_seeds.public_seeds_refusal()):
         raise SystemExit(f"judge: refusing to record grades: {public}")
     # Fail once here if the host refuses the seal's namespaces.
     refused = seal.probe(seal.grading_plan([tempfile.gettempdir()]))

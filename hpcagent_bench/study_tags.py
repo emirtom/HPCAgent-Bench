@@ -19,12 +19,11 @@ that fallback from going unnoticed.
 
 import dataclasses
 import functools
-import pathlib
 import re
 
 import yaml
 
-from hpcagent_bench import columns, models, skill_packets, spec
+from hpcagent_bench import columns, models, paths, skill_packets, spec
 from hpcagent_bench.spec import as_block, as_list, is_list, is_mapping
 from hpcagent_bench.vocabulary import (
     KINDS,
@@ -86,9 +85,9 @@ __all__ = [
 ]
 
 #: The pools (neutral colour, marker shapes, lightness step) every figure draws from.
-REGISTRY = pathlib.Path(__file__).resolve().parent / "envs" / "registry.yaml"
+REGISTRY = paths.ENVS_DIR / "registry.yaml"
 #: Run-level data: studies, experiments, baselines and the spellings older setups recorded under.
-STUDIES = pathlib.Path(__file__).resolve().parent / "envs" / "studies.yaml"
+STUDIES = paths.ENVS_DIR / "studies.yaml"
 #: The modules whose import registers the vocabulary; importing this module is what loads them.
 VOCABULARY_MODULES = (models, skill_packets, columns)
 

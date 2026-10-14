@@ -83,7 +83,7 @@ def test_a_setup_name_resolves_to_a_registered_model_or_to_nothing() -> None:
 
 def test_setup_rows_read_the_condition_off_the_recorded_packet(tmp_path: pathlib.Path) -> None:
     """A setup whose name carries no ``-cpf`` suffix but which records the ``cpf-tool`` packet loads under
-    that packet: the recorded column decides, never the setup name."""
+    that packet, read as the CPU tool packet it was: the recorded column decides, never the setup name."""
     path = tmp_path / "observations.csv"
     pd.DataFrame([{"setup": "renamed-qwen38-c", "packet": "cpf-tool", "kernel": "k", "row_kind": "submission"}]).to_csv(
         path, index=False
@@ -91,4 +91,4 @@ def test_setup_rows_read_the_condition_off_the_recorded_packet(tmp_path: pathlib
 
     frame = studies.setup_rows(path, prefix="")
 
-    assert frame.set_index("setup").packet["renamed-qwen38-c"] == "cpf-tool"
+    assert frame.set_index("setup").packet["renamed-qwen38-c"] == "cpf-tool-cpu"

@@ -149,25 +149,10 @@ def load_bench_info(path: pathlib.Path) -> JsonBlock:
 
 
 def declared_shapes(init: Mapping[str, object]) -> dict[str, str]:
-    """``{array: shape expression}`` from an ``init`` block, whichever spelling it carries.
-
-    An array is declared under ``init.arrays``, either as a bare shape string or as a mapping
-    with a ``shape`` key. Reading ``init["shapes"]`` directly -- the retired spelling -- is what
-    silently reduced this emitter to ONE translating port out of 200: the key stopped being
-    exported, ``shapes_raw`` came back empty, and every kernel with a declaratively-initialised
-    >=2-D array was emitted against shapes the emitter had to guess instead of the ones its
-    manifest declared. Kernels initialising through ``init.func_name`` were unaffected, which is
-    why the polybench corpus looked fine throughout.
-
-    ``shapes`` is still accepted here, because a bench_info JSON on disk may predate the change
-    and this reader must not be a second place that decides what a manifest may say."""
+    """``{array: shape expression}`` from an ``init`` block: each ``init.arrays`` entry, a bare shape string or a
+    mapping with a ``shape`` key."""
     arrays = as_block(init.get("arrays"))
-    out: dict[str, str] = {
-        name: entry if isinstance(entry, str) else str(as_block(entry)["shape"]) for name, entry in arrays.items()
-    }
-    for name, shape in as_text_block(init.get("shapes")).items():
-        out.setdefault(name, shape)
-    return out
+    return {name: entry if isinstance(entry, str) else str(as_block(entry)["shape"]) for name, entry in arrays.items()}
 
 
 def declared_index_arrays(init: Mapping[str, object]) -> set[str]:
@@ -196,11 +181,7 @@ def declared_dtypes(init: Mapping[str, object]) -> dict[str, str]:
     unemittable subscript).
 
     One merged map, because every caller asks the same question -- "what was <name> declared as" --
-    and an array name cannot also be a scalar name. The array entry wins over a same-named
-    ``init.dtypes`` entry: it is the current spelling.
-
-    ``dtypes`` is still accepted here, because a bench_info JSON on disk may predate the change and
-    this reader must not be a second place that decides what a manifest may say."""
+    and an array name cannot also be a scalar name."""
     out: dict[str, str] = {}
     for name, entry in as_block(init.get("arrays")).items():
         block = as_block(entry)

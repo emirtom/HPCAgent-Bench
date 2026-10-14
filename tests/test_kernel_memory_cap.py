@@ -20,7 +20,7 @@ import subprocess
 import numpy as np
 import pytest
 
-from hpcagent_bench import config, flags, osinfo, sizing
+from hpcagent_bench import config, flags, osinfo, paths, sizing
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, score
@@ -184,7 +184,7 @@ def test_a_stack_below_its_hard_limit_fails_the_check(monkeypatch: pytest.Monkey
 def test_an_agents_container_gets_the_stack_the_judge_grades_with() -> None:
     """An agent tests its code in its own container before submitting; a smaller stack there than in
     the grading child passes a VLA-heavy kernel locally that then crashes, or the reverse."""
-    script = pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "cluster" / "run_cluster.sh"
+    script = paths.ROOT / "hpcagent_bench" / "cluster" / "run_cluster.sh"
     line = next(x for x in script.read_text().splitlines() if x.startswith("export OMP_STACKSIZE="))
     assert line == f'export OMP_STACKSIZE="${{OMP_STACKSIZE:-{flags.thread_stack_bytes() >> 20}M}}"', line
     limit = next(x for x in script.read_text().splitlines() if x.startswith("export OMP_THREAD_LIMIT="))
@@ -365,7 +365,7 @@ def test_an_underivable_kernel_falls_back_to_the_global_budget() -> None:
     """A hand-written ``init`` declares no shapes, so there is nothing to derive: the global budget
     is the answer, not a zero cap that would kill every run."""
     real = BenchSpec.load(OPAQUE_KERNEL)
-    spec = dataclasses.replace(real, init=dataclasses.replace(real.init, shapes={}))
+    spec = real.replace(init=dataclasses.replace(real.init, shapes={}))
     assert spec.init.shapes == {}  # the premise: nothing declarative to size from
     with config.overridden("limits.kernel_memory_gb", 7):
         assert sizing.kernel_memory_gb(spec, "XL") == 7.0
@@ -747,7 +747,7 @@ def test_memory_cap_gb_replaces_the_derivation_rather_than_flooring_it() -> None
     formula outright. This is what fv3_dycore needs: its derivation only sums 13 declared arrays
     and cannot see the ~90 undeclared internal temporaries its translated C mallocs, so a floor
     would still raise the budget past what the kernel was sized to fit in."""
-    spec = dataclasses.replace(BenchSpec.load(KERNEL), memory_cap_gb=0.05)
+    spec = BenchSpec.load(KERNEL).replace(memory_cap_gb=0.05)
     derived_xl = cap_bytes("XL") / sizing.BYTES_PER_GB
     assert derived_xl > 0.05, "premise: the derived XL budget is bigger than the override"
     with config.overridden("limits.kernel_memory_gb", 20):  # floor bigger than the override too
@@ -759,7 +759,7 @@ def test_memory_cap_gb_wins_even_for_an_undeclarable_kernel() -> None:
     """An opaque ``init`` (no declarative shapes -- nothing to derive from) normally falls back to
     the global floor; a hard per-kernel cap must still win over that fallback too."""
     real = BenchSpec.load(OPAQUE_KERNEL)
-    spec = dataclasses.replace(real, init=dataclasses.replace(real.init, shapes={}), memory_cap_gb=3.0)
+    spec = real.replace(init=dataclasses.replace(real.init, shapes={}), memory_cap_gb=3.0)
     with config.overridden("limits.kernel_memory_gb", 7):
         assert sizing.kernel_memory_gb(spec, "XL") == 3.0
 

@@ -664,8 +664,6 @@ def patch_work_exponent(monkeypatch: pytest.MonkeyPatch, exponent: int | None) -
     """Load every manifest as if its ``mpi.decomposition`` declared ``work_exponent = exponent``;
     ``None`` removes the key -- the strong-only marker, which no shipped MPI manifest carries (the
     manifest audit in test_mpi_sizing.py pins that), so the refusal path needs a stand-in."""
-    import dataclasses
-
     load = BenchSpec.load
 
     def patched(key: str) -> BenchSpec:
@@ -673,7 +671,7 @@ def patch_work_exponent(monkeypatch: pytest.MonkeyPatch, exponent: int | None) -
         decomp = {k: v for k, v in spec.mpi["decomposition"].items() if k != "work_exponent"}
         if exponent is not None:
             decomp["work_exponent"] = exponent
-        return dataclasses.replace(spec, mpi={**spec.mpi, "decomposition": decomp})
+        return spec.replace(mpi={**spec.mpi, "decomposition": decomp})
 
     monkeypatch.setattr(scoring.BenchSpec, "load", staticmethod(patched))
 

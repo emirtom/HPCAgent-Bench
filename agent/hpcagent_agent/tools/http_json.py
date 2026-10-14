@@ -33,6 +33,7 @@ from typing import Any
 from hpcagent_agent.driver import harnesses, token_cost
 
 __all__ = [
+    "DEFAULT_JUDGE_PORT",
     "DEFAULT_JUDGE_TIMEOUT",
     "DEFAULT_JUDGE_URL",
     "DEFAULT_LANGUAGE",
@@ -76,8 +77,11 @@ __all__ = [
     "worker_token_header",
 ]
 
+#: The judge service's TCP port when the run configures none (``hpcagent-bench serve --port``, ``JUDGE_PORT``).
+DEFAULT_JUDGE_PORT = 8800
+
 #: Judge URL when the run configures none (a co-located single-box judge service).
-DEFAULT_JUDGE_URL = "http://127.0.0.1:8800"
+DEFAULT_JUDGE_URL = f"http://127.0.0.1:{DEFAULT_JUDGE_PORT}"
 
 #: The judge rank of a deployment with exactly ONE judge. Both sides default to it (``serve --rank``
 #: too), so a single-judge run needs no rank anywhere and still validates.

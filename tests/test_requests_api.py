@@ -65,9 +65,9 @@ def test_a_malformed_request_is_a_request_fault(raw: dict[str, object], match: s
         Requests.from_obj(raw)
 
 
-@pytest.mark.parametrize("field", ["libraries", "distribution", "sparse_config"])
-def test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling(field: str) -> None:
-    with pytest.raises(ValueError, match=f"moved under 'requests': {field} -> "):
+@pytest.mark.parametrize("field", ["libraries", "distribution", "sparse_config", "notes"])
+def test_an_envelope_field_the_model_does_not_name_is_refused(field: str) -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         Submission.from_obj({"language": "c", "source": "x", field: []})
 
 
@@ -103,7 +103,7 @@ def test_the_grid_is_evaluated_at_each_rank_count() -> None:
 
 
 def test_a_plan_is_requested_so_that_its_grid_follows_p() -> None:
-    """A kernel's default (and a v6 grade's) plan at one rank count becomes the request a scaling run
+    """A kernel's default plan at one rank count becomes the request a scaling run
     evaluates at every P: 1-D follows P, an equal-edge grid keeps its edges equal, and every other
     array the kernel has is replicated."""
     assert grid_request([4]) == ("P",)

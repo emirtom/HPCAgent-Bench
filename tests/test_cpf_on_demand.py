@@ -25,12 +25,12 @@ from urllib.request import urlopen
 
 import pytest
 
-from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical
+from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical, paths
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.tools import DEFAULT_RANK
 
 JudgeFactory = Callable[..., tuple[ThreadingHTTPServer, str]]
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 #: A registry kernel: the judge refuses to render a name it cannot load.
 KERNEL = "gemm"
 
@@ -220,7 +220,7 @@ def test_a_recorded_failure_is_answered_and_never_rendered_again(
     assert renderer.calls == 1
     pointer = cpf_cache.recorded(view, KERNEL, "c", "fp64")
     assert pointer is not None
-    assert pointer["verdict"] == "fail"
+    assert pointer.verdict == "fail"
 
 
 def test_an_unknown_kernel_is_answered_without_rendering_or_recording(

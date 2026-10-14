@@ -20,16 +20,19 @@ low: no import side effects, and language-agnostic introspection.
 import ast
 import difflib
 import functools
+import hashlib
 import itertools
+import json
 import math
 import pathlib
 import re
-from collections.abc import Callable, Iterator, KeysView
+from collections.abc import Callable, Iterator, KeysView, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, NamedTuple, TypeGuard, cast
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, InstanceOf
 
 #: The loader :func:`load_yaml` parses manifests with. ``CSafeLoader`` is PyYAML's libyaml-backed
 #: implementation of the SAME YAML 1.1 safe subset ``yaml.safe_load`` uses -- a faster parser, not a
@@ -42,9 +45,10 @@ try:
 except ImportError:  # PyYAML built without libyaml
     from yaml import SafeLoader as MANIFEST_LOADER  # noqa: N814 -- the module's loader constant
 
-from hpcagent_bench import config, fuzz, paths
+from hpcagent_bench import config, fuzz, manifest_schema, paths
 from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
+from hpcagent_bench.manifest_schema import Number, Value
 from hpcagent_bench.support.distributions import domain as domain_mod
 from hpcagent_bench.support.helpers.sparse.abi import (
     BLOCK_FORMAT,
@@ -69,6 +73,7 @@ __all__ = [
     "C_KEYWORDS",
     "DEFAULT_FUZZ",
     "DEFAULT_FUZZ_ANCHOR",
+    "FINGERPRINT_MANIFEST_KEYS",
     "FUZZ_SUFFIX",
     "HARNESS_KWARGS",
     "IDENTIFIER",
@@ -124,7 +129,6 @@ __all__ = [
     "derive_func_name",
     "derive_input_args",
     "expand_args",
-    "flag_of",
     "function_parameters",
     "init_arrays_raw",
     "initializer_inputs",
@@ -140,6 +144,7 @@ __all__ = [
     "misplaced_initializer",
     "missing_level",
     "module_level_constants",
+    "normalized_ast",
     "number_of",
     "numpy_reference_path",
     "outside_nested_scopes",
@@ -171,6 +176,7 @@ __all__ = [
     "sparse_alignment_constraints",
     "stem_aliases",
     "target_names",
+    "task_fingerprint",
     "track_datatype",
     "unimportable_module_path",
     "validate_dwarf",
@@ -354,7 +360,7 @@ def track_datatype(track: str, allowed_precisions: tuple[str, ...]) -> str:
     grade's configured datatype stands)."""
     if track != TRACK_DATATYPE_TRACK or declares_storage_precision(allowed_precisions):
         return ""
-    return config.get_str("ml.datatype", "")
+    return config.current().ml.datatype
 
 
 #: The one preset MODIFIER: ``<rung>+fuzz`` samples sizes around ``<rung>``.
@@ -548,8 +554,7 @@ def sparse_alignment_constraints(layouts: dict[str, "SparseLayout"]) -> tuple[st
 
 def bsr_block_sizes() -> tuple[int, ...]:
     """The block edges a bsr request may name (``sparse.bsr_block_sizes``)."""
-    raw = config.get("sparse.bsr_block_sizes", [])
-    return tuple(int(v) for v in as_list(raw) if isinstance(v, (int, float, str)))
+    return config.current().sparse.bsr_block_sizes
 
 
 @dataclass(frozen=True, slots=True)
@@ -576,14 +581,14 @@ class InitSpec:
       kernel NEEDS, not what flatters it -- keep it as wide as the kernel allows.
     * The draws. The correctness gate grades the public seed plus the five hidden-rotation variants
       (:mod:`hpcagent_bench.support.distributions.hidden`); the timed window cycles over the cell's
-      pool of 4 seeds (:func:`hpcagent_bench.harness.rep_variation.pool_seeds`), so every kernel needs 4
-      DISTINCT inputs. A declarative init gets them from the seed.
+      pool of :data:`hpcagent_bench.harness.rep_variation.POOL_SIZE` (6) seeds
+      (:func:`hpcagent_bench.harness.rep_variation.pool_seeds`), so every kernel needs 6 DISTINCT inputs. A declarative init gets them from the seed.
     * Fallback ``initialize`` in ``<module>.py`` (:data:`INITIALIZER`; defining it there is what selects
       this path), only when no shape+distribution+domain can describe the
       inputs (a well-posed boundary value problem, a structured matrix, a physical initial
       condition). It must accept ``perturbation`` (a
       :class:`~hpcagent_bench.support.distributions.perturbation.Perturbation`: the draw's scenario
-      and a small error distribution), or an ``rng`` it draws every value field from, so the 4 timed
+      and a small error distribution), or an ``rng`` it draws every value field from, so the 6 timed
       draws still differ. A PDE/stencil/iterative kernel declares ``scenarios`` (named, physical
       initial/boundary conditions); the draw with seed ``s`` uses scenario ``s % len(scenarios)`` plus
       the perturbation's error, and every scenario must keep the scheme stable (CFL etc.).
@@ -659,10 +664,10 @@ class InitSpec:
 
 
 #: The keys a ``layouts.<A>`` entry may carry (:func:`parse_one_layout`).
-LAYOUT_KEYS = frozenset({"logical_shape", "nnz", "offered", "default", "dtype", "pattern"})
+LAYOUT_KEYS = manifest_schema.field_keys(manifest_schema.LayoutEntry)
 
 #: The keys an ``init.scenarios`` entry in mapping form may carry (:func:`parse_scenarios`).
-SCENARIO_KEYS = frozenset({"description", "layouts"})
+SCENARIO_KEYS = manifest_schema.field_keys(manifest_schema.ScenarioEntry)
 
 #: A logical sparse array is a matrix: rows and columns.
 SPARSE_RANK = 2
@@ -724,11 +729,10 @@ def init_arrays_raw(init: "InitSpec") -> dict[str, ArrayEntry]:
 CONFIG_SELECTS = frozenset({"branch", "tile", "iteration", "tolerance", "seed", "physical"})
 
 #: Keys a single ``config:`` entry may declare (see :func:`_parse_config_knob`).
-CONFIG_KNOB_KEYS = frozenset({"domain", "value", "selects"})
+CONFIG_KNOB_KEYS = manifest_schema.field_keys(manifest_schema.ConfigKnobEntry)
 
 
-@dataclass(frozen=True, slots=True)
-class ConfigKnob:
+class ConfigKnob(BaseModel):
     """One execution-path selector declared under a manifest's ``config:`` block -- a branch flag,
     a tile size, an iteration cap, ... NEVER scaled by a size preset; that is what distinguishes it
     from a ``parameters:`` entry (see the module docstring's motivation).
@@ -741,8 +745,10 @@ class ConfigKnob:
         :data:`CONFIG_SELECTS`, or ``None`` if undeclared.
     """
 
-    domain: tuple[FuzzValue, ...] | None = None
-    value: "FuzzValue | None" = None
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    domain: tuple[Value, ...] | None = None
+    value: Value | None = None
     selects: str | None = None
 
     @property
@@ -1176,36 +1182,8 @@ def _validate_chain_length(
             )
 
 
-#: Top-level keys allowed in a co-located manifest -- the single source of truth
-#: for the manifest schema. :meth:`BenchSpec.from_yaml` rejects anything else
-#: (typo guard).
-KNOWN_MANIFEST_KEYS = frozenset(
-    {
-        "name",
-        "short-name",
-        "relative_path",
-        "module_name",
-        "parameters",
-        "config",
-        "constraints",
-        "args",
-        "output_extent",
-        "chain_length",
-        "init",
-        "languages",
-        "allowed_precisions",
-        "fuzz",
-        "layouts",
-        "mpi",
-        "level",
-        "timeout_s",
-        "memory_cap_gb",
-        "floor_bytes_fraction",
-        "conditioning_rtol",
-        "conditioning_atol",
-        "scale_axes",
-    }
-)
+#: Top-level keys of an authored manifest (:class:`hpcagent_bench.manifest_schema.Manifest`).
+KNOWN_MANIFEST_KEYS = manifest_schema.field_keys(manifest_schema.Manifest)
 
 
 def validate_dwarf(dwarf: str | None, source: str = "<spec>") -> None:
@@ -1519,6 +1497,23 @@ def parse_workspace_bytes(init_raw: dict[str, object], source: str) -> int | Non
     return declared_bytes
 
 
+#: The keys of an expanded ``init`` block (the dict :meth:`BenchSpec.from_dict` reads).
+RAW_INIT_KEYS = frozenset(
+    {
+        "func_name",
+        "input_args",
+        "output_args",
+        "arrays",
+        "scalars",
+        "dtypes",
+        "scenarios",
+        "revalue",
+        "constants",
+        "workspace",
+    }
+)
+
+
 def parse_init(raw: object, source: str) -> InitSpec:
     """The ``init:`` block -> :class:`InitSpec`.
 
@@ -1531,14 +1526,9 @@ def parse_init(raw: object, source: str) -> InitSpec:
     ``init.scenarios`` the named input conditions it builds. ``init.output_args`` defaults to every
     declared array and scalar."""
     init_raw = block_of(raw, "init", source)
-    for legacy in ("shapes", "dists"):
-        if legacy in init_raw:
-            raise ValueError(
-                f"{source}: init.{legacy} was replaced by the unified declaration surface. "
-                "An array is declared ONCE, under init.arrays[name], as a shape string or as "
-                "{shape, dtype?, dist?, domain?}. Scalar/knob/size-symbol ABI types stay in "
-                "init.dtypes. Two ways to say one thing is how a declaration goes unread."
-            )
+    unknown = sorted(set(init_raw) - RAW_INIT_KEYS)
+    if unknown:
+        raise ValueError(f"{source}: init carries unknown key(s) {unknown}; it may carry {sorted(RAW_INIT_KEYS)}")
     dtypes = {sym: str(dt) for sym, dt in block_of(init_raw.get("dtypes"), "init.dtypes", source).items()}
     arrays_named = sorted(set(dtypes) & set(block_of(init_raw.get("arrays"), "init.arrays", source)))
     if arrays_named:
@@ -1589,19 +1579,19 @@ class ArgFlag(Enum):
     PARTITIONED = "partitioned"
 
 
-#: Everything one ``args`` entry in mapping form may declare. Closed on purpose, like
-#: :data:`ARRAY_ENTRY_KEYS`: a misspelt key is a load error, not an ignored line.
-ARG_ENTRY_KEYS = ARRAY_ENTRY_KEYS | {"value"} | {flag.value for flag in ArgFlag}
+#: Everything one ``args`` entry in mapping form may declare (:class:`hpcagent_bench.manifest_schema.ArgEntry`):
+#: the :data:`ARRAY_ENTRY_KEYS`, ``value`` and the :class:`ArgFlag` keys.
+ARG_ENTRY_KEYS = manifest_schema.field_keys(manifest_schema.ArgEntry)
 
 #: The entry keys only an array (an entry with a ``shape``) may carry.
 ARRAY_ONLY_KEYS = (ARRAY_ENTRY_KEYS - {"shape", "dtype"}) | {ArgFlag.PARTITIONED.value}
 
-#: The keys a manifest's ``init`` block may carry: what the fallback initializer needs beyond ``args``.
-MANIFEST_INIT_KEYS = frozenset({"scenarios", "revalue", "constants", "workspace"})
+#: The keys a manifest's ``init`` block may carry (:class:`hpcagent_bench.manifest_schema.InitBlock`): what
+#: the fallback initializer needs beyond ``args``.
+MANIFEST_INIT_KEYS = manifest_schema.field_keys(manifest_schema.InitBlock)
 
 
-@dataclass(frozen=True, slots=True)
-class ArgsBlock:
+class ArgsBlock(BaseModel):
     """A manifest's ``args:`` block, expanded into the declarations :meth:`BenchSpec.from_dict` reads.
 
     ``args`` maps each argument name, in order, to a shape string (an array), a number (a scalar's
@@ -1618,20 +1608,14 @@ class ArgsBlock:
     :ivar partitioned: ``mpi.arrays``: ``{array: its shape's axes}``.
     """
 
-    arrays: dict[str, ArrayEntry]
-    scalars: dict[str, float]
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    arrays: dict[str, str | dict[str, str | bool | list[Number]]]
+    scalars: dict[str, Number]
     dtypes: dict[str, str]
     returned: tuple[str, ...]
     outputs: tuple[str, ...]
     partitioned: dict[str, list[str | int]]
-
-
-def flag_of(entry: dict[str, object], flag: ArgFlag, default: bool, where: str, source: str) -> bool:
-    """One :class:`ArgFlag` of an ``args`` entry; anything but a YAML bool is a load error."""
-    value = entry.get(flag.value, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"{source}: {where}.{flag.value} must be true or false, got {value!r}")
-    return value
 
 
 def partition_axes(shape: str) -> list[str | int]:
@@ -1639,78 +1623,70 @@ def partition_axes(shape: str) -> list[str | int]:
     return [int(dim) if dim.isdigit() else dim for dim in shape_dims(shape)]
 
 
-def parse_args(raw: object, fallback: bool, source: str) -> ArgsBlock:
-    """The ``args:`` block -> :class:`ArgsBlock`. ``fallback``: the kernel builds its inputs with a
-    fallback ``initialize()``, the only case an entry may name an undeclared value or not be returned."""
-    block = block_of(raw, "args", source)
-    if not block:
+def parse_args(entries: Mapping[str, manifest_schema.ArgEntry], fallback: bool, source: str) -> ArgsBlock:
+    """The validated ``args:`` block -> :class:`ArgsBlock`. ``fallback``: the kernel builds its inputs with
+    a fallback ``initialize()``, the only case an entry may name an undeclared value or not be returned."""
+    if not entries:
         raise ValueError(f"{source}: 'args' must map each argument to its shape, its value or a declaration")
-    arrays: dict[str, ArrayEntry] = {}
-    scalars: dict[str, float] = {}
+    arrays: dict[str, str | dict[str, Any]] = {}
+    scalars: dict[str, int | float] = {}
     dtypes: dict[str, str] = {}
     returned: list[str] = []
     outputs: list[str] = []
     partitioned: dict[str, list[str | int]] = {}
-    for name, raw_entry in block.items():
+    for name, entry in entries.items():
         where = f"args.{name}"
-        if isinstance(raw_entry, str):
-            entry: dict[str, object] = {"shape": raw_entry}
-        elif isinstance(raw_entry, (int, float)) and not isinstance(raw_entry, bool):
-            entry = {"value": raw_entry}
-        elif is_mapping(raw_entry):
-            entry = as_block(raw_entry)
-        else:
-            raise ValueError(f"{source}: {where} must be a shape string, a number or a mapping, got {raw_entry!r}")
-        unknown_keys = sorted(set(entry) - ARG_ENTRY_KEYS)
-        if unknown_keys:
-            raise ValueError(f"{source}: {where} has unknown key(s) {unknown_keys}; expected {sorted(ARG_ENTRY_KEYS)}")
-        shape, value = entry.get("shape"), entry.get("value")
-        array_only = sorted(ARRAY_ONLY_KEYS & set(entry))
-        if shape is not None and value is not None:
+        declared = entry.model_fields_set
+        array_only = sorted(ARRAY_ONLY_KEYS & declared)
+        if entry.shape is not None and entry.value is not None:
             raise ValueError(f"{source}: {where} declares both a shape and a value; a name is an array or a scalar")
-        if shape is None and array_only:
+        if entry.shape is None and array_only:
             raise ValueError(f"{source}: {where} declares {array_only}, which only an array (a shape) can carry")
-        is_returned = flag_of(entry, ArgFlag.RETURNED, True, where, source)
-        if not fallback and ((shape is None and value is None) or ArgFlag.RETURNED.value in entry):
+        is_returned = entry.returned is not False
+        if not fallback and ((entry.shape is None and entry.value is None) or ArgFlag.RETURNED.value in declared):
             raise ValueError(
                 f"{source}: {where}: only a kernel with a fallback {INITIALIZER}() may name a value it builds "
                 f"or say it does not return one; a declarative init needs a shape or a value"
             )
-        if shape is None and value is None and not is_returned:
+        if entry.shape is None and entry.value is None and not is_returned:
             raise ValueError(f"{source}: {where} declares nothing and is not returned, so nothing binds it")
-        if shape is not None:
-            array_keys = {key: item for key, item in entry.items() if key in ARRAY_ENTRY_KEYS}
-            arrays[name] = raw_entry if isinstance(raw_entry, str) else cast("ArrayEntry", array_keys)
+        if entry.shape is not None:
+            array_keys = entry.model_dump(include=set(ARRAY_ENTRY_KEYS), exclude_unset=True)
+            arrays[name] = entry.shape if declared == {"shape"} else array_keys
         else:
-            if value is not None:
-                scalars[name] = number_of(value, f"{where}.value", source)
-            if entry.get("dtype") is not None:
-                dtypes[name] = str(entry["dtype"])
+            if entry.value is not None:
+                scalars[name] = entry.value
+            if entry.dtype is not None:
+                dtypes[name] = entry.dtype
         if is_returned:
             returned.append(name)
-        if flag_of(entry, ArgFlag.OUT, False, where, source):
+        if entry.out:
             outputs.append(name)
-        if flag_of(entry, ArgFlag.PARTITIONED, False, where, source):
-            partitioned[name] = partition_axes(str(shape))
+        if entry.partitioned:
+            partitioned[name] = partition_axes(str(entry.shape))
     if not outputs:
         raise ValueError(f"{source}: no 'args' entry is marked out: true; a kernel grades at least one output")
-    return ArgsBlock(arrays, scalars, dtypes, tuple(returned), tuple(outputs), partitioned)
+    return ArgsBlock(
+        arrays=arrays,
+        scalars=scalars,
+        dtypes=dtypes,
+        returned=tuple(returned),
+        outputs=tuple(outputs),
+        partitioned=partitioned,
+    )
 
 
-def expand_args(raw: dict[str, object], module: pathlib.Path | None, source: str) -> None:
-    """Rewrite a manifest's ``args:`` block, in place, into the ``output_args`` / ``init`` / ``mpi.arrays``
-    declarations :meth:`BenchSpec.from_dict` reads. ``module`` is the kernel's ``<module>.py`` when it
-    defines the fallback :data:`INITIALIZER` (whose ``def`` line then gives ``init.input_args``)."""
+def expand_args(
+    raw: dict[str, object], entries: Mapping[str, manifest_schema.ArgEntry], module: pathlib.Path | None, source: str
+) -> None:
+    """Rewrite a validated manifest's ``args:`` block, in place, into the ``output_args`` / ``init`` /
+    ``mpi.arrays`` declarations :meth:`BenchSpec.from_dict` reads. ``entries`` is the validated ``args``
+    block (:attr:`hpcagent_bench.manifest_schema.Manifest.args`). ``module`` is the kernel's ``<module>.py``
+    when it defines the fallback :data:`INITIALIZER` (whose ``def`` line then gives ``init.input_args``)."""
     init_raw = block_of(raw.get("init"), "init", source)
     mpi_raw = block_of(raw.get("mpi"), "mpi", source)
-    spelled = [f"init.{key}" for key in init_raw if key not in MANIFEST_INIT_KEYS]
-    spelled += ["mpi.arrays"] if "arrays" in mpi_raw else []
-    if spelled:
-        raise ValueError(
-            f"{source}: {spelled} are not manifest keys: every argument is declared once under 'args' "
-            f"(init takes only {sorted(MANIFEST_INIT_KEYS)})"
-        )
-    args = parse_args(raw.pop("args", None), module is not None, source)
+    raw.pop("args", None)
+    args = parse_args(entries, module is not None, source)
     raw["output_args"] = list(args.outputs)
     init: dict[str, object] = {**init_raw, "arrays": args.arrays, "output_args": list(args.returned)}
     if args.scalars:
@@ -1937,20 +1913,22 @@ class MpiDecomposition:
     work_exponent: int | None
 
 
-@dataclass(frozen=True, slots=True)
-class BenchSpec:
+class BenchSpec(BaseModel):
     """Validated descriptor for one kernel.
 
     Field names map 1:1 onto ``bench_info/<name>.json`` keys. Every field
-    with a default is optional.
+    with a default is optional. Construction validates every field strictly (no coercion, unknown
+    fields rejected); the instance is immutable, and :meth:`replace` derives a validated changed copy.
     """
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
     short_name: str
     name: str
     relative_path: str
     module_name: str
     func_name: str
-    parameters: PresetTable
+    parameters: dict[str, dict[str, Value]]
     input_args: tuple[str, ...]
     array_args: tuple[str, ...]
     output_args: tuple[str, ...]
@@ -1961,7 +1939,7 @@ class BenchSpec:
     #: itself graded in full, so a kernel cannot shrink its own comparison by returning a short
     #: count. Empty (the default) grades every output whole, which is right for every kernel that
     #: writes all of its output.
-    output_extent: dict[str, str] = field(default_factory=dict[str, str])
+    output_extent: dict[str, str] = Field(default_factory=dict[str, str])
     #: Output arrays that are a SCAN along their kept axis: ``{"out": "LEN_1D"}`` declares the
     #: accumulation length ``l`` (number of terms summed into one output element) the reassociation
     #: floor uses for that output (appendix, reassociation-floor paragraph) -- the one case the
@@ -1970,9 +1948,9 @@ class BenchSpec:
     #: contracts. Each expression is evaluated through the same resolver the sizer uses
     #: (:func:`hpcagent_bench.sizing.shape_namespace`); see :func:`_validate_chain_length` for what
     #: it is checked against. Empty (the default) declares no output a scan.
-    chain_length: dict[str, str] = field(default_factory=dict[str, str])
-    init: InitSpec | None = None
-    variants: dict[str, dict[str, str]] = field(default_factory=lambda: {"default": dict[str, str]()})
+    chain_length: dict[str, str] = Field(default_factory=dict[str, str])
+    init: InstanceOf[InitSpec] | None = None
+    variants: dict[str, dict[str, str]] = Field(default_factory=lambda: {"default": dict[str, str]()})
     #: Berkeley dwarf. DERIVED from the manifest's own location -- the directory under the track
     #: IS the dwarf, and it agreed with the declared value on 144 of 144 kernels that declared one,
     #: so declaring it was a second copy that could disagree. ``None`` for a flat track.
@@ -1986,7 +1964,7 @@ class BenchSpec:
     level: int | None = None
     #: Optional per-kernel agent wall-clock budget in seconds. Overrides the per-level
     #: default in ``resolve_kernel_timeout``; ``None`` => use the level / global default.
-    timeout_s: float | None = None
+    timeout_s: Number | None = None
     #: Optional per-kernel HARD memory cap in GB. ``sizing.kernel_memory_gb`` normally derives the
     #: cap from the manifest's DECLARED I/O arrays (``max(2 x arrays + workspace, floor)``), which
     #: undercounts a kernel whose translated C mallocs internal temporaries the manifest never
@@ -1999,7 +1977,7 @@ class BenchSpec:
     #: are chosen so true peak (incl. every temporary) fits under this many GB", which is a claim
     #: about the kernel, not a suggestion for the formula. ``None`` => the derived/floor rule above,
     #: unchanged for every other kernel.
-    memory_cap_gb: float | None = None
+    memory_cap_gb: Number | None = None
     #: The share of the declared array bytes one correct call must touch, for the bytes/bandwidth
     #: plausibility floor (:func:`hpcagent_bench.harness.scoring.physical_floor_for`). The floor
     #: charges every declared byte, which over-states the traffic of a kernel whose loops provably
@@ -2007,15 +1985,15 @@ class BenchSpec:
     #: sat above honest times and flagged them suspect. Set only with the loop-bound derivation beside
     #: it in the manifest; 1.0 (the default) charges every declared byte. Judge-side, never an agent
     #: signal, like the floor itself.
-    floor_bytes_fraction: float = 1.0
+    floor_bytes_fraction: Number = 1.0
     #: A floor on the grading rtol, for a kernel whose answer the precision band cannot resolve: the
     #: reference itself moves by more than the band under a 1-ulp input change (an ill-conditioned
     #: solve), so any reordered implementation fails. Set only with that measurement beside it in the
     #: manifest. ``None`` => the band alone.
-    conditioning_rtol: float | None = None
+    conditioning_rtol: Number | None = None
     #: The same floor on the grading atol, for an answer whose small components move by an absolute
     #: amount (an adaptive integrator whose flipped step decision lands within its own tolerance).
-    conditioning_atol: float | None = None
+    conditioning_atol: Number | None = None
     #: The size symbols the XL rung grows along when the kernel is graded in a narrower datatype than
     #: the fp64 its XL is authored at (:func:`hpcagent_bench.sizing.datatype_rung`: constant bytes). Empty =>
     #: the leading (batch) dimension of its first array.
@@ -2028,24 +2006,17 @@ class BenchSpec:
     # The ``layouts`` block (optional; absent means a dense kernel): every logical sparse array and
     # the formats a submission may request it in. ``configurations`` then holds one entry per
     # offered format (:func:`layout_configurations`).
-    sparse_layouts: dict[str, SparseLayout] = field(default_factory=dict[str, SparseLayout])
-    configurations: dict[str, SparseConfiguration] = field(default_factory=dict[str, SparseConfiguration])
+    sparse_layouts: dict[str, InstanceOf[SparseLayout]] = Field(default_factory=dict[str, SparseLayout])
+    configurations: dict[str, InstanceOf[SparseConfiguration]] = Field(default_factory=dict[str, SparseConfiguration])
 
     languages: tuple[str, ...] = ()
-    fuzz: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
+    fuzz: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
 
-    # Multi-node MPI envelope (optional; absent => the kernel is single-node only).
-    # When present it declares how the distributed track may decompose this kernel:
-    # ``decomposition`` (the size symbol(s) sizing the block-partitioned axis + the
-    # stencil ``halo``), the ``allowed_schemes`` / ``distributable_axes`` bounds an
-    # agent's layout operations must stay within, and an optional ``symbol_axes`` map
-    # ({size_symbol: [array, axis]}) that pins per-rank local extents for legacy
-    # kernels whose shapes are not declarative, and ``replicatable`` -- the LIST of array names a
-    # submission may hold whole on every rank (everything else must be
-    # split, so "replicate everything and never communicate" is not a strategy). Consumed by
-    # ``mpi_descriptor`` and ``mpi_sizing``; a permissive block, validated where it is read, whose
-    # values are mappings except that one list.
-    mpi: dict[str, object] = field(default_factory=dict[str, object])
+    #: The ``mpi:`` block; empty when the kernel is single-node only (multi-node, its arrays replicate).
+    #: The authored keys are :class:`hpcagent_bench.manifest_schema.MpiBlock`; ``arrays``
+    #: (``{array: its shape's axes}``) is derived from the ``partitioned`` ``args`` entries. Read by
+    #: ``mpi_descriptor``, ``mpi_sizing`` and ``harness.scoring``.
+    mpi: dict[str, object] = Field(default_factory=dict[str, object])
 
     # SIZE DIMENSIONS vs CONFIG KNOBS. The manifest's 'parameters:' block is what a size preset
     # actually scales. 'config' is the execution-path selectors a preset must NEVER scale (branch
@@ -2060,13 +2031,20 @@ class BenchSpec:
     #     row, one-hot rows, key combinations) that is deliberately NOT a product minus impossible
     #     corners, so forcing it into axes would grade combinations nobody chose.
     # Read the enumerated space through :attr:`config_space`, never either field directly.
-    config: dict[str, ConfigKnob] = field(default_factory=dict[str, ConfigKnob])
-    config_valid: tuple[ConfigRow, ...] = ()
+    config: dict[str, ConfigKnob] = Field(default_factory=dict[str, ConfigKnob])
+    config_valid: tuple[dict[str, Value], ...] = ()
     #: Cross-dimension/config invariants (e.g. ``"lvn <= nproma"``), validated at LOAD for every
     #: preset via :func:`_validate_constraints` (reuses ``fuzz.safe_eval``). Over the mapping
     #: composition they double as the FILTER rules that carve the product down (see
     #: :func:`_config_product`).
     constraints: tuple[str, ...] = ()
+
+    def replace(self, **changes: object) -> "BenchSpec":
+        """A copy with the fields in ``changes`` replaced, validated like a constructed instance.
+
+        :raises pydantic.ValidationError: When a changed value has the wrong type or names no field.
+        """
+        return type(self).model_validate({**dict(self), **changes})
 
     @property
     def config_names(self) -> frozenset[str]:
@@ -2296,10 +2274,14 @@ class BenchSpec:
     def from_yaml(cls, raw: dict[str, object], source: str = "<yaml>") -> "BenchSpec":
         """Construct a :class:`BenchSpec` from a co-located ``<stem>.yaml``.
 
-        The YAML is the spec itself (no ``benchmark:`` envelope). ``track`` and ``dwarf`` are
+        The YAML is the spec itself (no ``benchmark:`` envelope), validated against
+        :class:`hpcagent_bench.manifest_schema.Manifest` first. ``track`` and ``dwarf`` are
         DERIVED from the manifest's own location rather than declared; this normalizer fills them
         in, then delegates to :meth:`from_dict` (so all sparse/init/tol parsing is reused), and
         finally enforces the dwarf vocabulary on the derived value.
+
+        :raises ValueError: When the manifest violates the schema (every violation listed as
+            ``<key path>: <message>``) or a :meth:`from_dict` check.
         """
         raw = dict(raw)
         for banned in ("rtol", "atol"):
@@ -2308,26 +2290,17 @@ class BenchSpec:
                     f"{source}: per-kernel {banned!r} is not allowed -- validation tolerance is "
                     f"derived from the run precision (see hpcagent_bench.precision.TOLERANCE_MATRIX)."
                 )
-        unknown = set(raw) - KNOWN_MANIFEST_KEYS
-        if unknown:
-            hints: list[str] = []
-            for key in sorted(unknown):
-                near = difflib.get_close_matches(key, KNOWN_MANIFEST_KEYS, n=1)
-                hints.append(repr(key) + (f" (did you mean {near[0]!r}?)" if near else ""))
-            raise ValueError(
-                f"{source}: unknown manifest field(s): {', '.join(hints)}. "
-                f"Allowed keys: {', '.join(sorted(KNOWN_MANIFEST_KEYS))}."
-            )
-        # Identity that the manifest's LOCATION already states need not be
-        # repeated: ``relative_path`` is the folder under ``benchmarks/`` that
-        # holds this manifest, and ``module_name`` defaults to the file stem
-        # (``<stem>_numpy.py`` holds the kernel). Both are still honoured when
-        # explicitly given (e.g. the ``module_name != stem`` cases).
         if "func_name" in as_block(raw.get("init")):
             raise ValueError(
                 f"{source}: init.func_name is derived: the kernel module's {INITIALIZER}() is the fallback "
                 f"initializer when it exists; drop the key"
             )
+        manifest = manifest_schema.validate_manifest(raw, source)
+        # Identity that the manifest's LOCATION already states need not be
+        # repeated: ``relative_path`` is the folder under ``benchmarks/`` that
+        # holds this manifest, and ``module_name`` defaults to the file stem
+        # (``<stem>_numpy.py`` holds the kernel). Both are still honoured when
+        # explicitly given (e.g. the ``module_name != stem`` cases).
         p = pathlib.Path(source)
         initializer: pathlib.Path | None = None
         if p.suffix in (".yaml", ".yml"):
@@ -2353,7 +2326,7 @@ class BenchSpec:
             module = p.parent / f"{raw['module_name']}.py"
             initializer = module if defines_function(module, INITIALIZER) else None
             raw.setdefault("name", raw["short_name"])  # human title, free-form; NOT an identity
-        expand_args(raw, initializer, source)
+        expand_args(raw, manifest.args, initializer, source)
         # Track and dwarf come from the manifest's LOCATION, never from the manifest: a declared copy
         # of the path could only drift from it. A two-deep path (``<track>/<kernel>``) has no dwarf.
         parts = pathlib.PurePosixPath(str(raw.get("relative_path", ""))).parts
@@ -2754,6 +2727,48 @@ def load_spec(short_name: str) -> BenchSpec:
     from hpcagent_bench.sizing import datatype_sized  # cycle: sizing imports this module
 
     return datatype_sized(BenchSpec.from_yaml(load_yaml(path.read_text()), source=str(path)))
+
+
+#: The manifest blocks :func:`task_fingerprint` covers: the arguments and the configuration space. The size
+#: presets (``parameters``) are left out, so a resized rung is the same task.
+FINGERPRINT_MANIFEST_KEYS: tuple[str, ...] = ("args", "config")
+
+
+def normalized_ast(path: pathlib.Path) -> str:
+    """``ast.dump`` of the Python module at ``path`` with every module, class and function docstring removed
+    and no source positions: two sources that differ only in docstrings, comments or layout dump equal."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and ast.get_docstring(node, clean=False) is not None
+        ):
+            node.body = node.body[1:]
+    return ast.dump(tree, include_attributes=False)
+
+
+@functools.lru_cache(maxsize=None, typed=True)
+def task_fingerprint(short_name: str) -> str:
+    """The sha256 hex digest of ``short_name``'s task as an agent is asked to solve it: the numpy reference
+    (:func:`numpy_reference_path`) and the fallback initializer module (``<module>.py`` when it defines
+    :data:`INITIALIZER`), each as :func:`normalized_ast`, the manifest's :data:`FINGERPRINT_MANIFEST_KEYS`
+    blocks as written, and the entry symbol (:attr:`BenchSpec.func_name`). Raises ``KeyError`` for an
+    unknown kernel."""
+    manifest = KERNELS[short_name]
+    raw = load_yaml(manifest.read_text(encoding="utf-8"))
+    spec = load_spec(short_name)
+    reference = numpy_reference_path(spec.relative_path, spec.module_name)
+    module = manifest.parent / f"{spec.module_name}.py"
+    task = {
+        "reference": normalized_ast(reference) if reference is not None else "",
+        "initializer": normalized_ast(module) if defines_function(module, INITIALIZER) else "",
+        "manifest": {key: raw.get(key) for key in FINGERPRINT_MANIFEST_KEYS},
+        "entry": spec.func_name,
+    }
+    return hashlib.sha256(json.dumps(task, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+register_manifest_cache(task_fingerprint.cache_clear)
 
 
 #: C and C++ reserved words no backend emitter renames, so a kernel variable spelled like one is a hard

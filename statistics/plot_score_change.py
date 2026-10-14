@@ -28,7 +28,7 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from hpcagent_bench import packets, studies, study_tags
+from hpcagent_bench import packets, paths, studies, study_tags
 from hpcagent_bench.stats import cost, population, score_rule, significance
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
@@ -721,7 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
         "gets a tall row, a joined row of comparisons a short one, since the joined figure spends "
         "its height on two rows across the whole page",
     )
-    parser.add_argument("--out", type=pathlib.Path, default=pathlib.Path("figures/score_change.pdf"))
+    parser.add_argument("--out", type=pathlib.Path, default=paths.ROOT / paths.PLOTS_DIR / "score_change.pdf")
     parser.add_argument(
         "--table", type=pathlib.Path, default=None, help="stats table (default: the figure's path with .csv)"
     )

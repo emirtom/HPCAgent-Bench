@@ -8,12 +8,11 @@ many draws arrays *0..N-1* happened to make. That couples the arrays three ways:
 array alone gives different data than materialising all of them, adding an array shifts every array
 after it, and the fill cannot be parallelised at all.
 
-``SeedSequence.spawn`` breaks the coupling: child *i* is a function of the seed and *i* only.
-Measured on 8 arrays of 1e7 doubles -- 708ms sequential, 181ms on 8 threads (3.91x), values
-bit-identical either way, because NumPy releases the GIL inside the fill.
+``SeedSequence.spawn`` breaks the coupling: child *i* is a function of the seed and *i* only. Arrays fill
+in parallel (NumPy releases the GIL inside the fill); the values are identical for any thread count.
 
-The bit generators are round-robined over the spawned children. MT19937 is deliberately absent:
-1.9x slower than PCG64 for the same fill and 2.5KB of state per stream, in exchange for nothing.
+The bit generators are round-robined over the spawned children. MT19937 is not used: it is slower than
+PCG64 for the same fill and carries 2.5 KB of state per stream.
 """
 
 import concurrent.futures

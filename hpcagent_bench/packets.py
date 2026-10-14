@@ -43,6 +43,7 @@ __all__ = [
     "Packet",
     "applies_to",
     "applies_values",
+    "by_device",
     "canonical",
     "companion_language_pages",
     "control_label",
@@ -83,6 +84,18 @@ def spec_parts(spec: str) -> tuple[str, ...]:
     aliases resolved, empties dropped, duplicates removed keeping first occurrence."""
     resolved = (tags.canonical("packets", token.strip()) for token in re.split(r"[+;]+", spec))
     return tuple(dict.fromkeys(token for token in resolved if token))
+
+
+#: The device-neutral CPF keys a GPU language names differently: the registry aliases them to their CPU packets,
+#: and a ``hip`` or ``cuda`` run gets the form the renderer hands it (the HIP units, ``CPF_TARGET=gpu``).
+GPU_ALIASES: Mapping[str, str] = MappingProxyType({"cpf-src": "cpf-gpu-src", "cpf-tool": "cpf-tool-gpu"})
+
+
+def by_device(spec: str, language: str) -> str:
+    """``spec`` with each device-neutral CPF key renamed to the GPU packet when ``language`` is a device language."""
+    if language not in DEVICE_ONLY_LANGUAGES:
+        return spec
+    return "+".join(GPU_ALIASES.get(token.strip(), token) for token in re.split(r"[+;]+", spec))
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -359,6 +372,7 @@ def resolve(
     Unknown tokens, a missing ``${VAR}`` (when filling), or two packets disagreeing on one env key all
     raise a ``ValueError`` naming what is wrong."""
     env_source = environ if environ is not None else os.environ
+    spec = by_device(spec, language)
     tokens = spec_parts(spec)
     definitions = tags.registry().packet_defs
     for token in tokens:

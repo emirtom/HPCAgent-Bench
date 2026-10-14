@@ -43,6 +43,23 @@ naming the new spelling. The agent tool ships relayout's JSON Schema of `request
 (`agent/hpcagent_agent/tools/requests_schema.json`, checked against the pinned relayout by
 `tests/test_requests_schema_vendored.py`).
 
+## 0. What a setup allows
+
+A setup allows a request only through these keys (`config.yaml` `requests:`, or
+`HPCAGENT_BENCH_REQUESTS_<KEY>` in its environment); `requests_api.RequestAllowances` reads them. The prompt's
+`requests` and `sparse` sections are rendered from them and name only what they allow, and the judge refuses
+everything else with a 400 before the kernel checks below (`service.requests_refusal`).
+
+| Key | Default | Allows |
+| --- | --- | --- |
+| `requests.precisions` | `[]` | a `cast` to each listed precision (a list, or `fp32,bf16` in the environment) |
+| `requests.layouts` | `false` | the digit operations of a request without `startup.grid`, and `zip` / `unzip` |
+| `requests.sparse_formats` | `false` | a `format` operation per sparse array |
+| `grading.allow_agent_build_tokens` | `true` | `startup.load` (section 2) |
+
+`startup.grid` and the operations that lay arrays out over it are the distributed track's contract and are
+not gated by these keys.
+
 ## 1. Precision (`cast`)
 
 `cast` sets an array's element type: `fp64`, `fp32`, `fp16`, `bf16`, `fp8_e4m3`, `fp8_e5m2`. An array no
@@ -154,22 +171,18 @@ nothing: it answers `{"accepted": false, "refusal"}` with the reason a submissio
 extents of its packed buffer over the logical extents `d0`, `d1`, ...; the C signature the kernel is
 called with; and with a grid the distribution `plan` at `mpi.ranks`.
 
-## 4. Database schema (version 7)
+## 4. Database schema
 
-| Change | Column(s) | Notes |
-| --- | --- | --- |
-| add | `grades.requests TEXT NOT NULL DEFAULT ''` | the request as sent, normalized JSON (sorted keys); `''` = none |
-| add | `grades.convert_in_ns INTEGER NOT NULL DEFAULT 0` | sparse conversion + cast-in of the credited rep |
-| add | `grades.convert_out_ns INTEGER NOT NULL DEFAULT 0` | cast-out of the credited rep |
-| fold into `requests` and drop | `requested_libraries`, `distribution`, `layout_request` | `startup.load`, `startup.grid` + `distribute` / `replicate`, `format` |
-| fold into `convert_in_ns` and drop | `layout_prep_ns` | the sparse conversion is one more conversion |
+| Column | Holds |
+| --- | --- |
+| `grades.requests TEXT NOT NULL DEFAULT ''` | the request as sent, normalized JSON (sorted keys); `''` = none |
+| `grades.convert_in_ns INTEGER NOT NULL DEFAULT 0` | sparse conversion + cast-in of the credited rep |
+| `grades.convert_out_ns INTEGER NOT NULL DEFAULT 0` | cast-out of the credited rep |
 
 One JSON value per request and no child table, as `schema.sql` states: a per-array question is a
 `json_each` query over `json_extract(requests, '$.operations')`.
 
-Version 6 stays readable: `open_ro` accepts it, `results_db.grade_columns` selects across versions (a
-missing column reads its default) and `results_db.requests_of_row` reads either version's row. `merge`
-and `copy_grade` fold a v6 row into v7 (`fold_legacy_grade`); `open_db` upgrades a v6 file in place.
+`results_db.requests_of_row` reads a grade row's requests.
 
 ## 5. Open items
 

@@ -8,9 +8,10 @@ import os
 import pathlib
 import subprocess
 
+from hpcagent_bench import paths
 from tests.bash_stub import bash_stub
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 CLUSTER = REPO / "hpcagent_bench" / "cluster"
 
 #: Two sockets of four cores, two threads each: CPU c is core c % 8's sibling when c >= 8.
