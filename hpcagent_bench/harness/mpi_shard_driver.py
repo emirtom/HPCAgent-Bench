@@ -674,7 +674,8 @@ def run(plan_path: str, out_path: str) -> None:
     results = []
     for draw in draws:
         samples, verdicts = run_draw(draw, rank, size, module, device, sync, cart, out_path)
-        results.append(DrawResult(samples=samples, verdicts=verdicts))
+        if samples is not None and verdicts is not None:  # rank 0 only
+            results.append(DrawResult(samples=samples, verdicts=verdicts))
     if rank == 0:
         # Rank 0's seconds: launch init, then every draw (inputs, timed calls, reference and verdict).
         phases = {"init": round(init_s, 3), "draws": round(time.perf_counter() - started - init_s, 3)}

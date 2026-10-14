@@ -7,7 +7,6 @@ row explains is a comment the agent has to guess at; a row naming a verdict dace
 comment the agent will never see. Both directions are checked against the strings dace itself writes.
 """
 
-import pathlib
 import re
 
 import pytest
@@ -16,7 +15,9 @@ from dace.transformation.passes.canonicalize import annotate_loop_kinds as kinds
 from dace.transformation.passes.cpu_specialization import sequentialize_unprofitable_parallel_scopes as cpu_costs
 from dace.transformation.passes.gpu_specialization import block_tile_kernels, promote_warp_tiles
 
-SKILLS = pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "skills"
+from hpcagent_bench import paths
+
+SKILLS = paths.ROOT / "hpcagent_bench" / "skills"
 
 #: Hint texts every form can carry, CPU and GPU alike: the loop classes and the wavefront axes.
 COMMON = (

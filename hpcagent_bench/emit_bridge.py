@@ -264,7 +264,7 @@ def flatten_buffer_style(bench: RawBench, spec: BenchSpec, config: str) -> None:
         return
     array_args, input_args = list(bench["array_args"]), list(bench["input_args"])
     init: RawInit = {**bench.get("init", {})}
-    arrays: dict[str, ArrayEntry] = dict(init.get("arrays", {}))
+    init_arrays: dict[str, ArrayEntry] = dict(init.get("arrays", {}))
     rebuild: dict[str, RawRebuild] = {}
     for logical in arrays:
         layout = spec.sparse_layouts[logical]
@@ -275,7 +275,7 @@ def flatten_buffer_style(bench: RawBench, spec: BenchSpec, config: str) -> None:
         at = array_args.index(logical) if logical in array_args else len(array_args)
         array_args[at : at + (1 if logical in array_args else 0)] = names
         for b in variant.buffers:
-            arrays[b.name] = {"shape": "(" + ", ".join(b.shape) + ",)", "dtype": b.dtype}
+            init_arrays[b.name] = {"shape": "(" + ", ".join(b.shape) + ",)", "dtype": b.dtype}
         if variant.format == layout.default:
             continue
         input_args = replace_buffers(input_args, [b.name for b in default], names)
@@ -290,7 +290,7 @@ def flatten_buffer_style(bench: RawBench, spec: BenchSpec, config: str) -> None:
             "scalars": {suffix: scalar_name(logical, suffix) for suffix in dict(FORMAT_SPECS[variant.format].scalars)},
         }
     bench["array_args"], bench["input_args"] = array_args, input_args
-    init["arrays"] = arrays
+    init["arrays"] = init_arrays
     bench["init"] = init
     if rebuild:
         bench["rebuild"] = rebuild

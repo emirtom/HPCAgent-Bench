@@ -152,9 +152,7 @@ def declared_shapes(init: Mapping[str, object]) -> dict[str, str]:
     """``{array: shape expression}`` from an ``init`` block: each ``init.arrays`` entry, a bare shape string or a
     mapping with a ``shape`` key."""
     arrays = as_block(init.get("arrays"))
-    return {
-        name: entry if isinstance(entry, str) else str(as_block(entry)["shape"]) for name, entry in arrays.items()
-    }
+    return {name: entry if isinstance(entry, str) else str(as_block(entry)["shape"]) for name, entry in arrays.items()}
 
 
 def declared_index_arrays(init: Mapping[str, object]) -> set[str]:

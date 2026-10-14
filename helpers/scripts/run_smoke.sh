@@ -12,6 +12,9 @@
 #   shared login node keeps its other CPUs; 0 runs unpinned.
 set -Eeuo pipefail
 
+# A core dump lands in the crashing process's CWD (the checkout) and Slurm propagates the
+# SUBMITTER's core limit, so the floor has to be set here.
+ulimit -c 0
 REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SMOKE_BUDGET_S="${SMOKE_BUDGET_S:-300}"
 SMOKE_CPUS="${SMOKE_CPUS:-8}"

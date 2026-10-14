@@ -16,7 +16,7 @@ The mechanism every registered kind shares is in [registry.md](registry.md).
 ## Examples (from `skill_packets.py`)
 
 ```python
-@packet("perf-playbook-cpu", order=13)   # skill bundle, CPU languages only
+@packet("perf-playbook-cpu", order=13)  # skill bundle, CPU languages only
 class PerfPlaybookCpu:
     name = "Performance Toolkit (CPU)"
     device = "cpu"
@@ -31,7 +31,7 @@ class CpfTool:
     env = {"HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}"}
 
 
-@packet("all-in-cpu", order=16)           # composition
+@packet("all-in-cpu", order=16)  # composition
 class AllInCpu:
     name = "All-in (CPU)"
     packets = ("cpf-cpu-src", "perf-playbook-cpu", "lang")

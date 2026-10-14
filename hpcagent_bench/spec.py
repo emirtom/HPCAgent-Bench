@@ -1499,7 +1499,18 @@ def parse_workspace_bytes(init_raw: dict[str, object], source: str) -> int | Non
 
 #: The keys of an expanded ``init`` block (the dict :meth:`BenchSpec.from_dict` reads).
 RAW_INIT_KEYS = frozenset(
-    {"func_name", "input_args", "output_args", "arrays", "scalars", "dtypes", "scenarios", "revalue", "constants", "workspace"}
+    {
+        "func_name",
+        "input_args",
+        "output_args",
+        "arrays",
+        "scalars",
+        "dtypes",
+        "scenarios",
+        "revalue",
+        "constants",
+        "workspace",
+    }
 )
 
 
@@ -2728,8 +2739,10 @@ def normalized_ast(path: pathlib.Path) -> str:
     and no source positions: two sources that differ only in docstrings, comments or layout dump equal."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
-        documented = isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-        if documented and ast.get_docstring(node, clean=False) is not None:
+        if (
+            isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and ast.get_docstring(node, clean=False) is not None
+        ):
             node.body = node.body[1:]
     return ast.dump(tree, include_attributes=False)
 
