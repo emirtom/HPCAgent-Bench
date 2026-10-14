@@ -146,18 +146,14 @@ measurement:
 # unknown one stops the run and lists the registered names.
 # Each test's question, defaults and call sites: docs/measurement_statistics.md#the-test-registry
 statistics:
-  paired_test: sign-flip   # @paired_test on per-kernel log ratios of two setups (speed and tokens):
-                           # sign-flip | wilcoxon | ttest_rel | permutation_test
-  proportion_test: fisher  # @proportion_test on two setups' solved/total runs:
-                           # fisher | boschloo_exact | barnard_exact | binomtest
+  paired_test: sign-flip   # @paired_test on per-kernel log ratios of two setups (speed and tokens)
+  proportion_test: fisher  # @proportion_test on two setups' solved/total runs
   paired_proportion_test: mcnemar # @paired_proportion_test on the kernels exactly one of two setups solved
-                           # (paired_setups coverage_p): mcnemar | binomtest
+                           # (paired_setups coverage_p)
   correction: benjamini-hochberg # @correction over every reported family: paired_setups, plot_score_change
-                           # and the per-kernel reliability comparisons (stats/reliability.py, repeat5):
-                           # benjamini-hochberg | holm | bonferroni | none
+                           # and the per-kernel reliability comparisons (stats/reliability.py, repeat5)
   two_sample_test: mannwhitney_delta # a registered @timing_test, two-sided, on two setups' scored runs of one
-                           # kernel (stats/reliability.py, repeat5); reporting only, never a grade:
-                           # mannwhitney_delta | ttest_ind | brunnermunzel | permutation_test
+                           # kernel (stats/reliability.py, repeat5); reporting only, never a grade
 
 # Performance protocol: which (config, shape) cells are timed. Correctness covers a larger set, edge shapes
 # included (docs/measurement_statistics.md). Both modes time every config; they differ on the shape axis.
