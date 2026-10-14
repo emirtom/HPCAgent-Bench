@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Signed-change per-kernel figure: canon-sweep columns (compilers) and agent setups on one kernel axis
-(:func:`kernel_figure`, :func:`kernel_comparison`; ``statistics/plot_score_change.py --per-kernel`` draws it).
+"""Speedup per kernel: canon-sweep columns (compilers) and agent setups on one kernel axis
+(:func:`kernel_figure`, :func:`kernel_comparison`; ``statistics/plot_kernel_speedups.py`` draws it).
 
 The speedup axis is log2 of the ratio (:mod:`per_kernel`): 2x faster sits at +1, 2x slower at -1; the
 tables also carry the signed relative change (:func:`hpcagent_bench.stats.summary.signed_change`). Follows Hoefler and Belli (SC15) rules 4 (report
@@ -568,7 +568,7 @@ def kernel_comparison(
 ) -> pathlib.Path:
     """Build the per-kernel rows (:func:`kernel_rows`), write their tables (Rule 4's costs, rules 5/7's
     intervals -- :func:`write_tables`, :func:`token_summary_table`) and render the two-panel
-    figure. The ONE function ``statistics/plot_score_change.py --per-kernel`` calls.
+    figure. The ONE function ``statistics/plot_kernel_speedups.py`` calls.
     ``labels`` renames a row by its framework or setup key (a paper's own name for a column); the
     tables carry the same names the legend does.
     ``dpi`` defaults to 150 -- this figure's own review/paper convention, not

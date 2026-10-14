@@ -399,26 +399,24 @@ def decade_label(value: float, position: int = 0) -> str:
 
 
 def ratio_tick_label(value: float) -> str:
-    """A ratio tick at full precision: ``0.25 -> "0.25x"``, ``1.0 -> "1x"``, ``4.0 -> "4x"``."""
-    if value == 1.0:
-        return "1x"
-    if value > 1.0:
+    """A ratio tick: a speedup as ``Yx`` and a slowdown as its reciprocal ``1/Yx``, so a 2x slowdown reads
+    ``1/2x`` beside the ``2x`` speedup: ``0.25 -> "1/4x"``, ``1.0 -> "1x"``, ``4.0 -> "4x"``."""
+    if value >= 1.0:
         return f"{value:g}x"
-    return f"{float(f'{value:.3g}'):g}x"
+    return f"1/{float(f'{1.0 / value:.3g}'):g}x"
 
 
 def log2_ratio_tick(value: float, position: int = 0) -> str:
-    """:func:`ratio_tick_label` for an axis that holds ``log2(ratio)`` (``+1`` is 2x, ``-1`` 0.5x)."""
+    """:func:`ratio_tick_label` for an axis that holds ``log2(ratio)`` (``+1`` is 2x, ``-1`` 1/2x)."""
     del position
     return ratio_tick_label(2.0**value)
 
 
 def ratio_label(value: float) -> str:
-    """A measured ratio to one decimal (``6.3x``, ``32.5x``), or one significant figure below
-    0.1x so a real slowdown does not print as ``0.0x``."""
+    """A measured ratio to one decimal, a slowdown as its reciprocal: ``6.3x``, ``32.5x``, ``1/2.5x``."""
     if not math.isfinite(value) or value <= 0.0:
         return ""
-    return f"{value:.1f}x" if value >= 0.1 else f"{value:.1g}x"
+    return f"{value:.1f}x" if value >= 1.0 else f"1/{1.0 / value:.1f}x"
 
 
 #: What a value axis holds, for minor-tick purposes (:func:`minor_ticks`): ``ratio`` (log2 axis in

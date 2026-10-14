@@ -1,9 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The sampling-temperature figure (temperature3): every run of every model, per kernel, per temperature.
+"""Every run (slot) of every model, per kernel, with the conditions it ran under stacked side by side.
 
-The x axis holds one group per served temperature, dashed rules between them and the temperature named
-above, and in each group one column per kernel. In a column the models sit side by side in their colours.
+The x axis holds one group per CONDITION (:func:`condition_of`: a served temperature ``t<T>``, a skill
+packet, or the default), dashed rules between them and the condition named above, and in each group one
+column per kernel; one condition is one group and no rule. In a column the models sit side by side in
+their colours.
 The three rows of the efficacy dot row (:mod:`hpcagent_bench.stats.figures.efficacy`: its labels, its row
 heights, print type) share that axis:
 
@@ -12,8 +14,11 @@ heights, print type) share that axis:
 - token cost: every run's tokens as a dot with its box, priced by the caller;
 - solved: solved over graded runs per cell, a census mark with ``solved/graded`` beside it.
 
-The temperature comes from the setup name (``temperature3-<model>-c-t<T>``); a setup without the suffix
-served the model's own default, :data:`DEFAULT_TEMPERATURE`.
+The condition comes from the setup name: ``temperature3-<model>-c-t<T>`` served temperature ``T`` (condition
+``t<T>``), ``llr40-<model>-c-cpf-src`` ran packet ``cpf-src``, and a setup with neither ran the default
+(condition ``""``: the model's own temperature, :data:`DEFAULT_TEMPERATURE`, and no packet).
+
+    fig = kernel_runs_figure(runs, kernels, conditions=parse_conditions("t0,default"))
 """
 
 import enum
@@ -45,10 +50,13 @@ __all__ = [
     "TEMPERATURE_SUFFIX",
     "Mode",
     "column_key",
-    "parse_temperatures",
+    "condition_label",
+    "condition_of",
+    "kernel_runs_figure",
+    "order_conditions",
+    "parse_conditions",
     "run_costs",
-    "select_temperatures",
-    "temperature_figure",
+    "select_conditions",
     "temperature_label",
     "temperature_of",
 ]
@@ -100,16 +108,35 @@ MEDIAN_LINE_WIDTH: float = 1.2
 NAME_WRAP: int = 10
 NAME_LINES: int = 3
 OWED_LABEL: str = "Not Final-Graded Yet"
-#: The column key's separator between the temperature and the kernel.
+#: The column key's separator between the condition and the kernel.
 KEY_SEP: str = "|"
-#: Up to this many temperature groups the figure is one ACM column wide and square.
+#: Up to this many condition groups the figure is one ACM column wide and square.
 SQUARE_GROUPS: int = 2
+
+
+#: How ``--conditions`` spells the default condition (no temperature suffix, no packet).
+DEFAULT_CONDITION: str = "default"
 
 
 def temperature_of(setup: str) -> float:
     """The sampling temperature ``setup`` served."""
     match = TEMPERATURE_SUFFIX.search(setup)
     return float(match.group("value")) if match else DEFAULT_TEMPERATURE
+
+
+def condition_of(setup: str) -> str:
+    """The condition ``setup`` ran under: ``t<T>`` for a served temperature, else its packet (``""`` the default)."""
+    match = TEMPERATURE_SUFFIX.search(setup)
+    return f"t{match.group('value')}" if match else study_tags.packet_of(setup)
+
+
+def is_temperature(condition: str) -> bool:
+    return TEMPERATURE_SUFFIX.search(f"-{condition}") is not None
+
+
+def condition_temperature(condition: str) -> float:
+    """The temperature a condition served: its ``t<T>``, or :data:`DEFAULT_TEMPERATURE` for any other."""
+    return temperature_of(f"-{condition}")
 
 
 def temperature_label(value: float, defaults: bool, compact: bool = False) -> str:
@@ -119,19 +146,43 @@ def temperature_label(value: float, defaults: bool, compact: bool = False) -> st
     return f"{text} (Default)" if defaults else text
 
 
-def parse_temperatures(text: str) -> tuple[float, ...]:
-    """``"0,default"`` -> ``(0.0, 1.0)``: comma-separated temperatures, ``default`` naming :data:`DEFAULT_TEMPERATURE`."""
-    return tuple(DEFAULT_TEMPERATURE if item == "default" else float(item) for item in text.split(",") if item)
+def condition_label(condition: str, temperatures: bool, compact: bool = False) -> str:
+    """A group's title: ``Temperature = 0`` (``T = 0`` when ``compact``) for a temperature; the default as
+    ``Temperature = 1 (Default)`` when ``temperatures`` (the figure compares temperatures), else as the
+    packet control; a packet by its display name."""
+    if is_temperature(condition):
+        return temperature_label(condition_temperature(condition), False, compact)
+    if condition == "" and temperatures:
+        return temperature_label(DEFAULT_TEMPERATURE, True, compact)
+    return study_tags.packet_name(condition)
 
 
-def select_temperatures(runs: pd.DataFrame, values: Sequence[float]) -> pd.DataFrame:
-    """The rows of ``runs`` whose setup served one of ``values``."""
-    return runs.loc[runs["setup"].map(lambda setup: temperature_of(str(setup)) in values)]
+def order_conditions(conditions: Sequence[str]) -> list[str]:
+    """Temperatures (the default among them at its own value) by value, then packets in registry order."""
+    temperatures = any(is_temperature(condition) for condition in conditions)
+    packet_rank = {key: rank for rank, key in enumerate(study_tags.order("packets"))}
+
+    def key(condition: str) -> tuple[int, float]:
+        if is_temperature(condition) or (condition == "" and temperatures):
+            return 0, condition_temperature(condition)
+        return 1, float(packet_rank.get(condition, len(packet_rank)))
+
+    return sorted(set(conditions), key=key)
 
 
-def column_key(value: float, kernel: str) -> str:
-    """One x column: ``kernel`` at temperature ``value``."""
-    return f"{value:g}{KEY_SEP}{kernel}"
+def parse_conditions(text: str) -> tuple[str, ...]:
+    """``"t0,default"`` -> ``("t0", "")``: comma-separated conditions, ``default`` naming the default."""
+    return tuple("" if item == DEFAULT_CONDITION else item for item in text.split(",") if item)
+
+
+def select_conditions(runs: pd.DataFrame, conditions: Sequence[str]) -> pd.DataFrame:
+    """The rows of ``runs`` whose setup ran one of ``conditions``."""
+    return runs.loc[runs["setup"].map(lambda setup: condition_of(str(setup)) in conditions)]
+
+
+def column_key(condition: str, kernel: str) -> str:
+    """One x column: ``kernel`` under ``condition``."""
+    return f"{condition}{KEY_SEP}{kernel}"
 
 
 def kernel_of_key(key: str) -> str:
@@ -156,7 +207,7 @@ def cost_cell(cell: pk.KernelCell, runs: pd.DataFrame) -> pk.KernelCell | None:
 
 
 def model_series(
-    runs: pd.DataFrame, kernels: Sequence[str], temperatures: Sequence[float]
+    runs: pd.DataFrame, kernels: Sequence[str], conditions: Sequence[str]
 ) -> tuple[tuple[pk.Series, ...], tuple[pk.Series, ...]]:
     """Per model (registry order) its speedup series and its cost series, cells keyed by :func:`column_key`."""
     models = palette.in_order({study_tags.model_of(str(setup)) for setup in runs["setup"]})
@@ -165,12 +216,12 @@ def model_series(
     for model in models:
         speedups: list[pk.KernelCell] = []
         costs: list[pk.KernelCell] = []
-        for value in temperatures:
+        for condition in conditions:
             mine = runs.loc[
-                (runs["setup"].map(study_tags.model_of) == model) & (runs["setup"].map(temperature_of) == value)
+                (runs["setup"].map(study_tags.model_of) == model) & (runs["setup"].map(condition_of) == condition)
             ]
             for cell in pk.run_cells(mine, kernels):
-                keyed = pk.KernelCell(column_key(value, cell.kernel), cell.episodes, runs=cell.runs)
+                keyed = pk.KernelCell(column_key(condition, cell.kernel), cell.episodes, runs=cell.runs)
                 speedups.append(keyed)
                 priced = cost_cell(keyed, mine.loc[mine["kernel"] == cell.kernel])
                 if priced is not None:
@@ -210,23 +261,25 @@ def style_rate_panel(ax: matplotlib.axes.Axes, columns: Sequence[str], type_: pl
 
 def draw_groups(
     axes: Sequence[matplotlib.axes.Axes],
-    temperatures: Sequence[float],
+    conditions: Sequence[str],
     n_kernels: int,
     type_: plotstyle.TypeScale,
-    defaults: frozenset[float],
     compact: bool = False,
 ) -> None:
-    """A dashed rule between consecutive temperature groups on every row, the temperature over its group
-    on the top row."""
-    for index in range(1, len(temperatures)):
+    """A dashed rule between consecutive condition groups on every row, the condition over its group on
+    the top row; a lone condition is neither ruled nor named."""
+    if len(conditions) < 2:
+        return
+    temperatures = any(is_temperature(condition) for condition in conditions)
+    for index in range(1, len(conditions)):
         for ax in axes:
             ax.axvline(
                 index * n_kernels - 0.5, color=plotstyle.MUTED, linestyle=(0, (3, 3)), linewidth=type_.line_width
             )
-    for index, value in enumerate(temperatures):
+    for index, condition in enumerate(conditions):
         centre = index * n_kernels + (n_kernels - 1) / 2.0
         axes[0].annotate(
-            temperature_label(value, value in defaults, compact), xy=(centre, 1.0), xycoords=("data", "axes fraction"),
+            condition_label(condition, temperatures, compact), xy=(centre, 1.0), xycoords=("data", "axes fraction"),
             xytext=(0, 2), textcoords="offset points", ha="center", va="bottom", fontsize=type_.label_pt,
             color=plotstyle.INK, annotation_clip=False,
         )  # fmt: skip
@@ -348,7 +401,7 @@ def key_entries(
     return entries
 
 
-def temperature_figure(
+def kernel_runs_figure(
     runs: pd.DataFrame,
     kernels: Sequence[str],
     title: str = "",
@@ -356,21 +409,22 @@ def temperature_figure(
     allow_owed: bool = False,
     cost_label: str = efficacy.MEASURE_LABELS["cost"],
     mode: Mode = Mode.BOX,
+    conditions: Sequence[str] = (),
 ) -> matplotlib.figure.Figure:
-    """The three rows over (temperature, kernel) columns for ``runs`` (:func:`run_costs`), drawn at
-    ``width_in`` on the print scale, each cell's runs summarized by ``mode``. Without ``width_in``, up to
-    :data:`SQUARE_GROUPS` temperatures make a square one-column figure, more a text-wide one. Refuses owed runs (:class:`reliability.OwedRunsError`) unless
-    ``allow_owed``, which draws them as "?"."""
+    """The three rows over (condition, kernel) columns for ``runs`` (:func:`run_costs`), drawn at ``width_in``
+    on the print scale, each cell's runs summarized by ``mode``. ``conditions`` picks and orders the groups
+    (default: every condition the runs ran, :func:`order_conditions`). Without ``width_in``, up to
+    :data:`SQUARE_GROUPS` groups make a square one-column figure, more a text-wide one. Refuses owed runs
+    (:class:`reliability.OwedRunsError`) unless ``allow_owed``, which draws them as "?"."""
     if not allow_owed:
         reliability.cell_runs(runs)
-    temperatures = sorted({temperature_of(str(setup)) for setup in runs["setup"]})
-    defaults = frozenset(temperature_of(str(s)) for s in runs["setup"] if not TEMPERATURE_SUFFIX.search(str(s)))
-    columns = [column_key(value, kernel) for value in temperatures for kernel in kernels]
-    score_series, cost_series = model_series(runs, kernels, temperatures)
+    groups = list(conditions) or order_conditions([condition_of(str(setup)) for setup in runs["setup"]])
+    columns = [column_key(condition, kernel) for condition in groups for kernel in kernels]
+    score_series, cost_series = model_series(runs, kernels, groups)
     score = pk.speedup_series_metric(score_series, efficacy.MEASURE_LABELS["speedup"])
     cost = pk.token_series_metric(cost_series, cost_label)
 
-    square = len(temperatures) <= SQUARE_GROUPS
+    square = len(groups) <= SQUARE_GROUPS
     if width_in is None:
         width_in = plotstyle.ACM_COLUMN_WIDTH_IN if square else plotstyle.ACM_TEXT_WIDTH_IN
     type_ = plotstyle.PRINT_SCALE
@@ -384,7 +438,7 @@ def temperature_figure(
     for ax, metric in zip(axes[:2], (score, cost), strict=True):
         pk.style_panel(ax, metric, columns, False, False, type_)
     style_rate_panel(axes[2], columns, type_)
-    draw_groups(axes, temperatures, len(kernels), type_, defaults, square)
+    draw_groups(axes, groups, len(kernels), type_, square)
     states = {run.state for cell in score.cells for run in cell.runs}
     legend = key_entries(score_series, states, mode, square)
     pk.fit_canvas(fig, axes, title, legend, type_, statistics.fmean(heights), height_in=width_in if square else None)
