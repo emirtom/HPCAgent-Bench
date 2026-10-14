@@ -17,7 +17,7 @@ from collections.abc import Iterable, Mapping
 
 from hpcagent_bench.support import update_names
 
-__all__ = ["KEY", "SCHEMA", "TABLE", "connect", "delete_run", "read", "record"]
+__all__ = ["BUSY_TIMEOUT_S", "KEY", "SCHEMA", "TABLE", "connect", "delete_run", "read", "record"]
 
 TABLE = "canon"
 
@@ -41,6 +41,9 @@ SCHEMA: tuple[tuple[str, str], ...] = (
     ("error", "TEXT"),
 )
 
+#: How long a connection waits on another rank's write lock.
+BUSY_TIMEOUT_S = 60.0
+
 #: A row's identity; a later row with the same key replaces it.
 KEY = ("run", "column", "kernel", "preset", "datatype")
 
@@ -50,7 +53,7 @@ def connect(path: pathlib.Path) -> sqlite3.Connection:
     (:func:`hpcagent_bench.support.update_names.guard`)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     update_names.guard(path, TABLE)
-    conn = sqlite3.connect(path, timeout=60.0)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_S)
     conn.row_factory = sqlite3.Row
     conn.execute(f"CREATE TABLE IF NOT EXISTS {TABLE} ({', '.join(f'{n} {t}' for n, t in SCHEMA)})")
     conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{TABLE}_row ON {TABLE}({', '.join(KEY)})")
@@ -73,10 +76,24 @@ def record(path: pathlib.Path, rows: Iterable[Mapping[str, object]]) -> int:
 
 
 def read(path: pathlib.Path, run: str | None = None, column: str | None = None) -> list[dict[str, object]]:
-    """The rows of ``path``, narrowed to one ``run`` and/or ``column`` when given, in insertion order."""
+    """The rows of ``path``, narrowed to one ``run`` and/or ``column`` when given, in insertion order; none
+    when ``path`` or its table is absent. Read-only: it neither creates nor stamps the file, nor takes the
+    write lock the sweep's ranks share; a canon DB written under older framework names is refused."""
+    if not path.is_file():
+        return []
     where = [f"{name} = :{name}" for name, value in (("run", run), ("column", column)) if value is not None]
     query = f"SELECT * FROM {TABLE}" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY rowid"
-    with contextlib.closing(connect(path)) as conn:
+    with contextlib.closing(
+        sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_S)
+    ) as conn:
+        if not update_names.has_table(conn, TABLE):
+            return []
+        if update_names.names_version(conn) < update_names.NAMES_VERSION:
+            raise update_names.StaleNamesError(
+                f"{path} holds rows under the old framework names; run `python -m hpcagent_bench.support.update_names "
+                f"{path}`"
+            )
+        conn.row_factory = sqlite3.Row
         return [dict(row) for row in conn.execute(query, {"run": run, "column": column})]
 
 

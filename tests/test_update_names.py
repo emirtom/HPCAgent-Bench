@@ -116,3 +116,29 @@ def test_a_new_database_is_written_under_the_current_names(tmp_path: pathlib.Pat
     assert rows(canon, "PRAGMA application_id") == [(update_names.NAMES_VERSION,)]
     assert update_names.update(canon) == 0
     assert rows(canon, "SELECT column FROM canon") == [("dace_cpu_parallel",)]
+
+
+def test_reading_a_canon_db_writes_nothing(tmp_path: pathlib.Path) -> None:
+    """read() went through the writer's connect(): it created an absent file and failed on a read-only copy."""
+    absent = tmp_path / "typo.db"
+    assert canon_db.read(absent) == []
+    assert not absent.exists()
+
+    canon = tmp_path / "canon.db"
+    canon_db.record(canon, [canon_row("dace_cpu_parallel")])
+    canon.chmod(0o444)
+    tmp_path.chmod(0o555)  # no journal can be created beside it either
+    try:
+        assert [row["column"] for row in canon_db.read(canon)] == ["dace_cpu_parallel"]
+    finally:
+        tmp_path.chmod(0o755)
+        canon.chmod(0o644)
+
+
+def test_a_reader_refuses_a_database_under_the_old_names_without_stamping_it(tmp_path: pathlib.Path) -> None:
+    canon = tmp_path / "canon.db"
+    old_canon_db(canon)
+
+    with pytest.raises(update_names.StaleNamesError, match="update_names"):
+        canon_db.read(canon)
+    assert rows(canon, "PRAGMA application_id") == [(0,)]

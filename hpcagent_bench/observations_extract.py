@@ -664,11 +664,16 @@ def discover_databases(run_globs: Iterable[str], skip: Iterable[pathlib.Path] = 
 
 
 def results_database(path: pathlib.Path) -> bool:
-    """Whether ``path`` is a results DB of the current schema (any other file is not read)."""
+    """Whether ``path`` is a results DB of the current schema (any other file is not read). A file SQLite
+    cannot read (a shard truncated by an OOM-killed rank) is named on stderr: skipped in silence, the
+    extraction would read as if that rank had graded nothing."""
     try:
         with results_db.reading(path):
             return True
-    except (sqlite3.Error, results_db.SchemaVersionError):
+    except sqlite3.Error as exc:
+        print(f"WARNING: unreadable results DB skipped: {path}: {exc}", file=sys.stderr)
+        return False
+    except results_db.SchemaVersionError:
         return False
 
 

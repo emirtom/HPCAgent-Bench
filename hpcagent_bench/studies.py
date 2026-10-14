@@ -31,6 +31,7 @@ __all__ = [
     "NAME_FIRST",
     "NAME_READERS",
     "OBSERVATIONS_TABLE",
+    "OBSERVATION_DB_SUFFIXES",
     "SHARD_DEPTH",
     "AgentIndices",
     "agent_indices",
@@ -71,6 +72,8 @@ MERGED_DB_NAME: str = "results.db"
 #: The marker run_cluster.sh leaves in a job directory until its merge succeeds: a
 #: :data:`MERGED_DB_NAME` beside it may hold only some shards (one written before merges were atomic).
 MERGE_FAILED_NAME: str = "MERGE_FAILED"
+#: The suffixes of an observations table stored as SQLite; any other path is read (and written) as CSV.
+OBSERVATION_DB_SUFFIXES: tuple[str, ...] = (".db", ".sqlite")
 #: Where a judge rank's shard sits in its job directory: ``<job>/judge/rank-<k>/<shard>.db``.
 SHARD_DEPTH: int = 2
 JUDGE_DIRNAME: str = "judge"
@@ -248,7 +251,7 @@ def read_observations(path: pathlib.Path, platform: str = population.DEFAULT_PLA
     """
     import pandas as pd
 
-    if path.suffix not in (".db", ".sqlite"):
+    if path.suffix not in OBSERVATION_DB_SUFFIXES:
         frame = pd.read_csv(path, low_memory=False)
     else:
         frame = read_table(path, OBSERVATIONS_TABLE)
