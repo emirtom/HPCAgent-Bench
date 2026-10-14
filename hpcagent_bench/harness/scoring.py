@@ -486,9 +486,11 @@ class TimedCell:
     race_leader_source: str = ""
     race_cuts: str = ""
     #: Why this input was NOT run: its scenario does not list the requested sparse layout
-    #: (:func:`hpcagent_bench.support.helpers.sparse.request.uncovered`). Such a cell times nothing,
-    #: checks nothing (``graded`` False) and counts as exactly :data:`UNCOVERED_RATIO` in the grade's
-    #: geomean (:func:`hpcagent_bench.harness.recording.credited_ratios`). "" for an input that ran.
+    #: (:func:`hpcagent_bench.support.helpers.sparse.request.uncovered`). Such a cell times nothing and
+    #: checks nothing (``graded`` False), so it never enters
+    #: :func:`hpcagent_bench.harness.recording.credited_ratios`: it leaves the task unsolved
+    #: (:func:`hpcagent_bench.harness.grade_under.final_grade`), S_i = :data:`UNCOVERED_RATIO`. "" for an
+    #: input that ran.
     uncovered: str = ""
 
 
@@ -1188,8 +1190,10 @@ def measure_baselines(
     the submissions' toolchain and CPU). Serves the judge's ``/baseline`` endpoint.
 
     ``baseline`` resolves against the kernel's track (``track`` / None -> the candidate set; a
-    concrete kind stays one kind). Returns ``{name: ns}`` for every candidate that ran; the smallest
-    is the target; a reference that fails is absent."""
+    concrete kind stays one kind). Returns ``{name: ns}`` for every candidate that ran: each is that
+    reference's FASTEST rep (best-of-k minimum), not the reduced time ``/submit`` divides
+    (:func:`timing.central_ns`, the median under ``mannwhitney_delta``), so the advertised target is
+    optimistic. The smallest is the target; a reference that fails is absent."""
     spec = BenchSpec.load(task.kernel)
     kinds = resolve_baseline_set(baseline, spec, on_gpu=task.on_gpu)  # track sentinel -> concrete kinds
     binding = binding_from_spec(spec)
@@ -1233,8 +1237,8 @@ def measure_one_baseline(
     """Time one candidate for :func:`measure_baselines` into ``out``; one that will not emit, build or
     type, or that ``cut_s`` (the best-of-v3/v4 per-rep budget, 0 = off) cuts, is absent, as in the grade."""
     if best_of and baseline == "numba":
-        # The same child bracket and guillotine as the grade, so the advertised target is what /submit
-        # measures and a hopeless numba cannot hold the call for the whole budget.
+        # The same child bracket and guillotine as the grade, so a hopeless numba cannot hold the call for
+        # the whole budget. The advertised number is the fastest rep, not the grade's reduction.
         timeout = timing.kernel_timeout_s()
         try:
             samples = time_numba_isolated(
