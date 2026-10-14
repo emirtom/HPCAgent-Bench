@@ -16,6 +16,7 @@ import numpy as np
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
 from hpcagent_bench.support.counter_generator import CounterGenerator
 from hpcagent_bench.support import exact_math
+from hpcagent_bench.support.array_module import is_array
 
 
 def _normalize_block_index(index, xp: ModuleType = np):
@@ -28,7 +29,7 @@ def _normalize_block_index(index, xp: ModuleType = np):
 def _make_block_sizes(count, block_size, rng, xp: ModuleType = np):
     if count < 0:
         raise ValueError("block dimension counts must be non-negative")
-    if isinstance(block_size, (list, tuple, np.ndarray)):
+    if isinstance(block_size, (list, tuple)) or is_array(block_size):
         choices = xp.asarray(block_size, dtype=np.int32)
         if choices.ndim != 1 or choices.size == 0:
             raise ValueError("block_size choices must be a non-empty one-dimensional list")
