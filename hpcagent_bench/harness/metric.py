@@ -642,11 +642,13 @@ def score_ml_distributed(
     atol: float | None = None,
     fuzz: bool = True,
     inputs: Sequence[ScoreCell] = (),
+    hidden: bool = True,
 ) -> tuple[Score, tuple[LawCurve, ...]]:
     """The ML scaling track's grade (:func:`scoring.score_ml`) as one :class:`Score` plus one
     :class:`LawCurve` per law (:data:`scoring.ML_LAWS`), off the same build and shared launches.
     ``fuzz`` runs the sharded fuzz gate first (``/submit``, the grade job); ``inputs`` are the graded
-    problems (:func:`grade_under.scaling_protocol_grade`; default the preset's). The Score's ``scaling_*`` fields carry the
+    problems (:func:`grade_under.scaling_protocol_grade`; default the preset's); ``hidden`` False draws them
+    on the /score seed (:func:`scoring.score_ml`). The Score's ``scaling_*`` fields carry the
     laws, the widest P and the per-law disclosure JSON."""
     spec = BenchSpec.load(task.kernel)
     rank_counts = torch_reference.graded_rank_counts(spec)
@@ -662,6 +664,7 @@ def score_ml_distributed(
         repeat=repeat,
         fuzz_cells=cells,
         inputs=inputs,
+        hidden=hidden,
     )
     if not graded.laws:
         return ml_stamped(graded.score, task), ()

@@ -2790,15 +2790,18 @@ def mpi_cc_override() -> dict[str, str] | None:
     return config.get_str_map("mpi.compilers") or None
 
 
-def _mpi_launch_cfg() -> MpiLaunch:
+def _mpi_launch_cfg(hidden: bool = True) -> MpiLaunch:
+    """The ``mpi.*`` launch settings and the seed of the route: the recorded seed for a held-out grade
+    (``hidden``), the iteration seed for /score -- a preview on the recorded seed would show the agent the
+    very inputs its /submit is graded on (``hidden_tests/seeds.py``)."""
     return MpiLaunch(
         launcher=config.get_str_list("mpi.launcher", ["mpiexec.mpich", "-launcher", "fork", "-n"]),
         mode=mpi_sizing.ScalingLaw(config.get_str("mpi.mode", mpi_sizing.ScalingLaw.STRONG.value)),
         k_repeats=config.get_int("mpi.k_repeats", 5),
         timeout=config.get_float("mpi.launch_timeout_s", 120),
         env=config.get_str_map("mpi.env"),
-        # score_distributed takes no route flag, so this track has one seed: the recorded one.
-        seed=secret_seed_second(),
+        # Distributed seeds are unsalted (nonce 0, metric.ml_stamped).
+        seed=secret_seed_second() if hidden else secret_seed_first(),
         default_location=mpi_residency(),
     )
 
@@ -3013,7 +3016,7 @@ def score_distributed(
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     ranks = config.get_int("mpi.ranks", 4)
-    cfg = _mpi_launch_cfg()
+    cfg = _mpi_launch_cfg(hidden)
     backend = None if hidden else timing.LOCAL_BACKEND
     timing.validate_repeat(repeat, backend)
 
@@ -3649,6 +3652,7 @@ def score_ml(
     repeat: int = 5,
     fuzz_cells: Sequence[Mapping[str, object]] = (),
     inputs: Sequence[Mapping[str, object]] = (),
+    hidden: bool = True,
 ) -> MlGrade:
     """The ML-track grade: one build, then
 
@@ -3665,11 +3669,12 @@ def score_ml(
 
     Timed launches take ``repeat`` repeats (fewer if the warmup says they would time out,
     :func:`mpi_shard_driver.repeats_within`); a point is their median. Unsizable, unspannable, wrong or
-    failed points are noted holes. A timed-out launch ends the grade (:data:`ML_NOT_LAUNCHED`)."""
+    failed points are noted holes. A timed-out launch ends the grade (:data:`ML_NOT_LAUNCHED`). Every
+    launch draws on the recorded seed, or on the /score one when not ``hidden`` (:func:`_mpi_launch_cfg`)."""
     rtol, atol = _resolve_tolerances(rtol, atol, datatype, task.kernel)
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
-    cfg = _mpi_launch_cfg()
+    cfg = _mpi_launch_cfg(hidden)
     ranks = config.get_int("mpi.ranks", 4)
     timing.validate_repeat(repeat)
     base_params, axis_syms, work_exp, aligned = ml_sweep_sizing(spec, preset)
