@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from hpcagent_bench import config, fuzz
-from hpcagent_bench.emit_bridge import RawInit, legacy_bench_info_dict
+from hpcagent_bench.emit_bridge import legacy_bench_info_dict
 from hpcagent_bench.spec import HARNESS_KWARGS, BenchSpec
 
 __all__ = [
@@ -207,7 +207,7 @@ class Benchmark:
     def call_initializer(
         self,
         data: dict[str, Any],
-        init: RawInit,
+        init: Mapping[str, Any],
         datatype: str | None,
         seed: int,
         dist_name: str,

@@ -217,7 +217,7 @@ def emitted_bench_info(spec: BenchSpec) -> bytes:
     """The bench_info the reference emit of ``spec`` is fed, as bytes (the generated-cache key's part)."""
     from hpcagent_bench.emit_bridge import emitter_bench_info, emitter_config
 
-    return json.dumps(emitter_bench_info(spec, emitter_config(spec)), sort_keys=True).encode()
+    return emitter_bench_info(spec, emitter_config(spec)).text(sort_keys=True).encode()
 
 
 @functools.lru_cache(maxsize=None, typed=True)
