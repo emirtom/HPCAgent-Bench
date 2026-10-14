@@ -20,6 +20,8 @@ cd $HB/experiments
 `layers/site-cscs.env` (copy it to `layers/site.env`) names the system `beverin`, whose entry in
 `hpcagent_bench/cluster/systems.yaml` supplies partition `mi300`, 4 GPUs per node and the `mi300` hardware.
 Every `SUBMIT=1` refuses to call `sbatch` without an account (`--account <project>` or `SBATCH_ACCOUNT`, never `root`).
+Before a launch, run the release smoke suite on the login node from the checkout the jobs will snapshot:
+`"$HPCAGENT_BENCH_HOST_PYTHON" -m pytest -q -m smoke "$HB/tests/test_smoke.py"` ([CONTRIBUTING.md](../CONTRIBUTING.md#tests)).
 
 ## Binding rules
 

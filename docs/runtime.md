@@ -33,8 +33,7 @@ commands without the Container Engine are in
 select one with `runtime.backend` or `HPCAGENT_BENCH_RUNTIME_BACKEND`. The value is a runtime from the
 table, `native`, or a family (`oci`, `sif`, `ce`, `native`) resolved to its first installed member in
 `containers.KNOWN_BACKENDS` order; a family with no installed member resolves to its first member.
-`config.yaml` sets `oci`: docker when installed, else podman, else docker. An empty `runtime.backend`
-resolves to `podman` (`containers.DEFAULT_BACKEND`).
+`config.yaml` sets `oci`: docker when installed, else podman, else docker.
 
 | backend | runs | rootless | Harbor provider | use |
 |---|---|---|---|---|

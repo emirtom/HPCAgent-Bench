@@ -65,8 +65,8 @@ folder and an absolute path names your own file. `tests/test_cluster_prompt_sour
 slot a page declares is filled, and `tests/test_prompt_render_matrix.py` renders every variant.
 
 The problem text is where a packet speaks. `make_problems.py` appends one trigger line per staged
-skill page (`skill_index`) and, for packets that set `CPF_DROPIN_DIR` (cpf-src and packets
-composing it), a note naming the CPF drop-in in the agent's folder (`packet_note`,
+skill page (`skill_index`) and, for packets that set `CPF_DROPIN_DIR` (`cpf-cpu-src`, `cpf-gpu-src` and
+packets composing them), a note naming the CPF drop-in in the agent's folder (`packet_note`,
 `CPFSRC_NOTE`).
 
 ### Submission modes
@@ -162,7 +162,7 @@ Rules the fragments keep:
 
 `build_run_prompt` renders the body once and returns a `RunPrompt`. `RunPrompt.attempt` appends
 `feedback.j2` for each repair round: the failure and the previous source, or "make it faster"
-with the best speedup so far. A run has one `prompt_hash`.
+with the best speedup so far.
 
 ### Overriding
 
@@ -233,8 +233,7 @@ hpcagent-bench agent stub --kernels gemm --prompt-variant all               # al
 ```
 
 `strategy` picks one of the `STRATEGIES` presets for the how-to section: `default`, `loopnest`,
-`profile_first`, `language_native`. The variant name is stored in the `prompts` table (joined
-by `prompt_hash` under `--record`) and in saved-submission filenames (`__<variant>`).
+`profile_first`, `language_native`.
 
 ### Attempt budget
 

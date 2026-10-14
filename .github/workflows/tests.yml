@@ -34,7 +34,7 @@ env:
 # commit twice.
 on:
   push:
-    branches: [ main, extended, ci-fix, "release-*" ]
+    branches: [ main, extended, ci-fix ]
   pull_request:
     branches: [ main, extended, ci-fix, "release-*" ]
   merge_group:

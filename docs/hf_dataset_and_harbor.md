@@ -60,9 +60,9 @@ helpers/scripts/do_dataset_release.sh [--out DIR] [--selector SEL] [--push ORG/N
 ```
 
 The validated folder written to `--out` is exactly what `--push` uploads. `tests/test_hf_export.py`
-fails CI when a kernel stops exporting. The `hf-export` step in `.github/workflows/tests.yml` uploads the parquet
-file on every run and pushes to `vars.HF_DATASET_REPO` on a push to `main` once unit and
-integration jobs are green.
+fails CI when a kernel stops exporting. The `coverage` job of `.github/workflows/tests.yml` builds the dataset on
+every run, uploads it as a workflow artifact, and pushes it to `vars.HF_DATASET_REPO` on a push to `main` once the
+unit, integration and translators jobs are green.
 
 ## Harbor adapter
 
