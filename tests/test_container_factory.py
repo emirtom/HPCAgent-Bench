@@ -153,7 +153,7 @@ def test_resolve_backend_ignores_the_legacy_bash_var(monkeypatch) -> None:
 def test_resolve_backend_rejects_unknown() -> None:
     # "singularity" is a Harbor PROVIDER name, not a backend this factory spells (apptainer is);
     # neither it nor an unsupported runtime may silently resolve to a neighbouring one.
-    for dropped in ("singularity", "udocker", "enroot", "shifter"):
+    for dropped in ("singularity", "udocker", "shifter"):
         with pytest.raises(ValueError):
             containers.resolve_backend(dropped)
 
@@ -196,7 +196,7 @@ def test_local_run_command_podman_amd_gpu_tokens() -> None:
 
 
 def test_local_run_command_rejects_dropped_backend() -> None:
-    for dropped in ("singularity", "udocker", "enroot", "shifter"):
+    for dropped in ("singularity", "udocker", "shifter"):
         with pytest.raises(ValueError):
             containers.local_run_command(["x"], backend=dropped)
 

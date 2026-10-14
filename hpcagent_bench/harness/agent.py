@@ -161,7 +161,7 @@ def budget_tokens(budget: object, default: int) -> int:
 
 
 #: agent language -> the extension of a COMMITTED ``<module>_reference.*`` sidecar beside the
-#: numpy reference. The same spelling ``helpers/scripts/checks/check_reference_naming.py`` enforces.
+#: numpy reference. The spelling ``tests/test_tree_structure.py`` enforces.
 REF_SUFFIX = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
 
 
