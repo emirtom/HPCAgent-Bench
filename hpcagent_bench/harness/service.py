@@ -112,6 +112,7 @@ __all__ = [
     "FALLBACK_REQUEST_LANGUAGE",
     "FORKSERVER_PRELOAD",
     "INPUT_MODES",
+    "JUDGE_FAULT_CAUSE",
     "JUDGE_PRELOAD",
     "MISDIRECTED_REQUEST",
     "OFFLOAD_COMPUTE_TOOL",
@@ -544,6 +545,10 @@ SOURCE_EXT_ALIASES: dict[str, tuple[str, ...]] = {"cpp": ("cc", "cxx"), "fortran
 #: The mode every submission is built at (single-core: autopar is the baseline's knob). Shared
 #: with ``GET /build`` and ``helpers/scripts/gen_build_fragments.py``.
 SUBMISSION_BUILD_MODE: Mode = Mode.SINGLE_CORE
+
+#: The ``cause`` of a 500 the judge answers for its own failure before any grade was recorded (the manifest,
+#: an exception in the grade itself): like a verdict's ``judge_fault``, it spends no single submission.
+JUDGE_FAULT_CAUSE = "judge_fault"
 
 #: Delivery languages each enforced ``input_mode`` accepts: ``source`` compiles, ``py-binding``
 #: calls Python. ``any`` and ``library`` are absent (not enforced).
@@ -1732,7 +1737,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         try:
             refused = distribution_refusal(submission, task, preset)
         except ValueError as exc:  # a malformed mpi.replicatable list is the MANIFEST's fault
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc), "cause": JUDGE_FAULT_CAUSE})
         if refused is None:
             refused = requests_refusal(submission, task, self.cfg.datatype)
         if refused is None:
@@ -1767,7 +1772,10 @@ class JudgeHandler(BaseHTTPRequestHandler):
             except LayoutRefused as exc:  # a padded layout past its limit on the graded input: 400
                 return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001 -- scoring infra failure -> 500
-                return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"score failed for {kernel!r}: {exc}"})
+                return self._send(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"score failed for {kernel!r}: {exc}", "cause": JUDGE_FAULT_CAUSE},
+                )
             if hidden:
                 return self.send_submit(
                     result,
