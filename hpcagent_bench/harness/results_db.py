@@ -26,8 +26,8 @@ import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
 from hpcagent_bench import paths
-from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.cache_files import sha256_hex
+from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
     "BUSY_TIMEOUT_S",
@@ -74,9 +74,9 @@ __all__ = [
     "open_db",
     "open_ro",
     "reading",
-    "requests_of_row",
     "rebuilding",
     "remove_db",
+    "requests_of_row",
     "schema_version",
     "source_hash",
     "source_rows",
