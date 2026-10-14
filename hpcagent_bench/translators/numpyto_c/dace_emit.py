@@ -598,16 +598,24 @@ def declared_extent(dim: str) -> str:
     return ast.unparse(ast.fix_missing_locations(tree))
 
 
-def array_annotation(arr: ArrayDesc) -> str:
+#: Element types a helper keeps as written: a kernel's own floats follow the precision global, but a helper handed
+#: an array the reference made single-precision on purpose (mixed_precision_ir's fp32 LU factors) must not be
+#: declared at the run's precision -- dace would bind the float32 buffer to a float64 parameter.
+EXPLICIT_HELPER_DTYPES = {"float32": "dc.float32", "complex64": "dc.complex64"}
+
+
+def array_annotation(arr: ArrayDesc, helper: bool = False) -> str:
     """``a`` of shape ``(LEN_1D,)`` float64 -> ``dc_float[LEN_1D]``; a 0-d array -> a dace scalar.
 
     A shapeless manifest entry is a SCALAR the harness happens to file under ``arrays``. Declaring
     it ``[1]`` gave the program a rank the initializer does not build and the other backends do not
-    pass -- the same declared-rank-vs-initialize disagreement that runs and still lies.
+    pass -- the same declared-rank-vs-initialize disagreement that runs and still lies. A ``helper``
+    parameter keeps an explicit single-precision type (:data:`EXPLICIT_HELPER_DTYPES`).
     """
+    dtype = (EXPLICIT_HELPER_DTYPES.get(arr.dtype) if helper else None) or dace_dtype(arr.dtype)
     if not arr.shape:
-        return dace_dtype(arr.dtype)
-    return f"{dace_dtype(arr.dtype)}[{', '.join(declared_extent(s) for s in arr.shape)}]"
+        return dtype
+    return f"{dtype}[{', '.join(declared_extent(s) for s in arr.shape)}]"
 
 
 #: Map framework precision globals (np_float/np_complex) to the dace globals the module imports.
@@ -4409,7 +4417,7 @@ def render_program(
     params: list[str] = []
     for arg in kir.input_args:
         if arg in arrays:
-            params.append(f"{arg}: {array_annotation(arrays[arg])}")
+            params.append(f"{arg}: {array_annotation(arrays[arg], helper=nested)}")
         elif arg in scalars and arg not in shape_scalars:
             params.append(f"{arg}: {dace_dtype(scalars[arg].dtype)}")
         # symbols (and scalars promoted to symbols): skip (declared at module scope below)
