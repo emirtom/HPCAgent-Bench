@@ -44,7 +44,7 @@ that `--nodes`, starts the server, polls `/v1/models`, then prints:
 
 ```
 ===== endpoint is live =====
-base URL:   http://nid002968:8000/v1
+base URL:   http://<node>:8000/v1
 model name: hpcagent-bench-vllm
 ...
 The endpoint takes no API key. It stays up until this job ends; scancel <jobid> to stop it.
@@ -101,7 +101,7 @@ every Alps user can reach it. For a private server use [`private-endpoint.md`](p
 
 ```bash
 squeue -u "$USER" -n serve-only -o '%i %T %N'
-BASE=http://nid002968:8000
+BASE=http://<node>:8000
 curl -s "$BASE/v1/models"
 curl -s "$BASE/v1/chat/completions" -H 'Content-Type: application/json' \
   -d '{"model":"hpcagent-bench-vllm","max_tokens":128,"messages":[{"role":"user","content":"Say hi."}]}'

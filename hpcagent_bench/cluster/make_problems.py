@@ -24,7 +24,8 @@ import textwrap
 from collections.abc import Sequence
 
 from hpcagent_agent.driver import harnesses
-from hpcagent_bench import cpf_cache, flags, packets
+
+from hpcagent_bench import cpf_cache, flags, packets, paths
 from hpcagent_bench.harness.prompts import PROMPT_FACTS_KEY, Skill, cluster_facts, distributed_contract, load_skills
 from hpcagent_bench.harness.task import Residency, Task, grading_residency
 from hpcagent_bench.spec import KERNELS, BenchSpec
@@ -33,7 +34,6 @@ __all__ = [
     "CPFSRC_NOTE",
     "DROPIN_DEFAULT_LANGUAGE",
     "PAGE_COMPANIONS",
-    "REPO",
     "SKILL_DIR",
     "SKILL_PAGE",
     "SKILL_SUBDIR",
@@ -53,8 +53,6 @@ __all__ = [
     "task_text",
     "trigger_line",
 ]
-
-REPO = pathlib.Path(__file__).resolve().parents[2]
 
 #: The skill folder: --stage-skills copies the pages a packet names to <shared>/SKILL_SUBDIR, and the agent reads
 #: them read-only at SKILL_DIR (the seal binds them there). A trigger naming a path that does not exist is worse
@@ -270,7 +268,7 @@ def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
         if source is None:
             print(f"materialize_shared: packet names {page} but no such skill page", file=sys.stderr)
             continue
-        shutil.copyfile(REPO / source, folder / f"{page}.md")
+        shutil.copyfile(paths.ROOT / source, folder / f"{page}.md")
         for companion in PAGE_COMPANIONS.get(page, ()):
             shutil.copyfile(companion, folder / companion.name)
         staged += 1

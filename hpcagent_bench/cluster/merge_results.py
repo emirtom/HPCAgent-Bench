@@ -21,28 +21,23 @@ once complete (:func:`results_db.rebuilding`), so a failed merge leaves no parti
 import argparse
 import contextlib
 import pathlib
-import re
 import sqlite3
 import sys
 
 from hpcagent_bench.harness import episodes, results_db
-from hpcagent_bench.studies import MERGED_DB_NAME
+from hpcagent_bench.run_layout import JUDGE_DIRNAME, MERGED_DB_NAME, RANK_DIR
 
 __all__ = [
-    "RANK_DIR",
     "judge_shards",
     "main",
     "merge",
     "shard_paths",
 ]
 
-#: ``.../judge/rank-<k>/`` -- the per-rank directory run_cluster.sh creates.
-RANK_DIR: re.Pattern[str] = re.compile(r"^rank-(\d+)$")
-
 
 def shard_paths(run_dir: pathlib.Path) -> list[pathlib.Path]:
     """:func:`judge_shards` of ``run_dir``; raises when it has no ``judge/`` directory."""
-    judge_dir = run_dir / "judge"
+    judge_dir = run_dir / JUDGE_DIRNAME
     if not judge_dir.is_dir():
         raise SystemExit(f"{judge_dir} does not exist; is {run_dir} a cluster run directory?")
     return judge_shards(run_dir)
@@ -54,7 +49,7 @@ def judge_shards(run_dir: pathlib.Path) -> list[pathlib.Path]:
     Globs the rank directories rather than a file name, because the DB's stem comes from config
     ``record.db_path`` and a site that changed it must still be mergeable. The ``-wal`` and ``-shm``
     siblings are excluded by the suffix."""
-    judge_dir = run_dir / "judge"
+    judge_dir = run_dir / JUDGE_DIRNAME
     if not judge_dir.is_dir():
         return []
     found: list[tuple[int, str, pathlib.Path]] = []
@@ -71,7 +66,7 @@ def merge(run_dir: pathlib.Path, out: pathlib.Path) -> int:
     if any(s.resolve() == out.resolve() for s in shards):
         raise SystemExit(f"--out {out} is one of the shards it merges; write it elsewhere")
     if not shards:
-        raise SystemExit(f"no per-rank result DBs under {run_dir / 'judge'}; nothing to merge")
+        raise SystemExit(f"no per-rank result DBs under {run_dir / JUDGE_DIRNAME}; nothing to merge")
     with results_db.rebuilding(out) as scratch:
         for shard in shards:
             try:

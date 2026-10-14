@@ -113,7 +113,8 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | `HPCAGENT_BENCH_SITE_ENV` | `experiments/layers/site.env` when it exists | which layer `helpers/scripts/site_env.sh` loads; a named file that does not exist is an error |
 | `SBATCH_PARTITION`, `SALLOC_PARTITION` | unset (the cluster's default) | the partition of every `sbatch` / `salloc`; Slurm reads it and it overrides a script's `#SBATCH --partition`, and `--partition=` on the command line overrides it (the submitters resolve it with their `--partition` flag, over this variable, over the system's entry) |
 | `SBATCH_ACCOUNT` | empty | the account every `sbatch` bills; `hpcagent_bench/cluster/submit.sh` refuses to submit without one, and `root`. `SLURM_ACCOUNT` and `SALLOC_ACCOUNT` follow it. No script passes `-A` |
-| `HPCAGENT_BENCH_LOGIN_HOST`, `HPCAGENT_BENCH_SSH_JUMP` | empty: a placeholder | the login host and ssh jump chain in the laptop tunnel commands `containers/inference/serve-private.sbatch` prints |
+| `HPCAGENT_BENCH_LOGIN_HOST`, `HPCAGENT_BENCH_SSH_JUMP` | empty: a placeholder | the login host and ssh jump chain in the laptop tunnel commands `containers/inference/serve-private.sbatch` prints, and the ssh hops of `containers/inference/ping-endpoint.sh` |
+| `HPCAGENT_BENCH_BIND_IFACE` | empty: `ACCESS=alps` is refused | the network interface whose IPv4 address `containers/inference/serve-private.sbatch` binds under `ACCESS=alps` (CSCS: `hsn0`) |
 | `HPCAGENT_BENCH_NICE` | `100` | the `--nice` every submitter passes (`NICE=<n>` for one submission); Slurm has no environment variable for it, so a bare `sbatch` runs at nice 0 |
 
 ### Storage
@@ -128,6 +129,7 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | `HPCAGENT_BENCH_CPF_PRERENDER_DIR`, `HPCAGENT_BENCH_CPF_CACHE` | under `$JIT_CACHE_ROOT` | Canonical Parallel Form views and their content-addressed cache (the judge renders a kernel on its first request, `python -m hpcagent_bench.cpf_prerender` warms it) |
 | `HPCAGENT_BENCH_TOOLS_DIR` | `$JIT_CACHE_ROOT/tools` | build tools not in the images (e.g. `ppcg`) |
 | `HPCAGENT_BENCH_RUNS_ROOT`, `HPCAGENT_BENCH_RESULTS_DIR` | under `$JIT_CACHE_ROOT` | per-job work directories of deterministic-framework jobs, and the persistent results they merge into |
+| `HPCAGENT_BENCH_NODE_TMPFS` | `/dev/shm/$USER` (`hpcagent_bench.paths.node_tmpfs_root`) | node-local memory-backed directory for per-user build caches (DaCe's build cache) |
 | `HPCAGENT_BENCH_DATA_ROOTS` | derived: top-level filesystems of `SCRATCH` and `FAST_SCRATCH` | what container EDFs bind-mount |
 
 ### Checkout, Python and containers
@@ -137,7 +139,8 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | `HPCAGENT_BENCH_REPO` | the checkout `cluster/env.sh` lives in | the tree scripts and jobs run from |
 | `HPCAGENT_BENCH_HOST_PYTHON` | `python3` on PATH | the host-side interpreter, with the package installed (`uv sync`) |
 | `HPCAGENT_BENCH_IMAGE_PYTHON` | the image's EDF | the interpreter of every step inside a container |
-| `EDF_PATH` | `$HOME/.edf` | where container EDFs are looked up |
+| `EDF_PATH` | `$HOME/.edf`, set by `helpers/scripts/site_env.sh` | where container EDFs are looked up (colon-separated); `install_edfs.sh` renders into its first directory |
+| `ROCM_PATH` | `/opt/rocm` (`hpcagent_bench.paths.rocm_root`) | the ROCm install the harness resolves `amdclang` and DaCe's HIP build from |
 | `CONTAINER_RUNTIME` | `ce` | how `cluster/services.sbatch` starts containers, through one seam (`cluster/container_runtime.sh`, [runtime.md](runtime.md)): `ce`, `apptainer`, `podman` or `docker` |
 | `HPCAGENT_BENCH_HARDWARE`, `HPCAGENT_BENCH_MAX_TIME_HOURS` | the system's `hardware`, `max_time_hours`; else unset | the hardware, and the longest time limit of the partition, which clamps a scaled wall clock (`TIME_SCALE`, minus `STAGING_HOURS`); unset, nothing is clamped |
 | `HPCAGENT_BENCH_HOST` | `SLURMD_NODENAME`, else the host name | the node name recorded with each result |

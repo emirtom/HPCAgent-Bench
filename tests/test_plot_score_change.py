@@ -26,14 +26,14 @@ from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.figure import Figure
 
-from hpcagent_bench import studies
+from hpcagent_bench import paths, studies
 from hpcagent_bench.stats import cost, palette, population, score_rule
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
 from hpcagent_bench.stats.significance import Finding
 from tests.fresh_module import module_at
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 #: Models that exist in the tag registry, so the palette resolves them instead of warning.
 MODELS: tuple[str, ...] = ("qwen38", "oss120b", "kimi27sglang")

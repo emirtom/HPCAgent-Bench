@@ -18,10 +18,11 @@ import tempfile
 
 import pytest
 
+from hpcagent_bench import paths
 from tests.bash_stub import bash_stub
 from tests.env_render import SPEC_INPUTS
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 #: What submit.sh reads from the checkout, relative to it.
 INPUTS = (

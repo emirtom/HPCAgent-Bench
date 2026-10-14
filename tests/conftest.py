@@ -42,7 +42,7 @@ SCRIPT_DIRS: tuple[str, ...] = ("statistics", "helpers/scripts", "hpcagent_bench
 
 def script_path(name: str, root: pathlib.Path | None = None) -> pathlib.Path:
     """``<name>.py`` in whichever of :data:`SCRIPT_DIRS` holds it; raises naming all of them."""
-    base = root if root is not None else pathlib.Path(__file__).resolve().parents[1]
+    base = root if root is not None else paths.ROOT
     for directory in SCRIPT_DIRS:
         candidate = base / directory / f"{name}.py"
         if candidate.is_file():

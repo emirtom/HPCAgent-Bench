@@ -36,13 +36,15 @@ from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.harness.task import RecordDevice, Task
+from hpcagent_bench.run_layout import DB_FILENAME
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import graded_datatype
 from hpcagent_bench.support.helpers.sparse.request import UNCOVERED
 
 __all__ = [
     "ADHOC_EPISODE_ID",
-    "STOPPED_REASON",
+    "DB_FILENAME",
+    "DEFAULT_DB_PATH",
     "DETAIL_CAP",
     "DETAIL_HEAD_FRACTION",
     "FINAL_SHARED",
@@ -55,6 +57,7 @@ __all__ = [
     "PASSING_STATUS",
     "SHARD_ENV",
     "SNAPSHOT_COMMIT_ENV",
+    "STOPPED_REASON",
     "FinalRecord",
     "Identity",
     "Recorded",
@@ -158,6 +161,9 @@ def cap_detail(text: str, cap: int = DETAIL_CAP) -> str:
     return text[:head] + (marker % elided) + text[-tail:]
 
 
+#: The default config ``record.db_path``, relative to the repo root.
+DEFAULT_DB_PATH = f"{paths.RESULTS_DIR}/{DB_FILENAME}"
+
 #: Rank-identity variables a launcher exports, in preference order. ``HPCAGENT_BENCH_DB_SHARD`` is
 #: the explicit override a submission script sets; the rest are read only as a fallback so a job
 #: that forgets to set it still shards instead of corrupting one shared file.
@@ -177,14 +183,14 @@ def db_shard() -> int | None:
 
 
 def base_db_path() -> str:
-    """The UNSHARDED results-DB file (config ``record.db_path``, default ``results/hpcagent_bench.db``).
+    """The UNSHARDED results-DB file (config ``record.db_path``, default :data:`DEFAULT_DB_PATH`).
 
     A relative path is anchored to the repo root, NOT the process CWD, so the judge writes the same
     file whether launched from the repo, a container, or a test's tmp dir. An absolute configured
     path is used verbatim, but must be durable storage. Nothing writes results HERE -- it is the
     aggregate destination, rebuilt from the shards by :func:`aggregate`, and the one name readers
     open however many ranks produced the run."""
-    configured = pathlib.Path(config.get_str("record.db_path", "results/hpcagent_bench.db"))
+    configured = pathlib.Path(config.get_str("record.db_path", DEFAULT_DB_PATH))
     resolved = str(configured if configured.is_absolute() else paths.ROOT / configured)
     if not config.get("record.allow_memory_db", False):
         memory_fs = memory_backed_fstype(resolved)
@@ -221,7 +227,7 @@ def memory_backed_fstype(path: str) -> str | None:
         if len(entry) < 3:
             continue
         point, fstype = entry[1], entry[2]
-        if (target == point or target.startswith(point.rstrip("/") + "/")) and len(point) > len(best_point):
+        if pathlib.PurePath(target).is_relative_to(point) and len(point) > len(best_point):
             best_point, best_type = point, fstype
     return best_type if best_type in MEMORY_FSTYPES else None
 
@@ -375,12 +381,12 @@ def identity() -> Identity:
 
 
 def commit_sha() -> str | None:
-    """The commit the setup ran (:func:`commit_tag`), else this checkout's own; ``None`` when neither
-    is known."""
+    """The commit the setup ran (:func:`commit_tag`), else the HEAD of :func:`hpcagent_bench.paths.repo_root`;
+    ``None`` when neither is known."""
     stamped = commit_tag()
     if stamped is not None:
         return stamped
-    return paths.git_head(pathlib.Path.cwd(), short=True) or None
+    return paths.git_head(paths.repo_root(), short=True) or None
 
 
 #: The per-call point :func:`record_trajectory` reads. Structural on purpose: the concrete type is

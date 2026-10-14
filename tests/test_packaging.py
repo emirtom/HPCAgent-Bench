@@ -16,7 +16,9 @@ import zipfile
 
 import pytest
 
-_ROOT = pathlib.Path(__file__).resolve().parent.parent
+from hpcagent_bench import paths
+
+_ROOT = paths.ROOT
 
 
 #: Directories whose tracked non-Python files an installed hpcagent_bench reads at run time: manifests

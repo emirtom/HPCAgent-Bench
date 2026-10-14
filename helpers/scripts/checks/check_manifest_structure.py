@@ -38,7 +38,6 @@ Exit status: 0 when every in-scope manifest loads clean, 1 otherwise (each offen
 import argparse
 import subprocess
 import sys
-from pathlib import Path
 
 import yaml
 
@@ -48,8 +47,6 @@ import yaml
 # ModuleNotFoundError, and the hook fails on every commit rather than on a bad manifest.
 from hpcagent_bench import paths
 
-REPO_ROOT: Path = Path(__file__).resolve().parents[3]
-
 
 def is_manifest(rel: str) -> bool:
     """True when ``rel`` names a co-located kernel manifest: a ``.yaml`` file under
@@ -57,7 +54,7 @@ def is_manifest(rel: str) -> bool:
     ``hpcagent_bench.spec._scan_kernels``'s own filter (without importing ``spec`` --
     see the module docstring on deferred imports), so the two can never disagree on
     what counts as a manifest."""
-    p = (REPO_ROOT / rel).resolve()
+    p = (paths.ROOT / rel).resolve()
     try:
         p.relative_to(paths.BENCHMARKS.resolve())
     except ValueError:
@@ -68,7 +65,7 @@ def is_manifest(rel: str) -> bool:
 def tracked_manifests() -> list[str]:
     """Every tracked manifest (standalone-scan fallback when no files are given)."""
     out = subprocess.run(
-        ["git", "ls-files", "hpcagent_bench/benchmarks"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ["git", "ls-files", "hpcagent_bench/benchmarks"], cwd=paths.ROOT, capture_output=True, text=True, check=True
     )
     return [rel for rel in out.stdout.splitlines() if is_manifest(rel)]
 
@@ -80,7 +77,7 @@ def violations(rel: str) -> list[str] | None:
     manifest is actually in scope (see the module docstring)."""
     from hpcagent_bench.spec import BenchSpec, validate_kernel  # deferred: transitively pulls in numpy
 
-    path = REPO_ROOT / rel
+    path = paths.ROOT / rel
     try:
         raw = yaml.safe_load(path.read_text())
     except yaml.YAMLError as exc:
@@ -102,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     candidates = args.files or tracked_manifests()
     # A staged DELETION is still passed as a positional arg by pre-commit; there is nothing
     # left to validate, so drop paths that no longer exist (same guard check_headers.py uses).
-    manifests = sorted({rel for rel in candidates if is_manifest(rel) and (REPO_ROOT / rel).is_file()})
+    manifests = sorted({rel for rel in candidates if is_manifest(rel) and (paths.ROOT / rel).is_file()})
     if not manifests:
         print("manifest-structure: 0 manifest(s) in scope")
         return 0

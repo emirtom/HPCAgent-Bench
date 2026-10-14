@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, ClassVar
 import pytest
 from hpcagent_agent.tools import http_json
 
-from hpcagent_bench import fused
+from hpcagent_bench import fused, paths
 from tests.fresh_module import fresh
 from tests.optional_imports import import_or_skip
 from tests.test_fused_judge import CONTROL_SETUP, CPF_SETUP, KERNEL, fused_job_fixture  # noqa: F401 -- the fixture
@@ -26,7 +26,7 @@ from tests.test_fused_judge import CONTROL_SETUP, CPF_SETUP, KERNEL, fused_job_f
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
-ROUTER = pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "cluster" / "judge_service.py"
+ROUTER = paths.ROOT / "hpcagent_bench" / "cluster" / "judge_service.py"
 
 
 class StubUpstream(BaseHTTPRequestHandler):

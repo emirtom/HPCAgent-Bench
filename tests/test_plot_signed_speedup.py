@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.stats import summary
 from hpcagent_bench.stats.figures import per_kernel
 from hpcagent_bench.stats.figures import results as plotting
@@ -58,7 +59,7 @@ def build_results_db(db: pathlib.Path, shift: float = 0.0) -> None:
         session.commit()
 
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 
 def load_script():

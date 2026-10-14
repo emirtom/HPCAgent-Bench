@@ -25,12 +25,12 @@ from urllib.request import urlopen
 
 import pytest
 
-from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical
+from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical, paths
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.tools import DEFAULT_RANK
 
 JudgeFactory = Callable[..., tuple[ThreadingHTTPServer, str]]
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 #: A registry kernel: the judge refuses to render a name it cannot load.
 KERNEL = "gemm"
 

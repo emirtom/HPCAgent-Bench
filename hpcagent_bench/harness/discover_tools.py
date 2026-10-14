@@ -19,11 +19,11 @@ from typing import TypedDict, cast
 
 import yaml
 
+from hpcagent_bench import paths
 from hpcagent_bench.spec import as_block
 
 __all__ = [
     "DETECTORS",
-    "PKG",
     "TARGETS",
     "TOOLSET",
     "VERSION_RE",
@@ -49,8 +49,7 @@ __all__ = [
     "print_human",
 ]
 
-PKG = pathlib.Path(__file__).resolve().parent.parent  # the hpcagent_bench/ package dir
-TOOLSET = PKG / "envs" / "toolset.yaml"
+TOOLSET = paths.ENVS_DIR / "toolset.yaml"
 TARGETS = ("cpu", "nvidia", "amd")
 VERSION_RE = re.compile(r"\d+(?:\.\d+)+")
 

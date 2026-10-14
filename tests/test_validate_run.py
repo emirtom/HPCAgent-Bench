@@ -17,10 +17,11 @@ from types import ModuleType
 
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.harness import results_db
 from tests.fresh_module import fresh
 
-EXAMPLE = pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "cluster"
+EXAMPLE = paths.ROOT / "hpcagent_bench" / "cluster"
 
 MONITOR_HEADER = "ts,cpu_pct,load1,mem_used_mib,mem_total_mib,gpu_pct,vram_used_mib,vram_total_mib"
 MONITOR_ROW = "2026-01-01T00:00:00Z,10.0,0.1,100,1000,0.0,0,0"
