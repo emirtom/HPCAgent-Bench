@@ -350,7 +350,7 @@ def test_one_wedged_metric_does_not_cost_the_others(monkeypatch, tmp_path) -> No
             raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs["timeout"])
         return subprocess.CompletedProcess(argv, 0, stdout=counted_line(metric) + "\n", stderr="")
 
-    monkeypatch.setattr(profiling.subprocess, "run", fake_run)
+    monkeypatch.setattr(profiling, "run_command", fake_run)
     counters = profiling.count_metrics(tmp_path, tmp_path / "request.json", threads=2, timeout=1.0, group="all")
     rows = {row["metric"]: row for row in counters["metrics"]}
     assert set(rows) == set(papi.METRICS)
@@ -367,7 +367,7 @@ def test_a_dead_counting_process_is_decoded_into_that_metric_s_reason(monkeypatc
     def fake_run(argv, **kwargs):
         return subprocess.CompletedProcess(argv, -11, stdout="", stderr="Segmentation fault")
 
-    monkeypatch.setattr(profiling.subprocess, "run", fake_run)
+    monkeypatch.setattr(profiling, "run_command", fake_run)
     rows = profiling.count_metrics(tmp_path, tmp_path / "request.json", threads=2, timeout=1.0, group="all")["metrics"]
     assert all(row["count"] is None and "Segmentation fault" in row["missing"] for row in rows)
 
