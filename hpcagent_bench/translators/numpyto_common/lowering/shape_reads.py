@@ -4,7 +4,7 @@ import ast
 import copy
 from collections.abc import Sequence
 
-from hpcagent_bench.translators.numpyto_common.ast_build import name_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import NP_ZEROS_ALIASES
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import extent_is_scalar, iter_extent_of
@@ -26,32 +26,15 @@ __all__ = [
 def negative_literal_offset(node: ast.expr) -> int | None:
     """``K`` for a negative integer literal ``-K`` -- a signed ``Constant`` or ``UnaryOp(USub, Constant)``, the
     form numpy source parses to -- else None. Numpy counts such an index from the end of its axis."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, int) and node.value < 0:
-        return -node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, ast.USub)
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, int)
-    ):
-        return node.operand.value
-    return None
+    k = const_int(node)
+    return -k if k is not None and k < 0 else None
 
 
 def const_int_index(node: ast.expr) -> int | None:
     """Return the integer value of a constant subscript index (``arr[3]`` /
     ``arr[-1]``), or ``None`` for a non-constant one. Numpy spells a negative
     literal index as ``UnaryOp(USub, Constant)``, not a signed ``Constant``."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, int):
-        return node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, ast.USub)
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, int)
-    ):
-        return -node.operand.value
-    return None
+    return const_int(node)
 
 
 def is_newaxis_result_axis(sub: ast.Subscript, k: int) -> bool:

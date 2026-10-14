@@ -31,6 +31,24 @@ def test_negative_const_k_recognizes_forms() -> None:
     assert negative_const_k(ast.parse("True", mode="eval").body) is None  # bool is not an index
 
 
+def test_minus_zero_is_index_zero_not_an_offset_from_the_end() -> None:
+    """``a[-0]`` is ``a[0]``; read as "0 from the end" it became ``a[N - 0]``, one past the end.
+    Both negative-literal decoders (C emit and the shared lowering) answer the same way."""
+    from hpcagent_bench.translators.numpyto_common.lowering.shape_reads import (
+        const_int_index,
+        negative_literal_offset,
+    )
+
+    minus_zero = ast.parse("-0", mode="eval").body
+    assert negative_const_k(minus_zero) is None
+    assert negative_literal_offset(minus_zero) is None
+    assert negative_literal_offset(ast.parse("-2", mode="eval").body) == 2
+    assert negative_literal_offset(ast.parse("-True", mode="eval").body) is None
+    assert const_int_index(ast.parse("-4", mode="eval").body) == -4
+    # numpy reads ``a[True]`` as a boolean mask (a new axis), never as index 1.
+    assert const_int_index(ast.parse("True", mode="eval").body) is None
+
+
 # the C emit turns ``a[-1]`` into ``a[N - 1]`` (no literal ``[-1]``)          #
 
 

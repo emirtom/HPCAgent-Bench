@@ -9,7 +9,7 @@ from collections.abc import Callable, Collection, Sequence
 from typing import ClassVar, Optional
 
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import ALL_BLOCK_FIELDS, map_blocks, name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import ALL_BLOCK_FIELDS, const_int, map_blocks, name_, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -116,8 +116,6 @@ __all__ = [
     "implicit_int_kinds",
     "index_aliases",
     "int_cast_operand",
-    "int_literal_or_none",
-    "int_literal_value",
     "is_scalar_access",
     "kinded_shape_operand",
     "libm_interface",
@@ -709,21 +707,6 @@ def logical_locals_(kir: KernelIR) -> set[str]:
     return names
 
 
-def int_literal_value(node: ast.expr) -> int | None:
-    """The integer value of a possibly-negated int literal (5 -> 5, -5 -> -5), else None."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
-        return node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, (ast.USub, ast.UAdd))
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, int)
-        and not isinstance(node.operand.value, bool)
-    ):
-        return -node.operand.value if isinstance(node.op, ast.USub) else node.operand.value
-    return None
-
-
 # Body walker
 
 # Operator tables live in numpyto_common.operators, keyed by target; the
@@ -906,21 +889,6 @@ TWO_OPERAND_CALLS: dict[str, str] = {
 }
 
 
-def int_literal_or_none(a: ast.expr) -> int | None:
-    """``a`` as an int literal (a negative one parses as ``UnaryOp(USub, Constant)``), else None."""
-    if isinstance(a, ast.Constant) and isinstance(a.value, int) and not isinstance(a.value, bool):
-        return a.value
-    if (
-        isinstance(a, ast.UnaryOp)
-        and isinstance(a.op, ast.USub)
-        and isinstance(a.operand, ast.Constant)
-        and isinstance(a.operand.value, int)
-        and not isinstance(a.operand.value, bool)
-    ):
-        return -a.operand.value
-    return None
-
-
 def int_cast_operand(a: ast.expr) -> ast.expr | None:
     """The operand of an explicit ``np.int<N>(x)`` cast, else None."""
     if (
@@ -935,22 +903,8 @@ def int_cast_operand(a: ast.expr) -> ast.expr | None:
 
 def constant_tuple_element(elts: Sequence[ast.expr], idx_node: ast.expr) -> ast.expr | None:
     """``elts[idx]`` for a constant (possibly negative) in-range integer index, else None."""
-    if isinstance(idx_node, ast.Constant) and isinstance(idx_node.value, int):
-        idx = idx_node.value
-        if idx < 0:
-            idx += len(elts)
-        if 0 <= idx < len(elts):
-            return elts[idx]
-    if (
-        isinstance(idx_node, ast.UnaryOp)
-        and isinstance(idx_node.op, ast.USub)
-        and isinstance(idx_node.operand, ast.Constant)
-        and isinstance(idx_node.operand.value, int)
-    ):
-        idx = -idx_node.operand.value + len(elts)
-        if 0 <= idx < len(elts):
-            return elts[idx]
-    return None
+    idx = const_int(idx_node)
+    return elts[idx] if idx is not None and -len(elts) <= idx < len(elts) else None
 
 
 def is_scalar_access(n: ast.expr) -> bool:
@@ -1255,11 +1209,7 @@ class FortranBodyEmitter(BaseEmitter):
             # (frontend/kernel_ir.py), so a 0/1 config toggle declared there (crc16's ``reflect_out``) is an
             # integer param that never appears in ``kir.scalars``.
             int_scalars = {s.name for s in self.kir.symbols}
-            int_scalars |= {
-                s.name
-                for s in self.kir.scalars
-                if s.dtype in ("int", "int64", "int32", "int16", "int8", "uint64", "uint32", "uint16", "uint8")
-            }
+            int_scalars |= {s.name for s in self.kir.scalars if dtypes.is_integer(s.dtype)}
             self._int_scalar_names = int_scalars
         return isinstance(node, ast.Name) and node.id in int_scalars
 
@@ -2055,13 +2005,13 @@ class FortranBodyEmitter(BaseEmitter):
         defaults to the LAST element, the end to the FIRST (the half-open upper excludes its index
         going down: upper + 2, 1-based)."""
         step = e.step
-        step_val = int_literal_value(step) if step is not None else None
+        step_val = const_int(step)
         if step is not None and step_val is not None and step_val < 0:
             lo = self.section_start(e.lower, dim, default=dim)
             if e.upper is None:
                 hi = "1"
             else:
-                uv = int_literal_value(e.upper)
+                uv = const_int(e.upper)
                 hi = (
                     f"({self.emit_expr(e.upper)}) + 2"
                     if uv is None
@@ -2072,7 +2022,7 @@ class FortranBodyEmitter(BaseEmitter):
         if e.upper is None:
             hi = dim
         else:
-            uv = int_literal_value(e.upper)
+            uv = const_int(e.upper)
             if uv is None:
                 hi = self.emit_expr(e.upper)
             elif uv < 0:
@@ -2088,7 +2038,7 @@ class FortranBodyEmitter(BaseEmitter):
         wraps: dim + K + 1)."""
         if lower is None:
             return default
-        lv = int_literal_value(lower)
+        lv = const_int(lower)
         if lv is None:
             return f"({self.emit_expr(lower)}) + 1"
         return str(lv + 1) if lv >= 0 else f"{dim} + ({lv}) + 1"
@@ -2375,7 +2325,7 @@ class FortranBodyEmitter(BaseEmitter):
         kind, and numpy promotes a mixed int / real where to the real type, so an integer branch (an
         int literal or an explicit ``np.int<N>(...)`` cast) is real-promoted when the OTHER branch is
         not integer."""
-        lit1, lit2 = int_literal_or_none(node.args[1]), int_literal_or_none(node.args[2])
+        lit1, lit2 = const_int(node.args[1]), const_int(node.args[2])
         cast1, cast2 = int_cast_operand(node.args[1]), int_cast_operand(node.args[2])
         if (lit1 is not None or cast1 is not None) and (lit2 is not None or cast2 is not None):
             return f"MERGE({args_e[1]}, {args_e[2]}, {args_e[0]})"
@@ -3282,7 +3232,7 @@ def signature_decls(kir: KernelIR, param_names: list[str], safe_with_case: Calla
         elif arg in sca_by_name:
             sca = sca_by_name[arg]
             d = scalar_decl(arg, sca.dtype, sca.is_output, assigned=arg in assigned_names)
-            (sca_int_decls if sca.dtype in ("int64", "int32", "int") else sca_real_decls).append(d)
+            (sca_int_decls if dtypes.is_integer(sca.dtype) else sca_real_decls).append(d)
         elif arg in arr_by_name:
             arr_decls.append(array_decl(arr_by_name[arg]))
     return pinned_const_decls(kir, safe_with_case) + sym_decls + sca_int_decls + arr_decls + sca_real_decls
@@ -4030,7 +3980,7 @@ def helper_dummy_decls(hkir: KernelIR) -> list[str]:
         elif orig in sca_by:
             sca = sca_by[orig]
             d = scalar_decl(safe, sca.dtype, sca.is_output, assigned=safe in hassigned)
-            (sca_int_decls if sca.dtype in ("int64", "int32", "int") else sca_real_decls).append(d)
+            (sca_int_decls if dtypes.is_integer(sca.dtype) else sca_real_decls).append(d)
         elif orig in arr_by:
             a = arr_by[orig]
             arr_decls.append(
