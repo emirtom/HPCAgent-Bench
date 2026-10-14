@@ -433,5 +433,3 @@ def mannwhitney(candidate: Sequence[float], baseline: Sequence[float], side: Sid
     if not math.isfinite(pvalue):
         return Result(math.nan, math.nan, 1.0, math.nan, math.nan, n, "mann-whitney")
     return Result(math.nan, float(result.statistic), pvalue, math.nan, math.nan, n, "mann-whitney")
-
-
