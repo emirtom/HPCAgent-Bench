@@ -105,8 +105,11 @@ PY_FORK_TIMEOUT_S = int(os.environ.get("HPCAGENT_BENCH_PY_FORK_TIMEOUT_S", "600"
 #: m > N outright, and clamping m = min(m, N//2) gives 4, too few to check against the analytic
 #: Poisson spectrum or to reach the iteration 20-30 range where the ghost eigenvalues appear;
 #: bdf_newton_krylov's step count, order history and Jacobian-reuse count are all data-dependent.
+#: cloudsc_subsidence_forcing runs at the one model level its config knob ``jk`` names (100 of 137,
+#: below CLOUDSC's cloud top): scaled, KLEV falls to 13 and the level lies outside the column.
 NO_SCALE = (
     "bdf_newton_krylov",
+    "cloudsc_subsidence_forcing",
     "distribution_search",
     "ilu0",
     "jfnk_bratu",
