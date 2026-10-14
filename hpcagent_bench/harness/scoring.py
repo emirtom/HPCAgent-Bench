@@ -4139,7 +4139,7 @@ def score_cells(
                 ctx = Sandbox(binding)
                 try:
                     absb = ctx.__enter__()
-                    built = build_reference_lib(
+                    ref_built = build_reference_lib(
                         absb.require_root(),
                         spec,
                         task,
@@ -4149,9 +4149,9 @@ def score_cells(
                         compiler=(compiler or None),
                     )
                 except Exception:  # noqa: BLE001 -- this candidate is unavailable / won't build
-                    built = BuildResult(False, None, "")
-                if built.ok and built.lib is not None:
-                    bl_libs.append((compiler, built.lib))
+                    ref_built = BuildResult(False, None, "")
+                if ref_built.ok and ref_built.lib is not None:
+                    bl_libs.append((compiler, ref_built.lib))
                     bl_ctxs.append(ctx)
                 else:
                     ctx.__exit__(None, None, None)

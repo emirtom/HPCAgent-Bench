@@ -783,12 +783,11 @@ def test_fv3_dycore_reference_c_fits_its_own_cap_at_xl() -> None:
     VmData (what ``RLIMIT_DATA`` actually polices, ~35% higher on this kernel) leaves a coin-flip
     SIGSEGV under allocator jitter on a real 192-core node.
 
-    This drives the SAME entry point ``score_task_fuzzed`` uses (:func:`score_cells`, via
-    :func:`hpcagent_bench.harness.metric.score_task_fuzzed`), not the simpler
-    :func:`hpcagent_bench.harness.scoring.score` -- score_cells is what actually runs in production
-    (Stage 1 correctness + Stage 2 timed, each cell its own capped child, candidate + C-oracle +
-    c-autopar baseline all under the SAME per-cell cap) and the only path that shows the VmData
-    crash locally. ``repeat=20`` matches ``config.yaml``'s ``measurement.repeat`` (the judge's real
+    This drives :func:`score_cells` (via :func:`hpcagent_bench.harness.metric.score_task_fuzzed`), not
+    :func:`hpcagent_bench.harness.scoring.score`: production single-node grading is ``final_grade`` ->
+    ``scoring.score``, but score_cells runs Stage 1 correctness + Stage 2 timed, each cell its own capped
+    child, candidate + C-oracle + c-autopar baseline all under the SAME per-cell cap, and is the path that
+    showed the VmData crash locally. ``repeat=20`` matches ``config.yaml``'s ``measurement.repeat`` (the judge's real
     value; a lower repeat here would silently narrow the coverage)."""
     import shutil
 
