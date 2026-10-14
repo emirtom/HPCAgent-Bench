@@ -171,7 +171,7 @@ class SubscriptifyNames(ast.NodeTransformer):
             if start is None and step_is_negative(step):
                 sh = self.shape_table.get(base.id)
                 if sh:
-                    al = ast.Constant(value=int(sh[0])) if str(sh[0]).isdigit() else name_(str(sh[0]))
+                    al = const_or_name(str(sh[0]))
                     start = ast.BinOp(left=al, op=ast.Sub(), right=ast.Constant(value=1))
             if step_is_negative(step) and start is None:
                 raise NotImplementedError(f"reverse slice of {base.id!r} needs a known axis length (shape untracked)")
