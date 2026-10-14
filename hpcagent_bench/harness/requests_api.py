@@ -28,6 +28,7 @@ from relayout.ops import (
     AxisSplit,
     Cast,
     DigitOperation,
+    Distribute,
     Format,
     Location,
     Operation,
@@ -44,6 +45,7 @@ from relayout.ops import (
 from relayout.requests import parse_requests, requests_json, requests_schema
 
 from hpcagent_bench import config
+from hpcagent_bench.config import GridChooser, RequestCapability
 from hpcagent_bench.dtypes import canonical, is_float_dtype
 from hpcagent_bench.harness.precision_casts import Regroup, extent_names
 from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
@@ -125,62 +127,7 @@ def kernel_arrays(
     return dense + [ArraySpec(group.logical, 2, sparse=True) for group in binding.packed]
 
 
-class RequestAllowances(pydantic.BaseModel):
-    """What a submission's ``requests`` may ask the judge for in this setup (config ``requests.*``). The
-    prompt's requests section states exactly these and the judge refuses every other request
-    (:meth:`refusal`). ``startup.load`` is gated by ``grading.allow_agent_build_tokens``
-    (``sandbox.catalog_refusal``); ``startup.grid`` and the operations that lay arrays out over it are the
-    distributed track's contract. Neither is gated here."""
-
-    model_config = pydantic.ConfigDict(frozen=True)
-
-    #: The precisions a ``cast`` may target; empty refuses every ``cast``.
-    precisions: tuple[Precision, ...] = ()
-    #: Whether a request without ``startup.grid`` may lay a dense array out (the digit operations
-    #: ``permute``, ``block``, ``split``, ``pad``, ``shuffle``, ``linear_shuffle`` and their inverses) and
-    #: whether any request may ``zip`` / ``unzip``.
-    layouts: bool = False
-    #: Whether a ``format`` operation may choose a sparse array's storage format.
-    sparse_formats: bool = False
-
-    @classmethod
-    def from_config(cls) -> "RequestAllowances":
-        """The allowances of the setup this process (or this judge request's scoped environment) runs."""
-        return cls.model_validate(config.current().requests.model_dump())
-
-    def refusal(self, requests: "Requests") -> str | None:
-        """Why ``requests`` asks for something this setup does not allow, or None."""
-        casts = [op for op in requests.operations if isinstance(op, Cast)]
-        if casts and not self.precisions:
-            return (
-                "this setup does not allow precision requests: drop every cast operation; "
-                "every array stays in the problem precision"
-            )
-        offered = [p.value for p in self.precisions]
-        for op in casts:
-            if op.to not in self.precisions:
-                return f"cast of {op.array!r} to {op.to.value!r}: this setup allows casts to {offered} only"
-        laid = sorted(
-            {
-                op.action.value
-                for op in requests.operations
-                if isinstance(op, Zip | Unzip) or (isinstance(op, DigitOperation) and not requests.distributed)
-            }
-        )
-        if laid and not self.layouts:
-            return (
-                f"this setup does not allow layout requests: drop the {', '.join(laid)} operation(s); "
-                "every dense array arrives row-major as the signature declares"
-            )
-        if requests.formats() and not self.sparse_formats:
-            return (
-                "this setup does not allow sparse format requests: drop every format operation; "
-                "every sparse array arrives in its default format"
-            )
-        return None
-
-
-#: The digit operations a request without ``startup.grid`` lays a dense array out by (``requests.layouts``;
+#: The digit operations a request without ``startup.grid`` lays a dense array out by (``layout``;
 #: ``distribute`` needs a grid).
 SINGLE_NODE_LAYOUT_ACTIONS = (
     Action.BLOCK,
@@ -193,27 +140,30 @@ SINGLE_NODE_LAYOUT_ACTIONS = (
     Action.SHUFFLE,
     Action.LINEAR_SHUFFLE,
 )
-#: The operations that fuse arrays into one pointer or split one into several (``requests.layouts``).
+#: The operations that fuse arrays into one pointer or split one into several (``layout``).
 REGROUP_ACTIONS = (Action.ZIP, Action.UNZIP)
-#: The operations a request with ``startup.grid`` lays its arrays out over the grid by: every digit operation,
-#: ``replicate`` and ``place`` (no allowance gates them; the distributed track requires them).
-DISTRIBUTED_ACTIONS = (*SINGLE_NODE_LAYOUT_ACTIONS, Action.DISTRIBUTE, Action.REPLICATE, Action.PLACE)
+#: The operations a request with ``startup.grid`` lays its arrays out over the grid by (``distribute``): every
+#: digit operation and ``replicate``.
+DISTRIBUTED_ACTIONS = (*SINGLE_NODE_LAYOUT_ACTIONS, Action.DISTRIBUTE, Action.REPLICATE)
 
 
 class RequestActions(pydantic.BaseModel):
-    """What one task's agent tools offer in ``requests``: the judge's allowances
-    (:class:`RequestAllowances`, ``grading.allow_agent_build_tokens``, the distributed track) as the
-    task's prompt states them (:func:`hpcagent_bench.harness.prompts.build_context`'s ``request_actions``).
-    The agent runtime reads :meth:`wire` from ``$HPCAGENT_BENCH_REQUEST_ACTIONS`` (written per problem by
-    ``make_problems.py``) and offers exactly these members of the request schema."""
+    """What one task's agent tools offer in ``requests``: the setup's :class:`RequestAllowances` narrowed to
+    what the task's prompt states (:meth:`RequestAllowances.actions`, called by
+    :func:`hpcagent_bench.harness.prompts.build_context`). The agent runtime reads :meth:`wire` from
+    ``$HPCAGENT_BENCH_REQUEST_ACTIONS`` (written per problem by ``make_problems.py``) and offers exactly these
+    members of the request schema."""
 
     model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
 
-    #: ``startup.load``: catalog libraries (``grading.allow_agent_build_tokens``, or a distributed task's
-    #: ``grading.distributed_libraries``).
+    #: ``startup.load``.
     load: bool = False
-    #: A distributed task: ``startup.grid`` and :data:`DISTRIBUTED_ACTIONS`.
+    #: A distributed task: :data:`DISTRIBUTED_ACTIONS`.
     distributed: bool = False
+    #: ``startup.grid`` on a distributed task (``requests.grid`` ``agent``).
+    grid: bool = False
+    #: ``place`` on a distributed task.
+    place: bool = False
     #: The precisions a ``cast`` may target; empty offers no ``cast``.
     casts: tuple[Precision, ...] = ()
     #: :data:`SINGLE_NODE_LAYOUT_ACTIONS` without a grid, and :data:`REGROUP_ACTIONS`.
@@ -223,14 +173,18 @@ class RequestActions(pydantic.BaseModel):
 
     def startup(self) -> tuple[str, ...]:
         """The ``startup`` members offered."""
-        return ("load",) * self.load + ("grid",) * self.distributed
+        return ("load",) * self.load + ("grid",) * (self.distributed and self.grid)
 
     def operations(self) -> tuple[Action, ...]:
         """The operation actions offered, in schema order."""
-        offered = {Action.CAST} if self.casts else set()
-        offered |= {Action.FORMAT} if self.formats else set()
-        offered |= set(SINGLE_NODE_LAYOUT_ACTIONS + REGROUP_ACTIONS) if self.layouts else set()
-        offered |= set(DISTRIBUTED_ACTIONS) if self.distributed else set()
+        groups = (
+            ((Action.CAST,), bool(self.casts)),
+            ((Action.FORMAT,), self.formats),
+            (SINGLE_NODE_LAYOUT_ACTIONS + REGROUP_ACTIONS, self.layouts),
+            (DISTRIBUTED_ACTIONS, self.distributed),
+            ((Action.PLACE,), self.place),
+        )
+        offered = {action for actions, on in groups if on for action in actions}
         return tuple(action for action in Action if action in offered)
 
     def wire(self) -> dict[str, list[str]]:
@@ -240,6 +194,94 @@ class RequestActions(pydantic.BaseModel):
             "operations": [action.value for action in self.operations()],
             "cast_to": [precision.value for precision in self.casts],
         }
+
+
+class RequestAllowances(pydantic.BaseModel):
+    """What a submission's ``requests`` may ask the judge for in this setup: config ``requests.allow`` with its
+    parameters ``requests.precisions`` and ``requests.grid``. The ONE resolved set: the judge refuses every
+    other request (:meth:`refusal`), and the prompt's sections and the agent tools state exactly it
+    (:meth:`actions`). The default allows nothing."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    #: The capabilities allowed (:class:`~hpcagent_bench.config.RequestCapability`).
+    allow: frozenset[RequestCapability] = frozenset()
+    #: The precisions a ``cast`` may target (``cast`` only).
+    precisions: tuple[Precision, ...] = ()
+    #: Who sets a distributed grade's processor grid (``distribute`` only).
+    grid: GridChooser = GridChooser.AGENT
+
+    @classmethod
+    def from_config(cls) -> "RequestAllowances":
+        """The allowances of the setup this process (or this judge request's scoped environment) runs."""
+        return cls.model_validate(config.current().requests.model_dump())
+
+    def allows(self, capability: RequestCapability) -> bool:
+        """Whether ``capability`` is allowed."""
+        return capability in self.allow
+
+    def actions(self, *, distributed: bool, castable: bool, layable: bool, sparse: bool) -> RequestActions:
+        """What one task's tools offer: a ``distributed`` task's layout and placement, a cast where the task has
+        ``castable`` arrays, the single-node layouts where it has ``layable`` ones, a format on a ``sparse``
+        kernel. ``place`` takes effect on a distributed grade only (a single-node one refuses it), so it is
+        offered there only."""
+        return RequestActions(
+            load=self.allows(RequestCapability.LOAD),
+            distributed=distributed and self.allows(RequestCapability.DISTRIBUTE),
+            grid=self.grid is GridChooser.AGENT,
+            place=distributed and self.allows(RequestCapability.PLACE),
+            casts=self.precisions if castable and self.allows(RequestCapability.CAST) else (),
+            layouts=layable and self.allows(RequestCapability.LAYOUT),
+            formats=sparse and self.allows(RequestCapability.SPARSE_FORMAT),
+        )
+
+    def refusal(self, requests: "Requests") -> str | None:
+        """Why ``requests`` asks for something this setup does not allow, or None."""
+        if requests.startup.load and not self.allows(RequestCapability.LOAD):
+            return (
+                f"this setup does not allow library requests: drop startup.load (refused "
+                f"{', '.join(requests.startup.load)})"
+            )
+        spread = sorted({op.action.value for op in requests.operations if isinstance(op, Distribute | Replicate)})
+        if (requests.distributed or spread) and not self.allows(RequestCapability.DISTRIBUTE):
+            dropped = ", ".join(
+                ["startup.grid"] * requests.distributed + [f"the {name} operation(s)" for name in spread]
+            )
+            return f"this setup grades no distributed layout: drop {dropped}"
+        if any(isinstance(op, Place) for op in requests.operations) and not self.allows(RequestCapability.PLACE):
+            return (
+                "this setup does not allow placement requests: drop every place operation; every array lives "
+                "in the run's residency"
+            )
+        casts = [op for op in requests.operations if isinstance(op, Cast)]
+        if casts and not self.allows(RequestCapability.CAST):
+            return (
+                "this setup does not allow precision requests: drop every cast operation; "
+                "every array stays in the problem precision"
+            )
+        offered = [p.value for p in self.precisions]
+        for op in casts:
+            if op.to not in self.precisions:
+                return f"cast of {op.array!r} to {op.to.value!r}: this setup allows casts to {offered} only"
+        laid = sorted(
+            {
+                op.action.value
+                for op in requests.operations
+                if isinstance(op, Zip | Unzip)
+                or (isinstance(op, DigitOperation) and not isinstance(op, Distribute) and not requests.distributed)
+            }
+        )
+        if laid and not self.allows(RequestCapability.LAYOUT):
+            return (
+                f"this setup does not allow layout requests: drop the {', '.join(laid)} operation(s); "
+                "every dense array arrives row-major as the signature declares"
+            )
+        if requests.formats() and not self.allows(RequestCapability.SPARSE_FORMAT):
+            return (
+                "this setup does not allow sparse format requests: drop every format operation; "
+                "every sparse array arrives in its default format"
+            )
+        return None
 
 
 class AxisDist(pydantic.BaseModel):

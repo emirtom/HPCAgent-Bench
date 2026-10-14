@@ -298,7 +298,7 @@ def test_the_agent_driver_defaults_match_the_model() -> None:
     """The agent driver imports the standard library only, so it restates two defaults."""
     from hpcagent_agent.driver import agent_driver
 
-    assert config.default_value("grading.distributed_libraries") == agent_driver.DISTRIBUTED_LIBRARIES_DEFAULT
+    assert config.default_value("grading.allow_agent_build_tokens") is agent_driver.BUILD_TOKENS_DEFAULT
     assert recording.RecordDevice.CPU.value == agent_driver.RECORD_DEVICE_DEFAULT
 
 

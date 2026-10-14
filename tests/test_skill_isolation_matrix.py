@@ -280,7 +280,8 @@ def test_every_registered_key_is_covered_by_the_reaches_split_above() -> None:
 # prompt systems must show the library text, and neither must show it otherwise. The switch
 # itself is a per-setup .env choice (packets.libraries_enabled cannot see or set it -- see its
 # docstring); what this section pins is that the code side of the contract cannot drift: the
-# prompt always agrees with grading.allow_agent_build_tokens, whichever way a setup sets it.
+# prompt always agrees with grading.allow_agent_build_tokens and requests.allow load, whichever way a setup
+# sets them.
 
 #: Hand-picked expected values, independent of packets.libraries_enabled's own implementation --
 #: the same discipline STAGES_DROPIN/STAGES_NOTHING hold section D to above. all-in-nvidia is
@@ -316,8 +317,10 @@ def test_the_in_process_prompt_shows_the_library_text_exactly_when_the_grading_s
     from hpcagent_bench.harness.prompts import build_prompt
     from hpcagent_bench.harness.task import Task
 
+    from tests.request_allowances import allowing
+
     enabled = packets.libraries_enabled(key)
-    with config.overridden("grading.allow_agent_build_tokens", enabled):
+    with config.overridden("grading.allow_agent_build_tokens", enabled), allowing(*["load"] * enabled):
         text = build_prompt(Task("gemm", "restricted", "c"))
     assert ("You may link a library" in text) == enabled, (key, enabled)
     assert ("list the catalog name in the response's `requests.startup.load`" in text) == enabled, (key, enabled)
@@ -334,6 +337,7 @@ def test_the_cluster_prompt_slot_shows_the_library_text_exactly_when_the_grading
 
     driver = driver_module()
     monkeypatch.setenv("HPCAGENT_BENCH_GRADING_ALLOW_AGENT_BUILD_TOKENS", "true" if switch else "false")
-    text = driver.build_list_status_text()
+    offer = {"startup": ["load"] * switch, "operations": [], "cast_to": []}
+    text = driver.build_list_status_text({"id": 0, "task": "t", "request_actions": offer})
     assert ("ARE applied" in text) == switch, text
     assert ("NOT applied" in text) == (not switch), text

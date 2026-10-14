@@ -56,6 +56,7 @@ import pydantic
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
+from hpcagent_bench.config import GridChooser
 from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
@@ -172,6 +173,7 @@ __all__ = [
     "request_label",
     "request_tokens",
     "requests_refusal",
+    "with_task_grid",
     "scales",
     "serve",
     "service_prompt",
@@ -869,7 +871,8 @@ def _submission_from_body(
     # Submission.requests's shape is checked here (ValueError -> 400); requests_refusal checks it
     # against the kernel.
     requests = Requests.validate(body.raw("requests"))
-    refusal = sandbox.catalog_refusal(
+    # What the setup allows first (requests.allow), so a disallowed load is not answered with the catalog.
+    refusal = RequestAllowances.from_config().refusal(requests) or sandbox.catalog_refusal(
         requests.startup.load, language, sandbox.compiled_omp_context(language, body.optional_text("compiler"))
     )
     if refusal:
@@ -948,9 +951,12 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> Re
     pointer's element type and, laid out on one node, the extents of its packed buffer over the logical
     extents ``d0``, ``d1``, ...; with a grid, the distribution plan at ``mpi.ranks``. A malformed request
     raises ValueError."""
-    requests = Requests.validate(raw)
     task = Task(kernel, "restricted", language, residency=grading_residency(kernel, language))
-    probe = Submission(language=language, source="/* checked, not built */", requests=requests)
+    sent = Submission(language=language, source="/* checked, not built */", requests=Requests.validate(raw))
+    probe = with_task_grid(sent, task)
+    if isinstance(probe, str):
+        return RequestsCheck(accepted=False, refusal=probe)
+    requests = probe.requests
     refusal = requests_refusal(probe, task, datatype)
     if refusal is not None:
         return RequestsCheck(accepted=False, refusal=refusal)
@@ -995,6 +1001,24 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> Re
         signature = f"{marshal.typedefs}void {binding.symbols[language]}({', '.join(marshal.params)});"
     plan = requests.plan(ndims, config.current().mpi.ranks) if requests.distributed else None
     return RequestsCheck(accepted=True, arrays=arrays, signature=signature, plan=plan)
+
+
+def with_task_grid(submission: Submission, task: Task) -> Submission | str:
+    """``submission`` with the task's processor grid where the setup sets it (``requests.grid`` ``task``) on a
+    distributed grade, or why not: the submission named a grid of its own. Its operations then lay the arrays
+    out over that grid (:func:`mpi_descriptor.default_requests`'s). Elsewhere ``submission`` as it is."""
+    requests = submission.requests
+    if task.residency != "distributed" or RequestAllowances.from_config().grid is not GridChooser.TASK:
+        return submission
+    if requests.distributed:
+        return (
+            "this setup sets the processor grid from the task: drop startup.grid; your operations lay the arrays "
+            "out over the task's grid"
+        )
+    spec = BenchSpec.load(task.kernel)
+    grid = default_requests(spec.mpi, binding_from_spec(spec), config.current().mpi.ranks).startup.grid
+    startup = dataclasses.replace(requests.startup, grid=grid)
+    return submission.model_copy(update={"requests": Requests(startup, requests.operations)})
 
 
 def single_node_layout_ops(requests: Requests) -> list[DigitOperation]:
@@ -1771,6 +1795,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
             task = Task(kernel, source_mode, language, residency=grading_residency(kernel, language))
         except Exception as exc:  # noqa: BLE001 -- defensive: a bad source_mode/residency triple -> 404
             return self._send(HTTPStatus.NOT_FOUND, {"error": f"no task for {kernel!r}: {exc}"})
+        # The task's grid where the setup sets it, before every check reads the request.
+        gridded = with_task_grid(submission, task)
+        if isinstance(gridded, str):
+            return self._send(HTTPStatus.BAD_REQUEST, {"error": gridded})
+        submission = gridded
         # Distribution refusals apply to every grading route, /profile included.
         try:
             refused = distribution_refusal(submission, task, preset)

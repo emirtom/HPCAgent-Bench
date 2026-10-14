@@ -293,12 +293,9 @@ grading:
                                   # -ftree-parallelize-loops, -floop-*, vectorizer width). Flags that change FP
                                   # semantics or the language dialect (-ffast-math, -Ofast, -std=...) are refused
                                   # either way. Changes what a setup measures; record it with the results.
-  distributed_libraries: [mpi, rccl] # list[str]. `libraries` names a distributed-track judge
-                                  # (mpi.grade_distributed) honours when allow_agent_build_tokens is false; every
-                                  # other name is refused there (sandbox.py).
-  allow_agent_build_tokens: true  # bool. true: a submission's `-l<name>` build tokens and `libraries` requests
-                                  # are honoured (each must resolve on this host or in the catalog). false: both
-                                  # are refused, except distributed_libraries on a distributed judge.
+  allow_agent_build_tokens: true  # bool. true: a submission's `-l<name>` build tokens are honoured (each must
+                                  # resolve in the shared folder or the catalog). false: the `build` list is
+                                  # dropped. Catalog libraries by name are `requests.allow` `load`.
 
 # Verify-gated persistence of scored submissions (hpcagent_bench/harness/recording.py). The judge writes rows,
 # never the agent; a leaderboard row is written only after an independent rebuild and re-run passes. Other
@@ -396,19 +393,22 @@ sparse:
                               # (spec.sparse_alignment_constraints).
 
 # What a submission's `requests` may ask the judge for (requests_api.RequestAllowances,
-# docs/requests_api.md). The prompt's requests section is rendered from these keys and names only
-# what they allow; the judge refuses anything else with HTTP 400 without spending the submission.
-# `startup.load` is gated by grading.allow_agent_build_tokens; `startup.grid` belongs to the
-# distributed track and is not gated here.
+# docs/requests_api.md). One resolved set: the judge refuses everything else with HTTP 400 without spending
+# the submission, the prompt's requests, sparse and mpi sections state exactly it, and the agent tools offer
+# exactly it (make_problems.py -> $HPCAGENT_BENCH_REQUEST_ACTIONS). experiments/layers/requests-<preset>.env
+# names the presets an experiment picks (setups.yaml `requests:`).
 requests:
+  allow: [load]           # list of: load (startup.load), cast (cast to `precisions`), layout (digit operations
+                          # without a grid, zip / unzip), sparse_format (format), place (an array's memory on
+                          # a distributed grade), distribute (startup.grid, distribute, replicate and the
+                          # digit operations over the grid). [] allows nothing and hides `requests`.
+                          # mpi.grade_distributed implies distribute (the resolved list carries it). A list,
+                          # or comma-separated in the environment.
   precisions: []          # precisions a `cast` may target: any of fp64, fp32, fp16, bf16, fp8_e4m3,
-                          # fp8_e5m2 (a list, or a comma-separated string in the environment);
-                          # [] refuses every cast
-  layouts: false          # true: a request without startup.grid may lay dense arrays out (permute,
-                          # block, split, pad, shuffle, linear_shuffle and their inverses), and any
-                          # request may zip / unzip. false refuses them
-  sparse_formats: false   # true: a `format` operation may choose a sparse array's storage format among
-                          # the kernel's offered ones. false: every sparse array arrives in its default
+                          # fp8_e5m2. Non-empty exactly when `allow` has cast.
+  grid: agent             # agent | task. Who sets a distributed grade's processor grid: the submission's
+                          # startup.grid (agent), or the task's default grid (task), where a submission
+                          # names no grid and only lays its arrays out over it.
 
 # Distributed (multi-node MPI) track. A submission without `startup.grid` runs the single-node path. These keys
 # configure how a `residency: distributed` run is launched and sized. The image ships an ABI-compatible MPICH;
@@ -419,7 +419,8 @@ mpi:
   grade_distributed: false        # bool. true: /score and /submit grade a kernel with an `mpi:` block at
                                   # residency `distributed` over R ranks through mpi_call; a kernel without
                                   # `mpi:` grades single-node. Set with ranks/rank_counts and launcher; the
-                                  # default launcher starts every rank on this node.
+                                  # default launcher starts every rank on this node. Implies `distribute` in
+                                  # requests.allow.
   launcher: [mpiexec.mpich, -launcher, fork, -n]   # list[str]. argv prefix that takes the rank count next; the
                                   # runner appends [ranks, program...]. `-launcher fork` starts every rank on this
                                   # node (inside a Slurm step Hydra would bootstrap through srun). Several nodes:

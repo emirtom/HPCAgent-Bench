@@ -23,6 +23,7 @@ import jinja2
 import numpy as np
 
 from hpcagent_bench import config, cpf_cache, fuzz, languages, packets, paths, protocols
+from hpcagent_bench.config import GridChooser, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
 from hpcagent_bench.harness.envelope import PYTHON_LANG
@@ -40,6 +41,7 @@ from hpcagent_bench.harness.requests_api import (
     PlannedArray,
     RequestActions,
     RequestAllowances,
+    Requests,
     kernel_arrays,
     mpi_residency,
     precision_problem_dtypes,
@@ -88,6 +90,7 @@ __all__ = [
     "SizeRange",
     "Skill",
     "VariantFields",
+    "agent_requests",
     "available_variants",
     "baseline_phrase",
     "build_context",
@@ -991,8 +994,10 @@ def build_context(
     lib_name = f"lib{spec.short_name}.so"
     files = delivered_files(task.language, spec.short_name)
     allowances = RequestAllowances.from_config()
-    precision_arrays = sorted(precision_problem_dtypes(spec, binding, precision)) if allowances.precisions else []
-    layout_names = [] if is_mpi or not allowances.layouts else layout_arrays(spec, binding)
+    precision_arrays = (
+        sorted(precision_problem_dtypes(spec, binding, precision)) if allowances.allows(RequestCapability.CAST) else []
+    )
+    layout_names = [] if is_mpi or not allowances.allows(RequestCapability.LAYOUT) else layout_arrays(spec, binding)
     sparse_layout = sparse_layout_context(spec, task.language)
     # The C-ABI deliveries; a python delivery takes no cast and no layout (service.precision_scope_refusal,
     # service.single_node_layout_refusal).
@@ -1032,15 +1037,15 @@ def build_context(
         # The ML track's one accepted layout (each rank's contiguous block of the manifest's split) as
         # the requests block that asks for it.
         "mpi_fixed_layout": (
-            json.dumps(default_requests(spec.mpi, binding, cfg.mpi.ranks).to_json())
+            json.dumps(agent_requests(default_requests(spec.mpi, binding, cfg.mpi.ranks), allowances))
             if is_mpi and torch_reference.has_torch_reference(spec)
             else ""
         ),
         # Every array a precision may be requested for (requests_api.precision_problem_dtypes); none where
-        # the setup allows no cast (requests.precisions).
+        # the setup allows no cast (requests.allow).
         "precision_arrays": precision_arrays,
         # The dense arrays a single-node layout may name (service.single_node_layout_refusal); none on MPI
-        # and none where the setup allows no layout (requests.layouts).
+        # and none where the setup allows no layout (requests.allow).
         "layout_arrays": layout_names,
         "problem_precision": precision_from_datatype(precision).value,
         # The precisions a cast may target here, each with its C element type.
@@ -1062,9 +1067,9 @@ def build_context(
         "stub": call_stub(binding, task.language, task.residency),
         # The sparse layouts a submission may request (sections/sparse.j2); {} for a dense kernel.
         "sparse_layout": sparse_layout,
-        # Whether a format operation may choose them (requests.sparse_formats); off, sections/sparse.j2
+        # Whether a format operation may choose them (requests.allow sparse_format); off, sections/sparse.j2
         # states the default format only.
-        "sparse_formats_requestable": allowances.sparse_formats,
+        "sparse_formats_requestable": allowances.allows(RequestCapability.SPARSE_FORMAT),
         "symbol": symbol,
         "reference": reference.strip(),
         # Where the agent can open the reference (repo-relative on native runs).
@@ -1144,19 +1149,19 @@ def build_context(
         "debug": prompt_config.debug,
     }
     # What this task's agent tools offer in ``requests`` (make_problems.py writes it per problem, see
-    # request_actions), from the facts the requests, sparse and mpi sections state: sections/requests.j2
-    # renders its cast and layout bullets from it, so the prompt and the tool schema cannot disagree.
-    # ``startup.load`` is the build switch's, or on a distributed task the contract libraries
-    # (sandbox.distributed_contract_libraries) where sections/mpi.j2 names them (device tiles, ML track).
-    contract_load = (
-        is_mpi and bool(cfg.grading.distributed_libraries) and bool(context["mpi_device"] or context["ml_layout"])
-    )
-    context["request_actions"] = RequestActions(
-        load=cfg.grading.allow_agent_build_tokens or contract_load,
+    # request_actions): the setup's allowances narrowed to the facts the requests, sparse and mpi sections state.
+    # The sections render from it, so the prompt, the tool schema and the judge's refusal share one source.
+    context["request_actions"] = allowances.actions(
         distributed=is_mpi,
-        casts=allowances.precisions if precision_arrays and abi_delivery else (),
-        layouts=bool(layout_names) and abi_delivery,
-        formats=allowances.sparse_formats and bool(sparse_layout),
+        castable=bool(precision_arrays) and abi_delivery,
+        layable=bool(layout_names) and abi_delivery,
+        sparse=bool(sparse_layout),
+    )
+    # The task's own grid where the setup sets it (requests.grid task): the mpi section names it.
+    context["task_grid"] = (
+        json.dumps(list(default_requests(spec.mpi, binding, cfg.mpi.ranks).startup.grid or ()))
+        if is_mpi and allowances.grid is GridChooser.TASK
+        else ""
     )
     return context
 
@@ -1248,6 +1253,14 @@ JSON_TO_PYTHON = {"null": "None", "true": "True", "false": "False"}
 DISTRIBUTED_GRADING = (
     "The distributed contract in your task text below states how `score` and `submit` time and grade it."
 )
+
+
+def agent_requests(requests: Requests, allowances: RequestAllowances) -> dict[str, object]:
+    """``requests`` as JSON as the agent sends it: without ``startup.grid`` where the task sets the grid
+    (``requests.grid`` ``task``)."""
+    if allowances.grid is not GridChooser.TASK:
+        return requests.to_json()
+    return Requests(dataclasses.replace(requests.startup, grid=None), requests.operations).to_json()
 
 
 def concrete_language(task: Task) -> bool:

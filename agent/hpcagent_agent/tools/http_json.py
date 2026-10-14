@@ -377,8 +377,8 @@ class RequestActions(NamedTuple):
 
     @property
     def distributed(self) -> bool:
-        """A distributed task: its grades require ``startup.grid``."""
-        return "grid" in self.startup
+        """A distributed task: its grades require the layout (``distribute`` offered)."""
+        return "distribute" in self.operations
 
 
 def request_actions() -> RequestActions:
@@ -399,10 +399,12 @@ def requests_text(actions: RequestActions) -> str:
     docs/requests_api.md), naming only what ``actions`` offers."""
     offered = set(actions.operations)
     parts = []
+    grid = "grid" in actions.startup
     if actions.distributed:
         parts.append(
-            "REQUIRED on this distributed run, on score, submit and profile alike: 'startup.grid' and the "
-            "operations that distribute or replicate every array, as your task's data distribution section gives "
+            "REQUIRED on this distributed run, on score, submit and profile alike: "
+            + ("'startup.grid' and the operations" if grid else "the operations (the task sets the grid)")
+            + " that distribute or replicate every array, as your task's data distribution section gives "
             "them. Copy the task's default request unless you mean to change it; without it every grade is "
             "refused. How your data reaches your kernel."
         )
@@ -411,7 +413,7 @@ def requests_text(actions: RequestActions) -> str:
     settles = []
     if "load" in actions.startup:
         settles.append("'load' (catalog library names from your task's resources section)")
-    if actions.distributed:
+    if grid:
         settles.append(
             "'grid' (the processor grid's extents over the rank count P, multiplying to P: ['P'] is 1-D, "
             "['root(P, 2)', 'root(P, 2)'] square)"
@@ -447,8 +449,9 @@ def requests_text(actions: RequestActions) -> str:
             "fuses arrays of one shape into one pointer and 'unzip' splits one."
         )
     if actions.distributed:
+        startup = "'startup': {'grid': ['P']}, " if grid else ""
         examples += [
-            "- rows in contiguous bands, x whole on every rank: {'startup': {'grid': ['P']}, 'operations': "
+            f"- rows in contiguous bands, x whole on every rank: {{{startup}'operations': "
             "[{'action': 'distribute', 'array': 'A', 'grid_dim': 0, 'dim': 0, 'scheme': 'block'}, {'action': "
             "'replicate', 'array': 'x'}]} -- 'scheme' is block, cyclic or block_cyclic (+ 'block_size'); on a "
             "distributed run every array is distributed or replicated.",
@@ -456,8 +459,9 @@ def requests_text(actions: RequestActions) -> str:
             "'parts': 'P0', 'into': ['r', 'i0']}, then {'action': 'distribute', 'array': 'A', 'grid_dim': 0, "
             "'digit': 'r'}; 'block' cuts a digit by a 'factor' (may name P0, P1, ...), 'permute' reorders "
             "digits by name.",
-            "- device-resident tiles: {'action': 'place', 'array': 'A', 'on': 'device'}.",
         ]
+    if "place" in offered:
+        examples.append("- device-resident tiles: {'action': 'place', 'array': 'A', 'on': 'device'}.")
     return " ".join(parts) + "\n" + "\n".join(examples)
 
 
