@@ -7,11 +7,20 @@ The operations themselves (their JSON, effects, lowering) are relayout's (``rela
 ``relayout.requests``, tested there); here they are exercised through the envelope an agent sends.
 """
 
+import pydantic
 import pytest
 
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import default_requests, kernel_ndims
-from hpcagent_bench.harness.requests_api import Location, Requests, grid_request, kernel_arrays, precision_refusal
+from hpcagent_bench.harness.requests_api import (
+    REQUESTS_ADAPTER,
+    Location,
+    Requests,
+    RequestsField,
+    grid_request,
+    kernel_arrays,
+    precision_refusal,
+)
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -53,16 +62,45 @@ def test_the_request_round_trips_through_json() -> None:
 @pytest.mark.parametrize(
     ("raw", "match"),
     [
-        ({"startup": {"grid": []}}, "non-empty list of extents over P"),
-        ({"operations": [{"action": "cast", "array": "A", "to": "fp42"}]}, r"operations\[0\].to must be one of"),
+        ({"startup": {"grid": []}}, r"startup.grid\n  Tuple should have at least 1 item"),
+        (
+            {"operations": [{"action": "cast", "array": "A", "to": "fp42"}]},
+            r"operations\[0\]: (?s:.*)\nto\n  Input should be 'fp64'",
+        ),
         ({"operations": [{"action": "format", "array": "M", "to": "csr2"}]}, "sparse format 'csr2': the formats are"),
         ({"operations": [{"action": "bogus"}]}, r"operations\[0\].action must be one of"),
-        ({"precision": {"A": "fp32"}}, "takes startup and operations"),
+        ({"precision": {"A": "fp32"}}, r"\nprecision\n  Unexpected keyword argument"),
     ],
 )
 def test_a_malformed_request_is_a_request_fault(raw: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match):
         Requests.from_obj(raw)
+
+
+class Envelope(pydantic.BaseModel):
+    """A model with a ``requests`` field, as the envelope declares it."""
+
+    requests: RequestsField = Requests()
+
+
+def test_a_pydantic_field_reads_and_writes_the_request() -> None:
+    """:data:`RequestsField` validates the JSON object (or takes a request as is), dumps it back as JSON and
+    refuses a malformed one with the message :meth:`Requests.from_obj` raises."""
+    raw = {"startup": {"load": ["blas"]}, "operations": [{"action": "cast", "array": "A", "to": "fp32"}]}
+    envelope = Envelope.model_validate({"requests": raw})
+    assert envelope.requests == Requests.from_obj(raw)
+    assert isinstance(envelope.requests, Requests)
+    assert Envelope(requests=envelope.requests).requests is envelope.requests
+    assert envelope.model_dump(mode="json") == {"requests": raw}
+    assert Envelope().model_dump(mode="json") == {"requests": {}}
+    assert REQUESTS_ADAPTER.validate_python(None) == Requests()
+    assert REQUESTS_ADAPTER.dump_python(envelope.requests, mode="json") == raw
+    malformed = {"operations": [{"action": "format", "array": "M", "to": "csr2"}]}
+    with pytest.raises(ValueError, match="sparse format 'csr2'") as direct:
+        Requests.from_obj(malformed)
+    with pytest.raises(pydantic.ValidationError) as field:
+        Envelope.model_validate({"requests": malformed})
+    assert field.value.errors()[0]["ctx"]["error"].args == direct.value.args
 
 
 @pytest.mark.parametrize("field", ["libraries", "distribution", "sparse_config"])
@@ -138,8 +176,9 @@ def test_precision_is_refused_where_it_changes_nothing_or_names_no_floating_arra
 
 if __name__ == "__main__":
     test_the_request_round_trips_through_json()
-    test_a_malformed_request_is_a_request_fault({"startup": {"grid": []}}, "non-empty list of extents over P")
-    test_a_malformed_request_is_a_request_fault({"precision": {"A": "fp32"}}, "takes startup and operations")
+    test_a_malformed_request_is_a_request_fault({"startup": {"grid": []}}, r"startup.grid\n  Tuple should have at least 1 item")
+    test_a_malformed_request_is_a_request_fault({"precision": {"A": "fp32"}}, r"\nprecision\n  Unexpected keyword argument")
+    test_a_pydantic_field_reads_and_writes_the_request()
     test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling("libraries")
     test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling("distribution")
     test_a_field_that_moved_under_requests_is_refused_with_its_new_spelling("sparse_config")

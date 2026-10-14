@@ -11,9 +11,10 @@ formats apply, and the distribution plan the scatter descriptor reads at a rank 
 docs/requests_api.md.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Annotated, Any, NamedTuple
 
 import numpy as np
 import pydantic
@@ -22,13 +23,11 @@ from relayout.convert import Group, Member
 from relayout.layout import IndexMap
 from relayout.ops import (
     RANKS_SYMBOL,
-    ArrayName,
     ArraySpec,
     AxisSplit,
     Cast,
     DigitOperation,
     Format,
-    FormatLabel,
     Location,
     Operation,
     Place,
@@ -41,7 +40,7 @@ from relayout.ops import (
     lower,
     operations_for_axes,
 )
-from relayout.requests import parse_requests, requests_json
+from relayout.requests import parse_requests, requests_json, requests_schema
 
 from hpcagent_bench import config
 from hpcagent_bench.dtypes import canonical, is_float_dtype
@@ -54,15 +53,19 @@ if TYPE_CHECKING:
     from hpcagent_bench.support.bindings.contract import Binding
 
 __all__ = [
+    "REQUESTS_ADAPTER",
     "Location",
     "RequestAllowances",
     "Requests",
+    "RequestsField",
     "grid_request",
     "kernel_arrays",
     "kernel_dtypes",
     "mpi_residency",
     "precision_problem_dtypes",
     "precision_refusal",
+    "requests_schema_text",
+    "self_contained",
 ]
 
 
@@ -179,10 +182,18 @@ class Requests(relayout.ops.Requests):
     dtypes, the binding's ranks) are the judge's."""
 
     @classmethod
-    def from_obj(cls, raw: object) -> "Requests":
-        """Parse the ``requests`` JSON object (None = no requests); a malformed one raises ValueError."""
-        parsed = parse_requests(raw)
+    def validate(cls, raw: object) -> "Requests":
+        """``raw`` as a request: a :class:`relayout.ops.Requests` as is, else the ``requests`` JSON object
+        (None = no requests) read by relayout's pydantic models (:func:`relayout.requests.parse_requests`). A
+        malformed one raises ValueError naming its entry; that message is what the agent sees."""
+        if isinstance(raw, cls):
+            return raw
+        parsed = raw if isinstance(raw, relayout.ops.Requests) else parse_requests(raw)
         return cls(parsed.startup, parsed.operations)
+
+    #: The envelope's entry point, kept for the callers that read ``requests`` by hand; a pydantic model
+    #: declares its field as :data:`RequestsField` instead.
+    from_obj = validate
 
     @classmethod
     def of(
@@ -195,12 +206,12 @@ class Requests(relayout.ops.Requests):
         """The single-node request loading ``libraries``, casting by ``precision`` and storing each sparse
         array in its ``sparse`` format."""
         ops: list[Operation] = []
-        ops += [Cast(ArrayName(name), p) for name, p in (precision or {}).items()]
-        ops += [Format(ArrayName(name), FormatLabel(label)) for name, label in (sparse or {}).items()]
+        ops += [Cast(name, p) for name, p in (precision or {}).items()]
+        ops += [Format(name, label) for name, label in (sparse or {}).items()]
         return cls(Startup(tuple(libraries)), tuple(ops))
 
     def to_json(self) -> dict[str, Any]:
-        """The request as JSON, empty parts left out (``{}`` = no requests)."""
+        """The request as JSON, empty parts left out (``{}`` = no requests); :meth:`validate` reads it back."""
         return requests_json(self)
 
     def single_node(self, arrays: Sequence[ArraySpec]) -> SingleNode:
@@ -272,7 +283,7 @@ class Requests(relayout.ops.Requests):
         ops: list[Operation] = []
         for name, entry in plan["arrays"].items():
             if entry.get("replicated"):
-                ops.append(Replicate(ArrayName(name)))
+                ops.append(Replicate(name))
             else:
                 axes = [
                     None
@@ -286,10 +297,47 @@ class Requests(relayout.ops.Requests):
                 ]
                 ops += operations_for_axes(name, axes)
             if "location" in entry:
-                ops.append(Place(ArrayName(name), Location(entry["location"])))
-        ops += [Replicate(ArrayName(name)) for name in arrays if name not in plan["arrays"]]
+                ops.append(Place(name, Location(entry["location"])))
+        ops += [Replicate(name) for name in arrays if name not in plan["arrays"]]
         grid = grid_request([int(extent) for extent in plan["grid"]])
         return cls(Startup(tuple(libraries), grid), tuple(ops))
+
+
+def self_contained(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` with every ``{"$ref": "#/$defs/<name>"}`` replaced by its definition and ``$defs`` dropped,
+    so it stays valid nested under another schema's property (an agent tool's ``requests``)."""
+    definitions: dict[str, Any] = schema.get("$defs", {})
+
+    def resolved(node: Any) -> Any:
+        if isinstance(node, list):
+            return [resolved(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        out = {key: resolved(value) for key, value in node.items() if key not in ("$defs", "$ref")}
+        if "$ref" in node:
+            out = {**resolved(definitions[node["$ref"].removeprefix("#/$defs/")]), **out}
+        return out
+
+    return resolved(schema)
+
+
+#: ``requests`` as a pydantic field: validated by :meth:`Requests.validate`, written back as
+#: :meth:`Requests.to_json` (in JSON mode), and described by relayout's JSON Schema
+#: (:func:`relayout.requests.requests_schema`, generated from its pydantic models) made self-contained.
+RequestsField = Annotated[
+    Requests,
+    pydantic.PlainValidator(Requests.validate),
+    pydantic.PlainSerializer(Requests.to_json, return_type=dict[str, Any], when_used="json"),
+    pydantic.WithJsonSchema(self_contained(requests_schema())),
+]
+#: Validates, dumps and describes :data:`RequestsField` outside a model.
+REQUESTS_ADAPTER: pydantic.TypeAdapter[Requests] = pydantic.TypeAdapter(RequestsField)
+
+
+def requests_schema_text() -> str:
+    """:data:`REQUESTS_ADAPTER`'s JSON Schema as the agent tool ships it
+    (``agent/hpcagent_agent/tools/requests_schema.json``; the agent runtime cannot import pydantic)."""
+    return json.dumps(REQUESTS_ADAPTER.json_schema(), indent=1, sort_keys=True) + "\n"
 
 
 def own_arrays(names: Sequence[str], specs: Mapping[str, ArraySpec], action: str) -> None:
