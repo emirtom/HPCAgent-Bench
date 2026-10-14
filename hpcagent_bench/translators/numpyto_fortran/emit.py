@@ -5,7 +5,7 @@ import copy
 import dataclasses
 import functools
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from typing import ClassVar, Optional
 
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
@@ -127,7 +127,6 @@ __all__ = [
     "peel_int_casts",
     "pinned_const_decls",
     "prepared_body_emitter",
-    "produces_bool",
     "produces_logical",
     "pure_index_root",
     "rebind_loop_tokens",
@@ -636,8 +635,17 @@ def assigned_bool_literal(tree: ast.AST) -> set[str]:
     return out
 
 
-def produces_logical(rhs: ast.expr) -> bool:
-    """True when an RHS expression evaluates to a boolean (LOGICAL) array: comparisons, and/or/not, & | ^ / ~mask on logicals."""
+def produces_logical(rhs: ast.expr, logical_names: Collection[str] = frozenset()) -> bool:
+    """True when an RHS expression evaluates to a boolean (LOGICAL) array: comparisons, and/or/not, & | ^ / ~mask on logicals.
+
+    ``logical_names`` are the names already known logical (bare or subscripted), so a combine of two
+    mask locals (``both = c1 & c2``) is logical too. numpy semantics: ``&`` is boolean only when BOTH
+    operands are, ``(a < b) & k`` with an integer ``k`` is an integer.
+    """
+    if isinstance(rhs, ast.Name):
+        return rhs.id in logical_names
+    if isinstance(rhs, ast.Subscript) and isinstance(rhs.value, ast.Name):
+        return rhs.value.id in logical_names
     if isinstance(rhs, (ast.Compare, ast.BoolOp)):
         return True
     # A folded bool literal (`(a >= b) | (nssopt == 0)` reaches here as `Compare | False`) is
@@ -648,9 +656,9 @@ def produces_logical(rhs: ast.expr) -> bool:
         if isinstance(rhs.op, ast.Not):
             return True
         if isinstance(rhs.op, ast.Invert):
-            return produces_logical(rhs.operand)
+            return produces_logical(rhs.operand, logical_names)
     if isinstance(rhs, ast.BinOp) and isinstance(rhs.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
-        return produces_logical(rhs.left) and produces_logical(rhs.right)
+        return produces_logical(rhs.left, logical_names) and produces_logical(rhs.right, logical_names)
     return False
 
 
@@ -662,12 +670,13 @@ def logical_locals_(kir: KernelIR) -> set[str]:
     a mask is never *used* as a logical while *declared* real.
 
     Sources: a bare ``True``/``False`` assign, a ``bool`` entry in ``local_dtypes``, a
-    boolean-valued RHS, and -- transitively -- a plain copy from any of those.
+    boolean-valued RHS, and -- transitively -- a plain copy or a & | ^ combine of any of those.
     """
     names: set[str] = set(assigned_bool_literal(kir.tree))
     names |= {nm for nm, dt in kir.local_dtypes.items() if dt in ("bool", "bool_")}
-    # (target, source) of the copies ``X[..] = Y[..]`` / ``X = Y`` that carry a dtype across.
-    copies: list[tuple[str, str]] = []
+    # (target, RHS) of the assigns whose RHS is logical only through a name it reads: a copy
+    # ``X[..] = Y[..]`` / ``X = Y`` or a combine ``X = Y & Z``.
+    pending: list[tuple[str, ast.expr]] = []
     for node in ast.walk(kir.tree):
         if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
             continue
@@ -680,12 +689,8 @@ def logical_locals_(kir: KernelIR) -> set[str]:
             continue
         if produces_logical(node.value):
             names.add(tgt_name)
-            continue
-        src = node.value
-        if isinstance(src, ast.Subscript) and isinstance(src.value, ast.Name):
-            copies.append((tgt_name, src.value.id))
-        elif isinstance(src, ast.Name):
-            copies.append((tgt_name, src.id))
+        else:
+            pending.append((tgt_name, node.value))
     # ``mask[i] = cmp_tmp[i]`` -- the elementwise lowering of ``mask = a < b`` splits the compare
     # into a bool temp and a copy, so the boolean only reaches ``mask`` through the copy. Fixpoint:
     # ast.walk order is not dataflow order, so one pass can miss a chain.
@@ -695,10 +700,10 @@ def logical_locals_(kir: KernelIR) -> set[str]:
     changed = True
     while changed:
         changed = False
-        for tgt_name, src_name in copies:
+        for tgt_name, rhs in pending:
             if tgt_name in names or tgt_name in declared:
                 continue
-            if src_name in names or src_name in bool_sources:
+            if produces_logical(rhs, names | bool_sources):
                 names.add(tgt_name)
                 changed = True
     return names
@@ -3533,48 +3538,33 @@ def collect_implicit_locals(kir: KernelIR) -> list[tuple[str, str]]:
 BITWISE_BINOPS = (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)
 
 
-def produces_bool(node: ast.expr) -> bool:
-    """A boolean-valued RHS: comparison / boolean op / not, a bare True/False literal, or a numpy mask
-    combine (& | ^ ~ with a boolean operand) -- its target is logical."""
-    if isinstance(node, (ast.Compare, ast.BoolOp)):
-        return True
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-        return True
-    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
-        return True
-    if isinstance(node, ast.BinOp) and isinstance(node.op, BITWISE_BINOPS):
-        return produces_bool(node.left) or produces_bool(node.right)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Invert):
-        return produces_bool(node.operand)
-    return False
-
-
-def add_bitwise_operands(rhs: ast.expr, int_uses: set[str]) -> None:
+def add_bitwise_operands(rhs: ast.expr, int_uses: set[str], logical_names: Collection[str]) -> None:
     """Add every Name reachable through bitwise BinOps / Invert in ``rhs`` to ``int_uses`` (IAND /
     IOR / IEOR / ISHFT / NOT take INTEGER), descending through arithmetic, comparisons (``(flags &
-    X) != 0``) and and/or; a boolean operand is a numpy mask combine and is skipped."""
+    X) != 0``) and and/or; a logical operand (:func:`produces_logical` over ``logical_names``) is a
+    numpy mask combine and is skipped."""
     if isinstance(rhs, ast.BinOp) and isinstance(rhs.op, BITWISE_BINOPS):
         for sub in (rhs.left, rhs.right):
-            if produces_bool(sub):
+            if produces_logical(sub, logical_names):
                 continue
             int_uses.update(n.id for n in ast.walk(sub) if isinstance(n, ast.Name))
-            add_bitwise_operands(sub, int_uses)
+            add_bitwise_operands(sub, int_uses, logical_names)
     elif isinstance(rhs, ast.UnaryOp) and isinstance(rhs.op, ast.Invert):
-        if not produces_bool(rhs.operand):  # ``~mask`` stays logical
+        if not produces_logical(rhs.operand, logical_names):  # ``~mask`` stays logical
             int_uses.update(n.id for n in ast.walk(rhs.operand) if isinstance(n, ast.Name))
-            add_bitwise_operands(rhs.operand, int_uses)
+            add_bitwise_operands(rhs.operand, int_uses, logical_names)
     elif isinstance(rhs, ast.BinOp):
-        add_bitwise_operands(rhs.left, int_uses)
-        add_bitwise_operands(rhs.right, int_uses)
+        add_bitwise_operands(rhs.left, int_uses, logical_names)
+        add_bitwise_operands(rhs.right, int_uses, logical_names)
     elif isinstance(rhs, ast.UnaryOp):
-        add_bitwise_operands(rhs.operand, int_uses)
+        add_bitwise_operands(rhs.operand, int_uses, logical_names)
     elif isinstance(rhs, ast.Compare):
-        add_bitwise_operands(rhs.left, int_uses)
+        add_bitwise_operands(rhs.left, int_uses, logical_names)
         for c in rhs.comparators:
-            add_bitwise_operands(c, int_uses)
+            add_bitwise_operands(c, int_uses, logical_names)
     elif isinstance(rhs, ast.BoolOp):
         for v in rhs.values:
-            add_bitwise_operands(v, int_uses)
+            add_bitwise_operands(v, int_uses, logical_names)
 
 
 class LocalTyping:
@@ -3612,16 +3602,11 @@ class LocalTyping:
         self.record_local_dtypes(kir.local_dtypes)
         self.int_uses = names_used_as_int(kir.tree)
         self.int_valued = integer_valued_locals(kir)
-        self.logical_uses = {
-            node.targets[0].id
-            for node in ast.walk(kir.tree)
-            if isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and produces_bool(node.value)
-        }
+        # The body emitter's own logical set (is_logical_node), so a local is never declared
+        # integer while its uses emit it as a LOGICAL.
+        self.logical_uses = logical_locals_(kir)
         self.collect_bitwise_int_uses(kir.tree)
-        self.int64_uses = self.propagate_int64(kir, self.int64_sources(kir))
+        self.int64_uses = self.propagate_int64(kir, self.int64_sources(kir), self.logical_uses)
         self.float_assigned = self.real_element_assigned(kir)
 
     def record_local_dtypes(self, local_dtypes: dict[str, str]) -> None:
@@ -3668,9 +3653,9 @@ class LocalTyping:
             top_bitwise = (isinstance(rhs, ast.BinOp) and isinstance(rhs.op, BITWISE_BINOPS)) or (
                 isinstance(rhs, ast.UnaryOp) and isinstance(rhs.op, ast.Invert)
             )
-            if top_bitwise and not produces_bool(rhs) and isinstance(tgt, ast.Name):
+            if top_bitwise and not produces_logical(rhs, self.logical_uses) and isinstance(tgt, ast.Name):
                 self.int_uses.add(tgt.id)
-            add_bitwise_operands(rhs, self.int_uses)
+            add_bitwise_operands(rhs, self.int_uses, self.logical_uses)
 
     def int64_sources(self, kir: KernelIR) -> set[str]:
         """Every name whose Fortran kind IS int64: size symbols, int64 arrays / scalars / locals, an
@@ -3701,7 +3686,7 @@ class LocalTyping:
         return names
 
     @staticmethod
-    def propagate_int64(kir: KernelIR, sources: set[str]) -> set[str]:
+    def propagate_int64(kir: KernelIR, sources: set[str], logical_names: Collection[str]) -> set[str]:
         """Fixed point: a Name sharing a bitwise BinOp (not a mask combine) or a bitwise intrinsic call
         with an int64 Name, or assigned from an expression reading one, is int64 too."""
         int64_uses = set(sources)
@@ -3711,7 +3696,9 @@ class LocalTyping:
             for node in ast.walk(kir.tree):
                 names: list[str] = []
                 if (
-                    isinstance(node, ast.BinOp) and isinstance(node.op, BITWISE_BINOPS) and not produces_bool(node)
+                    isinstance(node, ast.BinOp)
+                    and isinstance(node.op, BITWISE_BINOPS)
+                    and not produces_logical(node, logical_names)
                 ) or (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Name)
