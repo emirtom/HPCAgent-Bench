@@ -278,12 +278,6 @@ def storage_view_dtype(dtype: str) -> np.dtype:
 
 
 @functools.lru_cache(maxsize=64, typed=True)
-def device_kernel(cp: types.ModuleType, src: str, dst: str) -> Callable[..., None]:
-    """The device kernel of the ``src`` -> ``dst`` cast (compiled on first use, cached by cupy)."""
-    return cp.RawModule(code=device_source([conversion(src, dst)])).get_function(symbol(src, dst))
-
-
-@functools.lru_cache(maxsize=64, typed=True)
 def device_functions(cp: types.ModuleType, source: str) -> Callable[[str], Callable[..., None]]:
     """The kernel lookup of ``source``'s device module, compiled once per process for all its kernels."""
     return cp.RawModule(code=source).get_function
@@ -340,4 +334,5 @@ def device_cast(cp: types.ModuleType, src: DeviceArray, dst: DeviceArray, src_dt
     buffer is an unsigned view, :func:`storage_view_dtype`). Both buffers are C-contiguous cupy arrays."""
     size = int(src.size)
     grid = max(1, min(DEVICE_GRID_LIMIT, -(-size // DEVICE_BLOCK)))
-    device_kernel(cp, src_dtype, dst_dtype)((grid,), (DEVICE_BLOCK,), (src, dst, np.int64(size)))
+    kernel = device_functions(cp, device_source([conversion(src_dtype, dst_dtype)]))(symbol(src_dtype, dst_dtype))
+    kernel((grid,), (DEVICE_BLOCK,), (src, dst, np.int64(size)))
