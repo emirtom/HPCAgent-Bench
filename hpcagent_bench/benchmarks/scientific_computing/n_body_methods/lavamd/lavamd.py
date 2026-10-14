@@ -8,6 +8,8 @@
 
 import numpy as np
 
+from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+
 from hpcagent_bench.benchmarks.scientific_computing.n_body_methods.lavamd.lavamd_numpy import (
     generate_random_lavamd_inputs,
 )
@@ -19,8 +21,10 @@ def initialize(
     particles_per_box,
     seed,
     datatype=np.float64,
+    perturbation: Perturbation | None = None,
 ):
     """Manifest-compatible LavaMD input generator."""
+    seed = resolve(perturbation).reseed(seed)
 
     _ = datatype
     box_offsets, neighbor_counts, neighbor_list, rv, qv = generate_random_lavamd_inputs(

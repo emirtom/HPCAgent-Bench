@@ -10,12 +10,15 @@ override used to construct valid CP2K-style Gaussian and grid data.
 
 import numpy as np
 
+from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+
 MAX_COSET = 10
 MAX_CUBE_RADIUS = 2
 
 
-def initialize(num_tasks, npts, seed, datatype=np.float64):
+def initialize(num_tasks, npts, seed, datatype=np.float64, perturbation: Perturbation | None = None):
     """Create deterministic CP2K-style grid-integration inputs."""
+    seed = resolve(perturbation).reseed(seed)
 
     if int(num_tasks) <= 0:
         raise ValueError("num_tasks must be positive")

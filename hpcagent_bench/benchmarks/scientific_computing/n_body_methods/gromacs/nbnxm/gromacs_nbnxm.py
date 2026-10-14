@@ -5,6 +5,8 @@
 
 import numpy as np
 
+from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+
 from hpcagent_bench.benchmarks.scientific_computing.n_body_methods.gromacs.nbnxm.gromacs_nbnxm_numpy import (
     generate_random_gromacs_inputs,
 )
@@ -19,8 +21,10 @@ def initialize(
     table_size,
     include_exclusions,
     datatype=np.float64,
+    perturbation: Perturbation | None = None,
 ):
     """Manifest-compatible GROMACS NBNxM input generator."""
+    seed = resolve(perturbation).reseed(seed)
 
     (
         x,
