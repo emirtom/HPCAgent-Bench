@@ -5,7 +5,11 @@ import math
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
-from hpcagent_bench.translators.numpyto_common.lib_nodes.elementwise import UNARY_C_MATH
+from hpcagent_bench.translators.numpyto_common.lib_nodes.elementwise import (
+    UNARY_C_MATH,
+    decimals_of,
+    round_to_decimals,
+)
 
 __all__ = [
     "ALG_TRANS",
@@ -101,6 +105,10 @@ MATH_BUILTINS[("np", "absolute")] = "fabs"
 MATH_BUILTINS[("np", "power")] = "pow"
 MATH_BUILTINS[("np", "maximum")] = "fmax"  # 2-arg scalar form falls here
 MATH_BUILTINS[("np", "minimum")] = "fmin"
+#: numpy rounds a tie to even, and so does ``rint`` in the default rounding mode; C's ``round`` rounds
+#: it away from zero (``round(2.5) == 3``, ``np.round(2.5) == 2``).
+MATH_BUILTINS[("np", "round")] = "rint"
+MATH_BUILTINS[("np", "around")] = "rint"
 for orig_, renamed in BESSEL_INTRINSICS.items():
     MATH_BUILTINS[("math", orig_)] = renamed
     MATH_BUILTINS[("np", orig_)] = renamed
@@ -142,14 +150,19 @@ class MathRewriter(ast.NodeTransformer):
     loop). Scalar args fall through to the renamed math intrinsic.
     """
 
-    __slots__ = ("array_names", "defer_array_capable")
+    __slots__ = ("array_names", "defer_array_capable", "user_functions")
 
     #: Renamed to a 2-arg libm call ONLY when both operands are scalars; on arrays the LibNode
     #: expander owns them instead. They are the ufuncs whose scalar and array forms differ.
     ARRAY_CAPABLE = frozenset({"maximum", "minimum"})
 
-    def __init__(self, array_names=None, defer_array_capable: bool = False) -> None:
+    def __init__(
+        self, array_names=None, defer_array_capable: bool = False, user_functions: set[str] | None = None
+    ) -> None:
         self.array_names = array_names or set()
+        #: Functions the kernel module defines. One of them may be named ``round``, and a call to it is
+        #: not Python's builtin.
+        self.user_functions: set[str] = set(user_functions or ())
         # Local array shapes are not known yet on the FIRST pass, so an inlined helper's temps are
         # indistinguishable from scalars there. Renaming on that incomplete picture is what emitted
         # __npb_fmax(double *, double *); the later passes run with the locals in hand and decide
@@ -168,6 +181,15 @@ class MathRewriter(ast.NodeTransformer):
             if self.defer_array_capable and name in self.ARRAY_CAPABLE:
                 return node
             new_name = MATH_BUILTINS.get((mod, name))
+            if (
+                mod in ("np", "numpy")
+                and name in ("round", "around")
+                and (len(node.args) > 1 or node.keywords)
+                and not any(self.refers_to_array(a) for a in node.args)
+            ):
+                return ast.copy_location(
+                    round_to_decimals(node.args[0], decimals_of(node.args[1:], node.keywords)), node
+                )
             if new_name is not None:
                 # Skip the rename when ANY arg involves an array reference (Name or Subscript
                 # with slice) -- the LibNode expander emits the per-element form. Pure-scalar
@@ -176,7 +198,17 @@ class MathRewriter(ast.NodeTransformer):
                 if any(self.refers_to_array(a) for a in node.args):
                     return node
                 node.func = name_(new_name)
+        if isinstance(node.func, ast.Name) and node.func.id == "round" and "round" not in self.user_functions:
+            return self.builtin_round(node)
         return node
+
+    @staticmethod
+    def builtin_round(node: ast.Call) -> ast.expr:
+        """Python's ``round(x)`` rounds a tie to even, as ``rint`` does; C's ``round`` does not.
+        ``round(x, n)`` rounds the exact decimal value of ``x``, which no libm call reproduces."""
+        if len(node.args) != 1 or node.keywords:
+            raise NotImplementedError("builtin round(x, ndigits) is not supported; np.round(x, decimals) is")
+        return ast.copy_location(ast.Call(func=name_("rint"), args=node.args, keywords=[]), node)
 
     def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
         """Lower ``np.pi`` / ``np.e`` to a numeric literal and ``np.inf``

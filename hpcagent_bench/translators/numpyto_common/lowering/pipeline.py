@@ -231,6 +231,13 @@ def required[T](value: T | None, what: str) -> T:
     return value
 
 
+def user_functions(ctx: LoweringContext) -> set[str]:
+    """Names of the functions the kernel module defines: its emitted helpers and any def left in the tree."""
+    names = {h.kernel_name for h in ctx.kir.helpers}
+    names |= {n.name for n in ast.walk(ctx.tree) if isinstance(n, ast.FunctionDef)}
+    return names
+
+
 def lp_seed_shape_table(ctx: LoweringContext) -> None:
     """Seed the array-shape table, then resolve shape-mid-expressions / ellipses.
 
@@ -314,7 +321,9 @@ def lp_normalize_calls(ctx: LoweringContext) -> None:
     # The LOCAL array shapes too, exactly as the two later MathRewriter sites do. With only
     # the declared arrays, an inlined helper's temps look like scalars, and np.maximum on two
     # of them took the scalar rename: __npb_fmax(double *, double *).
-    MathRewriter(set(ash.keys()) | set(ctx.lib_shape_table.keys()), defer_array_capable=True).visit(tree)
+    MathRewriter(
+        set(ash.keys()) | set(ctx.lib_shape_table.keys()), defer_array_capable=True, user_functions=user_functions(ctx)
+    ).visit(tree)
     DaceMapRewriter().visit(tree)
     # ``a = b = v``: ``v`` once -- a temp for a scalar, one name for an array's one buffer.
     chain_ranks = {name: len(shape) for name, shape in ash.items()}
@@ -631,7 +640,9 @@ def lp_libnode_expand(ctx: LoweringContext) -> None:
     # SAME rewriter (rather than special-casing the emitter) with the temps now known keeps the
     # rule intact: an argument that is still array-valued -- a vector matmul temp, which IS in
     # ``lib_shape_table`` -- keeps deferring; a scalar one renames to the math intrinsic.
-    MathRewriter(set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys())).visit(tree)
+    MathRewriter(
+        set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys()), user_functions=user_functions(ctx)
+    ).visit(tree)
     # Second free-name promotion: sparse matvec dispatchers introduce structural
     # scalar symbols that don't exist until the hoister runs (SELL-C-sigma's slice
     # height ``C``), so the first promotion at the top of lower() can't see them.
@@ -1101,7 +1112,9 @@ def lp_scalarized_math_rename(ctx: LoweringContext) -> None:
     per-element ones. An intrinsic whose operand only becomes a scalar HERE (hardsigmoid's
     ``np.clip((x + 3.0) / 6.0, 0, 1)`` -- array-valued at both earlier renames) has no later pass to
     catch it and reaches the emitter as an unsupported call. Same rewriter, later state."""
-    MathRewriter(set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys())).visit(ctx.tree)
+    MathRewriter(
+        set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys()), user_functions=user_functions(ctx)
+    ).visit(ctx.tree)
 
 
 def lp_lower_helpers(ctx: LoweringContext) -> None:
