@@ -176,8 +176,12 @@ def test_precision_is_refused_where_it_changes_nothing_or_names_no_floating_arra
 
 if __name__ == "__main__":
     test_the_request_round_trips_through_json()
-    test_a_malformed_request_is_a_request_fault({"startup": {"grid": []}}, r"startup.grid\n  Tuple should have at least 1 item")
-    test_a_malformed_request_is_a_request_fault({"precision": {"A": "fp32"}}, r"\nprecision\n  Unexpected keyword argument")
+    test_a_malformed_request_is_a_request_fault(
+        {"startup": {"grid": []}}, r"startup.grid\n  Tuple should have at least 1 item"
+    )
+    test_a_malformed_request_is_a_request_fault(
+        {"precision": {"A": "fp32"}}, r"\nprecision\n  Unexpected keyword argument"
+    )
     test_a_pydantic_field_reads_and_writes_the_request()
     test_an_envelope_field_the_model_does_not_name_is_refused("libraries")
     test_an_envelope_field_the_model_does_not_name_is_refused("distribution")

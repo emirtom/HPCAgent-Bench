@@ -303,22 +303,22 @@ class Requests(relayout.ops.Requests):
         return cls(Startup(tuple(libraries), grid), tuple(ops))
 
 
-def self_contained(schema: dict[str, Any]) -> dict[str, Any]:
+def self_contained(schema: dict[str, Any], definitions: dict[str, Any] | None = None) -> dict[str, Any]:
     """``schema`` with every ``{"$ref": "#/$defs/<name>"}`` replaced by its definition and ``$defs`` dropped,
-    so it stays valid nested under another schema's property (an agent tool's ``requests``)."""
-    definitions: dict[str, Any] = schema.get("$defs", {})
+    so it stays valid nested under another schema's property (an agent tool's ``requests``). ``definitions``
+    are the root's ``$defs`` (``schema``'s own when None)."""
+    defs: dict[str, Any] = schema.get("$defs", {}) if definitions is None else definitions
 
-    def resolved(node: Any) -> Any:
+    def resolved(node: object) -> object:
         if isinstance(node, list):
             return [resolved(item) for item in node]
-        if not isinstance(node, dict):
-            return node
-        out = {key: resolved(value) for key, value in node.items() if key not in ("$defs", "$ref")}
-        if "$ref" in node:
-            out = {**resolved(definitions[node["$ref"].removeprefix("#/$defs/")]), **out}
-        return out
+        return self_contained(node, defs) if isinstance(node, dict) else node
 
-    return resolved(schema)
+    out = {key: resolved(value) for key, value in schema.items() if key not in ("$defs", "$ref")}
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        return {**self_contained(defs[ref.removeprefix("#/$defs/")], defs), **out}
+    return out
 
 
 #: ``requests`` as a pydantic field: validated by :meth:`Requests.validate`, written back as
