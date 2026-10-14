@@ -226,7 +226,6 @@ def helper_kir(src: str, precision: str = "", shape: str = "(n,)", params: dict[
             "array_args": ["x", "out"],
             "output_args": ["out"],
             "init": {"arrays": {"x": shape, "out": shape}},
-            "scalars": {"thr": 0.5},
         }
     }
     (d / "bi.json").write_text(json.dumps(bi))
