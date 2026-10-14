@@ -118,9 +118,9 @@ def test_a_point_on_another_image_is_timed_again(tmp_path: pathlib.Path, fake: F
 
 
 def failing_launch(fails: set[str | None]) -> Callable[..., list[int]]:
-    def launch(point: torch_dist_curve.Point, plan: dict[str, object], cfg: object) -> list[int]:
-        if plan["compile_mode"] in fails:
-            raise RuntimeError(f"MPI launch failed (exit 1): boom in {plan['compile_mode']}")
+    def launch(point: torch_dist_curve.Point, plan: torch_dist_curve.DistPlan, cfg: object) -> list[int]:
+        if plan.compile_mode in fails:
+            raise RuntimeError(f"MPI launch failed (exit 1): boom in {plan.compile_mode}")
         return [300, 100, 200]
 
     return launch
