@@ -178,7 +178,9 @@ def initialize(ngrid, nat, nh, datatype=np.complex128, rng: CounterGenerator | N
     # Augmentation form factors: random complex with the physical ~1/(1+|G|^2)
     # low-shell dominance of Q_ij(G).
     qgm = (
-        (rng.standard_normal((nij_tot, ngms)) + 1j * rng.standard_normal((nij_tot, ngms))) / (1.0 + g2)[None, :]
+        exact_math.divide_by_real(
+            rng.standard_normal((nij_tot, ngms)) + 1j * rng.standard_normal((nij_tot, ngms)), (1.0 + g2)[None, :], xp
+        )
     ).astype(cdtype)
 
     # <beta|phi> / <beta|psi> projections and a non-zero accumulation target.

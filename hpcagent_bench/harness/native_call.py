@@ -1373,7 +1373,7 @@ def _call_native_impl(
                 if a.name in owner:
                     c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(kernel_buffers[a.name])))
                 elif a.kind == "ptr":
-                    copied: ArrayBuffer = fresh_copy(xp, src[a.name])
+                    copied = fresh_copy(xp, src[a.name])
                     if rebase[a.name]:  # integer index arrays: the same result on either side
                         copied += rebase[a.name]
                     buf: ArrayBuffer = copied
@@ -1637,12 +1637,13 @@ def no_device_settle() -> None:
     """The harness device wait on a grade with no GPU in it: there is nothing to drain."""
 
 
-def fresh_copy(xp: types.ModuleType, value: object) -> ArrayBuffer:
+def fresh_copy(xp: types.ModuleType, value: object) -> np.ndarray:
     """A contiguous copy of the input ``value`` on ``xp``'s side: a host array copied on the host and moved by
-    ``asarray`` (the H2D transfer for cupy, a no-op for numpy), a device array copied on the device."""
+    ``asarray`` (the H2D transfer for cupy, a no-op for numpy), a device array copied on the device. Typed as
+    numpy's array, whose interface (shape, dtype, copy, in-place arithmetic) a cupy array shares."""
     if isinstance(value, np.ndarray):
         return xp.asarray(np.array(value, copy=True, order="C"))
-    return cast("ArrayBuffer", value).copy(order="C")
+    return cast("np.ndarray", value).copy(order="C")
 
 
 def stage_python_inputs(src: KernelData, input_args: Sequence[str], xp: types.ModuleType) -> list[object]:

@@ -10,9 +10,10 @@ something else imported it.
 
 import sys
 from types import ModuleType
-from typing import Any
+from typing import Any, TypeGuard
 
 import numpy as np
+from numpy.typing import NDArray
 
 __all__ = ["DEVICE_MODULE", "is_array", "module_of"]
 
@@ -20,7 +21,7 @@ __all__ = ["DEVICE_MODULE", "is_array", "module_of"]
 DEVICE_MODULE = "cupy"
 
 
-def module_of(value: Any) -> ModuleType | None:
+def module_of(value: object) -> ModuleType | None:
     """numpy for a numpy array, cupy for a cupy array, ``None`` for anything else (a scalar, a dict payload)."""
     if isinstance(value, np.ndarray):
         return np
@@ -32,6 +33,6 @@ def module_of(value: Any) -> ModuleType | None:
     return None
 
 
-def is_array(value: Any) -> bool:
-    """Whether ``value`` is a numpy or a cupy array."""
+def is_array(value: object) -> TypeGuard[NDArray[Any]]:
+    """Whether ``value`` is a numpy or a cupy array (typed as numpy's, whose interface a cupy array shares)."""
     return module_of(value) is not None

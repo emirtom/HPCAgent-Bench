@@ -23,7 +23,7 @@ import math
 import secrets
 from collections.abc import Sequence
 from types import ModuleType
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
@@ -31,7 +31,7 @@ from numpy.typing import DTypeLike, NDArray
 from hpcagent_bench.support import counter_rng, exact_math
 from hpcagent_bench.support.array_module import module_of
 
-__all__ = ["OPEN_FLOOR", "SEED_BITS", "CounterGenerator", "Size", "shape_of"]
+__all__ = ["OPEN_FLOOR", "SEED_BITS", "CounterGenerator", "Draw", "Shape", "Size", "shape_of"]
 
 #: Bits of a seed drawn from fresh entropy (a non-negative int64).
 SEED_BITS = 63
@@ -41,6 +41,12 @@ OPEN_FLOOR = 0.5**54
 
 #: A draw's ``size``: ``None`` for one value, an extent, or a shape -- numpy's convention.
 type Size = int | Sequence[int] | None
+#: What a draw returns: the array, or one Python number for ``size=None`` (each method's overloads say which).
+type Draw = NDArray[Any] | int | float
+#: A location or scale argument: a number, or an array broadcast against the draw.
+type Operand = float | NDArray[Any]
+#: A sized draw's ``size``.
+type Shape = int | Sequence[int]
 
 
 def shape_of(size: Size) -> tuple[int, ...]:
@@ -73,18 +79,34 @@ class CounterGenerator:
         self.stream += 1
         return stream
 
-    def scalar_or_array(self, values: NDArray[Any], size: Size) -> Any:
+    def scalar_or_array(self, values: NDArray[Any], size: Size) -> Draw:
         """``values`` as numpy returns them: one Python number for ``size=None``, else the array."""
         if size is None:
             return values.reshape(-1)[0].item()
         return self.xp.asarray(values)  # 0-d arithmetic gives a scalar; a sized draw is always an array
 
-    def random(self, size: Size = None, dtype: DTypeLike = np.float64) -> Any:
+    @overload
+    def random(self, size: None = None, dtype: DTypeLike = np.float64) -> float: ...
+    @overload
+    def random(self, size: Shape, dtype: DTypeLike = np.float64) -> NDArray[Any]: ...
+
+    def random(self, size: Size = None, dtype: DTypeLike = np.float64) -> Draw:
         """Uniform in [0, 1)."""
         values = counter_rng.uniform_field(shape_of(size), self.seed, self.next_stream(), self.xp, dtype)
         return self.scalar_or_array(values, size)
 
-    def uniform(self, low: Any = 0.0, high: Any = 1.0, size: Size = None) -> Any:
+    @overload
+    def uniform(self, low: float = 0.0, high: float = 1.0, size: None = None) -> float: ...
+    @overload
+    def uniform(self, low: Operand, high: Operand, size: Shape) -> NDArray[Any]: ...
+    @overload
+    def uniform(self, low: Operand = 0.0, high: Operand = 1.0, *, size: Shape) -> NDArray[Any]: ...
+    @overload
+    def uniform(self, low: NDArray[Any], high: Operand = 1.0, size: None = None) -> NDArray[Any]: ...
+    @overload
+    def uniform(self, low: float, high: NDArray[Any], size: None = None) -> NDArray[Any]: ...
+
+    def uniform(self, low: Operand = 0.0, high: Operand = 1.0, size: Size = None) -> Draw:
         """Uniform in [low, high): ``low + (high - low) * u``, as numpy computes it. ``low``/``high`` may be arrays
         (then ``size`` defaults to their broadcast shape)."""
         if size is None and (np.ndim(low) or np.ndim(high)):
@@ -92,21 +114,46 @@ class CounterGenerator:
         unit = counter_rng.uniform_field(shape_of(size), self.seed, self.next_stream(), self.xp)
         return self.scalar_or_array(low + (high - low) * unit, size)
 
-    def standard_normal(self, size: Size = None, dtype: DTypeLike = np.float64) -> Any:
+    @overload
+    def standard_normal(self, size: None = None, dtype: DTypeLike = np.float64) -> float: ...
+    @overload
+    def standard_normal(self, size: Shape, dtype: DTypeLike = np.float64) -> NDArray[Any]: ...
+
+    def standard_normal(self, size: Size = None, dtype: DTypeLike = np.float64) -> Draw:
         """Mean 0, variance 1 (Irwin-Hall, tails at +-6)."""
         values = counter_rng.normal_field(shape_of(size), self.seed, self.next_stream(), self.xp, dtype)
         return self.scalar_or_array(values, size)
 
-    def normal(self, loc: Any = 0.0, scale: Any = 1.0, size: Size = None) -> Any:
+    @overload
+    def normal(self, loc: float = 0.0, scale: float = 1.0, size: None = None) -> float: ...
+    @overload
+    def normal(self, loc: Operand, scale: Operand, size: Shape) -> NDArray[Any]: ...
+    @overload
+    def normal(self, loc: Operand = 0.0, scale: Operand = 1.0, *, size: Shape) -> NDArray[Any]: ...
+    @overload
+    def normal(self, loc: NDArray[Any], scale: Operand = 1.0, size: None = None) -> NDArray[Any]: ...
+    @overload
+    def normal(self, loc: float, scale: NDArray[Any], size: None = None) -> NDArray[Any]: ...
+
+    def normal(self, loc: Operand = 0.0, scale: Operand = 1.0, size: Size = None) -> Draw:
         """``loc + scale * z``; ``loc``/``scale`` may be arrays."""
         if size is None and (np.ndim(loc) or np.ndim(scale)):
             size = np.broadcast_shapes(np.shape(loc), np.shape(scale))
         unit = counter_rng.normal_field(shape_of(size), self.seed, self.next_stream(), self.xp)
         return self.scalar_or_array(loc + scale * unit, size)
 
+    @overload
+    def integers(
+        self, low: int, high: int | None = None, size: None = None, dtype: DTypeLike = np.int64, endpoint: bool = False
+    ) -> int: ...
+    @overload
+    def integers(
+        self, low: int, high: int | None, size: Shape, dtype: DTypeLike = np.int64, endpoint: bool = False
+    ) -> NDArray[Any]: ...
+
     def integers(
         self, low: int, high: int | None = None, size: Size = None, dtype: DTypeLike = np.int64, endpoint: bool = False
-    ) -> Any:
+    ) -> Draw:
         """Integers in [low, high) (``[low, high]`` with ``endpoint``); ``integers(n)`` is [0, n)."""
         if high is None:
             low, high = 0, low
@@ -131,13 +178,30 @@ class CounterGenerator:
         """Permute ``x`` along its first axis, in place."""
         x[...] = self.permutation(x)
 
+    @overload
+    def choice(
+        self,
+        a: int | NDArray[Any] | Sequence[Any],
+        size: None = None,
+        replace: bool = True,
+        p: Sequence[float] | NDArray[Any] | None = None,
+    ) -> Any: ...  # noqa: ANN401 -- one element of ``a``, whatever ``a`` holds
+    @overload
+    def choice(
+        self,
+        a: int | NDArray[Any] | Sequence[Any],
+        size: Shape,
+        replace: bool = True,
+        p: Sequence[float] | NDArray[Any] | None = None,
+    ) -> NDArray[Any]: ...
+
     def choice(
         self,
         a: int | NDArray[Any] | Sequence[Any],
         size: Size = None,
         replace: bool = True,
         p: Sequence[float] | NDArray[Any] | None = None,
-    ) -> Any:
+    ) -> Draw:
         """Draw from ``a`` (``range(a)`` for an int). ``p`` weights are accumulated on the host, so every array
         library compares the same thresholds; without replacement, the first ``size`` of a permutation."""
         population = int(a) if isinstance(a, (int, np.integer)) else len(a)
@@ -149,7 +213,8 @@ class CounterGenerator:
         elif p is None:
             picked = self.integers(0, population, shape_of(size))
         else:
-            weights = p.get() if module_of(p) not in (None, np) else p  # thresholds are summed on the host
+            device = module_of(p)
+            weights = device.asnumpy(p) if device not in (None, np) else p  # thresholds are summed on the host
             cumulative = np.cumsum(np.asarray(weights, dtype=np.float64))
             cumulative /= cumulative[-1]
             unit = counter_rng.uniform_field(shape_of(size), self.seed, self.next_stream(), self.xp)
@@ -164,19 +229,39 @@ class CounterGenerator:
         unit = counter_rng.uniform_field(shape_of(size), self.seed, self.next_stream(), self.xp)
         return self.xp.maximum(unit, OPEN_FLOOR)
 
-    def standard_exponential(self, size: Size = None) -> Any:
+    @overload
+    def standard_exponential(self, size: None = None) -> float: ...
+    @overload
+    def standard_exponential(self, size: Shape) -> NDArray[Any]: ...
+
+    def standard_exponential(self, size: Size = None) -> Draw:
         """``-log u``: exponential of rate 1."""
         return self.exponential(1.0, size)
 
-    def exponential(self, scale: float = 1.0, size: Size = None) -> Any:
+    @overload
+    def exponential(self, scale: float = 1.0, size: None = None) -> float: ...
+    @overload
+    def exponential(self, scale: float, size: Shape) -> NDArray[Any]: ...
+
+    def exponential(self, scale: float = 1.0, size: Size = None) -> Draw:
         """``-scale log u``."""
         return self.scalar_or_array(-scale * exact_math.log(self.open_unit(size), self.xp), size)
 
-    def lognormal(self, mean: float = 0.0, sigma: float = 1.0, size: Size = None) -> Any:
+    @overload
+    def lognormal(self, mean: float = 0.0, sigma: float = 1.0, size: None = None) -> float: ...
+    @overload
+    def lognormal(self, mean: float, sigma: float, size: Shape) -> NDArray[Any]: ...
+
+    def lognormal(self, mean: float = 0.0, sigma: float = 1.0, size: Size = None) -> Draw:
         """``exp(mean + sigma z)``."""
         return self.scalar_or_array(exact_math.exp(self.normal(mean, sigma, shape_of(size)), self.xp), size)
 
-    def gamma(self, shape: float, scale: float = 1.0, size: Size = None) -> Any:
+    @overload
+    def gamma(self, shape: float, scale: float = 1.0, size: None = None) -> float: ...
+    @overload
+    def gamma(self, shape: float, scale: float, size: Shape) -> NDArray[Any]: ...
+
+    def gamma(self, shape: float, scale: float = 1.0, size: Size = None) -> Draw:
         """Wilson-Hilferty: ``shape (1 - 1/(9 shape) + z / (3 sqrt(shape)))**3``, floored at 0, times ``scale``."""
         if shape <= 0.0:
             raise ValueError(f"gamma: shape {shape} is not positive")
@@ -184,14 +269,24 @@ class CounterGenerator:
         root = self.xp.maximum(1.0 - 1.0 / (9.0 * shape) + z / (3.0 * math.sqrt(shape)), 0.0)
         return self.scalar_or_array(shape * scale * exact_math.ipow(root, 3, self.xp), size)
 
-    def beta(self, a: float, b: float, size: Size = None) -> Any:
+    @overload
+    def beta(self, a: float, b: float, size: None = None) -> float: ...
+    @overload
+    def beta(self, a: float, b: float, size: Shape) -> NDArray[Any]: ...
+
+    def beta(self, a: float, b: float, size: Size = None) -> Draw:
         """``X / (X + Y)`` of two gamma draws of shapes ``a`` and ``b``."""
         x = self.gamma(a, 1.0, shape_of(size))
         y = self.gamma(b, 1.0, shape_of(size))
         total = x + y
         return self.scalar_or_array(self.xp.where(total > 0.0, x / self.xp.where(total > 0.0, total, 1.0), 0.5), size)
 
-    def laplace(self, loc: float = 0.0, scale: float = 1.0, size: Size = None) -> Any:
+    @overload
+    def laplace(self, loc: float = 0.0, scale: float = 1.0, size: None = None) -> float: ...
+    @overload
+    def laplace(self, loc: float, scale: float, size: Shape) -> NDArray[Any]: ...
+
+    def laplace(self, loc: float = 0.0, scale: float = 1.0, size: Size = None) -> Draw:
         """``loc + scale s log u``: a random sign ``s`` times an exponential draw."""
         sign = self.xp.where(self.random(shape_of(size)) < 0.5, -1.0, 1.0)
         return self.scalar_or_array(loc + scale * sign * self.exponential(1.0, shape_of(size)), size)

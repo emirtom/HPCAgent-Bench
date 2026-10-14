@@ -144,7 +144,7 @@ def initialize(
     if lrot:
         g0 = g0 * 0.05
         g0[xp.arange(nvec), xp.arange(nvec) % kdim] += 1.0
-    g0 = g0 / exact_math.norm(g0, axis=1, keepdims=True, xp=xp)
+    g0 = exact_math.divide_by_real(g0, exact_math.norm(g0, axis=1, keepdims=True, xp=xp), xp)
     if npol == 1:
         evc[:, :npw] = g0.astype(complex_dtype)
     else:

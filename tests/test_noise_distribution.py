@@ -98,9 +98,7 @@ def test_the_registered_distribution_draws_its_base_and_perturbs_it_from_the_arr
     assert not np.array_equal(drawn, base)
     again = distributions.generate("noise", (64, 64), Precision.FP64, {"rng": rng_b})
     assert np.array_equal(drawn, again)
-    normal = distributions.generate(
-        "noise", (64, 64), Precision.FP64, {"rng": CounterGenerator(7), "base": "normal"}
-    )
+    normal = distributions.generate("noise", (64, 64), Precision.FP64, {"rng": CounterGenerator(7), "base": "normal"})
     assert abs(float(normal.std()) - 1.0) < 0.1
 
 

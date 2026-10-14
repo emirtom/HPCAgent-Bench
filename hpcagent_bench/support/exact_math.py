@@ -5,7 +5,7 @@
 
 glibc and a GPU's math library round ``exp``, ``log``, ``sin`` and ``pow`` differently in the last place, so an
 initializer that calls them builds different inputs on the host and on the device. These versions use only
-operations IEEE 754 rounds exactly the same everywhere -- ``+ - * /``, ``sqrt``, ``rint``, ``frexp``, ``ldexp``,
+operations IEEE 754 rounds exactly the same everywhere -- ``+ - * /``, ``sqrt``, ``rint``, ``ldexp``,
 comparisons and ``where`` -- each as its own array operation, so no compiler fuses two of them into an FMA.
 They are accurate to a few ulp of float64, which is all an input distribution needs. Arguments are converted to
 float64 first; a float32 result is the float64 one rounded once.
@@ -21,7 +21,7 @@ from types import ModuleType
 from typing import Any
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from hpcagent_bench.support.array_module import module_of
 
@@ -30,8 +30,10 @@ __all__ = [
     "EXP_LIMIT",
     "cos",
     "cumsum",
+    "divide_by_real",
     "exp",
     "expm1",
+    "frexp",
     "ipow",
     "linspace",
     "log",
@@ -56,6 +58,13 @@ EXP_LIMIT = 708.0
 LN2_HI = 6.93147180369123816490e-01
 LN2_LO = 1.90821492927058770002e-10
 INV_LN2 = 1.0 / math.log(2.0)
+#: The float64 layout :func:`frexp` reads: 52 mantissa bits, an 11-bit exponent biased so that ``[1/2, 1)`` is 1022.
+MANTISSA_BITS = 52
+EXPONENT_MASK = 0x7FF
+EXPONENT_HALF = 1022
+SMALLEST_NORMAL = 2.0**-1022
+SUBNORMAL_SHIFT = 54
+SUBNORMAL_SCALE = 2.0**SUBNORMAL_SHIFT
 #: ``pi / 2`` in three parts (Cody-Waite), exact products for ``|k| < 2**20``.
 HALF_PI_1 = 1.5707963267341256e00
 HALF_PI_2 = 6.077100506506192e-11
@@ -68,7 +77,7 @@ TRIG_TERMS = 11
 ATANH_TERMS = 12
 
 
-def array_module(*values: Any, xp: ModuleType | None = None) -> ModuleType:
+def array_module(*values: object, xp: ModuleType | None = None) -> ModuleType:
     """``xp`` when given, else the array module of the first array among ``values`` (numpy for scalars), so a call on
     a device array stays on the device without being told."""
     if xp is not None:
@@ -80,7 +89,7 @@ def array_module(*values: Any, xp: ModuleType | None = None) -> ModuleType:
     return np
 
 
-def as_f64(x: Any, xp: ModuleType) -> Array:
+def as_f64(x: ArrayLike, xp: ModuleType) -> Array:
     """``x`` as a float64 array of ``xp``; a complex ``x`` is refused rather than silently made real."""
     value = xp.asarray(x)
     if value.dtype.kind == "c":
@@ -97,7 +106,7 @@ def horner(r: Array, coefficients: list[float], xp: ModuleType) -> Array:
     return total
 
 
-def exp(x: Any, xp: ModuleType | None = None) -> Array:
+def exp(x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``e**x``: ``x = k ln2 + r``, ``exp(r)`` by its Taylor series, then ``ldexp`` by ``k``. A complex ``x = a + ib``
     gives ``e**a (cos b + i sin b)`` as complex128."""
     xp = array_module(x, xp=xp)
@@ -113,7 +122,7 @@ def exp(x: Any, xp: ModuleType | None = None) -> Array:
     return xp.ldexp(series, k.astype(xp.int32))
 
 
-def expm1(x: Any, xp: ModuleType | None = None) -> Array:
+def expm1(x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``e**x - 1``, without the cancellation of ``exp(x) - 1`` near 0 (the Taylor series ``x + x**2/2 + ...``
     there)."""
     xp = array_module(x, xp=xp)
@@ -122,13 +131,38 @@ def expm1(x: Any, xp: ModuleType | None = None) -> Array:
     return xp.where(xp.abs(value) < EXPM1_SERIES_LIMIT, series, exp(value, xp) - 1.0)
 
 
-def log(x: Any, xp: ModuleType | None = None) -> Array:
+def frexp(x: ArrayLike, xp: ModuleType | None = None) -> tuple[Array, Array]:
+    """``x = m 2**e`` with ``|m|`` in ``[1/2, 1)``, read off the float64 bit pattern; ``0``, ``inf`` and ``nan`` give
+    themselves and ``e = 0``. ``cupy.frexp`` on ROCm rounds ``m`` to float32 precision, so the library's own is not
+    used."""
+    xp = array_module(x, xp=xp)
+    value = xp.ascontiguousarray(as_f64(x, xp))
+    special = (value == 0.0) | ~xp.isfinite(value)
+    subnormal = ~special & (xp.abs(value) < SMALLEST_NORMAL)
+    # A subnormal is scaled into the normal range first (exact: a power of two), and its exponent shifted back.
+    scaled = xp.ascontiguousarray(xp.where(subnormal, xp.where(subnormal, value, 0.0) * SUBNORMAL_SCALE, value))
+    bits = scaled.view(xp.int64)
+    exponent = ((bits >> MANTISSA_BITS) & EXPONENT_MASK) - EXPONENT_HALF
+    exponent = xp.where(subnormal, exponent - SUBNORMAL_SHIFT, exponent)
+    mantissa = ((bits & ~(EXPONENT_MASK << MANTISSA_BITS)) | (EXPONENT_HALF << MANTISSA_BITS)).view(xp.float64)
+    return xp.where(special, value, mantissa), xp.where(special, 0, exponent).astype(xp.int32)
+
+
+def divide_by_real(z: ArrayLike, d: ArrayLike, xp: ModuleType | None = None) -> Array:
+    """``z / d`` for a complex ``z`` and a real ``d``, one real division per part: a complex division by
+    ``d + 0j`` rounds differently on numpy and on cupy."""
+    xp = array_module(z, d, xp=xp)
+    numerator, denominator = xp.asarray(z), as_f64(d, xp)
+    return numerator.real / denominator + 1j * (numerator.imag / denominator)
+
+
+def log(x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """Natural logarithm of a positive ``x``: ``x = m 2**e`` with ``m`` in ``[sqrt(1/2), sqrt(2))``, then
     ``log m = 2 atanh((m - 1) / (m + 1))``. ``0`` gives ``-inf``; a negative ``x`` gives ``nan``."""
     xp = array_module(x, xp=xp)
     value = as_f64(x, xp)
     # A non-positive x takes the series at 1.0, whose result the last two lines replace.
-    mantissa, exponent = xp.frexp(xp.where(value > 0.0, value, 1.0))
+    mantissa, exponent = frexp(xp.where(value > 0.0, value, 1.0), xp)
     low = mantissa < math.sqrt(0.5)
     mantissa = xp.where(low, mantissa * 2.0, mantissa)
     exponent = xp.where(low, exponent - 1, exponent).astype(xp.float64)
@@ -142,7 +176,7 @@ def log(x: Any, xp: ModuleType | None = None) -> Array:
     return xp.where(value < 0.0, xp.nan, result)
 
 
-def reduce_half_pi(x: Any, xp: ModuleType) -> tuple[Array, Array]:
+def reduce_half_pi(x: ArrayLike, xp: ModuleType) -> tuple[Array, Array]:
     """``x = k pi/2 + r`` with ``|r| <= pi/4``: ``r`` and ``k mod 4`` (as float64)."""
     value = as_f64(x, xp)
     k = xp.rint(value * INV_HALF_PI)
@@ -160,7 +194,7 @@ def sin_cos_series(r: Array, xp: ModuleType) -> tuple[Array, Array]:
     return r * horner(r2, sin_terms, xp), horner(r2, cos_terms, xp)
 
 
-def sin(x: Any, xp: ModuleType | None = None) -> Array:
+def sin(x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``sin x``, for ``|x| < 2**20`` (larger arguments lose the reduction's exactness)."""
     xp = array_module(x, xp=xp)
     r, quadrant = reduce_half_pi(x, xp)
@@ -168,7 +202,7 @@ def sin(x: Any, xp: ModuleType | None = None) -> Array:
     return xp.where(quadrant == 0.0, s, xp.where(quadrant == 1.0, c, xp.where(quadrant == 2.0, -s, -c)))
 
 
-def cos(x: Any, xp: ModuleType | None = None) -> Array:
+def cos(x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``cos x``, for ``|x| < 2**20``."""
     xp = array_module(x, xp=xp)
     r, quadrant = reduce_half_pi(x, xp)
@@ -176,7 +210,7 @@ def cos(x: Any, xp: ModuleType | None = None) -> Array:
     return xp.where(quadrant == 0.0, c, xp.where(quadrant == 1.0, -s, xp.where(quadrant == 2.0, -c, s)))
 
 
-def tanh(x: Any, xp: ModuleType | None = None) -> Array:
+def tanh(x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``tanh x = (e**2x - 1) / (e**2x + 1)``, with the sign folded so the exponential never overflows."""
     xp = array_module(x, xp=xp)
     value = as_f64(x, xp)
@@ -185,7 +219,7 @@ def tanh(x: Any, xp: ModuleType | None = None) -> Array:
     return xp.where(value < 0.0, -magnitude, magnitude)
 
 
-def ipow(x: Any, n: int, xp: ModuleType | None = None) -> Array:
+def ipow(x: ArrayLike, n: int, xp: ModuleType | None = None) -> Array:
     """``x**n`` for a non-negative integer ``n`` by repeated squaring (``x**2`` is one multiply)."""
     xp = array_module(x, xp=xp)
     if n < 0:
@@ -201,7 +235,7 @@ def ipow(x: Any, n: int, xp: ModuleType | None = None) -> Array:
     return result
 
 
-def pow(x: Any, y: Any, xp: ModuleType | None = None) -> Array:  # noqa: A001 -- the function's own name in every math library
+def pow(x: ArrayLike, y: ArrayLike, xp: ModuleType | None = None) -> Array:  # noqa: A001 -- the function's own name in every math library
     """``x**y`` for a positive ``x``: ``exp(y log x)``."""
     xp = array_module(x, y, xp=xp)
     return exp(as_f64(y, xp) * log(x, xp), xp)
@@ -230,7 +264,7 @@ def exact_in_any_order(values: Array) -> bool:
     return values.dtype.kind in "biu"
 
 
-def sum(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:  # noqa: A001 -- numpy's name
+def sum(x: ArrayLike, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:  # noqa: A001 -- numpy's name
     """``x`` summed over ``axis`` (every element for ``None``) in a fixed binary-tree order."""
     xp = array_module(x, xp=xp)
     values = xp.asarray(x)
@@ -252,7 +286,7 @@ def sum(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType 
     return xp.expand_dims(total, axis) if keepdims else total
 
 
-def mean(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:
+def mean(x: ArrayLike, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:
     """:func:`sum` divided by the count, as float64 for an integer ``x``."""
     xp = array_module(x, xp=xp)
     values = xp.asarray(x)
@@ -261,7 +295,7 @@ def mean(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType
     return total / max(count, 1)
 
 
-def cumsum(x: Any, axis: int | None = None, xp: ModuleType | None = None) -> Array:
+def cumsum(x: ArrayLike, axis: int | None = None, xp: ModuleType | None = None) -> Array:
     """Running sum over ``axis`` (the flattened ``x`` for ``None``) by a Hillis-Steele scan: step ``d`` adds the
     element ``d`` back to every element, for ``d = 1, 2, 4, ...``."""
     xp = array_module(x, xp=xp)
@@ -276,16 +310,16 @@ def cumsum(x: Any, axis: int | None = None, xp: ModuleType | None = None) -> Arr
         shifted = rows[:-step].copy()
         rows[step:] = rows[step:] + shifted
         step *= 2
-    return xp.moveaxis(rows, 0, axis % values.ndim)
+    return xp.ascontiguousarray(xp.moveaxis(rows, 0, axis % values.ndim))
 
 
-def matvec(a: Any, x: Any, xp: ModuleType | None = None) -> Array:
+def matvec(a: ArrayLike, x: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``a @ x`` for a matrix ``a`` and a vector ``x``: each row's products summed by :func:`sum`."""
     xp = array_module(a, x, xp=xp)
     return sum(xp.asarray(a) * xp.asarray(x)[None, :], 1, False, xp)
 
 
-def norm(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:
+def norm(x: ArrayLike, axis: int | None = None, keepdims: bool = False, xp: ModuleType | None = None) -> Array:
     """The Euclidean norm over ``axis``: ``sqrt`` of the :func:`sum` of squares (``|x|**2`` for complex)."""
     xp = array_module(x, xp=xp)
     values = xp.asarray(x)
@@ -293,7 +327,7 @@ def norm(x: Any, axis: int | None = None, keepdims: bool = False, xp: ModuleType
     return xp.sqrt(sum(squares, axis, keepdims, xp))
 
 
-def matmul(a: Any, b: Any, xp: ModuleType | None = None) -> Array:
+def matmul(a: ArrayLike, b: ArrayLike, xp: ModuleType | None = None) -> Array:
     """``a @ b`` for matrices: every product formed, then summed over the inner axis by :func:`sum`. Memory is
     ``m k n``, so this is for the small products of an initializer (a few projectors, three coordinates)."""
     xp = array_module(a, b, xp=xp)

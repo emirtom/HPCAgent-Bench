@@ -6,10 +6,12 @@ Each position is kept independently with one probability, so the count is binomi
 allow six standard deviations."""
 
 import math
+from collections.abc import Callable
 import time
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from hpcagent_bench.support.counter_generator import CounterGenerator
 from hpcagent_bench.support.helpers.sparse.generators import (
@@ -61,7 +63,7 @@ def test_banded_pattern_refuses_a_target_the_band_cannot_hold() -> None:
 
 
 @pytest.mark.parametrize("builder", [make_uniform, make_banded])
-def test_symmetric_builders_mirror_without_repeating_a_position(builder) -> None:
+def test_symmetric_builders_mirror_without_repeating_a_position(builder: Callable[..., sp.spmatrix]) -> None:
     matrix = builder(2000, 20000, symmetric=True, seed=11).tocsr()
     assert matrix.nnz == matrix.tocoo().nnz, "no position may be stored twice"
     assert (matrix != matrix.T).nnz == 0
