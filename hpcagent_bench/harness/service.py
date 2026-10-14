@@ -112,6 +112,7 @@ __all__ = [
     "FALLBACK_REQUEST_LANGUAGE",
     "FORKSERVER_PRELOAD",
     "INPUT_MODES",
+    "JUDGE_FAULT_CAUSE",
     "JUDGE_PRELOAD",
     "MISDIRECTED_REQUEST",
     "OFFLOAD_COMPUTE_TOOL",
@@ -169,6 +170,7 @@ __all__ = [
     "scales",
     "serve",
     "service_prompt",
+    "setup_language_refusal",
     "source_file_ext",
     "submit_verdict",
     "triton_launch_problem",
@@ -544,6 +546,10 @@ SOURCE_EXT_ALIASES: dict[str, tuple[str, ...]] = {"cpp": ("cc", "cxx"), "fortran
 #: with ``GET /build`` and ``helpers/scripts/gen_build_fragments.py``.
 SUBMISSION_BUILD_MODE: Mode = Mode.SINGLE_CORE
 
+#: The ``cause`` of a 500 the judge answers for its own failure before any grade was recorded (the manifest,
+#: an exception in the grade itself): like a verdict's ``judge_fault``, it spends no single submission.
+JUDGE_FAULT_CAUSE = "judge_fault"
+
 #: Delivery languages each enforced ``input_mode`` accepts: ``source`` compiles, ``py-binding``
 #: calls Python. ``any`` and ``library`` are absent (not enforced).
 ENFORCED_LANGUAGES: dict[InputMode, tuple[str, ...]] = {
@@ -576,6 +582,26 @@ def delivery_language(language: str, mode: InputMode) -> str:
     if mode is InputMode.PY_BINDING and language in PYTHON_DELIVERED_LANGUAGES:
         return PYTHON_LANG
     return language
+
+
+def setup_language_refusal(language: str, mode: InputMode) -> str | None:
+    """A 400 message when an enforced ``mode`` (:data:`ENFORCED_LANGUAGES`) receives a delivery ``language``
+    other than the setup's own (``record.language`` through :func:`delivery_language`); else ``None``.
+
+    Residency and the recorded row's language both come from elsewhere (the request's language and the
+    setup's), so without this a HIP-setup agent could post ``language=c`` and get a host-timed grade recorded
+    as a HIP answer. A setup that declares no language this mode accepts pins nothing."""
+    from hpcagent_bench.harness import recording
+
+    allowed = ENFORCED_LANGUAGES.get(mode, ())
+    declared = recording.language_tag()
+    pinned = delivery_language(declared, mode) if declared else None
+    if pinned not in allowed or language == pinned:
+        return None
+    return (
+        f"this judge's setup delivers {pinned!r} (input_mode {mode.value!r}); got language {language!r} -- "
+        "refused rather than grading another language under this setup's rows"
+    )
 
 
 def gpu_language_refusal(language: str) -> str | None:
@@ -748,7 +774,7 @@ def _source_from_file(path: str, kernel: str, language: str, episode_id: str | N
             f"extension; got {resolved.name!r}"
         )
     try:
-        return resolved.read_text()
+        return sandbox.read_resolved(resolved)
     except OSError as exc:
         raise ValueError(f"'{field}' {resolved.name!r} is not readable in the shared folder: {exc}") from exc
 
@@ -780,6 +806,9 @@ def _submission_from_body(
             f"this judge's input_mode is {cfg.input_mode.value!r}, which accepts only "
             f"language {' / '.join(allowed)}; got {language!r}"
         )
+    pinned = setup_language_refusal(language, cfg.input_mode)
+    if pinned is not None:
+        raise ValueError(pinned)
     source = (
         _source_from_file(source_file, kernel, language, episode_id) if source_file else body.text_or_none("source")
     )
@@ -1708,7 +1737,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         try:
             refused = distribution_refusal(submission, task, preset)
         except ValueError as exc:  # a malformed mpi.replicatable list is the MANIFEST's fault
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc), "cause": JUDGE_FAULT_CAUSE})
         if refused is None:
             refused = requests_refusal(submission, task, self.cfg.datatype)
         if refused is None:
@@ -1743,7 +1772,10 @@ class JudgeHandler(BaseHTTPRequestHandler):
             except LayoutRefused as exc:  # a padded layout past its limit on the graded input: 400
                 return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001 -- scoring infra failure -> 500
-                return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"score failed for {kernel!r}: {exc}"})
+                return self._send(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"score failed for {kernel!r}: {exc}", "cause": JUDGE_FAULT_CAUSE},
+                )
             if hidden:
                 return self.send_submit(
                     result,

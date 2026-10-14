@@ -1125,6 +1125,12 @@ class FortranBodyEmitter(BaseEmitter):
         #: populated by the caller.
         self._int_kinds: dict[str, str] = {}
 
+    def omp_private_clause(self, node: ast.For, arrays: set[str], reduction_acc: str | None = None) -> str:
+        """`` private(t, u)`` naming the body scalars of a parallel loop as declared (see
+        :func:`parallelism.omp_private_scalars`), or ``""`` when the body binds none."""
+        names = parallelism.omp_private_scalars(node, arrays, reduction_acc)
+        return f" private({', '.join(self.emit_expr(name_(n)) for n in names)})" if names else ""
+
     def emit_for(self, node: ast.For, indent: str) -> str:
         target = node.target
         if not isinstance(target, ast.Name):
@@ -1149,12 +1155,14 @@ class FortranBodyEmitter(BaseEmitter):
         # reduction -> add reduction(op:acc). A not-parallel-safe loop stays serial.
         omp_prefix = ""
         if self.parallel and not self.parallel_active and not parallelism.is_timestep_loop(node):
+            arrays = set(self.kir.zeros_locals) | {a.name for a in self.kir.arrays}
             red = parallelism.loop_reduction(node)
             if red is not None:
                 op, acc = red
-                omp_prefix = f"{indent}!$omp parallel do reduction({op}:{acc})\n"
-            elif parallelism.loop_is_parallel_safe(node):
-                omp_prefix = f"{indent}!$omp parallel do\n"
+                private = self.omp_private_clause(node, arrays, acc)
+                omp_prefix = f"{indent}!$omp parallel do reduction({op}:{acc}){private}\n"
+            elif parallelism.loop_is_parallel_safe(node, self.kir.tree):
+                omp_prefix = f"{indent}!$omp parallel do{self.omp_private_clause(node, arrays)}\n"
         entered_parallel = bool(omp_prefix)
         if entered_parallel:
             self.parallel_active = True

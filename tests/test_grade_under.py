@@ -11,9 +11,11 @@ definitions.
 import contextlib
 import csv
 import dataclasses
+import datetime
 import functools
 import hashlib
 import itertools
+import json
 import os
 import pathlib
 import shutil
@@ -39,6 +41,7 @@ from hpcagent_bench.harness import (
     timing,
 )
 from hpcagent_bench.harness.hidden_tests import seeds
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, TimedCell, VerifyResult, score
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.stats import score_rule
@@ -898,7 +901,8 @@ def test_a_regrade_on_the_public_seeds_refuses_before_grading(
 def promotion_db(tmp_path: pathlib.Path, rows: list[tuple], cut: int = 0) -> pathlib.Path:
     """Episode ``RUN``'s grades as ``(kind, benchmark, correct, speedup, ts_ms[, reason])``: a ``score``
     keeps both halves of its source when it passed; a ``submit`` with a speedup is credited, one
-    without is rejected for ``reason``. ``cut`` is when the episode's final attempt began."""
+    without is rejected for ``reason`` and keeps ``correct`` as ``recording.record`` does (a gate rejects a
+    correct grade). ``cut`` is when the episode's final attempt began."""
     db = judge_shard(tmp_path)
     with connect(db) as conn:
         conn.execute("UPDATE episodes SET final_attempt_start_ms = ?", (cut,))
@@ -909,7 +913,9 @@ def promotion_db(tmp_path: pathlib.Path, rows: list[tuple], cut: int = 0) -> pat
         elif speedup:
             add_grade(db, kernel, ts, "submit", (HOST,), call_index=index, **credited(speedup))
         else:
-            add_grade(db, kernel, ts, "submit", (HOST,), call_index=index, build_ok=1, correct=0, reason=reason[0])
+            add_grade(
+                db, kernel, ts, "submit", (HOST,), call_index=index, build_ok=1, correct=correct, reason=reason[0]
+            )
     return db
 
 
@@ -929,7 +935,7 @@ def test_an_unsubmitted_correct_score_is_owed_a_promotion_of_its_newest_source(t
     ([("score", "k1", 0, 3.0, 12)], 0, "no correct score"),
     ([("score", "k1", 1, 3.0, 12)], 25, "the score predates its final attempt"),
     (
-        [("score", "k1", 1, 3.0, 12), ("submit", "k1", 0, None, 15, "independent_verify: rebuild failed")],
+        [("score", "k1", 1, 3.0, 12), ("submit", "k1", 1, None, 15, "independent_verify: rebuild failed")],
         0,
         "a genuine verify failure (the submission's own rebuild) spent it, not the judge",
     ),
@@ -1661,6 +1667,15 @@ def test_a_reference_timing_cut_stales_every_kernel_racing_that_reference() -> N
     assert not grade_under.stale_final("conv2d", 0)
 
 
+@pytest.mark.parametrize("kernel", ["cholesky", "cholesky2", "gramschmidt", "syr2k"])
+def test_a_final_before_a_time_bounded_xl_resize_is_stale(kernel: str) -> None:
+    """The four XLs resized on 10-14 because both baselines overran the 300 s cap: a final graded on
+    10-13, after every reference-timing cut, answered the old task and must be regraded."""
+    graded = int(datetime.datetime.fromisoformat("2026-10-13T12:00:00+02:00").timestamp() * 1000)
+    assert graded >= max(grade_under.grading_cuts().references.values())
+    assert grade_under.stale_final(kernel, graded)
+
+
 def final_of(db: pathlib.Path, submission: int, ts: int, reduction: str, speedup: float, ratios: list[float]) -> int:
     """A ``final`` grade of ``submission`` at ``ts`` under ``reduction``, with one cell per ratio."""
     grade_id = add_grade(
@@ -1762,3 +1777,122 @@ def test_a_regrade_under_another_protocol_adds_a_row_unless_told_to_replace(
         assert finals_of(db) == [(old, submission, timing.FINAL_GRADE_REDUCTION, 1.8, 200)]
         assert ratios_of(db, old) == [1.7, 1.9]
     assert no_orphan_cells(db)
+
+
+# ---- what the judge credited, and what the replay rebuilds
+
+
+def gate_rejected(reason: str = "size_class_sweep: overfit") -> dict[str, Any]:
+    """The verdict columns ``recording.record`` writes when a gate rejects a correct grade
+    (``recording.credit_values``): ``correct`` kept, no credit, the gate in ``reason``."""
+    return {"build_ok": 1, "correct": 1, "speedup": 2.0, "reason": reason}
+
+
+def test_a_gate_rejected_correct_submit_is_not_the_slots_final(tmp_path: pathlib.Path) -> None:
+    """The judge credited k1 at ts 10; the newer submit at 20 answered right but a gate rejected it. The
+    credited one is the slot's final, and the rejected one is no submission to re-time without its gates."""
+    db = judge_shard(tmp_path)
+    add_grade(db, "k1", 10, **credited(2.0))
+    add_grade(db, "k1", 20, **gate_rejected())
+    items, problems = grade_under.build_worklist([db], [])
+    assert problems == []
+    assert [(item.ts_ms, item.final) for item in items] == [(10, True)]
+    assert [item.ts_ms for item in grade_under.build_owed_worklist([db], [])[0]] == [10]
+
+
+def test_a_submission_both_credited_and_stale_is_listed_once(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A correct submit credited 0 before its kernel's grading cut is in both the credited and the stale set:
+    one submission, one item, graded on one shard."""
+    db = judge_shard(tmp_path)
+    add_grade(db, "k1", 10, **credited(0.0))
+    monkeypatch.setattr(grade_under, "grading_cuts", lambda: grade_under.GradingCuts({"k1": 100}, {}))
+    items, _ = grade_under.build_worklist([db], [])
+    assert [(item.ts_ms, item.final) for item in items] == [(10, True)]
+
+
+def test_a_regrade_rebuilds_the_build_tokens_and_requests_the_submission_recorded(tmp_path: pathlib.Path) -> None:
+    """/submit graded k1 with its ``build`` tokens and a sparse ``format`` request; a replay without them
+    builds another program and hands it the default layout's buffers."""
+    db = judge_shard(tmp_path)
+    requests = {"operations": [{"action": "format", "array": "A", "to": "csc"}]}
+    build = ["-funroll-loops"]
+    add_grade(
+        db, "k1", 10, units=(HOST, DEVICE), requested_build=json.dumps(build), requests=json.dumps(requests),
+        **credited(2.0),
+    )  # fmt: skip
+    (item,) = grade_under.build_worklist([db], [])[0]
+    item = grade_under.Item.of_json(item.as_json())  # through the worklist file
+    submission = grade_under.submission_of(item)
+    assert (submission.build, submission.requests) == (build, Requests.from_obj(requests))
+
+
+def test_a_regrade_refuses_a_grade_whose_source_is_not_the_one_listed(tmp_path: pathlib.Path) -> None:
+    """A results DB rebuilt between ``worklist`` and ``run`` can give the item's grade id to another grade:
+    its source is not graded under the item's name."""
+    item = listed_item(tmp_path)
+    assert grade_under.submission_of(item).source == HOST
+    with pytest.raises(LookupError, match="no longer the source"):
+        grade_under.submission_of(dataclasses.replace(item, source_hash="0" * 64))
+
+
+def test_no_promotion_is_owed_to_an_older_episode_after_the_slots_rerun_answered(tmp_path: pathlib.Path) -> None:
+    """Episode 1 scored k1 correct and never submitted; the slot's rerun then submitted a wrong answer. The
+    slot's newest episode answered, so the older score is not its answer."""
+    db = promotion_db(tmp_path, [("score", "k1", 1, 2.0, 10)])
+    rerun = f"{RUN}.rerun"
+    add_grade(db, "k1", 20, "submit", (HOST,), episode=rerun, build_ok=1, correct=0, reason="incorrect")
+    assert grade_under.build_promotion_worklist([db], [])[0] == []
+
+
+def test_a_judge_fault_in_the_slots_rerun_leaves_the_older_score_owed(tmp_path: pathlib.Path) -> None:
+    """The rerun's submit died in the judge (score_error): it spent nothing, so the older score is still owed."""
+    db = promotion_db(tmp_path, [("score", "k1", 1, 2.0, 10)])
+    add_grade(db, "k1", 20, "submit", (HOST,), episode=f"{RUN}.rerun", build_ok=1, correct=0, reason="score_error")
+    (item,), _ = grade_under.build_promotion_worklist([db], [])
+    assert (item.episode_id, item.ts_ms) == (RUN, 10)
+
+
+def test_a_final_regrade_the_submission_failed_on_every_input_is_decided_unsolved(
+    tmp_path: pathlib.Path, final_cells: list[dict[str, Any]]
+) -> None:
+    """A build failure on every input is the submission's answer, not a judge fault: the row is graded under
+    the protocol's stamp and rule (unsolved), so a resumed shard and a rebuilt worklist owe it nothing."""
+
+    def failing(*_args: object, **_kwargs: object) -> Score:
+        return score_result(correct=False, build_ok=False, speedup=0.0, cells=(), detail="cc: error")
+
+    item = listed_item(tmp_path)
+    _rows, values = grade_under.grade_cells(item, scorer=failing)
+    assert (values["status"], values["timing_reduction"], values["score_rule"]) == (
+        "graded",
+        grade_under.FINAL.stamp,
+        score_rule.SCORE_RULE,
+    )
+    assert (values["correct"], values["credited_speedup"]) == (0, None)
+    out = tmp_path / "out"
+    grader = functools.partial(grade_under.grade_cells, scorer=failing)
+    assert grade_under.run_cells_shard([item], 0, 1, out, grader) == 1
+    assert grade_under.run_cells_shard([item], 0, 1, out, grader) == 0
+    assert len(grade_under.final_graded(out / "regrade-cells-0.db")) == 1
+
+
+def test_staging_a_setup_ignores_the_callers_temperature_harness_and_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """submit.sh renames a setup for TEMPERATURES and HARNESSES and sources env.sh from OPT: a caller's
+    values would stage another setup, or this one from another checkout."""
+    seen: dict[str, str] = {}
+
+    def staged(argv: list[str], env: dict[str, str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(env)
+        out = pathlib.Path(env["ENV_ONLY"])
+        (out / ".env.llr40-qwen38-c").write_text("", encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    for name, value in {"TEMPERATURES": "0.6", "HARNESSES": "miniswe", "OPT": str(tmp_path)}.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(grade_under.subprocess, "run", staged)
+    REAL_STAGED_ENV.__wrapped__("llr40-qwen38-c")
+    assert not {"TEMPERATURES", "HARNESSES", "OPT"} & set(seen), seen

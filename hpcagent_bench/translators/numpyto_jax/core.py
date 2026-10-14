@@ -38,6 +38,7 @@ from hpcagent_bench.translators.numpyto_jax.module_consts import (
 from hpcagent_bench.translators.numpyto_jax.mutation import helper_mutation_map, mutation_maps
 from hpcagent_bench.translators.numpyto_jax.state import STATE
 from hpcagent_bench.translators.numpyto_jax.statics import concrete_params, transitive_static
+from hpcagent_bench.translators.numpyto_jax.views import fold_written_views
 
 __all__ = ["emit_jax"]
 
@@ -86,6 +87,9 @@ def emit_jax(numpy_src: str, func_name: str, jit: bool = False) -> str:
     alias.collect(fn)
     alias.visit(fn)
     ast.fix_missing_locations(fn)
+    # A write through a VIEW (``outg = out[:, a:b]; outg += ...``) must land in ``out``; in functional
+    # jax it would rebind the local copy. Re-addressed to the base array before the mutation maps.
+    fold_written_views(fn)
     # Emit only REACHABLE helpers, not every module-level function -- a module
     # may co-locate sibling kernels the target never calls (vexx's
     # ``vexx_k`` + its US/PAW helpers) that jax can't express.
@@ -116,6 +120,7 @@ def emit_jax(numpy_src: str, func_name: str, jit: bool = False) -> str:
         h_alias.collect(h)
         h_alias.visit(h)
         ast.fix_missing_locations(h)
+        fold_written_views(h)
     # Transitive mutation map over the kernel + every reachable helper (on the
     # alias-folded source), so a param mutated only via a sub-helper call is
     # still recognised as an output at the call site and the return.

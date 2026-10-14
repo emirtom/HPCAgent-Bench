@@ -24,6 +24,7 @@ from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings.contract import graded_datatype
 
 KERNEL = "dist_softmax"
@@ -426,3 +427,50 @@ def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol
     assert finals == [("mw1x10", 2.0, 1)]
     graded_by = {stamp: grade_under.final_graded(judge_db, protocols.PROTOCOLS[stamp]) for stamp in ("mw1x10", "mw4x5")}
     assert graded_by == {"mw1x10": {item.grade_id}, "mw4x5": frozenset()}
+
+
+def final_rows_of(path: pathlib.Path) -> list[tuple[object, ...]]:
+    """``(status, correct, credited, stamp, rule, cells)`` of every ``final`` grade in ``path``."""
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        return conn.execute(
+            "SELECT g.status, g.correct, g.credited_speedup, g.timing_reduction, g.score_rule, "
+            "(SELECT count(*) FROM grade_cells c WHERE c.grade_id = g.id) FROM grades g WHERE g.kind = 'final'"
+        ).fetchall()
+
+
+def test_a_refused_replay_decides_the_slots_final_as_unsolved(
+    judge_db: pathlib.Path, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route refuses the layout before building: the replay decided the submission, so it writes an
+    unsolved final grade under the credited protocol (one unmeasured cell per input), which the worklist
+    counts as graded and which replaces an earlier credited final instead of staying owed forever."""
+    monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "1")
+    item = stored_item(judge_db, hip_submission(distribution={"grid": [4], "arrays": {"out": SPLIT}}))
+    path = tmp_path / "scaling-grade-0.db"
+    scaling_grade.grade_into(item, path, scaling_grade.grade, None)
+    ((status, correct, credited, stamp, rule, cells),) = final_rows_of(path)
+    assert (status, correct, credited, stamp, rule) == (
+        "graded",
+        0,
+        0.0,
+        grade_under.FINAL.stamp,
+        score_rule.SCORE_RULE,
+    )
+    assert cells == len(grade_under.protocol_cells(KERNEL, anchored=True))
+    assert len(grade_under.final_graded(path)) == 1
+
+
+@pytest.mark.parametrize(("fault", "finals"), [(False, 1), (True, 0)])
+def test_an_incorrect_replay_is_a_decided_final_unless_the_judge_faulted(
+    judge_db: pathlib.Path, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, fault: bool, finals: int
+) -> None:
+    """A replay the submission answered wrong is decided (an unsolved final); one the judge failed to measure
+    decided nothing and writes none."""
+    monkeypatch.setattr(scaling_grade, "distribution_refusal", lambda *args: None)
+    wrong = dataclasses.replace(verified_score(), correct=False, harness_fault=fault, detail="max_rel_error 1e3")
+    monkeypatch.setattr(grade_under, "scaling_protocol_grade", lambda *args, **kwargs: (wrong, (), None))
+    item = stored_item(judge_db, hip_submission())
+    path = tmp_path / "scaling-grade-0.db"
+    scaling_grade.grade_into(item, path, scaling_grade.grade, None)
+    assert len(final_rows_of(path)) == finals
+    assert len(grade_under.final_graded(path)) == finals

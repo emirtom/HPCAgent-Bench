@@ -149,6 +149,8 @@ stage_setup() {
         # A function called under `||` runs without set -e: every step below returns on failure itself.
         local -a args=(--language "${lang}" --packet "${packet}" --repeat "${repeat:-1}") grading
         [[ "${device}" != gpu ]] || args+=(--image amd)
+        # The skill index names the harness's file tool; claude's (the default) is Read.
+        [[ "${harness}" == claude ]] || args+=(--harness "${harness}")
         if [[ -n "${KERNELS_FILE}" ]]; then args+=(--kernels-file "${KERNELS_FILE}"); else args+=(--select "all@${TAG}"); fi
         [[ "$(base_value "${flat}" HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED)" != true ]] || args+=(--multinode)
         mapfile -t grading < <(grep -E '^HPCAGENT_BENCH_(MPI|GRADING|MEASUREMENT)_[A-Z0-9_]+=' <<<"${flat}" || true)

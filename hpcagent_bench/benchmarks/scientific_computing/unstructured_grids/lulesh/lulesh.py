@@ -13,6 +13,10 @@ XI_M_SYMM, XI_P_FREE = 0x001, 0x008
 ETA_M_SYMM, ETA_P_FREE = 0x010, 0x080
 ZETA_M_SYMM, ZETA_P_FREE = 0x100, 0x800
 
+#: The kernel's trailing size arguments. They are manifest parameters (numNode and numSymm derived
+#: from numElem), so the harness binds them itself and :func:`initialize` does not return them.
+KERNEL_SIZES = ("numElem", "numNode", "numSymm", "nsteps")
+
 
 def _edge_elems(numElem):
     e = round(numElem ** (1.0 / 3.0))
@@ -52,7 +56,9 @@ def _calc_elem_volume(xl, yl, zl):
     return vol * twelfth
 
 
-def initialize(numElem, nsteps, datatype=np.float64):
+def kernel_arguments(numElem, nsteps, datatype=np.float64):
+    """Every argument of the numpy kernel ``lulesh``, in its order: the initial state, then
+    :data:`KERNEL_SIZES`, so a test can call ``lulesh(*kernel_arguments(...))``."""
     edgeElems = _edge_elems(numElem)
     edgeNodes = edgeElems + 1
     numNode = edgeNodes * edgeNodes * edgeNodes
@@ -238,3 +244,8 @@ def initialize(numElem, nsteps, datatype=np.float64):
         numSymm,
         nsteps,
     )
+
+
+def initialize(numElem, nsteps, datatype=np.float64):
+    """The arrays the manifest's args declare, in order: :func:`kernel_arguments` without :data:`KERNEL_SIZES`."""
+    return kernel_arguments(numElem, nsteps, datatype)[: -len(KERNEL_SIZES)]

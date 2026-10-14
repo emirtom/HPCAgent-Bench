@@ -486,9 +486,11 @@ class TimedCell:
     race_leader_source: str = ""
     race_cuts: str = ""
     #: Why this input was NOT run: its scenario does not list the requested sparse layout
-    #: (:func:`hpcagent_bench.support.helpers.sparse.request.uncovered`). Such a cell times nothing,
-    #: checks nothing (``graded`` False) and counts as exactly :data:`UNCOVERED_RATIO` in the grade's
-    #: geomean (:func:`hpcagent_bench.harness.recording.credited_ratios`). "" for an input that ran.
+    #: (:func:`hpcagent_bench.support.helpers.sparse.request.uncovered`). Such a cell times nothing and
+    #: checks nothing (``graded`` False), so it never enters
+    #: :func:`hpcagent_bench.harness.recording.credited_ratios`: it leaves the task unsolved
+    #: (:func:`hpcagent_bench.harness.grade_under.final_grade`), S_i = :data:`UNCOVERED_RATIO`. "" for an
+    #: input that ran.
     uncovered: str = ""
 
 
@@ -1188,8 +1190,10 @@ def measure_baselines(
     the submissions' toolchain and CPU). Serves the judge's ``/baseline`` endpoint.
 
     ``baseline`` resolves against the kernel's track (``track`` / None -> the candidate set; a
-    concrete kind stays one kind). Returns ``{name: ns}`` for every candidate that ran; the smallest
-    is the target; a reference that fails is absent."""
+    concrete kind stays one kind). Returns ``{name: ns}`` for every candidate that ran: each is that
+    reference's FASTEST rep (best-of-k minimum), not the reduced time ``/submit`` divides
+    (:func:`timing.central_ns`, the median under ``mannwhitney_delta``), so the advertised target is
+    optimistic. The smallest is the target; a reference that fails is absent."""
     spec = BenchSpec.load(task.kernel)
     kinds = resolve_baseline_set(baseline, spec, on_gpu=task.on_gpu)  # track sentinel -> concrete kinds
     binding = binding_from_spec(spec)
@@ -1233,8 +1237,8 @@ def measure_one_baseline(
     """Time one candidate for :func:`measure_baselines` into ``out``; one that will not emit, build or
     type, or that ``cut_s`` (the best-of-v3/v4 per-rep budget, 0 = off) cuts, is absent, as in the grade."""
     if best_of and baseline == "numba":
-        # The same child bracket and guillotine as the grade, so the advertised target is what /submit
-        # measures and a hopeless numba cannot hold the call for the whole budget.
+        # The same child bracket and guillotine as the grade, so a hopeless numba cannot hold the call for
+        # the whole budget. The advertised number is the fastest rep, not the grade's reduction.
         timeout = timing.kernel_timeout_s()
         try:
             samples = time_numba_isolated(
@@ -1752,6 +1756,9 @@ def graded_score(
     #
     # Builders, not data: materialising every case at once peaked at 7x the declared arrays against
     # an RLIMIT_AS of 2x. Each case is drawn when used.
+    case_params = [
+        {**spec.parameters[case.preset], **dict(case.config)} if case.config else params_override for case in cases
+    ]
     hidden_data: list[tuple[str, Callable[[], KernelData]]] = [
         (
             case.label,
@@ -1761,13 +1768,11 @@ def graded_score(
                 case.preset,
                 datatype,
                 case.seed,
-                params_override=(
-                    {**spec.parameters[case.preset], **dict(case.config)} if case.config else params_override
-                ),
+                params_override=params,
                 hidden_variant=case.variant,
             ),
         )
-        for case in cases
+        for case, params in zip(cases, case_params, strict=True)
     ]
 
     device = task.residency == "device"
@@ -1784,6 +1789,14 @@ def graded_score(
         params_override or drawn,
         layout=choice or default_choice(spec),
     )
+    # A held-out case can be larger than the timed cell (the first is drawn at XL): its kernel call gets
+    # the budget of its own sizes (native_call.call_memory_cap).
+    case_memory_gb = [
+        sizing.kernel_memory_gb(
+            spec, case.preset, datatype, submission.workspace_bytes, params, layout=choice or default_choice(spec)
+        )
+        for case, params in zip(cases, case_params, strict=True)
+    ]
 
     # Every call (candidate and baselines, warmup included) draws its value arrays at a seed of the cell's
     # fixed pool, from an offset a fresh per-call secret picks, so consecutive calls never share an input
@@ -2346,7 +2359,8 @@ def graded_score(
 
         # Graded HERE, in the parent: the expected outputs never enter the process running agent code.
         hidden_followups = [
-            Followup(build=candidate_builder(task.kernel, choice, make)) for _label, make in hidden_data
+            Followup(build=candidate_builder(task.kernel, choice, make), memory_gb=case_gb)
+            for (_label, make), case_gb in zip(hidden_data, case_memory_gb, strict=True)
         ]
         # The untimed canonical call rides first among the followups: its outputs are what the
         # public-correctness gate grades.
@@ -2790,15 +2804,18 @@ def mpi_cc_override() -> dict[str, str] | None:
     return config.get_str_map("mpi.compilers") or None
 
 
-def _mpi_launch_cfg() -> MpiLaunch:
+def _mpi_launch_cfg(hidden: bool = True) -> MpiLaunch:
+    """The ``mpi.*`` launch settings and the seed of the route: the recorded seed for a held-out grade
+    (``hidden``), the iteration seed for /score -- a preview on the recorded seed would show the agent the
+    very inputs its /submit is graded on (``hidden_tests/seeds.py``)."""
     return MpiLaunch(
         launcher=config.get_str_list("mpi.launcher", ["mpiexec.mpich", "-launcher", "fork", "-n"]),
         mode=mpi_sizing.ScalingLaw(config.get_str("mpi.mode", mpi_sizing.ScalingLaw.STRONG.value)),
         k_repeats=config.get_int("mpi.k_repeats", 5),
         timeout=config.get_float("mpi.launch_timeout_s", 120),
         env=config.get_str_map("mpi.env"),
-        # score_distributed takes no route flag, so this track has one seed: the recorded one.
-        seed=secret_seed_second(),
+        # Distributed seeds are unsalted (nonce 0, metric.ml_stamped).
+        seed=secret_seed_second() if hidden else secret_seed_first(),
         default_location=mpi_residency(),
     )
 
@@ -3013,7 +3030,7 @@ def score_distributed(
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     ranks = config.get_int("mpi.ranks", 4)
-    cfg = _mpi_launch_cfg()
+    cfg = _mpi_launch_cfg(hidden)
     backend = None if hidden else timing.LOCAL_BACKEND
     timing.validate_repeat(repeat, backend)
 
@@ -3649,6 +3666,7 @@ def score_ml(
     repeat: int = 5,
     fuzz_cells: Sequence[Mapping[str, object]] = (),
     inputs: Sequence[Mapping[str, object]] = (),
+    hidden: bool = True,
 ) -> MlGrade:
     """The ML-track grade: one build, then
 
@@ -3665,11 +3683,12 @@ def score_ml(
 
     Timed launches take ``repeat`` repeats (fewer if the warmup says they would time out,
     :func:`mpi_shard_driver.repeats_within`); a point is their median. Unsizable, unspannable, wrong or
-    failed points are noted holes. A timed-out launch ends the grade (:data:`ML_NOT_LAUNCHED`)."""
+    failed points are noted holes. A timed-out launch ends the grade (:data:`ML_NOT_LAUNCHED`). Every
+    launch draws on the recorded seed, or on the /score one when not ``hidden`` (:func:`_mpi_launch_cfg`)."""
     rtol, atol = _resolve_tolerances(rtol, atol, datatype, task.kernel)
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
-    cfg = _mpi_launch_cfg()
+    cfg = _mpi_launch_cfg(hidden)
     ranks = config.get_int("mpi.ranks", 4)
     timing.validate_repeat(repeat)
     base_params, axis_syms, work_exp, aligned = ml_sweep_sizing(spec, preset)
@@ -4129,7 +4148,7 @@ def score_cells(
                 ctx = Sandbox(binding)
                 try:
                     absb = ctx.__enter__()
-                    built = build_reference_lib(
+                    ref_built = build_reference_lib(
                         absb.require_root(),
                         spec,
                         task,
@@ -4139,9 +4158,9 @@ def score_cells(
                         compiler=(compiler or None),
                     )
                 except Exception:  # noqa: BLE001 -- this candidate is unavailable / won't build
-                    built = BuildResult(False, None, "")
-                if built.ok and built.lib is not None:
-                    bl_libs.append((compiler, built.lib))
+                    ref_built = BuildResult(False, None, "")
+                if ref_built.ok and ref_built.lib is not None:
+                    bl_libs.append((compiler, ref_built.lib))
                     bl_ctxs.append(ctx)
                 else:
                     ctx.__exit__(None, None, None)

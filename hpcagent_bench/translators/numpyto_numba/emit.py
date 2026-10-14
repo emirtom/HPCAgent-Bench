@@ -26,6 +26,7 @@ from hpcagent_bench.translators.numpyto_numba.objmode_fft import rewrite_fft_to_
 from hpcagent_bench.translators.numpyto_numba.parfor import (
     calls_a_parfor_unsafe_op,
     has_inplace_slice_self_dependency,
+    spell_out_overlapping_augassigns,
     parallelize_one_range_loop,
     spell_out_reshape_augassigns,
 )
@@ -69,6 +70,7 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
     numpy_source = rewrite_lstsq_rcond(numpy_source)
     numpy_source, uses_objmode = rewrite_fft_to_objmode(numpy_source)
     parallel = not (calls_a_parfor_unsafe_op(numpy_source) or has_inplace_slice_self_dependency(numpy_source))
+    numpy_source = spell_out_overlapping_augassigns(numpy_source)
     opts = ["parallel=True"] if parallel else []
     if parallel:
         numpy_source = spell_out_reshape_augassigns(numpy_source)

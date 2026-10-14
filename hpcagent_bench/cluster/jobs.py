@@ -4,7 +4,9 @@
 
 A helper job is ``srun -n N hpcagent-bench job <name> ...``; ``hpcagent_bench/cluster/<name>.sbatch`` is each action's
 job script (docs/jobs.md). Task ``SLURM_PROCID`` of ``SLURM_NTASKS`` takes ``items[rank::size]`` of the job's work
-items; outside Slurm the task is rank 0 of 1 and takes all of it. The actions:
+items; outside Slurm the task is rank 0 of 1 and takes all of it. A job split over one step per task
+(``job_step.sh``'s ``run_job_shards``) names each task's rank with ``--shard``/``--shards``/``--slot`` before the
+action (:func:`split_shard`). The actions:
 
 * ``grade-under``: grade a worklist under a grade protocol (default the credited one, ``mw4x5``;
   :mod:`hpcagent_bench.harness.grade_under`), resuming past the rows a shard already holds;
@@ -30,13 +32,16 @@ __all__ = [
     "ACTIONS",
     "FORWARDING",
     "Action",
+    "SHARD_OPTIONS",
     "Rank",
     "add_repo",
+    "adopt_shard",
     "bind_task",
     "build_parser",
     "configure_baseline",
     "configure_grade_under",
     "configure_prepare",
+    "launch_problems",
     "main",
     "rank_from_environ",
     "relaunch_under_openmp_env",
@@ -44,6 +49,7 @@ __all__ = [
     "run_grade_under",
     "run_prepare",
     "share",
+    "split_shard",
 ]
 
 
@@ -65,6 +71,36 @@ def rank_from_environ(environ: Mapping[str, str] | None = None) -> Rank:
     if not 0 <= rank.index < rank.size:
         raise SystemExit(f"job: task {rank.index} of {rank.size} is not a rank")
     return rank
+
+
+#: The options before the action name that make a task one shard of a job split over several one-task steps
+#: (``job_step.sh``'s ``run_job_shards``): option -> the Slurm variable a task of one N-task step reads it from.
+SHARD_OPTIONS = {"--shard": "SLURM_PROCID", "--shards": "SLURM_NTASKS", "--slot": "SLURM_LOCALID"}
+
+
+def split_shard(words: Sequence[str]) -> tuple[dict[str, str], list[str]]:
+    """The leading ``--shard I --shards N --slot L`` of ``words`` as the Slurm variables they stand for, and the rest.
+
+    A job split over one step per shard (so one shard's out-of-memory death cannot take its siblings down) runs
+    every task as rank 0 of 1 on local slot 0; these options name what the task would have been in one N-task step.
+    ``--shard`` and ``--shards`` go together; ``--slot`` (the shard's GPU on its node) is optional."""
+    found: dict[str, str] = {}
+    rest = list(words)
+    while rest[:1] and rest[0] in SHARD_OPTIONS:
+        if len(rest) < 2 or not rest[1].isdigit():
+            raise SystemExit(f"job: {rest[0]} needs a non-negative integer")
+        found[SHARD_OPTIONS[rest[0]]] = rest[1]
+        rest = rest[2:]
+    if found and not {"SLURM_PROCID", "SLURM_NTASKS"} <= found.keys():
+        raise SystemExit("job: --shard and --shards go together")
+    return found, rest
+
+
+def adopt_shard(environ: MutableMapping[str, str], shard: Mapping[str, str]) -> None:
+    """Make this task read as the shard :func:`split_shard` named: every reader of its rank (:func:`rank_from_environ`,
+    the results-DB shard, DaCe's per-rank build folder, :func:`bind_task`'s GPU) then sees what a task of one N-task
+    step would. A no-op without shard options."""
+    environ.update(shard)
 
 
 def share[T](items: Sequence[T], rank: Rank) -> list[T]:
@@ -207,6 +243,24 @@ ACTIONS: tuple[Action, ...] = (
 )
 
 
+def launch_problems() -> list[str]:
+    """What this task's launch lacks of its OpenMP environment (:func:`hpcagent_bench.harness.native_call.
+    launch_env_problems`), and a thread limit that is not the cores the task owns.
+
+    A grading child only needs a limit no lower than its cores; a job task must hold exactly its own. A batch shell
+    that sourced ``env.sh`` exports the whole node's count, and a task launched under it would give every graded
+    child the stacks of that many threads in its ``RLIMIT_DATA`` cap and leave a team sized past its cores
+    unclamped -- not the judge's grading configuration (``run_cluster.sh`` re-derives the limit per role step)."""
+    from hpcagent_bench import flags
+    from hpcagent_bench.harness import native_call
+
+    wrong = native_call.launch_env_problems()
+    owned = flags.cpus_owned()
+    if native_call.thread_limit() > owned:
+        wrong.append(f"OMP_THREAD_LIMIT={native_call.thread_limit()} is above the {owned} CPUs this task owns")
+    return wrong
+
+
 def relaunch_under_openmp_env(words: Sequence[str]) -> None:
     """Start this task again under :func:`hpcagent_bench.flags.openmp_launch_env` when it was launched without it.
 
@@ -217,7 +271,7 @@ def relaunch_under_openmp_env(words: Sequence[str]) -> None:
     from hpcagent_bench import flags
     from hpcagent_bench.harness import native_call
 
-    if not native_call.launch_env_problems():
+    if not launch_problems():
         return
     hard = resource.getrlimit(resource.RLIMIT_STACK)[1]
     resource.setrlimit(resource.RLIMIT_STACK, (hard, hard))
@@ -248,6 +302,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """``hpcagent-bench job <name> ...``: run this task's share of the named action; ``job submit`` is the
     ``sbatch`` line of a sample for the system it runs on (:mod:`hpcagent_bench.cluster.systems`)."""
     words = sys.argv[1:] if argv is None else list(argv)
+    shard, words = split_shard(words)
+    adopt_shard(os.environ, shard)
     if words[:1] == ["submit"]:
         from hpcagent_bench.cluster import systems
 

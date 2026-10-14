@@ -231,6 +231,26 @@ def required[T](value: T | None, what: str) -> T:
     return value
 
 
+def signature_float_dtype(kir: KernelIR) -> str:
+    """The float the C emitter computes this kernel in, before any run precision is applied: the
+    compute dtype of a storage-only ABI format, float32 when every real float in the signature is,
+    else float64 -- the rule ``numpyto_c.emit.default_float_dtype`` applies at emit, and the width
+    its gemm call is chosen for."""
+    storage = {dtypes.compute_dtype(a.dtype) for a in kir.arrays if a.dtype and dtypes.is_storage_only(a.dtype)}
+    if len(storage) == 1:
+        return storage.pop()
+    reals = {dtypes.c_type(dtypes.compute_dtype(d.dtype)) for d in descs(kir.arrays, kir.scalars) if d.dtype}
+    reals &= {"float", "double"}
+    return "float32" if reals == {"float"} else "float64"
+
+
+def user_functions(ctx: LoweringContext) -> set[str]:
+    """Names of the functions the kernel module defines: its emitted helpers and any def left in the tree."""
+    names = {h.kernel_name for h in ctx.kir.helpers}
+    names |= {n.name for n in ast.walk(ctx.tree) if isinstance(n, ast.FunctionDef)}
+    return names
+
+
 def lp_seed_shape_table(ctx: LoweringContext) -> None:
     """Seed the array-shape table, then resolve shape-mid-expressions / ellipses.
 
@@ -314,7 +334,9 @@ def lp_normalize_calls(ctx: LoweringContext) -> None:
     # The LOCAL array shapes too, exactly as the two later MathRewriter sites do. With only
     # the declared arrays, an inlined helper's temps look like scalars, and np.maximum on two
     # of them took the scalar rename: __npb_fmax(double *, double *).
-    MathRewriter(set(ash.keys()) | set(ctx.lib_shape_table.keys()), defer_array_capable=True).visit(tree)
+    MathRewriter(
+        set(ash.keys()) | set(ctx.lib_shape_table.keys()), defer_array_capable=True, user_functions=user_functions(ctx)
+    ).visit(tree)
     DaceMapRewriter().visit(tree)
     # ``a = b = v``: ``v`` once -- a temp for a scalar, one name for an array's one buffer.
     chain_ranks = {name: len(shape) for name, shape in ash.items()}
@@ -619,6 +641,7 @@ def lp_libnode_expand(ctx: LoweringContext) -> None:
         native_call=ctx.native_call,
         native_dtypes={**{arr.name: arr.dtype for arr in ctx.kir.arrays}, **ctx.local_dtypes},
         blas=ctx.blas,
+        blas_float=signature_float_dtype(ctx.kir),
         fft_library=ctx.fft_library,
         fft_library_nd=ctx.fft_library_nd,
     )
@@ -631,7 +654,9 @@ def lp_libnode_expand(ctx: LoweringContext) -> None:
     # SAME rewriter (rather than special-casing the emitter) with the temps now known keeps the
     # rule intact: an argument that is still array-valued -- a vector matmul temp, which IS in
     # ``lib_shape_table`` -- keeps deferring; a scalar one renames to the math intrinsic.
-    MathRewriter(set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys())).visit(tree)
+    MathRewriter(
+        set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys()), user_functions=user_functions(ctx)
+    ).visit(tree)
     # Second free-name promotion: sparse matvec dispatchers introduce structural
     # scalar symbols that don't exist until the hoister runs (SELL-C-sigma's slice
     # height ``C``), so the first promotion at the top of lower() can't see them.
@@ -979,7 +1004,15 @@ def lp_slice_fusion_and_resolve(ctx: LoweringContext) -> None:
     index-array locals to int64."""
     tree = ctx.tree
     shapes = ctx.shapes
-    SliceFusion(shapes).visit(tree)
+    fusion = SliceFusion(shapes)
+    fusion.visit(tree)
+    # The temps an overlapping RHS was staged through are locals like any other: sized here, and
+    # typed like the array the statement writes (a complex or integer target keeps its values).
+    for temp, (temp_shape, source) in fusion.overlap_temps.items():
+        shapes[temp] = temp_shape
+        ctx.zeros_locals[temp] = temp_shape
+        if source in ctx.local_dtypes:
+            ctx.local_dtypes[temp] = ctx.local_dtypes[source]
     # Final pass: resolve any surviving ``arr.shape[i]`` references to the concrete
     # shape token from the harvested table. These survive whenever a harvested helper
     # variable's shape was a string-form ``arr.shape[i]`` (e.g. inlined maxpool
@@ -1093,7 +1126,9 @@ def lp_scalarized_math_rename(ctx: LoweringContext) -> None:
     per-element ones. An intrinsic whose operand only becomes a scalar HERE (hardsigmoid's
     ``np.clip((x + 3.0) / 6.0, 0, 1)`` -- array-valued at both earlier renames) has no later pass to
     catch it and reaches the emitter as an unsupported call. Same rewriter, later state."""
-    MathRewriter(set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys())).visit(ctx.tree)
+    MathRewriter(
+        set(ctx.arrays_shapes.keys()) | set(ctx.lib_shape_table.keys()), user_functions=user_functions(ctx)
+    ).visit(ctx.tree)
 
 
 def lp_lower_helpers(ctx: LoweringContext) -> None:

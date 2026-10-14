@@ -78,6 +78,7 @@ _ARG_NAMES = [
     "nodelist",
     "numElem",
     "numNode",
+    "numSymm",
     "nsteps",
 ]
 
@@ -224,7 +225,7 @@ def test_full_nodal_force_assembly(fort: ctypes.CDLL) -> None:
     """CalcVolumeForceForElems: stress + hourglass, scatter-assembled onto nodes, vs the genuine kernels."""
     ln = module_at(_BENCH / "lulesh_numpy.py")
     li = module_at(_BENCH / "lulesh.py")
-    st = dict(zip(_ARG_NAMES, list(li.initialize(27, 1)), strict=False))
+    st = dict(zip(_ARG_NAMES, list(li.kernel_arguments(27, 1)), strict=True))
     rng = np.random.default_rng(3)
     nN = st["numNode"]
     for k in ("x", "y", "z"):
@@ -346,8 +347,8 @@ def test_full_trajectory_bit_exact(fort: ctypes.CDLL, edgeElems: int, nsteps: in
     fort.c_run_full.restype = None
     fort.c_run_full(edgeElems, nsteps, *[a.ctypes.data_as(_P) for a in (eo, po, qo, vo, xo, yo, zo, xdo, ydo, zdo)])
 
-    args = list(li.initialize(nE, nsteps))
-    st = dict(zip(_ARG_NAMES, args, strict=False))
+    args = list(li.kernel_arguments(nE, nsteps))
+    st = dict(zip(_ARG_NAMES, args, strict=True))
     ln.lulesh(*args)  # in place: mutates st["e"], st["x"], st["xd"], ...
 
     np.testing.assert_allclose(st["e"], eo, rtol=1e-10, atol=1e-12)
@@ -366,7 +367,7 @@ def test_full_trajectory_bit_exact(fort: ctypes.CDLL, edgeElems: int, nsteps: in
 @pytest.mark.parametrize("numElem", [64, 512, 4096])
 def test_plane0_energy_symmetry(numElem: int) -> None:
     """The exact invariant the LULESH driver tests: plane-0 energy is symmetric, e[j*ne+k] == e[k*ne+j]."""
-    ini = module_at(_BENCH / "lulesh.py").initialize
+    ini = module_at(_BENCH / "lulesh.py").kernel_arguments
     kern = module_at(_BENCH / "lulesh_numpy.py").lulesh
     ne = round(numElem ** (1.0 / 3.0))
     args = list(ini(numElem, 30))
@@ -379,7 +380,7 @@ def test_plane0_energy_symmetry(numElem: int) -> None:
 
 @pytest.mark.parametrize("numElem", [8, 64, 512])
 def test_invariants_and_determinism(numElem: int) -> None:
-    ini = module_at(_BENCH / "lulesh.py").initialize
+    ini = module_at(_BENCH / "lulesh.py").kernel_arguments
     kern = module_at(_BENCH / "lulesh_numpy.py").lulesh
     args = list(ini(numElem, 20))
     kern(*args)  # in place
@@ -397,7 +398,7 @@ def test_invariants_and_determinism(numElem: int) -> None:
 
 def test_sedov_energy_deposited() -> None:
     """The Sedov origin energy is deposited as einit = ebase*(ne/45)^3, the only energised element."""
-    ini = module_at(_BENCH / "lulesh.py").initialize
+    ini = module_at(_BENCH / "lulesh.py").kernel_arguments
     args = ini(512, 0)  # nsteps=0: just the initial state
     e = args[0]
     ebase, ne = 3.948746e7, 8

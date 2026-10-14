@@ -11,8 +11,8 @@ MODEL=kimi27sglang hpcagent_bench/cluster/serve-only.sbatch
 ## Configuration
 
 EDF `hpcagent-bench-sglang-mi300-latest`. Port 8000 on rank 0 only, served name
-`hpcagent-bench-vllm`. Weight load takes 30-40 minutes before `KV Cache is allocated`;
-`VLLM_READY_TIMEOUT_SECONDS=3600` covers it.
+`hpcagent-bench-vllm`. Weight load takes 30-40 minutes before `KV Cache is allocated`; the readiness wait is
+`AGENT_READY_TIMEOUT_SECONDS=7200` (serve-only.sbatch and the agent driver read it before `VLLM_READY_TIMEOUT_SECONDS`).
 
 `run_cluster.sh` adds `--tp-size 4 --pp-size 4 --nnodes 4 --node-rank <r> --dist-init-addr <rank0>:29500
 --host 0.0.0.0 --port 8000 --attention-backend aiter`. The env adds:

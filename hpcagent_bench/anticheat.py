@@ -103,6 +103,12 @@ class Effect(enum.Enum):
     FAULT = "fault"
     #: The tolerance floor refused it.
     UNGRADEABLE = "ungradeable"
+    #: Credited as it was; the row's ``detail`` discloses it (a gate that could not run on this grade).
+    NOTE = "note"
+
+
+#: Effects a grade is still credited under.
+CREDITED_EFFECTS = frozenset({Effect.FLAG, Effect.NOTE})
 
 
 class Found(NamedTuple):
@@ -159,8 +165,8 @@ class Judgement:
 
     @property
     def ok(self) -> bool:
-        """No gate rejected, faulted or found the grade ungradeable (a flag still passes)."""
-        return all(finding.effect is Effect.FLAG for finding in self.findings)
+        """No gate rejected, faulted or found the grade ungradeable (a flag or a note still passes)."""
+        return all(finding.effect in CREDITED_EFFECTS for finding in self.findings)
 
     @property
     def suspect(self) -> bool:
@@ -178,6 +184,11 @@ class Judgement:
     def flags(self) -> str:
         """The flags as a credited row's ``detail`` carries them: ``"<gate>: <text>"``, ``"; "``-joined."""
         return "; ".join(f"{f.gate}: {f.text}" for f in self.findings if f.effect is Effect.FLAG)
+
+    @property
+    def notes(self) -> str:
+        """The notes as a credited row's ``detail`` carries them: ``"<gate>: <text>"``, ``"; "``-joined."""
+        return "; ".join(f"{f.gate}: {f.text}" for f in self.findings if f.effect is Effect.NOTE)
 
     @property
     def reason(self) -> str:
@@ -291,7 +302,7 @@ def judge(context: Context, *, opted_in: frozenset[str] | None = None, rerun: bo
         found = [Finding(key, one.effect, one.text) for one in gate.check(context)]
         seconds.append(GateTime(key, time.perf_counter() - start))
         findings.extend(found)
-        rejected = rejected or any(finding.effect is not Effect.FLAG for finding in found)
+        rejected = rejected or any(finding.effect not in CREDITED_EFFECTS for finding in found)
     judgement = Judgement(tuple(findings), tuple(seconds))
     reran = [f"{one.gate} {one.seconds:.1f}s" for one in seconds if ANTICHEAT.entries[one.gate].reruns]
     if reran:
@@ -516,7 +527,10 @@ class Sanitizers:
             return ()
         if verdict.memory_error:
             return (Found(Effect.REJECT, verdict.memory_error),)
-        return (Found(Effect.FLAG, f"undefined behaviour: {verdict.undefined}"),) if verdict.undefined else ()
+        if verdict.undefined:
+            return (Found(Effect.FLAG, f"undefined behaviour: {verdict.undefined}"),)
+        # docs/anti_cheat.md Sec. 12: a leg that could not build or start is recorded as not applied
+        return () if verdict.applied else (Found(Effect.NOTE, f"not applied: {verdict.note}"),)
 
 
 @anticheat("final_grade", order=12)

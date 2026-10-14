@@ -41,6 +41,7 @@ __all__ = [
     "TABLES",
     "LOCAL_JOB",
     "IdMap",
+    "NoResultsError",
     "ProtocolChange",
     "SchemaVersionError",
     "Setup",
@@ -65,6 +66,7 @@ __all__ = [
     "merge",
     "merge_one",
     "merge_rows",
+    "move_grade_children",
     "open_db",
     "open_ro",
     "reading",
@@ -128,6 +130,11 @@ class SchemaVersionError(ValueError):
     """A results database of another schema than the v0.2 results schema."""
 
 
+class NoResultsError(SchemaVersionError):
+    """A file :func:`open_ro` was asked to read that holds no results tables at all: not a results
+    database, as opposed to one of another schema version."""
+
+
 def schema_version(conn: sqlite3.Connection) -> int:
     """``PRAGMA user_version`` of ``conn``."""
     return int(conn.execute("PRAGMA user_version").fetchone()[0])
@@ -189,7 +196,7 @@ def open_ro(path: str | pathlib.Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     try:
         if not check_schema(conn, str(path)):
-            raise SchemaVersionError(f"{path} holds no results")
+            raise NoResultsError(f"{path} holds no results")
     except BaseException:
         conn.close()
         raise
@@ -591,6 +598,22 @@ def final_row_groups(rows: Sequence[tuple[int, str, int]], on_change: ProtocolCh
     return list(groups.values())
 
 
+def move_grade_children(conn: sqlite3.Connection, source: int, target: int) -> None:
+    """Move every :data:`GRADE_CHILDREN` row of grade ``source`` to grade ``target``, which holds none.
+
+    Copied parents first, then the originals deleted children first: ``scaling_points`` references
+    ``scaling_grades`` by ``(grade_id, mode, input)``, so re-keying either table in place breaks that
+    foreign key until the other one follows."""
+    for table in reversed(GRADE_CHILDREN):
+        names = ", ".join(str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})") if row[1] != "grade_id")
+        conn.execute(
+            f"INSERT INTO {table} (grade_id, {names}) SELECT ?, {names} FROM {table} WHERE grade_id = ?",
+            (target, source),
+        )
+    for table in GRADE_CHILDREN:
+        conn.execute(f"DELETE FROM {table} WHERE grade_id = ?", (source,))
+
+
 def collapse_finals(
     conn: sqlite3.Connection, apart: Collection[str], on_change: ProtocolChange = ProtocolChange.NEW_ROW
 ) -> int:
@@ -620,8 +643,7 @@ def collapse_finals(
                 conn.execute(f"DELETE FROM {table} WHERE grade_id IN ({marks})", stale)
             values = conn.execute(f"SELECT {', '.join(columns)} FROM grades WHERE id = ?", (winner,)).fetchone()
             if winner != keep:
-                for table in GRADE_CHILDREN:
-                    conn.execute(f"UPDATE {table} SET grade_id = ? WHERE grade_id = ?", (keep, winner))
+                move_grade_children(conn, winner, keep)
             conn.executemany("DELETE FROM grades WHERE id = ?", [(i,) for i in doomed])
             if winner != keep:
                 assignments = ", ".join(f"{name} = ?" for name in columns)

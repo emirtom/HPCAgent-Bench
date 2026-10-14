@@ -29,7 +29,7 @@ name or path, required), ``HPCAGENT_BENCH_MPI_RANKS_PER_NODE`` (default 4),
 ``HPCAGENT_BENCH_MPI_CPUS_PER_RANK`` (default 24), ``HPCAGENT_BENCH_MPI_PMI`` (default pmi2),
 ``HPCAGENT_BENCH_MPI_GANG_LOCK`` (lock file; default ``$TMPDIR/hpcagent_bench_gang_<first
 node>.lock``), ``HPCAGENT_BENCH_MPI_GANG_SRUN`` (the srun the RELAY runs, default ``srun``). A
-launch waiting on the lock spends its own ``mpi.launch_timeout_s``, so a gang judge grades one
+launch waiting on the lock spends its own timeout (:func:`launch_timeout`), so a gang judge grades one
 submission at a time (one device slot, see run_cluster.sh JUDGE_GANG_NODES).
 
 The judge's environment rides to the ranks in an ``env K=V ...`` prefix, since the relay's srun
@@ -54,6 +54,7 @@ __all__ = [
     "GANG_MODULE",
     "HEARTBEAT_S",
     "LAUNCH_FAULT_ENV",
+    "LAUNCH_TIMEOUT_ENV",
     "RANK_OWNED_PREFIXES",
     "RC_WAIT_SLACK_S",
     "RELAY_ALIVE",
@@ -64,6 +65,7 @@ __all__ = [
     "Gang",
     "RelayFault",
     "launch_nodes",
+    "launch_timeout",
     "lock_path",
     "main",
     "parse_argv",
@@ -100,6 +102,10 @@ RELAY_FAULT_EXIT = 75
 #: Where :func:`main` writes a relay fault's reason for the judge that launched it
 #: (``mpi_call.launch`` sets it per launch): the judge-side proof that the failure was the relay's.
 LAUNCH_FAULT_ENV = "HPCAGENT_BENCH_LAUNCH_FAULT_FILE"
+#: The seconds the judge gives this launch (``mpi_call.launch`` sets it per launch: a sharded launch of k
+#: draws gets k per-draw timeouts), which bound the step's ``--time`` and the relay wait. Unset, the
+#: launch has ``mpi.launch_timeout_s``.
+LAUNCH_TIMEOUT_ENV = "HPCAGENT_BENCH_LAUNCH_TIMEOUT_S"
 
 
 class RelayFault(RuntimeError):
@@ -230,7 +236,7 @@ def relay_env_prefix(environ: Mapping[str, str]) -> list[str]:
     rank's own come from the step that starts it -- and so does the judge's narrowed device view."""
     # The judge narrowed ITS OWN device view to a grading slot; the ranks must see the whole node so the
     # driver's local-rank binding can pick GPU 0..3. The fault file is the judge's, never a rank's.
-    dropped = {*osinfo.VISIBLE_DEVICE_ENV, LAUNCH_FAULT_ENV}
+    dropped = {*osinfo.VISIBLE_DEVICE_ENV, LAUNCH_FAULT_ENV, LAUNCH_TIMEOUT_ENV}
     keep = {k: v for k, v in environ.items() if not k.startswith(RANK_OWNED_PREFIXES) and k not in dropped}
     return ["/usr/bin/env", *(f"{k}={v}" for k, v in sorted(keep.items()))]
 
@@ -295,6 +301,13 @@ def relay_call(directory: Path, ident: str, cmd: Sequence[str], timeout: float, 
     return rc
 
 
+def launch_timeout(environ: Mapping[str, str]) -> float:
+    """The seconds this launch may take: the judge's own budget (:data:`LAUNCH_TIMEOUT_ENV`), else
+    ``mpi.launch_timeout_s``."""
+    given = environ.get(LAUNCH_TIMEOUT_ENV, "").strip()
+    return float(given) if given else config.get_float("mpi.launch_timeout_s", 1800)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ranks, program = parse_argv(list(sys.argv[1:] if argv is None else argv))
     gang = Gang.from_env(os.environ)
@@ -304,7 +317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{RELAY_DIR_ENV} is unset: gang ranks start only through the host-side relay "
             "(hpcagent_bench/cluster/gang_relay.py), because the judge image has no usable srun"
         )
-    timeout = config.get_float("mpi.launch_timeout_s", 1800)
+    timeout = launch_timeout(os.environ)
     lock = lock_path(gang, os.environ)
     lock.parent.mkdir(parents=True, exist_ok=True)
     with Path(lock).open("a", encoding="ascii") as handle:

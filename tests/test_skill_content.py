@@ -972,6 +972,32 @@ def test_every_when_trigger_is_a_quoted_yaml_scalar() -> None:
     assert not unquoted, f"when: must be a quoted scalar in {', '.join(unquoted)}"
 
 
+#: A repository directory the sealed agent workspace does not contain: materialize_shared.sh stages a
+#: kernel's numpy module, its reference sources and signature.json, and the seal hides the repo.
+SEALED_REPO_PATH = re.compile(r"`(?:tests|experiments|statistics|docs|hpcagent_bench)/")
+
+
+def test_no_skill_page_sends_the_agent_to_a_repo_path_the_seal_hides() -> None:
+    """A page is read INSIDE the sealed workspace. The solver page opened with "Read the kernel's test
+    in `tests/ports/<kernel>/`" -- a path no agent can open, so the treatment's first instruction cost
+    a failed Read and taught the agent that the page describes a workspace it is not in."""
+    hits = {
+        path.parent.name: sorted(set(SEALED_REPO_PATH.findall(path.read_text())))
+        for path in skill_files()
+        if SEALED_REPO_PATH.search(path.read_text())
+    }
+    assert not hits, f"skill pages point at repo paths the sealed workspace lacks: {hits}"
+
+
+def test_the_solver_page_does_not_promise_property_gates_the_judge_never_runs() -> None:
+    """The judge grades a submission on its outputs; the per-family property checks are the
+    references' own validation, never run on a submission. A page calling them gates tells the agent
+    to optimize for a check that does not exist."""
+    body = skill_bodies()["solver"]
+    for claim in ("acceptance tests", "the gates in this subtrack", "until a gate passes"):
+        assert claim not in body, f"the solver page still claims the judge runs {claim!r}"
+
+
 if __name__ == "__main__":
     test_every_shipped_skill_parses_and_is_indexable()
     test_a_skill_directory_name_is_its_frontmatter_name()
@@ -1031,3 +1057,5 @@ if __name__ == "__main__":
     test_the_divide_and_conquer_skill_quotes_the_hotspot_limit_it_tells_the_reader_to_respect()
     test_the_divide_and_conquer_skill_describes_the_none_tool_as_the_route_really_behaves()
     test_every_when_trigger_is_a_quoted_yaml_scalar()
+    test_no_skill_page_sends_the_agent_to_a_repo_path_the_seal_hides()
+    test_the_solver_page_does_not_promise_property_gates_the_judge_never_runs()

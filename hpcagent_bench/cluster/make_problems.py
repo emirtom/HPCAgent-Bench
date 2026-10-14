@@ -23,6 +23,7 @@ import sys
 import textwrap
 from collections.abc import Sequence
 
+from hpcagent_agent.driver import harnesses
 from hpcagent_bench import cpf_cache, flags, packets
 from hpcagent_bench.harness.prompts import PROMPT_FACTS_KEY, Skill, cluster_facts, distributed_contract, load_skills
 from hpcagent_bench.harness.task import Residency, Task, grading_residency
@@ -31,7 +32,6 @@ from hpcagent_bench.spec import KERNELS, BenchSpec
 __all__ = [
     "CPFSRC_NOTE",
     "DROPIN_DEFAULT_LANGUAGE",
-    "MAIN_PROMPT_SKILLS",
     "PAGE_COMPANIONS",
     "REPO",
     "SKILL_DIR",
@@ -68,9 +68,6 @@ SKILL_PAGE = re.compile(rf"{re.escape(SKILL_DIR)}/([A-Za-z0-9._-]+)\.md")
 #: Files staged beside a page, by page name: COPIES of what the judge builds with, so the reader can
 #: open the API the page teaches.
 PAGE_COMPANIONS: dict[str, tuple[pathlib.Path, ...]] = {"profiling": (flags.PAPI_RANGES_H,)}
-
-#: Pages the main prompt already carries ({{HINTS}}), which must never also ride in the packet.
-MAIN_PROMPT_SKILLS = frozenset({"optimization-hints"})
 
 #: What the cpf-src packet STAGES, said in the task text itself (a skill page may go unread). The
 #: transformation list is what dace's canonicalize pipeline applies (see the cpf-src skill page);
@@ -144,7 +141,7 @@ def trigger_line(skill: Skill) -> str:
     )
 
 
-def skill_index(skills: list[Skill]) -> str:
+def skill_index(skills: list[Skill], harness: str = harnesses.CLAUDE) -> str:
     """The whole skill section: a heading, and one trigger line per page.
 
     ONE renderer for every setup -- the default packet and a single-page `--skill` setup differ in
@@ -153,6 +150,9 @@ def skill_index(skills: list[Skill]) -> str:
     model pages") that predates every page being indexed: with 21 pages it put all 20 non-language
     names into each row of a symptom table and told the reader that `nsys` and `rccl` were "only
     what a DIRECTIVE adds". No body is inlined; materialize_shared.sh stages the files.
+
+    ``harness`` names the tool a page is opened with (:func:`harnesses.page_opening`): only claude has
+    one called Read.
     """
     lines = "".join(trigger_line(skill) for skill in skills)
     # Only a setup that stages a language page is told to read one; the CPF and method packets carry none.
@@ -163,7 +163,7 @@ def skill_index(skills: list[Skill]) -> str:
     )
     return (
         "# Skill pages for this task\n\n"
-        "These are FILES on disk, not text above. Open one with Read when its trigger fires"
+        f"These are FILES on disk, not text above. {harnesses.page_opening(harness, 'one')} when its trigger fires"
         f"{language_note}{lines}"
     )
 
@@ -179,8 +179,7 @@ def packet_pages(
     ``lang-<language>``.
 
     An extra root contributes only pages it ADDS (a root shadowing a shipped page is a different study),
-    and a page belongs to a language by its ``-<language>`` suffix (``loop-deps-c``); no hints page is
-    taken from it, since the hints+skills leg carries those in the main prompt.
+    and a page belongs to a language by its ``-<language>`` suffix (``loop-deps-c``).
 
     :raises ValueError: an unknown packet/skill token, a spec that names ``lang`` with no ``language``,
         a frozen key, or a device packet for a language its device does not run -- all CLI usage errors,
@@ -204,9 +203,7 @@ def packet_pages(
         extra = [
             skill
             for skill in load_skills((extra_root,))
-            if skill.file not in by_name
-            and skill.file not in MAIN_PROMPT_SKILLS
-            and (not language or skill.file.endswith(f"-{language}"))
+            if skill.file not in by_name and (not language or skill.file.endswith(f"-{language}"))
         ]
         if not extra:
             raise SystemExit(f"--extra-skill-root {extra_root} adds no page for language {language or 'any'}")
@@ -214,10 +211,12 @@ def packet_pages(
     return pages
 
 
-def packet_skills_text(spec: str, language: str, image: str | None = None, multinode: bool = False) -> str:
+def packet_skills_text(
+    spec: str, language: str, image: str | None = None, multinode: bool = False, harness: str = harnesses.CLAUDE
+) -> str:
     """The skill section for ``--packet spec`` (:func:`packet_pages`), "" for a packet with no page."""
     pages = packet_pages(spec, language, image, multinode)
-    return skill_index(pages) if pages else ""
+    return skill_index(pages, harness) if pages else ""
 
 
 def packet_note(spec: str, language: str, stem: str, module: str) -> str:
@@ -310,7 +309,7 @@ def skill_section(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     except ValueError as exc:
         parser.error(str(exc))
     shipped = {skill.file for skill in load_skills(())}
-    return skill_index(pages) if pages else "", {s.file: s.path for s in pages if s.file not in shipped}
+    return skill_index(pages, args.harness) if pages else "", {s.file: s.path for s in pages if s.file not in shipped}
 
 
 def selection(args: argparse.Namespace) -> tuple[list[str], set[str]]:
@@ -454,6 +453,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="the task spans nodes: stage the pages that only matter across a node boundary (MPI, "
         "RCCL, GPU-aware MPI). Off, they are not indexed -- no cluster prompt asks for MPI today",
+    )
+    parser.add_argument(
+        "--harness",
+        default=harnesses.CLAUDE,
+        choices=harnesses.HARNESSES,
+        help="the agent harness the problems are for; the skill index names its file tool (claude: Read)",
     )
     parser.add_argument(
         "--list-skills",

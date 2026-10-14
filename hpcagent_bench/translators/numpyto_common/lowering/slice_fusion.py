@@ -22,6 +22,13 @@ from hpcagent_bench.translators.numpyto_common.lowering.indexing import (
     name_of_subscript,
     slice_dims,
 )
+from hpcagent_bench.translators.numpyto_common.lowering.overlap import (
+    OVERLAP_TEMP_PREFIX,
+    index_list,
+    reads_a_stored_cell,
+    staged_through_temp,
+    temp_extents,
+)
 from hpcagent_bench.translators.numpyto_common.lowering.shape_harvest import is_scalar_helper_call
 from hpcagent_bench.translators.numpyto_common.lowering.shape_reads import is_newaxis, negative_literal_offset
 from hpcagent_bench.translators.numpyto_common.lowering.slice_scalarize import SliceToScalarRewriter
@@ -98,12 +105,16 @@ class SliceFusion(ast.NodeTransformer):
       shape info too).
     """
 
-    __slots__ = ("array_shapes", "invariant_ctr")
+    __slots__ = ("array_shapes", "invariant_ctr", "overlap_temps")
 
     def __init__(self, array_shapes: dict[str, tuple[str, ...]]) -> None:
         self.array_shapes = array_shapes
         #: Monotonic id for the invariant-read temps staged ahead of a fused nest.
         self.invariant_ctr: list[int] = [0]
+        #: Temps an overlapping right-hand side was evaluated into (see :mod:`.overlap`):
+        #: name -> (shape, the array the statement writes, whose element type the temp takes).
+        #: The caller declares them.
+        self.overlap_temps: dict[str, tuple[tuple[str, ...], str]] = {}
 
     def visit_Assign(self, node: ast.Assign) -> ast.AST | list[ast.stmt]:
         self.generic_visit(node)
@@ -196,6 +207,15 @@ class SliceFusion(ast.NodeTransformer):
         # A top-level RHS Name (``corr[i+1:M, i] = __mm4``) isn't visited by
         # NodeTransformer unless asked -- subscriptify it explicitly.
         new_rhs = rhs_rewriter.maybe_subscriptify(new_rhs)
+
+        # numpy reads the whole RHS before it stores: a read of a cell an earlier iteration of the
+        # nest has already stored (``a[1:] = a[:-1] + 1``, ``x[:] = x[::-1]``, ``x[:] = x[perm]``)
+        # goes through a temp the RHS is evaluated into first.
+        nest = [(ivar.id, ranges[axis][0], ranges[axis][1]) for axis, ivar in enumerate(iter_vars) if ivar is not None]
+        if reads_a_stored_cell(lhs_name, index_list(new_lhs), new_rhs, nest):
+            temp = f"{OVERLAP_TEMP_PREFIX}{len(self.overlap_temps) + 1}"
+            self.overlap_temps[temp] = (temp_extents(nest), lhs_name)
+            return [*hoister.staged, *staged_through_temp(new_lhs, new_rhs, aug_op, nest, temp)]
 
         if aug_op is None:
             inner: ast.stmt = ast.Assign(targets=[new_lhs], value=new_rhs)

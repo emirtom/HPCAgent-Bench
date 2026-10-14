@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from hpcagent_bench.translators.numpyto_common import dtypes
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
+from hpcagent_bench.translators.numpyto_common.lib_nodes.blas import BLAS_LOWERING_FLOAT
 from hpcagent_bench.translators.numpyto_common.lib_nodes.call_args import const_axis, kwarg_or_pos, read_axis_keepdims
 from hpcagent_bench.translators.numpyto_common.lib_nodes.constructors import arange_count
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import (
@@ -517,6 +518,7 @@ class CallHoister(ast.NodeTransformer):
         "_cur_keepdims",
         "array_temps",
         "blas",
+        "blas_float",
         "counter",
         "dim_aliases",
         "local_dtypes",
@@ -535,6 +537,7 @@ class CallHoister(ast.NodeTransformer):
         local_dtypes: dict[str, str] | None = None,
         dim_aliases: dict[str, str] | None = None,
         blas: bool = False,
+        blas_float: str = BLAS_LOWERING_FLOAT,
     ) -> None:
         self.shape_table = shape_table
         self.scalar_temps = scalar_temps
@@ -543,6 +546,7 @@ class CallHoister(ast.NodeTransformer):
         #: Both forwarded to the nested ``MatmulHoister`` (see its docstring).
         self.dim_aliases: dict[str, str] = dim_aliases or {}
         self.blas = blas
+        self.blas_float = blas_float
         # Side-effect dtype table (shared with the lowering pipeline)
         # so a ``__cb<n>`` whose RHS contains complex literals or
         # complex-typed Name references is tagged ``complex128``.
@@ -621,6 +625,7 @@ class CallHoister(ast.NodeTransformer):
             sparse=self.sparse,
             dim_aliases=self.dim_aliases,
             blas=self.blas,
+            blas_float=self.blas_float,
         )
         node.args = [mm.visit(a) for a in node.args]
         self.pre_stmts.extend(mm.pre_stmts)

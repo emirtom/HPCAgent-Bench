@@ -325,6 +325,38 @@ def ml_grade(**kw: object) -> scoring.MlGrade:
     return scoring.score_ml(softmax_sub(), ML_TASK, **{**args, **kw})
 
 
+def test_the_score_preview_draws_on_the_iteration_seed_never_the_recorded_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """hidden_tests/seeds.py: the record is graded on a second, unprobed seed. An ML /score drawn on
+    that seed would show the agent the very inputs its /submit is graded on."""
+    fake_ml_grade(monkeypatch)
+    launched = scoring.run_built_sharded
+    seeds: list[int] = []
+
+    def recording(
+        artifact: object,
+        task: Task,
+        binding: object,
+        sub: Submission,
+        descriptor: Descriptor,
+        draws: Sequence[mpi_call.Draw],
+        cfg: object,
+        **kw: object,
+    ) -> list[scoring.ShardedGrade]:
+        seeds.extend(draw.seed for draw in draws)
+        return launched(artifact, task, binding, sub, descriptor, draws, cfg, **kw)
+
+    monkeypatch.setattr(scoring, "run_built_sharded", recording)
+    ml_grade(hidden=False)
+    assert seeds
+    assert set(seeds) == {scoring.secret_seed_first()}
+    seeds.clear()
+    ml_grade()
+    assert set(seeds) == {scoring.secret_seed_second()}
+    assert scoring.secret_seed_first() != scoring.secret_seed_second()
+
+
 def test_one_build_serves_the_fuzz_gate_the_leaderboard_and_both_laws(monkeypatch: pytest.MonkeyPatch) -> None:
     """ONE build per grade, and a launch per DISTINCT (P, problem): P=1 is the same problem under
     both laws and the strong P=4 point is the leaderboard run, so each runs once."""

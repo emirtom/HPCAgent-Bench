@@ -11,6 +11,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes.scalarize import scalar
 __all__ = [
     "BLAS_GEMM_MARKER",
     "BLAS_INELIGIBLE_DTYPES",
+    "BLAS_LOWERING_FLOAT",
     "expand_add_outer",
     "expand_dot",
     "expand_dot_2d",
@@ -27,6 +28,13 @@ BLAS_GEMM_MARKER = "__blas_gemm"
 #: float32 / float64 only, so half and the storage-only formats (bfloat16, fp8) compute in the
 #: loop nest, where every read promotes and every write demotes.
 BLAS_INELIGIBLE_DTYPES = ("complex", "int", "uint", "bool", "float16", "bfloat16", "float8")
+
+#: The kernel float a gemm is called at when the caller does not say: the natural precision lowering
+#: runs at. The run's precision is applied after lowering, to every dtype at once, and the emitter
+#: picks ``sgemm`` or ``dgemm`` from that ONE kernel-wide float -- so an operand of any other width
+#: (``A.astype(np.float32)`` in an fp64 kernel) would reach ``dgemm`` as a ``float *``, and keeps the
+#: loop nest instead.
+BLAS_LOWERING_FLOAT = "float64"
 
 
 def expand_matmul(

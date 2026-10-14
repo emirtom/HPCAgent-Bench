@@ -12,6 +12,8 @@ benchmark suite: the harness calls ``initialize`` from ``<module_name>.py``).
 
 import numpy as np
 
+from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+
 
 def _normalize_block_index(index):
     index = np.asarray(index, dtype=np.int32)
@@ -269,8 +271,10 @@ def initialize(
     density,
     seed,
     datatype=np.float64,
+    perturbation: Perturbation | None = None,
 ):
     """Manifest-compatible DBCSR input generator."""
+    seed = resolve(perturbation).reseed(seed)
 
     a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_sizes = generate_random_dbcsr_inputs(
         n_block_rows=n_block_rows,
