@@ -24,8 +24,8 @@ class PerfPlaybookCpu:
 
 
 @packet("cpf-tool-cpu", order=1, aliases=("cpf-tool",))  # page + packet-only tool, switched on by env
-class CpfTool:
-    name = "Canonical Parallel Form Tool"
+class CpfToolCpu:
+    name = "Canonical Parallel Form Tool, CPU"
     skills = ("cpf-tool-cpu",)
     tools = ("canonical_parallel_form",)
     env = {"HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}"}
@@ -60,6 +60,12 @@ is the no-packet control: it takes `order=None`.
 
 A packet that stages a file rather than a page announces it in the task text through `packet_note`
 in `hpcagent_bench/cluster/make_problems.py`.
+
+The canonical parallel form (CPF) packets are four keys: `cpf-cpu-src` and `cpf-gpu-src` stage the form as the
+agent's starting source (`CPF_DROPIN_DIR`), `cpf-tool-cpu` and `cpf-tool-gpu` serve it through the
+`canonical_parallel_form` tool. `cpf-src` and `cpf-tool` are the device-neutral spellings a `PACKETS` knob takes:
+aliases of the CPU keys, which `packets.by_device` renames to the GPU keys for a device language
+(`packets.DEVICE_ONLY_LANGUAGES`). The setup records the device key it resolved to.
 
 ## Rules
 

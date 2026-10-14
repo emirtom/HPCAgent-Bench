@@ -310,12 +310,12 @@ record:
   # Row identity: one `setups` row per setup, joined by every run and grade of it, and selected on by every
   # query and figure. The run label and setup name are not parsed for these.
   study: ""                       # str. Study shared by its setups (e.g. llr40).
-  model: ""                       # str. Short model tag, key of envs/display_names.yaml (e.g. qwen38).
+  model: ""                       # str. Short model tag, an @llm key of models.py (e.g. qwen38).
   language: ""                    # str. Language the setup asked for. The request body's language is
                                   # agent-controlled and not recorded.
   device: null                    # cpu | gpu | cpu-multinode | gpu-multinode | null. Device class the setup
                                   # declares; stamped on every grade row (null is stamped cpu, recording.device_tag).
-                                  # cpu or cpu-multinode makes task.host_only_setup refuse device submissions.
+                                  # cpu or cpu-multinode makes task.setup_declared_host_only refuse device submissions.
   packet: ""                      # str. Skill packets, any separator; stored sorted and '+'-joined.
   setup: ""                       # str. Setup name; provenance only.
   harness: ""                     # claude | miniswe | openhands | "". Agent harness of the setup; "" is stored
