@@ -330,6 +330,11 @@ upstreams:
     license: MIT
     copyright: Copyright (c) 2024 MIT HAN Lab
     citation: QUEST, arXiv:2406.10774.
+  relayout:
+    name: relayout (data-layout transformation plugin and kernel corpus)
+    url: https://github.com/ThrudPrimrose/relayout
+    license: NOASSERTION
+    note: The cloudsc_* corpus kernels were ported through relayout's Fortran corpus.
   rodinia:
     name: Rodinia benchmark suite
     url: https://github.com/yuhc/gpu-rodinia

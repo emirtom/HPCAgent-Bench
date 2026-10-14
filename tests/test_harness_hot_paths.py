@@ -492,10 +492,7 @@ def test_ccache_is_namespaced_by_cpu(pretend_ccache) -> None:
 def test_the_config_gate_turns_ccache_off(tmp_path, pretend_ccache, monkeypatch) -> None:
     """``build.ccache: false`` must beat detection -- the escape hatch for a host where a
     cache hit would be wrong."""
-    real_get = languages.config.get
-    monkeypatch.setattr(
-        languages.config, "get", lambda key, default=None: False if key == "build.ccache" else real_get(key, default)
-    )
+    languages.config.set_override("build.ccache", False)
     languages.compiler_launcher.cache_clear()
     assert languages.compiler_launcher() == ()
     argv = languages.build_shared_lib_commands("c", tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE)[0]
