@@ -535,3 +535,17 @@ def test_the_prompt_the_tool_schema_and_the_judge_agree_for_every_preset(
     for precision in wire["cast_to"]:
         cast = Requests.from_obj({"operations": [{**SAMPLE_OPERATIONS["cast"], "to": precision}]})
         assert allowances.refusal(cast) is None, precision
+
+
+@pytest.mark.parametrize("offered", [False, True])
+def test_the_requests_schema_ships_once_in_submit(monkeypatch: pytest.MonkeyPatch, offered: bool) -> None:
+    """score and profile name submit's schema instead of repeating it; the judge validates the same field on
+    every route, and a task that offers nothing shows the field on none of them."""
+    wire = RequestActions(load=True, casts=("fp32",)).wire() if offered else None
+    tools = load_tools(monkeypatch, "source", "c", request_actions=wire)
+    full = tools.http_json.requests_property(tools.http_json.request_actions())
+    assert (full is not None) is offered
+    assert tools.submit.INPUT_SCHEMA["properties"].get("requests") == full
+    for module in (tools.score, tools.profile_tool):
+        reference = module.INPUT_SCHEMA["properties"].get("requests")
+        assert reference == ({"type": "object", "description": "Same as submit's requests."} if offered else None)

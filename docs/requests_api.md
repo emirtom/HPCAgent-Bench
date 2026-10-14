@@ -88,7 +88,8 @@ C-ABI delivery, the single-node layouts where it has dense arrays and is not dis
 kernel, `place` and the distributed operations (and `startup.grid` under `requests.grid` `agent`) on a distributed
 task. `make_problems.py` writes that offer into each problem line (`request_actions`). The agent driver exports
 it as `$HPCAGENT_BENCH_REQUEST_ACTIONS`, and `http_json.requests_property` filters the vendored schema by it.
-Where nothing is offered, or the variable is unset (a problem line written before it), `score`,
+The filtered schema ships once, in `submit`; `score` and `profile` describe the field as "Same as submit's
+requests." Where nothing is offered, or the variable is unset (a problem line written before it), `score`,
 `submit` and `profile` show no `requests` field. The agent's environment never carries the config defaults,
 so the tools do not guess them.
 

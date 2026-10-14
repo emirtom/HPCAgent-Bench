@@ -450,10 +450,10 @@ def test_the_requests_field_requires_a_layout_exactly_where_the_judge_grades_dis
     describes ``requests`` as carrying them; a task that offers nothing shows no ``requests`` field."""
     tools = load_tools(monkeypatch, "source", "hip", request_actions=actions)
     for module in (tools.score, tools.submit, tools.profile_tool):
-        properties = module.INPUT_SCHEMA["properties"]
-        assert ("requests" in properties) is offered, module.__name__
-        if offered:
-            assert properties["requests"]["description"].startswith("REQUIRED on this distributed run")
+        assert ("requests" in module.INPUT_SCHEMA["properties"]) is offered, module.__name__
+    if offered:
+        described = tools.submit.INPUT_SCHEMA["properties"]["requests"]["description"]
+        assert described.startswith("REQUIRED on this distributed run"), described
     assert set(tools.score.INPUT_SCHEMA["properties"]) - {"language", "requests"} == set(
         tools.http_json.SUBMISSION_PROPERTIES
     )

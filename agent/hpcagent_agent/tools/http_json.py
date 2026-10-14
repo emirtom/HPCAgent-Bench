@@ -47,6 +47,7 @@ __all__ = [
     "LANGUAGE_PROPERTY",
     "PATH_FIELDS",
     "RequestActions",
+    "REQUESTS_REFERENCE",
     "REQUESTS_SCHEMA",
     "REQUEST_ACTIONS_ENV",
     "STARTUP_LOAD_TEXT",
@@ -583,16 +584,24 @@ LANGUAGE_PROPERTY: dict[str, Any] = {
 }
 
 
-def schema_with_language(properties: dict[str, Any]) -> dict[str, Any]:
+#: ``requests`` on ``score`` and ``profile``: the schema ships once, in ``submit`` (which every setup serves);
+#: the judge validates the field the same on every route.
+REQUESTS_REFERENCE: dict[str, Any] = {"type": "object", "description": "Same as submit's requests."}
+
+
+def schema_with_language(properties: dict[str, Any], *, full_requests: bool = True) -> dict[str, Any]:
     """A route's INPUT_SCHEMA: ``properties``, plus ``language`` only where the track pins none, plus
     ``requests`` (after ``build``) offering exactly this task's :func:`request_actions`, and no ``requests``
-    where it offers nothing (:func:`requests_property`).
+    where it offers nothing (:func:`requests_property`). ``full_requests`` False names it
+    :data:`REQUESTS_REFERENCE` instead, so the schema ships once.
 
     Both fields are ABSENT where they offer nothing on purpose -- a schema that invites a choice the judge
     will refuse spends the model's attempts teaching it that the choice was never real.
     """
     actions = request_actions()
     requests = requests_property(actions)
+    if requests is not None and not full_requests:
+        requests = REQUESTS_REFERENCE
     out: dict[str, Any] = {}
     for name, schema in properties.items():
         if name == "requests":
