@@ -80,9 +80,11 @@ GRADE_CPUS=${GRADE_CPUS:-24}
 relay_pids=()
 job_files=()
 cleanup() {
-    (( ${#relay_pids[@]} )) && kill "${relay_pids[@]}" 2>/dev/null
+    # A relay that already died fails its kill; under set -e that would end the trap before the rm and
+    # replace the job's exit status.
+    (( ${#relay_pids[@]} )) && { kill "${relay_pids[@]}" 2>/dev/null || true; }
     # This job's relay and sandbox dirs: per job (other jobs may share the out dir), so never reused.
-    (( ${#job_files[@]} )) && rm -rf "${job_files[@]}"
+    (( ${#job_files[@]} )) && { rm -rf "${job_files[@]}" || true; }
 }
 trap cleanup EXIT
 . "${repo}/hpcagent_bench/cluster/env.sh"

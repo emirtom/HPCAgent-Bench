@@ -5,11 +5,11 @@ import copy
 import dataclasses
 import functools
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from typing import ClassVar, Optional
 
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import ALL_BLOCK_FIELDS, map_blocks, name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import ALL_BLOCK_FIELDS, const_int, map_blocks, name_, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -116,8 +116,6 @@ __all__ = [
     "implicit_int_kinds",
     "index_aliases",
     "int_cast_operand",
-    "int_literal_or_none",
-    "int_literal_value",
     "is_scalar_access",
     "kinded_shape_operand",
     "libm_interface",
@@ -127,7 +125,6 @@ __all__ = [
     "peel_int_casts",
     "pinned_const_decls",
     "prepared_body_emitter",
-    "produces_bool",
     "produces_logical",
     "pure_index_root",
     "rebind_loop_tokens",
@@ -636,8 +633,17 @@ def assigned_bool_literal(tree: ast.AST) -> set[str]:
     return out
 
 
-def produces_logical(rhs: ast.expr) -> bool:
-    """True when an RHS expression evaluates to a boolean (LOGICAL) array: comparisons, and/or/not, & | ^ / ~mask on logicals."""
+def produces_logical(rhs: ast.expr, logical_names: Collection[str] = frozenset()) -> bool:
+    """True when an RHS expression evaluates to a boolean (LOGICAL) array: comparisons, and/or/not, & | ^ / ~mask on logicals.
+
+    ``logical_names`` are the names already known logical (bare or subscripted), so a combine of two
+    mask locals (``both = c1 & c2``) is logical too. numpy semantics: ``&`` is boolean only when BOTH
+    operands are, ``(a < b) & k`` with an integer ``k`` is an integer.
+    """
+    if isinstance(rhs, ast.Name):
+        return rhs.id in logical_names
+    if isinstance(rhs, ast.Subscript) and isinstance(rhs.value, ast.Name):
+        return rhs.value.id in logical_names
     if isinstance(rhs, (ast.Compare, ast.BoolOp)):
         return True
     # A folded bool literal (`(a >= b) | (nssopt == 0)` reaches here as `Compare | False`) is
@@ -648,9 +654,9 @@ def produces_logical(rhs: ast.expr) -> bool:
         if isinstance(rhs.op, ast.Not):
             return True
         if isinstance(rhs.op, ast.Invert):
-            return produces_logical(rhs.operand)
+            return produces_logical(rhs.operand, logical_names)
     if isinstance(rhs, ast.BinOp) and isinstance(rhs.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
-        return produces_logical(rhs.left) and produces_logical(rhs.right)
+        return produces_logical(rhs.left, logical_names) and produces_logical(rhs.right, logical_names)
     return False
 
 
@@ -662,12 +668,13 @@ def logical_locals_(kir: KernelIR) -> set[str]:
     a mask is never *used* as a logical while *declared* real.
 
     Sources: a bare ``True``/``False`` assign, a ``bool`` entry in ``local_dtypes``, a
-    boolean-valued RHS, and -- transitively -- a plain copy from any of those.
+    boolean-valued RHS, and -- transitively -- a plain copy or a & | ^ combine of any of those.
     """
     names: set[str] = set(assigned_bool_literal(kir.tree))
     names |= {nm for nm, dt in kir.local_dtypes.items() if dt in ("bool", "bool_")}
-    # (target, source) of the copies ``X[..] = Y[..]`` / ``X = Y`` that carry a dtype across.
-    copies: list[tuple[str, str]] = []
+    # (target, RHS) of the assigns whose RHS is logical only through a name it reads: a copy
+    # ``X[..] = Y[..]`` / ``X = Y`` or a combine ``X = Y & Z``.
+    pending: list[tuple[str, ast.expr]] = []
     for node in ast.walk(kir.tree):
         if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
             continue
@@ -680,12 +687,8 @@ def logical_locals_(kir: KernelIR) -> set[str]:
             continue
         if produces_logical(node.value):
             names.add(tgt_name)
-            continue
-        src = node.value
-        if isinstance(src, ast.Subscript) and isinstance(src.value, ast.Name):
-            copies.append((tgt_name, src.value.id))
-        elif isinstance(src, ast.Name):
-            copies.append((tgt_name, src.id))
+        else:
+            pending.append((tgt_name, node.value))
     # ``mask[i] = cmp_tmp[i]`` -- the elementwise lowering of ``mask = a < b`` splits the compare
     # into a bool temp and a copy, so the boolean only reaches ``mask`` through the copy. Fixpoint:
     # ast.walk order is not dataflow order, so one pass can miss a chain.
@@ -695,28 +698,13 @@ def logical_locals_(kir: KernelIR) -> set[str]:
     changed = True
     while changed:
         changed = False
-        for tgt_name, src_name in copies:
+        for tgt_name, rhs in pending:
             if tgt_name in names or tgt_name in declared:
                 continue
-            if src_name in names or src_name in bool_sources:
+            if produces_logical(rhs, names | bool_sources):
                 names.add(tgt_name)
                 changed = True
     return names
-
-
-def int_literal_value(node: ast.expr) -> int | None:
-    """The integer value of a possibly-negated int literal (5 -> 5, -5 -> -5), else None."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
-        return node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, (ast.USub, ast.UAdd))
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, int)
-        and not isinstance(node.operand.value, bool)
-    ):
-        return -node.operand.value if isinstance(node.op, ast.USub) else node.operand.value
-    return None
 
 
 # Body walker
@@ -901,21 +889,6 @@ TWO_OPERAND_CALLS: dict[str, str] = {
 }
 
 
-def int_literal_or_none(a: ast.expr) -> int | None:
-    """``a`` as an int literal (a negative one parses as ``UnaryOp(USub, Constant)``), else None."""
-    if isinstance(a, ast.Constant) and isinstance(a.value, int) and not isinstance(a.value, bool):
-        return a.value
-    if (
-        isinstance(a, ast.UnaryOp)
-        and isinstance(a.op, ast.USub)
-        and isinstance(a.operand, ast.Constant)
-        and isinstance(a.operand.value, int)
-        and not isinstance(a.operand.value, bool)
-    ):
-        return -a.operand.value
-    return None
-
-
 def int_cast_operand(a: ast.expr) -> ast.expr | None:
     """The operand of an explicit ``np.int<N>(x)`` cast, else None."""
     if (
@@ -930,22 +903,8 @@ def int_cast_operand(a: ast.expr) -> ast.expr | None:
 
 def constant_tuple_element(elts: Sequence[ast.expr], idx_node: ast.expr) -> ast.expr | None:
     """``elts[idx]`` for a constant (possibly negative) in-range integer index, else None."""
-    if isinstance(idx_node, ast.Constant) and isinstance(idx_node.value, int):
-        idx = idx_node.value
-        if idx < 0:
-            idx += len(elts)
-        if 0 <= idx < len(elts):
-            return elts[idx]
-    if (
-        isinstance(idx_node, ast.UnaryOp)
-        and isinstance(idx_node.op, ast.USub)
-        and isinstance(idx_node.operand, ast.Constant)
-        and isinstance(idx_node.operand.value, int)
-    ):
-        idx = -idx_node.operand.value + len(elts)
-        if 0 <= idx < len(elts):
-            return elts[idx]
-    return None
+    idx = const_int(idx_node)
+    return elts[idx] if idx is not None and -len(elts) <= idx < len(elts) else None
 
 
 def is_scalar_access(n: ast.expr) -> bool:
@@ -1250,11 +1209,7 @@ class FortranBodyEmitter(BaseEmitter):
             # (frontend/kernel_ir.py), so a 0/1 config toggle declared there (crc16's ``reflect_out``) is an
             # integer param that never appears in ``kir.scalars``.
             int_scalars = {s.name for s in self.kir.symbols}
-            int_scalars |= {
-                s.name
-                for s in self.kir.scalars
-                if s.dtype in ("int", "int64", "int32", "int16", "int8", "uint64", "uint32", "uint16", "uint8")
-            }
+            int_scalars |= {s.name for s in self.kir.scalars if dtypes.is_integer(s.dtype)}
             self._int_scalar_names = int_scalars
         return isinstance(node, ast.Name) and node.id in int_scalars
 
@@ -2050,13 +2005,13 @@ class FortranBodyEmitter(BaseEmitter):
         defaults to the LAST element, the end to the FIRST (the half-open upper excludes its index
         going down: upper + 2, 1-based)."""
         step = e.step
-        step_val = int_literal_value(step) if step is not None else None
+        step_val = const_int(step)
         if step is not None and step_val is not None and step_val < 0:
             lo = self.section_start(e.lower, dim, default=dim)
             if e.upper is None:
                 hi = "1"
             else:
-                uv = int_literal_value(e.upper)
+                uv = const_int(e.upper)
                 hi = (
                     f"({self.emit_expr(e.upper)}) + 2"
                     if uv is None
@@ -2067,7 +2022,7 @@ class FortranBodyEmitter(BaseEmitter):
         if e.upper is None:
             hi = dim
         else:
-            uv = int_literal_value(e.upper)
+            uv = const_int(e.upper)
             if uv is None:
                 hi = self.emit_expr(e.upper)
             elif uv < 0:
@@ -2083,7 +2038,7 @@ class FortranBodyEmitter(BaseEmitter):
         wraps: dim + K + 1)."""
         if lower is None:
             return default
-        lv = int_literal_value(lower)
+        lv = const_int(lower)
         if lv is None:
             return f"({self.emit_expr(lower)}) + 1"
         return str(lv + 1) if lv >= 0 else f"{dim} + ({lv}) + 1"
@@ -2370,7 +2325,7 @@ class FortranBodyEmitter(BaseEmitter):
         kind, and numpy promotes a mixed int / real where to the real type, so an integer branch (an
         int literal or an explicit ``np.int<N>(...)`` cast) is real-promoted when the OTHER branch is
         not integer."""
-        lit1, lit2 = int_literal_or_none(node.args[1]), int_literal_or_none(node.args[2])
+        lit1, lit2 = const_int(node.args[1]), const_int(node.args[2])
         cast1, cast2 = int_cast_operand(node.args[1]), int_cast_operand(node.args[2])
         if (lit1 is not None or cast1 is not None) and (lit2 is not None or cast2 is not None):
             return f"MERGE({args_e[1]}, {args_e[2]}, {args_e[0]})"
@@ -3277,7 +3232,7 @@ def signature_decls(kir: KernelIR, param_names: list[str], safe_with_case: Calla
         elif arg in sca_by_name:
             sca = sca_by_name[arg]
             d = scalar_decl(arg, sca.dtype, sca.is_output, assigned=arg in assigned_names)
-            (sca_int_decls if sca.dtype in ("int64", "int32", "int") else sca_real_decls).append(d)
+            (sca_int_decls if dtypes.is_integer(sca.dtype) else sca_real_decls).append(d)
         elif arg in arr_by_name:
             arr_decls.append(array_decl(arr_by_name[arg]))
     return pinned_const_decls(kir, safe_with_case) + sym_decls + sca_int_decls + arr_decls + sca_real_decls
@@ -3533,48 +3488,33 @@ def collect_implicit_locals(kir: KernelIR) -> list[tuple[str, str]]:
 BITWISE_BINOPS = (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)
 
 
-def produces_bool(node: ast.expr) -> bool:
-    """A boolean-valued RHS: comparison / boolean op / not, a bare True/False literal, or a numpy mask
-    combine (& | ^ ~ with a boolean operand) -- its target is logical."""
-    if isinstance(node, (ast.Compare, ast.BoolOp)):
-        return True
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-        return True
-    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
-        return True
-    if isinstance(node, ast.BinOp) and isinstance(node.op, BITWISE_BINOPS):
-        return produces_bool(node.left) or produces_bool(node.right)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Invert):
-        return produces_bool(node.operand)
-    return False
-
-
-def add_bitwise_operands(rhs: ast.expr, int_uses: set[str]) -> None:
+def add_bitwise_operands(rhs: ast.expr, int_uses: set[str], logical_names: Collection[str]) -> None:
     """Add every Name reachable through bitwise BinOps / Invert in ``rhs`` to ``int_uses`` (IAND /
     IOR / IEOR / ISHFT / NOT take INTEGER), descending through arithmetic, comparisons (``(flags &
-    X) != 0``) and and/or; a boolean operand is a numpy mask combine and is skipped."""
+    X) != 0``) and and/or; a logical operand (:func:`produces_logical` over ``logical_names``) is a
+    numpy mask combine and is skipped."""
     if isinstance(rhs, ast.BinOp) and isinstance(rhs.op, BITWISE_BINOPS):
         for sub in (rhs.left, rhs.right):
-            if produces_bool(sub):
+            if produces_logical(sub, logical_names):
                 continue
             int_uses.update(n.id for n in ast.walk(sub) if isinstance(n, ast.Name))
-            add_bitwise_operands(sub, int_uses)
+            add_bitwise_operands(sub, int_uses, logical_names)
     elif isinstance(rhs, ast.UnaryOp) and isinstance(rhs.op, ast.Invert):
-        if not produces_bool(rhs.operand):  # ``~mask`` stays logical
+        if not produces_logical(rhs.operand, logical_names):  # ``~mask`` stays logical
             int_uses.update(n.id for n in ast.walk(rhs.operand) if isinstance(n, ast.Name))
-            add_bitwise_operands(rhs.operand, int_uses)
+            add_bitwise_operands(rhs.operand, int_uses, logical_names)
     elif isinstance(rhs, ast.BinOp):
-        add_bitwise_operands(rhs.left, int_uses)
-        add_bitwise_operands(rhs.right, int_uses)
+        add_bitwise_operands(rhs.left, int_uses, logical_names)
+        add_bitwise_operands(rhs.right, int_uses, logical_names)
     elif isinstance(rhs, ast.UnaryOp):
-        add_bitwise_operands(rhs.operand, int_uses)
+        add_bitwise_operands(rhs.operand, int_uses, logical_names)
     elif isinstance(rhs, ast.Compare):
-        add_bitwise_operands(rhs.left, int_uses)
+        add_bitwise_operands(rhs.left, int_uses, logical_names)
         for c in rhs.comparators:
-            add_bitwise_operands(c, int_uses)
+            add_bitwise_operands(c, int_uses, logical_names)
     elif isinstance(rhs, ast.BoolOp):
         for v in rhs.values:
-            add_bitwise_operands(v, int_uses)
+            add_bitwise_operands(v, int_uses, logical_names)
 
 
 class LocalTyping:
@@ -3612,16 +3552,11 @@ class LocalTyping:
         self.record_local_dtypes(kir.local_dtypes)
         self.int_uses = names_used_as_int(kir.tree)
         self.int_valued = integer_valued_locals(kir)
-        self.logical_uses = {
-            node.targets[0].id
-            for node in ast.walk(kir.tree)
-            if isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and produces_bool(node.value)
-        }
+        # The body emitter's own logical set (is_logical_node), so a local is never declared
+        # integer while its uses emit it as a LOGICAL.
+        self.logical_uses = logical_locals_(kir)
         self.collect_bitwise_int_uses(kir.tree)
-        self.int64_uses = self.propagate_int64(kir, self.int64_sources(kir))
+        self.int64_uses = self.propagate_int64(kir, self.int64_sources(kir), self.logical_uses)
         self.float_assigned = self.real_element_assigned(kir)
 
     def record_local_dtypes(self, local_dtypes: dict[str, str]) -> None:
@@ -3668,9 +3603,9 @@ class LocalTyping:
             top_bitwise = (isinstance(rhs, ast.BinOp) and isinstance(rhs.op, BITWISE_BINOPS)) or (
                 isinstance(rhs, ast.UnaryOp) and isinstance(rhs.op, ast.Invert)
             )
-            if top_bitwise and not produces_bool(rhs) and isinstance(tgt, ast.Name):
+            if top_bitwise and not produces_logical(rhs, self.logical_uses) and isinstance(tgt, ast.Name):
                 self.int_uses.add(tgt.id)
-            add_bitwise_operands(rhs, self.int_uses)
+            add_bitwise_operands(rhs, self.int_uses, self.logical_uses)
 
     def int64_sources(self, kir: KernelIR) -> set[str]:
         """Every name whose Fortran kind IS int64: size symbols, int64 arrays / scalars / locals, an
@@ -3701,7 +3636,7 @@ class LocalTyping:
         return names
 
     @staticmethod
-    def propagate_int64(kir: KernelIR, sources: set[str]) -> set[str]:
+    def propagate_int64(kir: KernelIR, sources: set[str], logical_names: Collection[str]) -> set[str]:
         """Fixed point: a Name sharing a bitwise BinOp (not a mask combine) or a bitwise intrinsic call
         with an int64 Name, or assigned from an expression reading one, is int64 too."""
         int64_uses = set(sources)
@@ -3711,7 +3646,9 @@ class LocalTyping:
             for node in ast.walk(kir.tree):
                 names: list[str] = []
                 if (
-                    isinstance(node, ast.BinOp) and isinstance(node.op, BITWISE_BINOPS) and not produces_bool(node)
+                    isinstance(node, ast.BinOp)
+                    and isinstance(node.op, BITWISE_BINOPS)
+                    and not produces_logical(node, logical_names)
                 ) or (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Name)
@@ -4043,7 +3980,7 @@ def helper_dummy_decls(hkir: KernelIR) -> list[str]:
         elif orig in sca_by:
             sca = sca_by[orig]
             d = scalar_decl(safe, sca.dtype, sca.is_output, assigned=safe in hassigned)
-            (sca_int_decls if sca.dtype in ("int64", "int32", "int") else sca_real_decls).append(d)
+            (sca_int_decls if dtypes.is_integer(sca.dtype) else sca_real_decls).append(d)
         elif orig in arr_by:
             a = arr_by[orig]
             arr_decls.append(

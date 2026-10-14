@@ -9,14 +9,35 @@ which is what fragmented ``git-scicomp``'s setup-summary figure. These tests sta
 fixes it without hiding a real conflict.
 """
 
+import contextlib
 import math
 import pathlib
+import sqlite3
 import warnings
 
 import pandas as pd
 import pytest
 
 from hpcagent_bench import studies
+from hpcagent_bench.harness import recording
+
+
+@pytest.mark.parametrize("merge_failed", [False, True])
+def test_a_job_marked_merge_failed_is_read_from_its_shards_not_its_results_db(
+    tmp_path: pathlib.Path, merge_failed: bool
+) -> None:
+    """``MERGE_FAILED`` stays until a merge succeeds, so a ``results.db`` beside it may hold only some
+    shards: reading it and skipping the shards silently dropped every other rank's grades."""
+    merged = tmp_path / studies.MERGED_DB_NAME
+    shard = tmp_path / studies.JUDGE_DIRNAME / "rank-0" / "hpcagent_bench0.db"
+    shard.parent.mkdir(parents=True)
+    merged.touch()
+    shard.touch()
+    if merge_failed:
+        (tmp_path / "MERGE_FAILED").touch()  # the marker run_cluster.sh writes
+
+    assert studies.judge_database(merged) is not merge_failed
+    assert studies.judge_database(shard) is merge_failed
 
 
 def test_a_blank_and_filled_setup_reads_as_one_identity() -> None:
@@ -412,3 +433,19 @@ def test_a_task_whose_job_was_never_recorded_is_labelled_not_refused() -> None:
     label, joined with an empty job rather than raising on the missing value."""
     rows = pd.DataFrame({"run_root": ["r", "r"], "job": [pd.NA, "7"], "episode_id": ["w0", "w0"]}, dtype="string")
     assert studies.episode_labels(rows).tolist() == ["r\x1f\x1fw0", "r\x1f7\x1fw0"]
+
+
+@pytest.mark.parametrize("directory", ["run#2", "50%25", "a?b"])
+def test_read_table_opens_a_db_under_a_directory_sqlite_uris_would_misread(
+    tmp_path: pathlib.Path, directory: str
+) -> None:
+    """A run directory named ``run#2`` or ``50%25`` is a fragment or an escape in a raw ``file:`` URI;
+    the read-only open must still read that very file (as must ``recording.table_exists``)."""
+    path = tmp_path / directory / "obs.db"
+    path.parent.mkdir()
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        conn.execute("CREATE TABLE t (x INTEGER)")
+        conn.execute("INSERT INTO t VALUES (7)")
+        conn.commit()
+    assert studies.read_table(path, "t").x.tolist() == [7]
+    assert recording.table_exists(str(path), "t")

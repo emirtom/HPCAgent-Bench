@@ -390,13 +390,4 @@ def fold_shape_expr(text: str) -> str:
 
 def literal_axis(sl: ast.expr) -> int | None:
     """The integer axis of a ``.shape[k]`` read, or ``None`` when it is not a literal one."""
-    if isinstance(sl, ast.Constant) and isinstance(sl.value, int) and not isinstance(sl.value, bool):
-        return sl.value
-    if (
-        isinstance(sl, ast.UnaryOp)
-        and isinstance(sl.op, ast.USub)
-        and isinstance(sl.operand, ast.Constant)
-        and isinstance(sl.operand.value, int)
-    ):
-        return -sl.operand.value
-    return None
+    return const_int(sl)

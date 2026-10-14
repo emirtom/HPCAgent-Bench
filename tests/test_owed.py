@@ -102,6 +102,17 @@ def test_two_jobs_of_one_setup_are_one_identity_and_coverage_is_the_union(tmp_pa
     assert list(owed.owed(by_identity["exp-qwen38-c"], TAG_RUNS)) == TAG_RUNS[2:]
 
 
+def test_a_shard_under_another_db_stem_still_names_its_setup(tmp_path: pathlib.Path) -> None:
+    """The shard's stem comes from config ``record.db_path``; a site that renamed it still has its
+    setup read and its grades delivered (owed reads the shards merge_results merges)."""
+    job = make_job(tmp_path, "100", "exp-qwen38-c")
+    grade(job, "submissions", TAG_KERNELS[0])
+    rank = job / "judge" / "rank-0"
+    (rank / "hpcagent_bench0.db").rename(rank / "results0.db")
+    assert owed.job_setup(job) == "exp-qwen38-c"
+    assert owed.delivered(job) == {owed.Run(TAG_KERNELS[0])}
+
+
 def test_a_job_with_shards_but_no_setup_is_refused(tmp_path: pathlib.Path) -> None:
     """A shard whose judge recorded no run names no setup (every run names its setup)."""
     job = make_job(tmp_path, "100", "exp")
@@ -299,6 +310,7 @@ if __name__ == "__main__":
 
     test_a_kernel_is_delivered_only_by_a_real_grade(scratch())
     test_two_jobs_of_one_setup_are_one_identity_and_coverage_is_the_union(scratch())
+    test_a_shard_under_another_db_stem_still_names_its_setup(scratch())
     test_a_job_with_shards_but_no_setup_is_refused(scratch())
     test_only_an_uncancelled_cap_is_the_budget_class(scratch(), agent_driver.RC_TIMEOUT, False, owed.OwedClass.BUDGET)
     test_only_an_uncancelled_cap_is_the_budget_class(

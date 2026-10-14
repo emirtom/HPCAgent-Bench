@@ -2257,7 +2257,8 @@ def graded_score(
         # hopeless candidate is not retried every /score round; ``fastest_baseline`` skips it.
         if baselines and cached is None and not lost_compiled:
             remember_baseline_timing(bl_key, (dict(baselines), {k: list(v) for k, v in baseline_samples.items()}))
-            if disk_timing:
+            # A cut is one rep over its early-stop budget, a lower bound; it is not kept across jobs.
+            if disk_timing and not any(was_cut(baseline_samples, kind) for kind in kinds):
                 disk_cache.store_timing(disk_cache.harness_key(spec), bl_key, BASELINE_TIMING_CACHE[bl_key])
 
         # A compiled reference the race needed and lost is a judge failure: the ratio over the survivors

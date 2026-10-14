@@ -49,7 +49,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
 )
 from hpcagent_bench.harness.native_call import workspace_bytes_of
 from hpcagent_bench.sizing import shape_namespace
-from hpcagent_bench.spec import BenchSpec, shape_dims
+from hpcagent_bench.spec import BenchSpec, as_tuple, shape_dims
 from hpcagent_bench.support.bindings.contract import Binding
 
 if TYPE_CHECKING:  # the ranks import torch and mpi4py at run time, after MPI_Init
@@ -64,7 +64,6 @@ __all__ = [
     "SCALAR_CTYPES",
     "SUBMISSION_PHASE",
     "TORCH_DTYPES",
-    "as_tuple",
     "build_plan",
     "c_kernel",
     "check_gpu_binding",
@@ -214,11 +213,6 @@ def build_plan(
         "outputs": outputs,
         "ranks": ranks,
     }
-
-
-def as_tuple(result: object) -> tuple[Any, ...]:
-    """A reference or make_inputs return value as a tuple (a single tensor is one element)."""
-    return tuple(result) if isinstance(result, (tuple, list)) else (result,)
 
 
 def plan_layout(plan: Mapping[str, Any], key: str = "layout") -> tuple[dict[str, Any], Grid]:

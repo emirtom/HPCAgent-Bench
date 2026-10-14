@@ -79,7 +79,6 @@ __all__ = [
     "REFERENCE",
     "RULE",
     "SAVE_DPI",
-    "STAT_INK",
     "SUBTITLE_PT",
     "SVG_HASH_SALT",
     "TICK_PT",
@@ -92,7 +91,6 @@ __all__ = [
     "KeySpacing",
     "MinorKind",
     "MinorLocator",
-    "StatInk",
     "TypeScale",
     "above_protrusion_in",
     "apply",
@@ -171,16 +169,6 @@ MINOR_GRID_WIDTH: float = 0.25
 MINOR_TICK_LENGTH: float = 0.55
 MINOR_TICK_WIDTH: float = 0.6
 
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class StatInk:
-    """Colours of statistics and states, never of entities (palette.py owns those)."""
-
-    median: str = "#3b6fd4"  # median bar; blue so the geomean tick reads against it
-    geomean: str = "#d4772a"  # geomean tick; orange, far from the median blue
-
-
-STAT_INK = StatInk()
 
 # Every label uses Title Case, except articles/conjunctions/prepositions inside it; identifiers
 # and mathtext keep their own spelling. Not enforced in code.

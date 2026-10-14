@@ -364,7 +364,7 @@ def test_nsys_record_traces_cuda_without_turning_on_cpu_sampling(tmp_path, monke
     on would make a GPU profile fail for a host reason."""
     seen = {}
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda _lang: "/usr/bin/nsys")
-    monkeypatch.setattr(gpu_profiling.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
+    monkeypatch.setattr(gpu_profiling, "run_command", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
     gpu_profiling.nsys_record(["./app"], tmp_path / "gpu-profile", cwd=tmp_path, timeout=9.0, language="cuda")
     cmd = seen["cmd"]
     assert cmd[:2] == ["/usr/bin/nsys", "profile"]
@@ -824,7 +824,7 @@ def test_rocprof_command_asks_rocprofv3_for_every_report_as_csv(tmp_path) -> Non
 
 def test_rocprof_record_writes_where_the_reader_looks(tmp_path, monkeypatch) -> None:
     seen = {}
-    monkeypatch.setattr(gpu_profiling.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
+    monkeypatch.setattr(gpu_profiling, "run_command", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
     outdir = tmp_path / gpu_profiling.ROCPROF_OUTDIR
     gpu_profiling.rocprof_record(["./app"], outdir, cwd=tmp_path, timeout=9.0, exe="/opt/rocm/bin/rocprofv3", plan=None)
     assert outdir.is_dir(), "rocprofv3 does not create its --output-directory"

@@ -432,7 +432,7 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
 def optimizer_registry() -> dict[str, Callable[..., Agent]]:
     """Name -> non-AI optimizer factory: every :class:`Agent` subclass defined in this module that declares its
     own ``name``, and every autotuning framework flavor (``hpcagent_bench.columns``) bound to its adapter class. The
-    harness runs each through the SAME procedure as an LLM agent (``hpcagent-bench agent --agent <name>``), so a new
+    harness runs each through the SAME procedure as an LLM agent (``hpcagent-bench agent <name>``), so a new
     optimizer is one class here or one flavor there."""
     classes: dict[str, Callable[..., Agent]] = {
         vars(cls)["name"]: cls

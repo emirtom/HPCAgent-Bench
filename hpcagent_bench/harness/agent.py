@@ -20,7 +20,7 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.usage import TokenUsage
 from hpcagent_bench.languages import LANG_TARGET
-from hpcagent_bench.spec import BenchSpec, register_manifest_cache
+from hpcagent_bench.spec import BenchSpec, as_list, register_manifest_cache
 
 if TYPE_CHECKING:
     from anthropic.types import MessageParam
@@ -57,7 +57,6 @@ __all__ = [
     "emitted_bench_info",
     "generated_cache_root",
     "http_chat_json",
-    "json_array",
     "json_count",
     "json_object",
     "json_text",
@@ -83,11 +82,6 @@ def json_object(raw: object) -> JsonObject:
     """One JSON object, with the weakest TRUE statement about its contents: a missing block, or
     one filled with a scalar, reads as empty rather than raising."""
     return cast("JsonObject", raw) if isinstance(raw, dict) else {}
-
-
-def json_array(raw: object) -> list[object]:
-    """One JSON array, with the weakest TRUE statement about its contents (see :func:`json_object`)."""
-    return cast("list[object]", raw) if isinstance(raw, list) else []
 
 
 def json_text(block: JsonObject, key: str) -> str:
@@ -742,7 +736,7 @@ class OpenAIAgent(Agent):
         )
         u = openai_usage(body)
         self.record_usage(u.input_tokens, u.output_tokens, u.cached_tokens)
-        choices = json_array(body.get("choices"))
+        choices = as_list(body.get("choices"))
         first = json_object(choices[0]) if choices else {}
         return json_text(json_object(first.get("message")), "content")
 

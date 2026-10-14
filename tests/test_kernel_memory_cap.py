@@ -171,7 +171,7 @@ def test_a_process_launched_without_the_environment_fails_the_check_naming_what_
     with pytest.raises(native_call.OpenMPLaunchEnvError, match=name) as raised:
         native_call.check_launch_env()
     assert "OMP_STACKSIZE" in str(raised.value)
-    assert "ulimit -s unlimited" in str(raised.value)
+    assert 'ulimit -s "$(ulimit -H -s)"' in str(raised.value)
 
 
 def test_a_stack_below_its_hard_limit_fails_the_check(monkeypatch: pytest.MonkeyPatch) -> None:

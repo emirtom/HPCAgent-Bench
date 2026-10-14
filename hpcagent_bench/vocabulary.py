@@ -194,7 +194,7 @@ FRAMEWORKS = Kind(
         "postfix": Field(str, doc="selects the kernel impl file, <module>_<postfix>.py"),
         "arch": Field(str, doc="cpu or gpu: the device it runs on, so the device anti-cheats a grade meets"),
         "sweep_deterministic": Field(bool, doc="a deterministic (unjudged, no-agent) sweep may select it"),
-        "precisions": Field(frozenset, doc="the Precision set it can execute; else the sweep records skip"),
+        "precisions": Field(frozenset, doc="the Precision set it can execute; run-framework does not enforce it"),
         "pipelines": Field(tuple, None, "the SDFG pipelines a DaCe flavor compiles and scores"),
         "column": Field(str, None, "with flavor: the DB column this name groups under"),
         "flavor": Field(str, None, "with column: the optimizer; the name must be <column>_<flavor>"),

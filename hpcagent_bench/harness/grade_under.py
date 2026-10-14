@@ -158,6 +158,7 @@ __all__ = [
     "grading_env",
     "hide_experiment_data",
     "input_failed",
+    "input_fault",
     "item_of",
     "launch_of",
     "main",
@@ -184,6 +185,7 @@ __all__ = [
     "submission_of",
     "submit_grade",
     "task_of",
+    "unmeasured_right",
     "write_items",
     "write_regrade",
 ]
@@ -779,22 +781,26 @@ def write_items(path: pathlib.Path, items: Sequence[Item]) -> None:
     path.write_text("".join(item.as_json() + "\n" for item in items), encoding="utf-8")
 
 
-def apply_env(env: dict[str, str], applied: set[str]) -> set[str]:
-    """Set one setup's grading keys, clearing keys the previous setup set and this one does not. Keys stay
+def apply_env(env: dict[str, str], applied: set[str], base: Mapping[str, str] | None = None) -> set[str]:
+    """Set one setup's grading keys, putting back keys the previous setup set and this one does not: to
+    their value in ``base`` (the job's environment, :func:`environment_scope`), else unset. Keys stay
     set on return (the next call diffs); wrap the loop in :func:`environment_scope`."""
     for name in applied - set(env):
-        os.environ.pop(name, None)
+        if base is not None and name in base:
+            os.environ[name] = base[name]
+        else:
+            os.environ.pop(name, None)
     os.environ.update(env)
     return set(env)
 
 
 @contextlib.contextmanager
-def environment_scope() -> Iterator[None]:
+def environment_scope() -> Iterator[dict[str, str]]:
     """Snapshot ``os.environ`` and restore it on exit, so an in-process regrade loop does not leave the
-    last item's ``HPCAGENT_BENCH_*`` keys set."""
+    last item's ``HPCAGENT_BENCH_*`` keys set. Yields the snapshot, the ``base`` of :func:`apply_env`."""
     before = dict(os.environ)
     try:
-        yield
+        yield dict(before)
     finally:
         os.environ.clear()
         os.environ.update(before)
@@ -1029,6 +1035,24 @@ def input_failed(one: FinalInput) -> bool:
     return one.cell is None or wrong or uncovered or bool(result.hidden_total and not result.hidden_correct)
 
 
+def unmeasured_right(one: FinalInput) -> str:
+    """Why ``one`` is the judge's fault, or ``""``: it built and answered right, yet carries no
+    measurement under the protocol (no cell, or one refused its stamp). The submission did its part."""
+    if one.result.build_ok and one.result.correct:
+        return f"input {one.label}: {one.refused or 'not timed'}"
+    return ""
+
+
+def input_fault(one: FinalInput) -> str:
+    """Why the unmeasured ``one`` decided nothing (:func:`unmeasured_right`, or its grade faulted), or
+    ``""``: a measured input, or one the submission itself failed."""
+    if one.cell is not None:
+        return ""
+    if one.result.harness_fault:
+        return f"input {one.label}: {one.result.detail or 'judge fault'}"
+    return unmeasured_right(one)
+
+
 def cell_row(index: int, label: str, cell: TimedCell | None, result: Score, residency: str) -> dict[str, Any]:
     """One ``grade_cells`` row of a final grade: the cell's own measurement, or why there is none."""
     measured = cell is not None
@@ -1081,22 +1105,25 @@ def final_rows(graded: FinalGrade, task: Task, kernel: str) -> tuple[list[dict[s
         grade_denominator(one.result) for one in graded.inputs if one.cell is not None and not one.cell.uncovered
     }
     stamps = {cell.timing_reduction for cell in measured if cell.timing_reduction}
+    # An input the judge faulted on decided nothing: the grade is a fault, owed again (no stamp, no rule).
+    faults = [fault for fault in map(input_fault, graded.inputs) if fault]
+    faulted = bool(faults) or not measured
     values = {
         "speedup": float(graded.credit.score),
         "credited_speedup": float(graded.credit.score) if measured and graded.solved else None,
-        "build_ok": 1,
+        "build_ok": int(all(one.result.build_ok for one in graded.inputs)),
         "correct": int(graded.solved),
-        "score_rule": score_rule.SCORE_RULE,
+        "score_rule": None if faulted else score_rule.SCORE_RULE,
         # One stamp means one estimator; two means the cells are not poolable and the reader must know.
-        "timing_reduction": "+".join(sorted(stamps)),
+        "timing_reduction": "" if faulted else "+".join(sorted(stamps)),
         "grading_protocol": "+".join(sorted(p for p in protocols if p)) or None,
         # Every policy the cells ran under (or the default): disagreeing cells must stay visible.
         "baseline_policy": "+".join(sorted(p for p in policies if p)) or grading.SINGLE_BASELINE_POLICY,
         # One denominator over every measured input (none: not credited); a grade no input of which
         # measured ran under the kernel's configured one, which its unsolved or faulted verdict answers.
         "denominator": final_denominator(denominators, kernel),
-        "status": "graded" if measured else "error",
-        "reason": None if measured else "no cell produced a measurement",
+        "status": ERROR_STATUS if faulted else "graded",
+        "reason": "; ".join(faults)[:400] if faults else None if measured else "no cell produced a measurement",
     }
     if graded.inputs:
         values |= layout_values(graded.inputs[0].result)
@@ -1145,9 +1172,9 @@ def protocol_grade(
     failed = next((one for one in graded.inputs if input_failed(one)), None)
     if failed is not None:
         result = failed.result
-        if result.build_ok and result.correct:  # right answer, no measurement under the protocol: the judge's fault
-            detail = f"{protocol.stamp}: input {failed.label}: {failed.refused or 'not timed'}"
-            result = dataclasses.replace(result, correct=False, harness_fault=True, detail=detail)
+        fault = unmeasured_right(failed)
+        if fault:  # right answer, no measurement under the protocol: the judge's fault
+            result = dataclasses.replace(result, correct=False, harness_fault=True, detail=f"{protocol.stamp}: {fault}")
         return result, None
     rows, values = final_rows(graded, task, BenchSpec.load(task.kernel).short_name)
     measured = graded.measured
@@ -1306,11 +1333,11 @@ def run_cells_shard(
     done = done_keys(path, FINAL_KIND, (score_rule.SCORE_RULE,))
     applied: set[str] = set()
     graded = 0
-    with environment_scope():
+    with environment_scope() as base:
         for item in items[shard::shards]:
             if (item.episode_id, item.kernel, item.ts_ms) in done:
                 continue
-            applied = apply_env(final_env(item, protocol), applied)
+            applied = apply_env(final_env(item, protocol), applied, base)
             try:
                 cells, values = grader(item)  # shard db closed for the whole call
             except Exception as exc:  # noqa: BLE001 -- one broken item must not stop the shard
@@ -1343,11 +1370,11 @@ def run_shard(
     done = done_keys(path, PROMOTION_KIND, ("",))
     applied: set[str] = set()
     graded = 0
-    with environment_scope():
+    with environment_scope() as base:
         for item in items[shard::shards]:
             if (item.episode_id, item.kernel, item.ts_ms) in done:
                 continue
-            applied = apply_env(item.env, applied)
+            applied = apply_env(item.env, applied, base)
             try:
                 values = grader(item)  # shard db closed for the whole call
             except Exception as exc:  # noqa: BLE001 -- one broken item must not stop the shard

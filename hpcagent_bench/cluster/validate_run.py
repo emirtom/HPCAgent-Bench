@@ -28,6 +28,7 @@ import tempfile
 from collections.abc import Callable
 
 from hpcagent_bench.cluster import merge_results, monitor_report
+from hpcagent_bench.harness import results_db
 
 __all__ = [
     "CHECKS",
@@ -75,7 +76,7 @@ def check_db_shards(run_dir: pathlib.Path) -> CheckResult:
     bad: list[str] = []
     for shard in shards:
         try:
-            with contextlib.closing(sqlite3.connect(shard.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+            with contextlib.closing(results_db.connect_ro(shard)) as conn:
                 counts[shard] = int(conn.execute(CREDITED_COUNT).fetchone()[0])
         except sqlite3.Error as exc:
             bad.append(f"{shard}: {exc}")

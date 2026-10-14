@@ -36,6 +36,7 @@ from collections.abc import Iterable, Iterator, Sequence
 
 from hpcagent_bench import data_guard, experiments, paths
 from hpcagent_bench.cache_files import file_sha256
+from hpcagent_bench.harness import results_db
 
 __all__ = [
     "DB_SUFFIXES",
@@ -136,7 +137,7 @@ def copy_db(src: pathlib.Path, dst: pathlib.Path) -> None:
     read-only (a WAL DB in a directory the reader cannot write)."""
     try:
         with (
-            contextlib.closing(sqlite3.connect(f"{src.as_uri()}?mode=ro", uri=True, timeout=60)) as source,
+            contextlib.closing(results_db.connect_ro(src, timeout=60)) as source,
             contextlib.closing(sqlite3.connect(dst)) as target,
         ):
             source.backup(target)
@@ -238,7 +239,7 @@ def verify(out: pathlib.Path, *, threads: int = 8) -> list[str]:
 
 def quick_check(db: pathlib.Path) -> list[str]:
     try:
-        with contextlib.closing(sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)) as conn:
+        with contextlib.closing(results_db.connect_ro(db)) as conn:
             result = [row[0] for row in conn.execute("PRAGMA quick_check")]
     except sqlite3.Error as exc:
         return [str(exc)]

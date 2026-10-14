@@ -23,7 +23,7 @@ def test_optimizers_share_the_agent_contract_and_registry() -> None:
 
 
 def test_non_ai_optimizers_are_in_the_cli_registry() -> None:
-    """`hpcagent-bench agent --agent noop|blas-reduction` resolves -- non-AI optimizers run
+    """`hpcagent-bench agent noop|blas-reduction` resolves -- non-AI optimizers run
     through the same 'optimize procedure' as an LLM agent, no separate code path."""
     assert set(optimizers.optimizer_registry()) <= set(agent_registry())
 

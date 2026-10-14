@@ -147,6 +147,13 @@ def test_a_model_layer_wins_over_the_experiment_and_a_models_entry_over_both() -
     assert "--mem-fraction-static 0.55" in flat(rendered("llrbase-fortran:glm53"))["SGLANG_EXTRA_ARGS"]
 
 
+@pytest.mark.parametrize("name", [name for name in BASES if name.endswith(":glm53")])
+def test_every_glm53_base_pins_its_kv_pool(name: str) -> None:
+    """Twenty glm53 agents OOM-killed a PP stage on any pool above 1.5M tokens (docs/serving/glm53.md),
+    and --mem-fraction-static alone sizes the pool from the fraction (0.55 is 2.58M)."""
+    assert "--max-total-tokens 1500000" in flat(rendered(name))["SGLANG_EXTRA_ARGS"]
+
+
 BUDGET_KEYS = ("AGENT_TIMEOUT_SECONDS", "AGENT_MAX_TOKENS")
 
 

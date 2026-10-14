@@ -210,7 +210,7 @@ def test_a_grading_child_sees_exactly_one_gpu() -> None:
     work enqueued on one the child was not given escapes the event window and every wait, is
     charged to nobody, and is still running when the outputs are read."""
     env = {"ROCR_VISIBLE_DEVICES": "4,5,6,7"}
-    assert native_call.restrict_visible_device(env, 2) == "6"
+    assert native_call.restrict_visible_device(env, 2, "amd") == "6"
     assert env["ROCR_VISIBLE_DEVICES"] == "6"
     assert "HIP_VISIBLE_DEVICES" not in env
 
@@ -219,7 +219,7 @@ def test_cuda_visible_devices_is_removed_because_hip_reads_it() -> None:
     """HIP takes CUDA_VISIBLE_DEVICES as its own list: ROCR=2 plus CUDA=2 asks for index 2 of a
     one-device set, hipErrorNoDevice on every judge slot but 0 (measured on MI250X)."""
     env = {"ROCR_VISIBLE_DEVICES": "0,1,2,3", "CUDA_VISIBLE_DEVICES": "0,1,2,3"}
-    assert native_call.restrict_visible_device(env, 2) == "2"
+    assert native_call.restrict_visible_device(env, 2, "amd") == "2"
     assert env["ROCR_VISIBLE_DEVICES"] == "2"
     assert "CUDA_VISIBLE_DEVICES" not in env
 
@@ -229,7 +229,7 @@ def test_the_two_visibility_variables_are_never_set_together() -> None:
     one-element set is hipErrorNoDevice. An inherited HIP list must be consumed and removed, not
     rewritten beside the ROCr one."""
     env = {"HIP_VISIBLE_DEVICES": "2,3"}
-    assert native_call.restrict_visible_device(env, 1) == "3"
+    assert native_call.restrict_visible_device(env, 1, "amd") == "3"
     assert "HIP_VISIBLE_DEVICES" not in env
     assert env["ROCR_VISIBLE_DEVICES"] == "3"
 
@@ -238,8 +238,25 @@ def test_an_unpinned_child_is_still_narrowed_to_one_device() -> None:
     """No inherited list and no thread pin is the single-device CLI sweep, where device 0 is what
     runs anyway -- so narrowing costs nothing and removes the other queues."""
     env = {}
-    assert native_call.restrict_visible_device(env, None) == "0"
+    assert native_call.restrict_visible_device(env, None, "amd") == "0"
     assert env["ROCR_VISIBLE_DEVICES"] == "0"
+
+
+def test_an_nvidia_child_is_narrowed_through_cuda_visible_devices() -> None:
+    """The CUDA runtime ignores ROCR_VISIBLE_DEVICES. A judge slot's ROCr slice must become the CUDA
+    list on NVIDIA, or every grade on a GH200 node lands on physical GPU 0 beside Slurm's CUDA list."""
+    env = {"ROCR_VISIBLE_DEVICES": "2", "CUDA_VISIBLE_DEVICES": "0,1,2,3"}
+    assert native_call.restrict_visible_device(env, 0, "nvidia") == "2"
+    assert env["CUDA_VISIBLE_DEVICES"] == "2"
+    assert "ROCR_VISIBLE_DEVICES" not in env
+
+
+def test_the_narrowing_variable_follows_the_host_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without an explicit vendor the host's toolchain decides (languages.offload_vendor)."""
+    monkeypatch.setattr(languages, "offload_vendor", lambda: "nvidia")
+    env = {"CUDA_VISIBLE_DEVICES": "4,5,6,7"}
+    assert native_call.restrict_visible_device(env, 1) == "5"
+    assert env == {"CUDA_VISIBLE_DEVICES": "5"}
 
 
 # the quiescence probe

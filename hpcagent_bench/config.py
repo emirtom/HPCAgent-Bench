@@ -134,8 +134,9 @@ SCOPED_ENVIRONMENT: contextvars.ContextVar[Mapping[str, str | None] | None] = co
 
 @contextlib.contextmanager
 def scoped_environment(values: Mapping[str, str | None]) -> Generator[None]:
-    """Resolve ``values``' names from ``values`` instead of ``os.environ`` for the block, in this context."""
-    token = SCOPED_ENVIRONMENT.set(dict(values))
+    """Resolve ``values``' names from ``values`` instead of ``os.environ`` for the block, in this context.
+    Layered over an enclosing scope: a name ``values`` does not set keeps the outer scope's value."""
+    token = SCOPED_ENVIRONMENT.set({**(SCOPED_ENVIRONMENT.get() or {}), **values})
     try:
         yield
     finally:

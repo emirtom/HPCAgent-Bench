@@ -148,10 +148,12 @@ def curve_lines(item: Item, graded: Graded) -> list[str]:
     return lines
 
 
-#: ``(run label, kernel, ts, law)`` of every scaling law a grade DB holds a replay of.
-GRADED_LAWS = """
+#: ``(run label, kernel, ts, law)`` of every scaling law a grade DB holds a replay of; a replay that
+#: raised (status ``error``) decided nothing and stays owed.
+GRADED_LAWS = f"""
 SELECT r.label, o.kernel, o.ts_ms, s.mode FROM scaling_grades s
 JOIN grades g ON g.id = s.grade_id JOIN grades o ON o.id = g.of_grade_id JOIN episodes r ON r.id = o.episode_id
+WHERE s.status != '{GradeStatus.ERROR.value}'
 """
 
 
@@ -304,11 +306,11 @@ def run_shard(
             print(f"scaling: {item.kernel} {item.episode_id} needs {item.scaling} beyond {capacity} ranks; owed")
     applied: set[str] = set()
     graded_now = 0
-    with grade_under.environment_scope():
+    with grade_under.environment_scope() as base:
         for item in placed:
             if fully_graded(item, done):
                 continue
-            applied = grade_under.apply_env(sweep_env(item), applied)
+            applied = grade_under.apply_env(sweep_env(item), applied, base)
             grade_into(item, path, grader, recorder)
             graded_now += 1
     if baseline and placed:
