@@ -169,6 +169,7 @@ __all__ = [
     "scales",
     "serve",
     "service_prompt",
+    "setup_language_refusal",
     "source_file_ext",
     "submit_verdict",
     "triton_launch_problem",
@@ -578,6 +579,26 @@ def delivery_language(language: str, mode: InputMode) -> str:
     return language
 
 
+def setup_language_refusal(language: str, mode: InputMode) -> str | None:
+    """A 400 message when an enforced ``mode`` (:data:`ENFORCED_LANGUAGES`) receives a delivery ``language``
+    other than the setup's own (``record.language`` through :func:`delivery_language`); else ``None``.
+
+    Residency and the recorded row's language both come from elsewhere (the request's language and the
+    setup's), so without this a HIP-setup agent could post ``language=c`` and get a host-timed grade recorded
+    as a HIP answer. A setup that declares no language this mode accepts pins nothing."""
+    from hpcagent_bench.harness import recording
+
+    allowed = ENFORCED_LANGUAGES.get(mode, ())
+    declared = recording.language_tag()
+    pinned = delivery_language(declared, mode) if declared else None
+    if pinned not in allowed or language == pinned:
+        return None
+    return (
+        f"this judge's setup delivers {pinned!r} (input_mode {mode.value!r}); got language {language!r} -- "
+        "refused rather than grading another language under this setup's rows"
+    )
+
+
 def gpu_language_refusal(language: str) -> str | None:
     """A 400 message when ``language`` is a GPU-residency language and this judge's setup declared itself
     host-only; else ``None``.
@@ -780,6 +801,9 @@ def _submission_from_body(
             f"this judge's input_mode is {cfg.input_mode.value!r}, which accepts only "
             f"language {' / '.join(allowed)}; got {language!r}"
         )
+    pinned = setup_language_refusal(language, cfg.input_mode)
+    if pinned is not None:
+        raise ValueError(pinned)
     source = (
         _source_from_file(source_file, kernel, language, episode_id) if source_file else body.text_or_none("source")
     )

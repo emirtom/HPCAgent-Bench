@@ -35,7 +35,8 @@ import pytest
 from hpcagent_bench import config, languages, seal, spec
 from hpcagent_bench.harness import native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.service import ServiceConfig, gpu_language_refusal
+from hpcagent_bench.api import InputMode
+from hpcagent_bench.harness.service import ServiceConfig, gpu_language_refusal, setup_language_refusal
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
@@ -634,3 +635,35 @@ def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(make_judge, monk
         payload = json.loads(reply.read())
     assert payload["build_ok"] is True
     assert payload["correct"] is True
+
+
+def test_an_enforced_input_mode_pins_the_setups_own_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``source`` and ``py-binding`` enforce the language track: a HIP setup's judge refuses ``c`` (it would
+    be timed on the host and recorded as a HIP answer). ``any`` / ``library`` and a setup that declares no
+    language this mode accepts keep the free choice."""
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "hip")
+    assert setup_language_refusal("c", InputMode.SOURCE) is not None
+    assert setup_language_refusal("hip", InputMode.SOURCE) is None
+    assert setup_language_refusal("c", InputMode.ANY) is None
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "triton")
+    assert setup_language_refusal("python", InputMode.PY_BINDING) is None
+    assert setup_language_refusal("c", InputMode.SOURCE) is None  # triton is no source language
+    monkeypatch.delenv("HPCAGENT_BENCH_RECORD_LANGUAGE", raising=False)
+    assert setup_language_refusal("fortran", InputMode.SOURCE) is None
+
+
+def test_a_hip_setups_source_judge_refuses_a_c_submit_over_http(
+    make_judge: Callable[..., tuple[object, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end: the ``language=c`` claim on a GPU setup's source judge is a 400 before any build."""
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "gpu")
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "hip")
+    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="source", repeat=2))
+    body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
+    request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        urlopen(request, timeout=60)
+    with refused.value as exc:
+        assert exc.code == 400
+        payload = json.loads(exc.read())
+    assert "'hip'" in payload["error"]
