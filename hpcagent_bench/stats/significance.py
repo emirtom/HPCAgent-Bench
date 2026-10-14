@@ -43,11 +43,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CORRECTIONS",
-    "DEFAULT_CORRECTION",
-    "DEFAULT_PAIRED",
-    "DEFAULT_PAIRED_PROPORTION",
-    "DEFAULT_PROPORTION",
-    "DEFAULT_TWO_SAMPLE",
     "PAIRED_PROPORTION_TESTS",
     "PAIRED_TESTS",
     "PROPORTION_TESTS",
@@ -189,13 +184,6 @@ def named[F](kind: Kind[Registered[F]], name: str) -> Registered[F]:
     return entry
 
 
-DEFAULT_PAIRED = "sign-flip"
-DEFAULT_PROPORTION = "fisher"
-DEFAULT_PAIRED_PROPORTION = "mcnemar"
-DEFAULT_CORRECTION = "benjamini-hochberg"
-DEFAULT_TWO_SAMPLE = "mannwhitney_delta"
-
-
 @dataclasses.dataclass(frozen=True, slots=True)
 class Configured:
     """The reporting tests the configuration names, each resolved. The timing test is not here: the grading
@@ -210,12 +198,13 @@ class Configured:
 
 def configured() -> Configured:
     """Every configured test, resolved; raises on the first unknown name, listing what is registered."""
+    statistics = config.current().statistics
     return Configured(
-        named(PAIRED_TESTS, config.get_str("statistics.paired_test", DEFAULT_PAIRED)),
-        named(PROPORTION_TESTS, config.get_str("statistics.proportion_test", DEFAULT_PROPORTION)),
-        named(PAIRED_PROPORTION_TESTS, config.get_str("statistics.paired_proportion_test", DEFAULT_PAIRED_PROPORTION)),
-        named(CORRECTIONS, config.get_str("statistics.correction", DEFAULT_CORRECTION)),
-        named(TIMING_TESTS, config.get_str("statistics.two_sample_test", DEFAULT_TWO_SAMPLE)),
+        named(PAIRED_TESTS, statistics.paired_test),
+        named(PROPORTION_TESTS, statistics.proportion_test),
+        named(PAIRED_PROPORTION_TESTS, statistics.paired_proportion_test),
+        named(CORRECTIONS, statistics.correction),
+        named(TIMING_TESTS, statistics.two_sample_test),
     )
 
 

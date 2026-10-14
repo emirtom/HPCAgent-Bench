@@ -344,7 +344,7 @@ def kernel_memory_gb(
     """
     if spec.memory_cap_gb is not None:
         return spec.memory_cap_gb
-    floor = config.get_float("limits.kernel_memory_gb", 10)
+    floor = config.current().limits.kernel_memory_gb
     values = params if params is not None else spec.parameters.get(preset)
     if values is None or spec.init is None:
         return floor
@@ -393,7 +393,7 @@ def reference_memory_gb(kernel_gb: float) -> float:
     (:func:`rank_memory_share_bytes`) and never less than the kernel's budget. The fraction below
     1 leaves the rest of the share for the judge process itself (its inputs and the oracle cache
     are outside the child's allowance), so the ranks on one node cannot oversubscribe it."""
-    fraction = config.get_float("limits.reference_node_fraction", 0.75)
+    fraction = config.current().limits.reference_node_fraction
     return max(kernel_gb, fraction * rank_memory_share_bytes() / BYTES_PER_GB)
 
 
@@ -685,7 +685,7 @@ def datatype_sized(spec: BenchSpec) -> BenchSpec:
     (:func:`~hpcagent_bench.support.bindings.contract.graded_datatype` of ``service.datatype``)."""
     from hpcagent_bench.support.bindings.contract import graded_datatype  # cycle: contract imports spec
 
-    datatype = graded_datatype(spec, config.get_str("service.datatype", DEFAULT_DTYPE))
+    datatype = graded_datatype(spec, config.current().service.datatype)
     rung, growth = datatype_rung(spec, datatype)
     if growth == 1.0:
         return spec

@@ -100,14 +100,14 @@ RUNTIME_CONTEXT: Mapping[str, str] = {"libgomp": GNU, "libomp": LLVM, "libnvomp"
 #: GOMP interface to bind, so numba there runs its own ``workqueue`` pool.
 NUMBA_LAYER: Mapping[str, str] = {GNU: "omp", LLVM: "omp", NVHPC: "workqueue"}
 
-#: ``config.yaml`` key naming the directory that holds the context directories.
+#: Config key naming the directory that holds the context directories.
 ROOT_KEY = "runtime.omp_context_root"
 
-#: ``config.yaml`` key naming the catalog file (:data:`CATALOG_FILE` in the context root when empty).
+#: Config key naming the catalog file (:data:`CATALOG_FILE` in the context root when empty).
 CATALOG_KEY = "runtime.omp_catalog"
 
-#: The environment variable that sets :data:`CATALOG_KEY` (config.py's ``HPCAGENT_BENCH_<DOTTED_KEY>`` rule).
-CATALOG_ENV = "HPCAGENT_BENCH_RUNTIME_OMP_CATALOG"
+#: The environment variable of :data:`CATALOG_KEY`.
+CATALOG_ENV = config.env_name(CATALOG_KEY)
 
 #: Environment variable a child carries so its own gate and log lines name the context it runs in.
 CONTEXT_ENV = "HPCAGENT_BENCH_OMP_CONTEXT"
@@ -178,7 +178,7 @@ def context_for_library(path: pathlib.Path) -> str:
 
 def context_root() -> pathlib.Path:
     """The directory holding the context directories (``runtime.omp_context_root``)."""
-    return pathlib.Path(config.get_str(ROOT_KEY, "/opt/omp"))
+    return pathlib.Path(config.current().runtime.omp_context_root)
 
 
 def context_dir(context: str) -> pathlib.Path | None:
@@ -296,7 +296,7 @@ class CatalogMissing(RuntimeError):
 
 def catalog_path() -> pathlib.Path:
     """Where the catalog is read and written: ``runtime.omp_catalog``, else ``catalog.json`` in the context root."""
-    named = config.get_str(CATALOG_KEY, "")
+    named = config.current().runtime.omp_catalog
     return pathlib.Path(named) if named else context_root() / CATALOG_FILE
 
 

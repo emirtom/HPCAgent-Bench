@@ -114,13 +114,10 @@ def judge_endpoints() -> list[str]:
 
 
 def agent_workers(vllm_urls: list[str | None], judge_urls: list[str]) -> int:
-    """Concurrent agent workers: ``$HPCAGENT_BENCH_AGENT_WORKERS`` / ``agent.workers`` if set, else
-    one per endpoint (``max`` of the two lists) so every endpoint gets at least one worker."""
-    env = os.environ.get("HPCAGENT_BENCH_AGENT_WORKERS")
-    configured = int(env) if env else config.get_int("agent.workers", 0)
-    if env or configured:
-        return max(1, configured)
-    return max(len(vllm_urls), len(judge_urls), 1)
+    """Concurrent agent workers: ``agent.workers`` when set, else one per endpoint (``max`` of the two lists)
+    so every endpoint gets at least one worker."""
+    configured = config.current().agent.workers
+    return configured if configured is not None else max(len(vllm_urls), len(judge_urls), 1)
 
 
 def static_enabled(explicit: str | None, vllm_urls: list[str | None], judge_urls: list[str], workers: int) -> bool:

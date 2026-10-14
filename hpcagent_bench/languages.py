@@ -99,7 +99,6 @@ __all__ = [
     "STDPAR_PROBE_TIMEOUT_S",
     "TOOLSET_YAML",
     "VECLIB_PROBE",
-    "VECT_COST_MODELS",
     "VECT_UNLIMITED_REFS",
     "XNACK_SUFFIX",
     "CompilerChoice",
@@ -134,6 +133,7 @@ __all__ = [
     "driver_resolves",
     "executable_version",
     "family_names",
+    "family_pin",
     "family_report_flags",
     "gpu_backend",
     "grading_ncores",
@@ -282,8 +282,13 @@ COMPILER_FAMILIES = {
     "nvhpc": "nvhpc",
 }
 
-#: ``config.yaml`` key a setup pins a language's toolchain family with.
+#: Config key a setup pins a language's toolchain family with (``build.compiler`` has c, cpp and fortran).
 FAMILY_PIN_KEY = "build.compiler.{lang}"
+
+
+def family_pin(lang: str) -> str | None:
+    """``build.compiler.<lang>``; None when unset or when ``lang`` has no pin key."""
+    return getattr(config.current().build.compiler, lang, None)
 
 
 def family_names() -> tuple[str, ...]:
@@ -299,7 +304,7 @@ def default_family() -> str:
 def resolve_family(lang: str, requested: str | None = None) -> str:
     """The toolchain family for ``lang``: setup pin (``build.compiler.<lang>``) beats submission's
     ``requested``, which beats :func:`default_family`."""
-    pin = config.get_str(FAMILY_PIN_KEY.format(lang=lang))
+    pin = family_pin(lang)
     for value, origin in ((pin, FAMILY_PIN_KEY.format(lang=lang)), (requested or "", "submission 'compiler'")):
         if value and value not in COMPILER_FAMILIES:
             raise KeyError(f"unknown compiler {value!r} from {origin}; expected one of {family_names()}")
@@ -1007,10 +1012,12 @@ def grading_ncores() -> int:
     physical core while the child that runs the .so sees a quarter of them, and a compile-time
     ``-ftree-parallelize-loops={n}`` sized from the former oversubscribes the cpuset 4x.
 
-    The slot count comes from the same ``judge.gpus_per_node`` key ``grading_cpus`` divides by,
-    so the two cannot disagree about how the node is split.
+    The slot count comes from :func:`~hpcagent_bench.harness.judge_scheduler.judge_gpu_slots`, the resolver
+    ``grading_cpus`` divides by, so the two cannot disagree about how the node is split.
     """
-    nslots = config.get_int("judge.gpus_per_node", 0)
+    from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots  # cycle: harness imports languages
+
+    nslots = judge_gpu_slots()
     if nslots < 2:
         return flags.ncores()
     return max(1, flags.ncores() // nslots)
@@ -1076,7 +1083,7 @@ def _compiler_for_lang(compilers: dict[str, dict], lang: str, *, mpi: bool = Fal
         name = compiler_for_family(lang, family)
         if name is not None:
             return CompilerChoice(name, compilers[name])
-        if config.get(FAMILY_PIN_KEY.format(lang=lang)):
+        if family_pin(lang):
             raise KeyError(f"compiler family {family!r} builds no {lang!r} in this image")
     for cname, block in compilers.items():
         if block.get("lang") == lang and bool(block.get("mpi")) == mpi:
@@ -1105,7 +1112,7 @@ def compiler_launcher() -> tuple[str, ...]:
     wrong microarchitecture -- a silently mistuned kernel in a benchmark that exists to
     measure tuning.
     """
-    if not config.get("build.ccache", True):
+    if not config.current().build.ccache:
         return ()
     exe = shutil.which("ccache")
     if exe is None:
@@ -1995,16 +2002,10 @@ VECT_UNLIMITED_REFS: Mapping[str, str] = types.MappingProxyType(
     {"gcc": "GCC_VECT_UNLIMITED", "llvm": "CLANG_VECT_UNLIMITED"}
 )
 
-#: The values ``perf_reports.vect_cost_model`` accepts.
-VECT_COST_MODELS: tuple[str, ...] = ("default", "unlimited")
-
 
 def vect_cost_model() -> str:
-    """``perf_reports.vect_cost_model``, read on every call; an unknown value raises by name."""
-    value = config.get_str("perf_reports.vect_cost_model", "default")
-    if value not in VECT_COST_MODELS:
-        raise ValueError(f"perf_reports.vect_cost_model={value!r}; expected one of {VECT_COST_MODELS}")
-    return value
+    """``perf_reports.vect_cost_model``, read on every call."""
+    return config.current().perf_reports.vect_cost_model
 
 
 @functools.lru_cache(maxsize=None, typed=True)

@@ -89,7 +89,7 @@ def test_wheel_is_pip_installable_and_complete(tmp_path: pathlib.Path) -> None:
         "hpcagent_bench/containers.py",
         "hpcagent_bench/harbor.py",
         "hpcagent_bench/support/bindings/__init__.py",
-        "hpcagent_bench/config.yaml",
+        "hpcagent_bench/config.py",
         "hpcagent_bench/container_backends.txt",
         # A skill page that tells the reader to RUN a script needs the script in the wheel too.
         "hpcagent_bench/skills/opt-reports/loop_report.py",

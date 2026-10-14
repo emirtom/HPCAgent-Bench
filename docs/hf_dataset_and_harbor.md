@@ -72,7 +72,7 @@ wrapper. Commands, flags, the task directory layout, `--group dir` and `--layout
 [adapters/hpcagent_bench/README.md](../adapters/hpcagent_bench/README.md). Harbor needs its own
 environment (the `harbor` dependency group), never the judge's.
 
-`--hardware` selects `config.yaml` `images.<hw>`, fully qualified references into the release
+`--hardware` selects config `images.<hw>`, fully qualified references into the release
 registry, the one place they are written (`containers/images/images.env` must publish the same
 tags; `tests/test_harbor_images.py`):
 

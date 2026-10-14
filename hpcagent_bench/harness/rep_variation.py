@@ -19,7 +19,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from hpcagent_bench import protocols
+from hpcagent_bench import config, protocols
 from hpcagent_bench.harness.native_call import KernelData
 from hpcagent_bench.support.bindings.contract import Arg, Binding
 
@@ -120,7 +120,7 @@ def rep_total(warmup: int, repeat: int) -> int:
 #: protocol's measurement (:data:`protocols.WARMUP` + its runs), so no input repeats within one measurement
 #: child. A protocol with more runs cycles the pool. Equal to
 #: :data:`hpcagent_bench.support.distributions.perturbation.POOL_SIZE`.
-POOL_SIZE: int = rep_total(protocols.WARMUP, protocols.named(protocols.CREDITED_DEFAULT).repeat or 0)
+POOL_SIZE: int = rep_total(protocols.WARMUP, protocols.named(str(config.default_value(protocols.CREDITED_KEY))).repeat or 0)
 
 
 def pool_seeds(base_seed: int, kernel: str, preset: str, datatype: str) -> list[int]:

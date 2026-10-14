@@ -68,7 +68,7 @@ __all__ = [
 
 def mpi_residency() -> Location:
     """The run-wide residency of a distributed array no ``place`` names (``mpi.residency``)."""
-    return Location(config.get_str("mpi.residency", Location.HOST.value))
+    return Location(config.current().mpi.residency)
 
 
 def grid_request(grid: Sequence[int]) -> tuple[str, ...]:
@@ -128,24 +128,10 @@ class RequestAllowances(pydantic.BaseModel):
     #: Whether a ``format`` operation may choose a sparse array's storage format.
     sparse_formats: bool = False
 
-    @pydantic.field_validator("precisions", mode="before")
-    @classmethod
-    def split_precisions(cls, raw: object) -> object:
-        """A comma-separated string (an environment value) as its list of precisions."""
-        if isinstance(raw, str):
-            return [token.strip() for token in raw.split(",") if token.strip()]
-        return raw
-
     @classmethod
     def from_config(cls) -> "RequestAllowances":
         """The allowances of the setup this process (or this judge request's scoped environment) runs."""
-        return cls.model_validate(
-            {
-                "precisions": config.get("requests.precisions") or (),
-                "layouts": config.get_bool("requests.layouts", False),
-                "sparse_formats": config.get_bool("requests.sparse_formats", False),
-            }
-        )
+        return cls.model_validate(config.current().requests.model_dump())
 
     def refusal(self, requests: "Requests") -> str | None:
         """Why ``requests`` asks for something this setup does not allow, or None."""

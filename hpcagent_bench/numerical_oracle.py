@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -208,7 +208,7 @@ from hpcagent_bench.frameworks.forked import die_with_parent, run_forked  # noqa
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
-from hpcagent_bench.spec import BenchSpec, as_block  # noqa: E402
+from hpcagent_bench.spec import BenchSpec  # noqa: E402
 from hpcagent_bench.support.bindings.contract import index_base  # noqa: E402
 from hpcagent_bench.translators.numpyto_common.dtypes import canonical, compute_dtype  # noqa: E402
 
@@ -398,26 +398,14 @@ def all_backend_status(reason: str) -> dict[str, str]:
     return dict.fromkeys((*BACKENDS, *PY_BACKENDS, "jax"), reason)
 
 
-#: Defaults for ``hpcagent_bench/config.yaml``'s ``oracle:`` block when a key is absent.
-_CONFIG_DEFAULTS: dict[str, int | bool | dict[str, object]] = {
-    "compile_timeout_s": 75,
-    # polycc gets its own, longer bound: pluto's schedule search is not a compiler hang, and adi
-    # legitimately needs minutes where 75 s only ever caught wedged builds.
-    "polycc_timeout_s": 360,
-    "numba_fastmath": False,
-    "overrides": {},
-}
-
-
-def _cfg(key: str, short: str = "") -> Any:
-    """Config value for ``key`` from ``oracle:``, honouring per-kernel ``oracle.overrides.<short>``."""
+def _cfg(key: Literal["compile_timeout_s", "polycc_timeout_s", "numba_fastmath"], short: str = "") -> Any:
+    """``oracle.<key>``, replaced by ``oracle.overrides[short].<key>`` when that entry sets it."""
     from hpcagent_bench import config
 
-    if short:
-        ov = as_block(as_block(config.get("oracle.overrides")).get(short))
-        if key in ov:
-            return ov[key]
-    return config.get(f"oracle.{key}", _CONFIG_DEFAULTS.get(key))
+    oracle = config.current().oracle
+    override = oracle.overrides.get(short)
+    value = getattr(override, key) if override is not None else None
+    return value if value is not None else getattr(oracle, key)
 
 
 #: Precision sweep config: name -> (numpy float dtype, Precision enum, emit ``--precision``, rtol, atol).

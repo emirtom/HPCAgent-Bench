@@ -186,7 +186,7 @@ From finest to coarsest:
        tools_baseline: off         # drop one tool fragment from the service prompt
    ```
 
-   The environment sets the same keys and wins over `config.yaml`: `HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`
+   The environment sets the same keys and wins over the configuration default: `HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`
    with the key upper-cased, for example `HPCAGENT_BENCH_PROMPT_SECTIONS_TIMING=off`, or `=on` to undo what
    the file turned off. `--section KEY=VALUE` on `hpcagent-bench prompt` does it for one render, and
    `PromptConfig.from_config(sections={...})` for one call. An unknown key is an error that lists the known
@@ -196,7 +196,7 @@ From finest to coarsest:
    order, and the built-in `prompts/` directory is the last one. The same roots can shadow skills. With
    `prompt.debug: true`, each fragment is preceded by the path it was loaded from, and the header lists
    the sections that are off or replaced.
-3. **A knob.** The `prompt:` block in `hpcagent_bench/config.yaml` maps one-to-one onto `PromptConfig`:
+3. **A knob.** The `prompt:` block in `hpcagent_bench/config.py` maps one-to-one onto `PromptConfig`:
    `template`, `template_dir`, `template_dirs`, `generator`, `debug`, `inline_kernel`,
    `container_workdir`, `include_translation`, `include_reference`, `strategy`,
    `optimization_guidance`, `profiling_guidance`, `language_track`, `native`, `sections`. Each also
@@ -214,7 +214,7 @@ first:
 1. built-in `PROMPT_VARIANTS` (`default`, `loopnest`, `profile_first`, `language_native`,
    `with_reference`, `with_translation`, `minimal`, `native`)
 2. discovered `task_var<N>.j2` templates on the search path (variant `var<N>`)
-3. `prompt.variants` in `config.yaml`
+3. `prompt.variants` in the configuration
 
 ```yaml
 prompt:
@@ -238,7 +238,7 @@ by `prompt_hash` under `--record`) and in saved-submission filenames (`__<varian
 
 ### Attempt budget
 
-`attempts.max_rounds` and `attempts.time_budget_s` in `config.yaml` bound the repair loop. The loop
+`attempts.max_rounds` and `attempts.time_budget_s` in the configuration bound the repair loop. The loop
 stops at whichever limit it reaches first; `null` turns that limit off.
 `hpcagent-bench agent --repair-rounds N` overrides `max_rounds`. The clock is checked only before
 an attempt starts, never during one.

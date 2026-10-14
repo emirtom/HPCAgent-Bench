@@ -38,7 +38,7 @@ import sys
 import time
 import traceback
 from collections.abc import Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from hpcagent_bench import config, cpf_canonical, paths
 from hpcagent_bench.cpf_cache import LANGUAGE_EXT
@@ -64,7 +64,6 @@ __all__ = [
     "DACE_BANNER",
     "DEVICE_LANGUAGE",
     "GPU_CODEGEN",
-    "RENDER_TIMEOUT_DEFAULT_S",
     "RENDER_TIMEOUT_KEY",
     "ChildRun",
     "RenderedForm",
@@ -117,15 +116,10 @@ GPU_CODEGEN = "experimental"
 #: Config key for one kernel's render wall clock (see :func:`render_timeout_s`).
 RENDER_TIMEOUT_KEY = "timeouts.cpf_render_s"
 
-#: Fallback for :data:`RENDER_TIMEOUT_KEY` when the config file does not carry it.
-RENDER_TIMEOUT_DEFAULT_S = 14400.0
-
 
 def render_timeout_s() -> float:
-    """``timeouts.cpf_render_s`` (float s, default :data:`RENDER_TIMEOUT_DEFAULT_S`): wall-clock cap on one
-    kernel's render. Read per call, so ``HPCAGENT_BENCH_TIMEOUTS_CPF_RENDER_S`` set after import applies.
-    """
-    return float(cast("float", config.get(RENDER_TIMEOUT_KEY, RENDER_TIMEOUT_DEFAULT_S)))
+    """``timeouts.cpf_render_s`` (s): wall-clock cap on one kernel's canonical-parallel-form render."""
+    return config.current().timeouts.cpf_render_s
 
 
 def generated_renames(path: pathlib.Path) -> dict[str, str]:
@@ -736,7 +730,7 @@ def run_child(cmd: list[str], target: str, timeout: float | None, extra_env: dic
 def timeout_error(budget: float) -> str:
     """The budget is NAMED along with the knob that moves it: a timeout says the render outran this
     number, not that the kernel cannot render at all."""
-    return f"render exceeded {budget:.0f}s; raise $HPCAGENT_BENCH_{RENDER_TIMEOUT_KEY.replace('.', '_').upper()} to give it more"
+    return f"render exceeded {budget:.0f}s; raise ${config.env_name(RENDER_TIMEOUT_KEY)} to give it more"
 
 
 def render_kernel(

@@ -220,3 +220,36 @@ partitions, one experiment's run directories and the site image registry, in liv
 name a site to explain it). A file that legitimately carries such a value is allowlisted in the check with one
 reason: the CSCS site layer, the system entries, the hardware layer, this page, and the MI300A serving
 recipe's partition check.
+
+## Benchmark settings
+
+Seeds, timeouts, measurement rigor, grading switches and every other benchmark setting are fields of one typed
+model, `hpcagent_bench/config.py` (pydantic). The model is the only place a default is written; code reads a
+value as `config.current().<section>.<key>`. A key resolves in this order, first match wins:
+
+1. a runtime override (`config.set_override`, `config.overridden`), process-global;
+2. the key's environment variable in the active `config.scoped_environment` (a fused judge's per-request setup
+   scope);
+3. the key's environment variable in the process environment;
+4. the model default.
+
+The environment variable of key `a.b_c` is `HPCAGENT_BENCH_A_B_C`. Its text is parsed by the key's type:
+
+| Type | Accepted text |
+|---|---|
+| nullable (`X \| null`) | `""`, `null` or `none` (any case) for null, else as `X` |
+| `str` | the text unchanged |
+| `bool` | `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`, `t`/`f`, `y`/`n` (any case) |
+| `int`, `float`, `one of ...` | the value; surrounding whitespace ignored |
+| `list[...]` | a JSON array, or a comma-separated list |
+| `map[...]` | a JSON object; the map is replaced whole |
+
+A value that does not parse, a constraint violation (`int >= 1` given `0`) and an `HPCAGENT_BENCH_<SECTION>_*`
+name that is no key are errors when the configuration is next read; names that other code owns under a section
+prefix (`HPCAGENT_BENCH_JUDGE_URLS`, `HPCAGENT_BENCH_MPI_GANG_*`, ...) are listed in `config.NON_CONFIG_ENV`, and
+`HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>` sets one entry of `prompt.sections`. `config.set_override` raises on an
+unknown key or a value of the wrong type.
+
+Every key, its default and its meaning: [`hpcagent_bench/config.yaml`](../hpcagent_bench/config.yaml). The models in
+`hpcagent_bench/config.py` give each key its type; a key missing from the file, or a key the models do not
+name, is an error at the first read.

@@ -96,7 +96,7 @@ class Benchmark:
             repr(sorted(params_override.items())) if params_override else None,
             hidden_variant,
             scenarios,
-            config.get_bool("inputs.noise", False),
+            config.current().inputs.noise,
         )
         if cache_key in self.bdata:
             return self.bdata[cache_key]
@@ -107,7 +107,7 @@ class Benchmark:
             data["datatype"] = resolve_datatype(datatype)
         if self.info.get("init"):
             is_fuzz = preset == fuzz.FUZZED_PRESET
-            base_seed = input_seed if input_seed is not None else config.get_int("seeds.input_dist", 0)
+            base_seed = input_seed if input_seed is not None else config.current().seeds.input_dist
             self.initialize(
                 data,
                 preset,
@@ -172,7 +172,7 @@ class Benchmark:
         if not dist_name and is_fuzz:
             dist_name = fuzz.pick_data_distribution(spec.fuzz, int(fuzz_iteration or 0))
         if not dist_name:
-            dist_name = config.get_str("fuzz.data_distribution", "uniform") if is_fuzz else "uniform"
+            dist_name = config.current().fuzz.data_distribution if is_fuzz else "uniform"
         precision = precision_from_datatype(datatype)
         init = self.info.get("init")
         if init is not None and init.get("func_name"):
@@ -196,9 +196,10 @@ class Benchmark:
         # array_args only through their logical array, so ``A`` is expanded (to its canonical CSR,
         # binding its nnz symbol to the actual count) before allocation; a declared array the
         # initializer does not return still needs a buffer (initialize.allocate_declared_buffers).
-        if config.get_bool("inputs.noise", False):
+        inputs = config.current().inputs
+        if inputs.noise:
             # Opt-in: perturb every float input array, whichever initializer built it (distributions/noise.py).
-            noise.apply_to_inputs(spec, data, seed, config.get_float("inputs.noise_eps", 0.0) or None)
+            noise.apply_to_inputs(spec, data, seed, inputs.noise_eps or None)
         bind_shape_params(spec, data)
         expand_sparse_arrays(spec, data)
         allocate_declared_buffers(spec, data, precision)

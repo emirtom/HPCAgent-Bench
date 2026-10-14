@@ -183,16 +183,17 @@ def db_shard() -> int | None:
 
 
 def base_db_path() -> str:
-    """The UNSHARDED results-DB file (config ``record.db_path``, default :data:`DEFAULT_DB_PATH`).
+    """The UNSHARDED results-DB file (config ``record.db_path``).
 
     A relative path is anchored to the repo root, NOT the process CWD, so the judge writes the same
     file whether launched from the repo, a container, or a test's tmp dir. An absolute configured
     path is used verbatim, but must be durable storage. Nothing writes results HERE -- it is the
     aggregate destination, rebuilt from the shards by :func:`aggregate`, and the one name readers
     open however many ranks produced the run."""
-    configured = pathlib.Path(config.get_str("record.db_path", DEFAULT_DB_PATH))
+    record = config.current().record
+    configured = pathlib.Path(record.db_path)
     resolved = str(configured if configured.is_absolute() else paths.ROOT / configured)
-    if not config.get("record.allow_memory_db", False):
+    if not record.allow_memory_db:
         memory_fs = memory_backed_fstype(resolved)
         if memory_fs is not None:
             raise ValueError(
@@ -265,17 +266,14 @@ def study_tag() -> str | None:
 
     Set it per experiment, not per setup: the point is to filter one study's rows out of a results
     DB that several experiments write to, and the setups of one A/B share the study they are setups
-    of. Env-overridable as ``$HPCAGENT_BENCH_RECORD_STUDY`` like every other config key."""
-    tag = str(config.get("record.study", "") or "").strip()
-    return tag or None
+    of."""
+    return config.current().record.study.strip() or None
 
 
 def device_tag() -> RecordDevice:
-    """``record.device``; ``cpu`` when unset. An unknown value raises rather than being recorded."""
-    device = str(config.get("record.device", "") or "").strip() or RecordDevice.CPU
-    if device not in RecordDevice:
-        raise ValueError(f"record.device {device!r} is not one of {[d.value for d in RecordDevice]}")
-    return RecordDevice(device)
+    """``record.device``; ``cpu`` when null."""
+    device = config.current().record.device
+    return RecordDevice.CPU if device is None else RecordDevice(device)
 
 
 def packet_tag() -> str:
@@ -285,7 +283,7 @@ def packet_tag() -> str:
     groupable. The empty string is the no-packet control, not a missing value. Accepts ``;`` as a
     separator too, so an ad-hoc spec (see :mod:`hpcagent_bench.packets`) records the same key
     whether it is written ``a;b`` or ``a+b``."""
-    raw = str(config.get("record.packet", "") or "")
+    raw = config.current().record.packet
     return "+".join(sorted({part for part in re.split(r"[+;,\s]+", raw) if part}))
 
 
@@ -294,31 +292,28 @@ def language_tag() -> str | None:
 
     The request body's own claim is NOT recorded: a Triton kernel honestly calls itself ``python``,
     and a claim that misleads the judge already shows in ``status`` and ``reason``."""
-    return str(config.get("record.language", "") or "").strip() or None
+    return config.current().record.language.strip() or None
 
 
 def model_tag() -> str | None:
     """``record.model`` -- the checkpoint the setup served, e.g. ``zai-org/GLM-5.3``."""
-    model = str(config.get("record.model", "") or "").strip()
-    return model or None
+    return config.current().record.model.strip() or None
 
 
 def setup_tag() -> str | None:
     """``record.setup`` -- provenance. The four tags above are what queries and figures select on."""
-    setup = str(config.get("record.setup", "") or "").strip()
-    return setup or None
+    return config.current().record.setup.strip() or None
 
 
 def temperature_tag() -> float:
     """``record.temperature`` -- the sampling temperature the setup's serving engine applied."""
-    return config.get_float("record.temperature", 1.0)
+    return config.current().record.temperature
 
 
 def harness_tag() -> str | None:
     """``record.harness`` -- the agent harness that drove the setup (``claude``, ``miniswe``,
     ``openhands``), or None when the setup named none."""
-    harness = str(config.get("record.harness", "") or "").strip()
-    return harness or None
+    return config.current().record.harness.strip() or None
 
 
 #: The commit a cluster job runs at, exported by the job itself (its checkout's HEAD: run_cluster.sh,
@@ -327,9 +322,8 @@ SNAPSHOT_COMMIT_ENV = "HPCAGENT_BENCH_SNAPSHOT_COMMIT"
 
 
 def snapshot_commit() -> str | None:
-    """The commit of the code snapshot this process runs from, or None outside a snapshot job.
-
-    Read raw, not through :func:`config.get`, which would coerce an all-digit sha to an int."""
+    """The commit of the code snapshot this process runs from (``$HPCAGENT_BENCH_SNAPSHOT_COMMIT``), or None
+    outside a snapshot job."""
     commit = (config.env_value(SNAPSHOT_COMMIT_ENV) or "").strip()
     return commit or None
 
@@ -344,8 +338,7 @@ def commit_tag() -> str | None:
     snapshot = snapshot_commit()
     if snapshot is not None:
         return snapshot
-    commit = str(config.get("record.commit", "") or "").strip()
-    return commit or None
+    return config.current().record.commit.strip() or None
 
 
 class Identity(NamedTuple):
@@ -753,7 +746,7 @@ def record(
     if judgement is None:
         judgement = judge(Context(submission, task, score, preset, datatype), rerun=False)
     values, (outcome, detail) = credit_values(score, judgement)
-    if outcome != "submission" and not config.get("record.log_attempts", True):
+    if outcome != "submission" and not config.current().record.log_attempts:
         return Recorded("skipped", "log_attempts disabled", None)
     values |= stamp_values(task, preset, datatype, score) | measured_values(score) | submission_envelope(submission)
     values |= {"status": status, "tokens_so_far": int(tokens), "detail": graded_detail(score, judgement) or None}
@@ -830,7 +823,7 @@ def record_call(
     the request's envelope as sent. ``submission``, when given, is the delivery:
     its source is kept behind a passing grade (``status`` ``ok``), so an agent killed at its wall
     clock holding a verified answer leaves something to promote."""
-    if not config.get("record.log_calls", True):
+    if not config.current().record.log_calls:
         return 0
     values = stamp_values(task, preset, datatype, score) | measured_values(score)
     values |= envelope_values(build, requests, workspace_bytes)

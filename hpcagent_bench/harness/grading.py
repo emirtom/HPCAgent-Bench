@@ -1054,7 +1054,7 @@ def baseline_policy(kinds: Sequence[str]) -> str:
     if tuple(kinds) == NUMBA_FIRST_BASELINE_SET:
         return EARLY_STOP_BASELINE_POLICY
     if tuple(kinds) == NUMBA_C_BASELINE_SET:
-        race = config.get_str("measurement.baseline_race", LEADER_FIRST_RACE)
+        race = config.current().measurement.baseline_race
         return LEADER_FIRST_BASELINE_POLICY if race == LEADER_FIRST_RACE else NUMBA_C_BASELINE_POLICY
     return BEST_OF_BASELINE_POLICY
 
@@ -1115,11 +1115,12 @@ def early_stop_seconds(samples: Mapping[str, Sequence[int]], kinds: Sequence[str
     under ``timeout``."""
     if baseline_policy(kinds) not in EARLY_STOP_POLICIES:
         return 0.0
-    factor = config.get_float("measurement.early_stop_factor", 2.0)
+    measurement = config.current().measurement
+    factor = measurement.early_stop_factor
     leader = fastest_baseline(samples, kinds)
-    if factor <= 0 or not leader:
+    if not leader:
         return 0.0
-    budget = max(config.get_float("measurement.early_stop_floor_s", 1.0), factor * max(samples[leader]) * 1e-9)
+    budget = max(measurement.early_stop_floor_s, factor * max(samples[leader]) * 1e-9)
     return budget if budget < timeout else 0.0
 
 

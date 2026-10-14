@@ -168,12 +168,8 @@ def test_device_defaults_to_cpu(tmp_path: pathlib.Path) -> None:
 
 def test_an_unknown_device_is_refused(tmp_path: pathlib.Path) -> None:
     """A typo must not become a silent fifth device that no figure plots."""
-    config.set_override("record.device", "apu")
-    try:
-        with pytest.raises(ValueError, match="apu"):
-            recording.device_tag()
-    finally:
-        config.clear_override("record.device")
+    with pytest.raises(ValueError, match="apu"):
+        config.set_override("record.device", "apu")
 
 
 def test_an_untagged_run_stores_the_empty_default(tmp_path: pathlib.Path) -> None:

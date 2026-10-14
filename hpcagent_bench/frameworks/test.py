@@ -509,10 +509,9 @@ class Test:
         direct-framework path), into this rank's shard of the results DB
         (recording.db_path)."""
         timestamp = int(time.time())
-        # native vs container -- a containerized collector sets HPCAGENT_BENCH_RECORD_EXECUTION.
-        execution = config.get_str("record.execution", "native")
-        # Which build produced these numbers (HPCAGENT_BENCH_RECORD_BUILD); empty = unlabelled.
-        build = config.get_str("record.build", "") or None
+        record = config.current().record
+        execution = record.execution
+        build = record.build or None
         # `dace_cpu_parallel` is stored as backend + optimizer (split_flavor).
         column, flavor = split_flavor(self.frmwrk.info.get("simple_name", self.frmwrk.fname))
         kernel = self.bench.info["short_name"]

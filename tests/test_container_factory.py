@@ -73,13 +73,11 @@ def test_every_family_has_at_least_one_runtime() -> None:
         assert containers.family_members(family), family
 
 
-def test_the_default_backend_is_rootless_and_daemonless() -> None:
-    """The fallback has to be something an unprivileged user can actually invoke. docker needs a
-    running daemon and a root-equivalent group, which no HPC login node grants; apptainer and ce
-    need the OCI image converted first. Only podman is both OCI-native and rootless."""
+def test_backend_image_forms() -> None:
+    """podman runs the OCI tag unconverted; apptainer needs a SIF and ce an EDF."""
     spellings, _ = containers.load_backends()
-    assert spellings[containers.DEFAULT_BACKEND].image_form == "tag"  # consumes OCI unconverted
-    assert spellings["apptainer"].image_form == "sif"  # a conversion, so never the default
+    assert spellings["podman"].image_form == "tag"
+    assert spellings["apptainer"].image_form == "sif"
     assert spellings["ce"].image_form == "edf"
 
 

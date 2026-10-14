@@ -27,9 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BACKENDS",
-    "GENERATED_CACHE_DIR",
     "MPI_REF_SUFFIX",
-    "PREFER_COMMITTED_KEY",
     "REF_GLOB",
     "REF_SUFFIX",
     "SYSTEM_PROMPT",
@@ -166,14 +164,10 @@ def budget_tokens(budget: object, default: int) -> int:
 #: numpy reference. The same spelling ``helpers/scripts/checks/check_reference_naming.py`` enforces.
 REF_SUFFIX = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
 
-#: Config key for the committed-override knob. Default OFF, so grading is byte-identical to a
-#: tree that has never heard of it.
-PREFER_COMMITTED_KEY = "references.prefer_committed"
-
 
 def prefer_committed_reference() -> bool:
     """Whether a committed hand-written reference outranks the NumpyToX emit for this process."""
-    return config.get_bool(PREFER_COMMITTED_KEY, False)
+    return config.current().references.prefer_committed
 
 
 def committed_reference_override(kernel: str, language: str) -> pathlib.Path | None:
@@ -197,16 +191,10 @@ def committed_reference_override(kernel: str, language: str) -> pathlib.Path | N
     return path if is_override(path) else None
 
 
-#: Where already-emitted reference sources are read from and written to. Same shape as
-#: ``service.canonical_parallel_form_dir``: unset or absent means "no cache", never an error.
-GENERATED_CACHE_DIR = "references.generated_cache_dir"
-
-
 def generated_cache_root() -> pathlib.Path | None:
-    """The generated-source cache, or None when this run has none or it does not exist."""
-    configured = str(
-        config.get(GENERATED_CACHE_DIR, "") or os.environ.get("HPCAGENT_BENCH_GENERATED_CACHE", "")
-    ).strip()
+    """``references.generated_cache_dir``, the directory already-emitted reference sources are read from and
+    written to; None when it is empty or does not exist."""
+    configured = config.current().references.generated_cache_dir.strip()
     if not configured:
         return None
     root = pathlib.Path(configured)

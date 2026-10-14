@@ -71,6 +71,11 @@ service:
                            #   XL+fuzz (spec.resolve_preset). Size preset of judge grades.
   datatype: float64        # float32 | float64 | fp16 | bf16 | fp8_e4m3 | fp8_e5m2 (precision.DATATYPE_CHOICES).
                            #   Precision of judge grades; ml.datatype applies on the machine_learning track.
+  canonical_parallel_form_dir: ""  # path. Canonical-parallel-form view the /cpf route serves; "" = the route
+                           #   answers unavailable and the prompt omits the tool.
+  warm_problems: ""        # path. Problems file whose cells the judge compiles at start; "" = no warm-up.
+  warm_language: c         # str. Language of the warm-up builds.
+  warm_shards: 1           # int >= 1. Judges sharing the warm-up; judge rank k warms cells[k::warm_shards].
 
 # Timing of one measurement; read by the judge (harness/scoring.py, harness/timing.py) and the Harbor grader
 # (harbor.py).
@@ -132,6 +137,9 @@ measurement:
                            #   limit is max(residual_ns, residual_factor x sample) (timing.quiescent).
     divergence_factor: 3.47   # float. A rep fails when host_ns > divergence_factor x event_ns +
     divergence_slack_ns: 77164  # divergence_slack_ns (int, ns) (timing.clocks_agree).
+  mannwhitney:             # Set by a grading scope (grade_under.final_settings); null = the credited protocol's.
+    p: null                # float in (0, 1] | null. Significance level of the Mann-Whitney timing test.
+    repeats: null          # int >= 1 | null. Timed runs per side.
 
 # Reporting tests (hpcagent_bench/stats/significance.py), run on stored grades: a change recomputes tables and
 # figures, never a grade; every table names the test beside its p values. Each value is a registered name; an
@@ -158,6 +166,12 @@ perf:
                               # shapes drawn from seeds.secret_shape, hidden). The timed count is the grading
                               # protocol's input count (protocols.py), one config each, round-robin
                               # (metric._timed_cells).
+  n_large_shapes: null        # int >= 1 | null. Timed inputs per grade, set by a grading scope
+                              # (grade_under.final_settings); null = the credited protocol's input count.
+
+# State of the last preset token spec.resolve_preset resolved in this process (fuzz.PRESET_SEED_KEY).
+preset:
+  seed: null                  # int | null. Seed of a fuzzed:<seed> token; null = seeds.fuzz.
 
 # Repo task layout (hpcagent_bench.harbor layout='repo'): the agent receives a git repo with a correct seed
 # committed on `main`, framed as a performance issue, and opens a pull request. The PR is accepted only if it
@@ -221,6 +235,7 @@ references:
                             # corpus and changes every such kernel's denominator; record it with the results.
                             # References that do not follow the v2 C ABI (the vendored scientific_computing
                             # .c/.cpp/.f90 files) fail to bind under true.
+  generated_cache_dir: ""   # path. Directory of pre-emitted reference sources; "" or missing = no cache.
 
 # Judge-side disk store behind the per-process reference-output and baseline-timing memos
 # (harness/disk_cache.py), shared by a job's judge ranks and by later jobs. Key: the memo key plus image, code
@@ -282,7 +297,7 @@ grading:
                                   # -ftree-parallelize-loops, -floop-*, vectorizer width). Flags that change FP
                                   # semantics or the language dialect (-ffast-math, -Ofast, -std=...) are refused
                                   # either way. Changes what a setup measures; record it with the results.
-  distributed_libraries: mpi,rccl # str, comma-separated. `libraries` names a distributed-track judge
+  distributed_libraries: [mpi, rccl] # list[str]. `libraries` names a distributed-track judge
                                   # (mpi.grade_distributed) honours when allow_agent_build_tokens is false; every
                                   # other name is refused there (sandbox.py).
   allow_agent_build_tokens: true  # bool. true: a submission's `-l<name>` build tokens and `libraries` requests
@@ -296,17 +311,15 @@ record:
   enabled: false                  # bool. true: the judge records grades (service.py).
   allow_memory_db: false          # bool. true accepts a db_path on tmpfs/ramfs (lost with the job; competes for
                                   # the measured kernel's RAM). Tests only.
-  physical_bandwidth_gbps: 900.0  # float, GB/s. Bandwidth timing.physical_floor_ns uses when its caller passes
-                                  # none. The grading path passes physical_bandwidth_gbps_device/_host instead.
   # Row identity: one `setups` row per setup, joined by every run and grade of it, and selected on by every
   # query and figure. The run label and setup name are not parsed for these.
   study: ""                       # str. Study shared by its setups (e.g. llr40).
   model: ""                       # str. Short model tag, key of envs/display_names.yaml (e.g. qwen38).
   language: ""                    # str. Language the setup asked for. The request body's language is
                                   # agent-controlled and not recorded.
-  device: cpu                     # cpu | gpu | cpu-multinode | gpu-multinode. Stamped on every grade row
-                                  # (recording.device_tag). task.host_only_setup reads only
-                                  # $HPCAGENT_BENCH_RECORD_DEVICE, not this file's value.
+  device: null                    # cpu | gpu | cpu-multinode | gpu-multinode | null. Device class the setup
+                                  # declares; stamped on every grade row (null is stamped cpu, recording.device_tag).
+                                  # cpu or cpu-multinode makes task.host_only_setup refuse device submissions.
   packet: ""                      # str. Skill packets, any separator; stored sorted and '+'-joined.
   setup: ""                       # str. Setup name; provenance only.
   harness: ""                     # claude | miniswe | openhands | "". Agent harness of the setup; "" is stored
@@ -316,7 +329,7 @@ record:
   db_path: results/hpcagent_bench.db  # path. Results DB (schema harness/results_db.py SCHEMA_RELEASE); a file with
                                   # another schema is refused. A relative path is resolved against the repo root
                                   # (recording.base_db_path). Refused on tmpfs/ramfs unless allow_memory_db.
-  expensive_gates: ""             # str, comma-separated. Anti-cheat gates labelled expensive that this setup
+  expensive_gates: []             # list[str]. Anti-cheat gates labelled expensive that this setup
                                   # enables (hpcagent_bench/anticheat.py, docs/anti_cheat.md); every other gate
                                   # always runs.
   # A grade whose credited speedup or baseline_ns/native_ns exceeds the bound of its residency, or is not finite,
@@ -532,6 +545,7 @@ agent:
 # Numerical-correctness oracle and per-kernel sweep runner (hpcagent_bench/numerical_oracle.py).
 oracle:
   compile_timeout_s: 75    # float s. Per-backend compile cap.
+  polycc_timeout_s: 360    # float s. Cap on one polycc (Pluto) run.
   numba_fastmath: false    # bool. Compile numba with @njit(fastmath=True).
   overrides:               # map <short_name> -> {compile_timeout_s, polycc_timeout_s, numba_fastmath}; an entry
                            # wins over the global value for that kernel (numerical_oracle._cfg).
@@ -541,3 +555,7 @@ oracle:
       compile_timeout_s: 45   # pythran does not compile this kernel; recorded as unsupported.
     gromacs_nbnxm:
       compile_timeout_s: 30   # pythran does not compile this kernel; recorded as unsupported.
+
+# Canonical-parallel-form rendering (hpcagent_bench/cpf_cache.py, seal.py).
+cpf:
+  cache: ""                # path. Cache root an on-demand render writes to; "" = no on-demand render.

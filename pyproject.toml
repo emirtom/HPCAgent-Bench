@@ -50,7 +50,7 @@ dependencies = [
     "ml_dtypes",
     "pyyaml",
     # Validated models: config, request allowances, manifests.
-    "pydantic>=2.10",
+    "pydantic>=2.11",
     "sqlmodel",
     "jinja2",
     "cffi",
@@ -265,7 +265,6 @@ include = ["hpcagent_bench*"]
 # (no MANIFEST.in, no VCS file finder).
 [tool.setuptools.package-data]
 hpcagent_bench = [
-    "config.yaml",
     "container_backends.txt",
     # The experiment launchers and the sample sbatch a job's steps re-enter (hpcagent_bench.cluster).
     "cluster/*.sh",

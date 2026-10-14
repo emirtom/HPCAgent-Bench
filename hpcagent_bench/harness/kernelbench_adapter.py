@@ -176,7 +176,7 @@ def row_for(spec: BenchSpec) -> MapRow:
 def submodule_root() -> pathlib.Path:
     """Where the vendored KernelBench corpus is: ``ml.kernelbench_dir``
     (``$HPCAGENT_BENCH_ML_KERNELBENCH_DIR``), else the running checkout, else the installed tree."""
-    override = config.get_str("ml.kernelbench_dir", "")
+    override = config.current().ml.kernelbench_dir
     if override:
         return pathlib.Path(override)
     candidate = paths.repo_root().joinpath(*SUBMODULE_SUBPATH)

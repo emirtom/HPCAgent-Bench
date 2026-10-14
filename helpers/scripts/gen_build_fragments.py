@@ -76,7 +76,7 @@ def catalog_note(language: str) -> str:
     on, the names are host-probed (:func:`languages.available_libraries`), same as the rest of this
     file -- nothing here can promise a library the image the fragment is regenerated on lacks.
     """
-    if not config.get_bool("grading.allow_agent_build_tokens", True):
+    if not config.current().grading.allow_agent_build_tokens:
         return ""
     names = languages.available_libraries(language)
     if not names:

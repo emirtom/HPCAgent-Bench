@@ -11,7 +11,6 @@ from the extraction, config load and validation, and a ``submit.sh`` dry run.
 
 import contextlib
 import json
-import os
 import pathlib
 import re
 import shutil
@@ -197,7 +196,7 @@ def test_the_shipped_config_loads_and_validates() -> None:
     and every experiment target of ``setups.yaml`` render, and an invalid grading setting is refused."""
     settings = config.reload()
     assert isinstance(settings.prompt.template, str)
-    assert config.get_str("measurement.credited_protocol") in protocols.grade_protocols()
+    assert config.current().measurement.credited_protocol in protocols.grade_protocols()
     protocols.check_protocols()
     vocabulary.check_vocabulary()
     assert systems.load_systems({})
