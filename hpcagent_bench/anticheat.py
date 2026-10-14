@@ -264,7 +264,6 @@ def anticheat(key: str, *, order: int) -> Callable[[type], type]:
     return apply
 
 
-
 def judge(context: Context, *, rerun: bool = True) -> Judgement:
     """Run every post-run gate on ``context`` in registry order and return what they found.
 

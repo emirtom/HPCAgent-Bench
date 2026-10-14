@@ -227,8 +227,6 @@ def test_a_sanitizer_leg_that_did_not_run_is_disclosed_and_credits_as_it_was(
     assert (clean.findings, clean.notes) == ((), "")
 
 
-
-
 if __name__ == "__main__":
     for test in (
         test_the_gates_are_the_pinned_ones_in_the_order_they_are_met,
