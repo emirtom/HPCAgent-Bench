@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The results database, the v0.2 results schema (``schema.sql``): open, write, read and merge.
+"""The results database, schema hb-results-v1.0 (``schema.sql``): open, write, read and merge.
 
 One schema serves a judge rank's shard, a job's database, a regrade's output and the whole dataset.
 Rows are written with surrogate ids; every table also has a natural key, and :func:`merge` folds any
@@ -34,7 +34,7 @@ __all__ = [
     "GRADE_KEY",
     "NATURAL_KEYS",
     "SCHEMA_PATH",
-    "SCHEMA_RELEASE",
+    "SCHEMA_NAME",
     "SCHEMA_VERSION",
     "SIDECAR_SUFFIXES",
     "SUBMIT_KINDS",
@@ -83,9 +83,9 @@ __all__ = [
 
 #: The schema every writer creates and every reader expects.
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
-#: The release the schema belongs to, and its ``PRAGMA user_version`` (the release's minor number).
-SCHEMA_RELEASE = "0.2"
-SCHEMA_VERSION = 2
+#: The schema's name, and its ``PRAGMA user_version`` (the name's 1.0, above every pre-release schema).
+SCHEMA_NAME = "hb-results-v1.0"
+SCHEMA_VERSION = 10
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.
@@ -127,7 +127,7 @@ def column_defaults(table: str) -> dict[str, str]:
 
 
 class SchemaVersionError(ValueError):
-    """A results database of another schema than the v0.2 results schema."""
+    """A results database of another schema than hb-results-v1.0."""
 
 
 class NoResultsError(SchemaVersionError):
@@ -152,7 +152,7 @@ def check_schema(conn: sqlite3.Connection, where: str) -> bool:
     if version == SCHEMA_VERSION:
         return True
     if version or table_names(conn) & set(TABLES):
-        raise SchemaVersionError(f"{where} is not a v{SCHEMA_RELEASE} results database (user_version {version})")
+        raise SchemaVersionError(f"{where} is not an {SCHEMA_NAME} results database (user_version {version})")
     return False
 
 
@@ -460,7 +460,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
         if version == SCHEMA_VERSION:
             copied = {table: merge_rows(conn, table, ids) for table in TABLES}
         elif version or names & set(TABLES):
-            raise SchemaVersionError(f"{path} is not a v{SCHEMA_RELEASE} results database (user_version {version})")
+            raise SchemaVersionError(f"{path} is not an {SCHEMA_NAME} results database (user_version {version})")
         foreign = [
             (str(name), str(ddl))
             for name, ddl in conn.execute(
