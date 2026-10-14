@@ -235,7 +235,7 @@ def test_perf_record_asks_for_the_documented_event_and_unwind(tmp_path, monkeypa
     change to any of them makes both documents wrong."""
     seen = {}
     monkeypatch.setattr(perf_reports, "perf_check", lambda: "/usr/bin/perf")
-    monkeypatch.setattr(perf_reports.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
+    monkeypatch.setattr(perf_reports, "run_command", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
     perf_reports.perf_record(["./app", "input"], tmp_path / "perf.data", timeout=5.0)
     cmd = seen["cmd"]
     assert cmd[:2] == ["/usr/bin/perf", "record"]
@@ -581,7 +581,7 @@ def test_a_dead_per_thread_child_is_a_named_cause_and_not_a_balanced_kernel(tmp_
         stdout = ""
         stderr = "killed"
 
-    monkeypatch.setattr(profiling.subprocess, "run", lambda *a, **k: Dead())
+    monkeypatch.setattr(profiling, "run_command", lambda *a, **k: Dead())
     report = profiling.count_threads(tmp_path, tmp_path / "request.json", threads=4, timeout=1.0)
     assert report["cause"] == "run_failed"
     assert "exit 9" in report["missing"]

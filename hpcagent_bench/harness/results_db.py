@@ -43,6 +43,7 @@ __all__ = [
     "add_scaling",
     "call_index",
     "check_schema",
+    "connect_ro",
     "collapse_finals",
     "column_defaults",
     "copy_foreign",
@@ -150,11 +151,20 @@ def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
     return conn
 
 
+def connect_ro(path: str | pathlib.Path, *, timeout: float = BUSY_TIMEOUT_S) -> sqlite3.Connection:
+    """A read-only connection to any SQLite file ``path``, with no schema check.
+
+    The URI comes from :meth:`pathlib.Path.as_uri`, which percent-escapes the path: a raw
+    ``file:{path}`` URI reads a ``#`` or ``%xx`` in a directory name as a fragment or an escape and opens
+    a different file."""
+    return sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=timeout)
+
+
 def open_ro(path: str | pathlib.Path) -> sqlite3.Connection:
     """A read-only connection to the results database ``path`` with :class:`sqlite3.Row` rows."""
     if not pathlib.Path(path).is_file():
         raise FileNotFoundError(path)
-    conn = sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_S)
+    conn = connect_ro(path)
     conn.row_factory = sqlite3.Row
     try:
         if not check_schema(conn, str(path)):

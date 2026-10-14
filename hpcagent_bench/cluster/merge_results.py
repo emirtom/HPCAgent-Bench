@@ -29,6 +29,7 @@ from hpcagent_bench.studies import MERGED_DB_NAME
 
 __all__ = [
     "RANK_DIR",
+    "judge_shards",
     "main",
     "merge",
     "shard_paths",
@@ -39,14 +40,22 @@ RANK_DIR: re.Pattern[str] = re.compile(r"^rank-(\d+)$")
 
 
 def shard_paths(run_dir: pathlib.Path) -> list[pathlib.Path]:
-    """Every rank's DB file, in rank order (numeric, so rank 10 sorts after rank 9).
+    """:func:`judge_shards` of ``run_dir``; raises when it has no ``judge/`` directory."""
+    judge_dir = run_dir / "judge"
+    if not judge_dir.is_dir():
+        raise SystemExit(f"{judge_dir} does not exist; is {run_dir} a cluster run directory?")
+    return judge_shards(run_dir)
+
+
+def judge_shards(run_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Every rank's DB file, in rank order (numeric, so rank 10 sorts after rank 9); empty without ``judge/``.
 
     Globs the rank directories rather than a file name, because the DB's stem comes from config
     ``record.db_path`` and a site that changed it must still be mergeable. The ``-wal`` and ``-shm``
     siblings are excluded by the suffix."""
     judge_dir = run_dir / "judge"
     if not judge_dir.is_dir():
-        raise SystemExit(f"{judge_dir} does not exist; is {run_dir} a cluster run directory?")
+        return []
     found: list[tuple[int, str, pathlib.Path]] = []
     for entry in judge_dir.iterdir():
         match = RANK_DIR.match(entry.name)
