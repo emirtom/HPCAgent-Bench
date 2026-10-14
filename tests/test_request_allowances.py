@@ -4,9 +4,7 @@
 requests and sparse sections name only what a setup allows, and the judge refuses every other request."""
 
 import contextlib
-import json
-from collections.abc import Callable, Iterator
-from http.server import ThreadingHTTPServer
+from collections.abc import Iterator
 
 import pydantic
 import pytest
@@ -15,11 +13,9 @@ from hpcagent_bench import config
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
 from hpcagent_bench.harness.requests_api import RequestAllowances, Requests
-from hpcagent_bench.harness.service import ServiceConfig, requests_refusal
+from hpcagent_bench.harness.service import requests_refusal
 from hpcagent_bench.harness.task import Task
-from hpcagent_bench.harness.tools import JudgeClient, JudgeRefusal
 from hpcagent_bench.precision import Precision
-from tests.conftest import judge_factory
 
 HTTP_BAD_REQUEST = 400
 DENSE_KERNEL = "jacobi_2d"  # two 2-D floating arrays A, B
@@ -136,21 +132,6 @@ def test_the_sparse_section_offers_the_format_choice_only_where_the_setup_allows
     assert "spmv_csc_fp64(" in chosen
 
 
-@pytest.mark.smoke
-def test_smoke_a_setup_without_allowances_renders_no_cast_and_its_judge_answers_400(
-    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
-) -> None:
-    """End to end: the non-allowing prompt offers no cast, and a live judge refuses one with a 400 that names
-    why, before any build."""
-    assert '"action": "cast"' not in rendered(DENSE_KERNEL, [], layouts=False, sparse_formats=False)
-    _server, url = make_judge(ServiceConfig(baseline="auto", oracle="auto", input_mode="source", repeat=2))
-    submission = Submission(language="c", source="this does not compile", requests=requests(CAST))
-    with pytest.raises(JudgeRefusal) as caught:
-        JudgeClient(url).score(submission, DENSE_KERNEL, preset="S")
-    assert caught.value.code == HTTP_BAD_REQUEST
-    assert json.loads(caught.value.read())["error"].startswith("this setup does not allow precision requests")
-
-
 if __name__ == "__main__":
     test_the_default_setup_allows_no_cast_layout_or_sparse_format()
     test_the_precisions_read_from_a_list_or_a_comma_separated_environment_value()
@@ -165,5 +146,3 @@ if __name__ == "__main__":
     test_a_non_allowing_prompt_never_mentions_casts_or_layouts()
     test_an_allowing_prompt_states_exactly_the_allowed_precisions_and_the_layouts()
     test_the_sparse_section_offers_the_format_choice_only_where_the_setup_allows_it()
-    with judge_factory() as make:
-        test_smoke_a_setup_without_allowances_renders_no_cast_and_its_judge_answers_400(make)

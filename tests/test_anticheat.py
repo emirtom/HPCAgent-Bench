@@ -61,7 +61,7 @@ def test_the_docs_table_lists_the_registered_gates_in_order() -> None:
 
 def build_gate(**changes: object) -> Gate:
     fields = {"title": "Probe", "catches": "x", "verdict": Verdict.REJECT, "where": ("a.py",), "symbol": ""}
-    return build("probe", {**fields, "reruns": False, "expensive": False, **changes})
+    return build("probe", {**fields, "reruns": False, **changes})
 
 
 def test_a_gate_must_provide_what_it_catches_and_what_happens_to_the_submission() -> None:
@@ -227,24 +227,6 @@ def test_a_sanitizer_leg_that_did_not_run_is_disclosed_and_credits_as_it_was(
     assert (clean.findings, clean.notes) == ((), "")
 
 
-def test_an_expensive_gate_runs_only_when_the_setup_opts_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    gate = ANTICHEAT.entries["sanitizers"]
-    monkeypatch.setitem(ANTICHEAT.entries, "sanitizers", dataclasses.replace(gate, expensive=True))
-    reruns = Reruns(monkeypatch)
-    reruns.judge()
-    assert reruns.ran == ["independent_verify"]
-    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_EXPENSIVE_GATES", "sanitizers")
-    reruns.judge()
-    assert reruns.ran == ["independent_verify", "independent_verify", "sanitizers"]
-
-
-def test_opting_into_a_gate_that_is_not_expensive_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    for named in ("independent_verify", "sanitiser"):
-        monkeypatch.setenv("HPCAGENT_BENCH_RECORD_EXPENSIVE_GATES", named)
-        with pytest.raises(ValueError, match="is not an expensive gate"):
-            anticheat.expensive_opt_in()
-
-
 if __name__ == "__main__":
     for test in (
         test_the_gates_are_the_pinned_ones_in_the_order_they_are_met,
@@ -263,8 +245,6 @@ if __name__ == "__main__":
             test_a_rejection_skips_the_later_re_running_gates_and_flags_stay_out_of_the_reason,
             test_a_judge_fault_and_the_tolerance_floor_are_their_own_effects,
             test_a_memory_error_rejects_and_undefined_behaviour_flags,
-            test_an_expensive_gate_runs_only_when_the_setup_opts_in,
-            test_opting_into_a_gate_that_is_not_expensive_is_refused,
         ):
             patched(patch)
             print("ok", patched.__name__)

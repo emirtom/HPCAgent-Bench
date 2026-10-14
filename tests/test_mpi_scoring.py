@@ -473,7 +473,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         "from_submission",
         classmethod(described),
     )
-    monkeypatch.setattr(S.config, "get", lambda key, default=None: "strong" if key == "mpi.mode" else default)
+    S.config.set_override("mpi.mode", "strong")
     # warmup_count() is a separate config from S.config; zero it so anchor calls == 1, not warmup+1.
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
@@ -544,7 +544,8 @@ def gang_strong_sweep(
         return described(cls, submission, binding, ranks)
 
     monkeypatch.setattr(S.Descriptor, "from_submission", classmethod(refusing))
-    monkeypatch.setattr(S.config, "get", lambda key, default=None: overrides.get(key, default))
+    for key, value in overrides.items():
+        S.config.set_override(key, value)
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
     return S.score_scaling(
@@ -644,7 +645,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
         "from_submission",
         classmethod(described),
     )
-    monkeypatch.setattr(S.config, "get", lambda key, default=None: "weak" if key == "mpi.mode" else default)
+    S.config.set_override("mpi.mode", "weak")
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     grid1 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}

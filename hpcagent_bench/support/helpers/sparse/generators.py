@@ -30,7 +30,7 @@ __all__ = [
     "RESCALE_SPREAD",
     "SCENARIOS",
     "SEED_BOUND",
-    "SUITESPARSE_BASE",
+    "SUITESPARSE_MIRRORS",
     "SUITESPARSE_TIMEOUT_S",
     "VALUE_SPAN",
     "SuiteSparseUnavailable",
@@ -88,7 +88,12 @@ DENSE_SAMPLING_LIMIT: int = 1 << 22
 #: How far a system's diagonal is shifted past its largest absolute row sum (strict dominance).
 DOMINANCE_FACTOR = 1.01
 
-SUITESPARSE_BASE = "https://suitesparse-collection-website.herokuapp.com/MM"
+#: The Matrix Market tarball roots, tried in order. The TAMU file server answers 403 to every download
+#: since 2026-10-14; the University of Florida root serves the same archives byte for byte.
+SUITESPARSE_MIRRORS = (
+    "https://suitesparse-collection-website.herokuapp.com/MM",
+    "https://www.cise.ufl.edu/research/sparse/MM",
+)
 
 #: Socket timeout (s) on the SuiteSparse fetch. Without one, ``urlopen`` on a runner with no egress
 #: blocks until the kernel's own timeout fires and takes the enclosing sweep with it -- the failure
@@ -417,19 +422,24 @@ def fetch_suitesparse(matrix_name: str) -> Path:
     if mtx_path.exists():
         return mtx_path
     cache.mkdir(parents=True, exist_ok=True)
-    url = f"{SUITESPARSE_BASE}/{group}/{name}.tar.gz"
     staging = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=cache))
     try:
         tarball = staging / f"{name}.tar.gz"
         print(f"[hpcagent_bench] downloading SuiteSparse matrix {matrix_name} -> {mtx_path}")
-        try:
-            with urllib.request.urlopen(url, timeout=SUITESPARSE_TIMEOUT_S) as r, tarball.open("wb") as fp:
-                fp.write(r.read())
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        failures: list[str] = []
+        for root in SUITESPARSE_MIRRORS:
+            url = f"{root}/{group}/{name}.tar.gz"
+            try:
+                with urllib.request.urlopen(url, timeout=SUITESPARSE_TIMEOUT_S) as r, tarball.open("wb") as fp:
+                    fp.write(r.read())
+                break
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                failures.append(f"{url}: {exc}")
+        else:
             raise SuiteSparseUnavailable(
-                f"{matrix_name} is not cached under {cache} and could not be fetched from {url}: {exc}. "
-                f"Pre-seed the cache (or set HPCAGENT_BENCH_CACHE_DIR) to run offline."
-            ) from exc
+                f"{matrix_name} is not cached under {cache} and could not be fetched from any mirror "
+                f"({'; '.join(failures)}). Pre-seed the cache (or set HPCAGENT_BENCH_CACHE_DIR) to run offline."
+            )
         with tarfile.open(tarball, "r:gz") as tf:
             tf.extractall(staging, filter="data")
         if not (staging / name / f"{name}.mtx").exists():
