@@ -788,23 +788,31 @@ class CBodyEmitter(BaseEmitter):
             return target.id, self.emit_expr(args[0]), self.emit_expr(args[1]), self.emit_expr(args[2])
         raise NotImplementedError("range() needs 1-3 args")
 
+    def omp_private_clause(self, node: ast.For, arrays: set[str], reduction_acc: str | None = None) -> str:
+        """`` private(t, u)`` naming the body scalars of a parallel loop as declared (see
+        :func:`parallelism.omp_private_scalars`), or ``""`` when the body binds none."""
+        names = parallelism.omp_private_scalars(node, arrays, reduction_acc)
+        return f" private({', '.join(self.emit_expr(name_(n)) for n in names)})" if names else ""
+
     def omp_loop_prefix(self, node: ast.For, indent: str, sign: int | None) -> str:
         """The OpenMP pragma line for the outermost eligible loop: an independent map gets ``parallel
         for``, a reduction adds ``reduction(op:acc)``; empty when the loop stays serial."""
         if not self.parallel or sign is None or self.parallel_active or parallelism.is_timestep_loop(node):
             return ""
+        arrays = set(self.kir.zeros_locals) | {a.name for a in self.kir.arrays}
         red = parallelism.loop_reduction(node)
         if red is not None:
             op, acc = red
-            return f"{indent}#pragma omp parallel for reduction({op}:{acc})\n"
-        if parallelism.loop_is_parallel_safe(node):
+            private = self.omp_private_clause(node, arrays, acc)
+            return f"{indent}#pragma omp parallel for reduction({op}:{acc}){private}\n"
+        if parallelism.loop_is_parallel_safe(node, self.kir.tree):
             # A perfectly-nested, rectangular run of inner loops that are EACH independently
             # safe on their own index can share this pragma via collapse(k) -- see
             # collapsible_depth for the soundness criteria. Left at 1 (no clause) the moment
             # any of that fails, e.g. an inner reduction or an accumulator init.
             depth = parallelism.collapsible_depth(node)
             clause = f" collapse({depth})" if depth > 1 else ""
-            return f"{indent}#pragma omp parallel for{clause}\n"
+            return f"{indent}#pragma omp parallel for{clause}{self.omp_private_clause(node, arrays)}\n"
         return ""
 
     # ISO standard-algorithm forms (cpp_isopar)

@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_, range_for, store_
 from hpcagent_bench.translators.numpyto_common.ir import SparseArrayDesc
-from hpcagent_bench.translators.numpyto_common.lib_nodes.blas import BLAS_GEMM_MARKER, BLAS_INELIGIBLE_DTYPES
+from hpcagent_bench.translators.numpyto_common.lib_nodes.blas import (
+    BLAS_GEMM_MARKER,
+    BLAS_INELIGIBLE_DTYPES,
+    BLAS_LOWERING_FLOAT,
+)
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import dims_agree, static_shape_of
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import iter_extent_of
 from hpcagent_bench.translators.numpyto_common.lib_nodes.helpers import alloc_marker, const_, const_or_name
@@ -582,6 +586,7 @@ class MatmulHoister(ast.NodeTransformer):
 
     __slots__ = (
         "blas",
+        "blas_float",
         "dim_aliases",
         "local_dtypes",
         "pre_stmts",
@@ -600,10 +605,13 @@ class MatmulHoister(ast.NodeTransformer):
         sparse: dict[str, SparseArrayDesc] | None = None,
         dim_aliases: dict[str, str] | None = None,
         blas: bool = False,
+        blas_float: str = BLAS_LOWERING_FLOAT,
     ) -> None:
         self.shape_table = shape_table
         #: Target renders a dense 2-D float GEMM as a BLAS call rather than a loop nest.
         self.blas = blas
+        #: The kernel's float, the one width the emitter's gemm takes (see BLAS_LOWERING_FLOAT).
+        self.blas_float = blas_float
         self.temp_arrays = temp_arrays
         self.temp_counter = temp_counter
         self.local_dtypes: dict[str, str] = local_dtypes if local_dtypes is not None else {}
@@ -652,7 +660,8 @@ class MatmulHoister(ast.NodeTransformer):
         return node
 
     def blas_eligible(self, node: ast.BinOp) -> bool:
-        """True when both operands are real floats, so a BLAS gemm computes the same contraction.
+        """True when both operands are real floats of the kernel's own width, so a BLAS gemm computes
+        the same contraction.
 
         Integer, boolean and complex matmuls have no real-BLAS equivalent and keep the loop nest.
         A complex literal anywhere in the subtree counts, matching how the caller tags the temp.
@@ -664,6 +673,8 @@ class MatmulHoister(ast.NodeTransformer):
                 dt = self.local_dtypes.get(sub_node.id, "")
                 if dt.startswith(BLAS_INELIGIBLE_DTYPES):
                     return False
+                if dt.startswith("float") and dt != self.blas_float:
+                    return False  # not the width of the gemm the emitter will pick: see BLAS_LOWERING_FLOAT
         return True
 
     def materialise_call_operands(self, node: ast.BinOp) -> ast.BinOp:

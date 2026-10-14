@@ -16,6 +16,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes.scalarize import scalar
 __all__ = [
     "UNARY_C_MATH",
     "binary_call_expander",
+    "decimals_of",
     "expand_add",
     "expand_clip",
     "expand_cos_arr",
@@ -37,7 +38,9 @@ __all__ = [
     "expand_negative",
     "expand_not_equal",
     "expand_power",
+    "expand_round",
     "expand_sin_arr",
+    "round_to_decimals",
     "expand_sqrt_arr",
     "expand_subtract",
     "expand_tanh",
@@ -315,8 +318,70 @@ def expand_where(target: ast.Name, args: Sequence[ast.expr], shape_table: dict[s
 
 def unary_call_expander(c_name: str) -> Callable:
     """Elementwise expander for a unary numpy ufunc that maps directly to
-    a libm function (``np.tan(arr)`` -> ``out[i] = tan(arr[i])``)."""
-    return lambda t, a, s: unary_elementwise(t, a, s, lambda x: ast.Call(func=name_(c_name), args=[x], keywords=[]))
+    a libm function (``np.tan(arr)`` -> ``out[i] = tan(arr[i])``).
+
+    Any argument past the operand (``out=``, ``where=``, ``np.round``'s ``decimals``) asks for
+    something the libm call does not do, so it is refused rather than dropped."""
+
+    def expand_(
+        target: ast.Name,
+        args: Sequence[ast.expr],
+        shape_table: dict[str, tuple[str, ...]],
+        kwargs: list[ast.keyword] | None = None,
+    ) -> list[ast.stmt]:
+        if len(args) != 1 or kwargs:
+            raise NotImplementedError(f"np ufunc lowered to {c_name}: arguments past the operand are not supported")
+        return unary_elementwise(
+            target, args, shape_table, lambda x: ast.Call(func=name_(c_name), args=[x], keywords=[])
+        )
+
+    return expand_
+
+
+def decimals_of(extra_args: Sequence[ast.expr], kwargs: Sequence[ast.keyword]) -> int:
+    """The ``decimals`` of ``np.round(x, decimals)`` / ``np.round(x, decimals=d)``: 0 when absent.
+
+    It picks the algorithm, so it must be a compile-time integer; ``out=`` or anything else is refused."""
+    given = list(extra_args) + [kw.value for kw in kwargs if kw.arg == "decimals"]
+    if len(extra_args) > 1 or any(kw.arg != "decimals" for kw in kwargs) or len(given) > 1:
+        raise NotImplementedError("np.round: only the operand and ``decimals`` are supported")
+    if not given:
+        return 0
+    node = given[0]
+    sign = 1
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        sign, node = -1, node.operand
+    if not (isinstance(node, ast.Constant) and type(node.value) is int):
+        raise NotImplementedError(f"np.round: decimals {ast.unparse(given[0])!r} must be an integer literal")
+    return sign * node.value
+
+
+def round_to_decimals(x: ast.expr, decimals: int) -> ast.expr:
+    """numpy's ``round(x, decimals)``: scale by ``10**decimals``, round half to even, scale back.
+
+    That is numpy's own algorithm (multiply, ``rint``, divide; divide first for a negative
+    ``decimals``), so the result matches it bit for bit, including where the scaled value is not
+    exact. ``rint`` rounds ties to even in the default rounding mode, as numpy does; C's ``round``
+    would round them away from zero."""
+    if decimals == 0:
+        return ast.Call(func=name_("rint"), args=[x], keywords=[])
+    factor = ast.Constant(value=float(10 ** abs(decimals)))
+    inward, outward = (ast.Mult(), ast.Div()) if decimals > 0 else (ast.Div(), ast.Mult())
+    scaled = ast.Call(func=name_("rint"), args=[ast.BinOp(left=x, op=inward, right=factor)], keywords=[])
+    return ast.BinOp(left=scaled, op=outward, right=ast.Constant(value=factor.value))
+
+
+def expand_round(
+    target: ast.Name,
+    args: Sequence[ast.expr],
+    shape_table: dict[str, tuple[str, ...]],
+    kwargs: list[ast.keyword] | None = None,
+) -> list[ast.stmt]:
+    """``out = np.round(a, decimals)`` -> ``out[i] = round_to_decimals(a[i], decimals)``."""
+    if not args:
+        raise NotImplementedError("np.round needs an operand")
+    decimals = decimals_of(args[1:], kwargs or [])
+    return unary_elementwise(target, args[:1], shape_table, lambda x: round_to_decimals(x, decimals))
 
 
 def unary_expr_expander(make: Callable[[ast.expr], ast.expr]) -> Callable:

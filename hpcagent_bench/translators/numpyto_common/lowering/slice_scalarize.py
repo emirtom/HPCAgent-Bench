@@ -9,6 +9,7 @@ from hpcagent_bench.translators.numpyto_common.ast_build import name_
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import extent_is_scalar, iter_extent_of
 from hpcagent_bench.translators.numpyto_common.lib_nodes.helpers import (
     const_,
+    const_or_name,
     slice_step_any,
     step_is_negative,
     step_node,
@@ -558,7 +559,7 @@ class SliceToScalarRewriter(ast.NodeTransformer):
             if step_is_negative(step) and d.lower is None:
                 ss = self.array_shapes.get(rhs_name)
                 if ss and axis < len(ss):
-                    al_ = const_(int(ss[axis])) if str(ss[axis]).isdigit() else name_(str(ss[axis]))
+                    al_ = const_or_name(str(ss[axis]))
                     rhs_start = binop(al_, ast.Sub(), const_(1))
                 else:
                     # Without the axis length we cannot seed the reverse start at
@@ -733,7 +734,7 @@ class SliceToScalarRewriter(ast.NodeTransformer):
         shape = self.array_shapes.get(array_name) if array_name else None
         val = negative_literal_offset(idx)
         if val is not None and shape and axis < len(shape):
-            axis_len = const_(int(shape[axis])) if str(shape[axis]).isdigit() else name_(str(shape[axis]))
+            axis_len = const_or_name(str(shape[axis]))
             return binop(axis_len, ast.Sub(), const_(val))
         return idx
 
@@ -751,7 +752,7 @@ class SliceToScalarRewriter(ast.NodeTransformer):
         shape = self.array_shapes.get(array_name) if array_name else None
         k = negative_literal_offset(bound)
         if k is not None and shape and axis < len(shape):
-            axis_len = const_(int(shape[axis])) if shape[axis].isdigit() else name_(shape[axis])
+            axis_len = const_or_name(str(shape[axis]))
             return binop(axis_len, ast.Sub(), const_(k))
         return bound
 

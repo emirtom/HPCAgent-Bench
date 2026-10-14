@@ -30,6 +30,11 @@ from hpcagent_bench.translators.numpyto_common.lowering.complex import (
     scalar_expr_complex,
 )
 from hpcagent_bench.translators.numpyto_common.lowering.indexing import slice_dims
+from hpcagent_bench.translators.numpyto_common.lowering.overlap import (
+    OVERLAP_TEMP_PREFIX,
+    reads_a_stored_cell,
+    staged_through_temp,
+)
 from hpcagent_bench.translators.numpyto_common.lowering.shape_harvest import is_scalar_helper_call
 from hpcagent_bench.translators.numpyto_common.lowering.shape_reads import is_newaxis
 from hpcagent_bench.translators.numpyto_common.lowering.slice_scalarize import SliceToScalarRewriter
@@ -256,6 +261,8 @@ class WholeArrayAssignRewriter(ast.NodeTransformer):
         self._norm_memo: dict[tuple[str, ...], tuple[str, ...]] = {}
         #: Monotonic id for the buffered fancy ``A[idx] += rhs`` snapshot temps.
         self._scatter_ctr = 0
+        #: Monotonic id for the temps an overlapping RHS is staged through (see :mod:`.overlap`).
+        self.overlap_ctr = 0
         #: Per-name list of shapes recorded in source order, one entry
         #: per ``Name = expr`` reassignment that the rewriter
         #: expanded to a per-element loop nest. Consumed by the
@@ -320,11 +327,22 @@ class WholeArrayAssignRewriter(ast.NodeTransformer):
             # subscript; scalars pass through.
             rhs = SubscriptifyNames(self.shape_table, iters).visit(rhs)
         body: list[ast.stmt]
-        if op is None:
-            body = [ast.Assign(targets=[lhs_sub], value=rhs)]
+        loops = [(i, const_(0), const_or_name(str(b))) for i, b in zip(iters, shape, strict=True)]
+        if reads_a_stored_cell(target.id, [name_(i) for i in iters], rhs, loops):
+            # ``u = u[perm]`` / ``u = u[::-1]``: numpy builds the whole RHS before it rebinds, so the
+            # RHS is evaluated into a temp first instead of read back from cells already stored.
+            self.overlap_ctr += 1
+            temp = f"{OVERLAP_TEMP_PREFIX}w{self.overlap_ctr}"
+            self.shape_table[temp] = tuple(shape)
+            if target.id in self.local_dtypes:
+                self.local_dtypes[temp] = self.local_dtypes[target.id]
+            out = staged_through_temp(lhs_sub, rhs, op, loops, temp)
         else:
-            body = [ast.AugAssign(target=lhs_sub, op=op, value=rhs)]
-        out = wrap_for_loops(iters, shape, body)
+            if op is None:
+                body = [ast.Assign(targets=[lhs_sub], value=rhs)]
+            else:
+                body = [ast.AugAssign(target=lhs_sub, op=op, value=rhs)]
+            out = wrap_for_loops(iters, shape, body)
         # Prepend a ``Name = __hpcagent_bench_zeros__("__reassign__", self_ref)`` marker so
         # the source-order shape resolver (``ResolveArrShape``) can pick
         # up the THEN-current shape of the LHS. The marker is a no-op at

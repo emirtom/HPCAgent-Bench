@@ -57,6 +57,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes.elementwise import (
     expand_subtract,
     expand_tanh,
     expand_where,
+    expand_round,
     unary_call_expander,
     unary_expr_expander,
 )
@@ -229,6 +230,9 @@ NP_CALL_EXPANDERS: dict[tuple[str, str], Callable] = {
 }
 for np_name, c_name_ in UNARY_C_MATH.items():
     NP_CALL_EXPANDERS[("np", np_name)] = unary_call_expander(c_name_)
+# ``decimals`` is part of rounding, not an extra argument to refuse.
+NP_CALL_EXPANDERS[("np", "round")] = expand_round
+NP_CALL_EXPANDERS[("np", "around")] = expand_round
 
 # Inline-expression ufuncs valid in both C and Fortran: square -> x*x,
 # reciprocal -> 1.0/x, degrees/radians via the exact double conversion factor
