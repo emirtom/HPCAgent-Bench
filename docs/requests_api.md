@@ -32,14 +32,15 @@ against a kernel in `hpcagent_bench/harness/requests_api.py`.
 | --- | --- | --- | --- |
 | `cast` | an array's element type | separate timer, not scored | implemented |
 | `format` | a sparse array's storage format | separate timer, not scored | implemented |
-| `distribute`, `replicate`, `split`, `block`, `unblock`, `unsplit`, `permute` | which rank owns which elements, and their local order | untimed scatter | the distribution subset |
-| `place` | host or device memory of a distributed array | untimed copy | implemented |
-| `zip`, `unzip`, `pad`, `unpad`, `shuffle`, `linear_shuffle` | regrouping, dead cells, renumbering | separate timer, not scored | parsed, refused |
+| `distribute`, `replicate` | which rank owns which elements | untimed scatter | with `startup.grid` |
+| `split`, `unsplit`, `block`, `unblock`, `permute` | a dimension's digits and their local order | untimed scatter with a grid; separate timer, not scored, on one node | implemented |
+| `pad`, `unpad`, `shuffle`, `linear_shuffle` | dead cells, renumbering | separate timer, not scored | one node; refused with a grid |
+| `zip`, `unzip` | regrouping several arrays into one pointer, or one into several ([3.1](#31-zip-and-the-c-abi)) | separate timer, not scored | one node; refused with a grid |
+| `place` | host or device memory of a distributed array | untimed copy | with `startup.grid` |
 
 The request is checked before anything is built. One the kernel cannot honour is a **request fault**:
 the judge answers 400 naming the entry (`operations[3] (distribute): ...`) and the submission is not
-spent. The old envelope fields `libraries`, `distribution` and `sparse_config` are refused with a 400
-naming the new spelling.
+spent. An envelope field `envelope.Submission` does not declare is refused with a 400.
 
 The request is read, written and described only by relayout's pydantic models. A pydantic model declares the
 field as `requests_api.RequestsField` (`Submission.requests`, an empty request left out of its dump), which
