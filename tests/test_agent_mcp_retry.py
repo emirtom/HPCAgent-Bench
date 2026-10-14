@@ -187,9 +187,13 @@ def test_a_crash_is_a_fault_but_a_budget_is_not(monkeypatch, tmp_path) -> None:
     driver = load_driver(monkeypatch)
     log = tmp_path / "claude.log"
     log.write_text("", encoding="utf-8")
-    assert driver.crashed(1, log) is True, "a bare nonzero exit with no result event is a fault"
+    assert driver.closing_crashed(1, driver.transcript_closing(log)) is True, (
+        "a bare nonzero exit with no result event is a fault"
+    )
     for code in (0, driver.RC_TIMEOUT, driver.RC_TOKEN_BUDGET, driver.RC_CONTEXT):
-        assert driver.crashed(code, log) is False, f"rc={code} is a budget, not a fault"
+        assert driver.closing_crashed(code, driver.transcript_closing(log)) is False, (
+            f"rc={code} is a budget, not a fault"
+        )
 
 
 def test_a_reported_result_is_the_cli_verdict_not_a_crash(monkeypatch, tmp_path) -> None:
@@ -197,7 +201,7 @@ def test_a_reported_result_is_the_cli_verdict_not_a_crash(monkeypatch, tmp_path)
     driver = load_driver(monkeypatch)
     log = tmp_path / "claude.log"
     log.write_text(json.dumps({"type": "result", "subtype": "error_during_execution"}) + "\n", encoding="utf-8")
-    assert driver.crashed(1, log) is False
+    assert driver.closing_crashed(1, driver.transcript_closing(log)) is False
 
 
 def test_crash_retries_are_bounded(monkeypatch) -> None:

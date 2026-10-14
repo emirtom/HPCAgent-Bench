@@ -149,7 +149,6 @@ __all__ = [
     "cost_breakdown",
     "cost_record_fields",
     "counter_notes",
-    "crashed",
     "crashed_attempt_records",
     "dead_stream_threshold_seconds",
     "directive_page",
@@ -2127,19 +2126,15 @@ def start_runner(
     return process
 
 
-def crashed(returncode: int, log_path: pathlib.Path) -> bool:
-    """True when the agent died on a fault rather than on a budget it was given.
+def closing_crashed(returncode: int, closing: Closing) -> bool:
+    """True when the agent died on a fault rather than on a budget it was given, read off the record
+    the attempt closed with (``harness.closing``; claude's is :func:`transcript_closing`).
 
     Our own caps are excluded by code: they mean the agent ran to the end of what it was allowed,
-    which is a result, not a failure. Everything else is a fault only if the transcript ALSO has no
-    closing result event -- a nonzero exit after the CLI reported a result is the CLI's own verdict
-    on the run, and relaunching would overwrite it.
+    which is a result, not a failure. Everything else is a fault only if the attempt ALSO left no
+    closing record -- a nonzero exit after the CLI reported a result is the CLI's own verdict on the
+    run, and relaunching would overwrite it.
     """
-    return closing_crashed(returncode, transcript_closing(log_path))
-
-
-def closing_crashed(returncode: int, closing: Closing) -> bool:
-    """:func:`crashed` for any harness, read off the record the attempt closed with."""
     if returncode in (RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT, RC_SUBMITTED):
         return False
     # A client-side request timeout is the ONE fault the CLI reports as a result, so the rule below

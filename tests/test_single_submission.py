@@ -237,7 +237,7 @@ def test_a_finished_episode_is_never_relaunched(monkeypatch, tmp_path) -> None:
     importlib.reload(agent_driver)
     log = tmp_path / "claude.log"
     log.write_text("", encoding="utf-8")
-    assert agent_driver.crashed(agent_driver.RC_SUBMITTED, log) is False
+    assert agent_driver.closing_crashed(agent_driver.RC_SUBMITTED, agent_driver.transcript_closing(log)) is False
 
 
 def load_driver() -> ModuleType:
