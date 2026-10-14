@@ -15,7 +15,7 @@ and silently edits the source, so the numeric test below reads BOTH buffers back
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -30,16 +30,10 @@ SRC = (
 )
 
 
-def assert_ok(res) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
-
-
 def test_np_array_of_a_slice_copies_rather_than_aliases() -> None:
     """``out`` is doubled and ``src_out`` is not -- an alias would double both."""
     rng = np.random.default_rng(11)
-    assert_ok(
+    assert_all_ok(
         run_op(
             SRC,
             "f",

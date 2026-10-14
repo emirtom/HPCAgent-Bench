@@ -12,15 +12,10 @@ Fortran backends (the ABI backends that flatten to a raw pointer, where a surviv
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 BACKENDS = ("c", "fortran")
 TOL = 1e-6
-
-
-def ok_(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_ellipsis_trailing_scalar() -> None:
@@ -40,7 +35,7 @@ def test_ellipsis_trailing_scalar() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -64,7 +59,7 @@ def test_ellipsis_then_newaxis_broadcast() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -85,7 +80,7 @@ def test_scalar_chained_then_ellipsis() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -112,7 +107,7 @@ def test_mixed_scalar_ellipsis_scalar() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -137,7 +132,7 @@ def test_ellipsis_over_a_hoisted_call_base() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r
 
 
@@ -165,5 +160,5 @@ def test_ellipsis_over_an_arithmetic_base() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    ok, r = ok_(res)
+    ok, r = all_ok(res)
     assert ok, r

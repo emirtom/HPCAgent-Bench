@@ -36,7 +36,7 @@ from hpcagent_bench.support.helpers.sparse.abi import (
     ResolvedLayout,
     scalar_name,
 )
-from hpcagent_bench.support.helpers.sparse.generators import shape_of
+from hpcagent_bench.support.helpers.sparse.generators import row_of_entry, shape_of
 
 if TYPE_CHECKING:
     from hpcagent_bench.spec import SparseLayout
@@ -66,7 +66,6 @@ __all__ = [
     "plan",
     "realize",
     "record",
-    "row_ids",
     "source_matrix",
     "to_bsr",
     "to_coo",
@@ -111,11 +110,6 @@ def canonical_csr(matrix: object) -> sp.csr_matrix:
     return m
 
 
-def row_ids(m: sp.csr_matrix) -> npt.NDArray[np.int64]:
-    """The row index of every stored entry, in storage order."""
-    return np.repeat(np.arange(shape_of(m)[0], dtype=np.int64), np.diff(m.indptr))
-
-
 def ell_width(m: sp.csr_matrix) -> int:
     """The longest row: ``ell``'s slots per row."""
     return int(np.diff(m.indptr).max()) if shape_of(m)[0] else 0
@@ -140,7 +134,7 @@ def to_csc(m: sp.csr_matrix, p: str, _layout: ArrayLayout) -> Materialized:
 
 def to_coo(m: sp.csr_matrix, p: str, _layout: ArrayLayout) -> Materialized:
     # The canonical CSR walks rows in order and columns ascending: already (row, col) sorted.
-    return Materialized({f"{p}_row": row_ids(m), f"{p}_col": m.indices.copy(), f"{p}_data": m.data.copy()}, {})
+    return Materialized({f"{p}_row": row_of_entry(m), f"{p}_col": m.indices.copy(), f"{p}_data": m.data.copy()}, {})
 
 
 def to_bsr(m: sp.csr_matrix, p: str, layout: ArrayLayout) -> Materialized:
@@ -162,7 +156,7 @@ def to_bsr(m: sp.csr_matrix, p: str, layout: ArrayLayout) -> Materialized:
 
 def to_dia(m: sp.csr_matrix, p: str, _layout: ArrayLayout) -> Materialized:
     rows, cols = shape_of(m)
-    diag = m.indices - row_ids(m)
+    diag = m.indices - row_of_entry(m)
     occupied = np.zeros(rows + cols, dtype=bool)
     occupied[diag + rows] = True
     offsets = np.flatnonzero(occupied) - rows
@@ -178,7 +172,7 @@ def to_dia(m: sp.csr_matrix, p: str, _layout: ArrayLayout) -> Materialized:
 def to_ell(m: sp.csr_matrix, p: str, _layout: ArrayLayout) -> Materialized:
     rows = shape_of(m)[0]
     width = ell_width(m)
-    row = row_ids(m)
+    row = row_of_entry(m)
     slot = np.arange(m.nnz, dtype=np.int64) - m.indptr[row]
     cols = np.full((rows, width), ELL_PAD_INDEX, dtype=np.dtype(INDEX_DTYPE))
     data = np.zeros((rows, width), dtype=m.data.dtype)

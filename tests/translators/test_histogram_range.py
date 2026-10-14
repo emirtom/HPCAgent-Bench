@@ -21,15 +21,9 @@ import re
 
 import numpy as np
 
-from tests.translators.op_oracle import parse_source, run_op
+from tests.translators.op_oracle import assert_all_ok, parse_source, run_op
 
 BACKENDS = ("c", "cpp", "fortran", "numba", "pythran")
-
-
-def assert_ok(res) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def test_histogram_explicit_range_drops_out_of_range() -> None:
@@ -39,7 +33,7 @@ def test_histogram_explicit_range_drops_out_of_range() -> None:
     a = np.array([-3.0, -1.0, 0.0, 1.0, 3.0, 5.0])
     assert np.array_equal(np.histogram(a, 4, range=(-2.0, 2.0))[0], [0, 1, 1, 1])  # numpy anchor
     res = run_op(src, "f", {"a": a}, {"out": (4,)}, {"N": 6}, shapes={"a": "(N,)", "out": "(4,)"}, backends=BACKENDS)
-    assert_ok(res)
+    assert_all_ok(res)
 
 
 def test_histogram_auto_range_unchanged() -> None:
@@ -48,7 +42,7 @@ def test_histogram_auto_range_unchanged() -> None:
     src = "import numpy as np\ndef f(a, out):\n    out[:] = np.histogram(a, 5)[0]\n"
     a = np.array([0.5, 1.5, 2.5, 3.5, 4.5, 2.0, 2.0, 4.0])
     res = run_op(src, "f", {"a": a}, {"out": (5,)}, {"N": 8}, shapes={"a": "(N,)", "out": "(5,)"}, backends=BACKENDS)
-    assert_ok(res)
+    assert_all_ok(res)
 
 
 def edge_probes(npt: int) -> np.ndarray:
@@ -78,7 +72,7 @@ def test_histogram_bins_edge_probes_exactly() -> None:
     res = run_op(
         src, "f", {"a": a}, {"out": (npt,)}, {"N": a.size}, shapes={"a": "(N,)", "out": f"({npt},)"}, backends=BACKENDS
     )
-    assert_ok(res)
+    assert_all_ok(res)
 
 
 def test_histogram_weighted_edge_probes_exactly() -> None:
@@ -97,7 +91,7 @@ def test_histogram_weighted_edge_probes_exactly() -> None:
         shapes={"a": "(N,)", "w": "(N,)", "out": f"({npt},)"},
         backends=BACKENDS,
     )
-    assert_ok(res)
+    assert_all_ok(res)
 
 
 HIST_SRC = "import numpy as np\ndef f(a, out):\n    out[:] = np.histogram(a, 8)[0]\n"

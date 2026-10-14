@@ -76,8 +76,6 @@ UNCLASSIFIED = "unclassified"
 #: shape) point, ``params`` is the resolved shape, ``timed`` says whether it is measured.
 ScoreCell = dict[str, str | dict[str, fuzz.FuzzValue] | bool]
 
-#: Neutral fallback speedup denominator for a direct score_task_fuzzed call with no baseline given.
-
 #: What the grading path scores when nothing was measured (the geomean of an empty sequence is
 #: undefined). 0.0, because 1.0 is an earned result (correct, exactly at the baseline), NaN poisons
 #: rankings and thresholds silently, and no geomean of positive ratios can produce 0.0. A failed

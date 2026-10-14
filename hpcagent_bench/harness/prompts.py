@@ -512,8 +512,6 @@ def prompt_env(prompt_config: "PromptConfig | None" = None) -> jinja2.Environmen
 
 #: Skills are indexed, never inlined or filtered: one line per page with its name, file and ``when``
 #: trigger.
-
-
 @dataclasses.dataclass(frozen=True, slots=True)
 class Skill:
     """One ``skills/<name>/SKILL.md``: YAML frontmatter (``name``, ``description``, optional ``when``)

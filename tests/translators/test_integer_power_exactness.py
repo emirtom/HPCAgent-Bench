@@ -23,7 +23,7 @@ import ast
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_power
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 # Bases/exponents chosen so 4 of 6 results exceed 2**53 (one overflows int64 and must
@@ -35,23 +35,17 @@ SHAPES = {"a": "(N,)", "b": "(N,)", "out": "(N,)"}
 DTYPES = {"a": "int64", "b": "int64", "out": "int64"}
 
 
-def assert_ok(res) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
-
-
 def run_(body: str):
     src = f"import numpy as np\ndef f(a, b, out):\n{body}\n"
     return run_op(src, "f", {"a": A, "b": B}, {"out": (6,)}, SYMS, shapes=SHAPES, backends=NATIVE, dtypes=DTYPES)
 
 
 def test_np_power_on_int64_arrays_is_exact() -> None:
-    assert_ok(run_("    out[:] = np.power(a, b)"))
+    assert_all_ok(run_("    out[:] = np.power(a, b)"))
 
 
 def test_pow_operator_on_int64_subscripts_is_exact() -> None:
-    assert_ok(run_("    for i in range(6):\n        out[i] = a[i] ** b[i]"))
+    assert_all_ok(run_("    for i in range(6):\n        out[i] = a[i] ** b[i]"))
 
 
 def test_np_power_expands_to_a_pow_binop() -> None:
@@ -70,7 +64,7 @@ def test_np_power_expands_to_a_pow_binop() -> None:
 def test_float_power_still_matches_numpy() -> None:
     # The float path must keep libm's pow -- fractional exponents have no integer form.
     src = "import numpy as np\ndef f(a, b, out):\n    out[:] = np.power(a, b)\n"
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

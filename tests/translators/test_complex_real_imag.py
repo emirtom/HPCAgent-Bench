@@ -19,14 +19,9 @@ JIT type unifiers are strict. Its numeric value is unchanged (zero imaginary par
 import numpy as np
 import pytest
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def all_ok(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def z_(n: int = 6, seed: int = 0) -> np.ndarray:

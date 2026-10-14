@@ -91,7 +91,6 @@ REGISTRY = pathlib.Path(__file__).resolve().parent / "envs" / "registry.yaml"
 STUDIES = pathlib.Path(__file__).resolve().parent / "envs" / "studies.yaml"
 #: The modules whose import registers the vocabulary; importing this module is what loads them.
 VOCABULARY_MODULES = (models, skill_packets, columns)
-#: Every recorded setup name -> the setup it is (DATA).
 
 #: One entity kind's tag -> display name. Key ORDER is the colour and marker order.
 Names = dict[str, str]
