@@ -21,7 +21,7 @@ _NPZ = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloudsc_referen
 
 def _interp_full(ref, ref_eta_full, eta_full, xp: ModuleType = np):
     """Interpolates a native-L137 profile onto the requested full levels in sigma coordinates."""
-    return xp.interp(eta_full, ref_eta_full, ref)
+    return exact_math.interp(eta_full, ref_eta_full, ref, xp)
 
 
 def initialize(nlev, klon, datatype=np.float64, rng: CounterGenerator | None = None, xp: ModuleType = np):

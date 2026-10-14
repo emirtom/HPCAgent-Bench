@@ -36,6 +36,7 @@ mask int8. Self-contained (no Fortran/DaCe dependency)."""
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support.array_module import is_array
 from hpcagent_bench.support import exact_math
 
 # Physical / geometric scales (atmospheric estimates; ICON stores only aggregate
@@ -343,7 +344,7 @@ def initialize(nproma, nlev, nblks_c, nblks_e, nblks_v, datatype=np.float64, rng
         nblks_e,
         nblks_v,
     )
-    return tuple(xp.ascontiguousarray(v.transpose()) if isinstance(v, np.ndarray) and v.ndim > 1 else v for v in values)
+    return tuple(xp.ascontiguousarray(v.transpose()) if is_array(v) and v.ndim > 1 else v for v in values)
 
 
 def _partition_signed(rng, shape, datatype, axis=1):

@@ -94,6 +94,9 @@ FUNCTIONS: dict[str, Callable[[ModuleType], object]] = {
     "frexp_mantissa": lambda xp: exact_math.frexp(wide_inputs(xp), xp)[0],
     "frexp_exponent": lambda xp: exact_math.frexp(wide_inputs(xp), xp)[1],
     "divide_by_real": lambda xp: exact_math.divide_by_real(wide_inputs(xp) + 1j * unit_inputs(xp), unit_inputs(xp), xp),
+    "interp": lambda xp: exact_math.interp(
+        wide_inputs(xp), exact_math.linspace(-60.0, 60.0, 97, xp=xp), unit_inputs(xp)[:97], xp
+    ),
     "exp": lambda xp: exact_math.exp(wide_inputs(xp), xp),
     "expm1": lambda xp: exact_math.expm1(wide_inputs(xp) / 100.0, xp),
     "log": lambda xp: exact_math.log(unit_inputs(xp), xp),
