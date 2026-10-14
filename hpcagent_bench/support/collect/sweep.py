@@ -474,7 +474,7 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
     spec = BenchSpec.load(kernel)
     formats = sparse_config_for(spec, fmt, block_size)
     label = next(iter(formats.values()))
-    started = time.time()
+    started = time.monotonic()
     source = layout_reference_source(spec, fmt)
     if source is None:
         return SparseCase(kernel, label, "untranslated", "no reference translation for this layout")
@@ -488,11 +488,11 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
                 submission, task, preset=preset, datatype=datatype, repeat=repeat, hidden=False, baseline="c"
             )
     except LayoutRefused as exc:
-        return SparseCase(kernel, label, "refused", str(exc), time.time() - started)
+        return SparseCase(kernel, label, "refused", str(exc), time.monotonic() - started)
     except Exception as exc:  # noqa: BLE001 -- one case's crash is that case's row, not the sweep's end
-        return SparseCase(kernel, label, "error", f"{type(exc).__name__}: {exc}", time.time() - started)
+        return SparseCase(kernel, label, "error", f"{type(exc).__name__}: {exc}", time.monotonic() - started)
     status = "judge-fault" if result.harness_fault else ("graded" if result.correct else "wrong")
-    return SparseCase(kernel, label, status, result.detail[:DETAIL_CHARS], time.time() - started)
+    return SparseCase(kernel, label, status, result.detail[:DETAIL_CHARS], time.monotonic() - started)
 
 
 #: How much of a grade's detail a sweep row keeps.
@@ -525,7 +525,7 @@ def run_sparse_sweep(
         return 1
     wanted = set(layout_filter) if layout_filter else None
     cases: list[SparseCase] = []
-    started = time.time()
+    started = time.monotonic()
     for kernel in benches:
         for fmt in BenchSpec.load(kernel).configurations:
             if wanted is not None and fmt not in wanted:
@@ -534,7 +534,7 @@ def run_sparse_sweep(
             case = grade_sparse_case(kernel, fmt, preset, datatype, repeat, block_size)
             cases.append(case)
             if case.status not in SPARSE_OK_STATUSES and not ignore_errors:
-                print_sparse_summary(cases, time.time() - started)
+                print_sparse_summary(cases, time.monotonic() - started)
                 return 1
-    print_sparse_summary(cases, time.time() - started)
+    print_sparse_summary(cases, time.monotonic() - started)
     return 0 if all(c.status in SPARSE_OK_STATUSES for c in cases) else 1

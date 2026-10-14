@@ -243,11 +243,12 @@ def _captured_batch_timeout(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -
 
 
 def test_guillotine_bounds_the_batch_but_exempts_followups(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The timed section takes the guillotine; a held-out case runs at its own preset, so it keeps
+    """The timed section takes the guillotine plus one rep timeout for the reps' argument copies (each timed
+    rep's alarm grants them on top of the guillotine); a held-out case runs at its own preset, so it keeps
     the full per-kernel budget."""
     followups = (object(), object())
     capped = _captured_batch_timeout(monkeypatch, reps=20, warmup=1, guillotine_s=10.0, followups=followups)
-    assert capped == 10.0 * 21 + 300.0 * 2
+    assert capped == 10.0 * 21 + 300.0 + 300.0 * 2
     uncapped = _captured_batch_timeout(monkeypatch, reps=20, warmup=1, followups=followups)
     assert uncapped == 300.0 * 23  # off -> today's flat timeout x every rep
 

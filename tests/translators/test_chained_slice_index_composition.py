@@ -19,15 +19,10 @@ raw pointer and a mis-composed index is a wrong answer rather than a compile err
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 BACKENDS = ("c", "fortran")
 TOL = 1e-6
-
-
-def ok(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_a_scalar_indexes_through_a_leading_full_slice() -> None:
@@ -53,7 +48,7 @@ def test_a_scalar_indexes_through_a_leading_full_slice() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -81,7 +76,7 @@ def test_an_index_tuple_composes_position_by_position_with_the_inner_slices() ->
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -108,7 +103,7 @@ def test_arithmetic_in_an_index_is_basic_indexing() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -135,7 +130,7 @@ def test_a_copy_declares_a_buffer_a_later_whole_array_read_can_iterate() -> None
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -155,7 +150,7 @@ def test_a_slice_valued_outer_entry_still_composes() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r
 
 
@@ -179,5 +174,5 @@ def test_a_partial_inner_slice_rebases_the_outer_index() -> None:
         rtol=TOL,
         atol=TOL,
     )
-    passed, r = ok(res)
+    passed, r = all_ok(res)
     assert passed, r

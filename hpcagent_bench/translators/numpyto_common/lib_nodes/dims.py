@@ -5,6 +5,8 @@ import re
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
+from hpcagent_bench.translators.numpyto_common.emit_helpers.tokens import expand_definitions
+
 __all__ = [
     "DIM_EXPAND_ROUNDS",
     "DIM_IDENT_RE",
@@ -96,16 +98,6 @@ def substitute_dim_aliases(
     the rounds: resolving a shape read exposes fresh names to alias-expand, and vice versa.
     """
 
-    def expand(text: str, active: tuple[str, ...]) -> str:
-
-        def repl(m: "re.Match") -> str:
-            ident = m.group(0)
-            if ident not in aliases or ident in active:
-                return ident
-            return "(" + expand(aliases[ident], (*active, ident)) + ")"
-
-        return DIM_IDENT_RE.sub(repl, text)
-
     def resolve_shape_reads(text: str, table: dict[str, tuple[str, ...]]) -> str:
 
         def repl(m: "re.Match") -> str:
@@ -123,7 +115,7 @@ def substitute_dim_aliases(
     # guard, and a self-referential def would grow one level per round instead of stopping.
     text = str(token)
     for unused in range(DIM_EXPAND_ROUNDS):
-        grown = expand(text, ())
+        grown = expand_definitions(text, aliases)
         if not shape_table:
             return grown
         resolved = resolve_shape_reads(grown, shape_table)

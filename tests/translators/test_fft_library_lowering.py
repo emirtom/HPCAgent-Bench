@@ -37,7 +37,7 @@ from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from hpcagent_bench.translators.numpyto_fortran.emit import emit_fortran
 from hpcagent_bench.translators.numpyto_fortran.intrinsics import renders_natively as fortran_renders_natively
-from tests.translators.op_oracle import parse_source, run_op
+from tests.translators.op_oracle import assert_all_ok, parse_source, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -99,16 +99,6 @@ def oracle_available() -> None:
         pytest.skip("gcc/g++/gfortran needed for the native numerical check")
 
 
-def assert_ok(res: dict, label: str) -> None:
-    # Same contract as test_diag_fftfreq_einsum_ops.py's own _assert_ok: a backend legitimately
-    # skips when fftw3 is not resolvable HERE (mirrors the "skip:no-compiler" a missing gfortran
-    # gets), but every backend skipping means the comparison never ran at all, which is a hard
-    # failure, not a green light.
-    fails = {b: s for b, s in res.items() if not (s == "ok" or s.startswith("skip"))}
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    assert not fails, f"{label}: {fails}"
-
-
 #: 8388608 (fft_1d's own "M" preset, 2**23): a standalone (non-pytest) ctypes call into this
 #: exact fft_op hangs past a 480s timeout when
 #: OMP_NUM_THREADS/OPENBLAS_NUM_THREADS/MKL_NUM_THREADS/BLIS_NUM_THREADS are all unset (see
@@ -146,7 +136,7 @@ def test_fft_library_matches_numpy_fft_and_ifft_roundtrip(n: int) -> None:
         skip_backends=skip,
         fft_library=True,
     )
-    assert_ok(res, f"fft_library-{n}")
+    assert_all_ok(res, f"fft_library-{n}")
 
 
 # Build-flag wiring: languages.py's FFT_LINKED_LANGS/FFT_LINKED_LIBRARIES (mirrors             #
@@ -246,4 +236,4 @@ def test_nd_fft_library_matches_numpy_on_every_axis_placement(sizes: tuple) -> N
         fft_library=True,
         fft_library_nd=True,
     )
-    assert_ok(res, f"fftn_library-{sizes}")
+    assert_all_ok(res, f"fftn_library-{sizes}")

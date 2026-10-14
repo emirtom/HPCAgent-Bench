@@ -32,14 +32,9 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes import (
     expand_sum,
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar import expr_rank, reduce_axis_stmts
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def ok_(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def call_args(src):
@@ -101,7 +96,7 @@ def test_integer_sum_prod_numeric_all_backends() -> None:
         dtypes={"a": "int64", "s": "int64", "p": "int64"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -138,7 +133,7 @@ def test_max_min_nan_propagation_all_backends() -> None:
         backends=ALL,
         skip_backends={"pythran": "pythran np.max/np.min suppress NaN (runtime limitation)"},
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -161,7 +156,7 @@ def test_argmax_argmin_first_nan_index_all_backends() -> None:
             "index, not the first-NaN index numpy gives) -- runtime limitation"
         },
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -211,7 +206,7 @@ def test_var_ddof_numeric_all_backends() -> None:
         shapes={"a": "(N,)", "v": "(1,)", "s": "(1,)"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -242,7 +237,7 @@ def test_initial_numeric_all_backends() -> None:
         shapes={"a": "(N,)", "s": "(1,)", "p": "(1,)", "mx": "(1,)", "mn": "(1,)"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -295,7 +290,7 @@ def test_axis_sum_int32_overflow_all_backends() -> None:
         dtypes={"x": "int32"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -315,7 +310,7 @@ def test_concatenate_negative_axis_all_backends() -> None:
         shapes={"a": "(M, N)", "b": "(M, K)", "out": "(M, 5)"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -355,7 +350,7 @@ def test_maximum_broadcast_lower_rank_first_operand_all_backends() -> None:
         shapes={"a": "(M,)", "B": "(N, M)", "out": "(N, M)"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -377,7 +372,7 @@ def test_multiply_broadcast_row_vector_all_backends() -> None:
         shapes={"a": "(1, M)", "B": "(N, M)", "out": "(N, M)"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -409,7 +404,7 @@ def test_int_true_division_all_backends() -> None:
         dtypes={"a": "int64", "b": "int64"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res
 
 
@@ -427,5 +422,5 @@ def test_explicit_float_cast_in_division_all_backends() -> None:
         dtypes={"a": "int64", "b": "int64"},
         backends=ALL,
     )
-    ok, unused = ok_(res)
+    ok, unused = all_ok(res)
     assert ok, res

@@ -15,14 +15,9 @@ import numpy as np
 
 from hpcagent_bench.translators.numpyto_c.emit import emit_c
 from hpcagent_bench.translators.numpyto_common.lowering import lower
-from tests.translators.op_oracle import parse_source, run_op
+from tests.translators.op_oracle import all_ok, parse_source, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def all_ok(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 CONSTS = (

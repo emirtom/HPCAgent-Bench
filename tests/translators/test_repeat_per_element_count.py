@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_repeat
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -40,12 +40,6 @@ def expand_(src: str, shapes: dict) -> str:
         assign.targets[0], assign.value.args, shape_table, assign.value.keywords, local_dtypes={}, fresh_local_allocs={}
     )
     return "\n".join(ast.unparse(ast.fix_missing_locations(s)) for s in stmts)
-
-
-def assert_ok(res: dict) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def test_per_element_count_uses_running_offset_not_multiply() -> None:
@@ -112,7 +106,7 @@ def test_numeric_row_lengths_from_csr_row_ptr_zero_and_unequal_counts() -> None:
         "    row_index = np.repeat(np.arange(m), np.diff(p))\n"
         "    out[:] = row_index\n"
     )
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "k",

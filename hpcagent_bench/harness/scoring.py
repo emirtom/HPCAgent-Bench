@@ -3345,6 +3345,18 @@ def time_scaling_anchor(
     return single_rank_ns, ""
 
 
+@dataclass(slots=True)
+class RankNotes:
+    """Notes about rank counts, kept both flat (``"P=<n>: <reason>"``) and joined per P."""
+
+    flat: list[str] = field(default_factory=list)
+    by_rank: dict[int, str] = field(default_factory=dict)
+
+    def add(self, p: int, reason: str) -> None:
+        self.flat.append(f"P={p}: {reason}")
+        self.by_rank[p] = "; ".join(x for x in (self.by_rank.get(p), reason) if x)
+
+
 def score_scaling(
     submission: Submission,
     task: Task,
@@ -3400,15 +3412,10 @@ def score_scaling(
 
     measured: dict[int, int] = {}
     ratios: dict[int, float] = {}
-    notes: list[str] = []
-    rank_notes: dict[int, str] = {}
+    log = RankNotes()
+    note = log.add
     shapes: dict[int, dict[str, FuzzValue]] = {}
     placed: dict[int, int | None] = {}
-
-    def note(p: int, reason: str) -> None:
-        """Record ``reason`` about rank count ``p`` both flat (``"P=<n>: <reason>"``) and per P."""
-        notes.append(f"P={p}: {reason}")
-        rank_notes[p] = "; ".join(x for x in (rank_notes.get(p), reason) if x)
 
     # One record per distinct sized problem (input, oracle, probed lengths), reused across P. The oracle
     # is the track's compiled reference, one that can run on the sized inputs (:func:`first_oracle`).
@@ -3513,11 +3520,11 @@ def score_scaling(
     return ScalingRuns(
         measured,
         single_rank_ns,
-        tuple(notes),
+        tuple(log.flat),
         mode=cfg.mode,
         work_exponent=work_exp,
         work_ratio=ratios,
-        rank_notes=rank_notes,
+        rank_notes=log.by_rank,
         shapes=shapes,
         nodes={p: n for p, n in placed.items() if n is not None},
     )
@@ -3942,14 +3949,10 @@ def ml_law_runs(
     ``base_params``, the problem the anchor was timed on."""
     measured: dict[int, int] = {}
     ratios: dict[int, float] = {}
-    notes: list[str] = []
-    rank_notes: dict[int, str] = {}
+    log = RankNotes()
+    note = log.add
     shapes: dict[int, dict[str, FuzzValue]] = {}
     placed: dict[int, int] = {}
-
-    def note(p: int, reason: str) -> None:
-        notes.append(f"P={p}: {reason}")
-        rank_notes[p] = "; ".join(x for x in (rank_notes.get(p), reason) if x)
 
     # The law's own P=1 problem is the base every ratio is taken against (the preset itself, unless
     # the preset's split extent is off the 64 grid and weak snaps it even at P=1).
@@ -3985,11 +3988,11 @@ def ml_law_runs(
     runs = ScalingRuns(
         measured,
         torch_ns,
-        tuple(notes),
+        tuple(log.flat),
         mode=law,
         work_exponent=work_exp,
         work_ratio=ratios,
-        rank_notes=rank_notes,
+        rank_notes=log.by_rank,
         shapes=shapes,
         nodes=placed,
     )

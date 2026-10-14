@@ -28,7 +28,7 @@ import ast
 
 import numpy as np
 
-from tests.translators.op_oracle import parse_source, run_op
+from tests.translators.op_oracle import all_ok, parse_source, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
 
@@ -48,11 +48,6 @@ SRC = (
     "  val = (1.0 - frac) * table[ri] + frac * table[ri + 1]\n"
     "  out[i] = rsq + rinv + val\n"
 )
-
-
-def all_ok(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_int_truncation_keeps_float_chain_bit_exact() -> None:

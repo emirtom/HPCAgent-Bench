@@ -19,15 +19,9 @@ import numpy as np
 
 from hpcagent_bench import languages
 from tests.translators.native_tu import have_gcc, have_gpp
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
-
-
-def assert_ok(res: dict[str, str]) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 def run_(src: str, ins: dict[str, np.ndarray], n: int) -> dict[str, str]:
@@ -54,7 +48,7 @@ def test_negative_step_from_a_variable_runs_backwards() -> None:
         "    for i in range(n - 1, -1, s):\n"
         "        out[i] = x[i] * 2.0\n"
     )
-    assert_ok(run_(src, {"x": np.arange(6, dtype=np.float64)}, 6))
+    assert_all_ok(run_(src, {"x": np.arange(6, dtype=np.float64)}, 6))
 
 
 def test_negative_step_variable_carries_a_running_value() -> None:
@@ -69,7 +63,7 @@ def test_negative_step_variable_carries_a_running_value() -> None:
         "        acc = acc + x[i]\n"
         "        out[i] = acc\n"
     )
-    assert_ok(run_(src, {"x": np.arange(1, 7, dtype=np.float64)}, 6))
+    assert_all_ok(run_(src, {"x": np.arange(1, 7, dtype=np.float64)}, 6))
 
 
 def test_positive_step_from_a_variable_still_runs_forwards() -> None:
@@ -82,7 +76,7 @@ def test_positive_step_from_a_variable_still_runs_forwards() -> None:
         "    for i in range(0, n, s):\n"
         "        out[i] = x[i] + 1.0\n"
     )
-    assert_ok(run_(src, {"x": np.arange(7, dtype=np.float64)}, 7))
+    assert_all_ok(run_(src, {"x": np.arange(7, dtype=np.float64)}, 7))
 
 
 def test_literal_negative_step_unaffected() -> None:
@@ -90,7 +84,7 @@ def test_literal_negative_step_unaffected() -> None:
     src = (
         "import numpy as np\ndef f(x, out):\n    for i in range(x.shape[0] - 1, -1, -1):\n        out[i] = x[i] * 3.0\n"
     )
-    assert_ok(run_(src, {"x": np.arange(5, dtype=np.float64)}, 5))
+    assert_all_ok(run_(src, {"x": np.arange(5, dtype=np.float64)}, 5))
 
 
 # a runtime-sign loop must not be tagged for OpenMP

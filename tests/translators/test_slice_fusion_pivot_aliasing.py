@@ -24,7 +24,7 @@ import ast
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.lowering import INVARIANT_SELF_READ_PREFIX, SliceFusion
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -32,12 +32,6 @@ NATIVE = ("c", "cpp", "fortran")
 def fuse(src: str, shapes: dict) -> str:
     tree = SliceFusion(shapes).visit(ast.parse(src))
     return ast.unparse(ast.fix_missing_locations(tree))
-
-
-def assert_ok(res: dict) -> None:
-    for backend, status in res.items():
-        assert status == "ok" or status.startswith("skip"), f"{backend}: {status}"
-    assert any(status == "ok" for status in res.values()), f"all skipped (vacuous): {res}"
 
 
 # structural: the invariant read is staged ahead of the loop
@@ -105,7 +99,7 @@ def test_pivot_scaling_matches_numpy() -> None:
     )
     n = 6
     s = np.random.default_rng(0).random((n, n)) + 2.0
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",
@@ -133,7 +127,7 @@ def test_gauss_jordan_elimination_matches_numpy() -> None:
     )
     n = 5
     s = np.random.default_rng(3).random((n, n)) + np.eye(n) * float(n)
-    assert_ok(
+    assert_all_ok(
         run_op(
             src,
             "f",

@@ -619,10 +619,12 @@ def rep_guard(
     seconds: float,
     after_first_rep: Callable[[], None] | None = None,
     warmup_seconds: float | None = None,
+    overhead_s: Callable[[], float] | None = None,
 ) -> Callable[[bool], tuple[OutputMap | None, int]]:
     """Per-rep timeout plus a one-shot memory probe.
 
-    ``seconds`` bounds one rep (``warmup_seconds``, default ``seconds``, a warmup rep). SIGALRM keeps
+    ``seconds`` bounds one rep (``warmup_seconds``, default ``seconds``, a warmup rep); ``overhead_s`` adds the
+    rep's measured non-kernel time (argument copies in and out) to a timed rep's alarm. SIGALRM keeps
     its default disposition: a Python handler never runs inside a spinning C kernel.
     ``after_first_rep`` fires after rep 1, the last point where ``ru_maxrss`` means one call.
     Linux-only."""
@@ -638,6 +640,8 @@ def rep_guard(
     def guarded(warming: bool) -> tuple[OutputMap | None, int]:
         nonlocal done_first
         limit = warm_s if warming else seconds
+        if limit > 0 and not warming and overhead_s is not None:
+            limit += overhead_s()
         if limit > 0:
             signal.setitimer(signal.ITIMER_REAL, limit)
         try:
@@ -843,6 +847,10 @@ def sampled_calls(
     rep_index = 0
     timed_outputs: list[SpilledMap] = []
     drawn: list[KernelData] = []
+    returned: list[OutputMap] = []
+    # The largest non-kernel time of a rep so far (argument copies in and out): the guillotine bounds the
+    # kernel, so a timed rep's alarm grants this on top (rep_guard's overhead_s).
+    copy_s = 0.0
 
     def next_call(warming: bool) -> tuple[OutputMap | None, int]:
         nonlocal rep_index
@@ -850,11 +858,7 @@ def sampled_calls(
         rep_index += 1
         outputs, ns = call_with(src, warming, False)
         if outputs is not None:
-            timed_outputs.append(
-                outputs
-                if FOLLOWUP_SPILL_ROOT is None
-                else spill_outputs(outputs, FOLLOWUP_SPILL_ROOT, f"rep{rep_index}", FOLLOWUP_SPILL_BYTES)
-            )
+            returned.append(outputs)
         return None, ns
 
     timed_s = warm_s = rep_timeout
@@ -864,12 +868,24 @@ def sampled_calls(
         budget = TIMED_REP_S * (warmup + max(1, reps))
         timed_s = min(rep_timeout, TIMED_REP_S) if rep_timeout > 0 else TIMED_REP_S
         warm_s = min(rep_timeout, budget) if rep_timeout > 0 else budget
-    guard = rep_guard(next_call, timed_s, after_first_rep, warmup_seconds=warm_s)
+    guard = rep_guard(next_call, timed_s, after_first_rep, warmup_seconds=warm_s, overhead_s=lambda: copy_s)
 
     def draw_then_call(warming: bool) -> tuple[OutputMap | None, int]:
-        """Draw this rep's inputs before its alarm is armed: the rep budget is the kernel's, never the initializer's."""
+        """Draw this rep's inputs before its alarm is armed and spill its outputs after it is disarmed: the rep
+        budget is the kernel's, never the initializer's or the spill's."""
+        nonlocal copy_s
         drawn.append(rep_data(rep_index) if rep_data is not None else data)
-        return guard(warming)
+        start = time.monotonic()
+        result = guard(warming)
+        copy_s = max(copy_s, time.monotonic() - start - result[1] * 1e-9)
+        while returned:
+            outputs = returned.pop(0)
+            timed_outputs.append(
+                outputs
+                if FOLLOWUP_SPILL_ROOT is None
+                else spill_outputs(outputs, FOLLOWUP_SPILL_ROOT, f"rep{rep_index}", FOLLOWUP_SPILL_BYTES)
+            )
+        return result
 
     samples = timing.sampled_reps(draw_then_call, reps, warmup)[1]
     if len(timed_outputs) != len(samples):  # every timed rep answers; only a warmup rep may not
@@ -2235,6 +2251,10 @@ def _call_isolated(
         preloaded = parent_runtimes if host_only and not clean_fork else ()
         timed_reps = warmup + max(1, reps)
         batch_timeout = (guillotine_s or timeout) * timed_reps + timeout * len(followups)
+        if guillotine_s:
+            # Each timed rep's alarm also grants its argument copies (sampled_calls' copy_s), which the parent
+            # cannot know: one rep timeout on top bounds them.
+            batch_timeout += timeout
         if rep_data is not None:
             batch_timeout += REP_DRAW_GRACE * REP_DRAW_S.get() * timed_reps
         # run_forked owns the fork, timeout, escalation and reap. A host OOM is contention (concurrent

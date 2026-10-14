@@ -11,14 +11,9 @@ per-emitter identity path is needed. The python backends keep the builtin.
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def all_ok(res):
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_eye_square_all_backends() -> None:

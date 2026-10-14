@@ -59,6 +59,25 @@ def assert_ok(status: dict[str, str], backends: Sequence[str], label: str) -> No
         pytest.skip(f"{label}: no backend ran ({status})")
 
 
+def all_ok(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
+    """``(every backend agreed, the statuses)`` -- and at least one actually RAN.
+
+    Without the second half every backend reporting ``skip:`` is indistinguishable from every
+    backend agreeing, so the whole file goes green having verified nothing. The same guard is
+    spelled out in tests/test_e2e_numerical.py (REQUIRE_OK).
+    """
+    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
+    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
+
+
+def assert_all_ok(res: dict[str, str], label: str = "") -> None:
+    """Every backend in ``res`` agreed or skipped, and at least one ran (all skipping is a failure,
+    unlike :func:`assert_ok`, which skips the test)."""
+    fails = {b: s for b, s in res.items() if not (s == "ok" or s.startswith("skip"))}
+    assert any(v == "ok" for v in res.values()), f"{label}: every backend skipped; the comparison never ran: {res}"
+    assert not fails, f"{label}: {fails}"
+
+
 REPO = HERE.parents[2]
 
 

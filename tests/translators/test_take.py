@@ -16,20 +16,9 @@ unrelated to take, avoided here by naming.
 
 import numpy as np
 
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
-
-
-def ok_(res):
-    """``(every backend agreed, the statuses)`` -- and at least one actually RAN.
-
-    Without the second half every backend reporting ``skip:`` is indistinguishable from every
-    backend agreeing, so the whole file goes green having verified nothing. The same guard is
-    spelled out in tests/test_e2e_numerical.py (REQUIRE_OK), which is where this one was missing from.
-    """
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; nothing was verified: {res}"
-    return all(v == "ok" or v.startswith("skip") for v in res.values()), res
 
 
 def test_take_flat_1d() -> None:
@@ -42,7 +31,7 @@ def test_take_flat_1d() -> None:
         "    for i in range(out.shape[0]):\n"
         "        out[i] = b[i]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "take_op",
@@ -79,12 +68,12 @@ def take_axis(axis, out_shape, out_sym):
 
 
 def test_take_axis0_row_gather() -> None:
-    ok, res = ok_(take_axis(0, (3, 4), "(NIDX, N)"))
+    ok, res = all_ok(take_axis(0, (3, 4), "(NIDX, N)"))
     assert ok, res
 
 
 def test_take_negative_axis() -> None:
-    ok, res = ok_(take_axis(-1, (3, 3), "(M, NIDX)"))
+    ok, res = all_ok(take_axis(-1, (3, 3), "(M, NIDX)"))
     assert ok, res
 
 
@@ -102,7 +91,7 @@ def test_take_intermediate_local_operand() -> None:
         "        for j in range(out.shape[1]):\n"
         "            out[i, j] = b[i, j]\n"
     )
-    ok, res = ok_(
+    ok, res = all_ok(
         run_op(
             src,
             "take_op",

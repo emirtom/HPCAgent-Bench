@@ -21,7 +21,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes import (
     expand_einsum,
     expand_fftfreq,
 )
-from tests.translators.op_oracle import run_op
+from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -37,12 +37,6 @@ def sub_const(name: str, idx: int) -> ast.Subscript:
 def unparse_(stmts: list[ast.stmt]) -> str:
     mod = ast.fix_missing_locations(ast.Module(body=list(stmts), type_ignores=[]))
     return ast.unparse(mod)
-
-
-def assert_ok(res: dict[str, str], label: str) -> None:
-    fails = {b: s for b, s in res.items() if not (s == "ok" or s.startswith("skip"))}
-    assert any(v == "ok" for v in res.values()), f"every backend skipped; the comparison never ran: {res}"
-    assert not fails, f"{label}: {fails}"
 
 
 def oracle_available() -> None:
@@ -166,7 +160,7 @@ def test_diag_tridiagonal_e2e() -> None:
         atol=1e-6,
         backends=NATIVE,
     )
-    assert_ok(res, "diag-tridiagonal")
+    assert_all_ok(res, "diag-tridiagonal")
 
 
 @pytest.mark.parametrize("n", [6, 7])  # even + odd exercise the negative-frequency wrap
@@ -186,7 +180,7 @@ def test_fftfreq_e2e(n: int) -> None:
         atol=1e-6,
         backends=NATIVE,
     )
-    assert_ok(res, f"fftfreq-{n}")
+    assert_all_ok(res, f"fftfreq-{n}")
 
 
 def test_einsum_subscript_operand_e2e() -> None:
@@ -206,4 +200,4 @@ def test_einsum_subscript_operand_e2e() -> None:
         atol=1e-6,
         backends=NATIVE,
     )
-    assert_ok(res, "einsum-subscript-operand")
+    assert_all_ok(res, "einsum-subscript-operand")

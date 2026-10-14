@@ -10,6 +10,7 @@ __all__ = [
     "ALL_BLOCK_FIELDS",
     "NESTED_BLOCK_FIELDS",
     "ConstantValue",
+    "InlineDefinitions",
     "RenameNames",
     "SubstituteLoads",
     "callee_attribute",
@@ -90,6 +91,19 @@ class SubstituteLoads(ast.NodeTransformer):
     def visit_Name(self, node: ast.Name) -> ast.AST:
         if isinstance(node.ctx, ast.Load) and node.id in self.values:
             return ast.copy_location(copy.deepcopy(self.values[node.id]), node)
+        return node
+
+
+class InlineDefinitions(SubstituteLoads):
+    """:class:`SubstituteLoads` that also drops each name's single-target ``name = ...`` statement,
+    dead once every load reads the expression instead."""
+
+    __slots__ = ()
+
+    def visit_Assign(self, node: ast.Assign) -> ast.AST | None:
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in self.values:
+            return None
+        self.generic_visit(node)
         return node
 
 
