@@ -96,8 +96,6 @@ DenominatorKind = Literal[
 ]
 #: A benchmark track (``spec.Track``).
 TrackName = Literal["loop_level_reasoning", "scientific_computing", "machine_learning"]
-#: A toolchain family (``languages.COMPILER_FAMILIES``).
-CompilerFamily = Literal["gcc", "llvm", "nvhpc"]
 
 
 class Section(BaseModel):
@@ -109,13 +107,15 @@ class Section(BaseModel):
 class Seeds(Section):
     """``seeds``: RNG seeds of public draws. The grading seeds are not configuration (``harness/hidden_seeds.py``)."""
 
-    input_dist: NonNegativeInt = Field(0, description="Base seed of input array values (frameworks/benchmark.py).")
-    fuzz: NonNegativeInt = Field(
-        42, description="Base seed of public fuzz draws of sizes and distributions (fuzz.base_seed)."
+    input_dist: NonNegativeInt = Field(
+        default=0, description="Base seed of input array values (frameworks/benchmark.py)."
     )
-    kernel_sample: NonNegativeInt = Field(0, description="Seed of tags.sample() when the CLI passes no seed.")
+    fuzz: NonNegativeInt = Field(
+        default=42, description="Base seed of public fuzz draws of sizes and distributions (fuzz.base_seed)."
+    )
+    kernel_sample: NonNegativeInt = Field(default=0, description="Seed of tags.sample() when the CLI passes no seed.")
     secret_shape: NonNegativeInt | None = Field(
-        None,
+        default=None,
         description="Judge only. Seed of the timed-shape draw under perf.mode=secret_3shapes; "
         "null = a fresh os.urandom draw per call (fuzz.secret_shape_seed).",
     )
@@ -125,40 +125,42 @@ class Fuzz(Section):
     """``fuzz``: size and distribution sampling (hpcagent_bench/fuzz.py)."""
 
     iterations: PositiveInt = Field(
-        20, description="Draws per config of framework sweeps and the default --k of the Harbor grader."
+        default=20, description="Draws per config of framework sweeps and the default --k of the Harbor grader."
     )
     anchor: Rung = Field(
-        "XL",
+        default="XL",
         description="Rung the default fuzz range is drawn around. spec.resolve_preset overrides it for every "
         "preset token it resolves (bare fuzzed = XL), so this value applies only in a process that resolves none.",
     )
     correctness_iterations: PositiveInt = Field(
-        8,
+        default=8,
         description="Correctness draws per config on the agent grading path, counting draw 0 (the declared "
         "maximum); edge shapes are additional.",
     )
-    size_cap: NonNegativeInt = Field(0, description="Upper bound on every drawn size dimension; 0 = none.")
+    size_cap: NonNegativeInt = Field(default=0, description="Upper bound on every drawn size dimension; 0 = none.")
     xl_lo_mult: PositiveFloat = Field(
-        0.5,
+        default=0.5,
         description="Correctness sizes are drawn in [xl_lo_mult, xl_hi_mult] x anchor rung; timed sizes in "
         "[(xl_lo_mult + xl_hi_mult) / 2, xl_hi_mult] x anchor rung.",
     )
     xl_hi_mult: PositiveFloat = Field(
-        1.0, description="Upper bound of every draw as a multiple of the anchor rung; <= 1.0 keeps draws at or below it."
+        default=1.0,
+        description="Upper bound of every draw as a multiple of the anchor rung; <= 1.0 keeps draws at or below it.",
     )
     correctness_size_cap: NonNegativeInt = Field(
-        1024, description="Per-dimension upper bound on correctness draws only; 0 = none. Timed draws are unaffected."
+        default=1024,
+        description="Per-dimension upper bound on correctness draws only; 0 = none. Timed draws are unaffected.",
     )
-    hidden_correctness_presets: tuple[Rung, ...] = Field(
-        ("XL", "M", "M", "L", "S"),
+    hidden_correctness_presets: tuple[str, ...] = Field(
+        default=("XL", "M", "M", "L", "S"),
         description="Preset of held-out case i, positional against hidden_tests.VARIANTS; a preset the kernel "
         "does not declare, or an empty list, falls back to the timed preset.",
     )
     size_distribution: Literal["log_uniform", "uniform"] = Field(
-        "log_uniform", description="Distribution of a drawn size within its [lo, hi] range."
+        default="log_uniform", description="Distribution of a drawn size within its [lo, hi] range."
     )
     data_distribution: str = Field(
-        "uniform",
+        default="uniform",
         description="Input value distribution of a fuzz draw whose manifest names none "
         "(a name registered in support/distributions).",
     )
@@ -168,12 +170,12 @@ class Inputs(Section):
     """``inputs``: input array post-processing (support/distributions/noise.py)."""
 
     noise: bool = Field(
-        False,
+        default=False,
         description="true: every float input array is multiplied by 1 + noise_eps * u, u uniform in [-1, 1), "
         "after initialization; integer, index, sparse and structural arrays are unchanged.",
     )
     noise_eps: NonNegativeFloat = Field(
-        0.0,
+        default=0.0,
         description="Relative noise amplitude; 0 = the per-format default (float64 1e-6, float32 1e-5, "
         "float16 4e-3, bfloat16 3e-2).",
     )
@@ -183,56 +185,61 @@ class Service(Section):
     """``service``: the judge service (``hpcagent-bench serve``); read by harness/service.from_config at start."""
 
     oracle: Literal["auto", "compiled", "numba", "c", "torch"] = Field(
-        "auto",
+        default="auto",
         description="Correctness reference (api.Oracle). auto = compiled on loop_level_reasoning and "
         "scientific_computing, torch on machine_learning.",
     )
     input_mode: Literal["py-binding", "source", "library", "any"] = Field(
-        "source", description="What POST /submit accepts (api.InputMode)."
+        default="source", description="What POST /submit accepts (api.InputMode)."
     )
     submit_feedback: Literal["verdict", "full"] = Field(
-        "verdict",
+        default="verdict",
         description="/submit response body. verdict = correct yes/no + request_id (+ build log on a build "
         "failure); full = the whole grade, only for the loopback upstream of cluster/judge_service.py.",
     )
-    preset: str = Field("XL+fuzz", description="Preset token the judge grades at (spec.parse_preset).")
-    datatype: str = Field("float64", description="Storage datatype a grade uses when the request names none.")
+    preset: str = Field(default="XL+fuzz", description="Preset token the judge grades at (spec.parse_preset).")
+    datatype: str = Field(default="float64", description="Storage datatype a grade uses when the request names none.")
     canonical_parallel_form_dir: str = Field(
-        "",
+        default="",
         description="Directory of the canonical-parallel-form view the /cpf route serves; "
         "empty = the route answers unavailable and the prompt omits the tool.",
     )
     warm_problems: str = Field(
-        "", description="Problems file whose cells the judge compiles at start; empty = no warm-up."
+        default="", description="Problems file whose cells the judge compiles at start; empty = no warm-up."
     )
-    warm_language: str = Field("c", description="Language of the warm-up builds.")
+    warm_language: str = Field(default="c", description="Language of the warm-up builds.")
     warm_shards: PositiveInt = Field(
-        1, description="Judges sharing the warm-up; judge rank k warms cells[k::warm_shards]."
+        default=1, description="Judges sharing the warm-up; judge rank k warms cells[k::warm_shards]."
     )
 
 
 class Denominator(Section):
     """``measurement.denominator``: the speedup denominator per track (harness/denominator.py)."""
 
-    loop_level_reasoning: DenominatorKind = Field("best-of(numba,c)", description="Denominator of loop_level_reasoning.")
-    scientific_computing: DenominatorKind = Field("best-of(numba,c)", description="Denominator of scientific_computing.")
-    machine_learning: DenominatorKind = Field("torch-autotune", description="Denominator of machine_learning.")
+    loop_level_reasoning: DenominatorKind = Field(
+        default="best-of(numba,c)", description="Denominator of loop_level_reasoning."
+    )
+    scientific_computing: DenominatorKind = Field(
+        default="best-of(numba,c)", description="Denominator of scientific_computing."
+    )
+    machine_learning: DenominatorKind = Field(default="torch-autotune", description="Denominator of machine_learning.")
 
 
 class Quiescence(Section):
     """``measurement.quiescence``: GPU suspect gates; a trip credits 1.0 and sets ``suspect``; inert on a host grade."""
 
     residual_ns: NonNegativeFloat = Field(
-        11340.0, description="ns. Floor of the allowed post-clock resynchronize residual; 0 with residual_factor 0 = gate off."
+        default=11340.0,
+        description="ns. Floor of the allowed post-clock resynchronize residual; 0 with residual_factor 0 = gate off.",
     )
     residual_factor: NonNegativeFloat = Field(
-        0.319, description="Allowed residual above residual_ns as a fraction of the credited sample."
+        default=0.319, description="Allowed residual above residual_ns as a fraction of the credited sample."
     )
     divergence_factor: NonNegativeFloat = Field(
-        3.47, description="Maximum host-bracket / event-time ratio of one rep; 0 = gate off."
+        default=3.47, description="Maximum host-bracket / event-time ratio of one rep; 0 = gate off."
     )
     divergence_slack_ns: NonNegativeFloat = Field(
-        77164.0, description="ns. Host-minus-event gap added to divergence_factor x event time."
+        default=77164.0, description="ns. Host-minus-event gap added to divergence_factor x event time."
     )
 
 
@@ -240,10 +247,11 @@ class MannWhitney(Section):
     """``measurement.mannwhitney``: set by a grading scope (grade_under.final_settings); null = credited protocol's."""
 
     p: Fraction | None = Field(
-        None, description="Significance level of the Mann-Whitney timing test; null = the credited protocol's alpha."
+        default=None,
+        description="Significance level of the Mann-Whitney timing test; null = the credited protocol's alpha.",
     )
     repeats: PositiveInt | None = Field(
-        None, description="Timed runs a side the test needs; null = the credited protocol's repeat."
+        default=None, description="Timed runs a side the test needs; null = the credited protocol's repeat."
     )
 
 
@@ -261,67 +269,75 @@ class Measurement(Section):
         "torch-autotune-cpu",
         "torch-autotune-gpu",
     ] = Field(
-        "auto",
+        default="auto",
         description="Speedup denominator kind (grading.BASELINE_OPTIONS); auto = measurement.denominator.<track>. "
         "A reference that cannot be emitted, built or run is a scored judge fault (timing.measurement_baseline).",
     )
-    denominator: Denominator = Field(default_factory=Denominator)
+    denominator: Denominator = Denominator()
     baseline_race: Literal["leader-first", "complete"] = Field(
-        "leader-first",
+        default="leader-first",
         description="How best-of(numba,c) is timed. leader-first: the expected winner first, the other cut by "
         "the early stop; complete: both timed in full (grading.py).",
     )
     early_stop_factor: PositiveFloat = Field(
-        2.0,
+        default=2.0,
         description="Per-rep budget of a candidate timed after the leader = max(early_stop_floor_s, "
         "early_stop_factor x the leader's slowest rep); a rep past it cuts the candidate.",
     )
-    early_stop_floor_s: Seconds = Field(1.0, description="s. Lower bound of the early-stop budget.")
+    early_stop_floor_s: Seconds = Field(default=1.0, description="s. Lower bound of the early-stop budget.")
     repeat: PositiveInt = Field(
-        20,
+        default=20,
         description="Timed reps per measurement of /profile, /baseline and a promotion's first grade; "
         "/submit, /score and grade-under use their protocol's runs.",
     )
     local_repeat: PositiveInt = Field(
-        5, description="Timed reps of /score on a distributed (MPI / ML-scaling) task, reduced with median_of_k."
+        default=5,
+        description="Timed reps of /score on a distributed (MPI / ML-scaling) task, reduced with median_of_k.",
     )
     warmup: NonNegativeInt = Field(
-        1, description="Untimed reps before the timed reps of a submission and of every baseline; 0 = none."
+        default=1, description="Untimed reps before the timed reps of a submission and of every baseline; 0 = none."
     )
     vary_inputs: bool = Field(
-        True,
+        default=True,
         description="true: each timed rep runs on a fresh draw from the cell's input pool (harness/rep_variation.py).",
     )
-    pin_threads: bool = Field(True, description="Pin the timing process to one thread per physical core (timing.pin_threads).")
+    pin_threads: bool = Field(
+        default=True, description="Pin the timing process to one thread per physical core (timing.pin_threads)."
+    )
     timing_lock: str = Field(
-        "",
+        default="",
         description="Path the Harbor verifier holds flock() on around its timed section (harbor.timing_lock); "
         "empty = no lock. The judge service does not read it.",
     )
     timing_backend: Literal["min_of_k", "median_of_k", "mannwhitney_delta"] = Field(
-        "mannwhitney_delta",
+        default="mannwhitney_delta",
         description="Reduction of a cell's runs to one speedup: min_of_k (ratio of minima), median_of_k (ratio "
         "of medians), mannwhitney_delta (ratio of medians, credited only when a Mann-Whitney U test confirms "
         "its sign, else 1.0).",
     )
     credited_protocol: str = Field(
-        "mw4x5",
+        default="mw4x5",
         description="Grade protocol a credited number is stated under and /submit grades under "
         "(a name registered in protocols.py).",
     )
-    quiescence: Quiescence = Field(default_factory=Quiescence)
-    mannwhitney: MannWhitney = Field(default_factory=MannWhitney)
+    quiescence: Quiescence = Quiescence()
+    mannwhitney: MannWhitney = MannWhitney()
 
 
 class Statistics(Section):
     """``statistics``: reporting tests (stats/significance.py); each value is a registered name."""
 
-    paired_test: str = Field("sign-flip", description="Paired test on per-kernel log ratios of two setups.")
-    proportion_test: str = Field("fisher", description="Test on two setups' solved/total runs.")
-    paired_proportion_test: str = Field("mcnemar", description="Test on the kernels exactly one of two setups solved.")
-    correction: str = Field("benjamini-hochberg", description="Multiple-comparison correction over every reported family.")
+    paired_test: str = Field(default="sign-flip", description="Paired test on per-kernel log ratios of two setups.")
+    proportion_test: str = Field(default="fisher", description="Test on two setups' solved/total runs.")
+    paired_proportion_test: str = Field(
+        default="mcnemar", description="Test on the kernels exactly one of two setups solved."
+    )
+    correction: str = Field(
+        default="benjamini-hochberg", description="Multiple-comparison correction over every reported family."
+    )
     two_sample_test: str = Field(
-        "mannwhitney_delta", description="Two-sided timing test on two setups' scored runs of one kernel (report only)."
+        default="mannwhitney_delta",
+        description="Two-sided timing test on two setups' scored runs of one kernel (report only).",
     )
 
 
@@ -329,12 +345,12 @@ class Perf(Section):
     """``perf``: which (config, shape) cells are timed."""
 
     mode: Literal["all_configs_3shapes", "secret_3shapes"] = Field(
-        "all_configs_3shapes",
+        default="all_configs_3shapes",
         description="all_configs_3shapes: fixed public timed shapes; secret_3shapes: shapes drawn from "
         "seeds.secret_shape. Both time every config.",
     )
     n_large_shapes: PositiveInt | None = Field(
-        None,
+        default=None,
         description="Timed inputs per grade, set by a grading scope (grade_under.final_settings); "
         "null = the credited protocol's input count.",
     )
@@ -344,7 +360,7 @@ class Preset(Section):
     """``preset``: state of the last preset token spec.resolve_preset resolved in this process."""
 
     seed: int | None = Field(
-        None, description="Seed of a fuzzed:<seed> token (fuzz.base_seed); null = seeds.fuzz."
+        default=None, description="Seed of a fuzzed:<seed> token (fuzz.base_seed); null = seeds.fuzz."
     )
 
 
@@ -352,51 +368,57 @@ class Repo(Section):
     """``repo``: the repo task layout (harbor layout='repo')."""
 
     speedup_min: PositiveFloat = Field(
-        1.2, description="Minimum speedup over the sequential-C baseline for a pull request to be accepted."
+        default=1.2, description="Minimum speedup over the sequential-C baseline for a pull request to be accepted."
     )
 
 
 class Prompt(Section):
     """``prompt``: prompt generation (harness/prompts.PromptConfig)."""
 
-    template: str = Field("task.j2", description="Top-level template rendered.")
+    template: str = Field(default="task.j2", description="Top-level template rendered.")
     template_dir: str | None = Field(
-        None, description="Template directory searched before the built-in prompts/ directory; null = none."
+        default=None, description="Template directory searched before the built-in prompts/ directory; null = none."
     )
     template_dirs: tuple[str, ...] = Field(
-        (), description="Template directories searched after template_dir and before the built-ins, in order."
+        default=(), description="Template directories searched after template_dir and before the built-ins, in order."
     )
-    debug: bool = Field(False, description="Bracket the prompt with markers naming every resolved template and skill file.")
+    debug: bool = Field(
+        default=False, description="Bracket the prompt with markers naming every resolved template and skill file."
+    )
     generator: str | None = Field(
-        None,
+        default=None,
         description="'module:function' replacing prompt generation, called as "
         "fn(task, *, oracle, baseline, feedback) -> str; null = the built-in renderer.",
     )
-    inline_kernel: bool = Field(False, description="Embed the NumPy reference source in the prompt.")
+    inline_kernel: bool = Field(default=False, description="Embed the NumPy reference source in the prompt.")
     container_workdir: str = Field(
-        "/app", description="Mount point of the per-kernel folder in the agent container."
+        default="/app", description="Mount point of the per-kernel folder in the agent container."
     )
     include_translation: bool = Field(
-        False, description="Embed a NumpyToX C/C++/Fortran translation of the reference."
+        default=False, description="Embed a NumpyToX C/C++/Fortran translation of the reference."
     )
     include_reference: bool = Field(
-        False, description="Offer the original ported source (<kernel>_reference.<ext>) when one exists."
+        default=False, description="Offer the original ported source (<kernel>_reference.<ext>) when one exists."
     )
     strategy: Literal["default", "loopnest", "profile_first", "language_native"] = Field(
-        "default", description="Named optimization strategy of the how-to section (prompts.STRATEGIES)."
+        default="default", description="Named optimization strategy of the how-to section (prompts.STRATEGIES)."
     )
-    optimization_guidance: bool = Field(True, description="Include the how-to-optimize section.")
+    optimization_guidance: bool = Field(default=True, description="Include the how-to-optimize section.")
     profiling_guidance: bool = Field(
-        False, description="Emphasize profiling in the how-to-optimize section; strategy profile_first sets it."
+        default=False, description="Emphasize profiling in the how-to-optimize section; strategy profile_first sets it."
     )
-    language_track: bool = Field(False, description="Emphasize optimizing idiomatically in the forced language.")
-    native: bool = Field(False, description="Native framing: the reference path shown is repo-relative, not /app/...")
+    language_track: bool = Field(
+        default=False, description="Emphasize optimizing idiomatically in the forced language."
+    )
+    native: bool = Field(
+        default=False, description="Native framing: the reference path shown is repo-relative, not /app/..."
+    )
     sections: dict[str, str | bool] = Field(
         default_factory=dict,
         description="Section key -> off (false) | template name | file path (prompt_sections.py); "
         "$HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY> overrides one entry.",
     )
-    variant: str = Field("default", description="Active named prompt variant (prompts.PROMPT_VARIANTS).")
+    variant: str = Field(default="default", description="Active named prompt variant (prompts.PROMPT_VARIANTS).")
     variants: dict[str, dict[str, Any]] = Field(
         default_factory=dict, description="Extra prompt variants: name -> PromptConfig field overrides."
     )
@@ -406,12 +428,12 @@ class References(Section):
     """``references``: where the compiled reference source comes from (harness/agent.py)."""
 
     prefer_committed: bool = Field(
-        False,
+        default=False,
         description="true: a kernel with a committed hand-written <module>_reference.<ext> (no autogen marker on "
         "line 1) is graded and timed against that file instead of the NumpyToX emit; changes the denominator.",
     )
     generated_cache_dir: str = Field(
-        "", description="Directory of pre-emitted reference sources; empty or missing = no cache."
+        default="", description="Directory of pre-emitted reference sources; empty or missing = no cache."
     )
 
 
@@ -419,11 +441,13 @@ class Cache(Section):
     """``cache``: judge-side disk store of reference outputs and baseline timings (harness/disk_cache.py)."""
 
     disk_results_levels: tuple[Level, ...] = Field(
-        (), description="Kernel levels the store serves; empty with disk_results_tracks empty = store off."
+        default=(), description="Kernel levels the store serves; empty with disk_results_tracks empty = store off."
     )
-    disk_results_tracks: tuple[TrackName, ...] = Field((), description="Tracks the store serves whatever the level.")
+    disk_results_tracks: tuple[TrackName, ...] = Field(
+        default=(), description="Tracks the store serves whatever the level."
+    )
     disk_results_dir: str = Field(
-        "",
+        default="",
         description="Store root; empty = hpcagent-bench-judge-cache under $FAST_SCRATCH (else $SCRATCH). "
         "Holds secret-seed outputs: judge role only.",
     )
@@ -432,12 +456,12 @@ class Cache(Section):
 class Attempts(Section):
     """``attempts``: what ends one run's attempt loop; the first bound reached ends it."""
 
-    max_rounds: PositiveInt | None = Field(1, description="Attempts per run; null = unbounded.")
+    max_rounds: PositiveInt | None = Field(default=1, description="Attempts per run; null = unbounded.")
     time_budget_s: Seconds | None = Field(
-        None, description="s. Wall clock of the attempt loop, checked before each attempt; null = unbounded."
+        default=None, description="s. Wall clock of the attempt loop, checked before each attempt; null = unbounded."
     )
     token_budget: PositiveInt | None = Field(
-        None,
+        default=None,
         description="Agent tokens (input + output, reasoning included) per kernel when no narrower layer applies; "
         "null = unbounded. scoring.resolve_token_budget: token_budget_override, else "
         "token_budget_by_level[level], else token_budget.",
@@ -447,7 +471,7 @@ class Attempts(Section):
         description="Token budget per KernelBench level (JSON object in the environment).",
     )
     token_budget_override: PositiveInt | None = Field(
-        None, description="Token budget of every kernel, over every other layer; null = unset."
+        default=None, description="Token budget of every kernel, over every other layer; null = unset."
     )
 
 
@@ -458,61 +482,65 @@ IMAGE_REPOSITORY = "docker.io/spcleth/hpcagent-bench"
 class CpuImages(Section):
     """``images.cpu``: agent (toolchain only) and verifier (full harness) OCI references."""
 
-    agent: str = Field(f"{IMAGE_REPOSITORY}:agent-cpu-x86_64-latest", description="Agent image reference.")
-    verifier: str = Field(f"{IMAGE_REPOSITORY}:judge-cpu-x86_64-latest", description="Verifier image reference.")
+    agent: str = Field(default=f"{IMAGE_REPOSITORY}:agent-cpu-x86_64-latest", description="Agent image reference.")
+    verifier: str = Field(
+        default=f"{IMAGE_REPOSITORY}:judge-cpu-x86_64-latest", description="Verifier image reference."
+    )
 
 
 class AmdImages(Section):
     """``images.amd``: agent and verifier OCI references."""
 
-    agent: str = Field(f"{IMAGE_REPOSITORY}:agent-amd-latest", description="Agent image reference.")
-    verifier: str = Field(f"{IMAGE_REPOSITORY}:judge-amd-latest", description="Verifier image reference.")
+    agent: str = Field(default=f"{IMAGE_REPOSITORY}:agent-amd-latest", description="Agent image reference.")
+    verifier: str = Field(default=f"{IMAGE_REPOSITORY}:judge-amd-latest", description="Verifier image reference.")
 
 
 class NvidiaImages(Section):
     """``images.nvidia``: agent and verifier OCI references."""
 
-    agent: str = Field(f"{IMAGE_REPOSITORY}:agent-nvidia-latest", description="Agent image reference.")
-    verifier: str = Field(f"{IMAGE_REPOSITORY}:judge-nvidia-latest", description="Verifier image reference.")
+    agent: str = Field(default=f"{IMAGE_REPOSITORY}:agent-nvidia-latest", description="Agent image reference.")
+    verifier: str = Field(default=f"{IMAGE_REPOSITORY}:judge-nvidia-latest", description="Verifier image reference.")
 
 
 class MpiImages(Section):
     """``images.mpi``: the distributed (multi-node MPI) track's agent and verifier OCI references."""
 
-    agent: str = Field(f"{IMAGE_REPOSITORY}:agent-cpu-x86_64-latest", description="Agent image reference.")
-    verifier: str = Field(f"{IMAGE_REPOSITORY}:judge-cpu-x86_64-latest", description="Verifier image reference.")
+    agent: str = Field(default=f"{IMAGE_REPOSITORY}:agent-cpu-x86_64-latest", description="Agent image reference.")
+    verifier: str = Field(
+        default=f"{IMAGE_REPOSITORY}:judge-cpu-x86_64-latest", description="Verifier image reference."
+    )
 
 
 class Images(Section):
     """``images``: container images per hardware target (harbor.images_for)."""
 
-    cpu: CpuImages = Field(default_factory=CpuImages)
-    amd: AmdImages = Field(default_factory=AmdImages)
-    nvidia: NvidiaImages = Field(default_factory=NvidiaImages)
-    mpi: MpiImages = Field(default_factory=MpiImages)
+    cpu: CpuImages = CpuImages()
+    amd: AmdImages = AmdImages()
+    nvidia: NvidiaImages = NvidiaImages()
+    mpi: MpiImages = MpiImages()
 
 
 class Grading(Section):
     """``grading``: the sandboxed build and run of a submission (harness/sandbox.py, seal.py)."""
 
     seal: bool = Field(
-        True,
+        default=True,
         description="Run every grading and /profile child in the seal (seal.py): own user, mount, pid, net and "
         "ipc namespaces. false only on a host without user namespaces.",
     )
-    seal_hide: tuple[str, ...] = Field((), description="Extra absolute paths hidden from the sealed child.")
+    seal_hide: tuple[str, ...] = Field(default=(), description="Extra absolute paths hidden from the sealed child.")
     allow_agent_build_flags: bool = Field(
-        False,
+        default=False,
         description="false: a submission's build list contributes only -I/-D/-l/-L. true: tuning and autopar "
         "flags too; FP-semantics and dialect flags stay refused.",
     )
     distributed_libraries: tuple[str, ...] = Field(
-        ("mpi", "rccl"),
+        default=("mpi", "rccl"),
         description="Library names a distributed-track judge (mpi.grade_distributed) honours with "
         "allow_agent_build_tokens false; every other name is refused there.",
     )
     allow_agent_build_tokens: bool = Field(
-        True,
+        default=True,
         description="true: a submission's -l<name> tokens and libraries requests are honoured; false: dropped, "
         "except distributed_libraries on a distributed judge.",
     )
@@ -521,55 +549,58 @@ class Grading(Section):
 class Record(Section):
     """``record``: verify-gated persistence of scored submissions (harness/recording.py)."""
 
-    enabled: bool = Field(False, description="Write grade rows to the results DB.")
-    allow_memory_db: bool = Field(False, description="Accept a db_path on tmpfs/ramfs.")
-    study: str = Field("", description="Study every setup row of this run belongs to.")
-    model: str = Field("", description="Short model tag (envs/display_names.yaml).")
-    language: str = Field("", description="Language the setup asked for; empty = none.")
+    enabled: bool = Field(default=False, description="Write grade rows to the results DB.")
+    allow_memory_db: bool = Field(default=False, description="Accept a db_path on tmpfs/ramfs.")
+    study: str = Field(default="", description="Study every setup row of this run belongs to.")
+    model: str = Field(default="", description="Short model tag (envs/display_names.yaml).")
+    language: str = Field(default="", description="Language the setup asked for; empty = none.")
     device: Literal["cpu", "gpu", "cpu-multinode", "gpu-multinode"] | None = Field(
-        None,
+        default=None,
         description="Device class the setup declares; stamped on every row (null is stamped cpu). "
         "Non-null cpu or cpu-multinode makes task.host_only_setup refuse device submissions.",
     )
-    packet: str = Field("", description="Skill packets, any separator; stored sorted and '+'-joined.")
-    setup: str = Field("", description="Setup name (provenance only).")
-    harness: str = Field("", description="Agent harness that drove the setup (claude, miniswe, openhands); empty = NULL.")
-    temperature: NonNegativeFloat = Field(1.0, description="Sampling temperature the serving engine applied.")
-    commit: str = Field("", description="hpcagent_bench commit the setup was submitted from; empty = unknown.")
+    packet: str = Field(default="", description="Skill packets, any separator; stored sorted and '+'-joined.")
+    setup: str = Field(default="", description="Setup name (provenance only).")
+    harness: str = Field(
+        default="", description="Agent harness that drove the setup (claude, miniswe, openhands); empty = NULL."
+    )
+    temperature: NonNegativeFloat = Field(default=1.0, description="Sampling temperature the serving engine applied.")
+    commit: str = Field(default="", description="hpcagent_bench commit the setup was submitted from; empty = unknown.")
     db_path: str = Field(
-        "results/hpcagent_bench.db",
+        default="results/hpcagent_bench.db",
         description="Results DB (SQLite); relative = under the repo root; refused on tmpfs/ramfs unless allow_memory_db.",
     )
     expensive_gates: tuple[str, ...] = Field(
-        (), description="Anti-cheat gates labelled expensive that run (anticheat.py); every other gate always runs."
+        default=(),
+        description="Anti-cheat gates labelled expensive that run (anticheat.py); every other gate always runs.",
     )
     speedup_suspect_above_host: PositiveFloat = Field(
-        2000.0, description="A host-residency speedup above this is flagged suspect (still recorded)."
+        default=2000.0, description="A host-residency speedup above this is flagged suspect (still recorded)."
     )
     speedup_suspect_above_device: PositiveFloat = Field(
-        16000.0, description="A device-residency speedup above this is flagged suspect (still recorded)."
+        default=16000.0, description="A device-residency speedup above this is flagged suspect (still recorded)."
     )
     physical_bandwidth_gbps_device: PositiveFloat = Field(
-        10600.0,
+        default=10600.0,
         description="GB/s. A device-residency grade whose native_ns < declared bytes / this is flagged suspect "
         "(scoring.floor_bandwidth_gbps).",
     )
     physical_bandwidth_gbps_host: PositiveFloat = Field(
-        10600.0, description="GB/s. The same bound for a host-residency grade."
+        default=10600.0, description="GB/s. The same bound for a host-residency grade."
     )
-    log_attempts: bool = Field(True, description="Log non-verified submissions to the attempts table.")
-    log_calls: bool = Field(True, description="Log every served grade (/score and /submit) to the calls table.")
+    log_attempts: bool = Field(default=True, description="Log non-verified submissions to the attempts table.")
+    log_calls: bool = Field(default=True, description="Log every served grade (/score and /submit) to the calls table.")
     execution: Literal["native", "container"] = Field(
-        "native", description="Where a framework-results runtime was measured (frameworks/test.py)."
+        default="native", description="Where a framework-results runtime was measured (frameworks/test.py)."
     )
-    build: str = Field("", description="Build label stamped on every framework-results row; empty = NULL.")
+    build: str = Field(default="", description="Build label stamped on every framework-results row; empty = NULL.")
 
 
 class PerfReports(Section):
     """``perf_reports``: the --opt-reports compile (opt_reports.py)."""
 
     vect_cost_model: Literal["default", "unlimited"] = Field(
-        "default",
+        default="default",
         description="unlimited switches the vectorizer cost model off in the report compile only "
         "(gcc -fvect-cost-model=unlimited); the timed build never changes.",
     )
@@ -579,7 +610,7 @@ class Flags(Section):
     """``flags``: the compile matrix (flags.py)."""
 
     fp_associative: bool = Field(
-        False,
+        default=False,
         description="true adds -fassociative-math to every compile column; moves the baseline, so rows graded "
         "with true and false do not pool. Read once at import of flags.py; later overrides and scoped "
         "environments do not change it.",
@@ -590,7 +621,7 @@ class Timeouts(Section):
     """``timeouts``: wall-clock caps."""
 
     kernel_s: Seconds = Field(
-        300.0,
+        default=300.0,
         description="s. Per-kernel agent run when no narrower layer applies. scoring.resolve_kernel_timeout: "
         "kernel_s_override, else the manifest timeout_s, else kernel_s_by_level[level], else kernel_s.",
     )
@@ -599,35 +630,35 @@ class Timeouts(Section):
         description="s. Per-kernel agent run per KernelBench level (JSON object in the environment).",
     )
     kernel_s_override: Seconds | None = Field(
-        None, description="s. Per-kernel agent run of every kernel, over every other layer; null = unset."
+        default=None, description="s. Per-kernel agent run of every kernel, over every other layer; null = unset."
     )
     guillotine_factor: NonNegativeFloat = Field(
-        2.0,
+        default=2.0,
         description="Candidate per-rep cap = max(guillotine_floor_s, guillotine_factor x its baseline), at most "
         "the kernel timeout; 0 = off. A stopped correct candidate is credited baseline / cap.",
     )
-    guillotine_floor_s: Seconds = Field(1.0, description="s. Lower bound of the guillotine cap.")
-    cpf_render_s: Seconds = Field(14400.0, description="s. Wall clock of one canonical-parallel-form render.")
+    guillotine_floor_s: Seconds = Field(default=1.0, description="s. Lower bound of the guillotine cap.")
+    cpf_render_s: Seconds = Field(default=14400.0, description="s. Wall clock of one canonical-parallel-form render.")
 
 
 class Limits(Section):
     """``limits``: memory and stack caps."""
 
     oracle_cache_gb: PositiveFloat = Field(
-        12.0, description="GB. Per-process bound on the reference-output cache (scoring.py)."
+        default=12.0, description="GB. Per-process bound on the reference-output cache (scoring.py)."
     )
     kernel_memory_gb: PositiveFloat = Field(
-        20.0,
+        default=20.0,
         description="GB. Floor of the per-kernel RLIMIT_AS budget above the harness baseline "
         "(sizing.kernel_memory_gb), and the budget of a kernel without declarative shapes; host kernels only.",
     )
     reference_node_fraction: Fraction = Field(
-        0.75,
+        default=0.75,
         description="Cap of a judge-owned reference as a fraction of its rank's share of node RAM, "
         "never below kernel_memory_gb (sizing.reference_memory_gb).",
     )
     thread_stack_mb: PositiveInt = Field(
-        512, description="MiB. Stack of every OpenMP thread a timed child starts (OMP_STACKSIZE)."
+        default=512, description="MiB. Stack of every OpenMP thread a timed child starts (OMP_STACKSIZE)."
     )
 
 
@@ -635,7 +666,7 @@ class Sparse(Section):
     """``sparse``: sparse layouts an agent may request (docs/sparse_abi.md)."""
 
     bsr_block_sizes: tuple[PositiveInt, ...] = Field(
-        (2, 4, 8),
+        default=(2, 4, 8),
         description="Square block edges a bsr request may name; sparse dimensions are drawn as multiples of their lcm.",
     )
 
@@ -644,38 +675,39 @@ class Mpi(Section):
     """``mpi``: launch and sizing of a ``residency: distributed`` run."""
 
     compute_hint: bool = Field(
-        False, description="Add the local-compute optimization paragraph to the ML-layout prompt section (sections/mpi.j2)."
+        default=False,
+        description="Add the local-compute optimization paragraph to the ML-layout prompt section (sections/mpi.j2).",
     )
     grade_distributed: bool = Field(
-        False,
+        default=False,
         description="true: /score and /submit grade a kernel with an mpi: block at residency distributed through "
         "mpi_call; a kernel without one grades single-node.",
     )
     launcher: tuple[str, ...] = Field(
-        ("mpiexec.mpich", "-launcher", "fork", "-n"),
+        default=("mpiexec.mpich", "-launcher", "fork", "-n"),
         description="argv prefix that takes the rank count next; the runner appends [ranks, program...].",
     )
     compilers: dict[str, str] = Field(
         default_factory=dict,
         description="Language -> MPI compiler wrapper of the distributed build; empty = the compilers.yaml MPI blocks.",
     )
-    ranks: PositiveInt = Field(4, description="Rank count of the scalar distributed speedup.")
-    ranks_per_node: PositiveInt = Field(4, description="Ranks one node of a grade-under gang places.")
+    ranks: PositiveInt = Field(default=4, description="Rank count of the scalar distributed speedup.")
+    ranks_per_node: PositiveInt = Field(default=4, description="Ranks one node of a grade-under gang places.")
     rank_counts: tuple[PositiveInt, ...] = Field(
-        (), description="Rank counts of the scaling curve; empty = no curve (the scalar at ranks only)."
+        default=(), description="Rank counts of the scaling curve; empty = no curve (the scalar at ranks only)."
     )
-    leaderboard_preset: Rung = Field("XL", description="Single-node base preset of the distributed metric.")
-    mode: Literal["strong", "weak"] = Field("strong", description="Scaling law of the distributed metric.")
-    k_repeats: PositiveInt = Field(5, description="Timed repeats inside the driver of a scaling-curve point.")
+    leaderboard_preset: Rung = Field(default="XL", description="Single-node base preset of the distributed metric.")
+    mode: Literal["strong", "weak"] = Field(default="strong", description="Scaling law of the distributed metric.")
+    k_repeats: PositiveInt = Field(default=5, description="Timed repeats inside the driver of a scaling-curve point.")
     residency: Literal["host", "device"] = Field(
-        "host",
+        default="host",
         description="Location of each rank's tiles at the kernel boundary for an array whose manifest sets no "
         "location. device: copied to the GPU before and back after the kernel, untimed; a c/cpp/fortran kernel "
         "is a scored config error. host: sandbox.build_mpi links no kernel library, so run_sharded refuses "
         "c/cpp/hip submissions.",
     )
     launch_timeout_s: Seconds = Field(
-        120.0, description="s. Cap on one MPI launch (a scored failure); also the --time of a gang step."
+        default=120.0, description="s. Cap on one MPI launch (a scored failure); also the --time of a gang step."
     )
     env: dict[str, str] = Field(
         default_factory=lambda: {"HWLOC_COMPONENTS": "-opencl,-levelzero,-gl"},
@@ -687,27 +719,28 @@ class Ml(Section):
     """``ml``: the distributed ML-operator track (harness/torch_reference.py, torch_baseline.py)."""
 
     datatype: str = Field(
-        "bf16",
+        default="bf16",
         description="Datatype of a machine_learning kernel that declares no storage precision; empty = service.datatype.",
     )
     torch_cache_root: str = Field(
-        "", description="Inductor/Triton cache root; empty = $SCRATCH/hpcagent-bench-inductor-cache."
+        default="", description="Inductor/Triton cache root; empty = $SCRATCH/hpcagent-bench-inductor-cache."
     )
     torch_work_root: str = Field(
-        "", description="Node-local torch-autotune working cache; empty = <system temp>/hpcagent-bench-torch-autotune."
+        default="",
+        description="Node-local torch-autotune working cache; empty = <system temp>/hpcagent-bench-torch-autotune.",
     )
     torch_archive_root: str = Field(
-        "", description="Archive of torch-autotune working caches; empty = <torch_cache_root>/archives."
+        default="", description="Archive of torch-autotune working caches; empty = <torch_cache_root>/archives."
     )
     kernelbench_dir: str = Field(
-        "", description="KernelBench corpus root; empty = <repo>/third_party/KernelBench/KernelBench."
+        default="", description="KernelBench corpus root; empty = <repo>/third_party/KernelBench/KernelBench."
     )
-    torch_baseline_timeout_s: Seconds = Field(1800.0, description="s. Cap on one torch-autotune child.")
+    torch_baseline_timeout_s: Seconds = Field(default=1800.0, description="s. Cap on one torch-autotune child.")
     rank_counts: tuple[PositiveInt, ...] = Field(
-        (1, 2, 4), description="ML-track rank counts when mpi.rank_counts is empty."
+        default=(1, 2, 4), description="ML-track rank counts when mpi.rank_counts is empty."
     )
     grade_rank_counts: tuple[PositiveInt, ...] = Field(
-        (1, 2, 4, 8, 16), description="Rank counts grade-under asks of an item whose task scales."
+        default=(1, 2, 4, 8, 16), description="Rank counts grade-under asks of an item whose task scales."
     )
 
 
@@ -715,42 +748,46 @@ class Runtime(Section):
     """``runtime``: process and container runtime."""
 
     backend: Literal["oci", "sif", "ce", "native", "docker", "podman", "apptainer"] = Field(
-        "oci",
+        default="oci",
         description="Container backend: a family (oci, sif, ce, native), resolved to its first installed member "
         "(oci: docker, then podman), or a runtime (containers.resolve_backend).",
     )
     mp_context: Literal["auto", "fork", "spawn", "forkserver"] = Field(
-        "auto", description="multiprocessing start method; auto = fork on Linux, spawn on macOS (osinfo.mp_context)."
+        default="auto",
+        description="multiprocessing start method; auto = fork on Linux, spawn on macOS (osinfo.mp_context).",
     )
     omp_context_root: str = Field(
-        "/opt/omp", description="Directory of the image's OpenMP contexts, one per toolchain family (omp_context.py)."
+        default="/opt/omp",
+        description="Directory of the image's OpenMP contexts, one per toolchain family (omp_context.py).",
     )
-    omp_catalog: str = Field("", description="OpenMP runtime catalog file; empty = <omp_context_root>/catalog.json.")
+    omp_catalog: str = Field(
+        default="", description="OpenMP runtime catalog file; empty = <omp_context_root>/catalog.json."
+    )
 
 
 class BuildCompiler(Section):
     """``build.compiler``: toolchain family pin per language; null defers to the submission's ``compiler``."""
 
-    c: CompilerFamily | None = Field(None, description="Family pin of C.")
-    cpp: CompilerFamily | None = Field(None, description="Family pin of C++.")
-    fortran: CompilerFamily | None = Field(None, description="Family pin of Fortran.")
+    c: str | None = Field(default=None, description="Family pin of C (a languages.COMPILER_FAMILIES key).")
+    cpp: str | None = Field(default=None, description="Family pin of C++ (a languages.COMPILER_FAMILIES key).")
+    fortran: str | None = Field(default=None, description="Family pin of Fortran (a languages.COMPILER_FAMILIES key).")
 
 
 class Build(Section):
     """``build``: native builds (languages.py)."""
 
-    ccache: bool = Field(True, description="Prefix C and C++ compile steps with ccache when it is on PATH.")
-    compiler: BuildCompiler = Field(default_factory=BuildCompiler)
+    ccache: bool = Field(default=True, description="Prefix C and C++ compile steps with ccache when it is on PATH.")
+    compiler: BuildCompiler = BuildCompiler()
 
 
 class Judge(Section):
     """``judge``: device slots of one judge (harness/judge_scheduler.py)."""
 
     gpus_per_node: NonNegativeInt | None = Field(
-        None, description="GPU slots; null = the local GPU count (judge_scheduler.judge_gpu_slots)."
+        default=None, description="GPU slots; null = the local GPU count (judge_scheduler.judge_gpu_slots)."
     )
     cpu_slots_per_node: NonNegativeInt | None = Field(
-        None, description="CPU slots; null = 1 when the judge has no GPU slot, else 0."
+        default=None, description="CPU slots; null = 1 when the judge has no GPU slot, else 0."
     )
 
 
@@ -758,10 +795,10 @@ class Agent(Section):
     """``agent``: the distributed static agent run (harness/pipeline.py)."""
 
     workers: PositiveInt | None = Field(
-        None, description="Concurrent agent workers; null = max(len(vllm_urls), len(judge_urls), 1)."
+        default=None, description="Concurrent agent workers; null = max(len(vllm_urls), len(judge_urls), 1)."
     )
     execution: Literal["native", "container", "harbor"] = Field(
-        "container", description="Run mode of hpcagent-bench agent."
+        default="container", description="Run mode of hpcagent-bench agent."
     )
 
 
@@ -776,9 +813,9 @@ class OracleOverride(Section):
 class Oracle(Section):
     """``oracle``: the numerical-correctness oracle sweep (numerical_oracle.py)."""
 
-    compile_timeout_s: Seconds = Field(75.0, description="s. Per-backend compile cap.")
-    polycc_timeout_s: Seconds = Field(360.0, description="s. Cap on one polycc (Pluto) run.")
-    numba_fastmath: bool = Field(False, description="Compile numba backends with fastmath=True.")
+    compile_timeout_s: Seconds = Field(default=75.0, description="s. Per-backend compile cap.")
+    polycc_timeout_s: Seconds = Field(default=360.0, description="s. Cap on one polycc (Pluto) run.")
+    numba_fastmath: bool = Field(default=False, description="Compile numba backends with fastmath=True.")
     overrides: dict[str, OracleOverride] = Field(
         default_factory=lambda: {
             "jacobi_2d_tile_4lvl_silly": OracleOverride(compile_timeout_s=30.0),
@@ -792,7 +829,7 @@ class Oracle(Section):
 class Cpf(Section):
     """``cpf``: canonical-parallel-form rendering (cpf_cache.py)."""
 
-    cache: str = Field("", description="Cache root an on-demand render writes to; empty = no on-demand render.")
+    cache: str = Field(default="", description="Cache root an on-demand render writes to; empty = no on-demand render.")
 
 
 class EnvironmentSource(PydanticBaseSettingsSource):
@@ -819,35 +856,35 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="forbid", frozen=True)
 
-    seeds: Seeds = Field(default_factory=Seeds)
-    fuzz: Fuzz = Field(default_factory=Fuzz)
-    inputs: Inputs = Field(default_factory=Inputs)
-    service: Service = Field(default_factory=Service)
-    measurement: Measurement = Field(default_factory=Measurement)
-    statistics: Statistics = Field(default_factory=Statistics)
-    perf: Perf = Field(default_factory=Perf)
-    preset: Preset = Field(default_factory=Preset)
-    repo: Repo = Field(default_factory=Repo)
-    prompt: Prompt = Field(default_factory=Prompt)
-    references: References = Field(default_factory=References)
-    cache: Cache = Field(default_factory=Cache)
-    attempts: Attempts = Field(default_factory=Attempts)
-    images: Images = Field(default_factory=Images)
-    grading: Grading = Field(default_factory=Grading)
-    record: Record = Field(default_factory=Record)
-    perf_reports: PerfReports = Field(default_factory=PerfReports)
-    flags: Flags = Field(default_factory=Flags)
-    timeouts: Timeouts = Field(default_factory=Timeouts)
-    limits: Limits = Field(default_factory=Limits)
-    sparse: Sparse = Field(default_factory=Sparse)
-    mpi: Mpi = Field(default_factory=Mpi)
-    ml: Ml = Field(default_factory=Ml)
-    runtime: Runtime = Field(default_factory=Runtime)
-    build: Build = Field(default_factory=Build)
-    judge: Judge = Field(default_factory=Judge)
-    agent: Agent = Field(default_factory=Agent)
-    oracle: Oracle = Field(default_factory=Oracle)
-    cpf: Cpf = Field(default_factory=Cpf)
+    seeds: Seeds = Seeds()
+    fuzz: Fuzz = Fuzz()
+    inputs: Inputs = Inputs()
+    service: Service = Service()
+    measurement: Measurement = Measurement()
+    statistics: Statistics = Statistics()
+    perf: Perf = Perf()
+    preset: Preset = Preset()
+    repo: Repo = Repo()
+    prompt: Prompt = Prompt()
+    references: References = References()
+    cache: Cache = Cache()
+    attempts: Attempts = Attempts()
+    images: Images = Images()
+    grading: Grading = Grading()
+    record: Record = Record()
+    perf_reports: PerfReports = PerfReports()
+    flags: Flags = Flags()
+    timeouts: Timeouts = Timeouts()
+    limits: Limits = Limits()
+    sparse: Sparse = Sparse()
+    mpi: Mpi = Mpi()
+    ml: Ml = Ml()
+    runtime: Runtime = Runtime()
+    build: Build = Build()
+    judge: Judge = Judge()
+    agent: Agent = Agent()
+    oracle: Oracle = Oracle()
+    cpf: Cpf = Cpf()
 
     #: Section models in declaration order (filled below).
     sections: ClassVar[tuple[str, ...]] = ()
@@ -1170,12 +1207,12 @@ def default_value(dotted: str) -> object:
 
 def default_text(dotted: str) -> str:
     """The model default of leaf ``dotted`` as JSON."""
-    return json.dumps(TypeAdapter(Any).dump_python(default_value(dotted), mode="json"), sort_keys=True)
+    return json.dumps(TypeAdapter(object).dump_python(default_value(dotted), mode="json"), sort_keys=True)
 
 
 def key_table() -> list[tuple[str, str, str, str, str]]:
     """``(key, env name, type, default, description)`` of every leaf."""
-    rows = []
+    rows: list[tuple[str, str, str, str, str]] = []
     for dotted, field in FIELDS.items():
         annotation = Annotated[(field.annotation, *field.metadata)] if field.metadata else field.annotation
         rows.append((dotted, env_name(dotted), type_text(annotation), default_text(dotted), field.description or ""))

@@ -16,7 +16,6 @@ import shutil
 
 import numpy as np
 import pytest
-import yaml
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import grading, native_call, scoring
@@ -148,19 +147,16 @@ def test_numpy_is_neither_an_oracle_nor_a_denominator(kernel) -> None:
 
 
 def test_the_shipped_config_rotates_the_held_out_shape() -> None:
-    """Read off the FILE: what the experiment runs is the shipped default. Every case at XL sampled
-    ONE shape five times and paid five times for it; the ladder spends 1.84 XL-equivalents instead
-    and turns shape into a four-point axis."""
-    shipped = yaml.safe_load((pathlib.Path(config.__file__).parent / "config.yaml").read_text())
-    assert shipped["service"]["oracle"] == "auto"
-    assert shipped["fuzz"]["hidden_correctness_presets"] == ["XL", "M", "M", "L", "S"]
-    assert "hidden_correctness_preset" not in shipped["fuzz"]  # the singular knob is gone
+    """Read off the MODEL defaults, not the test session's overrides: what the experiment runs."""
+    assert config.default_value("service.oracle") == "auto"
+    assert config.default_value("fuzz.hidden_correctness_presets") == ("XL", "M", "M", "L", "S")
+    assert "fuzz.hidden_correctness_preset" not in config.FIELDS  # the singular knob is gone
     # The experiment grades on the significance-gated backend, which needs a FULL sample per side:
     # repeat is exactly required_repeat here, so lowering it turns every grade into a raise.
     from hpcagent_bench.harness import timing
 
-    assert shipped["measurement"]["timing_backend"] == "mannwhitney_delta"
-    assert shipped["measurement"]["repeat"] >= timing.required_repeat("mannwhitney_delta")
+    assert config.default_value("measurement.timing_backend") == "mannwhitney_delta"
+    assert config.default_value("measurement.repeat") >= timing.required_repeat("mannwhitney_delta")
 
 
 def test_the_held_out_cases_rotate_shape_across_the_ladder() -> None:

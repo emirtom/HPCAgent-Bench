@@ -6,6 +6,8 @@ import pathlib
 import subprocess
 import sys
 
+import pytest
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -19,3 +21,7 @@ def test_the_configuration_key_table_matches_the_model() -> None:
         check=False,
     )
     assert checked.returncode == 0, checked.stderr
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))

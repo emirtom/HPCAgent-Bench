@@ -47,7 +47,8 @@ def test_task_toml_validates_against_real_harbor_model(tmp_path: pathlib.Path) -
     # The agent container is environment/docker-compose.yaml, FROM the agent image (no harness);
     # a docker_image here would make Harbor skip it.
     assert cfg.environment.docker_image is None
-    assert f"FROM {A.DEFAULT_AGENT_IMAGE}\n" in (td / "environment" / A.COMPOSE_NAME).read_text()
+    agent_image, judge_image = A.images_for(A.DEFAULT_HARDWARE)
+    assert f"FROM {agent_image}\n" in (td / "environment" / A.COMPOSE_NAME).read_text()
     assert cfg.environment.workdir == "/app"
     from hpcagent_bench.harness.grading import AUTO_BASELINE
 
@@ -57,14 +58,14 @@ def test_task_toml_validates_against_real_harbor_model(tmp_path: pathlib.Path) -
     assert cfg.metadata["commit"] == "abc123"
     # firewall: the verifier grades in a SEPARATE harness image, never the agent's.
     assert cfg.verifier.environment_mode.value == "separate"
-    assert cfg.verifier.environment.docker_image == A.DEFAULT_JUDGE_IMAGE
+    assert cfg.verifier.environment.docker_image == judge_image
     art = cfg.artifacts[0]
     assert art.source == "/app/gemm/submission.c"
     assert art.destination == "gemm/submission.c"
 
 
 def test_images_come_from_config(tmp_path: pathlib.Path) -> None:
-    """Image tags are derived from config.yaml images.<hw>, not hardcoded per task."""
+    """Image tags are derived from config images.<hw>, not hardcoded per task."""
     from hpcagent_bench import config
 
     assert A.images_for("cpu") == (config.get("images.cpu.agent"), config.get("images.cpu.verifier"))

@@ -18,7 +18,7 @@ from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 
-#: Every language the ``build.compiler.*`` pin is declared for in ``config.yaml``.
+#: Every language the ``build.compiler.*`` pin is declared for in the config model.
 PINNED_LANGS = ("c", "cpp", "fortran")
 
 

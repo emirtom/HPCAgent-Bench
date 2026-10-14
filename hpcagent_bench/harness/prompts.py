@@ -1044,9 +1044,7 @@ def build_context(
         "precision_ctypes": PRECISION_CTYPES,
         # The ML track's per-array table and symbol lists (mpi_sizing.aligned_symbols); empty elsewhere.
         "ml_layout": (
-            ml_layout(spec, binding, cfg.mpi.ranks)
-            if is_mpi and torch_reference.has_torch_reference(spec)
-            else {}
+            ml_layout(spec, binding, cfg.mpi.ranks) if is_mpi and torch_reference.has_torch_reference(spec) else {}
         ),
         "rank_block_quantum": mpi_sizing.RANK_BLOCK_QUANTUM,
         # ``mpi.compute_hint``: the local-compute paragraph, on only for the mlscale -gemmhint setups.

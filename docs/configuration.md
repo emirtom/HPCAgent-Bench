@@ -237,7 +237,7 @@ unknown key or a value of the wrong type.
 | `fuzz.xl_lo_mult` | `HPCAGENT_BENCH_FUZZ_XL_LO_MULT` | `float > 0` | `0.5` | Correctness sizes are drawn in [xl_lo_mult, xl_hi_mult] x anchor rung; timed sizes in [(xl_lo_mult + xl_hi_mult) / 2, xl_hi_mult] x anchor rung. |
 | `fuzz.xl_hi_mult` | `HPCAGENT_BENCH_FUZZ_XL_HI_MULT` | `float > 0` | `1.0` | Upper bound of every draw as a multiple of the anchor rung; <= 1.0 keeps draws at or below it. |
 | `fuzz.correctness_size_cap` | `HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP` | `int >= 0` | `1024` | Per-dimension upper bound on correctness draws only; 0 = none. Timed draws are unaffected. |
-| `fuzz.hidden_correctness_presets` | `HPCAGENT_BENCH_FUZZ_HIDDEN_CORRECTNESS_PRESETS` | `list[one of S, M, L, XL]` | `["XL", "M", "M", "L", "S"]` | Preset of held-out case i, positional against hidden_tests.VARIANTS; a preset the kernel does not declare, or an empty list, falls back to the timed preset. |
+| `fuzz.hidden_correctness_presets` | `HPCAGENT_BENCH_FUZZ_HIDDEN_CORRECTNESS_PRESETS` | `list[str]` | `["XL", "M", "M", "L", "S"]` | Preset of held-out case i, positional against hidden_tests.VARIANTS; a preset the kernel does not declare, or an empty list, falls back to the timed preset. |
 | `fuzz.size_distribution` | `HPCAGENT_BENCH_FUZZ_SIZE_DISTRIBUTION` | `one of log_uniform, uniform` | `"log_uniform"` | Distribution of a drawn size within its [lo, hi] range. |
 | `fuzz.data_distribution` | `HPCAGENT_BENCH_FUZZ_DATA_DISTRIBUTION` | `str` | `"uniform"` | Input value distribution of a fuzz draw whose manifest names none (a name registered in support/distributions). |
 | `inputs.noise` | `HPCAGENT_BENCH_INPUTS_NOISE` | `bool` | `false` | true: every float input array is multiplied by 1 + noise_eps * u, u uniform in [-1, 1), after initialization; integer, index, sparse and structural arrays are unchanged. |
@@ -381,9 +381,9 @@ unknown key or a value of the wrong type.
 | `runtime.omp_context_root` | `HPCAGENT_BENCH_RUNTIME_OMP_CONTEXT_ROOT` | `str` | `"/opt/omp"` | Directory of the image's OpenMP contexts, one per toolchain family (omp_context.py). |
 | `runtime.omp_catalog` | `HPCAGENT_BENCH_RUNTIME_OMP_CATALOG` | `str` | `""` | OpenMP runtime catalog file; empty = <omp_context_root>/catalog.json. |
 | `build.ccache` | `HPCAGENT_BENCH_BUILD_CCACHE` | `bool` | `true` | Prefix C and C++ compile steps with ccache when it is on PATH. |
-| `build.compiler.c` | `HPCAGENT_BENCH_BUILD_COMPILER_C` | `one of gcc, llvm, nvhpc \| null` | `null` | Family pin of C. |
-| `build.compiler.cpp` | `HPCAGENT_BENCH_BUILD_COMPILER_CPP` | `one of gcc, llvm, nvhpc \| null` | `null` | Family pin of C++. |
-| `build.compiler.fortran` | `HPCAGENT_BENCH_BUILD_COMPILER_FORTRAN` | `one of gcc, llvm, nvhpc \| null` | `null` | Family pin of Fortran. |
+| `build.compiler.c` | `HPCAGENT_BENCH_BUILD_COMPILER_C` | `str \| null` | `null` | Family pin of C (a languages.COMPILER_FAMILIES key). |
+| `build.compiler.cpp` | `HPCAGENT_BENCH_BUILD_COMPILER_CPP` | `str \| null` | `null` | Family pin of C++ (a languages.COMPILER_FAMILIES key). |
+| `build.compiler.fortran` | `HPCAGENT_BENCH_BUILD_COMPILER_FORTRAN` | `str \| null` | `null` | Family pin of Fortran (a languages.COMPILER_FAMILIES key). |
 | `judge.gpus_per_node` | `HPCAGENT_BENCH_JUDGE_GPUS_PER_NODE` | `int >= 0 \| null` | `null` | GPU slots; null = the local GPU count (judge_scheduler.judge_gpu_slots). |
 | `judge.cpu_slots_per_node` | `HPCAGENT_BENCH_JUDGE_CPU_SLOTS_PER_NODE` | `int >= 0 \| null` | `null` | CPU slots; null = 1 when the judge has no GPU slot, else 0. |
 | `agent.workers` | `HPCAGENT_BENCH_AGENT_WORKERS` | `int > 0 \| null` | `null` | Concurrent agent workers; null = max(len(vllm_urls), len(judge_urls), 1). |

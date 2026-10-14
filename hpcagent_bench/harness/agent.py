@@ -164,6 +164,7 @@ def budget_tokens(budget: object, default: int) -> int:
 #: numpy reference. The same spelling ``helpers/scripts/checks/check_reference_naming.py`` enforces.
 REF_SUFFIX = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
 
+
 def prefer_committed_reference() -> bool:
     """Whether a committed hand-written reference outranks the NumpyToX emit for this process."""
     return config.current().references.prefer_committed

@@ -101,6 +101,7 @@ dependencies = [
     "anthropic",
     "transformers",
     "accelerate",
+    # The configuration model (hpcagent_bench/config.py) and its HPCAGENT_BENCH_* environment layer.
     "pydantic>=2.11",
     "pydantic-settings>=2.10",
 ]

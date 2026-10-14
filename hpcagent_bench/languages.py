@@ -2002,6 +2002,7 @@ VECT_UNLIMITED_REFS: Mapping[str, str] = types.MappingProxyType(
     {"gcc": "GCC_VECT_UNLIMITED", "llvm": "CLANG_VECT_UNLIMITED"}
 )
 
+
 def vect_cost_model() -> str:
     """``perf_reports.vect_cost_model``, read on every call."""
     return config.current().perf_reports.vect_cost_model

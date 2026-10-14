@@ -7,7 +7,8 @@ import pathlib
 import re
 import subprocess
 import sys
-from typing import Any, get_args
+from collections.abc import Callable
+from typing import get_args
 
 import pydantic
 import pytest
@@ -54,7 +55,9 @@ def test_a_text_key_gets_the_env_text_unchanged(monkeypatch: pytest.MonkeyPatch,
     assert config.current().record.commit == sha
 
 
-@pytest.mark.parametrize(("text", "want"), [("off", False), ("no", False), ("False ", False), ("on", True), ("1", True)])
+@pytest.mark.parametrize(
+    ("text", "want"), [("off", False), ("no", False), ("False ", False), ("on", True), ("1", True)]
+)
 def test_a_flag_reads_every_boolean_spelling(monkeypatch: pytest.MonkeyPatch, text: str, want: bool) -> None:
     """``off`` and ``no`` are false; read by truthiness they were true."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_ENABLED", text)
@@ -97,9 +100,7 @@ def test_an_out_of_range_value_names_its_variable(monkeypatch: pytest.MonkeyPatc
 # unknown keys
 
 
-@pytest.mark.parametrize(
-    "name", ["HPCAGENT_BENCH_MEASUREMENT_REPEATS", "HPCAGENT_BENCH_TIMEOUTS_KERNEL_S_BY_LEVEL_1"]
-)
+@pytest.mark.parametrize("name", ["HPCAGENT_BENCH_MEASUREMENT_REPEATS", "HPCAGENT_BENCH_TIMEOUTS_KERNEL_S_BY_LEVEL_1"])
 def test_an_env_name_under_a_section_that_is_no_key_is_an_error(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     """A typo, or a per-entry name of a map read whole, used to have no effect and no error."""
     monkeypatch.setenv(name, "5")
@@ -130,13 +131,11 @@ def test_get_of_an_unknown_key_raises() -> None:
 
 def test_every_env_name_in_the_repository_is_a_key_or_listed_as_non_config() -> None:
     """A launcher or layer that exports a name the model does not know would stop every config read."""
-    tracked = subprocess.run(
-        ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout.split()
+    tracked = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
     names: set[str] = set()
     for relative in tracked:
         path = REPO / relative
-        if relative.startswith("third_party/") or not path.is_file():
+        if relative.startswith("third_party/") or path == pathlib.Path(__file__).resolve() or not path.is_file():
             continue
         try:
             names |= set(re.findall(r"HPCAGENT_BENCH_[A-Z0-9_]*[A-Z0-9]\b", path.read_text(encoding="utf-8")))
@@ -205,7 +204,7 @@ def test_harbor_images_follow_an_override_made_after_import() -> None:
         (lambda: config.current().runtime.backend, "oci"),
     ],
 )
-def test_a_reader_without_an_override_returns_the_model_default(read: Any, want: object) -> None:
+def test_a_reader_without_an_override_returns_the_model_default(read: Callable[[], object], want: object) -> None:
     """Every reader used to carry its own fallback; several disagreed with config.yaml (repeat 50, guillotine
     off, quiescence gates off, launch timeout 1800 s)."""
     assert read() == want
@@ -285,7 +284,6 @@ def test_the_seal_hides_the_configured_generated_reference_cache(tmp_path: pathl
         ("prompt.strategy", set(prompts.STRATEGIES)),
         ("record.device", {member.value for member in recording.RecordDevice}),
         ("cache.disk_results_tracks", {member.value for member in spec.Track}),
-        ("build.compiler.c", set(languages.COMPILER_FAMILIES)),
         ("agent.execution", {member.value for member in Execution}),
         ("mpi.mode", {member.value for member in ScalingLaw}),
         ("mpi.residency", {member.value for member in Location}),
@@ -328,3 +326,7 @@ def test_an_env_overlay_reaches_readers_and_the_docs_are_current(monkeypatch: py
         check=False,
     )
     assert checked.returncode == 0, checked.stderr
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))
