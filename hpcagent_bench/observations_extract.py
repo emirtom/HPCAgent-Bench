@@ -452,12 +452,14 @@ def final_outcome(task: dict[str, Any], tally: CellTally | None) -> tuple[str, s
     input the judge failed to grade (a harness fault) says nothing about the submission, so a task
     with one and no wrong input is an error, not unsolved -- and so is an input whose ratio is a
     min-of-k fallback (no Mann-Whitney ran: :data:`CELL_TALLY`). A task row the pass could not grade
-    at all (``status`` error) is an error too, and so is one whose cell rows do not add up. A task no
+    at all (``status`` error) is an error too, and so is one with no cell rows. Nothing records how
+    many inputs a final grade owed, so one whose pass wrote fewer cell rows than its protocol's m
+    inputs is decided over the cells it wrote. A task no
     input of which produced a measurement (:data:`NO_MEASUREMENT_REASON`: the per-run time limit, a
     crash) is unsolved, like an incorrect one. Credit is
     ``s_i`` alone: ``s_bar`` holds the geomean even for an unsolved task and ``gated`` means nothing
     under this rule, so neither is read here."""
-    if tally is None or tally.cells != int(task.get("n_cells") or 0):
+    if tally is None:
         return ERRORED, str(task.get("reason") or "mw4x5: cell rows missing")
     if task.get("status") != "graded" and (tally.measured or tally.faulted or not tally.cells):
         return ERRORED, str(task.get("reason") or "mw4x5: not graded")
@@ -1065,7 +1067,7 @@ def final_episodes(
     conn: sqlite3.Connection, path: str
 ) -> Iterator[tuple[RegradeKey, dict[str, Any], CellTally | None]]:
     """Every final grade of one results DB as ``(key, task, tally)``: the task in the terms
-    :func:`final_outcome` reads (``s_i`` the grade's reported S_i, ``n_cells`` / ``n_credited`` its
+    :func:`final_outcome` reads (``s_i`` the grade's reported S_i, ``n_credited`` its credited
     inputs), with its cells under ``cells``."""
     tallies = {int(row[0]): CellTally(*(int(v or 0) for v in row[1:])) for row in conn.execute(CELL_TALLY)}
     cells: dict[int, list[dict[str, Any]]] = collections.defaultdict(list)
@@ -1079,7 +1081,6 @@ def final_episodes(
             "db": path,
             "kernel": row["original_benchmark"],
             "s_i": row["speedup"],
-            "n_cells": tally.cells if tally is not None else 0,
             "n_credited": credited_cells(cells[grade]),
             "regrade_ts": row["ts_ms"],
             "cells": [{**cell, "kernel": row["original_benchmark"]} for cell in cells[grade]],
