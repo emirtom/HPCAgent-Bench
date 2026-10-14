@@ -318,9 +318,10 @@ def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_t
     assert instructions.startswith(agent_tools.mcp_server.MCP_HEAD), (
         "the server names its tools as the client lists them"
     )
-    assert instructions == agent_tools.mcp_server.prompt_tool_list(), (
-        "the server instructions are the prompt's tool list"
+    assert instructions == agent_tools.mcp_server.server_instructions(), (
+        "the server instructions are the prompt's tool list, mode slot filled"
     )
+    assert "{{" not in instructions, "a raw template slot reaches the agent"
     listed = agent_tools.mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
     assert list(tools) == list(agent_tools.mcp_server.TOOLS)

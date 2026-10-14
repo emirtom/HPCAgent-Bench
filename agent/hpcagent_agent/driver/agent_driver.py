@@ -1182,8 +1182,7 @@ def build_list_status_text() -> str:
 
 #: A prompt slot the submission mode fills: ``{{MODE:<section>}}``, one per ``@@section <section>@@`` of the
 #: mode's template (``agent/submission-<mode>.md``).
-MODE_SLOT = re.compile(r"\{\{MODE:([a-z_]+)\}\}")
-MODE_SECTION = re.compile(r"^@@section ([a-z_]+)@@\n", re.MULTILINE)
+MODE_SLOT = submission_mode.SLOT
 
 
 def mode_sections(mode: submission_mode.SubmissionMode | None = None) -> dict[str, str]:
@@ -1191,20 +1190,12 @@ def mode_sections(mode: submission_mode.SubmissionMode | None = None) -> dict[st
     launch staged one, else the agent payload's."""
     mode = submission_mode.current() if mode is None else mode
     staged = resolve_shared_file(mode.template)
-    path = staged if staged.is_file() else agent_runtime() / mode.template
-    parts = MODE_SECTION.split(path.read_text(encoding="utf-8"))
-    if parts[0].strip():
-        raise SystemExit(f"{path}: text before the first @@section line")
-    return {name: body.strip("\n") for name, body in zip(parts[1::2], parts[2::2], strict=True)}
+    return submission_mode.template_sections(staged if staged.is_file() else agent_runtime() / mode.template)
 
 
 def fill_mode_slots(prompt: str) -> str:
     """``prompt`` with every ``{{MODE:<section>}}`` slot filled; a slot the mode's template lacks stops the launch."""
-    sections = mode_sections()
-    missing = sorted({name for name in MODE_SLOT.findall(prompt) if name not in sections})
-    if missing:
-        raise SystemExit(f"{submission_mode.current().template} has no section for the prompt slots {missing}")
-    return MODE_SLOT.sub(lambda match: sections[match.group(1)], prompt)
+    return submission_mode.fill_slots(prompt, mode_sections(), submission_mode.current().template)
 
 
 def resolve_shared_file(path: str) -> pathlib.Path:
