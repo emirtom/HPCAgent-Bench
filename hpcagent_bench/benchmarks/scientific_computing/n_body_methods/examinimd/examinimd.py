@@ -27,14 +27,11 @@ from hpcagent_bench.support.counter_generator import CounterGenerator
 from hpcagent_bench.support import exact_math
 
 
-_FCC_BASIS = np.array(
-    (
-        (0.0, 0.0, 0.0),
-        (0.0, 0.5, 0.5),
-        (0.5, 0.0, 0.5),
-        (0.5, 0.5, 0.0),
-    ),
-    dtype=FLOAT_DTYPE,
+_FCC_BASIS = (
+    (0.0, 0.0, 0.0),
+    (0.0, 0.5, 0.5),
+    (0.5, 0.0, 0.5),
+    (0.5, 0.5, 0.0),
 )
 
 
@@ -64,8 +61,8 @@ def lj_coefficients(
     if sigma <= 0.0 or cutoff <= 0.0:
         raise ValueError("sigma and cutoff must be positive")
 
-    lj1_value = 48.0 * float(epsilon) * float(sigma) ** 12
-    lj2_value = 24.0 * float(epsilon) * float(sigma) ** 6
+    lj1_value = 48.0 * float(epsilon) * math.pow(float(sigma), 12)
+    lj2_value = 24.0 * float(epsilon) * math.pow(float(sigma), 6)
     cutsq_value = float(cutoff) * float(cutoff)
     shape = (int(ntypes), int(ntypes))
     return (
@@ -91,7 +88,9 @@ def generate_fcc_lattice(
     n_atoms = 4 * cells[0] * cells[1] * cells[2]
     # Cell origins in (ix, iy, iz) C order, then the four basis sites per cell.
     origins = xp.indices(cells, dtype=FLOAT_DTYPE).reshape(3, -1).T
-    x = ((origins[:, None, :] + xp.asarray(_FCC_BASIS)[None, :, :]) * lattice_spacing).reshape(n_atoms, 3)
+    x = ((origins[:, None, :] + xp.asarray(_FCC_BASIS, dtype=FLOAT_DTYPE)[None, :, :]) * lattice_spacing).reshape(
+        n_atoms, 3
+    )
 
     return xp.ascontiguousarray(x), xp.ascontiguousarray(box, dtype=FLOAT_DTYPE)
 
@@ -143,7 +142,7 @@ def build_full_neighbor_list(
     neigh_counts = xp.bincount(pair_row, minlength=n_local).astype(INDEX_DTYPE)
     max_neighs = max(int(neigh_counts.max()), 1)
     neigh_list = xp.full((n_local, max_neighs), -1, dtype=INDEX_DTYPE, order="C")
-    first = np.cumsum(neigh_counts, dtype=np.int64) - neigh_counts
+    first = exact_math.cumsum(neigh_counts.astype(np.int64), xp=xp) - neigh_counts
     neigh_list[pair_row, xp.arange(pair_row.size) - first[pair_row]] = pair_col
 
     return neigh_counts, neigh_list

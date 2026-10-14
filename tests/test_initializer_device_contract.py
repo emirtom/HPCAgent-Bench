@@ -47,6 +47,16 @@ NUMPY_ALLOWED = frozenset({
     "uint8", "generic", "floating", "integer", "number", "bool",
 })  # fmt: skip
 ARRAY_MODULES = frozenset({"np", "xp", "numpy"})
+#: Functions of a numpy reference module an initializer may still call, each for its stated reason (a reference module
+#: ships verbatim and self-contained, so a helper it shares cannot move beside ``initialize``). A ``validate_*``
+#: function is always allowed: it checks host arrays and runs only when ``xp`` is numpy.
+HOST_HELPERS = {
+    ("xsbench", "_build_material_data"): "a dozen materials' nuclide lists: small host integers, moved by xp.asarray",
+    (
+        "xsbench",
+        "_production_index_grid",
+    ): "the scalar walk for a repeated grid energy, which continuous draws never make",
+}
 
 
 def initializer_modules() -> dict[str, pathlib.Path]:
@@ -98,6 +108,8 @@ def violations(path: pathlib.Path) -> list[str]:
                     f"{node.lineno}: {alias.name} from a numpy reference module (move the input code beside initialize)"
                     for alias in node.names
                     if callable_in(module or "", alias.name)
+                    and not alias.name.startswith("validate_")
+                    and (path.stem, alias.name) not in HOST_HELPERS
                 )
     if not takes_xp:
         found.append("initialize() takes no xp")

@@ -67,7 +67,7 @@ def make_coulomb_force_table(table_size, cutoff, table_strength=0.15, datatype=n
 
 def _cluster_grid_dimensions(n_clusters):
     """Host scalars: the same on every array module."""
-    nx = math.ceil(n_clusters ** (1.0 / 3.0))
+    nx = math.ceil(math.pow(n_clusters, 1.0 / 3.0))
     ny = math.ceil(math.sqrt(max(1, n_clusters / nx)))
     nz = math.ceil(n_clusters / (nx * ny))
     return nx, ny, nz
