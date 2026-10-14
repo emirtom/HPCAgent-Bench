@@ -761,7 +761,7 @@ def check_launch_env() -> None:
     if wrong:
         raise OpenMPLaunchEnvError(
             f"this process was launched without the OpenMP environment grading needs: {'; '.join(wrong)}. "
-            f"Launch it with {flags.openmp_launch_env()} and `ulimit -s unlimited` "
+            f'Launch it with {flags.openmp_launch_env()} and `ulimit -s "$(ulimit -H -s)"` '
             f"(hpcagent_bench.flags.openmp_launch_env): the OpenMP runtimes read them once, when numpy loads, so "
             f"setting them in the process is too late"
         )
