@@ -1372,12 +1372,19 @@ def _call_native_impl(
                     c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(buf)))
                 else:
                     c_args.append(scalar_cast[a.name](src[a.name]))
-        c_args.append(ws_arg)
-        c_args.append(ws_bytes)
+            call_ws, call_ws_bytes, call_ws_arg = ws, ws_bytes, ws_arg
+            if is_followup:
+                # A held-out case has sizes of its own: its scratch request is resolved on them (Sec. 11).
+                call_ws_bytes = workspace_bytes_of(workspace_bytes, binding, src)
+                if call_ws_bytes != ws_bytes:
+                    call_ws = alloc_workspace(call_ws_bytes, xp)
+                    call_ws_arg = ffi.cast(WORKSPACE_PTYPE, scratch_ptr(call_ws))
+        c_args.append(call_ws_arg)
+        c_args.append(call_ws_bytes)
 
         # Scratch is zeroed per rep (untimed) so a kernel cannot memoize through it.
-        if ws is not None:
-            ws[...] = 0
+        if call_ws is not None:
+            call_ws[...] = 0
 
         # Every requested array is cast in: the ABI declares outputs intent(inout), so one may be read.
         convert_in_ns = timed_conversions(list(staged.values()), convert, inward=True)
