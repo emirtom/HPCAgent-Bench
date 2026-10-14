@@ -3,11 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """What one episode COST, under assumptions that are stated rather than implied.
 
-Standard library only, and imports nothing from the package: ``agent/hpcagent_agent/driver/token_cost.py`` is a
-symlink to this file, and ``run_cluster.sh`` copies it beside ``agent_driver.py`` into the agent
-step's launch directory, where ``hpcagent_bench`` is not importable. The package imports it as
-``hpcagent_bench.token_cost``; the driver loads the copy beside itself. One implementation, two
-loaders.
+Standard library only, and imports nothing from ``hpcagent_bench``: the agent step runs where that
+package is not importable. One module, ``hpcagent_agent.driver.token_cost``, imported by the driver
+and by the analysis (``docs/token_accounting.md``) alike.
 
 The single ``tokens`` number the harness records is the sum of every usage field over every turn,
 and it is wrong twice, in opposite directions:

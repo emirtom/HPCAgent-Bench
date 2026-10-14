@@ -37,24 +37,15 @@ while (($#)); do
     esac
 done
 
-# What run_cluster.sh sets per step and the agent verb only checks (native_call.check_launch_env): the main
-# thread's stack at its hard limit and a thread limit of the cores this step owns.
-step='ulimit -s "$(ulimit -H -s)"
-export OMP_THREAD_LIMIT="$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc)"
-exec "${AGENT_PYTHON:-${HPCAGENT_BENCH_IMAGE_PYTHON:?no image python}}" -m hpcagent_bench agent "$@"'
+# The agent verb, unlike `job`, does not relaunch itself under the launch environment it checks
+# (native_call.check_launch_env): job_step.sh's step raises the main thread's stack to its hard limit and sets the
+# thread limit to the cores the step owns.
 cpus="${SLURM_CPUS_PER_TASK:?no --cpus-per-task: name the cores the task grades on}"
 repo=${HPCAGENT_BENCH_REPO:-$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel)}
 . "${repo}/hpcagent_bench/cluster/env.sh"
-
-if [[ -z "${JUDGE_EDF:-}" ]]; then
-    srun --ntasks=1 --cpus-per-task="${cpus}" --mem=0 \
-        env AGENT_PYTHON="${HPCAGENT_BENCH_PYTHON:-python3}" bash -c "${step}" _ "${args[@]}"
-    exit
+. "${repo}/hpcagent_bench/cluster/job_step.sh"
+if [[ -n "${JUDGE_EDF:-}" ]]; then
+    job_step_judge_edf "${HPCAGENT_BENCH_SCRATCH}/optimizer-${SLURM_JOB_ID}.edf.toml" || exit 2
+    JOB_STEP_ENV=(SCRATCH="${SCRATCH:-}" HPCAGENT_BENCH_REPO="${repo}")
 fi
-. "${repo}/hpcagent_bench/cluster/container_runtime.sh"
-mkdir -p "${HPCAGENT_BENCH_SCRATCH}"
-edf="${HPCAGENT_BENCH_SCRATCH}/optimizer-${SLURM_JOB_ID}.edf.toml"
-edf_with_checkout "${JUDGE_EDF}" "${repo}" "${edf}" || exit 2
-trap 'rm -f "${edf}"' EXIT
-srun --ntasks=1 --cpus-per-task="${cpus}" --mem=0 --environment="${edf}" \
-    env -u AGENT_PYTHON SCRATCH="${SCRATCH:-}" HPCAGENT_BENCH_REPO="${repo}" bash -c "${step}" _ "${args[@]}"
+job_step --ntasks=1 --cpus-per-task="${cpus}" --mem=0 -- agent "${args[@]}"

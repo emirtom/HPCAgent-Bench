@@ -82,6 +82,8 @@ OBSERVATION_FIELDS: tuple[str, ...] = (
     "grade_final_source",
     # the machine the row was timed on (population.PLATFORM_COLUMN)
     "platform",
+    # the live grade's reason for a verdict the final grade decided (observations_extract.LIVE_REASON_COLUMN)
+    "grade_live_reason",
 )
 
 SOURCE_FIELDS: tuple[str, ...] = (

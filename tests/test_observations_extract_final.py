@@ -291,30 +291,81 @@ def test_the_newest_measurement_wins_and_a_later_fault_never_discards_one(tmp_pa
         assert (row["speedup"], row["grade_final_status"]) == (pytest.approx(4.0), "graded"), order
 
 
-@pytest.mark.parametrize(("verified", "record"), [(1, "submission"), (0, "attempt")])
+@pytest.mark.parametrize(("verified", "live_reason"), [(1, ""), (0, "size_class_sweep: overfit")])
 def test_a_promotion_is_verified_by_its_run_row_and_timed_by_its_cells_row(
-    tmp_path: pathlib.Path, verified: int, record: str
+    tmp_path: pathlib.Path, verified: int, live_reason: str
 ) -> None:
-    """A promotion had no graded submission: the run-mode regrade decides whether it verifies (the
-    per-cell pass never re-verifies), and the mw4x5 row then sets its speedup. One that
-    failed verification stays unsolved and its re-timing matches nothing, which is counted."""
+    """A promotion had no graded submission: the run-mode regrade decides whether it verifies, and the
+    mw4x5 row then decides it. A final re-timing that passed is credited either way -- one that failed
+    run-mode verification keeps that verdict only as its live reason -- and nothing is unmatched."""
     promotion_verdict(tmp_path / "promote", item(tmp_path, 20, "score"), verified)
     cells_pass(tmp_path / "promote-v5-cells", item(tmp_path, 20, "score"), grading(3.0, 3.0, 3.0, 3.0), regrade_ts=1)
     call = {**submission(12, 0.5), "row_kind": "call", "optimizer": "qwen"}
     by_ts, counts, promotions = extracted([call], str(tmp_path / "promote"), str(tmp_path / "promote-v5-cells"))
     row = by_ts[20]
-    assert (row["row_kind"], row["optimizer"]) == (record, extract.PROMOTED_TAG)
+    assert (row["row_kind"], row["optimizer"]) == ("submission", extract.PROMOTED_TAG)
     assert promotions["promoted" if verified else "promotion_failed"] == 1
-    if verified:
-        assert (row["speedup"], row["timing_reduction"], row["grade_final_status"]) == (
-            pytest.approx(3.0),
-            FINAL,
-            "graded",
-        )
-        assert counts["replaced"] == 1
-    else:
-        assert (row["speedup"], row.get("grade_final_status", "")) == ("", "")
-        assert counts["unmatched"] == 1
+    assert (row["speedup"], row["timing_reduction"], row["grade_final_status"]) == (pytest.approx(3.0), FINAL, "graded")
+    assert (row["reason"], row[extract.LIVE_REASON_COLUMN]) == ("", live_reason)
+    assert (counts["replaced"], counts["unmatched"]) == (1, 0)
+
+
+def refused(ts: int, reason: str = "sanitizers: AddressSanitizer: SEGV on unknown address") -> dict[str, Any]:
+    """The ``attempt`` row of a correct answer a live gate refused: no speedup, the gate's reason."""
+    return submission(ts) | {"row_kind": "attempt", "speedup": "", "reason": reason}
+
+
+def test_a_refused_answer_whose_final_re_timing_passed_is_a_credited_submission(tmp_path: pathlib.Path) -> None:
+    """The solver14 qwen38 sptrsv_level case: the live sanitizer gate refused a correct answer, the
+    grade-under worklist re-timed it and the final grade credited it. The final decides the row, so it is a
+    submission at S_i, and the sanitizer's verdict stays auditable as its live reason."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading(2.0, 2.0, 2.0, 2.0), regrade_ts=1)
+    by_ts, counts, _ = extracted([refused(10)], str(tmp_path / "v5"))
+    row = by_ts[10]
+    assert (row["row_kind"], row["speedup"], row["grade_final_status"]) == ("submission", pytest.approx(2.0), "graded")
+    assert (row["reason"], row[extract.LIVE_REASON_COLUMN]) == ("", refused(10)["reason"])
+    assert (counts["replaced"], counts["unmatched"], counts["not_retimed"]) == (1, 0, 0)
+
+
+def test_a_refused_answer_the_final_grade_leaves_unsolved_is_a_graded_loss(tmp_path: pathlib.Path) -> None:
+    """Graded unsolved, the refused answer stays an attempt, now flagged ``unsolved``: a valid answer
+    (``population.valid_submission_rows``), never an unmatched final."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading(2.0, "wrong", 2.0, 2.0), regrade_ts=1)
+    by_ts, counts, _ = extracted([refused(10, "timeout")], str(tmp_path / "v5"))
+    row = by_ts[10]
+    assert (row["row_kind"], row["speedup"], row["grade_final_status"]) == ("attempt", "", "unsolved")
+    assert (row[extract.LIVE_REASON_COLUMN], counts["unsolved"], counts["unmatched"]) == ("timeout", 1, 0)
+
+
+def test_a_refused_answer_whose_final_re_timing_the_judge_failed_keeps_its_live_verdict(tmp_path: pathlib.Path) -> None:
+    """A judge fault in the final pass decided nothing: the attempt stays the attempt it was, with its
+    live reason (a judge fault stays one, never read as a refusal), flagged ``error`` and counted."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading(2.0, "fault", 2.0, 2.0), regrade_ts=1)
+    by_ts, counts, _ = extracted([refused(10, "score_error")], str(tmp_path / "v5"))
+    row = by_ts[10]
+    assert (row["row_kind"], row["speedup"], row["grade_final_status"]) == ("attempt", "", "error")
+    assert (row["reason"], row[extract.LIVE_REASON_COLUMN]) == ("score_error", "score_error")
+    assert (counts["errored"], counts["unmatched"]) == (1, 0)
+
+
+def test_a_credited_final_grade_no_row_matched_is_named_on_stderr(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A credited final no verdict row matched is an answer the plot loses: named, not only counted."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading(2.0, 2.0, 2.0, 2.0), regrade_ts=1)
+    _, counts, _ = extracted([submission(20)], str(tmp_path / "v5"))
+    assert counts["unmatched"] == 1
+    assert "a credited final grade matched no verdict row" in capsys.readouterr().err
+
+
+def test_a_gh200_re_timing_of_a_refused_answer_is_a_platform_row(tmp_path: pathlib.Path) -> None:
+    cells_pass(tmp_path / "daint", item(tmp_path, 10), grading(8.0, 8.0, 8.0, 8.0), regrade_ts=1)
+    final = extract.load_final_regrades(extract.regrade_files([str(tmp_path / "daint")]))
+    rows, counts = extract.platform_rows([refused(10)], final, "gh200")
+    assert [(row["row_kind"], row["speedup"], row["platform"]) for row in rows] == [
+        ("submission", pytest.approx(8.0), "gh200")
+    ]
+    assert counts["unmatched"] == 0
 
 
 def test_main_extracts_the_final_grade_and_reports_the_counts(

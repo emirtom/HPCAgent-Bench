@@ -225,6 +225,8 @@ def launch(
     fault_file = Path(outfile).with_name(Path(outfile).name + ".launch-fault")
     fault_file.unlink(missing_ok=True)
     launch_env[mpi_gang.LAUNCH_FAULT_ENV] = str(fault_file)
+    # The gang launcher bounds its step and relay wait by this launch's own budget, not the per-draw one.
+    launch_env[mpi_gang.LAUNCH_TIMEOUT_ENV] = repr(float(timeout))
     # start_new_session: SIGKILL the whole process group on timeout, not just the launcher
     # errors="replace": a kernel may emit non-UTF8 stderr; a strict decode would crash the runner
     proc = subprocess.Popen(

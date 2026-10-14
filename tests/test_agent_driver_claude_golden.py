@@ -84,7 +84,7 @@ def test_the_token_budget_trips_after_the_same_transcript_line(budget: int, tmp_
 
 @pytest.mark.parametrize("log_name", capture.LOG_NAMES)
 def test_a_recorded_ending_is_classified_as_before(log_name: str, tmp_path: pathlib.Path) -> None:
-    """result_event, final_result, context_overflow, api_timeout and crashed() for every exit code."""
+    """result_event, final_result, context_overflow, api_timeout and closing_crashed() for every exit code."""
     got = capture.classify(DRIVER, tmp_path, log_name)
     assert got == golden("closings")["classification"][log_name]
 

@@ -589,6 +589,6 @@ def test_no_treatment_hints_file_is_staged_for_every_setup(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A control setup must not be handed treatment material. The caveman skill page was copied to
-    <shared>/caveman.md on EVERY setup although no setup's AGENT_HINTS_FILE names it, and control agents
+    <shared>/caveman.md on EVERY setup although no setup names it, and control agents
     that listed /shared read it (8 of 120 git-scicomp control transcripts)."""
     assert "caveman" not in (REPO / "hpcagent_bench" / "cluster" / "materialize_shared.sh").read_text()

@@ -450,7 +450,7 @@ OFFLOAD_RESIDENCY_ENV = "HPCAGENT_BENCH_OFFLOAD_RESIDENCY"
 
 def offload_device_residency() -> bool:
     """Whether THIS offload setup grades device-resident (:data:`OFFLOAD_RESIDENCY_ENV`)."""
-    return os.environ.get(OFFLOAD_RESIDENCY_ENV, "").strip() == "device"
+    return (config.env_value(OFFLOAD_RESIDENCY_ENV) or "").strip() == "device"
 
 
 #: The two memory models an offload setup can be scored under. They are different EXPERIMENTS, not a
@@ -475,7 +475,7 @@ XNACK_SUFFIX: dict[str, str] = {"explicit": "xnack-", "unified": "xnack+"}
 
 def offload_model() -> str:
     """The offload model this setup declares, or ``""`` when it is a plain host setup."""
-    model = os.environ.get(OFFLOAD_MODEL_ENV, "").strip()
+    model = (config.env_value(OFFLOAD_MODEL_ENV) or "").strip()
     if model and model not in OFFLOAD_MODELS:
         raise KeyError(f"unknown offload model {model!r} from {OFFLOAD_MODEL_ENV}; expected one of {OFFLOAD_MODELS}")
     return model
@@ -483,7 +483,7 @@ def offload_model() -> str:
 
 def offload_memory_mode() -> str:
     """The setup's memory model; ``explicit`` unless it asked for ``unified``."""
-    mode = os.environ.get(OFFLOAD_MEMORY_ENV, "").strip() or "explicit"
+    mode = (config.env_value(OFFLOAD_MEMORY_ENV) or "").strip() or "explicit"
     if mode not in OFFLOAD_MEMORY_MODES:
         raise KeyError(
             f"unknown memory mode {mode!r} from {OFFLOAD_MEMORY_ENV}; expected one of {OFFLOAD_MEMORY_MODES}"
@@ -563,7 +563,7 @@ PYTHON_DEVICE_LANGUAGE: str = "triton-device"
 
 def python_device_setup() -> bool:
     """Whether THIS setup grades its python delivery device-resident (:data:`PYTHON_DEVICE_ENV`)."""
-    return os.environ.get(PYTHON_DEVICE_ENV, "").strip() not in ("", "0")
+    return (config.env_value(PYTHON_DEVICE_ENV) or "").strip() not in ("", "0")
 
 
 def offload_runtime_env(vendor: str = "amd") -> dict[str, str]:
