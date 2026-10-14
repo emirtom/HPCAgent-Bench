@@ -61,7 +61,6 @@ __all__ = [
     "env_value",
     "environment",
     "get",
-    "keys",
     "overridden",
     "override_snapshot",
     "parse_env",
@@ -806,11 +805,6 @@ def get(dotted: str) -> object:
             raise KeyError(f"unknown config key {dotted!r}")
         node = getattr(node, part)
     return node.model_dump() if isinstance(node, BaseModel) else node
-
-
-def keys() -> tuple[str, ...]:
-    """Every leaf key, dotted, in declaration order."""
-    return tuple(FIELDS)
 
 
 def default_value(dotted: str) -> object:
