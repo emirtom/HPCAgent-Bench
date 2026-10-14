@@ -17,7 +17,7 @@ from typing import Any, Self
 import pydantic
 
 from hpcagent_bench import languages
-from hpcagent_bench.harness.requests_api import Requests
+from hpcagent_bench.harness.requests_api import Requests, RequestsField
 from hpcagent_bench.support.bindings.stubs import LANGS
 
 __all__ = [
@@ -44,7 +44,7 @@ def extract_json_object(text: str) -> dict[str, Any]:
 class Submission(pydantic.BaseModel):
     """One agent answer for a task. An unknown field is refused."""
 
-    model_config = pydantic.ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = pydantic.ConfigDict(extra="forbid")
 
     language: str
     source: str | None = None  # restricted mode: the source text
@@ -69,8 +69,9 @@ class Submission(pydantic.BaseModel):
     #: Cumulative tokens spent when this attempt was submitted; None until stamped.
     tokens: int | None = None
     #: What the submission asks the judge to change about its data and build: catalog libraries,
-    #: per-array precision, MPI grid + layout, residency, sparse formats (docs/requests_api.md).
-    requests: Requests = pydantic.Field(default_factory=Requests)
+    #: per-array precision, MPI grid + layout, residency, sparse formats (docs/requests_api.md). Read, written
+    #: and described by relayout's pydantic models (:data:`RequestsField`); the empty request is left out.
+    requests: RequestsField = pydantic.Field(default_factory=Requests, exclude_if=Requests.asks_nothing)
     #: Requested toolchain FAMILY (``languages.COMPILER_FAMILIES``), not a ``compilers.yaml`` block
     #: name; None asks for nothing and builds with the setup's pin or the default family.
     compiler: str | None = None
@@ -80,12 +81,6 @@ class Submission(pydantic.BaseModel):
     def workspace_text(cls, raw: object) -> object:
         """A bare int request as its text, so every builder forwards one form (ABI Sec. 11)."""
         return str(raw) if isinstance(raw, int) and not isinstance(raw, bool) else raw
-
-    @pydantic.field_validator("requests", mode="before")
-    @classmethod
-    def parse_requests(cls, raw: object) -> object:
-        """The ``requests`` JSON object (None = no requests) as :class:`Requests`."""
-        return raw if isinstance(raw, Requests) else Requests.from_obj(raw)
 
     @pydantic.model_validator(mode="after")
     def check_delivery(self) -> Self:
@@ -156,11 +151,7 @@ class Submission(pydantic.BaseModel):
 
     def to_json(self) -> dict[str, Any]:
         """The envelope as JSON: the fields that are set, ``requests`` only when it asks for something."""
-        out = self.model_dump(exclude_none=True, exclude={"requests"})
-        requests = self.requests.to_json()
-        if requests:
-            out["requests"] = requests
-        return out
+        return self.model_dump(mode="json", exclude_none=True)
 
     @classmethod
     def from_obj(cls, obj: object) -> "Submission":

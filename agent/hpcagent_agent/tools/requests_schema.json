@@ -13,9 +13,11 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "to": {
+        "description": "The element types a ``cast`` may ask for.",
         "enum": [
          "fp64",
          "fp32",
@@ -23,7 +25,9 @@
          "bf16",
          "fp8_e4m3",
          "fp8_e5m2"
-        ]
+        ],
+        "title": "Precision",
+        "type": "string"
        }
       },
       "required": [
@@ -42,10 +46,11 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "to": {
-        "minLength": 1,
+        "title": "To",
         "type": "string"
        }
       },
@@ -65,18 +70,27 @@
        },
        "arrays": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "minItems": 2,
+        "title": "Arrays",
         "type": "array"
        },
        "dim": {
-        "minimum": 0,
-        "type": "integer"
+        "anyOf": [
+         {
+          "minimum": 0,
+          "type": "integer"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Dim"
        },
        "into": {
         "minLength": 1,
+        "title": "Into",
         "type": "string"
        }
       },
@@ -96,18 +110,27 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "dim": {
-        "minimum": 0,
-        "type": "integer"
+        "anyOf": [
+         {
+          "minimum": 0,
+          "type": "integer"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Dim"
        },
        "into": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "minItems": 2,
+        "title": "Into",
         "type": "array"
        }
       },
@@ -127,13 +150,15 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digit": {
-        "minLength": 1,
+        "title": "Digit",
         "type": "string"
        },
        "factor": {
+        "title": "Factor",
         "type": [
          "integer",
          "string"
@@ -141,11 +166,9 @@
        },
        "into": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "maxItems": 2,
-        "minItems": 2,
+        "title": "Into",
         "type": "array"
        }
       },
@@ -167,25 +190,25 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digits": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "maxItems": 2,
-        "minItems": 2,
+        "title": "Digits",
         "type": "array"
        },
        "factor": {
+        "title": "Factor",
         "type": [
          "integer",
          "string"
         ]
        },
        "into": {
-        "minLength": 1,
+        "title": "Into",
         "type": "string"
        }
       },
@@ -207,22 +230,22 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digit": {
-        "minLength": 1,
+        "title": "Digit",
         "type": "string"
        },
        "into": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "maxItems": 2,
-        "minItems": 2,
+        "title": "Into",
         "type": "array"
        },
        "parts": {
+        "title": "Parts",
         "type": [
          "integer",
          "string"
@@ -247,22 +270,22 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digits": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "maxItems": 2,
-        "minItems": 2,
+        "title": "Digits",
         "type": "array"
        },
        "into": {
-        "minLength": 1,
+        "title": "Into",
         "type": "string"
        },
        "parts": {
+        "title": "Parts",
         "type": [
          "integer",
          "string"
@@ -287,14 +310,14 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "order": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "minItems": 1,
+        "title": "Order",
         "type": "array"
        }
       },
@@ -313,6 +336,7 @@
         "const": "pad"
        },
        "amount": {
+        "title": "Amount",
         "type": [
          "integer",
          "string"
@@ -320,10 +344,11 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digit": {
-        "minLength": 1,
+        "title": "Digit",
         "type": "string"
        }
       },
@@ -343,6 +368,7 @@
         "const": "unpad"
        },
        "amount": {
+        "title": "Amount",
         "type": [
          "integer",
          "string"
@@ -350,10 +376,11 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digit": {
-        "minLength": 1,
+        "title": "Digit",
         "type": "string"
        }
       },
@@ -374,26 +401,28 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "digits": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "minItems": 1,
+        "title": "Digits",
         "type": "array"
        },
        "f": {
         "items": {
          "type": "string"
         },
+        "title": "F",
         "type": "array"
        },
        "f_inv": {
         "items": {
          "type": "string"
         },
+        "title": "F Inv",
         "type": "array"
        }
       },
@@ -415,6 +444,7 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "bits": {
@@ -422,14 +452,15 @@
          "minimum": 0,
          "type": "integer"
         },
+        "minItems": 1,
+        "title": "Bits",
         "type": "array"
        },
        "digits": {
         "items": {
-         "minLength": 1,
          "type": "string"
         },
-        "minItems": 1,
+        "title": "Digits",
         "type": "array"
        },
        "matrix": {
@@ -438,10 +469,12 @@
           "enum": [
            0,
            1
-          ]
+          ],
+          "type": "integer"
          },
          "type": "array"
         },
+        "title": "Matrix",
         "type": "array"
        }
       },
@@ -463,30 +496,69 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "block_size": {
-        "minimum": 1,
-        "type": "integer"
+        "anyOf": [
+         {
+          "minimum": 1,
+          "type": "integer"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Block Size"
        },
        "digit": {
-        "minLength": 1,
-        "type": "string"
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Digit"
        },
        "dim": {
-        "minimum": 0,
-        "type": "integer"
+        "anyOf": [
+         {
+          "minimum": 0,
+          "type": "integer"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null,
+        "title": "Dim"
        },
        "grid_dim": {
         "minimum": 0,
+        "title": "Grid Dim",
         "type": "integer"
        },
        "scheme": {
-        "enum": [
-         "block",
-         "block_cyclic",
-         "cyclic"
-        ]
+        "anyOf": [
+         {
+          "description": "How a distributed dimension is dealt to its grid dimension.",
+          "enum": [
+           "block",
+           "block_cyclic",
+           "cyclic"
+          ],
+          "title": "Scheme",
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "default": null
        }
       },
       "required": [
@@ -505,6 +577,7 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        }
       },
@@ -523,13 +596,17 @@
        },
        "array": {
         "minLength": 1,
+        "title": "Array",
         "type": "string"
        },
        "on": {
+        "description": "Where an array lives during the call.",
         "enum": [
          "host",
          "device"
-        ]
+        ],
+        "title": "Location",
+        "type": "string"
        }
       },
       "required": [
@@ -545,22 +622,34 @@
   },
   "startup": {
    "additionalProperties": false,
+   "description": "What a request settles before any array is touched: the libraries to ``load`` and the processor\n``grid``'s extents over the rank count ``P`` (None = not a distributed run).",
    "properties": {
     "grid": {
-     "items": {
-      "type": [
-       "integer",
-       "string"
-      ]
-     },
-     "minItems": 1,
-     "type": "array"
+     "anyOf": [
+      {
+       "items": {
+        "type": [
+         "integer",
+         "string"
+        ]
+       },
+       "minItems": 1,
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Grid"
     },
     "load": {
+     "default": [],
      "items": {
       "minLength": 1,
       "type": "string"
      },
+     "title": "Load",
      "type": "array"
     }
    },

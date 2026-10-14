@@ -84,7 +84,7 @@ from hpcagent_bench.harness.recording import (
     record_scaling,
     snapshot_commit,
 )
-from hpcagent_bench.harness.requests_api import Requests
+from hpcagent_bench.harness.requests_api import Requests, RequestsField
 from hpcagent_bench.harness.scoring import ML_LAWS, Score, TimedCell, VerifyResult, score
 from hpcagent_bench.harness.service import delivery_language, from_config, scales
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, grading_residency
@@ -283,8 +283,8 @@ class Item:
     reduction: str = ""  # the stamp it was credited under, for the shift check
     promoted: bool = False  # grades an unsubmitted episode's last correct source, not a submission
     workspace_bytes: str | None = None  # the agent's scratch request, when recorded; None = unknown
-    # The recorded ``requests`` as JSON (startup + operations); {} = none.
-    requests: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # The recorded ``requests`` (startup + operations), its JSON in a worklist line; {} = none.
+    requests: RequestsField = dataclasses.field(default_factory=Requests)
     # The recorded ``build`` tokens (``grades.requested_build``); [] = none asked for.
     build: list[str] = dataclasses.field(default_factory=list)
     # How many submission rows the item's (setup, kernel) held; above 1 is a multi-submission group.
@@ -605,7 +605,7 @@ def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
         reduction=str(row.get("timing_reduction") or ""),
         promoted=bool(row.get("promoted")),
         workspace_bytes=str(row["workspace_bytes"]) if row.get("workspace_bytes") else None,
-        requests=results_db.requests_of_row(row).to_json(),
+        requests=results_db.requests_of_row(row),
         build=json.loads(str(row["requested_build"])) if row.get("requested_build") else [],
         task_hash=str(row.get("task_hash") or ""),
     )
@@ -875,7 +875,7 @@ def submission_of(item: Item) -> Submission:
         device_source=device[1] if device is not None else None,
         build=list(item.build),
         workspace_bytes=item.workspace_bytes or UNKNOWN_WORKSPACE,
-        requests=Requests.from_obj(item.requests or None),
+        requests=item.requests,
     )
 
 
@@ -1710,7 +1710,7 @@ def scaled_items(items: Iterable[Item], rank_counts: tuple[int, ...]) -> tuple[l
     kept: list[Item] = []
     problems: list[str] = []
     for item in (scaled(one, rank_counts) for one in items):
-        if item.scaling is not None and "grid" not in item.requests.get("startup", {}):
+        if item.scaling is not None and not item.requests.distributed:
             problems.append(f"no recorded startup.grid: {item.db} {item.episode_id} {item.kernel} {item.ts_ms}")
         else:
             kept.append(item)
