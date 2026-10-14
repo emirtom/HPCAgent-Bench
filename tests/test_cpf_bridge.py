@@ -99,13 +99,13 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back numpy's
     numbers through it."""
     record = cpf_bridge.render_kernel(spec, tmp_path, language=language)
-    assert record["verdict"] == "ok", f"{KERNEL} did not render: {record}"
+    assert record.verdict == "ok", f"{KERNEL} did not render: {record}"
     native = binding_from_spec(spec)
-    assert record["entry"] == native.symbol
+    assert record.entry == native.symbol
 
-    source = pathlib.Path(record["source"])
+    source = pathlib.Path(record.source)
     assert source.name == f"{KERNEL}_fp64_cpf.{cpf_bridge.LANGUAGE_EXT[language]}"
-    assert json.loads(pathlib.Path(record["binding"]).read_text()) == native.to_json()
+    assert json.loads(pathlib.Path(record.binding).read_text()) == native.document().model_dump(exclude_unset=True)
     code = source.read_text()
     stub = gen_call_stub(native, "cpp" if language == "c++" else "c")
     assert entry_prototype(code, native.symbol) == entry_prototype(stub, native.symbol)
@@ -142,23 +142,26 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     declares the ABI order and names the canonical symbol the judge links."""
     cache = tmp_path / "cache"
     first_record = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    first = first_record["results"]["c"]
-    assert (first["verdict"], first["cached"]) == ("ok", False), first
+    assert first_record.results is not None, first_record
+    assert first_record.canonical is not None, first_record
+    first = first_record.results["c"]
+    assert (first.verdict, first.cached) == ("ok", False), first
 
     second_record = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    assert second_record["canonical"] == {"key": first_record["canonical"]["key"]}, second_record
-    second = second_record["results"]["c"]
-    assert (second["key"], second["cached"]) == (first["key"], True)
+    assert second_record.results is not None, second_record
+    assert second_record.canonical == cpf_bridge.CanonicalOutcome(key=first_record.canonical.key), second_record
+    second = second_record.results["c"]
+    assert (second.key, second.cached) == (first.key, True)
 
     view = tmp_path / "view"
     cpf_cache.open_view(view, cache, "cpu", "test-commit")
-    cpf_cache.record(view, spec.short_name, "c", "fp64", second)
+    cpf_cache.record(view, spec.short_name, "c", "fp64", second.model_dump())
     form = cpf_cache.resolve(view, spec.short_name, "c", "fp64")
     native = binding_from_spec(spec)
     assert form.entry == native.symbol
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     assert declared_parameters(form.source.read_text(), form.entry) == abi
-    assert json.loads(form.binding.read_text()) == native.to_json()
+    assert json.loads(form.binding.read_text()) == native.document().model_dump(exclude_unset=True)
 
 
 def prerender_kwargs() -> dict[str, object]:
@@ -180,10 +183,12 @@ def test_a_second_language_renders_from_the_cached_canonical_sdfg(spec: BenchSpe
     from the stored SDFG instead of paying the parse and canonicalize again (lulesh's is over 30 minutes)."""
     cache = tmp_path / "cache"
     first = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    assert first["canonical"]["cached"] is False, first
+    assert first.canonical is not None, first
+    assert first.canonical.cached is False, first
     second = cpf_bridge.prerender_kernel(spec, cache, languages=["c++"], **prerender_kwargs())
-    assert second["canonical"] == {"key": first["canonical"]["key"], "cached": True}, second
-    assert second["results"]["c++"]["verdict"] == "ok", second
+    assert second.canonical == cpf_bridge.CanonicalOutcome(key=first.canonical.key, cached=True), second
+    assert second.results is not None, second
+    assert second.results["c++"].verdict == "ok", second
 
 
 @pytest.mark.integration
@@ -193,15 +198,19 @@ def test_a_form_rendered_again_from_the_stored_sdfg_is_the_first_render_byte_for
     """Every render reads the canonical SDFG back from its file, so a dropped form rendered again from the
     cached SDFG must reproduce the published bytes under the same key."""
     cache = tmp_path / "cache"
-    first = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())["results"]["c"]
-    entry = cpf_cache.entry_path(cache, str(first["key"]))
-    manifest = json.loads((entry / cpf_cache.MANIFEST_NAME).read_text())
-    text = (entry / manifest["artefacts"]["source"]["name"]).read_text()
+    rendered = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
+    assert rendered.results is not None, rendered
+    first = rendered.results["c"]
+    entry = cpf_cache.entry_path(cache, str(first.key))
+    manifest = cpf_cache.EntryManifest.model_validate_json((entry / cpf_cache.MANIFEST_NAME).read_bytes())
+    text = (entry / manifest.artefacts["source"].name).read_text()
     shutil.rmtree(entry)
     again = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    assert again["canonical"]["cached"] is True, again
-    assert again["results"]["c"]["key"] == first["key"]
-    assert (entry / manifest["artefacts"]["source"]["name"]).read_text() == text
+    assert again.canonical is not None, again
+    assert again.results is not None, again
+    assert again.canonical.cached is True, again
+    assert again.results["c"].key == first.key
+    assert (entry / manifest.artefacts["source"].name).read_text() == text
 
 
 def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
@@ -218,7 +227,7 @@ def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
 
     class Done:
         returncode = 0
-        stdout = '{"verdict": "ok"}'
+        stdout = '{"kernel": "k", "verdict": "ok"}'
         stderr = ""
 
     def fake_run(cmd: list[str], env: dict[str, str] | None = None, **kwargs: object) -> Done:
@@ -400,7 +409,7 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
     )
     assert form.entry == native.symbol
     assert declared_parameters(form.code, form.entry) == abi
-    assert json.loads(form.binding) == native.to_json()
+    assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
     source = tmp_path / form.name
     source.write_text(form.code)
@@ -595,7 +604,7 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     assert ("scalar" if "knob" in canonical.arrays else "symbol") == canonical_kind, "the fixture lost its case"
     form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu")
     assert declared_parameters(form.code, form.entry) == abi
-    assert json.loads(form.binding) == native.to_json()
+    assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
     source = tmp_path / form.name
     source.write_text(form.code)

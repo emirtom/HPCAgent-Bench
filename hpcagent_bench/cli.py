@@ -816,8 +816,6 @@ def cmd_job(args: argparse.Namespace) -> int:
 
 def cmd_cpf(args: argparse.Namespace) -> int:
     """Render kernels as self-contained C/C++ translation units through DaCe's CPF."""
-    import json
-
     from hpcagent_bench import cpf_bridge
 
     if args.track:
@@ -839,10 +837,10 @@ def cmd_cpf(args: argparse.Namespace) -> int:
                 target=args.target,
             )
         ]
-        print(json.dumps(records[0], indent=2))
+        print(records[0].line(indent=2))
     # A refusal is a result, not a failure: CPF names the construct it cannot render and a sweep is
     # measuring exactly that. Only a crash or a wedge makes the command itself fail.
-    return 1 if any(r["verdict"] in ("fail", "timeout") for r in records) else 0
+    return 1 if any(r.verdict in ("fail", "timeout") for r in records) else 0
 
 
 def add_task_selection(p: argparse.ArgumentParser) -> None:

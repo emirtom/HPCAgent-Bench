@@ -124,7 +124,9 @@ __all__ = [
     "WARMUP_ENV",
     "FinalGrade",
     "FinalInput",
+    "Cut",
     "GradingCuts",
+    "GradingCutsFile",
     "Item",
     "Launch",
     "Scaling",
@@ -724,18 +726,34 @@ class GradingCuts(NamedTuple):
     references: dict[str, int]
 
 
-def epoch_ms(table: Mapping[str, Mapping[str, str]]) -> dict[str, int]:
+class Cut(pydantic.BaseModel):
+    """One entry of :data:`GRADING_CUTS`: since when a grade counts, and the change that moved it."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    since: datetime.datetime
+    why: str
+
+
+class GradingCutsFile(pydantic.BaseModel):
+    """:data:`GRADING_CUTS`: the cut per kernel and per reference kind."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    kernels: dict[str, Cut] = pydantic.Field(default_factory=dict[str, Cut])
+    references: dict[str, Cut] = pydantic.Field(default_factory=dict[str, Cut])
+
+
+def epoch_ms(table: Mapping[str, Cut]) -> dict[str, int]:
     """``{name: epoch ms}`` of a cut table's ``since`` stamps."""
-    return {
-        name: int(datetime.datetime.fromisoformat(entry["since"]).timestamp() * 1000) for name, entry in table.items()
-    }
+    return {name: int(cut.since.timestamp() * 1000) for name, cut in table.items()}
 
 
 @functools.lru_cache(maxsize=None, typed=True)
 def grading_cuts() -> GradingCuts:
     """The cuts of :data:`GRADING_CUTS`."""
-    table = yaml.safe_load(GRADING_CUTS.read_text(encoding="utf-8")) or {}
-    return GradingCuts(epoch_ms(table.get("kernels") or {}), epoch_ms(table.get("references") or {}))
+    table = GradingCutsFile.model_validate(yaml.safe_load(GRADING_CUTS.read_text(encoding="utf-8")) or {})
+    return GradingCuts(epoch_ms(table.kernels), epoch_ms(table.references))
 
 
 def stale_final(kernel: str, ts_ms: int) -> bool:

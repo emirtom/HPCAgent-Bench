@@ -53,23 +53,23 @@ class FakeRenderer:
         target: str,
         dace_commit: str,
         **kwargs: object,
-    ) -> dict[str, object]:
+    ) -> cpf_bridge.RenderRecord:
         with self.lock:
             self.calls += 1
         time.sleep(self.delay)
-        results: dict[str, dict[str, object]] = {}
+        results: dict[str, cpf_bridge.RenderOutcome] = {}
         for dialect in languages:
             options = {"kernel": spec.short_name, "language": dialect, "target": target}
             key = cpf_cache.cache_key("sdfg", dace_commit, options)
             if self.verdict != "ok":
-                results[dialect] = {"key": key, "verdict": self.verdict, "error": "renderer refused"}
+                results[dialect] = cpf_bridge.RenderOutcome(key=key, verdict=self.verdict, error="renderer refused")
                 continue
             stem = f"{spec.short_name}_fp64_cpf"
             source = ("source", f"{stem}.{cpf_cache.LANGUAGE_EXT[dialect]}", f"// {dialect} form\n")
             files = [source, ("binding", f"{stem}_binding.json", "{}")]
             cpf_cache.publish(cache_root, key, {"kernel": spec.short_name, "entry": f"{spec.short_name}_fp64"}, files)
-            results[dialect] = {"key": key, "verdict": "ok", "cached": False}
-        return {"results": results}
+            results[dialect] = cpf_bridge.RenderOutcome(key=key, verdict="ok", cached=False)
+        return cpf_bridge.RenderRecord(kernel=spec.short_name, results=results)
 
 
 def dace_commit() -> str:

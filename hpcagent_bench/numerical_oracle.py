@@ -5,7 +5,6 @@
 import contextlib
 import ctypes
 import inspect
-import json
 import os
 import pathlib
 import pickle
@@ -21,6 +20,7 @@ import warnings
 from typing import Any, Literal
 
 import numpy as np
+import pydantic
 
 __all__ = [
     "BACKENDS",
@@ -51,6 +51,8 @@ __all__ = [
     "PYTHRAN_BASE_TO_NP",
     "PY_BACKENDS",
     "PY_FORK_TIMEOUT_S",
+    "ProbeRecord",
+    "ProbeVerdict",
     "all_backend_status",
     "binding_shape",
     "call_by_name",
@@ -1536,6 +1538,30 @@ def _run_pluto(
     return result
 
 
+#: What one ``dace_numeric_probe`` child concluded about its kernel.
+ProbeVerdict = Literal["ok", "mismatch", "parse_fail", "noprogram", "compile_fail", "run_fail", "unbound_symbols"]
+
+
+class ProbeRecord(pydantic.BaseModel):
+    """The JSON line a :mod:`hpcagent_bench.dace_numeric_probe` child prints: its verdict, the detail behind it,
+    the seconds each phase took, and per output ``ok`` or why not. Filled in as the child goes; only the
+    fields it set are printed."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    kernel: str
+    timing: dict[str, float] = pydantic.Field(default_factory=dict[str, float])
+    verdict: ProbeVerdict | None = None
+    detail: str = ""
+    errtype: str = ""
+    frame: str = ""
+    outputs: dict[str, str] = pydantic.Field(default_factory=dict[str, str])
+
+    def line(self) -> str:
+        """The record as the one line the child prints."""
+        return self.model_dump_json(exclude_unset=True)
+
+
 def run_dace_backend(short, info, by, syms, expected, compare, rtol, atol) -> str:
     """Lower + compile + run the generated ``*_dace.py`` in its OWN process; ``ok`` / ``FAIL:...``.
 
@@ -1584,12 +1610,12 @@ def run_dace_backend(short, info, by, syms, expected, compare, rtol, atol) -> st
             return f"FAIL:timeout:{DACE_TIMEOUT_S:.0f}s"
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("{"):
-            rec = json.loads(line)
+            rec = ProbeRecord.model_validate_json(line)
             # The verdict NAME is what the ratchet keys on, so it stays the second field verbatim.
             # The detail arrives already filtered to its decisive lines and bounded by the probe
             # (dace_numeric_probe.DETAIL_CHARS); clipping it to 160 here threw the compiler's own
             # error away and left "CompilationError: Compiler failure:" as the whole diagnosis.
-            return "ok" if rec["verdict"] == "ok" else f"FAIL:{rec['verdict']}:{rec.get('detail', '')[:3200]}"
+            return "ok" if rec.verdict == "ok" else f"FAIL:{rec.verdict}:{rec.detail[:3200]}"
     return "FAIL:crash:" + (proc.stderr or proc.stdout)[-160:].replace("\n", " ")
 
 

@@ -15,7 +15,7 @@ is pinned to one cache, one target and one dace source, so it never mixes render
 Nothing here renders. Every miss raises :class:`CacheMiss` naming the entry and key; the judge
 renders a missed kernel on its first request (:func:`hpcagent_bench.cpf_prerender.render_on_demand`),
 into a view pinned to the setup's cache (:data:`CACHE_CONFIG_KEY`), and a prerender only warms it.
-Standard library only: the judge, the submit scripts and the preparation step use it without dace.
+No dace: the judge, the submit scripts and the preparation step use it without dace.
 
 A CANONICAL entry (:func:`canonical_entry`) is one kernel's canonicalized SDFG, or the error its
 canonicalize raised, keyed on the generated program and the dace commit. Forms key on it, so a
@@ -53,9 +53,14 @@ __all__ = [
     "ROLES",
     "VERIFIED_NAME",
     "VIEW_NAME",
+    "Artefact",
     "CacheMiss",
+    "CanonicalManifest",
+    "EntryInputs",
+    "EntryManifest",
     "Form",
     "Pointer",
+    "Role",
     "Verification",
     "ViewHeader",
     "cache_key",
@@ -86,6 +91,7 @@ __all__ = [
     "unverified",
     "verified_manifest",
     "write_json",
+    "write_manifest",
     "wrong_target",
 ]
 
@@ -96,7 +102,8 @@ LANGUAGE_EXT = {"c++": "cpp", "c": "c", "hip": "hip"}
 DIALECT = {"c": "c", "cpp": "c++", "c++": "c++", "hip": "hip"}
 
 #: The files of one cache entry: the source, on the gpu target the device unit, and the binding.
-ROLES = ("source", "device", "binding")
+type Role = Literal["source", "device", "binding"]
+ROLES: tuple[Role, ...] = ("source", "device", "binding")
 
 #: The config key naming the view a run serves forms from (``HPCAGENT_BENCH_SERVICE_CANONICAL_``
 #: ``PARALLEL_FORM_DIR``), unset on every setup whose packet does not carry the tool. It lives here,
@@ -204,7 +211,31 @@ def canonical_path(cache_root: pathlib.Path, key: str) -> pathlib.Path:
     return cache_root / CANONICAL_DIR / key[:2] / key
 
 
-def canonical_entry(cache_root: pathlib.Path, key: str) -> tuple[dict[str, object], pathlib.Path | None] | None:
+class CanonicalManifest(pydantic.BaseModel):
+    """A canonical entry's :data:`MANIFEST_NAME`: what was canonicalized, and its verdict. An ``ok`` entry
+    records the stored SDFG's hash; a failed one its error."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    key: str
+    layout: int
+    verdict: str
+    error: str = ""
+    kernel: str = ""
+    program: str = ""
+    target: str = ""
+    precision: str = ""
+    sha256: str = ""
+
+    @pydantic.field_validator("layout")
+    @classmethod
+    def current_layout(cls, layout: int) -> int:
+        if layout != LAYOUT:
+            raise ValueError(f"layout {layout}, this reader expects {LAYOUT}")
+        return layout
+
+
+def canonical_entry(cache_root: pathlib.Path, key: str) -> tuple[CanonicalManifest, pathlib.Path | None] | None:
     """``(manifest, SDFG file)`` of a published canonical entry, the file ``None`` for a cached failure.
 
     ``None`` on a miss, and for an entry whose file no longer matches its recorded hash, so a damaged
@@ -212,19 +243,19 @@ def canonical_entry(cache_root: pathlib.Path, key: str) -> tuple[dict[str, objec
     """
     where = canonical_path(cache_root, key)
     try:
-        manifest = json.loads((where / MANIFEST_NAME).read_text())
+        manifest = CanonicalManifest.model_validate_json((where / MANIFEST_NAME).read_bytes())
     except (OSError, ValueError):
         return None
-    if not isinstance(manifest, dict) or manifest.get("key") != key or manifest.get("layout") != LAYOUT:
+    if manifest.key != key:
         return None
-    if manifest.get("verdict") != "ok":
+    if manifest.verdict != "ok":
         return manifest, None
     stored = where / CANONICAL_SDFG_NAME
     try:
         actual = file_sha256(stored)
     except OSError:
         return None
-    return (manifest, stored) if actual == manifest.get("sha256") else None
+    return (manifest, stored) if actual == manifest.sha256 else None
 
 
 def install(staging: pathlib.Path, final: pathlib.Path, valid: Callable[[], bool]) -> None:
@@ -259,7 +290,8 @@ def install(staging: pathlib.Path, final: pathlib.Path, valid: Callable[[], bool
 def publish_canonical(
     cache_root: pathlib.Path, key: str, manifest: Mapping[str, object], sdfg_file: pathlib.Path | None
 ) -> None:
-    """Write one canonical entry atomically: ``sdfg_file`` moved in with its hash, or the verdict alone."""
+    """Write one canonical entry atomically: ``sdfg_file`` moved in with its hash, or the verdict alone.
+    ``manifest`` holds the :class:`CanonicalManifest` fields other than the key, layout and hash."""
     final = canonical_path(cache_root, key)
     final.parent.mkdir(parents=True, exist_ok=True)
     staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{key}.", dir=final.parent))
@@ -269,7 +301,7 @@ def publish_canonical(
         stored = staging / CANONICAL_SDFG_NAME
         shutil.move(sdfg_file, stored)
         full["sha256"] = file_sha256(stored)
-    (staging / MANIFEST_NAME).write_text(json.dumps(full, indent=2, sort_keys=True) + "\n")
+    write_manifest(staging / MANIFEST_NAME, CanonicalManifest.model_validate(full))
     install(staging, final, lambda: canonical_entry(cache_root, key) is not None)
 
 
@@ -277,25 +309,76 @@ def entry_path(cache_root: pathlib.Path, key: str) -> pathlib.Path:
     return cache_root / key[:2] / key
 
 
-def verified_manifest(cache_root: pathlib.Path, key: str) -> dict[str, object]:
+class Artefact(pydantic.BaseModel):
+    """One file of an entry: its name in the entry directory and the hash it was published with."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    sha256: str
+
+
+class EntryInputs(pydantic.BaseModel):
+    """What an entry was rendered from: the canonical entry's key, the dace commit and the render options."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    canonical: str
+    dace_commit: str
+    options: dict[str, object]
+
+
+class EntryManifest(pydantic.BaseModel):
+    """A rendered entry's :data:`MANIFEST_NAME`: its key, its inputs, the entry symbol and every artefact with
+    its hash (at least the source and the binding)."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    key: str
+    layout: int
+    artefacts: dict[Role, Artefact]
+    kernel: str = ""
+    entry: str = ""
+    inputs: EntryInputs | None = None
+    forced_abi_symbols: list[str] = pydantic.Field(default_factory=list[str])
+
+    @pydantic.field_validator("layout")
+    @classmethod
+    def current_layout(cls, layout: int) -> int:
+        if layout != LAYOUT:
+            raise ValueError(f"layout {layout}, this reader expects {LAYOUT}")
+        return layout
+
+    @pydantic.field_validator("artefacts")
+    @classmethod
+    def source_and_binding(cls, artefacts: dict[Role, Artefact]) -> dict[Role, Artefact]:
+        if not {"source", "binding"} <= artefacts.keys():
+            raise ValueError("an entry lists its source and its binding")
+        return artefacts
+
+
+def write_manifest(path: pathlib.Path, manifest: CanonicalManifest | EntryManifest) -> None:
+    """``manifest`` as the indented, key-sorted JSON every manifest is written in (fields left at their
+    default are not written), so two renders of the same inputs write the same bytes."""
+    path.write_text(json.dumps(manifest.model_dump(mode="json", exclude_unset=True), indent=2, sort_keys=True) + "\n")
+
+
+def verified_manifest(cache_root: pathlib.Path, key: str) -> EntryManifest:
     """The entry's manifest, after checking it names ``key`` and every artefact matches its hash."""
     where = entry_path(cache_root, key)
     try:
-        manifest = json.loads((where / MANIFEST_NAME).read_text())
+        manifest = EntryManifest.model_validate_json((where / MANIFEST_NAME).read_bytes())
     except (OSError, ValueError) as exc:
-        raise CacheMiss(f"cache {cache_root} has no entry {key} ({type(exc).__name__})") from exc
-    if not isinstance(manifest, dict) or manifest.get("key") != key or manifest.get("layout") != LAYOUT:
+        raise CacheMiss(f"cache {cache_root} has no readable entry {key} ({type(exc).__name__})") from exc
+    if manifest.key != key:
         raise CacheMiss(f"cache entry {where} does not describe key {key}")
-    artefacts = manifest.get("artefacts")
-    if not isinstance(artefacts, dict) or not {"source", "binding"} <= set(artefacts) <= set(ROLES):
-        raise CacheMiss(f"cache entry {where} lists no source and binding")
-    for role, artefact in artefacts.items():
-        path = where / str(artefact["name"])
+    for role, artefact in manifest.artefacts.items():
+        path = where / artefact.name
         try:
             actual = file_sha256(path)
         except OSError as exc:
             raise CacheMiss(f"cache entry {key} lost its {role} {path.name}") from exc
-        if actual != artefact["sha256"]:
+        if actual != artefact.sha256:
             raise CacheMiss(f"cache entry {key}: {path.name} was modified after it was rendered")
     return manifest
 
@@ -323,13 +406,13 @@ def publish(
     final.parent.mkdir(parents=True, exist_ok=True)
     staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{key}.", dir=final.parent))
     staging.chmod(0o755)
-    artefacts: dict[str, dict[str, str]] = {}
+    artefacts: dict[str, Artefact] = {}
     for role, name, text in files:
         payload = text.encode()
         (staging / name).write_bytes(payload)
-        artefacts[role] = {"name": name, "sha256": sha256_hex(payload)}
-    full = {**manifest, "key": key, "layout": LAYOUT, "artefacts": artefacts}
-    (staging / MANIFEST_NAME).write_text(json.dumps(full, indent=2, sort_keys=True) + "\n")
+        artefacts[role] = Artefact(name=name, sha256=sha256_hex(payload))
+    full = EntryManifest.model_validate({**manifest, "key": key, "layout": LAYOUT, "artefacts": artefacts})
+    write_manifest(staging / MANIFEST_NAME, full)
     install(staging, final, lambda: is_hit(cache_root, key))
     return True
 
@@ -457,15 +540,13 @@ def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form
     _, key, header = pointer_outcome(view, kernel, language, fptype)
     cache_root = pathlib.Path(header.cache_root)
     manifest = verified_manifest(cache_root, key)
-    artefacts = manifest["artefacts"]
-    assert isinstance(artefacts, dict)
     where = entry_path(cache_root, key)
-    device = artefacts.get("device")
+    device = manifest.artefacts.get("device")
     return Form(
-        str(manifest["entry"]),
-        where / artefacts["source"]["name"],
-        where / artefacts["binding"]["name"],
-        where / device["name"] if device else None,
+        manifest.entry,
+        where / manifest.artefacts["source"].name,
+        where / manifest.artefacts["binding"].name,
+        where / device.name if device else None,
     )
 
 

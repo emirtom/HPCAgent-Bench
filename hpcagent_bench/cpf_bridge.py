@@ -29,7 +29,6 @@ import ast
 import contextlib
 import functools
 import hashlib
-import json
 import os
 import pathlib
 import re
@@ -38,7 +37,9 @@ import sys
 import time
 import traceback
 from collections.abc import Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
+
+import pydantic
 
 from hpcagent_bench import config, cpf_canonical, paths
 from hpcagent_bench.cpf_cache import LANGUAGE_EXT
@@ -64,12 +65,18 @@ __all__ = [
     "DACE_BANNER",
     "DEVICE_LANGUAGE",
     "GPU_CODEGEN",
+    "CHILD_LINE_ADAPTER",
     "RENDER_TIMEOUT_KEY",
+    "CanonicalOutcome",
     "ChildRun",
+    "RenderOutcome",
+    "RenderPlan",
+    "RenderRecord",
     "RenderedForm",
     "abi_parameters",
     "bind_pinned_config",
     "bridge_digest",
+    "child_lines",
     "clean_form",
     "copies_whole_argument",
     "dace_int64",
@@ -79,7 +86,6 @@ __all__ = [
     "force_abi_symbols",
     "generated_renames",
     "gpu_codegen_pinned",
-    "json_lines",
     "main",
     "prerender_kernel",
     "prerender_sdfg",
@@ -517,7 +523,7 @@ def render_canonical(
         # The gpu host unit is the C++ entry the GPU build contract names (agent/gpu-build.md).
         name=f"{short}_{fptype_tag(precision)}_cpf.{LANGUAGE_EXT['c++' if target == 'gpu' else emitted]}",
         code=clean_form(code, forced),
-        binding=json.dumps(native.to_json(), indent=2),
+        binding=native.document().text(indent=2),
         entry=native.symbol,
         forced=forced,
         lines=code.count("\n") + rendering.device_code.count("\n") + 1,
@@ -546,6 +552,70 @@ def gpu_codegen_pinned(target: str) -> Iterator[None]:
         yield
 
 
+class RenderOutcome(pydantic.BaseModel):
+    """One language's outcome of a cache render: the key it rendered (``None`` when the child never got one),
+    its verdict, whether the entry was already a hit, and the error behind a failing verdict."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    key: str | None = None
+    verdict: str
+    cached: bool = False
+    error: str = ""
+
+
+class CanonicalOutcome(pydantic.BaseModel):
+    """The canonical entry a cache render read or produced, and whether it was already there."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    key: str
+    cached: bool | None = None
+
+
+class RenderPlan(pydantic.BaseModel):
+    """The line a cache-render child prints before any render: language -> the key it will render."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    plan: dict[str, str]
+
+
+class RenderRecord(pydantic.BaseModel):
+    """One kernel's verdict, the last line a render child prints: ``verdict`` and why (``error``, and for a
+    crash ``errtype`` and ``frame``); an inline render's entry, artefact paths and line count; a cache
+    render's canonical entry and ``results`` per language. The parent adds the ``seconds`` it took. Filled in
+    as the render goes; only the fields set are printed (:meth:`line`)."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    kernel: str
+    language: str = ""
+    precision: str = ""
+    target: str = ""
+    verdict: str = ""
+    error: str = ""
+    errtype: str = ""
+    frame: str = ""
+    entry: str = ""
+    forced_abi_symbols: list[str] = pydantic.Field(default_factory=list[str])
+    source: str = ""
+    device: str = ""
+    binding: str = ""
+    lines: int = 0
+    seconds: float | None = None
+    canonical: CanonicalOutcome | None = None
+    results: dict[str, RenderOutcome] | None = None
+
+    def line(self, indent: int | None = None) -> str:
+        """The record as printed: the fields that were set."""
+        return self.model_dump_json(exclude_unset=True, indent=indent)
+
+
+#: One JSON line of a render child: its plan or its verdict.
+CHILD_LINE_ADAPTER: pydantic.TypeAdapter[RenderPlan | RenderRecord] = pydantic.TypeAdapter(RenderPlan | RenderRecord)
+
+
 def render_sdfg(
     spec: BenchSpec,
     numpy_py: pathlib.Path,
@@ -553,33 +623,31 @@ def render_sdfg(
     language: str,
     precision: str,
     target: str = "cpu",
-) -> dict[str, Any]:
+) -> RenderRecord:
     """Steps 1-4 for one kernel, in THIS process, written straight to ``out_dir``. Returns the verdict record.
 
     An inline render for inspection; nothing an experiment serves reads ``out_dir``. Experiments render
     through :func:`prerender_kernel` into the cache.
     """
-    rec: dict[str, Any] = {
-        "kernel": spec.short_name,
-        "language": language,
-        "precision": precision or "fp64",
-        "target": target,
-    }
+    rec = RenderRecord(kernel=spec.short_name, language=language, precision=precision or "fp64", target=target)
     parsed = parse_kernel(spec, numpy_py, precision)
     if isinstance(parsed, dict):
-        rec.update(parsed)
-        return rec
+        return RenderRecord.model_validate({**rec.model_dump(exclude_unset=True), **parsed})
     canonicalize_for(parsed, target)
     form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target)
-    rec["entry"] = form.entry
+    rec.entry = form.entry
     if form.forced:
-        rec["forced_abi_symbols"] = list(form.forced)
+        rec.forced_abi_symbols = list(form.forced)
     out_dir.mkdir(parents=True, exist_ok=True)
+    paths_by_role: dict[str, str] = {}
     for role, name, text in form.artefacts():
         (out_dir / name).write_text(text)
-        rec[role] = str(out_dir / name)
-    rec["verdict"] = "ok"
-    rec["lines"] = form.lines
+        paths_by_role[role] = str(out_dir / name)
+    rec.source, rec.binding = paths_by_role["source"], paths_by_role["binding"]
+    if "device" in paths_by_role:
+        rec.device = paths_by_role["device"]
+    rec.verdict = "ok"
+    rec.lines = form.lines
     return rec
 
 
@@ -625,7 +693,7 @@ def prerender_sdfg(
     target: str,
     dace_commit: str,
     expected_root: pathlib.Path,
-) -> dict[str, Any]:
+) -> RenderRecord:
     """Render every language of one kernel whose key is not already a hit, into the cache.
 
     Every key is known before any parse: a form keys on its canonical SDFG's entry, which keys on the
@@ -637,40 +705,38 @@ def prerender_sdfg(
 
     if dace_root() != expected_root.resolve():
         raise RuntimeError(f"dace imports from {dace_root()}, but its commit was read in {expected_root}")
-    rec: dict[str, Any] = {"kernel": spec.short_name, "precision": fptype_tag(precision), "target": target}
+    base = RenderRecord(kernel=spec.short_name, precision=fptype_tag(precision), target=target)
     impl = cpf_canonical.emit_program(spec)
     if isinstance(impl, dict):
-        rec.update(impl)
-        return rec
+        return RenderRecord.model_validate({**base.model_dump(exclude_unset=True), **impl})
     canonical = cpf_canonical.canonical_key(impl, dace_commit, precision, target)
-    canonical_rec: dict[str, object] = {"key": canonical}
-    rec["canonical"] = canonical_rec
+    canonical_rec = CanonicalOutcome(key=canonical)
     plan: dict[str, tuple[str, dict[str, object]]] = {}
     for language in languages:
         options = render_options(spec, language, precision, target)
         plan[language] = (cpf_cache.cache_key(canonical, dace_commit, options), options)
-    print(json.dumps({"plan": {language: key for language, (key, _) in plan.items()}}), flush=True)
+    print(RenderPlan(plan={language: key for language, (key, _) in plan.items()}).model_dump_json(), flush=True)
 
-    results: dict[str, dict[str, object]] = {}
+    results: dict[str, RenderOutcome] = {}
     todo: list[str] = []
     for language, (key, _) in plan.items():
         if cpf_cache.is_hit(cache_root, key):
-            results[language] = {"key": key, "verdict": "ok", "cached": True}
+            results[language] = RenderOutcome(key=key, verdict="ok", cached=True)
         else:
             todo.append(language)
     if todo:
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
-        canonical_rec["cached"] = cached
+        canonical_rec.cached = cached
         if isinstance(sdfg, dict):
             for language in todo:
-                results[language] = {"key": plan[language][0], **sdfg}
+                results[language] = RenderOutcome.model_validate({"key": plan[language][0], **sdfg})
         else:
             for language in todo:
                 key, options = plan[language]
                 try:
                     form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
-                    results[language] = {"key": key, **failure(exc)}
+                    results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})
                     continue
                 manifest = {
                     "inputs": {"canonical": canonical, "dace_commit": dace_commit, "options": options},
@@ -679,15 +745,15 @@ def prerender_sdfg(
                     "forced_abi_symbols": list(form.forced),
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
-                results[language] = {"key": key, "verdict": "ok", "cached": False}
-    rec["results"] = results
-    return rec
+                results[language] = RenderOutcome(key=key, verdict="ok", cached=False)
+    return base.model_copy(update={"canonical": canonical_rec, "results": results})
 
 
 class ChildRun(NamedTuple):
-    """What a render child left behind: every JSON line it printed, and how it ended."""
+    """What a render child left behind: the plans and verdicts it printed, and how it ended."""
 
-    records: list[dict[str, Any]]
+    plans: list[RenderPlan]
+    records: list[RenderRecord]
     seconds: float
     budget: float
     timed_out: bool
@@ -695,15 +761,23 @@ class ChildRun(NamedTuple):
     tail: str
 
 
-def json_lines(text: str) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
+def child_lines(text: str) -> tuple[list[RenderPlan], list[RenderRecord]]:
+    """The plans and the verdicts among ``text``'s lines, in order. A line that is neither (a library's own
+    print that happens to start with ``{``) is skipped."""
+    plans: list[RenderPlan] = []
+    records: list[RenderRecord] = []
     for line in text.splitlines():
-        if line.startswith("{"):
-            try:
-                records.append(json.loads(line))
-            except ValueError:
-                continue
-    return records
+        if not line.startswith("{"):
+            continue
+        try:
+            parsed = CHILD_LINE_ADAPTER.validate_json(line)
+        except ValueError:
+            continue
+        if isinstance(parsed, RenderPlan):
+            plans.append(parsed)
+        else:
+            records.append(parsed)
+    return plans, records
 
 
 def run_child(cmd: list[str], target: str, timeout: float | None, extra_env: dict[str, str] | None) -> ChildRun:
@@ -722,9 +796,9 @@ def run_child(cmd: list[str], target: str, timeout: float | None, extra_env: dic
         proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=budget, check=False)
     except subprocess.TimeoutExpired as exc:
         partial = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        return ChildRun(json_lines(partial), time.monotonic() - started, budget, True, None, "")
+        return ChildRun(*child_lines(partial), time.monotonic() - started, budget, True, None, "")
     tail = (proc.stderr.strip().splitlines() or ["no output"])[-1]
-    return ChildRun(json_lines(proc.stdout), time.monotonic() - started, budget, False, proc.returncode, tail)
+    return ChildRun(*child_lines(proc.stdout), time.monotonic() - started, budget, False, proc.returncode, tail)
 
 
 def timeout_error(budget: float) -> str:
@@ -742,7 +816,7 @@ def render_kernel(
     target: str = "cpu",
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
-) -> dict[str, Any]:
+) -> RenderRecord:
     """Render ``spec``'s kernel to a self-contained TU in ``out_dir``; returns the verdict record.
 
     Takes the loaded :class:`~hpcagent_bench.spec.BenchSpec` for the same reason
@@ -764,24 +838,24 @@ def render_kernel(
         cmd += ["--target", target]
     run = run_child(cmd, target, timeout, extra_env)
     if run.timed_out:
-        return {
-            "kernel": spec.short_name,
-            "language": language,
-            "verdict": "timeout",
-            "seconds": run.budget,
-            "error": timeout_error(run.budget),
-        }
+        return RenderRecord(
+            kernel=spec.short_name,
+            language=language,
+            verdict="timeout",
+            seconds=run.budget,
+            error=timeout_error(run.budget),
+        )
     if run.records:
         rec = run.records[-1]
-        rec["seconds"] = run.seconds
+        rec.seconds = run.seconds
         return rec
-    return {
-        "kernel": spec.short_name,
-        "language": language,
-        "verdict": "fail",
-        "error": f"child exited {run.returncode} with no verdict: {run.tail}"[:400],
-        "seconds": run.seconds,
-    }
+    return RenderRecord(
+        kernel=spec.short_name,
+        language=language,
+        verdict="fail",
+        error=f"child exited {run.returncode} with no verdict: {run.tail}"[:400],
+        seconds=run.seconds,
+    )
 
 
 def prerender_kernel(
@@ -795,8 +869,8 @@ def prerender_kernel(
     dace_commit: str,
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    """Pre-render one kernel into the cache in a child; returns ``results[language]``.
+) -> RenderRecord:
+    """Pre-render one kernel into the cache in a child; returns its record, ``results`` set for every language.
 
     Every language gets an outcome, a child that died or timed out included, with the key it
     was rendering whenever the child got as far as printing its plan. ``extra_env`` is added to the
@@ -809,27 +883,23 @@ def prerender_kernel(
     if precision:
         cmd += ["--precision", precision]
     run = run_child(cmd, target, timeout, extra_env)
-    final = next((r for r in reversed(run.records) if "results" in r), None)
+    final = next((r for r in reversed(run.records) if r.results is not None), None)
     if final is not None:
-        final["seconds"] = run.seconds
+        final.seconds = run.seconds
         return final
-    plan: dict[str, str] = next((r["plan"] for r in run.records if "plan" in r), {})
-    last = run.records[-1] if run.records else {}
+    plan = run.plans[0].plan if run.plans else {}
+    last = run.records[-1] if run.records else None
     if run.timed_out:
         verdict, error = "timeout", timeout_error(run.budget)
     else:
-        verdict = str(last.get("verdict", "fail"))
-        error = str(last.get("error") or f"child exited {run.returncode} with no verdict: {run.tail}")
+        verdict = last.verdict if last is not None and last.verdict else "fail"
+        error = (last.error if last is not None else "") or f"child exited {run.returncode} with no verdict: {run.tail}"
     results = {
-        language: {"key": plan.get(language), "verdict": verdict, "error": error[:400]} for language in languages
+        language: RenderOutcome(key=plan.get(language), verdict=verdict, error=error[:400]) for language in languages
     }
-    return {
-        "kernel": spec.short_name,
-        "precision": fptype_tag(precision),
-        "target": target,
-        "results": results,
-        "seconds": run.seconds,
-    }
+    return RenderRecord(
+        kernel=spec.short_name, precision=fptype_tag(precision), target=target, results=results, seconds=run.seconds
+    )
 
 
 def track_specs(track: str) -> list[BenchSpec]:
@@ -860,21 +930,21 @@ def render_track(
     target: str = "cpu",
     timeout: float | None = None,
     jsonl: os.PathLike[str] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[RenderRecord]:
     """Render every kernel on ``track``, appending one verdict per line to ``jsonl``.
 
     Written as it goes rather than at the end: a sweep over a few hundred kernels is minutes per
     kernel, and a run that is interrupted has to leave behind what it already learned.
     """
-    records: list[dict[str, Any]] = []
+    records: list[RenderRecord] = []
     with contextlib.ExitStack() as stack:
         sink = stack.enter_context(pathlib.Path(jsonl).open("a")) if jsonl is not None else None
         for index, spec in enumerate(track_specs(track), start=1):
             rec = render_kernel(spec, out_dir, language=language, precision=precision, target=target, timeout=timeout)
             records.append(rec)
-            print(f"[{index}] {rec['kernel']}: {rec['verdict']}", flush=True)
+            print(f"[{index}] {rec.kernel}: {rec.verdict}", flush=True)
             if sink is not None:
-                sink.write(json.dumps(rec) + "\n")
+                sink.write(rec.line() + "\n")
                 sink.flush()
     return records
 
@@ -903,10 +973,10 @@ def main(argv: list[str] | None = None) -> int:
 
     spec = BenchSpec.load(args.kernel)
     numpy_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    rec: dict[str, Any] = {"kernel": spec.short_name, "language": languages[0]}
+    rec = RenderRecord(kernel=spec.short_name, language=languages[0])
     if not numpy_py.exists():
-        rec["verdict"] = "noemit"
-        rec["error"] = f"no numpy reference at {numpy_py}"
+        rec.verdict = "noemit"
+        rec.error = f"no numpy reference at {numpy_py}"
     else:
         try:
             if args.cache is not None:
@@ -923,14 +993,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 rec = render_sdfg(spec, numpy_py, pathlib.Path(args.out), languages[0], args.precision, args.target)
         except NotImplementedError as exc:  # CPF names the construct it cannot render
-            rec["verdict"] = "refused"
-            rec["error"] = str(exc)[:400]
+            rec.verdict = "refused"
+            rec.error = str(exc)[:400]
         except BaseException as exc:  # noqa: BLE001 -- every failure mode is a verdict, SystemExit included
-            rec["verdict"] = "fail"
-            rec["errtype"] = type(exc).__name__
-            rec["error"] = f"{type(exc).__name__}: {exc}"[:400]
-            rec["frame"] = traceback.format_exc().strip().splitlines()[-3][:200]
-    print(json.dumps(rec), flush=True)
+            rec.verdict = "fail"
+            rec.errtype = type(exc).__name__
+            rec.error = f"{type(exc).__name__}: {exc}"[:400]
+            rec.frame = traceback.format_exc().strip().splitlines()[-3][:200]
+    print(rec.line(), flush=True)
     return 0
 
 
