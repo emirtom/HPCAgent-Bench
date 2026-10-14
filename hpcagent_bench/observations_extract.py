@@ -80,6 +80,7 @@ __all__ = [
     "FINAL_RULES",
     "GRADE_ROWS",
     "KIND_OPTIMIZER",
+    "LIVE_REASON_COLUMN",
     "NO_MEASUREMENT_REASON",
     "PLATFORM",
     "REGRADE_ROWS",
@@ -91,6 +92,7 @@ __all__ = [
     "SOURCE_SUFFIX",
     "TORCH_DIST_SETUP",
     "UNSOLVED",
+    "VERDICT_KINDS",
     "Agent",
     "CellTally",
     "Database",
@@ -386,6 +388,15 @@ FINAL_RULES: dict[str, str] = {score_rule.SCORE_RULE: timing.FINAL_GRADE_REDUCTI
 RETIMED: str = "graded"
 
 
+#: The verdict rows a final grade decides (:func:`apply_final_regrades`): a credited answer, and an
+#: answer the live grade refused that the grade-under worklist re-timed anyway.
+VERDICT_KINDS: tuple[str, ...] = ("submission", "attempt")
+
+
+#: The reason the LIVE grade gave a verdict row the final grade then decided, kept for audit.
+LIVE_REASON_COLUMN: str = "grade_live_reason"
+
+
 UNSOLVED: str = "unsolved"
 
 
@@ -525,15 +536,15 @@ PLATFORM: str = population.PLATFORM_COLUMN
 def platform_rows(
     rows: Iterable[dict[str, Any]], final: dict[FinalKey, dict[str, Any]], platform: str
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """A SECOND row per submission the final-grade pass re-timed on ``platform``, beside its own.
+    """A SECOND row per verdict the final-grade pass re-timed on ``platform``, beside its own.
 
-    ``rows`` are the finished MI300A rows; each submission ``final`` holds a row for is copied and
+    ``rows`` are the finished MI300A rows; each verdict row (:data:`VERDICT_KINDS`) ``final`` holds a row for is copied and
     graded by :func:`apply_final_regrades` exactly as its MI300A final grade was -- credited, an
     unsolved attempt, or a judge error -- then stamped ``platform``, the node that timed it and its
     commit. An errored re-timing keeps no speedup: the one it would keep is the MI300A grade. The
-    MI300A rows are not touched; a re-timed key no submission matched is counted (``unmatched``).
+    MI300A rows are not touched; a re-timed key no verdict row matched is counted (``unmatched``).
     """
-    answers = [row for row in rows if row.get("row_kind") == "submission" and final_key(row) in final]
+    answers = [row for row in rows if row.get("row_kind") in VERDICT_KINDS and final_key(row) in final]
     graded, counts = apply_final_regrades(answers, final)
     found: list[dict[str, Any]] = []
     for row in graded:
@@ -1170,7 +1181,8 @@ def apply_promotions(
 
     A promotion that verified becomes the episode's ``submission``, tagged
     :data:`PROMOTED_TAG`; one that failed the held-out inputs becomes an ``attempt`` with its
-    reason, so the episode stays unsolved. Identity columns come from the episode's newest ``call``
+    reason, so the episode stays unsolved -- unless :func:`apply_final_regrades` then re-times it
+    and the final grade passes it. Identity columns come from the episode's newest ``call``
     row in the same job. An episode that already holds a submission or attempt is left alone -- it
     spent its own submission, which is why the promotion was never owed -- unless that row is a
     judge fault (:func:`recorded_rows.is_judge_fault`), which graded nothing.
@@ -1228,7 +1240,7 @@ def apply_final_regrades(
     rows: Iterable[dict[str, Any]],
     final: dict[FinalKey, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Rows with every submission the final-grade pass re-timed put on that FINAL grade.
+    """Rows with every verdict the final-grade pass re-timed put on that FINAL grade.
 
     Applied AFTER :func:`apply_promotions`: a run-mode regrade decides whether a promotion is a
     submission at all (the per-cell pass re-times, it does not re-verify), then the final grade
@@ -1240,7 +1252,15 @@ def apply_final_regrades(
     -- read neither as unsolved nor as re-timed, and refused if pooled with final-grade rows
     (``population.one_reduction``). A submission the pass never re-timed is kept under its live stamp
     and counted: it is never credited (``timing.credited_protocol``) and is owed a final grade. A
-    re-timed key no submission row matched is counted too. No row is dropped.
+    re-timed key no verdict row matched is counted too, and one the rule credited is named on stderr:
+    that is a credited answer the plot would lose. No row is dropped.
+
+    The final grade decides an ``attempt`` it re-timed exactly as it decides a submission (the
+    grade-under worklist re-times correct answers a gate refused, and uncredited answers graded
+    before their kernel's grading cut): credited, it becomes a submission. The live reason of every
+    row the final grade decided is kept in :data:`LIVE_REASON_COLUMN`. The final pass does not re-run
+    the sanitizer or ``independent_verify`` gates, so an answer one of them refused is credited
+    whenever its re-timing passes.
     """
     kept: list[dict[str, Any]] = []
     counts = dict.fromkeys(
@@ -1248,7 +1268,7 @@ def apply_final_regrades(
     )
     matched: set[FinalKey] = set()
     for row in rows:
-        new = final.get(final_key(row)) if row.get("row_kind") == "submission" else None
+        new = final.get(final_key(row)) if row.get("row_kind") in VERDICT_KINDS else None
         if new is None:
             counts["not_retimed"] += row.get("row_kind") == "submission"
             voided = str(row.get("reason") or "").startswith(recorded_rows.RERUN_PREFIXES)
@@ -1257,14 +1277,19 @@ def apply_final_regrades(
             continue
         matched.add(final_key(row))
         status = new["regrade_status"]
+        live_reason = row.get("reason") or ""
         if status == ERRORED:
-            kept.append({**row, "grade_final_status": status, "reason": new["regrade_reason"]})
+            # an errored re-timing decided nothing: an attempt keeps the live verdict it was (a judge fault
+            # or an operator's void stays one, never read as a refusal); a submission names the fault
+            reason = new["regrade_reason"] if row.get("row_kind") == "submission" else live_reason
+            kept.append({**row, "grade_final_status": status, "reason": reason, LIVE_REASON_COLUMN: live_reason})
             counts["errored"] += 1
             counts["fallback"] += new["regrade_reason"] == FALLBACK_REASON
             continue
         changed = {
             **row,
             "grade_final_status": status,
+            LIVE_REASON_COLUMN: live_reason,
             "grade_regraded": "1",
             # the speedup the judge first recorded, not a run-mode regrade's in-between one
             "grade_live_speedup": row.get("grade_live_speedup", "")
@@ -1277,13 +1302,19 @@ def apply_final_regrades(
         }
         counts[new["timing_reduction"]] += 1
         if status == RETIMED:
-            changed.update(speedup=new["s_i"], timing_suspect=int(not new.get("n_credited")))
+            changed.update(
+                row_kind="submission", reason="", speedup=new["s_i"], timing_suspect=int(not new.get("n_credited"))
+            )
             counts["replaced"] += 1
         else:
             changed.update(row_kind="attempt", speedup="", reason=new["regrade_reason"])
             counts["unsolved"] += 1
         kept.append(changed)
-    counts["unmatched"] = len(final.keys() - matched)
+    unmatched = final.keys() - matched
+    counts["unmatched"] = len(unmatched)
+    for key in sorted(unmatched):
+        if final[key]["regrade_status"] == RETIMED:
+            print(f"WARNING: a credited final grade matched no verdict row: {key}", file=sys.stderr)
     return kept, counts
 
 
