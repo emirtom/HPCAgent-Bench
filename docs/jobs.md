@@ -113,7 +113,9 @@ column: they run as `hpcagent-bench agent <flavor> --native`, Alloy building, ve
 candidate of the flavor's DaCe pipeline on the node and ranking the best few on the judge's `/score`. They need the
 `alloy` extra (`uv sync --extra cpu --extra alloy`) and its compilers on `PATH`; run one task per node, since Alloy
 times on every physical core. The GPU and heuristic flavors are registered and refuse with `NotImplementedError`
-until Alloy builds them.
+until Alloy builds them. The sample job script
+[`optimizer.sbatch`](../hpcagent_bench/cluster/optimizer.sbatch) runs any optimizer this way
+([extending/optimizer.md](extending/optimizer.md#on-a-cluster-node)).
 
 Every row carries the run label `<out-root>`'s name. Only an `--out-root` under `$HPCAGENT_BENCH_RUNS_ROOT` is
 managed (shard DB redirected to `<out-root>/db/<col>/`, earlier rows dropped, build tree deleted); any other

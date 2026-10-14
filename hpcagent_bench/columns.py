@@ -18,7 +18,7 @@ names an :class:`~hpcagent_bench.harness.agent.Agent` in :mod:`hpcagent_bench.ha
 ``hpcagent-bench agent <name>``, timing locally and ranking on the judge's ``/score``. Declaration order here is the
 order columns are listed in (``framework_flavors``, the CLI); ``order`` is the column's hue slot on a figure:
 append-only, a new column takes :meth:`~hpcagent_bench.registry.Kind.next_order`. ``precisions`` is what the column
-can execute (else the sweep records ``skip``).
+can execute; ``run-framework`` does not enforce it, so a sweep passes a supported ``--datatype`` itself.
 
 Native and pluto columns carry ``language`` (what the column compiles), ``emit_language`` when its sources
 start from another translator output, ``compiler`` (the ``compilers.yaml`` block the build forces; absent =

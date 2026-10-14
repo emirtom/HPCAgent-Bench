@@ -12,14 +12,17 @@ A new PyPI dependency goes in a `pyproject.toml` extra, the only dependency list
 
 ## Run one first
 
-The shipped optimizers are `noop` (the NumpyToX reference unchanged), `blas-reduction`, `pluto` (C),
-`ppcg-hip` (HIP) and `noop-mpi` (`hpcagent_bench/harness/optimizers.py`). Grading needs the OpenMP launch
-environment before Python starts (the numpy import fixes it once): `hpcagent_bench/cluster/env.sh` exports
-`OMP_STACKSIZE=512M` and `OMP_THREAD_LIMIT` (the cores the shell owns), and the stack limit is one shell step:
+The shipped optimizers are `noop` (the NumpyToX reference unchanged), `blas-reduction` (C, `tsvc_2_vdotr` and
+`gesummv` only), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels) and the Alloy flavors
+`dace_<cpu|gpu>_<canon|parallel>_alloy_<profile|heuristic>`, of which only the CPU `profile` ones are built
+(`--extra alloy`, [jobs.md](../jobs.md#baseline)); all are in `hpcagent_bench/harness/optimizers.py`
+(`optimizer_registry()`). Grading needs the OpenMP launch environment before Python starts (the numpy import
+fixes it once): `hpcagent_bench/cluster/env.sh` exports `OMP_STACKSIZE=512M` and `OMP_THREAD_LIMIT` (the cores the
+shell owns), and the stack limit is one shell step:
 
 ```sh
 . hpcagent_bench/cluster/env.sh
-ulimit -s unlimited
+ulimit -s "$(ulimit -H -s)"   # the main thread's stack at its hard limit, as run_cluster.sh sets it
 uv run hpcagent-bench agent noop --kernels tsvc_2_s000 --native --preset S --output noop.jsonl
 ```
 
@@ -39,12 +42,32 @@ live reduction (`timing_reduction` `mwd-v3`); the credited number of a study is 
 `fuzzed` (around XL). Rules for the code you return: [abi_contract.md](../../hpcagent_bench/docs/abi_contract.md),
 [numerical_validation.md](../../hpcagent_bench/docs/numerical_validation.md).
 
+### On a cluster node
+
+[`hpcagent_bench/cluster/optimizer.sbatch`](../../hpcagent_bench/cluster/optimizer.sbatch) runs one optimizer
+as one task on one exclusive node; its arguments go to `hpcagent-bench agent` unchanged:
+
+```sh
+hpcagent-bench job submit hpcagent_bench/cluster/optimizer.sbatch noop --kernels gemm,tsvc_2_s000 --native \
+    --output noop.jsonl
+JUDGE_EDF=~/.edf/<judge>.toml hpcagent-bench job submit hpcagent_bench/cluster/optimizer.sbatch pluto \
+    --kernels gemm --native --output "$SCRATCH/pluto.jsonl"
+```
+
+`job submit` adds the partition, account and cores per task ([jobs.md](../jobs.md)); plain sbatch names them
+(`sbatch --cpus-per-task <N> -p <partition> -A <account> ...`). The task grades on one GPU's share of the cores,
+the graded width; an Alloy flavor, which times on every physical core, takes the whole node
+(`job submit --cpus-per-task <cores per node>`) after `uv sync --extra cpu --extra alloy`. With `JUDGE_EDF` naming
+the judge image's EDF, the step runs in that image with this checkout mounted, which `pluto` and `ppcg-hip` need
+for `polycc` / `ppcg`; its `--output` must then be on a filesystem the image mounts.
+
 ## A student project, end to end
 
 The path for a course or thesis project that evaluates its own optimizer, compiler pass or library:
 
 1. **Pick the kernels.** Start small and fixed: one tag at one level, e.g. `loop_level_reasoning@lvl1`, or a
-   short comma-separated list. `uv run python -m hpcagent_bench.tags --help` lists the tags.
+   short comma-separated list. `ls hpcagent_bench/tags/` lists the tags, and
+   `uv run python -m hpcagent_bench.tags resolve llr40` prints the kernels of one.
 2. **Measure the reference first.** `noop` submits the generated reference unchanged, so its rows are your floor:
    ```sh
    uv run hpcagent-bench agent noop --kernels loop_level_reasoning@lvl1 --native --output noop.jsonl
@@ -123,9 +146,13 @@ new column takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on e
 
 - `display` is the compiler or library a figure prints; `full_name` the long name a table prints.
 - `adapter` is `package.module:Class`, imported on first use, so registering a column never imports its backend.
-- `postfix` picks the file `<module>_<postfix>.py` beside the NumPy reference; `arch` is `cpu` or `gpu`; other
-  precisions record `skip`. `sweep_deterministic` admits the column to the unjudged baseline sweeps
-  (`hpcagent-bench job baseline`).
+- `postfix` picks the file `<module>_<postfix>.py` beside the NumPy reference; `arch` is `cpu` or `gpu`.
+- `precisions` documents what the column can execute (registration refuses an empty set), but `run-framework`
+  does not enforce it: pass a supported `-d` yourself (`-d float32` for `triton`, which has no fp64 path).
+- `sweep_deterministic` lists the column in `preflight.DETERMINISTIC_FRAMEWORKS`, which a full
+  `hpcagent-bench preflight --frameworks` checks before a corpus sweep. `hpcagent-bench job baseline --column <name>`
+  accepts any registered column and checks only that its tools are installed, so a column that is not
+  `sweep_deterministic` (`numba`, `triton`) can still be swept there.
 - Naming scheme, checked at import: a name is `<column>[_<flavor>]`. The column is `<backend>` for a backend on
   one device and `<backend>_<arch>` for one on both (`dace_cpu`/`dace_gpu`, `tvm_cpu`/`tvm_gpu`). A flavor is the
   optimizer, never the device: it declares `column` and `flavor` and runs on its column's `arch`, which picks the
@@ -137,8 +164,12 @@ new column takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on e
 - A native column also declares `language`, plus `emit_language` when it starts from another translator's
   output, and `compiler` for a non-default `compilers.yaml` block.
 - New base: subclass `Framework` in `<base>_framework.py` (smallest: `pythran_framework.py`). To generate the
-  implementation file, add a target to `autogen_targets()` and to `TARGETS` / `_emit_target` in
-  `hpcagent_bench/autogen.py`; otherwise commit a hand-written `<module>_<postfix>.py` per kernel.
+  implementation file, return its target from the adapter's `autogen_targets()` and add one entry
+  `"<postfix>": <emitter>` to `EMITTERS` in `hpcagent_bench/autogen.py` (an in-process function such as the jax
+  one, or `emit_cli("<translator package>.cli", pass_bench_info=...)`); otherwise commit a hand-written
+  `<module>_<postfix>.py` per kernel.
+- A hand-written backend for an existing column, e.g. a kernel's `<kernel>_triton.py`, is one file and no
+  registry change: [triton_authoring.md](../triton_authoring.md), [tvm_authoring.md](../tvm_authoring.md).
 
 ```sh
 uv run hpcagent-bench run-framework -f numba -b gemm -p S -r 3

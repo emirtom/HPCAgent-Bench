@@ -21,7 +21,7 @@ _BLOCK0 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
 
 
 def test_registered_in_the_optimizer_registry() -> None:
-    """`hpcagent-bench agent --agent noop-mpi` resolves through the same registry as every optimizer."""
+    """`hpcagent-bench agent noop-mpi` resolves through the same registry as every optimizer."""
     assert optimizer_registry().get("noop-mpi") is NoOpMPIOptimizer
 
 
