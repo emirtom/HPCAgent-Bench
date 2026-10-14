@@ -158,6 +158,26 @@ jobs:
         with:
           coverage: unit-${{ matrix.python }}-${{ matrix.shard }}
 
+  # The release smoke suite: every `smoke`-marked test (tests/test_smoke.py and any other file's), through the script
+  # a login node runs (helpers/scripts/run_smoke.sh), under its whole-session budget. Unpinned: the runner is the job's.
+  smoke:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
+    name: smoke (end to end on a CPU host, under 5 minutes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+        with:
+          ccache: smoke
+      - name: Smoke suite
+        timeout-minutes: 10
+        run: SMOKE_CPUS=0 helpers/scripts/run_smoke.sh
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          coverage: smoke
+
   # Speed, separate from correctness: canon (dace_cpu_canon) within 2x of the faster compiled baseline (numba,
   # cc) on the curated kernels canon has been slow on (tests/test_canon_perf_gate.py). Each CloudSC kernel on its own
   # runner (its build takes most of the budget), every other kernel on one shared runner (PERF_JOBS); one test at a
@@ -874,7 +894,7 @@ jobs:
     if: ${{!cancelled()}}
     name: coverage (combined total)
     # Every job that uploads coverage data, or the total is built from a subset.
-    needs: [ unit, e2e, integration, translators, native, mpi, dace-numeric,
+    needs: [ unit, smoke, e2e, integration, translators, native, mpi, dace-numeric,
              dace-frontend, njit-oracle, alloy ]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
