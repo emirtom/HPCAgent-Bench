@@ -33,10 +33,11 @@ columns=${COLUMNS:-"numba cc cc_autopar dace_cpu_parallel dace_cpu_canon dace_gp
 status=0
 for column in ${columns}; do
     common=(--column "${column}" --out-root "${out_root}")
-    srun --ntasks=1 "${python}" -m hpcagent_bench job baseline "${common[@]}" --phase begin "$@"
-    # A failed column does not stop the next one; the job still ends nonzero.
+    # A failed column, in any of its three steps, does not stop the next one; the job still ends nonzero. A column
+    # whose begin failed is not run: its earlier rows were not dropped.
+    srun --ntasks=1 "${python}" -m hpcagent_bench job baseline "${common[@]}" --phase begin "$@" || { status=1; continue; }
     srun --hint=nomultithread --mem=0 \
         "${python}" -m hpcagent_bench job baseline "${common[@]}" --phase run "$@" || status=1
-    srun --ntasks=1 "${python}" -m hpcagent_bench job baseline "${common[@]}" --phase finish
+    srun --ntasks=1 "${python}" -m hpcagent_bench job baseline "${common[@]}" --phase finish || status=1
 done
 exit "${status}"

@@ -114,11 +114,19 @@ EOF
 # naming the partition, Slurm's default can place the job on GPUs the image was not built for.
 bash "${HPCAGENT_BENCH_REPO}/containers/images/gpu_arch_check.sh" "${INFERENCE_CE_ENV:?INFERENCE_CE_ENV must name a registered EDF}"
 
+# The inference role's derived EDF, as an experiment's run_cluster.sh launches it (container_runtime.sh derived_edf):
+# a single-node or replica server runs without the cxi / aws-ofi-nccl hooks and the forced NCCL_NET, with which its
+# tensor-parallel group fails at init ("Failed to initialize any NET plugin"); a multi-node pp server keeps them.
+export RUN_ROOT RUN_DIR SHARED_HOST_DIR="${RUN_DIR}/shared" SHARED_MOUNT=/shared
+GENERATED_CACHE_HOST="${HPCAGENT_BENCH_GENERATED_CACHE_HOST:-${HPCAGENT_BENCH_REPO}/.cache/generated}"
+. "${SCRIPT_DIR}/container_runtime.sh"
+container_wrap vllm-node "${INFERENCE_CE_ENV}" "" || exit 2
+
 # Without --cpus-per-task the step claims ONE core of 192 and the engine's host-side work degrades
-# with load rather than failing. --environment takes the registered EDF by name.
+# with load rather than failing.
 srun --nodes="${INFERENCE_NODES}" --ntasks="${INFERENCE_NODES}" --ntasks-per-node=1 \
     --cpus-per-task="${SLURM_CPUS_ON_NODE:-$(nproc)}" --exclusive --kill-on-bad-exit=1 \
-    --export=ALL --environment="${INFERENCE_CE_ENV:?INFERENCE_CE_ENV must name a registered EDF}" \
+    --export=ALL "${CONTAINER_SRUN_ARGS[@]}" \
     --output="${RUN_DIR}/server-%t.log" --error="${RUN_DIR}/server-%t.log" \
     "${SCRIPT_DIR}/run_cluster.sh" --vllm-node &
 SERVER_PID=$!
