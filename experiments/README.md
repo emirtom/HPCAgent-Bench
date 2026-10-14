@@ -183,10 +183,10 @@ account, so keep `AGENTS_PER_NODE` low (the examples use 8).
 ### Container runtimes
 
 `ce` (the default) starts each role through `srun --environment=<EDF>` with a per-run copy of the
-role's EDF (`derived_edf` in `run_cluster.sh`). The EDF comm hooks and a forced `NCCL_NET` serve
+role's EDF (`derived_edf` in `hpcagent_bench/cluster/container_runtime.sh`). The EDF comm hooks and a forced `NCCL_NET` serve
 cross-node collectives only, and single-node tensor-parallel inference fails with them (`Failed to
-initialize any NET plugin`), so the agent's and a single-node inference step's copy switch them off;
-the judge and multi-node inference keep them. Apptainer and Podman/Docker take `INFERENCE_IMAGE`,
+initialize any NET plugin`), so the agent's and a single-node inference step's copy (one inference
+node, or `INFERENCE_MODE=replicas`) switch them off; the judge and multi-node pipeline inference keep them. Apptainer and Podman/Docker take `INFERENCE_IMAGE`,
 `BENCH_IMAGE` and `CONTAINER_GPU_FLAGS`. Images: [`containers/README.md`](../containers/README.md).
 
 ## Owed kernels

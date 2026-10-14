@@ -54,6 +54,7 @@ __all__ = [
     "LAUNCH_WIDTH_ENV",
     "MEMORY_CAP_BASELINE",
     "MEMORY_SUSPECT_SIGNALS",
+    "NARROWING_ENV",
     "OMP_SIZE",
     "OMP_SIZE_UNITS",
     "OOM_BACKOFF_S",
@@ -416,25 +417,30 @@ def assigned_device() -> int | None:
 
 #: The device-visibility variables, in the order read. ``ROCR_VISIBLE_DEVICES`` and
 #: ``HIP_VISIBLE_DEVICES`` compose (HIP indexes what ROCr left), so setting both is
-#: ``hipErrorNoDevice``; this harness sets ROCr only.
+#: ``hipErrorNoDevice``; this harness sets one per vendor (:data:`NARROWING_ENV`) and removes the rest.
 VISIBLE_DEVICE_ENV: tuple[str, ...] = ("ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
 
+#: The variable that narrows a child to one GPU, per :func:`languages.offload_vendor`. HIP also reads
+#: ``CUDA_VISIBLE_DEVICES`` (composed with ROCr), and the CUDA runtime ignores ROCr.
+NARROWING_ENV: dict[str, str] = {"amd": "ROCR_VISIBLE_DEVICES", "nvidia": "CUDA_VISIBLE_DEVICES"}
 
-def restrict_visible_device(env: MutableMapping[str, str], index: int | None) -> str:
+
+def restrict_visible_device(env: MutableMapping[str, str], index: int | None, vendor: str | None = None) -> str:
     """Narrow ``env`` so a grading child reaches exactly one GPU; returns that device's id.
 
     Selecting a current device does not hide the others, and events and ``deviceSynchronize`` are
     per device, so work enqueued elsewhere would escape the measurement. The pinned index is a
-    position in the inherited list (slot 2 of ``ROCR_VISIBLE_DEVICES=4,5,6,7`` is device 6).
-    ``HIP_VISIBLE_DEVICES`` and ``CUDA_VISIBLE_DEVICES`` are removed. Call in the child before any
-    device runtime loads (hence the device path spawns rather than forks)."""
+    position in the inherited list (slot 2 of ``ROCR_VISIBLE_DEVICES=4,5,6,7`` is device 6). The
+    chosen device goes into ``vendor``'s variable (default: this host's, :data:`NARROWING_ENV`) and
+    the other visibility variables are removed. Call in the child before any device runtime loads
+    (hence the device path spawns rather than forks)."""
     inherited = next((env[name] for name in VISIBLE_DEVICE_ENV if env.get(name, "").strip()), "")
     devices = [d.strip() for d in inherited.split(",") if d.strip()]
     slot = index or 0
     chosen = devices[slot % len(devices)] if devices else str(slot)
-    env["ROCR_VISIBLE_DEVICES"] = chosen
-    env.pop("HIP_VISIBLE_DEVICES", None)
-    env.pop("CUDA_VISIBLE_DEVICES", None)
+    for name in VISIBLE_DEVICE_ENV:
+        env.pop(name, None)
+    env[NARROWING_ENV[vendor or languages.offload_vendor()]] = chosen
     return chosen
 
 

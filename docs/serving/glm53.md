@@ -54,8 +54,8 @@ The fraction caps weights plus KV, so `pool(f) = 39.0M * (f - 0.4838)` tokens:
 Host memory, not the pool, kills a stage; `--chunked-prefill-size` and `--max-running-requests` bound
 what grows with load. The dynamic (non-pool) allocations ratchet up as agent contexts grow: in 676681
 (12 agents, pool 2.8 M, peak pool use 0.33) the heaviest stage's GPU memory rose from 401 to 446 GB in
-3 h of serving, the node reached 504-508 of 513 GB, and Slurm OOM-killed it. The 1.8 M pool still holds
-the observed 0.92 M working set and gives that ratchet about 44 GB more. Stages are uneven (172.4 / 197.2 / 203.8 / 206.1 GB). Time to a live API is the
+3 h of serving, the node reached 504-508 of 513 GB, and Slurm OOM-killed it. The 1.5 M pool still holds
+the observed 0.92 M working set and leaves about 14 GB more headroom than 1.8 M on the heaviest stage. Stages are uneven (172.4 / 197.2 / 203.8 / 206.1 GB). Time to a live API is the
 slowest stage's weight load (up to 5400 s) plus about 130 s KV allocation and 1080 s graph capture;
 `AGENT_READY_TIMEOUT_SECONDS=10800` covers it.
 

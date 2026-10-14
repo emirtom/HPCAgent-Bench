@@ -36,7 +36,7 @@ S=hpcagent_bench/cluster/serve-only.sbatch
 SUBMIT=0 $S                  # print what would be submitted
 $S                           # Qwen3.8 (default MODEL)
 MODEL=kimi27sglang $S        # any experiments/layers/model-<MODEL>.env: qwen38, kimi27sglang, glm53, oss120b
-SBATCH_TIMELIMIT=08:00:00 $S # longer than the 4 h default
+SERVE_TIME=08:00:00 $S       # longer than the 4 h default (SBATCH_TIMELIMIT is overridden)
 ```
 
 `serve-only.sbatch` renders `experiment:<MODEL>` (`SERVE_BASE_ENV` overrides), reads the node count from it, submits itself with
@@ -57,7 +57,7 @@ actually ran.
 **Runtime caveat.** `serve-only.sbatch` launches the registered EDF as is. A single-node server
 (qwen38, oss120b) can fail building its tensor-parallel group with `Failed to initialize any NET
 plugin` when the EDF forces the fabric plugin; the experiment launcher switches the hooks off for a
-single-node server, see [`experiments/README.md`](../../experiments/README.md#container-runtimes).
+single-node server (one inference node, or `INFERENCE_MODE=replicas`), see [`experiments/README.md`](../../experiments/README.md#container-runtimes).
 
 ## 2. Images (EDFs)
 
@@ -128,8 +128,8 @@ kernels, and Qwen3.8 serves on the AMD vLLM image (`layers/hardware-mi200-qwen38
 
 ## 5. Healthy or sick
 
-**Readiness.** `serve-only.sbatch` waits `VLLM_READY_TIMEOUT_SECONDS`, else
-`AGENT_READY_TIMEOUT_SECONDS`, else 7200 s. Each model layer sets one high enough for that model
+**Readiness.** `serve-only.sbatch` waits `AGENT_READY_TIMEOUT_SECONDS`, else
+`VLLM_READY_TIMEOUT_SECONDS`, else 7200 s, the precedence the experiment's agent driver uses. Each model layer sets one high enough for that model
 (GLM-5.3: 10800 s). Both keys are set inside the model file, so a value on the command line is
 overwritten when the file is sourced. To override, copy `experiments/serve-only.env`, add the key,
 and pass `SERVE_ENV_FILE=<copy>` (sourced last, so it wins). The same applies to

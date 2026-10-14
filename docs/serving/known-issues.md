@@ -6,13 +6,13 @@ per-model pages and [`knobs.md`](knobs.md) carry the configuration that avoids t
 
 | # | Issue | Visible as | Status |
 |---|---|---|---|
-| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | tp=4 pp=4: the 1-4 h deaths are host OOM on a stage (pool cut to 1.8 M); tp=8 pp=2: CSCS CXI settings |
+| 1 | RCCL internal error on cross-node sends and all-reduces (GLM-5.3, 4 nodes) | server dies after 1-4 h of agent load (tp=4 pp=4), or at graph capture (tp=8 pp=2) | tp=4 pp=4: the 1-4 h deaths are host OOM on a stage (pool cut to 1.5 M); tp=8 pp=2: CSCS CXI settings |
 | 2 | A writable CE container freezes on fuse-overlayfs | every agent on the node stalls at once, no error | fixed in hb: the agent container is read-only |
 | 3 | vLLM `ROCM_AITER_FA` garbles Qwen3.8 under agent load | random tokens in reasoning, invented tool names | avoided: Qwen3.8 serves on SGLang |
 | 4 | Self-tuned GEMM kernel tables break Qwen3.8 numerics | agents loop on degenerate reasoning | avoided: stock aiter tables only |
 | 5 | RCCL GPU-direct RDMA corrupts cross-node sums; its connect can fail registering GPU memory | wrong outputs, no error; or `NET/OFI Couldn't register memory region with regattr. RC: -22` and the server dies at the first cross-node send | avoided since 2026-10-13: `NCCL_NET_GDR_LEVEL=LOC` on the server command (the CSCS hook overwrote every earlier setting; GDR was on in every multi-node run before) |
 | 6 | RCCL silently falls back to TCP | several times slower, correct | check the `Using network` log line |
-| 7 | SGLang split groups hang on the RCCL/ROCm build | init hang | avoided: `VLLM_DISTRIBUTED_USE_SPLIT_GROUP=0` |
+| 7 | SGLang split groups hang on the RCCL/ROCm build | init hang | avoided: no serving setup enables them (SGLang has no environment switch for them) |
 | 8 | APU out-of-memory kills without a traceback | log stops, exit by signal | fraction rules in [`knobs.md`](knobs.md#the-mi300a-memory-model) |
 
 ## 1. GLM-5.3: RCCL `ncclInternalError` on the pipeline send
@@ -58,7 +58,7 @@ after 3 h and 676681 after 2 h 49 min, where Slurm recorded an `oom_kill` in the
 stages then failed with `gloo ... Connection closed by peer`. The node monitors of 675850, 675956, 675957, 676621
 and 676681 all show the heaviest stage at 502-512 of 513 GB when serving stopped (675958, at 18 min and
 441 GB, is the exception: it died at its first cross-node send on a GPU-direct registration failure, [#5](#5-8-fabric-and-memory)). A peer killed mid-send explains the RCCL internal error. The KV pool is now pinned at
-1.8 M tokens instead of 2.8 M ([glm53.md](glm53.md)).
+1.5 M tokens (1.8 M still OOM-killed 677837; [glm53.md](glm53.md)).
 
 **Previously open.** Whether `tp=4 pp=4` now survives hours of agent load is what the next GLM-5.3 run shows; before, it
 failed after 1 to 4 h. The first run with the 1.8 M pool (677231) never served a request: it died at the first
@@ -118,7 +118,9 @@ for numerical tolerance against a reference, not only for throughput.
   `run_cluster.sh` passes the layer's value on the server command, taken from the batch shell
   (`SERVER_NCCL_NET_GDR_LEVEL`): the role step cannot re-read the layer env inside its container (the EDF does
   not mount `experiments/`), so reading `NCCL_NET_GDR_LEVEL` there returned the hook's PHB, and the first
-  version of this fix (2026-10-12) passed PHB on. Check the NCCL log
+  version of this fix (2026-10-12) passed PHB on. `serve-only.sbatch` has no batch-shell `run_cluster.sh`:
+  its role step re-reads `$RUN_DIR/serve.env` inside the container (the registered EDF mounts `$SCRATCH`),
+  which re-exports the layer's `NCCL_NET_GDR_LEVEL=LOC` over the hook's PHB. Check the NCCL log
   (`vllm/nccl.<host>.<pid>.log`): `set by environment to LOC`, `use ring ... GDR 0`, and channels `via NET/AWS
   Libfabric/<n>` without `/GDRDMA`. The hook sets other values the same way (`NCCL_MIN_NCHANNELS=112`,
   `FI_MR_CACHE_MAX_COUNT`, `FI_CXI_RDZV_*`, `FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD`); any of them we want different
@@ -127,6 +129,8 @@ for numerical tolerance against a reference, not only for throughput.
   `grep -a "Using network" server-0.log` must say `AWS Libfabric`; our EDFs set `NCCL_NET_PLUGIN=ofi` so a
   missing plugin is an error instead.
 - **Split groups.** Any SGLang/vLLM option that enables split process groups hangs init on this RCCL build.
+  No serving setup passes one. `VLLM_DISTRIBUTED_USE_SPLIT_GROUP` is a vLLM variable that SGLang never reads,
+  so it is not set.
 - **APU memory.** GPUs and host share one pool, `--mem-fraction-static` is node-wide, and an out-of-memory death
   is the host OOM killer: the log stops with no traceback.
 
