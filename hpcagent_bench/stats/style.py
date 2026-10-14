@@ -228,16 +228,6 @@ class TypeScale:
     line_width: float
     marker_size: float
 
-    @property
-    def hairline_width(self) -> float:
-        """A secondary stroke (median tick, whisker, reference line): half the data line."""
-        return self.line_width / 2.0
-
-    @property
-    def point_size(self) -> float:
-        """A raw-sample dot or a flier: half a data mark, so it never reads as a summary."""
-        return self.marker_size / 2.0
-
 
 AUTHOR_SCALE = TypeScale(TICK_PT, LABEL_PT, SUBTITLE_PT, TICK_PT, ANNOTATION_PT, 1.6, 6.0)
 PRINT_SCALE = TypeScale(PRINT_TICK_PT, PRINT_LABEL_PT, PRINT_LABEL_PT, PRINT_LEGEND_PT, PRINT_TICK_PT, 1.0, 4.0)

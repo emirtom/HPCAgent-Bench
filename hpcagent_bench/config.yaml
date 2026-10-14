@@ -103,7 +103,7 @@ measurement:
                            #   full, numba last under the guillotine; stamps best-of-v2.
   early_stop_factor: 2.0   # float. Early stop of a reference timed after the leader: per-rep budget =
   early_stop_floor_s: 1.0  #   max(early_stop_floor_s, early_stop_factor x the leader's slowest timed rep), s. A rep
-                           #   over budget cuts the candidate as "not fastest" (docs/measurement_statistics.md).
+                           #   over budget cuts the candidate as "not fastest"; factor 0 = no early stop (docs/measurement_statistics.md).
   repeat: 20               # int >= 1. Timed reps per side for /profile, /baseline and a promotion's first grade.
                            #   /submit, /score and grade-under use their protocol's run count
                            #   (grade_under.final_settings).
@@ -146,18 +146,14 @@ measurement:
 # unknown one stops the run and lists the registered names.
 # Each test's question, defaults and call sites: docs/measurement_statistics.md#the-test-registry
 statistics:
-  paired_test: sign-flip   # @paired_test on per-kernel log ratios of two setups (speed and tokens):
-                           # sign-flip | wilcoxon | ttest_rel | permutation_test
-  proportion_test: fisher  # @proportion_test on two setups' solved/total runs:
-                           # fisher | boschloo_exact | barnard_exact | binomtest
+  paired_test: sign-flip   # @paired_test on per-kernel log ratios of two setups (speed and tokens)
+  proportion_test: fisher  # @proportion_test on two setups' solved/total runs
   paired_proportion_test: mcnemar # @paired_proportion_test on the kernels exactly one of two setups solved
-                           # (paired_setups coverage_p): mcnemar | binomtest
+                           # (paired_setups coverage_p)
   correction: benjamini-hochberg # @correction over every reported family: paired_setups, plot_score_change
-                           # and the per-kernel reliability comparisons (stats/reliability.py, repeat5):
-                           # benjamini-hochberg | holm | bonferroni | none
+                           # and the per-kernel reliability comparisons (stats/reliability.py, repeat5)
   two_sample_test: mannwhitney_delta # a registered @timing_test, two-sided, on two setups' scored runs of one
-                           # kernel (stats/reliability.py, repeat5); reporting only, never a grade:
-                           # mannwhitney_delta | ttest_ind | brunnermunzel | permutation_test
+                           # kernel (stats/reliability.py, repeat5); reporting only, never a grade
 
 # Performance protocol: which (config, shape) cells are timed. Correctness covers a larger set, edge shapes
 # included (docs/measurement_statistics.md). Both modes time every config; they differ on the shape axis.
@@ -329,9 +325,6 @@ record:
   db_path: results/hpcagent_bench.db  # path. Results DB (schema harness/results_db.py SCHEMA_NAME); a file with
                                   # another schema is refused. A relative path is resolved against the repo root
                                   # (recording.base_db_path). Refused on tmpfs/ramfs unless allow_memory_db.
-  expensive_gates: []             # list[str]. Anti-cheat gates labelled expensive that this setup
-                                  # enables (hpcagent_bench/anticheat.py, docs/anti_cheat.md); every other gate
-                                  # always runs.
   # A grade whose credited speedup or baseline_ns/native_ns exceeds the bound of its residency, or is not finite,
   # is flagged `suspect`: recorded and credited 1.0 (scoring.suspect_timing).
   speedup_suspect_above_host: 2000.0    # float, ratio. Bound for host grades.

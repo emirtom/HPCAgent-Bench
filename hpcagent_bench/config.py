@@ -61,7 +61,6 @@ __all__ = [
     "env_value",
     "environment",
     "get",
-    "keys",
     "overridden",
     "override_snapshot",
     "parse_env",
@@ -189,7 +188,7 @@ class Measurement(Section):
     ]
     denominator: Denominator
     baseline_race: Literal["leader-first", "complete"]
-    early_stop_factor: PositiveFloat
+    early_stop_factor: NonNegativeFloat
     early_stop_floor_s: Seconds
     repeat: PositiveInt
     local_repeat: PositiveInt
@@ -345,7 +344,6 @@ class Record(Section):
     temperature: NonNegativeFloat
     commit: str
     db_path: str
-    expensive_gates: tuple[str, ...]
     speedup_suspect_above_host: PositiveFloat
     speedup_suspect_above_device: PositiveFloat
     physical_bandwidth_gbps_device: PositiveFloat
@@ -383,7 +381,7 @@ class Limits(Section):
     """``limits``: memory and stack caps."""
 
     oracle_cache_gb: PositiveFloat
-    kernel_memory_gb: PositiveFloat
+    kernel_memory_gb: NonNegativeFloat
     reference_node_fraction: Fraction
     thread_stack_mb: PositiveInt
 
@@ -806,11 +804,6 @@ def get(dotted: str) -> object:
             raise KeyError(f"unknown config key {dotted!r}")
         node = getattr(node, part)
     return node.model_dump() if isinstance(node, BaseModel) else node
-
-
-def keys() -> tuple[str, ...]:
-    """Every leaf key, dotted, in declaration order."""
-    return tuple(FIELDS)
 
 
 def default_value(dotted: str) -> object:

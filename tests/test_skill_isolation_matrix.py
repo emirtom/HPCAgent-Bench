@@ -329,7 +329,7 @@ def test_the_cluster_prompt_slot_shows_the_library_text_exactly_when_the_grading
 ) -> None:
     """The other prompt system's half of the same contract: agent_driver.py cannot import
     hpcagent_bench, so it reads the raw env var rather than the config layer -- pinned here against
-    the literal string the harness's own config.get_bool resolves that key to."""
+    the literal string the harness's own config layer parses for that key."""
     from tests.test_prompt_contract_consistency import driver_module
 
     driver = driver_module()

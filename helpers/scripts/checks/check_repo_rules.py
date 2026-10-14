@@ -570,7 +570,7 @@ def hardcoded_paths(files: list[str]) -> list[str]:
             out += package_literals(rel, text)
         if style == "hash" and not rel.endswith((".md", ".yaml", ".yml", ".toml")):
             live = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
-            climbs = [hit for hit in line_hits(rel, live, SHELL_ROOT_CLIMB)]
+            climbs = line_hits(rel, live, SHELL_ROOT_CLIMB)
             if len(climbs) > 1:
                 out += [f"{hit}: second /../.. climb (reuse the first)" for hit in climbs[1:]]
             if rel not in EDF_HOME_ALLOW:

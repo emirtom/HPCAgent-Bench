@@ -1113,14 +1113,14 @@ def early_stop_seconds(samples: Mapping[str, Sequence[int]], kinds: Sequence[str
     """Per-rep budget of the next candidate of a ``best-of-v3`` / ``best-of-v4`` race; 0 = no early stop.
 
     ``max(measurement.early_stop_floor_s, measurement.early_stop_factor x the leader's slowest timed rep)``,
-    the same shape as the candidate's guillotine (:func:`scoring.guillotine_seconds`). A rep past it is cut. 0 under other policies, before any candidate finished, or when not
+    the same shape as the candidate's guillotine (:func:`scoring.guillotine_seconds`). A rep past it is cut. 0 under other policies, with ``early_stop_factor`` 0, before any candidate finished, or when not
     under ``timeout``."""
     if baseline_policy(kinds) not in EARLY_STOP_POLICIES:
         return 0.0
     measurement = config.current().measurement
     factor = measurement.early_stop_factor
     leader = fastest_baseline(samples, kinds)
-    if not leader:
+    if factor <= 0 or not leader:
         return 0.0
     budget = max(measurement.early_stop_floor_s, factor * max(samples[leader]) * 1e-9)
     return budget if budget < timeout else 0.0

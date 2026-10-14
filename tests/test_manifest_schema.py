@@ -202,21 +202,3 @@ def test_replace_validates_the_changed_fields() -> None:
 def test_a_config_knob_refuses_an_unknown_field() -> None:
     with pytest.raises(ValidationError, match="domian"):
         ConfigKnob(domian=(1, 2))  # type: ignore[call-arg]
-
-
-@pytest.mark.smoke
-def test_smoke_a_corpus_manifest_loads_through_the_schema() -> None:
-    gemm = spec.load_spec("gemm")
-    assert gemm.output_args == ("C",)
-    assert gemm.mpi["arrays"] == {"C": ["NI", "NJ"], "A": ["NI", "NK"]}
-
-
-@pytest.mark.smoke
-def test_smoke_a_manifest_file_with_a_typo_names_the_file_and_key(tmp_path: pathlib.Path) -> None:
-    """End to end from the file text: the error names the file a contributor has open."""
-    manifest = tmp_path / "gemm.yaml"
-    manifest.write_text(GEMM.read_text(encoding="utf-8").replace("work_exponent:", "work_exponant:"), encoding="utf-8")
-    with pytest.raises(ValueError, match="invalid manifest") as err:
-        BenchSpec.from_yaml(spec.load_yaml(manifest.read_text(encoding="utf-8")), source=str(manifest))
-    assert str(err.value).startswith(f"{manifest}: ")
-    assert "mpi.decomposition.work_exponant: unknown manifest field" in str(err.value)

@@ -32,10 +32,8 @@ cases rode in the timed call, the timing readings are in the Score) or re-runs t
 * Every gate that only reads the grade runs, and every finding is kept.
 * A gate that re-runs the submission is skipped once the grade is rejected (by the grade itself or an
   earlier gate).
-* A gate labelled `expensive` runs only for a setup that names it in `record.expensive_gates`
-  (`$HPCAGENT_BENCH_RECORD_EXPENSIVE_GATES`, comma-separated gate keys; a key that is not an expensive
-  gate is refused). The judge's stderr gives the seconds each re-running gate took per grade
-  (`anticheat: <kernel>: independent_verify 41.2s, sanitizers 12.0s`), the cost the label rests on.
+* The judge's stderr gives the seconds each re-running gate took per grade
+  (`anticheat: <kernel>: independent_verify 41.2s, sanitizers 12.0s`).
 
 A rejection is recorded in `reason` as `<gate key>: <what it found>` (`size_class_sweep: overfit`,
 `independent_verify: fresh-seed-mismatch`, `sanitizers: heap-buffer-overflow ...`), `; `-joined when
