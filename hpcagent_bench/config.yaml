@@ -313,9 +313,9 @@ record:
                                   # NULL.
   temperature: 1.0                # float. Sampling temperature of the serving engine (INFERENCE_TEMPERATURE).
   commit: ""                      # str. hpcagent_bench commit the setup was submitted from; "" = unknown.
-  db_path: results/hpcagent_bench.db  # path. Results DB (schema harness/results_db.py SCHEMA_VERSION); a
-                                  # relative path is resolved against the repo root (recording.base_db_path).
-                                  # Refused on tmpfs/ramfs unless allow_memory_db.
+  db_path: results/hpcagent_bench.db  # path. Results DB (schema harness/results_db.py SCHEMA_RELEASE); a file with
+                                  # another schema is refused. A relative path is resolved against the repo root
+                                  # (recording.base_db_path). Refused on tmpfs/ramfs unless allow_memory_db.
   expensive_gates: ""             # str, comma-separated. Anti-cheat gates labelled expensive that this setup
                                   # enables (hpcagent_bench/anticheat.py, docs/anti_cheat.md); every other gate
                                   # always runs.

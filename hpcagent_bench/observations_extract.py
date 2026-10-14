@@ -657,9 +657,9 @@ ORDER BY r.id
 
 
 def job_of(episode_job: object) -> str:
-    """The job a row belongs to: its episode's Slurm job, ``""`` for an episode whose job was never
-    recorded (a local run, or one recovered from a merged database) -- never where the DB lies."""
-    return "" if episode_job is None else str(episode_job)
+    """The job a row belongs to: its episode's Slurm job, ``""`` for a local run
+    (:data:`results_db.LOCAL_JOB`) -- never where the DB lies."""
+    return "" if episode_job in (None, results_db.LOCAL_JOB) else str(episode_job)
 
 
 def discover_databases(run_globs: Iterable[str], skip: Iterable[pathlib.Path] = ()) -> list[Database]:

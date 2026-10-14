@@ -112,10 +112,8 @@ __all__ = [
     "N_INPUTS_ENV",
     "PROMOTION_KIND",
     "REASON_CAP",
-    "RECORDED_COLUMNS",
     "REPEAT_ENV",
     "REPEAT_FLOOR_ENV",
-    "REQUEST_COLUMNS",
     "SCORE",
     "SUBMIT_SH",
     "TIMING_BACKEND_ENV",
@@ -173,7 +171,6 @@ __all__ = [
     "protocol_grade",
     "protocol_inputs",
     "read_worklist",
-    "recorded_select",
     "recorded_setup",
     "run_cells_shard",
     "run_shard",
@@ -539,7 +536,7 @@ CREDITED_SUBMISSIONS = f"""
 SELECT g.id AS grade_id, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
        coalesce(nullif(g.credited_speedup, 0), p.credited_speedup) AS speedup,
        coalesce(p.timing_reduction, g.timing_reduction) AS timing_reduction,
-       g.workspace_bytes, {{recorded}}, p.id IS NOT NULL AS promoted,
+       g.workspace_bytes, g.requests, g.task_hash, p.id IS NOT NULL AS promoted,
        gs.language, gs.hash, a.study
 FROM grades g
 JOIN episodes r ON r.id = g.episode_id
@@ -557,15 +554,14 @@ ORDER BY r.job, r.label, g.kernel, g.ts_ms
 def credited_rows(db: pathlib.Path) -> list[dict[str, Any]]:
     """:data:`CREDITED_SUBMISSIONS` of ``db``, one dict per row, ``db`` included."""
     with results_db.reading(db) as conn:
-        query = CREDITED_SUBMISSIONS.format(recorded=recorded_select(conn))
-        return [{**dict(row), "db": str(db)} for row in conn.execute(query)]
+        return [{**dict(row), "db": str(db)} for row in conn.execute(CREDITED_SUBMISSIONS)]
 
 
 #: The submissions :data:`CREDITED_SUBMISSIONS` leaves out (no live credit) of the kernels named by
 #: ``{kernels}``, in its columns; :func:`stale_rows` keeps those graded before their kernel's cut.
 UNCREDITED_SUBMISSIONS = f"""
 SELECT g.id AS grade_id, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
-       g.credited_speedup AS speedup, g.timing_reduction, g.workspace_bytes, {{recorded}},
+       g.credited_speedup AS speedup, g.timing_reduction, g.workspace_bytes, g.requests, g.task_hash,
        0 AS promoted, gs.language, gs.hash, a.study
 FROM grades g
 JOIN episodes r ON r.id = g.episode_id
@@ -587,22 +583,9 @@ def stale_rows(db: pathlib.Path) -> list[dict[str, Any]]:
     if not cuts:
         return []
     with results_db.reading(db) as conn:
-        query = UNCREDITED_SUBMISSIONS.format(kernels=", ".join("?" * len(cuts)), recorded=recorded_select(conn))
+        query = UNCREDITED_SUBMISSIONS.format(kernels=", ".join("?" * len(cuts)))
         rows = conn.execute(query, tuple(cuts)).fetchall()
     return [{**dict(row), "db": str(db)} for row in rows if int(row["ts_ms"]) < cuts[str(row["kernel"])]]
-
-
-#: The ``grades`` columns a grade's requests are read from: v7's ``requests``, the v6 columns it folded,
-#: and the ``build`` tokens the submission asked for.
-REQUEST_COLUMNS = ("requests", "requested_libraries", "distribution", "layout_request", "requested_build")
-#: The ``grades`` columns an :class:`Item` reads beyond the queries' fixed ones: :data:`REQUEST_COLUMNS` and
-#: the task fingerprint recorded at grading (``task_hash``).
-RECORDED_COLUMNS = (*REQUEST_COLUMNS, "task_hash")
-
-
-def recorded_select(conn: sqlite3.Connection) -> str:
-    """The SELECT list of :data:`RECORDED_COLUMNS` for ``conn``'s schema (a missing column reads its default)."""
-    return results_db.grade_columns(conn, "g", RECORDED_COLUMNS)
 
 
 def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
@@ -618,7 +601,7 @@ def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
         str(row["source_mode"] or "restricted"),
         final,
         env,
-        job="" if row.get("job") is None else str(row["job"]),
+        job="" if row.get("job") in (None, results_db.LOCAL_JOB) else str(row["job"]),
         source_hash=str(row.get("hash") or ""),
         speedup=as_float(row.get("speedup")),
         reduction=str(row.get("timing_reduction") or ""),
@@ -672,7 +655,7 @@ def build_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib.Path]) ->
 #: fault, or a promotion already credited.
 UNPROMOTED_EPISODES = f"""
 SELECT g.id AS grade_id, r.id AS run, r.label AS episode_id, r.job, r.setup, r.slot, g.kernel, g.ts_ms, g.source_mode,
-       coalesce(r.final_attempt_start_ms, 0) AS cut, g.workspace_bytes, {{recorded}}, gs.language, gs.hash,
+       coalesce(r.final_attempt_start_ms, 0) AS cut, g.workspace_bytes, g.requests, g.task_hash, gs.language, gs.hash,
        (SELECT max(c.speedup) FROM grades c WHERE c.episode_id = g.episode_id AND c.kernel = g.kernel
             AND c.kind = 'score' AND c.correct = 1 AND c.ts_ms >= coalesce(r.final_attempt_start_ms, 0)) AS speedup
 FROM grades g
@@ -804,7 +787,7 @@ def build_promotion_worklist(dbs: Iterable[pathlib.Path], env_dirs: list[pathlib
     for db in dbs:
         with results_db.reading(db) as conn:
             newest: dict[tuple[str, str, int], dict[str, Any]] = {}
-            for row in conn.execute(UNPROMOTED_EPISODES.format(recorded=recorded_select(conn))):
+            for row in conn.execute(UNPROMOTED_EPISODES):
                 newest[(str(row["setup"]), str(row["kernel"]), int(row["slot"]))] = {**dict(row), "db": str(db)}
             owed = [
                 row
