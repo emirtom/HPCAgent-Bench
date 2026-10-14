@@ -1387,7 +1387,12 @@ def _gate_repo_pr(reward: dict, repo_dir: str, speedup_min: float | None, seed_s
     pr = repo_pr.evaluate(repo_dir, seed_sha=seed_sha)
     # Gate on S_i (after the dispersion gate), so the two gates agree.
     accepted, why = repo_pr.accepts(pr, solved=bool(reward["solved"]), speedup=reward["reward"], speedup_min=smin)
-    reward.update(pr=pr.to_dict(), accepted=accepted, accept_reason=why, speedup_min=smin)
+    reward.update(
+        pr=repo_pr.PR_STATUS_ADAPTER.dump_python(pr, mode="json"),
+        accepted=accepted,
+        accept_reason=why,
+        speedup_min=smin,
+    )
     if not accepted:
         reward.update(reward=1.0, solved=False, speedup=1.0)
 

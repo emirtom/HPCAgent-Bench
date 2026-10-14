@@ -21,7 +21,6 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 
 import jinja2
 import numpy as np
-import yaml
 
 from hpcagent_bench import config, cpf_cache, fuzz, languages, packets, paths, protocols
 from hpcagent_bench.dtypes import c_type
@@ -534,23 +533,16 @@ class Skill:
 
 
 def parse_skill(text: str, path: pathlib.Path) -> Skill:
-    """Split a SKILL.md into its frontmatter (the leading ``---`` block) and body. ``name`` defaults to
-    the directory; a file without frontmatter is all body."""
-    meta: dict[str, object] = {}
-    body = text
-    if text.startswith("---"):
-        _, _, rest = text.partition("\n")
-        raw, sep, body = rest.partition("\n---")
-        if sep:
-            meta = as_block(yaml.safe_load(raw))
-            body = body.partition("\n")[2]
+    """Split a SKILL.md into its frontmatter (:class:`hpcagent_bench.packets.SkillFrontmatter`) and body.
+    ``name`` defaults to the directory; a file without frontmatter is all body."""
+    meta, body = packets.split_frontmatter(text)
     return Skill(
-        name=str(meta.get("name") or path.parent.name),
-        description=str(meta.get("description") or ""),
+        name=meta.name or path.parent.name,
+        description=meta.description,
         file=path.parent.name,
         body=body.strip(),
         path=local_path(path),
-        when=str(meta.get("when") or ""),
+        when=meta.when,
     )
 
 
@@ -1103,7 +1095,7 @@ def build_context(
         # Whether the graded link carries -lmimalloc here (probe-gated).
         "mimalloc_linked": _mimalloc_linked(task.language),
         # The machine-readable C-ABI, INLINED: no <base>_binding.json exists on the agent path.
-        "binding_json": json.dumps(binding.to_json(), indent=2),
+        "binding_json": binding.document().text(indent=2),
         "abi_doc": "hpcagent_bench/docs/abi_contract.md",
         # Host compilers, one line; ``resources`` keeps the structure.
         "resources": resources,

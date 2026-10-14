@@ -250,5 +250,5 @@ def canonical_sdfg(
         raise RuntimeError(f"canonical entry {key} was not published")
     manifest, stored = entry
     if stored is None:
-        return {"verdict": str(manifest.get("verdict", "fail")), "error": str(manifest.get("error", ""))}, cached
+        return {"verdict": manifest.verdict, "error": manifest.error}, cached
     return SDFG.from_file(str(stored)), cached

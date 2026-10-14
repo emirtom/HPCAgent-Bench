@@ -120,7 +120,7 @@ def render_kernel(
     before: str,
     timeout: float | None,
     scratch: pathlib.Path,
-) -> tuple[str, dict[str, dict[str, object]]]:
+) -> tuple[str, dict[str, cpf_bridge.RenderOutcome]]:
     """Render one kernel into ``cache`` and point ``view`` at every outcome, a failure included.
 
     Returns ``(short name, results[language])``. An unloadable name is a recorded ``fail``
@@ -132,9 +132,9 @@ def render_kernel(
     try:
         spec = BenchSpec.load(kernel)
     except Exception as exc:  # noqa: BLE001 -- an unloadable tag name is a recorded verdict
-        outcome: dict[str, object] = {"key": None, "verdict": "fail", "error": f"{type(exc).__name__}: {exc}"[:400]}
+        outcome = cpf_bridge.RenderOutcome(verdict="fail", error=f"{type(exc).__name__}: {exc}"[:400])
         for language in languages:
-            cpf_cache.record(view, kernel, language, fptype, outcome)
+            cpf_cache.record(view, kernel, language, fptype, outcome.model_dump())
         return cpf_cache.short_name(kernel), dict.fromkeys(languages, outcome)
     rec = cpf_bridge.prerender_kernel(
         spec,
@@ -147,18 +147,15 @@ def render_kernel(
         timeout=timeout,
         extra_env={"TMPDIR": str(scratch / "tmp"), "DACE_default_build_folder": str(scratch / "build")},
     )
-    for language, outcome in rec["results"].items():
-        cpf_cache.record(view, spec.short_name, language, fptype, outcome)
-    return spec.short_name, rec["results"]
+    results = rec.results or {}
+    for language, outcome in results.items():
+        cpf_cache.record(view, spec.short_name, language, fptype, outcome.model_dump())
+    return spec.short_name, results
 
 
-def fresh_keys(results: dict[str, dict[str, object]]) -> list[str]:
+def fresh_keys(results: dict[str, cpf_bridge.RenderOutcome]) -> list[str]:
     """The keys a render published now (not a hit), which a moved dace commit withdraws."""
-    return [
-        str(outcome["key"])
-        for outcome in results.values()
-        if outcome.get("verdict") == "ok" and not outcome.get("cached")
-    ]
+    return [str(outcome.key) for outcome in results.values() if outcome.verdict == "ok" and not outcome.cached]
 
 
 def withdraw(cache: pathlib.Path, keys: Sequence[str]) -> None:
@@ -267,10 +264,10 @@ def prerender(args: argparse.Namespace, package: pathlib.Path, before: str, scra
         )
         rendered += fresh_keys(results)
         for language, outcome in results.items():
-            ok = outcome["verdict"] == "ok"
-            state = ("hit" if outcome.get("cached") else "rendered") if ok else outcome["verdict"]
-            note = "" if ok else f" -- {outcome.get('error', '')}"
-            print(f"rank {args.rank}: {name} {language}: {state} {outcome.get('key')}{note}")
+            ok = outcome.verdict == "ok"
+            state = ("hit" if outcome.cached else "rendered") if ok else outcome.verdict
+            note = "" if ok else f" -- {outcome.error}"
+            print(f"rank {args.rank}: {name} {language}: {state} {outcome.key}{note}")
             failed += 0 if ok else 1
         sys.stdout.flush()
     if cpf_canonical.dace_commit() != before:

@@ -30,6 +30,9 @@ import re
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
+import pydantic
+import yaml
+
 from hpcagent_bench import study_tags as tags
 
 __all__ = [
@@ -40,9 +43,10 @@ __all__ = [
     "SKILLS_DIR",
     "SKILL_LANGUAGE",
     "SKILL_TREATMENTS",
+    "Applies",
     "Packet",
+    "SkillFrontmatter",
     "applies_to",
-    "applies_values",
     "by_device",
     "canonical",
     "companion_language_pages",
@@ -58,6 +62,7 @@ __all__ = [
     "leaves",
     "libraries_enabled",
     "page_applies",
+    "split_frontmatter",
     "reached_keys",
     "refuse_frozen",
     "resolve",
@@ -127,25 +132,49 @@ def tool_pages() -> frozenset[str]:
     )
 
 
-@functools.lru_cache(maxsize=None, typed=True)
-def page_applies(page: str) -> Mapping[str, object]:
-    """``page``'s ``applies:`` frontmatter block: which setups the page can be of use to at all.
+class Applies(pydantic.BaseModel):
+    """A skill page's ``applies:`` frontmatter block: which setups the page can be of use to at all.
 
     ``languages`` (the run's language), ``images`` (cpu, amd, nvidia), ``multinode`` (true when
     the page only matters to a task spanning nodes) and ``explicit`` (true when the page IS a
     treatment of its own -- caveman -- reachable only by naming it, never through ``*``). A key that
-    is absent does not restrict."""
-    import yaml
+    is absent does not restrict; a key this block does not name is refused, since nothing would read it."""
 
-    text = (SKILLS_DIR / page / "SKILL.md").read_text(encoding="utf-8")
-    meta = yaml.safe_load(text.split("---", 2)[1]) if text.startswith("---") else {}
-    return MappingProxyType(dict((meta or {}).get("applies") or {}))
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    #: A page spelling a key in the singular (``language:``) is refused rather than read by nobody, and a
+    #: list that is present names at least one value.
+    languages: tuple[str, ...] = pydantic.Field(default=(), min_length=1)
+    images: tuple[str, ...] = pydantic.Field(default=(), min_length=1)
+    multinode: pydantic.StrictBool = False
+    explicit: pydantic.StrictBool = False
 
 
-def applies_values(rule: Mapping[str, object], key: str) -> tuple[object, ...]:
-    """The members of the ``applies:`` list ``key`` (empty when the key is absent)."""
-    value = rule.get(key)
-    return tuple(value) if isinstance(value, (list, tuple)) else ()
+class SkillFrontmatter(pydantic.BaseModel):
+    """A ``SKILL.md``'s leading ``---`` block: its name, what it is for, when to open it, and where it applies."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    name: str = ""
+    description: str = ""
+    when: str = ""
+    applies: Applies = Applies()
+
+
+def split_frontmatter(text: str) -> tuple[SkillFrontmatter, str]:
+    """``text`` (a ``SKILL.md``) as its frontmatter and its body; a file without frontmatter is all body."""
+    if text.startswith("---"):
+        _, _, rest = text.partition("\n")
+        raw, sep, body = rest.partition("\n---")
+        if sep:
+            return SkillFrontmatter.model_validate(yaml.safe_load(raw) or {}), body.partition("\n")[2]
+    return SkillFrontmatter(), text
+
+
+@functools.lru_cache(maxsize=None, typed=True)
+def page_applies(page: str) -> Applies:
+    """``page``'s ``applies:`` frontmatter block (:class:`Applies`)."""
+    return split_frontmatter((SKILLS_DIR / page / "SKILL.md").read_text(encoding="utf-8"))[0].applies
 
 
 def applies_to(page: str, language: str, image: str | None, multinode: bool) -> bool:
@@ -156,15 +185,13 @@ def applies_to(page: str, language: str, image: str | None, multinode: bool) -> 
     free-choice ``language`` ("", "any") and an unknown ``image`` (None) do not restrict, so a
     caller that cannot name them still gets the whole library rather than a guessed subset."""
     rule = page_applies(page)
-    if rule.get("explicit"):
+    if rule.explicit:
         return False
-    languages = applies_values(rule, "languages")
-    if languages and language not in ("", "any") and language not in languages:
+    if rule.languages and language not in ("", "any") and language not in rule.languages:
         return False
-    images = applies_values(rule, "images")
-    if images and image is not None and image not in images:
+    if rule.images and image is not None and image not in rule.images:
         return False
-    return not rule.get("multinode") or multinode
+    return not rule.multinode or multinode
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -189,7 +216,7 @@ def companion_language_pages(language: str, image: str | None = None, multinode:
         if entry.is_dir()
         and entry.name.startswith("lang-")
         and entry.name != own
-        and language in applies_values(page_applies(entry.name), "languages")
+        and language in page_applies(entry.name).languages
         and applies_to(entry.name, language, image, multinode)
     )
 

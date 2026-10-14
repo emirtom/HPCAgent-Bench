@@ -41,11 +41,13 @@ import types
 from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple
 
+import pydantic
 import yaml
 
 from hpcagent_bench import config, flags, omp_context, osinfo, paths, seal
 from hpcagent_bench.flags import Mode
-from hpcagent_bench.spec import BenchSpec, as_list
+from hpcagent_bench.harness import discover_tools
+from hpcagent_bench.spec import BenchSpec
 
 __all__ = [
     "ALWAYS_LINKED_LANGS",
@@ -63,6 +65,7 @@ __all__ = [
     "GPU_HOST_LANG",
     "LANG_EXT",
     "LANG_TARGET",
+    "LIBRARIES_ADAPTER",
     "LIBRARIES_YAML",
     "LIBRARY_COMPILE_PREFIXES",
     "LIBRARY_LINK_PREFIXES",
@@ -97,12 +100,12 @@ __all__ = [
     "REPORT_REFS",
     "ROCM_LLVM_BIN",
     "STDPAR_PROBE_TIMEOUT_S",
-    "TOOLSET_YAML",
     "VECLIB_PROBE",
     "VECT_UNLIMITED_REFS",
     "XNACK_SUFFIX",
     "CompilerChoice",
     "Language",
+    "LibraryEntry",
     "StrPath",
     "Toolchain",
     "agent_offload_flags",
@@ -170,7 +173,6 @@ __all__ = [
     "offload_vendor",
     "openmp_link_for_block",
     "pkg_config_answer",
-    "pkg_modules",
     "probe_succeeds",
     "python_device_refusal",
     "python_device_setup",
@@ -1633,10 +1635,8 @@ LIBRARY_LINK_PREFIXES = ("-L", "-l")
 #: (gfortran included) all accept ``c``; nvcc names its input language ``cu``, and rejects ``c``.
 PROBE_INPUT_LANG: dict[str, str] = {Language.CPP.value: "c++", Language.HIP.value: "c++", Language.CUDA.value: "cu"}
 
+
 #: Where the GPU math libraries are already described (soname + header): the discovery table.
-TOOLSET_YAML: pathlib.Path = paths.ROOT / "hpcagent_bench" / "envs" / "toolset.yaml"
-
-
 @functools.lru_cache(maxsize=None, typed=True)
 def toolset_link_tokens(dotted: str) -> tuple[str, ...]:
     """``-l`` tokens for a ``<section>.<name>`` entry of ``toolset.yaml``, from its soname.
@@ -1646,20 +1646,42 @@ def toolset_link_tokens(dotted: str) -> tuple[str, ...]:
     correctly yields ``()``.
     """
     section, _, name = dotted.partition(".")
-    table = yaml.safe_load(TOOLSET_YAML.read_text()) or {}
-    entry = (table.get(section) or {}).get(name) or {}
-    sonames = entry.get("soname")
-    if not sonames:
+    entry = discover_tools.toolset().get(section, {}).get(name)
+    if entry is None:
         return ()
-    if isinstance(sonames, str):
-        sonames = [sonames]
-    return tuple(f"-l{re.sub(r'^lib|[.]so$', '', s)}" for s in sonames)
+    return tuple(f"-l{re.sub(r'^lib|[.]so$', '', s)}" for s in entry.soname)
+
+
+class LibraryEntry(pydantic.BaseModel):
+    """One requestable library of ``libraries.yaml``: what the agent is told, the languages that may link it,
+    and how it resolves -- ``pkg`` (pkg-config modules; one name or a list, and a list means ALL of them),
+    ``toolset`` (a ``<section>.<name>`` of ``toolset.yaml``), a bare ``link`` line, or ``header_only``
+    (its ``headers``, the first of which a compile probe includes). ``mpi_wrapper`` names the compiler
+    wrappers an MPI is interrogated through, ``include`` extra ``-I`` directories of a header-only entry,
+    and ``openmp`` the OpenMP runtime the entry runs on alone (one runtime, or one per GPU vendor)."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    summary: str
+    langs: tuple[str, ...]
+    headers: tuple[str, ...] = ()
+    header_only: pydantic.StrictBool = False
+    pkg: discover_tools.NameList = ()
+    toolset: str = ""
+    link: tuple[str, ...] = ()
+    include: tuple[str, ...] = ()
+    mpi_wrapper: tuple[str, ...] = ()
+    openmp: str | dict[str, str] = ""
+
+
+#: ``libraries.yaml``'s schema: library name -> its entry.
+LIBRARIES_ADAPTER: pydantic.TypeAdapter[dict[str, LibraryEntry]] = pydantic.TypeAdapter(dict[str, LibraryEntry])
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def load_libraries() -> dict[str, dict]:
+def load_libraries() -> dict[str, LibraryEntry]:
     """Parse ``libraries.yaml`` into ``{library_name: entry}``. Memoized like the compiler table."""
-    return yaml.safe_load(LIBRARIES_YAML.read_text()) or {}
+    return LIBRARIES_ADAPTER.validate_python(yaml.safe_load(LIBRARIES_YAML.read_text()) or {})
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -1691,43 +1713,43 @@ def library_tokens(name: str, lang: str, context: str = "") -> tuple[tuple[str, 
     if lang not in LANG_EXT:
         return (), ()
     entry = load_libraries().get(name)
-    if not entry or lang not in entry.get("langs", ()):
+    if entry is None or lang not in entry.langs:
         return (), ()
-    if entry.get("header_only"):
+    if entry.header_only:
         # No link tokens exist to return, and none is wanted: the whole library is its headers. The
         # -I still matters and is the reason this route exists -- eigen's headers are under
         # /usr/include/eigen3, so a bare `#include <Eigen/Dense>` does not compile without it. When
         # the headers are on the default include path this correctly yields no tokens at all;
         # library_offered, not emptiness, is what says whether the library is available.
-        cflags = pkg_config_answer(pkg_modules(entry), "--cflags", context)
-        include = tuple(f"-I{d}" for d in entry.get("include") or ())
+        cflags = pkg_config_answer(entry.pkg, "--cflags", context)
+        include = tuple(f"-I{d}" for d in entry.include)
         if cflags is None:
             return include, ()
         return tuple(t for t in cflags if t.startswith(LIBRARY_COMPILE_PREFIXES)) + include, ()
-    wrapped = mpich_wrapper_flags(tuple(entry.get("mpi_wrapper") or ()))
+    wrapped = mpich_wrapper_flags(entry.mpi_wrapper)
     if wrapped[1]:
         # An MPI, asked the way CMake's FindMPI asks: interrogate the compiler wrapper (`-show`) for
         # its include and link line, so hipcc/nvcc/clang compile MPI code without BEING the wrapper.
         # A host without the wrapper falls through to the entry's pkg-config module below.
         compile_tokens, link_tokens = tuple(wrapped[0]), tuple(wrapped[1]) + rpath_tokens(wrapped[1])
-    elif entry.get("toolset"):
+    elif entry.toolset:
         # Toolkit-resident: CUDA and ROCm ship no pkg-config files, but their own compiler already
         # searches the toolkit's lib and include directories, so a bare -l is the whole answer and
         # no -L or rpath is wanted. The trial link below is what decides whether it is really here.
         compile_tokens = ()
-        link_tokens = toolset_link_tokens(str(entry["toolset"]))
+        link_tokens = toolset_link_tokens(entry.toolset)
         if not link_tokens:
             return (), ()
     else:
-        cflags = pkg_config_answer(pkg_modules(entry), "--cflags", context)
-        libs = pkg_config_answer(pkg_modules(entry), "--libs", context)
+        cflags = pkg_config_answer(entry.pkg, "--cflags", context)
+        libs = pkg_config_answer(entry.pkg, "--libs", context)
         if libs is None or cflags is None:
             # No .pc file: a library built into the image's own prefix (hptt, tblis) is on the
             # compiler's default search path already, so a bare -l is the whole answer. The trial
             # link below still decides whether it is really here.
-            if not entry.get("link"):
+            if not entry.link:
                 return (), ()
-            compile_tokens, link_tokens = (), tuple(entry["link"])
+            compile_tokens, link_tokens = (), entry.link
             view_lib = context_view_lib(entry, context)
             if view_lib:  # the context's own variant: named by -L and rpath, not left to the search path
                 link_tokens = (f"-L{view_lib}", *link_tokens)
@@ -1749,31 +1771,13 @@ def rpath_tokens(link_tokens: Sequence[str]) -> tuple[str, ...]:
     return tuple(f"-Wl,-rpath,{t[2:]}" for t in link_tokens if t.startswith("-L") and t[2:])
 
 
-def pkg_modules(entry: dict[str, object]) -> tuple[str, ...]:
-    """The pkg-config module names one catalog entry resolves through.
-
-    ``pkg:`` is one name or a LIST of them, and a list means ALL of them: fftw's emitter picks
-    ``fftw_plan_dft_1d`` or ``fftwf_plan_dft_1d`` from the run's precision, and those live in
-    different libraries (``fftw3`` / ``fftw3f``) behind one catalog name. A shared object links
-    clean with undefined symbols, so resolving only one module would fail at ``dlopen``.
-    """
-    pkg = entry.get("pkg")
-    if not pkg:
-        return ()
-    if isinstance(pkg, str):
-        return (pkg,)
-    if isinstance(pkg, list):
-        return tuple(str(name) for name in pkg)
-    raise TypeError(f"catalog 'pkg' must be a name or a list of names, got {pkg!r}")
-
-
 @functools.lru_cache(maxsize=None, typed=True)
 def pkg_config_answer(pkgs: tuple[str, ...], what: str, context: str = "") -> tuple[str, ...] | None:
     """``pkg-config <what> <pkgs...>`` split into tokens, or None when pkg-config cannot answer.
 
     Every module is asked in ONE invocation, so pkg-config merges and de-duplicates the flags
     itself; a single missing module fails the whole answer, which is the intended reading (see
-    :func:`pkg_modules`). ``context``'s view leads ``PKG_CONFIG_PATH``
+    :class:`LibraryEntry`'s ``pkg``). ``context``'s view leads ``PKG_CONFIG_PATH``
     (:func:`hpcagent_bench.omp_context.context_build_env`)."""
     if not pkgs:
         return None
@@ -1849,14 +1853,14 @@ def library_compiles(lang: str, compile_tokens: tuple[str, ...], header: str) ->
     return r.returncode == 0
 
 
-def context_view_lib(entry: dict[str, object], context: str) -> str:
+def context_view_lib(entry: LibraryEntry, context: str) -> str:
     """The context view's library directory holding every ``-l`` library of a pkg-config-less catalog
     ``entry`` (an OpenMP-linking one built into ``<context>/view``), or ``""``: no context, no view, or
     a library the view does not hold."""
     view = omp_context.context_view(context) if context else None
     if view is None:
         return ""
-    wanted = [str(t)[2:] for t in as_list(entry.get("link")) if str(t).startswith("-l")]
+    wanted = [token[2:] for token in entry.link if token.startswith("-l")]
     for libdir in (view / "lib", view / "lib64"):
         if wanted and all(any(libdir.glob(f"lib{name}.so*")) for name in wanted):
             return str(libdir)
@@ -1876,7 +1880,8 @@ def library_served(name: str, context: str = "") -> str:
 def declared_runtime(name: str) -> str:
     """The OpenMP runtime catalog library ``name`` declares it runs on alone here (``openmp:`` in libraries.yaml,
     per :func:`offload_vendor` when it is a map), ``""`` when it declares none."""
-    openmp = (load_libraries().get(name) or {}).get("openmp") or ""
+    entry = load_libraries().get(name)
+    openmp = entry.openmp if entry is not None else ""
     return openmp.get(offload_vendor(), "") if isinstance(openmp, dict) else openmp
 
 
@@ -1905,15 +1910,14 @@ def library_offered(name: str, lang: str, context: str = "") -> bool:
     the ``context``'s (:func:`library_served`) is not on offer there.
     """
     entry = load_libraries().get(name)
-    if not entry or lang not in entry.get("langs", ()):
+    if entry is None or lang not in entry.langs:
         return False
     if library_served(name, context):
         return False
-    if not entry.get("header_only"):
+    if not entry.header_only:
         return any(library_tokens(name, lang, context))
     compile_tokens, _link = library_tokens(name, lang, context)
-    headers = as_list(entry.get("headers"))
-    return bool(headers) and library_compiles(lang, compile_tokens, str(headers[0]))
+    return bool(entry.headers) and library_compiles(lang, compile_tokens, entry.headers[0])
 
 
 def available_libraries(lang: str, context: str = "") -> tuple[str, ...]:

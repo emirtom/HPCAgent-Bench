@@ -12,7 +12,7 @@ from hpcagent_bench import paths, protocols, tags
 from hpcagent_bench.cluster import env_spec
 from hpcagent_bench.protocols import PROTOCOLS
 from hpcagent_bench.spec import KERNELS
-from hpcagent_bench.study_tags import baselines_of, experiments_of
+from hpcagent_bench.study_tags import StudiesFile
 
 REPO = paths.ROOT
 PAGE = REPO / "docs" / "extending" / "protocol.md"
@@ -48,11 +48,11 @@ def test_the_sample_experiment_renders_for_every_model_with_its_budget() -> None
 
 
 def test_the_sample_study_entries_parse_and_point_at_the_sample_files() -> None:
-    sample = yaml.safe_load(SAMPLES["studies.yaml"])
-    (study,) = sample["studies"]
-    (entry,) = experiments_of(sample["experiments"]).values()
+    sample = StudiesFile.model_validate(yaml.safe_load(SAMPLES["studies.yaml"]))
+    (study,) = sample.studies
+    (entry,) = sample.experiments.values()
     assert (entry.study, entry.tag, entry.base) == (study, "budget4", *yaml.safe_load(SAMPLES["setups.yaml"]))
-    assert baselines_of(sample["study_baselines"])[study].denominator == "numba"
+    assert sample.study_baselines[study].denominator == "numba"
 
 
 def test_the_sample_submit_names_the_sample_base_and_tag() -> None:
