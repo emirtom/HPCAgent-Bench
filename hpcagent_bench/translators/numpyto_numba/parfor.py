@@ -308,7 +308,7 @@ def parallelize_one_range_loop(src: str) -> str:
             for f in range_fors
             if isinstance(f.iter, ast.Call)
             and unit_step(f.iter)
-            and loop_is_parallel_safe(f)
+            and loop_is_parallel_safe(f, tree)
             and not calls_a_mutating_helper(f, mutates, params)
         ),
         None,

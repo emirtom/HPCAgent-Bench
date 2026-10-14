@@ -23,6 +23,7 @@ __all__ = [
     "assigns_a_live_out_scalar",
     "bare_axes",
     "bare_store_names",
+    "body_scalars",
     "call_leaf",
     "collapsible_depth",
     "has_carried_scalar",
@@ -31,6 +32,7 @@ __all__ = [
     "index_is_indirect",
     "is_range_for",
     "is_timestep_loop",
+    "omp_private_scalars",
     "load_names",
     "loop_index",
     "loop_is_parallel_safe",
@@ -44,6 +46,7 @@ __all__ = [
     "reduction_op",
     "require_parallelizable",
     "scalar_accumulators",
+    "scalars_live_after",
     "subscript_idx_safe",
     "written_arrays",
     "written_partition_consistent",
@@ -244,6 +247,66 @@ def assigns_a_live_out_scalar(node: ast.For) -> bool:
     return bool(bare_store_names(body) - iterators - load_names(body))
 
 
+def body_scalars(node: ast.For) -> set[str]:
+    """Bare names the loop body binds, less every loop iterator inside it (rebound by its own range)."""
+    body = ast.Module(body=list(node.body), type_ignores=[])
+    iterators = {node.target.id} if isinstance(node.target, ast.Name) else bare_store_names(node.target)
+    for n in ast.walk(body):
+        if isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
+            iterators |= bare_store_names(n.target)
+    return bare_store_names(body) - iterators
+
+
+def omp_private_scalars(node: ast.For, arrays: set[str], reduction_acc: str | None = None) -> list[str]:
+    """The scalars a parallel ``node``'s ``private(...)`` clause must list, sorted.
+
+    The emitters declare every scalar local once at function top, so without the clause all threads
+    share each body temp and overwrite one another between its store and its load. Arrays (a
+    pointer, or a Fortran array the loop writes elements of) stay shared, the reduction accumulator
+    has its own clause, and a parallel-safe body writes every other scalar before reading it, so
+    no thread needs the value on entry."""
+    return sorted(body_scalars(node) - arrays - {reduction_acc})
+
+
+def enclosing_blocks(root: ast.AST, stmt: ast.stmt) -> list[tuple[list[ast.stmt], int, ast.AST]] | None:
+    """``(block, position, owner)`` from ``root`` down to ``stmt``: each statement list that holds the
+    path, where in it the path continues, and the node that owns the list. ``None`` when ``stmt`` is
+    not under ``root``."""
+    for field in ("body", "orelse", "finalbody", "handlers"):
+        block = getattr(root, field, None)
+        if not isinstance(block, list):
+            continue
+        for pos, child in enumerate(block):
+            if child is stmt:
+                return [(block, pos, root)]
+            below = enclosing_blocks(child, stmt)
+            if below is not None:
+                return [(block, pos, root), *below]
+    return None
+
+
+def scalars_live_after(root: ast.AST, node: ast.For) -> set[str]:
+    """The :func:`body_scalars` of ``node`` that something after the loop reads before rebinding.
+
+    "After" is everything that can run next inside the enclosing function: the rest of each block
+    on the way up, and the whole body again of every enclosing loop (its next iteration). A loop
+    that is not under ``root`` has nothing known after it, so nothing is reported."""
+    path = enclosing_blocks(root, node)
+    if path is None:
+        return set()
+    after: list[ast.stmt] = []
+    for block, pos, owner in reversed(path):
+        if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            after += block[pos + 1 :]
+            break
+        after += block[pos + 1 :]
+        if isinstance(owner, ast.While):
+            after += [ast.Expr(value=owner.test), *owner.body]
+        elif isinstance(owner, (ast.For, ast.AsyncFor)):
+            after += owner.body
+    return {name for name in body_scalars(node) if reads_before_write(after, {name}, set())}
+
+
 def bare_axes(sub: ast.Subscript, idx: str) -> set[int]:
     """Axis positions where ``idx`` appears as a BARE index in ``sub``."""
     return {k for k, e in enumerate(index_exprs(sub)) if isinstance(e, ast.Name) and e.id == idx}
@@ -261,11 +324,16 @@ def written_partition_consistent(body: ast.AST, idx: str, written: set[str]) -> 
     return all(len(seen) <= 1 for seen in axes.values())
 
 
-def loop_is_parallel_safe(node: ast.AST) -> bool:
+def loop_is_parallel_safe(node: ast.AST, root: ast.AST | None = None) -> bool:
     """Conservatively decide whether ``for idx in range(...)`` can run in parallel
     (independent iterations) without changing results. Errs toward serial: any
     pattern not proven independent returns False. Scalar reductions / carried
-    scalars are rejected here -- they are handled by :func:`loop_reduction`."""
+    scalars are rejected here -- they are handled by :func:`loop_reduction`.
+
+    ``root`` is the tree the loop sits in. With it, a body scalar that is read after the loop
+    (:func:`scalars_live_after`) also keeps the loop serial: only the LAST iteration's value is
+    numpy's, and a parallel schedule leaves an arbitrary thread's. Without it only the
+    never-read-in-the-body case (:func:`assigns_a_live_out_scalar`) is caught."""
     if not (isinstance(node, ast.For) and is_range_for(node)):
         return False
     idx = loop_index(node)
@@ -281,6 +349,8 @@ def loop_is_parallel_safe(node: ast.AST) -> bool:
         return False  # a scalar read before write across iterations (``b[i] = s; s = a[i]``).
     if assigns_a_live_out_scalar(node):
         return False  # a scalar written for a reader PAST the loop -- only the last iteration's counts.
+    if root is not None and scalars_live_after(root, node):
+        return False  # the same, for a scalar the body ALSO reads.
     written = written_arrays(body)
     for n in ast.walk(body):
         if (
@@ -435,7 +505,7 @@ def any_parallelizable_loop(tree: ast.AST) -> bool:
     iteration-independent or a recognized scalar reduction -- i.e. the parallel
     variant would emit at least one ``#pragma omp parallel for``."""
     return any(
-        not is_timestep_loop(n) and (loop_is_parallel_safe(n) or loop_reduction(n) is not None)
+        not is_timestep_loop(n) and (loop_is_parallel_safe(n, tree) or loop_reduction(n) is not None)
         for n in ast.walk(tree)
         if isinstance(n, ast.For)
     )
