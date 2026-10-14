@@ -37,7 +37,7 @@ import subprocess
 import sys
 import time
 import traceback
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from hpcagent_bench import config, cpf_canonical, paths
@@ -63,6 +63,7 @@ __all__ = [
     "ABI_SYMBOL_LOCAL",
     "DACE_BANNER",
     "DEVICE_LANGUAGE",
+    "GPU_CODEGEN",
     "RENDER_TIMEOUT_DEFAULT_S",
     "RENDER_TIMEOUT_KEY",
     "ChildRun",
@@ -78,6 +79,7 @@ __all__ = [
     "exact_abi_signature",
     "force_abi_symbols",
     "generated_renames",
+    "gpu_codegen_pinned",
     "json_lines",
     "main",
     "prerender_kernel",
@@ -106,6 +108,11 @@ if TYPE_CHECKING:
 #: storages/schedules the host dialects refuse outright, so the target decides this and
 #: ``--language`` only picks between the two HOST spellings.
 DEVICE_LANGUAGE = "hip"
+#: The DaCe GPU code generator a ``gpu`` form renders through (``compiler.cuda.implementation``): the
+#: experimental generator, whose preprocessing passes (GPU offloading, stream and copy lowering) run before
+#: any device code is emitted. Pinned per render because the dace framework sets the process-wide value per
+#: pipeline (``CLASSIC_CODEGEN`` selects ``legacy``).
+GPU_CODEGEN = "experimental"
 
 #: Config key for one kernel's render wall clock (see :func:`render_timeout_s`).
 RENDER_TIMEOUT_KEY = "timeouts.cpf_render_s"
@@ -508,7 +515,8 @@ def render_canonical(
     emitted = DEVICE_LANGUAGE if target == "gpu" else language
     try:
         signature = EntrySignature(abi_args, workspace=WORKSPACE_NAME, workspace_size=WORKSPACE_SIZE_NAME)
-        rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False)
+        with gpu_codegen_pinned(target):
+            rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False)
         code = exact_abi_signature(
             rendering.code, native.symbol, abi_parameters(native, emitted), {v: k for k, v in renames.items()}
         )
@@ -531,6 +539,26 @@ def render_canonical(
         device_code=clean_form(rendering.device_code, forced) if rendering.device_code else "",
         link=rendering.link,
     )
+
+
+@contextlib.contextmanager
+def gpu_codegen_pinned(target: str) -> Iterator[None]:
+    """For ``target == "gpu"``: ``compiler.cuda.implementation`` is :data:`GPU_CODEGEN` for the block, and a
+    ``DACE_compiler_cuda_implementation`` environment value that outranks it is refused (``RuntimeError``).
+    Any other target: no change."""
+    if target != "gpu":
+        yield
+        return
+    from dace.config import Config, set_temporary
+
+    with set_temporary("compiler", "cuda", "implementation", value=GPU_CODEGEN):
+        selected = Config.get("compiler", "cuda", "implementation")
+        if selected != GPU_CODEGEN:
+            raise RuntimeError(
+                f"a gpu CPF form renders through compiler.cuda.implementation={GPU_CODEGEN!r}, but it is "
+                f"pinned to {selected!r} by DACE_compiler_cuda_implementation; unset it to render"
+            )
+        yield
 
 
 def render_sdfg(
