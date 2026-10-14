@@ -188,7 +188,7 @@ class Measurement(Section):
     ]
     denominator: Denominator
     baseline_race: Literal["leader-first", "complete"]
-    early_stop_factor: PositiveFloat
+    early_stop_factor: NonNegativeFloat
     early_stop_floor_s: Seconds
     repeat: PositiveInt
     local_repeat: PositiveInt
@@ -382,7 +382,7 @@ class Limits(Section):
     """``limits``: memory and stack caps."""
 
     oracle_cache_gb: PositiveFloat
-    kernel_memory_gb: PositiveFloat
+    kernel_memory_gb: NonNegativeFloat
     reference_node_fraction: Fraction
     thread_stack_mb: PositiveInt
 

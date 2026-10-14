@@ -43,13 +43,20 @@ from hpcagent_bench.harness import (
 from hpcagent_bench.harness.hidden_tests import seeds
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, TimedCell, VerifyResult, score
-from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.stats import score_rule
 from tests.fresh_module import module_at
 from tests.results_rows import cells, grades
 from tests.sqlite_closing import connect
 
 REPO = paths.ROOT
+
+
+@pytest.fixture(autouse=True)
+def fake_kernel_fingerprints(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The made-up kernels these worklists name (``k1``, ``k2``) have no task; they fingerprint as ``fake``."""
+    real = grade_under.task_fingerprint
+    monkeypatch.setattr(grade_under, "task_fingerprint", lambda kernel: real(kernel) if kernel in KERNELS else "fake")
 
 
 def load(name: str, relative: str) -> types.ModuleType:
@@ -225,11 +232,11 @@ def test_the_live_grade_reads_the_fused_setup_overlay(
         seen.append(config.env_value(RECORD_DEVICE_ENV))
         return measured(*args, **kwargs)
 
-    with config.scoped_environment({RECORD_DEVICE_ENV: "fused-setup-device"}):
+    with config.scoped_environment({RECORD_DEVICE_ENV: "gpu-multinode"}):
         grade_under.submit_grade(
             grade_under.submission_of(item), grade_under.task_of(item), grade_under.from_config(), scorer
         )
-    assert seen and set(seen) == {"fused-setup-device"}, seen
+    assert seen and set(seen) == {"gpu-multinode"}, seen
 
 
 def test_the_setup_env_is_found_under_a_kernel_list_launchs_file_name(tmp_path: pathlib.Path) -> None:
@@ -1528,13 +1535,14 @@ def test_a_regrade_hands_the_scratch_the_agent_asked_for_or_a_generous_default(
 
 
 def assert_pool_draws(calls: dict[tuple[int, ...], list[int]]) -> None:
-    """Each seed list: 1 warmup + 5 runs cycling the cell's 4 pool seeds (consecutive calls never share one),
-    then the public base seed, built only for the untimed canonical call; both sides call draws 0..5."""
+    """Each seed list: 1 warmup + 5 runs, each its own seed of the cell's pool (POOL_SIZE: no repeat within
+    the measurement), then the public base seed, built only for the untimed canonical call; both sides call
+    draws 0..5."""
     assert calls
     for seeds, indices in calls.items():
         timed, base = seeds[:6], seeds[6]
         assert len(seeds) == 7, seeds
-        assert len(set(timed)) == 4, seeds
+        assert len(set(timed)) == 6, seeds
         assert base not in timed, seeds
         assert all(timed[i] == timed[i + 4] for i in range(2)), seeds
         assert all(a != b for a, b in itertools.pairwise(timed)), seeds

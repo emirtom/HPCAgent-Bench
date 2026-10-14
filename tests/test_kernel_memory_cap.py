@@ -698,7 +698,7 @@ def test_a_crash_under_an_armed_cap_names_the_cap() -> None:
 def score_memhog_gemm() -> Score:
     """:data:`MEMHOG_GEMM_C` scored through the real judge path, for :func:`fresh_interpreter`."""
     return score(
-        Submission("c", source=MEMHOG_GEMM_C), Task("gemm", "restricted", "c"), preset="S", repeat=1, hidden=False
+        Submission(language="c", source=MEMHOG_GEMM_C), Task("gemm", "restricted", "c"), preset="S", repeat=1, hidden=False
     )
 
 
@@ -799,7 +799,7 @@ def test_fv3_dycore_reference_c_fits_its_own_cap_at_xl() -> None:
     from hpcagent_bench.harness.task import Task
 
     task = Task("fv3_dycore", "restricted", "c")
-    submission = Submission("c", source=emit_reference_source("fv3_dycore", "c"))
+    submission = Submission(language="c", source=emit_reference_source("fv3_dycore", "c"))
     ts = score_task_fuzzed(submission, task, k=1, verify=True, repeat=20)
     assert ts.solved, ts.iterations
 

@@ -103,7 +103,7 @@ measurement:
                            #   full, numba last under the guillotine; stamps best-of-v2.
   early_stop_factor: 2.0   # float. Early stop of a reference timed after the leader: per-rep budget =
   early_stop_floor_s: 1.0  #   max(early_stop_floor_s, early_stop_factor x the leader's slowest timed rep), s. A rep
-                           #   over budget cuts the candidate as "not fastest" (docs/measurement_statistics.md).
+                           #   over budget cuts the candidate as "not fastest"; factor 0 = no early stop (docs/measurement_statistics.md).
   repeat: 20               # int >= 1. Timed reps per side for /profile, /baseline and a promotion's first grade.
                            #   /submit, /score and grade-under use their protocol's run count
                            #   (grade_under.final_settings).
