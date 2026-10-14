@@ -30,6 +30,8 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from hpcagent_agent.driver import harnesses, token_cost
+
 __all__ = [
     "DEFAULT_JUDGE_TIMEOUT",
     "DEFAULT_JUDGE_URL",
@@ -47,8 +49,6 @@ __all__ = [
     "SUBMISSION_PROPERTIES",
     "TERMINAL_ROUTES",
     "TOKENS_READ_OK",
-    "USAGE_FIELDS",
-    "USAGE_JSONL_FIELDS",
     "WORKER_TOKEN_ENV",
     "WORKER_TOKEN_HEADER",
     "assigned_kernel",
@@ -71,7 +71,6 @@ __all__ = [
     "task_language",
     "timeout_error",
     "transcript_tokens",
-    "usage_jsonl_field",
     "usage_jsonl_tokens",
     "warn_unreadable_token_file",
     "worker_token_header",
@@ -273,29 +272,6 @@ def identity_fields() -> dict[str, str]:
     return fields
 
 
-#: Every ``message.usage`` field that is a token the run CONSUMED. Same list as
-#: ``agent_driver.py``'s USAGE_FIELDS and for the same reason: consumption is dominated by the
-#: transcript re-sent each turn, so output alone would understate the spend by an order of
-#: magnitude. DELIBERATE DUPLICATION -- this container ships standalone with stdlib only and has
-#: no ``agent_driver`` on its path, the same rule ``syntax_check`` follows for compiler flags.
-USAGE_FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
-
-
-#: The ``usage.jsonl`` fields one model call CONSUMED, for a runner harness (mini-SWE, OpenHands)
-#: that writes one JSON line per call instead of a claude transcript. The four are disjoint
-#: (uncached prompt, cached prompt, completion, reasoning), so all of them count. Same duplication
-#: rule as USAGE_FIELDS: ``agent/hpcagent_agent/driver/harnesses.py`` is not on this path.
-USAGE_JSONL_FIELDS = ("input", "cached_input", "output", "reasoning")
-
-
-def usage_jsonl_field(record: dict[str, object], field: str) -> int:
-    """``record[field]`` as a token count; 0 for anything that is not a plain number."""
-    value = record.get(field)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return 0
-    return int(value)
-
-
 #: Whether the LAST call to :func:`usage_jsonl_tokens` / :func:`transcript_tokens` actually read a
 #: file. Neither function's return type can carry this -- every caller sums the bare int straight
 #: into a judge body (:func:`post_judge`), and changing that to a tuple would ripple into a wire
@@ -327,20 +303,8 @@ def usage_jsonl_tokens(path: str) -> int:
         TOKENS_READ_OK = True
     except OSError:
         return warn_unreadable_token_file(path)
-    total = 0
-    for raw in lines:
-        line = raw.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue  # the tail can be half-written while the runner is mid-append
-        if not isinstance(record, dict):
-            continue
-        for field in USAGE_JSONL_FIELDS:
-            total += usage_jsonl_field(record, field)
-    return total
+    # The driver's own fold (its budget watcher and tokens.json), so the judge is sent the same count.
+    return harnesses.accumulate_usage_tokens(lines, {})
 
 
 def transcript_tokens() -> int:
@@ -371,35 +335,9 @@ def transcript_tokens() -> int:
         TOKENS_READ_OK = True
     except OSError:
         return warn_unreadable_token_file(path)
-    by_message: dict[str, int] = {}
-    for raw in lines:
-        line = raw.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue  # the tail can be half-written while claude is mid-append
-        if not isinstance(event, dict) or event.get("type") != "assistant":
-            continue
-        message = event.get("message")
-        if not isinstance(message, dict):
-            continue
-        message_id = message.get("id")
-        usage = message.get("usage")
-        if not isinstance(message_id, str) or not isinstance(usage, dict):
-            continue
-        total = 0
-        seen = False
-        for field in USAGE_FIELDS:
-            value = usage.get(field)
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                continue
-            total += int(value)
-            seen = True
-        if seen:
-            by_message[message_id] = total
-    return sum(by_message.values())
+    # The driver's own fold (last usage per message.id, token_cost.accumulate_total_tokens), so the
+    # judge is sent the same count tokens.json records.
+    return token_cost.accumulate_total_tokens(lines, {})
 
 
 def post_judge(path: str, body: dict[str, Any]) -> dict[str, Any]:
