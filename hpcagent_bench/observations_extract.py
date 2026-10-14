@@ -34,7 +34,7 @@ Re-running over unchanged inputs reproduces byte-identical output.
     python -m hpcagent_bench.observations_extract \
         --runs '/path/to/hpcagent-bench-runs/*' \
         --benchmarks /path/to/hpcagent-bench/hpcagent_bench/benchmarks \
-        --canon /path/to/llr-canon-cpu-617510.out \
+        --canon /path/to/<canon-sweep>.out \
         --out /path/to/artifact
 """
 

@@ -104,9 +104,8 @@ TORCH_DTYPES: Mapping[str, str] = {
 #: The python-delivery entry point, as the mpi4py driver names it.
 PY_KERNEL = "kernel_mpi"
 
-#: "cuda" (default, unset) is byte-identical to every line this module had before this variable
-#: existed. "cpu" is the CI escape hatch: no GPU, torch.distributed falls back to gloo, and the
-#: launch skips the GPU-binding/device-synchronize calls a CPU tensor has no use for.
+#: cuda | cpu. "cuda" (default when unset): torch.distributed over NCCL/RCCL, GPU binding and device
+#: synchronize. "cpu" (CI): torch.distributed over gloo, no GPU binding or device synchronize.
 MPI_DEVICE_ENV = "HPCAGENT_BENCH_MPI_DEVICE"
 
 
@@ -416,9 +415,8 @@ def check_gpu_binding(placements: Sequence[tuple[str, int]]) -> None:
 
 def init_torch_distributed(dist: ModuleType, comm: "MPI.Intracomm", device: "torch.device") -> None:
     """torch.distributed (nccl = RCCL on a cuda ``device``, gloo on a cpu one) over the SAME
-    ranks, rendezvous address from MPI rank 0. gloo takes no ``device_id`` (it is a cuda-only
-    eager-init hint), so the kwarg is cuda-only -- the cuda branch is unchanged from before this
-    function took a device at all."""
+    ranks, rendezvous address from MPI rank 0. ``device_id`` (an eager-init hint gloo does not take) is
+    passed only for a cuda ``device``."""
     if comm.rank == 0:
         with socket.socket() as probe:
             probe.bind(("", 0))

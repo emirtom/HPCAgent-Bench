@@ -46,8 +46,10 @@ of the CSCS Alps MI300A partition, the reference setup of this repository's expe
 | `pyproject.toml` (`[tool.uv.sources] dace`) | the dace commit a release installs, bakes and runs ([below](#dace)) |
 | `hpcagent_bench/paths.py` | the Python side of the same roots |
 
-Experiment knobs (models, agents, judges, budgets) are not site values: they live in `experiments/layers/common.env`
-and the model layers ([launch.md](launch.md), [`experiments/LAUNCH.md`](../experiments/LAUNCH.md)).
+Experiment knobs (models, agents, judges, budgets) are not site values: they are set in `experiments/setups.yaml`,
+`experiments/layers/common.env` and the model layers ([launch.md](launch.md),
+[`experiments/LAUNCH.md`](../experiments/LAUNCH.md)). Benchmark settings are keys of `hpcagent_bench/config.yaml`
+([below](#benchmark-settings-hpcagent_benchconfigyaml)).
 
 ## Job shape per system
 
@@ -112,7 +114,7 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 |---|---|---|
 | `HPCAGENT_BENCH_SITE_ENV` | `experiments/layers/site.env` when it exists | which layer `helpers/scripts/site_env.sh` loads; a named file that does not exist is an error |
 | `SBATCH_PARTITION`, `SALLOC_PARTITION` | unset (the cluster's default) | the partition of every `sbatch` / `salloc`; Slurm reads it and it overrides a script's `#SBATCH --partition`, and `--partition=` on the command line overrides it (the submitters resolve it with their `--partition` flag, over this variable, over the system's entry) |
-| `SBATCH_ACCOUNT` | empty | the account every `sbatch` bills; `hpcagent_bench/cluster/submit.sh` refuses to submit without one, and `root`. `SLURM_ACCOUNT` and `SALLOC_ACCOUNT` follow it. No script passes `-A` |
+| `SBATCH_ACCOUNT` | empty | the account every `sbatch` bills. `hpcagent_bench/cluster/submit.sh` refuses an empty account and the account `root`. `site_env.sh` exports `SLURM_ACCOUNT` and `SALLOC_ACCOUNT` from it. No script passes `-A` |
 | `HPCAGENT_BENCH_LOGIN_HOST`, `HPCAGENT_BENCH_SSH_JUMP` | empty: a placeholder | the login host and ssh jump chain in the laptop tunnel commands `containers/inference/serve-private.sbatch` prints |
 | `HPCAGENT_BENCH_NICE` | `100` | the `--nice` every submitter passes (`NICE=<n>` for one submission); Slurm has no environment variable for it, so a bare `sbatch` runs at nice 0 |
 
@@ -183,6 +185,29 @@ any other hardware, renames every `*_CE_ENV` to the `-<hardware>-` EDF and pins 
 (and `hardware-<hardware>-<model>.env` for a model served on our nodes). A recorded experiment on another hardware
 must name it, so its rows never pool with the base hardware's. Under the Container Engine no hardware is an error;
 the other runtimes name an image per role (`INFERENCE_IMAGE`, `BENCH_IMAGE`) and need none.
+
+## Benchmark settings (`hpcagent_bench/config.yaml`)
+
+`hpcagent_bench/config.py` reads `hpcagent_bench/config.yaml` once per process. A value is addressed by its dotted
+key (`measurement.repeat`). The first source that sets a key wins:
+
+1. an in-process override: `config.set_override`, `config.overridden`, or an assignment to a field of
+   `config.settings()`; process-global;
+2. `HPCAGENT_BENCH_<KEY>` in the active `config.scoped_environment` (a name mapped to `None` there is unset);
+3. `HPCAGENT_BENCH_<KEY>` in `os.environ`;
+4. the value in `config.yaml`;
+5. the `default` argument of the reader (`config.get(key, default)` and the typed `get_*` accessors).
+
+`<KEY>` is the dotted key upper-cased with `.` replaced by `_` (`HPCAGENT_BENCH_MEASUREMENT_REPEAT=10`).
+Environment text is converted by `config.coerce`: `true`/`false` (any case) to bool, else text `int()` accepts to
+int, else text `float()` accepts to float, else text starting with `[` or `{` that parses as JSON to a list or
+map, else the text unchanged. The reader's `default` applies only when the key is absent from the file; a key set
+to `null` reads as `None`. Keys are not validated: an unknown key reads as the reader's `default`. A map read as
+one value (`timeouts.kernel_s_by_level`, `token_budget_by_level` of the `attempts` block, `oracle.overrides`,
+`mpi.env`) is
+replaced whole by a JSON object in its own variable; variables of its entries are not read.
+`config.reload()` re-reads the file and clears every in-process override. Each key's type, unit, valid values,
+reader and effect are in the comment beside it in `config.yaml`.
 
 ## The guard
 

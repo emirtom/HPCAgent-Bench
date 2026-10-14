@@ -168,7 +168,7 @@ print(reply.choices[0].message.content)
 With `ACCESS=alps` the job prints, after the 401/200 check:
 
 ```text
-===== alps endpoint is live: http://172.28.9.16:30000/v1 on nid002536, job 123456 =====
+===== alps endpoint is live: http://172.28.9.16:30000/v1 on <node>, job <jobid> =====
 endpoint.json: {"url": "http://172.28.9.16:30000/v1", "served_model": "hpcagent-bench-vllm", "key_file": "...", ...}
 ```
 

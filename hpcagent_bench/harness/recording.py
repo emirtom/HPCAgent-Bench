@@ -245,18 +245,11 @@ def shard_paths(path: str | None = None) -> list[str]:
 
 
 def db_path() -> str:
-    """The results DB THIS process writes: always its OWN shard, numbered by rank (0 when there is
-    no launcher).
+    """The results DB this process writes: its own shard :func:`shard_db_path` ``(k)``, k = the launcher
+    rank (0 without a launcher; docs/results_db.md states why ranks never share a file).
 
-    Every rank owning a private file is not a workaround for SQLite's locking but the only correct
-    option on a cluster: WAL needs a ``-shm`` mapping, which network filesystems (Lustre, NFS, GPFS)
-    do not provide, and rollback-journal locking over them is famously unreliable.
-
-    A single-writer run shards too, into shard 0. Writing it straight to :func:`base_db_path` would
-    make that file BOTH authoritative and derived, and :func:`aggregate` rebuilds the base from the
-    shards -- so the same file would be erased by the next merge, and its mtime would make
-    :func:`ensure_aggregated` judge a genuinely stale aggregate fresh. One writer rule instead: the
-    shards are the only authoritative results, the base is the cache built from them."""
+    A single-writer run writes shard 0, never :func:`base_db_path`: the shards are the only
+    authoritative results, and the base is rebuilt from them by :func:`aggregate`."""
     shard = db_shard()
     return shard_db_path(0 if shard is None else shard)
 
