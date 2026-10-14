@@ -46,7 +46,9 @@ REGISTERED_EDF = (
 )
 
 
-def run_role_srun(tmp_path: pathlib.Path, role_flag: str, *, inference_nodes: int = 1) -> dict[str, Any]:
+def run_role_srun(
+    tmp_path: pathlib.Path, role_flag: str, *, inference_nodes: int = 1, inference_mode: str = "pp"
+) -> dict[str, Any]:
     """Runs ``role_srun 1 nid001 bench-ce-env "" <role_flag>`` with CONTAINER_RUNTIME=ce and returns
     the parsed TOML of the EDF srun was handed through --environment."""
     edf_dir = tmp_path / "edf"
@@ -79,6 +81,7 @@ def run_role_srun(tmp_path: pathlib.Path, role_flag: str, *, inference_nodes: in
             "GENERATED_CACHE_MOUNT=/opt/generated",
             "CONTAINER_RUNTIME=ce",
             f"INFERENCE_NODES={inference_nodes}",
+            f"INFERENCE_MODE={inference_mode}",
             "CONTAINER_GPU_FLAGS=",
             "COLOCATE=0",
             "DRY_RUN=0",
@@ -130,6 +133,12 @@ def test_single_node_inference_gets_no_comm_hooks(tmp_path: pathlib.Path) -> Non
 def test_multi_node_inference_keeps_the_comm_hooks(tmp_path: pathlib.Path) -> None:
     """INFERENCE_NODES=4: the collective crosses nodes and needs the fabric plugin."""
     assert_hooks_kept(run_role_srun(tmp_path, "--vllm-node", inference_nodes=4))
+
+
+def test_replica_inference_on_several_nodes_gets_no_comm_hooks(tmp_path: pathlib.Path) -> None:
+    """INFERENCE_MODE=replicas: a standalone server per node, so no collective crosses nodes however
+    many there are, and the forced NCCL_NET would fail every replica's TP init."""
+    assert_hooks_off(run_role_srun(tmp_path, "--vllm-node", inference_nodes=2, inference_mode="replicas"))
 
 
 def test_the_judge_keeps_the_comm_hooks(tmp_path: pathlib.Path) -> None:
