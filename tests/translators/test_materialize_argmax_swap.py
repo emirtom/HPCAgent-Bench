@@ -25,25 +25,12 @@ The spec requires c + fortran; c++ rides along (native, free). A wrong answer on
 any native backend is a real bug, so each must validate bit-close to numpy.
 """
 
-import shutil
-
 import numpy as np
-import pytest
 
 from hpcagent_bench.translators.numpyto_common.lowering import lower
-from tests.translators.op_oracle import parse_source, run_op, run_return_op
+from tests.translators.op_oracle import assert_backends_ok, native, parse_source, run_op, run_return_op
 
 NATIVE = ("c", "cpp", "fortran")
-
-
-def require_native() -> None:
-    if not (shutil.which("gcc") and shutil.which("g++") and shutil.which("gfortran")):
-        pytest.skip("gcc/g++/gfortran needed for the native numerical check")
-
-
-def assert_native_ok(status, label) -> None:
-    for b in NATIVE:
-        assert status[b] == "ok", f"{label}: native {b} did not validate: {status}"
 
 
 def lower_local_dtypes(src, func, shapes, syms, inputs, outputs, dtypes):
@@ -57,7 +44,7 @@ def lower_local_dtypes(src, func, shapes, syms, inputs, outputs, dtypes):
 
 
 def test_reduction_method_on_call_receiver() -> None:
-    require_native()
+    native()
     x = np.array([0.3, -2.5, 1.1, -0.7, 4.2, -3.9], dtype=np.float64)
     y = np.array([1.0, 0.5, -2.0, 3.3, -1.1, 0.8], dtype=np.float64)
     status = run_return_op(
@@ -71,14 +58,14 @@ def test_reduction_method_on_call_receiver() -> None:
         atol=1e-6,
         backends=NATIVE,
     )
-    assert_native_ok(status, "abs(x-y).sum()")
+    assert_backends_ok(status, NATIVE, "abs(x-y).sum()")
 
 
 # (b) a Call used as a subscript index: v[np.argmax(np.abs(v))] (sign gauge)   #
 
 
 def test_computed_index_call_in_subscript() -> None:
-    require_native()
+    native()
     # Distinct magnitudes -> the argmax has no tie (index 4, |4.2|).
     v = np.array([0.3, -2.5, 1.1, -0.7, 4.2, -3.9], dtype=np.float64)
     status = run_return_op(
@@ -92,7 +79,7 @@ def test_computed_index_call_in_subscript() -> None:
         atol=1e-6,
         backends=NATIVE,
     )
-    assert_native_ok(status, "v[argmax(abs(v))]")
+    assert_backends_ok(status, NATIVE, "v[argmax(abs(v))]")
 
 
 # (b') argmax / argmin OVER a computed operand: idx = np.argmax(np.abs(v))     #
@@ -104,7 +91,7 @@ def test_computed_index_call_in_subscript() -> None:
 
 
 def test_argreduction_over_computed_operand() -> None:
-    require_native()
+    native()
     v = np.array([0.3, -2.5, 1.1, -0.7, 4.2, -3.9], dtype=np.float64)
     st_max = run_op(
         "import numpy as np\ndef f(v, out):\n    out[0] = np.argmax(np.abs(v))\n",
@@ -118,7 +105,7 @@ def test_argreduction_over_computed_operand() -> None:
         atol=0,
         backends=NATIVE,
     )
-    assert_native_ok(st_max, "idx = argmax(abs(v))")
+    assert_backends_ok(st_max, NATIVE, "idx = argmax(abs(v))")
     st_min = run_op(
         "import numpy as np\ndef f(v, out):\n    out[0] = np.argmin(v * v)\n",
         "f",
@@ -131,7 +118,7 @@ def test_argreduction_over_computed_operand() -> None:
         atol=0,
         backends=NATIVE,
     )
-    assert_native_ok(st_min, "idx = argmin(v * v)")
+    assert_backends_ok(st_min, NATIVE, "idx = argmin(v * v)")
 
 
 # (c) simultaneous whole-array rebind in a loop: x, y = y, x + y (Fibonacci)   #
@@ -144,7 +131,7 @@ def test_argreduction_over_computed_operand() -> None:
 
 
 def test_inloop_whole_array_swap() -> None:
-    require_native()
+    native()
     x = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
     y = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float64)
     status = run_op(
@@ -163,7 +150,7 @@ def test_inloop_whole_array_swap() -> None:
         atol=1e-6,
         backends=NATIVE,
     )
-    assert_native_ok(status, "x, y = y, x + y")
+    assert_backends_ok(status, NATIVE, "x, y = y, x + y")
 
 
 # (d) a .real / .imag scalar temp of a COMPLEX array is tagged REAL, not       #
@@ -193,7 +180,7 @@ def test_eigvalsh_native_real_symmetric() -> None:
     ``.real`` / ``hypot`` / ``np.float64`` real scalar temps + a ``conj`` on the
     real ``ephi``) compiles and matches numpy on c + fortran once the real temps
     are retagged real and the no-op ``conj`` on a real operand is dropped."""
-    require_native()
+    native()
     m = np.random.default_rng(7).random((5, 5))
     A = m + m.T  # real symmetric, distinct eigenvalues
     status = run_op(

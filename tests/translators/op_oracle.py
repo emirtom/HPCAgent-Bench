@@ -59,6 +59,13 @@ def assert_ok(status: dict[str, str], backends: Sequence[str], label: str) -> No
         pytest.skip(f"{label}: no backend ran ({status})")
 
 
+def assert_backends_ok(status: dict[str, str], backends: Sequence[str], label: str) -> None:
+    """Every requested backend validated: the strict sibling of :func:`assert_ok`, for a test that
+    has already gated on its toolchain (:func:`native`), so a skip is a failure too."""
+    for b in backends:
+        assert status.get(b) == "ok", f"{label}: {b} did not validate: {status}"
+
+
 def all_ok(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
     """``(every backend agreed, the statuses)`` -- and at least one actually RAN.
 
