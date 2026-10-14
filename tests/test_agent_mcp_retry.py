@@ -9,6 +9,7 @@ records rc=0 and the data point is simply gone, so the driver has to notice and 
 """
 
 import json
+import pathlib
 import threading
 import time
 from typing import Self
@@ -287,3 +288,51 @@ def test_a_relaunch_keeps_the_transcript_of_the_crash_it_followed(monkeypatch, t
     assert "ATTEMPT 2" in (workdir / "claude.log").read_text(encoding="utf-8"), (
         "claude.log must hold the run that actually finished"
     )
+
+
+def test_spent_mcp_attempts_end_that_agent_with_a_record_not_the_whole_node(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """McpUnavailable used to propagate out of run_agent into main(), whose ``future.result()``
+    re-raised it: the node died with a traceback after waiting for the others, skipped its summary
+    and exit policy, and the failing worker left no tokens.json and no ledger line."""
+    monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path / "shared"))
+    driver = load_driver(monkeypatch, AGENT_MCP_ATTEMPTS="2", AGENT_TIMEOUT_SECONDS="0")
+    # Rendered before Popen is faked: the facts come from a real make_problems subprocess.
+    problem = problem_line(0, "gemm", "Optimize gemm in c.")
+    monkeypatch.setattr(driver.subprocess, "Popen", fake_popen_class(["failed"]))
+    monkeypatch.setattr(driver, "vllm_urls", lambda: ["http://127.0.0.1:8000"])
+    monkeypatch.setattr(driver, "claude_supports_flag", lambda binary, flag: True)
+    monkeypatch.setattr(driver, "promote_at_agent_exit", lambda *args, **kwargs: "")
+    monkeypatch.setattr(driver, "agent_cpus", lambda worker_index, agents: [])
+    node_dir = tmp_path / "node-0"
+    node_dir.mkdir()
+    rc = driver.run_agent(problem, 0, node_dir, ["http://127.0.0.1:8800"], 0, 1)
+    assert rc == driver.RC_MCP_UNAVAILABLE
+    assert rc not in driver.CLEAN_ENDS, "an agent that never ran is a failure, not an end"
+    workdir = node_dir / "problem-0-worker-0"
+    record = json.loads((workdir / "tokens.json").read_text(encoding="utf-8"))
+    assert record["returncode"] == driver.RC_MCP_UNAVAILABLE
+    ledger = [json.loads(line) for line in (workdir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [line["returncode"] for line in ledger] == [driver.RC_MCP_UNAVAILABLE]
+    assert "MCP still not connected" in (workdir / "claude.log").read_text(encoding="utf-8")
+
+
+def test_an_agent_thread_that_raises_costs_the_node_one_rc_not_its_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any other exception out of one agent thread is that agent's failure: main() records
+    RC_AGENT_FAULT for it and the node's exit policy still runs over every agent."""
+    import concurrent.futures
+
+    driver = load_driver(monkeypatch)
+
+    def boom() -> int:
+        raise RuntimeError("one agent's fault")
+
+    def clean() -> int:
+        return 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {executor.submit(boom): {"id": 3}, executor.submit(clean): {"id": 4}}
+        rcs = sorted(driver.agent_returncode(future, problem) for future, problem in futures.items())
+    assert rcs == sorted([driver.RC_AGENT_FAULT, 0])
+    assert driver.node_exit_status(rcs) == 0, "one failed agent must not fail the node"

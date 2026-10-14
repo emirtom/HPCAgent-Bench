@@ -164,8 +164,9 @@ are in [scoring.md](scoring.md).
 - `TOOLS`: the tools one setup serves. They become Claude Code's `--allowedTools` (`ALLOWED_TOOLS`), and
   `prompt_tool_list()` fills the prompt's `{{TOOLS}}` slot.
 
-A setup whose MCP server does not connect is never run without its tools: the driver stops the agent and raises
-`McpUnavailable`.
+A setup whose MCP server does not connect is never run without its tools: the driver stops the agent
+(`McpUnavailable`) and records that episode with rc 122 (`RC_MCP_UNAVAILABLE`), its ledger line and
+`tokens.json`; the other agents on the node run on.
 
 | Tool | Served when | Switch |
 |---|---|---|

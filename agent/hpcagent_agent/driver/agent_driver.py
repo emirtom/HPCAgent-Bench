@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Generator, Mapping, Sequence
@@ -81,8 +82,10 @@ __all__ = [
     "OFFLOAD_LANGUAGES",
     "PROBE_MAX_TOKENS",
     "PROBE_PROMPT",
+    "RC_AGENT_FAULT",
     "RC_API_TIMEOUT",
     "RC_CONTEXT",
+    "RC_MCP_UNAVAILABLE",
     "RC_SUBMITTED",
     "RC_TIMEOUT",
     "RC_TOKEN_BUDGET",
@@ -111,10 +114,12 @@ __all__ = [
     "accumulate_total_tokens",
     "acquire_start_slot",
     "agent_cpus",
+    "agent_returncode",
     "agent_environment",
     "agent_runtime",
     "agent_tools",
     "aggregate_intervals",
+    "agent_returncode",
     "aggregate_probe_seconds",
     "allocate_agent_folder",
     "api_timeout",
@@ -1331,6 +1336,11 @@ RC_TOKEN_BUDGET = 125
 RC_CONTEXT = 126
 RC_API_TIMEOUT = 127
 RC_SUBMITTED = 123
+#: The agent never ran: its MCP server did not connect in AGENT_MCP_ATTEMPTS tries (:class:`McpUnavailable`).
+#: An infrastructure failure, recorded per agent so it costs the node nothing but this one episode.
+RC_MCP_UNAVAILABLE = 122
+#: An agent thread raised something the driver has no rc for; the node goes on with the others.
+RC_AGENT_FAULT = 1
 #: Episode ends that are results, not faults. An API timeout still counts as a failure.
 CLEAN_ENDS = frozenset({0, RC_SUBMITTED, RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT})
 
@@ -2897,6 +2907,8 @@ def ended_reason(returncode: int, timeout_s: float, max_tokens: int, tokens: int
         return " died=context"
     if returncode == RC_API_TIMEOUT:
         return " died=api_timeout"
+    if returncode == RC_MCP_UNAVAILABLE:
+        return " died=mcp_unavailable"
     return ""
 
 
@@ -3082,23 +3094,37 @@ def run_agent(
         # attempt 2 attempt 1's init verdict. The previous attempt is preserved by moving it aside
         # below instead, which keeps the evidence without breaking that assumption.
         with log_path.open("w", encoding="utf-8") as log:
+            process: subprocess.Popen[bytes] | None = None
             if harness.mcp_gate:
-                process, mcp_attempts = start_agent(command, agent_dir, environment, log, log_path, cpus)
+                try:
+                    process, mcp_attempts = start_agent(command, agent_dir, environment, log, log_path, cpus)
+                except McpUnavailable:
+                    # The agent never ran, and start_agent wrote why into the log. Recorded like any
+                    # other end -- ledger line, tokens.json, summary line -- never raised into main(),
+                    # where it ended the whole node and left this episode with no cost record.
+                    mcp_attempts = AGENT_MCP_ATTEMPTS
             else:
                 process = start_runner(command, agent_dir, environment, log, cpus)
-            watchers = start_watchers(
-                process, harness, (tokens_path, marker, log_path), max_tokens, dead_stream_threshold, state
-            )
-            returncode = wait_for_agent(process, deadline, log, timeout_s)
-            for watcher in watchers:
-                watcher.join(timeout=TOKEN_POLL_SECONDS * 4)
-            returncode = watched_returncode(returncode, state, marker, log, max_tokens, dead_stream_threshold)
-            spent = deadline and time.monotonic() >= deadline
-            attempt_crashed = closing_crashed(returncode, harness.closing(workdir))
-            relaunching = bool(attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent)
-            note_relaunch(
-                log, returncode, crash_attempts, out_of_clock=bool(spent and attempt_crashed), relaunching=relaunching
-            )
+            if process is None:
+                returncode, attempt_crashed, relaunching = RC_MCP_UNAVAILABLE, False, False
+            else:
+                watchers = start_watchers(
+                    process, harness, (tokens_path, marker, log_path), max_tokens, dead_stream_threshold, state
+                )
+                returncode = wait_for_agent(process, deadline, log, timeout_s)
+                for watcher in watchers:
+                    watcher.join(timeout=TOKEN_POLL_SECONDS * 4)
+                returncode = watched_returncode(returncode, state, marker, log, max_tokens, dead_stream_threshold)
+                spent = deadline and time.monotonic() >= deadline
+                attempt_crashed = closing_crashed(returncode, harness.closing(workdir))
+                relaunching = bool(attempt_crashed and crash_attempts < AGENT_CRASH_ATTEMPTS and not spent)
+                note_relaunch(
+                    log,
+                    returncode,
+                    crash_attempts,
+                    out_of_clock=bool(spent and attempt_crashed),
+                    relaunching=relaunching,
+                )
         # The ledger line goes down with the log closed, so what it reports about this attempt is
         # what the next reader of the directory finds -- including when the wipe below runs.
         append_attempt(attempts_path, crash_attempts, attempt_start_ms, returncode, attempt_crashed, relaunching)
@@ -3405,7 +3431,7 @@ def main() -> int:
             ): problem
             for worker_index, (problem_index, problem) in enumerate(local_problems)
         }
-        rcs.extend(future.result() for future in concurrent.futures.as_completed(futures))
+        rcs.extend(agent_returncode(future, futures[future]) for future in concurrent.futures.as_completed(futures))
 
     if sampler is not None:
         stop_sampling.set()
@@ -3417,6 +3443,21 @@ def main() -> int:
     failures = sum(rc not in CLEAN_ENDS for rc in rcs)
     print(f"node {node}: {failures}/{len(rcs)} agents failed (rcs {sorted(set(rcs))})", flush=True)
     return node_exit_status(rcs)
+
+
+def agent_returncode(future: concurrent.futures.Future[int], problem: Problem) -> int:
+    """One agent thread's rc; :data:`RC_AGENT_FAULT` when the thread raised instead of returning one.
+
+    ``future.result()`` re-raises in the main thread, so one agent's exception ended main() with a
+    traceback: no per-node summary, no throughput report, and node_exit_status never applied -- the
+    node exited 1 for a failure its docstring says must not cancel every service.
+    """
+    try:
+        return future.result()
+    except Exception:  # noqa: BLE001 -- one agent's fault is that agent's result, not the node's
+        traceback.print_exc()
+        print(f"problem={problem.get('id')} agent raised; recorded rc={RC_AGENT_FAULT}", file=sys.stderr, flush=True)
+        return RC_AGENT_FAULT
 
 
 def node_exit_status(rcs: Sequence[int]) -> int:
