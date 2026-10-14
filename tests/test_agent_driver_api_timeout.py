@@ -59,13 +59,13 @@ def test_it_counts_as_a_crash_so_the_agent_is_relaunched(
     driver: ModuleType, tmp_path: pathlib.Path, returncode: int
 ) -> None:
     """Both exits, because the CLI's is not dependable: the sibling context death ships rc=0."""
-    assert driver.crashed(returncode, transcript(tmp_path, TIMED_OUT)) is True
+    assert driver.closing_crashed(returncode, driver.transcript_closing(transcript(tmp_path, TIMED_OUT))) is True
 
 
 @pytest.mark.parametrize("returncode", [124, 125, 126])  # RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT
 def test_the_drivers_own_kills_stay_budgets(driver: ModuleType, tmp_path: pathlib.Path, returncode: int) -> None:
     """A wall-clock or token kill is an allowance the agent SPENT; relaunching would grant a second."""
-    assert driver.crashed(returncode, transcript(tmp_path, TIMED_OUT)) is False
+    assert driver.closing_crashed(returncode, driver.transcript_closing(transcript(tmp_path, TIMED_OUT))) is False
 
 
 @pytest.mark.parametrize(
@@ -84,4 +84,4 @@ def test_every_other_ending_is_left_alone(driver: ModuleType, tmp_path: pathlib.
 
 
 def test_a_finished_run_is_still_not_a_crash(driver: ModuleType, tmp_path: pathlib.Path) -> None:
-    assert driver.crashed(0, transcript(tmp_path, FINISHED)) is False
+    assert driver.closing_crashed(0, driver.transcript_closing(transcript(tmp_path, FINISHED))) is False

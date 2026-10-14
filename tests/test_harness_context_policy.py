@@ -77,7 +77,6 @@ def test_every_setup_gives_every_harness_claudes_window_reply_and_trigger(
     environment = env_values(path)
     policy = harnesses.context_policy(environment)
     limit, reply, trigger = claude_policy(driver, environment)
-    assert harnesses.served_context(environment) == driver.served_context(environment)
     assert (policy.limit, policy.reply) == (limit, reply)
     assert policy.trigger - 2 <= trigger <= policy.trigger
 

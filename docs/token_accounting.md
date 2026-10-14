@@ -95,7 +95,7 @@ A task that crashed twice may have spent up to `3 x AGENT_MAX_TOKENS`; `tokens_c
 ## Context compaction
 
 claude-code compacts proactively only when the context window comes from the environment, so
-`agent_driver.claude_context_env` sets it from the served window (`served_context`, read from
+`agent_driver.claude_context_env` sets it from the served window (`harnesses.served_context`, read from
 `CONTEXT_LENGTH` / `--context-length` / `--max-model-len` in the setup env):
 
     limit     = min(served window, 262144)                  # CLAUDE_CODE_MAX_CONTEXT_TOKENS, CLAUDE_CODE_AUTO_COMPACT_WINDOW

@@ -435,13 +435,6 @@ def test_the_budget_fold_reads_a_partial_message_transcript_as_it_read_the_old_o
     assert load_http_json().transcript_tokens() == 1000 + 1500
 
 
-def test_the_container_tool_and_the_analysis_bill_a_turn_for_the_same_usage_fields(token_cost: ModuleType) -> None:
-    """``agent/hpcagent_agent/tools/http_json.py`` ships standalone in the agent image and repeats this
-    list rather than importing it (its own comment says so). A copy that drifts makes the token cap
-    the agent is killed on and the cost the analysis reports two different quantities, silently."""
-    assert load_http_json().USAGE_FIELDS == token_cost.USAGE_FIELDS
-
-
 def test_a_worker_dir_without_a_transcript_has_no_token_total(token_cost: ModuleType, tmp_path: pathlib.Path) -> None:
     """A worker directory the driver never entered is not a task that cost 0 tokens -- it has no
     measurement at all, same as R7 treats a missing kernel token total."""

@@ -28,6 +28,7 @@ from hpcagent_agent import submission_mode
 from hpcagent_agent.tools import canonical_parallel_form, profile_tool, score, search, submit, syntax_check
 
 __all__ = [
+    "AGENT_PAYLOAD_DIR",
     "ALLOWED_ORDER",
     "ALLOWED_TOOLS",
     "BULLET_HEAD",
@@ -49,6 +50,7 @@ __all__ = [
     "packet_carries",
     "prompt_tool_list",
     "result",
+    "server_instructions",
     "tool_definitions",
     "tool_offered",
 ]
@@ -148,6 +150,22 @@ def prompt_tool_list(cli: bool = False) -> str:
     return f"{MCP_HEAD}\n\n{text}"
 
 
+#: The agent payload directory that holds the submission-mode templates (``agent/submission-<mode>.md``).
+AGENT_PAYLOAD_DIR = pathlib.Path(__file__).resolve().parents[2]
+
+
+def server_instructions() -> str:
+    """The ``initialize`` instructions: the prompt's tool list with the submission mode's slot filled.
+
+    The raw list carries ``{{MODE:tool}}`` (the ``submit`` bullet, which the mode decides), and Claude
+    Code injects these instructions into the system prompt verbatim, so an unfilled list reached every
+    agent with a template slot and no ``submit`` bullet. Filled from the payload's template, the copy
+    the launcher stages the shared one from."""
+    template = submission_mode.current().template
+    sections = submission_mode.template_sections(AGENT_PAYLOAD_DIR / template)
+    return submission_mode.fill_slots(prompt_tool_list(), sections, template)
+
+
 #: ``AGENT_PACKET=<name>`` adds the tool modules of ``hpcagent_agent.packets.<name>``, each named by its stem.
 PACKET: str = os.environ.get("AGENT_PACKET", "").strip()
 if PACKET:
@@ -209,7 +227,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "hpcagent_bench", "version": "0.1.0"},
-                "instructions": prompt_tool_list(),
+                "instructions": server_instructions(),
             },
             request_id,
         )

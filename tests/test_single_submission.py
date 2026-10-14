@@ -48,6 +48,26 @@ def test_every_mode_template_fills_exactly_the_prompts_mode_slots(mode: submissi
     assert all(text.strip() for text in sections.values()), mode
 
 
+@pytest.mark.parametrize("mode", list(submission_mode.SubmissionMode))
+def test_the_mcp_server_instructions_carry_the_modes_submit_bullet_and_no_raw_slot(
+    mode: submission_mode.SubmissionMode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Claude Code injects the server's ``initialize`` instructions into the system prompt verbatim.
+    They were ``prompt_tool_list()`` unfilled, so every agent read a literal ``{{MODE:tool}}`` line and
+    a tool list with no ``submit`` bullet."""
+    monkeypatch.setenv(submission_mode.KEY, mode.value)
+    server = fresh("mcp_server")
+    try:
+        started = server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize"})
+        instructions = started["result"]["instructions"]
+        assert "{{" not in instructions, f"{mode.value}: a raw template slot reaches the agent"
+        assert "- `submit` --" in instructions, f"{mode.value}: the instructions leave out the submit tool"
+        assert instructions.startswith(server.MCP_HEAD)
+    finally:
+        monkeypatch.undo()
+        fresh("mcp_server")
+
+
 def test_the_two_policies_actually_differ_in_treatment() -> None:
     multi = (AGENT / "submission-multi.md").read_text()
     single = (AGENT / "submission-single.md").read_text()
@@ -217,7 +237,7 @@ def test_a_finished_episode_is_never_relaunched(monkeypatch, tmp_path) -> None:
     importlib.reload(agent_driver)
     log = tmp_path / "claude.log"
     log.write_text("", encoding="utf-8")
-    assert agent_driver.crashed(agent_driver.RC_SUBMITTED, log) is False
+    assert agent_driver.closing_crashed(agent_driver.RC_SUBMITTED, agent_driver.transcript_closing(log)) is False
 
 
 def load_driver() -> ModuleType:
