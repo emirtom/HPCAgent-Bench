@@ -1276,7 +1276,8 @@ def measure_one_baseline(
         for compiler in compilers:
             try:
                 _, c_ns, _, _ = cut_retried(
-                    lambda compiler=compiler: run_compiled_reference(
+                    functools.partial(
+                        run_compiled_reference,
                         spec,
                         task,
                         binding,
@@ -2218,7 +2219,8 @@ def graded_score(
             for compiler in compilers:
                 try:
                     _, _a_ns, _, a_samples = cut_retried(
-                        lambda compiler=compiler: run_compiled_reference(
+                        functools.partial(
+                            run_compiled_reference,
                             spec,
                             task,
                             binding,

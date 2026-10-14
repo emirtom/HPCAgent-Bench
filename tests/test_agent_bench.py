@@ -289,7 +289,7 @@ def test_submission_requests_grid_selects_the_distributed_track() -> None:
         Submission.from_obj({"language": "c", "source": "x", "requests": {"startup": {"grid": []}}})
     with pytest.raises(ValueError, match="action must be one of"):
         Submission.from_obj({"language": "c", "source": "x", "requests": {"operations": [{"action": "bogus"}]}})
-    with pytest.raises(ValueError, match="moved under 'requests'"):
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         Submission.from_obj({"language": "c", "source": "x", "distribution": ok})
 
 

@@ -140,14 +140,14 @@ def score_from_oracle(resp: dict[str, Any]) -> Score:
     return score_from_response(resp)
 
 
-def http_grade(judge_url: str, judge_rank: int, submission: Submission, task: Task, *, preset: str) -> Score:
+def http_grade(judge_url: str, judge_rank: int, submission: Submission, task: Task) -> Score:
     """The authoritative grade: POST the submission to the assigned judge and return its Score.
     The judge owns re-verification (its harden gate), so there is no client-side re-verify.
 
     ``judge_url`` ROUTES; ``judge_rank`` (the same worker's round-robin index) only asserts the
     routing was right -- the judge answers 421 rather than grading a request that reached it by
     mistake, so a mis-wired endpoint list is a loud failure instead of a plausible number."""
-    resp = JudgeClient(judge_url, rank=judge_rank).submit(submission, task.kernel, preset=preset)
+    resp = JudgeClient(judge_url, rank=judge_rank).submit(submission, task.kernel)
     return score_from_oracle(resp)
 
 
@@ -219,7 +219,7 @@ def run_static(
                     max_rounds=max_rounds,
                 )
                 if jurl and submission is not None and gradable(submission):
-                    rows[i] = merge_graded_row(think_row, http_grade(jurl, jrank, submission, task, preset=preset))
+                    rows[i] = merge_graded_row(think_row, http_grade(jurl, jrank, submission, task))
                 else:
                     rows[i] = think_row
             except BaseException as exc:  # noqa: BLE001 -- one task failing is a scored row, not a sweep death

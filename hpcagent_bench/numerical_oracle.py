@@ -105,8 +105,11 @@ PY_FORK_TIMEOUT_S = int(os.environ.get("HPCAGENT_BENCH_PY_FORK_TIMEOUT_S", "600"
 #: m > N outright, and clamping m = min(m, N//2) gives 4, too few to check against the analytic
 #: Poisson spectrum or to reach the iteration 20-30 range where the ghost eigenvalues appear;
 #: bdf_newton_krylov's step count, order history and Jacobian-reuse count are all data-dependent.
+#: cloudsc_subsidence_forcing runs at the one model level its config knob ``jk`` names (100 of 137,
+#: below CLOUDSC's cloud top): scaled, KLEV falls to 13 and the level lies outside the column.
 NO_SCALE = (
     "bdf_newton_krylov",
+    "cloudsc_subsidence_forcing",
     "distribution_search",
     "ilu0",
     "jfnk_bratu",
@@ -210,6 +213,7 @@ from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
 from hpcagent_bench.spec import BenchSpec  # noqa: E402
 from hpcagent_bench.support.bindings.contract import index_base  # noqa: E402
+from hpcagent_bench.translators.numpyto_c.bindings import read_binding  # noqa: E402
 from hpcagent_bench.translators.numpyto_common.dtypes import canonical, compute_dtype  # noqa: E402
 
 # The emitter's own fp-tag helper, so this file's globs match what it names emitted files.
@@ -806,7 +810,7 @@ def run_kernel(
             if not bindings:
                 native_emit_error = "FAIL:no-binding"
             else:
-                binding = json.loads(bindings[0].read_text())
+                binding = read_binding(bindings[0]).model_dump(exclude_none=True)
         # Derive shape symbols from actual input-array dims (a scalar symbol can name an array's
         # extent rather than a preset param, e.g. needleman_wunsch's M = a.shape[0]). Falls back to
         # the spec's symbolic init shapes without a binding. Bare identifiers only.
@@ -1517,7 +1521,7 @@ def _run_pluto(
         # override's src lives in bench_dir while the binding the translator wrote for this
         # precision -- the ABI src's signature was copied from verbatim -- is still in tdp.
         pb = tdp / f"{base}_{fptype}_pluto_binding.json"
-        pluto_binding = json.loads(pb.read_text()) if pb.exists() else binding
+        pluto_binding = read_binding(pb).model_dump(exclude_none=True) if pb.exists() else binding
         try:
             result = _invoke_isolated("c", pluto_binding, so, by, syms, expected, compare, rtol, atol, index_names)
         except Exception as exc:  # noqa: BLE001

@@ -313,7 +313,7 @@ def test_a_codegen_key_the_environment_names_keeps_its_value(monkeypatch: pytest
         ("parallel_gpu", "legacy", "experimental"),
     ],
 )
-def test_each_pipeline_runs_its_generators_and_the_new_offload(pipeline, cpu, cuda) -> None:
+def test_each_pipeline_runs_its_generators_and_the_new_offload(pipeline: str, cpu: str, cuda: str) -> None:
     """canon runs the new CPU and GPU generators; parallel keeps the classic CPU generator and takes the new GPU
     one; both offload with the new pass."""
     from hpcagent_bench.frameworks.dace_framework import PIPELINES_BY_NAME

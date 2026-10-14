@@ -2717,7 +2717,7 @@ AUG_BENCH = {
         "input_args": ["v", "idx", "sq", "f", "g", "out"],
         "array_args": ["v", "idx", "sq", "f", "g", "out"],
         "output_args": ["f", "g", "out"],
-        "init": {"shapes": AUG_SHAPES, "dtypes": {"idx": "int64"}},
+        "init": {"arrays": AUG_SHAPES, "dtypes": {"idx": "int64"}},
     }
 }
 #: One augmented store per row, as the body of ``aug(v, idx, sq, f, g, out)``.

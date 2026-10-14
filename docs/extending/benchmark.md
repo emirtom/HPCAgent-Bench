@@ -166,10 +166,11 @@ build every array with:
 from hpcagent_bench.support import counter_rng
 from hpcagent_bench.support.distributions.perturbation import resolve
 
+
 def initialize(nvec, ke, datatype=np.float64, perturbation=None, xp=np):
     seed = resolve(perturbation).seed
     t = 250.0 + 40.0 * counter_rng.uniform_field((ke, nvec), seed, stream=0, xp=xp)
-    rain = counter_rng.uniform_field((ke, nvec), seed, stream=1, xp=xp) < 0.2   # which cells hold condensate
+    rain = counter_rng.uniform_field((ke, nvec), seed, stream=1, xp=xp) < 0.2  # which cells hold condensate
     return t, rain
 ```
 

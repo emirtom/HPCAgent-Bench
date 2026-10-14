@@ -28,7 +28,6 @@ Nothing here reads the image: a host without ``<root>/<context>/`` (a login node
 """
 
 import functools
-import json
 import os
 import pathlib
 import re
@@ -37,6 +36,8 @@ import sys
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
 from typing import Protocol
+
+import pydantic
 
 from hpcagent_bench import config, openmp_runtimes
 
@@ -283,11 +284,18 @@ def context_runtime(context: str) -> str | None:
     return os.path.realpath(link) if link.exists() else None
 
 
+#: Validator of a catalog record: OpenMP context -> {field: values, or null}.
+CATALOG_ADAPTER: "pydantic.TypeAdapter[dict[str, dict[str, list[str] | None]]]" = pydantic.TypeAdapter(
+    dict[str, dict[str, list[str] | None]]
+)
+
+
 @functools.lru_cache(maxsize=8, typed=True)
 def read_catalog(path: str, mtime_ns: int) -> dict[str, dict[str, list[str] | None]]:
-    """The parsed catalog record at ``path`` (re-read when the file changes)."""
+    """The parsed catalog record at ``path`` (re-read when the file changes; ``pydantic.ValidationError`` when it
+    is not a catalog)."""
     del mtime_ns  # the cache key only
-    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    return CATALOG_ADAPTER.validate_json(pathlib.Path(path).read_bytes())
 
 
 class CatalogMissing(RuntimeError):

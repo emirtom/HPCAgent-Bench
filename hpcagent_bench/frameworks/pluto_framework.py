@@ -15,7 +15,6 @@ A third: this is the only column whose tool can accept a kernel and silently ret
 for it, so it is the only one that asks the numerical oracle for a verdict before it will be timed
 (:meth:`PlutoFramework.measure`)."""
 
-import json
 from collections.abc import Callable, Sequence
 
 from hpcagent_bench import pluto_transform
@@ -36,7 +35,7 @@ from hpcagent_bench.frameworks.framework import (
     stop_cupy_event_timer,
 )
 from hpcagent_bench.frameworks.native_framework import NativeFramework
-from hpcagent_bench.spec import as_block, as_list
+from hpcagent_bench.translators.numpyto_c.bindings import read_binding
 
 __all__ = ["DEVICE_RESIDENT_COLUMN", "PlutoFramework"]
 
@@ -184,7 +183,7 @@ class PlutoFramework(NativeFramework):
         """
         paths = sorted(self._cpp_backend(bench).glob(f"{self._native_base(bench)}_fp*_pluto_binding.json"))
         for path in paths:
-            args = as_list(as_block(json.loads(path.read_text())).get("args"))
+            args = read_binding(path).args
             if args:
-                return [str(as_block(a)["name"]) for a in args]
+                return [arg.name for arg in args]
         return None

@@ -471,7 +471,9 @@ if __name__ == "__main__":
             {"x": "fp64"}, "float64", "c", "already the array's problem precision"
         )
         test_the_judge_refuses_a_precision_this_kernel_cannot_take({"alpha": "fp32"}, "float64", "c", "not a floating")
-        test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32"}, "float64", "python", "not implemented")
+        test_the_judge_refuses_a_precision_this_kernel_cannot_take(
+            {"x": "fp32"}, "float64", "python", "not implemented"
+        )
         test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where_it_is_not_carried()
         test_a_zip_of_problem_arrays_of_different_types_is_a_struct()
         test_zipped_and_unzipped_grades_regroup_around_the_call()
