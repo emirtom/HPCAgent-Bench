@@ -294,7 +294,7 @@ def shared_root_entries(shared: pathlib.Path) -> tuple[str, ...]:
 
     :data:`PER_WORKER_ENTRIES` and the per-agent folders are excluded: the worker's own folder is bound in by
     name, and the rest are other kernels' material and other workers' submissions. Everything else materialize_shared.sh stages -- the prompt variants, the
-    hints file, the build fragments, the submission policies, the skill pages -- is experiment-wide
+    build fragments, the submission policies, the skill pages -- is experiment-wide
     and passes through read-only, so a file a future setup stages needs no change here.
     """
     kept = [

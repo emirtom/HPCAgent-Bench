@@ -32,7 +32,6 @@ from hpcagent_bench.spec import KERNELS, BenchSpec
 __all__ = [
     "CPFSRC_NOTE",
     "DROPIN_DEFAULT_LANGUAGE",
-    "MAIN_PROMPT_SKILLS",
     "PAGE_COMPANIONS",
     "REPO",
     "SKILL_DIR",
@@ -69,9 +68,6 @@ SKILL_PAGE = re.compile(rf"{re.escape(SKILL_DIR)}/([A-Za-z0-9._-]+)\.md")
 #: Files staged beside a page, by page name: COPIES of what the judge builds with, so the reader can
 #: open the API the page teaches.
 PAGE_COMPANIONS: dict[str, tuple[pathlib.Path, ...]] = {"profiling": (flags.PAPI_RANGES_H,)}
-
-#: Pages the main prompt already carries ({{HINTS}}), which must never also ride in the packet.
-MAIN_PROMPT_SKILLS = frozenset({"optimization-hints"})
 
 #: What the cpf-src packet STAGES, said in the task text itself (a skill page may go unread). The
 #: transformation list is what dace's canonicalize pipeline applies (see the cpf-src skill page);
@@ -183,8 +179,7 @@ def packet_pages(
     ``lang-<language>``.
 
     An extra root contributes only pages it ADDS (a root shadowing a shipped page is a different study),
-    and a page belongs to a language by its ``-<language>`` suffix (``loop-deps-c``); no hints page is
-    taken from it, since the hints+skills leg carries those in the main prompt.
+    and a page belongs to a language by its ``-<language>`` suffix (``loop-deps-c``).
 
     :raises ValueError: an unknown packet/skill token, a spec that names ``lang`` with no ``language``,
         a frozen key, or a device packet for a language its device does not run -- all CLI usage errors,
@@ -208,9 +203,7 @@ def packet_pages(
         extra = [
             skill
             for skill in load_skills((extra_root,))
-            if skill.file not in by_name
-            and skill.file not in MAIN_PROMPT_SKILLS
-            and (not language or skill.file.endswith(f"-{language}"))
+            if skill.file not in by_name and (not language or skill.file.endswith(f"-{language}"))
         ]
         if not extra:
             raise SystemExit(f"--extra-skill-root {extra_root} adds no page for language {language or 'any'}")

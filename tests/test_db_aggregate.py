@@ -17,6 +17,7 @@ import time
 
 import pytest
 
+from hpcagent_bench import cli
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import recording, results_db
 from hpcagent_bench.support import update_names
@@ -368,3 +369,40 @@ def test_memory_backed_storage_is_refused(tmp_path) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_aggregate_db_cli_merges_explicit_per_rank_sources_once(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``hpcagent-bench aggregate-db --source`` is how a cluster run's per-rank shards, which sit in
+    ``rank-N/`` subdirectories and not beside the destination, are merged. Re-running it rebuilds
+    the destination instead of appending, so the counts do not double."""
+    shards = []
+    for rank, kernels in enumerate((["gemm"], ["gemm", "atax"])):
+        directory = tmp_path / "judge" / f"rank-{rank}"
+        directory.mkdir(parents=True)
+        shard = str(directory / "hpcagent_bench.db")
+        _seed(shard, run=f"s{rank}.r{rank}", kernels=kernels)
+        shards.append(shard)
+    dest = str(tmp_path / "merged.db")
+    argv = ["aggregate-db", "--db", dest, "--source", shards[0], "--source", shards[1]]
+
+    for _ in range(2):
+        assert cli.main(argv) == 0
+        assert _count(dest, "grades") == 6
+        assert _count(dest, "episodes") == 2
+        assert _count(dest, "setups") == 2
+    assert "from 2 shards" in capsys.readouterr().out
+
+
+def test_aggregate_db_cli_without_sources_scans_beside_the_destination(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dest = str(tmp_path / "hpcagent_bench.db")
+    assert cli.main(["aggregate-db", "--db", dest]) == 0
+    assert "nothing to aggregate" in capsys.readouterr().out
+    assert not pathlib.Path(dest).exists()
+    _seed(recording.shard_db_path(0, dest), run="s0.r0", kernels=["gemm"])
+    _seed(recording.shard_db_path(1, dest), run="s1.r1", kernels=["gemm"])
+    assert cli.main(["aggregate-db", "--db", dest]) == 0
+    assert _count(dest, "grades") == 4

@@ -1107,7 +1107,7 @@ def build_command_text(problem: Problem) -> str:
     ``helpers/scripts/gen_build_fragments.py``, and ``materialize_shared.sh`` regenerates them into the
     shared folder at launch, so the copy an agent reads was composed on the experiment's own node.
 
-    ``AGENT_BUILD_FILE`` pins one file (same override shape as AGENT_HINTS_FILE). Otherwise the LANGUAGE picks the fragment: the launch-fresh
+    ``AGENT_BUILD_FILE`` pins one file (same override shape as AGENT_PROMPT_FILE). Otherwise the LANGUAGE picks the fragment: the launch-fresh
     ``<shared>/build-<language>.md`` when materialize_shared wrote one, else the baked runtime,
     else this checkout -- the same runtime fallback the prompt template and
     :func:`mode_sections` use. A mixed-language setup cannot name one file in its .env, so
