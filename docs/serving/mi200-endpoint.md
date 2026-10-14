@@ -98,8 +98,9 @@ ssh -N -J ela.cscs.ch,beverin.alps.cscs.ch -L 127.0.0.1:30000:127.0.0.1:30000 <n
 ```
 
 then any OpenAI client at `http://127.0.0.1:30000/v1`, model `hpcagent-bench-vllm`, with the header
-`Authorization: Bearer <key>`. Your own Daint jobs connect without ssh when the server starts with
-`ACCESS=alps` (section 5 there).
+`Authorization: Bearer <key>`. The mi200 preset is tunnel-only: vLLM leaves `/metrics` and its non-`/v1`
+routes open, so `ACCESS=alps` refuses it. For Daint jobs use the mi300 preset with `ACCESS=alps`
+([`private-endpoint.md`](private-endpoint.md) section 5).
 
 ## 5. Stop
 

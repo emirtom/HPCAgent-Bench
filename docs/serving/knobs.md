@@ -103,8 +103,9 @@ many aiter builds that boot ran and the cache size, and ends the job. On a warm 
 - vLLM refuses it too: `is_aiter_found_and_supported()` requires `get_cdna_version() > 2`
   (`vllm/_aiter_ops.py`), and MI250X is CDNA2.
 
-mi200 serves SGLang with `--attention-backend triton`; aiter JIT ops that build for gfx90a (the
-all-reduce) still load from the cache.
+mi200 serves Qwen3.8 on the AMD vLLM image (`layers/hardware-mi200-qwen38.env`): BF16,
+`--attention-backend TRITON_ATTN`, `VLLM_ROCM_USE_AITER=0`. The SGLang image carries gfx942 kernels only
+and does not run there.
 
 ## HiCache: never
 
@@ -134,7 +135,8 @@ call returned as prose instead of `tool_calls`. Nothing in the log says "parser"
 - **`NCCL_NET_GDR_LEVEL=LOC`** (not `NCCL_GDR_LEVEL`, not `0`). RCCL enables GPU-direct RDMA by itself, and on
   this fabric it silently corrupts cross-node sums and can fail its connect registering GPU memory. It must be set
   on the server command inside the container: the CSCS netstack hook overwrites the step's value with `PHB`
-  ([known issue 5](known-issues.md#5-8-fabric-and-memory)). `run_cluster.sh` does this for the layer's value.
+  ([known issue 5](known-issues.md#5-8-fabric-and-memory)). `run_cluster.sh` does this for the layer's value;
+  under `serve-only.sbatch` the role step re-reads `serve.env` inside the container, which restores it.
 - **Keep PyNCCL.** Disabling it breaks graph capture and drops decode from about 17 to 1.4 tok/s per
   request on the four-node shape.
 - **Check the plugin:** `grep -a "Using network" server-0.log` must say `AWS Libfabric`.
