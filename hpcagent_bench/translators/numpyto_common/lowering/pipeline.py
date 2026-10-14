@@ -979,7 +979,15 @@ def lp_slice_fusion_and_resolve(ctx: LoweringContext) -> None:
     index-array locals to int64."""
     tree = ctx.tree
     shapes = ctx.shapes
-    SliceFusion(shapes).visit(tree)
+    fusion = SliceFusion(shapes)
+    fusion.visit(tree)
+    # The temps an overlapping RHS was staged through are locals like any other: sized here, and
+    # typed like the array the statement writes (a complex or integer target keeps its values).
+    for temp, (temp_shape, source) in fusion.overlap_temps.items():
+        shapes[temp] = temp_shape
+        ctx.zeros_locals[temp] = temp_shape
+        if source in ctx.local_dtypes:
+            ctx.local_dtypes[temp] = ctx.local_dtypes[source]
     # Final pass: resolve any surviving ``arr.shape[i]`` references to the concrete
     # shape token from the harvested table. These survive whenever a harvested helper
     # variable's shape was a string-form ``arr.shape[i]`` (e.g. inlined maxpool

@@ -13,6 +13,7 @@ __all__ = [
     "DIM_PROBE_POINTS",
     "NP_ZEROS_ALIASES",
     "SHAPE_READ_RE",
+    "constant_difference",
     "dims_agree",
     "shape_exprs_differ_numerically",
     "shape_exprs_equal",
@@ -237,6 +238,26 @@ def shape_exprs_equal(sa: str, sb: str) -> bool:
         return bool(sympy.simplify(diff) == 0)
     except (TypeError, AttributeError, ValueError):
         return False
+
+
+def constant_difference(sa: str, sb: str) -> int | None:
+    """``sa - sb`` when it is the same integer for every value of the symbols, else ``None``.
+
+    Answers "how far apart are these two index expressions": ``si0 - 1`` against ``si0`` is ``-1``,
+    ``N - 1 - si0`` against ``si0`` is no constant, and an index that does not parse as arithmetic
+    (a gather ``perm[si0]``) is ``None`` too. Shares :func:`sympify_shape`'s parse and symbol
+    binding, so ``//`` and ``int_floor`` cancel the same way they do for an extent.
+    """
+    import sympy  # Deferred, as in sympify_shape.
+
+    ea, eb = sympify_shape(sa), sympify_shape(sb)
+    if ea is None or eb is None:
+        return None
+    try:
+        diff = sympy.expand(ea - eb)
+    except (TypeError, AttributeError, ValueError):
+        return None
+    return int(diff) if diff.is_Integer else None
 
 
 def dims_agree(

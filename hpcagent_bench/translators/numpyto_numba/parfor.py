@@ -5,7 +5,7 @@ import ast
 
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
 from hpcagent_bench.translators.numpyto_common.parallelism import index_exprs, loop_is_parallel_safe
-from hpcagent_bench.translators.numpyto_common.subscripts import base_name
+from hpcagent_bench.translators.numpyto_common.subscripts import base_name, is_full_slice
 
 __all__ = [
     "MUTATING_METHODS",
@@ -25,6 +25,8 @@ __all__ = [
     "reordered",
     "reshape_bound_names",
     "reshape_operand",
+    "overlapping_slice_store",
+    "spell_out_overlapping_augassigns",
     "spell_out_reshape_augassigns",
     "spelled_out_augassign",
     "unit_step",
@@ -109,28 +111,63 @@ def has_inplace_slice_self_dependency(src: str) -> bool:
     kernel held serial here is timed against ONE core while the submission it grades runs on all of
     them, and the ratio picks up the thread count as a free multiplier.
     """
+    return any(overlapping_slice_store(stmt) for stmt in ast.walk(ast.parse(src)))
 
-    def contains_slice(node: ast.expr) -> bool:
-        return any(isinstance(child, ast.Slice) for child in ast.walk(node))
 
-    for stmt in ast.walk(ast.parse(src)):
-        if isinstance(stmt, (ast.AugAssign, ast.Assign)):
-            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
-            for target in targets:
-                if not isinstance(target, ast.Subscript) or not contains_slice(target):
-                    continue
-                lhs_name = base_name(target)
-                if lhs_name is None:
-                    continue
-                for rhs in ast.walk(stmt.value):
-                    if not isinstance(rhs, ast.Subscript) or base_name(rhs) != lhs_name:
-                        continue
-                    if provably_disjoint(target, rhs):
-                        continue
-                    if ast.dump(target.slice) == ast.dump(rhs.slice) and not reordered(stmt, rhs):
-                        continue
-                    return True
+def overlapping_slice_store(stmt: ast.AST) -> bool:
+    """True if ``stmt`` stores through a slice of an array its right-hand side may read at
+    OTHER cells -- the per-statement test :func:`has_inplace_slice_self_dependency` applies.
+
+    A bare read of the whole array counts unless every target axis is a full ``:`` (then it is the
+    elementwise ``a[:] += a``)."""
+    if not isinstance(stmt, (ast.AugAssign, ast.Assign)):
+        return False
+    targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+    for target in targets:
+        if not isinstance(target, ast.Subscript) or not any(isinstance(c, ast.Slice) for c in ast.walk(target)):
+            continue
+        lhs_name = base_name(target)
+        if lhs_name is None:
+            continue
+        whole_target = all(is_full_slice(d) for d in index_exprs(target))
+        for rhs in ast.walk(stmt.value):
+            if isinstance(rhs, ast.Name) and rhs.id == lhs_name and not whole_target:
+                return True
+            if not isinstance(rhs, ast.Subscript) or base_name(rhs) != lhs_name:
+                continue
+            if provably_disjoint(target, rhs):
+                continue
+            if ast.dump(target.slice) == ast.dump(rhs.slice) and not reordered(stmt, rhs):
+                continue
+            return True
     return False
+
+
+def spell_out_overlapping_augassigns(src: str) -> str:
+    """Rewrite each :func:`overlapping_slice_store` augmented assignment into its plain form
+    (:func:`spelled_out_augassign`).
+
+    numba evaluates ``out[1:] += out[:-1]`` in place, element by element, even in a serial build:
+    each cell adds the neighbour it has just updated, a running sum where numpy adds the old
+    values. ``out[1:] = out[1:] + out[:-1]`` builds the right-hand side first, as numpy does, and
+    numba's slice store copies an overlapping source. Statements are spliced in place, so the rest
+    of the body stays verbatim."""
+    tree = ast.parse(src)
+    edits: list[tuple[int, int, str]] = []
+    for stmt in ast.walk(tree):
+        if (
+            isinstance(stmt, ast.AugAssign)
+            and not isinstance(stmt.op, ast.MatMult)
+            and overlapping_slice_store(stmt)
+            and stmt.end_lineno is not None
+            and stmt.end_col_offset is not None
+        ):
+            start = abs_offset(src, stmt.lineno, stmt.col_offset)
+            end = abs_offset(src, stmt.end_lineno, stmt.end_col_offset)
+            edits.append((start, end, ast.unparse(spelled_out_augassign(stmt))))
+    for start, end, text in sorted(set(edits), reverse=True):
+        src = src[:start] + text + src[end:]
+    return src
 
 
 def abs_offset(src: str, lineno: int, col: int) -> int:
