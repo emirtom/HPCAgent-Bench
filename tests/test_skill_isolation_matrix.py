@@ -58,7 +58,11 @@ def effective_device(key: str) -> str:
 SETUP_FOR_KEY: dict[str, tuple[str, str | None]] = {
     key: {"amd": ("hip", "amd"), "nvidia": ("cuda", "nvidia")}.get(effective_device(key), ("c", None))
     for key in DEFINITIONS
-}
+} | {"cpf-gpu-src": ("hip", "amd"), "cpf-tool-gpu": ("hip", "amd")}
+
+#: The CPF packets, by what they hand the agent: the form as its source, or the form on request.
+CPF_SRC_KEYS = ("cpf-cpu-src", "cpf-gpu-src")
+CPF_TOOL_KEYS = ("cpf-tool-cpu", "cpf-tool-gpu")
 
 #: cpf_cache.DIALECT names c, c++/cpp and hip; a CPF-composing key resolved for any other language
 #: (only all-in-nvidia, pinned to cuda by its device) cannot render a drop-in at all and every
@@ -71,8 +75,8 @@ def resolved(key: str) -> packets.Packet:
     return packets.resolve(key, language, environ={"CPF_VIEW": "/views/dummy"}, image=image)
 
 
-def reaches(key: str, target: str) -> bool:
-    return target in packets.reached_keys(key, DEFINITIONS)
+def reaches(key: str, targets: tuple[str, ...]) -> bool:
+    return bool(set(targets) & set(packets.reached_keys(key, DEFINITIONS)))
 
 
 # A: the resolved env itself -- the ground truth every other surface below reads its gate from.
@@ -81,13 +85,13 @@ def reaches(key: str, target: str) -> bool:
 @pytest.mark.parametrize("key", REGISTERED_KEYS)
 def test_the_cpf_src_dropin_switch_is_set_only_by_a_spec_that_reaches_cpf_src(key: str) -> None:
     env = dict(resolved(key).env)
-    assert ("CPF_DROPIN_DIR" in env) == reaches(key, "cpf-src"), (key, env)
+    assert ("CPF_DROPIN_DIR" in env) == reaches(key, CPF_SRC_KEYS), (key, env)
 
 
 @pytest.mark.parametrize("key", REGISTERED_KEYS)
 def test_the_cpf_tool_switch_is_set_only_by_a_spec_that_reaches_cpf(key: str) -> None:
     env = dict(resolved(key).env)
-    assert (CPF_TOOL_SWITCH in env) == reaches(key, "cpf-tool"), (key, env)
+    assert (CPF_TOOL_SWITCH in env) == reaches(key, CPF_TOOL_KEYS), (key, env)
 
 
 @pytest.mark.parametrize("key", REGISTERED_KEYS)
@@ -150,7 +154,7 @@ def test_no_registered_key_other_than_cpf_ever_serves_the_canonical_parallel_for
     leaking = [
         key
         for key in REGISTERED_KEYS
-        if not reaches(key, "cpf-tool") and "canonical_parallel_form" in tool_names(dict(resolved(key).env))
+        if not reaches(key, CPF_TOOL_KEYS) and "canonical_parallel_form" in tool_names(dict(resolved(key).env))
     ]
     assert not leaking, leaking
 
@@ -173,12 +177,12 @@ def test_the_task_text_announces_the_cpf_dropin_only_for_a_spec_that_reaches_cpf
     rather than silently rendering a task with no note for a file materialize_shared.sh will try
     (and fail) to stage."""
     language, _ = SETUP_FOR_KEY[key]
-    if reaches(key, "cpf-src") and language not in DIALECT_LANGUAGES:
+    if reaches(key, CPF_SRC_KEYS) and language not in DIALECT_LANGUAGES:
         with pytest.raises(ValueError, match="not for"):
             make_problems.packet_note(key, language, "argmax_value", "argmax_value")
         return
     note = make_problems.packet_note(key, language, "argmax_value", "argmax_value")
-    assert ("ALREADY PARALLELIZED" in note) == reaches(key, "cpf-src"), (key, note)
+    assert ("ALREADY PARALLELIZED" in note) == reaches(key, CPF_SRC_KEYS), (key, note)
 
 
 # D: the shared task folder -- materialize_shared.sh actually staging (or not staging) the file,
@@ -218,10 +222,10 @@ def materialize_setup(
 
 #: Spot-check across the full split rather than all 22 (a dialect-rendered CPF view per language
 #: is real filesystem setup, not a free parametrize row): one key that reaches cpf-src through a
-#: direct skill (cpf-src itself), one that reaches it through composition (all-in-cpu), and two that
+#: direct skill (cpf-cpu-src itself), one that reaches it through composition (all-in-cpu), and two that
 #: never touch it at all -- one with no env of its own (autokernel) and one that sets a DIFFERENT
 #: env switch entirely (no-score-tool), so "no env" and "some other env" both prove out.
-STAGES_DROPIN = ("cpf-src", "all-in-cpu")
+STAGES_DROPIN = ("cpf-cpu-src", "all-in-cpu")
 STAGES_NOTHING = ("autokernel", "no-score-tool", "")
 
 
@@ -266,7 +270,7 @@ def test_the_shared_task_folder_carries_no_dropin_for_a_key_that_does_not_reach_
 def test_every_registered_key_is_covered_by_the_reaches_split_above() -> None:
     """The spot-check lists above are hand-picked FOR the split; this pins the split itself so a
     future packet cannot silently join a class it was never assigned to."""
-    reaches_cpf_src = {key for key in REGISTERED_KEYS if reaches(key, "cpf-src")}
+    reaches_cpf_src = {key for key in REGISTERED_KEYS if reaches(key, CPF_SRC_KEYS)}
     assert set(STAGES_DROPIN) <= reaches_cpf_src
     assert set(STAGES_NOTHING) <= (set(REGISTERED_KEYS) - reaches_cpf_src)
 
@@ -286,8 +290,8 @@ LIBRARY_ENABLED_KEYS = ("perf-playbook-cpu", "perf-playbook-amd", "perf-playbook
 LIBRARY_DISABLED_KEYS = (
     "",
     "lang-skills",
-    "cpf-tool",
-    "cpf-src",
+    *CPF_TOOL_KEYS,
+    *CPF_SRC_KEYS,
     "no-score-tool",
     "rocprof",
     "profiling",
