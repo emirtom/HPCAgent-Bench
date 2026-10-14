@@ -13,6 +13,7 @@ values are those of the column-major arrays.
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 # small pseudopotential: 2 atoms x 2 beta projectors each (q-e/upflib/uspp.f90:56).
 _NAT = 2
@@ -156,7 +157,9 @@ def initialize(
     qgm = qgm.astype(cdtype)
     # eigqts/sfac: per-atom structure-factor phases exp(-i G.tau).
     eigqts = xp.ones(nat, dtype=cdtype)
-    sfac = xp.ascontiguousarray(np.exp(2j * np.pi * (g @ rng.standard_normal((3, nat)))).T).astype(cdtype)  # (nat, ngm)
+    sfac = xp.ascontiguousarray(exact_math.exp(2j * np.pi * (g @ rng.standard_normal((3, nat))), xp=xp).T).astype(
+        cdtype
+    )  # (nat, ngm)
     # becpsi/becxx = <beta|psi>/<beta|phi> beta projections; random (not self-consistent), so augmentation is not Hermitian here (see qgm note).
     becpsi = (_bands(nkb, m) * 0.1).astype(cdtype)
     becxx = (rng.standard_normal((nkb, nbnd, nks)) + 1j * rng.standard_normal((nkb, nbnd, nks))) * 0.1

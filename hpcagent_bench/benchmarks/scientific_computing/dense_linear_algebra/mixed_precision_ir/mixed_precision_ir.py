@@ -18,6 +18,7 @@ from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 
 def initialize(
@@ -30,7 +31,7 @@ def initialize(
     rng = CounterGenerator(42, xp)
     Qu, _ = np.linalg.qr(rng.standard_normal((N, N)))
     Qv, _ = np.linalg.qr(rng.standard_normal((N, N)))
-    s = np.exp(np.linspace(0.0, np.log(kappa), N))
+    s = exact_math.exp(exact_math.linspace(0.0, exact_math.log(kappa, xp=xp), N, xp=xp), xp=xp)
     A = ((Qu * s) @ Qv.T).astype(datatype)
     x_true = rng.standard_normal(N).astype(datatype)
     b = (A @ x_true).astype(datatype)

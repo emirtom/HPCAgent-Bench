@@ -27,6 +27,7 @@ fast as the noise does. The conditioning therefore lives in the ports test, whic
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 
 def initialize(
@@ -41,7 +42,7 @@ def initialize(
         # A = U diag(s) V^T: U (M x N) and V (N x N) orthonormal, s log-spaced over [1e-12, 1].
         U = np.linalg.qr(rng.standard_normal((M, N)), mode="reduced")[0]
         Vt = np.linalg.qr(rng.standard_normal((N, N)))[0]
-        s = np.logspace(0.0, -12.0, N)
+        s = exact_math.logspace(0.0, -12.0, N, xp=xp)
         A = (U * s) @ Vt.T
     else:
         A = rng.standard_normal((M, N))

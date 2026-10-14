@@ -19,6 +19,7 @@ import math
 
 import numpy as np
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+from hpcagent_bench.support import exact_math
 
 #: BOUT++ FieldMixmode: 14 modes, spectrum peaked at mode 4.
 MIXMODE_MODES = 14
@@ -47,7 +48,7 @@ def mixmode(arg, seed, xp: ModuleType = np):
     out = xp.zeros_like(arg)
     for i in range(MIXMODE_MODES):
         pow_base1 = 1.0 + abs(i - 4)
-        out += (1.0 / (pow_base1 * pow_base1)) * np.cos(i * arg + phases[i])
+        out += (1.0 / (pow_base1 * pow_base1)) * exact_math.cos(i * arg + phases[i], xp=xp)
     return out
 
 

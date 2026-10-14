@@ -38,6 +38,7 @@ cells), so the kernel's Fortran-style vector-subscript update is well defined.
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 # Positional order of initialize() outputs == the addusxx_g kernel signature
 # (manifest init.output_args / input_args).
@@ -171,7 +172,7 @@ def initialize(ngrid, nat, nh, datatype=np.complex128, rng: CounterGenerator | N
     eigts = []
     for d, nr in ((0, nr1), (1, nr2), (2, nr3)):
         hh = xp.arange(-nr, nr + 1, dtype=np.float64)
-        eigts.append(np.exp(-1j * tpi * np.outer(tau[:, d], hh)).astype(cdtype))
+        eigts.append(exact_math.exp(-1j * tpi * np.outer(tau[:, d], hh), xp=xp).astype(cdtype))
     eigts1, eigts2, eigts3 = eigts
 
     # Augmentation form factors: random complex with the physical ~1/(1+|G|^2)

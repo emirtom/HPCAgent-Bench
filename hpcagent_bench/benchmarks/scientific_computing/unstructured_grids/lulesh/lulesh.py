@@ -5,6 +5,7 @@
 
 from types import ModuleType
 import numpy as np
+from hpcagent_bench.support import exact_math
 
 # Sedov deposited-energy base (lulesh.f90 PARAMETER ebase), scaled by (edgeElems/45)**3.
 _EBASE = 3.948746e7
@@ -20,7 +21,7 @@ KERNEL_SIZES = ("numElem", "numNode", "numSymm", "nsteps")
 
 
 def _edge_elems(numElem):
-    e = round(numElem ** (1.0 / 3.0))
+    e = round(exact_math.pow(numElem, 1.0 / 3.0))
     if e * e * e != numElem:
         raise ValueError(f"numElem={numElem} is not a perfect cube (edgeElems^3)")
     return e

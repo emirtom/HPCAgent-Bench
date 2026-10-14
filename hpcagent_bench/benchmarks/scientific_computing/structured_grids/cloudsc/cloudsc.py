@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 # Species column indices within PCLV / tendency_cld (matches the kernel's ncldql/qi/qr/qs/qv).
 NCLV = 5
@@ -33,7 +34,7 @@ def initialize(nlev, klon, datatype=np.float64, rng: CounterGenerator | None = N
     # Native L137 sigma coordinates: half levels are layer interfaces, full levels the midpoints.
     ref_eta_half = ref["eta_half"]  # len KLEV+1 (138), 0 at TOA -> 1 at surface
     ref_eta_full = 0.5 * (ref_eta_half[:-1] + ref_eta_half[1:])
-    eta_half = np.linspace(ref_eta_half[0], ref_eta_half[-1], nlev + 1)
+    eta_half = exact_math.linspace(ref_eta_half[0], ref_eta_half[-1], nlev + 1, xp=xp)
     eta_full = 0.5 * (eta_half[:-1] + eta_half[1:])
 
     def prof(name):  # native profile -> requested nlev full levels

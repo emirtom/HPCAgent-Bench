@@ -27,6 +27,7 @@ never read (QE initializes igk_k to 0).
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 # Two k-point fractional shifts (rows), in units of the reciprocal basis. k1 is a tiny
 # offset (largest plane-wave count -> sets npwx=lda); k2 = current_k is a generic shift
@@ -89,8 +90,8 @@ def initialize(ngrid, m, datatype=np.complex128, rng: CounterGenerator | None = 
     cols = []
     for ik in range(_NKS):
         kvec = _XK[ik]
-        q2 = np.sum((kvec[:, None] + mill) ** 2, axis=0)
-        kcut = (wave_radius - float(np.linalg.norm(kvec))) ** 2
+        q2 = np.sum(exact_math.ipow(kvec[:, None] + mill, 2, xp=xp), axis=0)
+        kcut = exact_math.ipow(wave_radius - float(np.linalg.norm(kvec)), 2, xp=xp)
         sel = xp.nonzero(q2 <= kcut)[0]
         sel = sel[xp.argsort(q2[sel], kind="stable")]
         cols.append(sel)

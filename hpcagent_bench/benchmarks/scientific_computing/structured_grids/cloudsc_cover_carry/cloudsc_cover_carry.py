@@ -7,6 +7,7 @@
 from types import ModuleType
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 #: Physics time step (s) and gravity (m s-2).
 PTSPHY = 3600.0
@@ -26,7 +27,7 @@ def bank_profile(
         centre = rng.uniform(0.2, 0.95, KLON) * KLEV
         width = rng.uniform(2.0, 8.0, KLON)
         amplitude = rng.uniform(amplitude_low, amplitude_high, KLON)
-        profile += amplitude * np.exp(-0.5 * ((level - centre) / width) ** 2)
+        profile += amplitude * exact_math.exp(-0.5 * exact_math.ipow((level - centre) / width, 2, xp=xp), xp=xp)
     return profile
 
 
@@ -37,7 +38,7 @@ def initialize(KLEV, KLON, datatype=np.float64, rng: CounterGenerator | None = N
 
     # Pressure at the interfaces: p = ps * (k / KLEV)**2, so the top layers are thin and the lowest ~125 m.
     surface = rng.uniform(95000.0, 102000.0, KLON)
-    sigma = (xp.arange(KLEV + 1, dtype=np.float64) / KLEV) ** 2
+    sigma = exact_math.ipow(xp.arange(KLEV + 1, dtype=np.float64) / KLEV, 2, xp=xp)
     dp = surface * (sigma[1:] - sigma[:-1])[:, None]
     zdtgdp = PTSPHY * RG / dp
 

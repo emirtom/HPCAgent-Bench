@@ -20,10 +20,14 @@ from numpy.typing import NDArray
 
 __all__ = [
     "EXP_LIMIT",
+    "EXPM1_SERIES_LIMIT",
     "cos",
     "exp",
+    "expm1",
     "ipow",
+    "linspace",
     "log",
+    "logspace",
     "pow",
     "sin",
     "tanh",
@@ -31,6 +35,8 @@ __all__ = [
 
 type Array = NDArray[Any]
 
+#: ``expm1`` takes its own Taylor series below this magnitude, where ``exp(x) - 1`` would cancel.
+EXPM1_SERIES_LIMIT = 0.25
 #: ``exp`` saturates beyond this: float64 overflows above about 709.78 and underflows below about -745.
 EXP_LIMIT = 708.0
 #: ``ln 2`` split so that ``k * LN2_HI`` is exact for every ``|k| < 2**11``.
@@ -50,8 +56,11 @@ ATANH_TERMS = 12
 
 
 def as_f64(x: Any, xp: ModuleType) -> Array:
-    """``x`` as a float64 array of ``xp``."""
-    return xp.asarray(x, dtype=xp.float64)
+    """``x`` as a float64 array of ``xp``; a complex ``x`` is refused rather than silently made real."""
+    value = xp.asarray(x)
+    if value.dtype.kind == "c":
+        raise TypeError("exact_math: a complex argument (only exp takes one)")
+    return value.astype(xp.float64, copy=False)
 
 
 def horner(r: Array, coefficients: list[float], xp: ModuleType) -> Array:
@@ -64,13 +73,26 @@ def horner(r: Array, coefficients: list[float], xp: ModuleType) -> Array:
 
 
 def exp(x: Any, xp: ModuleType = np) -> Array:
-    """``e**x``: ``x = k ln2 + r``, ``exp(r)`` by its Taylor series, then ``ldexp`` by ``k``."""
-    value = xp.clip(as_f64(x, xp), -EXP_LIMIT, EXP_LIMIT)
+    """``e**x``: ``x = k ln2 + r``, ``exp(r)`` by its Taylor series, then ``ldexp`` by ``k``. A complex ``x = a + ib``
+    gives ``e**a (cos b + i sin b)`` as complex128."""
+    value = xp.asarray(x)
+    if value.dtype.kind == "c":
+        magnitude = exp(value.real, xp)
+        return magnitude * cos(value.imag, xp) + 1j * (magnitude * sin(value.imag, xp))
+    value = xp.clip(as_f64(value, xp), -EXP_LIMIT, EXP_LIMIT)
     k = xp.rint(value * INV_LN2)
     r = value - k * LN2_HI
     r = r - k * LN2_LO
     series = horner(r, [1.0 / math.factorial(n) for n in range(EXP_TERMS)], xp)
     return xp.ldexp(series, k.astype(xp.int32))
+
+
+def expm1(x: Any, xp: ModuleType = np) -> Array:
+    """``e**x - 1``, without the cancellation of ``exp(x) - 1`` near 0 (the Taylor series ``x + x**2/2 + ...``
+    there)."""
+    value = as_f64(x, xp)
+    series = value * horner(value, [1.0 / math.factorial(n + 1) for n in range(EXP_TERMS)], xp)
+    return xp.where(xp.abs(value) < EXPM1_SERIES_LIMIT, series, exp(value, xp) - 1.0)
 
 
 def log(x: Any, xp: ModuleType = np) -> Array:
@@ -150,3 +172,21 @@ def ipow(x: Any, n: int, xp: ModuleType = np) -> Array:
 def pow(x: Any, y: Any, xp: ModuleType = np) -> Array:  # noqa: A001 -- the function's own name in every math library
     """``x**y`` for a positive ``x``: ``exp(y log x)``."""
     return exp(as_f64(y, xp) * log(x, xp), xp)
+
+
+def linspace(start: float, stop: float, num: int, endpoint: bool = True, xp: ModuleType = np) -> Array:
+    """``num`` evenly spaced float64 values from ``start``: ``start + (stop - start) * (i / d)`` with ``d`` the
+    number of intervals, one exact operation at a time (numpy and cupy compute ``linspace`` differently). The last
+    value is ``stop`` exactly when ``endpoint``."""
+    count = int(num)
+    intervals = max(count - 1, 1) if endpoint else max(count, 1)
+    fraction = xp.arange(count, dtype=xp.float64) / intervals
+    values = start + (stop - start) * fraction
+    if endpoint and count > 1:
+        values[-1] = stop
+    return values
+
+
+def logspace(start: float, stop: float, num: int, base: float = 10.0, xp: ModuleType = np) -> Array:
+    """``base ** linspace(start, stop, num)``."""
+    return pow(xp.full(int(num), base, dtype=xp.float64), linspace(start, stop, num, xp=xp), xp)

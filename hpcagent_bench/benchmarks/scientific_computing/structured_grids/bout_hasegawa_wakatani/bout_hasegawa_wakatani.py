@@ -26,6 +26,7 @@ from types import ModuleType
 import math
 
 import numpy as np
+from hpcagent_bench.support import exact_math
 
 #: BOUT++ FieldMixmode: 14 modes, spectrum peaked at mode 4.
 MIXMODE_MODES = 14
@@ -61,7 +62,7 @@ def mixmode(arg, seed, xp: ModuleType = np):
     out = xp.zeros_like(arg)
     for i in range(MIXMODE_MODES):
         pow_base1 = 1.0 + abs(i - 4)
-        out += (1.0 / (pow_base1 * pow_base1)) * np.cos(i * arg + phases[i])
+        out += (1.0 / (pow_base1 * pow_base1)) * exact_math.cos(i * arg + phases[i], xp=xp)
     return out
 
 
@@ -88,7 +89,7 @@ def solve_delp2(vort, NX, NY, NZ, xp: ModuleType = np):
     -- the model's ``bndry_all = dirichlet_o2``.
     """
     kz = xp.arange(NZ // 2 + 1)
-    z_symbol = (2.0 * np.cos(2.0 * np.pi * kz / NZ) - 2.0) / (HW_DZ * HW_DZ)
+    z_symbol = (2.0 * exact_math.cos(2.0 * np.pi * kz / NZ, xp=xp) - 2.0) / (HW_DZ * HW_DZ)
     off = 1.0 / (HW_DX * HW_DX)
     diag = -2.0 / (HW_DX * HW_DX) + z_symbol
 

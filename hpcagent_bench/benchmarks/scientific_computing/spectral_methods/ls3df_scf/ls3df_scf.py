@@ -7,6 +7,7 @@ from typing import Optional
 
 import numpy as np
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support import exact_math
 
 
 def initialize(
@@ -30,10 +31,13 @@ def initialize(
     # subtract / add sequence while the plane stays in cache.
     pow_base2 = 0.15 * N
     width = 2.0 * (pow_base2 * pow_base2)
-    well_of_d2 = np.exp(-xp.arange(3 * (N - 1) * (N - 1) + 1, dtype=np.float64) / width)
+    well_of_d2 = exact_math.exp(-xp.arange(3 * (N - 1) * (N - 1) + 1, dtype=np.float64) / width, xp=xp)
     axis = xp.arange(N, dtype=np.int64)
-    d2_x = [(axis - c[0]) ** 2 for c in centres]
-    d2_yz = [((axis - c[1]) ** 2)[:, None] + ((axis - c[2]) ** 2)[None, :] for c in centres]
+    d2_x = [exact_math.ipow(axis - c[0], 2, xp=xp) for c in centres]
+    d2_yz = [
+        (exact_math.ipow(axis - c[1], 2, xp=xp))[:, None] + (exact_math.ipow(axis - c[2], 2, xp=xp))[None, :]
+        for c in centres
+    ]
     for i in range(N):
         v_plane = V_ion[i]
         rho_plane = rho[i]

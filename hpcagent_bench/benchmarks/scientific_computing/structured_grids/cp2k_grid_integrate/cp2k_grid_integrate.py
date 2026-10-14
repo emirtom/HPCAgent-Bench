@@ -12,6 +12,7 @@ from types import ModuleType
 import numpy as np
 
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+from hpcagent_bench.support import exact_math
 
 MAX_COSET = 10
 MAX_CUBE_RADIUS = 2
@@ -41,9 +42,9 @@ def initialize(
     # grid[k, j, i] = ((0.31 + a_i) - b_j) + c_(k+i) + noise, in the scalar loop's operation order.
     # The O(npts) waves go through numpy's scalar sin/cos exactly as the loop called them: its SIMD
     # array loops (AVX-512) may round differently from the 0-d path.
-    wave_i = xp.array([0.19 * np.sin(0.37 * float(i + 1)) for i in range(npts)])
-    wave_j = xp.array([0.13 * np.cos(0.29 * float(j + 2)) for j in range(npts)])
-    wave_ki = xp.array([0.11 * np.sin(0.23 * float(m + 3)) for m in range(2 * npts - 1)])
+    wave_i = xp.array([0.19 * exact_math.sin(0.37 * float(i + 1), xp=xp) for i in range(npts)])
+    wave_j = xp.array([0.13 * exact_math.cos(0.29 * float(j + 2), xp=xp) for j in range(npts)])
+    wave_ki = xp.array([0.11 * exact_math.sin(0.23 * float(m + 3), xp=xp) for m in range(2 * npts - 1)])
     ki = xp.add.outer(xp.arange(npts), xp.arange(npts))
     grid = (((0.31 + wave_i)[None, None, :] - wave_j[None, :, None]) + wave_ki[ki][:, None, :] + noise).astype(dtype)
 
