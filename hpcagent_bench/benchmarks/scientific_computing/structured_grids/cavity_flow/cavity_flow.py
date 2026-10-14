@@ -1,6 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from types import ModuleType
 import numpy as np
 
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
@@ -20,11 +21,11 @@ def cell(y, x, amplitude):
     return u, v
 
 
-def initialize(ny, nx, datatype=np.float32, perturbation: Perturbation | None = None):
+def initialize(ny, nx, datatype=np.float32, perturbation: Perturbation | None = None, xp: ModuleType = np):
     draw = resolve(perturbation, SCENARIOS)
-    u = np.zeros((ny, nx), dtype=datatype)
-    v = np.zeros((ny, nx), dtype=datatype)
-    p = np.zeros((ny, nx), dtype=datatype)
+    u = xp.zeros((ny, nx), dtype=datatype)
+    v = xp.zeros((ny, nx), dtype=datatype)
+    p = xp.zeros((ny, nx), dtype=datatype)
     # Domain [0, 2] x [0, 2]; rows are y (the lid is the last row), columns are x.
     y = np.linspace(0.0, 2.0, ny)[:, None]
     x = np.linspace(0.0, 2.0, nx)[None, :]

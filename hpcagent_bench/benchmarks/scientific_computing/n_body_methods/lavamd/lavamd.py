@@ -6,6 +6,7 @@
 # share it, so it has one home there and this module imports it rather than
 # keeping a second copy.
 
+from types import ModuleType
 import numpy as np
 
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
@@ -22,6 +23,7 @@ def initialize(
     seed,
     datatype=np.float64,
     perturbation: Perturbation | None = None,
+    xp: ModuleType = np,
 ):
     """Manifest-compatible LavaMD input generator."""
     seed = resolve(perturbation).reseed(seed)
@@ -33,5 +35,5 @@ def initialize(
         seed=seed,
         particles_per_box=particles_per_box,
     )
-    fv = np.zeros_like(rv)
+    fv = xp.zeros_like(rv)
     return box_offsets, neighbor_counts, neighbor_list, rv, qv, fv

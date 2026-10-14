@@ -3,6 +3,7 @@
 #
 # Cluster-pair inputs for the GROMACS NBNxM 4x4 kernel; imports from the numpy reference to avoid a second copy.
 
+from types import ModuleType
 import numpy as np
 
 from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
@@ -22,6 +23,7 @@ def initialize(
     include_exclusions,
     datatype=np.float64,
     perturbation: Perturbation | None = None,
+    xp: ModuleType = np,
 ):
     """Manifest-compatible GROMACS NBNxM input generator."""
     seed = resolve(perturbation).reseed(seed)
@@ -62,11 +64,11 @@ def initialize(
     max_pairs = n_clusters * (n_clusters - 1)
     n_pad = max_pairs - cj_cluster.shape[0]
     if n_pad > 0:
-        cj_cluster = np.concatenate([cj_cluster, np.zeros(n_pad, dtype=cj_cluster.dtype)])
-        cj_excl = np.concatenate([cj_excl, np.zeros(n_pad, dtype=cj_excl.dtype)])
+        cj_cluster = xp.concatenate([cj_cluster, xp.zeros(n_pad, dtype=cj_cluster.dtype)])
+        cj_excl = xp.concatenate([cj_excl, xp.zeros(n_pad, dtype=cj_excl.dtype)])
     # force/virial outputs are passed-in buffers (agentbench ABI); allocate them zeroed here.
-    f = np.zeros((x.shape[0], 3), dtype=x.dtype)
-    fshift = np.zeros_like(shift_vec)
+    f = xp.zeros((x.shape[0], 3), dtype=x.dtype)
+    fshift = xp.zeros_like(shift_vec)
     return (
         x,
         q,

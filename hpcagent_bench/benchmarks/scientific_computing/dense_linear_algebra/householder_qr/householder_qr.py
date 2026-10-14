@@ -24,14 +24,18 @@ fast as the noise does. The conditioning therefore lives in the ports test, whic
 ||Q^T Q - I|| and ||QR - A|| -- quantities that ARE determined -- rather than Q entrywise.
 """
 
+from types import ModuleType
 import numpy as np
+from hpcagent_bench.support.counter_generator import CounterGenerator
 
 
-def initialize(M: int, N: int, datatype=np.float64, graded: bool = False, rng: np.random.Generator | None = None):
+def initialize(
+    M: int, N: int, datatype=np.float64, graded: bool = False, rng: CounterGenerator | None = None, xp: ModuleType = np
+):
     if M < N:
         raise ValueError(f"tall-skinny QR requires M >= N, got M={M} N={N}")
     if rng is None:
-        rng = np.random.default_rng(42)
+        rng = CounterGenerator(42, xp)
 
     if graded:
         # A = U diag(s) V^T: U (M x N) and V (N x N) orthonormal, s log-spaced over [1e-12, 1].
@@ -44,7 +48,7 @@ def initialize(M: int, N: int, datatype=np.float64, graded: bool = False, rng: n
     A = A.astype(datatype)
 
     b = rng.standard_normal(M).astype(datatype)
-    Q = np.zeros((M, N), dtype=datatype)
-    R = np.zeros((N, N), dtype=datatype)
-    x = np.zeros(N, dtype=datatype)
+    Q = xp.zeros((M, N), dtype=datatype)
+    R = xp.zeros((N, N), dtype=datatype)
+    x = xp.zeros(N, dtype=datatype)
     return A, b, Q, R, x

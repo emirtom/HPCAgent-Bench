@@ -76,7 +76,7 @@ class CounterGenerator:
         """``values`` as numpy returns them: one Python number for ``size=None``, else the array."""
         if size is None:
             return values.reshape(-1)[0].item()
-        return values
+        return self.xp.asarray(values)  # 0-d arithmetic gives a scalar; a sized draw is always an array
 
     def random(self, size: Size = None, dtype: DTypeLike = np.float64) -> Any:
         """Uniform in [0, 1)."""
@@ -161,6 +161,10 @@ class CounterGenerator:
         """Uniform in (0, 1): the next stream's draw, lifted off zero for a logarithm."""
         unit = counter_rng.uniform_field(shape_of(size), self.seed, self.next_stream(), self.xp)
         return self.xp.maximum(unit, OPEN_FLOOR)
+
+    def standard_exponential(self, size: Size = None) -> Any:
+        """``-log u``: exponential of rate 1."""
+        return self.exponential(1.0, size)
 
     def exponential(self, scale: float = 1.0, size: Size = None) -> Any:
         """``-scale log u``."""
