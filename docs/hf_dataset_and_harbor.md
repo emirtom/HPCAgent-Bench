@@ -72,6 +72,12 @@ wrapper. Commands, flags, the task directory layout, `--group dir` and `--layout
 [adapters/hpcagent_bench/README.md](../adapters/hpcagent_bench/README.md). Harbor needs its own
 environment (the `harbor` dependency group), never the judge's.
 
+The grader writes two files: `reward.json`, the flat numbers Harbor reads, and `grade.json` beside it, the
+full grade. `hpcagent_bench/harbor_grade.py` models `grade.json`: one record per shape (a single-node grade, a
+distributed grade with its scaling curve, a failed item, a multi-kernel bundle), each with the repo task's PR
+verdict where it applies. External tooling reads the file, so its bytes are fixed
+(`tests/test_harbor_grade.py`).
+
 `--hardware` selects config `images.<hw>`, fully qualified references into the release
 registry, the one place they are written (`containers/images/images.env` must publish the same
 tags; `tests/test_harbor_images.py`):
