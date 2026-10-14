@@ -441,10 +441,33 @@ RequestsField = Annotated[
 REQUESTS_ADAPTER: pydantic.TypeAdapter[Requests] = pydantic.TypeAdapter(RequestsField)
 
 
+#: Schema keys the agent's copy leaves out: pydantic's class-name ``title`` and the validation-only bounds the judge
+#: enforces when it parses the request (:meth:`Requests.validate`), which only cost the agent's context.
+AGENT_SCHEMA_DROPPED = frozenset({"title", "minLength", "minItems", "maxItems", "minimum", "additionalProperties"})
+
+
+def agent_schema(node: object) -> object:
+    """``node`` without :data:`AGENT_SCHEMA_DROPPED`. Only a schema keyword is dropped: a property of that name
+    (its value a schema object under ``properties``) stays."""
+    if isinstance(node, list):
+        return [agent_schema(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    return {
+        key: (
+            {name: agent_schema(value) for name, value in child.items()}
+            if key == "properties" and isinstance(child, dict)
+            else agent_schema(child)
+        )
+        for key, child in node.items()
+        if key == "properties" or key not in AGENT_SCHEMA_DROPPED
+    }
+
+
 def requests_schema_text() -> str:
-    """:data:`REQUESTS_ADAPTER`'s JSON Schema as the agent tool ships it
-    (``agent/hpcagent_agent/tools/requests_schema.json``; the agent runtime cannot import pydantic)."""
-    return json.dumps(REQUESTS_ADAPTER.json_schema(), indent=1, sort_keys=True) + "\n"
+    """:data:`REQUESTS_ADAPTER`'s JSON Schema as the agent tool ships it (:func:`agent_schema`;
+    ``agent/hpcagent_agent/tools/requests_schema.json``; the agent runtime cannot import pydantic)."""
+    return json.dumps(agent_schema(REQUESTS_ADAPTER.json_schema()), indent=1, sort_keys=True) + "\n"
 
 
 def own_arrays(names: Sequence[str], specs: Mapping[str, ArraySpec], action: str) -> None:
