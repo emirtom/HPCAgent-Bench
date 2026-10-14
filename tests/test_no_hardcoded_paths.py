@@ -1,15 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """One spelling per path, port, name and default: ``hpcagent_bench.paths`` and ``hpcagent_bench.run_layout`` hold
-the Python side, and every shell, layer and agent-side copy of a value agrees with it. The ``smoke`` test runs the
-``hardcoded-paths`` rule of ``helpers/scripts/checks/check_repo_rules.py`` over every tracked file."""
+the Python side, and every shell, layer and agent-side copy of a value agrees with it. The ``hardcoded-paths`` rule of
+``helpers/scripts/checks/check_repo_rules.py`` (a pre-commit hook) checks every tracked file."""
 
 import os
 import pathlib
 import re
 import stat
 import subprocess
-import types
 
 import pytest
 import yaml
@@ -19,16 +18,11 @@ from hpcagent_agent.tools import http_json
 from hpcagent_bench import config, containers, paths, run_layout
 from hpcagent_bench.cluster import judge_service
 from hpcagent_bench.harness import recording
-from tests.fresh_module import module_at
 
 RUN_CLUSTER = paths.PACKAGE / "cluster" / "run_cluster.sh"
 ENV_SH = paths.PACKAGE / "cluster" / "env.sh"
 LAYERS = paths.EXPERIMENTS_DIR / "layers"
 PING_ENDPOINT = paths.ROOT / "containers" / "inference" / "ping-endpoint.sh"
-
-
-def rules() -> types.ModuleType:
-    return module_at(paths.ROOT / "helpers" / "scripts" / "checks" / "check_repo_rules.py", "check_repo_rules")
 
 
 def shell_assignments(path: pathlib.Path) -> dict[str, str]:
@@ -45,18 +39,10 @@ def shell_assignments(path: pathlib.Path) -> dict[str, str]:
     return out
 
 
-@pytest.mark.smoke
-def test_no_tracked_file_breaks_the_hardcoded_paths_rule() -> None:
-    """Every tracked file passes the ``hardcoded-paths`` rule (root climbs, layout names, absolute prefixes, EDF
-    directory); an offender line is printed as ``file:line: reason``."""
-    module = rules()
-    assert module.hardcoded_paths(list(module.tracked())) == []
-
-
 def test_the_default_results_db_is_under_the_results_dir() -> None:
     """``record.db_path`` in config.yaml and :data:`recording.DEFAULT_DB_PATH` both name
     ``results/hpcagent_bench.db``, and :func:`recording.base_db_path` resolves it under the repo root."""
-    shipped = yaml.safe_load(config.PATH.read_text(encoding="utf-8"))["record"]["db_path"]
+    shipped = yaml.safe_load(config.CONFIG_YAML.read_text(encoding="utf-8"))["record"]["db_path"]
     assert shipped == recording.DEFAULT_DB_PATH == f"{paths.RESULTS_DIR}/{run_layout.DB_FILENAME}"
 
 

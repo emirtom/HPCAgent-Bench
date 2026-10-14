@@ -88,9 +88,9 @@ def scaled_add_submission(distribution: dict | None = None) -> Submission:
 def test_default_block_layout_real_request_scores_and_submits_solved(mpi_judge: JudgeClient) -> None:
     """The kernel's OWN default distribution, requested exactly as the prompt states it."""
     sub = scaled_add_submission()
-    r = mpi_judge.score(sub, "scaled_add", preset="S")
+    r = mpi_judge.score(sub, "scaled_add")
     assert r["correct"] is True, r  # /score answers the FULL Score dict (native bool correct)
-    r2 = mpi_judge.submit(sub, "scaled_add", preset="S")
+    r2 = mpi_judge.submit(sub, "scaled_add")
     assert r2["correct"] == "yes", r2  # /submit answers only the minimal verdict ("yes"/"no")
 
 
@@ -102,7 +102,7 @@ def test_cyclic_layout_real_request_scores_solved(mpi_judge: JudgeClient) -> Non
             "y": {"axes": [{"grid_dim": 0, "scheme": "cyclic"}]},
         },
     }
-    r = mpi_judge.score(scaled_add_submission(dist), "scaled_add", preset="S")
+    r = mpi_judge.score(scaled_add_submission(dist), "scaled_add")
     assert r["correct"] is True, r
 
 
@@ -114,7 +114,7 @@ def test_block_cyclic_layout_real_request_scores_solved(mpi_judge: JudgeClient) 
             "y": {"axes": [{"grid_dim": 0, "scheme": "block_cyclic", "block_size": 16}]},
         },
     }
-    r = mpi_judge.score(scaled_add_submission(dist), "scaled_add", preset="S")
+    r = mpi_judge.score(scaled_add_submission(dist), "scaled_add")
     assert r["correct"] is True, r
 
 
@@ -162,7 +162,7 @@ def refusal_detail(client: JudgeClient, submission: Submission, kernel: str, rou
     response instead of returning one, which is exactly the 400 this test needs to inspect."""
     call = client.score if route == "score" else client.submit
     try:
-        r = call(submission, kernel, preset="S")
+        r = call(submission, kernel)
         pytest.fail(f"expected a 400 refusal, got a scored response: {r}")
     except JudgeRefusal as exc:
         return {"status": exc.code, "body": json.loads(exc.body)}
