@@ -148,6 +148,20 @@ def missing_xp_calls(tree: ast.Module) -> list[str]:
                 position = xp_position(helpers[node.func.id])
                 if not passes and (position is None or len(node.args) <= position):
                     found.append(f"{node.lineno}: {node.func.id}() without xp (its arrays would be numpy)")
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "fields"
+                and not passes
+            ):
+                found.append(f"{node.lineno}: fields.{node.func.attr}() without xp (a host field on the device)")
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"empty", "empty_like"}
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in ARRAY_MODULES
+            ):
+                found.append(f"{node.lineno}: {node.func.attr} (uninitialized memory differs run to run; use zeros)")
             if isinstance(node.func, ast.Attribute) and node.func.attr == "error" and not passes and len(node.args) < 5:
                 found.append(f"{node.lineno}: .error() without xp (a host error field on device data)")
             if (

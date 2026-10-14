@@ -27,7 +27,7 @@ def initialize(
     if rng is None:
         rng = CounterGenerator(42, xp)
 
-    neigh_idx = xp.empty((NA, NB), dtype=np.int32)
+    neigh_idx = xp.zeros((NA, NB), dtype=np.int32)
     for i in range(NA):
         neigh_idx[i] = xp.positive(xp.arange(i - NB / 2, i + NB / 2) % NA)
     dH = rng_complex([NA, NB, N3D, Norb, Norb], rng)

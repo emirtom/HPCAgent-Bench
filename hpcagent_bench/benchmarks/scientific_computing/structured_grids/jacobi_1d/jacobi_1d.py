@@ -22,7 +22,7 @@ def initialize(N, datatype=np.float32, perturbation: Perturbation | None = None,
             A = xp.zeros((N,), dtype=datatype)
             A[: N // 2] = 1.0
         elif draw.scenario == "sine_mode":
-            A = fields.sine_mode((N,), datatype, 1.0, mode=3)
+            A = fields.sine_mode((N,), datatype, 1.0, mode=3, xp=xp)
         else:
             raise ValueError(f"jacobi_1d: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")
         B = A.copy()

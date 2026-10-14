@@ -134,7 +134,7 @@ def _species(nat, nh, xp: ModuleType = np):
     tvanp = xp.ones(ntyp, dtype=np.int64)  # all BaTiO3 species are ultrasoft
     ityp = xp.repeat(xp.arange(ntyp, dtype=np.int64), counts)
     nbeta = nh_type[ityp]
-    ofsbeta = xp.concatenate(([0], exact_math.cumsum(nbeta, xp=xp)[:-1])).astype(np.int64)
+    ofsbeta = xp.concatenate((xp.zeros(1, dtype=np.int64), exact_math.cumsum(nbeta, xp=xp)[:-1])).astype(np.int64)
     nkb = int(exact_math.sum(nbeta, xp=xp))
     nhm = int(nh_type.max())
     # Packed symmetric pair index per species (QE ijtoh); -1 marks unused slots.

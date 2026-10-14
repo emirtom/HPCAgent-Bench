@@ -41,8 +41,8 @@ def minife_inputs(nx: int, ny: int, nz: int, seed: int, dtype, xp: ModuleType = 
     row = xp.arange(nrows, dtype=INDEX_DTYPE)
     ix, iy, iz = row % nxn, (row // nxn) % nyn, row // (nxn * nyn)
     offsets = [(dz, dy, dx) for dz in (-1, 0, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
-    valid = xp.empty((nrows, len(offsets)), dtype=bool)
-    col = xp.empty((nrows, len(offsets)), dtype=INDEX_DTYPE)
+    valid = xp.zeros((nrows, len(offsets)), dtype=bool)
+    col = xp.zeros((nrows, len(offsets)), dtype=INDEX_DTYPE)
     weight = xp.zeros((nrows, len(offsets)), dtype=np.float64)
     diag = xp.zeros(nrows, dtype=np.float64)
     for k, (dz, dy, dx) in enumerate(offsets):

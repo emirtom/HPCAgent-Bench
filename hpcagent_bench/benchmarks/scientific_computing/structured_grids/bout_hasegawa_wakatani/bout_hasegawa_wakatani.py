@@ -44,7 +44,7 @@ HW_FLUCTUATION_AMPLITUDE = 0.1
 
 def mixmode_phases(seed, xp: ModuleType = np):
     """``FieldMixmode::FieldMixmode`` -- ``phase[i] = PI * (2 * genRand(seed + i) - 1)``."""
-    phases = xp.empty(MIXMODE_MODES)
+    phases = xp.zeros(MIXMODE_MODES)
     for i in range(MIXMODE_MODES):
         s = abs(seed + i)
         niter = 11 + (23 + int(s + 0.5)) % 79  # ROUND(s) for s >= 0
@@ -100,8 +100,8 @@ def solve_delp2(seed, NX, NY, NZ, xp: ModuleType = np):
     # stays all-zero.
     profile = xp.zeros((NX, MIXMODE_MODES), dtype=np.float64)
     if NX >= 3:
-        cprime = xp.empty((NX, MIXMODE_MODES), dtype=np.float64)
-        dprime = xp.empty((NX, MIXMODE_MODES), dtype=np.float64)
+        cprime = xp.zeros((NX, MIXMODE_MODES), dtype=np.float64)
+        dprime = xp.zeros((NX, MIXMODE_MODES), dtype=np.float64)
         cprime[1] = off / diag
         dprime[1] = radial[1] / diag
         for jx in range(2, NX - 1):

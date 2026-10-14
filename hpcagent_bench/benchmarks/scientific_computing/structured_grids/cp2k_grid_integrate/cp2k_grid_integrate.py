@@ -65,7 +65,7 @@ def initialize(
     jitter = rng.uniform(-0.025, 0.025, size=(num_tasks, 3))
     ra = ((0.12 + 0.76 * fraction) * cell_length + jitter).astype(dtype)
 
-    rab = xp.empty((num_tasks, 3), dtype=dtype)
+    rab = xp.zeros((num_tasks, 3), dtype=dtype)
     rab[:, 0] = 0.08 + 0.015 * (task % 5).astype(np.float64)
     rab[:, 1] = -0.11 + 0.012 * ((task + 1) % 4).astype(np.float64)
     rab[:, 2] = 0.06 - 0.010 * ((task + 2) % 3).astype(np.float64)

@@ -54,8 +54,8 @@ def initialize(NV, NE, datatype=np.int64, rng: CounterGenerator | None = None, x
     comm_size = min(256, NV)
     n_comm = max(1, NV // comm_size)
 
-    us = xp.empty(0, dtype=np.int64)
-    vs = xp.empty(0, dtype=np.int64)
+    us = xp.zeros(0, dtype=np.int64)
+    vs = xp.zeros(0, dtype=np.int64)
     # BOUNDED: each round is a fixed draw, and whatever the rounds leave short is filled
     # deterministically below. An unbounded "resample until NE distinct" loop cannot
     # terminate once the clustered draw has exhausted the pairs it is able to reach.

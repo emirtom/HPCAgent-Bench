@@ -24,13 +24,13 @@ def initialize(TMAX, NX, NY, datatype=np.float32, perturbation: Perturbation | N
         # A magnetic pulse at rest in the centre of the cavity; the electric field starts at zero.
         ex = xp.zeros(shape, dtype=datatype)
         ey = xp.zeros(shape, dtype=datatype)
-        hz = fields.gaussian_spot(shape, datatype, 1.0, width=0.05)
+        hz = fields.gaussian_spot(shape, datatype, 1.0, width=0.05, xp=xp)
         magnitude = 1.0
     elif draw.scenario == "standing_wave":
         # A cavity eigenmode of the magnetic field, again with the electric field at zero.
         ex = xp.zeros(shape, dtype=datatype)
         ey = xp.zeros(shape, dtype=datatype)
-        hz = fields.sine_mode(shape, datatype, 1.0, mode=4)
+        hz = fields.sine_mode(shape, datatype, 1.0, mode=4, xp=xp)
         magnitude = 1.0
     else:
         raise ValueError(f"fdtd_2d: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")

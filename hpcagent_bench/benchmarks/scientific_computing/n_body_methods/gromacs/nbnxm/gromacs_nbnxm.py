@@ -79,7 +79,7 @@ def _generate_clustered_coordinates(n_clusters, cutoff, rng, xp: ModuleType = np
     nx, ny, _ = _cluster_grid_dimensions(n_clusters)
     spacing = 0.55 * float(cutoff)
     local_scale = 0.035 * float(cutoff)
-    x = xp.empty((n_clusters * UNROLLI, 3), dtype=np.float64)
+    x = xp.zeros((n_clusters * UNROLLI, 3), dtype=np.float64)
 
     for cluster in range(n_clusters):
         ix = cluster % nx
@@ -158,8 +158,8 @@ def generate_random_gromacs_inputs(
 
     sigma = rng.uniform(0.25, 0.45, size=num_types)
     epsilon = rng.uniform(0.05, 0.30, size=num_types)
-    c6 = xp.empty((num_types, num_types), dtype=datatype)
-    c12 = xp.empty((num_types, num_types), dtype=datatype)
+    c6 = xp.zeros((num_types, num_types), dtype=datatype)
+    c12 = xp.zeros((num_types, num_types), dtype=datatype)
     for ti in range(num_types):
         for tj in range(num_types):
             sigma_ij = 0.5 * (sigma[ti] + sigma[tj])

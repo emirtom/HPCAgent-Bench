@@ -44,7 +44,7 @@ def standard_atmosphere(height, surface_temperature, surface_pressure, xp: Modul
 
 def smooth_field(rng: CounterGenerator, shape, amplitude: float, correlation: float = 0.9, xp: ModuleType = np):
     """Gaussian noise that decays over the vertical: level k keeps ``correlation`` of level k - 1."""
-    field = xp.empty(shape)
+    field = xp.zeros(shape)
     field[0] = rng.normal(0.0, 1.0, shape[1:])
     for level in range(1, shape[0]):
         field[level] = correlation * field[level - 1] + xp.sqrt(
@@ -65,7 +65,7 @@ def initialize(NLEV, NPROMA, datatype=np.float64, rng: CounterGenerator | None =
     z_full = 0.5 * (z_half[:-1] + z_half[1:])
     ddqz_full = z_half[:-1] - z_half[1:]
     inv_ddqz_full = (1.0 / ddqz_full)[:, None]
-    ddqz_half = xp.empty(NLEV + 1)
+    ddqz_half = xp.zeros(NLEV + 1)
     ddqz_half[1:NLEV] = z_full[:-1] - z_full[1:]
     ddqz_half[0] = 2.0 * (z_half[0] - z_full[0])
     ddqz_half[NLEV] = 2.0 * z_full[NLEV - 1]

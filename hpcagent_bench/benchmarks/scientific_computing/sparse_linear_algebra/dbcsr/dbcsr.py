@@ -21,7 +21,7 @@ from hpcagent_bench.support import exact_math
 def _normalize_block_index(index, xp: ModuleType = np):
     index = xp.asarray(index, dtype=np.int32)
     if index.size == 0:
-        return xp.empty((0, 3), dtype=np.int32)
+        return xp.zeros((0, 3), dtype=np.int32)
     return xp.ascontiguousarray(index.reshape((-1, 3)), dtype=np.int32)
 
 

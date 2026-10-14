@@ -26,10 +26,10 @@ def initialize(N, datatype=np.float32, perturbation: Perturbation | None = None,
         A = xp.fromfunction(lambda i, j: i * (j + 2) / N, (N, N), dtype=datatype)
         magnitude = float(N)
     elif draw.scenario == "hot_edge":
-        A = fields.hot_face((N, N), datatype, 1.0)
+        A = fields.hot_face((N, N), datatype, 1.0, xp=xp)
         magnitude = 1.0
     elif draw.scenario == "gaussian_spot":
-        A = fields.gaussian_spot((N, N), datatype, 1.0)
+        A = fields.gaussian_spot((N, N), datatype, 1.0, xp=xp)
         magnitude = 1.0
     else:
         raise ValueError(f"jacobi_2d: unknown scenario {draw.scenario!r}; expected one of {SCENARIOS}")

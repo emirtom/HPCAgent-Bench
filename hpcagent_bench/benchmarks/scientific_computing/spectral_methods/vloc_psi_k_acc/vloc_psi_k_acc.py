@@ -51,7 +51,7 @@ def initialize(ngrid, m, datatype=np.complex128, rng: CounterGenerator | None = 
         np.dtype(np.complex64): np.complex64,
         np.dtype(np.complex128): np.complex128,
     }.get(np.dtype(datatype), np.complex128)
-    rdtype = xp.empty(0, cdtype).real.dtype
+    rdtype = xp.zeros(0, cdtype).real.dtype
     if rng is None:
         rng = CounterGenerator(0, xp)
 

@@ -30,7 +30,7 @@ def lcg_states(seed: int, count: int, xp: ModuleType = np) -> np.ndarray:
     """The ``count`` states ``xsbench_numpy._lcg_random_double`` returns when called repeatedly from
     ``seed``, as uint64. Built by doubling: the states ``m .. 2m-1`` are the first ``m`` advanced by
     the ``m``-step jump ``s -> a_m * s + c_m (mod 2**63)``, the jump ``_fast_forward_lcg`` composes."""
-    states = xp.empty(count, dtype=np.uint64)
+    states = xp.zeros(count, dtype=np.uint64)
     if count == 0:
         return states
     states[0] = (LCG_A * (int(seed) % LCG_M) + LCG_C) % LCG_M
@@ -133,7 +133,7 @@ def xsbench_inputs(
 
     grid_draws = lcg_doubles(lcg_states(42 + seed, n_isotopes * n_gridpoints * 6, xp=xp))
     nuclide_grid = grid_draws.reshape(n_isotopes, n_gridpoints, 6).astype(datatype)
-    order = xp.argsort(nuclide_grid[:, :, ENERGY], axis=1, kind="quicksort")
+    order = xp.argsort(nuclide_grid[:, :, ENERGY], axis=1, kind="stable")  # cupy sorts stably only
     nuclide_grid = xp.ascontiguousarray(xp.take_along_axis(nuclide_grid, order[:, :, None], axis=1))
 
     egrid = xp.sort(nuclide_grid[:, :, ENERGY].reshape(-1))

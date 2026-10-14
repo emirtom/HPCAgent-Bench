@@ -61,7 +61,7 @@ def initialize(
         np.dtype(np.complex64): np.complex64,
         np.dtype(np.complex128): np.complex128,
     }.get(np.dtype(datatype), np.complex128)
-    rdtype = xp.empty(0, cdtype).real.dtype
+    rdtype = xp.zeros(0, cdtype).real.dtype
     # a flag absent from the preset arrives as None; coerce to the QE default (off / single group).
     okvan = bool(okvan) if okvan is not None else False
     okpaw = bool(okpaw) if okpaw is not None else False

@@ -30,7 +30,7 @@ BLOB2D_DZ = 0.3
 
 def mixmode_phases(seed, xp: ModuleType = np):
     """``FieldMixmode::FieldMixmode`` -- ``phase[i] = PI * (2 * genRand(seed + i) - 1)``."""
-    phases = xp.empty(MIXMODE_MODES)
+    phases = xp.zeros(MIXMODE_MODES)
     for i in range(MIXMODE_MODES):
         s = abs(seed + i)
         niter = 11 + (23 + int(s + 0.5)) % 79  # ROUND(s) for s >= 0

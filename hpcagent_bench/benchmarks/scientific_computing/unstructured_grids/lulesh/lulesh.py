@@ -83,7 +83,7 @@ def kernel_arguments(numElem, nsteps, datatype=np.float64, xp: ModuleType = np):
     col = ci.transpose(2, 1, 0).reshape(-1)
     nidx = plane * edgeNodes * edgeNodes + row * edgeNodes + col  # (numElem,)
     eN2 = edgeNodes * edgeNodes
-    nodelist = xp.empty((NE, 8), dtype=np.int64)
+    nodelist = xp.zeros((NE, 8), dtype=np.int64)
     nodelist[:, 0] = nidx
     nodelist[:, 1] = nidx + 1
     nodelist[:, 2] = nidx + edgeNodes + 1
@@ -142,9 +142,9 @@ def kernel_arguments(numElem, nsteps, datatype=np.float64, xp: ModuleType = np):
 
     # Symmetry nodesets (m_symmX/Y/Z), length edgeNodes^2
     numSymm = edgeNodes * edgeNodes
-    symmX = xp.empty(numSymm, dtype=np.int64)
-    symmY = xp.empty(numSymm, dtype=np.int64)
-    symmZ = xp.empty(numSymm, dtype=np.int64)
+    symmX = xp.zeros(numSymm, dtype=np.int64)
+    symmY = xp.zeros(numSymm, dtype=np.int64)
+    symmZ = xp.zeros(numSymm, dtype=np.int64)
     nx = 0
     for i in range(edgeNodes):
         planeInc = i * edgeNodes * edgeNodes
