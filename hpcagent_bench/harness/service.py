@@ -330,14 +330,14 @@ def canonical_parallel_form_root() -> pathlib.Path | None:
     """The CPF cache view this run serves from, or None when the setup names none. A run without one
     answers ``unavailable``; the ablation setup relies on that. The view need not exist yet: the first
     request for a kernel creates it (:func:`hpcagent_bench.cpf_prerender.render_on_demand`)."""
-    configured = str(config.get(cpf_cache.CONFIG_KEY, "") or "").strip()
+    configured = config.current().service.canonical_parallel_form_dir.strip()
     return pathlib.Path(configured) if configured else None
 
 
 def canonical_parallel_form_cache(view: pathlib.Path) -> pathlib.Path | None:
     """The cache root an on-demand render of ``view`` writes to: :data:`cpf_cache.CACHE_CONFIG_KEY`,
     else the root an existing view is pinned to; None when neither names one."""
-    configured = str(config.get(cpf_cache.CACHE_CONFIG_KEY, "") or "").strip()
+    configured = config.current().cpf.cache.strip()
     if configured:
         return pathlib.Path(configured)
     try:
@@ -490,7 +490,7 @@ def unrecordable(episode_id: str | None) -> Refusal | None:
         sandbox.episode_folder(episode_id)
     except ValueError as exc:
         return Refusal(HTTPStatus.FORBIDDEN, {"error": f"{exc}: nothing was graded or recorded"})
-    if config.get("record.enabled", False) and (public := hidden_seeds.public_seeds_refusal()):
+    if config.current().record.enabled and (public := hidden_seeds.public_seeds_refusal()):
         return Refusal(HTTPStatus.SERVICE_UNAVAILABLE, {"error": public, "cause": "public_seeds"})
     return None
 
@@ -699,15 +699,16 @@ def from_config() -> RunConfig:
     """Build the judge :class:`~hpcagent_bench.api.RunConfig` from the ``service:`` block;
     ``baseline`` is ``measurement.baseline`` (shared with the Harbor grader). CLI-overridable."""
     token = measurement_baseline()
+    service = config.current().service
     return RunConfig(
-        oracle=Oracle(config.get_str("service.oracle", "auto")),
+        oracle=Oracle(service.oracle),
         # "auto" is the boundary token for "resolve per kernel track", which RunConfig holds as None.
         baseline=None if token == "auto" else Baseline(token),
-        input_mode=InputMode(config.get_str("service.input_mode", "source")),
+        input_mode=InputMode(service.input_mode),
         # resolve_preset: ``service.preset`` may carry modifiers (``XL+fuzz``). Resolving once at startup
         # also applies the token's process-global overrides exactly once (the server is threaded).
-        preset=resolve_preset(config.get_str("service.preset", "fuzzed")),
-        datatype=config.get_str("service.datatype", "float64"),
+        preset=resolve_preset(service.preset),
+        datatype=service.datatype,
         repeat=measurement_repeat(),
     )
 
@@ -893,7 +894,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         return str(exc)
     if not requests.distributed:
         return single_node_layout_refusal(submission, task, spec, datatype)
-    ranks = config.get_int("mpi.ranks", 4)
+    ranks = config.current().mpi.ranks
     try:
         requests.plan(ndims, ranks)
         unplaced = requests.unplaced(ndims, ranks)
@@ -954,7 +955,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> di
         marshal = native_call.CallMarshal.of(call, template, language, regroups)
         answer["signature"] = f"{marshal.typedefs}void {binding.symbols[language]}({', '.join(marshal.params)});"
     if requests.distributed:
-        answer["plan"] = requests.plan(ndims, config.get_int("mpi.ranks", 4))
+        answer["plan"] = requests.plan(ndims, config.current().mpi.ranks)
     return answer
 
 
@@ -1096,7 +1097,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         return None
     ml_track = torch_reference.has_torch_reference(spec)
     binding = binding_from_spec(spec)
-    ranks = config.get_int("mpi.ranks", 4)
+    ranks = config.current().mpi.ranks
     lead = ml_layout(submission, spec, binding, ranks) if ml_track else None
     if isinstance(lead, str):
         return lead
@@ -1107,7 +1108,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         return None
     # The ML track grades at mpi.leaderboard_preset (a ``fuzzed`` preset holds size ranges).
     if ml_track:
-        preset = config.get_str("mpi.leaderboard_preset", "XL")
+        preset = config.current().mpi.leaderboard_preset
     try:
         # Only the layout decides which tiles a rank holds; the ML track checks it at mpi.ranks.
         descriptor = lead or Descriptor.from_submission(
@@ -1222,7 +1223,7 @@ def record_result(
     ``record.enabled`` is honoured here, the one door into persistence. The answer names the outcome
     (``table``), its ``detail`` and the recorded ``grade`` id, and ``judge_fault`` when a gate faulted:
     a gate that crashed is the judge's fault, recorded as one (``score_error``), never a silent pass."""
-    if not config.get("record.enabled", False):
+    if not config.current().record.enabled:
         return {"skipped": "record.enabled is false"}
     from hpcagent_bench.harness import recording
     from hpcagent_bench.harness.runner import status_of
@@ -1393,7 +1394,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         ``score_error`` call of the agent's trajectory: its turn was spent either way. A body naming
         no known kernel is attributable to nothing and is not recorded."""
         kernel = body.raw("kernel")
-        if not config.get("record.enabled", False) or not isinstance(kernel, str) or kernel not in KERNELS:
+        if not config.current().record.enabled or not isinstance(kernel, str) or kernel not in KERNELS:
             return
         from hpcagent_bench.harness import recording
 
@@ -1424,7 +1425,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
     ) -> None:
         """Record one ``/score`` grade as a call of the agent's trajectory; its source is kept when it
         passed (:func:`recording.record_call`)."""
-        if not config.get("record.enabled", False):
+        if not config.current().record.enabled:
             return
         from hpcagent_bench.harness import recording
         from hpcagent_bench.harness.runner import status_of
@@ -1839,7 +1840,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         print(f"judge: /submit {request_id} {kernel} recorded={recorded}", file=sys.stderr, flush=True)
         if recorded.get("judge_fault"):
             result = dataclasses.replace(result, harness_fault=True)
-        if config.get_str("service.submit_feedback", "verdict") != "full":
+        if config.current().service.submit_feedback != "full":
             return self._send(HTTPStatus.OK, submit_verdict(result, request_id))
         payload: dict[str, object] = dataclasses.asdict(result)
         payload.update(
@@ -2146,7 +2147,7 @@ def serve(
     # Preload heavy modules into the forkserver so each timed fork skips the import.
     multiprocessing.set_forkserver_preload(FORKSERVER_PRELOAD)
     cfg = cfg or from_config()
-    if config.get("record.enabled", False) and (public := hidden_seeds.public_seeds_refusal()):
+    if config.current().record.enabled and (public := hidden_seeds.public_seeds_refusal()):
         raise SystemExit(f"judge: refusing to record grades: {public}")
     # Fail once here if the host refuses the seal's namespaces.
     refused = seal.probe(seal.grading_plan([tempfile.gettempdir()]))

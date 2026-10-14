@@ -33,7 +33,6 @@ __all__ = [
     "AGENT_FOLDERS_LOG",
     "COMPILE_PREFIXES",
     "DEFAULT_SHARED_DIR",
-    "DISTRIBUTED_CONTRACT_LIBRARIES",
     "JIT_FRAMEWORKS",
     "LINK_PREFIXES",
     "NEVER_ALLOWED",
@@ -195,7 +194,7 @@ def build_link_refusal(build: Sequence[str], lang: str) -> str | None:
     """Why ``build``'s ``-l<name>`` tokens must be refused, or ``None``; checked before any compile, like
     :func:`catalog_refusal`, so it is a request fault rather than a linker failure. Always ``None``
     when ``grading.allow_agent_build_tokens`` is off (the tokens are dropped anyway)."""
-    if not config.get_bool("grading.allow_agent_build_tokens", True):
+    if not config.current().grading.allow_agent_build_tokens:
         return None
     missing = unresolvable_libraries(build, lang)
     if not missing:
@@ -208,17 +207,11 @@ def build_link_refusal(build: Sequence[str], lang: str) -> str | None:
     )
 
 
-#: The communication libraries sections/mpi.j2 tells distributed-track agents to name: part of the
-#: distributed contract, honoured whatever ``grading.allow_agent_build_tokens`` says.
-DISTRIBUTED_CONTRACT_LIBRARIES: frozenset[str] = frozenset({"mpi", "rccl"})
-
-
 def distributed_contract_libraries() -> frozenset[str]:
     """The ``libraries`` names a distributed-track judge honours with the switch off:
-    ``grading.distributed_libraries`` (comma-separated), default :data:`DISTRIBUTED_CONTRACT_LIBRARIES`.
-    A ``grading.`` key because the scaling grade job drops ``HPCAGENT_BENCH_MPI_*`` setup keys."""
-    raw = config.get_str("grading.distributed_libraries", ",".join(sorted(DISTRIBUTED_CONTRACT_LIBRARIES)))
-    return frozenset(name.strip() for name in raw.split(",") if name.strip())
+    ``grading.distributed_libraries``. A ``grading.`` key because the scaling grade job drops
+    ``HPCAGENT_BENCH_MPI_*`` setup keys."""
+    return frozenset(config.current().grading.distributed_libraries)
 
 
 def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str | None:
@@ -231,9 +224,9 @@ def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str |
     refused with that reason (:func:`languages.library_served`). Checked before any compile."""
     if not names:
         return None
-    contract = distributed_contract_libraries() if config.get_bool("mpi.grade_distributed", False) else frozenset()
+    contract = distributed_contract_libraries() if config.current().mpi.grade_distributed else frozenset()
     switched = [name for name in names if name not in contract]
-    if switched and not config.get_bool("grading.allow_agent_build_tokens", True):
+    if switched and not config.current().grading.allow_agent_build_tokens:
         # Name what was refused and what is still honoured (agents otherwise dropped rccl too).
         honoured = f"; {', '.join(sorted(contract))} are still honoured here" if contract else ""
         return (
@@ -373,8 +366,8 @@ NEVER_ALLOWED = (
 
 def agent_flags_allowed() -> bool:
     """Whether a submission's own tuning/autopar flags may enter the measured build
-    (``grading.allow_agent_build_flags``, default off)."""
-    return config.get_bool("grading.allow_agent_build_flags", False)
+    (``grading.allow_agent_build_flags``)."""
+    return config.current().grading.allow_agent_build_flags
 
 
 def opt_in_compile(token: str) -> bool:
@@ -401,7 +394,7 @@ def split_build(tokens: list[str], *, allow_flags: bool = False) -> tuple[list[s
     (``grading.allow_agent_build_flags``) also admits :data:`OPT_IN_COMPILE_PREFIXES`, never
     :data:`NEVER_ALLOWED`. ``grading.allow_agent_build_tokens`` (on by default) off makes the whole
     list inert."""
-    if not config.get_bool("grading.allow_agent_build_tokens", True):
+    if not config.current().grading.allow_agent_build_tokens:
         return [], []
     compile_tokens = [t for t in tokens if t.startswith(COMPILE_PREFIXES)]
     if allow_flags:

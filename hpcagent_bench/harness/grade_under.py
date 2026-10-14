@@ -86,9 +86,8 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import ML_LAWS, Score, TimedCell, VerifyResult, score
 from hpcagent_bench.harness.service import delivery_language, from_config, scales
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, grading_residency
-from hpcagent_bench.harness.torch_reference import int_tuple
 from hpcagent_bench.protocols import Protocol, Role
-from hpcagent_bench.spec import BenchSpec, as_list
+from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.stats import databases, score_rule
 from hpcagent_bench.support.helpers.sparse.request import UNCOVERED
 
@@ -1258,7 +1257,7 @@ def scaling_protocol_grade(
     spec = BenchSpec.load(task.kernel)
     with config.scoped_environment(final_settings({}, protocol)):
         # Near XL: the manifest's ``fuzzed`` preset is the scaling kernel's small correctness range.
-        inputs = metric.ml_aligned(spec, protocol_inputs(protocol, task.kernel, True), config.get_int("mpi.ranks", 4))
+        inputs = metric.ml_aligned(spec, protocol_inputs(protocol, task.kernel, True), config.current().mpi.ranks)
         result, curves = metric.score_ml_distributed(
             submission,
             task,
@@ -1460,10 +1459,9 @@ def hide_experiment_data(out_dir: pathlib.Path, items: Sequence[Item]) -> None:
     (extended, never replaced)."""
     os.environ["RUN_ROOT"] = str(experiments.runs_root())
     os.environ["RUN_DIR"] = str(out_dir.resolve())
-    extra = config.get("grading.seal_hide", []) or []
-    extra = extra if isinstance(extra, list) else [extra]
+    extra = config.current().grading.seal_hide
     item_dirs = (str(pathlib.Path(item.db).resolve().parent) for item in items)
-    config.set_override("grading.seal_hide", list(dict.fromkeys([*extra, *item_dirs])))
+    config.set_override("grading.seal_hide", tuple(dict.fromkeys([*extra, *item_dirs])))
 
 
 def build_grade_under_worklist(
@@ -1627,7 +1625,7 @@ def host_only(item: Item) -> bool:
 
 def grade_rank_counts() -> tuple[int, ...]:
     """The sweep a worklist asks of a scaling item: ``ml.grade_rank_counts``."""
-    return int_tuple(as_list(config.get("ml.grade_rank_counts", [])))
+    return config.current().ml.grade_rank_counts
 
 
 def task_of(item: Item) -> Task:

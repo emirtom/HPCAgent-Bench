@@ -38,7 +38,7 @@ import sys
 import time
 import traceback
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from hpcagent_bench import config, cpf_canonical, paths
 from hpcagent_bench.cpf_cache import LANGUAGE_EXT
@@ -63,7 +63,6 @@ __all__ = [
     "ABI_SYMBOL_LOCAL",
     "DACE_BANNER",
     "DEVICE_LANGUAGE",
-    "RENDER_TIMEOUT_DEFAULT_S",
     "RENDER_TIMEOUT_KEY",
     "ChildRun",
     "RenderedForm",
@@ -110,24 +109,10 @@ DEVICE_LANGUAGE = "hip"
 #: Config key for one kernel's render wall clock (see :func:`render_timeout_s`).
 RENDER_TIMEOUT_KEY = "timeouts.cpf_render_s"
 
-#: Fallback for :data:`RENDER_TIMEOUT_KEY` when the config file does not carry it.
-RENDER_TIMEOUT_DEFAULT_S = 14400.0
-
 
 def render_timeout_s() -> float:
-    """Wall clock one kernel's render is given, in seconds.
-
-    Read per call rather than bound once: the default is a whole-corpus compromise and a sweep over
-    the large end of a track raises it through ``HPCAGENT_BENCH_TIMEOUTS_CPF_RENDER_S``, which a
-    module-level constant or a default argument would have frozen at import.
-
-    The budget is deliberately far above the observed cost of an ordinary kernel (seconds to a few
-    minutes). The two largest references on scientific_computing spent a full half hour in the
-    frontend parse without finishing, which bounds the budget from BELOW and says nothing about
-    where the parse actually lands, so the cap is set where an answer is still worth the wall clock
-    and its job is only to stop a wedged render from taking the sweep with it.
-    """
-    return float(cast("float", config.get(RENDER_TIMEOUT_KEY, RENDER_TIMEOUT_DEFAULT_S)))
+    """``timeouts.cpf_render_s`` (s): wall-clock cap on one kernel's canonical-parallel-form render."""
+    return config.current().timeouts.cpf_render_s
 
 
 def generated_renames(path: pathlib.Path) -> dict[str, str]:
@@ -717,7 +702,7 @@ def run_child(cmd: list[str], target: str, timeout: float | None, extra_env: dic
 def timeout_error(budget: float) -> str:
     """The budget is NAMED along with the knob that moves it: a timeout says the render outran this
     number, not that the kernel cannot render at all."""
-    return f"render exceeded {budget:.0f}s; raise $HPCAGENT_BENCH_{RENDER_TIMEOUT_KEY.replace('.', '_').upper()} to give it more"
+    return f"render exceeded {budget:.0f}s; raise ${config.env_name(RENDER_TIMEOUT_KEY)} to give it more"
 
 
 def render_kernel(

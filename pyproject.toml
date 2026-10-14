@@ -101,6 +101,8 @@ dependencies = [
     "anthropic",
     "transformers",
     "accelerate",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
 ]
 
 [project.urls]
@@ -263,7 +265,6 @@ include = ["hpcagent_bench*"]
 # (no MANIFEST.in, no VCS file finder).
 [tool.setuptools.package-data]
 hpcagent_bench = [
-    "config.yaml",
     "container_backends.txt",
     # The experiment launchers and the sample sbatch a job's steps re-enter (hpcagent_bench.cluster).
     "cluster/*.sh",
@@ -304,6 +305,9 @@ hpcagent_bench = [
 
 # Third-party warnings only (zero-warning policy for our own code).
 [tool.pytest.ini_options]
+markers = [
+    "smoke: fast end-to-end check of one v0.2 item; selected with -m smoke.",
+]
 filterwarnings = [
     # starlette's TestClient portal teardown, inside anyio/starlette.
     "ignore:.*BlockingPortal.*:DeprecationWarning:anyio",

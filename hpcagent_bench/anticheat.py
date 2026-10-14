@@ -270,9 +270,9 @@ def anticheat(key: str, *, order: int) -> Callable[[type], type]:
 
 
 def expensive_opt_in() -> frozenset[str]:
-    """The expensive gates this setup opts into (``record.expensive_gates``, comma-separated keys); an
-    unregistered key or a gate not labelled expensive is refused, so a typo never silently runs nothing."""
-    named = frozenset(key.strip() for key in config.get_str("record.expensive_gates", "").split(",") if key.strip())
+    """The expensive gates this setup opts into (``record.expensive_gates``); an unregistered key or a gate not
+    labelled expensive is refused, so a typo never silently runs nothing."""
+    named = frozenset(key.strip() for key in config.current().record.expensive_gates if key.strip())
     for key in sorted(named):
         if key not in ANTICHEAT.entries or not ANTICHEAT.entries[key].expensive:
             expensive = sorted(k for k, gate in ANTICHEAT.entries.items() if gate.expensive)

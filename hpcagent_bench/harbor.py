@@ -73,9 +73,7 @@ __all__ = [
     "BUILD_ARTIFACT_GLOBS",
     "COMPOSE_NAME",
     "COMPOSE_PROVIDERS",
-    "DEFAULT_AGENT_IMAGE",
     "DEFAULT_HARDWARE",
-    "DEFAULT_JUDGE_IMAGE",
     "DETAIL_NAME",
     "GPU_ACCESS",
     "GRADER_MODULE",
@@ -171,12 +169,10 @@ class Layout(Enum):
 
 type KernelRow = tuple[str, BenchSpec, hf_export.ExportRow]
 
-#: The hardware targets ``--hardware`` selects: the ``images.<hw>`` pair in config.yaml and the
+#: The hardware targets ``--hardware`` selects: the ``images.<hw>`` config pair and the
 #: devices both containers are given (:data:`GPU_ACCESS`).
 HARDWARE: tuple[str, ...] = ("cpu", "amd", "nvidia")
 DEFAULT_HARDWARE = "cpu"
-DEFAULT_AGENT_IMAGE = config.get_str("images.cpu.agent")
-DEFAULT_JUDGE_IMAGE = config.get_str("images.cpu.verifier")
 #: GPU passthrough per hardware target, as compose service keys. AMD: the KFD compute node and the
 #: DRI render nodes, plus the groups that own them on a ROCm host; NVIDIA: the CDI device the
 #: container toolkit's CDI spec names (podman and docker >= 25 resolve it); cpu: nothing.
@@ -231,14 +227,12 @@ def task_dir_name(task_id: str) -> str:
 
 
 def images_for(hardware: str) -> tuple[str, str]:
-    """``(agent_image, verifier_image)`` from ``config.yaml`` ``images.<hardware>``; KeyError if unknown."""
-    agent = config.get_str(f"images.{hardware}.agent")
-    verifier = config.get_str(f"images.{hardware}.verifier")
-    if not agent or not verifier:
-        images = config.get("images")
-        known = list(images) if isinstance(images, dict) else []
-        raise KeyError(f"unknown hardware target {hardware!r}; configured: {known}")
-    return agent, verifier
+    """``(agent_image, verifier_image)`` of config ``images.<hardware>``; KeyError if unknown."""
+    images = config.current().images
+    if hardware not in type(images).model_fields:
+        raise KeyError(f"unknown hardware target {hardware!r}; configured: {list(type(images).model_fields)}")
+    pair = getattr(images, hardware)
+    return pair.agent, pair.verifier
 
 
 class ComposeDumper(yaml.SafeDumper):
@@ -851,8 +845,8 @@ def write_task(
     layout: Layout = Layout.KERNEL,
     seed_source: str | None = None,
     oracle: dict[str, str] | None = None,
-    agent_image: str = DEFAULT_AGENT_IMAGE,
-    judge_image: str = DEFAULT_JUDGE_IMAGE,
+    agent_image: str | None = None,
+    judge_image: str | None = None,
     timeout_sec: float | None = None,
     hardware: str = DEFAULT_HARDWARE,
 ) -> pathlib.Path:
@@ -864,14 +858,18 @@ def write_task(
 
     ``environment/<kernel>/`` gets the reference, the signature and a submission starter: an empty
     stub or the ``kernel_mpi`` stub (distributed) plus the ``requests.json`` starter, or a mock git repo
-    whose ``src/`` holds ``seed_source`` committed on ``main`` (repo layout).
+    whose ``src/`` holds ``seed_source`` committed on ``main`` (repo layout). ``agent_image`` / ``judge_image``
+    None = :func:`images_for` of :data:`DEFAULT_HARDWARE`.
     """
+    default_agent, default_judge = images_for(DEFAULT_HARDWARE)
+    agent_image, judge_image = agent_image or default_agent, judge_image or default_judge
     residency, layout = Residency(residency), Layout(layout)
     distributed = residency is Residency.DISTRIBUTED
     repo = layout is Layout.REPO
-    ranks = config.get_int("mpi.ranks", 4) if distributed else 0
-    mode = ScalingLaw(config.get_str("mpi.mode", ScalingLaw.STRONG.value)) if distributed else None
-    speedup_min = config.get_float("repo.speedup_min", 1.2)
+    cfg = config.current()
+    ranks = cfg.mpi.ranks if distributed else 0
+    mode = ScalingLaw(cfg.mpi.mode) if distributed else None
+    speedup_min = cfg.repo.speedup_min
     seed_sha: str | None = None
     timeout_sec = PER_KERNEL_TIMEOUT_S * len(kts) if timeout_sec is None else timeout_sec
     task_dir = out_dir / task_dir_name(task_id)
@@ -1235,7 +1233,7 @@ def validate_task(task_dir: str | pathlib.Path) -> list[str]:
 @contextlib.contextmanager
 def timing_lock() -> Iterator[None]:
     """Serialize timing across concurrent verifiers via flock on ``measurement.timing_lock`` (unset = no lock)."""
-    path = config.get_str("measurement.timing_lock")
+    path = config.current().measurement.timing_lock
     if not path:
         yield
         return
@@ -1268,7 +1266,7 @@ def grade(
     seed_sha: str | None = None,
     single_rank_anchor: Submission | None = None,
 ) -> dict:
-    """Grade one artifact and return its reward dict; unset measurement args come from config.yaml.
+    """Grade one artifact and return its reward dict; unset measurement args come from the config.
 
     A single-node artifact is graded exactly as the final grade grades a submission
     (:func:`hpcagent_bench.harness.grade_under.final_grade` under :func:`grade_under.final_settings`: every
@@ -1277,7 +1275,7 @@ def grade(
     ``k``, ``repeat`` and ``verify`` apply to the distributed track only, which keeps the fuzzed
     sweep (:func:`metric.score_task_fuzzed`) and its scaling curve."""
     baseline = baseline or measurement_baseline()
-    datatype = datatype or config.get_str("service.datatype", "float64")
+    datatype = datatype or config.current().service.datatype
     repeat = repeat if repeat is not None else measurement_repeat()
 
     mode = "restricted" if source is not None else "any"
@@ -1385,7 +1383,7 @@ def final_reward(submission: Submission, task: Task, *, baseline: str, datatype:
 
 def _gate_repo_pr(reward: dict, repo_dir: str, speedup_min: float | None, seed_sha: str | None = None) -> None:
     """Apply the repo-task PR acceptance rule in place; a rejected PR scores as a non-win everywhere."""
-    smin = speedup_min if speedup_min is not None else config.get_float("repo.speedup_min", 1.2)
+    smin = speedup_min if speedup_min is not None else config.current().repo.speedup_min
     pr = repo_pr.evaluate(repo_dir, seed_sha=seed_sha)
     # Gate on S_i (after the dispersion gate), so the two gates agree.
     accepted, why = repo_pr.accepts(pr, solved=bool(reward["solved"]), speedup=reward["reward"], speedup_min=smin)
@@ -1700,7 +1698,7 @@ def adapter_metadata() -> dict[str, object]:
         "layouts": [layout.value for layout in Layout],
         "residencies": list(RESIDENCIES),
         "images": (
-            "config.yaml images.<hardware> (cpu, amd, nvidia): an agent image (toolchain only, the "
+            "config images.<hardware> (cpu, amd, nvidia): an agent image (toolchain only, the "
             "environment/docker-compose.yaml build base) and a separate verifier image"
         ),
         "scoring": {
@@ -1750,7 +1748,7 @@ def add_generate_args(p: argparse.ArgumentParser) -> None:
         "--hardware",
         default=DEFAULT_HARDWARE,
         choices=HARDWARE,
-        help="the images.<hw> pair from config.yaml and the GPU both containers get (default cpu; a "
+        help="the config images.<hw> pair and the GPU both containers get (default cpu; a "
         "distributed cpu task uses the mpi pair)",
     )
     p.add_argument("--agent-image", default=None, help="override the agent image")

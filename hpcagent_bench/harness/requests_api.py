@@ -66,7 +66,7 @@ __all__ = [
 
 def mpi_residency() -> Location:
     """The run-wide residency of a distributed array no ``place`` names (``mpi.residency``)."""
-    return Location(config.get_str("mpi.residency", Location.HOST.value))
+    return Location(config.current().mpi.residency)
 
 
 def grid_request(grid: Sequence[int]) -> tuple[str, ...]:

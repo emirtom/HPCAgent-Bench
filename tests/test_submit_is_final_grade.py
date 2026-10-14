@@ -31,7 +31,7 @@ from typing import Any
 
 import pytest
 
-from hpcagent_bench import config, experiments, observations_extract, protocols
+from hpcagent_bench import config, experiments, fuzz, observations_extract, protocols
 from hpcagent_bench.anticheat import Effect, Finding, Judgement
 from hpcagent_bench.harness import grade_under, recording, results_db, scoring, service, timing
 from hpcagent_bench.harness.envelope import Submission
@@ -114,7 +114,7 @@ class Scorer:
             Seen(
                 env={name: config.env_value(name) for name in names},
                 repeat=timing.measurement_repeat(),
-                inputs=config.get_int("perf.n_large_shapes", 3),
+                inputs=fuzz.default_n_large_shapes(),
                 warmup=timing.warmup_count(),
                 backend=timing.active_backend(),
                 kwargs=kwargs,
@@ -178,7 +178,7 @@ def test_the_final_settings_are_the_final_grades_and_the_live_keys_are_not(cells
     seen = scorer.calls[0]
     assert (seen.repeat, seen.inputs) == (5, 4)
     assert seen.env[grade_under.ALPHA_ENV] == "0.1"
-    assert (timing.measurement_repeat(), config.get_int("perf.n_large_shapes", 3)) == (20, 3)
+    assert (timing.measurement_repeat(), fuzz.default_n_large_shapes()) == (20, 3)
 
 
 def test_the_score_preview_is_the_final_grades_settings_on_its_own_protocol() -> None:
@@ -423,7 +423,7 @@ def judge_fixture(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Judge]:
                 "hidden": kwargs["hidden"],
                 "params": kwargs.get("params_override"),
                 "hidden_cases": kwargs.get("hidden_cases"),
-                "inputs": config.get_int("perf.n_large_shapes", 3),
+                "inputs": fuzz.default_n_large_shapes(),
                 "backend": timing.active_backend(),
             }
         )

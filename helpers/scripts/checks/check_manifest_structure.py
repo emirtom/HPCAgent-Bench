@@ -18,9 +18,8 @@ apply unchanged and can never drift out of step with the loader.
 Scope: files under ``hpcagent_bench/benchmarks/`` ending in ``.yaml`` whose stem does
 not start with ``_`` -- the same predicate ``hpcagent_bench.spec._scan_kernels`` walks
 the tree with, so pre-commit and the kernel registry always agree on what counts as a
-manifest. Everything else HPCAgent-Bench-owned (``hpcagent_bench/config.yaml``,
-``envs/*.yaml``, taxonomy / compiler config) is a house-style concern for
-``tests/check_yaml_style.py`` instead, never a structure concern for this hook;
+manifest. Everything else HPCAgent-Bench-owned (``envs/*.yaml``, taxonomy / compiler config) is a
+house-style concern for ``tests/check_yaml_style.py`` instead, never a structure concern for this hook;
 third-party schemas (``.github/``, docker-compose) are out of scope for both gates.
 
 Speed: ``hpcagent_bench.spec`` (which pulls in ``config`` / ``fuzz`` / numpy) is

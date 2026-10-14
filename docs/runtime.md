@@ -30,11 +30,12 @@ The images are the `judge-agent-{cpu,cuda,amd}` Dockerfiles under `containers/im
 `hpcagent_bench:<cpu|nvidia|amd>` (agent) and `hpcagent_bench:judge[-nvidia|-amd]` (judge); build
 commands without the Container Engine are in
 [containers/README.md](../containers/README.md#without-the-container-engine). Four backends run them;
-select one with `HPCAGENT_BENCH_RUNTIME_BACKEND`:
+select one with `HPCAGENT_BENCH_RUNTIME_BACKEND` (config `runtime.backend`). The default `oci` is docker when
+installed, else podman; `sif`, `ce` and `native` are the other families.
 
 | backend | runs | rootless | Harbor provider | use |
 |---|---|---|---|---|
-| `podman` (default) | the OCI tag | yes | none | laptop and HPC login node |
+| `podman` | the OCI tag | yes | none | laptop and HPC login node |
 | `docker` | the OCI tag | no (daemon) | `docker` | laptop, cloud VM |
 | `apptainer` | a SIF converted from the OCI image | yes | `singularity` | shared/HPC sites |
 | `ce` | the OCI image as a SquashFS file | n/a | none | CSCS Alps; chosen by `srun --environment=<edf>`, no wrapper command |
@@ -106,7 +107,7 @@ Multi-node launch is in [launch.md](launch.md#problem-decomposition-p-ranks-one-
 - **Distributions.** `block`, and `block_cyclic`/`cyclic` on an equal-edge processor hypercube:
   the agent picks the dimensionality, the edge follows from the rank count (`hypercube_grid`).
   Every scheme satisfies `gather(scatter(A)) == A` bit-exactly.
-- **hwloc hang.** `HWLOC_COMPONENTS=-opencl,-levelzero,-gl` (`mpi.env` in config.yaml, and a default in `harness/mpi_call.py`)
+- **hwloc hang.** `HWLOC_COMPONENTS=-opencl,-levelzero,-gl` (`mpi.env` config key, and a default in `harness/mpi_call.py`)
   skips the hwloc plugins that hang `MPI_Init` in some sandboxes.
 
 Single-node residency follows the delivery: `device` for `cuda`, `hip` and an OpenMP-offload setup,

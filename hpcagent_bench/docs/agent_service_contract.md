@@ -152,7 +152,7 @@ are listed in `hpcagent_bench/harness/gpu_profiling.py:CAUSES`. Reports from `nc
 
 ## Configuration
 
-`service:` in `hpcagent_bench/config.yaml`; any key can be overridden as
+`service:` in `hpcagent_bench/config.py`; any key can be overridden as
 `HPCAGENT_BENCH_SERVICE_<KEY>`.
 
 | Key | Values | Meaning |

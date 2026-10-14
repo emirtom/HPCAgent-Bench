@@ -722,7 +722,7 @@ def test_a_fuzzed_judge_preset_reverifies_the_ml_grade_at_the_leaderboard_preset
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_MODE", "strong")
     graded = scoring.Score(True, 0.0, 2000, True, baseline_ns=4000, speedup=2.0, baseline="torch")
     res = scoring.independent_verify(softmax_sub(), ML_TASK, graded, preset="fuzzed", datatype="bf16", reverify_seed=7)
-    xl = dict(scoring.BenchSpec.load("dist_softmax").parameters[config.get_str("mpi.leaderboard_preset", "XL")])
+    xl = dict(scoring.BenchSpec.load("dist_softmax").parameters[config.current().mpi.leaderboard_preset])
     assert [params for params, _ in seen] == [xl, xl]
     assert seen[1][1] == 7
     assert res.ok

@@ -354,7 +354,7 @@ def track_datatype(track: str, allowed_precisions: tuple[str, ...]) -> str:
     grade's configured datatype stands)."""
     if track != TRACK_DATATYPE_TRACK or declares_storage_precision(allowed_precisions):
         return ""
-    return config.get_str("ml.datatype", "")
+    return config.current().ml.datatype
 
 
 #: The one preset MODIFIER: ``<rung>+fuzz`` samples sizes around ``<rung>``.
@@ -548,8 +548,7 @@ def sparse_alignment_constraints(layouts: dict[str, "SparseLayout"]) -> tuple[st
 
 def bsr_block_sizes() -> tuple[int, ...]:
     """The block edges a bsr request may name (``sparse.bsr_block_sizes``)."""
-    raw = config.get("sparse.bsr_block_sizes", [])
-    return tuple(int(v) for v in as_list(raw) if isinstance(v, (int, float, str)))
+    return config.current().sparse.bsr_block_sizes
 
 
 @dataclass(frozen=True, slots=True)

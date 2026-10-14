@@ -28,8 +28,8 @@ from collections.abc import Callable, Sequence
 from typing import ClassVar
 
 from hpcagent_bench import config, languages, paths, pluto_transform, ppcg_transform
-from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.columns import FRAMEWORKS
+from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.harness.agent import Agent, reference_mpi_source, reference_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import default_requests
@@ -200,7 +200,7 @@ class NoOpMPIOptimizer(Agent):
                 f"{task.kernel} declares no 'mpi:' decomposition block; the distributed track needs one"
             )
         binding = binding_from_spec(spec)
-        ranks = config.get_int("mpi.ranks", 4)
+        ranks = config.current().mpi.ranks
         # The default 1-D block layout from the kernel's ``mpi:`` block: split axes from declarative
         # binding shapes, or the ``arrays`` block for legacy ``initialize`` stencils (N stays global).
         requests = default_requests(spec.mpi, binding, ranks)

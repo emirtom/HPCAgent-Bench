@@ -45,7 +45,7 @@ def authored(kernel: str) -> BenchSpec:
 
 def test_the_track_datatype_is_configured_not_hardcoded() -> None:
     """The ML track's datatype is data: bf16."""
-    assert config.get_str("ml.datatype", "") == TRACK_DATATYPE
+    assert config.current().ml.datatype == TRACK_DATATYPE
 
 
 @pytest.mark.parametrize("datatype", sorted(FACTORS))

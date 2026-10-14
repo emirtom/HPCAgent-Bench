@@ -500,12 +500,12 @@ def clocks_agree_on_delta(host_minus_event_ns: object) -> bool:
     live one does."""
     if host_minus_event_ns is not None and not isinstance(host_minus_event_ns, (int, float, str)):
         raise TypeError(f"host_event_delta_ns is {host_minus_event_ns!r}, not a number")
-    factor = config.get_float("measurement.quiescence.divergence_factor", 0.0)
-    if factor <= 0:
+    gate = config.current().measurement.quiescence
+    if gate.divergence_factor <= 0:
         return True
-    if host_minus_event_ns is None or factor < 1:
+    if host_minus_event_ns is None or gate.divergence_factor < 1:
         return False
-    return float(host_minus_event_ns) <= config.get_float("measurement.quiescence.divergence_slack_ns", 0.0)
+    return float(host_minus_event_ns) <= gate.divergence_slack_ns
 
 
 def rederived_cell_suspect(cell: dict[str, Any]) -> int:
