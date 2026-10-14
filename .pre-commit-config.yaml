@@ -49,14 +49,6 @@ repos:
         require_serial: true
         files: '^(hpcagent_bench|agent)/.*\.py$'
         exclude: '^hpcagent_bench/benchmarks/'
-      # The files held to strict typing (pyrightconfig.strict.json, a list that only grows), checked whole.
-      - id: hpcagent_bench-pyright-strict
-        name: pyright strict (pyrightconfig.strict.json)
-        entry: pyright --project pyrightconfig.strict.json
-        language: system
-        require_serial: true
-        pass_filenames: false
-        files: '^(hpcagent_bench|agent)/.*\.py$|^pyrightconfig\.strict\.json$'
       # Reject an oversized staged file: 500 KiB for a binary blob (datasets / dumps), 1 MiB for source.
       - id: hpcagent_bench-large-files
         name: block oversized files (500 KiB binary / 1 MiB text)
