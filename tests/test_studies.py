@@ -19,6 +19,24 @@ import pytest
 from hpcagent_bench import studies
 
 
+@pytest.mark.parametrize("merge_failed", [False, True])
+def test_a_job_marked_merge_failed_is_read_from_its_shards_not_its_results_db(
+    tmp_path: pathlib.Path, merge_failed: bool
+) -> None:
+    """``MERGE_FAILED`` stays until a merge succeeds, so a ``results.db`` beside it may hold only some
+    shards: reading it and skipping the shards silently dropped every other rank's grades."""
+    merged = tmp_path / studies.MERGED_DB_NAME
+    shard = tmp_path / studies.JUDGE_DIRNAME / "rank-0" / "hpcagent_bench0.db"
+    shard.parent.mkdir(parents=True)
+    merged.touch()
+    shard.touch()
+    if merge_failed:
+        (tmp_path / "MERGE_FAILED").touch()  # the marker run_cluster.sh writes
+
+    assert studies.judge_database(merged) is not merge_failed
+    assert studies.judge_database(shard) is merge_failed
+
+
 def test_a_blank_and_filled_setup_reads_as_one_identity() -> None:
     """One setup, packet recorded on some rows and blank on others, fills to one value."""
     frame = pd.DataFrame(

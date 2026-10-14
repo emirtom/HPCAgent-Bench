@@ -137,6 +137,22 @@ def test_the_run_root_scan_skips_the_extractions_own_output(tmp_path: pathlib.Pa
     assert [db.path for db in found] == [judge.resolve()]
 
 
+def test_the_run_root_scan_names_a_corrupt_shard_it_skips(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture
+) -> None:
+    """A shard truncated by an OOM-killed rank was dropped from the scan without a word, so the extraction
+    read as if that rank had graded nothing."""
+    judge = make_db(tmp_path / "camp" / "123" / "judge" / "rank-0" / "hpcagent_bench0.db")
+    corrupt = tmp_path / "camp" / "123" / "judge" / "rank-1" / "hpcagent_bench1.db"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_bytes(b"truncated by an OOM-killed rank")
+
+    found = observations_extract.discover_databases([str(tmp_path / "camp")])
+
+    assert [db.path for db in found] == [judge.resolve()]
+    assert f"unreadable results DB skipped: {corrupt.resolve()}" in capsys.readouterr().err
+
+
 def test_merge_results_refuses_to_overwrite_a_shard(tmp_path: pathlib.Path) -> None:
     """hpcagent_bench/cluster/merge_results.py rebuilds --out from scratch, so --out naming a shard is refused."""
     module = fresh("hpcagent_bench.cluster.merge_results")

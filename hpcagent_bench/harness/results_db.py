@@ -16,6 +16,7 @@ import dataclasses
 import enum
 import functools
 import hashlib
+import os
 import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
@@ -31,6 +32,7 @@ __all__ = [
     "NATURAL_KEYS",
     "SCHEMA_PATH",
     "SCHEMA_VERSION",
+    "SIDECAR_SUFFIXES",
     "SUBMIT_KINDS",
     "TABLES",
     "IdMap",
@@ -41,6 +43,7 @@ __all__ = [
     "add_cells",
     "add_grade",
     "add_scaling",
+    "adopt_names_scheme",
     "call_index",
     "check_schema",
     "collapse_finals",
@@ -59,6 +62,8 @@ __all__ = [
     "open_db",
     "open_ro",
     "reading",
+    "rebuilding",
+    "remove_db",
     "schema_version",
     "source_rows",
     "store_source",
@@ -370,12 +375,30 @@ def merge_rows(conn: sqlite3.Connection, table: str, ids: IdMap) -> int:
 
 def copy_foreign(conn: sqlite3.Connection, table: str, ddl: str) -> int:
     """Append the attached source's non-results ``table`` (the framework sweep's ``results``),
-    created from its own DDL; its synthetic ``id`` is reassigned."""
+    created from its own DDL; its synthetic ``id`` is reassigned. It has no natural key, so merging one
+    source twice appends its rows twice."""
     conn.execute(ddl.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
     dest = [str(row[1]) for row in conn.execute(f"PRAGMA main.table_info({table})")]
     src = {str(row[1]) for row in conn.execute(f"PRAGMA src.table_info({table})")}
     columns = ", ".join(column for column in dest if column in src and column != "id")
     return int(conn.execute(f"INSERT INTO main.{table} ({columns}) SELECT {columns} FROM src.{table}").rowcount)
+
+
+def adopt_names_scheme(conn: sqlite3.Connection, path: pathlib.Path, foreign: Collection[str]) -> None:
+    """Carry the attached source's framework names scheme (``PRAGMA application_id``,
+    :mod:`hpcagent_bench.support.update_names`) to ``main`` before its ``foreign`` tables are copied: a
+    destination holding none of them yet takes the source's stamp, one that does must share it, so a
+    merge never mixes two schemes nor leaves current names unstamped for ``update_names`` to rename again."""
+    source = int(conn.execute("PRAGMA src.application_id").fetchone()[0])
+    held = int(conn.execute("PRAGMA main.application_id").fetchone()[0])
+    if source == held:
+        return
+    if table_names(conn) & set(foreign):
+        raise SchemaVersionError(
+            f"{path} has framework names scheme {source}, the destination {held}; "
+            "run `python -m hpcagent_bench.support.update_names` on the older one first"
+        )
+    conn.execute(f"PRAGMA main.application_id = {source}")
 
 
 def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
@@ -390,21 +413,31 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
             copied = {table: merge_rows(conn, table, ids) for table in TABLES}
         elif version or names & set(TABLES):
             raise SchemaVersionError(f"{path} has results schema version {version}, not {SCHEMA_VERSION}")
-        foreign = conn.execute(
-            "SELECT name, sql FROM src.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-        ).fetchall()
+        foreign = [
+            (str(name), str(ddl))
+            for name, ddl in conn.execute(
+                "SELECT name, sql FROM src.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+            if name not in TABLES and ddl
+        ]
+        if foreign:
+            adopt_names_scheme(conn, path, [name for name, _ in foreign])
         for name, ddl in foreign:
-            if name not in TABLES and ddl:
-                copied[str(name)] = copy_foreign(conn, str(name), str(ddl))
+            copied[name] = copy_foreign(conn, name, ddl)
         conn.commit()
     finally:
+        # A failed step leaves its transaction open, and DETACH of a database it touched raises
+        # "database src is locked" in place of the error that stopped it.
+        if conn.in_transaction:
+            conn.rollback()
         conn.execute("DETACH DATABASE src")
     return copied
 
 
 def merge(dest: str | pathlib.Path, sources: Sequence[str | pathlib.Path]) -> dict[str, int]:
     """Fold every file of ``sources`` into ``dest`` (created when absent) by natural key; return the
-    rows copied per table. Idempotent: merging a file twice changes nothing the first merge wrote."""
+    rows copied per table. Idempotent for the results tables: merging a file twice changes nothing the first
+    merge wrote there (a foreign table is appended, :func:`copy_foreign`)."""
     target = pathlib.Path(dest).resolve()
     totals: dict[str, int] = {}
     with contextlib.closing(open_db(target)) as conn:
@@ -416,6 +449,33 @@ def merge(dest: str | pathlib.Path, sources: Sequence[str | pathlib.Path]) -> di
             for table, count in merge_one(conn, path).items():
                 totals[table] = totals.get(table, 0) + count
     return totals
+
+
+#: The SQLite files that travel with a database file: its rollback journal and its WAL pair.
+SIDECAR_SUFFIXES: tuple[str, ...] = ("-journal", "-wal", "-shm")
+
+
+def remove_db(path: pathlib.Path) -> None:
+    """Delete the database file ``path`` and its :data:`SIDECAR_SUFFIXES` files, where present."""
+    for suffix in ("", *SIDECAR_SUFFIXES):
+        pathlib.Path(str(path) + suffix).unlink(missing_ok=True)
+
+
+@contextlib.contextmanager
+def rebuilding(dest: str | pathlib.Path) -> Iterator[pathlib.Path]:
+    """Remove ``dest`` and yield a scratch file beside it to build its replacement in, moved onto ``dest``
+    only when the block finishes. A build cut short (a corrupt source, a signal) leaves ``dest`` absent,
+    never holding part of what it should: :func:`merge` commits once per source, and a partial file
+    is newer than every source, so a reader would take it as complete."""
+    target = pathlib.Path(dest)
+    scratch = target.with_name(f"{target.name}.tmp")
+    remove_db(target)
+    remove_db(scratch)
+    try:
+        yield scratch
+        os.replace(scratch, target)
+    finally:
+        remove_db(scratch)
 
 
 def copy_grade(src: pathlib.Path, grade_id: int, dest: sqlite3.Connection) -> int:

@@ -27,9 +27,11 @@ __all__ = [
     "JOB_EPISODE_KEY",
     "JUDGE_DIRNAME",
     "MERGED_DB_NAME",
+    "MERGE_FAILED_NAME",
     "NAME_FIRST",
     "NAME_READERS",
     "OBSERVATIONS_TABLE",
+    "OBSERVATION_DB_SUFFIXES",
     "SHARD_DEPTH",
     "AgentIndices",
     "agent_indices",
@@ -43,6 +45,7 @@ __all__ = [
     "group_answer",
     "is_blank",
     "judge_database",
+    "merge_failed",
     "merged_shard",
     "numeric",
     "read_observations",
@@ -66,22 +69,34 @@ DB_SKIP_NAMES: frozenset[str] = frozenset({"cache.db", "index.db"})
 #: A finished job's ONE results DB, ``<job>/results.db``: every judge shard of
 #: the job and every episode record, merged (``hpcagent_bench/cluster/merge_results.py``).
 MERGED_DB_NAME: str = "results.db"
+#: The marker run_cluster.sh leaves in a job directory until its merge succeeds: a
+#: :data:`MERGED_DB_NAME` beside it may hold only some shards (one written before merges were atomic).
+MERGE_FAILED_NAME: str = "MERGE_FAILED"
+#: The suffixes of an observations table stored as SQLite; any other path is read (and written) as CSV.
+OBSERVATION_DB_SUFFIXES: tuple[str, ...] = (".db", ".sqlite")
 #: Where a judge rank's shard sits in its job directory: ``<job>/judge/rank-<k>/<shard>.db``.
 SHARD_DEPTH: int = 2
 JUDGE_DIRNAME: str = "judge"
 
 
+def merge_failed(db: pathlib.Path) -> bool:
+    """Whether ``db`` is a job's :data:`MERGED_DB_NAME` that its job marks unmerged (:data:`MERGE_FAILED_NAME`)."""
+    return db.name == MERGED_DB_NAME and (db.parent / MERGE_FAILED_NAME).exists()
+
+
 def merged_shard(db: pathlib.Path) -> bool:
     """Whether ``db`` is a judge shard its job's :data:`MERGED_DB_NAME` already holds."""
     parent = db.parent.parent
-    return parent.name == JUDGE_DIRNAME and (db.parents[SHARD_DEPTH] / MERGED_DB_NAME).is_file()
+    merged = db.parents[SHARD_DEPTH] / MERGED_DB_NAME
+    return parent.name == JUDGE_DIRNAME and merged.is_file() and not merge_failed(merged)
 
 
 def judge_database(db: pathlib.Path) -> bool:
     """Whether ``db``, found under a run root, is a judge record: a file, not named in
-    :data:`DB_SKIP_NAMES`, and not a shard its job's merged DB holds (:func:`merged_shard`: read twice,
-    every grade would count twice)."""
-    return db.is_file() and db.name not in DB_SKIP_NAMES and not merged_shard(db)
+    :data:`DB_SKIP_NAMES`, not a shard its job's merged DB holds (:func:`merged_shard`: read twice,
+    every grade would count twice), and not a merged DB its job marks unmerged (:func:`merge_failed`:
+    its shards are read instead)."""
+    return db.is_file() and db.name not in DB_SKIP_NAMES and not merged_shard(db) and not merge_failed(db)
 
 
 def setup_of(episode_id: str | None) -> str:
@@ -236,7 +251,7 @@ def read_observations(path: pathlib.Path, platform: str = population.DEFAULT_PLA
     """
     import pandas as pd
 
-    if path.suffix not in (".db", ".sqlite"):
+    if path.suffix not in OBSERVATION_DB_SUFFIXES:
         frame = pd.read_csv(path, low_memory=False)
     else:
         frame = read_table(path, OBSERVATIONS_TABLE)

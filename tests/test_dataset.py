@@ -78,6 +78,19 @@ def test_writing_a_db_twice_replaces_it_rather_than_appending(
     assert len(dataset.load(tmp_path / "x.db")) == 1
 
 
+def test_a_build_to_a_sqlite_path_writes_a_database_load_reads_back(
+    selection: experiments.Selection, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """load() reads ``.sqlite`` as SQLite, but build() wrote CSV text into every path not ending in ``.db``."""
+    monkeypatch.setattr(dataset.experiments, "resolve", lambda study, root=None: selection)
+    monkeypatch.setattr(dataset, "extract", lambda *args, **options: pd.DataFrame([row("100", "dfa")]))
+    out = tmp_path / "observations.sqlite"
+
+    dataset.build("gitscicomp10", out)
+
+    assert list(dataset.load(out)["kernel"]) == ["dfa"]
+
+
 def test_a_row_on_a_kernel_outside_the_tag_is_dropped_and_counted(tmp_path: pathlib.Path) -> None:
     """The SciComp waves served more kernels than the tag; the experiments name scicomp40, and a
     figure counts a setup over every kernel its rows touch, so an atax row must not reach it."""

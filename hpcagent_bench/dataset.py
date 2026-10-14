@@ -231,7 +231,7 @@ def build(
     frame, provenance = select(selection, rows, extracted_at)
     if frame.empty:
         raise SystemExit(f"no observations for study {study!r} under {list(selection.run_globs())}")
-    write_db(frame, out) if out.suffix == ".db" else write_csv(frame, out)
+    write_db(frame, out) if out.suffix in studies.OBSERVATION_DB_SUFFIXES else write_csv(frame, out)
     if csv_out is not None:
         write_csv(frame, csv_out)
     return frame, provenance

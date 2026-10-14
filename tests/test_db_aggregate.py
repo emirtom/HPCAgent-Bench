@@ -17,7 +17,9 @@ import time
 
 import pytest
 
+from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import recording, results_db
+from hpcagent_bench.support import update_names
 from tests.results_rows import attempts, submissions
 
 
@@ -177,6 +179,54 @@ def test_aggregate_is_idempotent(tmp_path) -> None:
     assert len(submissions(base)) == first == 2
 
 
+def framework_shard(path: pathlib.Path, names_version: int, flavor: str = "parallel") -> None:
+    """A framework sweep shard: one ``results`` row, stamped with the names scheme it was written under."""
+    with contextlib.closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute(f"PRAGMA application_id = {names_version}")
+        conn.execute("CREATE TABLE results (id INTEGER PRIMARY KEY, kernel TEXT, framework TEXT, flavor TEXT)")
+        conn.execute("INSERT INTO results (kernel, framework, flavor) VALUES ('gemm', 'dace_cpu', ?)", (flavor,))
+
+
+def test_a_merged_framework_shard_keeps_its_names_stamp(tmp_path: pathlib.Path) -> None:
+    """The merge dropped the names stamp, so update_names then renamed the current ``parallel`` rows to
+    ``loop2map``."""
+    shard, dest = tmp_path / "shard.db", tmp_path / "merged.db"
+    framework_shard(shard, update_names.NAMES_VERSION)
+
+    results_db.merge(dest, [shard])
+
+    assert update_names.update(dest) == 0
+    with contextlib.closing(sqlite3.connect(dest)) as conn:
+        assert conn.execute("SELECT flavor FROM results").fetchall() == [("parallel",)]
+        assert update_names.names_version(conn) == update_names.NAMES_VERSION
+
+
+def test_a_merge_refuses_framework_rows_under_two_names_schemes(tmp_path: pathlib.Path) -> None:
+    current, stale = tmp_path / "current.db", tmp_path / "stale.db"
+    framework_shard(current, update_names.NAMES_VERSION)
+    framework_shard(stale, 0, flavor=None)  # type: ignore[arg-type]
+
+    with pytest.raises(results_db.SchemaVersionError, match="names scheme"):
+        results_db.merge(tmp_path / "merged.db", [current, stale])
+
+
+def test_a_failed_merge_step_raises_its_own_error(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DETACH after a failed step raised "database src is locked" in place of the error that stopped it."""
+    shard = tmp_path / "shard.db"
+    _seed(str(shard), run="r0", kernels=["gemm"], with_results=False)
+    real = results_db.merge_rows
+
+    def failing(conn: sqlite3.Connection, table: str, ids: results_db.IdMap) -> int:
+        copied = real(conn, table, ids)
+        if table == "grades":
+            raise RuntimeError("original failure")
+        return copied
+
+    monkeypatch.setattr(results_db, "merge_rows", failing)
+    with pytest.raises(RuntimeError, match="original failure"):
+        results_db.merge(tmp_path / "merged.db", [shard])
+
+
 def test_aggregate_carries_the_sources_inside_the_db(tmp_path) -> None:
     """A source is a row of the DB, so the merged file holds the text itself: no store beside it."""
     base = str(tmp_path / "hpcagent_bench.db")
@@ -216,6 +266,36 @@ def test_ensure_aggregated_rebuilds_when_a_shard_is_newer(tmp_path) -> None:
 
     recording.ensure_aggregated(base)
     assert len(submissions(base)) == 2
+
+
+def test_aggregate_cut_short_by_a_corrupt_shard_leaves_no_partial_aggregate(tmp_path: pathlib.Path) -> None:
+    """The merge commits once per shard: built in place, a failure on shard 1 left shard 0's rows as an
+    aggregate newer than every shard, which :func:`recording.ensure_aggregated` then served as current."""
+    base = str(tmp_path / "hpcagent_bench.db")
+    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
+    pathlib.Path(recording.shard_db_path(1, base)).write_bytes(b"truncated by an OOM-killed rank")
+
+    with pytest.raises(sqlite3.DatabaseError):
+        recording.aggregate(base)
+
+    assert not pathlib.Path(base).exists()
+    assert not list(tmp_path.glob("*.tmp*"))
+
+
+def test_merge_results_cut_short_by_a_corrupt_shard_leaves_no_partial_results_db(tmp_path: pathlib.Path) -> None:
+    """A job's ``results.db`` makes every reader skip its shards (:func:`studies.merged_shard`), so one
+    holding only the shards before a corrupt one would hide the rest."""
+    _seed(str(tmp_path / "judge" / "rank-0" / "hpcagent_bench0.db"), run="r0", kernels=["gemm"])
+    corrupt = tmp_path / "judge" / "rank-1" / "hpcagent_bench1.db"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_bytes(b"truncated by an OOM-killed rank")
+    out = tmp_path / "results.db"
+
+    with pytest.raises(SystemExit, match="corrupt shard"):
+        merge_results.merge(tmp_path, out)
+
+    assert not out.exists()
+    assert not list(tmp_path.glob("results.db*"))
 
 
 def test_ensure_aggregated_is_a_noop_without_shards(tmp_path) -> None:
