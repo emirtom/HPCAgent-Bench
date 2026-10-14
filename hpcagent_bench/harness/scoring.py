@@ -1752,6 +1752,9 @@ def graded_score(
     #
     # Builders, not data: materialising every case at once peaked at 7x the declared arrays against
     # an RLIMIT_AS of 2x. Each case is drawn when used.
+    case_params = [
+        {**spec.parameters[case.preset], **dict(case.config)} if case.config else params_override for case in cases
+    ]
     hidden_data: list[tuple[str, Callable[[], KernelData]]] = [
         (
             case.label,
@@ -1761,13 +1764,11 @@ def graded_score(
                 case.preset,
                 datatype,
                 case.seed,
-                params_override=(
-                    {**spec.parameters[case.preset], **dict(case.config)} if case.config else params_override
-                ),
+                params_override=params,
                 hidden_variant=case.variant,
             ),
         )
-        for case in cases
+        for case, params in zip(cases, case_params, strict=True)
     ]
 
     device = task.residency == "device"
@@ -1784,6 +1785,14 @@ def graded_score(
         params_override or drawn,
         layout=choice or default_choice(spec),
     )
+    # A held-out case can be larger than the timed cell (the first is drawn at XL): its kernel call gets
+    # the budget of its own sizes (native_call.call_memory_cap).
+    case_memory_gb = [
+        sizing.kernel_memory_gb(
+            spec, case.preset, datatype, submission.workspace_bytes, params, layout=choice or default_choice(spec)
+        )
+        for case, params in zip(cases, case_params, strict=True)
+    ]
 
     # Every call (candidate and baselines, warmup included) draws its value arrays at a seed of the cell's
     # fixed pool, from an offset a fresh per-call secret picks, so consecutive calls never share an input
@@ -2346,7 +2355,8 @@ def graded_score(
 
         # Graded HERE, in the parent: the expected outputs never enter the process running agent code.
         hidden_followups = [
-            Followup(build=candidate_builder(task.kernel, choice, make)) for _label, make in hidden_data
+            Followup(build=candidate_builder(task.kernel, choice, make), memory_gb=case_gb)
+            for (_label, make), case_gb in zip(hidden_data, case_memory_gb, strict=True)
         ]
         # The untimed canonical call rides first among the followups: its outputs are what the
         # public-correctness gate grades.
