@@ -11,9 +11,10 @@ ulimit -c 0
 # render_env (a <base>:<model> base, flattened) and snapshot_env (the per-submission copy a job reads).
 CLUSTER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # The setup configs (setups.yaml, layers/) and the operator's generated files (.env.<setup>, .rendered/).
-EXPERIMENTS_DIR="$(cd -- "${CLUSTER_DIR}/../../experiments" && pwd)"
+SUBMIT_REPO_DIR="$(cd -- "${CLUSTER_DIR}/../.." && pwd)"
+EXPERIMENTS_DIR="${SUBMIT_REPO_DIR}/experiments"
 # Slurm output of the jobs this file submits: <scratch>/logs (hpcagent_bench.paths.scratch_dir).
-HPCAGENT_BENCH_SCRATCH="${HPCAGENT_BENCH_SCRATCH:-$(cd -- "${CLUSTER_DIR}/../.." && pwd)/.scratch}"
+HPCAGENT_BENCH_SCRATCH="${HPCAGENT_BENCH_SCRATCH:-${SUBMIT_REPO_DIR}/.scratch}"
 . "${CLUSTER_DIR}/env_layers.sh"
 
 # symbolic_path <root-var-name> <resolved-absolute-path> -- the path with the CURRENT value of

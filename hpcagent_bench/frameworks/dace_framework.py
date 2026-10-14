@@ -7,7 +7,6 @@ NumPy reference and returns it as a compiled SDFG (see DaceFramework.optimize)."
 
 import contextlib
 import copy
-import getpass
 import importlib
 import os
 import pathlib
@@ -33,7 +32,7 @@ from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
 from hpcagent_bench import flags as bench_flags
-from hpcagent_bench import languages
+from hpcagent_bench import languages, paths
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import utilities as util
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -233,6 +232,10 @@ BUILD_CACHE_PINS = (
     ("compiler", "command_cache", True),
 )
 
+#: The DaCe build-cache directory name under :func:`hpcagent_bench.paths.node_tmpfs_root` (or ``~/.cache/dace``
+#: when the node tmpfs is not writable), used when ``DACE_BUILD_CACHE_DIR`` is unset.
+DACE_BUILD_CACHE_NAME = "dace_build_cache"
+
 #: Pins already reported absent (one notice per process).
 ABSENT_PINS_REPORTED: set[tuple[str, ...]] = set()
 
@@ -254,7 +257,7 @@ def pin_gpu_toolchain() -> None:
     """Point DaCe's GPU build at this host's ROCm install (``find_package(HIP)`` needs
     ``CMAKE_PREFIX_PATH`` / ``HIP_DIR``, and ROCm's bin is kept off ``PATH``). Only adds: operator
     values stay, and a host without ROCm is untouched."""
-    root = pathlib.Path(os.environ.get("ROCM_PATH") or "/opt/rocm")
+    root = paths.rocm_root()
     if not (root / "lib" / "cmake" / "hip").is_dir():
         return  # no ROCm here: a CUDA box, or a node without the SDK
     os.environ.setdefault("ROCM_PATH", str(root))
@@ -315,12 +318,12 @@ def pin_per_rank_build_dirs() -> None:
         dace.Config.set("cache_distaware", value=True)
     cache_root = os.environ.get("DACE_BUILD_CACHE_DIR")
     if cache_root is None:
-        shm = pathlib.Path("/dev/shm")
-        cache_root = str(
-            shm / f"dace_build_cache_{getpass.getuser()}"
-            if shm.is_dir() and os.access(shm, os.W_OK)
-            else pathlib.Path.home() / ".cache/dace/build_cache"
-        )
+        tmpfs = paths.node_tmpfs_root(DACE_BUILD_CACHE_NAME)
+        try:
+            tmpfs.mkdir(parents=True, exist_ok=True)
+            cache_root = str(tmpfs)
+        except OSError:
+            cache_root = str(pathlib.Path.home() / ".cache" / "dace" / DACE_BUILD_CACHE_NAME)
     # An operator-set root is partitioned per rank too, like the build folder.
     root = pathlib.Path(cache_root)
     if root.name != f"rank{rank}":

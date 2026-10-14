@@ -17,6 +17,7 @@ import pathlib
 import pandas as pd  # pyright: ignore[reportMissingTypeStubs] -- pandas ships none
 import yaml
 
+from hpcagent_bench import paths
 from hpcagent_bench.stats.population import EPISODE_RECORD
 
 __all__ = [
@@ -36,7 +37,7 @@ __all__ = [
 ]
 
 #: The shipped cards.
-COST_MODELS = pathlib.Path(__file__).resolve().parents[1] / "envs" / "cost_models.yaml"
+COST_MODELS = paths.ENVS_DIR / "cost_models.yaml"
 
 #: The card a figure prices with when none is named: the paper's default reading, cache reads at 0.1.
 DEFAULT_COST_MODEL: str = "billed"

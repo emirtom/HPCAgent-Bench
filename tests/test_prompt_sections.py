@@ -18,14 +18,14 @@ from collections.abc import Callable
 
 import pytest
 
-from hpcagent_bench import config
+from hpcagent_bench import config, paths
 from hpcagent_bench.cli import main as cli_main
 from hpcagent_bench.harness import prompt_sections
 from hpcagent_bench.harness.prompts import PromptConfig, build_prompt
 from hpcagent_bench.harness.service import service_prompt
 from hpcagent_bench.harness.task import Task
 
-PROMPTS = prompt_sections.PROMPTS_DIR
+PROMPTS = paths.PROMPTS_DIR
 TASK = Task("gemm", "restricted", "c")
 JUDGE = "http://judge:8000"
 INCLUDE = re.compile(r'\{%-?\s*(?:include|from)\s+"([^"]+)"')

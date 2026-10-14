@@ -43,7 +43,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from hpcagent_bench import config
+from hpcagent_bench import config, paths
 
 __all__ = [
     "APPTAINER_INSTALLER",
@@ -305,7 +305,7 @@ def local_run_command(
     spelling = SPELLINGS[chosen]
     if spelling.kind in ("srun_env", "none"):
         return list(inner)
-    repo = repo_root or str(pathlib.Path.cwd())
+    repo = repo_root or str(paths.repo_root())
     argv: list[str] = [chosen, *spelling.verb, *spelling.gpu.get(hardware, ())]
     for key, value in collect_env(hardware):
         argv += [spelling.env_flag, f"{key}={value}"]

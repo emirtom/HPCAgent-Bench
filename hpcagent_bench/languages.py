@@ -841,7 +841,7 @@ def rocm_driver(name: str) -> str:
     that would shadow the one every other build uses. Resolved by its canonical location so the leg
     works on a ROCm box without an env pin and without putting ROCm on anyone's ``PATH``.
     """
-    root = pathlib.Path(os.environ.get("ROCM_PATH") or "/opt/rocm")
+    root = paths.rocm_root()
     for rel in ROCM_LLVM_BIN:
         candidate = root / rel / name
         if os.access(candidate, os.X_OK):

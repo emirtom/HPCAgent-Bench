@@ -31,7 +31,7 @@ from typing import Any
 
 import pytest
 
-from hpcagent_bench import config, experiments, observations_extract, protocols
+from hpcagent_bench import config, experiments, observations_extract, paths, protocols
 from hpcagent_bench.anticheat import Effect, Finding, Judgement
 from hpcagent_bench.harness import grade_under, recording, results_db, scoring, service, timing
 from hpcagent_bench.harness.envelope import Submission
@@ -43,7 +43,7 @@ from hpcagent_bench.stats import score_rule
 from tests.conftest import RANK_ENV_VARS
 from tests.rerun_stubs import pass_reruns
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 KERNEL = "scaled_add"  # the smallest fast C kernel: one FMA per element
 SETUP = "llr40-qwen38-c"
 RUN = f"{SETUP}.n0.p0.w0"

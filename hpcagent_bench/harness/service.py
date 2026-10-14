@@ -96,7 +96,7 @@ from hpcagent_bench.harness.scoring import (
 )
 from hpcagent_bench.harness.task import GPU_LANGUAGES, Task, grading_residency, setup_declared_host_only
 from hpcagent_bench.harness.timing import local_repeat, measurement_baseline, measurement_repeat
-from hpcagent_bench.harness.tools import DEFAULT_RANK
+from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
@@ -2140,7 +2140,7 @@ def enable_crash_traces() -> None:
 
 def serve(
     host: str = "0.0.0.0",  # noqa: S104 -- the judge serves the agents of its allocation
-    port: int = 8800,
+    port: int = DEFAULT_JUDGE_PORT,
     cfg: RunConfig | None = None,
     rank: int = DEFAULT_RANK,
 ) -> int:

@@ -417,7 +417,7 @@ def grading_plan(keep: Sequence[str], *, devices: bool = True) -> SealPlan | Non
         "/tmp",
         "/dev/shm",
         job_tmpdir(roots),
-        *(f"{root}/hpcagent_bench/harness/hidden_tests" for root in roots),
+        *(f"{root}/{paths.HIDDEN_TESTS_REL}" for root in roots),
         *mounted_seeds,
         *(f"{root}/.cache" for root in roots),
         *(os.environ.get(name, "") for name in ("RUN_ROOT", "RUN_DIR", "HPCAGENT_BENCH_GENERATED_CACHE")),

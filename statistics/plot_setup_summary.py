@@ -35,7 +35,7 @@ import matplotlib.patches
 import numpy as np
 import pandas as pd
 
-from hpcagent_bench import packets, studies, study_tags
+from hpcagent_bench import packets, paths, studies, study_tags
 from hpcagent_bench.stats import cost, palette, population, rules
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import per_kernel
@@ -292,8 +292,8 @@ def main() -> None:
     parser.add_argument("observations", type=pathlib.Path)
     population.add_selection_arguments(parser, experiment_help="setup prefix naming ONE experiment (required)")
     parser.add_argument("--label", default="", help="figure title; defaults to the experiment's display name")
-    parser.add_argument("--out", type=pathlib.Path, default=pathlib.Path("figures/setup_summary.pdf"))
-    parser.add_argument("--table", type=pathlib.Path, default=pathlib.Path("data/setup_summary.csv"))
+    parser.add_argument("--out", type=pathlib.Path, default=paths.ROOT / paths.PLOTS_DIR / "setup_summary.pdf")
+    parser.add_argument("--table", type=pathlib.Path, default=paths.ROOT / paths.RESULTS_DIR / "setup_summary.csv")
     cost.add_arguments(parser)
     args = parser.parse_args()
 

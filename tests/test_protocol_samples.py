@@ -3,19 +3,18 @@
 """The samples of docs/extending/protocol.md are valid: a sample is a fenced block after a
 ``<!-- sample: <name> -->`` line, checked here against the code that would read it."""
 
-import pathlib
 import re
 import shlex
 
 import yaml
 
-from hpcagent_bench import protocols, tags
+from hpcagent_bench import paths, protocols, tags
 from hpcagent_bench.cluster import env_spec
 from hpcagent_bench.protocols import PROTOCOLS
 from hpcagent_bench.spec import KERNELS
 from hpcagent_bench.study_tags import baselines_of, experiments_of
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 PAGE = REPO / "docs" / "extending" / "protocol.md"
 SAMPLE = re.compile(r"<!-- sample: (.+?) -->\n```[a-z]*\n(.*?)```", re.DOTALL)
 SAMPLES = dict(SAMPLE.findall(PAGE.read_text(encoding="utf-8")))

@@ -12,10 +12,11 @@ from collections.abc import Callable, Mapping
 
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.cluster import systems
 
 SHIPPED = systems.load_systems({})
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = paths.ROOT
 
 
 def site_environment(values: dict[str, str]) -> Callable[[Mapping[str, str]], dict[str, str]]:

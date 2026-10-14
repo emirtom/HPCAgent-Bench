@@ -16,6 +16,7 @@ from collections.abc import Mapping
 
 from hpcagent_bench import config, fused
 from hpcagent_bench.harness import recording, results_db
+from hpcagent_bench.run_layout import TOKENS_NAME, WORKER_GLOB
 
 __all__ = [
     "ENDED_BY",
@@ -32,7 +33,7 @@ __all__ = [
 ]
 
 #: Every worker's record under a job directory: ``agents/node-<n>/problem-<p>-worker-<w>/tokens.json``.
-RECORD_GLOB = "agents/*/*/tokens.json"
+RECORD_GLOB = f"{WORKER_GLOB}/{TOKENS_NAME}"
 #: The oldest ``token_fold`` whose counts are trusted (a lower one double-counted reasoning).
 MIN_TOKEN_FOLD = 2
 #: record key -> ``episodes`` column, for how the episode ended (besides its ``result`` text).

@@ -16,10 +16,10 @@ import tomllib
 import pytest
 import yaml
 
-from hpcagent_bench import config
+from hpcagent_bench import config, paths
 from hpcagent_bench import harbor as A
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 IMAGES_ENV = REPO / "containers" / "images" / "images.env"
 
 #: images.env role prefix -> the config.yaml image it publishes. cpu has no row: its images are

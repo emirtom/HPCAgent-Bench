@@ -7,11 +7,12 @@ check that the copy is the schema of the relayout the judge parses requests with
 """
 
 import json
-import pathlib
 
 from relayout.requests import requests_schema
 
-VENDORED = pathlib.Path(__file__).parents[1] / "agent/hpcagent_agent/tools/requests_schema.json"
+from hpcagent_bench import paths
+
+VENDORED = paths.ROOT / "agent/hpcagent_agent/tools/requests_schema.json"
 
 
 def test_the_agent_tool_ships_relayouts_request_schema() -> None:

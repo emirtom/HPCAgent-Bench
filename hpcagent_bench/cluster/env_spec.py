@@ -25,8 +25,10 @@ from typing import Annotated
 import yaml
 from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr, StringConstraints, TypeAdapter
 
+from hpcagent_bench import paths
+
 #: The checkout's ``experiments/``: the setup specification and its env layers.
-EXPERIMENTS = pathlib.Path(__file__).resolve().parents[2] / "experiments"
+EXPERIMENTS = paths.EXPERIMENTS_DIR
 SPEC = EXPERIMENTS / "setups.yaml"
 LAYERS = EXPERIMENTS / "layers"
 COMMON = LAYERS / "common.env"

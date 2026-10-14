@@ -1640,7 +1640,7 @@ def launch(build_argv: Callable[[], list[str]]) -> int | None:
         return None
     print(f"launching: {shlex.join(cmd)}", file=sys.stderr)
     env = config.environment()
-    env.setdefault(HIDDEN_TESTS_ENV, str(pathlib.Path(__file__).resolve().parent / "harness" / "hidden_tests"))
+    env.setdefault(HIDDEN_TESTS_ENV, str(paths.ROOT / paths.HIDDEN_TESTS_REL))
     return subprocess.run(cmd, check=False, env=env).returncode
 
 

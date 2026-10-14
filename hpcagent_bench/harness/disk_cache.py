@@ -128,7 +128,7 @@ DATA_SOURCES = (
     "harness/disk_cache.py",
     "harness/grading.py",
     "harness/hidden_seeds.py",
-    "harness/hidden_tests",
+    paths.HIDDEN_TESTS_REL.removeprefix(f"{paths.PACKAGE.name}/"),
     "harness/rep_variation.py",
     "harness/scoring.py",
     "translators/numpyto_common",

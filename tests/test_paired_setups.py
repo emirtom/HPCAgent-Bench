@@ -20,12 +20,13 @@ from types import ModuleType
 import pandas as pd
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.stats import population, summary
 from tests.fresh_module import module_at
 
-CLUSTER_DIR = pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "cluster"
+CLUSTER_DIR = paths.ROOT / "hpcagent_bench" / "cluster"
 #: paired_setups.py lives in statistics/.
-STATISTICS = pathlib.Path(__file__).resolve().parents[1] / "statistics"
+STATISTICS = paths.ROOT / "statistics"
 
 #: One kernel tag the fixtures draw names from, so a coverage count has something to be over.
 KERNELS = ("k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8")

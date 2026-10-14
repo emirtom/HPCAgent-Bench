@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from hpcagent_bench import languages, protocols, recorded_rows
+from hpcagent_bench import languages, paths, protocols, recorded_rows
 from hpcagent_bench.harness import (
     denominator,
     grade_under,
@@ -49,7 +49,7 @@ from tests.fresh_module import module_at
 from tests.results_rows import cells, grades
 from tests.sqlite_closing import connect
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 
 def load(name: str, relative: str) -> types.ModuleType:

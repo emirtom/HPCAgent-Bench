@@ -11,10 +11,11 @@ import sys
 
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.cluster import jobs
 from hpcagent_bench.harness import grade_under, prepare
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 # the rank
 

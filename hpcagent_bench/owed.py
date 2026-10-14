@@ -44,6 +44,7 @@ from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.harness.recording import slot_of
 from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
+from hpcagent_bench.run_layout import TOKENS_NAME, WORKER_GLOB
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
 __all__ = [
@@ -86,7 +87,7 @@ __all__ = [
 BUDGET_RETURNCODES = frozenset({RC_TIMEOUT, RC_TOKEN_BUDGET})
 
 #: Where a job's worker episodes live under its run directory (its judge shards: :func:`merge_results.judge_shards`).
-EPISODE_GLOB = "agents/node-*/problem-*-worker-*/tokens.json"
+EPISODE_GLOB = f"{WORKER_GLOB}/{TOKENS_NAME}"
 
 #: What run_cluster.sh stages for a job's agents, beside the job's run directory.
 LAUNCH_DIR = ".agent-launch"

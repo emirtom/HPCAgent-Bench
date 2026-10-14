@@ -11,18 +11,17 @@ compared against each other.
 """
 
 import math
-import pathlib
 import types
 
 import pandas as pd
 import pytest
 
-from hpcagent_bench import study_tags
+from hpcagent_bench import paths, study_tags
 from hpcagent_bench.stats import palette
 from hpcagent_bench.stats import style as plotstyle
 from tests.fresh_module import module_at
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 
 def load_script() -> types.ModuleType:

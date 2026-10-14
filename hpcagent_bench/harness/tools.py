@@ -8,7 +8,7 @@
 * :meth:`JudgeClient.submit`   -> ``POST /submit``            (full grade, recorded)
 * :meth:`JudgeClient.profile`  -> ``POST /profile``           (diagnostics)
 
-The judge URL comes from ``JUDGE_URL`` (``http://judge:8800`` in the container topology) or
+The judge URL comes from ``JUDGE_URL`` (``http://judge:<DEFAULT_JUDGE_PORT>`` in the container topology) or
 defaults to localhost. Source goes inline (``Submission(source=...)``) or as a shared-folder path
 (``Submission(source_file=...)``, basename ``<kernel>.<ext>``), never both.
 
@@ -27,6 +27,7 @@ from email.message import Message
 from typing import cast
 
 from hpcagent_agent.tools.http_json import (
+    DEFAULT_JUDGE_PORT,
     DEFAULT_JUDGE_URL,
     DEFAULT_RANK,
     identity_fields,
@@ -37,6 +38,7 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
+    "DEFAULT_JUDGE_PORT",
     "DEFAULT_RANK",
     "JsonObject",
     "JsonValue",

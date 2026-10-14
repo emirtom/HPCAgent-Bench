@@ -10,20 +10,17 @@ search path, or a file path, to render that instead. ``prompt.sections.<key>`` i
 ``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`` in the environment set it, the environment winning."""
 
 import functools
-import pathlib
 import re
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from hpcagent_bench import config
+from hpcagent_bench import config, paths
 from hpcagent_bench.spec import as_block
 
 __all__ = [
     "ENV_PREFIX",
     "OFF_WORDS",
     "ON_WORDS",
-    "PACKAGE_DIR",
-    "PROMPTS_DIR",
     "TOP_LEVEL",
     "SectionValue",
     "aliases",
@@ -34,9 +31,6 @@ __all__ = [
     "section_templates",
 ]
 
-PROMPTS_DIR = pathlib.Path(__file__).parent / "prompts"
-#: Where ``tools/<tool>.md`` ships; the loader's last root, so an include of ``tools/x.md`` resolves here.
-PACKAGE_DIR = pathlib.Path(__file__).parent.parent
 
 #: The two top-level templates are chosen by ``prompt.template``, not one of the sections they include.
 TOP_LEVEL = frozenset({"task.j2", "service_task.j2"})
@@ -61,9 +55,9 @@ def key_of(template: str) -> str:
 @functools.lru_cache(maxsize=1, typed=True)
 def section_templates() -> Mapping[str, str]:
     """Section key -> the template name its ``{% include %}`` uses, for every built-in section."""
-    names = [path.relative_to(PROMPTS_DIR).as_posix() for path in sorted(PROMPTS_DIR.rglob("*.j2"))]
+    names = [path.relative_to(paths.PROMPTS_DIR).as_posix() for path in sorted(paths.PROMPTS_DIR.rglob("*.j2"))]
     names = [name for name in names if name not in TOP_LEVEL]
-    names += [f"tools/{path.name}" for path in sorted((PACKAGE_DIR / "tools").glob("*.md"))]
+    names += [f"tools/{path.name}" for path in sorted((paths.PACKAGE / "tools").glob("*.md"))]
     return MappingProxyType({key_of(name): name for name in names})
 
 
