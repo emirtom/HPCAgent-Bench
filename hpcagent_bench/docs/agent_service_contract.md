@@ -108,7 +108,7 @@ modes, their prompt templates and the fallback for an agent that never submits a
   residency passes device pointers, so transfers stay outside the timed region.
 - `/submit` is graded as the final grade is, under the credited protocol (`mw4x5`): 4 timed inputs, and on
   each one every side runs `measurement.warmup` untimed reps, then 5 timed reps; values
-  cycle through the cell's pool of 4 seeded draws (`rep_variation.pool_seeds`), and every run's
+  cycle through the cell's pool of 6 seeded draws, one per call (`rep_variation.pool_seeds`), and every run's
   outputs are graded against its own draw.
 - Speedup per timed input is the baseline median over the submission median, credited only when a
   one-sided Mann-Whitney U test passes alpha 0.1, else 1

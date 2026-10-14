@@ -210,6 +210,7 @@ kernel is **owed**, classed by how its latest episode ended (`tokens.json` exit 
 | --- | --- | --- |
 | `budget` | the agent's own token cap or timeout (124 / 125) | `TOKEN_SCALE`/`TIME_SCALE` times the 1x (usually 2) |
 | `infra` | the job (wall clock, node or judge failure), unknown exit, a `cancelled` marker, no episode, or a clean exit with no grade | 1x |
+| `task` | a delivered run whose submission a final grade found failing every input after the kernel's task changed (final grade reason `task: ...`, read from the job's shards and from `owed collect --regrades <results DB or dir>`), until a job delivers the run again | 1x |
 
 The 1x is the study's policy budget, raised to the setup's own unscaled budget where it ran with
 more, so a second budget rerun does not compound:

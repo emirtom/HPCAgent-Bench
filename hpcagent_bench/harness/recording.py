@@ -36,7 +36,7 @@ from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.harness.task import RecordDevice, Task
-from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.spec import BenchSpec, task_fingerprint
 from hpcagent_bench.support.bindings.contract import graded_datatype
 from hpcagent_bench.support.helpers.sparse.request import UNCOVERED
 
@@ -554,15 +554,18 @@ def now_ms() -> int:
 
 
 def stamp_values(task: Task, preset: str, datatype: str, score: Score | None) -> dict[str, results_db.Value]:
-    """How a grade was graded: size, datatype, source mode, protocol stamps, machine and code. The
-    datatype is the one the kernel ran in (a storage-only precision the manifest declares, else the
-    configured one): it is part of the grade's identity."""
+    """How a grade was graded: size, datatype, source mode, protocol stamps, machine, code and task
+    (:func:`~hpcagent_bench.spec.task_fingerprint`). The datatype is the one the kernel ran in (a
+    storage-only precision the manifest declares, else the configured one): it is part of the grade's
+    identity."""
+    spec = BenchSpec.load(task.kernel)
     values: dict[str, results_db.Value] = {
         "preset": preset,
-        "datatype": graded_datatype(BenchSpec.load(task.kernel), datatype),
+        "datatype": graded_datatype(spec, datatype),
         "source_mode": task.source_mode,
         "cpu": osinfo.cpu_model(),
         "commit_sha": commit_sha(),
+        "task_hash": task_fingerprint(spec.short_name),
     }
     if score is not None:
         values |= {
@@ -787,7 +790,7 @@ def record_final(
     recorded submission, stamped with the same size, datatype, source mode, machine and commit), with
     one ``grade_cells`` row per timed input; returns its id."""
     stamp = stamp_values(task, preset, datatype, None)
-    stamp = {name: stamp[name] for name in ("preset", "datatype", "source_mode", "commit_sha")}
+    stamp = {name: stamp[name] for name in ("preset", "datatype", "source_mode", "commit_sha", "task_hash")}
     values = {**final.values, **stamp, "node": socket.gethostname(), "of_grade_id": of_grade}
     grade_id, stamp_ms = results_db.add_grade(conn, run, kernel, "final", ts_ms=now_ms(), values=values)
     results_db.add_cells(conn, grade_id, final.cells)
@@ -875,7 +878,7 @@ def record_trajectory(
         "datatype": graded_datatype(BenchSpec.load(task.kernel), datatype),
     }
     stamp |= {"source_mode": source_mode, "baseline": baseline}
-    stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha()}
+    stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha(), "task_hash": task_fingerprint(kernel)}
     stamps = trajectory_stamps(points, now_ms())
     with contextlib.closing(connect(path)) as conn:
         run = open_episode(conn, episode_id, setup_language=language)
