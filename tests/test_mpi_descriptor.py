@@ -610,7 +610,7 @@ def test_from_submission_default_location_applies() -> None:
 
 def test_envelope_rejects_bad_location() -> None:
     place = {"action": "place", "array": "A", "on": "gpu"}
-    with pytest.raises(ValueError, match=r"on must be one of \['host', 'device'\]"):
+    with pytest.raises(ValueError, match=r"\non\n  Input should be 'host' or 'device'"):
         Submission.from_obj({"language": "c", "source": "x", "requests": {"operations": [place]}})
 
 
