@@ -605,6 +605,7 @@ GRADE_ROWS = f"""
 SELECT g.*, r.label, r.slot, r.job AS episode_job, r.setup, a.language AS setup_language, a.harness AS setup_harness,
        a.packet AS setup_packet, a.model AS setup_model, gs.hash AS source_hash, gs.language AS source_language,
        (SELECT c.shape FROM grade_cells c WHERE c.grade_id = g.id AND c.cell = 0) AS cell_shape,
+       EXISTS (SELECT 1 FROM grade_cells c WHERE c.grade_id = g.id AND c.suspect = 1) AS cell_suspect,
        EXISTS (SELECT 1 FROM disqualifications d WHERE d.grade_id = g.id) AS disqualified
 FROM grades g
 JOIN episodes r ON r.id = g.episode_id
@@ -757,8 +758,17 @@ def verdict_row(db: Database, grade: Mapping[str, Any], index: int) -> dict[str,
             "tokens": "",
             "route": "",
             "timing_suspect": rederived_row_suspect(grade, str(grade["cell_shape"] or "")) if credited else "",
+            # not an observation column (the writers drop it): what apply_final_regrades must keep
+            "judgement_suspect": int(judgement_flagged(grade)) if credited else 0,
         }
     )
+
+
+def judgement_flagged(grade: Mapping[str, Any]) -> bool:
+    """Whether ``grade`` is suspect by a row-level anti-cheat flag (``recording.credit_values``: a gate's
+    FLAG, e.g. the sanitizer's undefined behaviour) rather than by a timed cell: no re-timing clears it.
+    A grade that also has a suspect cell is read as cell-suspect -- the row does not say which raised it."""
+    return bool(grade["suspect"]) and not grade["cell_suspect"]
 
 
 def before_the_c_fix(grade: Mapping[str, Any], c_fix_ms: int) -> bool:
@@ -1115,7 +1125,7 @@ def rederived_row_suspect(row: Mapping[str, Any], shape: str) -> object:
     override, a grade the flag never marked, and a grade with no input."""
     stored = row["suspect"]
     spec = floor_override(str(row["kernel"] or ""))
-    if not stored or spec is None or not shape or row["device_runtime"]:
+    if not stored or judgement_flagged(row) or spec is None or not shape or row["device_runtime"]:
         return stored
     native = float(row["native_ns"] or 0)
     recorded = row["device_index"]
@@ -1277,7 +1287,9 @@ def apply_final_regrades(
         }
         counts[new["timing_reduction"]] += 1
         if status == RETIMED:
-            changed.update(speedup=new["s_i"], timing_suspect=int(not new.get("n_credited")))
+            # a row-level anti-cheat flag (judgement_flagged) is no timing fact: the re-timing keeps it
+            suspect = bool(row.get("judgement_suspect")) or not new.get("n_credited")
+            changed.update(speedup=new["s_i"], timing_suspect=int(suspect))
             counts["replaced"] += 1
         else:
             changed.update(row_kind="attempt", speedup="", reason=new["regrade_reason"])
