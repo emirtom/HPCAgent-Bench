@@ -41,6 +41,7 @@ __all__ = [
     "FOREIGN_SETUP",
     "GRADED_WITHOUT_CLIENT",
     "IMPLEMENTED",
+    "JUDGE_FAULT_CAUSE",
     "JUDGE_UNREACHABLE",
     "JUDGE_UNREACHABLE_CAUSE",
     "PROBLEMS_ENV",
@@ -65,6 +66,7 @@ __all__ = [
     "forward",
     "graded_nothing",
     "health",
+    "judge_failed",
     "preview_refusal",
     "profile",
     "read_route",
@@ -129,6 +131,9 @@ JUDGE_UNREACHABLE_CAUSE = "judge_unreachable"
 #: search, stop calling it" from "the search infra hiccuped, maybe worth one more query", and
 #: search.py's PROMPT needs the distinction to tell it which.
 SEARCH_NOT_PROVISIONED = 503
+#: The ``cause`` the judge puts on a 500 it answers for its own failure before recording any grade
+#: (``hpcagent_bench.harness.service.JUDGE_FAULT_CAUSE``): it spends no single submission.
+JUDGE_FAULT_CAUSE = "judge_fault"
 
 
 async def send_upstream(method: str, url: str, body: bytes, setup: str = "") -> httpx.Response:
@@ -516,6 +521,15 @@ def graded_nothing(status: int) -> bool:
     return HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR or status == JUDGE_UNREACHABLE
 
 
+def judge_failed(upstream: httpx.Response) -> bool:
+    """Whether the judge answered a 500 naming its own failure (:data:`JUDGE_FAULT_CAUSE`): no grade was
+    recorded, so a retry is not a second submission."""
+    if upstream.status_code != HTTPStatus.INTERNAL_SERVER_ERROR:
+        return False
+    answer = body_object(upstream.content)
+    return answer is not None and answer.get("cause") == JUDGE_FAULT_CAUSE
+
+
 async def terminal_grade(request: Request) -> Response:
     """``/submit``: the held-out grade, relayed as the verdict alone.
 
@@ -538,7 +552,7 @@ async def terminal_grade(request: Request) -> Response:
         if key is not None and graded_nothing(exc.status_code):
             SPENT_SUBMISSIONS.discard(key)
         raise
-    if key is not None and graded_nothing(upstream.status_code):
+    if key is not None and (graded_nothing(upstream.status_code) or judge_failed(upstream)):
         SPENT_SUBMISSIONS.discard(key)
     if upstream.status_code != HTTPStatus.OK:
         return relay(upstream)  # a refusal describes the request, not the answer

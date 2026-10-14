@@ -1266,6 +1266,7 @@ def scaling_protocol_grade(
             repeat=timing.measurement_repeat(),
             fuzz=protocol.hidden,
             inputs=inputs,
+            hidden=protocol.hidden,
         )
     if not result.correct or len(result.cells) != len(inputs):
         return result, curves, None

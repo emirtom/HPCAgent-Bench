@@ -167,6 +167,7 @@ def live_row(**changes: object) -> sqlite3.Row:
     values: dict[str, Any] = {
         "kernel": KERNEL,
         "suspect": 1,
+        "cell_suspect": 1,  # the floor flags a timed cell
         "credited_speedup": RATIOS[0],
         "baseline_ns": BASELINE_NS,
         "native_ns": NATIVE_NS,
@@ -200,3 +201,9 @@ def test_a_live_s1232_submission_is_rederived_from_its_cell_shape() -> None:
 )
 def test_a_live_flag_the_override_does_not_explain_stands(changes: dict[str, Any], shape: str) -> None:
     assert extract.rederived_row_suspect(live_row(**changes), shape) == 1
+
+
+def test_a_row_level_anti_cheat_flag_is_never_rederived_away() -> None:
+    """A grade suspect with no suspect cell was flagged by a gate (e.g. the sanitizer's undefined
+    behaviour), not by the floor: re-deriving the floor must not clear it."""
+    assert extract.rederived_row_suspect(live_row(cell_suspect=0), '{"LEN_2D": 12070, "VLEN": 8}') == 1

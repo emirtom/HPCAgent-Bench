@@ -27,7 +27,7 @@ import numpy as np
 from hpcagent_bench.harness import mpi_gang, mpi_shard_driver
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
 from hpcagent_bench.harness.mpi_wire import pack_infile, unpack_outfile
-from hpcagent_bench.harness.native_call import KernelData
+from hpcagent_bench.harness.native_call import GRADING_SECRET_ENV_PREFIXES, KernelData
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import kernel_library_path, mpi_symbol
@@ -217,6 +217,9 @@ def launch(
     launch_env = {**os.environ}
     if env:
         launch_env.update({k: str(v) for k, v in env.items()})
+    # The ranks load the submission: never hand them the seeds (native_call scrubs its child the same
+    # way). The gang relay forwards this environment, so its ranks never see them either.
+    launch_env = {k: v for k, v in launch_env.items() if not k.startswith(GRADING_SECRET_ENV_PREFIXES)}
     launch_env.setdefault("HWLOC_COMPONENTS", HWLOC_NO_GPU_PLUGINS)
     # Written by the gang launcher (mpi_gang.main) only when the RELAY ended the launch.
     fault_file = Path(outfile).with_name(Path(outfile).name + ".launch-fault")

@@ -3,6 +3,7 @@
 """The scaling judge's gang launcher: placement per P, the one srun it builds, the env it hands on."""
 
 import os
+import pathlib
 import sys
 from pathlib import Path
 
@@ -150,6 +151,20 @@ def test_a_gang_that_cannot_place_the_launch_reports_no_nodes(monkeypatch, ranks
     if unset:
         monkeypatch.delenv(unset)
     assert mpi_gang.launch_nodes(GANG_LAUNCHER, ranks) is None
+
+
+def test_the_ranks_never_inherit_the_seed_variables(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    """The ranks load the submission: a seed variable in their environment would let it regenerate the
+    held-out inputs. The launch env drops them (fork launcher and the gang relay, which forwards it)."""
+    monkeypatch.setenv("HPCAGENT_BENCH_SEEDS_FIRST", "1234")
+    monkeypatch.setenv("HPCAGENT_BENCH_MPI_RANKS", "2")
+    outfile = tmp_path / "out"
+    # The "launcher" writes the environment it was given into the outfile: <launcher> <ranks> <program...>.
+    launcher = ["/bin/sh", "-c", 'env > "$2"', "launcher"]
+    mpi_call.launch(launcher, 2, [str(outfile)], outfile, timeout=30, env={"HPCAGENT_BENCH_SEEDS_SECOND": "5"})
+    seen = outfile.read_text(encoding="utf-8")
+    assert "HPCAGENT_BENCH_MPI_RANKS=2" in seen
+    assert "HPCAGENT_BENCH_SEEDS_" not in seen
 
 
 def test_a_launch_without_its_own_budget_has_the_configured_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

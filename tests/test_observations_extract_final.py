@@ -194,6 +194,22 @@ def test_a_re_timed_submission_takes_the_final_grade_and_keeps_no_one_input_spee
     assert counts == ONE_REPLACED
 
 
+def test_a_re_timed_submission_keeps_a_row_level_anti_cheat_flag(tmp_path: pathlib.Path) -> None:
+    """A live grade a gate flagged (the sanitizer's undefined behaviour: no suspect cell) is credited
+    and marked suspect; the final grade re-times its inputs but does not clear the gate's flag."""
+    cells_pass(tmp_path / "v5", item(tmp_path, 10), grading(2.0, 4.0, 1.0, 2.0), regrade_ts=1)
+    by_ts, counts, _ = extracted([{**submission(10), "judgement_suspect": 1}], str(tmp_path / "v5"))
+    assert (by_ts[10]["grade_final_status"], by_ts[10]["timing_suspect"]) == ("graded", 1)
+    assert counts["replaced"] == 1
+
+
+def test_a_graded_row_says_whether_a_gate_or_a_cell_flagged_it() -> None:
+    """Only a suspect grade with no suspect cell is flagged by a gate."""
+    assert extract.judgement_flagged({"suspect": 1, "cell_suspect": 0})
+    assert not extract.judgement_flagged({"suspect": 1, "cell_suspect": 1})
+    assert not extract.judgement_flagged({"suspect": 0, "cell_suspect": 0})
+
+
 def test_an_unstamped_row_the_final_pass_re_timed_is_not_dropped_for_want_of_a_run_regrade(
     tmp_path: pathlib.Path,
 ) -> None:
