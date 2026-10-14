@@ -196,13 +196,31 @@ def fold_const_binop(v: ast.BinOp, consts: dict[str, ModuleConst]) -> ModuleCons
 
 
 def shadowed_names(fn: ast.FunctionDef, input_args: list[str]) -> set[str]:
-    """Names a module constant must not replace: the kernel's parameters and every local it assigns."""
+    """Names a module constant must not replace: the kernel's parameters and every local it binds.
+
+    Every binding form counts (``=`` with tuple / starred unpacks, ``+=``, annotated, ``for``,
+    ``:=``, comprehension, ``with ... as``): a missed one folds the module value over the local
+    rebinding, a silently wrong number. A subscript store (``W[0] = ...``) binds nothing.
+    """
     shadowed = {a.arg for a in fn.args.args} | set(input_args)
+
+    def bind(target: ast.expr | None) -> None:
+        if isinstance(target, ast.Name):
+            shadowed.add(target.id)
+        elif isinstance(target, ast.Starred):
+            bind(target.value)
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for elt in target.elts:
+                bind(elt)
+
     for node in ast.walk(fn):
         if isinstance(node, ast.Assign):
             for t in node.targets:
-                if isinstance(t, ast.Name):
-                    shadowed.add(t.id)
+                bind(t)
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign, ast.For, ast.NamedExpr, ast.comprehension)):
+            bind(node.target)
+        elif isinstance(node, ast.withitem):
+            bind(node.optional_vars)
     return shadowed
 
 
