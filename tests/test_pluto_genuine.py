@@ -65,13 +65,15 @@ PLUTO_CAPABILITY = flags.pluto_capability()
 NO_POLYCC = "polycc absent: the Pluto toolchain is built from source, see containers/images/lib/build-pluto.sh"
 
 
-
 def pluto_binding(path: pathlib.Path, *args: tuple[str, str]) -> None:
     """A ``_pluto_binding.json`` at ``path`` with ``args`` as (name, kind) in call order."""
     write_binding(
-        BindingFile(kernel="k", abi="pluto", args=[BindingArg(name=n, kind=k) for n, k in args], symbols={}, sources={}),
+        BindingFile(
+            kernel="k", abi="pluto", args=[BindingArg(name=n, kind=k) for n, k in args], symbols={}, sources={}
+        ),
         path,
     )
+
 
 def write_scop(cpp_backend: pathlib.Path, base: str = "mm", fptype: str = "fp64", text: str = SCOP) -> pathlib.Path:
     """Emit ``<base>_<fptype>_pluto_input.c`` where the transform step looks for it."""
@@ -503,7 +505,13 @@ def test_call_args_marshals_in_polyccs_order_not_the_canonical_abis(tmp_path, mo
     """The transformed function takes each size SYMBOL before the VLA array it dimensions, so the
     canonical order would hand a pointer to an ``int64_t`` parameter -- measured elsewhere in this
     tree as an immediate SIGSEGV, which is the good outcome; the bad one is plausible numbers."""
-    pluto_binding(tmp_path / "mm_fp64_pluto_binding.json", ("N", "int"), ("A", "ptr_double"), ("B", "ptr_double"), ("C", "ptr_double"))
+    pluto_binding(
+        tmp_path / "mm_fp64_pluto_binding.json",
+        ("N", "int"),
+        ("A", "ptr_double"),
+        ("B", "ptr_double"),
+        ("C", "ptr_double"),
+    )
     # Canonical C ABI order: sorted pointers, then sorted scalars. Deliberately NOT polycc's.
     canonical = [fake_arg("A", "ptr"), fake_arg("B", "ptr"), fake_arg("C", "ptr"), fake_arg("N", "scalar")]
     assert [a.name for a in canonical] != ["N", "A", "B", "C"], "the orders must differ, or this proves nothing"

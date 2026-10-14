@@ -38,13 +38,15 @@ FAKE_KERNEL = '#include "HEADER"\n__global__ void kernel0(double *a, double *aa,
 FAKE_HEADER = "__global__ void kernel0(double *a, double *aa, int LEN_2D, int c0);\n"
 
 
-
 def pluto_binding(path: pathlib.Path, *args: tuple[str, str]) -> None:
     """A ``_pluto_binding.json`` at ``path`` with ``args`` as (name, kind) in call order."""
     write_binding(
-        BindingFile(kernel="k", abi="pluto", args=[BindingArg(name=n, kind=k) for n, k in args], symbols={}, sources={}),
+        BindingFile(
+            kernel="k", abi="pluto", args=[BindingArg(name=n, kind=k) for n, k in args], symbols={}, sources={}
+        ),
         path,
     )
+
 
 def fake_pluto(cpp_backend: pathlib.Path, base: str) -> list[pathlib.Path]:
     out = cpp_backend / f"{SYMBOL}_pluto.c"

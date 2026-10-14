@@ -698,7 +698,11 @@ def test_a_crash_under_an_armed_cap_names_the_cap() -> None:
 def score_memhog_gemm() -> Score:
     """:data:`MEMHOG_GEMM_C` scored through the real judge path, for :func:`fresh_interpreter`."""
     return score(
-        Submission(language="c", source=MEMHOG_GEMM_C), Task("gemm", "restricted", "c"), preset="S", repeat=1, hidden=False
+        Submission(language="c", source=MEMHOG_GEMM_C),
+        Task("gemm", "restricted", "c"),
+        preset="S",
+        repeat=1,
+        hidden=False,
     )
 
 
