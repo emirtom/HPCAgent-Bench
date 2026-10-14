@@ -40,6 +40,7 @@ from hpcagent_bench.harness import precision_casts, timing
 from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots
 from hpcagent_bench.harness.precision_casts import CastPlan, HostCasts, Regroup, storage_view_dtype
 from hpcagent_bench.harness.task import setup_declared_host_only
+from hpcagent_bench.support.array_module import is_array
 from hpcagent_bench.support.bindings.contract import WORKSPACE_DTYPE, Arg, Binding, index_base
 from hpcagent_bench.units import BYTES_PER_GIB, BYTES_PER_KIB, NS_PER_MS
 
@@ -173,6 +174,8 @@ __all__ = [
 
 if TYPE_CHECKING:
     from _cffi_backend import Lib
+
+    from hpcagent_bench.harness.rep_variation import InputRecipe
 
 #: Scratch-workspace buffers are aligned to this many bytes (ABI Sec. 11) so a kernel
 #: may assume an aligned base for vector loads/stores.
@@ -1342,7 +1345,8 @@ def _call_native_impl(
 
     def call_with(src: KernelData, warming: bool, is_followup: bool = False) -> tuple[OutputMap | None, int]:
         # Fresh contiguous copies per rep so in-place outputs do not clobber ``src`` and every rep starts
-        # identical. On the device path ``asarray`` is the untimed H2D transfer. ``buffers`` keeps each
+        # identical. On the device path the copy is the untimed transfer: H2D for host inputs, D2D for
+        # inputs the child built on the device (:class:`rep_variation.InputRecipe`). ``buffers`` keeps each
         # alive for the call. A followup runs this harness-owned staging under
         # :func:`grading_memory_budget`; the public path stays capped (:data:`sizing.MEMORY_COPIES`).
         budget: Callable[[], contextlib.AbstractContextManager[None]]
@@ -1361,7 +1365,7 @@ def _call_native_impl(
                 if a.name in owner and a.name not in kernel_buffers:
                     regroup_of = owner[a.name]
                     for name in regroup_of.problem:
-                        buffers[name] = xp.asarray(np.array(src[name], copy=True, order="C"))
+                        buffers[name] = fresh_copy(xp, src[name])
                     first_shape = tuple(int(n) for n in np.shape(src[regroup_of.problem[0]]))
                     group_staged, made = stage_group(xp, regroup_of, buffers, first_shape, outputs_named)
                     groups.append(group_staged)
@@ -1369,17 +1373,16 @@ def _call_native_impl(
                 if a.name in owner:
                     c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(kernel_buffers[a.name])))
                 elif a.kind == "ptr":
-                    host = np.array(src[a.name], copy=True, order="C")
-                    # Rebase on the host copy, so the device path gets it in the existing transfer.
-                    if rebase[a.name]:
-                        host += rebase[a.name]
-                    buf: ArrayBuffer = xp.asarray(host)
+                    copied: ArrayBuffer = fresh_copy(xp, src[a.name])
+                    if rebase[a.name]:  # integer index arrays: the same result on either side
+                        copied += rebase[a.name]
+                    buf: ArrayBuffer = copied
                     if a.name in targets:
                         layout = layouts.get(a.name)
-                        cells = host.shape if layout is None else (layout_cells(layout, host.shape),)
+                        cells = copied.shape if layout is None else (layout_cells(layout, copied.shape),)
                         twin: ArrayBuffer = xp.empty(cells, buffer_dtype(xp, targets[a.name]))
                         staged[a.name] = Staged(
-                            a.name, buf, twin, host.dtype.name, targets[a.name], tuple(host.shape), layout
+                            a.name, buf, twin, copied.dtype.name, targets[a.name], tuple(copied.shape), layout
                         )
                         buf = twin
                     buffers[a.name] = buf
@@ -1634,17 +1637,25 @@ def no_device_settle() -> None:
     """The harness device wait on a grade with no GPU in it: there is nothing to drain."""
 
 
+def fresh_copy(xp: types.ModuleType, value: object) -> ArrayBuffer:
+    """A contiguous copy of the input ``value`` on ``xp``'s side: a host array copied on the host and moved by
+    ``asarray`` (the H2D transfer for cupy, a no-op for numpy), a device array copied on the device."""
+    if isinstance(value, np.ndarray):
+        return xp.asarray(np.array(value, copy=True, order="C"))
+    return cast("ArrayBuffer", value).copy(order="C")
+
+
 def stage_python_inputs(src: KernelData, input_args: Sequence[str], xp: types.ModuleType) -> list[object]:
     """The python ABI's positional arguments, fresh per rep, on ``xp``'s side of the boundary.
 
     Arrays cross; scalars stay host values (a triton kernel declares them as values). Every array is
-    copied first on the host (``ascontiguousarray`` would return the caller's own buffer), then
-    ``asarray`` is the H2D transfer for cupy and a no-op for numpy. Outside the timed bracket."""
+    copied (``ascontiguousarray`` would return the caller's own buffer) into ``xp``: H2D for a host input,
+    D2D for one built on the device. Outside the timed bracket."""
     staged: list[object] = []
     for name in input_args:
         value = src[name]
-        if isinstance(value, np.ndarray):
-            staged.append(xp.asarray(np.array(value, copy=True, order="C")))
+        if is_array(value):
+            staged.append(fresh_copy(xp, value))
         else:
             staged.append(copy.deepcopy(value))
     return staged
@@ -2077,6 +2088,7 @@ def _native_call_worker(
     timed_rep_s: float = 0.0,
     casts: CastPlan | None = None,
     cold_rep_s: float = 0.0,
+    inputs: "InputRecipe | None" = None,
 ) -> ChildPayload | None:
     """Child-process entry: run the whole measurement and return its payload
     ``(outputs per timed rep, samples, peak_bytes, increment_bytes, followup_outputs, device_bytes,
@@ -2128,6 +2140,9 @@ def _native_call_worker(
         os.environ.update(languages.offload_runtime_env())
         device_index = device_ordinal(restrict_visible_device(os.environ, device_id))
         device_id = 0
+        if inputs is not None:
+            # Built on the device before the entry readings, so they are the baseline, not the kernel's.
+            data, rep_data = inputs.build(import_device_array_module())
     entry_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # inherited footprint (raw ru_maxrss)
     after_first: list[int] = []
     # Device free bytes at entry, before any allocation, read through the driver.
@@ -2311,6 +2326,7 @@ def _call_isolated(
     omp_context_name: str = "",
     casts: CastPlan | None = None,
     cold_rep_s: float = 0.0,
+    inputs: "InputRecipe | None" = None,
 ) -> "IsolatedCall":
     """Run a whole measurement in one child process, so a segfault, hang or over-allocation is a scored
     failure rather than the runner's death.
@@ -2338,7 +2354,11 @@ def _call_isolated(
     so exactly that family's OpenMP runtime, BLAS and numba pool are what the child maps.
 
     ``casts`` (requests.precisions()) are the arrays the call converts into their requested types around every
-    call (:func:`_call_native_impl`); a host grade's cast library sits beside ``lib_path``."""
+    call (:func:`_call_native_impl`); a host grade's cast library sits beside ``lib_path``.
+
+    ``inputs`` (a device grade only) replaces ``data`` and ``rep_data`` in the child: it builds them on the GPU
+    (:class:`~hpcagent_bench.harness.rep_variation.InputRecipe`), the same bits as the host ``data``, so no
+    input array is pickled into the spawned child and every rep's copy is device-to-device."""
     # Residency picks the child for every delivery, python included.
     use_device = device
     if lang == "python" and py_meta is None:
@@ -2397,7 +2417,7 @@ def _call_isolated(
                 use_device,
                 lib_path,
                 binding,
-                data,
+                data if inputs is None or not device else {},
                 lang,
                 memory_bytes,
                 workspace_bytes,
@@ -2411,7 +2431,8 @@ def _call_isolated(
                 threads=threads,
                 timeout=batch_timeout,
                 mp_context=start_method,
-                rep_data=rep_data,
+                rep_data=rep_data if inputs is None or not device else None,
+                inputs=inputs if device else None,
                 gpu_graded=device,
                 timed_rep_s=guillotine_s,
                 cold_rep_s=cold_rep_s,

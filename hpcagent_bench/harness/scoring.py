@@ -1808,6 +1808,7 @@ def graded_score(
     warmup = timing.warmup_count()
     total_reps = rep_variation.rep_total(warmup, repeat)
     rep_seeds: list[int] = []
+    classification: dict[str, bool] | None = None
     rep_data: Callable[[int], dict] | None = None
     canonical: Callable[[], dict] | None = None
     # How the timed inputs are drawn, for the baseline-timing key: one fixed set, or the cell's pool.
@@ -1835,6 +1836,23 @@ def graded_score(
             None,
         )
         canonical = functools.partial(rep_data, total_reps)
+    # A device grade of host-layout inputs builds them in its child, on the GPU (the same bits as ``data``, by the
+    # initializers' device contract): nothing is pickled across and every rep's copy is device-to-device. A
+    # requested layout or a sparse array is converted on the host, so those keep the host arrays.
+    device_inputs = (
+        rep_variation.InputRecipe(
+            task.kernel,
+            preset,
+            datatype,
+            public_seed,
+            fuzz_iteration=fuzz_iteration,
+            params_override=params_override,
+            classification=classification if rep_data is not None else None,
+            rep_seeds=tuple(rep_seeds),
+        )
+        if device and choice is None and not spec.sparse_layouts
+        else None
+    )
     # The candidate's inputs in its layout, converted before the build and outside every timer: a
     # padded layout past its limit on these inputs (or on a held-out case) is refused here
     # (LayoutRefused -> 400), before anything is compiled.
@@ -2407,6 +2425,7 @@ def graded_score(
                     rep_data=candidate_builder(task.kernel, choice, rep_data),
                     omp_context_name=submission_omp_context(submission),
                     casts=cand_casts,
+                    inputs=device_inputs,
                 )
 
             try:
