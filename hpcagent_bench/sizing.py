@@ -21,7 +21,7 @@ import math
 import os
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TypeGuard, cast
 
 import numpy as np
@@ -689,4 +689,4 @@ def datatype_sized(spec: BenchSpec) -> BenchSpec:
     rung, growth = datatype_rung(spec, datatype)
     if growth == 1.0:
         return spec
-    return replace(spec, parameters={**spec.parameters, GROWN_RUNG: rung})
+    return spec.replace(parameters={**spec.parameters, GROWN_RUNG: rung})

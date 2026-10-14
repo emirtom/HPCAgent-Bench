@@ -20,7 +20,6 @@ the parts that matter: a symbolic extent, a real maths lowering (``atan2``/``sqr
 buffer written through a map.
 """
 
-import dataclasses
 import importlib
 import importlib.util
 import json
@@ -488,9 +487,7 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
     """cegterg returns its iteration counts beside the graded eigenvalues, and every one of them was a
     ``__return`` slot the ABI does not have, so the kernel had no drop-in at all."""
     monkeypatch.setattr(paths, "BENCHMARKS", tmp_path)
-    spec = dataclasses.replace(
-        returning_spec(), func_name="returns_count", relative_path=".", module_name="returns_count"
-    )
+    spec = returning_spec().replace(func_name="returns_count", relative_path=".", module_name="returns_count")
     native = binding_from_spec(spec)
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     form = cpf_bridge.render_canonical(

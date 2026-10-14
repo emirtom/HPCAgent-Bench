@@ -3,7 +3,6 @@
 import importlib
 import inspect
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import Any, cast
 
 import numpy as np
@@ -166,7 +165,7 @@ class Benchmark:
         from hpcagent_bench.support.distributions import noise
 
         # The legacy dict carries no track; the loaded manifest's decides the track's input defaults.
-        spec = replace(BenchSpec.from_dict(dict(self.info), source=self.bname), track=self.spec.track)
+        spec = BenchSpec.from_dict(dict(self.info), source=self.bname).replace(track=self.spec.track)
         # Fuzz cycling, else the config/uniform default.
         dist_name = ""
         is_fuzz = preset == fuzz.FUZZED_PRESET
