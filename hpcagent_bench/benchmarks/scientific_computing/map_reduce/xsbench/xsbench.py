@@ -6,6 +6,8 @@
 
 import numpy as np
 
+from hpcagent_bench.support.distributions.perturbation import Perturbation, resolve
+
 from hpcagent_bench.benchmarks.scientific_computing.map_reduce.xsbench.xsbench_numpy import (
     ENERGY,
     LCG_A,
@@ -133,8 +135,10 @@ def initialize(
     seed,
     starting_seed,
     datatype=np.float64,
+    perturbation: Perturbation | None = None,
 ):
     """Manifest-compatible XSBench input generator."""
+    seed = resolve(perturbation).reseed(seed)
 
     inputs = xsbench_inputs(
         int(n_samples),
