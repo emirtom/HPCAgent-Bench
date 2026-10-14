@@ -45,7 +45,8 @@ def _run(extra_init_args, N=25, tEnd=0.1, dt=0.05, softening=0.1, G=1.0):
     the default."""
     initialize = _load("nbody").initialize
     nbody = _load("nbody_numpy").nbody
-    mass, pos, vel, Nt = initialize(N, tEnd, dt, *extra_init_args, datatype=np.float64)
+    mass, pos, vel = initialize(N, tEnd, dt, *extra_init_args, datatype=np.float64)
+    Nt = int(np.ceil(tEnd / dt))  # the manifest's Nt: ceil(tEnd / dt)
     return nbody(mass, pos, vel, N, Nt, dt, G, softening)
 
 
