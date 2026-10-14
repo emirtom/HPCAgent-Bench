@@ -23,7 +23,8 @@ Every `SUBMIT=1` refuses to call `sbatch` without an account (`--account <projec
 
 ## Binding rules
 
-- **At most 36 nodes in flight**, shared with the other team on the machine.
+- **At most 36 nodes in flight**, shared with the other team on the machine. `MAX_NODES=<n>` caps one `submit.sh`
+  call at `n` nodes (section 0).
 - **Partition `mi300`.** The `beverin` entry names it; `--partition <p>` or `SBATCH_PARTITION` overrides it. The
   hardware (`--hardware`, `HPCAGENT_BENCH_HARDWARE`, or the system's) is separate: another hardware needs a
   `layers/hardware-<hardware>.env` layer (mi200: section 0, `--system beverin-mi200`).
@@ -60,6 +61,16 @@ BASE=solver14 TAG=solvers EXPERIMENT=solver14 RECORD_STUDY=solver14 MODELS="oss1
 `--nice` (`NICE`) defaults to the site layer's `HPCAGENT_BENCH_NICE`; a pending job gains priority
 with age, so submit the families that must finish first first. `--time` replaces the time limit computed from the
 tag.
+
+`MAX_NODES=<n>` splits the setups of one call, in staging order, into waves whose node counts (`setup_nodes`) sum to at
+most `n`; every job of a wave depends `afterany` on every job of the previous wave, and the first wave on `DEPEND_ON`.
+A setup of more than `n` nodes is refused. The dry run prints each wave (`wave <i>/<count>: <nodes> nodes`) before its
+setups. `REPEAT=<k>` runs `k` agents per kernel in each setup's job (default the base's `SUBMIT_REPEAT`, else 1).
+
+```bash
+BASE=git-scicomp TAG=gitscicomp10 MODELS="qwen38 oss120b" LANGUAGES=c PACKETS="none repo" REPEAT=5 MAX_NODES=32 \
+    ../hpcagent_bench/cluster/submit.sh $J                                       # dry run: prints the waves
+```
 
 One existing env file, no wrapper:
 

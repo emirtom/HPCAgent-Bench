@@ -76,6 +76,7 @@ KNOBS = frozenset(
         *["BUDGET_SCALE", "TOKEN_SCALE", "TIME_SCALE", "DEADLINE", "EXTRA_ENV_KV", "SETUP_SUFFIX", "SUBMIT"],
         *[
             "DEPEND_ON",
+            "MAX_NODES",
             "BEGIN",
             "NICE",
             "HOLD",

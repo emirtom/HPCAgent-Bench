@@ -278,6 +278,11 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
+        "smoke: fast end-to-end check of one feature (seconds to a few minutes, no Slurm, no GPU); "
+        "collected and run by default, selected alone with -m smoke.",
+    )
+    config.addinivalue_line(
+        "markers",
         "integration: end-to-end test that builds/runs a real artifact (native compile, "
         "heavier + slower than a unit test); still collected and run by default, not skipped.",
     )
