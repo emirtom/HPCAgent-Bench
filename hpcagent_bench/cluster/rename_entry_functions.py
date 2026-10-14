@@ -18,7 +18,6 @@ counted and left as recorded: the reference it points at no longer has that name
 import argparse
 import contextlib
 import dataclasses
-import hashlib
 import io
 import itertools
 import pathlib
@@ -96,7 +95,7 @@ def migrate(conn: sqlite3.Connection, dry_run: bool) -> Counts:
             continue
         counts.rewritten += 1
         if not dry_run:
-            new_digest = hashlib.sha256(renamed.encode("utf-8")).hexdigest()
+            new_digest = results_db.source_hash(renamed)
             conn.execute("INSERT OR IGNORE INTO sources (hash, text) VALUES (?, ?)", (new_digest, renamed))
             conn.execute(
                 "UPDATE grade_sources SET hash = ? WHERE grade_id = ? AND part = ?", (new_digest, grade_id, part)

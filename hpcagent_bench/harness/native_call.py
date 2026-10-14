@@ -66,7 +66,6 @@ __all__ = [
     "TIMED_DONE_MARKER",
     "TIMED_REP_S",
     "TORCH_MODULE",
-    "VISIBLE_DEVICE_ENV",
     "WORKSPACE_ALIGN",
     "WORKSPACE_PTYPE",
     "ArrayBuffer",
@@ -414,12 +413,6 @@ def assigned_device() -> int | None:
     return vars(assigned).get("index")
 
 
-#: The device-visibility variables, in the order read. ``ROCR_VISIBLE_DEVICES`` and
-#: ``HIP_VISIBLE_DEVICES`` compose (HIP indexes what ROCr left), so setting both is
-#: ``hipErrorNoDevice``; this harness sets ROCr only.
-VISIBLE_DEVICE_ENV: tuple[str, ...] = ("ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
-
-
 def restrict_visible_device(env: MutableMapping[str, str], index: int | None) -> str:
     """Narrow ``env`` so a grading child reaches exactly one GPU; returns that device's id.
 
@@ -428,7 +421,7 @@ def restrict_visible_device(env: MutableMapping[str, str], index: int | None) ->
     position in the inherited list (slot 2 of ``ROCR_VISIBLE_DEVICES=4,5,6,7`` is device 6).
     ``HIP_VISIBLE_DEVICES`` and ``CUDA_VISIBLE_DEVICES`` are removed. Call in the child before any
     device runtime loads (hence the device path spawns rather than forks)."""
-    inherited = next((env[name] for name in VISIBLE_DEVICE_ENV if env.get(name, "").strip()), "")
+    inherited = osinfo.inherited_visible(env)
     devices = [d.strip() for d in inherited.split(",") if d.strip()]
     slot = index or 0
     chosen = devices[slot % len(devices)] if devices else str(slot)

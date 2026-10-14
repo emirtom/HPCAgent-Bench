@@ -33,7 +33,6 @@ not exist.
 """
 
 import dataclasses
-import hashlib
 import json
 import pathlib
 import shlex
@@ -42,6 +41,7 @@ import tempfile
 import time
 
 from hpcagent_bench import languages, paths
+from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -61,10 +61,6 @@ __all__ = [
 #: dace/numba/... column is never in this set by construction, so it is reported as "not a
 #: compiled column" rather than silently skipped or, worse, silently mis-reported.
 NATIVE_COLUMNS: frozenset[str] = frozenset(native_runtime.FRAMEWORK_LANG)
-
-
-def _sha256(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -227,7 +223,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
                     [(lang, src)], throwaway_so, build_dir=scratch, compiler=resolved_name, extra_flags=extra_flags
                 )[0]
             except (KeyError, ValueError) as exc:
-                sources.append(SourceArtifact(src.name, _sha256(src), None, f"could not build compile argv: {exc}"))
+                sources.append(SourceArtifact(src.name, file_sha256(src), None, f"could not build compile argv: {exc}"))
                 continue
             argv = asm_argv(compile_argv, asm_out, rflags)
             proc = subprocess.run(argv, capture_output=True, text=True, check=False)
@@ -235,10 +231,12 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
                 report_chunks.append(f"$ {shlex.join(argv)}\n{proc.stderr}")
             if proc.returncode != 0 or not asm_out.exists():
                 sources.append(
-                    SourceArtifact(src.name, _sha256(src), None, f"rc={proc.returncode}: {proc.stderr.strip()[-400:]}")
+                    SourceArtifact(
+                        src.name, file_sha256(src), None, f"rc={proc.returncode}: {proc.stderr.strip()[-400:]}"
+                    )
                 )
                 continue
-            sources.append(SourceArtifact(src.name, _sha256(src), asm_out.name, ""))
+            sources.append(SourceArtifact(src.name, file_sha256(src), asm_out.name, ""))
 
     opt_report_name: str | None = None
     if report_chunks:

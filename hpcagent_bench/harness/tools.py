@@ -43,7 +43,7 @@ __all__ = [
     "JudgeRefusal",
     "error_with_body",
     "identity_fields",
-    "json_object",
+    "require_json_object",
     "score",
     "submission_body",
 ]
@@ -55,7 +55,7 @@ type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValu
 type JsonObject = dict[str, JsonValue]
 
 
-def json_object(raw: object) -> JsonObject:
+def require_json_object(raw: object) -> JsonObject:
     """The decoded body of a judge reply as a JSON object; anything else is named here, at the decode."""
     if not isinstance(raw, dict):
         raise TypeError(f"judge answered a JSON {type(raw).__name__}, not an object")
@@ -108,7 +108,7 @@ class JudgeClient:
         """Send ``req`` and decode the judge's JSON object; a refusal keeps its body readable."""
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                return json_object(json.loads(r.read()))
+                return require_json_object(json.loads(r.read()))
         except urllib.error.HTTPError as exc:
             raise error_with_body(exc) from None
 

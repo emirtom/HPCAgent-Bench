@@ -15,12 +15,12 @@ import contextlib
 import dataclasses
 import enum
 import functools
-import hashlib
 import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
 from hpcagent_bench import paths
+from hpcagent_bench.cache_files import sha256_hex
 
 __all__ = [
     "BUSY_TIMEOUT_S",
@@ -61,6 +61,7 @@ __all__ = [
     "open_ro",
     "reading",
     "schema_version",
+    "source_hash",
     "source_rows",
     "store_source",
     "table_names",
@@ -268,9 +269,14 @@ def add_grade(
             ts_ms += 1
 
 
+def source_hash(text: str) -> str:
+    """The ``sources.hash`` key of ``text``: the sha256 of its UTF-8 bytes."""
+    return sha256_hex(text.encode("utf-8"))
+
+
 def store_source(conn: sqlite3.Connection, grade_id: int, part: str, language: str, text: str) -> str:
     """Store the ``part`` (``host`` / ``device``) source ``grade_id`` built; return its sha256."""
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    digest = source_hash(text)
     conn.execute("INSERT OR IGNORE INTO sources (hash, text) VALUES (?, ?)", (digest, text))
     upsert(
         conn,

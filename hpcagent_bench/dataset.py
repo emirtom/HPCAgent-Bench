@@ -28,7 +28,6 @@ from hpcagent_bench.stats import databases
 __all__ = [
     "EXTRACTED_AT",
     "LOG",
-    "PROVENANCE",
     "STUDY_COLUMN",
     "Owned",
     "Provenance",
@@ -55,9 +54,6 @@ EXTRACTED_AT: str = "extracted_at"
 
 #: Column naming the study the rows were selected for.
 STUDY_COLUMN: str = "study_key"
-
-#: Columns this module adds to whatever the extractor recorded.
-PROVENANCE: tuple[str, ...] = (EXTRACTED_AT, STUDY_COLUMN)
 
 
 def now() -> str:
