@@ -32,17 +32,14 @@ while (($#)); do
     esac
 done
 
-if [[ -z "${JUDGE_EDF:-}" ]]; then
-    srun --mem=0 "${HPCAGENT_BENCH_PYTHON:-python3}" -m hpcagent_bench job prepare "${args[@]}"
-    exit
-fi
+# One step per shard (job_step.sh's run_job_shards): a rank whose kernel fails, or that dies, stops no other rank's
+# share; the job still ends nonzero.
 repo=${HPCAGENT_BENCH_REPO:-$(cd "${SLURM_SUBMIT_DIR}" && git rev-parse --show-toplevel)}
-. "${repo}/hpcagent_bench/cluster/env.sh"
-. "${repo}/hpcagent_bench/cluster/container_runtime.sh"
-mkdir -p "${HPCAGENT_BENCH_CPF_CACHE}" "${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/views"
-edf="${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/judge-${SLURM_JOB_ID}.edf.toml"
-edf_with_checkout "${JUDGE_EDF}" "${repo}" "${edf}" || exit 2
-trap 'rm -f "${edf}"' EXIT
-srun --mem=0 --environment="${edf}" env SCRATCH="${SCRATCH:-}" HPCAGENT_BENCH_REPO="${repo}" \
-    HPCAGENT_BENCH_CPF_CACHE="${HPCAGENT_BENCH_CPF_CACHE}" \
-    bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m hpcagent_bench job prepare "$@"' _ "${args[@]}"
+. "${repo}/hpcagent_bench/cluster/job_step.sh"
+if [[ -n "${JUDGE_EDF:-}" ]]; then
+    . "${repo}/hpcagent_bench/cluster/env.sh"
+    mkdir -p "${HPCAGENT_BENCH_CPF_CACHE}" "${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/views"
+    job_step_judge_edf "${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/judge-${SLURM_JOB_ID}.edf.toml" || exit 2
+    JOB_STEP_ENV=(SCRATCH="${SCRATCH:-}" HPCAGENT_BENCH_REPO="${repo}" HPCAGENT_BENCH_CPF_CACHE="${HPCAGENT_BENCH_CPF_CACHE}")
+fi
+run_job_shards prepare "${args[@]}"
