@@ -10,8 +10,6 @@ entry carries its reason and must still name a tracked file:
   (hpcagent_bench/cluster/env.sh) and CI's workflow env, because dace hashes iteration order into
   generated code.
 * ``import-path``: no file edits ``sys.path`` or ``PYTHONPATH``; the packages are installed.
-* ``enroot``: no file names enroot; the one container seam is the CE mounting a podman-built
-  squashfs.
 * ``no-requeue``: every submittable batch script carries ``#SBATCH --no-requeue``: a NODE_FAIL
   requeue reruns the job id into the same run directory and stacks duplicate rows.
 * ``scratch``: ``.scratch/`` tracks only its ``.gitkeep``.
@@ -152,23 +150,6 @@ def import_path(files: list[str]) -> list[str]:
                 f"{hit}: edits the import path" for hit in line_hits(rel, text, IMPORT_PATH_EDIT, skip_comments=True)
             ]
     return out
-
-
-# enroot
-
-ENROOT = re.compile(r"enroot", re.IGNORECASE)
-ENROOT_ALLOW = {"tests/test_container_factory.py": "asserts that enroot is not a backend the factory resolves"}
-
-
-def enroot(files: list[str]) -> list[str]:
-    out = stale(ENROOT_ALLOW, "enroot")
-    for rel in files:
-        text = text_of(rel)
-        if rel != SELF and rel not in ENROOT_ALLOW and text is not None:
-            out += [f"{hit}: names enroot" for hit in line_hits(rel, text, ENROOT)]
-    return out + [
-        f"{rel}: allowlisted but names no enroot" for rel in ENROOT_ALLOW if not ENROOT.search(text_of(rel) or "")
-    ]
 
 
 # no-requeue
@@ -581,7 +562,6 @@ def hardcoded_paths(files: list[str]) -> list[str]:
 RULES: dict[str, Callable[[list[str]], list[str]]] = {
     "hash-seed": hash_seed,
     "import-path": import_path,
-    "enroot": enroot,
     "no-requeue": no_requeue,
     "scratch": scratch,
     "gitignore": gitignore,

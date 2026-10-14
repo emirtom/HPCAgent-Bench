@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The release smoke suite (``-m smoke``, ``helpers/scripts/run_smoke.sh``): one end-to-end pass per user-facing
+"""The release smoke suite (``pytest -m smoke``): one end-to-end pass per user-facing
 path on a CPU host, without a GPU or SLURM.
 
 Covered: prompt render (a C and a triton setup), judge ``/score`` and ``/submit`` of reference-equivalent

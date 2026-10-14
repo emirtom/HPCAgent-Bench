@@ -225,7 +225,6 @@
  "tests/test_pluto_override.py": 27,
  "tests/test_portability.py": 3,
  "tests/test_ported_references.py": 79,
- "tests/test_precommit_yaml_gates.py": 3,
  "tests/test_preset.py": 7,
  "tests/test_profiling.py": 29,
  "tests/test_profiling_paths.py": 14,
