@@ -13,7 +13,7 @@ from typing import NamedTuple, TypeGuard
 from hpcagent_bench.cache_files import write_atomic
 from hpcagent_bench.translators.numpyto_c.pluto_predicate import if_convert
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import name_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -2278,22 +2278,8 @@ class CBodyEmitter(BaseEmitter):
 
 def negative_const_k(node: ast.expr):
     """If node is a negative integer index constant, return its magnitude k > 0 (the index is -k), else None."""
-    if (
-        isinstance(node, ast.Constant)
-        and isinstance(node.value, int)
-        and not isinstance(node.value, bool)
-        and node.value < 0
-    ):
-        return -node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, ast.USub)
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, int)
-        and not isinstance(node.operand.value, bool)
-    ):
-        return node.operand.value
-    return None
+    k = const_int(node)
+    return -k if k is not None and k < 0 else None
 
 
 def is_newaxis_or_ellipsis(e: ast.expr) -> bool:

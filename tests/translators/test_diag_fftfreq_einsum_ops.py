@@ -10,7 +10,6 @@ kernel on c / cpp / fortran and compare against numpy via the standalone oracle.
 """
 
 import ast
-import shutil
 
 import numpy as np
 import pytest
@@ -21,7 +20,7 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes import (
     expand_einsum,
     expand_fftfreq,
 )
-from tests.translators.op_oracle import assert_all_ok, run_op
+from tests.translators.op_oracle import assert_all_ok, native, run_op
 
 NATIVE = ("c", "cpp", "fortran")
 
@@ -37,11 +36,6 @@ def sub_const(name: str, idx: int) -> ast.Subscript:
 def unparse_(stmts: list[ast.stmt]) -> str:
     mod = ast.fix_missing_locations(ast.Module(body=list(stmts), type_ignores=[]))
     return ast.unparse(mod)
-
-
-def oracle_available() -> None:
-    if not (shutil.which("gcc") and shutil.which("g++") and shutil.which("gfortran")):
-        pytest.skip("gcc/g++/gfortran needed for the native numerical check")
 
 
 # Registration                                                                #
@@ -145,7 +139,7 @@ def test_einsum_bare_name_fast_path_unchanged() -> None:
 
 def test_diag_tridiagonal_e2e() -> None:
     # The ls3df Lanczos idiom: T = diag(alphas) + diag(betas[1:], 1) + diag(betas[1:], -1).
-    oracle_available()
+    native()
     rng = np.random.default_rng(0)
     src = "import numpy as np\ndef f(v, u, out):\n    out[:] = np.diag(v) + np.diag(u, 1) + np.diag(u, -1)\n"
     v, u = rng.random(5), rng.random(4)
@@ -165,7 +159,7 @@ def test_diag_tridiagonal_e2e() -> None:
 
 @pytest.mark.parametrize("n", [6, 7])  # even + odd exercise the negative-frequency wrap
 def test_fftfreq_e2e(n: int) -> None:
-    oracle_available()
+    native()
     src = "import numpy as np\ndef f(nbuf, h, out):\n    out[:] = np.fft.fftfreq(nbuf[0], d=h[0])\n"
     nbuf, h = np.array([n], dtype=np.int64), np.array([0.25])
     res = run_op(
@@ -185,7 +179,7 @@ def test_fftfreq_e2e(n: int) -> None:
 
 def test_einsum_subscript_operand_e2e() -> None:
     # einsum over a subscripted operand: out[i] = sum_j A[1, i, j] * A[1, i, j].
-    oracle_available()
+    native()
     rng = np.random.default_rng(0)
     src = "import numpy as np\ndef f(A, out):\n    out[:] = np.einsum('ij,ij->i', A[1], A[1])\n"
     A = rng.random((2, 3, 4))

@@ -603,6 +603,17 @@ def test_produces_logical_false_for_arithmetic() -> None:
     assert not produces_logical(ast.parse("a + b", mode="eval").body)
 
 
+def test_produces_logical_sees_known_logical_names() -> None:
+    from hpcagent_bench.translators.numpyto_fortran.emit import produces_logical
+
+    known = {"c1", "c2", "m"}
+    assert produces_logical(ast.parse("c1 & c2", mode="eval").body, known)
+    assert produces_logical(ast.parse("~m[i] | c1", mode="eval").body, known)
+    # numpy: bool & int is an int, so one non-logical operand makes the combine integer.
+    assert not produces_logical(ast.parse("(a < b) & k", mode="eval").body, known)
+    assert not produces_logical(ast.parse("(a < b) << 1", mode="eval").body, known)
+
+
 # H. end-to-end correctness on the real kernels these fixes unblocked          #
 
 
