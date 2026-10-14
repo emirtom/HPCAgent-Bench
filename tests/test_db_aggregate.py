@@ -17,6 +17,7 @@ import time
 
 import pytest
 
+from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import recording, results_db
 from tests.results_rows import attempts, submissions
 
@@ -216,6 +217,36 @@ def test_ensure_aggregated_rebuilds_when_a_shard_is_newer(tmp_path) -> None:
 
     recording.ensure_aggregated(base)
     assert len(submissions(base)) == 2
+
+
+def test_aggregate_cut_short_by_a_corrupt_shard_leaves_no_partial_aggregate(tmp_path: pathlib.Path) -> None:
+    """The merge commits once per shard: built in place, a failure on shard 1 left shard 0's rows as an
+    aggregate newer than every shard, which :func:`recording.ensure_aggregated` then served as current."""
+    base = str(tmp_path / "hpcagent_bench.db")
+    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
+    pathlib.Path(recording.shard_db_path(1, base)).write_bytes(b"truncated by an OOM-killed rank")
+
+    with pytest.raises(sqlite3.DatabaseError):
+        recording.aggregate(base)
+
+    assert not pathlib.Path(base).exists()
+    assert not list(tmp_path.glob("*.tmp*"))
+
+
+def test_merge_results_cut_short_by_a_corrupt_shard_leaves_no_partial_results_db(tmp_path: pathlib.Path) -> None:
+    """A job's ``results.db`` makes every reader skip its shards (:func:`studies.merged_shard`), so one
+    holding only the shards before a corrupt one would hide the rest."""
+    _seed(str(tmp_path / "judge" / "rank-0" / "hpcagent_bench0.db"), run="r0", kernels=["gemm"])
+    corrupt = tmp_path / "judge" / "rank-1" / "hpcagent_bench1.db"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_bytes(b"truncated by an OOM-killed rank")
+    out = tmp_path / "results.db"
+
+    with pytest.raises(SystemExit, match="corrupt shard"):
+        merge_results.merge(tmp_path, out)
+
+    assert not out.exists()
+    assert not list(tmp_path.glob("results.db*"))
 
 
 def test_ensure_aggregated_is_a_noop_without_shards(tmp_path) -> None:

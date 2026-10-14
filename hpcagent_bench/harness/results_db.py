@@ -16,6 +16,7 @@ import dataclasses
 import enum
 import functools
 import hashlib
+import os
 import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
@@ -31,6 +32,7 @@ __all__ = [
     "NATURAL_KEYS",
     "SCHEMA_PATH",
     "SCHEMA_VERSION",
+    "SIDECAR_SUFFIXES",
     "SUBMIT_KINDS",
     "TABLES",
     "IdMap",
@@ -59,6 +61,8 @@ __all__ = [
     "open_db",
     "open_ro",
     "reading",
+    "rebuilding",
+    "remove_db",
     "schema_version",
     "source_rows",
     "store_source",
@@ -416,6 +420,33 @@ def merge(dest: str | pathlib.Path, sources: Sequence[str | pathlib.Path]) -> di
             for table, count in merge_one(conn, path).items():
                 totals[table] = totals.get(table, 0) + count
     return totals
+
+
+#: The SQLite files that travel with a database file: its rollback journal and its WAL pair.
+SIDECAR_SUFFIXES: tuple[str, ...] = ("-journal", "-wal", "-shm")
+
+
+def remove_db(path: pathlib.Path) -> None:
+    """Delete the database file ``path`` and its :data:`SIDECAR_SUFFIXES` files, where present."""
+    for suffix in ("", *SIDECAR_SUFFIXES):
+        pathlib.Path(str(path) + suffix).unlink(missing_ok=True)
+
+
+@contextlib.contextmanager
+def rebuilding(dest: str | pathlib.Path) -> Iterator[pathlib.Path]:
+    """Remove ``dest`` and yield a scratch file beside it to build its replacement in, moved onto ``dest``
+    only when the block finishes. A build cut short (a corrupt source, a signal) leaves ``dest`` absent,
+    never holding part of what it should: :func:`merge` commits once per source, and a partial file
+    is newer than every source, so a reader would take it as complete."""
+    target = pathlib.Path(dest)
+    scratch = target.with_name(f"{target.name}.tmp")
+    remove_db(target)
+    remove_db(scratch)
+    try:
+        yield scratch
+        os.replace(scratch, target)
+    finally:
+        remove_db(scratch)
 
 
 def copy_grade(src: pathlib.Path, grade_id: int, dest: sqlite3.Connection) -> int:

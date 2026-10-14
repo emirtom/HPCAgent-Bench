@@ -430,9 +430,8 @@ def aggregate(dest: str | None = None, sources: Sequence[str] | None = None) -> 
     shards = [s for s in candidates if os.path.abspath(s) != os.path.abspath(target)]
     if not shards:
         return 0
-    for suffix in ("", "-wal", "-shm"):
-        pathlib.Path(target + suffix).unlink(missing_ok=True)
-    return sum(results_db.merge(target, shards).values())
+    with results_db.rebuilding(target) as scratch:
+        return sum(results_db.merge(scratch, shards).values())
 
 
 def ensure_aggregated(path: str | None = None) -> str:
