@@ -4,22 +4,17 @@
 
 The harness's casts are bit-exact against the ml_dtypes/numpy conversions; the judge refuses a request
 that changes nothing or that this delivery cannot take; a grade records the conversion time beside the
-kernel time it never enters; and the MPI driver and its wire carry the same casts per rank. A results
-file of schema 6, before the ``requests`` column, is still read, merged and upgraded.
+kernel time it never enters; and the MPI driver and its wire carry the same casts per rank.
 """
 
-import contextlib
-import json
-import pathlib
 import shutil
-import sqlite3
 
 import ml_dtypes
 import numpy as np
 import pytest
 from relayout.ops import ArraySpec
 
-from hpcagent_bench.harness import grading, mpi_wire, precision_casts, results_db
+from hpcagent_bench.harness import grading, mpi_wire, precision_casts
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
 from hpcagent_bench.harness.requests_api import Requests
@@ -421,72 +416,6 @@ def test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score() ->
     assert result.convert_out_ns > 0
 
 
-def legacy_db(path: pathlib.Path) -> None:
-    """A schema-6 results file: the per-request columns v7 folded, one grade asking for a cyclic split and blas."""
-    with contextlib.closing(results_db.open_db(path)) as conn:
-        conn.execute("ALTER TABLE grades DROP COLUMN requests")
-        conn.execute("ALTER TABLE grades DROP COLUMN convert_in_ns")
-        conn.execute("ALTER TABLE grades DROP COLUMN convert_out_ns")
-        for column, ddl in (
-            ("requested_libraries", "TEXT NOT NULL DEFAULT ''"),
-            ("distribution", "TEXT NOT NULL DEFAULT ''"),
-            ("layout_request", "TEXT NOT NULL DEFAULT ''"),
-            ("layout_prep_ns", "INTEGER NOT NULL DEFAULT 0"),
-        ):
-            conn.execute(f"ALTER TABLE grades ADD COLUMN {column} {ddl}")
-        conn.execute("INSERT INTO setups (setup, language, device, harness) VALUES ('s', 'c', 'cpu', 'claude')")
-        conn.execute("INSERT INTO episodes (setup, label, rep) VALUES ('s', 'l', 1)")
-        plan = {"grid": [4], "arrays": {"x": {"axes": [{"grid_dim": 0, "scheme": "cyclic"}]}}}
-        conn.execute(
-            "INSERT INTO grades (episode_id, kernel, ts_ms, kind, requested_libraries, distribution, layout_prep_ns) "
-            "VALUES (1, 'k', 1, 'score', ?, ?, 123)",
-            (json.dumps(["blas"]), json.dumps(plan)),
-        )
-        conn.execute("PRAGMA user_version = 6")
-        conn.commit()
-
-
-EXPECTED = {
-    "startup": {"load": ["blas"], "grid": ["P"]},
-    "operations": [{"action": "distribute", "array": "x", "grid_dim": 0, "dim": 0, "scheme": "cyclic"}],
-}
-
-
-def test_a_schema_6_file_is_read_through_the_new_columns(tmp_path: pathlib.Path) -> None:
-    legacy_db(tmp_path / "v6.db")
-    with results_db.reading(tmp_path / "v6.db") as conn:
-        select = results_db.grade_columns(conn, "g", ("requests", "requested_libraries", "distribution"))
-        row = dict(conn.execute(f"SELECT {select} FROM grades g").fetchone())
-    assert results_db.requests_of_row(row).to_json() == EXPECTED
-
-
-def test_a_schema_6_file_merges_and_upgrades_in_place(tmp_path: pathlib.Path) -> None:
-    legacy_db(tmp_path / "v6.db")
-    shutil.copy(tmp_path / "v6.db", tmp_path / "upgraded.db")
-    results_db.merge(tmp_path / "merged.db", [tmp_path / "v6.db"])
-    with contextlib.closing(results_db.open_db(tmp_path / "upgraded.db")) as upgraded:
-        assert results_db.schema_version(upgraded) == results_db.SCHEMA_VERSION
-    for name in ("merged.db", "upgraded.db"):
-        with contextlib.closing(sqlite3.connect(tmp_path / name)) as conn:
-            requests, convert_in = conn.execute("SELECT requests, convert_in_ns FROM grades").fetchone()
-            assert (json.loads(requests), convert_in) == (EXPECTED, 123), name
-            columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(grades)")}
-            assert not columns & set(results_db.LEGACY_GRADE_COLUMNS), name
-
-
-def test_a_refused_calls_distribution_folds_to_what_it_can_and_the_file_upgrades(tmp_path: pathlib.Path) -> None:
-    """v6 recorded the distribution a refused call sent, which need not be a plan: it folds to the libraries
-    alone, and the upgrade in place still completes."""
-    legacy_db(tmp_path / "v6.db")
-    with contextlib.closing(sqlite3.connect(tmp_path / "v6.db")) as conn:
-        conn.execute("UPDATE grades SET distribution = ?", (json.dumps({"grid": [4]}),))
-        conn.commit()
-    with contextlib.closing(results_db.open_db(tmp_path / "v6.db")) as upgraded:
-        assert results_db.schema_version(upgraded) == results_db.SCHEMA_VERSION
-        (requests,) = upgraded.execute("SELECT requests FROM grades").fetchone()
-    assert json.loads(requests) == {"startup": {"load": ["blas"]}}
-
-
 def test_the_mpi_driver_calls_the_kernel_on_converted_tiles() -> None:
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     source = gen_mpi_driver(binding, (4,), casts={"x": "float32", "y": "float32"})
@@ -526,8 +455,6 @@ def test_the_prompt_tables_the_precisions_for_a_compiled_task_only() -> None:
 
 
 if __name__ == "__main__":
-    import tempfile
-
     test_every_host_cast_is_bit_exact_against_the_reference_conversion()
     test_a_host_cast_refuses_a_strided_buffer()
     test_every_device_cast_matches_the_host_cast()
@@ -548,12 +475,6 @@ if __name__ == "__main__":
     test_a_laid_out_grade_converts_in_and_out_and_is_correct()
     test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi()
     test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score()
-    with tempfile.TemporaryDirectory() as scratch:
-        test_a_schema_6_file_is_read_through_the_new_columns(pathlib.Path(scratch))
-    with tempfile.TemporaryDirectory() as scratch:
-        test_a_schema_6_file_merges_and_upgrades_in_place(pathlib.Path(scratch))
-    with tempfile.TemporaryDirectory() as scratch:
-        test_a_refused_calls_distribution_folds_to_what_it_can_and_the_file_upgrades(pathlib.Path(scratch))
     test_the_mpi_driver_calls_the_kernel_on_converted_tiles()
     test_the_outfile_carries_the_cast_samples()
     test_the_prompt_tables_the_precisions_for_a_compiled_task_only()

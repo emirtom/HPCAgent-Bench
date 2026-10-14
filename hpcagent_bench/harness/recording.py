@@ -470,10 +470,10 @@ ORIGIN_KINDS: dict[str, str] = {
 }
 
 
-def job_tag() -> int | None:
-    """The Slurm job this judge runs in; ``None`` outside one."""
+def job_tag() -> int:
+    """The Slurm job this judge runs in; :data:`results_db.LOCAL_JOB` outside one."""
     raw = (os.environ.get(JOB_ENV) or "").strip()
-    return int(raw) if raw.isdigit() else None
+    return int(raw) if raw.isdigit() else results_db.LOCAL_JOB
 
 
 def slot_of(episode_id: str) -> int:
@@ -494,10 +494,10 @@ def setup_of(episode_id: str) -> str:
 JOB_DIR = re.compile(r"(?P<job>\d+)(?:-.*)?")
 
 
-def job_of_dir(directory: pathlib.Path) -> int | None:
-    """The Slurm job the run directory ``directory`` belongs to; None for a local run."""
+def job_of_dir(directory: pathlib.Path) -> int:
+    """The Slurm job the run directory ``directory`` belongs to; :data:`results_db.LOCAL_JOB` for a local run."""
     match = JOB_DIR.fullmatch(directory.name)
-    return int(match["job"]) if match else None
+    return int(match["job"]) if match else results_db.LOCAL_JOB
 
 
 def open_episode(conn: sqlite3.Connection, episode_id: str, setup_language: str | None = None) -> int:
@@ -505,9 +505,7 @@ def open_episode(conn: sqlite3.Connection, episode_id: str, setup_language: str 
     return open_episode_in_job(conn, episode_id, job_tag(), setup_language)
 
 
-def open_episode_in_job(
-    conn: sqlite3.Connection, episode_id: str, job: int | None, setup_language: str | None = None
-) -> int:
+def open_episode_in_job(conn: sqlite3.Connection, episode_id: str, job: int, setup_language: str | None = None) -> int:
     """The ``episodes`` id of episode ``episode_id`` in ``job``, its setup recorded first.
 
     The setup's identity is this judge's own configuration (:func:`identity`); the first grade of a setup

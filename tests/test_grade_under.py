@@ -819,7 +819,7 @@ def refile_as_adhoc(shard: pathlib.Path) -> None:
 
 
 def test_a_worklist_never_lists_a_grade_stored_under_the_adhoc_episode_id(tmp_path: pathlib.Path) -> None:
-    """No reader credits an ``adhoc`` grade, yet the v6 re-timing listed 10 of them: shard
+    """No reader credits an ``adhoc`` grade, yet an earlier re-timing listed 10 of them: shard
     time spent on rows every figure then drops. Each is named as a gap, with its source still stored."""
     shard = shard_db(tmp_path)
     refile_as_adhoc(shard)
