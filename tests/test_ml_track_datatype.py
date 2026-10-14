@@ -10,7 +10,6 @@ as its constraints and the one XL byte ceiling allow. The distributed operators 
 bf16 and their own XL, and keep both.
 """
 
-import dataclasses
 
 import numpy as np
 import pytest
@@ -90,7 +89,7 @@ def test_a_batch_axis_grows_by_the_full_factor_at_every_format() -> None:
 
 def test_several_declared_axes_share_the_factor() -> None:
     """``scale_axes`` of k symbols grow by ``factor ** (1/k)`` each: two axes at bf16 grow 2x each."""
-    raw = dataclasses.replace(authored(GEMM_KERNEL), scale_axes=("batch_size", "input_size"))
+    raw = authored(GEMM_KERNEL).replace(scale_axes=("batch_size", "input_size"))
     rung, growth = sizing.datatype_rung(raw, "bf16")
     for axis in raw.scale_axes:
         base = raw.parameters["XL"][axis]

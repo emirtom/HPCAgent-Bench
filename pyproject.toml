@@ -49,6 +49,8 @@ dependencies = [
     "matplotlib",
     "ml_dtypes",
     "pyyaml",
+    # Manifest schema and BenchSpec validation (hpcagent_bench/manifest_schema.py).
+    "pydantic>=2.10",
     "sqlmodel",
     "jinja2",
     "cffi",
@@ -304,6 +306,9 @@ hpcagent_bench = [
 
 # Third-party warnings only (zero-warning policy for our own code).
 [tool.pytest.ini_options]
+markers = [
+    "smoke: fast end-to-end check of one feature (select with -m smoke)",
+]
 filterwarnings = [
     # starlette's TestClient portal teardown, inside anyio/starlette.
     "ignore:.*BlockingPortal.*:DeprecationWarning:anyio",

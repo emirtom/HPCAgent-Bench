@@ -365,7 +365,7 @@ def test_an_underivable_kernel_falls_back_to_the_global_budget() -> None:
     """A hand-written ``init`` declares no shapes, so there is nothing to derive: the global budget
     is the answer, not a zero cap that would kill every run."""
     real = BenchSpec.load(OPAQUE_KERNEL)
-    spec = dataclasses.replace(real, init=dataclasses.replace(real.init, shapes={}))
+    spec = real.replace(init=dataclasses.replace(real.init, shapes={}))
     assert spec.init.shapes == {}  # the premise: nothing declarative to size from
     with config.overridden("limits.kernel_memory_gb", 7):
         assert sizing.kernel_memory_gb(spec, "XL") == 7.0
@@ -747,7 +747,7 @@ def test_memory_cap_gb_replaces_the_derivation_rather_than_flooring_it() -> None
     formula outright. This is what fv3_dycore needs: its derivation only sums 13 declared arrays
     and cannot see the ~90 undeclared internal temporaries its translated C mallocs, so a floor
     would still raise the budget past what the kernel was sized to fit in."""
-    spec = dataclasses.replace(BenchSpec.load(KERNEL), memory_cap_gb=0.05)
+    spec = BenchSpec.load(KERNEL).replace(memory_cap_gb=0.05)
     derived_xl = cap_bytes("XL") / sizing.BYTES_PER_GB
     assert derived_xl > 0.05, "premise: the derived XL budget is bigger than the override"
     with config.overridden("limits.kernel_memory_gb", 20):  # floor bigger than the override too
@@ -759,7 +759,7 @@ def test_memory_cap_gb_wins_even_for_an_undeclarable_kernel() -> None:
     """An opaque ``init`` (no declarative shapes -- nothing to derive from) normally falls back to
     the global floor; a hard per-kernel cap must still win over that fallback too."""
     real = BenchSpec.load(OPAQUE_KERNEL)
-    spec = dataclasses.replace(real, init=dataclasses.replace(real.init, shapes={}), memory_cap_gb=3.0)
+    spec = real.replace(init=dataclasses.replace(real.init, shapes={}), memory_cap_gb=3.0)
     with config.overridden("limits.kernel_memory_gb", 7):
         assert sizing.kernel_memory_gb(spec, "XL") == 3.0
 
