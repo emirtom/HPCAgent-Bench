@@ -42,6 +42,7 @@ __all__ = [
     "HARNESSES",
     "HARNESS_INTERPRETER",
     "OPENHANDS_RUNGS",
+    "PAGE_READER",
     "REPLY_FRACTION_DENOMINATOR",
     "REQUEST_TIMEOUT_ENV",
     "RUNNERS",
@@ -66,6 +67,7 @@ __all__ = [
     "openai_args",
     "openhands_command",
     "openhands_env",
+    "page_opening",
     "positive_int",
     "reasoning_effort",
     "request_timeout_args",
@@ -79,6 +81,10 @@ __all__ = [
 
 CLAUDE = "claude"
 
+#: The tool each harness opens a staged skill page with, by name. Only claude has a tool called Read;
+#: mini-SWE's one tool is the shell and OpenHands has its own editor, so a runner is named no tool.
+PAGE_READER = {CLAUDE: "Read"}
+
 USAGE_FILE = "usage.jsonl"
 END_FILE = "harness-end.json"
 
@@ -88,6 +94,13 @@ CONSUMED_FIELDS = ("input", "cached_input", "output", "reasoning")
 #: Environment only the claude CLI reads. A runner inheriting the base URL would be told the
 #: server root where it needs the ``/v1`` path, and the log path names a transcript it never writes.
 CLAUDE_ONLY_ENV = ("ANTHROPIC_BASE_URL", "CLAUDE_LOG_PATH")
+
+
+def page_opening(harness: str, subject: str) -> str:
+    """``Open <subject> with Read`` for claude, ``Open <subject>`` for a harness with no Read tool: the
+    prompt must not name a tool the agent does not have (``tools-cli.md``: "there are no file tools")."""
+    reader = PAGE_READER.get(harness, "")
+    return f"Open {subject} with {reader}" if reader else f"Open {subject}"
 
 
 def selected_harness() -> str:

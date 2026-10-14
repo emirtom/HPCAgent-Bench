@@ -101,6 +101,7 @@ __all__ = [
     "TOKEN_DIR_NAME",
     "TOKEN_FOLD",
     "TOKEN_POLL_SECONDS",
+    "UNREMINDED_PAGES",
     "AgentState",
     "AggregateState",
     "McpUnavailable",
@@ -1394,6 +1395,10 @@ SKILL_PAGE_PATH = re.compile(r"(/(?:\S*/)?skills/([A-Za-z0-9._-]+)\.md)")
 #: The page the `cpf-tool` packet ships alone, promoted in the closing reminder like a language
 #: page so that setup is not promoted less than the one it is compared against.
 CPF_PAGE = "cpf-tool"
+#: Pages a setup without a language or CPF page ships that the closing reminder still does NOT name.
+#: ``cpf-src`` is a CPF paper arm that ran without a pointer; giving it one changes that arm's prompt
+#: mid-study, which is the user's call, not this file's.
+UNREMINDED_PAGES = frozenset({"cpf-src"})
 
 
 #: Languages whose directives on a GPU setup are OpenMP target offload rather than host OpenMP.
@@ -1422,7 +1427,7 @@ def directive_page(names: list[str], language: str, device: str) -> str:
     return own_page(names, "openmp-", language)
 
 
-def skill_reminder(task_text: str, language: str, device: str = "cpu") -> str:
+def skill_reminder(task_text: str, language: str, device: str = "cpu", harness: str = harnesses.CLAUDE) -> str:
     """A closing line naming the page FILES, or "" when the setup ships none.
 
     Names the PATH, not the page: the pages are staged on disk and opened with Read, so a name the
@@ -1453,7 +1458,12 @@ def skill_reminder(task_text: str, language: str, device: str = "cpu") -> str:
     # carries no lang- page. It must be promoted exactly as much as the lang-skills setup it is
     # compared against.
     cpf_page = CPF_PAGE if CPF_PAGE in paths else ""
-    if not lang_page and not cpf_page:
+    # A setup with neither ships its treatment as the pages themselves (solver, rccl,
+    # divide-and-conquer, caveman, distributed-amd): without a pointer of their own they reach the
+    # agent only as a conditional trigger thousands of tokens back -- the 17-29% uptake above -- and
+    # the setup is promoted less than lang-skills and cpf-tool are.
+    treatment_pages = [] if lang_page or cpf_page else [name for name in names if name not in UNREMINDED_PAGES]
+    if not lang_page and not cpf_page and not treatment_pages:
         return ""
     # Python is DELIVERED, not compiled -- the judge imports the module and calls it -- so the
     # compiled promise ("the mistakes that fail the build") describes a step this setup does not have.
@@ -1480,7 +1490,14 @@ def skill_reminder(task_text: str, language: str, device: str = "cpu") -> str:
             f"(`{paths[cpf_page]}` explains its answer) -- it returns a parallelized form of THIS kernel whose "
             "loop verdicts you trust, and it is the starting point, not background reading."
         )
-    parts.append("Open them with Read; they are files on disk, not text in this prompt.")
+    if treatment_pages:
+        named = ", ".join(f"`{paths[name]}`" for name in treatment_pages)
+        subject = "it is the page" if len(treatment_pages) == 1 else "they are the pages"
+        parts.append(
+            f"IMPORTANT: before you optimize, read {named} -- {subject} this setup ships for this task, "
+            "not background reading."
+        )
+    parts.append(f"{harnesses.page_opening(harness, 'them')}; they are files on disk, not text in this prompt.")
     return " ".join(parts)
 
 
@@ -2692,7 +2709,10 @@ def render_prompt(problem: Problem, runtime: pathlib.Path, shared_note: str) -> 
             task,
             shared_note,
             skill_reminder(
-                task, str(problem.get("language") or ""), os.environ.get("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
+                task,
+                str(problem.get("language") or ""),
+                os.environ.get("HPCAGENT_BENCH_RECORD_DEVICE", "cpu"),
+                harnesses.selected_harness(),
             ),
         )
         if part
