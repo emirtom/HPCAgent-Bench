@@ -49,6 +49,8 @@ dependencies = [
     "matplotlib",
     "ml_dtypes",
     "pyyaml",
+    # Validated config models (harness/requests_api.RequestAllowances).
+    "pydantic>=2.10",
     "sqlmodel",
     "jinja2",
     "cffi",

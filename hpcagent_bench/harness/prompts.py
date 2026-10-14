@@ -38,6 +38,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
 from hpcagent_bench.harness.native import display_run_dir
 from hpcagent_bench.harness.requests_api import (
     Location,
+    RequestAllowances,
     kernel_arrays,
     mpi_residency,
     precision_problem_dtypes,
@@ -999,6 +1000,7 @@ def build_context(
         device_source_filename = ""
     lib_name = f"lib{spec.short_name}.so"
     files = delivered_files(task.language, spec.short_name)
+    allowances = RequestAllowances.from_config()
     context: PromptContext = {
         "kernel": spec.short_name,
         "language": task.language,
@@ -1038,12 +1040,17 @@ def build_context(
             if is_mpi and torch_reference.has_torch_reference(spec)
             else ""
         ),
-        # Every array a precision may be requested for (requests_api.precision_problem_dtypes).
-        "precision_arrays": sorted(precision_problem_dtypes(spec, binding, precision)),
-        # The dense arrays a single-node layout may name (service.single_node_layout_refusal); none on MPI.
-        "layout_arrays": ([] if is_mpi else layout_arrays(spec, binding)),
+        # Every array a precision may be requested for (requests_api.precision_problem_dtypes); none where
+        # the setup allows no cast (requests.precisions).
+        "precision_arrays": (
+            sorted(precision_problem_dtypes(spec, binding, precision)) if allowances.precisions else []
+        ),
+        # The dense arrays a single-node layout may name (service.single_node_layout_refusal); none on MPI
+        # and none where the setup allows no layout (requests.layouts).
+        "layout_arrays": ([] if is_mpi or not allowances.layouts else layout_arrays(spec, binding)),
         "problem_precision": precision_from_datatype(precision).value,
-        "precision_ctypes": PRECISION_CTYPES,
+        # The precisions a cast may target here, each with its C element type.
+        "precision_ctypes": [row for row in PRECISION_CTYPES if Precision(row["precision"]) in allowances.precisions],
         # The ML track's per-array table and symbol lists (mpi_sizing.aligned_symbols); empty elsewhere.
         "ml_layout": (
             ml_layout(spec, binding, config.get_int("mpi.ranks", 4))
@@ -1063,6 +1070,9 @@ def build_context(
         "stub": call_stub(binding, task.language, task.residency),
         # The sparse layouts a submission may request (sections/sparse.j2); {} for a dense kernel.
         "sparse_layout": sparse_layout_context(spec, task.language),
+        # Whether a format operation may choose them (requests.sparse_formats); off, sections/sparse.j2
+        # states the default format only.
+        "sparse_formats_requestable": allowances.sparse_formats,
         "symbol": symbol,
         "reference": reference.strip(),
         # Where the agent can open the reference (repo-relative on native runs).
