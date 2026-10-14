@@ -244,8 +244,7 @@ def positive_int(raw: str) -> int | None:
 #: agent may fill is L = min(served window, CONTEXT_CAP); the reply reserve is R = min(reply cap,
 #: L // 8); history is compacted once the prompt passes T = L - R - round(0.12 * L), which leaves
 #: the reply and one turn of growth under L (197919 at 262144, 98959 at 131072).
-#: agent_driver.claude_context_env applies the same numbers to claude through the CLI's own variables;
-#: tests/test_harness_context_policy.py holds the two equal on every committed setup.
+#: agent_driver.claude_context_env applies these numbers to claude through the CLI's own variables.
 CONTEXT_CAP = 262144
 REPLY_FRACTION_DENOMINATOR = 8
 TURN_HEADROOM_FRACTION = 0.12
