@@ -34,6 +34,7 @@ __all__ = [
     "exp",
     "expm1",
     "frexp",
+    "interp",
     "ipow",
     "linspace",
     "log",
@@ -136,11 +137,12 @@ def frexp(x: ArrayLike, xp: ModuleType | None = None) -> tuple[Array, Array]:
     themselves and ``e = 0``. ``cupy.frexp`` on ROCm rounds ``m`` to float32 precision, so the library's own is not
     used."""
     xp = array_module(x, xp=xp)
-    value = xp.ascontiguousarray(as_f64(x, xp))
+    # A C-order copy, so the bit view below is defined; ``ascontiguousarray`` would make a 0-d value 1-d.
+    value = as_f64(x, xp).copy(order="C")
     special = (value == 0.0) | ~xp.isfinite(value)
     subnormal = ~special & (xp.abs(value) < SMALLEST_NORMAL)
     # A subnormal is scaled into the normal range first (exact: a power of two), and its exponent shifted back.
-    scaled = xp.ascontiguousarray(xp.where(subnormal, xp.where(subnormal, value, 0.0) * SUBNORMAL_SCALE, value))
+    scaled = xp.where(subnormal, xp.where(subnormal, value, 0.0) * SUBNORMAL_SCALE, value).copy(order="C")
     bits = scaled.view(xp.int64)
     exponent = ((bits >> MANTISSA_BITS) & EXPONENT_MASK) - EXPONENT_HALF
     exponent = xp.where(subnormal, exponent - SUBNORMAL_SHIFT, exponent)
@@ -154,6 +156,23 @@ def divide_by_real(z: ArrayLike, d: ArrayLike, xp: ModuleType | None = None) -> 
     xp = array_module(z, d, xp=xp)
     numerator, denominator = xp.asarray(z), as_f64(d, xp)
     return numerator.real / denominator + 1j * (numerator.imag / denominator)
+
+
+def interp(x: ArrayLike, points: ArrayLike, values: ArrayLike, xp: ModuleType | None = None) -> Array:
+    """Piecewise-linear interpolation of ``values`` at increasing ``points``, as numpy's ``interp`` (clamped to the
+    end values outside ``[points[0], points[-1]]``): ``slope * (x - points[j]) + values[j]`` with
+    ``slope = (values[j+1] - values[j]) / (points[j+1] - points[j])``, one exact operation at a time (cupy orders
+    the arithmetic differently)."""
+    xp = array_module(x, points, values, xp=xp)
+    at, knots, heights = as_f64(x, xp), as_f64(points, xp), as_f64(values, xp)
+    last = knots.shape[0] - 1
+    j = xp.clip(xp.searchsorted(knots, at, side="right") - 1, 0, max(last - 1, 0))
+    if last == 0:
+        return xp.full(at.shape, heights[0], dtype=xp.float64)
+    slope = (heights[j + 1] - heights[j]) / (knots[j + 1] - knots[j])
+    inside = slope * (at - knots[j]) + heights[j]
+    inside = xp.where(at < knots[0], heights[0], inside)
+    return xp.where(at >= knots[last], heights[last], inside)
 
 
 def log(x: ArrayLike, xp: ModuleType | None = None) -> Array:
