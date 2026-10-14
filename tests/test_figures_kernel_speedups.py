@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Consumers of the signed-change figures: the exclusion rules, the pairing rule, and the tables.
+"""Consumers of the kernel speedups figure: the exclusion rules, the pairing rule, and the tables.
 
 The sweep these figures read takes eight hours, so the shapes that break a plotting script -- an
 setup whose CSV never appeared, a setup with one usable kernel and therefore no interval, a miscompile
@@ -21,7 +21,7 @@ import pytest
 from PIL import Image
 
 from hpcagent_bench.stats import canon, palette, rules, style, summary
-from hpcagent_bench.stats.figures import per_kernel, setup_names, signed
+from hpcagent_bench.stats.figures import kernel_speedups, per_kernel, setup_names
 
 
 def row(framework: str, kernel: str, ms: str, status: str = "ok", validated: str = "True") -> dict[str, str]:
@@ -59,10 +59,10 @@ def kernel_rows(
     tag: tuple[str, ...],
     canon_columns: tuple[str, ...] = CANON_COLUMNS,
     mark_pending: bool = False,
-) -> list[signed.Row]:
+) -> list[kernel_speedups.Row]:
     """The figure's rows as the CLI builds them for the llr40 CPF setups."""
     pattern = setup_names.setup_pattern("llr40")
-    return signed.kernel_rows(
+    return kernel_speedups.kernel_rows(
         canon_frame, observations, tag, canon_columns, pattern, CPF_CONDITIONS, mark_pending=mark_pending
     )
 
@@ -70,7 +70,7 @@ def kernel_rows(
 def kernel_comparison(
     canon_frame: pd.DataFrame, observations: pd.DataFrame, tag: tuple[str, ...], out: pathlib.Path, dpi: float
 ) -> pathlib.Path:
-    return signed.kernel_comparison(
+    return kernel_speedups.kernel_comparison(
         canon_frame, observations, tag, out, CANON_COLUMNS, setup_names.setup_pattern("llr40"), CPF_CONDITIONS, dpi=dpi
     )
 
@@ -160,7 +160,7 @@ def llr40_observations_fixture() -> pd.DataFrame:
 
 
 def test_canon_row_matches_the_ratio_and_scopes_to_the_tag(llr40_canon: pd.DataFrame) -> None:
-    row = signed.canon_kernel_row(llr40_canon, "dace_cpu_canon", TAG40)
+    row = kernel_speedups.canon_kernel_row(llr40_canon, "dace_cpu_canon", TAG40)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": pytest.approx(10.0), "k3": 1.0}
     assert row.numerator_ms["k1"] == pytest.approx(100.0)
     assert row.numerator_ms["k2"] == pytest.approx(200.0)
@@ -183,22 +183,24 @@ def test_canon_row_matches_the_ratio_and_scopes_to_the_tag(llr40_canon: pd.DataF
 def test_canon_row_ignores_kernels_outside_the_tag(llr40_canon: pd.DataFrame) -> None:
     """Regression: a canon sweep commonly spans more kernels than one figure's tag. A row that
     is not scoped to the tag would let the summary geomean a population the panel never drew."""
-    row = signed.canon_kernel_row(llr40_canon, "dace_cpu", ("k1",))
+    row = kernel_speedups.canon_kernel_row(llr40_canon, "dace_cpu", ("k1",))
     assert set(row.ratios) == {"k1"}
 
 
 def test_two_setups_of_one_model_share_colour_and_differ_in_shape(llr40_observations: pd.DataFrame) -> None:
     """Channel rule of every model x packet figure: COLOUR is the model, SHAPE is the packet."""
-    cpf_tool = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-tool", "qwen38", "cpf-tool", TAG40)
-    cpf_src = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
+    cpf_tool = kernel_speedups.agent_kernel_row(
+        llr40_observations, "llr40-qwen38-c-cpf-tool", "qwen38", "cpf-tool", TAG40
+    )
+    cpf_src = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
     assert cpf_tool.color == cpf_src.color == palette.model_color("qwen38")
     assert (cpf_tool.marker, cpf_src.marker) == (palette.packet_marker("cpf-tool"), palette.packet_marker("cpf-src"))
     assert cpf_tool.marker != cpf_src.marker
 
 
 def test_two_models_same_condition_share_shape_and_differ_in_colour(llr40_observations: pd.DataFrame) -> None:
-    qwen = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
-    oss = signed.agent_kernel_row(llr40_observations, "llr40-oss120b-c-cpf-src", "oss120b", "cpf-src", TAG40)
+    qwen = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
+    oss = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-oss120b-c-cpf-src", "oss120b", "cpf-src", TAG40)
     assert qwen.marker == oss.marker == palette.packet_marker("cpf-src")
     assert (qwen.color, oss.color) == (palette.model_color("qwen38"), palette.model_color("oss120b"))
     assert qwen.filled and oss.filled
@@ -206,7 +208,7 @@ def test_two_models_same_condition_share_shape_and_differ_in_colour(llr40_observ
 
 def test_the_no_packet_control_is_hollow_in_its_models_colour(llr40_observations: pd.DataFrame) -> None:
     # the fixture's rows under the control's condition ("" = no packet)
-    control = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "", TAG40)
+    control = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "", TAG40)
     assert (control.marker, control.filled, control.color) == (
         palette.CONTROL_MARKER,
         False,
@@ -215,7 +217,7 @@ def test_the_no_packet_control_is_hollow_in_its_models_colour(llr40_observations
 
 
 def test_agent_row_carries_rule4_costs_and_a_repeat_interval(llr40_observations: pd.DataFrame) -> None:
-    row = signed.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
+    row = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
     assert row.ratios["k1"] > 0.0
     assert row.numerator_ms["k1"] == pytest.approx(1.0)
     # k1 ran twice (2.5x and 2.7x) and k2 once: a bootstrap needs three runs to resample, so both intervals
@@ -230,7 +232,7 @@ def test_the_summary_slot_leaves_out_a_compilers_1x_placeholders(llr40_canon: pd
     make the summary partly a statement about coverage (solved kernels only). Its two
     solved kernels are both 10x, so the printed geomean is 10x -- not 4.6x with the placeholder."""
     rows = kernel_rows(llr40_canon, None, TAG40)
-    fig = signed.kernel_figure(rows, TAG40)
+    fig = kernel_speedups.kernel_figure(rows, TAG40)
     try:
         printed = [text.get_text() for text in fig.axes[0].texts if text.get_gid() == style.CLEAR_GID]
     finally:
@@ -306,8 +308,8 @@ def test_token_summary_table_excludes_rows_with_no_tokens(
     llr40_canon: pd.DataFrame, llr40_observations: pd.DataFrame
 ) -> None:
     rows = kernel_rows(llr40_canon, llr40_observations, TAG_TOKENS)
-    frame = signed.token_summary_table(rows)
-    assert set(frame.columns) == set(signed.TOKEN_SUMMARY_COLUMNS)
+    frame = kernel_speedups.token_summary_table(rows)
+    assert set(frame.columns) == set(kernel_speedups.TOKEN_SUMMARY_COLUMNS)
     assert set(frame["framework"]).isdisjoint(CANON_COLUMNS)
 
 
@@ -317,8 +319,8 @@ def test_the_tokens_table_is_the_token_slots_geomean(
     """Paper rule: the token summary is the geomean over the served kernels -- the value and interval
     the figure's token slot draws."""
     rows = kernel_rows(llr40_canon, llr40_observations, TAG_TOKENS)
-    frame = signed.token_summary_table(rows).set_index("framework")
-    tokens = signed.kernel_metrics(rows, TAG_TOKENS)[1]
+    frame = kernel_speedups.token_summary_table(rows).set_index("framework")
+    tokens = kernel_speedups.kernel_metrics(rows, TAG_TOKENS)[1]
     for row, one in zip(rows, tokens.series, strict=True):
         if not row.tokens:
             continue
@@ -335,17 +337,17 @@ def test_a_tokens_table_too_thin_for_any_interval_fails_rule_5(
     exactly what Rule 5 refuses -- a thin tag is named, never drawn as if it were precise."""
     rows = kernel_rows(llr40_canon, llr40_observations, TAG40)
     with pytest.raises(rules.RuleViolation, match="Rule 5"):
-        signed.token_summary_table(rows)
+        kernel_speedups.token_summary_table(rows)
 
 
 def test_the_summary_table_leaves_out_a_compilers_placeholders(llr40_canon: pd.DataFrame) -> None:
     """dace_cpu_canon solved k1 and k2 (10x each) and never timed k3 (1x, crossed): the
     summary row is the slot's number, 10x over n=2, not 4.6x over three."""
     (row,) = kernel_rows(llr40_canon, None, TAG40, ("dace_cpu_canon",))
-    summary_row = signed.summary_table([row]).iloc[0]
+    summary_row = kernel_speedups.summary_table([row]).iloc[0]
     assert summary_row["n"] == 2
     assert summary_row["geomean"] == pytest.approx(10.0)
-    assert set(signed.table([row])["kernel"]) == set(TAG40)  # the placeholder is still a kernel row
+    assert set(kernel_speedups.table([row])["kernel"]) == set(TAG40)  # the placeholder is still a kernel row
 
 
 # The user's four corrections to the rendered figure: log2 geometry read back as ratios, a
@@ -374,7 +376,7 @@ def test_the_speedup_panel_is_log2_geometry_read_back_in_ratios(llr40_canon: pd.
     """Every doubling the same distance apart (a linear signed change put one 75x outlier 74 units
     from zero and swamped every other mark), and the ticks still read as speedups: the "2x" tick
     sits at the ratio 2 on a base-2 log axis."""
-    fig = signed.kernel_figure(kernel_rows(llr40_canon, None, TAG40), TAG40)
+    fig = kernel_speedups.kernel_figure(kernel_rows(llr40_canon, None, TAG40), TAG40)
     try:
         ax = fig.axes[0]
         labels = [tick.get_text() for tick in ax.get_yticklabels()]
@@ -391,17 +393,17 @@ def test_the_speedup_panel_is_log2_geometry_read_back_in_ratios(llr40_canon: pd.
 
 def test_the_1x_line_wears_the_baselines_own_colour(llr40_canon: pd.DataFrame) -> None:
     """The 1x line IS the baseline (numba), so it is drawn in numba's colour, not a neutral rule."""
-    fig = signed.kernel_figure(kernel_rows(llr40_canon, None, TAG40), TAG40)
+    fig = kernel_speedups.kernel_figure(kernel_rows(llr40_canon, None, TAG40), TAG40)
     try:
         colours = [line.get_color() for line in fig.axes[0].get_lines() if list(line.get_ydata()) == [1.0, 1.0]]
     finally:
         plt.close(fig)
-    assert colours == [palette.framework_color(signed.BASELINE)], colours
+    assert colours == [palette.framework_color(kernel_speedups.BASELINE)], colours
 
 
 def test_figure_omits_the_tokens_panel_when_no_row_spends_tokens(llr40_canon: pd.DataFrame) -> None:
     rows = kernel_rows(llr40_canon, None, TAG40)
-    fig = signed.kernel_figure(rows, TAG40, "title")
+    fig = kernel_speedups.kernel_figure(rows, TAG40, "title")
     try:
         assert len(fig.axes) == 1
         assert fig.axes[0].get_ylabel() == "Speedup over Numba"
@@ -413,7 +415,7 @@ def test_figure_keeps_the_tokens_panel_when_a_row_spends_tokens(
     llr40_canon: pd.DataFrame, llr40_observations: pd.DataFrame
 ) -> None:
     rows = kernel_rows(llr40_canon, llr40_observations, TAG40)
-    fig = signed.kernel_figure(rows, TAG40, "title")
+    fig = kernel_speedups.kernel_figure(rows, TAG40, "title")
     try:
         assert len(fig.axes) == 2
         assert fig.axes[1].get_ylabel() == "Billed Tokens"
@@ -425,10 +427,13 @@ def test_legend_names_each_optimizer_and_the_cross_only_when_one_is_drawn(llr40_
     """The legend keys what a reader cannot read off the axes: which shape is which optimizer, and
     the cross when a kernel carries one. The interval method is the caption's."""
     rows = kernel_rows(llr40_canon, None, TAG40)
-    labels = [handle.get_label() for handle in signed.legend_handles(rows, signed.kernel_metrics(rows, TAG40))]
+    labels = [
+        handle.get_label()
+        for handle in kernel_speedups.legend_handles(rows, kernel_speedups.kernel_metrics(rows, TAG40))
+    ]
     assert labels == ["DaCe", "Canonical Parallel Form", style.NOT_DELIVERED_LABEL]
     complete = kernel_rows(llr40_canon, None, ("k1",))
-    handles = signed.legend_handles(complete, signed.kernel_metrics(complete, ("k1",)))
+    handles = kernel_speedups.legend_handles(complete, kernel_speedups.kernel_metrics(complete, ("k1",)))
     assert [handle.get_label() for handle in handles] == ["DaCe", "Canonical Parallel Form"]
 
 
@@ -444,7 +449,7 @@ def test_figure_prints_at_text_width_and_names_its_summary_statistic(llr40_canon
     every kernel has a visible tick, and the one summary statistic is named by an x tick under its
     slots."""
     rows = kernel_rows(llr40_canon, None, TAG40)
-    fig = signed.kernel_figure(rows, TAG40)
+    fig = kernel_speedups.kernel_figure(rows, TAG40)
     try:
         width, height = (float(v) for v in fig.get_size_inches())
         labels = [label.get_text() for label in fig.axes[0].get_yticklabels()]
@@ -466,14 +471,14 @@ def test_figure_prints_at_text_width_and_names_its_summary_statistic(llr40_canon
 
 def test_summary_column_prints_each_geomean_value(llr40_canon: pd.DataFrame) -> None:
     rows = kernel_rows(llr40_canon, None, TAG40)
-    fig = signed.kernel_figure(rows, TAG40)
+    fig = kernel_speedups.kernel_figure(rows, TAG40)
     try:
         texts = [text.get_text() for text in fig.axes[0].texts]
     finally:
         plt.close(fig)
     # The spelling is the shared speller's, not restated here: the property is that every row's
     # geomean is printed.
-    (speed,) = signed.kernel_metrics(rows, TAG40)
+    (speed,) = kernel_speedups.kernel_metrics(rows, TAG40)
     expected = [style.ratio_label(per_kernel.summary_geomean(one.cells)[0]) for one in speed.series]
     assert all(value in texts for value in expected), (expected, texts)
 
@@ -497,7 +502,7 @@ def pending_canon_fixture() -> pd.DataFrame:
 
 
 def test_by_default_a_kernel_never_attempted_is_a_failure_at_one(pending_canon: pd.DataFrame) -> None:
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40)
+    row = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": 1.0, "k3": 1.0}
     assert row.pending == frozenset()
     assert row.excluded == "none"
@@ -507,25 +512,25 @@ def test_mark_pending_splits_a_kernel_never_attempted_from_one_that_failed(pendi
     """k2 ran and failed: it keeps its cross at 1x, a kernel row, and -- solved kernels only -- no
     place in the summary. k3 has no row yet: it leaves the ratios and the geomean and is named
     pending."""
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
+    row = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": 1.0}
     assert row.delivered == {"k1": True, "k2": False}
     assert row.pending == frozenset({"k3"})
     assert row.excluded == "1 pending"
-    summary_row = signed.summary_table([row]).iloc[0]
+    summary_row = kernel_speedups.summary_table([row]).iloc[0]
     assert summary_row["n"] == 1
     assert summary_row["excluded"] == "1 pending"
     assert summary_row["geomean"] == pytest.approx(10.0)
-    assert set(signed.table([row])["kernel"]) == {"k1", "k2"}
+    assert set(kernel_speedups.table([row])["kernel"]) == {"k1", "k2"}
 
 
 def test_a_failed_kernel_draws_at_one_and_enters_no_summary(pending_canon: pd.DataFrame) -> None:
     """The 1x placeholder is a drawing convention, not a measurement: k2 failed, so it draws in its
     kernel slot and stays out of the geomean, which would otherwise credit the failure with parity
     and pull a 10x row down to 3.2x. The success rate is the separate number (``excluded``)."""
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40)
+    row = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40)
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": 1.0, "k3": 1.0}
-    summary_row = signed.summary_table([row]).iloc[0]
+    summary_row = kernel_speedups.summary_table([row]).iloc[0]
     assert summary_row["n"] == 1
     assert summary_row["geomean"] == pytest.approx(10.0)
     assert summary_row["wins"] == 1
@@ -534,7 +539,7 @@ def test_a_failed_kernel_draws_at_one_and_enters_no_summary(pending_canon: pd.Da
 
 def test_a_kernel_the_baseline_never_ran_is_pending_too(pending_canon: pd.DataFrame) -> None:
     frame = pending_canon[~((pending_canon["column"] == "numba") & (pending_canon["kernel"] == "k1"))]
-    row = signed.canon_kernel_row(frame, "dace_cpu_canon", TAG40, mark_pending=True)
+    row = kernel_speedups.canon_kernel_row(frame, "dace_cpu_canon", TAG40, mark_pending=True)
     assert row.pending == frozenset({"k1", "k3"})
 
 
@@ -554,19 +559,19 @@ def test_mark_pending_keeps_a_setup_not_yet_served_every_kernel(
 
 def test_the_legend_keys_pending_apart_from_the_cross(pending_canon: pd.DataFrame) -> None:
     """A pending-only kernel adds the pending entry and not the cross; a failure adds the cross."""
-    only_pending = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", ("k1", "k3"), mark_pending=True)
-    metrics = signed.kernel_metrics([only_pending], ("k1", "k3"))
-    labels = [handle.get_label() for handle in signed.legend_handles([only_pending], metrics)]
+    only_pending = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", ("k1", "k3"), mark_pending=True)
+    metrics = kernel_speedups.kernel_metrics([only_pending], ("k1", "k3"))
+    labels = [handle.get_label() for handle in kernel_speedups.legend_handles([only_pending], metrics)]
     assert labels == ["Canonical Parallel Form", style.PENDING_LABEL]
-    both = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
-    metrics = signed.kernel_metrics([both], TAG40)
-    labels = [handle.get_label() for handle in signed.legend_handles([both], metrics)]
+    both = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
+    metrics = kernel_speedups.kernel_metrics([both], TAG40)
+    labels = [handle.get_label() for handle in kernel_speedups.legend_handles([both], metrics)]
     assert labels == ["Canonical Parallel Form", style.NOT_DELIVERED_LABEL, style.PENDING_LABEL]
 
 
 def test_the_figure_draws_one_pending_mark_per_pending_kernel(pending_canon: pd.DataFrame) -> None:
-    row = signed.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
-    fig = signed.kernel_figure([row], TAG40)
+    row = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
+    fig = kernel_speedups.kernel_figure([row], TAG40)
     try:
         assert sum(c.get_gid() == style.PENDING_GID for c in fig.axes[0].collections) == 1
     finally:
@@ -577,11 +582,11 @@ def test_a_kernel_numba_did_not_verify_is_timed_against_the_fallback() -> None:
     """Where Numba fails, C autopar is the baseline; the row says how many kernels took it."""
     frame = canon_table([("numba", "k1", 100.0), ("cc_autopar", "k1", 80.0), ("cc_autopar", "k2", 40.0),
                          ("dace_cpu_canon", "k1", 10.0), ("dace_cpu_canon", "k2", 10.0)])  # fmt: skip
-    row = signed.canon_kernel_row(frame, "dace_cpu_canon", ("k1", "k2"), baseline_fallback="cc_autopar")
+    row = kernel_speedups.canon_kernel_row(frame, "dace_cpu_canon", ("k1", "k2"), baseline_fallback="cc_autopar")
     assert row.ratios == {"k1": pytest.approx(10.0), "k2": pytest.approx(4.0)}
     assert row.numerator_ms["k2"] == pytest.approx(40.0)
     assert row.excluded == "1 over cc_autopar"
-    unfilled = signed.canon_kernel_row(frame, "dace_cpu_canon", ("k1", "k2"))
+    unfilled = kernel_speedups.canon_kernel_row(frame, "dace_cpu_canon", ("k1", "k2"))
     assert unfilled.ratios["k2"] == 1.0
     assert unfilled.delivered["k2"] is False
 
@@ -596,7 +601,10 @@ def test_the_fallback_never_replaces_a_numba_time() -> None:
 
 def test_a_shorter_panel_makes_a_shorter_figure_at_the_same_width(llr40_canon: pd.DataFrame) -> None:
     rows = kernel_rows(llr40_canon, None, TAG40)
-    tall, short = signed.kernel_figure(rows, TAG40), signed.kernel_figure(rows, TAG40, panel_height_in=1.0)
+    tall, short = (
+        kernel_speedups.kernel_figure(rows, TAG40),
+        kernel_speedups.kernel_figure(rows, TAG40, panel_height_in=1.0),
+    )
     try:
         assert short.get_size_inches()[0] == pytest.approx(tall.get_size_inches()[0])
         assert short.get_size_inches()[1] == pytest.approx(tall.get_size_inches()[1] - 0.5, abs=0.01)
@@ -615,5 +623,5 @@ def test_a_shorter_panel_makes_a_shorter_figure_at_the_same_width(llr40_canon: p
 def test_the_reference_line_names_every_reference_a_best_of_denominator_races(
     baseline: str, label: str, ink: bool
 ) -> None:
-    assert signed.baseline_label(baseline) == label
-    assert (signed.baseline_color(baseline) == style.INK) is ink
+    assert kernel_speedups.baseline_label(baseline) == label
+    assert (kernel_speedups.baseline_color(baseline) == style.INK) is ink

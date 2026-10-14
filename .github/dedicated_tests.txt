@@ -5,9 +5,6 @@
 # phase); tests/test_ci_coverage.py fails on an entry no job names or a file that does not exist.
 # One path per line; `#` comments and blank lines are ignored.
 
-# --- smoke: the release smoke suite (helpers/scripts/run_smoke.sh) -----------------------------------
-tests/test_smoke.py
-
 # --- mpi: data distribution + descriptor, driver codegen, real multi-rank launches ----------------
 tests/test_mpi_descriptor.py
 tests/test_mpi_prompt.py
