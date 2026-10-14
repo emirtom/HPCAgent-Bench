@@ -28,6 +28,10 @@ class ProblemLine(pydantic.BaseModel):
     slot: int | None = None
     #: The kernel's KernelBench level; the driver deals each level evenly over the judges.
     level: int | None = None
+    #: What the agent tools offer in ``requests`` (``RequestActions.wire``: ``startup``, ``operations``,
+    #: ``cast_to``); the driver exports it as ``$HPCAGENT_BENCH_REQUEST_ACTIONS``. None (a line written
+    #: before it) offers no ``requests`` field.
+    request_actions: dict[str, list[str]] | None = None
     #: Skill page name -> its text, staged beside the task.
     skill_pages: dict[str, str] | None = None
     #: A fused wave's env file and the setup identity its rows carry.

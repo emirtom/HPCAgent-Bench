@@ -347,11 +347,12 @@ def test_the_judge_records_the_link_request_on_the_calls_grade(
 
 
 def test_the_requests_field_shows_the_grid_over_p(monkeypatch: pytest.MonkeyPatch) -> None:
-    """On a distributed run the tool schema requires ``startup.grid`` as extents over the rank count, and
+    """On a distributed task the tool schema requires ``startup.grid`` as extents over the rank count, and
     carries relayout's request schema."""
+    from hpcagent_bench.harness.requests_api import RequestActions
     from tests.test_ml_submit_records import load_http_json
 
-    monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "true")
+    monkeypatch.setenv("HPCAGENT_BENCH_REQUEST_ACTIONS", json.dumps(RequestActions(distributed=True).wire()))
     schema = load_http_json().schema_with_language({})
     requests = schema["properties"]["requests"]
     described = str(requests["description"])

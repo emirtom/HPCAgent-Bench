@@ -38,6 +38,7 @@ from hpcagent_bench.harness.native import display_run_dir
 from hpcagent_bench.harness.requests_api import (
     Location,
     PlannedArray,
+    RequestActions,
     RequestAllowances,
     kernel_arrays,
     mpi_residency,
@@ -93,7 +94,9 @@ __all__ = [
     "build_prompt",
     "build_run_prompt",
     "call_stub",
+    "cluster_context",
     "cluster_facts",
+    "concrete_language",
     "debug_markers",
     "delivered_files",
     "discover",
@@ -115,6 +118,7 @@ __all__ = [
     "pick_str",
     "prompt_env",
     "reference_phrase",
+    "request_actions",
     "score_sampling",
     "sparse_layout_context",
     "strip_host_paths",
@@ -987,6 +991,12 @@ def build_context(
     lib_name = f"lib{spec.short_name}.so"
     files = delivered_files(task.language, spec.short_name)
     allowances = RequestAllowances.from_config()
+    precision_arrays = sorted(precision_problem_dtypes(spec, binding, precision)) if allowances.precisions else []
+    layout_names = [] if is_mpi or not allowances.layouts else layout_arrays(spec, binding)
+    sparse_layout = sparse_layout_context(spec, task.language)
+    # The C-ABI deliveries; a python delivery takes no cast and no layout (service.precision_scope_refusal,
+    # service.single_node_layout_refusal).
+    abi_delivery = task.language != PYTHON_LANG
     context: PromptContext = {
         "kernel": spec.short_name,
         "language": task.language,
@@ -1028,12 +1038,10 @@ def build_context(
         ),
         # Every array a precision may be requested for (requests_api.precision_problem_dtypes); none where
         # the setup allows no cast (requests.precisions).
-        "precision_arrays": (
-            sorted(precision_problem_dtypes(spec, binding, precision)) if allowances.precisions else []
-        ),
+        "precision_arrays": precision_arrays,
         # The dense arrays a single-node layout may name (service.single_node_layout_refusal); none on MPI
         # and none where the setup allows no layout (requests.layouts).
-        "layout_arrays": ([] if is_mpi or not allowances.layouts else layout_arrays(spec, binding)),
+        "layout_arrays": layout_names,
         "problem_precision": precision_from_datatype(precision).value,
         # The precisions a cast may target here, each with its C element type.
         "precision_ctypes": [row for row in PRECISION_CTYPES if Precision(row["precision"]) in allowances.precisions],
@@ -1053,7 +1061,7 @@ def build_context(
         "category": _category(spec),
         "stub": call_stub(binding, task.language, task.residency),
         # The sparse layouts a submission may request (sections/sparse.j2); {} for a dense kernel.
-        "sparse_layout": sparse_layout_context(spec, task.language),
+        "sparse_layout": sparse_layout,
         # Whether a format operation may choose them (requests.sparse_formats); off, sections/sparse.j2
         # states the default format only.
         "sparse_formats_requestable": allowances.sparse_formats,
@@ -1135,6 +1143,21 @@ def build_context(
         # Inline provenance for the skills (they bypass the loader).
         "debug": prompt_config.debug,
     }
+    # What this task's agent tools offer in ``requests`` (make_problems.py writes it per problem, see
+    # request_actions), from the facts the requests, sparse and mpi sections state: sections/requests.j2
+    # renders its cast and layout bullets from it, so the prompt and the tool schema cannot disagree.
+    # ``startup.load`` is the build switch's, or on a distributed task the contract libraries
+    # (sandbox.distributed_contract_libraries) where sections/mpi.j2 names them (device tiles, ML track).
+    contract_load = (
+        is_mpi and bool(cfg.grading.distributed_libraries) and bool(context["mpi_device"] or context["ml_layout"])
+    )
+    context["request_actions"] = RequestActions(
+        load=cfg.grading.allow_agent_build_tokens or contract_load,
+        distributed=is_mpi,
+        casts=allowances.precisions if precision_arrays and abi_delivery else (),
+        layouts=bool(layout_names) and abi_delivery,
+        formats=allowances.sparse_formats and bool(sparse_layout),
+    )
     return context
 
 
@@ -1227,6 +1250,26 @@ DISTRIBUTED_GRADING = (
 )
 
 
+def concrete_language(task: Task) -> bool:
+    """Whether ``task`` names a delivery language; a free-choice task (none) is rendered as C."""
+    from hpcagent_bench.harness.service import PYTHON_DELIVERED_LANGUAGES, SOURCE_EXT
+
+    return task.language in SOURCE_EXT or task.language in PYTHON_DELIVERED_LANGUAGES
+
+
+def cluster_context(task: Task, prompt_config: "PromptConfig") -> PromptContext:
+    """:func:`build_context` of a cluster problem: a free-choice task's as a C one (:func:`concrete_language`)."""
+    return build_context(
+        task if concrete_language(task) else dataclasses.replace(task, language="c"), prompt_config=prompt_config
+    )
+
+
+def request_actions(task: Task) -> RequestActions:
+    """What ``task``'s agent tools offer in ``requests`` (``build_context``'s ``request_actions``), as the
+    problems file carries it to the agent driver (``make_problems.py``)."""
+    return cast("RequestActions", cluster_context(task, PromptConfig.from_config())["request_actions"])
+
+
 def cluster_facts(task: Task) -> dict[str, str]:
     """The facts the cluster prompt (``agent/prompt.md``) states about ``task`` that only the harness knows,
     one per ``{{<NAME>}}`` slot, rendered from :func:`build_context` and the partials the in-process and the
@@ -1237,11 +1280,11 @@ def cluster_facts(task: Task) -> dict[str, str]:
     section), and the file names the judge reads: ``SOURCE_FILES`` (prose), ``SOURCE_BODY`` (a tool
     call's JSON) and ``SOURCE_FIELDS`` (the body fields of the stdlib fallback call). A free-choice task
     (no language) names ``<kernel>.<ext>``."""
-    from hpcagent_bench.harness.service import PYTHON_DELIVERED_LANGUAGES, SOURCE_EXT
+    from hpcagent_bench.harness.service import SOURCE_EXT
 
     prompt_config = PromptConfig.from_config()
-    concrete = task.language in SOURCE_EXT or task.language in PYTHON_DELIVERED_LANGUAGES
-    ctx = build_context(task if concrete else dataclasses.replace(task, language="c"), prompt_config=prompt_config)
+    concrete = concrete_language(task)
+    ctx = cluster_context(task, prompt_config)
     env = prompt_env(prompt_config)
 
     def partial(name: str) -> str:

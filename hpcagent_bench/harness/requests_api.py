@@ -23,6 +23,7 @@ from relayout.convert import Group, Member
 from relayout.layout import IndexMap
 from relayout.ops import (
     RANKS_SYMBOL,
+    Action,
     ArraySpec,
     AxisSplit,
     Cast,
@@ -58,13 +59,17 @@ __all__ = [
     "AxisDist",
     "CheckedArray",
     "CheckedStruct",
+    "DISTRIBUTED_ACTIONS",
     "DistributionPlan",
     "Location",
     "PlannedArray",
+    "REGROUP_ACTIONS",
+    "RequestActions",
     "RequestAllowances",
     "Requests",
     "RequestsCheck",
     "RequestsField",
+    "SINGLE_NODE_LAYOUT_ACTIONS",
     "grid_request",
     "kernel_arrays",
     "kernel_dtypes",
@@ -173,6 +178,68 @@ class RequestAllowances(pydantic.BaseModel):
                 "every sparse array arrives in its default format"
             )
         return None
+
+
+#: The digit operations a request without ``startup.grid`` lays a dense array out by (``requests.layouts``;
+#: ``distribute`` needs a grid).
+SINGLE_NODE_LAYOUT_ACTIONS = (
+    Action.BLOCK,
+    Action.UNBLOCK,
+    Action.SPLIT,
+    Action.UNSPLIT,
+    Action.PERMUTE,
+    Action.PAD,
+    Action.UNPAD,
+    Action.SHUFFLE,
+    Action.LINEAR_SHUFFLE,
+)
+#: The operations that fuse arrays into one pointer or split one into several (``requests.layouts``).
+REGROUP_ACTIONS = (Action.ZIP, Action.UNZIP)
+#: The operations a request with ``startup.grid`` lays its arrays out over the grid by: every digit operation,
+#: ``replicate`` and ``place`` (no allowance gates them; the distributed track requires them).
+DISTRIBUTED_ACTIONS = (*SINGLE_NODE_LAYOUT_ACTIONS, Action.DISTRIBUTE, Action.REPLICATE, Action.PLACE)
+
+
+class RequestActions(pydantic.BaseModel):
+    """What one task's agent tools offer in ``requests``: the judge's allowances
+    (:class:`RequestAllowances`, ``grading.allow_agent_build_tokens``, the distributed track) as the
+    task's prompt states them (:func:`hpcagent_bench.harness.prompts.build_context`'s ``request_actions``).
+    The agent runtime reads :meth:`wire` from ``$HPCAGENT_BENCH_REQUEST_ACTIONS`` (written per problem by
+    ``make_problems.py``) and offers exactly these members of the request schema."""
+
+    model_config = pydantic.ConfigDict(frozen=True, extra="forbid")
+
+    #: ``startup.load``: catalog libraries (``grading.allow_agent_build_tokens``, or a distributed task's
+    #: ``grading.distributed_libraries``).
+    load: bool = False
+    #: A distributed task: ``startup.grid`` and :data:`DISTRIBUTED_ACTIONS`.
+    distributed: bool = False
+    #: The precisions a ``cast`` may target; empty offers no ``cast``.
+    casts: tuple[Precision, ...] = ()
+    #: :data:`SINGLE_NODE_LAYOUT_ACTIONS` without a grid, and :data:`REGROUP_ACTIONS`.
+    layouts: bool = False
+    #: ``format`` on a sparse array.
+    formats: bool = False
+
+    def startup(self) -> tuple[str, ...]:
+        """The ``startup`` members offered."""
+        return ("load",) * self.load + ("grid",) * self.distributed
+
+    def operations(self) -> tuple[Action, ...]:
+        """The operation actions offered, in schema order."""
+        offered = {Action.CAST} if self.casts else set()
+        offered |= {Action.FORMAT} if self.formats else set()
+        offered |= set(SINGLE_NODE_LAYOUT_ACTIONS + REGROUP_ACTIONS) if self.layouts else set()
+        offered |= set(DISTRIBUTED_ACTIONS) if self.distributed else set()
+        return tuple(action for action in Action if action in offered)
+
+    def wire(self) -> dict[str, list[str]]:
+        """What the agent runtime reads: ``{"startup": [...], "operations": [...], "cast_to": [...]}``."""
+        return {
+            "startup": list(self.startup()),
+            "operations": [action.value for action in self.operations()],
+            "cast_to": [precision.value for precision in self.casts],
+        }
 
 
 class AxisDist(pydantic.BaseModel):

@@ -1260,6 +1260,19 @@ def identity_env(problem_index: int, worker_index: int, slot: int | None = None,
     return identity
 
 
+#: The problems-file key holding what the agent tools offer in ``requests`` (``make_problems.py`` writes it
+#: from ``prompts.request_actions``; the same key there).
+REQUEST_ACTIONS_KEY = "request_actions"
+
+
+def request_actions_env(problem: Problem) -> dict[str, str]:
+    """The problem's :data:`REQUEST_ACTIONS_KEY` as ``$HPCAGENT_BENCH_REQUEST_ACTIONS`` (JSON) for its tool
+    processes (``http_json.request_actions``); none for a line without it, whose tools then offer no
+    ``requests``."""
+    raw = problem.get(REQUEST_ACTIONS_KEY)
+    return {http_json.REQUEST_ACTIONS_ENV: json.dumps(raw, sort_keys=True)} if isinstance(raw, dict) else {}
+
+
 def shared_dir() -> pathlib.Path:
     """The shared mount, ``/shared`` in the container."""
     return pathlib.Path(os.environ.get("HPCAGENT_BENCH_SHARED_DIR", "/shared"))
@@ -2726,6 +2739,7 @@ def write_mcp_config(
                             **identity_env(
                                 problem_index, worker_index, problem_slot(problem), str(problem.get("kernel", ""))
                             ),
+                            **request_actions_env(problem),
                             "AGENT_SUBMISSION_MARKER": str((workdir / SUBMISSION_MARKER).absolute()),
                         },
                     }
@@ -2778,6 +2792,9 @@ def agent_environment(
     # Same channel, same reason: the MCP server puts these in every judge POST body, and a row the
     # judge records without them is one no setup, node or worker can be recovered from afterwards.
     environment.update(identity_env(problem_index, worker_index, problem_slot(problem), str(problem.get("kernel", ""))))
+    # What the tools offer in ``requests`` is the problem's alone: an inherited value would be another setup's.
+    environment.pop(http_json.REQUEST_ACTIONS_ENV, None)
+    environment.update(request_actions_env(problem))
     return environment
 
 

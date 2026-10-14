@@ -66,6 +66,17 @@ everything else with a 400 before the kernel checks below (`service.requests_ref
 `startup.grid` and the operations that lay arrays out over it are the distributed track's contract and are
 not gated by these keys.
 
+The agent tools offer only what the task's prompt states. `prompts.build_context` resolves it per task from the
+effective config, defaults included (`requests_api.RequestActions`): `startup.load` where the build switch is on
+(or a distributed task's prompt names the contract libraries), `cast` to the allowed precisions and the
+single-node layouts, `zip` and `unzip` where the kernel has arrays to apply them to in a C-ABI delivery, `format`
+on a sparse kernel, and on a distributed task `startup.grid` with every digit operation, `distribute`,
+`replicate` and `place`. `make_problems.py` writes that offer into each problem line (`request_actions`).
+The agent driver exports it as `$HPCAGENT_BENCH_REQUEST_ACTIONS`, and `http_json.requests_property` filters
+the vendored schema by it. Where nothing is offered, or the variable is unset (a problem line written before
+it), `score`, `submit` and `profile` show no `requests` field. The agent's environment never carries the
+config defaults, so the tools do not guess them.
+
 ## 1. Precision (`cast`)
 
 `cast` sets an array's element type: `fp64`, `fp32`, `fp16`, `bf16`, `fp8_e4m3`, `fp8_e5m2`. An array no
