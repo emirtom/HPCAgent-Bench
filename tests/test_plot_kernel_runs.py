@@ -34,7 +34,15 @@ def stub_observations() -> pd.DataFrame:
         episode = frame["episode_id"].str.replace(r"^[^.]+", "", regex=True)
         tokens = (10_000 * frame["slot"]).where(frame["row_kind"] == "episode")
         copies.append(
-            frame.assign(setup=setup, episode_id=setup + episode, job=frame["job"] + 10 * index, tokens=tokens)
+            frame.assign(
+                setup=setup,
+                episode_id=setup + episode,
+                job=frame["job"] + 10 * index,
+                tokens=tokens,
+                tokens_fresh_input=tokens,
+                tokens_cached_input=0.0,
+                tokens_output=0.0,
+            )
         )
     return pd.concat(copies, ignore_index=True)
 
@@ -162,7 +170,7 @@ def test_the_script_draws_only_the_conditions_asked_for(tmp_path: pathlib.Path) 
     [
         pytest.param("temperature3-qwen38-c-t1.5", "t1.5", id="temperature"),
         pytest.param("temperature3-qwen38-c", "", id="default"),
-        pytest.param("llr40-qwen38-c-cpf-src", "cpf-src", id="packet"),
+        pytest.param("llr40-qwen38-c-cpf-cpu-src", "cpf-cpu-src", id="packet"),
     ],
 )
 def test_the_condition_is_read_off_the_setup_name(setup: str, want: str) -> None:
@@ -209,7 +217,7 @@ if __name__ == "__main__":
     test_the_script_draws_only_the_conditions_asked_for(pathlib.Path(tempfile.mkdtemp()))
     test_the_condition_is_read_off_the_setup_name("temperature3-qwen38-c-t1.5", "t1.5")
     test_the_condition_is_read_off_the_setup_name("temperature3-qwen38-c", "")
-    test_the_condition_is_read_off_the_setup_name("llr40-qwen38-c-cpf-src", "cpf-src")
+    test_the_condition_is_read_off_the_setup_name("llr40-qwen38-c-cpf-cpu-src", "cpf-cpu-src")
     test_temperatures_order_by_value_with_the_default_among_them()
     test_one_condition_draws_one_unruled_untitled_group()
     test_the_script_refuses_owed_runs_by_default(pathlib.Path(tempfile.mkdtemp()))

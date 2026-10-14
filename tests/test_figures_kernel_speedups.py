@@ -189,7 +189,9 @@ def test_canon_row_ignores_kernels_outside_the_tag(llr40_canon: pd.DataFrame) ->
 
 def test_two_setups_of_one_model_share_colour_and_differ_in_shape(llr40_observations: pd.DataFrame) -> None:
     """Channel rule of every model x packet figure: COLOUR is the model, SHAPE is the packet."""
-    cpf_tool = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-tool", "qwen38", "cpf-tool", TAG40)
+    cpf_tool = kernel_speedups.agent_kernel_row(
+        llr40_observations, "llr40-qwen38-c-cpf-tool", "qwen38", "cpf-tool", TAG40
+    )
     cpf_src = kernel_speedups.agent_kernel_row(llr40_observations, "llr40-qwen38-c-cpf-src", "qwen38", "cpf-src", TAG40)
     assert cpf_tool.color == cpf_src.color == palette.model_color("qwen38")
     assert (cpf_tool.marker, cpf_src.marker) == (palette.packet_marker("cpf-tool"), palette.packet_marker("cpf-src"))
@@ -425,7 +427,10 @@ def test_legend_names_each_optimizer_and_the_cross_only_when_one_is_drawn(llr40_
     """The legend keys what a reader cannot read off the axes: which shape is which optimizer, and
     the cross when a kernel carries one. The interval method is the caption's."""
     rows = kernel_rows(llr40_canon, None, TAG40)
-    labels = [handle.get_label() for handle in kernel_speedups.legend_handles(rows, kernel_speedups.kernel_metrics(rows, TAG40))]
+    labels = [
+        handle.get_label()
+        for handle in kernel_speedups.legend_handles(rows, kernel_speedups.kernel_metrics(rows, TAG40))
+    ]
     assert labels == ["DaCe", "Canonical Parallel Form", style.NOT_DELIVERED_LABEL]
     complete = kernel_rows(llr40_canon, None, ("k1",))
     handles = kernel_speedups.legend_handles(complete, kernel_speedups.kernel_metrics(complete, ("k1",)))
@@ -596,7 +601,10 @@ def test_the_fallback_never_replaces_a_numba_time() -> None:
 
 def test_a_shorter_panel_makes_a_shorter_figure_at_the_same_width(llr40_canon: pd.DataFrame) -> None:
     rows = kernel_rows(llr40_canon, None, TAG40)
-    tall, short = kernel_speedups.kernel_figure(rows, TAG40), kernel_speedups.kernel_figure(rows, TAG40, panel_height_in=1.0)
+    tall, short = (
+        kernel_speedups.kernel_figure(rows, TAG40),
+        kernel_speedups.kernel_figure(rows, TAG40, panel_height_in=1.0),
+    )
     try:
         assert short.get_size_inches()[0] == pytest.approx(tall.get_size_inches()[0])
         assert short.get_size_inches()[1] == pytest.approx(tall.get_size_inches()[1] - 0.5, abs=0.01)

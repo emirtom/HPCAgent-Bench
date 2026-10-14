@@ -65,5 +65,3 @@ def write_row(shard: pathlib.Path, framework: str, build: str, time: float) -> N
             )
         )
         session.commit()
-
-

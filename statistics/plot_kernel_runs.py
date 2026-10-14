@@ -86,9 +86,7 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     per_kernel.save(fig, args.out, print_size=True)
     states = runs[population.RUN_STATE_COLUMN].map(lambda state: state.value)
-    drawn = runs.assign(
-        condition=runs["setup"].map(kernel_runs.condition_of), **{population.RUN_STATE_COLUMN: states}
-    )
+    drawn = runs.assign(condition=runs["setup"].map(kernel_runs.condition_of), **{population.RUN_STATE_COLUMN: states})
     drawn.to_csv(args.out.with_suffix(".csv"), index=False)
     print(f"{len(runs)} runs -> {args.out} (+ .png, .csv)")
     if table is not None:

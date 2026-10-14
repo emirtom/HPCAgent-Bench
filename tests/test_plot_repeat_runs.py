@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The per-kernel run marks (boxes, run dots, counts) the kernel runs figure draws with."""
 
-
 import matplotlib as mpl
 
 mpl.use("Agg")
