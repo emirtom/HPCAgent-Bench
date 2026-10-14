@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
 from hpcagent_bench.translators.numpyto_common.ir import SparseArrayDesc, tag_numpy_origin
+from hpcagent_bench.translators.numpyto_common.lib_nodes.blas import BLAS_LOWERING_FLOAT
 from hpcagent_bench.translators.numpyto_common.lib_nodes.call_hoist import CallHoister, numpy_call_key
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import NP_ZEROS_ALIASES
 from hpcagent_bench.translators.numpyto_common.lib_nodes.elementwise import UNARY_C_MATH
@@ -332,6 +333,7 @@ class LibNodeRewriter(ast.NodeTransformer):
     __slots__ = (
         "_counter",
         "blas",
+        "blas_float",
         "dim_aliases",
         "fft_library",
         "fft_library_nd",
@@ -360,6 +362,7 @@ class LibNodeRewriter(ast.NodeTransformer):
         fft_library: bool = False,
         scalar_helpers: set[str] | None = None,
         fft_library_nd: bool = False,
+        blas_float: str = BLAS_LOWERING_FLOAT,
     ) -> None:
         self.shape_table = shape_table
         #: Kernel helpers emitted as by-value SCALAR functions. A call to one is rank 0 whatever
@@ -369,6 +372,8 @@ class LibNodeRewriter(ast.NodeTransformer):
         #: Target renders a dense 2-D float GEMM as a BLAS call. Threaded to the matmul hoister;
         #: every other matmul shape (batched, transposed, matvec, sparse, non-float) keeps its loops.
         self.blas = blas
+        #: The kernel's float: a gemm operand of another width keeps the loop nest (BLAS_LOWERING_FLOAT).
+        self.blas_float = blas_float
         #: Target renders a whole-array 1-D np.fft.fft/ifft/fftn/ifftn as FFT_LIBRARY_MARKER
         #: instead of the naive O(N^2) loop. SEPARATE from ``blas`` (not reused): a target that
         #: cannot render BLAS_GEMM_MARKER (numpyto_fortran/numpyto_numba's emitters have no
@@ -427,6 +432,7 @@ class LibNodeRewriter(ast.NodeTransformer):
             local_dtypes=self.local_dtypes,
             dim_aliases=self.dim_aliases,
             blas=self.blas,
+            blas_float=self.blas_float,
         )
         call_hoister.sparse = self.sparse
         value = call_hoister.visit(value)
@@ -440,6 +446,7 @@ class LibNodeRewriter(ast.NodeTransformer):
             sparse=self.sparse,
             dim_aliases=self.dim_aliases,
             blas=self.blas,
+            blas_float=self.blas_float,
         )
         new_value = mm_hoister.visit(value)
         pre.extend(mm_hoister.pre_stmts)

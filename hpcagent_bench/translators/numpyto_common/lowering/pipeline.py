@@ -231,6 +231,19 @@ def required[T](value: T | None, what: str) -> T:
     return value
 
 
+def signature_float_dtype(kir: KernelIR) -> str:
+    """The float the C emitter computes this kernel in, before any run precision is applied: the
+    compute dtype of a storage-only ABI format, float32 when every real float in the signature is,
+    else float64 -- the rule ``numpyto_c.emit.default_float_dtype`` applies at emit, and the width
+    its gemm call is chosen for."""
+    storage = {dtypes.compute_dtype(a.dtype) for a in kir.arrays if a.dtype and dtypes.is_storage_only(a.dtype)}
+    if len(storage) == 1:
+        return storage.pop()
+    reals = {dtypes.c_type(dtypes.compute_dtype(d.dtype)) for d in descs(kir.arrays, kir.scalars) if d.dtype}
+    reals &= {"float", "double"}
+    return "float32" if reals == {"float"} else "float64"
+
+
 def user_functions(ctx: LoweringContext) -> set[str]:
     """Names of the functions the kernel module defines: its emitted helpers and any def left in the tree."""
     names = {h.kernel_name for h in ctx.kir.helpers}
@@ -628,6 +641,7 @@ def lp_libnode_expand(ctx: LoweringContext) -> None:
         native_call=ctx.native_call,
         native_dtypes={**{arr.name: arr.dtype for arr in ctx.kir.arrays}, **ctx.local_dtypes},
         blas=ctx.blas,
+        blas_float=signature_float_dtype(ctx.kir),
         fft_library=ctx.fft_library,
         fft_library_nd=ctx.fft_library_nd,
     )
