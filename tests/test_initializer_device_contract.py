@@ -93,9 +93,24 @@ def violations(path: pathlib.Path) -> list[str]:
             module = node.module if isinstance(node, ast.ImportFrom) else ""
             if any(part.startswith("scipy") for part in (module or "", *names)):
                 found.append(f"{node.lineno}: scipy (host only)")
+            if isinstance(node, ast.ImportFrom) and (module or "").endswith("_numpy"):
+                found.extend(
+                    f"{node.lineno}: {alias.name} from a numpy reference module (move the input code beside initialize)"
+                    for alias in node.names
+                    if callable_in(module or "", alias.name)
+                )
     if not takes_xp:
         found.append("initialize() takes no xp")
     return found
+
+
+def callable_in(module: str, name: str) -> bool:
+    """Whether ``module`` (a dotted path) defines ``name`` as a function or class."""
+    spec = importlib.util.find_spec(module)
+    if spec is None or spec.origin is None:
+        return False
+    tree = ast.parse(pathlib.Path(spec.origin).read_text(encoding="utf-8"))
+    return any(isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name == name for n in tree.body)
 
 
 def literal(node: ast.expr) -> bool:
