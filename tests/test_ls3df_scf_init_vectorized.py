@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.benchmarks.scientific_computing.spectral_methods.ls3df_scf import ls3df_scf
+from hpcagent_bench.support.counter_generator import CounterGenerator
 
 
 def scalar_wells(
@@ -41,7 +42,7 @@ def test_initialize_matches_whole_grid_loop(
     N: int, Lb: int, nfrag: int, nstate: int, nproj: int, datatype: type[np.floating]
 ) -> None:
     """V_ion, rho and every later draw equal the shipped loop's."""
-    got = ls3df_scf.initialize(N, Lb, nfrag, nstate, nproj, datatype=datatype, rng=np.random.default_rng(3))
+    got = ls3df_scf.initialize(N, Lb, nfrag, nstate, nproj, datatype=datatype, rng=CounterGenerator(3))
     ref_rng = np.random.default_rng(3)
     V_ion, rho, dvol = scalar_wells(N, nfrag, datatype, ref_rng)
     rho *= (nfrag * nstate) / (float(rho.sum()) * float(dvol))
