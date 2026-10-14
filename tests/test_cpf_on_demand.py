@@ -220,7 +220,7 @@ def test_a_recorded_failure_is_answered_and_never_rendered_again(
     assert renderer.calls == 1
     pointer = cpf_cache.recorded(view, KERNEL, "c", "fp64")
     assert pointer is not None
-    assert pointer["verdict"] == "fail"
+    assert pointer.verdict == "fail"
 
 
 def test_an_unknown_kernel_is_answered_without_rendering_or_recording(
