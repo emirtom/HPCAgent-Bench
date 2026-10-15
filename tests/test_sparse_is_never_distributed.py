@@ -44,9 +44,11 @@ def test_no_registered_sparse_kernel_declares_an_mpi_block() -> None:
     assert [spec.short_name for spec in sparse if spec.mpi] == []
 
 
+@pytest.mark.usefixtures("every_request_allowed")
 @pytest.mark.parametrize("residency", ["host", "distributed"])
 def test_a_sparse_task_refuses_any_grid(residency: str) -> None:
-    """Refused whatever the residency: a host task would otherwise ignore the layout silently."""
+    """Refused whatever the residency: a host task would otherwise ignore the layout silently. Under a setup
+    allowing ``distribute``: elsewhere the allowance refuses the grid first (requests.allow)."""
     refusal = service.requests_refusal(sparse_submission(LAYOUT), Task(SPARSE, residency=residency), "float64")
     assert refusal is not None
     assert "sparse kernel" in refusal

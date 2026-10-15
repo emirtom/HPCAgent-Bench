@@ -481,7 +481,7 @@ class Oracle(Section):
     overrides: dict[str, OracleOverride]
 
 
-class RequestCapability(enum.StrEnum):
+class RequestCapability(enum.Enum):
     """One thing a submission's ``requests`` may ask the judge for (``requests.allow``; the actions each
     enables: :class:`hpcagent_bench.harness.requests_api.RequestAllowances`)."""
 
@@ -501,7 +501,7 @@ class RequestCapability(enum.StrEnum):
     DISTRIBUTE = "distribute"
 
 
-class GridChooser(enum.StrEnum):
+class GridChooser(enum.Enum):
     """Who sets the processor grid of a distributed grade (``requests.grid``)."""
 
     #: The submission's ``startup.grid``.
