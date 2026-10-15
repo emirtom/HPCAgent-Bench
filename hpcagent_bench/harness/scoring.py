@@ -1340,10 +1340,20 @@ def python_baseline_samples(
 LOST_REASON_CHARS = 400
 
 
+#: Characters of a cut reason kept from its start; the rest of :data:`LOST_REASON_CHARS` keeps its end.
+LOST_REASON_HEAD_CHARS = 120
+
+
 def one_line(exc: BaseException) -> str:
-    """``exc`` as one bounded line: newlines folded, cut at :data:`LOST_REASON_CHARS`."""
+    """``exc`` as one bounded line: newlines folded, cut to :data:`LOST_REASON_CHARS`.
+
+    A cut keeps both ends: the start says what failed, and the end holds the cause (a child's
+    traceback names its exception on its last line, a compiler log its error near the end)."""
     text = " | ".join(line.strip() for line in str(exc).splitlines() if line.strip()) or type(exc).__name__
-    return text if len(text) <= LOST_REASON_CHARS else text[: LOST_REASON_CHARS - 3] + "..."
+    if len(text) <= LOST_REASON_CHARS:
+        return text
+    tail = LOST_REASON_CHARS - LOST_REASON_HEAD_CHARS - 5
+    return f"{text[:LOST_REASON_HEAD_CHARS]} ... {text[-tail:]}"
 
 
 def lost_candidates_line(kernel: str, kinds: Sequence[str], errors: Sequence[str]) -> str:
