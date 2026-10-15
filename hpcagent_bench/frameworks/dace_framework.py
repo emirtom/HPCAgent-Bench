@@ -1029,7 +1029,7 @@ class DaceFramework(Framework):
             return {}
         recipes: Sequence[tuple[str, str]] = vars(self.kernel_module(bench)).get("__hpcagent_bench_symbol_defs__", ())
         renames = self.arg_renames(bench)
-        args = [renames.get(a, a) for a in bench.info["input_args"]]
+        args = [renames.get(name, name) for name in map(str, bench.info["input_args"])]
         # ``sdfg.arrays`` is keyed by the emitted name.
         values = {renames.get(k, k): v for k, v in resolved.items()} if renames else resolved
         return bind_free_symbols(impl.sdfg, recipes, args, values, bound)

@@ -31,7 +31,7 @@ class DeviceSlot:
     capacity_bytes: int = 0
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None, typed=True)
 def local_gpu_count() -> int:
     """Visible GPUs on this host (0 when cupy or a driver is absent -> a host-only judge); probed once per process."""
     try:

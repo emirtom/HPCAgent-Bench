@@ -51,10 +51,13 @@
 set -euo pipefail
 ulimit -c 0
 CLUSTER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-OPT=${OPT:-$(cd -- "${CLUSTER_DIR}/../.." && pwd)}
+# The checkout this script belongs to: its experiments/ holds the setups and generated files. OPT is the code root
+# (default: the same checkout).
+CHECKOUT="$(cd -- "${CLUSTER_DIR}/../.." && pwd)"
+OPT=${OPT:-${CHECKOUT}}
 # The setups' generated files (.env.<setup>, problems-*.jsonl, .rendered/) live in experiments/, next to
 # the setups.yaml and layers/ they render from; every relative path below is relative to it.
-cd -- "${OPT}/experiments"
+cd -- "${CHECKOUT}/experiments"
 . "${OPT}/hpcagent_bench/cluster/env.sh"
 . "${CLUSTER_DIR}/setup_nodes.sh"
 . "${CLUSTER_DIR}/pin_env_kv.sh"

@@ -252,7 +252,7 @@ Scorer = Callable[..., Score]
 Verifier = Callable[..., VerifyResult]
 
 
-@pydantic.dataclasses.dataclass(frozen=True)
+@pydantic.dataclasses.dataclass(frozen=True, slots=True)
 class Scaling:
     """An item's scaling request: the laws to sweep and the rank counts P of the sweep. A job places the
     sweep only when its launch spans max(``rank_counts``) ranks (:func:`scaling_grade.placeable_ranks`); a
@@ -262,7 +262,7 @@ class Scaling:
     rank_counts: tuple[int, ...]
 
 
-@pydantic.dataclasses.dataclass(frozen=True)
+@pydantic.dataclasses.dataclass(frozen=True, slots=True)
 class Item:
     """One recorded grade to grade again, and everything grading it needs: the results DB holding it
     and its id there (its stored sources are what is graded)."""

@@ -493,7 +493,7 @@ class Cpf(Section):
     cache: str
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None, typed=True)
 def yaml_defaults() -> dict[str, Any]:
     """:data:`CONFIG_YAML` as a dict (read once per process)."""
     with CONFIG_YAML.open(encoding="utf-8") as stream:
@@ -631,7 +631,7 @@ def nest(tree: dict[str, Any], dotted: str, value: object) -> None:
     node[leaf] = value
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None, typed=True)
 def adapter(dotted: str) -> TypeAdapter[Any]:
     """The validator of leaf ``dotted``: its annotation with its constraints."""
     field = FIELDS[dotted]
@@ -651,6 +651,20 @@ def strip_optional(annotation: object) -> tuple[object, bool]:
 def parse_env(dotted: str, text: str) -> object:
     """Env text of key ``dotted`` as a value its field accepts (validated; ``ValueError`` names the variable)."""
     annotation, nullable = strip_optional(FIELDS[dotted].annotation)
+    raw: object
+    try:
+        raw = env_raw(annotation, nullable, text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"${env_name(dotted)}={text!r} is not valid JSON for {dotted}: {exc}") from exc
+    try:
+        return adapter(dotted).validate_python(raw)
+    except ValidationError as exc:
+        raise ValueError(f"${env_name(dotted)}={text!r} is not a valid {dotted}: {exc}") from exc
+
+
+def env_raw(annotation: object, nullable: bool, text: str) -> object:
+    """Env text as the plain value :func:`parse_env` validates: null, a string, a list (JSON ``[...]`` or
+    separated items), a JSON object, or the stripped text."""
     origin = get_origin(annotation)
     raw: object
     if nullable and text.strip().lower() in NULL_SPELLINGS:
@@ -668,10 +682,7 @@ def parse_env(dotted: str, text: str) -> object:
         raw = json.loads(text)
     else:
         raw = text.strip()
-    try:
-        return adapter(dotted).validate_python(raw)
-    except ValidationError as exc:
-        raise ValueError(f"${env_name(dotted)}={text!r} is not a valid {dotted}: {exc}") from exc
+    return raw
 
 
 #: Runtime overrides: dotted leaf -> validated value. Highest precedence; process-global.
@@ -770,7 +781,7 @@ def environment() -> dict[str, str]:
     return merged
 
 
-@functools.lru_cache(maxsize=RESOLVED_CACHE_SIZE)
+@functools.lru_cache(maxsize=RESOLVED_CACHE_SIZE, typed=True)
 def resolve(env_items: tuple[tuple[str, str], ...], version: int) -> Settings:
     """The :class:`Settings` of one (``HPCAGENT_BENCH_*`` environment, override version) state: :data:`CONFIG_YAML`,
     then every key's env name (a map key is replaced whole), then :data:`OVERRIDES`. The arguments are the cache key

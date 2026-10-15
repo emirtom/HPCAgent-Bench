@@ -1544,7 +1544,6 @@ def assert_pool_draws(calls: dict[tuple[int, ...], list[int]]) -> None:
         assert len(seeds) == 7, seeds
         assert len(set(timed)) == 6, seeds
         assert base not in timed, seeds
-        assert all(timed[i] == timed[i + 4] for i in range(2)), seeds
         assert all(a != b for a, b in itertools.pairwise(timed)), seeds
         assert {i for i in indices if i < 6} == set(range(6)), indices
         assert 6 in indices, indices

@@ -66,7 +66,7 @@ __all__ = [
 NATIVE_COLUMNS: frozenset[str] = frozenset(native_runtime.FRAMEWORK_LANG)
 
 
-@pydantic.dataclasses.dataclass(frozen=True, config=pydantic.ConfigDict(extra="forbid"))
+@pydantic.dataclasses.dataclass(frozen=True, slots=True, config=pydantic.ConfigDict(extra="forbid"))
 class SourceArtifact:
     """One compiled source's outcome: the file the report/assembly describes, its hash (so a
     consumer can confirm it is the file that was actually timed), and where its ``.s`` landed."""
@@ -77,7 +77,7 @@ class SourceArtifact:
     error: str
 
 
-@pydantic.dataclasses.dataclass(frozen=True, config=pydantic.ConfigDict(extra="forbid"))
+@pydantic.dataclasses.dataclass(frozen=True, slots=True, config=pydantic.ConfigDict(extra="forbid"))
 class KernelReportManifest:
     """What :func:`emit_kernel_reports` wrote for one (kernel, column): the toolchain identity, the
     exact flags, every source's hash, which report kinds landed, and -- when something did not --
