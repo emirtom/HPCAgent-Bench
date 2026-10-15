@@ -15,6 +15,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+__all__ = ["concatenated"]
+
 
 def concatenated(
     tokens: NDArray[Any], lengths: NDArray[Any], ids: NDArray[Any], n: int, xp: ModuleType = np
