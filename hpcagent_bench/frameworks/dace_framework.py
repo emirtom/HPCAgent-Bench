@@ -31,8 +31,9 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
+from hpcagent_bench import cpf_canonical, languages, paths
 from hpcagent_bench import flags as bench_flags
-from hpcagent_bench import languages, paths
+from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import utilities as util
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -55,6 +56,7 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.frameworks.test import njit_reference, tolerance_datatype, tolerances_for
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
+from hpcagent_bench.spec import BenchSpec
 
 if TYPE_CHECKING:
     from dace.frontend.python.common import SDFGClosure
@@ -771,18 +773,39 @@ class DaceFramework(Framework):
         framework_cache.save_sdfg(cache_dir, module, tag, fingerprint, sdfg)
         return sdfg
 
+    def cached_canonical(self, bench: Benchmark, cache_root: pathlib.Path) -> dace.SDFG:
+        """The kernel's canonical SDFG for this device from the CPF cache under ``cache_root``
+        (:func:`hpcagent_bench.cpf_canonical.canonical_sdfg`, the entry the CPF prerender renders its forms
+        from), canonicalized and published there on a miss. A cached canonicalize failure raises its error."""
+        spec = BenchSpec.load(bench.info["short_name"])
+        precision = self.datatype or ""
+        target = self._device_tag()
+        impl = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_dace.py"
+        key = cpf_canonical.canonical_key(impl, cpf_canonical.dace_commit(), precision, target)
+        sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, key, cache_root, precision, target)
+        if isinstance(sdfg, dict):
+            raise RuntimeError(f"cached canonicalize {key}: {sdfg['verdict']}: {sdfg.get('error', '')}")
+        print(f"DaCe optimize: canonical SDFG {'loaded from' if cached else 'published to'} the CPF cache ({key})")
+        return sdfg
+
     def _build_sdfgs(self, ct_impl: DaceProgram, ctx: PipelineContext, bench: Benchmark) -> dict[str, dace.SDFG]:
         """Run the pipeline this flavor scores on a copy of the base SDFG (:meth:`build_with_cache`); a
-        failing pipeline is logged and skipped."""
+        failing pipeline is logged and skipped. A canon pipeline reads the canonical SDFG the CPF prerender
+        cached (:meth:`cached_canonical`) when ``$HPCAGENT_BENCH_CPF_CACHE`` names a cache root."""
         base_sdfg = self.build_with_cache(bench, self._device_tag(), lambda: ct_impl.to_sdfg(simplify=False))
+        canonical_root = os.environ.get(CPF_CACHE_ENV, "")
         produced: dict[str, dace.SDFG] = {}
         for name in self.scored_pipelines():
             pipe = pipeline_named(name)
             try:
                 apply_pipeline_config(pipe)
-                sdfg = copy.deepcopy(base_sdfg)
-                sdfg.name = pipe.name  # pyright: ignore[reportAttributeAccessIssue]  # dace types Property, not its str
-                pipe.transform(sdfg, ctx)
+                if pipe.transform is pipeline_canonicalize and canonical_root:
+                    sdfg = self.cached_canonical(bench, pathlib.Path(canonical_root))
+                    sdfg.name = pipe.name  # pyright: ignore[reportAttributeAccessIssue]  # dace types Property, not its str
+                else:
+                    sdfg = copy.deepcopy(base_sdfg)
+                    sdfg.name = pipe.name  # pyright: ignore[reportAttributeAccessIssue]  # dace types Property, not its str
+                    pipe.transform(sdfg, ctx)
                 # The residency contract, once, after every GPU pipeline.
                 if self.info["arch"] == "gpu":
                     enforce_gpu_residency(sdfg)
