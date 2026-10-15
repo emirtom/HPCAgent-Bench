@@ -901,7 +901,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
 
     A cast, layout, zip, unzip or format operation this setup does not allow
     (:meth:`RequestAllowances.refusal`); a cast of an array that is not floating and dense, or to its
-    problem precision; a sparse kernel with a grid (distributed sparse formats are not implemented yet);
+    problem precision; a grid on a kernel graded on one node; a sparse kernel with a grid (distributed sparse formats are not implemented yet);
     an operation that cannot apply to this kernel's arrays; a layout operation without a grid; and, on a distributed run, a grid or program that
     does not lower at ``mpi.ranks`` or leaves an array neither distributed nor replicated are the
     request's fault -- 400, no build, the submission is not spent."""
@@ -922,6 +922,12 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         refused = precision_scope_refusal(submission, task, spec)
     if refused is not None:
         return refused
+    if requests.distributed and task.residency != "distributed":
+        # A single-node grade runs the problem's arrays as they are; the grid would be accepted and never used.
+        return (
+            f"{task.kernel} is graded on one node; it takes no startup.grid and no distribute, replicate or place "
+            "operation; nothing was graded"
+        )
     if spec.sparse_layouts and requests.distributed:
         return (
             f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "

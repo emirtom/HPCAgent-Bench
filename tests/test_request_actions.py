@@ -31,6 +31,7 @@ from hpcagent_bench.harness.prompts import build_prompt, request_actions
 from hpcagent_bench.harness.requests_api import RequestActions, RequestAllowances, Requests
 from hpcagent_bench.harness.service import grading_residency, requests_refusal, with_task_grid
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
 from tests.fresh_module import fresh
 from tests.request_allowances import allowing
@@ -39,6 +40,7 @@ from tests.test_container_agent_tools import load_tools
 DENSE_KERNEL = "jacobi_2d"  # two 2-D floating arrays A, B
 SPARSE_KERNEL = "spmv"  # one sparse matrix A
 MPI_KERNEL = "stencil_3d"  # an ``mpi:`` block, host tiles
+SINGLE_NODE_KERNEL = "seidel_2d"  # one 2-D floating array A, no ``mpi:`` block
 
 #: The config keys the allowance is resolved from; each test scopes them unset, so the developer's shell (or a
 #: sourced setup .env) cannot change what "the default" means.
@@ -234,7 +236,7 @@ def test_an_experiment_env_cannot_set_a_requests_key() -> None:
 
 @pytest.mark.parametrize("capability", sorted(ACCEPTED_ALONE))
 def test_each_capability_lets_exactly_its_actions_through_the_judge(capability: str) -> None:
-    precisions = ("fp32",) if capability == "cast" else ()
+    precisions = (Precision.FP32,) if capability == "cast" else ()
     allowances = RequestAllowances(allow=frozenset({RequestCapability(capability)}), precisions=precisions)
     accepted = {item for item in ITEMS if allowances.refusal(item_request(item)) is None}
     assert accepted == ACCEPTED_ALONE[capability], accepted
@@ -291,6 +293,17 @@ def test_an_agent_grid_is_the_submissions_own() -> None:
         assert with_task_grid(sent, graded) is sent
 
 
+def test_a_single_node_task_refuses_a_grid() -> None:
+    """A kernel without an ``mpi:`` block grades on one node even where ``distribute`` is allowed: a grid there
+    would be accepted and never used, so the judge refuses it."""
+    sent = Requests.from_obj({"startup": {"grid": ["P"]}, "operations": [SAMPLE_OPERATIONS["distribute"]]})
+    with offer_config("load", "distribute", mpi__grade_distributed=True):
+        graded = task(SINGLE_NODE_KERNEL)
+        refused = requests_refusal(Submission(language="c", source="x", requests=sent), graded, "float64")
+    assert graded.residency == "host"
+    assert refused is not None and "graded on one node" in refused, refused
+
+
 # --- the offer: the HB side and its wire form ----------------------------------------------------------------
 
 
@@ -300,7 +313,7 @@ def test_an_agent_grid_is_the_submissions_own() -> None:
         (RequestActions(), {"startup": [], "operations": [], "cast_to": []}),
         (RequestActions(load=True), {"startup": ["load"], "operations": [], "cast_to": []}),
         (
-            RequestActions(casts=("fp16", "fp32")),
+            RequestActions(casts=(Precision.FP16, Precision.FP32)),
             {"startup": [], "operations": ["cast"], "cast_to": ["fp16", "fp32"]},
         ),
         (RequestActions(formats=True), {"startup": [], "operations": ["format"], "cast_to": []}),
@@ -420,7 +433,7 @@ def test_the_default_config_offers_only_startup_load(
 ALL_OFFERS = [
     RequestActions(load=load, distributed=distributed, grid=grid, place=place, casts=casts, layouts=layouts, formats=formats)
     for load, distributed, grid, place, casts, layouts, formats in itertools.product(
-        (False, True), (False, True), (False, True), (False, True), ((), ("fp32",), ("fp16", "bf16")), (False, True), (False, True)
+        (False, True), (False, True), (False, True), (False, True), ((), (Precision.FP32,), (Precision.FP16, Precision.BF16)), (False, True), (False, True)
     )
     if not (grid and not distributed)
 ]  # fmt: skip
@@ -541,7 +554,7 @@ def test_the_prompt_the_tool_schema_and_the_judge_agree_for_every_preset(
 def test_the_requests_schema_ships_once_in_submit(monkeypatch: pytest.MonkeyPatch, offered: bool) -> None:
     """score and profile name submit's schema instead of repeating it; the judge validates the same field on
     every route, and a task that offers nothing shows the field on none of them."""
-    wire = RequestActions(load=True, casts=("fp32",)).wire() if offered else None
+    wire = RequestActions(load=True, casts=(Precision.FP32,)).wire() if offered else None
     tools = load_tools(monkeypatch, "source", "c", request_actions=wire)
     full = tools.http_json.requests_property(tools.http_json.request_actions())
     assert (full is not None) is offered
