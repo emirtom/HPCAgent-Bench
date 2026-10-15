@@ -566,7 +566,10 @@ def box_cells(
     whis: float | tuple[float, float] = 1.5,
 ) -> None:
     """One box per cell over its episodes at ``positions``, filled and outlined in ``color``; whiskers to
-    ``whis`` (matplotlib's: a multiple of the IQR, or a (low, high) percentile pair)."""
+    ``whis`` (matplotlib's: a multiple of the IQR, or a (low, high) percentile pair). No cells draw nothing
+    (matplotlib reads an empty list as one dataset)."""
+    if not cells:
+        return
     artists = ax.boxplot(
         [list(cell.episodes) for cell in cells],
         positions=list(positions),

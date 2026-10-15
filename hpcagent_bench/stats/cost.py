@@ -152,18 +152,20 @@ def components(frame: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
 def priced(frame: pd.DataFrame, model: CostModel) -> pd.DataFrame:
     """``frame`` with every task row's ``tokens`` replaced by ``model``'s cost of its components.
 
-    The shipped ``effective`` card, or a frame with no ``tokens`` column, is returned unchanged. A
+    The shipped ``effective`` card, a frame with no ``tokens`` column, or one with no task row, is returned unchanged. A
     card that weights a component the frame does not carry raises rather than pricing at a wrong
     number. A non-task row (a judge call's running count) keeps its own ``tokens``.
     """
     if (model.fresh_input, model.cached_input, model.output) == (1.0, 0.0, 1.0) or "tokens" not in frame.columns:
+        return frame
+    task = (
+        frame["row_kind"].astype(str) == EPISODE_RECORD if "row_kind" in frame.columns else pd.Series(True, frame.index)
+    )
+    if not task.any():  # no task row to price (a frame of judge calls only)
         return frame
     needed = [column for column in COMPONENT_COLUMNS if column not in frame.columns]
     if needed:
         raise ValueError(f"cost model {model.key!r} needs column(s) {needed}; re-extract the observations")
     fresh, cached, output = components(frame)
     cost = model.fresh_input * fresh + model.cached_input * cached + model.output * output
-    task = (
-        frame["row_kind"].astype(str) == EPISODE_RECORD if "row_kind" in frame.columns else pd.Series(True, frame.index)
-    )
     return frame.assign(tokens=cost.where(task, frame["tokens"]))

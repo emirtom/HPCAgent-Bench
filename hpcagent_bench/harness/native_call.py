@@ -550,11 +550,16 @@ def size_loaded_numba_pool(team: int) -> None:
     The size is set without starting a thread: ``numba.set_num_threads`` launches the pool, and the seal applied
     after this refuses a multithreaded process. A pool the parent already launched is past resizing here."""
     parallel = sys.modules.get("numba.np.ufunc.parallel")
-    if parallel is None or vars(parallel)["_is_initialized"]:
+    if parallel is None:
         return
-    size = max(1, min(team, int(vars(parallel)["NUM_THREADS"])))
-    vars(parallel)["NUM_THREADS"] = size
-    vars(sys.modules["numba"])["config"].NUMBA_NUM_THREADS = size
+    # numba re-reads its config from the environment at every compile, so NUMBA_NUM_THREADS must name the pool that
+    # runs: the slot's size when this sets it, else the size the parent already launched (a different value raises
+    # "Cannot set NUMBA_NUM_THREADS ... once the threads have been launched").
+    if not vars(parallel)["_is_initialized"]:
+        size = max(1, min(team, int(vars(parallel)["NUM_THREADS"])))
+        vars(parallel)["NUM_THREADS"] = size
+        vars(sys.modules["numba"])["config"].NUMBA_NUM_THREADS = size
+    os.environ["NUMBA_NUM_THREADS"] = str(vars(parallel)["NUM_THREADS"])
 
 
 def slot_threads(cpus: set[int], requested: int | None = None) -> int:
