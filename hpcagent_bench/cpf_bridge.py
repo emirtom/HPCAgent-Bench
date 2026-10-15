@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, cpf_canonical, paths
+from hpcagent_bench import config, cpf_canonical, languages, paths
 from hpcagent_bench.cpf_cache import LANGUAGE_EXT
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
@@ -455,6 +455,9 @@ class RenderedForm(NamedTuple):
     #: What the units link against beyond the system's, in order: the archives and flags of the SDFG's
     #: ``ExternCall`` nodes (CPF's ``Rendering.link``); empty for a kernel that calls nothing external.
     link: tuple[str, ...] = ()
+    #: The catalog libraries the units call (CPF's ``Rendering.libraries``: ``blas``, ``lapack``, ``fftw``,
+    #: ``rocblas``, ...): what a submission of this form names in ``requests.startup.load``.
+    libraries: tuple[str, ...] = ()
 
     @property
     def binding_name(self) -> str:
@@ -517,8 +520,10 @@ def render_canonical(
             f"and would call it with its arguments shifted."
         ) from exc
     # Compiled once, after the respelling: the stub's ``const`` on a scalar refuses a body that writes it.
+    # A unit calling a vendor library compiles against the catalog's headers, as the judge builds it.
+    library_flags, _ = languages.library_build_flags(ABI_LANGUAGE[emitted], rendering.libraries)
     for unit in filter(None, (code, rendering.device_code)):
-        compile_check(unit, native.symbol, dialect_for(emitted))
+        compile_check(unit, native.symbol, dialect_for(emitted), extra_flags=library_flags)
     return RenderedForm(
         # The gpu host unit is the C++ entry the GPU build contract names (agent/gpu-build.md).
         name=f"{short}_{fptype_tag(precision)}_cpf.{LANGUAGE_EXT['c++' if target == 'gpu' else emitted]}",
@@ -529,6 +534,7 @@ def render_canonical(
         lines=code.count("\n") + rendering.device_code.count("\n") + 1,
         device_code=clean_form(rendering.device_code, forced) if rendering.device_code else "",
         link=rendering.link,
+        libraries=tuple(rendering.libraries),
     )
 
 
@@ -743,6 +749,7 @@ def prerender_sdfg(
                     "kernel": spec.short_name,
                     "entry": form.entry,
                     "forced_abi_symbols": list(form.forced),
+                    "libraries": list(form.libraries),
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
                 results[language] = RenderOutcome(key=key, verdict="ok", cached=False)

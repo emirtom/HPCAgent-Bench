@@ -15,6 +15,8 @@ variant, where the agent picks and delivers a prebuilt library instead.
 """
 
 import argparse
+import json
+import os
 import pathlib
 import re
 import shutil
@@ -24,11 +26,12 @@ from collections.abc import Sequence
 
 from hpcagent_agent.driver import harnesses
 
-from hpcagent_bench import cpf_cache, flags, packets, paths
+from hpcagent_bench import config, cpf_cache, flags, packets, paths
 from hpcagent_bench.harness.prompts import Skill, cluster_facts, distributed_contract, load_skills, request_actions
 from hpcagent_bench.harness.task import Residency, Task, grading_residency
 from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
 from hpcagent_bench.spec import KERNELS, BenchSpec
+from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
     "CPFSRC_NOTE",
@@ -239,11 +242,34 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
     if dialect == "hip":
         # The GPU form is the two units a GPU submission is (cpf_cache.stage copies both).
         files = f"`{module}_reference.cpp` (host unit) and `{module}_reference.hip` (device unit)"
-        return CPFSRC_NOTE.format(
+        note = CPFSRC_NOTE.format(
             files=files, verb="are", replaces="replace", it="them", mark="a `__global__` kernel launch"
         )
+        return note + form_libraries_note(stem, dialect)
     files = f"`{module}_reference.{cpf_cache.LANGUAGE_EXT[dialect]}`"
-    return CPFSRC_NOTE.format(files=files, verb="is", replaces="replaces", it="it", mark="an OpenMP pragma")
+    note = CPFSRC_NOTE.format(files=files, verb="is", replaces="replaces", it="it", mark="an OpenMP pragma")
+    return note + form_libraries_note(stem, dialect)
+
+
+def form_libraries_note(stem: str, dialect: str) -> str:
+    """The load request the drop-in of ``stem`` in ``dialect`` needs, read from the setup's view (``$CPF_VIEW``):
+    a form that calls a vendor library (CPF lowers BLAS, LAPACK and FFT nodes to them) builds only with it
+    loaded. "" when it calls none, or no view answers for the kernel."""
+    view = os.environ.get("CPF_VIEW", "")
+    if not stem or not view:
+        return ""
+    try:
+        libraries = cpf_cache.resolve(
+            pathlib.Path(view), stem, dialect, fptype_tag(config.current().service.datatype)
+        ).libraries
+    except cpf_cache.CacheMiss:
+        return ""
+    if not libraries:
+        return ""
+    return (
+        f" It calls {', '.join(libraries)}: submit it, and whatever you derive from it, with "
+        f"`requests.startup.load` = {json.dumps(list(libraries))}."
+    )
 
 
 def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:

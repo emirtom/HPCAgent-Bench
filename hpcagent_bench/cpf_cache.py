@@ -341,6 +341,8 @@ class EntryManifest(pydantic.BaseModel):
     entry: str = ""
     inputs: EntryInputs | None = None
     forced_abi_symbols: list[str] = pydantic.Field(default_factory=list[str])
+    #: The catalog libraries the form calls: the ``requests.startup.load`` a submission of it names.
+    libraries: list[str] = pydantic.Field(default_factory=list[str])
 
     @pydantic.field_validator("layout")
     @classmethod
@@ -533,6 +535,8 @@ class Form(NamedTuple):
     binding: pathlib.Path
     #: The gpu target's device unit (``.hip``): the kernels and the launchers ``source`` calls.
     device: pathlib.Path | None = None
+    #: The catalog libraries the form calls (``requests.startup.load``).
+    libraries: tuple[str, ...] = ()
 
 
 def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form:
@@ -547,6 +551,7 @@ def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form
         where / manifest.artefacts["source"].name,
         where / manifest.artefacts["binding"].name,
         where / device.name if device else None,
+        tuple(manifest.libraries),
     )
 
 

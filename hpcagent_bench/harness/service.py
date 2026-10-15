@@ -1711,6 +1711,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
             **({"device_source": form.device.read_text()} if form.device else {}),
             "binding": form.binding.read_text(),
         }
+        if form.libraries:
+            # A form calling a vendor library builds only with that library loaded.
+            answer["libraries"] = list(form.libraries)
+            answer["note"] = (
+                f"this form calls {', '.join(form.libraries)}: submit it with "
+                f"requests.startup.load = {json.dumps(list(form.libraries))}"
+            )
         return self._send(HTTPStatus.OK, answer)
 
     def render_canonical_parallel_form(self, view: pathlib.Path, kernel: str) -> str:
