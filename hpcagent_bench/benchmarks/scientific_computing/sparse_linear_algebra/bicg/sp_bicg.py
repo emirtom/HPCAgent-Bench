@@ -26,7 +26,7 @@ def initialize(
     x_true = rng.random(N).astype(datatype)
     b = A @ x_true
     x = rng.random(N).astype(datatype)
-    return A, x, b
+    return A, b, x
 
 
 def revalue(A, rng: CounterGenerator):
