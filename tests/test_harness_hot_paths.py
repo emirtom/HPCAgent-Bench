@@ -296,8 +296,8 @@ def test_the_guillotine_bounds_the_kernel_not_its_argument_copies(tmp_path: path
     assert len(timed) == 3
 
 
-#: A kernel whose first call in a process sleeps ``COLD_S`` and every later one ``WARM_S``: a cold first call.
-COLD_KERNEL = (
+#: A kernel whose first call in a process sleeps 1.5 s and every later one 0.01 s: a cold first call.
+SLOW_FIRST_KERNEL = (
     "import time\n"
     "CALLS = []\n"
     "def kern(x):\n"
@@ -313,7 +313,7 @@ def test_the_cold_first_call_gets_its_own_alarm(tmp_path: pathlib.Path) -> None:
     call pays 1.5 s of one-time cost survives a 0.5 s per-rep bound (an early-stop cut) under a 5 s cold
     alarm, and is killed on that first call without it."""
     kernel = tmp_path / "cold.py"
-    kernel.write_text(COLD_KERNEL)
+    kernel.write_text(SLOW_FIRST_KERNEL)
     call = functools.partial(
         native_call._call_isolated,
         str(kernel),

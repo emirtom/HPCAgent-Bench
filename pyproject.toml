@@ -204,11 +204,11 @@ members = ["agent", "adapters/hpcagent_bench"]
 [tool.uv.sources]
 # The spcl/dace@extended and relayout@main commits this release is tested with, and the ONE place each is
 # written: uv.lock records them, and the image builds and jobs read them through helpers/scripts/pins.sh.
-dace = { git = "https://github.com/spcl/dace.git", rev = "f97160b12797c38690ae6e199b0809b08d516e4f" }
+dace = { git = "https://github.com/spcl/dace.git", rev = "3a916d239175bfe6fdde62f5e799baf18b99ee10" }
 relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "675621e3e18aa2f8d07587d29c658a3cf583fd56" }
 hpcagent-agent = { workspace = true }
 # Moves with the dace pin above: Alloy's own dace pin must be the same commit.
-alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "5d5a1a2b0ad4d3cffc986189df3eab9da18a701f" }
+alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "dddbdfd2072e002802a6b01b083bba4d0e598400" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },
@@ -265,6 +265,8 @@ include = ["hpcagent_bench*"]
 # (no MANIFEST.in, no VCS file finder).
 [tool.setuptools.package-data]
 hpcagent_bench = [
+    # Every setting's default (hpcagent_bench.config reads it at first use).
+    "config.yaml",
     "container_backends.txt",
     # The experiment launchers and the sample sbatch a job's steps re-enter (hpcagent_bench.cluster).
     "cluster/*.sh",

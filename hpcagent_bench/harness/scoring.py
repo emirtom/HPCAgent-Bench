@@ -2505,6 +2505,17 @@ def graded_score(
                         if not detail:
                             detail = f"{REP_VERIFY_DETAIL}[run {run}]: {rdetail or 'numeric mismatch'}"
                 del expected
+            # The warmup call's pool input is never graded, but a later grade of the cell starts the pool
+            # elsewhere and times it: with the disk store on, store its expected outputs too, so every input of
+            # the pool is computed once and a later grade of the cell runs no reference.
+            if rep_data is not None and disk_scope:
+                for seed in dict.fromkeys(rep_seeds[:run_warmup]):
+                    if seed not in run_seeds:
+                        cached_reference(
+                            (task.kernel, preset, datatype, fuzz_iteration, drawn_repr, oracle, "run", seed, structure),
+                            functools.partial(reference, rep_data(rep_seeds.index(seed))),
+                            disk=disk_cache.harness_key(spec),
+                        )
         except RuntimeError as exc:  # native crash / timeout / judge OOM / UngradeableTolerance
             is_ungradeable = isinstance(exc, UngradeableTolerance)
             detail = f"ungradeable: {exc}" if is_ungradeable else f"native call failed: {exc}"

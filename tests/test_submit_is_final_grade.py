@@ -171,14 +171,14 @@ def test_a_submit_is_timed_under_the_final_grades_own_settings(cells: list[dict[
 
 
 def test_the_final_settings_are_the_final_grades_and_the_live_keys_are_not(cells: list[dict[str, Any]]) -> None:
-    """Pinned against the shipped config: n = 5 runs, m = 4 inputs, alpha 0.1 -- and /score's live keys
-    (3 inputs, 20 runs, a draw rule with the base seed in the pool) are what an unscoped process reads."""
+    """Pinned against the shipped config: n = 5 runs, m = 4 inputs, alpha 0.1. An unscoped process reads 20 runs
+    (measurement.repeat) and the credited protocol's 4 inputs (fuzz.default_n_large_shapes)."""
     scorer = Scorer(*[fake_result(2.0)] * INPUTS)
     submitted(scorer)
     seen = scorer.calls[0]
     assert (seen.repeat, seen.inputs) == (5, 4)
     assert seen.env[grade_under.ALPHA_ENV] == "0.1"
-    assert (timing.measurement_repeat(), fuzz.default_n_large_shapes()) == (20, 3)
+    assert (timing.measurement_repeat(), fuzz.default_n_large_shapes()) == (20, 4)
 
 
 def test_the_score_preview_is_the_final_grades_settings_on_its_own_protocol() -> None:

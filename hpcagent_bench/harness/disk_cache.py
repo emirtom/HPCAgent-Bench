@@ -44,6 +44,7 @@ from hpcagent_bench.cache_files import replacing, sha256_hex
 from hpcagent_bench.dtypes import is_storage_only
 from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.translators.numpyto_common.emit_io import is_generated
 
 __all__ = [
     "BASELINE_PREFIX",
@@ -224,9 +225,12 @@ def data_files(relative_path: str, module_name: str) -> list[pathlib.Path]:
 
 def harness_files(relative_path: str) -> list[pathlib.Path]:
     """The files :func:`harness_key` digests: the package outside :data:`HARNESS_SKIP_DIRS` and the
-    kernel's own directory outside :data:`KERNEL_SKIP_DIRS`."""
+    kernel's own directory outside :data:`KERNEL_SKIP_DIRS`, less the siblings a grade generates there on demand
+    (:func:`~hpcagent_bench.translators.numpyto_common.emit_io.is_generated`): they follow from the sources
+    digested here, and digesting them made the first grade's key differ from every later one's."""
     here = paths.BENCHMARKS / relative_path
-    return files_under(package_root(), HARNESS_SKIP_DIRS) + files_under(here, KERNEL_SKIP_DIRS)
+    own = [file for file in files_under(here, KERNEL_SKIP_DIRS) if file.suffix != ".py" or not is_generated(file)]
+    return files_under(package_root(), HARNESS_SKIP_DIRS) + own
 
 
 @functools.lru_cache(maxsize=None, typed=True)

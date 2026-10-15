@@ -411,6 +411,9 @@ class RequestFields(pydantic.BaseModel):
     workspace_bytes: str | int | None = None
     compiler: str | None = None
     requests: dict[str, object] | None = None
+    #: Accepted and ignored: every route grades the run's own size (``service.preset``), and a stale tool
+    #: that still sends one loses the preset, not the grade.
+    preset: str | None = None
     #: ``/profile`` only.
     tool: str | None = None
     residency: str | None = None

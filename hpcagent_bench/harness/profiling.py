@@ -456,9 +456,12 @@ def request_plan(request_file: pathlib.Path) -> seal.SealPlan | None:
     ``devices`` mirrors native_call.host_only_grade off the request's ``device`` field, so a host
     profile sees no GPU; a missing or malformed request file keeps ``devices=True``."""
     try:
-        device = child_request(request_file.read_text())["device"]
-    except (OSError, ValueError):
-        device = True
+        # Only the residency decides the seal: read that field, not the whole request, so a request that
+        # differs elsewhere still hides the devices of a host run.
+        stated = json.loads(request_file.read_text()).get("device", True)
+    except (OSError, ValueError, AttributeError):
+        stated = True
+    device = stated if isinstance(stated, bool) else True
     return seal.grading_plan([str(request_file.parent)], devices=not host_only_grade(device))
 
 
