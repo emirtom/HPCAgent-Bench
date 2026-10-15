@@ -408,18 +408,24 @@ No upstream code is included; the source is cited.
 
 | Upstream | License | Kernels |
 |---|---|---:|
+| Aho and Corasick, "Efficient String Matching: An Aid to Bibliographic Search" | NOASSERTION | 1 |
 | automata (Python library by Caleb Evans) | MIT | 1 |
+| Bjoern Hoehrmann, "Flexible and Economical UTF-8 Decoder" | MIT | 1 |
 | CHOLMOD / Davis, Direct Methods for Sparse Linear Systems | NOASSERTION | 1 |
+| David A. Huffman, "A Method for the Construction of Minimum-Redundancy Codes" | NOASSERTION | 1 |
 | Halide example apps (apps/hist, apps/harris) | MIT | 2 |
 | HPCG benchmark | BSD-3-Clause | 1 |
 | HPGMG / Briggs, Henson & McCormick, A Multigrid Tutorial | BSD-2-Clause | 1 |
 | ICON dynamical core and AES physics | BSD-3-Clause | 4 |
 | LAPACK / Golub & Van Loan, Matrix Computations | BSD-3-Clause | 3 |
 | LS3DF (linear-scaling three-dimensional fragment method) | BSD-3-Clause | 3 |
+| Mytkowicz, Musuvathi and Schulte, "Data-Parallel Finite-State Machines" | NOASSERTION | 3 |
 | NAS Parallel Benchmarks (FT) | NOASSERTION | 1 |
 | PETSc SNES ex5 / Knoll & Keyes, Jacobian-free Newton-Krylov methods | BSD-2-Clause | 1 |
 | PolyBench/C 4.2.1 | LicenseRef-OSU-PolyBench | 4 |
 | Red-black Gauss-Seidel / SOR relaxation | NOASSERTION | 1 |
+| RFC 3629, "UTF-8, a transformation format of ISO 10646" | NOASSERTION | 1 |
+| RFC 4180, "Common Format and MIME Type for Comma-Separated Values (CSV) Files" | NOASSERTION | 1 |
 | Saad, Iterative Methods for Sparse Linear Systems | NOASSERTION | 2 |
 | SeisSol ADER-DG operators (with yateto and the SeisSol code generators) | BSD-3-Clause | 2 |
 | Smoothed-aggregation AMG (PyAMG, hypre BoomerAMG) | MIT | 1 |
@@ -427,11 +433,25 @@ No upstream code is included; the source is cited.
 | SUNDIALS (ARKODE, CVODE) | BSD-3-Clause | 3 |
 | TSVC_2 (Test Suite for Vectorizing Compilers) | NCSA | 5 |
 
+### Aho and Corasick, "Efficient String Matching: An Aid to Bibliographic Search"
+
+- Project: <https://doi.org/10.1145/360825.360855>
+- License: NOASSERTION
+- Cite: A. V. Aho and M. J. Corasick, "Efficient String Matching: An Aid to Bibliographic Search", CACM 18(6), 1975.
+- Kernels (1): `aho_corasick`
+
 ### automata (Python library by Caleb Evans)
 
 - Project: <https://github.com/caleb531/automata>
 - License: MIT
 - Kernels (1): `dfa`
+
+### Bjoern Hoehrmann, "Flexible and Economical UTF-8 Decoder"
+
+- Project: <https://bjoern.hoehrmann.de/utf-8/decoder/dfa/>
+- License: MIT
+- Note: the byte-class and state scheme only; the kernel's tables are derived from RFC 3629, no code is included.
+- Kernels (1): `utf8_validate`
 
 ### CHOLMOD / Davis, Direct Methods for Sparse Linear Systems
 
@@ -439,6 +459,13 @@ No upstream code is included; the source is cited.
 - License: NOASSERTION
 - Cite: Y. Chen, T. A. Davis, W. W. Hager and S. Rajamanickam, ACM TOMS 35(3), 2008; T. A. Davis, "Direct Methods for Sparse Linear Systems", SIAM 2006.
 - Kernels (1): `sparse_cholesky`
+
+### David A. Huffman, "A Method for the Construction of Minimum-Redundancy Codes"
+
+- Project: <https://doi.org/10.1109/JRPROC.1952.273898>
+- License: NOASSERTION
+- Cite: D. A. Huffman, "A Method for the Construction of Minimum-Redundancy Codes", Proc. IRE 40(9), 1952.
+- Kernels (1): `huffman_decode`
 
 ### Halide example apps (apps/hist, apps/harris)
 
@@ -480,6 +507,13 @@ No upstream code is included; the source is cited.
 - License: BSD-3-Clause
 - Kernels (3): `kleinman_bylander_nonlocal`, `lda_xc_potential`, `rayleigh_ritz_rotation`
 
+### Mytkowicz, Musuvathi and Schulte, "Data-Parallel Finite-State Machines"
+
+- Project: <https://doi.org/10.1145/2541940.2541988>
+- License: NOASSERTION
+- Cite: T. Mytkowicz, M. Musuvathi and W. Schulte, "Data-Parallel Finite-State Machines", ASPLOS '14, doi:10.1145/2541940.2541988.
+- Kernels (3): `aho_corasick`, `csv_tokenize`, `huffman_decode`
+
 ### NAS Parallel Benchmarks (FT)
 
 - Project: <https://www.nas.nasa.gov/software/npb.html>
@@ -508,6 +542,20 @@ No upstream code is included; the source is cited.
 - License: NOASSERTION
 - Cite: W. L. Briggs, V. E. Henson and S. F. McCormick, "A Multigrid Tutorial", 2nd ed., SIAM 2000; D. M. Young's SOR theory.
 - Kernels (1): `rb_sor`
+
+### RFC 3629, "UTF-8, a transformation format of ISO 10646"
+
+- Project: <https://www.rfc-editor.org/rfc/rfc3629>
+- License: NOASSERTION
+- Cite: F. Yergeau, "UTF-8, a transformation format of ISO 10646", RFC 3629, 2003.
+- Kernels (1): `utf8_validate`
+
+### RFC 4180, "Common Format and MIME Type for Comma-Separated Values (CSV) Files"
+
+- Project: <https://www.rfc-editor.org/rfc/rfc4180>
+- License: NOASSERTION
+- Cite: Y. Shafranovich, "Common Format and MIME Type for Comma-Separated Values (CSV) Files", RFC 4180, 2005.
+- Kernels (1): `csv_tokenize`
 
 ### Saad, Iterative Methods for Sparse Linear Systems
 
