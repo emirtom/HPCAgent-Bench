@@ -187,7 +187,10 @@ stage_setup() {
     if [[ -n "${packet}" ]]; then
         local line packet_env
         export CPF_VIEW="${CPF_VIEW:-${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/views/${TAG:-${EXPERIMENT}}-${device}}"
-        packet_env=$("${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/packet_env.py" --packet "${packet}" --language "${lang}") || { rm -f "${staged}"; return 2; }
+        # The preset's requests.allow, with what the packet needs added (a CPF packet adds load: a form may call
+        # a vendor library).
+        packet_env=$("${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/packet_env.py" --packet "${packet}" --language "${lang}" \
+            --requests-allow "$(base_value "${flat}" HPCAGENT_BENCH_REQUESTS_ALLOW)") || { rm -f "${staged}"; return 2; }
         while IFS= read -r line; do
             case "${line}" in
                 HPCAGENT_BENCH_RECORD_PACKET=*) packet="${line#*=}" ;;

@@ -251,25 +251,40 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
     return note + form_libraries_note(stem, dialect)
 
 
-def form_libraries_note(stem: str, dialect: str) -> str:
-    """The load request the drop-in of ``stem`` in ``dialect`` needs, read from the setup's view (``$CPF_VIEW``):
-    a form that calls a vendor library (CPF lowers BLAS, LAPACK and FFT nodes to them) builds only with it
-    loaded. "" when it calls none, or no view answers for the kernel."""
+def form_libraries(stem: str, dialect: str) -> tuple[str, ...]:
+    """The catalog libraries the canonical parallel form of ``stem`` in ``dialect`` calls, read from the setup's view
+    (``$CPF_VIEW``; CPF lowers BLAS, LAPACK and FFT nodes to vendor libraries); none when no view answers."""
     view = os.environ.get("CPF_VIEW", "")
     if not stem or not view:
-        return ""
+        return ()
     try:
-        libraries = cpf_cache.resolve(
-            pathlib.Path(view), stem, dialect, fptype_tag(config.current().service.datatype)
-        ).libraries
+        form = cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype_tag(config.current().service.datatype))
     except cpf_cache.CacheMiss:
-        return ""
+        return ()
+    return form.libraries
+
+
+def form_libraries_note(stem: str, dialect: str) -> str:
+    """What the cpf-src note says about the libraries the drop-in calls: they are loaded from the start
+    (:func:`default_load`); "" when it calls none."""
+    libraries = form_libraries(stem, dialect)
     if not libraries:
         return ""
     return (
-        f" It calls {', '.join(libraries)}: submit it, and whatever you derive from it, with "
-        f"`requests.startup.load` = {json.dumps(list(libraries))}."
+        f" It calls {', '.join(libraries)}, which every submission loads for you (`requests.startup.load` "
+        f"{json.dumps(list(libraries))} is added to what you name)."
     )
+
+
+def default_load(spec: str, language: str, stem: str) -> list[str] | None:
+    """The libraries a problem of ``stem`` loads by default: what the canonical parallel form a CPF packet serves
+    (``packets.CPF_ENV_KEYS``: cpf-src's starting source, cpf-tool's answer) calls. None for any other setup."""
+    if not spec or not packets.CPF_ENV_KEYS & dict(packets.resolve(spec, language, fill=False).env).keys():
+        return None
+    dialect = cpf_cache.DIALECT.get(language or DROPIN_DEFAULT_LANGUAGE)
+    if dialect is None:
+        return None
+    return list(form_libraries(stem, dialect)) or None
 
 
 def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
@@ -396,12 +411,14 @@ def problem_entry(
     spec: BenchSpec,
     extra_pages: dict[str, str],
     slot: int | None = None,
+    packet: str = "",
 ) -> ProblemLine:
     """One problems-file line, with the facts the driver fills the prompt's slots from
     (:func:`~hpcagent_bench.harness.prompts.cluster_facts`) and what its tools offer in ``requests``
     (:func:`~hpcagent_bench.harness.prompts.request_actions`). ``slot`` is the 1-based run of a designed
     repeat (``--repeat`` above 1): the driver puts it in the episode label, and an owed rerun replays the
-    line, so a rerun keeps its slot."""
+    line, so a rerun keeps its slot. ``packet`` (the ``--packet`` spec) decides the libraries it loads by default
+    (:func:`default_load`)."""
     graded = Task(name, "restricted", language or "any", residency=grading_residency(name, language))
     return ProblemLine(
         id=problem_id,
@@ -413,6 +430,7 @@ def problem_entry(
         slot=slot,
         level=spec.level,
         skill_pages=extra_pages or None,
+        default_load=default_load(packet, language, spec.short_name),
     )
 
 
@@ -541,7 +559,9 @@ def main() -> int:
         task = task_text(args, name, spec, skills_text)
         repeat = max(1, args.repeat)
         for slot in range(1, repeat + 1):
-            entry = problem_entry(written, name, args.language, task, spec, extra_pages, slot if repeat > 1 else None)
+            entry = problem_entry(
+                written, name, args.language, task, spec, extra_pages, slot if repeat > 1 else None, args.packet
+            )
             print(dump_line(entry))
             written += 1
         if args.limit and written >= args.limit:
