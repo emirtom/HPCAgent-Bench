@@ -39,6 +39,7 @@ __all__ = [
     "emit_program",
     "entry_program_name",
     "failure",
+    "fold_closure_arrays",
     "parse_kernel",
     "parse_program",
     "produce",
@@ -175,7 +176,32 @@ def parse_program(spec: BenchSpec, impl: pathlib.Path, precision: str) -> "SDFG 
     prog = resolve_program(module, impl, spec.func_name)
     if prog is None:
         return {"verdict": "noprogram"}
-    return prog.to_sdfg(simplify=True)
+    sdfg = prog.to_sdfg(simplify=True)
+    fold_closure_arrays(prog, sdfg)
+    return sdfg
+
+
+def fold_closure_arrays(prog: "DaceProgram", sdfg: "SDFG") -> tuple[str, ...]:
+    """Make each array the parse lifted out of a constant numpy expression (``np.arange(3, dtype=np.int64)``
+    becomes an argument no manifest names) a compile-time constant of ``sdfg``, as DaCe spells one: a transient
+    with its value in ``constants_prop``, emitted as a ``constexpr`` array and never allocated. Without it the
+    rendered entry takes a parameter the C ABI does not have. A closure array the program writes stays an argument.
+    Returns the names folded."""
+    resolver = prog.resolver
+    if resolver is None:
+        return ()
+    # The arguments are the top-level SDFG's; a nested SDFG writes one through an access node of its parent state.
+    written = {node.data for state in sdfg.states() for node in state.data_nodes() if state.in_degree(node) > 0}
+    folded = []
+    for name, (_, _, evaluate, _) in resolver.closure_arrays.items():
+        desc = sdfg.arrays.get(name)
+        # A closure array the program writes is state, not a constant.
+        if desc is None or desc.transient or name in written:
+            continue
+        desc.transient = True
+        sdfg.add_constant(name, evaluate(), desc)
+        folded.append(name)
+    return tuple(folded)
 
 
 def parse_kernel(spec: BenchSpec, numpy_py: pathlib.Path, precision: str) -> "SDFG | dict[str, str]":
