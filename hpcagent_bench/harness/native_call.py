@@ -698,6 +698,10 @@ class Followup:
 FOLLOWUP_SPILL_BYTES = 1024**2
 #: Where the measurement child spills followup outputs (set once per child).
 FOLLOWUP_SPILL_ROOT: str | None = None
+#: Whether the measurement child returns every timed rep's outputs, or only the last one's (set once per child). A
+#: reference timing grades none of them, and at a working-set-ceiling size 20 reps of spilled outputs are 100+ GB of
+#: the node-local temp directory, which is memory.
+KEEP_TIMED_OUTPUTS: bool = True
 
 #: The child's ``RLIMIT_AS`` before :func:`arm_memory_cap` lowered it; None when no cap is armed.
 #: Module state: the arming and release sites (:func:`grading_memory_budget`) are far apart.
@@ -930,6 +934,7 @@ def sampled_calls(
     same loaded image."""
     rep_index = 0
     timed_outputs: list[SpilledMap] = []
+    answered = 0
     drawn: list[KernelData] = []
     returned: list[OutputMap] = []
     # The largest non-kernel time of a rep so far (argument copies in and out): the guillotine bounds the
@@ -959,7 +964,7 @@ def sampled_calls(
     def draw_then_call(warming: bool) -> tuple[OutputMap | None, int]:
         """Draw this rep's inputs before its alarm is armed and spill its outputs after it is disarmed: the rep
         budget is the kernel's, never the initializer's or the spill's."""
-        nonlocal copy_s
+        nonlocal copy_s, answered
         # The draw is harness work: it runs under the harness's limit, and the kernel's cap is widened by
         # the drawn inputs (:func:`call_memory_cap`), so the draw never takes the kernel's headroom.
         with grading_memory_budget():
@@ -971,6 +976,9 @@ def sampled_calls(
         copy_s = max(copy_s, time.monotonic() - start - result[1] * 1e-9)
         while returned:
             outputs = returned.pop(0)
+            answered += 1
+            if not KEEP_TIMED_OUTPUTS:
+                timed_outputs.clear()  # only the last rep's, the call's own outputs
             timed_outputs.append(
                 outputs
                 if FOLLOWUP_SPILL_ROOT is None
@@ -979,8 +987,8 @@ def sampled_calls(
         return result
 
     samples = timing.sampled_reps(draw_then_call, reps, warmup)[1]
-    if len(timed_outputs) != len(samples):  # every timed rep answers; only a warmup rep may not
-        raise RuntimeError(f"{len(samples) - len(timed_outputs)} timed rep(s) of {label} returned no outputs")
+    if answered != len(samples):  # every timed rep answers; only a warmup rep may not
+        raise RuntimeError(f"{len(samples) - answered} timed rep(s) of {label} returned no outputs")
     if FOLLOWUP_SPILL_ROOT is not None:
         pathlib.Path(FOLLOWUP_SPILL_ROOT, TIMED_DONE_MARKER).touch()
     return timed_outputs, samples, [run_followup(make_src, call_with, rep_timeout) for make_src in followups]
@@ -2095,6 +2103,7 @@ def _native_call_worker(
     casts: CastPlan | None = None,
     cold_rep_s: float = 0.0,
     inputs: "InputRecipe | None" = None,
+    keep_timed_outputs: bool = True,
 ) -> ChildPayload | None:
     """Child-process entry: run the whole measurement and return its payload
     ``(outputs per timed rep, samples, peak_bytes, increment_bytes, followup_outputs, device_bytes,
@@ -2111,7 +2120,7 @@ def _native_call_worker(
     reports GPU runtimes loaded beyond ``preloaded_runtimes``."""
     import resource
 
-    global COLD_REP_S, FOLLOWUP_SPILL_ROOT, TIMED_REP_S
+    global COLD_REP_S, FOLLOWUP_SPILL_ROOT, KEEP_TIMED_OUTPUTS, TIMED_REP_S
     scrub_grading_secrets()
     if host_only:
         blind_devices()
@@ -2119,6 +2128,7 @@ def _native_call_worker(
             preloaded_runtimes = mapped_device_runtimes()
     # followup outputs cross back as files (see Followup), into the parent's per-call directory
     FOLLOWUP_SPILL_ROOT = spill_root
+    KEEP_TIMED_OUTPUTS = keep_timed_outputs
     TIMED_REP_S = timed_rep_s
     COLD_REP_S = cold_rep_s
     capture_child_stderr(spill_root)
@@ -2333,6 +2343,7 @@ def _call_isolated(
     casts: CastPlan | None = None,
     cold_rep_s: float = 0.0,
     inputs: "InputRecipe | None" = None,
+    keep_timed_outputs: bool = True,
 ) -> "IsolatedCall":
     """Run a whole measurement in one child process, so a segfault, hang or over-allocation is a scored
     failure rather than the runner's death.
@@ -2364,7 +2375,10 @@ def _call_isolated(
 
     ``inputs`` (a device grade only) replaces ``data`` and ``rep_data`` in the child: it builds them on the GPU
     (:class:`~hpcagent_bench.harness.rep_variation.InputRecipe`), the same bits as the host ``data``, so no
-    input array is pickled into the spawned child and every rep's copy is device-to-device."""
+    input array is pickled into the spawned child and every rep's copy is device-to-device.
+
+    ``keep_timed_outputs=False`` keeps only the last timed rep's outputs (``timed_outputs`` holds that one): a
+    reference timing grades no rep's outputs, and holding them all costs every rep's output arrays."""
     # Residency picks the child for every delivery, python included.
     use_device = device
     if lang == "python" and py_meta is None:
@@ -2447,6 +2461,7 @@ def _call_isolated(
                 preloaded_runtimes=preloaded,
                 env=child_env,
                 casts=casts,
+                keep_timed_outputs=keep_timed_outputs,
             )
             child_stderr = forward_child_stderr(spill_root)
             # A kill inside the timed section under a guillotine (a followup's alarm, or the batch budget

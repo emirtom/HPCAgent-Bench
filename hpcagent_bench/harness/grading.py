@@ -1239,6 +1239,7 @@ def time_numba_isolated(
         rep_data=rep_data,
         py_meta=(spec.func_name, numba_call_order(spec, func, data), tuple(spec.output_args)),
         omp_context_name=omp_context.LLVM,  # numba compiles through LLVM; its pool runs on libomp there
+        keep_timed_outputs=False,
     )
     del outputs  # a denominator's outputs are never graded; the oracle already decided correctness
     return [int(s) for s in samples]
@@ -1522,6 +1523,7 @@ def run_compiled_reference(
             omp_context_name=context,
             casts=casts,
             cold_rep_s=cold_rep_s,
+            keep_timed_outputs=False,  # the reference's outputs are the followup's or the last rep's
         )
         if canonical is not None:
             outputs = extra[0]
