@@ -780,7 +780,9 @@ class DaceFramework(Framework):
         spec = BenchSpec.load(bench.info["short_name"])
         precision = self.datatype or ""
         target = self._device_tag()
-        impl = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_dace.py"
+        impl = cpf_canonical.emit_program(spec)
+        if isinstance(impl, dict):
+            raise RuntimeError(f"cached canonicalize: {impl['verdict']}: {impl.get('error', '')}")
         key = cpf_canonical.canonical_key(impl, cpf_canonical.dace_commit(), precision, target)
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, key, cache_root, precision, target)
         if isinstance(sdfg, dict):

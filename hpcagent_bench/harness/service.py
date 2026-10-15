@@ -922,16 +922,16 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
         refused = precision_scope_refusal(submission, task, spec)
     if refused is not None:
         return refused
+    if spec.sparse_layouts and requests.distributed:
+        return (
+            f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "
+            "no startup.grid; nothing was graded"
+        )
     if requests.distributed and task.residency != "distributed":
         # A single-node grade runs the problem's arrays as they are; the grid would be accepted and never used.
         return (
             f"{task.kernel} is graded on one node; it takes no startup.grid and no distribute, replicate or place "
             "operation; nothing was graded"
-        )
-    if spec.sparse_layouts and requests.distributed:
-        return (
-            f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "
-            "no startup.grid; nothing was graded"
         )
     ndims = kernel_ndims(spec.mpi, binding)
     try:
