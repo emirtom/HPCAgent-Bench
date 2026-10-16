@@ -67,4 +67,4 @@ def initialize(KLEV, KLON, datatype=np.float64, rng: CounterGenerator | None = N
     zqxn = xp.zeros(zqx.shape)
     zcovptot = xp.zeros((KLEV, KLON))
     arrays = (za, zdtgdp, zrdtgdp, zrho, vqx, zqx, zqv, pfplsx, zqxn, zcovptot)
-    return tuple(array.astype(datatype) for array in arrays)
+    return tuple(array.astype(datatype, copy=False) for array in arrays)

@@ -18,4 +18,4 @@ def initialize(NLEV, NPROMA, datatype=np.float64, rng: CounterGenerator | None =
     s0 = rng.uniform(0.0, 1.0, NPROMA)
     s = xp.zeros((NLEV, NPROMA))
     y = xp.zeros((NLEV, NPROMA))
-    return tuple(array.astype(datatype) for array in (x, decay, s0, s, y))
+    return tuple(array.astype(datatype, copy=False) for array in (x, decay, s0, s, y))
