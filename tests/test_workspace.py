@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import types
 
 import numpy as np
 import pytest
@@ -29,9 +30,11 @@ from hpcagent_bench import languages
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.native_call import (
     WORKSPACE_ALIGN,
+    CallMarshal,
     Followup,
     _call_native,
     alloc_workspace,
+    host_stand_ins,
     workspace_bytes_of,
 )
 from hpcagent_bench.support.bindings.contract import RESERVED_ARG_NAMES, Arg, Binding
@@ -68,6 +71,30 @@ def test_array_bytes_names_every_pointer_arguments_bytes() -> None:
     data = {"x": np.zeros(32), "y": np.zeros(32), "N": 32, "a": 2.0}
     assert workspace_bytes_of("ARRAY_BYTES", b, data) == 2 * 32 * 8
     assert workspace_bytes_of("ARRAY_BYTES + 64", b, data) == 2 * 32 * 8 + 64
+
+
+class DeviceArray:
+    """A device array as cupy presents one: shape and dtype, but no implicit conversion to numpy."""
+
+    def __init__(self, shape: tuple[int, ...], dtype: str) -> None:
+        self.shape = shape
+        self.dtype = np.dtype(dtype)
+
+    def __array__(self, *args: object, **kwargs: object) -> np.ndarray:
+        raise TypeError("Implicit conversion to a NumPy array is not allowed")
+
+
+def test_the_device_path_reads_types_and_bytes_without_copying_to_the_host() -> None:
+    """A HIP / CUDA call declares its C signature and resolves ``ARRAY_BYTES`` off host stand-ins of the
+    device arrays: ``np.asarray`` on a cupy array raises, which failed every device CPF form."""
+    device = types.ModuleType("device_xp")
+    vars(device)["ndarray"] = DeviceArray
+    b = _binding()
+    data = {"x": DeviceArray((32,), "float64"), "y": DeviceArray((32,), "float32"), "N": 32, "a": 2.0}
+    stand_ins = host_stand_ins(data, device)
+    assert CallMarshal.of(b, stand_ins, "c").ptr_cdecl == {"x": "double *", "y": "float *"}
+    assert workspace_bytes_of("ARRAY_BYTES", b, stand_ins) == 32 * 8 + 32 * 4
+    assert host_stand_ins(data, np) == data
 
 
 def test_workspace_bytes_rejects_bad_request() -> None:
@@ -312,6 +339,7 @@ def test_the_workspace_does_not_carry_between_reps(tmp_path) -> None:
 if __name__ == "__main__":
     test_workspace_bytes_scales_with_symbols()
     test_array_bytes_names_every_pointer_arguments_bytes()
+    test_the_device_path_reads_types_and_bytes_without_copying_to_the_host()
     test_workspace_bytes_rejects_bad_request()
     test_alloc_workspace_alignment_and_null()
     test_stub_and_glue_carry_workspace_trailing()
