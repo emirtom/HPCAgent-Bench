@@ -18,7 +18,7 @@ SMALL_NLEV = {"scale": "small", "description": "vertical levels"}
 BIG_N = {"scale": "big", "description": "the columns"}
 
 
-def manifest(public: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+def manifest(public: dict[str, Any], parameters: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """A hermetic manifest dict with a size ``N``, a small-able size ``nlev`` and a curated two-row config."""
     base: dict[str, Any] = {
         "short_name": "pubtest",
@@ -29,11 +29,10 @@ def manifest(public: dict[str, Any], **overrides: Any) -> dict[str, Any]:
         "input_args": ["x", "N", "nlev", "istep", "K"],
         "array_args": ["x"],
         "output_args": ["x"],
-        "parameters": {"S": {"N": 64, "nlev": 8}, "XL": {"N": 4096, "nlev": 32}},
+        "parameters": parameters or {"S": {"N": 64, "nlev": 8}, "XL": {"N": 4096, "nlev": 32}},
         "config": [{"istep": 1, "K": 3}, {"istep": 2, "K": 9}],
         "public": public,
     }
-    base.update(overrides)
     return base
 
 
