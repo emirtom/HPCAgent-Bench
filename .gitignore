@@ -240,10 +240,12 @@ tools/pluto_affine_survey_results.txt
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/heat_3d/heat_3d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/jacobi_2d/jacobi_2d_jax.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/jacobi_2d/jacobi_2d_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/structured_grids/max_filter/max_filter_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/seidel_2d/seidel_2d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/srad/srad_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/lulesh/lulesh_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/velocity_tendencies/velocity_tendencies_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/zekin_gather/zekin_gather_numba.py
 !/hpcagent_bench/benchmarks/machine_learning/conv2d_bias/conv2d_jax.py
 !/hpcagent_bench/benchmarks/machine_learning/lenet/lenet_jax.py
 !/hpcagent_bench/benchmarks/machine_learning/mlp/mlp_jax.py
