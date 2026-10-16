@@ -139,7 +139,7 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | Variable | Default | Controls |
 |---|---|---|
 | `HPCAGENT_BENCH_REPO` | the checkout `cluster/env.sh` lives in | the tree scripts and jobs run from |
-| `HPCAGENT_BENCH_HOST_PYTHON` | `python3` on PATH | the host-side interpreter, with the package installed (`uv sync`) |
+| `HPCAGENT_BENCH_HOST_PYTHON` | the active virtualenv's python, else the checkout's `.venv`, else `python3.14`, else `python3` | the host-side interpreter, with the package installed (`uv sync` or `pip install`) |
 | `HPCAGENT_BENCH_IMAGE_PYTHON` | the image's EDF | the interpreter of every step inside a container |
 | `EDF_PATH` | `$HOME/.edf`, set by `helpers/scripts/site_env.sh` | where container EDFs are looked up (colon-separated); `install_edfs.sh` renders into its first directory |
 | `ROCM_PATH` | `/opt/rocm` (`hpcagent_bench.paths.rocm_root`) | the ROCm install the harness resolves `amdclang` and DaCe's HIP build from |

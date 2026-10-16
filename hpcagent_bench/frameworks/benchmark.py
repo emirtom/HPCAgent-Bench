@@ -121,7 +121,8 @@ class Benchmark:
                 datatype,
                 seed=fuzz.initializer_seed(preset, base_seed, fuzz_iteration),
                 fuzz_iteration=fuzz_iteration,
-                params_override=parameters if is_fuzz else None,
+                # Every size the arrays take: a fuzzed draw's, or an explicit override's at a named preset.
+                params_override=parameters if is_fuzz or params_override is not None else None,
                 hidden_variant=hidden_variant,
                 scenarios=scenarios,
                 xp=xp,
@@ -163,7 +164,7 @@ class Benchmark:
     ) -> None:
         """Materialize the input arrays into ``data``: declaratively (``init`` without ``func_name``) via
         :func:`hpcagent_bench.initialize.auto_initialize`, else by calling the kernel's ``initialize``.
-        ``params_override`` is set for a fuzzed draw only.
+        ``params_override`` holds the draw's sizes: a fuzzed draw's, or an explicit override's.
 
         A kernel with a sparse array (:attr:`BenchSpec.sparse_layouts`) is built on the host whatever ``xp`` is:
         its matrix is a scipy object (often a SuiteSparse file) expanded into CSR buffers there, and its buffers

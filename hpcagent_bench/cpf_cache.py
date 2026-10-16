@@ -10,7 +10,9 @@ key, and a hit is valid for every experiment and setup that asks the same questi
 A VIEW is the directory a setup points at (``service.canonical_parallel_form_dir``,
 ``CPF_DROPIN_DIR``). It holds no artefact: one pointer file per (kernel, language, precision) names
 the key of its form, so a consumer looks up an EXACT name and reads the bytes from the cache. A view
-is pinned to one cache, one target and one dace source, so it never mixes renderers.
+is pinned to one cache and one target. It records the dace commit it was opened with but does not pin
+it: a dace pin bump never renders a recorded kernel again (:func:`hpcagent_bench.cpf_prerender.settled`),
+and only a kernel the view lacks is rendered, by the dace in hand.
 
 Nothing here renders. Every miss raises :class:`CacheMiss` naming the entry and key; the judge
 renders a missed kernel on its first request (:func:`hpcagent_bench.cpf_prerender.render_on_demand`),
@@ -136,7 +138,8 @@ CANONICAL_SDFG_NAME = "canonical.sdfgz"
 
 
 class ViewHeader(pydantic.BaseModel):
-    """A view's :data:`VIEW_NAME`: the layout, cache root, target and dace commit every render into it shares."""
+    """A view's :data:`VIEW_NAME`: the layout, cache root and target every render into it shares, and the dace
+    commit it was opened with (a record, not a pin: :func:`pin_error`)."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -425,10 +428,10 @@ def write_json(path: pathlib.Path, value: object) -> None:
 
 
 def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> None:
-    """Create ``view`` pinned to this cache, target and dace commit, or confirm it already is.
+    """Create ``view`` pinned to this cache and target (recording ``dace_commit``), or confirm it already is.
 
-    A view that names anything else is refused: repointing it would serve one experiment forms from
-    two renderers, or a CPU setup a device form.
+    A view that names another cache or target is refused: it would serve a CPU setup a device form, or
+    point into a cache it does not own. Another dace commit is not refused (:func:`pin_error`).
     """
     if error := pin_error(view, cache_root, target, dace_commit):
         raise ValueError(error)
@@ -437,15 +440,16 @@ def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_co
 
 
 def pin_error(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> str:
-    """Why ``view`` cannot take renders from this cache, target and dace commit; "" when it is
-    absent (it will be created) or pinned to exactly them."""
+    """Why ``view`` cannot take renders from this cache and target; "" when it is absent (it will be
+    created) or pinned to exactly them. ``dace_commit`` is not compared: a dace pin bump keeps serving the
+    forms the view records, and a kernel it lacks is rendered by the current dace."""
     try:
         existing = read_header(view)
     except FileNotFoundError:
         return ""
     except (OSError, ValueError) as exc:
         return f"view {view} has an unreadable {VIEW_NAME} ({type(exc).__name__})"
-    wanted = ViewHeader.of(cache_root, target, dace_commit)
+    wanted = ViewHeader.of(cache_root, target, dace_commit).model_copy(update={"dace_commit": existing.dace_commit})
     if existing != wanted:
         return f"view {view} is pinned to {existing}; render {wanted} into a new view"
     return ""
@@ -627,7 +631,7 @@ def on_demand_plan(
 
     Returns ``(lines, error)``: one line per kernel the view misses -- rendered on its first request,
     or its recorded failing verdict served as ``unavailable`` -- and "" or the reason no render can
-    land in this view (a wrong target, or a view pinned to another cache or dace commit).
+    land in this view (a wrong target, or a view pinned to another cache).
     """
     if reason := wrong_target(view, target):
         return [], reason
