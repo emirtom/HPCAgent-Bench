@@ -52,7 +52,7 @@ __all__ = [
 FRAMEWORK = "polygeist"
 
 #: cgeist, C scop -> affine MLIR. ``--raise-scf-to-affine`` is what makes the loops affine at all.
-CGEIST_ARGS: tuple[str, ...] = ("-S", "-O3", "--raise-scf-to-affine")
+CGEIST_ARGS: tuple[str, ...] = ("-S", flags.OPT_LEVEL, "--raise-scf-to-affine")
 
 #: polygeist-opt, CPU: outermost parallel loop to OpenMP, LLVM dialect with descriptor ABI. Not
 #: ``--polyhedral-opt``: the image builds Polymer, but its Pluto schedule computed heat_3d wrong (max rel error
