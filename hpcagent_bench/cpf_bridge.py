@@ -49,6 +49,7 @@ from hpcagent_bench.cpf_canonical import (
     failure,
     parse_kernel,
 )
+from hpcagent_bench.dtypes import c_type, canonical, is_storage_only
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import (
     WORKSPACE_NAME,
@@ -56,6 +57,7 @@ from hpcagent_bench.support.bindings.contract import (
     Binding,
     binding_from_spec,
     c_param,
+    graded_datatype,
     workspace_c_params,
 )
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag, short_for
@@ -175,6 +177,51 @@ def returned_slots(path: pathlib.Path, entry: str) -> tuple[str | None, ...]:
 
 #: CPF dialect -> the stub language whose ``restrict`` spelling the entry takes: the gpu host unit is the hip stub's.
 ABI_LANGUAGE = {"c": "c", "c++": "cpp", DEVICE_LANGUAGE: "hip"}
+
+#: The type a CPF unit computes a storage-only element in, per dialect: the toolkit's or the compiler's own 16-bit
+#: float, which DaCe's CPF emits for ``dace::bfloat16``. Two bytes in the bit layout of the stub's storage
+#: (``typedef uint16_t __npb_bf16;``), so the unit names the stub's type for it (:func:`native_storage_typedefs`)
+#: and the entry keeps the stub's spelling while the judge passes its storage pointers unchanged. C has none: CPF
+#: refuses a bf16 kernel in the C dialect and names the C++ one.
+NATIVE_STORAGE_TYPES: dict[str, dict[str, str]] = {
+    "bfloat16": {DEVICE_LANGUAGE: "__hip_bfloat16", "cuda": "__nv_bfloat16", "c++": "__bf16"},
+}
+
+
+def native_storage_typedefs(binding: Binding, dialect: str) -> str:
+    """``typedef <native> <stub type>;`` for each storage-only element ``binding`` passes, as ``dialect`` computes
+    it (:data:`NATIVE_STORAGE_TYPES`); "" when it passes none.
+
+    :raises ValueError: for a storage-only element ``dialect`` has no native type for.
+    """
+    lines = []
+    for dtype in sorted({canonical(arg.dtype) for arg in binding.args if is_storage_only(arg.dtype)}):
+        native = NATIVE_STORAGE_TYPES.get(dtype, {}).get(dialect)
+        if native is None:
+            raise ValueError(f"no {dialect} spelling of the storage-only element {dtype}")
+        lines.append(f"typedef {native} {c_type(dtype)};")
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def insert_before_entry(code: str, entry: str, text: str) -> str:
+    """``code`` with ``text`` placed before the first declaration of ``entry`` (after every include and helper)."""
+    if not text:
+        return code
+    match = re.search(rf'^(?:extern "C" )?void\s+{re.escape(entry)}\s*\(', code, flags=re.MULTILINE)
+    if match is None:
+        raise ValueError(f"the rendered unit declares no entry {entry}")
+    return code[: match.start()] + text + code[match.start() :]
+
+
+def form_fptype(kernel: str, datatype: str) -> str:
+    """The precision tag a kernel's canonical form is rendered and looked up at: the datatype its grade runs in
+    (:func:`graded_datatype` -- a bf16 ML kernel's form is the bf16 one whatever the run's ``service.datatype``),
+    else ``datatype``'s, for a name no kernel answers to."""
+    try:
+        spec = BenchSpec.load(kernel)
+    except Exception:  # noqa: BLE001 -- an agent's unknown name keeps the run's precision; the lookup then misses
+        return fptype_tag(datatype)
+    return fptype_tag(graded_datatype(spec, datatype))
 
 
 def abi_parameters(binding: Binding, dialect: str) -> tuple[str, ...]:
@@ -585,6 +632,8 @@ def render_canonical(
         code = exact_abi_signature(
             rendering.code, native.symbol, abi_parameters(native, emitted), {v: k for k, v in renames.items()}
         )
+        # The stub names a bf16 element by its storage type; the unit computes in its dialect's own bfloat16.
+        code = insert_before_entry(code, native.symbol, native_storage_typedefs(native, emitted))
     except ValueError as exc:
         raise ValueError(
             f"{spec.short_name}: cannot render the C ABI -- {exc} The judge links this symbol "

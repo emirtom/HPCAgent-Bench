@@ -31,7 +31,6 @@ from hpcagent_bench.harness.prompts import Skill, cluster_facts, distributed_con
 from hpcagent_bench.harness.task import Residency, Task, grading_residency
 from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
 from hpcagent_bench.spec import KERNELS, BenchSpec
-from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
     "CPFSRC_NOTE",
@@ -258,7 +257,10 @@ def form_libraries(stem: str, dialect: str) -> tuple[str, ...]:
     if not stem or not view:
         return ()
     try:
-        form = cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype_tag(config.current().service.datatype))
+        from hpcagent_bench import cpf_bridge  # binds the kernel; only a cpf-src setup asks
+
+        fptype = cpf_bridge.form_fptype(stem, config.current().service.datatype)
+        form = cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype)
     except cpf_cache.CacheMiss:
         return ()
     return form.libraries

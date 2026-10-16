@@ -190,6 +190,8 @@ def bind_precision(precision: str) -> None:
         Precision.FP64: dace.float64,
         Precision.FP32: dace.float32,
         Precision.FP16: dace.float16,
+        # Native: CPF renders it as the toolkit's / compiler's own bfloat16 (cpf_bridge.NATIVE_STORAGE_TYPES).
+        Precision.BF16: dace.bfloat16,
     }.get(prec, dace.float32)
     dace_framework.dc_complex_float = dace.complex128 if prec is Precision.FP64 else dace.complex64
 
