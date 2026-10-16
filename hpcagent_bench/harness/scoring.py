@@ -9,7 +9,6 @@ interpreted NumPy) under ``rtol/atol``, and times it against the baseline:
 ``speedup = baseline_ns / native_ns``. A build or run failure is a scored zero (``correct=False``),
 never a dropped row."""
 
-import contextlib
 import dataclasses
 import functools
 import hashlib
@@ -2445,15 +2444,10 @@ def graded_score(
             # Public run: every repeat in one child (it owns the warmup discard). Reps share the process, so
             # the held-out cases ride along as untimed followups through the same loaded image: a kernel that
             # cached an earlier answer replays it onto unseen inputs and grades wrong. Outputs are graded in
-            # the parent: every timed call as it returns, with the child stopped (native_call.RepChecks), after
-            # its input's expected outputs were computed before the child started (one held at a time after).
+            # the parent: every timed call as it returns, with the child stopped (native_call.RepChecks), against
+            # its input's expected outputs, computed (or read from the cache) by that check.
             def public_run(reps: int, warmups: int, guillotine_s: float) -> tuple[IsolatedCall, RepChecks]:
                 checks = RepChecks(functools.partial(check_run, warmups), keep_last=canonical is None)
-                if rep_data is not None:
-                    for seed in dict.fromkeys(rep_seeds[warmups : warmups + max(1, reps)]):
-                        # Best effort: a reference that fails here fails again in the run's check, where it is graded.
-                        with contextlib.suppress(Exception):
-                            run_expected(seed)
                 return _call_isolated(
                     built.require_lib(),
                     cand_binding,
