@@ -639,7 +639,7 @@ def render_sdfg(
     parsed = parse_kernel(spec, numpy_py, precision)
     if isinstance(parsed, dict):
         return RenderRecord.model_validate({**rec.model_dump(exclude_unset=True), **parsed})
-    canonicalize_for(parsed, target)
+    canonicalize_for(parsed, target, cpf_canonical.small_symbols(spec))
     form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target)
     rec.entry = form.entry
     if form.forced:
@@ -715,7 +715,7 @@ def prerender_sdfg(
     impl = cpf_canonical.emit_program(spec)
     if isinstance(impl, dict):
         return RenderRecord.model_validate({**base.model_dump(exclude_unset=True), **impl})
-    canonical = cpf_canonical.canonical_key(impl, dace_commit, precision, target)
+    canonical = cpf_canonical.canonical_key(impl, dace_commit, precision, target, cpf_canonical.small_symbols(spec))
     canonical_rec = CanonicalOutcome(key=canonical)
     plan: dict[str, tuple[str, dict[str, object]]] = {}
     for language in languages:
