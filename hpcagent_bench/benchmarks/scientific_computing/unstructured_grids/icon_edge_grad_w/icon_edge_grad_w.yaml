@@ -45,6 +45,18 @@ parameters:
     nblks_c: [7390, 14780]
     nblks_e: {derive: "max(1, (3 * nblks_c) // 2)"}
     nblks_v: {derive: "max(1, nblks_c // 2)"}
+public:
+  description: "`nproma`, the block width, is small next to the block counts."
+  scales:
+    nblks_c:
+      scale: big
+      description: "the cell blocks"
+    nblks_e:
+      scale: big
+      description: "the edge blocks"
+    nblks_v:
+      scale: big
+      description: "the vertex blocks"
 args:
   w: (nblks_c, nlev, nproma)
   z_w_v: (nblks_v, nlev, nproma)

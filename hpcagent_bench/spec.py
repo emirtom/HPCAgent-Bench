@@ -1321,6 +1321,135 @@ def validate_scale(scale: str | None, track: str, source: str = "<spec>") -> Non
         raise ValueError(f"{source}: scale is only valid on the scientific_computing track; got track {track!r}")
 
 
+#: A ``small`` size symbol stays below this in every preset and fuzz draw, and a ``big`` one's fuzz range
+#: starts at or above it (``public.scales``).
+SMALL_LIMIT = 64
+
+
+def fuzz_bounds(value: FuzzValue) -> tuple[int | float, int | float] | None:
+    """The smallest and largest value one parameter spec can take: the number itself, an interval's (or a
+    smooth interval's) ends, a numeric set's extremes; ``None`` for a spec with no static bound (a derived
+    or constructed size)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value, value
+    if (bounds := fuzz.range_of(value)) is not None:
+        return min(bounds), max(bounds)
+    if is_set(value):
+        choices = fuzz.as_sequence(value["set"], "set")
+        members = [member for member in choices if isinstance(member, (int, float)) and not isinstance(member, bool)]
+        return (min(members), max(members)) if members and len(members) == len(choices) else None
+    return None
+
+
+def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str) -> None:
+    """Raise ``ValueError`` unless ``sym`` is a size symbol of the declared ``scale``: a small one stays below
+    :data:`SMALL_LIMIT` in every preset and its fuzz range, outside ``scale_axes``; a big one's fuzz range
+    (the graded sizes) starts at or above it where the range is static."""
+    sizes = {name for preset in spec.parameters.values() for name in preset} - spec.config_names
+    if sym not in sizes:
+        raise ValueError(f"{source}: public scale {sym} is not a size symbol")
+    fuzzed = fuzz.resolve_ranges(spec.parameters, config_names=frozenset(spec.config))
+    fuzz_range = fuzz_bounds(fuzzed[sym]) if sym in fuzzed else None
+    if scale == manifest_schema.BIG:
+        if fuzz_range is not None and fuzz_range[0] < SMALL_LIMIT:
+            raise ValueError(f"{source}: {sym} is declared big, so its fuzz range must start at {SMALL_LIMIT} or above")
+        return
+    if sym in spec.scale_axes:
+        raise ValueError(f"{source}: {sym} is declared small but is a scale axis")
+    ranges = [fuzz_bounds(preset[sym]) for preset in spec.parameters.values() if sym in preset]
+    ranges.append(fuzz_range if sym in fuzzed else None)
+    if any(bounds is None or bounds[1] >= SMALL_LIMIT for bounds in ranges):
+        raise ValueError(
+            f"{source}: {sym} is declared small, so every preset and its fuzz range must stay below "
+            f"{SMALL_LIMIT} (bounds {ranges})"
+        )
+
+
+def validate_public(spec: "BenchSpec", source: str) -> None:
+    """Raise ``ValueError`` unless the ``public`` block states the kernel truthfully.
+
+    A variable is a config knob or an input argument, and its value set holds every value the config
+    space evaluates it at; one shown as a range is numeric and fixed by no configuration (that would
+    state an exact value). A configuration's values name declared variables and come from their sets,
+    and configuration names are unique. Every scale holds (:func:`validate_public_scale`), and a
+    configuration never flips a kernel-wide one."""
+    public = spec.public
+    if public is None:
+        return
+    for sym, variable in public.variables.items():
+        if sym not in spec.config_names and sym not in spec.input_args:
+            raise ValueError(f"{source}: public.variables.{sym} is neither a config knob nor an input argument")
+        evaluated = [row[sym] for row in spec.config_space if sym in row]
+        missing = sorted({str(value) for value in evaluated if value not in variable.values})
+        if missing:
+            raise ValueError(f"{source}: public.variables.{sym}.values misses {missing}, which the config space uses")
+        numeric = all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in variable.values)
+        if variable.shown_as == "range" and not numeric:
+            raise ValueError(f"{source}: public.variables.{sym} is shown as a range, so its values must be numbers")
+    names = [entry.name for entry in public.configurations]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"{source}: public.configurations repeats the name(s) {duplicates}")
+    kernel_wide = {sym: entry.scale for sym, entry in public.scales.items()}
+    scales = set(kernel_wide.items())
+    for entry in public.configurations:
+        for sym, value in entry.values.items():
+            if sym not in public.variables:
+                raise ValueError(f"{source}: public configuration {entry.name!r} fixes {sym}, not a public variable")
+            if public.variables[sym].shown_as == "range":
+                raise ValueError(
+                    f"{source}: public configuration {entry.name!r} fixes {sym}, which is shown as a range"
+                )
+            if value not in public.variables[sym].values:
+                raise ValueError(
+                    f"{source}: public configuration {entry.name!r} sets {sym}={value!r}, outside its value set "
+                    f"{public.variables[sym].values}"
+                )
+        for sym, own in entry.scales.items():
+            if kernel_wide.get(sym, own.scale) != own.scale:
+                raise ValueError(f"{source}: public configuration {entry.name!r} flips the scale of {sym}")
+            scales.add((sym, own.scale))
+    for sym, scale_name in sorted(scales):
+        validate_public_scale(spec, sym, scale_name, source)
+
+
+def negative_values(spec: "BenchSpec") -> dict[str, int | float]:
+    """``{name: smallest value}`` for every size, knob or scalar the kernel can see below zero: a preset or its
+    fuzz range, a config-space value, a declared scalar or constant."""
+    found: dict[str, int | float] = {}
+
+    def note(name: str, value: object) -> None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0:
+            found[name] = min(value, found.get(name, value))
+
+    fuzzed = fuzz.resolve_ranges(spec.parameters, config_names=frozenset(spec.config))
+    for values in (*spec.parameters.values(), fuzzed):
+        for name, value in values.items():
+            if (bounds := fuzz_bounds(value)) is not None:
+                note(name, bounds[0])
+    for row in spec.config_space:
+        for name, value in row.items():
+            note(name, value)
+    if spec.init is not None:
+        for name, number in (*spec.init.scalars.items(), *spec.init.constants.items()):
+            note(name, number)
+    return found
+
+
+def validate_negative(spec: "BenchSpec", source: str) -> None:
+    """Raise ``ValueError`` unless ``public.negative`` names exactly the symbols that can be negative
+    (:func:`negative_values`): the prompt states every other size and scalar is non-negative."""
+    declared = set(spec.public.negative) if spec.public is not None else set()
+    found = negative_values(spec)
+    if missing := sorted(set(found) - declared):
+        raise ValueError(
+            f"{source}: {', '.join(f'{name}={found[name]}' for name in missing)} can be negative; declare it under "
+            f"public.negative"
+        )
+    if extra := sorted(declared - set(found)):
+        raise ValueError(f"{source}: public.negative names {extra}, which never go below zero")
+
+
 def validate_level(level: int | None, track: str = "", source: str = "<spec>") -> None:
     """Raise ``ValueError`` unless ``level`` is ``None`` or one of 1/2/3 (the KernelBench
     difficulty declared in the manifest; see :attr:`BenchSpec.resolved_level`).
@@ -2043,6 +2172,10 @@ class BenchSpec(BaseModel):
     #: composition they double as the FILTER rules that carve the product down (see
     #: :func:`_config_product`).
     constraints: tuple[str, ...] = ()
+    #: The ``public`` block: the configurations, control-flow values and small sizes the agent is told
+    #: about (:class:`hpcagent_bench.manifest_schema.PublicBlock`, checked by :func:`validate_public`).
+    #: ``None`` when the manifest declares none.
+    public: manifest_schema.PublicBlock | None = None
 
     def replace(self, **changes: object) -> "BenchSpec":
         """A copy with the fields in ``changes`` replaced, validated like a constructed instance.
@@ -2240,7 +2373,9 @@ class BenchSpec(BaseModel):
         mismatch_fraction = ext.get("mismatch_fraction", bench.get("mismatch_fraction"))
         if mismatch_fraction is not None and not 0 < number_of(mismatch_fraction, "mismatch_fraction", source) < 1:
             raise ValueError(f"{source}: mismatch_fraction must be in (0, 1) (got {mismatch_fraction!r})")
-        return cls(
+        public_raw = bench.get("public")
+        public = None if public_raw is None else manifest_schema.PublicBlock.model_validate(public_raw)
+        spec = cls(
             short_name=short_name,
             name=str(bench["name"]),
             relative_path=relative_path,
@@ -2279,7 +2414,11 @@ class BenchSpec(BaseModel):
             config=config_knobs,
             config_valid=config_valid,
             constraints=constraints,
+            public=public,
         )
+        validate_public(spec, source)
+        validate_negative(spec, source)
+        return spec
 
     @classmethod
     def from_yaml(cls, raw: dict[str, object], source: str = "<yaml>") -> "BenchSpec":

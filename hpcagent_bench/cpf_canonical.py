@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from hpcagent_bench import cpf_cache, paths
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
@@ -132,14 +133,38 @@ def producer_digest() -> str:
     return hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()
 
 
-def canonical_key(program: pathlib.Path, commit: str, precision: str, target: str) -> str:
-    """The canonical entry of ``program`` as the dace at ``commit`` canonicalizes it for ``target``."""
-    options = {
+def small_symbols(spec: BenchSpec) -> frozenset[str]:
+    """The size symbols the manifest declares small for every configuration (``public.scales``)."""
+    return spec.public.small_symbols() if spec.public is not None else frozenset()
+
+
+def nonnegative_symbols(spec: BenchSpec) -> frozenset[str]:
+    """The symbols canonicalize may treat as non-negative: every size symbol, configuration knob and integer
+    scalar argument, minus the ones the manifest says can be negative (``public.negative``) -- what the prompt
+    tells the agent."""
+    sizes = {name for preset in spec.parameters.values() for name in preset}
+    integer_scalars = {
+        arg.name
+        for arg in binding_from_spec(spec).args
+        if arg.kind == "scalar" and arg.dtype.startswith(("int", "uint"))
+    }
+    negative = set(spec.public.negative) if spec.public is not None else set()
+    return frozenset((sizes | set(spec.config_names) | integer_scalars) - negative)
+
+
+def canonical_key(
+    program: pathlib.Path, commit: str, precision: str, target: str, small: frozenset[str] = frozenset()
+) -> str:
+    """The canonical entry of ``program`` as the dace at ``commit`` canonicalizes it for ``target``, with the
+    ``small`` size symbols declared small (keyed only when there are any, so other entries keep their key)."""
+    options: dict[str, object] = {
         "precision": fptype_tag(precision),
         "target": target,
         "dace_env": dace_environment(),
         "producer": producer_digest(),
     }
+    if small:
+        options["small"] = sorted(small)
     return cpf_cache.canonical_key(hashlib.sha256(program.read_bytes()).hexdigest(), commit, options)
 
 
@@ -211,8 +236,19 @@ def parse_kernel(spec: BenchSpec, numpy_py: pathlib.Path, precision: str) -> "SD
     return impl if isinstance(impl, dict) else parse_program(spec, impl, precision)
 
 
-def canonicalize_for(sdfg: "SDFG", target: str) -> None:
-    """Step 3, in place.
+def declare_small(sdfg: "SDFG", small: frozenset[str]) -> None:
+    """Declare each of the ``small`` symbols the SDFG has small (``Scale.SMALL``); nested SDFGs inherit it
+    through their symbol mapping."""
+    from dace import symbolic
+
+    for name in sorted(small):
+        if name in sdfg.symbols:
+            sdfg.set_symbol_scale(name, symbolic.Scale.SMALL)
+
+
+def canonicalize_for(sdfg: "SDFG", target: str, small: frozenset[str] = frozenset()) -> None:
+    """Step 3, in place. The ``small`` size symbols are declared small first, so no parallel or GPU axis is
+    chosen along them.
 
     canonicalize leaves every choice PARALLEL but decides no OpenMP region -- skip the tail and the
     unit renders correct but entirely SEQUENTIAL. GPU adds offload_to_gpu between the two calls;
@@ -221,6 +257,7 @@ def canonicalize_for(sdfg: "SDFG", target: str) -> None:
     from dace.transformation.passes.canonicalize.finalize import finalize_for_target, offload_to_gpu
     from dace.transformation.passes.canonicalize.pipeline import canonicalize
 
+    declare_small(sdfg, small)
     canonicalize(sdfg, validate=True, validate_all=False, target=target)
     if target == "gpu":
         offload_to_gpu(sdfg)
@@ -241,7 +278,7 @@ def produce(
         if isinstance(parsed, dict):
             cpf_cache.publish_canonical(cache_root, key, {**manifest, **parsed}, None)
             return
-        canonicalize_for(parsed, target)
+        canonicalize_for(parsed, target, small_symbols(spec))
     except Exception as exc:  # noqa: BLE001 -- a raised error is a verdict worth remembering
         cpf_cache.publish_canonical(cache_root, key, {**manifest, **failure(exc)}, None)
         return
