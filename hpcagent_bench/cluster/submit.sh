@@ -118,13 +118,18 @@ prompt_of() {
     esac
 }
 
-# check_view <KEY=view> <language> <device> -- refuses a CPF view that cannot serve every tag kernel
+# check_view <KEY=view> <language> <device> -- refuses a cpf-src view that cannot serve a verified form of every tag
+# kernel, and a cpf-tool view the judge cannot render the kernels it lacks into (forms_missing)
 check_view() {
-    local view="${1#*=}" verified="" dialect="$2" absent
-    if [[ "${1%%=*}" == CPF_DROPIN_DIR ]]; then verified=verified; elif [[ "$2" != c ]]; then dialect=c++; fi
-    absent=$(forms_missing "${view}" "${dialect}" "${verified}" "$3" "$(tag_csv)")
+    local view="${1#*=}" mode=on-demand dialect="$2" absent
+    if [[ "${1%%=*}" == CPF_DROPIN_DIR ]]; then mode=verified; elif [[ "$2" != c ]]; then dialect=c++; fi
+    absent=$(forms_missing "${view}" "${dialect}" "${mode}" "$3" "$(tag_csv)")
     [[ -n "${absent}" ]] || return 0
-    echo "the view ${view} cannot serve a ${verified:+verified }$3 form for:" >&2
+    if [[ "${mode}" == verified ]]; then
+        echo "the view ${view} cannot serve a verified $3 form for:" >&2
+    else
+        echo "the view ${view} cannot take the judge's $3 renders:" >&2
+    fi
     sed 's/^/  /' <<<"${absent}" >&2
     echo "  prepare them with: hpcagent-bench job submit hpcagent_bench/cluster/prepare.sbatch --tag <tag> $2 --steps cpf" >&2
     return 2
