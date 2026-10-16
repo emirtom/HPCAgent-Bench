@@ -192,6 +192,12 @@ def test_the_code_under_test_cannot_change_a_rep_while_it_is_checked(
     assert len(set(seen)) > 1, "the scribbler never ran: this test proves nothing"
 
 
+def test_a_child_that_fails_before_its_reps_is_reported_not_waited_on() -> None:
+    """The regions go to the child once it reaches its reps; one that dies before reports its own failure."""
+    with pytest.raises(RuntimeError, match="raised at import"):
+        measure("raise RuntimeError('raised at import')\n", native_call.RepChecks(plus_one), timeout=30.0)
+
+
 def test_the_time_a_rep_is_held_does_not_count_against_the_call() -> None:
     """Two reps held 1.5 s each, against a 1 s per-rep budget (a 2 s batch): the call still succeeds."""
 
@@ -298,6 +304,7 @@ if __name__ == "__main__":
     for seal_on in ("0", "1"):
         test_the_code_under_test_cannot_change_a_rep_while_it_is_checked(mp, seal_on)
         mp.undo()
+    test_a_child_that_fails_before_its_reps_is_reported_not_waited_on()
     test_the_time_a_rep_is_held_does_not_count_against_the_call()
     with tempfile.TemporaryDirectory() as tmp:
         test_a_reference_timing_keeps_one_spill_file(mp, pathlib.Path(tmp))
