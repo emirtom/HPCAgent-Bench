@@ -32,11 +32,11 @@ import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 
-from hpcagent_bench import cpf_canonical, paths, run_layout
+from hpcagent_bench import cpf_canonical, flags, paths, run_layout
 from hpcagent_bench.cluster import jobs
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.support.collect import canon_db
-from hpcagent_bench.units import BYTES_PER_KIB
+from hpcagent_bench.units import BYTES_PER_KIB, BYTES_PER_MIB
 
 __all__ = [
     "DEFAULT_KERNEL_MEM_KB",
@@ -323,7 +323,8 @@ def run(sweep: Sweep, rank: jobs.Rank) -> int:
             else []
         )
         wall = int(env.get("CANON_KERNEL_TIMEOUT_SEC", "7200"))
-        env["OMP_STACKSIZE"] = env.get("CANON_OMP_STACKSIZE", "2G")
+        # The stack every CPU run gets (limits.thread_stack_mb), the canonical baseline included.
+        env["OMP_STACKSIZE"] = env.get("CANON_OMP_STACKSIZE", f"{flags.thread_stack_bytes() // BYTES_PER_MIB}M")
         limits = kernel_limits(int(env.get("CANON_KERNEL_MEM_KB", DEFAULT_KERNEL_MEM_KB)) * BYTES_PER_KIB)
         for kernel in mine:
             command = [
