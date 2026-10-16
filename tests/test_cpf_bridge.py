@@ -489,6 +489,91 @@ def test_a_returned_value_is_dropped_only_when_the_manifest_does_not_grade_it(
     sdfg.validate()
 
 
+def mirrored_count_program(reader: str) -> "SDFG":
+    """``b = 2 * a`` beside a returned ``count`` that host code writes, the shape the GPU offload leaves cegterg's
+    ``__return_2``: a tasklet fills ``count_host``, which is copied into ``__return_0`` and, in a later state,
+    back. ``__return_0`` keeps host storage (its device storage changes nothing the drop reads) so a host
+    tasklet may read it. ``reader`` names a container a tasklet then reads for something else, or ``""``."""
+    import dace
+
+    sdfg = dace.SDFG("mirrored_count")
+    sdfg.add_array("a", [EXTENT], dace.float64)
+    sdfg.add_array("b", [EXTENT], dace.float64)
+    sdfg.add_array("__return_0", [1], dace.float64)
+    sdfg.add_scalar("count_host", dace.float64, transient=True)
+
+    compute = sdfg.add_state("compute")
+    compute.add_mapped_tasklet(
+        "double",
+        {"i": f"0:{EXTENT}"},
+        {"x": dace.Memlet("a[i]")},
+        "y = 2.0 * x",
+        {"y": dace.Memlet("b[i]")},
+        external_edges=True,
+    )
+    count = compute.add_tasklet("count", {"x"}, {"c"}, "c = x + 1.0")
+    compute.add_edge(compute.add_read("a"), None, count, "x", dace.Memlet("a[0]"))
+    host = compute.add_access("count_host")
+    compute.add_edge(count, "c", host, None, dace.Memlet("count_host[0]"))
+    compute.add_nedge(host, compute.add_write("__return_0"), dace.Memlet("count_host[0] -> [0]"))
+
+    copy_back = sdfg.add_state_after(compute, "copy_back")
+    device = copy_back.add_read("__return_0")
+    host_again = copy_back.add_write("count_host")
+    copy_back.add_nedge(device, host_again, dace.Memlet("__return_0[0] -> [0]"))
+    if reader:
+        use = copy_back.add_tasklet("use", {"r"}, {"o"}, "o = 3.0 * r")
+        source = device if reader == "__return_0" else host_again
+        copy_back.add_edge(source, None, use, "r", dace.Memlet(f"{reader}[0]"))
+        copy_back.add_edge(use, "o", copy_back.add_write("b"), None, dace.Memlet("b[0]"))
+    sdfg.validate()
+    return sdfg
+
+
+def tasklet_labels(sdfg: "SDFG") -> set[str]:
+    """The labels of every tasklet in ``sdfg``."""
+    import dace
+
+    return {node.label for node, _ in sdfg.all_nodes_recursive() if isinstance(node, dace.nodes.Tasklet)}
+
+
+def test_an_ungraded_return_mirrored_to_the_host_is_dropped_with_its_mirror() -> None:
+    """The GPU offload copies cegterg's host-written iteration counts to and from a device mirror, and those
+    copies kept three ungraded ``__return`` slots in the entry: the hip render failed the ABI order."""
+    sdfg = mirrored_count_program("")
+
+    dropped = cpf_bridge.drop_returned_arguments(sdfg, ["a", "b", "N"], ("b",), ("count",))
+
+    assert dropped == ("__return_0",)
+    assert not {"__return_0", "count_host"} & set(sdfg.arrays), list(sdfg.arrays)
+    assert "count" not in tasklet_labels(sdfg)  # the code that only computed the count goes too
+    assert "double" in tasklet_labels(sdfg)
+    sdfg.validate()
+
+
+@pytest.mark.parametrize("reader", ["__return_0", "count_host"])
+def test_an_ungraded_return_that_a_tasklet_reads_is_kept(reader: str) -> None:
+    """A copy is not a use, but a tasklet that reads the value, on the device or through its host mirror,
+    still needs it: dropping the slot would discard what that tasklet computes."""
+    sdfg = mirrored_count_program(reader)
+
+    assert cpf_bridge.drop_returned_arguments(sdfg, ["a", "b", "N"], ("b",), ("count",)) == ()
+    assert {"__return_0", "count_host"} <= set(sdfg.arrays)
+    assert {"count", "use"} <= tasklet_labels(sdfg)
+    sdfg.validate()
+
+
+def test_a_graded_return_with_a_host_mirror_is_kept() -> None:
+    """Only an ungraded slot may take its mirror chain with it: a graded value stays for the ordered render to
+    refuse, exactly as before."""
+    sdfg = mirrored_count_program("")
+
+    assert cpf_bridge.drop_returned_arguments(sdfg, ["a", "b", "N"], ("b", "count"), ("count",)) == ()
+    assert {"__return_0", "count_host"} <= set(sdfg.arrays)
+    assert "count" in tasklet_labels(sdfg)
+    sdfg.validate()
+
+
 @pytest.mark.integration
 def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_runs(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
@@ -729,4 +814,8 @@ if __name__ == "__main__":
     test_the_entry_is_respelled_as_the_stub_and_a_renamed_argument_takes_its_manifest_name()
     test_an_abi_symbol_is_forced_through_a_nested_sdfg_when_no_top_level_tasklet_can_carry_it()
     test_a_dropin_of_a_renamed_argument_declares_the_manifest_name_in_abi_order()
+    test_an_ungraded_return_mirrored_to_the_host_is_dropped_with_its_mirror()
+    test_an_ungraded_return_that_a_tasklet_reads_is_kept("__return_0")
+    test_an_ungraded_return_that_a_tasklet_reads_is_kept("count_host")
+    test_a_graded_return_with_a_host_mirror_is_kept()
     print("ok (the integration tests run under pytest -m integration)")
