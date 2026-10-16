@@ -342,14 +342,17 @@ def test_a_gpu_form_stages_as_the_two_units_a_gpu_submission_is(tmp_path: pathli
     assert sorted(path.name for path in dest.iterdir()) == ["k_reference.cpp", "k_reference.hip"]
 
 
-def test_a_view_refuses_a_second_renderer(tmp_path: pathlib.Path) -> None:
-    """One experiment's view must not hold forms from two dace trees or two targets."""
+def test_a_view_refuses_another_target_or_cache_but_not_another_dace(tmp_path: pathlib.Path) -> None:
+    """A dace pin bump keeps the view (its recorded forms are served, a missing kernel renders with the new
+    dace); a device setup or another cache must not share it."""
     cpf_cache.open_view(tmp_path / "view", tmp_path / "cache", "cpu", "dace-one")
     cpf_cache.open_view(tmp_path / "view", tmp_path / "cache", "cpu", "dace-one")
-    with pytest.raises(ValueError, match="new view"):
-        cpf_cache.open_view(tmp_path / "view", tmp_path / "cache", "cpu", "dace-two")
+    cpf_cache.open_view(tmp_path / "view", tmp_path / "cache", "cpu", "dace-two")
+    assert cpf_cache.read_header(tmp_path / "view").dace_commit == "dace-one"
     with pytest.raises(ValueError, match="new view"):
         cpf_cache.open_view(tmp_path / "view", tmp_path / "cache", "gpu", "dace-one")
+    with pytest.raises(ValueError, match="new view"):
+        cpf_cache.open_view(tmp_path / "view", tmp_path / "other-cache", "cpu", "dace-one")
 
 
 def run_main(argv: list[str]) -> tuple[int, str]:
@@ -469,7 +472,7 @@ if __name__ == "__main__":
     test_a_registry_key_resolves_like_its_short_name(pathlib.Path(tempfile.mkdtemp()))
     test_a_gpu_view_serves_the_device_form_for_a_host_dialect(pathlib.Path(tempfile.mkdtemp()))
     test_a_gpu_form_stages_as_the_two_units_a_gpu_submission_is(pathlib.Path(tempfile.mkdtemp()))
-    test_a_view_refuses_a_second_renderer(pathlib.Path(tempfile.mkdtemp()))
+    test_a_view_refuses_another_target_or_cache_but_not_another_dace(pathlib.Path(tempfile.mkdtemp()))
     test_check_lists_every_miss_and_fails(pathlib.Path(tempfile.mkdtemp()))
     test_check_prints_one_line_per_missing_kernel(pathlib.Path(tempfile.mkdtemp()))
     test_stage_copies_the_form_under_the_task_basename(pathlib.Path(tempfile.mkdtemp()))
