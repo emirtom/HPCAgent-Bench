@@ -487,7 +487,10 @@ class Test:
                 else frmwrk_out
             )
             frmwrk_name = self.frmwrk.info["full_name"] + " - " + impl_name
-            valid = util.validate(np_out, host, frmwrk_name, rtol=band[0], atol=band[1])
+            spec = BenchSpec.load(self.bench.info["short_name"])
+            valid = util.validate(
+                np_out, host, frmwrk_name, rtol=band[0], atol=band[1], mismatch_fraction=spec.mismatch_fraction or 0.0
+            )
             if valid:
                 print(f"{frmwrk_name} - {impl_name} - {stage}: SUCCESS")
             elif not ignore_errors:
