@@ -79,6 +79,7 @@ __all__ = [
     "child_lines",
     "clean_form",
     "copies_whole_argument",
+    "copies_whole_value",
     "dace_int64",
     "dace_root",
     "drop_returned_arguments",
@@ -87,6 +88,7 @@ __all__ = [
     "generated_renames",
     "gpu_codegen_pinned",
     "main",
+    "mirror_chain",
     "prerender_kernel",
     "prerender_sdfg",
     "privatize_rebound_arguments",
@@ -104,7 +106,7 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    from dace import SDFG, Memlet
+    from dace import SDFG, Memlet, SDFGState
     from dace import dtypes as dace_dtypes
     from dace.data import Data
     from dace.sdfg.graph import MultiConnectorEdge
@@ -289,6 +291,64 @@ def copies_whole_argument(sdfg: "SDFG", edge: "MultiConnectorEdge[Memlet]", targ
     )
 
 
+def copies_whole_value(sdfg: "SDFG", state: "SDFGState", edge: "MultiConnectorEdge[Memlet]") -> bool:
+    """Whether ``edge`` copies all of one container onto all of another of the same shape and type."""
+    from dace import nodes as dace_nodes
+    from dace import subsets as dace_subsets
+
+    src, dst, memlet = edge.src, edge.dst, edge.data
+    if not (isinstance(src, dace_nodes.AccessNode) and isinstance(dst, dace_nodes.AccessNode)):
+        return False
+    if memlet.is_empty() or memlet.wcr is not None:
+        return False
+    source, target = sdfg.arrays[src.data], sdfg.arrays[dst.data]
+    read = memlet.get_src_subset(edge, state)
+    written = memlet.get_dst_subset(edge, state) or read
+    return (
+        source.dtype == target.dtype
+        and tuple(source.shape) == tuple(target.shape)
+        and read == dace_subsets.Range.from_array(source)
+        and written == dace_subsets.Range.from_array(target)
+    )
+
+
+def mirror_chain(sdfg: "SDFG", name: str, abi: set[str]) -> set[str] | None:
+    """``name`` and every transient that only mirrors its value, or ``None`` when anything else reads it.
+
+    The GPU offload keeps a host<->device copy of a value host code writes (cegterg's ``__return_2`` and
+    its ``buffer__return_2_host``), so the return container has readers that are only copies of itself.
+    A mirror is a non-ABI transient filled by a whole copy; every reader of the chain must be another
+    such copy, and no interstate edge or region condition may read any container in it.
+    """
+    chain = {name}
+    pending = [name]
+    while pending:
+        current = pending.pop()
+        for state in sdfg.states():
+            if state.sdfg is not sdfg:
+                continue
+            for node in state.data_nodes():
+                if node.data != current:
+                    continue
+                for edge in state.out_edges(node):
+                    if not copies_whole_value(sdfg, state, edge):
+                        return None
+                    mirror = edge.dst.data
+                    if mirror in chain:
+                        continue
+                    if mirror in abi or not sdfg.arrays[mirror].transient:
+                        return None
+                    chain.add(mirror)
+                    pending.append(mirror)
+    read: set[str] = set()
+    for interstate in sdfg.all_interstate_edges():
+        read |= interstate.data.read_symbols()
+    for region in sdfg.all_control_flow_regions():
+        if region.sdfg is sdfg and region is not sdfg:  # an SDFG's own used_symbols drops data names
+            read |= region.used_symbols(all_symbols=True, with_contents=False)
+    return None if read & chain else chain
+
+
 def drop_returned_arguments(
     sdfg: "SDFG", abi: Sequence[str], graded: Sequence[str] = (), returned: Sequence[str | None] = ()
 ) -> tuple[str, ...]:
@@ -298,9 +358,10 @@ def drop_returned_arguments(
     (``numpyto_common.frontend``) because ``f`` is already a parameter the caller holds. DaCe gives
     the returned value its own non-transient ``__return``, so the entry takes a pointer the judge
     never passes. Dropped: a container only ever filled by a whole copy of an ABI argument, and one
-    whose slot in ``returned`` names a value outside ``graded`` (cegterg's iteration counts). Any
-    other container (an unnamed or graded computed value, a partial copy) or one read by anything
-    is kept, and the ordered render refuses it instead of discarding a result the caller needs. The kept
+    whose slot in ``returned`` names a value outside ``graded`` (cegterg's iteration counts), together
+    with the transients that only mirror it (:func:`mirror_chain`, the GPU offload's host<->device copies).
+    Any other container (an unnamed or graded computed value, a partial copy) or one read by anything
+    else is kept, and the ordered render refuses it instead of discarding a result the caller needs. The kept
     tuple slots are renumbered from ``__return_0``.
 
     :returns: the containers removed.
@@ -315,22 +376,31 @@ def drop_returned_arguments(
         suffix = name[len(RETURN_PREFIX) + 1 :]
         slot = 0 if name == RETURN_PREFIX else int(suffix) if suffix.isdigit() else len(returned)
         ungraded = slot < len(returned) and returned[slot] is not None and returned[slot] not in graded
+        # An ungraded value may still be mirrored by the offload's host<->device copies: they go with it.
+        chain = mirror_chain(sdfg, name, wanted) if ungraded else {name}
+        if chain is None:
+            continue
         found = [
             (state, node)
             for state in sdfg.states()
             if state.sdfg is sdfg
             for node in state.data_nodes()
-            if node.data == name
+            if node.data in chain
         ]
-        if not found or any(
-            state.out_degree(node)
-            or not (ungraded or all(copies_whole_argument(sdfg, edge, target, wanted) for edge in state.in_edges(node)))
+        if not any(node.data == name for _, node in found) or any(
+            not ungraded
+            and (
+                state.out_degree(node)
+                or not all(copies_whole_argument(sdfg, edge, target, wanted) for edge in state.in_edges(node))
+            )
             for state, node in found
         ):
             continue
-        for state, node in found:
-            frontier = [e.src for e in state.in_edges(node)]
-            state.remove_node(node)
+        for state in dict.fromkeys(state for state, _ in found):
+            removed = [node for owner, node in found if owner is state]
+            frontier = [e.src for node in removed for e in state.in_edges(node) if e.src not in removed]
+            for node in removed:  # the chain's readers are the chain itself, so nothing downstream is left
+                state.remove_node(node)
             while frontier:  # code left computing only the dropped value goes with it
                 src = frontier.pop()
                 if src not in state.nodes() or state.out_degree(src):
@@ -339,7 +409,8 @@ def drop_returned_arguments(
                     continue
                 frontier.extend(e.src for e in state.in_edges(src))
                 state.remove_node(src)
-        sdfg.remove_data(name, validate=False)
+        for container in sorted(chain):
+            sdfg.remove_data(container, validate=False)
         dropped.append(name)
     # The kept tuple slots are renumbered without gaps: DaCe refuses ``__return_1`` with no ``__return_0``.
     # Their numbers carry nothing past here, since the ordered render refuses any return container left.
