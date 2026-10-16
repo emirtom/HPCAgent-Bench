@@ -307,6 +307,7 @@ class Manifest(ManifestBlock):
     floor_bytes_fraction: Number | None = None
     conditioning_rtol: Number | None = None
     conditioning_atol: Number | None = None
+    mismatch_fraction: Number | None = None
     scale_axes: list[str] | None = None
 
 

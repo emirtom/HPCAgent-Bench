@@ -933,7 +933,10 @@ class DaceFramework(Framework):
         band = tolerance_datatype(self.datatype, present.pop() if len(present) == 1 else None)
         rtol, atol = tolerances_for(band)
         label = f"{self.info['full_name']} - {variant.name}"
-        return util.validate(reference, host, label, rtol=rtol, atol=atol)
+        spec = BenchSpec.load(bench.info["short_name"])
+        return util.validate(
+            reference, host, label, rtol=rtol, atol=atol, mismatch_fraction=spec.mismatch_fraction or 0.0
+        )
 
     def reference_outputs(self, bench: Benchmark, bdata: BenchData) -> list[OutputValue] | None:
         """The NumPy reference outputs for ``bdata``, or ``None`` (skips the gate). On a GPU flavor they are
