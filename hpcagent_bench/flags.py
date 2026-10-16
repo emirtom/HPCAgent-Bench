@@ -72,6 +72,7 @@ __all__ = [
     "OPT_LEVEL",
     "PAPI_RANGES_H",
     "PLUTO_PAR",
+    "POLYGEIST_PAR",
     "POLLY_OUTLINE_PATTERN",
     "POLLY_PAR",
     "PYTHRAN_BASELINE",
@@ -318,6 +319,10 @@ PLUTO_PAR = "-fopenmp"
 #: swapped for the one that works (see :data:`PLUTO_PAR`). Written as a substitution rather than
 #: a second literal so the two baselines cannot drift in any flag EXCEPT the one that must differ.
 CPU_BASELINE_CLANG_PLUTO = CPU_BASELINE_CLANG.replace(_OPENMP_CLANG, PLUTO_PAR)
+
+#: The Polygeist CPU column's OpenMP: its LLVM IR already calls LLVM's OpenMP runtime (``__kmpc_*``), so only the
+#: link needs it. See hpcagent_bench/polygeist_transform.py.
+POLYGEIST_PAR = _OPENMP_CLANG
 
 #: NVHPC pure-source CPU auto-parallelization (analogue of GCC ``-ftree-parallelize-loops``).
 NVHPC_CONCUR = "-Mconcur"
