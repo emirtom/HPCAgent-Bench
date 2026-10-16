@@ -23,9 +23,11 @@ answer to a call you make, and the call changes nothing on disk.
 
 Every loop's comment starts with its class, and its second line says `settled:` (parallel and
 sequential) or `open:` (unsure); the file's header states the same contract. A `__global__` kernel launch also marks a
-parallel loop. A `parallel` loop is PROVEN fully parallel and a `sequential` one is proven or kept
-sequential. **Trust these verdicts**: do not re-check a `parallel` loop and do not try to parallelize a
-`sequential` one. Reason about dependences only for an `unsure` loop, where the analysis did not decide.
+parallel loop. A `parallel` loop is PROVEN safe to run in parallel, possibly under a guard its label states. A
+`sequential` loop is PROVEN sequential, and its label names the carried dependence. **Trust these
+verdicts**: do not re-check a `parallel` loop, and do not expect re-scheduling (reordering, tiling,
+pragmas) to parallelize a `sequential` one: only an ALGORITHMIC change that removes the dependence can,
+for example breaking an anti dependence, privatizing, or reformulating the recurrence. Reason about dependences only for an `unsure` loop, where the analysis did not decide.
 
 | first line of the comment | class | what you do |
 | --- | --- | --- |
