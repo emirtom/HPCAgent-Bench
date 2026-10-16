@@ -19,6 +19,7 @@ import os
 import pathlib
 import re
 import signal
+import socket
 import statistics
 import sys
 import tempfile
@@ -2529,19 +2530,22 @@ class RepCheckServer:
         return self.held + (time.monotonic() - since if since is not None else 0.0)
 
     def start(self, pid: int) -> None:
-        """``run_forked``'s ``on_start``: send the regions to child ``pid`` and serve its reps. The thread runs in
-        a copy of this context and on this thread's pinned GPU, so a check sees the grade's configuration scope
-        and compares a device grade where the grade would (:func:`assigned_device`)."""
+        """``run_forked``'s ``on_start``: serve child ``pid``'s reps from a thread, which first sends the regions
+        (each send waits for the child to take it, and run_forked must keep watching the child meanwhile). The
+        thread runs in a copy of this context and on this thread's pinned GPU, so a check sees the grade's
+        configuration scope and compares a device grade where the grade would (:func:`assigned_device`)."""
         self.channel.conn.close()  # the child holds its own; the parent's copy would keep EOF away
-        with contextlib.suppress(OSError):  # a child already gone reports its own failure
-            for fd in self.fds.values():
-                reduction.send_handle(self.conn, fd, pid)
         context = contextvars.copy_context()
         self.thread = threading.Thread(target=context.run, args=(self.serve, pid, assigned_device()), daemon=True)
         self.thread.start()
 
     def serve(self, pid: int, device_index: int | None) -> None:
         set_assigned_device(device_index)
+        try:
+            for fd in self.fds.values():
+                reduction.send_handle(self.conn, fd, pid)
+        except (OSError, RuntimeError):  # the child is gone (no acknowledgement): it reports its own failure
+            return
         while not self.done.is_set():
             try:
                 if not self.conn.poll(REP_POLL_S):
@@ -2602,6 +2606,10 @@ class RepCheckServer:
 
     def close(self) -> None:
         self.done.set()
+        # Wakes a thread still waiting on the child: one that never took the regions, or a descendant that kept
+        # the child's end open after the child exited.
+        with contextlib.suppress(OSError), socket.socket(fileno=os.dup(self.conn.fileno())) as end:
+            end.shutdown(socket.SHUT_RDWR)
         if self.thread is not None:
             self.thread.join()
         self.conn.close()
