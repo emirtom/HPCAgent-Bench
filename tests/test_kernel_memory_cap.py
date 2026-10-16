@@ -46,12 +46,12 @@ VLA_BYTES: int = 64 << 20
 
 #: A column-sized scratch array on the stack of every OpenMP thread, as a CPF drop-in declares it.
 VLA_SOURCE = """
-void touch(double *out, long n, int iters) {
+void touch(double *out, long n, long stride, int iters) {
     #pragma omp parallel for
     for (int i = 0; i < iters; ++i) {
         double scratch[n];
         volatile double *page = scratch;
-        for (long k = 0; k < n; k += 512) page[k] = i;
+        for (long k = 0; k < n; k += stride) page[k] = i;
         out[i] = page[0];
     }
 }
@@ -191,8 +191,22 @@ def test_an_agents_container_gets_the_stack_the_judge_grades_with() -> None:
     assert "nproc" in limit, limit  # the cores the step owns, not a number written down
 
 
-def vla_kernel(tmp_path) -> pathlib.Path:
-    """A python delivery driving :data:`VLA_SOURCE`, built with the host compiler and OpenMP."""
+def test_the_job_environment_gets_the_configured_stack() -> None:
+    """cluster/env.sh, which every job sources, writes the same default as config.yaml."""
+    script = paths.ROOT / "hpcagent_bench" / "cluster" / "env.sh"
+    line = next(x for x in script.read_text().splitlines() if x.startswith("export OMP_STACKSIZE="))
+    assert line == f'export OMP_STACKSIZE="${{OMP_STACKSIZE:-{flags.thread_stack_bytes() >> 20}M}}"', line
+
+
+#: The huge-VLA case: one ~800 MiB array per OpenMP thread, under the 1 GiB stack every CPU run gets. Touched
+#: one page per MiB, so the stack pointer crosses the whole array while only ~3 MiB per thread is committed.
+HUGE_VLA_BYTES: int = 800 << 20
+HUGE_VLA_STRIDE: int = (1 << 20) // 8
+
+
+def vla_kernel(tmp_path, vla_bytes: int = VLA_BYTES, stride: int = 512) -> pathlib.Path:
+    """A python delivery driving :data:`VLA_SOURCE` (``vla_bytes`` per thread, every ``stride``-th element
+    written), built with the host compiler and OpenMP."""
     lib = tmp_path / "libvla.so"
     subprocess.run(
         ["gcc", "-O1", "-fopenmp", "-shared", "-fPIC", "-o", str(lib), "-x", "c", "-"],
@@ -206,7 +220,8 @@ def vla_kernel(tmp_path) -> pathlib.Path:
         f"LIB = ctypes.CDLL({str(lib)!r})\n"
         "def kern(x):\n"
         "    out = np.zeros(8)\n"
-        f"    LIB.touch(out.ctypes.data_as(ctypes.c_void_p), ctypes.c_long({VLA_BYTES // 8}), ctypes.c_int(8))\n"
+        f"    LIB.touch(out.ctypes.data_as(ctypes.c_void_p), ctypes.c_long({vla_bytes // 8}), ctypes.c_long({stride}),"
+        " ctypes.c_int(8))\n"
         "    return x + out.sum()\n"
     )
     return kernel
@@ -246,6 +261,46 @@ def call_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
         py_meta=("kern", ("x",), ("y",)),
     )
     return outs["y"], len(samples)
+
+
+@pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
+@pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
+def test_an_800_mib_vla_on_every_thread_runs_under_the_default_cap(tmp_path: pathlib.Path) -> None:
+    """Every CPU run gets ``limits.thread_stack_mb`` (1 GiB) per OpenMP thread, reserved on top of the kernel's
+    default budget: an ~800 MiB VLA in a parallel region is graded, not crashed."""
+    y, samples = fresh_interpreter(call_huge_vla, tmp_path)
+    np.testing.assert_array_equal(y, np.full(4, float(sum(range(8)))))
+    assert samples == 1
+
+
+@pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
+@pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
+def test_an_800_mib_vla_overflows_the_former_512_mib_stack(tmp_path: pathlib.Path) -> None:
+    """The same kernel launched with the former 512M stacks crashes: the 1 GiB setting is what grades it."""
+    with pytest.raises(RuntimeError, match="SIGSEGV"):
+        fresh_interpreter(call_huge_vla_on_512m, tmp_path, env={"OMP_STACKSIZE": "512M"})
+
+
+def call_huge_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
+    """:data:`HUGE_VLA_BYTES` per thread through the real grading child at the default kernel budget."""
+    outs, samples, _mem, _, _timed = native_call._call_isolated(
+        str(vla_kernel(tmp_path, HUGE_VLA_BYTES, HUGE_VLA_STRIDE)),
+        BINDING,
+        {"x": np.zeros(4, dtype=np.float64)},
+        "python",
+        device=False,
+        timeout=120.0,
+        memory_gb=float(config.current().limits.kernel_memory_gb),
+        threads=4,
+        py_meta=("kern", ("x",), ("y",)),
+    )
+    return outs["y"], len(samples)
+
+
+def call_huge_vla_on_512m(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
+    """:func:`call_huge_vla` with the former 512 MiB stack configured (the launch env says 512M too)."""
+    with config.overridden("limits.thread_stack_mb", 512):
+        return call_huge_vla(tmp_path)
 
 
 #: A team sized the way ext_war_unit and edge_laplacian size theirs, but four times the whole
@@ -679,7 +734,7 @@ def test_a_crash_under_an_armed_cap_names_the_cap() -> None:
     if not shutil.which("gcc"):
         pytest.skip("gcc absent")
     # Launched with 1 MiB OpenMP stacks: the cap also reserves one stack per thread the process may run,
-    # and at the suite's 512 MiB that reserve alone admits the 1 GiB the kernel asks for.
+    # and at the suite's 1 GiB that reserve alone admits the 1 GiB the kernel asks for.
     env = {
         "OMP_STACKSIZE": "1M",
         "HPCAGENT_BENCH_LIMITS_THREAD_STACK_MB": "1",

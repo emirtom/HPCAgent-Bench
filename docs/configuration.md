@@ -146,7 +146,7 @@ the GPU generation whose images and serving layers the experiment uses ([below](
 | `CONTAINER_RUNTIME` | `ce` | how `cluster/services.sbatch` starts containers, through one seam (`cluster/container_runtime.sh`, [runtime.md](runtime.md)): `ce`, `apptainer`, `podman` or `docker` |
 | `HPCAGENT_BENCH_HARDWARE`, `HPCAGENT_BENCH_MAX_TIME_HOURS` | the system's `hardware`, `max_time_hours`; else unset | the hardware, and the longest time limit of the partition, which clamps a scaled wall clock (`TIME_SCALE`, minus `STAGING_HOURS`); unset, nothing is clamped |
 | `HPCAGENT_BENCH_HOST` | `SLURMD_NODENAME`, else the host name | the node name recorded with each result |
-| `OMP_STACKSIZE`, `OMP_THREAD_LIMIT` | `512M`, the cores the shell owns (`nproc`); set by `cluster/env.sh` and `run_cluster.sh` | the OpenMP launch environment every grading process needs; the main thread's stack is the shell step `ulimit -s "$(ulimit -H -s)"` (its hard limit) |
+| `OMP_STACKSIZE`, `OMP_THREAD_LIMIT` | `1024M` (`limits.thread_stack_mb`), the cores the shell owns (`nproc`); set by `cluster/env.sh` and `run_cluster.sh` | the OpenMP launch environment every grading process needs; the main thread's stack is the shell step `ulimit -s "$(ulimit -H -s)"` (its hard limit) |
 
 Every command runs `<python> -m hpcagent_bench...` (or `-m hpcagent_agent...` in an agent step) with one of the two
 interpreters, never a PATH lookup. Nothing sets `PYTHONPATH` or edits `sys.path` (the `import-path` rule of `helpers/scripts/checks/check_repo_rules.py`): both
