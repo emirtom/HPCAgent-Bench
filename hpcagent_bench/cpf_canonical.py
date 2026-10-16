@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from hpcagent_bench import cpf_cache, paths
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
@@ -135,6 +136,20 @@ def producer_digest() -> str:
 def small_symbols(spec: BenchSpec) -> frozenset[str]:
     """The size symbols the manifest declares small for every configuration (``public.scales``)."""
     return spec.public.small_symbols() if spec.public is not None else frozenset()
+
+
+def nonnegative_symbols(spec: BenchSpec) -> frozenset[str]:
+    """The symbols canonicalize may treat as non-negative: every size symbol, configuration knob and integer
+    scalar argument, minus the ones the manifest says can be negative (``public.negative``) -- what the prompt
+    tells the agent."""
+    sizes = {name for preset in spec.parameters.values() for name in preset}
+    integer_scalars = {
+        arg.name
+        for arg in binding_from_spec(spec).args
+        if arg.kind == "scalar" and arg.dtype.startswith(("int", "uint"))
+    }
+    negative = set(spec.public.negative) if spec.public is not None else set()
+    return frozenset((sizes | set(spec.config_names) | integer_scalars) - negative)
 
 
 def canonical_key(

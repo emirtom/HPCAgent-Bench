@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from hpcagent_bench import cpf_canonical
 from hpcagent_bench.harness import prompts
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -59,9 +60,16 @@ def test_a_kernel_without_negatives_states_every_symbol_is_non_negative() -> Non
     assert "Every size symbol, configuration knob and scalar argument is non-negative." in text
 
 
+def test_canon_gets_every_size_knob_and_integer_scalar_except_the_negative_ones() -> None:
+    """smith_waterman: sizes and the integer scores, without ``mismatch`` (public.negative)."""
+    assert cpf_canonical.nonnegative_symbols(BenchSpec.load("smith_waterman")) == {"N", "gap", "match"}
+    assert "K" not in cpf_canonical.nonnegative_symbols(BenchSpec.load("config_select_branch"))
+
+
 if __name__ == "__main__":
     test_a_declared_negative_knob_loads()
     test_an_undeclared_negative_value_is_refused()
     test_a_declared_symbol_that_never_goes_negative_is_refused()
     test_the_prompt_names_the_negative_symbols()
     test_a_kernel_without_negatives_states_every_symbol_is_non_negative()
+    test_canon_gets_every_size_knob_and_integer_scalar_except_the_negative_ones()
