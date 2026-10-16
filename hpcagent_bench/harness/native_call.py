@@ -841,8 +841,9 @@ FOLLOWUP_SPILL_ROOT: str | None = None
 #: the node-local temp directory, which is memory.
 KEEP_TIMED_OUTPUTS: bool = True
 #: Whether the child's one call may run on the inputs it was handed instead of a fresh copy (set once per child): a
-#: single untimed call (a reference's expected outputs) with no warmup, no per-rep draw and no followup reads its
-#: inputs once, and the child owns them (unpickled, or copy-on-write after a fork), so the copy only doubled them.
+#: reference's expected outputs (``_call_isolated(own_inputs=True)``) are one untimed call with no warmup and no
+#: followup, which reads its inputs once, and the child owns them (unpickled, copy-on-write after a fork, or drawn
+#: in the child), so the copy only doubled them.
 INPUTS_OWNED: bool = False
 
 #: The child's ``RLIMIT_AS`` before :func:`arm_memory_cap` lowered it; None when no cap is armed.
@@ -2279,6 +2280,7 @@ def _native_call_worker(
     cold_rep_s: float = 0.0,
     inputs: "InputRecipe | None" = None,
     keep_timed_outputs: bool = True,
+    own_inputs: bool = False,
     rep_channel: RepChannel | None = None,
 ) -> ChildPayload | None:
     """Child-process entry: run the whole measurement and return its payload
@@ -2306,7 +2308,7 @@ def _native_call_worker(
     # followup outputs cross back as files (see Followup), into the parent's per-call directory
     FOLLOWUP_SPILL_ROOT = spill_root
     KEEP_TIMED_OUTPUTS = keep_timed_outputs
-    INPUTS_OWNED = reps == 1 and warmup == 0 and rep_data is None and not followups and not gpu_graded
+    INPUTS_OWNED = own_inputs and reps == 1 and warmup == 0 and not followups and not gpu_graded
     REP_CHANNEL = rep_channel
     TIMED_REP_S = timed_rep_s
     COLD_REP_S = cold_rep_s
@@ -2741,6 +2743,7 @@ def _call_isolated(
     inputs: "InputRecipe | None" = None,
     keep_timed_outputs: bool = True,
     checks: RepChecks | None = None,
+    own_inputs: bool = False,
 ) -> "IsolatedCall":
     """Run a whole measurement in one child process, so a segfault, hang or over-allocation is a scored
     failure rather than the runner's death.
@@ -2780,7 +2783,10 @@ def _call_isolated(
     ``checks`` checks every timed rep while the measurement runs, each in a shared region with the child
     stopped (:class:`RepCheckServer`), so only one rep's outputs exist at a time; ``timed_outputs`` then holds
     only :attr:`RepChecks.last` (none unless ``keep_last``) and ``checks.ran`` is set. Where the host has no
-    anonymous shared file, every rep is spilled as without ``checks`` and ``checks.ran`` stays unset."""
+    anonymous shared file, every rep is spilled as without ``checks`` and ``checks.ran`` stays unset.
+
+    ``own_inputs`` (a reference's expected outputs: one untimed call, no warmup, no followup) lets that call run
+    on the child's own inputs instead of a fresh copy of them (:data:`INPUTS_OWNED`)."""
     # Residency picks the child for every delivery, python included.
     use_device = device
     if lang == "python" and py_meta is None:
@@ -2867,6 +2873,7 @@ def _call_isolated(
                     env=child_env,
                     casts=casts,
                     keep_timed_outputs=keep_timed_outputs,
+                    own_inputs=own_inputs,
                     rep_channel=server.channel if server is not None else None,
                     on_start=server.start if server is not None else None,
                     held_s=server.held_s if server is not None else None,

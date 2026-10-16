@@ -457,7 +457,9 @@ def test_a_second_grade_of_one_kernel_reuses_the_cached_reference_outputs(monkey
     monkeypatch.setattr(
         scoring,
         "numba_reference_outputs",
-        lambda spec, data, memory_gb=0.0: calls.append(spec.short_name) or real(spec, data),
+        lambda spec, data, memory_gb=0.0, rep_data=None: (
+            calls.append(spec.short_name) or real(spec, data if rep_data is None else rep_data(0))
+        ),
     )
     task = Task(NUMBA_LED_KERNEL, "restricted", "c")
     submission = Submission(language="c", source=BROKEN_SOURCE)
