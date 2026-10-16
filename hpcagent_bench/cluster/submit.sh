@@ -84,6 +84,8 @@ EXPERIMENT=${EXPERIMENT:-${TAG:-$(basename -- "${KERNELS_FILE%.*}")}}
 RECORD_STUDY_GIVEN=${RECORD_STUDY:+1}
 RECORD_STUDY=${RECORD_STUDY:-${TAG:-${EXPERIMENT}}}
 STAMP=${STAMP:-$(date +%Y%m%d)}
+# The view every CPF setup reads when the caller names one; else each setup's own device's (stage_setup).
+CPF_VIEW_GIVEN=${CPF_VIEW:-}
 deadline_setup "${DEADLINE:-}" "${DEADLINE_MARGIN_SECONDS:-300}" || exit 2
 BEGIN=${BEGIN:-}
 [[ "${BEGIN}" != now ]] || BEGIN=""
@@ -191,7 +193,8 @@ stage_setup() {
     [[ -z "${temperature}" ]] || kvs+=("INFERENCE_TEMPERATURE=${temperature}")
     if [[ -n "${packet}" ]]; then
         local line packet_env
-        export CPF_VIEW="${CPF_VIEW:-${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/views/${TAG:-${EXPERIMENT}}-${device}}"
+        # Per setup: a default kept from an earlier setup of another device would point a hip setup at the cpu view.
+        export CPF_VIEW="${CPF_VIEW_GIVEN:-${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/views/${TAG:-${EXPERIMENT}}-${device}}"
         # The preset's requests.allow, with what the packet needs added (a CPF packet adds load: a form may call
         # a vendor library).
         packet_env=$("${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/packet_env.py" --packet "${packet}" --language "${lang}" \
