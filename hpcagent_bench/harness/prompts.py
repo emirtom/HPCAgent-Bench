@@ -1121,6 +1121,8 @@ def build_context(
         # The band the scorer validates with (see disp_rtol above).
         "rtol": disp_rtol,
         "atol": disp_atol,
+        # The share of each output's elements the scorer lets fall outside the band (BenchSpec.mismatch_fraction).
+        "mismatch_percent": f"{100 * spec.mismatch_fraction:g}" if spec.mismatch_fraction else "",
         # What /submit's final grade times and the level its rank test credits at.
         "final": final_sampling(),
         # The timed-shape sampling rule and range (never the seed or sizes); see perf_sampling.

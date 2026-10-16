@@ -1994,6 +1994,11 @@ class BenchSpec(BaseModel):
     #: The same floor on the grading atol, for an answer whose small components move by an absolute
     #: amount (an adaptive integrator whose flipped step decision lands within its own tolerance).
     conditioning_atol: Number | None = None
+    #: The fraction of each output's elements allowed outside the band, for a chaotic answer whose
+    #: every correct implementation flips a few elements (mandelbrot2's escape boundary: a reordered
+    #: z^2 + c moves a boundary pixel's escape step). Set only with that measurement beside it in the
+    #: manifest. ``None`` => every element within the band.
+    mismatch_fraction: Number | None = None
     #: The size symbols the XL rung grows along when the kernel is graded in a narrower datatype than
     #: the fp64 its XL is authored at (:func:`hpcagent_bench.sizing.datatype_rung`: constant bytes). Empty =>
     #: the leading (batch) dimension of its first array.
@@ -2232,6 +2237,9 @@ class BenchSpec(BaseModel):
         conditioning_atol = ext.get("conditioning_atol", bench.get("conditioning_atol"))
         if conditioning_atol is not None and not 0 < number_of(conditioning_atol, "conditioning_atol", source) < 1:
             raise ValueError(f"{source}: conditioning_atol must be in (0, 1) (got {conditioning_atol!r})")
+        mismatch_fraction = ext.get("mismatch_fraction", bench.get("mismatch_fraction"))
+        if mismatch_fraction is not None and not 0 < number_of(mismatch_fraction, "mismatch_fraction", source) < 1:
+            raise ValueError(f"{source}: mismatch_fraction must be in (0, 1) (got {mismatch_fraction!r})")
         return cls(
             short_name=short_name,
             name=str(bench["name"]),
@@ -2257,6 +2265,9 @@ class BenchSpec(BaseModel):
             ),
             conditioning_atol=(
                 None if conditioning_atol is None else number_of(conditioning_atol, "conditioning_atol", source)
+            ),
+            mismatch_fraction=(
+                None if mismatch_fraction is None else number_of(mismatch_fraction, "mismatch_fraction", source)
             ),
             track=track,
             allowed_precisions=allowed_precisions,
