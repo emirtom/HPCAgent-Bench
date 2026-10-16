@@ -188,10 +188,16 @@ def nonnegative_symbols(spec: BenchSpec) -> frozenset[str]:
 
 
 def canonical_key(
-    program: pathlib.Path, commit: str, precision: str, target: str, small: frozenset[str] = frozenset()
+    program: pathlib.Path,
+    commit: str,
+    precision: str,
+    target: str,
+    small: frozenset[str] = frozenset(),
+    nonnegative: frozenset[str] = frozenset(),
 ) -> str:
     """The canonical entry of ``program`` as the dace at ``commit`` canonicalizes it for ``target``, with the
-    ``small`` size symbols declared small (keyed only when there are any, so other entries keep their key)."""
+    ``small`` size symbols declared small and the ``nonnegative`` ones non-negative (each keyed only when there
+    are any, so other entries keep their key)."""
     options: dict[str, object] = {
         "precision": fptype_tag(precision),
         "target": target,
@@ -200,6 +206,8 @@ def canonical_key(
     }
     if small:
         options["small"] = sorted(small)
+    if nonnegative:
+        options["nonnegative"] = sorted(nonnegative)
     return cpf_cache.canonical_key(hashlib.sha256(program.read_bytes()).hexdigest(), commit, options)
 
 
@@ -283,9 +291,12 @@ def declare_small(sdfg: "SDFG", small: frozenset[str]) -> None:
             sdfg.set_symbol_scale(name, symbolic.Scale.SMALL)
 
 
-def canonicalize_for(sdfg: "SDFG", target: str, small: frozenset[str] = frozenset()) -> None:
+def canonicalize_for(
+    sdfg: "SDFG", target: str, small: frozenset[str] = frozenset(), nonnegative: frozenset[str] = frozenset()
+) -> None:
     """Step 3, in place. The ``small`` size symbols are declared small first, so no parallel or GPU axis is
-    chosen along them.
+    chosen along them, and the ``nonnegative`` ones non-negative (:func:`nonnegative_symbols`); every other
+    symbol has unknown sign.
 
     canonicalize leaves every choice PARALLEL but decides no OpenMP region -- skip the tail and the
     unit renders correct but entirely SEQUENTIAL. GPU adds offload_to_gpu between the two calls;
@@ -295,7 +306,7 @@ def canonicalize_for(sdfg: "SDFG", target: str, small: frozenset[str] = frozense
     from dace.transformation.passes.canonicalize.pipeline import canonicalize
 
     declare_small(sdfg, small)
-    canonicalize(sdfg, validate=True, validate_all=False, target=target)
+    canonicalize(sdfg, validate=True, validate_all=False, target=target, nonnegative_symbols=sorted(nonnegative))
     if target == "gpu":
         offload_to_gpu(sdfg)
     finalize_for_target(sdfg, target, validate=True)
@@ -315,7 +326,7 @@ def produce(
         if isinstance(parsed, dict):
             cpf_cache.publish_canonical(cache_root, key, {**manifest, **parsed}, None)
             return
-        canonicalize_for(parsed, target, small_symbols(spec))
+        canonicalize_for(parsed, target, small_symbols(spec), nonnegative_symbols(spec))
     except Exception as exc:  # noqa: BLE001 -- a raised error is a verdict worth remembering
         cpf_cache.publish_canonical(cache_root, key, {**manifest, **failure(exc)}, None)
         return
