@@ -28,6 +28,7 @@ from collections.abc import Sequence
 
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.support.bindings.contract import graded_datatype
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
@@ -136,6 +137,9 @@ def render_kernel(
         for language in languages:
             cpf_cache.record(view, kernel, language, fptype, outcome.model_dump())
         return cpf_cache.short_name(kernel), dict.fromkeys(languages, outcome)
+    # The form a kernel is graded against is rendered at the datatype it is graded in (a bf16 ML kernel's).
+    precision = graded_datatype(spec, precision)
+    fptype = fptype_tag(precision)
     rec = cpf_bridge.prerender_kernel(
         spec,
         cache,
@@ -208,7 +212,7 @@ def render_on_demand(
         BenchSpec.load(kernel)
     except Exception as exc:  # noqa: BLE001 -- an agent's unknown name is answered, never recorded
         return f"no kernel {kernel!r} to render ({type(exc).__name__})"
-    fptype = fptype_tag(precision)
+    fptype = cpf_bridge.form_fptype(kernel, precision)
     before = cpf_canonical.dace_commit()
     try:
         cpf_cache.open_view(view, cache, target, before)

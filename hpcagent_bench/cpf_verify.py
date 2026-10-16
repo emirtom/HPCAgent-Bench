@@ -84,8 +84,8 @@ def grade(view: str, kernel: str, language: str, fptype: str) -> dict[str, objec
     """The verdict on one form: ``ok`` only when its entry is the stub's (:func:`abi_refusal`), it builds,
     grades correct and survives re-verify."""
     cfg = from_config()
-    form = cpf_cache.resolve(cpf_cache.pathlib.Path(view), kernel, language, fptype)
     key = registry_key(kernel)
+    form = cpf_cache.resolve(cpf_cache.pathlib.Path(view), kernel, language, cpf_bridge.form_fptype(key, fptype))
     if refused := abi_refusal(form, key, language):
         return {"verdict": "unverified", "reason": refused, "preset": cfg.preset, "build_ok": False, "correct": False}
     # A gpu form is the two units a GPU submission is: the host entry and the device kernels.

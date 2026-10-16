@@ -1672,7 +1672,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     "about whether the kernel can be parallelized",
                 },
             )
-        fptype = fptype_tag(self.cfg.datatype)
+        from hpcagent_bench import cpf_bridge  # renders and binds; only a CPF request needs it
+
+        fptype = cpf_bridge.form_fptype(kernel, self.cfg.datatype)
         try:
             form = cpf_cache.resolve(root, kernel, language, fptype)
         except cpf_cache.CacheMiss:
