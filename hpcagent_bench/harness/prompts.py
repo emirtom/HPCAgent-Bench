@@ -22,7 +22,7 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 import jinja2
 import numpy as np
 
-from hpcagent_bench import config, cpf_cache, fuzz, languages, packets, paths, protocols
+from hpcagent_bench import config, cpf_cache, fuzz, languages, manifest_schema, packets, paths, protocols
 from hpcagent_bench.config import GridChooser, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
@@ -115,6 +115,7 @@ __all__ = [
     "packet_skills",
     "parse_skill",
     "perf_sampling",
+    "public_info",
     "pick_bool",
     "pick_dirs",
     "pick_path",
@@ -204,6 +205,40 @@ class PerfSampling(TypedDict):
     fixed: list[FixedSize]
     #: The structural class each timed input moves every ranged size into, in input order.
     size_classes: list[str]
+
+
+class PublicItem(TypedDict):
+    """One described public variable: its name, its value set or range as a phrase, what it selects."""
+
+    name: str
+    values: str
+    description: str
+
+
+class PublicScaleItem(TypedDict):
+    """One public size: its name, ``small`` or ``big``, and what it is (never its value)."""
+
+    name: str
+    scale: str
+    description: str
+
+
+class PublicConfigurationItem(TypedDict):
+    """One public configuration: its name, the control-flow values it fixes, its own sizes."""
+
+    name: str
+    values: str
+    description: str
+    scales: list[PublicScaleItem]
+
+
+class PublicInfo(TypedDict):
+    """The manifest's ``public`` block as the prompt states it (:func:`public_info`)."""
+
+    description: str
+    variables: list[PublicItem]
+    scales: list[PublicScaleItem]
+    configurations: list[PublicConfigurationItem]
 
 
 class PromptGenerator(Protocol):
@@ -781,6 +816,48 @@ def perf_sampling(spec: BenchSpec) -> PerfSampling:
     }
 
 
+def public_scale_items(scales: Mapping[str, manifest_schema.PublicScale]) -> list[PublicScaleItem]:
+    """The sizes of one ``scales`` mapping, by name, each with its scale alone."""
+    return [
+        {"name": name, "scale": entry.scale, "description": entry.description} for name, entry in sorted(scales.items())
+    ]
+
+
+def public_values(variable: manifest_schema.PublicVariable) -> str:
+    """A variable's values as the prompt states them: ``one of a, b`` or, shown as a range, ``between lo and
+    hi`` (its numeric bounds, never the exact values)."""
+    if variable.shown_as == "range":
+        numbers = [value for value in variable.values if isinstance(value, (int, float))]
+        return f"between {min(numbers)} and {max(numbers)}"
+    return "one of " + ", ".join(str(value) for value in variable.values)
+
+
+def public_info(spec: BenchSpec) -> PublicInfo | None:
+    """The manifest's ``public`` block as prompt items, or ``None`` when it declares none: each variable's
+    value set or range, the kernel-wide small and big sizes, and each configuration's fixed values and own
+    sizes."""
+    public = spec.public
+    if public is None:
+        return None
+    return {
+        "description": public.description or "",
+        "variables": [
+            {"name": name, "values": public_values(entry), "description": entry.description}
+            for name, entry in public.variables.items()
+        ],
+        "scales": public_scale_items(public.scales),
+        "configurations": [
+            {
+                "name": entry.name,
+                "values": ", ".join(f"{name}={value}" for name, value in entry.values.items()),
+                "description": entry.description,
+                "scales": public_scale_items(entry.scales),
+            }
+            for entry in public.configurations
+        ],
+    }
+
+
 #: Each :class:`fuzz.SizeClass` in the prompt's words (:func:`fuzz.in_class`).
 SIZE_CLASS_PHRASE = {
     fuzz.SizeClass.ALIGNED: "a multiple of 64",
@@ -1127,6 +1204,8 @@ def build_context(
         "final": final_sampling(),
         # The timed-shape sampling rule and range (never the seed or sizes); see perf_sampling.
         "perf_sampling": perf_sampling(spec),
+        # The manifest's public configurations, variables and small sizes; see public_info.
+        "public": public_info(spec),
         # What /score times (a preview of the final grade on fewer inputs); see score_sampling.
         "score_sampling": score_sampling(),
         # The correctness reference and the speedup denominator.
