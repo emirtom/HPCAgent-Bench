@@ -212,6 +212,7 @@ tools/pluto_affine_survey_results.txt
 !/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/seissol_tensor_contraction/seissol_tensor_contraction_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/dynamic_programming/nussinov/nussinov_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/finite_state_machine/nfa_frontier/nfa_frontier_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/graphical_models/viterbi/viterbi_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/arc_distance/arc_distance_jax.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/xsbench/xsbench_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/esirkepov_deposition/warpx_esirkepov_deposition_numba.py
