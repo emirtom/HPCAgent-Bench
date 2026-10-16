@@ -451,6 +451,27 @@ def test_a_read_only_input_array_does_not_make_ppcgs_output_unbuildable(tmp_path
     assert scop.read_text() == original
 
 
+def test_an_override_scop_names_the_same_entry_as_a_generated_one() -> None:
+    """An override's stem carries its own tag; left on, ppcg_hip looked for device mirrors of a function that
+    does not exist and failed every override-backed kernel (gemm, jacobi_2d, heat_3d, ...)."""
+    assert ppcg_transform.entry_symbol(pathlib.Path("gemm_fp32_pluto_override_input.c")) == "gemm_fp32"
+    assert ppcg_transform.entry_symbol(pathlib.Path("gemm_fp32_pluto_input.c")) == "gemm_fp32"
+
+
+def test_a_transients_vla_cast_is_respelled_as_the_variables_own_type() -> None:
+    """C++ gives each spelling of a VLA type its own type, so hipcc refused every rank>=2 transient's
+    ``(T (*)[E])malloc(...)``; a plain pointer cast is not a VLA cast and stays as it is."""
+    host = (
+        "void k_fp32(int64_t NI, int64_t NJ) {\n"
+        "  float (*__mm1)[NJ] = (float (*)[NJ])malloc((size_t)((NI) * (NJ)) * sizeof(float));\n"
+        "  float *x = (float *)malloc(8);\n"
+        "}\n"
+    )
+    out = ppcg_transform.cxx_compat(host, "k_fp32")
+    assert "float (*__mm1)[NJ] = (__typeof__(__mm1))malloc((size_t)((NI) * (NJ)) * sizeof(float));" in out
+    assert "float *x = (float *)malloc(8);" in out
+
+
 def test_ppcg_only_ever_asks_for_cuda() -> None:
     """The ``--target`` is not vendor-derived and must not become so: ppcg takes c/cuda/opencl and
     has no AMD target at all, so ``cuda`` is what it is asked for on every host and the translation
