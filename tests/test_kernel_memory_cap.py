@@ -208,8 +208,11 @@ def vla_kernel(tmp_path, vla_bytes: int = VLA_BYTES, stride: int = 512) -> pathl
     """A python delivery driving :data:`VLA_SOURCE` (``vla_bytes`` per thread, every ``stride``-th element
     written), built with the host compiler and OpenMP."""
     lib = tmp_path / "libvla.so"
+    # -fstack-clash-protection probes every page the VLA spans, so an overflow faults on the guard page. Ubuntu's gcc
+    # enables it by default, the image's spack gcc does not: there the stack pointer jumps past the one-page guard
+    # into whatever is mapped below, and the 512 MiB negative control runs clean instead of raising SIGSEGV.
     subprocess.run(
-        ["gcc", "-O1", "-fopenmp", "-shared", "-fPIC", "-o", str(lib), "-x", "c", "-"],
+        ["gcc", "-O1", "-fopenmp", "-fstack-clash-protection", "-shared", "-fPIC", "-o", str(lib), "-x", "c", "-"],
         input=VLA_SOURCE,
         text=True,
         check=True,
