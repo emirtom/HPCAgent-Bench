@@ -64,6 +64,7 @@ __all__ = [
     "FOLLOWUP_SPILL_ROOT",
     "GRADING_SECRET_ENV_PREFIXES",
     "GUILLOTINE_RETRIES",
+    "INPUTS_OWNED",
     "KERNEL_CAP",
     "LAUNCH_WIDTH_ENV",
     "MEMORY_CAP_BASELINE",
@@ -170,6 +171,7 @@ __all__ = [
     "slot_threads",
     "spill_outputs",
     "stage_python_inputs",
+    "staged_input",
     "summarize_reps",
     "sync_loaded_device_frameworks",
     "thread_creation_crash_hint",
@@ -838,6 +840,10 @@ FOLLOWUP_SPILL_ROOT: str | None = None
 #: reference timing grades none of them, and at a working-set-ceiling size 20 reps of spilled outputs are 100+ GB of
 #: the node-local temp directory, which is memory.
 KEEP_TIMED_OUTPUTS: bool = True
+#: Whether the child's one call may run on the inputs it was handed instead of a fresh copy (set once per child): a
+#: single untimed call (a reference's expected outputs) with no warmup, no per-rep draw and no followup reads its
+#: inputs once, and the child owns them (unpickled, or copy-on-write after a fork), so the copy only doubled them.
+INPUTS_OWNED: bool = False
 
 #: The child's ``RLIMIT_AS`` before :func:`arm_memory_cap` lowered it; None when no cap is armed.
 #: Module state: the arming and release sites (:func:`grading_memory_budget`) are far apart.
@@ -1541,7 +1547,7 @@ def _call_native_impl(
                 if a.name in owner:
                     c_args.append(ffi.cast(ptr_cdecl[a.name], scratch_ptr(kernel_buffers[a.name])))
                 elif a.kind == "ptr":
-                    copied = fresh_copy(xp, src[a.name])
+                    copied = staged_input(xp, src[a.name])
                     if rebase[a.name]:  # integer index arrays: the same result on either side
                         copied += rebase[a.name]
                     buf: ArrayBuffer = copied
@@ -1814,6 +1820,20 @@ def fresh_copy(xp: types.ModuleType, value: object) -> np.ndarray:
     return cast("np.ndarray", value).copy(order="C")
 
 
+def staged_input(xp: types.ModuleType, value: object) -> np.ndarray:
+    """The buffer a call gets for the input ``value``: ``value`` itself when the child owns its inputs
+    (:data:`INPUTS_OWNED`) and it is a writeable, C-contiguous host array, else :func:`fresh_copy`."""
+    if (
+        INPUTS_OWNED
+        and xp is np
+        and isinstance(value, np.ndarray)
+        and value.flags.c_contiguous
+        and value.flags.writeable
+    ):
+        return value
+    return fresh_copy(xp, value)
+
+
 def stage_python_inputs(src: KernelData, input_args: Sequence[str], xp: types.ModuleType) -> list[object]:
     """The python ABI's positional arguments, fresh per rep, on ``xp``'s side of the boundary.
 
@@ -1824,7 +1844,7 @@ def stage_python_inputs(src: KernelData, input_args: Sequence[str], xp: types.Mo
     for name in input_args:
         value = src[name]
         if is_array(value):
-            staged.append(fresh_copy(xp, value))
+            staged.append(staged_input(xp, value))
         else:
             staged.append(copy.deepcopy(value))
     return staged
@@ -2277,7 +2297,7 @@ def _native_call_worker(
     outputs to the parent's check as the rep returns (:data:`REP_CHANNEL`)."""
     import resource
 
-    global COLD_REP_S, FOLLOWUP_SPILL_ROOT, KEEP_TIMED_OUTPUTS, REP_CHANNEL, TIMED_REP_S
+    global COLD_REP_S, FOLLOWUP_SPILL_ROOT, INPUTS_OWNED, KEEP_TIMED_OUTPUTS, REP_CHANNEL, TIMED_REP_S
     scrub_grading_secrets()
     if host_only:
         blind_devices()
@@ -2286,6 +2306,7 @@ def _native_call_worker(
     # followup outputs cross back as files (see Followup), into the parent's per-call directory
     FOLLOWUP_SPILL_ROOT = spill_root
     KEEP_TIMED_OUTPUTS = keep_timed_outputs
+    INPUTS_OWNED = reps == 1 and warmup == 0 and rep_data is None and not followups and not gpu_graded
     REP_CHANNEL = rep_channel
     TIMED_REP_S = timed_rep_s
     COLD_REP_S = cold_rep_s
