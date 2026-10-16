@@ -232,12 +232,15 @@ class PublicBlock(ManifestBlock):
     :ivar variables: Control-flow inputs with their full value sets.
     :ivar scales: Small and big sizes of every configuration.
     :ivar configurations: The named cases; any of them, with any fuzzed size, can arrive at grading.
+    :ivar negative: ``{symbol: description}``, the sizes, knobs and scalars that can be negative. Every other one
+        is non-negative, as the prompt states; the load checks the set is exact.
     """
 
     description: str | None = Field(default=None, min_length=1)
     variables: dict[str, PublicVariable] = Field(default_factory=dict[str, PublicVariable])
     scales: dict[str, PublicScale] = Field(default_factory=dict[str, PublicScale])
     configurations: list[PublicConfiguration] = Field(default_factory=list[PublicConfiguration])
+    negative: dict[str, Annotated[str, Field(min_length=1)]] = Field(default_factory=dict[str, str])
 
     def small_symbols(self, configuration: str | None = None) -> frozenset[str]:
         """The small size symbols of ``configuration`` (its own and the kernel-wide ones); the kernel-wide

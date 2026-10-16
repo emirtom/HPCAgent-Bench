@@ -17,6 +17,8 @@ config:
     domain: [1, -1]
     selects: branch
 public:
+  negative:
+    K: "the branch selector; a non-positive K takes the other branch"
   variables:
     K:
       values: [1, -1]

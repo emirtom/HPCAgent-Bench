@@ -1206,6 +1206,12 @@ def build_context(
         "perf_sampling": perf_sampling(spec),
         # The manifest's public configurations, variables and small sizes; see public_info.
         "public": public_info(spec),
+        # The sizes, knobs and scalars that can be negative (public.negative); the prompt states every other
+        # one is non-negative.
+        "negative_symbols": [
+            {"name": name, "description": description}
+            for name, description in sorted((spec.public.negative if spec.public is not None else {}).items())
+        ],
         # What /score times (a preview of the final grade on fewer inputs); see score_sampling.
         "score_sampling": score_sampling(),
         # The correctness reference and the speedup denominator.

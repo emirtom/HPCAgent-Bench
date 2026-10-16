@@ -41,6 +41,8 @@ config:
   # Seeds the Kohn-Sham and inverse-overlap noise: two input draws the initializer cannot vary otherwise.
   seed: {domain: [19, 23], selects: seed}
 public:
+  negative:
+    eps_min: "the lower end of the spectral bounds"
   variables:
     seed:
       values: [19, 23]

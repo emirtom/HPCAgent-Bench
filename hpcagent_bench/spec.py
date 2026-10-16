@@ -1413,6 +1413,43 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
         validate_public_scale(spec, sym, scale_name, source)
 
 
+def negative_values(spec: "BenchSpec") -> dict[str, int | float]:
+    """``{name: smallest value}`` for every size, knob or scalar the kernel can see below zero: a preset or its
+    fuzz range, a config-space value, a declared scalar or constant."""
+    found: dict[str, int | float] = {}
+
+    def note(name: str, value: object) -> None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0:
+            found[name] = min(value, found.get(name, value))
+
+    fuzzed = fuzz.resolve_ranges(spec.parameters, config_names=frozenset(spec.config))
+    for values in (*spec.parameters.values(), fuzzed):
+        for name, value in values.items():
+            if (bounds := fuzz_bounds(value)) is not None:
+                note(name, bounds[0])
+    for row in spec.config_space:
+        for name, value in row.items():
+            note(name, value)
+    if spec.init is not None:
+        for name, number in (*spec.init.scalars.items(), *spec.init.constants.items()):
+            note(name, number)
+    return found
+
+
+def validate_negative(spec: "BenchSpec", source: str) -> None:
+    """Raise ``ValueError`` unless ``public.negative`` names exactly the symbols that can be negative
+    (:func:`negative_values`): the prompt states every other size and scalar is non-negative."""
+    declared = set(spec.public.negative) if spec.public is not None else set()
+    found = negative_values(spec)
+    if missing := sorted(set(found) - declared):
+        raise ValueError(
+            f"{source}: {', '.join(f'{name}={found[name]}' for name in missing)} can be negative; declare it under "
+            f"public.negative"
+        )
+    if extra := sorted(declared - set(found)):
+        raise ValueError(f"{source}: public.negative names {extra}, which never go below zero")
+
+
 def validate_level(level: int | None, track: str = "", source: str = "<spec>") -> None:
     """Raise ``ValueError`` unless ``level`` is ``None`` or one of 1/2/3 (the KernelBench
     difficulty declared in the manifest; see :attr:`BenchSpec.resolved_level`).
@@ -2380,6 +2417,7 @@ class BenchSpec(BaseModel):
             public=public,
         )
         validate_public(spec, source)
+        validate_negative(spec, source)
         return spec
 
     @classmethod
