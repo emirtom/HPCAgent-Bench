@@ -453,7 +453,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         # (outputs, samples, mem, followup outputs) -- constant serial anchor time
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg, *, k_repeats=None):
         p = descriptor.nranks
         if p == 4:
             raise S.MpiBuildError("boom")  # one P fails to build => a note, not a point
@@ -517,7 +517,7 @@ def gang_strong_sweep(
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )
 
-    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg, *, k_repeats=None):
         p = descriptor.nranks
         if p == fails_at:
             raise fail("boom")
@@ -630,7 +630,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     def _fake_call_isolated(lib, binding, data, lang, reps: int = 1, followups=(), **kw):
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg, *, k_repeats=None):
         p = descriptor.nranks
         return launched([1000 * p])
 
