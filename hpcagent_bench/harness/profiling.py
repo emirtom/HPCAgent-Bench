@@ -70,6 +70,7 @@ __all__ = [
     "MeasuredBuild",
     "MeasurementRequest",
     "ProfilePayload",
+    "RequestResidency",
     "RisingRow",
     "ScalingRow",
     "ThreadPayload",
@@ -163,6 +164,15 @@ class MeasurementRequest(TypedDict):
 
 #: Validator of a request file (:class:`MeasurementRequest`).
 REQUEST_ADAPTER: "pydantic.TypeAdapter[MeasurementRequest]" = pydantic.TypeAdapter(MeasurementRequest)
+
+
+class RequestResidency(pydantic.BaseModel):
+    """The one field of a request file (:class:`MeasurementRequest`) the seal around its child reads: only the
+    residency decides it, so a request that differs elsewhere still hides the devices of a host run."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    device: bool = True
 
 
 class WorkloadResult(TypedDict):
@@ -463,8 +473,8 @@ def request_plan(request_file: pathlib.Path) -> seal.SealPlan | None:
     ``devices`` mirrors native_call.host_only_grade off the request's ``device`` field, so a host
     profile sees no GPU; a missing or malformed request file keeps ``devices=True``."""
     try:
-        device = child_request(request_file.read_text())["device"]
-    except (OSError, ValueError):  # the child refuses that request itself (:func:`child_request`)
+        device = RequestResidency.model_validate_json(request_file.read_bytes()).device
+    except (OSError, ValueError):
         device = True
     return seal.grading_plan([str(request_file.parent)], devices=not host_only_grade(device))
 
