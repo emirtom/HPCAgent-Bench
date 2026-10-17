@@ -19,10 +19,11 @@ PROGRAM = "@dc.program\ndef k(a: dc.float64[N]):\n    a[:] = 1.0\n"
 
 
 class FakeSpec:
-    """Stands in for a loaded BenchSpec: producing an entry only reads short_name off it."""
+    """Stands in for a loaded BenchSpec: producing an entry reads only short_name and public off it."""
 
     def __init__(self, short_name: str) -> None:
         self.short_name = short_name
+        self.public = None  # no public block: no small symbols (cpf_canonical.small_symbols)
 
 
 def program(tmp_path: pathlib.Path, text: str = PROGRAM) -> pathlib.Path:
@@ -77,7 +78,7 @@ def test_a_canonicalize_that_raises_is_cached_and_not_run_again(
         parsed.append(impl)
         return object()
 
-    def canonicalize(sdfg: object, target: str) -> None:
+    def canonicalize(sdfg: object, target: str, *symbol_sets: frozenset[str]) -> None:
         raise ValueError("cannot lift")
 
     monkeypatch.setattr(cpf_canonical, "parse_program", parse)
@@ -95,7 +96,7 @@ def test_a_canonicalize_ended_by_a_signal_is_not_cached(
 ) -> None:
     """A timeout ends the child through SIGTERM, which says nothing about the kernel; it must be retried."""
 
-    def canonicalize(sdfg: object, target: str) -> None:
+    def canonicalize(sdfg: object, target: str, *symbol_sets: frozenset[str]) -> None:
         raise SystemExit(143)
 
     monkeypatch.setattr(cpf_canonical, "parse_program", lambda spec, impl, precision: object())
