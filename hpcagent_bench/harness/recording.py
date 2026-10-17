@@ -18,7 +18,6 @@ file (:func:`db_path`); :func:`aggregate` folds the shards into the base file by
 """
 
 import contextlib
-import json
 import os
 import pathlib
 import re
@@ -30,7 +29,7 @@ from typing import NamedTuple, Protocol
 
 from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.anticheat import Context, Judgement, judge
-from hpcagent_bench.harness import denominator, grading, results_db
+from hpcagent_bench.harness import db_json, denominator, grading, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
@@ -530,7 +529,7 @@ def build_commands_json(score: Score | None) -> str | None:
     grade compiled nothing (a prebuilt library, a refusal before the build, no verdict)."""
     if score is None or not score.build_commands:
         return None
-    return json.dumps(list(score.build_commands))
+    return db_json.STRINGS.dumps(score.build_commands)
 
 
 def layout_values(score: Score) -> dict[str, results_db.Value]:
@@ -542,7 +541,7 @@ def layout_values(score: Score) -> dict[str, results_db.Value]:
         "convert_in_ns": score.convert_in_ns,
         "convert_out_ns": score.convert_out_ns,
         "size_scale": float(score.size_scale),
-        "scale_axes": json.dumps(list(score.scale_axes)),
+        "scale_axes": db_json.STRINGS.dumps(score.scale_axes),
     }
 
 
@@ -601,7 +600,7 @@ def envelope_values(
     """The request's build tokens (a JSON list, '' when it asked for none), its ``requests`` block (JSON
     as sent) and its scratch request."""
     return {
-        "requested_build": json.dumps(list(build)) if build else "",
+        "requested_build": db_json.STRINGS.dumps(build) if build else "",
         "requests": requests,
         "workspace_bytes": workspace_bytes,
     }

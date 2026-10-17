@@ -46,7 +46,6 @@ import csv
 import dataclasses
 import functools
 import glob
-import json
 import pathlib
 import shutil
 import sqlite3
@@ -54,12 +53,13 @@ import sys
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any, NamedTuple
 
+import pydantic
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
 from hpcagent_agent.driver.promote_unsubmitted import PROMOTED_TAG
 
 from hpcagent_bench import config, data_guard, recorded_rows
 from hpcagent_bench.cache_files import sha256_hex
-from hpcagent_bench.harness import denominator, recording, results_db, scoring, timing
+from hpcagent_bench.harness import db_json, denominator, recording, results_db, scoring, timing
 from hpcagent_bench.harness.native_call import TimingProbe
 from hpcagent_bench.observation_columns import CANON_FIELDS, NUMERIC_COLUMNS, OBSERVATION_FIELDS, SOURCE_FIELDS
 from hpcagent_bench.run_layout import AGENT_DIR_PREFIX, JUDGE_DIRNAME, SHARED_DIRNAME, TASKS_DIRNAME
@@ -96,6 +96,7 @@ __all__ = [
     "UNSOLVED",
     "VERDICT_KINDS",
     "Agent",
+    "CanonLogLine",
     "CellTally",
     "Database",
     "DbResult",
@@ -195,6 +196,20 @@ C_LANGUAGE = "c"
 
 #: Prefix marking each canonicalization result line in a canon log.
 CANON_MARKER = "LLRROW "
+
+
+class CanonLogLine(pydantic.BaseModel):
+    """One :data:`CANON_MARKER` line of a canon log: the JSON object after the marker. A kernel the run failed
+    on names its ``error`` and no ``speedup``. Fields this table does not keep are ignored: the line is the
+    canonicalization driver's, not this module's."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    kernel: str
+    target: str = ""
+    preset: str = ""
+    speedup: float | None = None
+    error: str = ""
 
 
 #: Language track -> the extension a candidate is written back out under. The blob store names
@@ -334,15 +349,14 @@ def canon_rows(log: pathlib.Path) -> list[dict[str, Any]]:
         marker = line.find(CANON_MARKER)
         if marker < 0:
             continue
-        entry = json.loads(line[marker + len(CANON_MARKER) :])
-        name = str(entry.get("kernel", ""))
+        entry = CanonLogLine.model_validate_json(line[marker + len(CANON_MARKER) :])
         rows.append(
             {
-                "kernel": name,
-                "target": entry.get("target", ""),
-                "preset": entry.get("preset", ""),
-                "canon_speedup": entry.get("speedup", ""),
-                "error": entry.get("error", ""),
+                "kernel": entry.kernel,
+                "target": entry.target,
+                "preset": entry.preset,
+                "canon_speedup": "" if entry.speedup is None else entry.speedup,
+                "error": entry.error,
             }
         )
     rows.sort(key=lambda r: str(r["kernel"]))
@@ -532,7 +546,7 @@ def rederived_cell_suspect(cell: dict[str, Any]) -> int:
             return stored
     elif ratio == 1.0:
         return stored
-    shape = json.loads(str(cell.get("shape") or "{}"))
+    shape = db_json.SHAPE.loads(cell.get("shape"))
     device = cell.get("residency") == "device"
     return int(scoring.floor_suspect(spec, shape, ratio, float(cell.get("baseline_ns") or 0), native, device=device))
 
@@ -1163,7 +1177,7 @@ def rederived_row_suspect(row: Mapping[str, Any], shape: str) -> object:
         return stored
     flagged = scoring.floor_suspect(
         spec,
-        json.loads(shape),
+        db_json.SHAPE.loads(shape),
         float(row["credited_speedup"] or 0),
         float(row["baseline_ns"] or 0),
         native,

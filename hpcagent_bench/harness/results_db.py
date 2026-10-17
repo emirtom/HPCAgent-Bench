@@ -22,8 +22,12 @@ import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
+from relayout.ops import Action
+from relayout.requests import expr_json, operation_json
+
 from hpcagent_bench import paths
 from hpcagent_bench.cache_files import sha256_hex
+from hpcagent_bench.harness import db_json
 from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
@@ -32,6 +36,10 @@ __all__ = [
     "DEFAULT_HARNESS",
     "GRADE_CHILDREN",
     "GRADE_KEY",
+    "GRADE_REQUEST_KINDS",
+    "GRID_KIND",
+    "LIBRARY_KIND",
+    "REQUEST_VALUE_FIELDS",
     "NATURAL_KEYS",
     "SCHEMA_PATH",
     "SCHEMA_NAME",
@@ -48,6 +56,7 @@ __all__ = [
     "Value",
     "add_cells",
     "add_grade",
+    "add_requests",
     "add_scaling",
     "adopt_names_scheme",
     "call_index",
@@ -72,6 +81,8 @@ __all__ = [
     "reading",
     "rebuilding",
     "remove_db",
+    "request_rows",
+    "requests_from_rows",
     "requests_of_row",
     "schema_version",
     "source_hash",
@@ -83,9 +94,9 @@ __all__ = [
 
 #: The schema every writer creates and every reader expects.
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
-#: The schema's name, and its ``PRAGMA user_version`` (the name's 1.0, above every pre-release schema).
+#: The schema's name, and its ``PRAGMA user_version`` (above every pre-release schema, which stopped at 8).
 SCHEMA_NAME = "hb-results-v1.0"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.
@@ -100,6 +111,7 @@ TABLES = (
     "grades",
     "grade_sources",
     "grade_cells",
+    "grade_requests",
     "scaling_grades",
     "scaling_points",
     "disqualifications",
@@ -110,6 +122,15 @@ CALL_KINDS = ("score", "submit")
 SUBMIT_KINDS = ("submit", "promoted", "harvested", "probe")
 #: A grade's natural key, the columns of its UNIQUE constraint.
 GRADE_KEY = ("episode_id", "kernel", "ts_ms", "kind")
+#: ``grade_requests.kind`` of a ``startup.load`` library and of the ``startup.grid``; an operation's row is
+#: its relayout action.
+LIBRARY_KIND = "library"
+GRID_KIND = "grid"
+#: Every ``grade_requests.kind``, as the schema's CHECK lists them.
+GRADE_REQUEST_KINDS = (LIBRARY_KIND, GRID_KIND, *(action.value for action in Action))
+#: The operation field a ``grade_requests`` row's ``value`` holds, by action; an operation's other fields
+#: (but ``array``, its own column) are its ``params``.
+REQUEST_VALUE_FIELDS: dict[str, str] = {Action.CAST.value: "to", Action.FORMAT.value: "to", Action.PLACE.value: "on"}
 
 type Value = str | int | float | None
 
@@ -177,6 +198,57 @@ def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
 def requests_of_row(row: Mapping[str, Value] | sqlite3.Row) -> Requests:
     """The :class:`Requests` a grade row (a column dict or a :class:`sqlite3.Row`) recorded."""
     return Requests.from_obj(json.loads(str(row["requests"] or "{}")))
+
+
+def request_rows(requests: Requests) -> list[dict[str, Value]]:
+    """The ``grade_requests`` rows of ``requests`` (without ``grade_id``), in request order: one per
+    library, the grid, then one per operation as relayout writes it (:func:`relayout.requests.operation_json`),
+    its ``array``, its :data:`REQUEST_VALUE_FIELDS` field and the rest as ``params``."""
+    rows: list[dict[str, Value]] = [{"kind": LIBRARY_KIND, "value": name} for name in requests.startup.load]
+    if requests.startup.grid is not None:
+        grid = [expr_json(extent) for extent in requests.startup.grid]
+        rows.append({"kind": GRID_KIND, "value": db_json.REQUEST_GRID.dumps(grid)})
+    for op in requests.operations:
+        fields = operation_json(op)
+        kind = str(fields.pop("action"))
+        array = fields.pop("array", "")
+        value = fields.pop(REQUEST_VALUE_FIELDS[kind], "") if kind in REQUEST_VALUE_FIELDS else ""
+        params = db_json.REQUEST_PARAMS.dumps(fields) if fields else ""
+        rows.append({"kind": kind, "array": str(array), "value": str(value), "params": params})
+    return [{"position": position, **row} for position, row in enumerate(rows)]
+
+
+def add_requests(conn: sqlite3.Connection, grade_id: int, requests: Requests) -> None:
+    """The ``grade_requests`` rows of ``grade_id``, which asked for ``requests`` (:func:`request_rows`)."""
+    for row in request_rows(requests):
+        insert(conn, "grade_requests", {"grade_id": grade_id, **row})
+
+
+def requests_from_rows(conn: sqlite3.Connection, grade_id: int) -> Requests:
+    """The :class:`Requests` ``grade_id``'s ``grade_requests`` rows hold: the inverse of :func:`request_rows`,
+    validated by relayout's models like the JSON column (:func:`requests_of_row`)."""
+    load: list[str] = []
+    grid: list[int | str] | None = None
+    operations: list[dict[str, object]] = []
+    rows = conn.execute(
+        "SELECT kind, array, value, params FROM grade_requests WHERE grade_id = ? ORDER BY position", (grade_id,)
+    )
+    for kind, array, value, params in rows:
+        if kind == LIBRARY_KIND:
+            load.append(str(value))
+        elif kind == GRID_KIND:
+            grid = list(db_json.REQUEST_GRID.loads(value))
+        else:
+            fields: dict[str, object] = {"action": kind, **db_json.REQUEST_PARAMS.loads(params)}
+            if array:
+                fields["array"] = array
+            if kind in REQUEST_VALUE_FIELDS:
+                fields[REQUEST_VALUE_FIELDS[kind]] = value
+            operations.append(fields)
+    startup: dict[str, object] = {"load": load} if load else {}
+    if grid is not None:
+        startup["grid"] = grid
+    return Requests.validate({"startup": startup, "operations": operations})
 
 
 def connect_ro(path: str | pathlib.Path, *, timeout: float = BUSY_TIMEOUT_S) -> sqlite3.Connection:
@@ -293,15 +365,20 @@ def add_grade(
 ) -> tuple[int, int]:
     """Insert one grade and return ``(grade id, ts_ms)``. Two grades of one run, kernel and kind
     stamped in the same millisecond (two judge threads) keep both: the later one moves to the next
-    free millisecond."""
+    free millisecond. Its ``requests`` (JSON) are validated first (ValueError when they are not a request)
+    and written again as its ``grade_requests`` rows (:func:`add_requests`), in the caller's transaction."""
+    requests = requests_of_row(values) if "requests" in values else Requests()
     while True:
         row = {"episode_id": episode_id, "kernel": kernel, "kind": kind, "ts_ms": ts_ms, **values}
         try:
-            return insert(conn, "grades", row), ts_ms
+            grade_id = insert(conn, "grades", row)
         except sqlite3.IntegrityError as exc:
             if "UNIQUE" not in str(exc):
                 raise
             ts_ms += 1
+            continue
+        add_requests(conn, grade_id, requests)
+        return grade_id, ts_ms
 
 
 def source_hash(text: str) -> str:
@@ -371,6 +448,7 @@ NATURAL_KEYS: dict[str, tuple[str, tuple[str, ...]]] = {
     "grades": (", ".join(GRADE_KEY), GRADE_KEY),
     "grade_sources": ("grade_id, part", ("grade_id", "part")),
     "grade_cells": ("grade_id, cell", ("grade_id", "cell")),
+    "grade_requests": ("grade_id, position", ("grade_id", "position")),
     "scaling_grades": ("grade_id, mode, input", ("grade_id", "mode", "input")),
     "scaling_points": ("grade_id, mode, input, ranks", ("grade_id", "mode", "input", "ranks")),
     "disqualifications": ("grade_id", ("grade_id",)),
@@ -526,8 +604,8 @@ def rebuilding(dest: str | pathlib.Path) -> Iterator[pathlib.Path]:
 
 
 def copy_grade(src: pathlib.Path, grade_id: int, dest: sqlite3.Connection) -> int:
-    """Copy grade ``grade_id`` of the results file ``src`` into ``dest`` with its setup, run and sources
-    (and, for a final grade or regrade, the grade it re-timed); return its id in ``dest``. How a
+    """Copy grade ``grade_id`` of the results file ``src`` into ``dest`` with its setup, run, sources and
+    request rows (and, for a final grade or regrade, the grade it re-timed); return its id in ``dest``. How a
     regrade's own file names the grade it re-times, so the file merges on its own."""
     with reading(src) as conn:
         chain = [grade_id]
@@ -560,6 +638,8 @@ def copy_one_grade(conn: sqlite3.Connection, grade_id: int, dest: sqlite3.Connec
     new = upsert(dest, "grades", *NATURAL_KEYS["grades"], grade)
     for part, (language, text, _digest) in grade_sources(conn, grade_id).items():
         store_source(dest, new, part, language, text)
+    for entry in conn.execute("SELECT * FROM grade_requests WHERE grade_id = ? ORDER BY position", (grade_id,)):
+        upsert(dest, "grade_requests", *NATURAL_KEYS["grade_requests"], {**dict(entry), "grade_id": new})
     return new
 
 
@@ -569,6 +649,7 @@ GRADE_CHILDREN: tuple[str, ...] = (
     "scaling_points",
     "scaling_grades",
     "grade_cells",
+    "grade_requests",
     "grade_sources",
 )
 

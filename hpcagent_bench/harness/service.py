@@ -170,6 +170,7 @@ __all__ = [
     "python_residency_refusal",
     "rank_error",
     "record_result",
+    "refused_requests",
     "request_label",
     "request_tokens",
     "requests_refusal",
@@ -498,6 +499,16 @@ class RequestBody:
         if not isinstance(value, dict):
             raise ValueError(f"{field} must be an object")
         return {str(key): item for key, item in cast("dict[object, object]", value).items()}
+
+
+def refused_requests(raw: object) -> str | None:
+    """``grades.requests`` of a refused call: the request as a graded call records it
+    (:meth:`Requests.recorded_json`) when ``raw`` is one, else None. The column and its ``grade_requests``
+    rows hold valid requests only; why a malformed one was refused is the call's ``detail``."""
+    try:
+        return Requests.validate(raw).recorded_json()
+    except ValueError:
+        return None
 
 
 #: The call status of a graded request that produced no verdict (``runner.RunStatus.SCORE_ERROR``).
@@ -1472,7 +1483,6 @@ class JudgeHandler(BaseHTTPRequestHandler):
         try:
             source_mode = "any" if body.raw("library") else "restricted"
             task = Task(kernel, source_mode, body.text("language", default_request_language()))
-            requests = body.raw("requests")
             recording.record_call(
                 None,
                 task,
@@ -1484,7 +1494,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 datatype=self.cfg.datatype,
                 tokens=request_tokens(body),
                 detail=detail,
-                requests=json.dumps(requests, sort_keys=True) if isinstance(requests, dict) else None,
+                requests=refused_requests(body.raw("requests")),
                 workspace_bytes=body.optional_text("workspace_bytes"),
                 build=body.argv("build"),
             )

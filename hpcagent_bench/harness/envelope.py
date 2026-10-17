@@ -128,9 +128,9 @@ class Submission(pydantic.BaseModel):
             )
 
     def requests_json(self) -> str | None:
-        """The ``requests`` block as recorded (sorted JSON), None when the submission asks for nothing."""
-        requests = self.requests.to_json()
-        return json.dumps(requests, sort_keys=True) if requests else None
+        """The ``requests`` block as recorded (:meth:`Requests.recorded_json`), None when the submission asks for
+        nothing."""
+        return self.requests.recorded_json()
 
     def source_texts(self) -> tuple[str, ...]:
         """This submission's translation-unit texts, in :func:`languages.source_units` order.

@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable, Sequence
 from enum import Enum
 
 from hpcagent_bench import config
-from hpcagent_bench.harness import grade_under, results_db, torch_dist_curve
+from hpcagent_bench.harness import db_json, grade_under, results_db, torch_dist_curve
 from hpcagent_bench.harness.grade_under import Item
 from hpcagent_bench.harness.metric import LawCurve
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
@@ -214,8 +214,8 @@ def grade_into(
             results_db.add_cells(conn, final_id, graded.final.cells)
         for law in curves:  # one per (law, input): each input is the base of its own sweep
             law_status = graded.law_status(law).value  # type: ignore[union-attr]
-            disclosure = json.dumps(law.disclosure, sort_keys=True)
-            notes = json.dumps(list(law.notes))
+            disclosure = db_json.DISCLOSURE.dumps(law.disclosure)
+            notes = db_json.STRINGS.dumps(law.notes)
             # Every law whose sweep ran is recorded with its curve, even with no measured point (all holes).
             if (law.curve is not None or law.dropped) and recorder is not None:
                 recorder(
@@ -234,7 +234,12 @@ def grade_into(
                 results_db.add_scaling(conn, grade_id, {**laws_row, "disclosure": disclosure, "notes": notes}, [])
         if not curves:  # no sweep ran: one row per law names why
             for mode in laws_of(item):
-                laws_row = {"mode": mode.value, "status": status.value, "disclosure": None, "notes": "[]"}
+                laws_row = {
+                    "mode": mode.value,
+                    "status": status.value,
+                    "disclosure": None,
+                    "notes": db_json.STRINGS.dumps(()),
+                }
                 results_db.add_scaling(conn, grade_id, laws_row, [])
         conn.commit()
     lines = curve_lines(item, graded) if graded is not None else [f"error {reason}"]
