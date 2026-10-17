@@ -20,7 +20,7 @@ Locally, the judge alone serves the same routes.
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/health` | `{status, rank, oracle, baseline, input_mode}`; answers any rank |
+| GET | `/health` | `{status, rank, oracle, baseline, input_mode, submits_in_flight}`; answers any rank |
 | GET | `/baseline/<kernel>?language=c&rank=0` | the baseline time(s) to beat, measured in this container: each reference's fastest run, while the grade divides the median under `mannwhitney_delta` |
 | GET | `/build/<language>?rank=0` | the exact compile and link argv this judge runs |
 | GET | `/canonical_parallel_form/<kernel>?rank=0` | the kernel's CPF from the setup's view, rendered on its first request when no prerender covered it |
@@ -65,7 +65,14 @@ recorded in the results DB under `request_id`.
 `/score` returns the grade fields minus the audit residuals (`SCORE_ROUTE_REDACTED_FIELDS`), with
 `detail` naming a failing element and the value produced, never the reference value.
 
-Only malformed requests are 4xx; a failed build or a wrong answer is a normal 200.
+Only malformed requests are 4xx; a failed build or a wrong answer is a normal 200. A refusal or failure answers
+`{"error": ...}`, plus a `cause` where a client acts on it (`judge_fault`, `public_seeds`, ...).
+
+Every answer is a pydantic model in
+[judge_wire.py](../harness/judge_wire.py) (`ScoreAnswer`, `SubmitVerdict`, `GradeAnswer` under
+`service.submit_feedback=full`, `HealthAnswer`, `BaselineAnswer`, `BuildAnswer`, `CanonicalFormAnswer`,
+`ProfileAnswer` / `OptReportAnswer`, `JudgeError`; `/requests/check` answers `requests_api.RequestsCheck`). An
+optional key that does not apply (`build_log`, `judge_fault`, `cause`, ...) is absent.
 
 ## Judge rank
 

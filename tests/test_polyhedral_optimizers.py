@@ -17,6 +17,7 @@ from hpcagent_bench import config, pluto_transform, ppcg_transform
 from hpcagent_bench.api import Baseline, InputMode, Oracle
 from hpcagent_bench.harness import optimizers, tools
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import PlutoOptimizer, PpcgHipOptimizer
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
@@ -124,17 +125,19 @@ def test_other_modes_and_languages_are_declined(optimizer: type, task: Task) -> 
 MakeJudge = Callable[[ServiceConfig], tuple[object, str]]
 
 
-def grade(sub: Submission, make_judge: MakeJudge) -> dict:
+def grade(sub: Submission, make_judge: MakeJudge) -> GradeAnswer:
     _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=3))
     with config.overridden("service.submit_feedback", "full"):  # the measured grade, not the verdict
-        return tools.JudgeClient(url).submit(sub, KERNEL)
+        result = tools.JudgeClient(url).submit(sub, KERNEL)
+    assert isinstance(result, GradeAnswer), result
+    return result
 
 
 @pytest.mark.skipif(pluto_transform.polycc_exe() is None, reason="polycc is not installed")
 def test_pluto_submission_is_graded_correct(make_judge: MakeJudge) -> None:
     result = grade(PlutoOptimizer().solve(Task(KERNEL, "restricted", "c")), make_judge)
-    assert result["build_ok"] is True, result["detail"]
-    assert result["correct"] is True, result["detail"]
+    assert result.build_ok is True, result.detail
+    assert result.correct is True, result.detail
 
 
 @pytest.mark.skipif(
@@ -142,5 +145,5 @@ def test_pluto_submission_is_graded_correct(make_judge: MakeJudge) -> None:
 )
 def test_ppcg_hip_submission_is_graded_correct(make_judge: MakeJudge) -> None:
     result = grade(PpcgHipOptimizer().solve(Task(KERNEL, "restricted", "hip")), make_judge)
-    assert result["build_ok"] is True, result["detail"]
-    assert result["correct"] is True, result["detail"]
+    assert result.build_ok is True, result.detail
+    assert result.correct is True, result.detail

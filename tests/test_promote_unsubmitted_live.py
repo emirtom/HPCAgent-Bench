@@ -70,7 +70,7 @@ class Judge(http.server.BaseHTTPRequestHandler):
         # before anything is graded, which is the failure this exercises.
         refusal = rank_error(JUDGE_RANK, body.get("rank"))
         if refusal is not None:
-            return self.reply(*refusal)
+            return self.reply(refusal.status, refusal.payload.to_json())
         Judge.posted.append(body)
         self.reply(200, dict(GRADE))
         return None

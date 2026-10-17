@@ -10,6 +10,10 @@ them would drift from the one that counts.
 
 The router records nothing: the judge writes every grade it answers, ``/score`` iterations and
 refusals included, into its own results DB.
+
+Its own answers are the judge's answer models (:mod:`hpcagent_bench.harness.judge_wire`). A relayed answer
+is forwarded as the bytes the judge sent; where the router reads a field of one (the ``/submit`` grade it
+reduces to a verdict, a 500's ``cause``, the upstream ``/health``), it validates the answer with its model.
 """
 
 import asyncio
@@ -29,10 +33,19 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from hpcagent_agent import submission_mode
 from hpcagent_agent.tools import http_json
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from hpcagent_bench import fused, problem_file
 from hpcagent_bench.harness import judge_web_search
+from hpcagent_bench.harness.judge_wire import (
+    SUBMIT_ANSWER,
+    HealthAnswer,
+    InFlightAnswer,
+    JudgeError,
+    RouterHealthAnswer,
+    SubmitAnswer,
+    SubmitVerdict,
+)
 
 __all__ = [
     "CLIENT_CLOSED_REQUEST",
@@ -359,13 +372,13 @@ def episode_id_refusal(body: bytes) -> Response | None:
     if parsed is None or str(parsed.get("episode_id") or "").strip():
         return None
     return JSONResponse(
-        {
-            "ok": False,
-            "cause": "episode_id_missing",
-            "error": 'no episode_id in the body: add "episode_id": "$HPCAGENT_BENCH_EPISODE_ID" (and "optimizer": '
+        JudgeError(
+            ok=False,
+            cause="episode_id_missing",
+            error='no episode_id in the body: add "episode_id": "$HPCAGENT_BENCH_EPISODE_ID" (and "optimizer": '
             '"$HPCAGENT_BENCH_OPTIMIZER"), then send it again. Nothing was graded or recorded, and this '
             "refusal does not use up your submission.",
-        },
+        ).to_json(),
         status_code=EPISODE_ID_MISSING,
     )
 
@@ -381,15 +394,17 @@ def relayed_routes() -> list[str]:
 
 
 @app.get("/health")
-def health() -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "judge_rank": int(os.environ.get("JUDGE_RANK", "0")),
-        "vllm_base_url": os.environ.get("WEBSEARCH_LLM_BASE_URL", ""),
-        "judge_upstream_url": UPSTREAM_URL,
-        "implemented": list(IMPLEMENTED),
-        "proxied": relayed_routes(),
-    }
+def health() -> Response:
+    return JSONResponse(
+        RouterHealthAnswer(
+            status="ok",
+            judge_rank=int(os.environ.get("JUDGE_RANK", "0")),
+            vllm_base_url=os.environ.get("WEBSEARCH_LLM_BASE_URL", ""),
+            judge_upstream_url=UPSTREAM_URL,
+            implemented=list(IMPLEMENTED),
+            proxied=relayed_routes(),
+        ).to_json()
+    )
 
 
 @app.get("/in-flight")
@@ -398,10 +413,12 @@ async def in_flight() -> Response:
     (hpcagent_bench/cluster/drain_judges.py). 502 when the upstream does not answer."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            reply = (await client.get(f"{UPSTREAM_URL}/health")).json()
-    except (httpx.HTTPError, ValueError) as exc:
-        return JSONResponse({"error": f"upstream judge did not answer: {exc}"}, status_code=HTTPStatus.BAD_GATEWAY)
-    return JSONResponse({"submits_in_flight": int(reply.get("submits_in_flight", 0))})
+            reply = HealthAnswer.model_validate_json((await client.get(f"{UPSTREAM_URL}/health")).content)
+    except (httpx.HTTPError, ValidationError) as exc:
+        return JSONResponse(
+            JudgeError(error=f"upstream judge did not answer: {exc}").to_json(), status_code=HTTPStatus.BAD_GATEWAY
+        )
+    return JSONResponse(InFlightAnswer(submits_in_flight=reply.submits_in_flight).to_json())
 
 
 @app.get("/baseline/{kernel:path}")
@@ -438,12 +455,14 @@ async def search(request: SearchRequest) -> dict[str, Any]:
         raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=str(exc)) from exc
 
 
-def verdict_of(graded: dict[str, Any]) -> dict[str, object]:
+def verdict_of(graded: SubmitAnswer) -> SubmitVerdict:
     """The agent-facing ``/submit`` answer for an upstream grade, full or already a verdict."""
-    from hpcagent_bench.harness.scoring import score_from_response
+    if isinstance(graded, SubmitVerdict):
+        return graded
+    from hpcagent_bench.harness.scoring import score_from_answer
     from hpcagent_bench.harness.service import submit_verdict
 
-    return submit_verdict(score_from_response(graded), str(graded.get("request_id", "")))
+    return submit_verdict(score_from_answer(graded), graded.request_id)
 
 
 def caller_mode(setup: str) -> submission_mode.SubmissionMode:
@@ -457,7 +476,9 @@ def preview_refusal(setup: str) -> Response | None:
     if caller_mode(setup).preview_served:
         return None
     return JSONResponse(
-        {"error": "this setup runs blind: no preview grade or profile is served; submit your best version once"},
+        JudgeError(
+            error="this setup runs blind: no preview grade or profile is served; submit your best version once"
+        ).to_json(),
         status_code=403,
     )
 
@@ -502,12 +523,12 @@ def submission_spent(key: tuple[str, str]) -> Response:
         flush=True,
     )
     return JSONResponse(
-        {
-            "ok": False,
-            "cause": "single_submission_spent",
-            "error": f"single-submission mode: {kernel!r} was already submitted for this run and its "
+        JudgeError(
+            ok=False,
+            cause="single_submission_spent",
+            error=f"single-submission mode: {kernel!r} was already submitted for this run and its "
             "grade is final. Nothing was graded or recorded; this episode is over.",
-        },
+        ).to_json(),
         status_code=SUBMISSION_SPENT,
     )
 
@@ -525,8 +546,10 @@ def judge_failed(upstream: httpx.Response) -> bool:
     recorded, so a retry is not a second submission."""
     if upstream.status_code != HTTPStatus.INTERNAL_SERVER_ERROR:
         return False
-    answer = body_object(upstream.content)
-    return answer is not None and answer.get("cause") == JUDGE_FAULT_CAUSE
+    try:
+        return JudgeError.model_validate_json(upstream.content).cause == JUDGE_FAULT_CAUSE
+    except ValidationError:
+        return False
 
 
 async def terminal_grade(request: Request) -> Response:
@@ -555,10 +578,10 @@ async def terminal_grade(request: Request) -> Response:
         SPENT_SUBMISSIONS.discard(key)
     if upstream.status_code != HTTPStatus.OK:
         return relay(upstream)  # a refusal describes the request, not the answer
-    verdict = verdict_of(upstream.json())
-    if key is not None and verdict.get("judge_fault"):
+    verdict = verdict_of(SUBMIT_ANSWER.validate_json(upstream.content))
+    if key is not None and verdict.judge_fault:
         SPENT_SUBMISSIONS.discard(key)  # the judge's own fault spends nothing (recorded_rows.is_judge_fault)
-    return JSONResponse(verdict)
+    return JSONResponse(verdict.to_json())
 
 
 @app.post("/submit")

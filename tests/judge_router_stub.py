@@ -20,27 +20,38 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 from urllib.parse import urlparse
 
+from hpcagent_bench.harness.judge_wire import RecordedAnswer
+from hpcagent_bench.harness.scoring import Score
+from hpcagent_bench.harness.service import grade_answer, score_answer
 from tests.fresh_module import fresh
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
 
+#: The grade every stubbed route answers from.
+GRADED = Score(
+    correct=True,
+    max_rel_error=0.0,
+    native_ns=100,
+    build_ok=True,
+    speedup=2.0,
+    public_correct=True,
+    hidden_correct=True,
+)
+
 #: What the upstream judge answers a graded request (submit_feedback=full), a superset of the verdict.
-GRADE: dict[str, Any] = {
-    "correct": True,
-    "public_correct": True,
-    "hidden_correct": True,
-    "build_ok": True,
-    "max_rel_error": 0.0,
-    "speedup": 2.0,
-    "native_ns": 100,
-    "request_id": "rid",
-}
+GRADE: dict[str, Any] = grade_answer(
+    GRADED, "gemm", "c", "S", "host", RecordedAnswer(skipped="record.enabled is false"), "rid"
+).to_json()
+
+#: What the upstream judge answers ``/score``: the grade without the redacted fields.
+SCORE: dict[str, Any] = score_answer(GRADED, "gemm", "c", "S", "host").to_json()
 
 
 class StubJudge(BaseHTTPRequestHandler):
-    """Records every request that reached it; answers ``replies`` in order, then a 200 grade."""
+    """Records every request that reached it; answers ``replies`` in order, then a 200 grade (``/score``'s own
+    shape on ``/score``)."""
 
     calls: ClassVar[list[tuple[str, dict[str, Any]]]] = []
     replies: ClassVar[list[tuple[int, dict[str, Any]]]] = []
@@ -51,7 +62,8 @@ class StubJudge(BaseHTTPRequestHandler):
 
     def answer(self, body: dict[str, Any]) -> None:
         StubJudge.calls.append((urlparse(self.path).path, body))
-        code, payload = StubJudge.replies.pop(0) if StubJudge.replies else (200, GRADE)
+        default = SCORE if urlparse(self.path).path == "/score" else GRADE
+        code, payload = StubJudge.replies.pop(0) if StubJudge.replies else (200, default)
         data = json.dumps(payload).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")

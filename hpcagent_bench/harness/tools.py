@@ -12,6 +12,8 @@ The judge URL comes from ``JUDGE_URL`` (``http://judge:<DEFAULT_JUDGE_PORT>`` in
 defaults to localhost. Source goes inline (``Submission(source=...)``) or as a shared-folder path
 (``Submission(source_file=...)``, basename ``<kernel>.<ext>``), never both.
 
+Every answer is read into its model (:mod:`hpcagent_bench.harness.judge_wire`) with ``model_validate_json``.
+
 Every request carries ``rank`` (the judge index the round-robin assigned; the judge answers 421 on
 a mismatch) and the run identity (``episode_id``, ``optimizer``, :func:`identity_fields`), added by
 :meth:`JudgeClient.get` / :meth:`JudgeClient.post` from :mod:`hpcagent_agent.tools.http_json`, the agent tools'
@@ -24,7 +26,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import Message
-from typing import cast
 
 from hpcagent_agent.tools.http_json import (
     DEFAULT_JUDGE_PORT,
@@ -35,34 +36,31 @@ from hpcagent_agent.tools.http_json import (
 )
 
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import (
+    SUBMIT_ANSWER,
+    BaselineAnswer,
+    HealthAnswer,
+    ProfileAnswer,
+    ScoreAnswer,
+    ScorePreview,
+    SubmitAnswer,
+)
 from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
     "DEFAULT_JUDGE_PORT",
     "DEFAULT_RANK",
-    "JsonObject",
     "JsonValue",
     "JudgeClient",
     "JudgeRefusal",
     "error_with_body",
     "identity_fields",
-    "require_json_object",
     "score",
     "submission_body",
 ]
 
 #: What a judge request body may hold (what ``json.dumps`` accepts).
 type JsonValue = str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
-
-#: One decoded judge answer: a JSON object whose members a reader narrows.
-type JsonObject = dict[str, JsonValue]
-
-
-def require_json_object(raw: object) -> JsonObject:
-    """The decoded body of a judge reply as a JSON object; anything else is named here, at the decode."""
-    if not isinstance(raw, dict):
-        raise TypeError(f"judge answered a JSON {type(raw).__name__}, not an object")
-    return cast("JsonObject", raw)
 
 
 class JudgeRefusal(urllib.error.HTTPError):
@@ -105,20 +103,20 @@ class JudgeClient:
         self.rank = rank
         self.timeout = timeout
 
-    def exchange(self, req: urllib.request.Request) -> JsonObject:
-        """Send ``req`` and decode the judge's JSON object; a refusal keeps its body readable."""
+    def exchange(self, req: urllib.request.Request) -> bytes:
+        """Send ``req`` and return the judge's answer, for its model to read; a refusal keeps its body readable."""
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                return require_json_object(json.loads(r.read()))
+                return r.read()
         except urllib.error.HTTPError as exc:
             raise error_with_body(exc) from None
 
-    def get(self, path: str, query: dict[str, str] | None = None) -> JsonObject:
+    def get(self, path: str, query: dict[str, str] | None = None) -> bytes:
         """GET ``path`` with ``query`` plus this client's ``rank``."""
         q = urllib.parse.urlencode({**(query or {}), "rank": self.rank})
         return self.exchange(urllib.request.Request(f"{self.base_url}{path}?{q}", headers=worker_token_header()))
 
-    def post(self, path: str, body: dict[str, JsonValue]) -> JsonObject:
+    def post(self, path: str, body: dict[str, JsonValue]) -> bytes:
         """POST ``body`` plus this client's ``rank`` and run identity, merged after the caller's fields."""
         return self.exchange(
             urllib.request.Request(
@@ -130,33 +128,35 @@ class JudgeClient:
         )
 
     # read-only task context
-    def health(self) -> JsonObject:
+    def health(self) -> HealthAnswer:
         """Liveness and the judge's own ``rank`` (answers any rank, so a mismatch can be diagnosed)."""
-        return self.get("/health")
+        return HealthAnswer.model_validate_json(self.get("/health"))
 
-    def baseline(self, kernel: str, language: str = "c", preset: str = "S") -> JsonObject:
-        """Reference times (e.g. ``{"numba": ns, "c": ns}``) timed in the judge."""
-        return self.get(f"/baseline/{kernel}", {"language": language, "preset": preset})
+    def baseline(self, kernel: str, language: str = "c", preset: str = "S") -> BaselineAnswer:
+        """Reference times (``baselines``, e.g. ``{"numba": ns, "c": ns}``) timed in the judge."""
+        return BaselineAnswer.model_validate_json(
+            self.get(f"/baseline/{kernel}", {"language": language, "preset": preset})
+        )
 
     # submission endpoints
-    def submit(self, submission: Submission, kernel: str) -> JsonObject:
+    def submit(self, submission: Submission, kernel: str) -> SubmitAnswer:
         """Build, grade, time and record ``submission`` for ``kernel`` once: the terminal action, graded on
         the public and held-out inputs. An agent-facing judge answers only ``correct`` and ``request_id``
         (plus ``build_log`` on a build failure); a ``service.submit_feedback=full`` judge returns the whole
         grade. Iterate with :meth:`score`."""
-        return self.post("/submit", submission_body(submission, kernel))
+        return SUBMIT_ANSWER.validate_json(self.post("/submit", submission_body(submission, kernel)))
 
-    def score(self, submission: Submission, kernel: str) -> JsonObject:
+    def score(self, submission: Submission, kernel: str) -> ScorePreview:
         """Fast iteration signal on the public inputs only, never recorded (``correct`` means public-correct).
 
         The speedup is the mw2x5 preview of the final grade (two inputs of its own, 5 runs a side, rank-tested),
         while ``submit`` (the credited protocol) times other inputs, so a small win here may settle at 1.00x
         (or below) on submit. Read it as a direction,
         not a result."""
-        r = self.post("/score", submission_body(submission, kernel))
+        answer = ScoreAnswer.model_validate_json(self.post("/score", submission_body(submission, kernel)))
         # The endpoint also answers ``build_ok`` and ``detail``; this client drops both, and changing that
         # would change measured agent behaviour.
-        return {k: r.get(k) for k in ("correct", "speedup", "native_ns", "baseline_ns", "baseline", "speedups")}
+        return ScorePreview.model_validate(answer.model_dump(include=set(ScorePreview.model_fields)))
 
     def profile(
         self,
@@ -172,7 +172,7 @@ class JudgeClient:
         per_thread: bool = False,
         residency: str | None = None,
         device_kernel: str | None = None,
-    ) -> JsonObject:
+    ) -> ProfileAnswer:
         """The diagnostic route; ``tool`` picks the instrument. Never scored.
 
         The default ``tool`` follows the language: ``linuxperf`` on the host, ``nsys`` for ``cuda``,
@@ -199,7 +199,10 @@ class JudgeClient:
           output contained the harness's result marker.
         * ``opt-report``: no run; the grading toolchain's optimization report on your source (``family``,
           ``compiler``, ``driver``, ``version``, ``report_flags``, ``report``). Python or ``library``
-          deliveries are a 400; a toolchain without report flags is a 503."""
+          deliveries are a 400; a toolchain without report flags is a 503.
+
+        The answer is the instrument's report, its ``root`` the JSON object (``opt-report``'s is an
+        :class:`~hpcagent_bench.harness.judge_wire.OptReportAnswer`, ``OptReportAnswer.model_validate(answer.root)``)."""
         body: dict[str, JsonValue] = {"kernel": kernel, "min_percent": min_percent, **submission.to_json()}
         if counters:
             body["counters"] = True
@@ -217,7 +220,7 @@ class JudgeClient:
             body["residency"] = residency
         if device_kernel is not None:
             body["device_kernel"] = device_kernel
-        return self.post("/profile", body)
+        return ProfileAnswer.model_validate_json(self.post("/profile", body))
 
 
 def score(
@@ -232,7 +235,7 @@ def score(
     workspace_bytes: str | None = None,
     base_url: str | None = None,
     rank: int = DEFAULT_RANK,
-) -> JsonObject:
+) -> ScorePreview:
     """Module-level convenience: score one submission against a judge URL (and its rank)."""
     sub = Submission(
         language=language,

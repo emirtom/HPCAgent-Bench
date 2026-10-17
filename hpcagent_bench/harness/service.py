@@ -52,7 +52,6 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
-import pydantic
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
@@ -64,6 +63,21 @@ from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import hidden_seeds, metric, mpi_shard_driver, native_call, sandbox, torch_reference
 from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_capacity_bytes
+from hpcagent_bench.harness.judge_wire import (
+    BaselineAnswer,
+    BuildAnswer,
+    CanonicalFormAnswer,
+    GradeAnswer,
+    HealthAnswer,
+    JudgeAnswer,
+    JudgeError,
+    OptReportAnswer,
+    ProfileAnswer,
+    RecordedAnswer,
+    RequestFields,
+    ScoreAnswer,
+    SubmitVerdict,
+)
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     default_layout_refusal,
@@ -144,6 +158,7 @@ __all__ = [
     "RequestBody",
     "ServiceConfig",
     "SlotPool",
+    "WireAnswer",
     "as_json_object",
     "build_device_pool",
     "canonical_parallel_form_cache",
@@ -157,6 +172,7 @@ __all__ = [
     "first_param",
     "from_config",
     "gpu_language_refusal",
+    "grade_answer",
     "grade_request",
     "graded_kind",
     "jit_decorated",
@@ -167,6 +183,7 @@ __all__ = [
     "ml_layout",
     "precision_scope_refusal",
     "preload_lazy_imports",
+    "profile_answer",
     "python_residency_refusal",
     "rank_error",
     "record_result",
@@ -176,6 +193,7 @@ __all__ = [
     "requests_refusal",
     "with_task_grid",
     "scales",
+    "score_answer",
     "serve",
     "service_prompt",
     "setup_language_refusal",
@@ -191,6 +209,9 @@ if TYPE_CHECKING:
 
 #: Top-level template for the judge-driven (HTTP) agent prompt.
 SERVICE_TEMPLATE = "service_task.j2"
+
+#: Every answer the judge sends (:mod:`hpcagent_bench.harness.judge_wire`); each dumps itself with ``to_json``.
+type WireAnswer = JudgeAnswer | ProfileAnswer | RequestsCheck
 
 #: RFC 9110 421 Misdirected Request: the request reached the wrong judge.
 MISDIRECTED_REQUEST = 421
@@ -382,49 +403,17 @@ def request_label() -> str:
     return f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(3)}"
 
 
+def profile_answer(report: object) -> ProfileAnswer:
+    """An instrument's report (an untyped profiler's dict) as the ``/profile`` answer, read through its JSON
+    form as the agent reads it; a report that is not a JSON object raises ValueError."""
+    return ProfileAnswer.model_validate_json(json.dumps(report))
+
+
 def as_json_object(value: object) -> dict[str, object]:
-    """An untyped module's dict (profilers, prompt builder) as the JSON object this service sends."""
+    """An untyped module's dict (the prompt builder's context) as a JSON object."""
     if not isinstance(value, dict):
         raise TypeError(f"expected a JSON object, got {type(value).__name__}")
     return {str(key): item for key, item in cast("dict[object, object]", value).items()}
-
-
-class RequestFields(pydantic.BaseModel):
-    """Every field a POST body may carry (``/submit``, ``/oracle``, ``/score``, ``/profile``, ``/requests/check``),
-    typed. A field the model does not name is refused (400); a route reads only its own."""
-
-    model_config = pydantic.ConfigDict(extra="forbid")
-
-    #: Identity and routing.
-    kernel: str | None = None
-    rank: int | None = None
-    episode_id: str | None = None
-    language: str | None = None
-    tokens: int | None = None
-    optimizer: str | None = None
-    #: The submission envelope (:class:`~hpcagent_bench.harness.envelope.Submission`).
-    source: str | None = None
-    source_file: str | None = None
-    device_source: str | None = None
-    device_source_file: str | None = None
-    library: str | None = None
-    build: list[str] | None = None
-    workspace_bytes: str | int | None = None
-    compiler: str | None = None
-    requests: dict[str, object] | None = None
-    #: Accepted and ignored: every route grades the run's own size (``service.preset``), and a stale tool
-    #: that still sends one loses the preset, not the grade.
-    preset: str | None = None
-    #: ``/profile`` only.
-    tool: str | None = None
-    residency: str | None = None
-    reps: int | None = None
-    threads: int | list[int] | None = None
-    device_kernel: str | None = None
-    counters: bool | None = None
-    counter_group: str | None = None
-    per_thread: bool | None = None
-    min_percent: float | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -527,10 +516,10 @@ def request_tokens(body: RequestBody) -> int:
 
 
 class Refusal(NamedTuple):
-    """An HTTP status and the JSON body that explains it."""
+    """An HTTP status and the answer that explains it."""
 
     status: int
-    payload: dict[str, object]
+    payload: JudgeError
 
 
 def unrecordable(episode_id: str | None) -> Refusal | None:
@@ -541,9 +530,9 @@ def unrecordable(episode_id: str | None) -> Refusal | None:
     try:
         sandbox.episode_folder(episode_id)
     except ValueError as exc:
-        return Refusal(HTTPStatus.FORBIDDEN, {"error": f"{exc}: nothing was graded or recorded"})
+        return Refusal(HTTPStatus.FORBIDDEN, JudgeError(error=f"{exc}: nothing was graded or recorded"))
     if config.current().record.enabled and (public := hidden_seeds.public_seeds_refusal()):
-        return Refusal(HTTPStatus.SERVICE_UNAVAILABLE, {"error": public, "cause": "public_seeds"})
+        return Refusal(HTTPStatus.SERVICE_UNAVAILABLE, JudgeError(error=public, cause="public_seeds"))
     return None
 
 
@@ -558,23 +547,23 @@ def rank_error(judge_rank: int, requested: object) -> Refusal | None:
         got = "nothing" if requested is None else repr(requested)
         return Refusal(
             400,
-            {
-                "error": f"every judge request must name the judge rank it is addressed to ('rank'), got {got}; "
+            JudgeError(
+                error=f"every judge request must name the judge rank it is addressed to ('rank'), got {got}; "
                 f"this judge is rank {judge_rank}",
-                "judge_rank": judge_rank,
-            },
+                judge_rank=judge_rank,
+            ),
         )
     asked = int(text)
     if asked != judge_rank:
         return Refusal(
             MISDIRECTED_REQUEST,
-            {
-                "error": f"judge rank mismatch: this judge is rank {judge_rank}, the request was addressed to "
+            JudgeError(
+                error=f"judge rank mismatch: this judge is rank {judge_rank}, the request was addressed to "
                 f"rank {asked} -- it reached the WRONG judge (check the judge URL the round-robin "
                 f"assigned, and the order of $HPCAGENT_BENCH_JUDGE_URLS); nothing was graded",
-                "judge_rank": judge_rank,
-                "requested_rank": asked,
-            },
+                judge_rank=judge_rank,
+                requested_rank=asked,
+            ),
         )
     return None
 
@@ -686,16 +675,49 @@ def python_residency_refusal(requested: str) -> str | None:
     )
 
 
-def submit_verdict(result: Score, request_id: str) -> dict[str, object]:
+def submit_verdict(result: Score, request_id: str) -> SubmitVerdict:
     """What ``/submit`` tells the agent: correct or not, and the recorded row id. Nothing derived from the
     references or held-out inputs (each would be an oracle); only the compiler log of a failed build
     and a judge-fault flag."""
-    verdict: dict[str, object] = {"correct": "yes" if result.correct else "no", "request_id": request_id}
+    verdict = SubmitVerdict(correct="yes" if result.correct else "no", request_id=request_id)
     if not result.build_ok:
-        verdict["build_log"] = result.detail
+        verdict.build_log = result.detail
     if result.harness_fault:
-        verdict["judge_fault"] = True
+        verdict.judge_fault = True
     return verdict
+
+
+def score_answer(result: Score, kernel: str, language: str, preset: str, residency: str) -> ScoreAnswer:
+    """What ``/score`` answers: ``result`` without :data:`SCORE_ROUTE_REDACTED_FIELDS` (and its cells without
+    :data:`SCORE_ROUTE_REDACTED_CELL_FIELDS`), ``detail`` as :func:`public_detail` reads it, and what was
+    graded: the size actually graded and how (a distributed run looks single-node-shaped otherwise)."""
+    graded = {k: v for k, v in dataclasses.asdict(result).items() if k not in SCORE_ROUTE_REDACTED_FIELDS}
+    graded["cells"] = [
+        {k: v for k, v in dataclasses.asdict(cell).items() if k not in SCORE_ROUTE_REDACTED_CELL_FIELDS}
+        for cell in result.cells
+    ]
+    graded["detail"] = public_detail(result)
+    return ScoreAnswer.model_validate(
+        {**graded, "kernel": kernel, "language": language, "preset": preset, "residency": residency}
+    )
+
+
+def grade_answer(
+    result: Score, kernel: str, language: str, preset: str, residency: str, recorded: RecordedAnswer, request_id: str
+) -> GradeAnswer:
+    """What ``/submit`` answers under ``service.submit_feedback=full``: the whole grade, what was graded, how it
+    was recorded and the request id."""
+    return GradeAnswer.model_validate(
+        {
+            **dataclasses.asdict(result),
+            "kernel": kernel,
+            "language": language,
+            "preset": preset,
+            "residency": residency,
+            "recorded": recorded,
+            "request_id": request_id,
+        }
+    )
 
 
 def jit_decorated(node: ast.FunctionDef, jit_names: frozenset[str]) -> bool:
@@ -1297,7 +1319,7 @@ def record_result(
     tokens: int = 0,
     curves: Sequence[metric.LawCurve] = (),
     final: "FinalRecord | None" = None,
-) -> dict[str, str | int | bool]:
+) -> RecordedAnswer:
     """Harden-gate ``result`` and persist it as one /submit grade; module-level so an offline re-grade
     can record without a request. ``tokens`` is the agent's cumulative spend the body reported;
     ``curves`` are the ML track's per-law scaling curves (:func:`recording.record_scaling`); ``final``
@@ -1306,7 +1328,7 @@ def record_result(
     (``table``), its ``detail`` and the recorded ``grade`` id, and ``judge_fault`` when a gate faulted:
     a gate that crashed is the judge's fault, recorded as one (``score_error``), never a silent pass."""
     if not config.current().record.enabled:
-        return {"skipped": "record.enabled is false"}
+        return RecordedAnswer(skipped="record.enabled is false")
     from hpcagent_bench.harness import recording
     from hpcagent_bench.harness.runner import status_of
 
@@ -1318,7 +1340,7 @@ def record_result(
         )
         fault = anticheat.Finding("anticheat", anticheat.Effect.FAULT, f"a gate crashed: {type(exc).__name__}: {exc}")
         judgement = anticheat.Judgement((fault,))
-    answer: dict[str, str | int | bool] = {"judge_fault": True} if judgement.harness_fault else {}
+    answer = RecordedAnswer(judge_fault=True) if judgement.harness_fault else RecordedAnswer()
     try:
         recorded = recording.record(
             result,
@@ -1337,10 +1359,12 @@ def record_result(
     except Exception as exc:  # noqa: BLE001 -- persistence must never break scoring
         # Loud here: the setups' router answers the verdict alone and stores nothing of this dict.
         print(f"judge: recording {task.kernel} failed\n{traceback.format_exc()}", file=sys.stderr, flush=True)
-        return {**answer, "error": str(exc)}
-    answer |= {"table": recorded.outcome, "detail": recorded.detail}
+        answer.error = str(exc)
+        return answer
+    answer.table = recorded.outcome
+    answer.detail = recorded.detail
     if recorded.grade_id is not None:
-        answer["grade"] = recorded.grade_id
+        answer.grade = recorded.grade_id
     return answer
 
 
@@ -1396,7 +1420,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             overlay = fused.judge_overlay(self.headers.get(fused.SETUP_HEADER, "").strip())
         except fused.FusedRefusal as exc:
             self.close_connection = True
-            self._send(exc.status, {"error": exc.message})
+            self._send(exc.status, JudgeError(error=exc.message))
             yield False
             return
         with config.scoped_environment(overlay):
@@ -1448,18 +1472,19 @@ class JudgeHandler(BaseHTTPRequestHandler):
             native_call.set_assigned_device(None)
             pool.release(slot)
 
-    def _send(self, code: int, payload: dict[str, object]) -> None:
+    def _send(self, code: int, payload: WireAnswer) -> None:
         """Answer ``payload``; a graded request answered with anything but a grade is recorded first as
         a call without a verdict (:meth:`record_refusal`), as a grade is recorded before its answer."""
         if code != HTTPStatus.OK and self.graded_body is not None:
-            self.record_refusal(self.graded_body, f"HTTP {code}: {json.dumps(payload)}")
+            self.record_refusal(self.graded_body, f"HTTP {code}: {json.dumps(payload.to_json())}")
         self.answer(code, payload)
 
-    def answer(self, code: int, payload: dict[str, object]) -> None:
+    def answer(self, code: int, payload: WireAnswer) -> None:
+        """Send ``payload`` as its JSON object (``json.dumps``: a non-finite float stays ``NaN`` / ``Infinity``)."""
         if self.gone.is_set():
             self.close_connection = True
             return
-        data = json.dumps(payload).encode("utf-8")
+        data = json.dumps(payload.to_json()).encode("utf-8")
         try:
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
@@ -1556,21 +1581,21 @@ class JudgeHandler(BaseHTTPRequestHandler):
             # The one route that answers any rank: a liveness probe; it reports this judge's rank.
             return self._send(
                 HTTPStatus.OK,
-                {
-                    "status": "ok",
-                    "rank": self.judge_rank,
-                    "oracle": self.cfg.oracle.value,
-                    "baseline": self.cfg.baseline_token,
-                    "input_mode": self.cfg.input_mode.value,
-                    "submits_in_flight": SUBMITS_IN_FLIGHT.count,
-                },
+                HealthAnswer(
+                    status="ok",
+                    rank=self.judge_rank,
+                    oracle=self.cfg.oracle.value,
+                    baseline=self.cfg.baseline_token,
+                    input_mode=self.cfg.input_mode.value,
+                    submits_in_flight=SUBMITS_IN_FLIGHT.count,
+                ),
             )
         if route == "canonical_parallel_form":
             return self._canonical_parallel_form(parts, qs)
         if route == "build":
             return self._build(parts, qs)
         if route != "baseline":
-            return self._send(HTTPStatus.NOT_FOUND, {"error": f"unknown route {self.path!r}"})
+            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         if self.misrouted(first_param(qs, "rank")):
             return None
         kernel, language = self._task(parts, qs)
@@ -1578,7 +1603,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         preset = self.cfg.preset
         if not kernel:
             return self._send(
-                HTTPStatus.BAD_REQUEST, {"error": "usage: GET /baseline/<kernel>?language=c&rank=<judge rank>"}
+                HTTPStatus.BAD_REQUEST, JudgeError(error="usage: GET /baseline/<kernel>?language=c&rank=<judge rank>")
             )
         try:
             # score()/measure_baselines use the datatype string; baseline timing holds a device slot too.
@@ -1594,9 +1619,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     repeat=self.cfg.repeat,
                     baseline=self.cfg.baseline_token,
                 )
-            return self._send(HTTPStatus.OK, {"kernel": kernel, "preset": preset, "baselines": bl})
+            return self._send(HTTPStatus.OK, BaselineAnswer(kernel=kernel, preset=preset, baselines=bl))
         except Exception as exc:  # noqa: BLE001 -- infra failure (e.g. C emit) -> 500
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"baseline failed: {exc}"})
+            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"baseline failed: {exc}"))
 
     def _build(self, parts: list[str], qs: dict[str, list[str]]) -> None:
         """Serve the exact compile+link argv this judge runs for one delivery language, from
@@ -1609,7 +1634,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if language not in languages.LANG_EXT:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {"error": f"unknown language {language!r}; choose from {', '.join(sorted(languages.LANG_EXT))}"},
+                JudgeError(error=f"unknown language {language!r}; choose from {', '.join(sorted(languages.LANG_EXT))}"),
             )
         source = pathlib.Path(f"kernel.{languages.LANG_EXT[language]}")
         library = pathlib.Path("libkernel.so")
@@ -1619,7 +1644,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 language, first_param(qs, "compiler"), vendor=sandbox.OFFLOAD_VENDOR
             )
         except KeyError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         try:
             offload = languages.agent_offload_flags()
             commands = languages.build_shared_lib_commands(
@@ -1634,20 +1659,21 @@ class JudgeHandler(BaseHTTPRequestHandler):
             )
         except Exception as exc:  # noqa: BLE001 -- no compiler block wired for it here -> 500
             return self._send(
-                HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"no build command for {language!r} on this judge: {exc}"}
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                JudgeError(error=f"no build command for {language!r} on this judge: {exc}"),
             )
         return self._send(
             HTTPStatus.OK,
-            {
-                "language": language,
-                "mode": SUBMISSION_BUILD_MODE.value,
-                "source": source.name,
-                "library": library.name,
-                "commands": commands,
-                "family": toolchain.family,
-                "compiler": toolchain.compiler,
-                "driver": toolchain.driver,
-            },
+            BuildAnswer(
+                language=language,
+                mode=SUBMISSION_BUILD_MODE.value,
+                source=source.name,
+                library=library.name,
+                commands=commands,
+                family=toolchain.family,
+                compiler=toolchain.compiler,
+                driver=toolchain.driver,
+            ),
         )
 
     def _canonical_parallel_form(self, parts: list[str], qs: dict[str, list[str]]) -> None:
@@ -1663,24 +1689,26 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if not kernel:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {"error": "usage: GET /canonical_parallel_form/<kernel>?language=c%2B%2B&rank=<judge rank>"},
+                JudgeError(error="usage: GET /canonical_parallel_form/<kernel>?language=c%2B%2B&rank=<judge rank>"),
             )
         language = (qs.get("language") or ["c++"])[0]
         if language not in cpf_cache.LANGUAGE_EXT:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {"error": f"unknown dialect {language!r}; choose from {', '.join(sorted(cpf_cache.LANGUAGE_EXT))}"},
+                JudgeError(
+                    error=f"unknown dialect {language!r}; choose from {', '.join(sorted(cpf_cache.LANGUAGE_EXT))}"
+                ),
             )
         root = canonical_parallel_form_root()
         if root is None:
             return self._send(
                 HTTPStatus.OK,
-                {
-                    "kernel": kernel,
-                    "verdict": "unavailable",
-                    "note": "this run pre-rendered no canonical parallel forms; this says nothing "
+                CanonicalFormAnswer(
+                    kernel=kernel,
+                    verdict="unavailable",
+                    note="this run pre-rendered no canonical parallel forms; this says nothing "
                     "about whether the kernel can be parallelized",
-                },
+                ),
             )
         from hpcagent_bench import cpf_bridge  # renders and binds; only a CPF request needs it
 
@@ -1700,13 +1728,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 print(f"canonical_parallel_form: {reason}", file=sys.stderr, flush=True)
                 return self._send(
                     HTTPStatus.OK,
-                    {
-                        "kernel": kernel,
-                        "verdict": "unavailable",
-                        "error": reason,
-                        "note": f"no {language} form could be rendered for this kernel; this says "
+                    CanonicalFormAnswer(
+                        kernel=kernel,
+                        verdict="unavailable",
+                        error=reason,
+                        note=f"no {language} form could be rendered for this kernel; this says "
                         "nothing about whether the kernel can be parallelized",
-                    },
+                    ),
                 )
         # A gpu form is the hip dialect: the host unit (.cpp) in ``source``, the kernels in ``device_source``.
         dialect = (
@@ -1714,19 +1742,20 @@ class JudgeHandler(BaseHTTPRequestHandler):
             if form.device
             else next(name for name, ext in cpf_cache.LANGUAGE_EXT.items() if f".{ext}" == form.source.suffix)
         )
-        answer: dict[str, object] = {
-            "kernel": kernel,
-            "verdict": "ok",
-            "dialect": dialect,
-            "entry": form.entry,
-            "source": form.source.read_text(),
-            **({"device_source": form.device.read_text()} if form.device else {}),
-            "binding": form.binding.read_text(),
-        }
+        answer = CanonicalFormAnswer(
+            kernel=kernel,
+            verdict="ok",
+            dialect=dialect,
+            entry=form.entry,
+            source=form.source.read_text(),
+            binding=form.binding.read_text(),
+        )
+        if form.device:
+            answer.device_source = form.device.read_text()
         if form.libraries:
             # A form calling a vendor library builds only with that library loaded.
-            answer["libraries"] = list(form.libraries)
-            answer["note"] = (
+            answer.libraries = list(form.libraries)
+            answer.note = (
                 f"this form calls {', '.join(form.libraries)}: submit it with "
                 f"requests.startup.load = {json.dumps(list(form.libraries))}"
             )
@@ -1757,17 +1786,17 @@ class JudgeHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
             body = RequestBody.parse(self.rfile.read(length))
         except (ValueError, TypeError) as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": f"invalid JSON body: {exc}"})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
         kernel = body.raw("kernel")
         if not isinstance(kernel, str) or kernel not in KERNELS:
-            return self._send(HTTPStatus.NOT_FOUND, {"error": f"no task for {kernel!r}: unknown kernel"})
+            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
         language = delivery_language(body.text("language", default_request_language()), self.cfg.input_mode)
         try:
             datatype = graded_datatype(BenchSpec.load(kernel), self.cfg.datatype)
             answer = requests_check(kernel, language, body.raw("requests"), datatype)
         except ValueError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        return self._send(HTTPStatus.OK, answer.to_json())
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+        return self._send(HTTPStatus.OK, answer)
 
     def serve_post(self) -> None:
         parts = urlparse(self.path).path.strip("/").split("/")
@@ -1775,12 +1804,12 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if route == "requests" and parts[1:] == ["check"]:
             return self.serve_requests_check()
         if route not in ("oracle", "submit", "score", "profile"):
-            return self._send(HTTPStatus.NOT_FOUND, {"error": f"unknown route {self.path!r}"})
+            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = RequestBody.parse(self.rfile.read(length))
         except (ValueError, TypeError) as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": f"invalid JSON body: {exc}"})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
         if route != "profile":
             untrusted = unrecordable(body.text_or_none("episode_id"))
             if untrusted is not None:
@@ -1793,7 +1822,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         language = delivery_language(requested, self.cfg.input_mode)
         refusal = gpu_language_refusal(language) or python_residency_refusal(requested)
         if refusal is not None:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": refusal})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=refusal))
         # The run's configured size on every route; a body cannot name one (RequestFields has no preset).
         preset = self.cfg.preset
         # A client preset naming nothing is a request fault (400, not a 500 from score()). Only bare
@@ -1801,38 +1830,38 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if preset not in PRESET_CHOICES:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {
-                    "error": f"unknown preset {preset!r}; choose from {', '.join(PRESET_CHOICES)}. "
+                JudgeError(
+                    error=f"unknown preset {preset!r}; choose from {', '.join(PRESET_CHOICES)}. "
                     "Size modifiers such as '+fuzz' are set by the run, not per request."
-                },
+                ),
             )
         # A non-str kernel is a body-shape fault: the registry lookup below would raise TypeError on it.
         if not isinstance(kernel, str) or not kernel:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": "body must include 'kernel' (a kernel name)"})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error="body must include 'kernel' (a kernel name)"))
         if kernel not in KERNELS:
             # Kernel existence is a request fault, checked before reading the body.
-            return self._send(HTTPStatus.NOT_FOUND, {"error": f"no task for {kernel!r}: unknown kernel"})
+            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
         try:
             submission = _submission_from_body(body, kernel, language, self.cfg, body.text_or_none("episode_id"))
         except ValueError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         try:
             source_mode = "any" if submission.library is not None else "restricted"
             # A GPU language grades on the device (task.default_residency); the reference stays host-resident.
             # mpi.grade_distributed gives ``distributed`` here.
             task = Task(kernel, source_mode, language, residency=grading_residency(kernel, language))
         except Exception as exc:  # noqa: BLE001 -- defensive: a bad source_mode/residency triple -> 404
-            return self._send(HTTPStatus.NOT_FOUND, {"error": f"no task for {kernel!r}: {exc}"})
+            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: {exc}"))
         # The task's grid where the setup sets it, before every check reads the request.
         gridded = with_task_grid(submission, task)
         if isinstance(gridded, str):
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": gridded})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=gridded))
         submission = gridded
         # Distribution refusals apply to every grading route, /profile included.
         try:
             refused = distribution_refusal(submission, task, preset)
         except ValueError as exc:  # a malformed mpi.replicatable list is the MANIFEST's fault
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc), "cause": JUDGE_FAULT_CAUSE})
+            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=str(exc), cause=JUDGE_FAULT_CAUSE))
         if refused is None:
             refused = requests_refusal(submission, task, self.cfg.datatype)
         if refused is None:
@@ -1847,7 +1876,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 "operations from a /profile request"
             )
         if refused is not None:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": refused})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=refused))
         if route == "profile":
             return self._profile(submission, task, body, preset)
         # The grade's datatype is the kernel's when it crosses the ABI in one storage-only precision
@@ -1865,11 +1894,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 graded = grade_request(submission, task, cfg, preset, hidden)
                 result = graded.result
             except LayoutRefused as exc:  # a padded layout past its limit on the graded input: 400
-                return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
             except Exception as exc:  # noqa: BLE001 -- scoring infra failure -> 500
                 return self._send(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"error": f"score failed for {kernel!r}: {exc}", "cause": JUDGE_FAULT_CAUSE},
+                    JudgeError(error=f"score failed for {kernel!r}: {exc}", cause=JUDGE_FAULT_CAUSE),
                 )
             if hidden:
                 return self.send_submit(
@@ -1885,21 +1914,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     final=graded.final,
                 )
             self.record_score(result, submission, task, body, cfg)
-            payload: dict[str, object] = dataclasses.asdict(result)
-            for redacted in SCORE_ROUTE_REDACTED_FIELDS:
-                del payload[redacted]
-            payload["cells"] = [
-                {k: v for k, v in dataclasses.asdict(cell).items() if k not in SCORE_ROUTE_REDACTED_CELL_FIELDS}
-                for cell in result.cells
-            ]
-            payload["detail"] = public_detail(result)
-            payload["kernel"] = kernel
-            payload["language"] = language
-            # The size actually graded (/submit may override the body's).
-            payload["preset"] = preset
-            # And how it was graded: a distributed run looks single-node-shaped otherwise.
-            payload["residency"] = task.residency
-        return self._send(HTTPStatus.OK, payload)
+        return self._send(HTTPStatus.OK, score_answer(result, kernel, language, preset, task.residency))
 
     def send_submit(
         self,
@@ -1931,21 +1946,14 @@ class JudgeHandler(BaseHTTPRequestHandler):
             curves=curves,
             final=final,
         )
-        print(f"judge: /submit {request_id} {kernel} recorded={recorded}", file=sys.stderr, flush=True)
-        if recorded.get("judge_fault"):
+        print(f"judge: /submit {request_id} {kernel} recorded={recorded.to_json()}", file=sys.stderr, flush=True)
+        if recorded.judge_fault:
             result = dataclasses.replace(result, harness_fault=True)
         if config.current().service.submit_feedback != "full":
             return self._send(HTTPStatus.OK, submit_verdict(result, request_id))
-        payload: dict[str, object] = dataclasses.asdict(result)
-        payload.update(
-            kernel=kernel,
-            language=language,
-            preset=preset,
-            residency=task.residency,
-            recorded=recorded,
-            request_id=request_id,
+        return self._send(
+            HTTPStatus.OK, grade_answer(result, kernel, language, preset, task.residency, recorded, request_id)
         )
-        return self._send(HTTPStatus.OK, payload)
 
     def _profile(self, submission: Submission, task: Task, body: RequestBody, preset: str) -> None:
         """``POST /profile``: the diagnostic route; ``tool`` picks the instrument. Nothing is graded or
@@ -1988,17 +1996,17 @@ class JudgeHandler(BaseHTTPRequestHandler):
         tool = body.text_or_none("tool") or device_tool or offload_tool or "linuxperf"
         if tool not in PROFILE_TOOLS:
             return self._send(
-                HTTPStatus.BAD_REQUEST, {"error": f"unknown tool {tool!r}: one of {', '.join(PROFILE_TOOLS)}"}
+                HTTPStatus.BAD_REQUEST, JudgeError(error=f"unknown tool {tool!r}: one of {', '.join(PROFILE_TOOLS)}")
             )
         if tool == OPT_REPORT_TOOL:
             return self._opt_report(submission, task)
         if device_tool is not None and tool not in (device_tool, compute_tool):
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {
-                    "error": f"tool {tool!r} does not serve {task.language!r}: "
+                JudgeError(
+                    error=f"tool {tool!r} does not serve {task.language!r}: "
                     f"trace a device submission with {device_tool!r}, or count it with {compute_tool!r}"
-                },
+                ),
             )
         device_only = (*DEVICE_TOOLS.values(), *COMPUTE_DEVICE_TOOLS.values())
         if device_tool is None and tool in device_only and tool not in (offload_tool, offload_compute_tool):
@@ -2010,20 +2018,21 @@ class JudgeHandler(BaseHTTPRequestHandler):
             verb = "counts" if tool in COMPUTE_DEVICE_TOOLS.values() else "traces"
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {"error": f"tool {tool!r} {verb} a device submission: profile {task.language!r} with {served}"},
+                JudgeError(error=f"tool {tool!r} {verb} a device submission: profile {task.language!r} with {served}"),
             )
         try:
             task = dataclasses.replace(task, residency=body.text("residency", task.residency))
             min_percent = body.number("min_percent", 1.0)
             if not 0.0 <= min_percent <= 100.0:  # NaN fails this too
                 return self._send(
-                    HTTPStatus.BAD_REQUEST, {"error": f"min_percent must be between 0 and 100, got {min_percent!r}"}
+                    HTTPStatus.BAD_REQUEST,
+                    JudgeError(error=f"min_percent must be between 0 and 100, got {min_percent!r}"),
                 )
             with self.device_slot() as slot:
                 if slot is None:
                     return None
                 if tool == "none":
-                    payload = as_json_object(
+                    payload = profile_answer(
                         run_agent_build(
                             submission,
                             task,
@@ -2034,7 +2043,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     )
                 elif tool == "papi" and body.flag("per_thread"):
                     # The imbalance question: the same instrument, counts reported per thread instead of summed.
-                    payload = as_json_object(
+                    payload = profile_answer(
                         count_threads_submission(
                             submission,
                             task,
@@ -2045,7 +2054,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 elif tool == "papi":
-                    payload = as_json_object(
+                    payload = profile_answer(
                         count_submission(
                             submission,
                             task,
@@ -2057,7 +2066,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 elif tool in (compute_tool, offload_compute_tool):
-                    payload = as_json_object(
+                    payload = profile_answer(
                         profile_compute_submission(
                             submission,
                             task,
@@ -2071,7 +2080,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 elif tool in (device_tool, offload_tool):
-                    payload = as_json_object(
+                    payload = profile_answer(
                         profile_gpu_submission(
                             submission,
                             task,
@@ -2083,7 +2092,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 else:  # linuxperf
-                    payload = as_json_object(
+                    payload = profile_answer(
                         profile_submission(
                             submission,
                             task,
@@ -2097,11 +2106,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
         except ProfilerUnavailable as exc:
-            return self._send(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc), "cause": exc.cause})
+            return self._send(HTTPStatus.SERVICE_UNAVAILABLE, JudgeError(error=str(exc), cause=exc.cause))
         except (TypeError, ValueError) as exc:  # unknown counter group / non-numeric threads: the request's fault
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         except Exception as exc:  # noqa: BLE001 -- a failed profiled run is infra, not a score
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"profile failed for {task.kernel!r}: {exc}"})
+            return self._send(
+                HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"profile failed for {task.kernel!r}: {exc}")
+            )
         return self._send(HTTPStatus.OK, payload)
 
     def _opt_report(self, submission: Submission, task: Task) -> None:
@@ -2114,21 +2125,21 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if submission.is_python or submission.library is not None:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
-                {"error": "tool 'opt-report' reports on a compile: send source in c, cpp, fortran, cuda or hip"},
+                JudgeError(error="tool 'opt-report' reports on a compile: send source in c, cpp, fortran, cuda or hip"),
             )
         try:
             toolchain = languages.submission_toolchain(
                 task.language, submission.compiler, vendor=sandbox.OFFLOAD_VENDOR
             )
         except KeyError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         if not toolchain.report_flags:
             return self._send(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                {
-                    "error": f"{toolchain.driver} (family {toolchain.family or 'none'}) has no optimization-report flags",
-                    "cause": "opt_report_unsupported",
-                },
+                JudgeError(
+                    error=f"{toolchain.driver} (family {toolchain.family or 'none'}) has no optimization-report flags",
+                    cause="opt_report_unsupported",
+                ),
             )
         with self.device_slot() as slot:
             if slot is None:
@@ -2138,23 +2149,23 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     built = box.build(submission, mode=SUBMISSION_BUILD_MODE, report=True)
             except Exception as exc:  # noqa: BLE001 -- the judge failed the build itself: 500, never a dead thread
                 return self._send(
-                    HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"opt-report failed for {task.kernel!r}: {exc}"}
+                    HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"opt-report failed for {task.kernel!r}: {exc}")
                 )
         return self._send(
             HTTPStatus.OK,
-            {
-                "tool": OPT_REPORT_TOOL,
-                "kernel": task.kernel,
-                "language": task.language,
-                "build_ok": built.ok,
-                "family": toolchain.family,
-                "compiler": toolchain.compiler,
-                "driver": toolchain.driver,
-                "version": languages.compiler_version(toolchain.driver),
-                "report_flags": toolchain.report_flags,
-                "report": built.log[:INSTRUMENT_OUTPUT_LIMIT],
-                "truncated": len(built.log) > INSTRUMENT_OUTPUT_LIMIT,
-            },
+            OptReportAnswer(
+                tool=OPT_REPORT_TOOL,
+                kernel=task.kernel,
+                language=task.language,
+                build_ok=built.ok,
+                family=toolchain.family,
+                compiler=toolchain.compiler,
+                driver=toolchain.driver,
+                version=languages.compiler_version(toolchain.driver),
+                report_flags=toolchain.report_flags,
+                report=built.log[:INSTRUMENT_OUTPUT_LIMIT],
+                truncated=len(built.log) > INSTRUMENT_OUTPUT_LIMIT,
+            ),
         )
 
 

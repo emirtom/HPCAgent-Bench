@@ -155,9 +155,11 @@ def test_a_score_carries_the_stamp_and_defaults_to_none() -> None:
     stamped = scoring.Score(True, 0.0, 1, True, baseline_policy="best-of-v1:c-autopar+c+numba")
     assert stamped.baseline_policy == "best-of-v1:c-autopar+c+numba"
     # It survives the judge's JSON round trip, or a re-graded row would lose which rule produced it.
-    import dataclasses
+    from hpcagent_bench.harness.judge_wire import RecordedAnswer
+    from hpcagent_bench.harness.service import grade_answer
 
-    assert scoring.score_from_response(dataclasses.asdict(stamped)).baseline_policy == stamped.baseline_policy
+    answer = grade_answer(stamped, "gemm", "c", "S", "host", RecordedAnswer(skipped="off"), "r")
+    assert scoring.score_from_answer(answer).baseline_policy == stamped.baseline_policy
 
 
 def test_the_database_carries_a_column_for_it(tmp_path) -> None:

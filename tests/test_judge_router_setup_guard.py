@@ -190,9 +190,9 @@ def test_the_harness_judge_client_is_accepted(router: "TestClient", monkeypatch:
     monkeypatch.setenv("HPCAGENT_BENCH_EPISODE_ID", f"{SETUP}.n0.p2.w1")
     client = JudgeClient("http://judge.test:8800", rank=0)
     submission = Submission(language="c", source="void k(void){}")
-    assert client.score(submission, "dist_softmax")["correct"] is True
-    assert client.submit(submission, "dist_softmax")["correct"] == "yes"
-    assert client.profile(submission, "dist_softmax")["correct"] is True
+    assert client.score(submission, "dist_softmax").correct is True
+    assert client.submit(submission, "dist_softmax").correct == "yes"
+    assert client.profile(submission, "dist_softmax").root["correct"] is True
     assert upstream_routes() == ["/score", "/submit", "/profile"]
 
 

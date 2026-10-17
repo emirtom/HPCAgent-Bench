@@ -12,6 +12,7 @@ import pytest
 from hpcagent_bench.harness import recording, runner
 from hpcagent_bench.harness.agent import ScriptedAgent, reference_source
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import SubmitVerdict
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 
@@ -234,7 +235,7 @@ def test_scripted_tool_session_scores_then_submits(make_judge) -> None:
     spec = Kernel(Task("gemm", "restricted", "c")).info()
     assert spec["symbol"]
     assert spec["signature"]
-    assert client.baseline("gemm", "c", "S")["baselines"]["c"] > 0
+    assert client.baseline("gemm", "c", "S").baselines["c"] > 0
 
     # 2. the scripted moves: a wrong body, then the known-correct reference
     agent = ScriptedAgent([WRONG_GEMM_C, reference_source], cost=(10, 5))
@@ -242,17 +243,18 @@ def test_scripted_tool_session_scores_then_submits(make_judge) -> None:
     # round 1: the wrong body compiles but is numerically wrong: "build_log" absent means it built,
     # "correct" says the answer was wrong.
     wrong = client.score(agent.solve(TASK), "gemm")
-    assert "build_log" not in wrong
-    assert wrong["correct"] is False
+    assert "build_log" not in wrong.to_json()
+    assert wrong.correct is False
 
     # round 2: the reference is correct -> measure it -> finalize on it
     fixed = agent.solve(TASK)
     scored = client.score(fixed, "gemm")
-    assert scored["correct"] is True
-    assert scored["speedup"] > 0.0
-    assert scored["native_ns"] > 0
+    assert scored.correct is True
+    assert scored.speedup > 0.0
+    assert scored.native_ns > 0
     final = client.submit(fixed, "gemm")
-    assert final["correct"] == "yes"
-    assert "build_log" not in final
+    assert isinstance(final, SubmitVerdict)
+    assert final.correct == "yes"
+    assert final.build_log is None
 
     assert agent.usage.total == 30  # the session's cost is booked across the two moves

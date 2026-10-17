@@ -34,6 +34,7 @@ from hpcagent_bench.anticheat import Judgement
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness import recording, results_db, tools
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import HealthAnswer, SubmitVerdict
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 
@@ -333,7 +334,13 @@ class HeaderEcho(BaseHTTPRequestHandler):
     def reply(self) -> None:
         HeaderEcho.headers_seen.append(self.headers.get(http_json.WORKER_TOKEN_HEADER, ""))
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        data = b'{"ok": true, "correct": true}'
+        # What the judge answers the route, as its model dumps it: JudgeClient validates every answer.
+        answer = (
+            HealthAnswer(status="ok", rank=0, oracle="auto", baseline="auto", input_mode="any", submits_in_flight=0)
+            if self.path.startswith("/health")
+            else SubmitVerdict(correct="yes", request_id="r")
+        )
+        data = json.dumps(answer.to_json()).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))

@@ -26,30 +26,41 @@ import pytest
 
 from hpcagent_bench.harness import pipeline
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import BaselineAnswer, HealthAnswer, RecordedAnswer
 from hpcagent_bench.harness.runner import RunRow
-from hpcagent_bench.harness.service import MISDIRECTED_REQUEST, ServiceConfig, rank_error
+from hpcagent_bench.harness.scoring import Score
+from hpcagent_bench.harness.service import (
+    MISDIRECTED_REQUEST,
+    ServiceConfig,
+    grade_answer,
+    rank_error,
+    score_answer,
+)
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import JudgeClient
 
 TASK_A = Task("gemm", "restricted", "c")
 TASK_B = Task("gesummv", "restricted", "c")
 
-ORACLE_RESPONSE = {
-    "correct": True,
-    "max_rel_error": 0.0,
-    "native_ns": 10,
-    "build_ok": True,
-    "baseline_ns": 20,
-    "speedup": 2.0,
+GRADED = Score(correct=True, max_rel_error=0.0, native_ns=10, build_ok=True, baseline_ns=20, speedup=2.0)
+
+#: What the judge answers each route (the path's first segment), as its answer model dumps it.
+ANSWERS = {
+    "health": HealthAnswer(
+        status="ok", rank=0, oracle="auto", baseline="auto", input_mode="any", submits_in_flight=0
+    ).to_json(),
+    "baseline": BaselineAnswer(kernel="gemm", preset="S", baselines={"c": 20}).to_json(),
+    "submit": grade_answer(GRADED, "gemm", "c", "S", "host", RecordedAnswer(skipped="off"), "r").to_json(),
+    "score": score_answer(GRADED, "gemm", "c", "S", "host").to_json(),
+    "profile": {"configs": []},
 }
 
 
 class Recorder:
-    """Captures every request urllib is asked to make, thread-safely."""
+    """Captures every request urllib is asked to make, thread-safely, and answers it as the judge would."""
 
-    def __init__(self, payload=None, fail_for=None) -> None:
+    def __init__(self, fail_for=None) -> None:
         self.calls = []  # (url, body dict or None)
-        self.payload = payload if payload is not None else ORACLE_RESPONSE
         self.fail_for = fail_for or ()
         self.lock = threading.Lock()
 
@@ -60,7 +71,8 @@ class Recorder:
             self.calls.append((url, body))
         if any(bad in url for bad in self.fail_for):
             raise urllib.error.URLError(f"judge down: {url}")
-        return io.BytesIO(json.dumps(self.payload).encode())
+        route = urllib.parse.urlparse(url).path.strip("/").split("/")[0]
+        return io.BytesIO(json.dumps(ANSWERS[route]).encode())
 
     def urls(self):
         with self.lock:
@@ -396,10 +408,10 @@ def test_a_mismatched_rank_is_refused_and_names_both_ranks() -> None:
     or the operator cannot tell which end is mis-wired."""
     status, payload = rank_error(0, 1)
     assert status == MISDIRECTED_REQUEST == 421
-    assert (payload["judge_rank"], payload["requested_rank"]) == (0, 1)
-    assert "this judge is rank 0" in payload["error"]
-    assert "addressed to rank 1" in payload["error"]
-    assert "nothing was graded" in payload["error"]
+    assert (payload.judge_rank, payload.requested_rank) == (0, 1)
+    assert "this judge is rank 0" in payload.error
+    assert "addressed to rank 1" in payload.error
+    assert "nothing was graded" in payload.error
 
 
 @pytest.mark.parametrize("bad", [None, "", "one", "-1", "1.0", True])
@@ -409,15 +421,15 @@ def test_a_missing_or_unparsable_rank_is_refused(bad) -> None:
     the silent misroute again, one indirection later."""
     status, payload = rank_error(0, bad)
     assert status == 400
-    assert payload["judge_rank"] == 0
-    assert "'rank'" in payload["error"]
+    assert payload.judge_rank == 0
+    assert "'rank'" in payload.error
 
 
 def test_the_judge_refuses_a_mis_routed_request_over_http(make_judge) -> None:
     """End to end through a REAL judge: the mismatch is a 421 on the wire, and the task spec it
     would have answered with is never produced."""
     _srv, url = make_judge(ServiceConfig(), rank=1)
-    assert JudgeClient(url, rank=1).baseline("gemm", "c", "S")["kernel"] == "gemm"  # right rank -> served
+    assert JudgeClient(url, rank=1).baseline("gemm", "c", "S").kernel == "gemm"  # right rank -> served
     with pytest.raises(urllib.error.HTTPError) as ei:
         JudgeClient(url, rank=0).baseline("gemm", "c", "S")
     assert ei.value.code == MISDIRECTED_REQUEST
@@ -429,7 +441,7 @@ def test_health_answers_any_rank_and_reports_its_own(make_judge) -> None:
     """/health is the one route that must work before anyone knows the rank -- it grades nothing,
     so it answers, and it REPORTS its rank, which is how a mismatch elsewhere gets diagnosed."""
     _srv, url = make_judge(ServiceConfig(), rank=2)
-    assert JudgeClient(url, rank=0).health()["rank"] == 2
+    assert JudgeClient(url, rank=0).health().rank == 2
 
 
 # the round-robin assigns the rank, not the agent

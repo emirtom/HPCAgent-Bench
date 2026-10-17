@@ -24,6 +24,9 @@ from urllib.parse import urlparse
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.harness.judge_wire import RecordedAnswer
+from hpcagent_bench.harness.scoring import Score
+from hpcagent_bench.harness.service import grade_answer
 from tests.fresh_module import fresh
 from tests.optional_imports import import_or_skip
 
@@ -40,21 +43,29 @@ SUBMISSION = {
     "episode_id": "setup.n0.p1.w1",
 }
 
-#: What the judge answers a graded submission -- a superset of the correctness slice.
-GRADE = {
-    "correct": True,
-    "public_correct": True,
-    "hidden_correct": True,
-    "hidden_passed": 8,
-    "hidden_total": 8,
-    "max_rel_error": 1e-12,
-    "build_ok": True,
-    "detail": "ok",
-    "oracle": "numpy",
-    "speedup": 4.5,
-    "native_ns": 100,
-    "request_id": "rid1",
-}
+#: What the judge answers a graded submission (``service.submit_feedback=full``) -- a superset of the
+#: correctness slice.
+GRADE = grade_answer(
+    Score(
+        correct=True,
+        max_rel_error=1e-12,
+        native_ns=100,
+        build_ok=True,
+        detail="ok",
+        speedup=4.5,
+        public_correct=True,
+        hidden_correct=True,
+        hidden_passed=8,
+        hidden_total=8,
+        oracle="numpy",
+    ),
+    "gemm",
+    "c",
+    "S",
+    "host",
+    RecordedAnswer(skipped="record.enabled is false"),
+    "rid1",
+).to_json()
 
 #: The same grade as the agent may read it from /submit: the verdict alone.
 VERDICT = {"correct": "yes", "request_id": "rid1"}

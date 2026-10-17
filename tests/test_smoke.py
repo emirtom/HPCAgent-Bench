@@ -19,7 +19,6 @@ import subprocess
 import sys
 from collections.abc import Callable
 from http.server import ThreadingHTTPServer
-from typing import Any
 
 import pytest
 
@@ -28,6 +27,7 @@ from hpcagent_bench.api import RunConfig
 from hpcagent_bench.cluster import env_spec, systems
 from hpcagent_bench.harness import grade_under, timing, tools
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import GradeAnswer, ScorePreview
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.task import Task
 from tests import results_seed
@@ -88,23 +88,24 @@ def numba_reference(kernel: str) -> str:
     return "import numba\n" + body
 
 
-def grade_both(url: str, submission: Submission, kernel: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def grade_both(url: str, submission: Submission, kernel: str) -> tuple[ScorePreview, GradeAnswer]:
     """``/score``, then ``/submit`` with the whole grade in the answer (``service.submit_feedback=full``)."""
     client = tools.JudgeClient(url)
     scored = client.score(submission, kernel)
     with config.overridden("service.submit_feedback", "full"):
         submitted = client.submit(submission, kernel)
+    assert isinstance(submitted, GradeAnswer), submitted
     return scored, submitted
 
 
-def assert_accepted(scored: dict[str, Any], submitted: dict[str, Any]) -> None:
+def assert_accepted(scored: ScorePreview, submitted: GradeAnswer) -> None:
     """``/score`` correct and timed; ``/submit`` built, correct and timed against a measured baseline."""
-    assert scored["correct"] is True, scored
-    assert scored["native_ns"] > 0, scored
-    assert submitted["build_ok"] is True, submitted.get("detail")
-    assert submitted["correct"] is True, submitted.get("detail")
-    assert submitted["baseline_ns"] > 0, submitted
-    assert submitted["speedup"] > 0.0, submitted
+    assert scored.correct is True, scored
+    assert scored.native_ns > 0, scored
+    assert submitted.build_ok is True, submitted.detail
+    assert submitted.correct is True, submitted.detail
+    assert submitted.baseline_ns > 0, submitted
+    assert submitted.speedup > 0.0, submitted
 
 
 def test_a_source_judge_accepts_the_c_reference(make_judge: Judge) -> None:
@@ -119,7 +120,7 @@ def test_a_py_binding_judge_accepts_the_njit_reference_against_the_numba_baselin
     _server, url = make_judge(RunConfig(baseline="numba", input_mode="py-binding", repeat=SMOKE_REPEAT))
     scored, submitted = grade_both(url, submission, NUMBA_KERNEL)
     assert_accepted(scored, submitted)
-    assert submitted["baseline"] == "numba", submitted
+    assert submitted.baseline == "numba", submitted
 
 
 @pytest.mark.skipif(shutil.which("gfortran") is None, reason="skip:no-gfortran: no Fortran compiler on PATH")

@@ -390,8 +390,10 @@ def test_profile_endpoint_returns_the_kernel_call_graph(make_judge) -> None:
 
     task = Task("syrk", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="L"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)), "syrk", threads=[1], reps=5
+    body = (
+        tools.JudgeClient(url)
+        .profile(Submission(language="c", source=reference_source(task)), "syrk", threads=[1], reps=5)
+        .root
     )
     assert body["build_ok"] is True
     assert body["symbol"] == "syrk_fp64"
@@ -435,8 +437,10 @@ def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(make_judge) -> N
 
     task = Task("gemm", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="M"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)), "gemm", threads=[1], reps=3
+    body = (
+        tools.JudgeClient(url)
+        .profile(Submission(language="c", source=reference_source(task)), "gemm", threads=[1], reps=3)
+        .root
     )
     assert body["build_ok"] is True
     assert body["symbol"] == "gemm_fp64"
@@ -457,8 +461,10 @@ def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(make_judge) -> N
 
 @pytest.mark.perf
 def test_profile_reports_a_build_failure_instead_of_a_profile(make_judge) -> None:
-    body = tools.JudgeClient(make_judge(ServiceConfig())[1]).profile(
-        Submission(language="c", source="this is not c"), "gemm", threads=[1], reps=1
+    body = (
+        tools.JudgeClient(make_judge(ServiceConfig())[1])
+        .profile(Submission(language="c", source="this is not c"), "gemm", threads=[1], reps=1)
+        .root
     )
     assert body["build_ok"] is False
     assert body["detail"]
@@ -480,13 +486,17 @@ def test_profile_endpoint_reports_the_threads_apart_when_asked(make_judge) -> No
 
     task = Task("gemm", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="S"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)),
-        "gemm",
-        tool="papi",
-        threads=2,
-        reps=2,
-        per_thread=True,
+    body = (
+        tools.JudgeClient(url)
+        .profile(
+            Submission(language="c", source=reference_source(task)),
+            "gemm",
+            tool="papi",
+            threads=2,
+            reps=2,
+            per_thread=True,
+        )
+        .root
     )
     assert body["build_ok"] is True
     assert body["threads"] == 2
@@ -535,13 +545,17 @@ def test_the_per_thread_route_actually_carries_rows_where_papi_exists(make_judge
         pytest.skip(f"only {flags.ncores()} physical core(s); a distribution needs at least two threads")
     task = Task("gemm", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="S"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)),
-        "gemm",
-        tool="papi",
-        threads=2,
-        reps=2,
-        per_thread=True,
+    body = (
+        tools.JudgeClient(url)
+        .profile(
+            Submission(language="c", source=reference_source(task)),
+            "gemm",
+            tool="papi",
+            threads=2,
+            reps=2,
+            per_thread=True,
+        )
+        .root
     )
     report = body["per_thread"]
     if report.get("cause"):
