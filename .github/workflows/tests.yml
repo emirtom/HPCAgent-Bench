@@ -509,6 +509,24 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=1800 tests/test_integration_sweep.py
 
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          coverage: native
+
+  # The c/cpp/fortran e2e legs, split off `native` (which builds Pluto): together they took 31-45 of
+  # its 45 minutes, so a slow runner cancelled the job.
+  native-e2e:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
+    name: native-e2e (e2e[c,cpp,fortran] fp64 + fp32 + emitted references)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+        with:
+          ccache: native-e2e
+
       - name: Phase 5 -- e2e numerical sweep [c, cpp, fortran] @ S, fp64, WHOLE gated corpus
         if: ${{ !cancelled() }}
         timeout-minutes: 18
@@ -546,7 +564,7 @@ jobs:
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: native
+          coverage: native-e2e
 
   # The sudoless Apptainer install and launch path, and the in-process agent-bench suite. No image
   # is built here: every image under containers/images/ takes longer than a runner allows and gates
@@ -715,8 +733,13 @@ jobs:
   # The generated DaCe corpus still computes what numpy computes: a C++ build and a run per kernel.
   dace-numeric:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: dace-numeric (the generated DaCe corpus vs numpy)
+    name: dace-numeric[${{ matrix.shard }}] (the generated DaCe corpus vs numpy)
     runs-on: ubuntu-24.04
+    # Two shards: one runner took 34-40 of its 38 minutes, so a slow runner timed the gate out.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 0, 1 ]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -733,6 +756,7 @@ jobs:
         env:
           # Not /tmp (tmpfs): a full tmpfs fails builds in a way that reads as a kernel defect.
           JIT_CACHE_ROOT: ${{ runner.temp }}/jit
+          HPCAGENT_BENCH_DACE_PARSE_SHARD: "${{ matrix.shard }}/2"
         run: |
           rm -rf "$JIT_CACHE_ROOT/dace_numeric"
           python -c "from tests.test_dace_numeric_agreement import prewarm; \
@@ -743,14 +767,14 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: dace-corpus-numeric
+          name: dace-corpus-numeric-${{ matrix.shard }}
           path: hpcagent_bench/benchmarks/**/*_dace.py
           retention-days: 7
           if-no-files-found: ignore
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: dace-numeric
+          coverage: dace-numeric-${{ matrix.shard }}
 
   # Alloy (the optional `alloy` extra): one kernel's region variants built, verified and screened, and both CPU
   # profile flavors' libraries graded by an in-process judge. gcc and the setup's LLVM clang are its compilers.
@@ -875,7 +899,7 @@ jobs:
     if: ${{!cancelled()}}
     name: coverage (combined total)
     # Every job that uploads coverage data, or the total is built from a subset.
-    needs: [ unit, e2e, integration, translators, native, mpi, dace-numeric,
+    needs: [ unit, e2e, integration, translators, native, native-e2e, mpi, dace-numeric,
              dace-frontend, njit-oracle, alloy ]
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -36,7 +36,7 @@ import pytest
 
 from hpcagent_bench.numerical_oracle import DACE, run_kernel
 from hpcagent_bench.spec import KERNELS, BenchSpec
-from tests.test_dace_frontend_validity import REFUSED, REPO, ensure_dace_program
+from tests.test_dace_frontend_validity import REFUSED, REPO, ensure_dace_program, shard_of
 
 #: Tracks this gate covers. ``machine_learning`` is DELIBERATELY out of scope, not truncated: its
 #: conv/transpose graphs are the heaviest ``to_sdfg`` + compile in the corpus, and the frontend
@@ -140,10 +140,12 @@ def gated_kernels() -> tuple[str, ...]:
 
 
 def selected_kernels() -> list[str]:
+    """The gated kernels this run checks: the smoke set, or this CI shard of the whole gate
+    (``HPCAGENT_BENCH_DACE_PARSE_SHARD``, the frontend's split; every kernel when unsharded)."""
     gated = gated_kernels()
     if NUMERIC_SET == "smoke":
         return [k for k in gated if k in SMOKE]
-    return gated
+    return list(shard_of(list(gated)))
 
 
 def prewarm() -> int:

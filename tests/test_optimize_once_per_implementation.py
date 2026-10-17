@@ -52,9 +52,7 @@ def test_run_optimizes_each_implementation_once_and_times_the_optimized_handle(m
     assert len(handle_calls) == 1 + WARMUP + 3 + 1, handle_calls
 
 
-def gemm_through_numba(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, wrong_after_first_call: bool
-) -> bool:
+def gemm_through_numba(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, wrong_after_first_call: bool) -> bool:
     """Run gemm's numpy reference as the numba column's implementation, adding 1 to ``C`` on every call
     after the first when ``wrong_after_first_call``; return whether the column validated.
 

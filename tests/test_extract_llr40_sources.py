@@ -32,7 +32,13 @@ def write_run(db_path: pathlib.Path, episode_id: str, kernel: str, language: str
     with contextlib.closing(results_db.open_db(db_path)) as conn:
         results_db.ensure_setup(conn, results_db.Setup(setup, language, device, study="llr-focus40", model="oss120b"))
         run = results_db.ensure_episode(conn, setup, episode_id, int(db_path.parents[2].name))
-        stamp = {"preset": "fuzzed", "datatype": "float64", "source_mode": "restricted", "task_hash": "test-task", "baseline": "c"}
+        stamp = {
+            "preset": "fuzzed",
+            "datatype": "float64",
+            "source_mode": "restricted",
+            "task_hash": "test-task",
+            "baseline": "c",
+        }
         if credited:
             grade = {"build_ok": 1, "correct": 1, "speedup": 2.0, "credited_speedup": 2.0, "suspect": 0}
             results_db.add_grade(conn, run, kernel, "submit", ts_ms=10, values=stamp | grade)

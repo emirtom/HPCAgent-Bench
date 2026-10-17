@@ -28,9 +28,7 @@ def test_a_canon_db_alone_draws_its_columns_over_the_baseline(tmp_path: pathlib.
         ("pluto", "k2", 20.0),
         ("dace_cpu", "k1", 10.0),
     ]
-    frame = pd.DataFrame(
-        [{"run": "r", "column": c, "kernel": k, "median_ms": ms, "validated": 1} for c, k, ms in rows]
-    )
+    frame = pd.DataFrame([{"run": "r", "column": c, "kernel": k, "median_ms": ms, "validated": 1} for c, k, ms in rows])
     with sqlite3.connect(canon_db) as conn:
         frame.to_sql("canon", conn, index=False)
     out = tmp_path / "figures" / "compilers.pdf"

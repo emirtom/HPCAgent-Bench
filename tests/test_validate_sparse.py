@@ -211,5 +211,3 @@ def test_bsr_is_served_when_one_block_edge_is() -> None:
     raw["init"]["scenarios"]["uniform"]["layouts"] = ["csr", "csc", "coo", "ell"]
     raw["init"]["scenarios"]["diagonal"]["layouts"] = ["csr", "csc", "coo"]
     assert "bsr" in load(raw).configurations
-
-

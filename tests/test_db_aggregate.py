@@ -36,7 +36,13 @@ def seed_shard(
         results_db.ensure_setup(conn, results_db.Setup(setup, language, "cpu", study="agg", model="stub-model"))
         episode_id = results_db.ensure_episode(conn, setup, run, results_db.LOCAL_JOB)
         for kernel in kernels:
-            stamp = {"preset": "S", "datatype": "float64", "source_mode": "restricted", "task_hash": "test-task", "baseline": "c"}
+            stamp = {
+                "preset": "S",
+                "datatype": "float64",
+                "source_mode": "restricted",
+                "task_hash": "test-task",
+                "baseline": "c",
+            }
             credited = {"build_ok": 1, "correct": 1, "speedup": 1.5, "credited_speedup": 1.5}
             results_db.add_grade(conn, episode_id, kernel, "submit", ts_ms=1, values=stamp | credited)
             failed = {"build_ok": 0, "correct": 0, "reason": "build"}

@@ -96,7 +96,9 @@ def test_copy_grade_refuses_a_re_time_of_a_re_time(tmp_path: pathlib.Path) -> No
     one_grade(tmp_path / "a.db", temperature=1.0, tokens=1, speedup=1.5)
     with contextlib.closing(results_db.open_db(tmp_path / "a.db")) as conn:
         final = results_db.add_grade(conn, 1, "gemm", "final", ts_ms=2, values=GRADE_STAMP | {"of_grade_id": 1})[0]
-        again = results_db.add_grade(conn, 1, "gemm", "regrade", ts_ms=3, values=GRADE_STAMP | {"of_grade_id": final})[0]
+        again = results_db.add_grade(conn, 1, "gemm", "regrade", ts_ms=3, values=GRADE_STAMP | {"of_grade_id": final})[
+            0
+        ]
         conn.commit()
     with contextlib.closing(results_db.open_db(tmp_path / "d.db")) as dest, pytest.raises(ValueError, match="final"):
         results_db.copy_grade(tmp_path / "a.db", again, dest)

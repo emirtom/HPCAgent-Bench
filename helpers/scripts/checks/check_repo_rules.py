@@ -107,7 +107,11 @@ def stale(allow: Iterable[str], rule: str) -> list[str]:
 # hash-seed
 
 HASH_SEED = re.compile(r"PYTHONHASHSEED\s*[=:]\s*['\"]?0|[\"']PYTHONHASHSEED[\"']\s*:")
-HASH_SEED_HOMES = {"hpcagent_bench/cluster/env.sh", ".github/workflows/tests.yml", "containers/images/lib/launch_venv.sh"}
+HASH_SEED_HOMES = {
+    "hpcagent_bench/cluster/env.sh",
+    ".github/workflows/tests.yml",
+    "containers/images/lib/launch_venv.sh",
+}
 
 
 def hash_seed(files: list[str]) -> list[str]:

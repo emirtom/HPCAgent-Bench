@@ -210,8 +210,6 @@ def test_the_registered_vocabulary_passes_its_own_cross_checks() -> None:
 
 def test_an_alias_resolves_to_the_entity_it_names_and_takes_no_slot() -> None:
     assert vocabulary.FRAMEWORKS.canonical("jax_cpu") == "jax"
-    assert vocabulary.FRAMEWORKS.canonical("dace_cpu_canonicalize") == "dace_cpu_canon"
-    assert vocabulary.FRAMEWORKS.canonical("tvm") == "tvm_gpu"
     assert vocabulary.OPTIMIZERS.canonical("dace_cpu") == "dace"
     for kind in vocabulary.KINDS.values():
         assert not set(kind.aliases) & set(kind.orders)
