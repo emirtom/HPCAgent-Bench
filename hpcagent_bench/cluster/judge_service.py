@@ -24,16 +24,15 @@ import pathlib
 import re
 import sys
 from http import HTTPStatus
-from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from hpcagent_agent import submission_mode
 from hpcagent_agent.tools import http_json
 from pydantic import BaseModel, Field, ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from hpcagent_bench import fused, problem_file
 from hpcagent_bench.harness import judge_web_search
@@ -42,7 +41,9 @@ from hpcagent_bench.harness.judge_wire import (
     HealthAnswer,
     InFlightAnswer,
     JudgeError,
+    RouterError,
     RouterHealthAnswer,
+    SearchAnswer,
     SubmitAnswer,
     SubmitVerdict,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "refuse_foreign_setup",
     "relay",
     "relayed_routes",
+    "router_error",
     "score",
     "search",
     "send_upstream",
@@ -435,12 +437,12 @@ async def canonical_parallel_form(request: Request, kernel: str) -> Response:
 
 @app.post("/search")
 @app.post("/web-search")
-async def search(request: SearchRequest) -> dict[str, Any]:
+async def search(request: SearchRequest) -> Response:
     query = request.query
     if request.context:
         query = f"{query}\n\nTask context:\n{request.context}"
     try:
-        return await asyncio.to_thread(
+        found = await asyncio.to_thread(
             judge_web_search.run_web_search,
             query,
             request.limit,
@@ -453,6 +455,7 @@ async def search(request: SearchRequest) -> dict[str, Any]:
         ) from exc
     except Exception as exc:
         raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail=str(exc)) from exc
+    return JSONResponse(SearchAnswer.model_validate(found).to_json())
 
 
 def verdict_of(graded: SubmitAnswer) -> SubmitVerdict:
@@ -614,15 +617,23 @@ async def profile(request: Request) -> Response:
     return relay(await forward(request, "/profile"))
 
 
+@app.exception_handler(StarletteHTTPException)
+async def router_error(request: Request, exc: StarletteHTTPException) -> Response:
+    """Every ``HTTPException`` the router or FastAPI raises, as a :class:`RouterError` (FastAPI's own
+    ``{"detail": ...}`` envelope) under its status and headers."""
+    del request
+    return JSONResponse(RouterError(detail=exc.detail).to_json(), status_code=exc.status_code, headers=exc.headers)
+
+
 @app.exception_handler(HTTPStatus.NOT_FOUND)
-async def read_route(request: Request, exc: HTTPException) -> Response:
+async def read_route(request: Request, exc: StarletteHTTPException) -> Response:
     """A GET no route matched, relayed as it came, so a new judge read route needs no handler here.
 
     A handler rather than a ``/{path:path}`` route: a catch-all GET route would also match a GET on a
     POST route, relaying it instead of answering 405. Any other unmatched request keeps the 404."""
     if request.method != "GET":
-        return await http_exception_handler(request, exc)
+        return await router_error(request, exc)
     try:
         return relay(await forward(request, request.url.path))
     except HTTPException as failed:
-        return await http_exception_handler(request, failed)
+        return await router_error(request, failed)

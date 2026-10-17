@@ -52,7 +52,7 @@ ANSWERS = {
     "baseline": BaselineAnswer(kernel="gemm", preset="S", baselines={"c": 20}).to_json(),
     "submit": grade_answer(GRADED, "gemm", "c", "S", "host", RecordedAnswer(skipped="off"), "r").to_json(),
     "score": score_answer(GRADED, "gemm", "c", "S", "host").to_json(),
-    "profile": {"configs": []},
+    "profile": {"build_ok": False, "kernel": "gemm", "language": "c", "detail": "k.c:1: error"},
 }
 
 

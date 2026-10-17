@@ -26,6 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import Message
+from typing import TYPE_CHECKING
 
 from hpcagent_agent.tools.http_json import (
     DEFAULT_JUDGE_PORT,
@@ -40,12 +41,14 @@ from hpcagent_bench.harness.judge_wire import (
     SUBMIT_ANSWER,
     BaselineAnswer,
     HealthAnswer,
-    ProfileAnswer,
     ScoreAnswer,
     ScorePreview,
     SubmitAnswer,
 )
 from hpcagent_bench.harness.requests_api import Requests
+
+if TYPE_CHECKING:
+    from hpcagent_bench.harness.profile_wire import ProfileAnswer
 
 __all__ = [
     "DEFAULT_JUDGE_PORT",
@@ -93,8 +96,10 @@ def submission_body(submission: Submission, kernel: str) -> dict[str, JsonValue]
 
 
 class JudgeClient:
-    """Stdlib-only HTTP client for the judge service. ``base_url`` routes the request; ``rank`` only
-    validates the routing and rides on every request automatically."""
+    """HTTP client (stdlib ``urllib``) for the judge service. ``base_url`` routes the request; ``rank`` only
+    validates the routing and rides on every request automatically. Every method returns the answer as its
+    pydantic model (:mod:`hpcagent_bench.harness.judge_wire`, :mod:`hpcagent_bench.harness.profile_wire`):
+    read its fields as attributes, or ``to_json()`` for the JSON object the judge sent."""
 
     __slots__ = ("base_url", "rank", "timeout")
 
@@ -172,7 +177,7 @@ class JudgeClient:
         per_thread: bool = False,
         residency: str | None = None,
         device_kernel: str | None = None,
-    ) -> ProfileAnswer:
+    ) -> "ProfileAnswer":
         """The diagnostic route; ``tool`` picks the instrument. Never scored.
 
         The default ``tool`` follows the language: ``linuxperf`` on the host, ``nsys`` for ``cuda``,
@@ -201,8 +206,8 @@ class JudgeClient:
           ``compiler``, ``driver``, ``version``, ``report_flags``, ``report``). Python or ``library``
           deliveries are a 400; a toolchain without report flags is a 503.
 
-        The answer is the instrument's report, its ``root`` the JSON object (``opt-report``'s is an
-        :class:`~hpcagent_bench.harness.judge_wire.OptReportAnswer`, ``OptReportAnswer.model_validate(answer.root)``)."""
+        The answer's ``root`` is the report of the tool that ran, as its model
+        (:mod:`hpcagent_bench.harness.profile_wire`, or :class:`~hpcagent_bench.harness.judge_wire.OptReportAnswer`)."""
         body: dict[str, JsonValue] = {"kernel": kernel, "min_percent": min_percent, **submission.to_json()}
         if counters:
             body["counters"] = True
@@ -220,6 +225,9 @@ class JudgeClient:
             body["residency"] = residency
         if device_kernel is not None:
             body["device_kernel"] = device_kernel
+        # Imported here: the report models load the profilers, which this module's importers do not need.
+        from hpcagent_bench.harness.profile_wire import ProfileAnswer
+
         return ProfileAnswer.model_validate_json(self.post("/profile", body))
 
 

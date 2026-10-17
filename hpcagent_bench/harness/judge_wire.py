@@ -12,7 +12,8 @@ is null in the grade (``timing_reduction``) stays null. Non-finite floats travel
 which stdlib ``json`` reads and writes; the agent containers parse these answers with it, so the shape here is
 the shape they read (a test pins it against the grade).
 
-``POST /requests/check`` answers :class:`~hpcagent_bench.harness.requests_api.RequestsCheck`, which this module
+``POST /requests/check`` answers :class:`~hpcagent_bench.harness.requests_api.RequestsCheck`, and ``POST /profile``
+an instrument report of :mod:`hpcagent_bench.harness.profile_wire` (or :class:`OptReportAnswer`), which this module
 does not repeat.
 """
 
@@ -25,19 +26,24 @@ __all__ = [
     "BaselineAnswer",
     "BuildAnswer",
     "CanonicalFormAnswer",
+    "CrawledPageAnswer",
     "GradeAnswer",
     "HealthAnswer",
     "InFlightAnswer",
     "JudgeAnswer",
     "JudgeError",
     "OptReportAnswer",
-    "ProfileAnswer",
     "RecordedAnswer",
     "RequestFields",
+    "RouterError",
+    "RouterFault",
     "RouterHealthAnswer",
     "ScoreAnswer",
     "ScoreCellAnswer",
     "ScorePreview",
+    "SearchAnswer",
+    "SearchHit",
+    "SearchSource",
     "SubmitAnswer",
     "SubmitVerdict",
     "TimedCellAnswer",
@@ -324,13 +330,54 @@ class OptReportAnswer(JudgeAnswer):
     truncated: bool
 
 
-class ProfileAnswer(pydantic.RootModel[dict[str, pydantic.JsonValue]]):
-    """``POST /profile`` with an instrument (``linuxperf``, ``papi``, ``nsys``, ``rocprofv3``, ``ncu``,
-    ``rocprof-compute``, ``none``): the instrument's report, a JSON object whose members depend on the tool
-    (documented on :meth:`~hpcagent_bench.harness.tools.JudgeClient.profile`)."""
+class RouterFault(JudgeAnswer):
+    """A router failure a client acts on (``cause`` ``judge_unreachable``, ``not_provisioned``)."""
 
-    model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
+    cause: str
+    error: str
 
-    def to_json(self) -> dict[str, object]:
-        """The report as the JSON object sent."""
-        return self.model_dump(mode="json")
+
+class RouterError(JudgeAnswer):
+    """Every ``HTTPException`` the router raises, in FastAPI's own ``{"detail": ...}`` envelope: the reason, or a
+    :class:`RouterFault`."""
+
+    detail: RouterFault | str
+
+
+class SearchSource(JudgeAnswer):
+    """One crawled page of a ``/search`` answer, as its source list names it."""
+
+    title: str
+    url: str
+    success: bool
+    error: str
+
+
+class SearchHit(JudgeAnswer):
+    """One search engine result (``judge_web_search.SearchResult``)."""
+
+    title: str
+    url: str
+    snippet: str
+
+
+class CrawledPageAnswer(JudgeAnswer):
+    """One crawled page (``judge_web_search.CrawledPage``)."""
+
+    title: str
+    url: str
+    snippet: str
+    content: str
+    references: str
+    success: bool
+    error: str
+
+
+class SearchAnswer(JudgeAnswer):
+    """The router's ``POST /search`` (``judge_web_search.result_dict``): the answer and what it was drawn from."""
+
+    query: str
+    answer: str
+    sources: list[SearchSource]
+    search_results: list[SearchHit]
+    crawled_pages: list[CrawledPageAnswer]

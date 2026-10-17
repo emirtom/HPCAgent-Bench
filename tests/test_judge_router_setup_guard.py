@@ -31,7 +31,7 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.tools import JudgeClient
 from tests import test_grade_under, test_scaling_grade
 from tests.fresh_module import fresh
-from tests.judge_router_stub import StubJudge, load_router, stub_judge, through_router
+from tests.judge_router_stub import GRADE, REPORT, SCORE, StubJudge, load_router, stub_judge, through_router
 from tests.optional_imports import import_or_skip
 
 #: The regrade worklist stages each setup through submit.sh; these tests grade fixtures, not launches.
@@ -190,9 +190,10 @@ def test_the_harness_judge_client_is_accepted(router: "TestClient", monkeypatch:
     monkeypatch.setenv("HPCAGENT_BENCH_EPISODE_ID", f"{SETUP}.n0.p2.w1")
     client = JudgeClient("http://judge.test:8800", rank=0)
     submission = Submission(language="c", source="void k(void){}")
+    StubJudge.replies.extend([(200, SCORE), (200, GRADE), (200, REPORT)])  # what each route answers
     assert client.score(submission, "dist_softmax").correct is True
     assert client.submit(submission, "dist_softmax").correct == "yes"
-    assert client.profile(submission, "dist_softmax").root["correct"] is True
+    assert client.profile(submission, "dist_softmax").root.build_ok is True
     assert upstream_routes() == ["/score", "/submit", "/profile"]
 
 

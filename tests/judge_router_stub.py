@@ -48,6 +48,25 @@ GRADE: dict[str, Any] = grade_answer(
 #: What the upstream judge answers ``/score``: the grade without the redacted fields.
 SCORE: dict[str, Any] = score_answer(GRADED, "gemm", "c", "S", "host").to_json()
 
+#: A ``/profile`` report as the upstream judge answers ``tool="none"`` (``profiling.InstrumentPayload``).
+REPORT: dict[str, Any] = {
+    "build_ok": True,
+    "kernel": "gemm",
+    "language": "c",
+    "preset": "S",
+    "datatype": "float64",
+    "symbol": "gemm_fp64",
+    "reps": 1,
+    "warmup": 0,
+    "threads": 1,
+    "exit_code": 0,
+    "elapsed_ns": 100,
+    "stdout": "",
+    "stderr": "",
+    "truncated": False,
+    "prefix_collision": False,
+}
+
 
 class StubJudge(BaseHTTPRequestHandler):
     """Records every request that reached it; answers ``replies`` in order, then a 200 grade (``/score``'s own

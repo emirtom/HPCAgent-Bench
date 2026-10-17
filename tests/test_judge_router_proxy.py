@@ -293,14 +293,16 @@ def test_search_still_runs_locally(client: "TestClient", service: ModuleType, mo
     """/search is this container's own tool and is unchanged: same context join, same limit."""
     seen: dict[str, Any] = {}
 
+    found = service.judge_web_search.result_dict("MI300 LDS", "use LDS", [], [])
+
     def fake_search(query: str, limit: int | None) -> dict[str, Any]:
         seen.update(query=query, limit=limit)
-        return {"answer": "use LDS"}
+        return found
 
     monkeypatch.setattr(service.judge_web_search, "run_web_search", fake_search)
     response = client.post("/search", json={"query": "MI300 LDS", "context": "gemm", "limit": 3})
     assert response.status_code == 200
-    assert response.json() == {"answer": "use LDS"}
+    assert response.json() == found
     assert seen == {"query": "MI300 LDS\n\nTask context:\ngemm", "limit": 3}
     assert not StubJudge.calls  # search never touches the judge
 

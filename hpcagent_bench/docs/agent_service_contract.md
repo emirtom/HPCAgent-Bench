@@ -71,7 +71,8 @@ Only malformed requests are 4xx; a failed build or a wrong answer is a normal 20
 Every answer is a pydantic model in
 [judge_wire.py](../harness/judge_wire.py) (`ScoreAnswer`, `SubmitVerdict`, `GradeAnswer` under
 `service.submit_feedback=full`, `HealthAnswer`, `BaselineAnswer`, `BuildAnswer`, `CanonicalFormAnswer`,
-`ProfileAnswer` / `OptReportAnswer`, `JudgeError`; `/requests/check` answers `requests_api.RequestsCheck`). An
+`ProfileAnswer` (one report model per tool, [profile_wire.py](../harness/profile_wire.py)) / `OptReportAnswer`,
+`JudgeError`; `/requests/check` answers `requests_api.RequestsCheck`). An
 optional key that does not apply (`build_log`, `judge_fault`, `cause`, ...) is absent.
 
 ## Judge rank

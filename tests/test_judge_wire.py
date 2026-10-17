@@ -16,15 +16,18 @@ import math
 import pydantic
 import pytest
 
-from hpcagent_bench.harness import service
+from hpcagent_bench.harness import judge_web_search, service
 from hpcagent_bench.harness.judge_wire import (
     SUBMIT_ANSWER,
+    CrawledPageAnswer,
     GradeAnswer,
     JudgeError,
-    ProfileAnswer,
     RecordedAnswer,
+    RouterError,
     ScoreAnswer,
     ScoreCellAnswer,
+    SearchAnswer,
+    SearchHit,
     SubmitVerdict,
     TimedCellAnswer,
 )
@@ -206,13 +209,30 @@ def test_the_answer_models_track_the_grade_field_for_field() -> None:
     assert set(TimedCellAnswer.model_fields) == cell_fields
 
 
-def test_a_profile_report_is_sent_as_the_object_the_instrument_built() -> None:
-    """An instrument's report goes out as its JSON form: tuples as lists, a non-finite float as its constant."""
-    report = {"configs": [{"threads": 1, "hotspots": ("a", "b")}], "ratio": math.nan}
-    answer = service.profile_answer(report)
-    assert json.dumps(answer.to_json()) == json.dumps(report)
+def test_a_router_error_is_fastapi_s_own_envelope() -> None:
+    """The router's ``HTTPException`` bodies keep FastAPI's ``{"detail": ...}``: a reason, or a cause a client
+    acts on with its error."""
+    assert RouterError(detail="the client closed the request").to_json() == {"detail": "the client closed the request"}
+    fault = {"cause": "judge_unreachable", "error": "judge upstream was never reached"}
+    assert RouterError(detail=fault).to_json() == {"detail": fault}
     with pytest.raises(pydantic.ValidationError):
-        ProfileAnswer.model_validate_json(b"[1, 2]")
+        RouterError(detail={"cause": "x"})
+
+
+def test_a_search_answer_is_the_json_the_search_tool_built() -> None:
+    """``/search`` answers ``judge_web_search.result_dict`` field for field, in its key order."""
+    hits = [judge_web_search.SearchResult("t", "https://a", "s")]
+    pages = [
+        judge_web_search.CrawledPage("t", "https://a", "s", "body", "[1] https://a", True),
+        judge_web_search.CrawledPage("u", "https://b", "s", "", "", False, "timed out"),
+    ]
+    found = judge_web_search.result_dict("q", "the answer", hits, pages)
+    assert json.dumps(SearchAnswer.model_validate(found).to_json()) == json.dumps(found)
+    names = [item.name for item in dataclasses.fields(judge_web_search.SearchResult)]
+    assert list(SearchHit.model_fields) == names
+    assert list(CrawledPageAnswer.model_fields) == [
+        item.name for item in dataclasses.fields(judge_web_search.CrawledPage)
+    ]
 
 
 if __name__ == "__main__":
@@ -225,4 +245,5 @@ if __name__ == "__main__":
     test_the_client_reads_back_the_grade_the_judge_sent()
     test_an_answer_with_an_unknown_field_is_refused()
     test_the_answer_models_track_the_grade_field_for_field()
-    test_a_profile_report_is_sent_as_the_object_the_instrument_built()
+    test_a_router_error_is_fastapi_s_own_envelope()
+    test_a_search_answer_is_the_json_the_search_tool_built()

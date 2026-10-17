@@ -107,7 +107,7 @@ from hpcagent_bench.harness.optimizers import BlasReductionOptimizer
 from hpcagent_bench.harness.task import Task
 sub = BlasReductionOptimizer().solve(Task("{KERNEL}", "restricted", "c"))
 c = tools.JudgeClient()  # JUDGE_URL from env
-print(json.dumps({{"score": c.score(sub, "{KERNEL}"), "submit": c.submit(sub, "{KERNEL}")}}))
+print(json.dumps({{"score": c.score(sub, "{KERNEL}").to_json(), "submit": c.submit(sub, "{KERNEL}").to_json()}}))
 """
 
 
@@ -148,7 +148,7 @@ def test_two_containers_judge_and_agent_via_tools(tmp_path) -> None:
         deadline = time.time() + 120
         while time.time() < deadline:
             try:
-                if client.health()["status"] == "ok":
+                if client.health().status == "ok":
                     break
             except OSError:
                 time.sleep(1.0)

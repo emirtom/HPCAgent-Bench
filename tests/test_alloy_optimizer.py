@@ -11,6 +11,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import tools
+from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import optimizer_registry
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
@@ -50,6 +51,7 @@ def test_the_profile_flavor_submits_a_library_the_judge_grades_correct(
     assert sub.library is not None
     with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
-    assert r["build_ok"] is True, r["detail"]
-    assert r["correct"] is True, r["detail"]
-    assert r["speedup"] > 0.0
+    assert isinstance(r, GradeAnswer), r
+    assert r.build_ok is True, r.detail
+    assert r.correct is True, r.detail
+    assert r.speedup > 0.0

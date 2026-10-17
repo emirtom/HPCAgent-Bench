@@ -72,7 +72,6 @@ from hpcagent_bench.harness.judge_wire import (
     JudgeAnswer,
     JudgeError,
     OptReportAnswer,
-    ProfileAnswer,
     RecordedAnswer,
     RequestFields,
     ScoreAnswer,
@@ -183,7 +182,6 @@ __all__ = [
     "ml_layout",
     "precision_scope_refusal",
     "preload_lazy_imports",
-    "profile_answer",
     "python_residency_refusal",
     "rank_error",
     "record_result",
@@ -204,6 +202,7 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
+    from hpcagent_bench.harness.profile_wire import ProfileReply
     from hpcagent_bench.harness.prompts import PromptConfig
     from hpcagent_bench.harness.recording import FinalRecord
 
@@ -211,7 +210,7 @@ if TYPE_CHECKING:
 SERVICE_TEMPLATE = "service_task.j2"
 
 #: Every answer the judge sends (:mod:`hpcagent_bench.harness.judge_wire`); each dumps itself with ``to_json``.
-type WireAnswer = JudgeAnswer | ProfileAnswer | RequestsCheck
+type WireAnswer = JudgeAnswer | ProfileReply | RequestsCheck
 
 #: RFC 9110 421 Misdirected Request: the request reached the wrong judge.
 MISDIRECTED_REQUEST = 421
@@ -401,12 +400,6 @@ OFFLOAD_COMPUTE_TOOL = COMPUTE_DEVICE_TOOLS["hip"]
 def request_label() -> str:
     """A folder name for one request's staged report: sortable by time, unique across judge restarts."""
     return f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(3)}"
-
-
-def profile_answer(report: object) -> ProfileAnswer:
-    """An instrument's report (an untyped profiler's dict) as the ``/profile`` answer, read through its JSON
-    form as the agent reads it; a report that is not a JSON object raises ValueError."""
-    return ProfileAnswer.model_validate_json(json.dumps(report))
 
 
 def as_json_object(value: object) -> dict[str, object]:
@@ -1975,6 +1968,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         (:func:`grading_residency`)."""
         from hpcagent_bench.harness.compute_profiling import profile_compute_submission
         from hpcagent_bench.harness.gpu_profiling import offload_traced, profile_gpu_submission
+        from hpcagent_bench.harness.profile_wire import profile_reply
 
         # The datatype the kernel is graded in (a storage precision, its track's), so the profile times that.
         datatype = graded_datatype(BenchSpec.load(task.kernel), self.cfg.datatype)
@@ -2032,7 +2026,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 if slot is None:
                     return None
                 if tool == "none":
-                    payload = profile_answer(
+                    payload = profile_reply(
                         run_agent_build(
                             submission,
                             task,
@@ -2043,7 +2037,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     )
                 elif tool == "papi" and body.flag("per_thread"):
                     # The imbalance question: the same instrument, counts reported per thread instead of summed.
-                    payload = profile_answer(
+                    payload = profile_reply(
                         count_threads_submission(
                             submission,
                             task,
@@ -2054,7 +2048,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 elif tool == "papi":
-                    payload = profile_answer(
+                    payload = profile_reply(
                         count_submission(
                             submission,
                             task,
@@ -2066,7 +2060,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 elif tool in (compute_tool, offload_compute_tool):
-                    payload = profile_answer(
+                    payload = profile_reply(
                         profile_compute_submission(
                             submission,
                             task,
@@ -2080,7 +2074,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 elif tool in (device_tool, offload_tool):
-                    payload = profile_answer(
+                    payload = profile_reply(
                         profile_gpu_submission(
                             submission,
                             task,
@@ -2092,7 +2086,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
                 else:  # linuxperf
-                    payload = profile_answer(
+                    payload = profile_reply(
                         profile_submission(
                             submission,
                             task,
