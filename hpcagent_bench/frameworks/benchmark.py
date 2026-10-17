@@ -178,8 +178,9 @@ class Benchmark:
         from hpcagent_bench.precision import precision_from_datatype
         from hpcagent_bench.support.distributions import noise
 
-        # The legacy dict carries no track; the loaded manifest's decides the track's input defaults.
-        spec = BenchSpec.from_dict(dict(self.info), source=self.bname).replace(track=self.spec.track)
+        # The loaded manifest itself: the legacy dict is lossy (no track, no public block, no config space), and
+        # re-parsing it re-ran public.negative validation without the declarations.
+        spec = self.spec
         # Fuzz cycling, else the config/uniform default.
         dist_name = ""
         is_fuzz = preset == fuzz.FUZZED_PRESET

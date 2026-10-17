@@ -11,8 +11,9 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import cpf_canonical
+from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness import prompts
-from hpcagent_bench.spec import SMALL_LIMIT, BenchSpec
+from hpcagent_bench.spec import KERNELS, SMALL_LIMIT, BenchSpec
 
 SMALL_NLEV = {"scale": "small", "description": "vertical levels"}
 BIG_N = {"scale": "big", "description": "the columns"}
@@ -194,6 +195,19 @@ def test_small_symbols_key_the_canonical_entry_only_when_declared(tmp_path: path
     assert cpf_canonical.canonical_key(program, "commit", "fp64", "cpu", frozenset({"nlev"})) != plain
 
 
+#: Every registry kernel that declares a negative symbol.
+NEGATIVE_KERNELS: list[str] = sorted(
+    key for key in KERNELS if (spec := BenchSpec.load(key)).public is not None and spec.public.negative
+)
+
+
+@pytest.mark.parametrize("kernel", NEGATIVE_KERNELS)
+def test_a_kernel_with_a_negative_symbol_generates_its_data(kernel: str) -> None:
+    """get_data re-parses the manifest from the legacy info dict, which carries no public block: without it the
+    declared negatives read as undeclared and every such kernel failed to build its inputs."""
+    assert Benchmark(kernel).get_data(preset="S")
+
+
 if __name__ == "__main__":
     test_a_public_block_loads_and_names_its_small_symbols()
     test_a_configuration_adds_its_own_small_symbols()
@@ -209,3 +223,5 @@ if __name__ == "__main__":
     test_the_prompt_states_the_block_as_prose()
     test_no_block_renders_nothing()
     test_small_symbols_key_the_canonical_entry_only_when_declared(pathlib.Path(tempfile.mkdtemp()))
+    for negative_kernel in NEGATIVE_KERNELS:
+        test_a_kernel_with_a_negative_symbol_generates_its_data(negative_kernel)
