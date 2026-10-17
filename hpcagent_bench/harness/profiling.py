@@ -57,7 +57,9 @@ __all__ = [
     "DEFAULT_THREADS",
     "INSTRUMENT_OUTPUT_LIMIT",
     "MODULE",
+    "REQUEST_ADAPTER",
     "RESULT_PREFIX",
+    "WORKLOAD_ADAPTER",
     "BuildFailure",
     "ConfigRow",
     "CountPayload",
@@ -114,6 +116,7 @@ __all__ = [
     "tail",
     "thread_result",
     "thread_sweep",
+    "workload_result",
 ]
 
 #: Thread counts profiled when the request names none, clamped to this process's physical cores.
@@ -167,6 +170,10 @@ class WorkloadResult(TypedDict):
 
     elapsed_ns: int
     reps: int
+
+
+#: Validator of a sampled child's result line (:class:`WorkloadResult`).
+WORKLOAD_ADAPTER: "pydantic.TypeAdapter[WorkloadResult]" = pydantic.TypeAdapter(WorkloadResult)
 
 
 class FlatRow(TypedDict):
@@ -456,12 +463,9 @@ def request_plan(request_file: pathlib.Path) -> seal.SealPlan | None:
     ``devices`` mirrors native_call.host_only_grade off the request's ``device`` field, so a host
     profile sees no GPU; a missing or malformed request file keeps ``devices=True``."""
     try:
-        # Only the residency decides the seal: read that field, not the whole request, so a request that
-        # differs elsewhere still hides the devices of a host run.
-        stated = json.loads(request_file.read_text()).get("device", True)
-    except (OSError, ValueError, AttributeError):
-        stated = True
-    device = stated if isinstance(stated, bool) else True
+        device = child_request(request_file.read_text())["device"]
+    except (OSError, ValueError):  # the child refuses that request itself (:func:`child_request`)
+        device = True
     return seal.grading_plan([str(request_file.parent)], devices=not host_only_grade(device))
 
 
@@ -496,6 +500,11 @@ def as_float(value: object, field: str = "") -> float:
     if field:
         raise TypeError(f"{field} came back as {type(value).__name__}, not a number")
     raise TypeError(f"expected a number, got {type(value).__name__}")
+
+
+def workload_result(raw: JsonObject) -> WorkloadResult:
+    """The sampled child's result line, as :func:`run_workload` produced it."""
+    return WORKLOAD_ADAPTER.validate_python(raw)
 
 
 def counted_result(raw: JsonObject) -> papi.MetricRow:
@@ -584,7 +593,7 @@ def profile_once(
     shown = scoped if scoped is not None else graph
     return ThreadRun(
         threads=threads,
-        elapsed_ns=as_int(result["elapsed_ns"], "elapsed_ns"),
+        elapsed_ns=workload_result(result)["elapsed_ns"],
         samples=samples,
         kernel_pct=kernel_pct,
         hotspots=spots,
@@ -700,8 +709,8 @@ def measured_build(
             return
         root = sandbox.require_root()
         request = root / name
-        request.write_text(
-            json.dumps(
+        request.write_bytes(
+            REQUEST_ADAPTER.dump_json(
                 measurement_request(
                     submission,
                     task,
@@ -1135,7 +1144,7 @@ def run_agent_build(
             "warmup": 0,
             "threads": threads,
             "exit_code": exit_code,
-            "elapsed_ns": as_int(result["elapsed_ns"], "elapsed_ns") if result else None,
+            "elapsed_ns": workload_result(result)["elapsed_ns"] if result else None,
             "stdout": kept_out,
             "stderr": kept_err,
             "truncated": out_truncated or err_truncated,
@@ -1161,7 +1170,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.metric:
         print(RESULT_PREFIX + json.dumps(run_counted(request, str(args.metric))))
     else:
-        print(RESULT_PREFIX + json.dumps(run_workload(request)))
+        print(RESULT_PREFIX + WORKLOAD_ADAPTER.dump_json(run_workload(request)).decode())
     return 0
 
 

@@ -12,7 +12,6 @@ edit there re-renders without re-canonicalizing.
 
 import hashlib
 import importlib
-import json
 import os
 import pathlib
 import tempfile
@@ -22,6 +21,8 @@ from importlib import metadata
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
+import pydantic
+
 from hpcagent_bench import cpf_cache, paths
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -30,6 +31,9 @@ from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 __all__ = [
     "DACE_PATH_VARIABLES",
     "IMPL_POSTFIXES",
+    "DirInfo",
+    "DirectUrl",
+    "VcsInfo",
     "bind_precision",
     "canonical_key",
     "canonical_sdfg",
@@ -104,20 +108,51 @@ def failure(exc: BaseException) -> dict[str, str]:
     return {"verdict": "fail", "error": f"{type(exc).__name__}: {exc}"[:400]}
 
 
-def commit_of(record: Mapping[str, Any]) -> str:
+class VcsInfo(pydantic.BaseModel):
+    """``vcs_info`` of a PEP 610 record: a VCS install's system and the commit it installed."""
+
+    #: A standard's record, written by the installer: the fields this reader does not use are ignored.
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    vcs: str
+    commit_id: str
+
+
+class DirInfo(pydantic.BaseModel):
+    """``dir_info`` of a PEP 610 record: a local directory install, ``editable`` or not."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    editable: bool = False
+
+
+class DirectUrl(pydantic.BaseModel):
+    """A PEP 610 ``direct_url.json`` record (the installer's, read here for the dace commit): the ``url`` it
+    was installed from and how. Its other fields (``archive_info``, ``subdirectory``) are ignored."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    url: str
+    vcs_info: VcsInfo | None = None
+    dir_info: DirInfo | None = None
+
+
+def commit_of(record: DirectUrl | Mapping[str, Any]) -> str:
     """The commit a PEP 610 ``direct_url.json`` record names: the git revision of a VCS install (what uv records
     for the pinned spcl/dace), else an editable checkout's HEAD; empty when it names neither."""
-    vcs = record.get("vcs_info", {})
-    if vcs.get("vcs") == "git" and vcs.get("commit_id"):
-        return str(vcs["commit_id"])
-    if record.get("dir_info", {}).get("editable"):
-        return paths.git_head(pathlib.Path(urllib.parse.urlparse(str(record.get("url", ""))).path))
+    direct = DirectUrl.model_validate(record)
+    if direct.vcs_info is not None and direct.vcs_info.vcs == "git" and direct.vcs_info.commit_id:
+        return direct.vcs_info.commit_id
+    if direct.dir_info is not None and direct.dir_info.editable:
+        return paths.git_head(pathlib.Path(urllib.parse.urlparse(direct.url).path))
     return ""
 
 
 def dace_commit() -> str:
-    """The installed dace's commit, which keys every cache entry; a dace that names none is refused."""
-    commit = commit_of(json.loads(metadata.distribution("dace").read_text("direct_url.json") or "{}"))
+    """The installed dace's commit, which keys every cache entry; a dace that names none (no ``direct_url.json``,
+    or a record without a commit) is refused."""
+    record = metadata.distribution("dace").read_text("direct_url.json")
+    commit = commit_of(DirectUrl.model_validate_json(record)) if record else ""
     if not commit:
         raise RuntimeError("the installed dace names no git commit (direct_url.json); the CPF cache keys on its commit")
     return commit

@@ -82,6 +82,7 @@ from hpcagent_bench.spec import KERNELS, BenchSpec, ResolvedBench, Track, select
 from hpcagent_bench.stats import score_rule
 from hpcagent_bench.stats.population import is_named, one_denominator
 from hpcagent_bench.support.bindings import Binding, binding_from_spec
+from hpcagent_bench.support.bindings.contract import BindingDocument
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub, mpi_symbol
 
 __all__ = [
@@ -893,7 +894,7 @@ def write_task(
         env_kdir = task_dir / "environment" / kt.subdir
         env_kdir.mkdir(parents=True, exist_ok=True)
         ref_text = kt.row.numpy_reference or ""
-        sig_text = json.dumps(json.loads(kt.row.signature), indent=2) if kt.row.signature else "{}"
+        sig_text = BindingDocument.model_validate_json(kt.row.signature).text(indent=2) if kt.row.signature else "{}"
         if repo:
             repo_dir = env_kdir / "repo"
             (repo_dir / "src").mkdir(parents=True, exist_ok=True)
@@ -1198,7 +1199,7 @@ def environment_problems(td: pathlib.Path) -> list[str]:
         if not (ref.is_file() and ref.read_text().strip()):
             problems.append(f"{kdir.name}: reference.py missing or empty")
         try:
-            json.loads((base / "signature.json").read_text())
+            BindingDocument.model_validate_json((base / "signature.json").read_bytes())
         except (OSError, ValueError) as exc:
             problems.append(f"{kdir.name}: signature.json: {exc}")
         if base is not kdir and not (base / ".git").is_dir():
