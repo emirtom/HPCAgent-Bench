@@ -7,6 +7,7 @@ failed emit had deleted the file, and the sweep recorded ``ModuleNotFoundError: 
 """
 
 import importlib
+import traceback
 import multiprocessing
 import multiprocessing.queues
 import multiprocessing.synchronize
@@ -32,7 +33,7 @@ def generate_and_import(start: multiprocessing.synchronize.Barrier, outcome: mul
         )
         outcome.put("ok" if spec.func_name in vars(module) else "no entry")
     except Exception as exc:  # noqa: BLE001 -- ANY exception here is the race under test
-        outcome.put(f"{type(exc).__name__}: {exc}")
+        outcome.put(f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}")
 
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="fork start method is Linux-only")
