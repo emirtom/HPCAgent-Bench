@@ -55,7 +55,7 @@ def connect(path: pathlib.Path) -> sqlite3.Connection:
     file. The ranks of a sweep share the file, so creating it is serialized on ``<path>.lock``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_name(path.name + ".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.lockf(lock, fcntl.LOCK_EX)
         conn = results_db.open_db(path)
     conn.row_factory = sqlite3.Row
     return conn
