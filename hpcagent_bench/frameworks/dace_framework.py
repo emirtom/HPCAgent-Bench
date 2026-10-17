@@ -101,7 +101,6 @@ __all__ = [
     "pipeline_canonicalize",
     "pipeline_named",
     "pipeline_parallel",
-    "pool_gpu_transients",
     "row_major_copy",
     "stage_device_arguments",
     "stage_to_device",
@@ -466,29 +465,6 @@ def pipeline_canonicalize(sdfg: dace.SDFG, ctx: PipelineContext) -> None:
     finalize_for_target(sdfg, target=target)
 
 
-def pool_gpu_transients(sdfg: dace.SDFG) -> int:
-    """Allocate every device transient from the stream-ordered memory pool (``MallocAsync`` /
-    ``FreeAsync``): a transient allocated per call or per state then reuses the pool's memory instead
-    of paying a device ``malloc`` and ``free`` each time. Views alias their container and are left
-    alone. Returns how many containers were marked."""
-    from dace import data as dace_data
-
-    marked = 0
-    for nested in sdfg.all_sdfgs_recursive():
-        for desc in nested.arrays.values():
-            if (
-                desc.transient
-                and not isinstance(desc, dace_data.View)
-                and isinstance(desc, dace_data.Array)  # a Scalar has no pool to draw from
-                and desc.storage == dace_dtypes.StorageType.GPU_Global
-                and desc.lifetime != dace_dtypes.AllocationLifetime.External
-                and not desc.pool
-            ):
-                desc.pool = True
-                marked += 1
-    return marked
-
-
 #: Storage classes that put the bytes in device memory (pinned host memory is still host).
 GPU_RESIDENT_STORAGE: tuple[dace_dtypes.StorageType, ...] = (
     dace_dtypes.StorageType.GPU_Global,
@@ -824,8 +800,10 @@ class DaceFramework(Framework):
                     pipe.transform(sdfg, ctx)
                 # The residency contract, once, after every GPU pipeline.
                 if self.info["arch"] == "gpu":
+                    # Device transients are NOT drawn from dace's stream-ordered pool in v0.2: recycled
+                    # pool memory exposed a pooled Persistent array read before it is written (cloudsc
+                    # dace_gpu_canon at M mismatched), which fresh zeroed hipMalloc pages hide.
                     enforce_gpu_residency(sdfg)
-                    pool_gpu_transients(sdfg)
                 produced[pipe.name] = sdfg
             except Exception as exc:  # noqa: BLE001 -- a failed pipeline is recorded and the next one tried
                 print(f"DaCe {pipe.name} pipeline failed: {exc}")
