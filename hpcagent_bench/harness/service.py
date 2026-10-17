@@ -67,6 +67,7 @@ from hpcagent_bench.harness.judge_wire import (
     BaselineAnswer,
     BuildAnswer,
     CanonicalFormAnswer,
+    CanonicalFormQuery,
     GradeAnswer,
     HealthAnswer,
     JudgeAnswer,
@@ -1675,16 +1676,30 @@ class JudgeHandler(BaseHTTPRequestHandler):
         this request (:func:`hpcagent_bench.cpf_prerender.render_on_demand`, minutes) and cached for
         every later one, under a device slot so it never overlaps a timed grade. A form that cannot be
         served is ``unavailable`` with 200, not 404, so its absence does not read as a verdict on the
-        kernel. Rank-checked like every other agent route."""
+        kernel. Rank-checked like every other agent route.
+
+        The hint detail is the setup's (:data:`cpf_cache.HINTS_CONFIG_KEY`, scoped per setup on a fused
+        judge): the query (:class:`CanonicalFormQuery`) may name it, and a request naming another detail is
+        refused (400), so no agent reads the hints of the arm it is not in."""
         if self.misrouted(first_param(qs, "rank")):
             return None
-        kernel = "/".join(parts[1:]) or (qs.get("kernel") or [""])[0]
+        try:
+            query = CanonicalFormQuery.model_validate({name: values[0] for name, values in qs.items() if values})
+        except ValueError as exc:  # a pydantic ValidationError
+            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid canonical_parallel_form query: {exc}"))
+        kernel = "/".join(parts[1:]) or query.kernel or ""
         if not kernel:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(error="usage: GET /canonical_parallel_form/<kernel>?language=c%2B%2B&rank=<judge rank>"),
             )
-        language = (qs.get("language") or ["c++"])[0]
+        hints = config.current().cpf.hints
+        if query.hints is not None and query.hints != hints:
+            return self._send(
+                HTTPStatus.BAD_REQUEST,
+                JudgeError(error=f"this setup serves the {hints!r} hint detail, not {query.hints!r}"),
+            )
+        language = query.language
         if language not in cpf_cache.LANGUAGE_EXT:
             return self._send(
                 HTTPStatus.BAD_REQUEST,
@@ -1707,14 +1722,14 @@ class JudgeHandler(BaseHTTPRequestHandler):
 
         fptype = cpf_bridge.form_fptype(kernel, self.cfg.datatype)
         try:
-            form = cpf_cache.resolve(root, kernel, language, fptype)
+            form = cpf_cache.resolve(root, kernel, language, fptype, hints)
         except cpf_cache.CacheMiss:
             with self.device_slot() as slot:
                 if slot is None:
                     return None
-                problem = self.render_canonical_parallel_form(root, kernel)
+                problem = self.render_canonical_parallel_form(root, kernel, hints)
             try:
-                form = cpf_cache.resolve(root, kernel, language, fptype)
+                form = cpf_cache.resolve(root, kernel, language, fptype, hints)
             except cpf_cache.CacheMiss as exc:
                 # Loud for the operator, soft for the agent: the log names the key, the answer stays 200.
                 reason = problem or str(exc)
@@ -1754,8 +1769,8 @@ class JudgeHandler(BaseHTTPRequestHandler):
             )
         return self._send(HTTPStatus.OK, answer)
 
-    def render_canonical_parallel_form(self, view: pathlib.Path, kernel: str) -> str:
-        """Render ``kernel`` into ``view`` for a request that missed; "" when an outcome is recorded."""
+    def render_canonical_parallel_form(self, view: pathlib.Path, kernel: str, hints: cpf_cache.HintDetail) -> str:
+        """Render ``kernel`` into ``view`` at ``hints`` for a request that missed; "" when an outcome is recorded."""
         from hpcagent_bench import cpf_prerender
 
         cache = canonical_parallel_form_cache(view)
@@ -1770,6 +1785,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             target=canonical_parallel_form_target(),
             # The spelling hpcagent_bench.cpf_prerender renders with ("" is fp64), so both land on one key.
             precision="" if fptype == "fp64" else fptype,
+            hints=hints,
         )
 
     def serve_requests_check(self) -> None:

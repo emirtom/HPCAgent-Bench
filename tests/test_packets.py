@@ -112,7 +112,13 @@ def test_resolve_lang_skills_stages_every_shipped_page_but_a_packet_tools_own_or
     shipped = sorted(p.name for p in packets.SKILLS_DIR.iterdir() if p.is_dir())
     applicable = [page for page in shipped if packets.applies_to(page, "", None, True)]
     assert list(resolved.skills) == [page for page in applicable if page not in packets.tool_pages()]
-    assert set(shipped) - set(resolved.skills) == packets.tool_pages() | {"caveman", "cpf-cpu-src", "cpf-gpu-src"}
+    assert set(shipped) - set(resolved.skills) == packets.tool_pages() | {
+        "caveman",
+        "cpf-cpu-src",
+        "cpf-gpu-src",
+        "cpf-cpu-src-kinds",
+        "cpf-gpu-src-kinds",
+    }
     assert resolved.env == (), "no skill content may ride in the main prompt: the packet sets no hints file"
 
 

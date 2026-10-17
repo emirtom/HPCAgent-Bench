@@ -35,6 +35,7 @@ alias.
 
 from typing import ClassVar
 
+from hpcagent_bench.cpf_cache import HINTS_ENV
 from hpcagent_bench.vocabulary import packet
 
 #: Nothing is imported by name: every class registers itself through its decorator on import.
@@ -46,9 +47,13 @@ __all__ = [
     "Autokernel",
     "Caveman",
     "CpfCpuSrc",
+    "CpfCpuSrcKinds",
     "CpfGpuSrc",
+    "CpfGpuSrcKinds",
     "CpfToolCpu",
+    "CpfToolCpuKinds",
     "CpfToolGpu",
+    "CpfToolGpuKinds",
     "DistRcclAmd",
     "DistributedAmd",
     "DivideAndConquer",
@@ -356,3 +361,75 @@ class CpfToolGpu:
         "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
     }
     short = "CPF tool GPU"
+
+
+#: The ``-kinds`` CPF packets: the same forms, staged and served the same way, with each loop's hint reduced to one
+#: ``// par``, ``// seq`` or ``// unknown`` (:data:`hpcagent_bench.cpf_cache.HintDetail`). Each pairs with the packet
+#: of the same name without ``-kinds`` (which keeps the whole hints, ``proofs``) in one variable: the hint detail,
+#: and the page that defines the three words in place of the hint table.
+
+
+@packet("cpf-cpu-src-kinds", order=26, aliases=("cpf-src-kinds",))
+class CpfCpuSrcKinds:
+    """:class:`CpfCpuSrc` with one ``// par``, ``// seq`` or ``// unknown`` per loop. ``cpf-src-kinds`` names it on
+    a CPU setup and ``cpf-gpu-src-kinds`` on a GPU one."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form as Source, CPU, Kinds Only"
+    skills = ("cpf-cpu-src-kinds",)
+    env: ClassVar[dict[str, str]] = {
+        "CPF_DROPIN_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF src CPU kinds"
+
+
+@packet("cpf-tool-cpu-kinds", order=27, aliases=("cpf-tool-kinds",))
+class CpfToolCpuKinds:
+    """:class:`CpfToolCpu` with one ``// par``, ``// seq`` or ``// unknown`` per loop. ``cpf-tool-kinds`` names it
+    on a CPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form Tool, CPU, Kinds Only"
+    skills = ("cpf-tool-cpu-kinds",)
+    tools = ("canonical_parallel_form",)
+    env: ClassVar[dict[str, str]] = {
+        "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF tool CPU kinds"
+
+
+@packet("cpf-gpu-src-kinds", order=28)
+class CpfGpuSrcKinds:
+    """:class:`CpfGpuSrc` with one ``// par``, ``// seq`` or ``// unknown`` per loop and kernel. ``cpf-src-kinds``
+    names it on a GPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form as Source, GPU, Kinds Only"
+    skills = ("cpf-gpu-src-kinds",)
+    env: ClassVar[dict[str, str]] = {
+        "CPF_DROPIN_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF src GPU kinds"
+
+
+@packet("cpf-tool-gpu-kinds", order=29)
+class CpfToolGpuKinds:
+    """:class:`CpfToolGpu` with one ``// par``, ``// seq`` or ``// unknown`` per loop and kernel. ``cpf-tool-kinds``
+    names it on a GPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form Tool, GPU, Kinds Only"
+    skills = ("cpf-tool-gpu-kinds",)
+    tools = ("canonical_parallel_form",)
+    env: ClassVar[dict[str, str]] = {
+        "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF tool GPU kinds"

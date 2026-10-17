@@ -1230,6 +1230,8 @@ def build_context(
             task.language,
         ),
         "cpf_dialect": cpf_cache.DIALECT.get(task.language, "c++"),
+        # How much of each loop hint the setup's form spells out (a -kinds packet: one par, seq or unknown).
+        "cpf_hints": config.current().cpf.hints,
         # Skills (hpcagent_bench/skills/<name>/SKILL.md), indexed by name and trigger.
         "other_skills": other_skills,
         # Inline provenance for the skills (they bypass the loader).

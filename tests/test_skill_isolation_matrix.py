@@ -58,11 +58,17 @@ def effective_device(key: str) -> str:
 SETUP_FOR_KEY: dict[str, tuple[str, str | None]] = {
     key: {"amd": ("hip", "amd"), "nvidia": ("cuda", "nvidia")}.get(effective_device(key), ("c", None))
     for key in DEFINITIONS
-} | {"cpf-gpu-src": ("hip", "amd"), "cpf-tool-gpu": ("hip", "amd")}
+} | {
+    "cpf-gpu-src": ("hip", "amd"),
+    "cpf-tool-gpu": ("hip", "amd"),
+    "cpf-gpu-src-kinds": ("hip", "amd"),
+    "cpf-tool-gpu-kinds": ("hip", "amd"),
+}
 
-#: The CPF packets, by what they hand the agent: the form as its source, or the form on request.
-CPF_SRC_KEYS = ("cpf-cpu-src", "cpf-gpu-src")
-CPF_TOOL_KEYS = ("cpf-tool-cpu", "cpf-tool-gpu")
+#: The CPF packets, by what they hand the agent: the form as its source, or the form on request (each at both
+#: hint details).
+CPF_SRC_KEYS = ("cpf-cpu-src", "cpf-gpu-src", "cpf-cpu-src-kinds", "cpf-gpu-src-kinds")
+CPF_TOOL_KEYS = ("cpf-tool-cpu", "cpf-tool-gpu", "cpf-tool-cpu-kinds", "cpf-tool-gpu-kinds")
 
 #: cpf_cache.DIALECT names c, c++/cpp and hip; a CPF-composing key resolved for any other language
 #: (only all-in-nvidia, pinned to cuda by its device) cannot render a drop-in at all and every

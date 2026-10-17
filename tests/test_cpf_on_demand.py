@@ -218,7 +218,7 @@ def test_a_recorded_failure_is_answered_and_never_rendered_again(
     assert first["verdict"] == second["verdict"] == "unavailable"
     assert "renderer refused" in second["error"], second
     assert renderer.calls == 1
-    pointer = cpf_cache.recorded(view, KERNEL, "c", "fp64")
+    pointer = cpf_cache.recorded(view, KERNEL, "c", "fp64", "proofs")
     assert pointer is not None
     assert pointer.verdict == "fail"
 

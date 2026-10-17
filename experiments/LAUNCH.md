@@ -348,8 +348,8 @@ GANG_NODES=4 JUDGE_EDF=~/.edf/<judge>.toml hpcagent-bench job submit --nodes 16 
   `SKILL.md`.
 - **Never edit an env file or launcher while its jobs run**; roles re-source them.
 - **Never export `CPF_*` in the submitting shell.** `sbatch --export=ALL` would stage the CPF
-  drop-in into a control setup; `submit_setup_job` strips `CPF_DROPIN_DIR`, `CPF_FORMS_DIR` and
-  `HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR`.
+  drop-in into a control setup; `submit_setup_job` strips `CPF_DROPIN_DIR`, `CPF_FORMS_DIR`,
+  `HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR` and `HPCAGENT_BENCH_CPF_HINTS`.
 - **Walltime can be lowered, never raised.** Submit with slack. A dependency can be added only while
   the job is PENDING. `launch failed requeued held` does not restart: `scontrol release <id>`.
 - **Setups compare only under identical serve config.** Changing a model layer mid-experiment splits the

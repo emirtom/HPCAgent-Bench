@@ -37,7 +37,7 @@ def view_with_libraries(tmp_path: pathlib.Path, libraries: list[str], dialect: s
     name = f"{KERNEL}_fp64_cpf.{cpf_cache.LANGUAGE_EXT[dialect]}"
     manifest = {"kernel": KERNEL, "entry": f"{KERNEL}_fp64", "libraries": libraries}
     cpf_cache.publish(cache, key, manifest, [("source", name, "// form\n"), ("binding", "b.json", "{}\n")])
-    cpf_cache.record(view, KERNEL, dialect, "fp64", {"key": key, "verdict": "ok", "cached": False})
+    cpf_cache.record(view, KERNEL, dialect, "fp64", "proofs", {"key": key, "verdict": "ok", "cached": False})
     return view
 
 
@@ -100,7 +100,7 @@ def test_the_cpf_src_note_says_the_libraries_are_loaded(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("CPF_VIEW", str(view_with_libraries(tmp_path, LIBRARIES)))
-    note = make_problems.form_libraries_note(KERNEL, "c")
+    note = make_problems.form_libraries_note(KERNEL, "c", "proofs")
     assert "blas, lapack" in note
     assert json.dumps(LIBRARIES) in note
 
@@ -161,7 +161,7 @@ def test_cpf_verify_grades_a_form_with_the_libraries_it_calls(
     monkeypatch.setattr(cpf_verify, "abi_refusal", lambda *a: "")
     monkeypatch.setattr(cpf_verify, "score", capture)
     with pytest.raises(RuntimeError, match="stop after"):
-        cpf_verify.grade(str(view), KERNEL, "c", "fp64")
+        cpf_verify.grade(str(view), KERNEL, "c", "fp64", "proofs")
     (submission,) = seen
     assert isinstance(submission, Submission)
     assert list(submission.requests.startup.load) == LIBRARIES

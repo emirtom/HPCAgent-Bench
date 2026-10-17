@@ -165,9 +165,9 @@ container_step() {
 # setup of a tag -- four setups over one 20-kernel tag would otherwise render it four times.
 # Anything that changes what gets rendered belongs in this key.
 # The problems file by CONTENT: a frozen-tree job reads it through its own copy's path.
-PACK_KEY="$(printf '%s|%s|%s|%s' "$(sha256sum <"${PROBLEMS}" | cut -d' ' -f1)" "${LANG_}" \
+PACK_KEY="$(printf '%s|%s|%s|%s|%s' "$(sha256sum <"${PROBLEMS}" | cut -d' ' -f1)" "${LANG_}" \
             "${HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR:-}" "${CPF_TARGET:-cpu}" \
-            | sha256sum | cut -c1-12)"
+            "${HPCAGENT_BENCH_CPF_HINTS:-}" | sha256sum | cut -c1-12)"
 PACK_ROOT="${PACK_ROOT:-${REPO}/.cache/packs}"
 PACK="${PACK_ROOT}/${LANG_}-${PACK_KEY}"
 MANIFEST="${PACK}/manifest.json"
@@ -289,9 +289,11 @@ fi
 # The cpf-src view stays strict: its form is the agent's starting source, staged before the agent
 # starts, and it must have graded correct first (`python -m hpcagent_bench.cpf_verify`). Neither the render nor that grade
 # can happen on demand, because no request comes before the agent reads its task directory.
+# Both read the forms at the setup's hint detail (HPCAGENT_BENCH_CPF_HINTS, set by a -kinds packet; unset = the default).
 cpf_check() {  # cpf_check <view> <language> [check flags...]
     "${host_python}" -m hpcagent_bench.cpf_cache check --view "$1" \
-        --target "${CPF_TARGET}" --language "$2" --kernels "$(kernels_of "${PROBLEMS}")" "${@:3}"
+        --target "${CPF_TARGET}" --language "$2" --kernels "$(kernels_of "${PROBLEMS}")" \
+        ${HPCAGENT_BENCH_CPF_HINTS:+--hints "${HPCAGENT_BENCH_CPF_HINTS}"} "${@:3}"
 }
 cpf_form_gate() {  # cpf_form_gate <view> <language>
     local plan rc=0 dace_commit

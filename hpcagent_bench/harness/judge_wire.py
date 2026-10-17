@@ -21,11 +21,14 @@ from typing import Literal
 
 import pydantic
 
+from hpcagent_bench.cpf_cache import HintDetail
+
 __all__ = [
     "SUBMIT_ANSWER",
     "BaselineAnswer",
     "BuildAnswer",
     "CanonicalFormAnswer",
+    "CanonicalFormQuery",
     "CrawledPageAnswer",
     "GradeAnswer",
     "HealthAnswer",
@@ -86,6 +89,20 @@ class RequestFields(pydantic.BaseModel):
     counter_group: str | None = None
     per_thread: bool | None = None
     min_percent: float | None = None
+
+
+class CanonicalFormQuery(pydantic.BaseModel):
+    """The query of ``GET /canonical_parallel_form/<kernel>``, typed: the dialect asked for, the hint detail the
+    client's setup serves (``hints``, sent by the ``canonical_parallel_form`` tool from the setup's
+    ``HPCAGENT_BENCH_CPF_HINTS``; absent means the setup's own), the judge rank and, without a path, the kernel. A
+    parameter the model does not name, or a detail that is neither ``proofs`` nor ``kinds``, is refused (400)."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    language: str = "c++"
+    hints: HintDetail | None = None
+    rank: str | None = None
+    kernel: str | None = None
 
 
 class JudgeAnswer(pydantic.BaseModel):

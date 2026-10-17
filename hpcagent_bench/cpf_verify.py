@@ -80,12 +80,12 @@ def abi_refusal(form: cpf_cache.Form, key: str, language: str) -> str:
     return ""
 
 
-def grade(view: str, kernel: str, language: str, fptype: str) -> dict[str, object]:
+def grade(view: str, kernel: str, language: str, fptype: str, hints: cpf_cache.HintDetail) -> dict[str, object]:
     """The verdict on one form: ``ok`` only when its entry is the stub's (:func:`abi_refusal`), it builds,
     grades correct and survives re-verify."""
     cfg = from_config()
     key = registry_key(kernel)
-    form = cpf_cache.resolve(cpf_cache.pathlib.Path(view), kernel, language, cpf_bridge.form_fptype(key, fptype))
+    form = cpf_cache.resolve(cpf_cache.pathlib.Path(view), kernel, language, cpf_bridge.form_fptype(key, fptype), hints)
     if refused := abi_refusal(form, key, language):
         return {"verdict": "unverified", "reason": refused, "preset": cfg.preset, "build_ok": False, "correct": False}
     # A gpu form is the two units a GPU submission is: the host entry and the device kernels.
@@ -126,6 +126,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--kernels", required=True, help="comma-separated tag names")
     parser.add_argument("--language", required=True, choices=sorted(cpf_cache.DIALECT))
     parser.add_argument("--precision", default="fp64", help="fptype tag: fp64 / fp32 / fp16")
+    parser.add_argument(
+        "--hints", default=cpf_cache.DEFAULT_HINTS, choices=cpf_cache.HINT_DETAILS, help="the hint detail to grade"
+    )
     parser.add_argument("--rank", type=int, default=int(os.environ.get("SLURM_PROCID", "0")))
     parser.add_argument("--ranks", type=int, default=int(os.environ.get("SLURM_NTASKS", "1")))
     args = parser.parse_args(argv)
@@ -133,12 +136,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     failed = 0
     for kernel in shard([k.strip() for k in args.kernels.split(",") if k.strip()], args.rank, args.ranks):
         try:
-            verdict = grade(args.view, kernel, args.language, args.precision)
+            verdict = grade(args.view, kernel, args.language, args.precision, args.hints)
         except Exception as exc:  # noqa: BLE001 -- a crash is this kernel's verdict, not the shard's end
             verdict = {"verdict": "unverified", "reason": f"{type(exc).__name__}: {exc}"[:400]}
         try:
             cpf_cache.record_verification(
-                cpf_cache.pathlib.Path(args.view), kernel, args.language, args.precision, verdict
+                cpf_cache.pathlib.Path(args.view), kernel, args.language, args.precision, args.hints, verdict
             )
         except cpf_cache.CacheMiss as exc:
             verdict = {"verdict": "unverified", "reason": str(exc)}

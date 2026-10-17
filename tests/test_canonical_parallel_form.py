@@ -116,7 +116,7 @@ def publish_view(tmp_path: pathlib.Path, kernel: str, source: str) -> pathlib.Pa
     name = f"{kernel}_fp64_cpf"
     files = [("source", f"{name}.c", source), ("binding", f"{name}_binding.json", "{}")]
     cpf_cache.publish(cache, key, {"kernel": kernel, "entry": f"{kernel}_fp64"}, files)
-    cpf_cache.record(view, kernel, "c", "fp64", {"key": key, "verdict": "ok"})
+    cpf_cache.record(view, kernel, "c", "fp64", "proofs", {"key": key, "verdict": "ok"})
     return view
 
 
@@ -193,7 +193,7 @@ def dialect_view(tmp_path: pathlib.Path, target: str, dialects: tuple[str, ...])
         source = ("source", f"{name}.{cpf_cache.LANGUAGE_EXT[dialect]}", f"// {dialect} form\n")
         files = [source, ("binding", f"{name}_binding.json", "{}")]
         cpf_cache.publish(cache, key, {"kernel": "example_kernel", "entry": "example_kernel_fp64"}, files)
-        cpf_cache.record(view, "example_kernel", dialect, "fp64", {"key": key, "verdict": "ok"})
+        cpf_cache.record(view, "example_kernel", dialect, "fp64", "proofs", {"key": key, "verdict": "ok"})
     return view
 
 
@@ -246,11 +246,11 @@ def test_a_request_is_never_answered_with_another_kernels_form(tmp_path: pathlib
     from hpcagent_bench import cpf_cache
 
     view = publish_view(tmp_path, "cloudsc_init", "// cloudsc_init\n")
-    cpf_cache.record(view, "cloudsc_liq_ice_frac", "c", "fp64", {"key": None, "verdict": "fail"})
+    cpf_cache.record(view, "cloudsc_liq_ice_frac", "c", "fp64", "proofs", {"key": None, "verdict": "fail"})
 
     with pytest.raises(cpf_cache.CacheMiss):
-        cpf_cache.resolve(view, "cloudsc", "c", "fp64")
-    source = cpf_cache.resolve(view, "cloudsc_init", "c", "fp64").source
+        cpf_cache.resolve(view, "cloudsc", "c", "fp64", "proofs")
+    source = cpf_cache.resolve(view, "cloudsc_init", "c", "fp64", "proofs").source
     assert source.read_text() == "// cloudsc_init\n"
 
 
@@ -259,7 +259,7 @@ def test_the_kernels_own_form_is_still_found_beside_its_longer_neighbours(tmp_pa
     from hpcagent_bench import cpf_cache
 
     view = publish_view(tmp_path, "cloudsc", "// cloudsc\n")
-    cpf_cache.record(view, "cloudsc_init", "c", "fp64", {"key": None, "verdict": "fail"})
+    cpf_cache.record(view, "cloudsc_init", "c", "fp64", "proofs", {"key": None, "verdict": "fail"})
 
-    source = cpf_cache.resolve(view, "cloudsc", "c", "fp64").source
+    source = cpf_cache.resolve(view, "cloudsc", "c", "fp64", "proofs").source
     assert source.read_text() == "// cloudsc\n"
