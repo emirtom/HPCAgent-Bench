@@ -213,9 +213,13 @@ def test_a_layout_never_reaches_a_stored_input_or_output(monkeypatch: pytest.Mon
     inputs: list[dict] = []
     reference = grading._numpy_reference  # numba's outputs equal numpy's (tests/test_e2e_numerical.py)
 
-    def recording(spec: BenchSpec, data: dict, memory_gb: float = 0.0) -> dict:
-        inputs.append(snapshot(data))
-        return reference(spec, data)
+    def recording(
+        spec: BenchSpec, data: dict, memory_gb: float = 0.0, rep_data: Callable[[int], dict] | None = None
+    ) -> dict:
+        # A timed rep's check hands its draw (rep_data) and the reference builds that rep's inputs, as the real one.
+        drawn = data if rep_data is None else rep_data(0)
+        inputs.append(snapshot(drawn))
+        return reference(spec, drawn)
 
     monkeypatch.setattr(scoring, "numba_reference_outputs", recording)
     monkeypatch.setattr(scoring.secrets, "randbits", lambda bits: 12345)
