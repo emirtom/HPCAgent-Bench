@@ -27,7 +27,7 @@ signature, argument for argument; `score` it unchanged first to confirm it build
 Every loop's comment starts with its class, and its second line says `settled:` (parallel and
 sequential) or `open:` (unsure); the file's header states the same contract. A `__global__` kernel launch also marks a
 parallel loop. A `parallel` loop is PROVEN safe to run in parallel, possibly under a guard its label states. A
-`sequential` loop is PROVEN sequential, and its label names the carried dependence. **Trust these
+`sequential` loop is PROVEN sequential, and its label names the carried dependence and a witness: two concrete iterations (and the sizes) that touch the same element. **Trust these
 verdicts**: do not re-check a `parallel` loop, and do not expect re-scheduling (reordering, tiling,
 pragmas) to parallelize a `sequential` one: only an ALGORITHMIC change that removes the dependence can,
 for example breaking an anti dependence, privatizing, or reformulating the recurrence. Reason about dependences only for an `unsure` loop, where the analysis did not decide.
@@ -37,9 +37,9 @@ for example breaking an anti dependence, privatizing, or reformulating the recur
 | `parallel -- kernel: one GPU launch; ...` | parallel, settled | the launch grid; tune block size and memory access |
 | `parallel -- thread block: ...`, `parallel -- warp: ...` | parallel, settled | threads or warps of one block |
 | `parallel -- block tile: ...`, `parallel -- lane-strided: ...`, `parallel -- warp tile: ...` | parallel, settled | lanes of a block share the iterations |
-| `parallel -- the iterations are independent` | parallel, settled | use it; do not re-check it |
+| `parallel -- the iterations are independent` (may end `; assumes <predicates>, trapped at entry`) | parallel, settled | use it; do not re-check it. The predicates are checked when the program starts (it aborts if one fails), so they hold inside the loop |
 | `parallel -- wavefront front ...`, `parallel -- wavefront tile column [..]...` | parallel, settled | use it |
-| `sequential -- carried: <access>` | sequential, settled | keep the order; do not try to parallelize it |
+| `sequential -- carried: <access> (witness: <two iterations>[, <sizes>])` | sequential, settled | keep the order; do not try to parallelize it |
 | `sequential -- pinned by an earlier pass; ...` | sequential, settled | keep the order |
 | `sequential -- wavefront diagonal (t = ..)...`, `sequential -- wavefront tile diagonal ...` | sequential, settled | keep the order (one launch per diagonal) |
 | `sequential -- inner tile of a wavefront [..]: the original order is kept verbatim...` | sequential, settled | keep the order |
