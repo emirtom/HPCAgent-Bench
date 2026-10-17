@@ -24,7 +24,7 @@ from tests.translators.op_oracle import run_op
 
 def kir_(kernel_name: str, **arrays: tuple[str, ...]) -> SimpleNamespace:
     arrs = [SimpleNamespace(name=n, shape=s, dtype="float64") for n, s in arrays.items()]
-    return SimpleNamespace(kernel_name=kernel_name, arrays=arrs)
+    return SimpleNamespace(kernel_name=kernel_name, arrays=arrs, scalars=[])
 
 
 def desugar(body: str, **arrays: tuple[str, ...]) -> str:

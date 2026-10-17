@@ -33,6 +33,7 @@ class Kir:
             self.name, self.shape, self.dtype = name, shape, dtype
 
     arrays: ClassVar[list[Arr]] = [Arr("src", ("N", "M", "K"), "float64"), Arr("out", ("N", "M", "K"), "float64")]
+    scalars: ClassVar[list[Arr]] = []
     sparse = None
     kernel_name = "pick"
 

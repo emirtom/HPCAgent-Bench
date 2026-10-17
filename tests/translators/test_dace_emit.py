@@ -378,6 +378,7 @@ def test_dace_keeps_every_np_fft_call_for_its_library_node(body: str) -> None:
         kernel_name="k",
         input_args=list(arrays),
         arrays=[SimpleNamespace(name=name, shape=shape, dtype=dtype) for name, (shape, dtype) in arrays.items()],
+        scalars=[],
     )
     kept = desugar_for_python_backend(src, kir, backend="dace")
     assert kept.count("np.fft.") == src.count("np.fft."), kept
@@ -2280,6 +2281,7 @@ def test_an_inlined_einsum_takes_the_result_dtype_of_all_its_operands() -> None:
         kernel_name="k",
         input_args=list(arrays),
         arrays=[SimpleNamespace(name=name, shape=shape, dtype=dtype) for name, (shape, dtype) in arrays.items()],
+        scalars=[],
     )
     program = desugar_for_python_backend(src, kir, backend="dace")
     assert "np.einsum" not in program, program

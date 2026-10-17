@@ -4,7 +4,11 @@ import ast
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 
-from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import numpy_call_attr, numpy_submodule_attr
+from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
+    numpy_call_attr,
+    numpy_func_attr,
+    numpy_submodule_attr,
+)
 from hpcagent_bench.translators.numpyto_common.limits import CALL_GRAPH_ROUNDS, FIXPOINT_ROUNDS
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     LIKE_CTORS,
@@ -229,6 +233,10 @@ def binop_kind(value: ast.BinOp, dtypes: dict[str, str], calls: CallKinds) -> st
     return promote_kind(lk, rk)
 
 
+#: ``np.<name>`` constants, all Python floats.
+NUMPY_FLOAT_CONSTANTS = frozenset({"inf", "nan", "pi", "e", "euler_gamma"})
+
+
 def dtype_kind(value: ast.expr, dtypes: dict[str, str], calls: CallKinds = NO_CALLS) -> str | None:
     """Best-effort dtype KIND of an expression under the name -> kind table and the helpers' return kinds.
 
@@ -245,6 +253,8 @@ def dtype_kind(value: ast.expr, dtypes: dict[str, str], calls: CallKinds = NO_CA
         return binop_kind(value, dtypes, calls)
     if isinstance(value, ast.Subscript):
         return dtype_kind(value.value, dtypes, calls)  # indexing preserves dtype
+    if numpy_func_attr(value) in NUMPY_FLOAT_CONSTANTS:
+        return "float"
     if isinstance(value, ast.Attribute) and value.attr in ("T", "dtype"):
         # A transpose is a permuted view; ``x.dtype`` names x's own kind (read as a dtype argument).
         return dtype_kind(value.value, dtypes, calls)
