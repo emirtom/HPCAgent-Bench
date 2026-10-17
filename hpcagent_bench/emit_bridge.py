@@ -1,16 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Compatibility shim: feed the (untouchable) NumpyToX emitter from a
-:class:`~hpcagent_bench.spec.BenchSpec` after the bench_info JSON is gone.
+"""The emitter's input: the bench_info document of a :class:`~hpcagent_bench.spec.BenchSpec`.
 
 The emitter CLI reads a bench_info JSON *path*
 (``python -m hpcagent_bench.translators.numpyto_c.cli emit --bench-info <path>``; the unified ``numpyto --target``
-driver dispatches to the same per-package CLIs) and ``frontend.load_bench_info``
-unwraps the ``["benchmark"]`` block. The co-located YAML is the source of
-truth, so the harness synthesizes the legacy JSON
-on the fly from a ``BenchSpec`` and hands the emitter a temp file -- its
-``--bench-info`` contract is unchanged and **NumpyToX is never edited**.
+driver dispatches to the same per-package CLIs) and ``frontend.load_bench_info`` reads its ``benchmark``
+block. The co-located YAML manifest is the source of truth: the harness builds the document from the
+``BenchSpec`` and hands the emitter a temp file. Everything else reads the ``BenchSpec`` itself.
 
 The emitter package set lives under ``hpcagent_bench/translators/`` (the unified
 ``numpyto_common`` + per-language ``numpyto_c`` / ``numpyto_fortran`` / ... ).
@@ -28,7 +25,6 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Generator
-from typing import Any
 
 import pydantic
 
@@ -68,7 +64,6 @@ __all__ = [
     "emitter_config",
     "init_document",
     "layout_documents",
-    "legacy_bench_info_dict",
     "replace_buffers",
     "sparse_layout_documents",
     "translator_format",
@@ -245,11 +240,6 @@ class BenchInfoDocument(pydantic.BaseModel):
         pydantic's own JSON writer spells differently."""
         return json.dumps(self.model_dump(mode="json", exclude_unset=True), sort_keys=sort_keys)
 
-    def legacy(self) -> dict[str, Any]:
-        """The document as the dict :meth:`BenchSpec.from_dict` and ``Benchmark.info`` read, values kept as
-        the spec holds them."""
-        return self.model_dump(exclude_unset=True)
-
 
 #: The emitter's name for a format where it differs from the ABI's: the translators call block CSR
 #: ``bcsr``. The configuration KEY keeps the ABI name, so the symbol reads ``cg_bsr_fp64``.
@@ -401,11 +391,8 @@ def init_document(init: InitSpec) -> InitDocument:
         "input_args": list(init.input_args),
         "output_args": list(init.output_args),
     }
-    # The round-trip spelling is the SAME one a manifest uses: an array is declared once,
-    # under ``init.arrays``. Exporting the parser's internal per-property maps (shapes,
-    # dists) as top-level keys would emit exactly the legacy surface ``BenchSpec.from_dict``
-    # refuses, so ``Benchmark.get_data`` -- which re-parses this dict -- would fail to load
-    # every declaratively-initialised kernel.
+    # The spelling a manifest uses: an array is declared once, under ``init.arrays``, never as the
+    # parser's internal per-property maps (shapes, dists).
     arrays = init_arrays_raw(init)
     if arrays:
         fields["arrays"] = arrays
@@ -481,12 +468,6 @@ def bench_info_document(spec: BenchSpec, config: str | None = None) -> BenchInfo
     )
 
 
-def legacy_bench_info_dict(spec: BenchSpec, config: str | None = None) -> dict[str, Any]:
-    """:func:`bench_info_document` as the legacy ``{"benchmark": {...}, ...}`` dict
-    (:meth:`BenchInfoDocument.legacy`): what ``Benchmark.info`` and :meth:`BenchSpec.from_dict` read."""
-    return bench_info_document(spec, config).legacy()
-
-
 def emitter_config(spec: BenchSpec, config: str | None = None) -> str | None:
     """The configuration the EMITTER runs under: ``config`` when the caller named one, else the
     first declared configuration (``None`` for a kernel that declares none).
@@ -532,7 +513,7 @@ def typed_entry(entry: str | ArrayDocument, dtype: str) -> ArrayDocument:
 def bench_info_tempfile(
     spec: BenchSpec, config: str | None = None, *, abi: bool = False
 ) -> Generator[pathlib.Path, None, None]:
-    """Write ``spec`` as a legacy bench_info JSON to a temp file (unlinked on
+    """Write ``spec``'s bench_info document as JSON to a temp file (unlinked on
     exit), for the layout ``config`` names (:func:`emitter_config` resolves ``None``).
     The emitter's ``--bench-info <path>`` contract is honoured exactly: it expands each
     logical sparse array itself, and a buffer-style one arrives flattened.

@@ -12,7 +12,7 @@ from typing import NotRequired, TypedDict
 import numpy as np
 from sqlmodel import Session
 
-from hpcagent_bench import config, osinfo
+from hpcagent_bench import config, osinfo, reporting_order
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import timeout_decorator as tout
 from hpcagent_bench.frameworks import utilities as util
@@ -435,9 +435,9 @@ def njit_reference(impl: KernelImpl, bench: Benchmark, data: BenchData | None = 
     compiled reference proven equal to this one (:func:`hpcagent_bench.harness.grading.resolve_oracle`).
     A compile failure, or a handle that is not a plain Python function, falls back to the interpreter
     loudly. An fp16 run keeps the plain reference (numba has no float16 arrays)."""
-    module = bench.info.get("module_name")
+    module = bench.spec.module_name
     # Keyed by the kernel's short name, as the gate and its tests name it (it differs from module_name for some).
-    if bench.info.get("short_name") in NJIT_INTERPRETED:
+    if bench.spec.short_name in NJIT_INTERPRETED:
         return impl
     if data is not None and any(is_float16_array(v) for v in data.values()):
         return impl
@@ -591,7 +591,7 @@ class Test:
                 self._last_failure = "runtime_error"
                 ret = None
         out: list[OutputValue] = util.resolve_outputs(
-            ret, plan.inout_values(), self.bench.info.get("output_args", []), plan.inout_names()
+            ret, plan.inout_values(), self.bench.spec.output_args, plan.inout_names()
         )
         return out, timelist, native_times
 
@@ -737,7 +737,7 @@ class Test:
                 else frmwrk_out
             )
             frmwrk_name = self.frmwrk.info["full_name"] + " - " + impl_name
-            spec = BenchSpec.load(self.bench.info["short_name"])
+            spec = self.bench.spec
             valid = util.validate(
                 np_out, host, frmwrk_name, rtol=band[0], atol=band[1], mismatch_fraction=spec.mismatch_fraction or 0.0
             )
@@ -768,7 +768,7 @@ class Test:
         build = record.build or None
         # `dace_cpu_parallel` is stored as backend + optimizer (split_flavor).
         column, flavor = split_flavor(self.frmwrk.info.get("simple_name", self.frmwrk.fname))
-        kernel = self.bench.info["short_name"]
+        kernel = self.bench.spec.short_name
         # The contract -d selects; an empty -d is absent.
         stored_datatype = datatype or "float64"
         with Session(results_engine(recording.db_path())) as session:
@@ -778,7 +778,7 @@ class Test:
                         timestamp=timestamp,
                         kernel=kernel,
                         # The only kernel-info field the results table carries (heatmap groups on it).
-                        domain=self.bench.info.get("domain", ""),
+                        domain=reporting_order.structural_group(self.bench.spec) or self.bench.spec.track,
                         preset=preset,
                         framework=column,
                         flavor=flavor,

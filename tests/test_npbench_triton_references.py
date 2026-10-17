@@ -201,9 +201,9 @@ def test_the_check_sees_an_unrestored_accumulator() -> None:
 def test_the_entry_binds_by_the_manifest_names(kernel: str) -> None:
     bench = Benchmark(kernel)
     entry = next(
-        n for n in triton_source(kernel).body if isinstance(n, ast.FunctionDef) and n.name == bench.info["func_name"]
+        n for n in triton_source(kernel).body if isinstance(n, ast.FunctionDef) and n.name == bench.spec.func_name
     )
-    unknown = [a.arg for a in entry.args.args if a.arg not in bench.info["input_args"]]
+    unknown = [a.arg for a in entry.args.args if a.arg not in bench.spec.input_args]
     assert not unknown, f"{kernel}: {unknown} are not manifest arguments, so the harness binds the call positionally"
 
 

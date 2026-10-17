@@ -157,7 +157,7 @@ def asm_argv(compile_argv: list[str], asm_out: pathlib.Path, report_flags: str) 
 
 def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.Path) -> KernelReportManifest:
     """Compile-only artifact set for ``framework``'s build of ``bench``, under ``reports_root /
-    bench.info["module_name"] /``: the vectorization report (missed + optimized -- gcc's two
+    bench.spec.module_name /``: the vectorization report (missed + optimized -- gcc's two
     ``-fopt-info-vec-*`` flags, clang's three ``-Rpass*`` ones, both the SAME "full opt report" this
     codebase has one table for) and the ``.s`` assembly of every source the timed ``.so`` was built
     from. Never raises: every failure mode -- not a native column, no report channel, no sources on
@@ -169,7 +169,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
     writes to the timed build's own object/library files -- its own compiles land in a throwaway
     temp directory that is removed before it returns.
     """
-    kernel = bench.info["module_name"]
+    kernel = bench.spec.module_name
     out_dir = pathlib.Path(reports_root) / kernel
 
     if framework not in NATIVE_COLUMNS:
@@ -187,7 +187,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
     lang = native_runtime.FRAMEWORK_LANG[framework]
     compiler_override = native_runtime.FRAMEWORK_COMPILER.get(framework)
     extra_flags = native_runtime.framework_extra_flags(framework)
-    cpp_backend = paths.BENCHMARKS / bench.info["relative_path"] / "cpp_backend"
+    cpp_backend = paths.BENCHMARKS / bench.spec.relative_path / "cpp_backend"
 
     try:
         native_runtime.assert_autopar_capable(framework, kernel)

@@ -15,7 +15,6 @@ from hpcagent_bench.emit_bridge import (
     BenchInfoDocument,
     bench_info_document,
     emitter_bench_info,
-    legacy_bench_info_dict,
 )
 from hpcagent_bench.spec import KERNELS, BenchSpec
 
@@ -34,12 +33,13 @@ def test_every_kernels_bench_info_reads_back_to_the_bytes_it_was_written_as() ->
                 assert BenchInfoDocument.model_validate_json(text).text() == text, (key, config)
 
 
-def test_the_text_is_spelled_as_json_dumps_spells_the_legacy_dict() -> None:
-    """The framework cache fingerprints these bytes, so they stay :func:`json.dumps`'s spelling of the dict
-    ``Benchmark.info`` reads (spaced separators, ASCII escapes), not pydantic's compact one."""
+def test_the_text_is_spelled_as_json_dumps_spells_the_document() -> None:
+    """The framework cache fingerprints these bytes, so they stay :func:`json.dumps`'s spelling of the
+    document (spaced separators, ASCII escapes), not pydantic's compact one."""
     spec = BenchSpec.load("gemm")
-    text = bench_info_document(spec).text()
-    assert text == json.dumps(legacy_bench_info_dict(spec))
+    document = bench_info_document(spec)
+    text = document.text()
+    assert text == json.dumps(document.model_dump(mode="json", exclude_unset=True))
     assert text.startswith('{"benchmark": {"name": ')
 
 
@@ -100,7 +100,7 @@ def test_an_absent_block_is_not_written() -> None:
 
 if __name__ == "__main__":
     test_every_kernels_bench_info_reads_back_to_the_bytes_it_was_written_as()
-    test_the_text_is_spelled_as_json_dumps_spells_the_legacy_dict()
+    test_the_text_is_spelled_as_json_dumps_spells_the_document()
     test_an_unknown_key_or_a_missing_required_field_is_refused()
     test_a_bare_benchmark_block_reads_as_the_whole_document()
     test_values_keep_the_type_the_document_spells_them_in()

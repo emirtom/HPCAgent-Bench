@@ -56,7 +56,6 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.frameworks.test import njit_reference, tolerance_datatype, tolerances_for
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
-from hpcagent_bench.spec import BenchSpec
 
 if TYPE_CHECKING:
     from dace.frontend.python.common import SDFGClosure
@@ -729,7 +728,7 @@ class DaceFramework(Framework):
     def _import_kernel(self, bench: Benchmark) -> DaceProgram:
         """Import the kernel module and return the ``@dace.program``."""
         self.ensure_impls(bench)
-        program: DaceProgram = vars(self.kernel_module(bench))[bench.info["func_name"]]
+        program: DaceProgram = vars(self.kernel_module(bench))[bench.spec.func_name]
         return program
 
     def _build_context(self, small: frozenset[str] = frozenset()) -> PipelineContext:
@@ -746,8 +745,8 @@ class DaceFramework(Framework):
         ``<module>_dace.py``, the precision and the DaCe tree (:func:`framework_cache.dace_tree_fingerprint`)."""
         from hpcagent_bench import cache_files, framework_cache, paths
 
-        kdir = paths.BENCHMARKS / bench.info["relative_path"]
-        module = bench.info["module_name"]
+        kdir = paths.BENCHMARKS / bench.spec.relative_path
+        module = bench.spec.module_name
         parts: list[bytes] = []
         for name in (f"{module}_numpy.py", f"{module}_dace.py"):
             p = kdir / name
@@ -764,8 +763,8 @@ class DaceFramework(Framework):
         and save it. The parse is deterministic, so grading is unchanged. Cache errors degrade to a rebuild."""
         from hpcagent_bench import framework_cache, paths
 
-        kdir = paths.BENCHMARKS / bench.info["relative_path"]
-        module = bench.info["module_name"]
+        kdir = paths.BENCHMARKS / bench.spec.relative_path
+        module = bench.spec.module_name
         fingerprint = self._sdfg_fingerprint(bench)
         cache_dir = framework_cache.kernel_cache_dir(kdir)
         cached = framework_cache.load_sdfg(cache_dir, module, tag, fingerprint)
@@ -780,7 +779,7 @@ class DaceFramework(Framework):
         """The kernel's canonical SDFG for this device from the CPF cache under ``cache_root``
         (:func:`hpcagent_bench.cpf_canonical.canonical_sdfg`, the entry the CPF prerender renders its forms
         from), canonicalized and published there on a miss. A cached canonicalize failure raises its error."""
-        spec = BenchSpec.load(bench.info["short_name"])
+        spec = bench.spec
         precision = self.datatype or ""
         target = self._device_tag()
         impl = cpf_canonical.emit_program(spec)
@@ -842,7 +841,7 @@ class DaceFramework(Framework):
         # The parsed ``@dace.program`` from :meth:`implementations`, whose SDFG the pipelines deepcopy.
         if not isinstance(program, DaceProgram):
             raise TypeError(f"{self.fname}: optimize needs a parsed @dace.program, got {type(program).__name__}")
-        ctx = self._build_context(cpf_canonical.small_symbols(BenchSpec.load(bench.info["short_name"])))
+        ctx = self._build_context(cpf_canonical.small_symbols(bench.spec))
         pin_cpp_standard(self.info["arch"])
         pin_host_compiler()
         pin_per_rank_build_dirs()
@@ -863,7 +862,7 @@ class DaceFramework(Framework):
         if not compiled:
             # Decline rather than time the unoptimized SDFG under this column's name.
             why = "; ".join(self._pipeline_errors) or "every pipeline produced no compilable SDFG"
-            raise NotSupportedByFramework(self.fname, bench.info.get("short_name", "?"), why)
+            raise NotSupportedByFramework(self.fname, bench.spec.short_name, why)
         reference = self.reference_outputs(bench, bdata)
         # A single verify run decides only whether the strict-FP rebuild is needed.
         name, only = next(iter(compiled.items()))
@@ -938,7 +937,7 @@ class DaceFramework(Framework):
         band = tolerance_datatype(self.datatype, present.pop() if len(present) == 1 else None)
         rtol, atol = tolerances_for(band)
         label = f"{self.info['full_name']} - {variant.name}"
-        spec = BenchSpec.load(bench.info["short_name"])
+        spec = bench.spec
         return util.validate(
             reference, host, label, rtol=rtol, atol=atol, mismatch_fraction=spec.mismatch_fraction or 0.0
         )
@@ -970,7 +969,7 @@ class DaceFramework(Framework):
         plan.run()
         ret = plan.result
         outputs: list[OutputValue] = util.resolve_outputs(
-            ret, plan.inout_values(), bench.info.get("output_args", []), plan.inout_names()
+            ret, plan.inout_values(), bench.spec.output_args, plan.inout_names()
         )
         return outputs
 
@@ -1011,7 +1010,7 @@ class DaceFramework(Framework):
 
     def params(self, bench: Benchmark) -> list[str]:
         """The preset scalars that are not input arguments (sizes the program takes as symbols)."""
-        return [p for p in bench.info["parameters"]["L"] if p not in bench.info["input_args"]]
+        return [p for p in bench.spec.parameters["L"] if p not in bench.spec.input_args]
 
     def call_args(
         self, bench: Benchmark, impl: KernelImpl, resolved: dict[str, ArgValue], bdata: BenchData
@@ -1062,7 +1061,7 @@ class DaceFramework(Framework):
             return {}
         recipes: Sequence[tuple[str, str]] = vars(self.kernel_module(bench)).get("__hpcagent_bench_symbol_defs__", ())
         renames = self.arg_renames(bench)
-        args = [renames.get(name, name) for name in map(str, bench.info["input_args"])]
+        args = [renames.get(name, name) for name in map(str, bench.spec.input_args)]
         # ``sdfg.arrays`` is keyed by the emitted name.
         values = {renames.get(k, k): v for k, v in resolved.items()} if renames else resolved
         return bind_free_symbols(impl.sdfg, recipes, args, values, bound)

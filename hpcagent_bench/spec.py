@@ -36,7 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, InstanceOf
 
 #: The loader :func:`load_yaml` parses manifests with. ``CSafeLoader`` is PyYAML's libyaml-backed
 #: implementation of the SAME YAML 1.1 safe subset ``yaml.safe_load`` uses -- a faster parser, not a
-#: different dialect (``tests.test_spec_roundtrip`` pins that over the whole corpus). It only exists
+#: different dialect (``tests.test_bench_info_surface`` pins that over the whole corpus). It only exists
 #: when PyYAML was built against libyaml, which a wheel is and a bare source build is not, so the
 #: fallback is an ImportError away rather than a flag anyone has to set. Worth having: every registry
 #: walk parses every manifest, roughly 8x faster through libyaml.
@@ -704,9 +704,9 @@ def init_arrays_raw(init: "InitSpec") -> dict[str, ArrayEntry]:
     split it into.
 
     The exact inverse of the ``init.arrays`` loop in :meth:`BenchSpec.from_dict`, and it lives
-    beside that loop so the two cannot drift: anything that round-trips a spec back into a raw
-    dict (:func:`hpcagent_bench.emit_bridge.legacy_bench_info_dict`) must re-emit the ONE
-    declaration surface, never the internal maps. A bare string is used where the entry declares
+    beside that loop so the two cannot drift: the bench_info document
+    (:func:`hpcagent_bench.emit_bridge.bench_info_document`) must emit the ONE declaration surface,
+    never the internal maps. A bare string is used where the entry declares
     nothing but a shape, matching the shorthand the parser accepts."""
     out: dict[str, ArrayEntry] = {}
     for name, shape in init.shapes.items():
@@ -2209,19 +2209,18 @@ class BenchSpec(BaseModel):
     def from_dict(cls, raw: dict[str, object], source: str = "<dict>") -> "BenchSpec":
         """Validate ``raw`` and construct a :class:`BenchSpec`.
 
-        :param raw: Parsed JSON content (either the outer dict or the
-            inner ``benchmark`` block; both are accepted).
+        :param raw: The manifest as a flat mapping (:meth:`from_yaml` derives the location fields first).
         :param source: Path or label used in error messages.
         :raises ValueError: When a required field is missing or an
             unknown field is present; also when a ``config`` entry is malformed,
             a symbol is both a dimension and a config knob, or a
             ``constraints`` expression is violated (see :func:`_validate_constraints`).
         """
-        # Accept the outer ``{"benchmark": {...}, "track": ...}`` shape or the inner block; the
-        # outer level wins for fields that may sit at either.
-        outer = raw.get("benchmark")
-        bench = raw if outer is None else block_of(outer, "benchmark", source)
-        ext: dict[str, object] = {} if outer is None else raw
+        if "benchmark" in raw:
+            raise ValueError(
+                f"{source}: a manifest is a flat mapping; the bench_info document is the emitter's, not a spec"
+            )
+        bench = raw
 
         # Only ``output_args`` is a required declaration; ``input_args`` and ``array_args`` are
         # derived when omitted. ``short_name`` defaults to the last ``relative_path`` component.
@@ -2241,18 +2240,16 @@ class BenchSpec(BaseModel):
 
         init_spec = parse_init(bench["init"], source) if bench.get("init") else None
 
-        # Sparse blocks may sit at the outer or the inner level. A round-tripped dict
-        # (emit_bridge.legacy_bench_info_dict) carries the derived configurations beside ``layouts``;
-        # they are re-derived, never read back.
-        sparse_layouts = parse_layouts(block_of(ext.get("layouts") or bench.get("layouts"), "layouts", source), source)
+        # The configurations are derived from ``layouts``, never declared.
+        sparse_layouts = parse_layouts(block_of(bench.get("layouts"), "layouts", source), source)
         configurations = layout_configurations(sparse_layouts) if sparse_layouts else {}
 
         # 'parameters' below keeps its one meaning for every consumer, {preset: {symbol: value}},
         # with each config knob's representative value merged in.
         dimensions_map = parse_parameters(bench["parameters"], source)
         # Track loop_level_reasoning when a from_dict caller has no path to derive it from.
-        track = str(ext.get("track", bench.get("track", Track.LOOP_LEVEL_REASONING.value)))
-        declared_precisions = ext.get("allowed_precisions", bench.get("allowed_precisions"))
+        track = str(bench.get("track", Track.LOOP_LEVEL_REASONING.value))
+        declared_precisions = bench.get("allowed_precisions")
         allowed_precisions = (
             ("fp64", "fp32") if declared_precisions is None else tuple(str(p) for p in as_list(declared_precisions))
         )
@@ -2334,12 +2331,10 @@ class BenchSpec(BaseModel):
 
         validate_sparse_layouts(sparse_layouts, array_args, tuple(input_args), tuple(output_args), source)
         validate_scenario_layouts(init_spec, sparse_layouts, source)
-        mpi_blk = parse_mpi(ext.get("mpi", bench.get("mpi")), bool(sparse_layouts), source)
+        mpi_blk = parse_mpi(bench.get("mpi"), bool(sparse_layouts), source)
 
         # fuzz = DEFAULT_FUZZ when the manifest names none.
-        fuzz_blk: dict[str, list[str]] = list_block_of(ext.get("fuzz", bench.get("fuzz")), "fuzz", source) or dict(
-            DEFAULT_FUZZ
-        )
+        fuzz_blk: dict[str, list[str]] = list_block_of(bench.get("fuzz"), "fuzz", source) or dict(DEFAULT_FUZZ)
         if "configs" in fuzz_blk:
             raise ValueError(
                 f"{source}: 'fuzz.configs' has been replaced by the TOP-LEVEL 'config:' block, "
@@ -2357,20 +2352,20 @@ class BenchSpec(BaseModel):
                 f"Declare {clash} in 'config' only."
             )
         dwarf, scale = bench.get("dwarf"), bench.get("scale")
-        level, timeout_s = ext.get("level", bench.get("level")), ext.get("timeout_s", bench.get("timeout_s"))
-        memory_cap_gb = ext.get("memory_cap_gb", bench.get("memory_cap_gb"))
+        level, timeout_s = bench.get("level"), bench.get("timeout_s")
+        memory_cap_gb = bench.get("memory_cap_gb")
         if memory_cap_gb is not None and number_of(memory_cap_gb, "memory_cap_gb", source) <= 0:
             raise ValueError(f"{source}: memory_cap_gb must be positive (got {memory_cap_gb!r})")
-        floor_fraction = ext.get("floor_bytes_fraction", bench.get("floor_bytes_fraction", 1.0))
+        floor_fraction = bench.get("floor_bytes_fraction", 1.0)
         if not 0 < number_of(floor_fraction, "floor_bytes_fraction", source) <= 1:
             raise ValueError(f"{source}: floor_bytes_fraction must be in (0, 1] (got {floor_fraction!r})")
-        conditioning_rtol = ext.get("conditioning_rtol", bench.get("conditioning_rtol"))
+        conditioning_rtol = bench.get("conditioning_rtol")
         if conditioning_rtol is not None and not 0 < number_of(conditioning_rtol, "conditioning_rtol", source) < 1:
             raise ValueError(f"{source}: conditioning_rtol must be in (0, 1) (got {conditioning_rtol!r})")
-        conditioning_atol = ext.get("conditioning_atol", bench.get("conditioning_atol"))
+        conditioning_atol = bench.get("conditioning_atol")
         if conditioning_atol is not None and not 0 < number_of(conditioning_atol, "conditioning_atol", source) < 1:
             raise ValueError(f"{source}: conditioning_atol must be in (0, 1) (got {conditioning_atol!r})")
-        mismatch_fraction = ext.get("mismatch_fraction", bench.get("mismatch_fraction"))
+        mismatch_fraction = bench.get("mismatch_fraction")
         if mismatch_fraction is not None and not 0 < number_of(mismatch_fraction, "mismatch_fraction", source) < 1:
             raise ValueError(f"{source}: mismatch_fraction must be in (0, 1) (got {mismatch_fraction!r})")
         public_raw = bench.get("public")
@@ -2408,7 +2403,7 @@ class BenchSpec(BaseModel):
             allowed_precisions=allowed_precisions,
             sparse_layouts=sparse_layouts,
             configurations=configurations,
-            languages=tuple(str(lang) for lang in as_list(ext.get("languages", bench.get("languages")))),
+            languages=tuple(str(lang) for lang in as_list(bench.get("languages"))),
             fuzz=fuzz_blk,
             mpi=mpi_blk,
             config=config_knobs,
@@ -2417,10 +2412,7 @@ class BenchSpec(BaseModel):
             public=public,
         )
         validate_public(spec, source)
-        # A dict without a public block is the bridge's legacy view (legacy_bench_info_dict), which omits it: the
-        # manifest itself is checked by from_yaml whether or not it declares one.
-        if spec.public is not None:
-            validate_negative(spec, source)
+        validate_negative(spec, source)
         return spec
 
     @classmethod
@@ -2488,8 +2480,6 @@ class BenchSpec(BaseModel):
             if len(parts) >= 3:
                 raw.setdefault("dwarf", parts[1])
         spec = cls.from_dict(raw, source)
-        if spec.public is None:
-            validate_negative(spec, source)
         validate_dwarf(spec.dwarf, source)
         validate_scale(spec.scale, spec.track, source)
         validate_level(spec.level, spec.track, source)

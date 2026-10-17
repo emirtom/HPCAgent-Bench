@@ -13,7 +13,7 @@ import copy
 import pytest
 
 from hpcagent_bench import paths
-from hpcagent_bench.emit_bridge import legacy_bench_info_dict
+from hpcagent_bench.emit_bridge import bench_info_document
 from hpcagent_bench.spec import BenchSpec, load_yaml
 from hpcagent_bench.support.helpers.sparse.abi import FORMATS
 from hpcagent_bench.validate_sparse import SparseConfigError
@@ -31,10 +31,10 @@ def load(raw: dict[str, object]) -> BenchSpec:
 
 
 def load_with(**bench: object) -> BenchSpec:
-    """spmv through its bench_info dict with ``bench`` replacing what the manifest derives: the
-    argument lists a manifest no longer spells, so the dict is where a wrong one can still appear."""
-    info = legacy_bench_info_dict(load(spmv_manifest()))["benchmark"]
-    return BenchSpec.from_dict({**info, **bench}, source=str(SPMV))
+    """spmv with ``bench`` replacing what the manifest derives (the argument lists, which a manifest
+    no longer spells), checked by the same :meth:`BenchSpec.from_dict` the manifest goes through."""
+    expanded = bench_info_document(load(spmv_manifest())).benchmark.model_dump(exclude_unset=True)
+    return BenchSpec.from_dict({**expanded, **bench}, source=str(SPMV))
 
 
 def test_the_unedited_manifest_offers_every_format_with_csr_first() -> None:
@@ -213,8 +213,3 @@ def test_bsr_is_served_when_one_block_edge_is() -> None:
     assert "bsr" in load(raw).configurations
 
 
-def test_the_scenario_layouts_round_trip_through_the_legacy_dict() -> None:
-    spec = load(spmv_manifest())
-    again = BenchSpec.from_dict(legacy_bench_info_dict(spec)["benchmark"], source="<roundtrip>")
-    assert again.init.scenario_layouts == spec.init.scenario_layouts
-    assert again.init.revalue == "revalue"

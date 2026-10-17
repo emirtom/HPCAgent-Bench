@@ -70,10 +70,10 @@ class JaxFramework(Framework):
         original: KernelImpl = program
         if not (isinstance(program, jax_x64().stages.Wrapped) and isinstance(program, Lowerable)):
             return program
-        array_args = set(bench.info["array_args"])
+        array_args = set(bench.spec.array_args)
         copy = self.copy_func()
         args: list[ArgValue] = []
-        for name in bench.info["input_args"]:
+        for name in bench.spec.input_args:
             value = bdata[name]
             args.append(copy(value) if name in array_args and is_array_value(value) else value)
         try:

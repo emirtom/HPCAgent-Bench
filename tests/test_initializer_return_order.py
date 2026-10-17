@@ -23,7 +23,7 @@ from hpcagent_bench.spec import KERNELS
 def returned_names(kernel: str) -> list[tuple[str, ...]]:
     """The returns of ``kernel``'s initializer that are tuples of bare names, as name tuples."""
     bench = Benchmark(kernel)
-    func_name = (bench.info.get("init") or {}).get("func_name")
+    func_name = bench.spec.init.func_name if bench.spec.init is not None else ""
     spec = importlib.util.find_spec(bench.impl_module())
     if not func_name or spec is None or spec.origin is None:
         return []

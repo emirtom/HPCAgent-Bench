@@ -120,10 +120,9 @@ def test_gather_kernel_scop_is_detected_nonaffine(tmp_path: Path) -> None:
     """End-to-end: ``reroll_gather`` (``b[ip[i]]``) emits an affine-looking loop but
     an indirect access, so the detector flags its real scop -- the pluto path then
     skips it instead of miscompiling."""
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-    from hpcagent_bench.spec import BenchSpec
+        from hpcagent_bench.spec import BenchSpec
 
-    info = legacy_bench_info_dict(BenchSpec.load("reroll_gather"))["benchmark"]
+    info = BenchSpec.load("reroll_gather")
     ok, diag = numerical_oracle._emit("reroll_gather", info, tmp_path, precision="float64")
     assert ok, f"reroll_gather emit failed{diag}"
     scops = sorted(tmp_path.glob("*_pluto_input.c"))

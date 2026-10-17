@@ -64,8 +64,7 @@ def initializer_modules() -> dict[str, pathlib.Path]:
     found: dict[str, pathlib.Path] = {}
     for name in sorted(KERNELS.select("all")):
         bench = Benchmark(name)
-        init = bench.info.get("init") or {}
-        if not init.get("func_name") or bench.spec.sparse_layouts:
+        if bench.spec.init is None or not bench.spec.init.func_name or bench.spec.sparse_layouts:
             continue
         spec = importlib.util.find_spec(bench.impl_module())
         if spec is not None and spec.origin is not None:

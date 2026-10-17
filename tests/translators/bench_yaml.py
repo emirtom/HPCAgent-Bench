@@ -4,8 +4,8 @@
 
 The flat ``bench_info/*.json`` corpus is gone -- the minimal per-kernel YAML
 manifest is the single source of truth. These helpers load a :class:`BenchSpec`
-from the registry and synthesize the transient bench_info JSON the (untouchable)
-emitter still reads, via :mod:`hpcagent_bench.emit_bridge` -- so every test resolves
+from the registry and build the transient bench_info JSON the emitter reads, via
+:mod:`hpcagent_bench.emit_bridge` -- so every test resolves
 kernels by name through the YAML, never a hand-built ``bench_info/<short>.json``
 path or the old per-kernel folder layout.
 """
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 
 from hpcagent_bench import paths
-from hpcagent_bench.emit_bridge import bench_info_tempfile, legacy_bench_info_dict
+from hpcagent_bench.emit_bridge import bench_info_document, bench_info_tempfile
 from hpcagent_bench.spec import KERNELS, BenchSpec
 
 REPO = paths.ROOT
@@ -106,7 +106,7 @@ def sparse_kernel_shorts() -> list[str]:
 
 
 def full_bench_info(short: str) -> dict:
-    """The (non-flattened) legacy bench_info ``benchmark`` block for ``short`` --
-    carries the full ``sparse_layouts`` / ``configurations`` the sparse oracle
-    needs to generate matrices."""
-    return legacy_bench_info_dict(BenchSpec.load(short))["benchmark"]
+    """The (non-flattened) bench_info document's ``benchmark`` block for ``short``, as data -- it
+    carries the full ``sparse_layouts`` / ``configurations`` the sparse oracle needs to generate
+    matrices."""
+    return bench_info_document(BenchSpec.load(short)).benchmark.model_dump(exclude_unset=True)

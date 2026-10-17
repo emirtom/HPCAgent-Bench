@@ -58,9 +58,8 @@ class SparseKernel:
 
 def discover_sparse_kernels(repo: pathlib.Path = REPO) -> list[SparseKernel]:
     """Every kernel whose co-located YAML carries a sparse layout and whose reference takes the
-    logical matrix, paired with its ``<short>_numpy.py`` reference. Registry-driven -- the flat
-    ``bench_info/*.json`` corpus is gone; ``full_bench_info`` synthesizes the (non-flattened)
-    bench_info dict from the YAML for matrix generation. A reference that walks the CSR buffers
+    logical matrix, paired with its ``<short>_numpy.py`` reference. Registry-driven --
+    ``full_bench_info`` builds the (non-flattened) bench_info block from the YAML for matrix generation. A reference that walks the CSR buffers
     itself (spgemm_hash, the solvers) is out of this oracle's reach -- a random matrix is not its
     input (a level schedule, a symbolic factorization, a capacity derived in the manifest go with
     it) -- and is graded per layout on its own inputs by ``run-sparse`` and

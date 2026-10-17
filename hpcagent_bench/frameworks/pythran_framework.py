@@ -25,8 +25,8 @@ class PythranFramework(Framework):
     def implementations(self, bench: Benchmark) -> Sequence[tuple[Callable, str]]:
         """The kernel compiled from ``<module>_pythran.py`` into a temporary extension module."""
         self.ensure_impls(bench)
-        name = bench.info["module_name"] + "_pythran"
-        pymod_path = paths.BENCHMARKS / bench.info["relative_path"] / f"{name}.py"
+        name = bench.spec.module_name + "_pythran"
+        pymod_path = paths.BENCHMARKS / bench.spec.relative_path / f"{name}.py"
         tmpdir = tempfile.TemporaryDirectory()
         somod_path = str(pathlib.Path(tmpdir.name, f"{name}.so"))
         # Compile flags come from the central matrix (hpcagent_bench/flags.py), never hardcoded here.
@@ -42,4 +42,4 @@ class PythranFramework(Framework):
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        return [(vars(module)[bench.info["func_name"]], "default")]
+        return [(vars(module)[bench.spec.func_name], "default")]

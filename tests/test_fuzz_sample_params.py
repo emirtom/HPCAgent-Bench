@@ -112,18 +112,17 @@ def _microapp_manifest() -> dict[str, object]:
 
 
 def test_config_space_survives_benchspec_roundtrip_and_reaches_sample_params() -> None:
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-    from hpcagent_bench.spec import BenchSpec
+        from hpcagent_bench.spec import BenchSpec
 
     spec = BenchSpec.from_dict(_microapp_manifest(), source="cfgprobe")
-    info = legacy_bench_info_dict(spec)["benchmark"]
+    info = spec
 
     assert spec.config_space, "config space lost in the BenchSpec round-trip"
 
     valid_pairs = {(c["okvan"], c["noncolin"]) for c in spec.config_space}
     seen = set()
     for it in range(fuzz.iterations()):
-        out = fuzz.sample_params(info["parameters"], it, configs=spec.config_space, constraints=spec.constraints)
+        out = fuzz.sample_params(info.parameters, it, configs=spec.config_space, constraints=spec.constraints)
         assert (out["okvan"], out["noncolin"]) in valid_pairs  # a valid config tuple ...
         assert 8 <= out["ngrid"] <= 16
         assert out["npol"] in (1, 2)

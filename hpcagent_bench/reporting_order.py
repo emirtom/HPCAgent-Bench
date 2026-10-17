@@ -223,9 +223,8 @@ def row_meta_for(short_names: Sequence[str]) -> list[RowMeta]:
 def structural_group(spec, track: str | None = None) -> str | None:
     """The group a figure bands ``spec``'s row under: the dwarf for HPC, ``None`` for every other track.
 
-    One rule, one place: the results table records it per row (see
-    :func:`hpcagent_bench.emit_bridge.legacy_bench_info_dict`, which is where a run reads it) and
-    the figures band on it, so a second copy of the rule would put the recorded value and the drawn
-    one a refactor apart.
+    One rule, one place: the results table records it per row (the framework run's ``domain``) and the
+    figures band on it, so a second copy of the rule would put the recorded value and the drawn one a
+    refactor apart.
     """
     return spec.dwarf if (track or spec.track) == TRACK_SCIENTIFIC_COMPUTING else None

@@ -21,7 +21,7 @@ import pytest
 
 from hpcagent_bench import dtypes
 from hpcagent_bench import numerical_oracle as no
-from hpcagent_bench.emit_bridge import ArrayDocument, emitter_bench_info, legacy_bench_info_dict
+from hpcagent_bench.emit_bridge import ArrayDocument, bench_info_document, emitter_bench_info
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
@@ -177,9 +177,8 @@ def test_an_emitted_bf16_kernel_matches_the_ml_dtypes_oracle_exactly(tmp_path: p
     """The whole translator at ``--precision bf16``, not the helpers alone: promote on read, round
     after EACH op, demote on write, so ``y + alpha * x`` reproduces ml_dtypes bit for bit."""
     require(TOOL[backend])
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
 
-    info = legacy_bench_info_dict(BenchSpec.load(KERNEL))["benchmark"]
+    info = BenchSpec.load(KERNEL)
     ok, diag = no._emit(KERNEL, info, tmp_path, precision="bf16")
     assert ok, f"{KERNEL}: bf16 emit failed{diag}"
     src = tmp_path / f"{KERNEL}_bf16{EXT[backend]}"
@@ -290,7 +289,7 @@ def test_the_emitter_types_an_ml_kernel_in_the_track_datatype() -> None:
     assert isinstance(targets, ArrayDocument)
     assert targets.dtype == "int64"
     gemm = BenchSpec.load("gemm")
-    assert emitter_bench_info(gemm, None).legacy() == legacy_bench_info_dict(gemm)
+    assert emitter_bench_info(gemm, None) == bench_info_document(gemm)
 
 
 def test_a_bf16_signature_parses_with_its_storage_typedef() -> None:

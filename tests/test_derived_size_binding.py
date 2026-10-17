@@ -25,9 +25,9 @@ DERIVED_SIZES = [("lulesh", ("numNode", "numSymm")), ("vexx_k", ("maxbox",))]
 
 def declared_sizes(bench: Benchmark) -> list[str]:
     """Size symbols the kernel signature takes, as the fixed presets declare them."""
-    fixed = [values for preset, values in bench.info["parameters"].items() if preset != "fuzzed"]
+    fixed = [values for preset, values in bench.spec.parameters.items() if preset != "fuzzed"]
     named = set().union(*[set(values) for values in fixed])
-    return [arg for arg in bench.info["input_args"] if arg in named]
+    return [arg for arg in bench.spec.input_args if arg in named]
 
 
 @pytest.mark.parametrize(("kernel", "owed"), DERIVED_SIZES)

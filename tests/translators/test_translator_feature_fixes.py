@@ -746,10 +746,9 @@ def test_body_local_dim_alias_excluded_from_params() -> None:
     import pathlib
     import tempfile
 
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-    from hpcagent_bench.spec import BenchSpec
+        from hpcagent_bench.spec import BenchSpec
 
-    info = legacy_bench_info_dict(BenchSpec.load("smith_waterman"))["benchmark"]
+    info = BenchSpec.load("smith_waterman")
     with tempfile.TemporaryDirectory() as td:
         ok, diag = no._emit("smith_waterman", info, pathlib.Path(td))
         assert ok, f"smith_waterman emit failed{diag}"
@@ -827,10 +826,9 @@ def test_fortran_abi_param_order_matches_binding() -> None:
     import pathlib
     import tempfile
 
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-    from hpcagent_bench.spec import BenchSpec
+        from hpcagent_bench.spec import BenchSpec
 
-    info = legacy_bench_info_dict(BenchSpec.load("gesummv"))["benchmark"]
+    info = BenchSpec.load("gesummv")
     with tempfile.TemporaryDirectory() as td:
         ok, diag = no._emit("gesummv", info, pathlib.Path(td))
         assert ok, f"gesummv emit failed{diag}"
@@ -866,10 +864,9 @@ def test_fp16_emission_compiles_c_cpp(kernel) -> None:
     import subprocess
     import tempfile
 
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-    from hpcagent_bench.spec import BenchSpec
+        from hpcagent_bench.spec import BenchSpec
 
-    info = legacy_bench_info_dict(BenchSpec.load(kernel))["benchmark"]
+    info = BenchSpec.load(kernel)
     with tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
         ok, diag = no._emit(kernel, info, tdp, precision="float16")
@@ -894,10 +891,9 @@ def test_fp16_signature_uses_half_not_double() -> None:
     import pathlib
     import tempfile
 
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-    from hpcagent_bench.spec import BenchSpec
+        from hpcagent_bench.spec import BenchSpec
 
-    info = legacy_bench_info_dict(BenchSpec.load("gemm"))["benchmark"]
+    info = BenchSpec.load("gemm")
     with tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
         ok, diag = no._emit("gemm", info, tdp, precision="float16")
@@ -1910,14 +1906,14 @@ def kir_with_helper():
     """Parse a kernel whose helper survives inlining, and return its lowered IR."""
     import pathlib
 
-    from hpcagent_bench.emit_bridge import bench_info_tempfile, legacy_bench_info_dict
+    from hpcagent_bench.emit_bridge import bench_info_tempfile
     from hpcagent_bench.spec import BenchSpec
     from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
     from hpcagent_bench.translators.numpyto_common.lowering import lower
 
     spec = BenchSpec.load("vexx_k")
-    info = legacy_bench_info_dict(spec)["benchmark"]
-    npy = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}_numpy.py"
+    info = spec
+    npy = paths.BENCHMARKS / info.relative_path / f"{info.module_name}_numpy.py"
     with bench_info_tempfile(spec) as bi:
         return lower(parse_kernel(npy, pathlib.Path(bi)))
 
