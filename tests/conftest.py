@@ -179,9 +179,10 @@ def ppcg_missing() -> str:
 
 
 def full_width_missing() -> str:
-    """ "" when OpenMP runs at this host's full core count, else what it runs at."""
-    threads = os.environ.get("OMP_NUM_THREADS")
-    return "" if threads == str(os.cpu_count()) else f"OMP_NUM_THREADS={threads} on {os.cpu_count()} cores"
+    """ "" when OpenMP runs on every core this process owns (its affinity: a CI runner, a Slurm or taskset
+    slice), else what it runs at."""
+    threads, owned = os.environ.get("OMP_NUM_THREADS"), flags.cpus_owned()
+    return "" if threads == str(owned) else f"OMP_NUM_THREADS={threads} on {owned} cores"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
