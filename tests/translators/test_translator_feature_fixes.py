@@ -746,7 +746,7 @@ def test_body_local_dim_alias_excluded_from_params() -> None:
     import pathlib
     import tempfile
 
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load("smith_waterman")
     with tempfile.TemporaryDirectory() as td:
@@ -826,7 +826,7 @@ def test_fortran_abi_param_order_matches_binding() -> None:
     import pathlib
     import tempfile
 
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load("gesummv")
     with tempfile.TemporaryDirectory() as td:
@@ -864,7 +864,7 @@ def test_fp16_emission_compiles_c_cpp(kernel) -> None:
     import subprocess
     import tempfile
 
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load(kernel)
     with tempfile.TemporaryDirectory() as td:
@@ -891,7 +891,7 @@ def test_fp16_signature_uses_half_not_double() -> None:
     import pathlib
     import tempfile
 
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load("gemm")
     with tempfile.TemporaryDirectory() as td:

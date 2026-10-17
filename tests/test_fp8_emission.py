@@ -33,7 +33,7 @@ _EXT = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
 
 def _emit_fp8(tmp_path, precision):
     """Emit `KERNEL` at `precision` into `tmp_path` via the same CLI path the numerical oracle uses."""
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load(KERNEL)
     ok, diag = no._emit(KERNEL, info, tmp_path, precision=precision)

@@ -72,7 +72,7 @@ def test_fp16_native_emit_uses_the_toolchain_half() -> None:
     import tempfile
 
     from hpcagent_bench import numerical_oracle as no
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     short = FP16_KERNELS[0]
     info = BenchSpec.load(short)

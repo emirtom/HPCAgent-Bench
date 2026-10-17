@@ -112,7 +112,7 @@ def _microapp_manifest() -> dict[str, object]:
 
 
 def test_config_space_survives_benchspec_roundtrip_and_reaches_sample_params() -> None:
-        from hpcagent_bench.spec import BenchSpec
+    from hpcagent_bench.spec import BenchSpec
 
     spec = BenchSpec.from_dict(_microapp_manifest(), source="cfgprobe")
     info = spec
