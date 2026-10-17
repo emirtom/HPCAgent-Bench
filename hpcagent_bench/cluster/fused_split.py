@@ -13,7 +13,9 @@ which is the same env a single-setup job of that setup is launched with -- and `
 ``<setup>.unset`` name what the overlay sets and clears, so the caller can resolve it to the flat
 ``<setup>.resolved`` the agent driver and the judge read (hpcagent_bench.fused).
 
-Standard library only: it runs on the batch host, before any container starts.
+Standard library only: it runs on the batch host, before any container starts, so the setups file and
+the problem lines (:class:`hpcagent_bench.problem_file.ProblemLine` everywhere else) are read with bare
+:mod:`json` here (docs/results_db.md#formats).
 """
 
 import json

@@ -10,6 +10,9 @@ then is killed and lost. run_cluster.sh runs this first, on the batch host, agai
 router (``GET /in-flight``). A rank that does not answer counts as drained: it cannot finish a grade.
 
     python3 drain_judges.py --deadline <epoch-s> URL [URL ...]
+
+Standard library only: the batch host's python3 runs it, so the router's ``/in-flight`` answer is read
+with bare :mod:`json`, not a pydantic model (docs/results_db.md#formats).
 """
 
 import argparse

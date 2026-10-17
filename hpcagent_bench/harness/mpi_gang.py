@@ -34,6 +34,9 @@ submission at a time (one device slot, see run_cluster.sh JUDGE_GANG_NODES).
 
 The judge's environment rides to the ranks in an ``env K=V ...`` prefix, since the relay's srun
 exports the batch host's environment, not the judge container's.
+
+The ``<id>.req`` file is the relay's format, read with bare :mod:`json` on the batch host, so it is
+written here with bare :mod:`json` too, not a pydantic model (docs/results_db.md#formats).
 """
 
 import fcntl
