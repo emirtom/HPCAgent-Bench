@@ -155,7 +155,7 @@ def filter_out_completed_benchmarks(
     done = {
         str(row["kernel"])
         for row in canon_db.read(canon.db, run=canon.run, column=framework_name)
-        if row["preset"] == preset and row["datatype"] == datatype and row["validated"] == "True"
+        if row["preset"] == preset and row["datatype"] == datatype and row["validated"] == 1
     }
     remaining = [name for name in all_benchmarks if name not in done]
     print(
@@ -312,7 +312,7 @@ def sweep_rows(
 ) -> list[dict[str, object]]:
     """Canon rows for one ``run_forked(run_one, ...)`` outcome: one ``status=crash`` row per framework when
     the child died, else one row per reported (framework, impl) with its validation and timing."""
-    base = {"preset": preset, "datatype": datatype, "kernel": benchname, "validated": "", "failure": "", "error": ""}
+    base = {"preset": preset, "datatype": datatype, "kernel": benchname, "validated": None, "failure": "", "error": ""}
     if not result.ok:
         why = forked_failure_reason(result)
         return [{**base, "column": name, "impl": "", "status": "crash", "error": why} for name in framework_names]
@@ -330,7 +330,7 @@ def sweep_rows(
                     "column": name,
                     "impl": impl_name,
                     "status": "ok",
-                    "validated": str(timing.get("validated", "")),
+                    "validated": None if "validated" not in timing else int(bool(timing["validated"])),
                     "median_ms": best_ms(timing.get("native"), timing.get("python")),
                     "failure": timing.get("failure") or "",
                 }
@@ -350,7 +350,7 @@ def is_failed(row: Mapping[str, object]) -> bool:
 
 def is_wrong(row: Mapping[str, object]) -> bool:
     """Validation ran and disagreed with NumPy (``failure`` set means it never compared)."""
-    return row["status"] == "ok" and not row["failure"] and row["validated"] == "False"
+    return row["status"] == "ok" and not row["failure"] and row["validated"] == 0
 
 
 def print_rows(title: str, rows: list[dict[str, object]], column: str | None) -> None:
@@ -381,7 +381,7 @@ def summarize(rows: Sequence[dict[str, object]]) -> int:
     print(f"\n{'column':14s} {'n':>5s} {'ok':>5s} {'validated':>10s} {'crash':>6s} {'failed':>7s} {'wrong':>6s}")
     for column, grp in sorted(groups.items()):
         ok = sum(1 for r in grp if r["status"] == "ok")
-        validated = sum(1 for r in grp if r["validated"] == "True")
+        validated = sum(1 for r in grp if r["validated"] == 1)
         crash, failed, wrong = (sum(1 for r in grp if pred(r)) for pred in (is_crash, is_failed, is_wrong))
         print(f"{column:14s} {len(grp):5d} {ok:5d} {validated:10d} {crash:6d} {failed:7d} {wrong:6d}")
 

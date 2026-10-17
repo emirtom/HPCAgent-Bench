@@ -57,7 +57,7 @@ def sweep_file(path: pathlib.Path) -> None:
             "preset": "S",
             "datatype": "float64",
             "median_ms": ms,
-            "validated": "True",
+            "validated": 1,
             "status": "ok",
         }
         for column, ms in SWEEP

@@ -59,7 +59,7 @@ def median_ms(db: pathlib.Path, column: str, kernel: str) -> float:
     rows = [row for row in canon_db.read(db, column=column) if row["kernel"] == kernel]
     assert rows, f"{column} recorded no row for {kernel}"
     (row,) = rows
-    assert row["validated"] == "True", f"{column} on {kernel} does not agree with numpy: {row['error']}"
+    assert row["validated"] == 1, f"{column} on {kernel} does not agree with numpy: {row['error']}"
     assert row["median_ms"], f"{column} on {kernel} has no timing: {row['status']} {row['error']}"
     return float(row["median_ms"])
 

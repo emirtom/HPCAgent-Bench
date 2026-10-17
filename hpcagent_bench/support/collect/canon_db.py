@@ -63,7 +63,16 @@ def connect(path: pathlib.Path) -> sqlite3.Connection:
 
 def record(path: pathlib.Path, rows: Iterable[Mapping[str, object]]) -> int:
     """``INSERT OR REPLACE`` every row (a mapping over :data:`COLUMNS`; a missing one is NULL); returns how many."""
-    defaults = {"node": "", "cpu": "", "gpu": "", "execution": "native"}
+    defaults = {
+        "build": "",
+        "impl": "",
+        "failure": "",
+        "error": "",
+        "node": "",
+        "cpu": "",
+        "gpu": "",
+        "execution": "native",
+    }
     values = [{name: row.get(name, defaults.get(name)) for name in COLUMNS} for row in rows]
     if not values:
         return 0

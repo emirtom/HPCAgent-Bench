@@ -17,7 +17,7 @@ TAG_KERNELS: tuple[str, ...] = ("k1", "k2", "k3")
 
 def canon_table(rows: list[tuple[str, str, float]]) -> pd.DataFrame:
     return pd.DataFrame(
-        [{"run": "r1", "column": column, "kernel": kernel, "median_ms": ms, "validated": "True"}
+        [{"run": "r1", "column": column, "kernel": kernel, "median_ms": ms, "validated": 1}
          for column, kernel, ms in rows]
     )  # fmt: skip
 

@@ -254,12 +254,12 @@ CREATE TABLE canon (
     preset       TEXT NOT NULL,
     datatype     TEXT NOT NULL,
     median_ms    REAL,                                  -- NULL = no time
-    validated    TEXT NOT NULL CHECK (validated IN ('True', 'False', '')),  -- '' = nothing compared
-    build        TEXT,                                  -- the dace commit the column ran against
-    impl         TEXT,                                  -- the implementation the median timed
-    status       TEXT CHECK (status IN ('ok', 'crash', 'timeout')),
-    failure      TEXT,                                  -- why an ok row compared nothing (unsupported, ...)
-    error        TEXT,
+    validated    INTEGER CHECK (validated IN (0, 1)),  -- matched numpy; NULL = nothing compared
+    build        TEXT NOT NULL DEFAULT '',              -- the dace commit the column ran against
+    impl         TEXT NOT NULL DEFAULT '',              -- the implementation the median timed
+    status       TEXT NOT NULL CHECK (status IN ('ok', 'crash', 'timeout')),
+    failure      TEXT NOT NULL DEFAULT '',              -- why an ok row compared nothing (unsupported, ...)
+    error        TEXT NOT NULL DEFAULT '',
     node         TEXT NOT NULL DEFAULT '',              -- the node that measured it (osinfo.node_name)
     cpu          TEXT NOT NULL DEFAULT '',              -- its CPU model (osinfo.cpu_model)
     gpu          TEXT NOT NULL DEFAULT '',              -- its GPU model; '' for a CPU column

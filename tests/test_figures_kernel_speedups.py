@@ -24,7 +24,7 @@ from hpcagent_bench.stats import canon, palette, rules, style, summary
 from hpcagent_bench.stats.figures import kernel_speedups, per_kernel, setup_names
 
 
-def row(framework: str, kernel: str, ms: str, status: str = "ok", validated: str = "True") -> dict[str, str]:
+def row(framework: str, kernel: str, ms: str, status: str = "ok", validated: int | None = 1) -> dict[str, object]:
     return {
         "framework": framework,
         "preset": "XL",
@@ -85,7 +85,7 @@ TAG_TOKENS: tuple[str, ...] = ("k1", "k2", "k3", "k4", "k5", "k6")
 def canon_table(rows: list[tuple[str, str, float]]) -> pd.DataFrame:
     """A ``canon`` table frame: (column, kernel, median_ms), always validated."""
     return pd.DataFrame(
-        [{"run": "r1", "column": column, "kernel": kernel, "median_ms": ms, "validated": "True"}
+        [{"run": "r1", "column": column, "kernel": kernel, "median_ms": ms, "validated": 1}
          for column, kernel, ms in rows]
     )  # fmt: skip
 
@@ -497,7 +497,7 @@ def pending_canon_fixture() -> pd.DataFrame:
     """numba times k1-k3; the CPF column validates k1, runs k2 and fails it, and has no row for k3."""
     frame = canon_table([("numba", "k1", 100.0), ("numba", "k2", 100.0), ("numba", "k3", 100.0),
                          ("dace_cpu_canon", "k1", 10.0), ("dace_cpu_canon", "k2", 50.0)])  # fmt: skip
-    frame.loc[(frame["column"] == "dace_cpu_canon") & (frame["kernel"] == "k2"), "validated"] = "False"
+    frame.loc[(frame["column"] == "dace_cpu_canon") & (frame["kernel"] == "k2"), "validated"] = 0
     return frame
 
 

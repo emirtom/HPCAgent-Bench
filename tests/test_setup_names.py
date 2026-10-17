@@ -104,7 +104,7 @@ def observations(rows: list[dict[str, object]]) -> pd.DataFrame:
     return frame.reindex(columns=[*frame.columns, *(c for c in token_columns if c not in frame.columns)])
 
 
-def canon_frame(rows: list[tuple[str, str, float, str]]) -> pd.DataFrame:
+def canon_frame(rows: list[tuple[str, str, float, int]]) -> pd.DataFrame:
     """A ``canon`` table frame: (column, kernel, median_ms, validated)."""
     return pd.DataFrame(
         [{"run": "r1", "column": c, "kernel": k, "median_ms": ms, "validated": v} for c, k, ms, v in rows]
@@ -212,7 +212,7 @@ def test_git_scicomps_two_conditions_both_read_as_proper_names() -> None:
 
 
 def test_tag_of_reads_every_kernel_the_canon_frame_names() -> None:
-    canon = canon_frame([("numba", "k1", 1.0, "True"), ("numba", "k2", 1.0, "True")])
+    canon = canon_frame([("numba", "k1", 1.0, 1), ("numba", "k2", 1.0, 1)])
     assert setup_names.tag_of(canon) == ["k1", "k2"]
 
 

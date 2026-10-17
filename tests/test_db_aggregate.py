@@ -44,9 +44,9 @@ def seed_shard(
             if with_canon:
                 # A baseline sweep's canon row (the run is the sweep, which ran at ``timestamp``).
                 conn.execute(
-                    'INSERT INTO canon (run, "column", kernel, preset, datatype, median_ms, validated)'
-                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (f"sweep{timestamp}", "numpy", kernel, "S", "float64", 2.0, "True"),
+                    'INSERT INTO canon (run, "column", kernel, preset, datatype, median_ms, validated, status)'
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"sweep{timestamp}", "numpy", kernel, "S", "float64", 2.0, 1, "ok"),
                 )
         conn.commit()
 

@@ -243,7 +243,7 @@ def record_timeout(sweep: Sweep, kernel: str, wall: int) -> None:
         [
             {
                 "run": sweep.run_label, "column": sweep.column, "kernel": kernel, "preset": sweep.preset,
-                "datatype": "", "validated": "False", "status": "timeout", "failure": "timeout",
+                "datatype": "", "validated": 0, "status": "timeout", "failure": "timeout",
                 "error": f"wall timeout after {wall}s", "build": sweep.environ.get("HPCAGENT_BENCH_RECORD_BUILD"),
             }
         ],

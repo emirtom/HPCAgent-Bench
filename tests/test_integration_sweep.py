@@ -124,7 +124,7 @@ def test_numpy_leg_records_every_selected_kernel(sweep) -> None:
     assert {r["kernel"] for r in rows} == expected
     assert len(rows) == len(expected), f"expected one row per kernel, got {len(rows)} for {len(expected)} kernels"
     for row in rows:
-        assert row["validated"] == "True", f"{row['kernel']}: numpy row did not validate"
+        assert row["validated"] == 1, f"{row['kernel']}: numpy row did not validate"
         assert row["median_ms"] > 0, f"{row['kernel']}: non-positive runtime {row['median_ms']}"
         assert row["preset"] == PRESET
         assert row["column"] == "numpy"
@@ -140,7 +140,7 @@ def test_native_autopar_leg_validates(sweep) -> None:
     assert {r["kernel"] for r in rows} == expected
     assert len(rows) == len(expected)
     for row in rows:
-        assert row["validated"] == "True", f"{row['kernel']}: {NATIVE_FRAMEWORK} row did not validate vs numpy"
+        assert row["validated"] == 1, f"{row['kernel']}: {NATIVE_FRAMEWORK} row did not validate vs numpy"
         assert row["median_ms"] > 0, f"{row['kernel']}: non-positive runtime {row['median_ms']}"
         assert row["datatype"] == DATATYPE
 
