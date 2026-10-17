@@ -1,25 +1,19 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-import dataclasses
 import functools
 import logging
-import time
 import traceback
 import types
 import warnings
 from typing import NotRequired, TypedDict
 
 import numpy as np
-from sqlmodel import Session
 
-from hpcagent_bench import config, osinfo, reporting_order
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import timeout_decorator as tout
 from hpcagent_bench.frameworks import utilities as util
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework, decline_kind
-from hpcagent_bench.frameworks.framework import ArgValue, BenchData, KernelImpl, KernelResult, OutputValue, split_flavor
-from hpcagent_bench.frameworks.schema import Result, results_engine
-from hpcagent_bench.harness import recording
+from hpcagent_bench.frameworks.framework import ArgValue, BenchData, KernelImpl, KernelResult, OutputValue
 from hpcagent_bench.precision import TOLERANCE_MATRIX, Precision, numpy_dtype, precision_from_datatype, tolerance_band
 from hpcagent_bench.spec import BenchSpec
 
@@ -30,7 +24,6 @@ __all__ = [
     "TOLERANCES",
     "ImplTiming",
     "NumpyArray",
-    "Sample",
     "Test",
     "detect_precision",
     "failed_timing",
@@ -375,16 +368,6 @@ class ImplTiming(TypedDict):
     failure: NotRequired[str]
 
 
-@dataclasses.dataclass(slots=True)
-class Sample:
-    """One timed repetition of one implementation: the row :class:`Result` is built from."""
-
-    details: str
-    validated: bool
-    time: float
-    native_time: float | None
-
-
 def is_float16_array(value: ArgValue) -> bool:
     """Whether ``value`` is an ARRAY at float16, the precision numba's data model refuses."""
     if not isinstance(value, np.ndarray):
@@ -639,7 +622,6 @@ class Test:
         ) -> tuple[list[OutputValue] | None, list[float] | None, list[float] | None]:
             return self._execute(self.frmwrk, impl, impl_name, "first/validation", context, 0, ignore_errors)
 
-        samples: list[Sample] = []
         per_impl_timings: dict[str, ImplTiming] = {}
         for impl, impl_name in self.frmwrk.implementations(self.bench):
             self._last_failure = None
@@ -669,14 +651,6 @@ class Test:
             timing = self.timed_run(impl_name, context, repeat, ignore_errors, valid, validate, np_out, band)
             if timing is not None:
                 per_impl_timings[impl_name] = timing
-                natives: list[float | None] = (
-                    [*timing["native"]] if timing["native"] else [None] * len(timing["python"] or [])
-                )
-                samples.extend(
-                    Sample(details=impl_name, validated=timing["validated"], time=t, native_time=nt)
-                    for t, nt in zip(timing["python"] or [], natives, strict=False)
-                )
-        self.record(samples, preset, datatype)
         return per_impl_timings
 
     def oracle_output(self, bdata: BenchData, ignore_errors: bool) -> list[OutputValue] | None:
@@ -753,45 +727,3 @@ class Test:
             return False
         return valid
 
-    def record(
-        self,
-        samples: list[Sample],
-        preset: str,
-        datatype: str | None,
-    ) -> None:
-        """Persist the timed samples through the typed SQLModel schema (agent is None on this
-        direct-framework path), into this rank's shard of the results DB
-        (recording.db_path)."""
-        timestamp = int(time.time())
-        record = config.current().record
-        execution = record.execution
-        build = record.build or None
-        # `dace_cpu_parallel` is stored as backend + optimizer (split_flavor).
-        column, flavor = split_flavor(self.frmwrk.info.get("simple_name", self.frmwrk.fname))
-        kernel = self.bench.spec.short_name
-        # The contract -d selects; an empty -d is absent.
-        stored_datatype = datatype or "float64"
-        with Session(results_engine(recording.db_path())) as session:
-            for d in samples:
-                session.add(
-                    Result(
-                        timestamp=timestamp,
-                        kernel=kernel,
-                        # The only kernel-info field the results table carries (heatmap groups on it).
-                        domain=reporting_order.structural_group(self.bench.spec) or self.bench.spec.track,
-                        preset=preset,
-                        framework=column,
-                        flavor=flavor,
-                        agent=None,
-                        validated=d.validated,
-                        time=d.time,
-                        native_time=d.native_time,
-                        datatype=stored_datatype,
-                        build=build,
-                        execution=execution,
-                        cpu=osinfo.cpu_model(),
-                        gpu=osinfo.gpu_model() if self.frmwrk.info["arch"] == "gpu" else None,
-                        node=osinfo.node_name(),
-                    )
-                )
-            session.commit()

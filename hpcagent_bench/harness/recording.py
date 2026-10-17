@@ -109,7 +109,6 @@ __all__ = [
     "store_delivery",
     "study_tag",
     "submission_envelope",
-    "table_exists",
     "trajectory_stamps",
 ]
 
@@ -398,19 +397,6 @@ class TrajectoryPoint(Protocol):
 
     @property
     def seconds(self) -> float: ...
-
-
-def table_exists(path: str, table: str) -> bool:
-    """Whether ``path`` holds ``table``, without creating an absent file (``sqlite3.connect`` would)."""
-    if not pathlib.Path(path).exists():
-        return False
-    conn = results_db.connect_ro(path)
-    try:
-        return (
-            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
-        )
-    finally:
-        conn.close()
 
 
 def aggregate(dest: str | None = None, sources: Sequence[str] | None = None) -> int:

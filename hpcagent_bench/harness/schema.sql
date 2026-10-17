@@ -1,8 +1,8 @@
 -- Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 10: the name's 1.0,
--- above every pre-release schema, which stopped at 8, so no older file is ever mistaken for it).
+-- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 11). There is one
+-- schema and no migration: a file of any other user_version is refused.
 --
 -- One file holds everything an experiment produced: a judge rank's shard, a job and the whole
 -- dataset use this same schema, and merging remaps the surrogate ids through the natural keys.
@@ -20,7 +20,7 @@
 -- indices (0 is real), the device-synchronization readings (0 ns is real; CPU grades have none), p_value
 -- (no test ran) and work_ratio (strong scaling has none).
 
-PRAGMA user_version = 10;
+PRAGMA user_version = 11;
 
 -- One experimental condition: everything a run's identity has in common across its repetitions.
 CREATE TABLE setups (
@@ -242,6 +242,30 @@ CREATE TABLE reference_scaling_points (
     commit_sha   TEXT NOT NULL DEFAULT '',
     ts_ms        INTEGER NOT NULL,
     PRIMARY KEY (source, kernel, mode, ranks, repeat, ts_ms)
+) STRICT;
+
+-- One deterministic baseline-sweep measurement (``hpcagent-bench job baseline``): a column's time for a kernel, no
+-- agent and no judge. Written as each kernel finishes (support/collect/canon_db.py), a re-run replacing its row;
+-- read by the baseline figures (stats/canon.py) and the canon perf gate. median_ms is NULL for a kernel the column
+-- produced no time for (a crash, a decline), never 0.
+CREATE TABLE canon (
+    run          TEXT NOT NULL,                         -- the sweep's run label
+    "column"     TEXT NOT NULL,                         -- the framework column (columns.py name, flavor included)
+    kernel       TEXT NOT NULL,
+    preset       TEXT NOT NULL,
+    datatype     TEXT NOT NULL,
+    median_ms    REAL,                                  -- NULL = no time
+    validated    TEXT NOT NULL CHECK (validated IN ('True', 'False', '')),  -- '' = nothing compared
+    build        TEXT,                                  -- the dace commit the column ran against
+    impl         TEXT,                                  -- the implementation the median timed
+    status       TEXT CHECK (status IN ('ok', 'crash', 'timeout')),
+    failure      TEXT,                                  -- why an ok row compared nothing (unsupported, ...)
+    error        TEXT,
+    node         TEXT NOT NULL DEFAULT '',              -- the node that measured it (osinfo.node_name)
+    cpu          TEXT NOT NULL DEFAULT '',              -- its CPU model (osinfo.cpu_model)
+    gpu          TEXT NOT NULL DEFAULT '',              -- its GPU model; '' for a CPU column
+    execution    TEXT NOT NULL DEFAULT 'native' CHECK (execution IN ('native', 'container')),  -- record.execution
+    UNIQUE (run, "column", kernel, preset, datatype)
 ) STRICT;
 
 CREATE INDEX grades_episode ON grades (episode_id, kernel);

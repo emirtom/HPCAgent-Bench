@@ -644,11 +644,12 @@ def cmd_harbor(args: argparse.Namespace) -> int:
 # Each defers its heavy import (the framework stack / matplotlib) until the command
 # actually runs, so `--help` never pulls them in.
 def cmd_run_benchmark(args: argparse.Namespace) -> int:
-    """Run a kernel selection under one framework, sequentially (writes hpcagent_bench.db).
+    """Run a kernel selection under one framework, sequentially; its rows go to this process's results shard
+    (the ``canon`` table).
 
     Exits 1 when any kernel's forked child failed: a crash, an error, or a failed validation, which
     raises in the child because this path never ignores errors."""
-    from hpcagent_bench.support.collect.sweep import run_benchmark_sweep
+    from hpcagent_bench.support.collect.sweep import CanonTarget, run_benchmark_sweep
 
     preset = resolve_preset(args.preset)
     failed = run_benchmark_sweep(
@@ -659,6 +660,7 @@ def cmd_run_benchmark(args: argparse.Namespace) -> int:
         args.repeat,
         args.timeout,
         args.datatype,
+        CanonTarget.default(),
     )
     return 1 if failed else 0
 
@@ -694,14 +696,9 @@ def cmd_run_framework(args: argparse.Namespace) -> int:
         if failures == NO_ROWS:
             return 2
         return 1 if failures else 0
-    from hpcagent_bench.support.collect.sweep import run_framework_sweep
+    from hpcagent_bench.support.collect.sweep import CanonTarget, run_framework_sweep
 
-    canon = None
-    if args.canon_db:
-        from hpcagent_bench import config
-        from hpcagent_bench.support.collect.sweep import CanonTarget
-
-        canon = CanonTarget(args.canon_db, args.canon_run, config.current().record.build or None)
+    canon = CanonTarget.default(args.canon_db, args.canon_run)
 
     preset = resolve_preset(args.preset)
     failed = run_framework_sweep(
@@ -1181,7 +1178,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-existing-benchmarks",
         action="store_true",
         default=False,
-        help="skip kernels already fully recorded in hpcagent_bench.db",
+        help="skip kernels with a validated row of this framework, preset and datatype in the canon DB",
     )
     rf.add_argument(
         "--shard",
@@ -1193,12 +1190,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--canon-db",
         type=pathlib.Path,
         default=None,
-        help="record one row per (kernel, framework) into this canon DB (hpcagent_bench.support.collect.canon_db)",
+        help="record one row per (kernel, framework) into this results DB's canon table "
+        "(default: this process's results shard)",
     )
     rf.add_argument(
         "--canon-run",
         default="",
-        help="the run label every --canon-db row carries; with --summarize, report on that run only",
+        help="the run label every canon row carries; with --summarize, report on that run only",
     )
     rf.add_argument(
         "--opt-reports",

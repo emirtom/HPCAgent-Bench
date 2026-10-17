@@ -6,10 +6,9 @@ One schema serves a judge rank's shard, a job's database, a regrade's output and
 Rows are written with surrogate ids; every table also has a natural key, and :func:`merge` folds any
 number of results files into one by those keys, remapping the ids. The first copy of a row wins; only an
 episode's columns still at their default are filled from a later copy (its token counts arrive after it
-opened). A file of any other schema is refused: there is one schema, and no migration.
-
-A file holding tables of no results schema (the framework sweep's ``results`` table) is merged by
-copying those rows.
+opened). A file of any other schema, or holding a table outside it, is refused: there is one schema,
+and no migration. The baseline sweep's ``canon`` rows are part of it, merged by their natural key like
+every other table.
 """
 
 import contextlib
@@ -54,7 +53,6 @@ __all__ = [
     "collapse_finals",
     "column_defaults",
     "connect_ro",
-    "copy_foreign",
     "copy_grade",
     "copy_one_grade",
     "ensure_episode",
@@ -84,7 +82,7 @@ __all__ = [
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
 #: The schema's name, and its ``PRAGMA user_version`` (the name's 1.0, above every pre-release schema).
 SCHEMA_NAME = "hb-results-v1.0"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.
@@ -103,6 +101,7 @@ TABLES = (
     "scaling_points",
     "disqualifications",
     "reference_scaling_points",
+    "canon",
 )
 #: Grade kinds an agent's request produced (the call trajectory), and those that answer a /submit.
 CALL_KINDS = ("score", "submit")
@@ -377,6 +376,7 @@ NATURAL_KEYS: dict[str, tuple[str, tuple[str, ...]]] = {
         "source, kernel, mode, ranks, repeat, ts_ms",
         ("source", "kernel", "mode", "ranks", "repeat", "ts_ms"),
     ),
+    "canon": ('run, "column", kernel, preset, datatype', ("run", "column", "kernel", "preset", "datatype")),
 }
 
 
@@ -418,19 +418,6 @@ def merge_rows(conn: sqlite3.Connection, table: str, ids: IdMap) -> int:
     return copied
 
 
-def copy_foreign(conn: sqlite3.Connection, table: str, ddl: str) -> int:
-    """Append the attached source's non-results ``table`` (the framework sweep's ``results``),
-    created from its own DDL; its synthetic ``id`` is reassigned. It has no natural key, so a row whose
-    every other column equals a row the destination holds is skipped: merging one source twice, or two
-    files carrying one sweep, copies each sample once."""
-    conn.execute(ddl.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
-    dest = [str(row[1]) for row in conn.execute(f"PRAGMA main.table_info({table})")]
-    src = {str(row[1]) for row in conn.execute(f"PRAGMA src.table_info({table})")}
-    columns = ", ".join(column for column in dest if column in src and column != "id")
-    sql = f"INSERT INTO main.{table} ({columns}) SELECT {columns} FROM src.{table} EXCEPT SELECT {columns} FROM main.{table}"
-    return int(conn.execute(sql).rowcount)
-
-
 def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
     """Fold the file ``path`` into the open destination; rows copied per table."""
     conn.execute("ATTACH DATABASE ? AS src", (f"{path.as_uri()}?mode=ro",))
@@ -443,15 +430,8 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
             copied = {table: merge_rows(conn, table, ids) for table in TABLES}
         elif version or names & set(TABLES):
             raise SchemaVersionError(f"{path} is not an {SCHEMA_NAME} results database (user_version {version})")
-        foreign = [
-            (str(name), str(ddl))
-            for name, ddl in conn.execute(
-                "SELECT name, sql FROM src.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-            )
-            if name not in TABLES and ddl
-        ]
-        for name, ddl in foreign:
-            copied[name] = copy_foreign(conn, name, ddl)
+        if foreign := sorted(name for name in names - set(TABLES) if not name.startswith("sqlite_")):
+            raise SchemaVersionError(f"{path} holds tables outside {SCHEMA_NAME}: {foreign}")
         conn.commit()
     finally:
         # A failed step leaves its transaction open, and DETACH of a database it touched raises
@@ -465,7 +445,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
 def merge(dest: str | pathlib.Path, sources: Sequence[str | pathlib.Path]) -> dict[str, int]:
     """Fold every file of ``sources`` into ``dest`` (created when absent) by natural key; return the
     rows copied per table. Idempotent for the results tables: merging a file twice changes nothing the first
-    merge wrote there (a foreign table is appended, :func:`copy_foreign`)."""
+    merge wrote there."""
     target = pathlib.Path(dest).resolve()
     totals: dict[str, int] = {}
     with contextlib.closing(open_db(target)) as conn:

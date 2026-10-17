@@ -20,10 +20,10 @@ import hpcagent_bench
 from hpcagent_bench import flags
 from hpcagent_bench.autogen import NATIVE_FRAMEWORKS, ensure_native
 from hpcagent_bench.frameworks import native_runtime
-from hpcagent_bench.frameworks.schema import Result
-from hpcagent_bench.harness import recording
+from hpcagent_bench.harness import recording, results_db
 from hpcagent_bench.languages import build_kernel_lib_commands
 from hpcagent_bench.spec import KERNELS, BenchSpec
+from hpcagent_bench.support.collect import canon_db
 
 #: The numpy leg's selection: the whole scientific_computing level-1 track.
 NUMPY_SELECTOR = "scientific_computing@lvl1"
@@ -90,14 +90,8 @@ def short_names_for(selector: str) -> set[str]:
 
 
 def rows_for(db: pathlib.Path, framework: str) -> list[dict[str, object]]:
-    """Every ``results`` row recorded by ``framework``, as dicts."""
-    conn = sqlite3.connect(db)
-    try:
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT * FROM results WHERE framework = ?", (framework,))
-        return [dict(r) for r in cur.fetchall()]
-    finally:
-        conn.close()
+    """Every ``canon`` row recorded by ``framework``, as dicts."""
+    return canon_db.read(db, column=framework)
 
 
 @pytest.fixture(scope="module")
@@ -113,17 +107,13 @@ def sweep(tmp_path_factory) -> pathlib.Path:
 
 
 def test_results_db_carries_the_shipped_schema(sweep) -> None:
-    """The sweep wrote a real SQLite results DB whose columns ARE the shipped model."""
+    """The sweep wrote an hb-results database whose ``canon`` columns ARE the shipped table."""
     db = sweep / "hpcagent_bench.db"
     assert db.exists(), f"no hpcagent_bench.db in {sweep}"
-    conn = sqlite3.connect(db)
-    try:
-        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert "results" in tables, f"no results table; found {tables}"
-        columns = {r[1] for r in conn.execute("PRAGMA table_info(results)")}
-    finally:
-        conn.close()
-    assert columns == {c.name for c in Result.__table__.columns}
+    with contextlib.closing(results_db.connect_ro(db)) as conn:
+        assert results_db.check_schema(conn, str(db))
+        columns = tuple(r[1] for r in conn.execute("PRAGMA table_info(canon)"))
+    assert columns == canon_db.COLUMNS
 
 
 def test_numpy_leg_records_every_selected_kernel(sweep) -> None:
@@ -134,10 +124,10 @@ def test_numpy_leg_records_every_selected_kernel(sweep) -> None:
     assert {r["kernel"] for r in rows} == expected
     assert len(rows) == len(expected), f"expected one row per kernel, got {len(rows)} for {len(expected)} kernels"
     for row in rows:
-        assert row["validated"], f"{row['kernel']}: numpy row did not validate"
-        assert row["time"] > 0, f"{row['kernel']}: non-positive runtime {row['time']}"
+        assert row["validated"] == "True", f"{row['kernel']}: numpy row did not validate"
+        assert row["median_ms"] > 0, f"{row['kernel']}: non-positive runtime {row['median_ms']}"
         assert row["preset"] == PRESET
-        assert row["framework"] == "numpy"
+        assert row["column"] == "numpy"
         assert row["datatype"] == DATATYPE
 
 
@@ -150,8 +140,8 @@ def test_native_autopar_leg_validates(sweep) -> None:
     assert {r["kernel"] for r in rows} == expected
     assert len(rows) == len(expected)
     for row in rows:
-        assert row["validated"], f"{row['kernel']}: {NATIVE_FRAMEWORK} row did not validate vs numpy"
-        assert row["time"] > 0, f"{row['kernel']}: non-positive runtime {row['time']}"
+        assert row["validated"] == "True", f"{row['kernel']}: {NATIVE_FRAMEWORK} row did not validate vs numpy"
+        assert row["median_ms"] > 0, f"{row['kernel']}: non-positive runtime {row['median_ms']}"
         assert row["datatype"] == DATATYPE
 
 
@@ -205,8 +195,8 @@ def test_speedup_against_numpy_is_computable(sweep) -> None:
     """Both legs are in one db, so every native kernel has a numpy baseline to divide. No speedup value
     is asserted (CI runners are noisy); only that the comparison exists and is finite."""
     db = sweep / "hpcagent_bench.db"
-    baseline = {r["kernel"]: r["time"] for r in rows_for(db, "numpy")}
-    native = {r["kernel"]: r["time"] for r in rows_for(db, NATIVE_FRAMEWORK)}
+    baseline = {r["kernel"]: r["median_ms"] for r in rows_for(db, "numpy")}
+    native = {r["kernel"]: r["median_ms"] for r in rows_for(db, NATIVE_FRAMEWORK)}
     compared = sorted(set(baseline) & set(native))
     assert compared == sorted(short_names_for(NATIVE_SELECTOR)), (
         f"no numpy baseline for the native kernels; numpy={sorted(baseline)} native={sorted(native)}"
@@ -261,5 +251,5 @@ def test_narrow_divergent_selector_keeps_rows(sweep) -> None:
     assert select_short_names(DIVERGENT_STEM) == [DIVERGENT_SHORT]  # stem -> DB short_name
     assert select_short_names(DIVERGENT_SHORT) == [DIVERGENT_SHORT]  # raw short_name honoured too
     with contextlib.closing(sqlite3.connect(sweep / "hpcagent_bench.db")) as conn:
-        kernels = {row[0] for row in conn.execute("SELECT kernel FROM results WHERE preset = ?", (PRESET,))}
+        kernels = {row[0] for row in conn.execute("SELECT kernel FROM canon WHERE preset = ?", (PRESET,))}
     assert DIVERGENT_SHORT in kernels, f"the sweep recorded no {DIVERGENT_SHORT!r} row under its short_name"

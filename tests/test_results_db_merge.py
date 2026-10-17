@@ -13,6 +13,7 @@ import tempfile
 import pytest
 
 from hpcagent_bench.harness import results_db
+from hpcagent_bench.support.collect import canon_db
 
 SETUP = "exp-model-c"
 
@@ -43,14 +44,25 @@ def test_the_first_copy_wins_and_only_unset_episode_counters_fill(tmp_path: path
         ]
 
 
+#: One baseline sweep's canon rows: (column, median_ms).
+SWEEP = [("numpy", 1.5), ("dace_cpu_canon", 0.5)]
+
+
 def sweep_file(path: pathlib.Path) -> None:
-    with contextlib.closing(sqlite3.connect(path)) as conn:
-        conn.execute("CREATE TABLE results (id INTEGER PRIMARY KEY, framework TEXT NOT NULL, flavor TEXT, time REAL)")
-        conn.executemany(
-            "INSERT INTO results (framework, flavor, time) VALUES (?, ?, ?)",
-            [("numpy", None, 1.5), ("dace_cpu", "canon", 0.5)],
-        )
-        conn.commit()
+    rows = [
+        {
+            "run": "r",
+            "column": column,
+            "kernel": "gemm",
+            "preset": "S",
+            "datatype": "float64",
+            "median_ms": ms,
+            "validated": "True",
+            "status": "ok",
+        }
+        for column, ms in SWEEP
+    ]
+    canon_db.record(path, rows)
 
 
 def test_a_sweep_carried_by_two_files_is_copied_once(tmp_path: pathlib.Path) -> None:
@@ -58,10 +70,8 @@ def test_a_sweep_carried_by_two_files_is_copied_once(tmp_path: pathlib.Path) -> 
     sweep_file(tmp_path / "b.db")
     results_db.merge(tmp_path / "m.db", [tmp_path / "a.db", tmp_path / "b.db"])
     results_db.merge(tmp_path / "m.db", [tmp_path / "a.db"])
-    with contextlib.closing(sqlite3.connect(tmp_path / "m.db")) as conn:
-        assert sorted(map(tuple, conn.execute("SELECT framework, flavor, time FROM results")), key=str) == sorted(
-            [("numpy", None, 1.5), ("dace_cpu", "canon", 0.5)], key=str
-        )
+    rows = canon_db.read(tmp_path / "m.db")
+    assert sorted((row["column"], row["median_ms"]) for row in rows) == sorted(SWEEP)
 
 
 def test_a_merge_keeps_the_destinations_wal_journal(tmp_path: pathlib.Path) -> None:

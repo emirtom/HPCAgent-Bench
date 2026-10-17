@@ -334,11 +334,11 @@ record:
   log_attempts: true              # bool. Log non-verified submissions to the attempts table.
   log_calls: true                 # bool. Log every served grade (/score and /submit) to the calls table.
   execution: native               # native | container. Where a runtime was measured; stamped on every
-                                  # framework-results row (frameworks/test.py). Containers set
+                                  # canon row (support/collect/sweep.py). Containers set
                                   # HPCAGENT_BENCH_RECORD_EXECUTION.
   build: ""                       # str. Build that produced the numbers when one framework flavor runs in more
                                   # than one build (e.g. dace main vs extended, another BLAS, another image).
-                                  # Stamped on every results row; "" = single build. Launchers set
+                                  # Stamped on every canon row; "" = single build. Launchers set
                                   # HPCAGENT_BENCH_RECORD_BUILD.
 
 # Vectorizer cost model of the --opt-reports compile (hpcagent_bench/opt_reports.py).

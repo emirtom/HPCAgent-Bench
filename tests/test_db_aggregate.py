@@ -24,7 +24,7 @@ from tests.results_rows import attempts, submissions
 
 
 def seed_shard(
-    path: str, *, run: str, kernels: list[str], with_results: bool = True, language: str = "c", timestamp: int = 1
+    path: str, *, run: str, kernels: list[str], with_canon: bool = True, language: str = "c", timestamp: int = 1
 ) -> None:
     """Write one shard: the run's setup and identity, one credited and one failed grade per kernel.
 
@@ -41,17 +41,12 @@ def seed_shard(
             results_db.add_grade(conn, episode_id, kernel, "submit", ts_ms=1, values=stamp | credited)
             failed = {"build_ok": 0, "correct": 0, "reason": "build"}
             results_db.add_grade(conn, episode_id, kernel, "submit", ts_ms=2, values=stamp | failed)
-            if with_results:
-                # The framework ``results`` table belongs to another module's schema but lives in the
-                # same file; aggregation must carry it even though recording.py never creates it.
+            if with_canon:
+                # A baseline sweep's canon row (the run is the sweep, which ran at ``timestamp``).
                 conn.execute(
-                    "CREATE TABLE IF NOT EXISTS results ("
-                    "id INTEGER PRIMARY KEY, timestamp INTEGER, kernel TEXT, preset TEXT, "
-                    "framework TEXT, validated INTEGER, time REAL)"
-                )
-                conn.execute(
-                    "INSERT INTO results(timestamp, kernel, preset, framework, validated, time) VALUES (?,?,?,?,?,?)",
-                    (timestamp, kernel, "S", "numpy", 1, 2.0),
+                    'INSERT INTO canon (run, "column", kernel, preset, datatype, median_ms, validated)'
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (f"sweep{timestamp}", "numpy", kernel, "S", "float64", 2.0, "True"),
                 )
         conn.commit()
 
@@ -91,7 +86,7 @@ def test_aggregate_merges_every_table_and_reassigns_ids(tmp_path) -> None:
     # Every grade is its own natural key; the runs and setups keep one row per key.
     assert len(submissions(base)) == 4
     assert len(attempts(base)) == 4
-    assert _count(base, "results") == 4
+    assert _count(base, "canon") == 4
     assert _count(base, "episodes") == 2
 
     ids = [row["id"] for row in submissions(base)]
@@ -143,30 +138,17 @@ def test_aggregate_merges_a_episode_id_shared_by_multiple_shards(tmp_path) -> No
     assert len(submissions(base)) == 2
 
 
-def test_aggregate_survives_a_shard_missing_a_column(tmp_path) -> None:
-    """Shards can be written by different code versions; one stale shard must not kill the merge."""
+def test_aggregate_refuses_a_shard_holding_a_table_outside_the_schema(tmp_path) -> None:
+    """There is one schema: a shard carrying any other table (an older writer's) is refused, never folded in."""
     base = str(tmp_path / "hpcagent_bench.db")
-    current, stale = recording.shard_db_path(0, base), recording.shard_db_path(1, base)
+    current, other = recording.shard_db_path(0, base), recording.shard_db_path(1, base)
     seed_shard(current, run="r0", kernels=["gemm"])
-    seed_shard(stale, run="r1", kernels=["spmv"])
+    seed_shard(other, run="r1", kernels=["spmv"])
+    with contextlib.closing(sqlite3.connect(other)) as conn, conn:
+        conn.execute("CREATE TABLE results (id INTEGER PRIMARY KEY, framework TEXT)")
 
-    conn = sqlite3.connect(stale)
-    try:  # drop a column the other shard has, the way an older schema would
-        conn.execute("ALTER TABLE results DROP COLUMN framework")
-        conn.commit()
-    finally:
-        conn.close()
-
-    recording.aggregate(base)
-
-    assert _count(base, "results") == 2
-    conn = sqlite3.connect(base)
-    try:
-        frameworks = {r[0] for r in conn.execute("SELECT framework FROM results")}
-    finally:
-        conn.close()
-    # The row survives; only the column the stale shard could not supply is NULL.
-    assert frameworks == {None, "numpy"}
+    with pytest.raises(results_db.SchemaVersionError, match="outside"):
+        recording.aggregate(base)
 
 
 def test_aggregate_is_idempotent(tmp_path) -> None:
@@ -184,7 +166,7 @@ def test_aggregate_is_idempotent(tmp_path) -> None:
 def test_a_failed_merge_step_raises_its_own_error(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """DETACH after a failed step raised "database src is locked" in place of the error that stopped it."""
     shard = tmp_path / "shard.db"
-    seed_shard(str(shard), run="r0", kernels=["gemm"], with_results=False)
+    seed_shard(str(shard), run="r0", kernels=["gemm"], with_canon=False)
     real = results_db.merge_rows
 
     def failing(conn: sqlite3.Connection, table: str, ids: results_db.IdMap) -> int:

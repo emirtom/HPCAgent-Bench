@@ -11,10 +11,8 @@ layout) through the judge's own grading path instead (docs/sparse_abi.md).
 canon DB (:mod:`~hpcagent_bench.support.collect.canon_db`); ``--summarize`` reports on that DB
 (:func:`summarize`)."""
 
-import contextlib
 import os
 import pathlib
-import sqlite3
 import statistics
 import sys
 import tempfile
@@ -25,7 +23,7 @@ from typing import Any
 
 from relayout.sparse import SparseFormat
 
-from hpcagent_bench import config, sizing
+from hpcagent_bench import config, osinfo, sizing
 from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 from hpcagent_bench.frameworks.forked import RunResult, forked_failure_reason, run_forked
 from hpcagent_bench.frameworks.utilities import MPI_LAUNCHER_VARS
@@ -34,6 +32,7 @@ from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.collect import canon_db
 from hpcagent_bench.support.helpers.sparse.abi import BLOCK_FORMAT, LayoutRefused
+from hpcagent_bench.vocabulary import FRAMEWORKS
 
 __all__ = [
     "DETAIL_CHARS",
@@ -116,10 +115,11 @@ def run_benchmark_sweep(
     repeat: int,
     timeout: float,
     datatype: str | None,
+    canon: "CanonTarget",
 ) -> list[str]:
     """Run the ``kernel`` selection (kernel, track, dwarf, prefix, or "all") under one ``framework``,
-    forking each kernel so a crashing kernel does not end the sweep; returns the kernels whose child
-    failed."""
+    forking each kernel so a crashing kernel does not end the sweep, and record each kernel's rows into
+    ``canon``; returns the kernels whose child failed."""
     benchnames = KERNELS.select(kernel)
     failed = []
     for benchname in benchnames:
@@ -141,70 +141,27 @@ def run_benchmark_sweep(
             why = forked_failure_reason(result)
             print(f"[FAIL] {benchname}: {why}")
             failed.append(benchname)
+        canon.record(sweep_rows(benchname, [framework], preset, datatype or "float64", result))
     if failed:
         print(f"Failed: {len(failed)} out of {len(benchnames)}")
     return failed
 
 
 def filter_out_completed_benchmarks(
-    framework_name: str,
-    preset: str,
-    repeat: int,
-    datatype: str,
-    all_benchmarks: list[str],
-    benchname_to_shortname_mapping: dict[str, str],
+    canon: "CanonTarget", framework_name: str, preset: str, datatype: str, all_benchmarks: list[str]
 ) -> list[str]:
-    """Drop benchmarks already fully recorded in ``hpcagent_bench.db``: some single run (by timestamp)
-    has >= ``repeat`` rows at the requested precision; partial runs are re-executed."""
-    # This rank's own shard: skip-existing asks whether this rank recorded it.
-    db_path = pathlib.Path(recording.db_path())
-
-    if not db_path.exists():
-        print("Database does not exist, running all benchmarks")
-        return all_benchmarks
-
-    try:
-        # closing(), not `with conn:` -- a connection's own context manager commits and never closes.
-        with contextlib.closing(sqlite3.connect(db_path)) as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='results'
-            """)
-            if cur.fetchone() is None:
-                print("Results table does not exist, running all benchmarks")
-                return all_benchmarks
-
-            cur.execute(
-                """
-                SELECT kernel FROM (
-                    SELECT kernel, timestamp, COUNT(*) AS c
-                    FROM results
-                    WHERE framework = ? AND preset = ? AND datatype = ?
-                    GROUP BY kernel, timestamp
-                )
-                GROUP BY kernel
-                HAVING MAX(c) >= ?
-            """,
-                (framework_name, preset, datatype, repeat),
-            )
-
-            measured_benchmarks = [row[0] for row in cur.fetchall()]
-
-    except sqlite3.Error as e:
-        print(f"SQLite error ({e}), running all benchmarks")
-        return all_benchmarks
-
-    remaining_benchmarks = [
-        bn for bn in all_benchmarks if benchname_to_shortname_mapping[bn] not in measured_benchmarks
-    ]
-
+    """Drop the kernels ``canon`` already holds a validated row of ``framework_name`` for, at ``preset`` and
+    ``datatype``, in its run; a kernel with no such row (absent, crashed, unvalidated) runs again."""
+    done = {
+        str(row["kernel"])
+        for row in canon_db.read(canon.db, run=canon.run, column=framework_name)
+        if row["preset"] == preset and row["datatype"] == datatype and row["validated"] == "True"
+    }
+    remaining = [name for name in all_benchmarks if name not in done]
     print(
-        f"Skipping {measured_benchmarks} for framework {framework_name} "
-        f"(complete >= {repeat}-rep runs already in database)"
+        f"Skipping {sorted(done & set(all_benchmarks))} for framework {framework_name} (validated rows in {canon.db})"
     )
-
-    return remaining_benchmarks
+    return remaining
 
 
 def shard_names(
@@ -257,10 +214,9 @@ def run_framework_sweep(
     benchnames = shard_names(KERNELS.select(kernel or "all"), shard, preset)
 
     if skip_existing:
-        benchname_to_shortname_mapping = {name: BenchSpec.load(name).short_name for name in benchnames}
-        benchnames = filter_out_completed_benchmarks(
-            framework, preset, repeat, datatype or "float64", benchnames, benchname_to_shortname_mapping
-        )
+        if canon is None or not isinstance(framework, str):
+            raise ValueError("skip_existing reads the canon DB of one framework: pass --canon-db and one --framework")
+        benchnames = filter_out_completed_benchmarks(canon, framework, preset, datatype or "float64", benchnames)
 
     framework_names = [framework] if isinstance(framework, str) else list(framework)
 
@@ -312,8 +268,31 @@ class CanonTarget:
     run: str
     build: str | None = None
 
+    @classmethod
+    def default(cls, db: pathlib.Path | None = None, run: str = "") -> "CanonTarget":
+        """``db`` (default: this process's results shard, :func:`hpcagent_bench.harness.recording.db_path`) under
+        ``run``, with the build the launcher stamps (``record.build``)."""
+        return cls(db or pathlib.Path(recording.db_path()), run, config.current().record.build or None)
+
     def record(self, rows: Sequence[dict[str, object]]) -> int:
-        return canon_db.record(self.db, [{**row, "run": self.run, "build": self.build} for row in rows])
+        """Record ``rows`` under this run and build, stamped with the hardware that measured them."""
+        node, cpu, gpu = osinfo.node_name(), osinfo.cpu_model(), osinfo.gpu_model() or ""
+        execution = config.current().record.execution
+        return canon_db.record(
+            self.db,
+            [
+                {
+                    **row,
+                    "run": self.run,
+                    "build": self.build,
+                    "node": node,
+                    "execution": execution,
+                    "cpu": cpu,
+                    "gpu": gpu if FRAMEWORKS.entries[str(row["column"])]["arch"] == "gpu" else "",
+                }
+                for row in rows
+            ],
+        )
 
 
 #: :func:`summarize` result when no row exists; negative, so it never equals a failure count.
