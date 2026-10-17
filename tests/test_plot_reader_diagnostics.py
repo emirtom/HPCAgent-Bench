@@ -57,6 +57,7 @@ def write_row(shard: pathlib.Path, framework: str, build: str, time: float) -> N
                 agent=None,
                 validated=True,
                 cpu="test-cpu",
+                node="test-node",
                 time=time,
                 native_time=None,
                 datatype="float64",

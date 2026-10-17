@@ -568,10 +568,9 @@ async def submit(request: Request) -> Response:
     return await terminal_grade(request)
 
 
-@app.post("/bench")
 @app.post("/score")
 async def score(request: Request) -> Response:
-    """Public-seed iteration grade; ``/bench`` is a compatibility name for the same route."""
+    """Public-seed iteration grade."""
     body = await request.body()
     refused = episode_id_refusal(body)
     if refused is not None:

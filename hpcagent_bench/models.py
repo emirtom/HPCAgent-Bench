@@ -110,8 +110,6 @@ class Dace:
             for arch in ("cpu", "gpu")
             for alloy in ("", "_alloy_profile", "_alloy_heuristic")
         ),
-        "dace_cpu_canonicalize",
-        "dace_gpu_canonicalize",
     ),
 )
 class Cpf:

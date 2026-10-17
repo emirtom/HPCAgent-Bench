@@ -1031,8 +1031,8 @@ def discover_variants(spec: BenchSpec) -> list[tuple[str, pathlib.Path]]:
 
     Globs ``cpp_backend/<short>_*_auto.<ext>`` for every extension in
     :data:`LANG_EXT`, then keeps only languages the kernel declares in
-    ``spec.languages`` (an empty declaration means "no language restriction" --
-    accept all discovered ones, the back-compat default). Results are sorted by
+    ``spec.languages`` (an empty declaration means no language restriction: every
+    discovered one is kept). Results are sorted by
     ``(lang, filename)`` for determinism.
     """
     backend = backend_dir(spec)

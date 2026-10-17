@@ -20,7 +20,6 @@ import pytest
 from hpcagent_bench import cli
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import recording, results_db
-from hpcagent_bench.support import update_names
 from tests.results_rows import attempts, submissions
 
 
@@ -180,37 +179,6 @@ def test_aggregate_is_idempotent(tmp_path) -> None:
     first = len(submissions(base))
     recording.aggregate(base)
     assert len(submissions(base)) == first == 2
-
-
-def framework_shard(path: pathlib.Path, names_version: int, flavor: str = "parallel") -> None:
-    """A framework sweep shard: one ``results`` row, stamped with the names scheme it was written under."""
-    with contextlib.closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute(f"PRAGMA application_id = {names_version}")
-        conn.execute("CREATE TABLE results (id INTEGER PRIMARY KEY, kernel TEXT, framework TEXT, flavor TEXT)")
-        conn.execute("INSERT INTO results (kernel, framework, flavor) VALUES ('gemm', 'dace_cpu', ?)", (flavor,))
-
-
-def test_a_merged_framework_shard_keeps_its_names_stamp(tmp_path: pathlib.Path) -> None:
-    """The merge dropped the names stamp, so update_names then renamed the current ``parallel`` rows to
-    ``loop2map``."""
-    shard, dest = tmp_path / "shard.db", tmp_path / "merged.db"
-    framework_shard(shard, update_names.NAMES_VERSION)
-
-    results_db.merge(dest, [shard])
-
-    assert update_names.update(dest) == 0
-    with contextlib.closing(sqlite3.connect(dest)) as conn:
-        assert conn.execute("SELECT flavor FROM results").fetchall() == [("parallel",)]
-        assert update_names.names_version(conn) == update_names.NAMES_VERSION
-
-
-def test_a_merge_refuses_framework_rows_under_two_names_schemes(tmp_path: pathlib.Path) -> None:
-    current, stale = tmp_path / "current.db", tmp_path / "stale.db"
-    framework_shard(current, update_names.NAMES_VERSION)
-    framework_shard(stale, 0, flavor=None)  # type: ignore[arg-type]
-
-    with pytest.raises(results_db.SchemaVersionError, match="names scheme"):
-        results_db.merge(tmp_path / "merged.db", [current, stale])
 
 
 def test_a_failed_merge_step_raises_its_own_error(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

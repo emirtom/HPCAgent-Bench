@@ -49,7 +49,6 @@ __all__ = [
     "add_cells",
     "add_grade",
     "add_scaling",
-    "adopt_names_scheme",
     "call_index",
     "check_schema",
     "collapse_finals",
@@ -432,23 +431,6 @@ def copy_foreign(conn: sqlite3.Connection, table: str, ddl: str) -> int:
     return int(conn.execute(sql).rowcount)
 
 
-def adopt_names_scheme(conn: sqlite3.Connection, path: pathlib.Path, foreign: Collection[str]) -> None:
-    """Carry the attached source's framework names scheme (``PRAGMA application_id``,
-    :mod:`hpcagent_bench.support.update_names`) to ``main`` before its ``foreign`` tables are copied: a
-    destination holding none of them yet takes the source's stamp, one that does must share it, so a
-    merge never mixes two schemes nor leaves current names unstamped for ``update_names`` to rename again."""
-    source = int(conn.execute("PRAGMA src.application_id").fetchone()[0])
-    held = int(conn.execute("PRAGMA main.application_id").fetchone()[0])
-    if source == held:
-        return
-    if table_names(conn) & set(foreign):
-        raise SchemaVersionError(
-            f"{path} has framework names scheme {source}, the destination {held}; "
-            "run `python -m hpcagent_bench.support.update_names` on the older one first"
-        )
-    conn.execute(f"PRAGMA main.application_id = {source}")
-
-
 def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
     """Fold the file ``path`` into the open destination; rows copied per table."""
     conn.execute("ATTACH DATABASE ? AS src", (f"{path.as_uri()}?mode=ro",))
@@ -468,8 +450,6 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
             )
             if name not in TABLES and ddl
         ]
-        if foreign:
-            adopt_names_scheme(conn, path, [name for name, _ in foreign])
         for name, ddl in foreign:
             copied[name] = copy_foreign(conn, name, ddl)
         conn.commit()

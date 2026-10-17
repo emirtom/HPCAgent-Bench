@@ -12,7 +12,6 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from sqlmodel import Field, SQLModel, create_engine
 
-from hpcagent_bench.support import update_names
 
 __all__ = [
     "CONCURRENT_SCHEMA_RACE",
@@ -55,7 +54,7 @@ class Result(SQLModel, table=True):
     validated: bool  # output matched the NumPy oracle
     time: float  # host-measured runtime, milliseconds
     native_time: float | None = None  # framework-internal runtime, ms (None if no native timer)
-    datatype: str | None = None  # float32 | float64 | ... (None == legacy float64)
+    datatype: str  # float32 | float64 | ... (the run's -d; float64 when none is given)
     variant: str | None = None  # sparse storage/distribution axis (None == dense)
     # Which build ran it (dace main vs extended, another BLAS or image), stamped by the launcher via
     # HPCAGENT_BENCH_RECORD_BUILD. NULL == single-build run.
@@ -65,18 +64,15 @@ class Result(SQLModel, table=True):
     cpu: str
     # Device the measurement ran on; NULL for a CPU-only column even when the node has a GPU.
     gpu: str | None = None
-    # Node name (osinfo.node_name); ``cpu`` cannot separate two nodes of one cluster. NULL on
-    # rows recorded before the column existed.
-    node: str | None = None
+    # Node name (osinfo.node_name); ``cpu`` cannot separate two nodes of one cluster.
+    node: str
 
 
 def results_engine(db_path: str) -> Engine:
     """A SQLModel engine for the results DB at ``db_path``, with the table created from :class:`Result`
-    when absent; a shard written under older framework names is refused
-    (:func:`hpcagent_bench.support.update_names.guard`). A lost CREATE TABLE race (:data:`CONCURRENT_SCHEMA_RACE`) is ignored: the winner built
-    the same table. No pool: a connection closes when its Session does, so a caller never owns a
+    when absent. A lost CREATE TABLE race (:data:`CONCURRENT_SCHEMA_RACE`) is ignored: the winner built the
+    same table. No pool: a connection closes when its Session does, so a caller never owns a
     connection the garbage collector would find still open."""
-    update_names.guard(db_path, RESULTS_TABLE)
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False}, poolclass=NullPool)
     try:
         SQLModel.metadata.create_all(engine)

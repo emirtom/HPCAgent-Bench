@@ -156,8 +156,8 @@ new column takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on e
 - Naming scheme, checked at import: a name is `<column>[_<flavor>]`. The column is `<backend>` for a backend on
   one device and `<backend>_<arch>` for one on both (`dace_cpu`/`dace_gpu`, `tvm_cpu`/`tvm_gpu`). A flavor is the
   optimizer, never the device: it declares `column` and `flavor` and runs on its column's `arch`, which picks the
-  device anti-cheats its grades meet. A rename keeps the old name in `aliases`;
-  `python -m hpcagent_bench.support.update_names DB...` moves existing databases to the current names.
+  device anti-cheats its grades meet. A column has one name: there are no aliases and no renaming of
+  recorded databases.
 - An autotuning flavor (local timing plus the judge's `/score`, e.g. `dace_cpu_canon_alloy_profile`) names an
   `Agent` in `hpcagent_bench/harness/optimizers.py` as its `adapter`, is not `sweep_deterministic`, and runs as
   `hpcagent-bench agent <name>` (`--native` keeps the judge in the same process).
