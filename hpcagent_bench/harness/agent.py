@@ -432,7 +432,7 @@ class ChatUsage(pydantic.BaseModel):
 
 
 class ChatCompletion(pydantic.BaseModel):
-    """An OpenAI-compatible ``/v1/chat/completions`` response, as :func:`http_chat_json` reads it."""
+    """An OpenAI-compatible ``/v1/chat/completions`` response, as :class:`OpenAIAgent` reads it."""
 
     model_config = CHAT_CONFIG
 
@@ -458,13 +458,13 @@ def openai_usage(body: ChatCompletion) -> TokenUsage:
 
 def http_chat_json(
     url: str, payload: dict[str, JsonValue], headers: dict[str, str], timeout: float, unreachable_msg: str
-) -> ChatCompletion:
-    """POST payload as JSON to url and return the validated response (:class:`ChatCompletion`), or raise
-    RuntimeError(unreachable_msg)."""
+) -> JsonObject:
+    """POST payload as JSON to url and return the decoded JSON object, or raise RuntimeError(unreachable_msg).
+    The transport only: the caller validates the answer against the API it called (:class:`ChatCompletion`)."""
     request = post_request(url, payload, headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return ChatCompletion.model_validate_json(resp.read())
+            return json_object(json.loads(resp.read().decode("utf-8")))
     except urllib.error.URLError as exc:
         if isinstance(exc, urllib.error.HTTPError):
             exc.close()  # the error is also the open response
@@ -765,7 +765,7 @@ class OpenAIAgent(Agent):
                 accepts_sampling=self.accepts_sampling,
             ),
         }
-        body = http_chat_json(
+        reply = http_chat_json(
             f"{self.base_url}/chat/completions",
             payload,
             {"Authorization": f"Bearer {self.api_key}"},
@@ -773,6 +773,7 @@ class OpenAIAgent(Agent):
             f"OpenAIAgent could not reach {self.base_url}; start a vLLM server "
             "(vllm serve <model>) or set OPENAI_BASE_URL/VLLM_BASE_URL",
         )
+        body = ChatCompletion.model_validate(reply)
         u = openai_usage(body)
         self.record_usage(u.input_tokens, u.output_tokens, u.cached_tokens)
         return body.text()
