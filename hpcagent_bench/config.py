@@ -50,6 +50,8 @@ from pydantic import (
 )
 from pydantic.fields import FieldInfo
 
+from hpcagent_bench.cpf_cache import HintDetail
+
 __all__ = [
     "ENV_PREFIX",
     "GridChooser",
@@ -533,6 +535,7 @@ class Cpf(Section):
     """``cpf``: canonical-parallel-form rendering (cpf_cache.py)."""
 
     cache: str
+    hints: HintDetail
 
 
 @functools.lru_cache(maxsize=None, typed=True)

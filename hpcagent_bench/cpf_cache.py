@@ -3,13 +3,13 @@
 """Content-addressed cache of rendered canonical parallel forms, and the experiment views that pin it.
 
 An ENTRY is one rendered form -- a drop-in that takes the C ABI -- for one (kernel, language,
-precision, target). Its key hashes everything the text depends on: the canonical SDFG's entry, the
-dace commit that renders it, and the render options. An entry is immutable, a changed input lands under a new
+precision, target, hint detail). Its key hashes everything the text depends on: the canonical SDFG's entry, the
+dace commit that renders it, and the render options, the hint detail among them. An entry is immutable, a changed input lands under a new
 key, and a hit is valid for every experiment and setup that asks the same question.
 
 A VIEW is the directory a setup points at (``service.canonical_parallel_form_dir``,
-``CPF_DROPIN_DIR``). It holds no artefact: one pointer file per (kernel, language, precision) names
-the key of its form, so a consumer looks up an EXACT name and reads the bytes from the cache. A view
+``CPF_DROPIN_DIR``). It holds no artefact: one pointer file per (kernel, language, precision, hint
+detail) names the key of its form, so a consumer looks up an EXACT name and reads the bytes from the cache. A view
 is pinned to one cache and one target. It records the dace commit it was opened with but does not pin
 it: a dace pin bump never renders a recorded kernel again (:func:`hpcagent_bench.cpf_prerender.settled`),
 and only a kernel the view lacks is rendered, by the dace in hand.
@@ -46,8 +46,12 @@ __all__ = [
     "CANONICAL_DIR",
     "CANONICAL_SDFG_NAME",
     "CONFIG_KEY",
+    "DEFAULT_HINTS",
     "DIALECT",
     "ENTRIES_NAME",
+    "HINTS_CONFIG_KEY",
+    "HINTS_ENV",
+    "HINT_DETAILS",
     "LANGUAGE_EXT",
     "LAYOUT",
     "LOCKS_DIR",
@@ -61,6 +65,7 @@ __all__ = [
     "EntryInputs",
     "EntryManifest",
     "Form",
+    "HintDetail",
     "Pointer",
     "Role",
     "Verification",
@@ -102,6 +107,21 @@ LANGUAGE_EXT = {"c++": "cpp", "c": "c", "hip": "hip"}
 
 #: A language as a setup or a request spells it -> the CPF dialect.
 DIALECT = {"c": "c", "cpp": "c++", "c++": "c++", "hip": "hip"}
+
+#: How much of each loop's parallelism hint a form spells out: ``proofs`` writes the whole hint (class, reason,
+#: witness or guard), the header contract and the library-node provenance; ``kinds`` writes one ``// par``,
+#: ``// seq`` or ``// unknown`` per loop and map and no other comment. The detail is the setup's
+#: (:data:`HINTS_CONFIG_KEY`), never the agent's, and it is part of every key and pointer name below, so
+#: a form of one detail is never served for the other.
+type HintDetail = Literal["proofs", "kinds"]
+HINT_DETAILS: tuple[HintDetail, ...] = ("proofs", "kinds")
+#: The detail a setup that names none serves, and the one its pointers keep the unsuffixed name for.
+DEFAULT_HINTS: HintDetail = "proofs"
+#: The config key a setup's packet sets the detail with, and its env name: the judge reads it per request
+#: (a fused judge serves each setup its own), the agent's ``canonical_parallel_form`` tool and the staging
+#: scripts read the env.
+HINTS_CONFIG_KEY = "cpf.hints"
+HINTS_ENV = "HPCAGENT_BENCH_CPF_HINTS"
 
 #: The files of one cache entry: the source, on the gpu target the device unit, and the binding.
 type Role = Literal["source", "device", "binding"]
@@ -474,23 +494,30 @@ def short_name(kernel: str) -> str:
     return kernel.rsplit("/", 1)[-1]
 
 
-def pointer_name(kernel: str, fptype: str, dialect: str) -> str:
-    """The exact pointer file name. The precision tag is one segment, so no kernel matches another's."""
-    return f"{short_name(kernel)}_{fptype}_cpf.{LANGUAGE_EXT[dialect]}.json"
+def pointer_name(kernel: str, fptype: str, dialect: str, hints: HintDetail) -> str:
+    """The exact pointer file name. The precision tag is one segment, so no kernel matches another's; a
+    detail other than :data:`DEFAULT_HINTS` suffixes the ``cpf`` segment (``_cpf-kinds.``), so one view holds
+    both details of a kernel side by side and a ``proofs`` view stays readable as it was rendered."""
+    detail = "" if hints == DEFAULT_HINTS else f"-{hints}"
+    return f"{short_name(kernel)}_{fptype}_cpf{detail}.{LANGUAGE_EXT[dialect]}.json"
 
 
-def record(view: pathlib.Path, kernel: str, dialect: str, fptype: str, outcome: Mapping[str, object]) -> None:
+def record(
+    view: pathlib.Path, kernel: str, dialect: str, fptype: str, hints: HintDetail, outcome: Mapping[str, object]
+) -> None:
     """Point ``view`` at the outcome of one render: a key and a verdict, or why there is none."""
     pointer = Pointer.model_validate(
         {**outcome, "kernel": short_name(kernel), "language": dialect, "precision": fptype}
     )
-    write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect), pointer)
+    write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect, hints), pointer)
 
 
-def recorded(view: pathlib.Path, kernel: str, dialect: str, fptype: str) -> Pointer | None:
-    """The pointer a render filed for (kernel, dialect, precision), or None when none did."""
+def recorded(view: pathlib.Path, kernel: str, dialect: str, fptype: str, hints: HintDetail) -> Pointer | None:
+    """The pointer a render filed for (kernel, dialect, precision, hint detail), or None when none did."""
     try:
-        return Pointer.model_validate_json((view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect)).read_bytes())
+        return Pointer.model_validate_json(
+            (view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect, hints)).read_bytes()
+        )
     except (OSError, ValueError):
         return None
 
@@ -515,10 +542,12 @@ def served_dialect(target: str, language: str) -> str:
     return "hip" if target == "gpu" else DIALECT[language]
 
 
-def pointer_outcome(view: pathlib.Path, kernel: str, language: str, fptype: str) -> tuple[str, str, ViewHeader]:
-    """``(pointer name, key, view header)`` of one exact (kernel, language, precision) render."""
+def pointer_outcome(
+    view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail
+) -> tuple[str, str, ViewHeader]:
+    """``(pointer name, key, view header)`` of one exact (kernel, language, precision, hint detail) render."""
     header = read_view(view)
-    name = pointer_name(kernel, fptype, served_dialect(header.target, language))
+    name = pointer_name(kernel, fptype, served_dialect(header.target, language), hints)
     try:
         pointer = Pointer.model_validate_json((view / ENTRIES_NAME / name).read_bytes())
     except (OSError, ValueError) as exc:
@@ -545,9 +574,9 @@ class Form(NamedTuple):
     libraries: tuple[str, ...] = ()
 
 
-def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form:
-    """The :class:`Form` in the cache for one exact (kernel, language, precision)."""
-    _, key, header = pointer_outcome(view, kernel, language, fptype)
+def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail) -> Form:
+    """The :class:`Form` in the cache for one exact (kernel, language, precision, hint detail)."""
+    _, key, header = pointer_outcome(view, kernel, language, fptype, hints)
     cache_root = pathlib.Path(header.cache_root)
     manifest = verified_manifest(cache_root, key)
     where = entry_path(cache_root, key)
@@ -562,16 +591,16 @@ def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str) -> Form
 
 
 def record_verification(
-    view: pathlib.Path, kernel: str, language: str, fptype: str, verdict: Mapping[str, object]
+    view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail, verdict: Mapping[str, object]
 ) -> None:
     """File the judge's ``verdict`` on the form the view serves for this kernel, tied to its key."""
-    name, key, _ = pointer_outcome(view, kernel, language, fptype)
+    name, key, _ = pointer_outcome(view, kernel, language, fptype, hints)
     write_json(view / VERIFIED_NAME / name, Verification.model_validate({**verdict, "key": key}))
 
 
-def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str) -> str:
+def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail) -> str:
     """Why the served form is not judge-verified; "" when a grade of these exact bytes was correct."""
-    name, key, _ = pointer_outcome(view, kernel, language, fptype)
+    name, key, _ = pointer_outcome(view, kernel, language, fptype, hints)
     try:
         verdict = Verification.model_validate_json((view / VERIFIED_NAME / name).read_bytes())
     except (OSError, ValueError):
@@ -601,6 +630,7 @@ def missing(
     language: str,
     fptype: str,
     target: str,
+    hints: HintDetail,
     verified: bool = False,
 ) -> list[str]:
     """One line per kernel the view cannot serve, each naming why; empty when it serves them all.
@@ -611,8 +641,8 @@ def missing(
     misses: list[str] = []
     for kernel in kernels:
         try:
-            resolve(view, kernel, language, fptype)
-            reason = unverified(view, kernel, language, fptype) if verified else ""
+            resolve(view, kernel, language, fptype, hints)
+            reason = unverified(view, kernel, language, fptype, hints) if verified else ""
         except CacheMiss as exc:
             reason = str(exc)
         if reason:
@@ -626,6 +656,7 @@ def on_demand_plan(
     language: str,
     fptype: str,
     target: str,
+    hints: HintDetail,
     cache_root: pathlib.Path | None,
     dace_commit: str,
 ) -> tuple[list[str], str]:
@@ -638,9 +669,9 @@ def on_demand_plan(
     if reason := wrong_target(view, target):
         return [], reason
     lines: list[str] = []
-    for miss in missing(view, kernels, language, fptype, target):
+    for miss in missing(view, kernels, language, fptype, target, hints):
         kernel = miss.split(":", 1)[0]
-        pointer = recorded(view, kernel, served_dialect(target, language), fptype)
+        pointer = recorded(view, kernel, served_dialect(target, language), fptype, hints)
         if pointer and pointer.verdict != "ok":
             lines.append(f"{kernel}: recorded {pointer.verdict!r}, answered unavailable: {pointer.error}")
         else:
@@ -653,13 +684,20 @@ def on_demand_plan(
 
 
 def stage(
-    view: pathlib.Path, kernel: str, language: str, fptype: str, dest: pathlib.Path, target: str, name: str = ""
+    view: pathlib.Path,
+    kernel: str,
+    language: str,
+    fptype: str,
+    hints: HintDetail,
+    dest: pathlib.Path,
+    target: str,
+    name: str = "",
 ) -> pathlib.Path:
     """Copy the form for ``kernel`` to ``dest/<name>.<ext>`` (on gpu its device unit beside it, ``<name>.hip``);
     ``name`` defaults to the kernel's short name. Returns the staged source."""
     if reason := wrong_target(view, target):
         raise CacheMiss(reason)
-    form = resolve(view, kernel, language, fptype)
+    form = resolve(view, kernel, language, fptype, hints)
     stem = name or short_name(kernel)
     dest.mkdir(parents=True, exist_ok=True)
     for path in filter(None, (form.source, form.device)):
@@ -691,6 +729,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         command.add_argument("--language", required=True, choices=sorted(DIALECT))
         command.add_argument("--target", required=True, choices=("cpu", "gpu"), help="the device the setup runs on")
         command.add_argument("--precision", default="fp64", help="fptype tag: fp64 / fp32 / fp16")
+        command.add_argument(
+            "--hints", default=DEFAULT_HINTS, choices=HINT_DETAILS, help="the hint detail the setup serves"
+        )
     args = parser.parse_args(argv)
     if args.command == "check" and args.on_demand and args.verified:
         parser.error("--on-demand and --verified exclude each other: a form rendered on request was never graded")
@@ -698,7 +739,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         kernels = [k for k in args.kernels.split(",") if k.strip()]
         cache = args.cache or (pathlib.Path(os.environ[CACHE_ENV]) if os.environ.get(CACHE_ENV) else None)
         lines, error = on_demand_plan(
-            args.view, kernels, args.language, args.precision, args.target, cache, args.dace_commit
+            args.view, kernels, args.language, args.precision, args.target, args.hints, cache, args.dace_commit
         )
         for line in lines:
             print(line)
@@ -708,12 +749,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "check":
         kernels = [k for k in args.kernels.split(",") if k.strip()]
-        misses = missing(args.view, kernels, args.language, args.precision, args.target, args.verified)
+        misses = missing(args.view, kernels, args.language, args.precision, args.target, args.hints, args.verified)
         for line in misses:
             print(line)
         return 1 if misses else 0
     try:
-        print(stage(args.view, args.kernel, args.language, args.precision, args.dest, args.target, args.name))
+        print(
+            stage(args.view, args.kernel, args.language, args.precision, args.hints, args.dest, args.target, args.name)
+        )
     except CacheMiss as exc:
         print(f"cpf_cache: {exc}", file=sys.stderr)
         return 1

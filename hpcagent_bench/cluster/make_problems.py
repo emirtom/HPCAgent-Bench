@@ -22,7 +22,7 @@ import re
 import shutil
 import sys
 import textwrap
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from hpcagent_agent.driver import harnesses
 
@@ -33,6 +33,7 @@ from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
 from hpcagent_bench.spec import KERNELS, BenchSpec
 
 __all__ = [
+    "CPFSRC_KINDS_NOTE",
     "CPFSRC_NOTE",
     "DROPIN_DEFAULT_LANGUAGE",
     "PAGE_COMPANIONS",
@@ -43,6 +44,7 @@ __all__ = [
     "build_parser",
     "in_scope",
     "main",
+    "packet_hints",
     "packet_note",
     "packet_pages",
     "packet_skills_text",
@@ -87,6 +89,20 @@ CPFSRC_NOTE = (
     "Reason about dependences only for `unsure -- ...` loops (`open:`), where the analysis did not decide. Start "
     "optimizing immediately: score {it} unchanged first (rendered against the judge's signature, not yet "
     "graded), then spend your effort on tiling, fusion, vectorization, memory layout and scheduling."
+)
+
+#: :data:`CPFSRC_NOTE` for a ``-kinds`` packet, whose form carries one ``// par``, ``// seq`` or ``// unknown`` per
+#: loop and no other comment: the three words, defined once each, in place of the verdict contract.
+CPFSRC_KINDS_NOTE = (
+    "Canonical parallel form as source: {files} in your folder {verb} this kernel's ONLY source and {replaces} "
+    "the hand-written reference. It is DaCe's Canonical Parallel Form (CPF) of the reference, ALREADY PARALLELIZED "
+    "with basic heuristics: loop-invariant code motion, induction-variable substitution, privatization, reduction "
+    "and scan detection and wavefront (skew) detection where they match, then every loop found independent made "
+    "parallel (some kernels have none). Every loop carries exactly one comment: `// par` means proven independent "
+    "iterations, safe to run in parallel; `// seq` means a proven carried dependence, keep the order; `// unknown` "
+    "means not decided by the analysis. A loop the form runs in parallel is marked by {mark}. Start optimizing "
+    "immediately: score {it} unchanged first (rendered against the judge's signature, not yet graded), then spend "
+    "your effort on tiling, fusion, vectorization, memory layout and scheduling."
 )
 
 #: What materialize_shared.sh stages a drop-in as on a free-choice setup, which pins no language
@@ -230,8 +246,11 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
     :raises ValueError: ``spec`` stages a drop-in in a language the CPF renderer has no dialect for
         (fortran and the device languages beyond hip), where the setup cannot materialize at all.
     """
-    if "CPF_DROPIN_DIR" not in dict(packets.resolve(spec, language, fill=False).env):
+    env = dict(packets.resolve(spec, language, fill=False).env)
+    if "CPF_DROPIN_DIR" not in env:
         return ""
+    hints = packet_hints(env)
+    template = CPFSRC_KINDS_NOTE if hints == "kinds" else CPFSRC_NOTE
     dialect = cpf_cache.DIALECT.get(language or DROPIN_DEFAULT_LANGUAGE)
     if dialect is None:
         raise ValueError(
@@ -241,16 +260,26 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
     if dialect == "hip":
         # The GPU form is the two units a GPU submission is (cpf_cache.stage copies both).
         files = f"`{module}_reference.cpp` (host unit) and `{module}_reference.hip` (device unit)"
-        note = CPFSRC_NOTE.format(
+        note = template.format(
             files=files, verb="are", replaces="replace", it="them", mark="a `__global__` kernel launch"
         )
-        return note + form_libraries_note(stem, dialect)
+        return note + form_libraries_note(stem, dialect, hints)
     files = f"`{module}_reference.{cpf_cache.LANGUAGE_EXT[dialect]}`"
-    note = CPFSRC_NOTE.format(files=files, verb="is", replaces="replaces", it="it", mark="an OpenMP pragma")
-    return note + form_libraries_note(stem, dialect)
+    note = template.format(files=files, verb="is", replaces="replaces", it="it", mark="an OpenMP pragma")
+    return note + form_libraries_note(stem, dialect, hints)
 
 
-def form_libraries(stem: str, dialect: str) -> tuple[str, ...]:
+def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
+    """The hint detail a packet's resolved ``env`` serves its form at: the one its
+    :data:`~hpcagent_bench.cpf_cache.HINTS_ENV` names, else the default (``proofs``)."""
+    named = env.get(cpf_cache.HINTS_ENV, cpf_cache.DEFAULT_HINTS)
+    for detail in cpf_cache.HINT_DETAILS:
+        if named == detail:
+            return detail
+    raise ValueError(f"{cpf_cache.HINTS_ENV}={named!r} is not one of {cpf_cache.HINT_DETAILS}")
+
+
+def form_libraries(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> tuple[str, ...]:
     """The catalog libraries the canonical parallel form of ``stem`` in ``dialect`` calls, read from the setup's view
     (``$CPF_VIEW``; CPF lowers BLAS, LAPACK and FFT nodes to vendor libraries); none when no view answers."""
     view = os.environ.get("CPF_VIEW", "")
@@ -260,16 +289,16 @@ def form_libraries(stem: str, dialect: str) -> tuple[str, ...]:
         from hpcagent_bench import cpf_bridge  # binds the kernel; only a cpf-src setup asks
 
         fptype = cpf_bridge.form_fptype(stem, config.current().service.datatype)
-        form = cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype)
+        form = cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype, hints)
     except cpf_cache.CacheMiss:
         return ()
     return form.libraries
 
 
-def form_libraries_note(stem: str, dialect: str) -> str:
+def form_libraries_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str:
     """What the cpf-src note says about the libraries the drop-in calls: they are loaded from the start
     (:func:`default_load`); "" when it calls none."""
-    libraries = form_libraries(stem, dialect)
+    libraries = form_libraries(stem, dialect, hints)
     if not libraries:
         return ""
     return (
@@ -281,12 +310,13 @@ def form_libraries_note(stem: str, dialect: str) -> str:
 def default_load(spec: str, language: str, stem: str) -> list[str] | None:
     """The libraries a problem of ``stem`` loads by default: what the canonical parallel form a CPF packet serves
     (``packets.CPF_ENV_KEYS``: cpf-src's starting source, cpf-tool's answer) calls. None for any other setup."""
-    if not spec or not packets.CPF_ENV_KEYS & dict(packets.resolve(spec, language, fill=False).env).keys():
+    env = dict(packets.resolve(spec, language, fill=False).env) if spec else {}
+    if not packets.CPF_ENV_KEYS & env.keys():
         return None
     dialect = cpf_cache.DIALECT.get(language or DROPIN_DEFAULT_LANGUAGE)
     if dialect is None:
         return None
-    return list(form_libraries(stem, dialect)) or None
+    return list(form_libraries(stem, dialect, packet_hints(env))) or None
 
 
 def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:

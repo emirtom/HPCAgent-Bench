@@ -96,7 +96,14 @@ def spec_parts(spec: str) -> tuple[str, ...]:
 
 #: The device-neutral CPF keys a GPU language names differently: the registry aliases them to their CPU packets,
 #: and a ``hip`` or ``cuda`` run gets the form the renderer hands it (the HIP units, ``CPF_TARGET=gpu``).
-GPU_ALIASES: Mapping[str, str] = MappingProxyType({"cpf-src": "cpf-gpu-src", "cpf-tool": "cpf-tool-gpu"})
+GPU_ALIASES: Mapping[str, str] = MappingProxyType(
+    {
+        "cpf-src": "cpf-gpu-src",
+        "cpf-tool": "cpf-tool-gpu",
+        "cpf-src-kinds": "cpf-gpu-src-kinds",
+        "cpf-tool-kinds": "cpf-tool-gpu-kinds",
+    }
+)
 
 
 def by_device(spec: str, language: str) -> str:

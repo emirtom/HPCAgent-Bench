@@ -155,8 +155,8 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
 
     view = tmp_path / "view"
     cpf_cache.open_view(view, cache, "cpu", "test-commit")
-    cpf_cache.record(view, spec.short_name, "c", "fp64", second.model_dump())
-    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64")
+    cpf_cache.record(view, spec.short_name, "c", "fp64", "proofs", second.model_dump())
+    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", "proofs")
     native = binding_from_spec(spec)
     assert form.entry == native.symbol
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
@@ -172,6 +172,7 @@ def prerender_kwargs() -> dict[str, object]:
     return {
         "precision": "",
         "target": "cpu",
+        "hints": "proofs",
         "dace_package_root": pathlib.Path(found.origin).resolve().parents[1],
         "dace_commit": "test-commit",
     }
@@ -406,6 +407,7 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
         "c",
         "fp64",
         "cpu",
+        "proofs",
     )
     assert form.entry == native.symbol
     assert declared_parameters(form.code, form.entry) == abi
@@ -434,6 +436,7 @@ def test_a_dropin_refuses_a_returned_value_no_argument_holds(tmp_path: pathlib.P
             "c",
             "fp64",
             "cpu",
+            "proofs",
         )
 
 
@@ -591,6 +594,7 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
         "c",
         "fp64",
         "cpu",
+        "proofs",
     )
     assert declared_parameters(form.code, form.entry) == abi
 
@@ -687,7 +691,7 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     canonical = canonical_program(PINNED_PROGRAM_SOURCE, entry, tmp_path)
     assert ("scalar" if "knob" in canonical.arrays else "symbol") == canonical_kind, "the fixture lost its case"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
     assert declared_parameters(form.code, form.entry) == abi
     assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
@@ -733,7 +737,7 @@ def test_a_dropin_takes_a_rebound_scalar_parameter_by_value(tmp_path: pathlib.Pa
     native = binding_from_spec(spec)
     canonical = canonical_program(REBINDING_PROGRAM_SOURCE, "doubles_its_factor", tmp_path)
     assert "k" in canonical.arrays, "the fixture lost its written scalar"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
     assert {arg["name"]: arg["kind"] for arg in json.loads(form.binding)["args"]}["k"] == "scalar"
 
     source = tmp_path / form.name
@@ -780,7 +784,7 @@ def test_a_dropin_of_a_renamed_argument_declares_the_manifest_name_in_abi_order(
     sdfg = cpf_canonical.parse_program(spec, impl, "")
     cpf_canonical.canonicalize_for(sdfg, "cpu")
 
-    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", "cpu")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", "cpu", "proofs")
 
     want = [arg.name for arg in binding_from_spec(spec).args] + [
         cpf_bridge.WORKSPACE_NAME,

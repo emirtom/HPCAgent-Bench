@@ -18,7 +18,8 @@ nothing new is trusted:
 4. ``torch``: every timed cell of an ML kernel's denominator (:func:`torch_baseline.warm_kernel`);
 5. ``cpf``: the canonical parallel forms rendered into ``--cpf-view`` (:mod:`hpcagent_bench.cpf_prerender`),
    then each graded once in ``--language`` as ``/submit`` would (:mod:`hpcagent_bench.cpf_verify`), which
-   a cpf-src setup requires before it is submitted. On by default when ``--cpf-view`` is given. The canonical
+   a cpf-src setup requires before it is submitted, at the setup's ``--cpf-hints`` (a ``-kinds`` packet's
+   ``kinds``). On by default when ``--cpf-view`` is given. The canonical
    SDFGs the forms render from stay in the cache, where the ``dace_*_canon`` columns read them.
 
 A step that fails is reported per kernel and the job goes on: a cold cache costs a judge time, never a
@@ -37,7 +38,7 @@ import traceback
 from collections.abc import Callable, Sequence
 
 from hpcagent_bench import config, problem_file
-from hpcagent_bench.cpf_cache import CACHE_ENV
+from hpcagent_bench.cpf_cache import CACHE_ENV, DEFAULT_HINTS, HINT_DETAILS, HINTS_ENV
 from hpcagent_bench.spec import BenchSpec, Track
 
 __all__ = [
@@ -106,7 +107,7 @@ def prepare_cpf(args: argparse.Namespace, kernels: Sequence[str]) -> int:
     target = "gpu" if args.language in GPU_LANGUAGES else "cpu"
     precision = fptype_tag(args.datatype)
     ranks = ["--rank", str(args.rank), "--ranks", str(args.ranks)]
-    shared = ["--view", str(args.cpf_view), "--kernels", ",".join(kernels), *ranks]
+    shared = ["--view", str(args.cpf_view), "--kernels", ",".join(kernels), "--hints", args.cpf_hints, *ranks]
     status = cpf_prerender.main(
         [
             *shared,
@@ -229,6 +230,12 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
         help=f"comma-separated subset of {','.join(STEPS)} (default: every per-kernel step, and cpf with --cpf-view)",
     )
     parser.add_argument("--cpf-view", type=pathlib.Path, default=None, help="the CPF view a setup's CPF_VIEW names")
+    parser.add_argument(
+        "--cpf-hints",
+        default=DEFAULT_HINTS,
+        choices=HINT_DETAILS,
+        help=f"the hint detail the setup's CPF packet serves (its ${HINTS_ENV})",
+    )
     parser.add_argument(
         "--cpf-cache",
         type=pathlib.Path,

@@ -251,6 +251,8 @@ ENV_SKIP_PREFIXES: tuple[str, ...] = (
     "HPCAGENT_BENCH_JUDGE_",
     "HPCAGENT_BENCH_DB_SHARD",
     "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR",
+    # the CPF form's hint detail (a -kinds packet), served to the agent, never read by a grade
+    "HPCAGENT_BENCH_CPF_HINTS",
 )
 #: Skipped-prefix keys a grade still reads: the setup's declared device decides GPU visibility
 #: (:func:`native_call.host_only_grade`).

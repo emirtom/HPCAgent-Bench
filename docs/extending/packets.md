@@ -67,6 +67,16 @@ agent's starting source (`CPF_DROPIN_DIR`), `cpf-tool-cpu` and `cpf-tool-gpu` se
 aliases of the CPU keys, which `packets.by_device` renames to the GPU keys for a device language
 (`packets.DEVICE_ONLY_LANGUAGES`). The setup records the device key it resolved to.
 
+Each has a `-kinds` counterpart (`cpf-cpu-src-kinds`, `cpf-gpu-src-kinds`, `cpf-tool-cpu-kinds`,
+`cpf-tool-gpu-kinds`; `cpf-src-kinds` and `cpf-tool-kinds` on a `PACKETS` knob) that serves the same code with
+each loop's hint cut to one `// par`, `// seq` or `// unknown` and no other comment, and whose page defines those
+three words in place of the hint table. The plain keys serve the whole hints (`proofs`: class, reason, witness, the
+header contract and library-node provenance). The detail is `HPCAGENT_BENCH_CPF_HINTS` (`cpf.hints`,
+`cpf_cache.HintDetail`), set by the `-kinds` packets and read by the judge per setup, the tool, the staging scripts
+and the prepare job (`--cpf-hints`). It is part of every cache key and view pointer name (`*_cpf-kinds.<ext>.json`),
+so one view holds both details and never serves one for the other; the judge refuses a request naming a detail its
+setup does not serve.
+
 ## Rules
 
 - `order` is the slot. It sets the packet's hue and, unless it names a `marker`, its shape, and the packet

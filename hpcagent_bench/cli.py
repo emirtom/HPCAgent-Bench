@@ -30,6 +30,7 @@ from typing import IO, TYPE_CHECKING, Any
 
 import hpcagent_bench
 from hpcagent_bench import osinfo
+from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS
 from hpcagent_bench.paths import RESULTS_DIR
 from hpcagent_bench.precision import DATATYPE_CHOICES
 from hpcagent_bench.spec import BenchSpec, preset_arg, resolve_preset
@@ -823,6 +824,7 @@ def cmd_cpf(args: argparse.Namespace) -> int:
             language=args.language,
             precision=args.precision,
             target=args.target,
+            hints=args.hints,
             jsonl=args.jsonl,
         )
     else:
@@ -833,6 +835,7 @@ def cmd_cpf(args: argparse.Namespace) -> int:
                 language=args.language,
                 precision=args.precision,
                 target=args.target,
+                hints=args.hints,
             )
         ]
         print(records[0].line(indent=2))
@@ -1285,6 +1288,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="which specialization to render: cpu parallel regions, or the offloaded device form. "
         "Write the two into DIFFERENT --out directories: the rendered file names are the same, and "
         "the judge serves whichever directory it is pointed at.",
+    )
+    mp.add_argument(
+        "--hints",
+        default=DEFAULT_HINTS,
+        choices=HINT_DETAILS,
+        help="proofs: every loop's whole hint and the header contract; kinds: one par, seq or unknown per loop",
     )
     mp.add_argument("--jsonl", default=None, help="append one verdict per line here (--track)")
     mp.set_defaults(func=cmd_cpf)

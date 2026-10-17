@@ -55,7 +55,7 @@ def view_with(tmp_path: pathlib.Path, kernel: str, dialect: str = "c", target: s
     ext = cpf_cache.LANGUAGE_EXT["c++" if target == "gpu" else dialect]
     key = cpf_cache.cache_key("sdfg", "dace", {**OPTIONS, "kernel": kernel, "language": dialect})
     publish(cache, key, f"{kernel}_fp64_cpf.{ext}", f"// {kernel} form\n", device=target == "gpu")
-    cpf_cache.record(view, kernel, dialect, "fp64", {"key": key, "verdict": "ok", "cached": False})
+    cpf_cache.record(view, kernel, dialect, "fp64", "proofs", {"key": key, "verdict": "ok", "cached": False})
     return view
 
 
@@ -231,10 +231,10 @@ def test_the_manifest_carries_the_key_and_no_timestamp(tmp_path: pathlib.Path) -
 
 def test_a_modified_artefact_is_a_miss_naming_the_key(tmp_path: pathlib.Path) -> None:
     view = view_with(tmp_path, "k")
-    source = cpf_cache.resolve(view, "k", "c", "fp64").source
+    source = cpf_cache.resolve(view, "k", "c", "fp64", "proofs").source
     source.write_text("// edited by hand\n")
     with pytest.raises(cpf_cache.CacheMiss, match=source.parent.name):
-        cpf_cache.resolve(view, "k", "c", "fp64")
+        cpf_cache.resolve(view, "k", "c", "fp64", "proofs")
 
 
 def test_a_canonical_entry_serves_its_sdfg_until_the_file_is_modified(tmp_path: pathlib.Path) -> None:
@@ -278,22 +278,22 @@ def test_every_input_moves_the_canonical_key(program: str, commit: str, options:
 
 def test_a_pointer_to_a_missing_entry_names_the_key(tmp_path: pathlib.Path) -> None:
     view = view_with(tmp_path, "k")
-    source = cpf_cache.resolve(view, "k", "c", "fp64").source
+    source = cpf_cache.resolve(view, "k", "c", "fp64", "proofs").source
     key = source.parent.name
     for path in source.parent.iterdir():
         path.unlink()
     source.parent.rmdir()
     with pytest.raises(cpf_cache.CacheMiss, match=key):
-        cpf_cache.resolve(view, "k", "c", "fp64")
+        cpf_cache.resolve(view, "k", "c", "fp64", "proofs")
 
 
 def test_a_failed_render_is_a_miss_naming_its_key_and_error(tmp_path: pathlib.Path) -> None:
     cache, view = tmp_path / "cache", tmp_path / "view"
     cpf_cache.open_view(view, cache, "cpu", "dace")
     failed = {"key": PINNED_KEY, "verdict": "timeout", "error": "render exceeded 14400s"}
-    cpf_cache.record(view, "cloudsc", "c", "fp64", failed)
+    cpf_cache.record(view, "cloudsc", "c", "fp64", "proofs", failed)
     with pytest.raises(cpf_cache.CacheMiss) as caught:
-        cpf_cache.resolve(view, "cloudsc", "c", "fp64")
+        cpf_cache.resolve(view, "cloudsc", "c", "fp64", "proofs")
     assert PINNED_KEY in str(caught.value)
     assert "14400s" in str(caught.value)
 
@@ -301,35 +301,35 @@ def test_a_failed_render_is_a_miss_naming_its_key_and_error(tmp_path: pathlib.Pa
 def test_a_kernel_nothing_was_rendered_for_names_the_entry(tmp_path: pathlib.Path) -> None:
     view = view_with(tmp_path, "k")
     with pytest.raises(cpf_cache.CacheMiss, match=re.escape("other_fp64_cpf.c.json")):
-        cpf_cache.resolve(view, "other", "c", "fp64")
+        cpf_cache.resolve(view, "other", "c", "fp64", "proofs")
 
 
 def test_a_flat_directory_of_forms_is_not_a_view(tmp_path: pathlib.Path) -> None:
     """A directory of loose files carries no key, so nothing in it can be traced or trusted."""
     (tmp_path / "cloudsc_fp64_cpf.c").write_text("// loose\n")
     with pytest.raises(cpf_cache.CacheMiss, match="not a CPF cache view"):
-        cpf_cache.resolve(tmp_path, "cloudsc", "c", "fp64")
+        cpf_cache.resolve(tmp_path, "cloudsc", "c", "fp64", "proofs")
 
 
 def test_lookup_is_by_exact_name(tmp_path: pathlib.Path) -> None:
     """cloudsc_init sits beside cloudsc; a request for cloudsc must never be answered with it."""
     view = view_with(tmp_path, "cloudsc_init")
     with pytest.raises(cpf_cache.CacheMiss):
-        cpf_cache.resolve(view, "cloudsc", "c", "fp64")
-    source = cpf_cache.resolve(view, "cloudsc_init", "c", "fp64").source
+        cpf_cache.resolve(view, "cloudsc", "c", "fp64", "proofs")
+    source = cpf_cache.resolve(view, "cloudsc_init", "c", "fp64", "proofs").source
     assert source.read_text() == "// cloudsc_init form\n"
 
 
 def test_a_registry_key_resolves_like_its_short_name(tmp_path: pathlib.Path) -> None:
     view = view_with(tmp_path, "cloudsc")
-    source = cpf_cache.resolve(view, "scientific_computing/weather/cloudsc/cloudsc", "c", "fp64").source
+    source = cpf_cache.resolve(view, "scientific_computing/weather/cloudsc/cloudsc", "c", "fp64", "proofs").source
     assert source.read_text() == "// cloudsc form\n"
 
 
 def test_a_gpu_view_serves_the_device_form_for_a_host_dialect(tmp_path: pathlib.Path) -> None:
     """The tool asks a hip setup's judge for c++; the device form is the only one a gpu view holds."""
     view = view_with(tmp_path, "k", dialect="hip", target="gpu")
-    form = cpf_cache.resolve(view, "k", "c++", "fp64")
+    form = cpf_cache.resolve(view, "k", "c++", "fp64", "proofs")
     assert (form.source.suffix, form.device and form.device.suffix) == (".cpp", ".hip")
 
 
@@ -424,28 +424,28 @@ def test_stage_refuses_a_view_of_the_other_target(tmp_path: pathlib.Path) -> Non
 def test_check_verified_refuses_a_form_the_judge_never_graded(tmp_path: pathlib.Path) -> None:
     """A rendered form is not a checked one: ``--verified`` names it until a grade is filed."""
     view = view_with(tmp_path, "gemm")
-    assert cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu") == []
-    (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", verified=True)
+    assert cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", "proofs") == []
+    (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", "proofs", verified=True)
     assert "never graded" in line
 
 
 def test_check_verified_refuses_an_unverified_verdict_and_passes_an_ok_one(tmp_path: pathlib.Path) -> None:
     view = view_with(tmp_path, "gemm")
-    cpf_cache.record_verification(view, "gemm", "c", "fp64", {"verdict": "unverified", "reason": "segfault"})
-    (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", verified=True)
+    cpf_cache.record_verification(view, "gemm", "c", "fp64", "proofs", {"verdict": "unverified", "reason": "segfault"})
+    (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", "proofs", verified=True)
     assert "unverified: segfault" in line
-    cpf_cache.record_verification(view, "gemm", "c", "fp64", {"verdict": "ok"})
-    assert cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", verified=True) == []
+    cpf_cache.record_verification(view, "gemm", "c", "fp64", "proofs", {"verdict": "ok"})
+    assert cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", "proofs", verified=True) == []
 
 
 def test_a_verdict_on_other_bytes_does_not_verify_the_served_form(tmp_path: pathlib.Path) -> None:
     """The verdict is tied to the form's cache key: re-pointing the view voids it."""
     view = view_with(tmp_path, "gemm")
-    cpf_cache.record_verification(view, "gemm", "c", "fp64", {"verdict": "ok"})
-    name = cpf_cache.pointer_name("gemm", "fp64", "c")
+    cpf_cache.record_verification(view, "gemm", "c", "fp64", "proofs", {"verdict": "ok"})
+    name = cpf_cache.pointer_name("gemm", "fp64", "c", "proofs")
     record = cpf_cache.Verification.model_validate_json((view / cpf_cache.VERIFIED_NAME / name).read_bytes())
     cpf_cache.write_json(view / cpf_cache.VERIFIED_NAME / name, record.model_copy(update={"key": "0" * 64}))
-    (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", verified=True)
+    (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", "proofs", verified=True)
     assert "was graded as" in line
 
 

@@ -79,6 +79,10 @@ PINNED_PACKETS = {
     "dist-rccl-amd": 23,
     "cpf-gpu-src": 24,
     "cpf-tool-gpu": 25,
+    "cpf-cpu-src-kinds": 26,
+    "cpf-tool-cpu-kinds": 27,
+    "cpf-gpu-src-kinds": 28,
+    "cpf-tool-gpu-kinds": 29,
 }
 
 PINNED_FRAMEWORKS = {

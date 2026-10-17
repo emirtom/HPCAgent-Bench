@@ -9,7 +9,8 @@ The pipeline is four steps, and each already exists somewhere else:
 2. that module's ``@dace.program`` is parsed to an SDFG,
 3. ``canonicalize`` + ``finalize_for_target`` turn it into the canonical parallel CPU form,
 4. ``dace.codegen.cpf.render`` emits a translation unit that a bare host compiler accepts -- no
-   ``-I``, no ``libdace``, no BLAS.
+   ``-I``, no ``libdace``, no BLAS -- with each loop's hint at the setup's detail
+   (:data:`hpcagent_bench.cpf_cache.HintDetail`).
 
 Every rendered unit is a DROP-IN: its entry is the canonical native symbol
 (``numpyto_common.naming.entry_symbol``) and its signature is the C ABI's, spelled exactly as the
@@ -42,7 +43,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pydantic
 
 from hpcagent_bench import config, cpf_canonical, languages, paths
-from hpcagent_bench.cpf_cache import LANGUAGE_EXT
+from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS, LANGUAGE_EXT, HintDetail
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
     entry_program_name,
@@ -592,7 +593,7 @@ class RenderedForm(NamedTuple):
 
 
 def render_canonical(
-    spec: BenchSpec, short: str, canonical: "SDFG", language: str, precision: str, target: str
+    spec: BenchSpec, short: str, canonical: "SDFG", language: str, precision: str, target: str, hints: HintDetail
 ) -> RenderedForm:
     """Step 4 on a canonical SDFG, which is copied first so one parse serves every language.
 
@@ -603,6 +604,9 @@ def render_canonical(
     slot and pinned knobs the ABI does not have, so a mismatch surfaces as a refusal and never as
     shifted arguments. :func:`exact_abi_signature` then spells each parameter as the stub does (CPF keeps
     its own qualifiers: no ``const`` on scalars, a read-only workspace) and the unit is compiled.
+
+    ``hints`` is handed to the renderer only when it is not :data:`DEFAULT_HINTS`, whose text is the renderer's
+    default: a ``proofs`` form renders on a dace that predates the parameter.
     """
     import copy
 
@@ -628,7 +632,10 @@ def render_canonical(
     try:
         signature = EntrySignature(abi_args, workspace=WORKSPACE_NAME, workspace_size=WORKSPACE_SIZE_NAME)
         with gpu_codegen_pinned(target):
-            rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False)
+            if hints == DEFAULT_HINTS:
+                rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False)
+            else:
+                rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False, hints=hints)  # pyright: ignore[reportCallIssue] -- hints= is newer than some dace pins; only a non-default detail needs it
         code = exact_abi_signature(
             rendering.code, native.symbol, abi_parameters(native, emitted), {v: k for k, v in renames.items()}
         )
@@ -749,6 +756,7 @@ def render_sdfg(
     language: str,
     precision: str,
     target: str = "cpu",
+    hints: HintDetail = DEFAULT_HINTS,
 ) -> RenderRecord:
     """Steps 1-4 for one kernel, in THIS process, written straight to ``out_dir``. Returns the verdict record.
 
@@ -760,7 +768,7 @@ def render_sdfg(
     if isinstance(parsed, dict):
         return RenderRecord.model_validate({**rec.model_dump(exclude_unset=True), **parsed})
     canonicalize_for(parsed, target, cpf_canonical.small_symbols(spec))
-    form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target)
+    form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target, hints)
     rec.entry = form.entry
     if form.forced:
         rec.forced_abi_symbols = list(form.forced)
@@ -787,8 +795,9 @@ def bridge_digest() -> str:
     ).hexdigest()
 
 
-def render_options(spec: BenchSpec, language: str, precision: str, target: str) -> dict[str, object]:
-    """Every input besides the SDFG and dace that decides one artefact's text, for its cache key."""
+def render_options(spec: BenchSpec, language: str, precision: str, target: str, hints: HintDetail) -> dict[str, object]:
+    """Every input besides the SDFG and dace that decides one artefact's text, for its cache key: the hint
+    detail among them, so a ``kinds`` form never hits a ``proofs`` entry or the reverse."""
     dialect = DEVICE_LANGUAGE if target == "gpu" else language
     native = binding_from_spec(spec)
     return {
@@ -796,6 +805,7 @@ def render_options(spec: BenchSpec, language: str, precision: str, target: str) 
         "language": dialect,
         "precision": fptype_tag(precision),
         "target": target,
+        "hints": hints,
         "bridge": bridge_digest(),
         "dace_env": cpf_canonical.dace_environment(),
         "entry": native.symbol,
@@ -819,6 +829,7 @@ def prerender_sdfg(
     target: str,
     dace_commit: str,
     expected_root: pathlib.Path,
+    hints: HintDetail,
 ) -> RenderRecord:
     """Render every language of one kernel whose key is not already a hit, into the cache.
 
@@ -839,7 +850,7 @@ def prerender_sdfg(
     canonical_rec = CanonicalOutcome(key=canonical)
     plan: dict[str, tuple[str, dict[str, object]]] = {}
     for language in languages:
-        options = render_options(spec, language, precision, target)
+        options = render_options(spec, language, precision, target, hints)
         plan[language] = (cpf_cache.cache_key(canonical, dace_commit, options), options)
     print(RenderPlan(plan={language: key for language, (key, _) in plan.items()}).model_dump_json(), flush=True)
 
@@ -860,7 +871,7 @@ def prerender_sdfg(
             for language in todo:
                 key, options = plan[language]
                 try:
-                    form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target)
+                    form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
                     results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})
                     continue
@@ -941,6 +952,7 @@ def render_kernel(
     language: str = "c++",
     precision: str = "",
     target: str = "cpu",
+    hints: HintDetail = DEFAULT_HINTS,
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> RenderRecord:
@@ -963,6 +975,7 @@ def render_kernel(
         cmd += ["--precision", precision]
     if target != "cpu":
         cmd += ["--target", target]
+    cmd += ["--hints", hints]
     run = run_child(cmd, target, timeout, extra_env)
     if run.timed_out:
         return RenderRecord(
@@ -992,6 +1005,7 @@ def prerender_kernel(
     languages: Sequence[str],
     precision: str,
     target: str,
+    hints: HintDetail,
     dace_package_root: pathlib.Path,
     dace_commit: str,
     timeout: float | None = None,
@@ -1004,7 +1018,7 @@ def prerender_kernel(
     child's environment only (its temp and build directories), never to this process's.
     """
     cmd = [sys.executable, "-m", __spec__.name, "--kernel", spec.short_name, "--cache", str(cache_root)]
-    cmd += ["--dace-commit", dace_commit, "--dace-root", str(dace_package_root), "--target", target]
+    cmd += ["--dace-commit", dace_commit, "--dace-root", str(dace_package_root), "--target", target, "--hints", hints]
     for language in languages:
         cmd += ["--language", language]
     if precision:
@@ -1055,6 +1069,7 @@ def render_track(
     language: str = "c++",
     precision: str = "",
     target: str = "cpu",
+    hints: HintDetail = DEFAULT_HINTS,
     timeout: float | None = None,
     jsonl: os.PathLike[str] | None = None,
 ) -> list[RenderRecord]:
@@ -1067,7 +1082,9 @@ def render_track(
     with contextlib.ExitStack() as stack:
         sink = stack.enter_context(pathlib.Path(jsonl).open("a")) if jsonl is not None else None
         for index, spec in enumerate(track_specs(track), start=1):
-            rec = render_kernel(spec, out_dir, language=language, precision=precision, target=target, timeout=timeout)
+            rec = render_kernel(
+                spec, out_dir, language=language, precision=precision, target=target, hints=hints, timeout=timeout
+            )
             records.append(rec)
             print(f"[{index}] {rec.kernel}: {rec.verdict}", flush=True)
             if sink is not None:
@@ -1091,6 +1108,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--language", action="append", choices=sorted(LANGUAGE_EXT), help="repeatable with --cache")
     p.add_argument("--precision", default="", help="fp64 (default) / fp32 / fp16")
     p.add_argument("--target", default="cpu", choices=("cpu", "gpu"), help="which specialization to render")
+    p.add_argument("--hints", default=DEFAULT_HINTS, choices=HINT_DETAILS, help="how much of each loop hint to write")
     args = p.parse_args(argv)
     if (args.out is None) == (args.cache is None):
         p.error("give exactly one of --out and --cache")
@@ -1116,9 +1134,12 @@ def main(argv: list[str] | None = None) -> int:
                     args.target,
                     args.dace_commit,
                     pathlib.Path(args.dace_root),
+                    args.hints,
                 )
             else:
-                rec = render_sdfg(spec, numpy_py, pathlib.Path(args.out), languages[0], args.precision, args.target)
+                rec = render_sdfg(
+                    spec, numpy_py, pathlib.Path(args.out), languages[0], args.precision, args.target, args.hints
+                )
         except NotImplementedError as exc:  # CPF names the construct it cannot render
             rec.verdict = "refused"
             rec.error = str(exc)[:400]

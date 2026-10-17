@@ -88,7 +88,7 @@ def publish_view(tmp_path: pathlib.Path) -> pathlib.Path:
     name = "example_kernel_fp64_cpf"
     files = [("source", f"{name}.c", "// form\n"), ("binding", f"{name}_binding.json", "{}")]
     cpf_cache.publish(cache, key, {"kernel": "example_kernel", "entry": "example_kernel_fp64"}, files)
-    cpf_cache.record(view, "example_kernel", "c", "fp64", {"key": key, "verdict": "ok"})
+    cpf_cache.record(view, "example_kernel", "c", "fp64", "proofs", {"key": key, "verdict": "ok"})
     return view
 
 

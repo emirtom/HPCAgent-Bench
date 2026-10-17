@@ -553,3 +553,4 @@ oracle:
 # Canonical-parallel-form rendering (hpcagent_bench/cpf_cache.py, seal.py).
 cpf:
   cache: ""                # path. Cache root an on-demand render writes to; "" = no on-demand render.
+  hints: proofs            # proofs | kinds. How much of each loop hint a served form spells out; a -kinds packet sets kinds.
