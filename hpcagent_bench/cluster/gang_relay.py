@@ -22,7 +22,9 @@ directory on the shared file system:
 * :data:`ALIVE`  -- touched by the relay every pass, so a judge waiting on a dead relay fails at
   once instead of at its launch timeout.
 
-Standard library only and Python 3.6: the batch host's python3 is the site's, not the image's.
+Standard library only and Python 3.6: the batch host's python3 is the site's, not the image's. So the
+``<id>.req`` file is bare :mod:`json`, not a pydantic model: one of the formats exempt by design
+(docs/results_db.md#formats).
 The relay exits once its parent (the batch shell) is gone, so it dies with the job.
 """
 

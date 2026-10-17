@@ -443,8 +443,8 @@ def test_a_verdict_on_other_bytes_does_not_verify_the_served_form(tmp_path: path
     view = view_with(tmp_path, "gemm")
     cpf_cache.record_verification(view, "gemm", "c", "fp64", {"verdict": "ok"})
     name = cpf_cache.pointer_name("gemm", "fp64", "c")
-    record = json.loads((view / cpf_cache.VERIFIED_NAME / name).read_text())
-    cpf_cache.write_json(view / cpf_cache.VERIFIED_NAME / name, {**record, "key": "0" * 64})
+    record = cpf_cache.Verification.model_validate_json((view / cpf_cache.VERIFIED_NAME / name).read_bytes())
+    cpf_cache.write_json(view / cpf_cache.VERIFIED_NAME / name, record.model_copy(update={"key": "0" * 64}))
     (line,) = cpf_cache.missing(view, ["gemm"], "c", "fp64", "cpu", verified=True)
     assert "was graded as" in line
 

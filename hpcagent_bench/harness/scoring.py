@@ -12,7 +12,6 @@ never a dropped row."""
 import dataclasses
 import functools
 import hashlib
-import json
 import pathlib
 import secrets
 import sys
@@ -29,6 +28,7 @@ from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import reassociation_agrees
 from hpcagent_bench.fuzz import FUZZED_PRESET, FuzzValue, initializer_seed
 from hpcagent_bench.harness import (
+    db_json,
     disk_cache,
     mpi_call,
     mpi_gang,
@@ -1388,9 +1388,9 @@ def race_record(
     leader: str, source: str, samples: Mapping[str, Sequence[int]], kinds: Sequence[str]
 ) -> tuple[str, str, str]:
     """``TimedCell.race_*`` of an early-stop race: its leader, where the leader came from, and the
-    references it cut as JSON ``{reference: per-rep budget ns}``."""
+    references it cut as JSON ``{reference: per-rep budget ns}`` (:data:`db_json.RACE_CUTS`)."""
     cuts = {kind: int(samples[cut_key(kind)][0]) for kind in kinds if was_cut(samples, kind)}
-    return leader, source, json.dumps(cuts, sort_keys=True)
+    return leader, source, db_json.RACE_CUTS.dumps(cuts)
 
 
 def early_stop_line(kernel: str, kind: str, budget_s: float, leader: str) -> str:
@@ -1529,11 +1529,12 @@ def graded_protocol(task: Task) -> str:
 
 
 def cell_shape(drawn: Mapping[str, object] | None, override: Mapping[str, object] | None) -> str:
-    """The (config, shape) point a cell was measured at, as sorted JSON for :class:`TimedCell`.
-    ``override`` wins over ``drawn``; values JSON cannot take (numpy scalars) are stringified."""
+    """The (config, shape) point a cell was measured at, as the ``grade_cells.shape`` JSON of :class:`TimedCell`
+    (:data:`db_json.SHAPE`). ``override`` wins over ``drawn``; values JSON cannot take (numpy scalars) are
+    stringified (:func:`db_json.plain`)."""
     point: dict[str, object] = dict(drawn or {})
     point.update(override or {})
-    return json.dumps({str(k): v for k, v in sorted(point.items())}, sort_keys=True, default=str)
+    return db_json.SHAPE.dumps(db_json.plain(point))
 
 
 def score(
@@ -3877,7 +3878,7 @@ def score_ml(
             cells.append(
                 TimedCell(
                     label,
-                    json.dumps(dict(params), sort_keys=True),
+                    cell_shape(params, None),
                     float(one.baseline_ns),
                     float(one.native_ns),
                     float(one.speedup),

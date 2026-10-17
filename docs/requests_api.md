@@ -222,14 +222,16 @@ written with every unset field left out.
 
 | Column | Holds |
 | --- | --- |
-| `grades.requests TEXT NOT NULL DEFAULT ''` | the request as sent, normalized JSON (sorted keys); `''` = none |
+| `grades.requests TEXT NOT NULL DEFAULT ''` | the request, validated, as relayout's models write it (sorted keys); `''` = none |
+| `grade_requests` (one row per entry) | the same request, one typed row per library, the grid and each operation |
 | `grades.convert_in_ns INTEGER NOT NULL DEFAULT 0` | sparse conversion + cast-in of the credited rep |
 | `grades.convert_out_ns INTEGER NOT NULL DEFAULT 0` | cast-out of the credited rep |
 
-One JSON value per request and no child table, as `schema.sql` states: a per-array question is a
-`json_each` query over `json_extract(requests, '$.operations')`.
-
-`results_db.requests_of_row` reads a grade row's requests.
+`results_db.add_grade` writes both from one validated `Requests`, in one transaction, so they never
+disagree; a request that does not validate is refused before anything is written (a refused call whose
+request was malformed records none: `service.refused_requests`). `results_db.requests_of_row` reads the
+JSON back and `results_db.requests_from_rows` the rows; both give the request that was sent. The table,
+its `kind`s and a query over it are in [results_db.md](results_db.md#requests).
 
 ## 5. Open items
 

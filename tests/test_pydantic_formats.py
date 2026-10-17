@@ -5,20 +5,41 @@ record survives a round trip, and a malformed one is refused where it is read in
 
 One test per format that has no test module of its own to carry it (the cpf cache manifests, the cost
 cards, the registry and studies files, the grading tables, the systems file, the library and toolset
-catalogs, the binding document, the cpf render child's lines and the agent-folder log)."""
+catalogs, the binding document, the cpf render child's lines, the agent-folder log, the results database's JSON
+columns, a profiled child's result line, and the formats read but not owned: PEP 610 records, canon log lines and
+chat completions)."""
 
 import json
 import os
 import pathlib
 import tempfile
 
+import numpy as np
 import pydantic
 import pytest
 import yaml
 
-from hpcagent_bench import cpf_bridge, cpf_cache, languages, opt_reports, packets, study_tags
+from hpcagent_bench import (
+    cpf_bridge,
+    cpf_cache,
+    cpf_canonical,
+    languages,
+    observations_extract,
+    opt_reports,
+    packets,
+    study_tags,
+)
 from hpcagent_bench.cluster import systems
-from hpcagent_bench.harness import grade_under, grading, kernelbench_adapter, repo_pr, sandbox
+from hpcagent_bench.harness import (
+    agent,
+    db_json,
+    grade_under,
+    grading,
+    kernelbench_adapter,
+    profiling,
+    repo_pr,
+    sandbox,
+)
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.stats import cost
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -218,6 +239,53 @@ def test_the_agent_folder_log_names_the_latest_folder_and_refuses_a_malformed_li
             sandbox.episode_folder("e")
 
 
+def test_a_json_column_reads_back_what_it_wrote_and_refuses_another_shape() -> None:
+    """The text is sorted ``json.dumps`` spelling (equal values, equal text; ``NaN`` stays ``NaN``), an empty
+    column is the empty value, and a value of another type is refused on the way in and on the way out."""
+    assert db_json.STRINGS.dumps(["cc -O2 a.c", "ld"]) == '["cc -O2 a.c", "ld"]'
+    assert db_json.STRINGS.loads("") == ()
+    assert db_json.SHAPE.dumps(db_json.plain({"N": np.int64(3), "eps": 0.5, "k": [1, 2]})) == (
+        '{"N": "3", "eps": 0.5, "k": [1, 2]}'
+    )
+    assert db_json.PARAMS.dumps({"b": 1, "a": 2}) == db_json.PARAMS.dumps({"a": 2, "b": 1})
+    assert db_json.DISCLOSURE.dumps({"x": float("nan")}) == '{"x": NaN}'
+    assert db_json.SAMPLES.loads("[3, 1]") == (3, 1)
+    assert db_json.RACE_CUTS.loads(db_json.RACE_CUTS.dumps({"c": 5})) == {"c": 5}
+    for column, bad in ((db_json.RACE_CUTS, '{"c": "slow"}'), (db_json.STRINGS, '{"a": 1}'), (db_json.SHAPE, "[1]")):
+        with pytest.raises(pydantic.ValidationError):
+            column.loads(bad)
+    with pytest.raises(pydantic.ValidationError):
+        db_json.SAMPLES.dumps(["fast"])
+
+
+def test_a_profiled_childs_result_line_needs_its_time_and_its_reps() -> None:
+    assert profiling.workload_result({"elapsed_ns": 5, "reps": 2}) == {"elapsed_ns": 5, "reps": 2}
+    with pytest.raises(pydantic.ValidationError):
+        profiling.workload_result({"elapsed_ns": 5})
+
+
+def test_the_formats_read_but_not_owned_ignore_what_they_do_not_use_and_need_what_they_do() -> None:
+    """A PEP 610 record, a canon log line and a chat completion are someone else's: extra fields are theirs,
+    a missing field this reader needs is refused, and a field they may leave out reads as none."""
+    assert cpf_canonical.commit_of({"url": "u", "vcs_info": {"vcs": "git", "commit_id": "abc", "x": 1}}) == "abc"
+    with pytest.raises(pydantic.ValidationError):
+        cpf_canonical.commit_of({"vcs_info": {"vcs": "git", "commit_id": "abc"}})
+    line = observations_extract.CanonLogLine.model_validate_json('{"kernel": "k", "speedup": 2.5, "job": 1}')
+    assert (line.kernel, line.speedup, line.error) == ("k", 2.5, "")
+    with pytest.raises(pydantic.ValidationError):
+        observations_extract.CanonLogLine.model_validate_json('{"speedup": 2.5}')
+    reply = agent.ChatCompletion.model_validate_json(
+        '{"id": "x", "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}}],'
+        ' "usage": {"prompt_tokens": 10, "completion_tokens": 3, "prompt_tokens_details": {"cached_tokens": 4}}}'
+    )
+    assert reply.text() == "hi"
+    usage = agent.openai_usage(reply)
+    assert (usage.input_tokens, usage.output_tokens, usage.cached_tokens) == (10, 3, 4)
+    empty = agent.ChatCompletion.model_validate_json('{"choices": [{"message": null}], "usage": null}')
+    assert empty.text() == ""
+    assert agent.openai_usage(empty).input_tokens == 0
+
+
 if __name__ == "__main__":
     test_a_canonical_manifest_of_another_layout_or_with_an_unknown_field_is_a_miss()
     test_an_entry_manifest_without_its_source_and_binding_is_refused()
@@ -233,4 +301,7 @@ if __name__ == "__main__":
     test_a_render_childs_lines_are_its_plan_and_its_verdict_and_a_foreign_line_is_skipped()
     test_an_opt_report_manifest_and_a_pr_status_dump_their_fields()
     test_the_agent_folder_log_names_the_latest_folder_and_refuses_a_malformed_line(pathlib.Path(tempfile.mkdtemp()))
+    test_a_json_column_reads_back_what_it_wrote_and_refuses_another_shape()
+    test_a_profiled_childs_result_line_needs_its_time_and_its_reps()
+    test_the_formats_read_but_not_owned_ignore_what_they_do_not_use_and_need_what_they_do()
     print("ok", os.path.basename(__file__))

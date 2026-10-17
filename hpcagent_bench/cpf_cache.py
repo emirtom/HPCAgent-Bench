@@ -422,9 +422,11 @@ def publish(
     return True
 
 
-def write_json(path: pathlib.Path, value: object) -> None:
-    """``value`` as indented JSON, replacing ``path`` atomically (world-readable: other jobs read views)."""
-    write_atomic(path, (json.dumps(value, indent=2, sort_keys=True) + "\n").encode(), mode=0o644)
+def write_json(path: pathlib.Path, record: pydantic.BaseModel) -> None:
+    """``record`` as indented, key-sorted JSON, replacing ``path`` atomically (world-readable: other jobs read
+    views)."""
+    text = json.dumps(record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+    write_atomic(path, text.encode(), mode=0o644)
 
 
 def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> None:
@@ -436,7 +438,7 @@ def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_co
     if error := pin_error(view, cache_root, target, dace_commit):
         raise ValueError(error)
     if not (view / VIEW_NAME).is_file():
-        write_json(view / VIEW_NAME, ViewHeader.of(cache_root, target, dace_commit).model_dump())
+        write_json(view / VIEW_NAME, ViewHeader.of(cache_root, target, dace_commit))
 
 
 def pin_error(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> str:
@@ -482,7 +484,7 @@ def record(view: pathlib.Path, kernel: str, dialect: str, fptype: str, outcome: 
     pointer = Pointer.model_validate(
         {**outcome, "kernel": short_name(kernel), "language": dialect, "precision": fptype}
     )
-    write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect), pointer.model_dump())
+    write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect), pointer)
 
 
 def recorded(view: pathlib.Path, kernel: str, dialect: str, fptype: str) -> Pointer | None:
@@ -564,7 +566,7 @@ def record_verification(
 ) -> None:
     """File the judge's ``verdict`` on the form the view serves for this kernel, tied to its key."""
     name, key, _ = pointer_outcome(view, kernel, language, fptype)
-    write_json(view / VERIFIED_NAME / name, Verification.model_validate({**verdict, "key": key}).model_dump())
+    write_json(view / VERIFIED_NAME / name, Verification.model_validate({**verdict, "key": key}))
 
 
 def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str) -> str:

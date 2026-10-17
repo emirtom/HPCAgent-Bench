@@ -441,6 +441,13 @@ class Requests(relayout.ops.Requests):
         """The request as JSON, empty parts left out (``{}`` = no requests); :meth:`validate` reads it back."""
         return requests_json(self)
 
+    def recorded_json(self) -> str | None:
+        """``grades.requests`` of a grade that asked for this: :meth:`to_json` with sorted keys, None (the
+        column's ``''``) for the empty request. :func:`hpcagent_bench.harness.results_db.requests_of_row` reads
+        it back."""
+        requests = self.to_json()
+        return json.dumps(requests, sort_keys=True) if requests else None
+
     def single_node(self, arrays: Sequence[ArraySpec]) -> SingleNode:
         """The :class:`SingleNode` conversions of the kernel's ``arrays`` (:func:`kernel_arrays`, with their
         dtypes), one run of the operations: each ``zip`` / ``unzip`` as the relayout group between its parts
@@ -504,8 +511,7 @@ class Requests(relayout.ops.Requests):
     ) -> "Requests":
         """The request whose :meth:`plan` at the plan's rank count is ``plan`` (a :class:`DistributionPlan` or
         its JSON), with the grid following ``P`` (:func:`grid_request`) and every array of ``arrays`` the plan
-        leaves out replicated: how a kernel's default distribution (and a grade recorded before the
-        ``requests`` column) is shown."""
+        leaves out replicated: how a kernel's default distribution is shown."""
         plan = DistributionPlan.model_validate(plan)
         ops: list[Operation] = []
         for name, entry in plan.arrays.items():

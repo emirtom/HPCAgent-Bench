@@ -50,7 +50,6 @@ import contextlib
 import dataclasses
 import datetime
 import functools
-import json
 import os
 import pathlib
 import socket
@@ -67,7 +66,16 @@ import yaml
 
 from hpcagent_bench import anticheat, config, experiments, owed, paths, protocols, recorded_rows
 from hpcagent_bench.api import InputMode, RunConfig
-from hpcagent_bench.harness import denominator, grading, hidden_seeds, metric, native_call, results_db, timing
+from hpcagent_bench.harness import (
+    db_json,
+    denominator,
+    grading,
+    hidden_seeds,
+    metric,
+    native_call,
+    results_db,
+    timing,
+)
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.recording import (
@@ -606,7 +614,7 @@ def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
         promoted=bool(row.get("promoted")),
         workspace_bytes=str(row["workspace_bytes"]) if row.get("workspace_bytes") else None,
         requests=results_db.requests_of_row(row),
-        build=json.loads(str(row["requested_build"])) if row.get("requested_build") else [],
+        build=list(db_json.STRINGS.loads(row["requested_build"])),
         task_hash=str(row.get("task_hash") or ""),
     )
 

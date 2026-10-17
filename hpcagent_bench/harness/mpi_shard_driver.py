@@ -297,7 +297,7 @@ def plan_layout(plan: Mapping[str, Any], key: str = "layout") -> tuple[dict[str,
     """The plan's resolved per-array layout (``build_plan``'s ``layout``, or ``reference_layout``
     for the reference's inputs) and processor :class:`Grid`, reconstructed the way a rank driver
     passes them to ``make_inputs``."""
-    entries = dict(plan.get(key, plan.get("layout")) or {})
+    entries = dict(plan[key])
     layout = {name: array_dist_from_dict(entry) for name, entry in entries.items()}
     return layout, Grid(tuple(int(d) for d in plan["grid"]))
 

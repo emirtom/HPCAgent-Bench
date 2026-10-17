@@ -35,7 +35,6 @@ per (kernel, law, P) of the items it graded (:func:`missing_points`, ``scaling_g
 
 import contextlib
 import dataclasses
-import json
 import math
 import os
 import pathlib
@@ -51,6 +50,7 @@ import pydantic
 
 from hpcagent_bench import config, flags
 from hpcagent_bench.harness import (
+    db_json,
     mpi_call,
     mpi_gang,
     mpi_shard_driver,
@@ -125,7 +125,8 @@ class Point:
 
     @property
     def params_json(self) -> str:
-        return json.dumps(dict(self.params), sort_keys=True)
+        """``reference_scaling_points.params`` of this point (:data:`db_json.PARAMS`), part of its key."""
+        return db_json.PARAMS.dumps(dict(self.params))
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -310,7 +311,7 @@ def row_of(
         "image": where.image,
         "compile_mode": outcome.compile_mode,
         "ranked_ns": scoring.curve_point_ns(outcome.samples) if outcome.samples else None,
-        "samples": json.dumps(list(outcome.samples)),
+        "samples": db_json.SAMPLES.dumps(outcome.samples),
         "work_ratio": point.work_ratio,
         "nodes": outcome.nodes,
         "repeat": int(repeat),
@@ -327,7 +328,7 @@ def shared_timing(point: Point, where: Stack, stored: Mapping[tuple[object, ...]
     """The other law's stored timing of the SAME problem at the same P, or None."""
     for key, row in stored.items():
         if key[2] != point.law.value and (key[1], key[3], key[4], key[5], key[6]) == problem_key(point, where):
-            samples = tuple(int(s) for s in json.loads(str(row["samples"] or "[]")))
+            samples = db_json.SAMPLES.loads(row["samples"])
             shared = f"the {key[2]} law's launch of the same problem"
             note = "; ".join(x for x in (str(row["note"] or ""), shared) if x)
             return Timing(samples, row["compile_mode"], row["nodes"], note)

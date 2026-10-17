@@ -4,7 +4,8 @@
 """Where a setup's inference comes from: a server this job starts, or a hosted service.
 
 Standard library only, and loaded by path, like ``effort.py``: the launcher shells out to this file
-on the batch host, and the tests import it from the checkout.
+on the batch host, and the tests import it from the checkout. The provider's pricing listing and the
+``inference.json`` record it writes are bare :mod:`json`, not pydantic models (docs/results_db.md#formats).
 
 A setup selects the source with one key in its ``.env``. ``INFERENCE_SOURCE=node`` (default when unset):
 the job starts a vLLM/SGLang server on a GPU node. ``INFERENCE_SOURCE=service``: a hosted endpoint over the
