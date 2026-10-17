@@ -235,7 +235,9 @@ def report_kind(report: object) -> str:
     """The tag of a ``/profile`` report: a JSON object by its keys (:data:`REPORT_KEYS`), a model by its type."""
     if isinstance(report, dict):
         return next((tag for tag, key in REPORT_KEYS if key in report), "build-failure")
-    return REPORT_TAGS[type(report)]
+    if isinstance(report, pydantic.BaseModel):
+        return REPORT_TAGS[type(report)]
+    raise TypeError(f"a /profile report is a JSON object or a report model, not {type(report).__name__}")
 
 
 #: Every ``/profile`` report, told apart by :func:`report_kind`.

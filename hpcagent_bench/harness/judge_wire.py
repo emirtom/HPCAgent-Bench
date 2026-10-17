@@ -222,10 +222,9 @@ class TimedCellAnswer(ScoreCellAnswer):
     race_cuts: str
 
 
-class ScoreAnswer(JudgeAnswer):
-    """``POST /score``: :class:`~hpcagent_bench.harness.scoring.Score` without
-    ``service.SCORE_ROUTE_REDACTED_FIELDS``, ``detail`` as ``scoring.public_detail`` reads it, plus what was
-    graded: the kernel, language, size and residency. The key set is frozen mid-experiment."""
+class ScoreFields[CellT: ScoreCellAnswer](JudgeAnswer):
+    """The fields :class:`ScoreAnswer` and :class:`GradeAnswer` share, in wire order, over the cell model each
+    answers with (a subclass may not narrow a mutable field, so the cell type is a parameter instead)."""
 
     correct: bool
     max_rel_error: float
@@ -250,11 +249,17 @@ class ScoreAnswer(JudgeAnswer):
     seed_nonce: int
     grading_protocol: str | None
     baseline_policy: str | None
-    cells: tuple[ScoreCellAnswer, ...]
+    cells: tuple[CellT, ...]
     kernel: str
     language: str
     preset: str
     residency: str
+
+
+class ScoreAnswer(ScoreFields[ScoreCellAnswer]):
+    """``POST /score``: :class:`~hpcagent_bench.harness.scoring.Score` without
+    ``service.SCORE_ROUTE_REDACTED_FIELDS``, ``detail`` as ``scoring.public_detail`` reads it, plus what was
+    graded: the kernel, language, size and residency. The key set is frozen mid-experiment."""
 
 
 class RecordedAnswer(JudgeAnswer):
@@ -270,7 +275,7 @@ class RecordedAnswer(JudgeAnswer):
     grade: int | None = None
 
 
-class GradeAnswer(ScoreAnswer):
+class GradeAnswer(ScoreFields[TimedCellAnswer]):
     """``POST /submit`` under ``service.submit_feedback=full`` (the loopback judge behind the redacting
     router): the whole :class:`~hpcagent_bench.harness.scoring.Score` with its whole cells, plus what was
     graded, how it was recorded and the request id."""
@@ -282,7 +287,6 @@ class GradeAnswer(ScoreAnswer):
     timing_host_ns: int
     timing_event_ns: int
     device_index: int
-    cells: tuple[TimedCellAnswer, ...]
     max_abs_err: float
     atol_used: float
     l_used: int
