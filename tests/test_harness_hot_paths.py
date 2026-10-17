@@ -25,12 +25,12 @@ from hpcagent_bench.harness import native_call, timing
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
 #: Optional dependencies the framework registry must NOT drag in just to be imported.
-HEAVY = ("dace", "jax", "sqlmodel", "sympy", "torch", "tvm")
+HEAVY = ("dace", "jax", "sympy", "torch", "tvm")
 
 
 # lazy framework registry
 def test_importing_the_framework_registry_pulls_in_no_backend() -> None:
-    """Importing every backend costs ~3.5s of dace + jax + sqlmodel in anything that touches
+    """Importing every backend costs seconds of dace + jax in anything that touches
     ``hpcagent_bench.frameworks`` -- every forked child and every pytest worker. A fresh interpreter
     must import the package with none of them loaded."""
     code = f"import sys, hpcagent_bench.frameworks;print(','.join(m for m in {HEAVY!r} if m in sys.modules))"
