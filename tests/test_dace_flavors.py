@@ -204,7 +204,7 @@ def _canon_row(**overrides):
         kernel="k",
         impl="parallel_cpu",
         status="ok",
-        validated="True",
+        validated=1,
         median_ms=1.0,
         failure="",
         error="",
@@ -393,7 +393,7 @@ def test_a_minted_size_symbol_is_bound_from_its_recorded_recipe(monkeypatch) -> 
     impl = TimedCompiledSDFG(None, minted.to_sdfg(simplify=False), "minted")
 
     class Bench:
-        info: ClassVar[dict[str, list[str]]] = {"input_args": ["a"]}
+        spec: ClassVar[types.SimpleNamespace] = types.SimpleNamespace(input_args=("a",))
 
     resolved = {"a": np.zeros(8)}
     framework = DaceFramework.__new__(DaceFramework)

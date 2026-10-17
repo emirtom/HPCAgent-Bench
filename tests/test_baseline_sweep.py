@@ -285,7 +285,7 @@ def test_a_kernel_an_earlier_run_reached_never_resurrects(tmp_path: pathlib.Path
     reaches, and a kernel it does reach carries only this run's row: ``begin`` drops the earlier rows."""
     opt = stub_checkout(tmp_path, WRITING_CLI)
     sweep = sweep_of(tmp_path, opt, ("a", "b"))
-    stale = {"run": sweep.run_label, "column": sweep.column, "preset": "fuzzed", "datatype": "float64"}
+    stale = {"run": sweep.run_label, "column": sweep.column, "preset": "fuzzed", "datatype": "float64", "status": "ok"}
     canon_db.record(sweep.canon(), [{**stale, "kernel": k, "median_ms": 999.0, "validated": 1} for k in "abz"])
     baseline.begin(sweep)
     for index in (1, 0):

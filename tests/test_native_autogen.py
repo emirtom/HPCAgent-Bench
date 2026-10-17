@@ -319,7 +319,7 @@ def test_pluto_call_order_is_polyccs_not_the_canonical_abi(tmp_path, monkeypatch
 
     class _Bench:
         bname = KERNEL
-        info: ClassVar[dict[str, str]] = {"module_name": spec.module_name, "relative_path": spec.relative_path}
+        spec: ClassVar[BenchSpec] = BenchSpec.load(KERNEL)
 
     monkeypatch.setattr(PlutoFramework, "_cpp_backend", lambda self, bench: tmp_path)
     order = PlutoFramework.__new__(PlutoFramework)._pluto_arg_names(_Bench())

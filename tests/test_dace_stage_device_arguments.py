@@ -65,7 +65,6 @@ class FakeSpec:
 
 class FakeBench:
     spec = FakeSpec()
-    info: ClassVar[dict[str, list[str]]] = {"input_args": ["A", "x"]}
 
 
 class FakeFramework:

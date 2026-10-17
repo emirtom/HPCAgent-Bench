@@ -62,7 +62,8 @@ def connect(path: pathlib.Path) -> sqlite3.Connection:
 
 
 def record(path: pathlib.Path, rows: Iterable[Mapping[str, object]]) -> int:
-    """``INSERT OR REPLACE`` every row (a mapping over :data:`COLUMNS`; a missing one is NULL); returns how many."""
+    """``INSERT OR REPLACE`` every row (a mapping over :data:`COLUMNS`; returns how many). A missing or ``None``
+    value takes the column's default where it has one (``build`` an unset label, ...), else is NULL."""
     defaults = {
         "build": "",
         "impl": "",
@@ -73,7 +74,9 @@ def record(path: pathlib.Path, rows: Iterable[Mapping[str, object]]) -> int:
         "gpu": "",
         "execution": "native",
     }
-    values = [{name: row.get(name, defaults.get(name)) for name in COLUMNS} for row in rows]
+    values = [
+        {name: row[name] if row.get(name) is not None else defaults.get(name) for name in COLUMNS} for row in rows
+    ]
     if not values:
         return 0
     with contextlib.closing(connect(path)) as conn, conn:
