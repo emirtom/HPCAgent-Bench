@@ -225,7 +225,10 @@ DEBUG_SYMBOLS: list[str] = ["-g"]
 #: matrix so no framework string-literals them. ``-DUSE_XSIMD`` selects pythran's xsimd vector
 #: backend; the rest match the CPU baseline, with NO ``-ffast-math``. ``_VECLIB_GCC`` rather than
 #: ``_VECLIB_CLANG``: the decl header is accepted by gcc AND clang, ``-fveclib`` by clang only.
-PYTHRAN_BASELINE = f"-DUSE_XSIMD -fopenmp {ARCH_NATIVE} {_FP_RELAX} {_FP_ASSOC} {_FP_CONTRACT} -fPIC{_VECLIB_GCC}"
+#: The pythran CLI takes the header after a bare ``-include`` for a second input file and dies ("Unsupported file
+#: extension: '.h'", pythran 0.18), so it travels as one ``-Wp,`` token: the same -include, given to the preprocessor.
+_VECLIB_PYTHRAN = f" -Wp,-include,{VECMATH_H}" if osinfo.IS_LINUX else ""
+PYTHRAN_BASELINE = f"-DUSE_XSIMD -fopenmp {ARCH_NATIVE} {_FP_RELAX} {_FP_ASSOC} {_FP_CONTRACT} -fPIC{_VECLIB_PYTHRAN}"
 
 #: LLVM Fortran (``flang`` / ``flang-new``) baseline, the Fortran companion to ``CPU_BASELINE_CLANG``
 #: (no fast-math). flang rejects ``-fno-math-errno`` (a no-op for Fortran intrinsics) and has no
