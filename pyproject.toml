@@ -203,11 +203,11 @@ members = ["agent", "adapters/hpcagent_bench"]
 [tool.uv.sources]
 # The spcl/dace@extended and relayout@main commits this release is tested with, and the ONE place each is
 # written: uv.lock records them, and the image builds and jobs read them through helpers/scripts/pins.sh.
-dace = { git = "https://github.com/spcl/dace.git", rev = "f4ee060bfcef50defc8c138129f654ba0fd16982" }
+dace = { git = "https://github.com/spcl/dace.git", rev = "d5f99d45196fc2acc74bf69e72999fa21909fea3" }
 relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "675621e3e18aa2f8d07587d29c658a3cf583fd56" }
 hpcagent-agent = { workspace = true }
 # Moves with the dace pin above: Alloy's own dace pin must be the same commit.
-alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "41a8e0a86ec5e5330fa1140fa16e879baab9306e" }
+alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "408e9da89954ee4ba069bde7be0b3c5a1edc3b54" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },
