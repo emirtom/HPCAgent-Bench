@@ -14,6 +14,7 @@ import pytest
 
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.support.collect import canon_db
+from tests.results_seed import STAMP as GRADE_STAMP
 
 SETUP = "exp-model-c"
 
@@ -26,7 +27,7 @@ def one_grade(path: pathlib.Path, *, temperature: float, tokens: int, speedup: f
         episode = results_db.ensure_episode(conn, SETUP, "L", results_db.LOCAL_JOB)
         conn.execute("UPDATE episodes SET output_tokens = ? WHERE id = ?", (tokens, episode))
         values = {"build_ok": 1, "correct": 1, "credited_speedup": speedup, "requests": json.dumps({"startup": {}})}
-        results_db.add_grade(conn, episode, "gemm", "submit", ts_ms=1, values=values)
+        results_db.add_grade(conn, episode, "gemm", "submit", ts_ms=1, values=GRADE_STAMP | values)
         conn.commit()
 
 
@@ -94,8 +95,8 @@ def test_copy_grade_refuses_a_re_time_of_a_re_time(tmp_path: pathlib.Path) -> No
     """A final grade or regrade re-times a submission; one naming another re-time is a caller's bug."""
     one_grade(tmp_path / "a.db", temperature=1.0, tokens=1, speedup=1.5)
     with contextlib.closing(results_db.open_db(tmp_path / "a.db")) as conn:
-        final = results_db.add_grade(conn, 1, "gemm", "final", ts_ms=2, values={"of_grade_id": 1})[0]
-        again = results_db.add_grade(conn, 1, "gemm", "regrade", ts_ms=3, values={"of_grade_id": final})[0]
+        final = results_db.add_grade(conn, 1, "gemm", "final", ts_ms=2, values=GRADE_STAMP | {"of_grade_id": 1})[0]
+        again = results_db.add_grade(conn, 1, "gemm", "regrade", ts_ms=3, values=GRADE_STAMP | {"of_grade_id": final})[0]
         conn.commit()
     with contextlib.closing(results_db.open_db(tmp_path / "d.db")) as dest, pytest.raises(ValueError, match="final"):
         results_db.copy_grade(tmp_path / "a.db", again, dest)

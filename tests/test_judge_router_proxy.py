@@ -132,7 +132,7 @@ def client(service: ModuleType, upstream: str, monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.parametrize(
     ("route", "upstream_path"),
-    [("/submit", "/submit"), ("/score", "/score"), ("/bench", "/score"), ("/profile", "/profile")],
+    [("/submit", "/submit"), ("/score", "/score"), ("/profile", "/profile")],
 )
 def test_grading_routes_forward_verbatim(client: "TestClient", route: str, upstream_path: str) -> None:
     """Method, path, body and query (rank included) arrive unchanged; the answer comes back whole."""
@@ -423,7 +423,7 @@ def test_every_agent_tool_judge_call_has_a_router_route(service: ModuleType) -> 
     assert not missing, f"agent tools call judge routes the router does not serve: {missing}"
 
 
-@pytest.mark.parametrize("route", ["/submit", "/score", "/bench"])
+@pytest.mark.parametrize("route", ["/submit", "/score"])
 @pytest.mark.parametrize("episode_id", [None, "", "  "])
 def test_a_recorded_route_without_a_episode_id_is_refused_before_grading(
     client: "TestClient", route: str, episode_id: str | None

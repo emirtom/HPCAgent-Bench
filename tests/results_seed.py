@@ -18,6 +18,7 @@ STAMP: dict[str, results_db.Value] = {
     "datatype": "float64",
     "source_mode": "restricted",
     "baseline": "c",
+    "task_hash": "test-task",
 }
 
 

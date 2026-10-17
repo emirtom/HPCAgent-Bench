@@ -110,7 +110,7 @@ def add_grade(
     delivered in ``language``."""
     with contextlib.closing(recording.connect(str(db))) as conn:
         run = results_db.ensure_episode(conn, SETUP, episode, JOB)
-        stamp = {"preset": "XL", "datatype": "float64", "source_mode": "restricted"}
+        stamp = {"preset": "XL", "datatype": "float64", "source_mode": "restricted", "task_hash": "test-task"}
         grade_id, _ts = results_db.add_grade(conn, run, kernel, kind, ts_ms=ts, values=stamp | values)
         for part, text in zip(("host", "device"), units, strict=False):
             results_db.store_source(conn, grade_id, part, language, text)

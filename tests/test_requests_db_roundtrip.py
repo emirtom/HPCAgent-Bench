@@ -44,6 +44,7 @@ from relayout.ops import (
 from hpcagent_bench.harness import recording, results_db, service
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
+from tests.results_seed import STAMP as GRADE_STAMP
 
 SETUP = "exp-model-c"
 KERNEL = "gemm"
@@ -84,7 +85,7 @@ def recorded_grade(path: pathlib.Path, requests: Requests, ts_ms: int = 1) -> in
         results_db.ensure_setup(conn, results_db.Setup(SETUP, "c", "cpu"))
         episode = results_db.ensure_episode(conn, SETUP, "L", results_db.LOCAL_JOB)
         values = recording.submission_envelope(submission)
-        grade_id = results_db.add_grade(conn, episode, KERNEL, "submit", ts_ms=ts_ms, values=values)[0]
+        grade_id = results_db.add_grade(conn, episode, KERNEL, "submit", ts_ms=ts_ms, values=GRADE_STAMP | values)[0]
         conn.commit()
     return grade_id
 
@@ -201,7 +202,7 @@ def test_a_malformed_request_is_refused_before_anything_is_written(tmp_path: pat
         episode = results_db.ensure_episode(conn, SETUP, "L", results_db.LOCAL_JOB)
         values = {"requests": json.dumps({"operations": [{"action": "bogus", "array": "a"}]})}
         with pytest.raises(ValueError, match="action"):
-            results_db.add_grade(conn, episode, KERNEL, "score", ts_ms=1, values=values)
+            results_db.add_grade(conn, episode, KERNEL, "score", ts_ms=1, values=GRADE_STAMP | values)
         assert conn.execute("SELECT count(*) FROM grades").fetchone()[0] == 0
 
 

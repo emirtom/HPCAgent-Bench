@@ -19,7 +19,6 @@ import pandas as pd
 import pytest
 
 from hpcagent_bench import run_layout, studies
-from hpcagent_bench.harness import recording
 
 
 @pytest.mark.parametrize("merge_failed", [False, True])
@@ -441,7 +440,7 @@ def test_read_table_opens_a_db_under_a_directory_sqlite_uris_would_misread(
     tmp_path: pathlib.Path, directory: str
 ) -> None:
     """A run directory named ``run#2`` or ``50%25`` is a fragment or an escape in a raw ``file:`` URI;
-    the read-only open must still read that very file (as must ``recording.table_exists``)."""
+    the read-only open must still read that very file."""
     path = tmp_path / directory / "obs.db"
     path.parent.mkdir()
     with contextlib.closing(sqlite3.connect(path)) as conn:
@@ -449,4 +448,3 @@ def test_read_table_opens_a_db_under_a_directory_sqlite_uris_would_misread(
         conn.execute("INSERT INTO t VALUES (7)")
         conn.commit()
     assert studies.read_table(path, "t").x.tolist() == [7]
-    assert recording.table_exists(str(path), "t")

@@ -19,6 +19,7 @@ from hpcagent_bench import observations_extract as extract_llr40
 from hpcagent_bench import studies
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import episodes, results_db
+from tests.results_seed import STAMP as GRADE_STAMP
 
 KERNEL = "fuse_stencil_through_transient"
 JOB = 636501
@@ -67,7 +68,7 @@ def shard(job_dir: pathlib.Path, rank: int, label: str, ts_ms: int) -> None:
             "speedup": 2.0,
             "credited_speedup": 2.0,
         }
-        results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=ts_ms, values=values)
+        results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=ts_ms, values=GRADE_STAMP | values)
         conn.commit()
 
 

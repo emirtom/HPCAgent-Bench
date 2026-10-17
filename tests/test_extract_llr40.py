@@ -10,6 +10,7 @@ import pathlib
 
 from hpcagent_bench import observations_extract as extract_llr40
 from hpcagent_bench.harness import results_db
+from tests.results_seed import STAMP as GRADE_STAMP
 
 
 def one_submission(db_path: pathlib.Path, episode_id: str, packet: str) -> None:
@@ -31,7 +32,7 @@ def one_submission(db_path: pathlib.Path, episode_id: str, packet: str) -> None:
             "credited_speedup": 2.0,
             "suspect": 0,
         }
-        results_db.add_grade(conn, run, "k", "submit", ts_ms=10, values=values)
+        results_db.add_grade(conn, run, "k", "submit", ts_ms=10, values=GRADE_STAMP | values)
         conn.commit()
 
 
