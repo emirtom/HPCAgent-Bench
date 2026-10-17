@@ -26,6 +26,13 @@ class FakeSpec:
         self.public = None  # no public block: no small symbols (cpf_canonical.small_symbols)
 
 
+@pytest.fixture(autouse=True)
+def no_sign_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """:class:`FakeSpec` has no binding to read integer scalars from: these tests key and produce entries
+    without non-negative symbols, as a kernel declaring none would."""
+    monkeypatch.setattr(cpf_canonical, "nonnegative_symbols", lambda spec: frozenset())
+
+
 def program(tmp_path: pathlib.Path, text: str = PROGRAM) -> pathlib.Path:
     path = tmp_path / "k_dace.py"
     path.write_text(text)

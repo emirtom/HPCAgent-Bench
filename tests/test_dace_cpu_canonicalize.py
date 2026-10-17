@@ -23,6 +23,8 @@ from typing import cast
 import dace
 import pytest
 
+from hpcagent_bench.spec import BenchSpec
+
 from hpcagent_bench import cpf_canonical
 from hpcagent_bench.frameworks import Benchmark
 from hpcagent_bench.frameworks.dace_framework import DaceFramework, pipeline_canonicalize
@@ -85,7 +87,7 @@ def test_the_canon_column_reads_the_canonical_sdfg_the_cpf_prerender_caches(
     build publishes it, the second loads the same graph instead of canonicalizing again."""
     framework = DaceFramework("dace_cpu_canon")
     framework.set_datatype("float64")
-    bench = cast("Benchmark", types.SimpleNamespace(info={"short_name": "jacobi_1d"}))
+    bench = cast("Benchmark", types.SimpleNamespace(spec=BenchSpec.load("jacobi_1d")))
     produced = framework.cached_canonical(bench, tmp_path)
     monkeypatch.setattr(cpf_canonical, "produce", lambda *args: pytest.fail("a cached entry was produced again"))
     loaded = framework.cached_canonical(bench, tmp_path)
