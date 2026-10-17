@@ -88,16 +88,17 @@ CREATE TABLE grades (
     call_index       INTEGER NOT NULL DEFAULT 0 CHECK (call_index >= 0),  -- the agent's n-th call on this kernel;
                                                         -- 0 = not a call
     tokens_so_far    INTEGER NOT NULL DEFAULT 0,        -- cumulative tokens at the call
-    preset           TEXT NOT NULL DEFAULT '',          -- '' (and datatype, source_mode): a grade known only
-    datatype         TEXT NOT NULL DEFAULT '',          -- from a regrade of it, its own record lost
-    source_mode      TEXT NOT NULL DEFAULT '',
+    preset           TEXT NOT NULL,                     -- the preset the grade ran (S, M, L, XL, fuzzed)
+    datatype         TEXT NOT NULL,                     -- the precision it was graded at
+    source_mode      TEXT NOT NULL,                     -- the task's source mode
     baseline         TEXT NOT NULL DEFAULT '',
     grading_protocol TEXT NOT NULL DEFAULT '',
     timing_reduction TEXT NOT NULL DEFAULT '',
-    baseline_policy  TEXT NOT NULL DEFAULT '',          -- the versioned stamp earlier builds wrote (history)
+    baseline_policy  TEXT NOT NULL DEFAULT '',          -- the race policy and candidate set that chose the
+                                                        -- denominator (grading.baseline_policy_stamp)
     denominator      TEXT NOT NULL DEFAULT '' CHECK (denominator IN ('numba', 'c', 'c-autopar', 'vendored',
                                                  'best-of(numba,c)', 'best-of(numba,c,c-autopar)',
-                                                 'torch-autotune', '')),  -- '': not known
+                                                 'torch-autotune', '')),  -- '': no denominator (not timed)
     score_rule       TEXT NOT NULL DEFAULT '',
     requested_build     TEXT NOT NULL DEFAULT '',       -- JSON list; '' = none requested
     requests         TEXT NOT NULL DEFAULT '',          -- JSON: the submission's requests block as sent
@@ -117,8 +118,7 @@ CREATE TABLE grades (
                                                         -- task changed; the episode is owed a fresh run)
     speedup          REAL NOT NULL DEFAULT 0.0,         -- what the grade measured and reported; 0 = not timed
     credited_speedup REAL NOT NULL DEFAULT 0.0,         -- s_i under score_rule; 0 = not on the leaderboard
-    suspect          INTEGER CHECK (suspect IN (0, 1)),  -- implausible timing or sanitizer UB; NULL: graded
-                                                        -- before the timing audit
+    suspect          INTEGER CHECK (suspect IN (0, 1)),  -- implausible timing or sanitizer UB; NULL: not timed
     device_runtime   TEXT NOT NULL DEFAULT '',          -- non-empty = anti-cheat refusal
     baseline_ns      REAL NOT NULL DEFAULT 0.0,
     native_ns        REAL NOT NULL DEFAULT 0.0,
@@ -132,13 +132,12 @@ CREATE TABLE grades (
     convert_in_ns    INTEGER NOT NULL DEFAULT 0,        -- converting the inputs into what the requests ask
                                                         -- (sparse format, precision cast-in), not scored
     convert_out_ns   INTEGER NOT NULL DEFAULT 0,        -- the precision cast-out of the outputs, not scored
-    size_scale       REAL NOT NULL DEFAULT 0.0,         -- constant-bytes size factor (1 at fp64); 0 = not recorded
-    scale_axes       TEXT NOT NULL DEFAULT '',          -- JSON list of the size symbols it scaled; '' = not recorded
+    size_scale       REAL NOT NULL DEFAULT 0.0,         -- constant-bytes size factor (1 at fp64); 0 = not timed
+    scale_axes       TEXT NOT NULL DEFAULT '',          -- JSON list of the size symbols it scaled; '' = not timed
     node             TEXT NOT NULL DEFAULT '',
     cpu              TEXT NOT NULL DEFAULT '',
     commit_sha       TEXT NOT NULL DEFAULT '',
-    task_hash        TEXT NOT NULL DEFAULT '',          -- spec.task_fingerprint of the kernel when graded;
-                                                        -- '' = not recorded
+    task_hash        TEXT NOT NULL,                     -- spec.task_fingerprint of the kernel when graded
     UNIQUE (episode_id, kernel, ts_ms, kind),
     CHECK ((kind IN ('final', 'regrade')) = (of_grade_id IS NOT NULL)),
     CHECK (credited_speedup = 0 OR (build_ok = 1 AND correct = 1))
@@ -187,7 +186,7 @@ CREATE TABLE grade_cells (
 ) STRICT;
 
 -- One scaling law measured for a grade on one of its inputs: each graded input is the P=1 base of its
--- own sweep (``input`` = the timed cell's label; '' for a sweep of the preset itself, every v3 row).
+-- own sweep (``input`` = the timed cell's label; '' for a sweep of the preset itself).
 CREATE TABLE scaling_grades (
     grade_id       INTEGER NOT NULL REFERENCES grades (id),
     mode           TEXT NOT NULL CHECK (mode IN ('weak', 'strong')),
