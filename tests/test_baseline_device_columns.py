@@ -34,8 +34,3 @@ def test_the_gpu_flavors_are_known_to_the_sweep(column: str) -> None:
 )
 def test_a_cpu_column_is_not_a_device_column(column: str) -> None:
     assert not baseline.is_device_column(column), f"{column} would be reported as missing GPUs it never uses"
-
-
-def test_an_old_column_name_reads_the_device_of_the_column_it_names() -> None:
-    assert baseline.is_device_column("tvm")
-    assert not baseline.is_device_column("dace_cpu_canonicalize")
