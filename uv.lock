@@ -208,7 +208,7 @@ wheels = [
 [[package]]
 name = "alloy"
 version = "0.0.1"
-source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=408e9da89954ee4ba069bde7be0b3c5a1edc3b54#408e9da89954ee4ba069bde7be0b3c5a1edc3b54" }
+source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=34375bf0bb8c46100f9841d56c9ede15ddc6a43d#34375bf0bb8c46100f9841d56c9ede15ddc6a43d" }
 dependencies = [
     { name = "dace" },
     { name = "numpy" },
@@ -1514,7 +1514,7 @@ wheels = [
 [[package]]
 name = "dace"
 version = "2.0.0a10"
-source = { git = "https://github.com/spcl/dace.git?rev=d5f99d45196fc2acc74bf69e72999fa21909fea3#d5f99d45196fc2acc74bf69e72999fa21909fea3" }
+source = { git = "https://github.com/spcl/dace.git?rev=edef182f3336156695e88076fbccf0073164cdaf#edef182f3336156695e88076fbccf0073164cdaf" }
 dependencies = [
     { name = "astunparse" },
     { name = "click" },
@@ -2639,7 +2639,7 @@ openblas-build = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate" },
-    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=408e9da89954ee4ba069bde7be0b3c5a1edc3b54" },
+    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=34375bf0bb8c46100f9841d56c9ede15ddc6a43d" },
     { name = "anthropic" },
     { name = "apache-tvm", specifier = ">=0.25" },
     { name = "cffi" },
@@ -2649,7 +2649,7 @@ requires-dist = [
     { name = "cuda-tile", marker = "extra == 'nvgpu'" },
     { name = "cupy", marker = "platform_machine == 'x86_64' and extra == 'amdgpu'" },
     { name = "cupy-cuda13x", marker = "extra == 'nvgpu'" },
-    { name = "dace", git = "https://github.com/spcl/dace.git?rev=d5f99d45196fc2acc74bf69e72999fa21909fea3" },
+    { name = "dace", git = "https://github.com/spcl/dace.git?rev=edef182f3336156695e88076fbccf0073164cdaf" },
     { name = "datasets", specifier = ">=2.17" },
     { name = "einops" },
     { name = "fastapi" },
