@@ -2527,6 +2527,21 @@ class RepCheckServer:
     at a time. ``held_s`` is the time the child was held, which its deadline does not count. A failure of
     the hand-over itself (a non-array output, a tree that does not stop) is the call's, kept in ``error``."""
 
+    __slots__ = (
+        "channel",
+        "checks",
+        "conn",
+        "done",
+        "error",
+        "fds",
+        "held",
+        "holding_since",
+        "maps",
+        "regions",
+        "runs",
+        "thread",
+    )
+
     def __init__(self, checks: RepChecks, regions: tuple[OutputRegion, ...], runs: int) -> None:
         checks.verdicts.clear()
         checks.last = {}

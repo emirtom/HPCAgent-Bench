@@ -40,7 +40,7 @@ def test_a_declared_negative_knob_loads() -> None:
 
 def test_an_undeclared_negative_value_is_refused() -> None:
     with pytest.raises(ValueError, match=r"K=-1 can be negative"):
-        BenchSpec.from_dict(manifest(None), source="<test>")
+        BenchSpec.from_dict(manifest({}), source="<test>")
 
 
 def test_a_declared_symbol_that_never_goes_negative_is_refused() -> None:
