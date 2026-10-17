@@ -83,8 +83,7 @@ def test_emit_returns_the_translator_message(monkeypatch: pytest.MonkeyPatch, tm
     # Take the layout from the spec rather than hardcoding it, so a moved kernel does not read as
     # a diagnostic regression.
     spec = no.BenchSpec.load("cond_reduce_sum")
-    info = {"relative_path": spec.relative_path, "module_name": spec.module_name}
-    ok, diag = no._emit("cond_reduce_sum", info, tmp_path)
+    ok, diag = no._emit("cond_reduce_sum", spec, tmp_path)
     assert not ok
     assert diag == ": NotImplementedError: shape rebinding is not lowerable"
 
