@@ -753,4 +753,4 @@ def test_record_enabled_false_stops_every_persistence_path_not_just_submit() -> 
 
     with config.overridden("record.enabled", False):
         out = record_result(boom, boom, boom, boom, "run-1", "offline-regrade", "M")
-    assert out == {"skipped": "record.enabled is false"}
+    assert out.to_json() == {"skipped": "record.enabled is false"}

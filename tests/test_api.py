@@ -4,14 +4,14 @@
 your own code, native (in-process) or against a running judge -- the same contract
 the container endpoints expose, plus the enum-typed config dataclass."""
 
-import dataclasses
-
 import pytest
 
 from hpcagent_bench import api, config
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import RecordedAnswer
 from hpcagent_bench.harness.scoring import Score
+from hpcagent_bench.harness.service import grade_answer
 from hpcagent_bench.harness.task import Task
 from tests.port_toolchain import gcc_available
 
@@ -76,8 +76,8 @@ def test_score_from_payload_roundtrips_type() -> None:
     original = Score(
         True, 1e-12, 123, True, "", baseline_ns=456, speedup=3.7, baseline="c", public_correct=True, hidden_correct=True
     )
-    payload = dataclasses.asdict(original)
-    payload.update(kernel="gemm", language="c", recorded={"x": 1})  # judge adds extras the rebuild drops
+    # The judge adds what was graded and how it was recorded; the rebuild drops them.
+    payload = grade_answer(original, "gemm", "c", "S", "host", RecordedAnswer(table="grades"), "r")
     got = api.score_from_payload(payload)
     assert isinstance(got, Score)
     assert got.correct

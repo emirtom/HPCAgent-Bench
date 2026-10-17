@@ -139,8 +139,10 @@ def test_the_build_commands_are_recorded_and_never_answered_on_score() -> None:
 
 
 def test_a_graded_response_carries_its_build_commands_into_the_score() -> None:
-    from hpcagent_bench.harness.scoring import score_from_response
+    from hpcagent_bench.harness.judge_wire import SUBMIT_ANSWER, RecordedAnswer
+    from hpcagent_bench.harness.scoring import score_from_answer
+    from hpcagent_bench.harness.service import grade_answer
 
-    graded = {"correct": True, "max_rel_error": 0.0, "native_ns": 1, "build_ok": True, "build_commands": ["cc -O3"]}
-    assert score_from_response(graded).build_commands == ("cc -O3",)
-    assert score_from_response({**graded, "build_commands": None}).build_commands == ()
+    graded = Score(correct=True, max_rel_error=0.0, native_ns=1, build_ok=True, build_commands=("cc -O3",))
+    sent = json.dumps(grade_answer(graded, "gemm", "c", "S", "host", RecordedAnswer(skipped="off"), "r").to_json())
+    assert score_from_answer(SUBMIT_ANSWER.validate_json(sent)).build_commands == ("cc -O3",)

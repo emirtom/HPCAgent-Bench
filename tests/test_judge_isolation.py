@@ -35,7 +35,7 @@ def bare_handler(path: str) -> tuple[service.JudgeHandler, list[tuple[int, dict[
     handler.headers = {}  # type: ignore[assignment] -- only .get is read
     handler.graded_body = None
     sent: list[tuple[int, dict[str, object]]] = []
-    handler._send = lambda code, payload: sent.append((code, payload))  # type: ignore[method-assign]
+    handler._send = lambda code, payload: sent.append((code, payload.to_json()))  # type: ignore[method-assign]
     return handler, sent
 
 
@@ -131,8 +131,8 @@ def test_a_recording_judge_refuses_the_public_seeds(tmp_path: pathlib.Path, monk
     with config.overridden("record.enabled", True):
         refusal = service.unrecordable(None)
     assert refusal is not None
-    assert (refusal.status, refusal.payload["cause"]) == (503, "public_seeds")
-    assert "secret_seeds.json" in str(refusal.payload["error"])
+    assert (refusal.status, refusal.payload.cause) == (503, "public_seeds")
+    assert "secret_seeds.json" in refusal.payload.error
     with config.overridden("record.enabled", False):
         assert service.unrecordable(None) is None, "an unrecorded run has nothing to protect"
     monkeypatch.setenv(seeds.PUBLIC_OK_ENV, "1")

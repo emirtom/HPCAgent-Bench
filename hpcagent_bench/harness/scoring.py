@@ -100,6 +100,7 @@ from hpcagent_bench.harness.hidden_seeds import (
     secret_seed_harden,
     secret_seed_second,
 )
+from hpcagent_bench.harness.judge_wire import SubmitAnswer, SubmitVerdict
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     block_partition_mismatch,
@@ -232,7 +233,7 @@ __all__ = [
     "score",
     "score_cells",
     "score_distributed",
-    "score_from_response",
+    "score_from_answer",
     "score_ml",
     "score_scaling",
     "single_node_samples",
@@ -636,31 +637,21 @@ def public_detail(score: Score) -> str:
     return score.detail.removeprefix(f"{segment}; ").removeprefix(segment)
 
 
-def score_from_response(response: Mapping[str, object]) -> Score:
-    """A :class:`Score` from a judge response: the full grade (extra keys dropped) or the ``/submit``
-    verdict, whose error, timing and baseline stay NaN / 0."""
-    if "max_rel_error" in response:
-        names = {item.name for item in fields(Score)}
-        payload = {key: value for key, value in response.items() if key in names}
-        # JSON turned each TimedCell into a dict; restore the type.
-        raw = payload.get("cells")
-        if isinstance(raw, (list, tuple)) and raw:
-            payload["cells"] = tuple(TimedCell(**cell) if isinstance(cell, dict) else cell for cell in raw)
-        # And each JSON list back to the tuple the field holds.
-        commands = payload.get("build_commands")
-        payload["build_commands"] = (
-            tuple(str(command) for command in commands) if isinstance(commands, (list, tuple)) else ()
+def score_from_answer(answer: SubmitAnswer) -> Score:
+    """A :class:`Score` from a ``/submit`` answer: the full grade (what was graded, how it was recorded and the
+    request id dropped), or the verdict, whose error, timing and baseline stay NaN / 0."""
+    if isinstance(answer, SubmitVerdict):
+        return Score(
+            correct=answer.correct == "yes",
+            max_rel_error=float("nan"),
+            native_ns=0,
+            build_ok=answer.build_log is None,
+            detail=answer.build_log or "",
+            harness_fault=bool(answer.judge_fault),
         )
-        return Score(**payload)  # type: ignore[arg-type]
-    build_log = response.get("build_log")
-    return Score(
-        correct=response.get("correct") in ("yes", True),
-        max_rel_error=float("nan"),
-        native_ns=0,
-        build_ok=build_log is None,
-        detail=str(build_log or ""),
-        harness_fault=bool(response.get("judge_fault", False)),
-    )
+    graded = answer.model_dump(include={item.name for item in fields(Score)})
+    graded["cells"] = tuple(TimedCell(**cell) for cell in graded["cells"])
+    return Score(**graded)
 
 
 @dataclass(frozen=True, slots=True)

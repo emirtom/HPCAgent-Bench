@@ -37,7 +37,8 @@ remote = hpcagent_bench.init("gemm", mode="container", judge_url="http://judge:8
   (`harness/scoring.py`).
 - **Container mode.** All three go through `JudgeClient.submit`, so each call is a terminal `/submit` and returns
   only the verdict. For the public-input feedback loop, call `JudgeClient.score` (`harness/tools.py`). `JudgeClient`
-  has `health`, `baseline`, `score`, `submit`, `verify` and `profile`, and adds `rank` to every request.
+  has `health`, `baseline`, `score`, `submit`, `verify` and `profile`, adds `rank` to every request, and returns
+  each answer as its pydantic model (`harness/judge_wire.py`).
 
 ## Agent class: the improve loop
 
@@ -101,7 +102,7 @@ agent can call it with `curl` or [JudgeClient](../hpcagent_bench/harness/tools.p
 
 | Route | Does | Answers |
 |---|---|---|
-| `GET /health` | liveness; the one route with no rank check | `rank`, `oracle`, `baseline`, `input_mode` (the router answers `judge_rank` and its route lists) |
+| `GET /health` | liveness; the one route with no rank check | `rank`, `oracle`, `baseline`, `input_mode`, `submits_in_flight` (the router answers `judge_rank` and its route lists) |
 | `GET /baseline/<kernel>?language=&preset=&rank=` | times the reference in the judge container | `{"baselines": {name: ns}}`, each reference's fastest run (the grade divides the median under `mannwhitney_delta`) |
 | `GET /build/<language>?compiler=&rank=` | the exact compile and link argv the judge runs, offload flags included | `commands` (argv arrays), `family`, `driver`, `mode` |
 | `POST /score` | the `mw2x5` preview: two public inputs from the first secret seed, 5 runs a side, rank-tested like `/submit`; never credited | `correct`, `speedup`, `native_ns`, `baseline_ns`, `detail`, ... |
@@ -124,6 +125,10 @@ The judge also answers `/oracle` as an alias of `/submit`. The router answers `/
 - In a fused job, the router finds the caller's setup from the `X-HPCAgent-Bench-Worker-Token` header, whose
   value is `$HPCAGENT_BENCH_WORKER_TOKEN` (`hpcagent_bench/fused.py`). A missing or unknown token gets 403.
 - `service.input_mode` (`py-binding`, `source`, `library`, `any`) sets which deliveries the judge accepts.
+
+Each answer, refusals included, is a pydantic model in
+[judge_wire.py](../hpcagent_bench/harness/judge_wire.py); a refusal is a `JudgeError` (`error`, and `cause` where a
+client acts on it).
 
 How the two grades are timed is in [measurement_statistics.md](measurement_statistics.md#timing-protocol). Full
 wire contract: [agent_service_contract.md](../hpcagent_bench/docs/agent_service_contract.md).

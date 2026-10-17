@@ -160,7 +160,8 @@ is someone else's. There is one current shape of each, no older one is read and 
 |---|---|
 | the JSON columns of this database (`requested_build`, `build_commands`, `scale_axes`, `shape`, `race_cuts`, `notes`, `disclosure`, `params`, `samples`, `grade_requests.value` / `params`) | `harness/db_json.py`, one `JsonColumn` each; written as `json.dumps` of the validated value with sorted keys, so equal values are equal text (`reference_scaling_points.params` is part of a key) |
 | `grades.requests`, a submission's `requests`, the agent tool's request schema | relayout's models (`relayout.requests`), as `requests_api.RequestsField` / `REQUESTS_ADAPTER` |
-| the `/score` `/submit` envelope; a judge request body; the `/requests/check` answer | `envelope.Submission`; `service.RequestFields`; `requests_api.RequestsCheck` |
+| the `/score` `/submit` envelope; a judge request body; the `/requests/check` answer | `envelope.Submission`; `judge_wire.RequestFields`; `requests_api.RequestsCheck` |
+| the judge's HTTP answers (`/score`, `/submit`, `/health`, `/baseline`, `/build`, `/canonical_parallel_form`, `/profile`, every refusal and failure) and the router's own (`/health`, `/in-flight`, `/search`, its refusals and every `HTTPException` body) | `harness/judge_wire.py`, one model per answer (`ScoreAnswer`, `SubmitVerdict` / `GradeAnswer`, `JudgeError`, `RouterError`, `SearchAnswer`, ...); dumped with only the fields it was built with, so an optional key that does not apply is absent; `JudgeClient` and the router validate what they read with `model_validate_json`, and the router relays the bytes of an answer it does not read. A `/profile` report is one model per tool in `harness/profile_wire.py` (`LinuxperfReport`, `CountReport`, `DeviceTraceReport`, ..., rows typed by the producer's own `papi.MetricRow`, `gpu_profiling.KernelStat`, ...), their union `ProfileAnswer` told apart by the key only that report carries; the judge validates a report and sends it as its producer built it, whose rows come in more than one key order |
 | the problems file | `problem_file.ProblemLine` |
 | a sharded MPI launch's plan and result; the torch.distributed curve's | `mpi_shard_driver.ShardPlan` / `ShardResult`; `torch_dist_curve.DistPlan` / `DistResult` |
 | a profiled child's request and result line | `profiling.REQUEST_ADAPTER` (`MeasurementRequest`), `WORKLOAD_ADAPTER`, `papi.MetricRow` / `PerThreadReport` |
@@ -171,9 +172,8 @@ is someone else's. There is one current shape of each, no older one is read and 
 | optimization-report manifests | `opt_reports.MANIFEST_ADAPTER` |
 | formats the package reads but does not own: PEP 610 `direct_url.json`, a canon log's `LLRROW` lines, an OpenAI-compatible chat completion | `cpf_canonical.DirectUrl`, `observations_extract.CanonLogLine`, `harness.agent.ChatCompletion` (fields this reader does not use are ignored) |
 
-Not a model yet: the judge's HTTP answers (`/score`, `/submit`, `/baseline`, `/profile`, ...) are the
-`dataclasses.asdict` of `scoring.Score` and of each route's own dict, and `harness/tools.py`'s client hands
-them on as plain JSON objects; their readers are the agent tools (stdlib, below).
+The judge's answers keep one JSON shape for both kinds of reader: the agent tools read them with stdlib `json`
+(below), so a model's dump is the object they always read (`tests/test_judge_wire.py` pins it against a grade).
 
 **The exemption: the agent container and the batch host.** Code that runs where the package and pydantic
 are not importable reads and writes bare `json` by design, and says so in its module docstring:
