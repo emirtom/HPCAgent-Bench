@@ -2417,7 +2417,10 @@ class BenchSpec(BaseModel):
             public=public,
         )
         validate_public(spec, source)
-        validate_negative(spec, source)
+        # A dict without a public block is the bridge's legacy view (legacy_bench_info_dict), which omits it: the
+        # manifest itself is checked by from_yaml whether or not it declares one.
+        if spec.public is not None:
+            validate_negative(spec, source)
         return spec
 
     @classmethod
@@ -2485,6 +2488,8 @@ class BenchSpec(BaseModel):
             if len(parts) >= 3:
                 raw.setdefault("dwarf", parts[1])
         spec = cls.from_dict(raw, source)
+        if spec.public is None:
+            validate_negative(spec, source)
         validate_dwarf(spec.dwarf, source)
         validate_scale(spec.scale, spec.track, source)
         validate_level(spec.level, spec.track, source)
