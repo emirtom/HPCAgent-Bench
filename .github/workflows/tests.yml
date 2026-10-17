@@ -167,7 +167,9 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
     name: perf[${{ matrix.job }}] (canon <= 2x the compiled baseline)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # cloudsc's canonicalization alone takes ~20 min on Alps and longer on a runner; the gate passed at 36 and
+    # failed at 42-44 minutes against the former 40-minute test cap.
+    timeout-minutes: 75
     # Reports, does not block, until the canon fixes for the kernels still past 2x are pinned.
     continue-on-error: true
     strategy:
@@ -188,7 +190,7 @@ jobs:
           tests=$(python -c "from tests.test_canon_perf_gate import PERF_JOBS; \
             print(' '.join(f'tests/test_canon_perf_gate.py::test_canon_is_within_2x_of_the_compiled_baseline[{k}]' \
             for k in PERF_JOBS['${{ matrix.job }}']))")
-          python -m pytest -p no:cacheprovider -p no:xdist -rfEs --timeout=2400 -m canon_perf ${tests}
+          python -m pytest -p no:cacheprovider -p no:xdist -rfEs --timeout=3600 -m canon_perf ${tests}
       - uses: ./.github/actions/finish
         if: always()
         with:

@@ -52,7 +52,8 @@ PRESET = "M"
 KERNEL_PRESETS = {"seidel_2d": "L"}
 REPEAT = 3
 MAX_SLOWDOWN = 2.0
-TIMEOUT_S = 1800.0
+#: Per timed run: canon's first execution includes canonicalizing cloudsc on a cold cache.
+TIMEOUT_S = 2700.0
 
 
 def median_ms(db: pathlib.Path, column: str, kernel: str) -> float:
