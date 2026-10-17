@@ -485,13 +485,14 @@ def privatize_rebound_arguments(sdfg: "SDFG", by_value: Sequence[str]) -> tuple[
     from dace import Memlet
     from dace import data as dace_data
     from dace.transformation.passes.length_one_array_scalar_conversion import descriptor_is_written
+    from dace.utils import find_new_name
 
     privatized: list[str] = []
     for name in by_value:
         desc = sdfg.arrays.get(name)
         if not isinstance(desc, dace_data.Scalar) or desc.transient or not descriptor_is_written(sdfg, name):
             continue
-        local = dace_data.find_new_name(f"{name}_local", set(sdfg.arrays) | set(sdfg.symbols))
+        local = find_new_name(f"{name}_local", set(sdfg.arrays) | set(sdfg.symbols))
         sdfg.replace(name, local)
         sdfg.arrays[local].transient = True
         sdfg.add_scalar(name, desc.dtype)
