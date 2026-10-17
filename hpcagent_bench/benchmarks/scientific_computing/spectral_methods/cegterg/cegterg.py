@@ -114,7 +114,10 @@ def initialize(
 
     # ultrasoft non-local projectors + block-diagonal deeq / qq_at
     nat, nh = _NAT, _NH
-    nkb = nat * nh if uspp else 0
+    # nkb is a whole array dimension, which the dace program declares positive: without ultrasoft
+    # projectors the arrays keep their full extent, zero-filled, and the kernel never reads them
+    # (it gates on ``uspp``). A zero nkb let canon drop the empty-grid guard of the GPU launches.
+    nkb = nat * nh
     if uspp:
         vkb = rng.standard_normal((npwx, nkb, nks)) + 1j * rng.standard_normal((npwx, nkb, nks))
         vkb = xp.ascontiguousarray(vkb.transpose(2, 1, 0))
@@ -131,9 +134,9 @@ def initialize(
             b = rng.standard_normal((nh, nh))
             qq[sl, sl] = 0.05 * exact_math.matmul(b, b.T, xp=xp)
     else:
-        vkb = xp.zeros((nks, 0, npwx), dtype=complex_dtype)
-        deeq = xp.zeros((0, 0), dtype=real_dtype)
-        qq = xp.zeros((0, 0), dtype=real_dtype)
+        vkb = xp.zeros((nks, nkb, npwx), dtype=complex_dtype)
+        deeq = xp.zeros((nkb, nkb), dtype=real_dtype)
+        qq = xp.zeros((nkb, nkb), dtype=real_dtype)
 
     # initial guess evc for current_k (active rows filled, tail zero)
     ck0 = current_k - 1
