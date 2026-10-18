@@ -228,9 +228,9 @@ them after a rebuild.
   first), so outputs keep their generated initial values; an entry that writes nothing fails
   correctness.
 
-## Known issues (v0.1)
+## Known issues
 
 - **A sibling's single submission can be spent.** The judge router takes `episode_id` from the request body, and
   episode ids are predictable (`<setup>.n<node>.p<problem>.w<worker>`), so an agent can post under a sibling's
-  id and spend that episode's single submission. TODO for v0.1: a per-episode token that the router checks
+  id and spend that episode's single submission. The fix is a per-episode token that the router checks
   (`hpcagent_bench/cluster/judge_service.py`).

@@ -146,7 +146,7 @@ digest suffix). `native_base` includes the sparse configuration (`spmv_csr_fp64`
 segment is the layout the submission requested (`spmv_csc_fp64`). A `bsr` block size is a runtime
 scalar (`A_bs`), never part of the symbol. A kernel with several sparse arrays names one format per
 run (`spmm_csr_fp64` stores `A` and `B` in csr); joining different formats in name order is
-reserved and used by no kernel in v0.1. Dtype mapping: `numpyto_common.dtypes`.
+reserved and used by no kernel. Dtype mapping: `numpyto_common.dtypes`.
 
 - **C:** `void f(const double *restrict A, double *restrict C, const int64_t N, uint8_t *restrict workspace, const int64_t workspace_size)`
 - **C++ / CUDA / HIP:** same, `__restrict__`, `extern "C"`. CUDA and HIP are host-entry functions
