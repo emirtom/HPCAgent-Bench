@@ -430,6 +430,7 @@ def test_score_memory_cap_enforced() -> None:
     env = {
         "HPCAGENT_BENCH_LIMITS_KERNEL_MEMORY_GB": "0.125",
         "HPCAGENT_BENCH_LIMITS_THREAD_STACK_MB": "1",
+        "HPCAGENT_BENCH_LIMITS_THREAD_RESERVE_MB": "1",
         "OMP_STACKSIZE": "1M",
     }
     result = fresh_interpreter(score_memhog_gemm, env=env)

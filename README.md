@@ -15,7 +15,7 @@ Only want a model endpoint? See [`docs/serving/`](docs/serving/README.md).
 
 ```sh
 uv sync --extra cpu                      # or --extra nvgpu / --extra amdgpu; dace at the pinned spcl/dace@extended
-. hpcagent_bench/cluster/env.sh          # PYTHONHASHSEED, OMP_STACKSIZE=1024M, OMP_THREAD_LIMIT=$(nproc), caches
+. hpcagent_bench/cluster/env.sh          # PYTHONHASHSEED, OMP_STACKSIZE=512M, OMP_THREAD_LIMIT=$(nproc), caches
 ulimit -s "$(ulimit -H -s)"              # once per shell: the main thread's stack to its hard limit
 export ANTHROPIC_API_KEY=...
 uv run hpcagent-bench agent claude --kernels gemm --native

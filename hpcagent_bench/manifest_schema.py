@@ -189,10 +189,13 @@ class PublicScale(ManifestBlock):
 
     :ivar scale: ``small`` or ``big`` (:data:`SMALL`, :data:`BIG`).
     :ivar description: What the symbol is, as the prompt states it; never its value.
+    :ivar at_most: The largest value a small size takes when ``initialize()`` derives it, so no fuzz range
+        bounds it (vexx_k's ``npol`` follows a config flag); ``None`` for a fuzzed size.
     """
 
     scale: Literal["small", "big"]
     description: str = Field(min_length=1)
+    at_most: int | None = Field(default=None, ge=1)
 
 
 class PublicVariable(ManifestBlock):

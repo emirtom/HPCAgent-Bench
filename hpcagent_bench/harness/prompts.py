@@ -1184,6 +1184,8 @@ def build_context(
         "compile_flags": _baseline_flags(task.language),
         # Whether the graded link carries -lmimalloc here (probe-gated).
         "mimalloc_linked": _mimalloc_linked(task.language),
+        # The OpenMP worker stack the grading child launches with (limits.thread_stack_mb).
+        "thread_stack_mb": config.current().limits.thread_stack_mb,
         # The machine-readable C-ABI, INLINED: no <base>_binding.json exists on the agent path.
         "binding_json": binding.document().text(indent=2),
         "abi_doc": "hpcagent_bench/docs/abi_contract.md",

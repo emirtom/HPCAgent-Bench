@@ -120,6 +120,11 @@ constraints:
 - okpaw <= okvan     # PAW is an ultrasoft feature
 - tqr <= okvan       # real-space augmentation needs the ultrasoft Q-tables
 public:
+  scales:
+    npol:
+      scale: small
+      at_most: 4  # npol = 2 if noncolin else 1, derived in initialize(), so no fuzz range bounds it
+      description: "spinor components per band, in [1..4]"
   variables:
     okvan:
       values: [false, true]

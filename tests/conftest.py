@@ -477,7 +477,7 @@ def one_mib_thread_stacks(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     512 MiB a many-core host's reserve alone would dwarf the budget such a test is about. The stack and
     the configured size move together, as a launch with 1 MiB stacks would have them."""
     monkeypatch.setenv("OMP_STACKSIZE", "1M")
-    with config.overridden("limits.thread_stack_mb", 1):
+    with config.overridden("limits.thread_stack_mb", 1), config.overridden("limits.thread_reserve_mb", 1):
         yield
 
 

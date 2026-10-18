@@ -1341,10 +1341,11 @@ def fuzz_bounds(value: FuzzValue) -> tuple[int | float, int | float] | None:
     return None
 
 
-def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str) -> None:
+def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str, at_most: int | None = None) -> None:
     """Raise ``ValueError`` unless ``sym`` is a size symbol of the declared ``scale``: a small one stays below
     :data:`SMALL_LIMIT` in every preset and its fuzz range, outside ``scale_axes``; a big one's fuzz range
-    (the graded sizes) starts at or above it where the range is static."""
+    (the graded sizes) starts at or above it where the range is static. A small size ``initialize()`` derives
+    has no fuzz range and is bounded by its declared ``at_most`` instead, which every preset respects."""
     sizes = {name for preset in spec.parameters.values() for name in preset} - spec.config_names
     if sym not in sizes:
         raise ValueError(f"{source}: public scale {sym} is not a size symbol")
@@ -1357,7 +1358,9 @@ def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str) 
     if sym in spec.scale_axes:
         raise ValueError(f"{source}: {sym} is declared small but is a scale axis")
     ranges = [fuzz_bounds(preset[sym]) for preset in spec.parameters.values() if sym in preset]
-    ranges.append(fuzz_range if sym in fuzzed else None)
+    if at_most is not None and any(bounds is not None and bounds[1] > at_most for bounds in ranges):
+        raise ValueError(f"{source}: {sym} has a preset above its at_most {at_most}")
+    ranges.append(fuzz_range if sym in fuzzed else (1, at_most) if at_most is not None else None)
     if any(bounds is None or bounds[1] >= SMALL_LIMIT for bounds in ranges):
         raise ValueError(
             f"{source}: {sym} is declared small, so every preset and its fuzz range must stay below "
@@ -1409,8 +1412,9 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
             if kernel_wide.get(sym, own.scale) != own.scale:
                 raise ValueError(f"{source}: public configuration {entry.name!r} flips the scale of {sym}")
             scales.add((sym, own.scale))
+    bounds = {sym: entry.at_most for sym, entry in public.scales.items()}
     for sym, scale_name in sorted(scales):
-        validate_public_scale(spec, sym, scale_name, source)
+        validate_public_scale(spec, sym, scale_name, source, bounds.get(sym))
 
 
 def negative_values(spec: "BenchSpec") -> dict[str, int | float]:

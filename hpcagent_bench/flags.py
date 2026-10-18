@@ -109,6 +109,7 @@ __all__ = [
     "polly_capability",
     "probe_autopar",
     "smt_enabled",
+    "thread_reserve_bytes",
     "thread_stack_bytes",
 ]
 
@@ -779,6 +780,11 @@ def detect_gfx() -> str:
 def thread_stack_bytes() -> int:
     """Stack each OpenMP thread of a timed run gets: ``limits.thread_stack_mb``."""
     return config.current().limits.thread_stack_mb * BYTES_PER_MIB
+
+
+def thread_reserve_bytes() -> int:
+    """What the memory cap reserves per OpenMP thread: ``limits.thread_reserve_mb``."""
+    return config.current().limits.thread_reserve_mb * BYTES_PER_MIB
 
 
 def cpus_owned() -> int:

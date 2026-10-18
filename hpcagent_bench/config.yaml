@@ -380,10 +380,12 @@ limits:
   reference_node_fraction: 0.75  # float. Cap of a judge-owned reference (c / c-autopar / numba candidates, the
                            # C oracle) as a fraction of its rank's share of node RAM (RAM x rank cores / node
                            # cores), at least kernel_memory_gb (sizing.reference_memory_gb).
-  thread_stack_mb: 1024    # int, MB. Stack of every OpenMP thread a timed child starts (OMP_STACKSIZE, via
+  thread_stack_mb: 512     # int, MB. Stack of every OpenMP thread a timed child starts (OMP_STACKSIZE, via
                            # flags.cpu_env); the main thread's RLIMIT_STACK is raised to its hard limit. Address
-                           # space is reserved, pages are committed on use. The memory cap is raised by
-                           # threads x this.
+                           # space is reserved, pages are committed on use. The largest canonical need is gem's
+                           # ~393 MB/thread at XL.
+  thread_reserve_mb: 1024  # int, MB. What the memory cap reserves per OpenMP thread (threads x this, at least
+                           # threads x thread_stack_mb): the part above the stack is allocation headroom.
 
 # Sparse layouts an agent may request (hpcagent_bench/docs/sparse_abi.md). Every layout of a logical sparse
 # matrix is converted from one canonical CSR outside the timed region.

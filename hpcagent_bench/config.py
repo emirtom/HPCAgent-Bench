@@ -389,6 +389,7 @@ class Limits(Section):
     kernel_memory_gb: NonNegativeFloat
     reference_node_fraction: Fraction
     thread_stack_mb: PositiveInt
+    thread_reserve_mb: PositiveInt
 
 
 class Sparse(Section):

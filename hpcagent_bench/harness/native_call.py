@@ -913,9 +913,11 @@ def thread_limit() -> int:
 
 
 def thread_stack_reserve() -> int:
-    """Bytes the child's OpenMP thread stacks charge to ``RLIMIT_DATA`` (Linux counts them as data):
-    one ``OMP_STACKSIZE`` stack per thread :func:`thread_limit` allows. Address space, not memory."""
-    return thread_limit() * omp_stack_bytes(os.environ.get("OMP_STACKSIZE", ""))
+    """Bytes the cap reserves for the child's OpenMP threads (Linux charges their stacks to ``RLIMIT_DATA``):
+    ``limits.thread_reserve_mb`` per thread :func:`thread_limit` allows, at least one ``OMP_STACKSIZE`` stack.
+    What the reserve holds above the stack is allocation headroom. Address space, not memory."""
+    per_thread = max(omp_stack_bytes(os.environ.get("OMP_STACKSIZE", "")), flags.thread_reserve_bytes())
+    return thread_limit() * per_thread
 
 
 def launch_env_problems() -> list[str]:

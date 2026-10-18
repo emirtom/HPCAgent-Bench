@@ -201,7 +201,7 @@ shell (the stack limit there is a one-time `ulimit -s "$(ulimit -H -s)"`), the u
 `limits.thread_stack_mb` per thread; the limit is the logical CPUs the process owns, which is libgomp's own
 default team (a lower one hung a compiled autopar reference at a barrier). It clamps a team a submission
 sizes past those CPUs (`4 * omp_get_num_procs()`), and since the stacks are charged to the kernel's
-`RLIMIT_DATA` cap, the cap reserves exactly `OMP_THREAD_LIMIT` of them. `native_call.check_launch_env` runs
+`RLIMIT_DATA` cap, the cap reserves `OMP_THREAD_LIMIT` x `limits.thread_reserve_mb` (1 GiB, at least one stack) for them; what a 512 MiB stack leaves of it is allocation headroom. `native_call.check_launch_env` runs
 in the grading child and fails the grade as a harness fault (`NativeCallLaunchEnv`) naming the values to
 launch with when they are missing.
 

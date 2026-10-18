@@ -128,11 +128,21 @@ def test_every_timed_run_gives_openmp_threads_the_configured_stack() -> None:
 
 def test_the_cap_pays_for_every_thread_stack_on_top_of_the_kernels_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Linux charges an anonymous thread stack to ``RLIMIT_DATA``: 96 threads x 512 MiB reserved would
-    spend any array-derived budget before the kernel allocates a byte, and abort thread creation. The
-    reserve is what the process was launched with, because that is what its runtime reads."""
+    spend any array-derived budget before the kernel allocates a byte, and abort thread creation. A stack
+    larger than the configured reserve is what the process was launched with, so it is what is reserved."""
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "96")
+    monkeypatch.setenv("OMP_STACKSIZE", "2G")
+    with config.overridden("limits.thread_reserve_mb", 1024):
+        assert native_call.thread_stack_reserve() == 96 * (2 << 30)  # 192 GiB
+
+
+def test_the_reserve_above_the_stack_is_allocation_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
+    """512 MiB stacks under a 1 GiB-per-thread reserve: the cap still reserves 1 GiB per thread, and the
+    half no stack uses is room for the kernel's own allocations."""
     monkeypatch.setenv("OMP_THREAD_LIMIT", "96")
     monkeypatch.setenv("OMP_STACKSIZE", "512M")
-    assert native_call.thread_stack_reserve() == 96 * (512 << 20)  # 48 GiB
+    with config.overridden("limits.thread_reserve_mb", 1024):
+        assert native_call.thread_stack_reserve() == 96 * (1 << 30)  # 96 GiB: 48 GiB stacks + 48 GiB headroom
 
 
 @pytest.mark.parametrize(
@@ -198,9 +208,10 @@ def test_the_job_environment_gets_the_configured_stack() -> None:
     assert line == f'export OMP_STACKSIZE="${{OMP_STACKSIZE:-{flags.thread_stack_bytes() >> 20}M}}"', line
 
 
-#: The huge-VLA case: one ~800 MiB array per OpenMP thread, under the 1 GiB stack every CPU run gets. Touched
-#: one page per MiB, so the stack pointer crosses the whole array while only ~3 MiB per thread is committed.
-HUGE_VLA_BYTES: int = 800 << 20
+#: The huge-VLA case: one ~400 MiB array per OpenMP thread (gem's canonical need at XL), under the 512 MiB stack
+#: every CPU run gets. Touched one page per MiB, so the stack pointer crosses the whole array while only ~3 MiB per
+#: thread is committed.
+HUGE_VLA_BYTES: int = 400 << 20
 HUGE_VLA_STRIDE: int = (1 << 20) // 8
 
 
@@ -268,9 +279,9 @@ def call_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
-def test_an_800_mib_vla_on_every_thread_runs_under_the_default_cap(tmp_path: pathlib.Path) -> None:
-    """Every CPU run gets ``limits.thread_stack_mb`` (1 GiB) per OpenMP thread, reserved on top of the kernel's
-    default budget: an ~800 MiB VLA in a parallel region is graded, not crashed."""
+def test_a_400_mib_vla_on_every_thread_runs_under_the_default_cap(tmp_path: pathlib.Path) -> None:
+    """Every CPU run gets ``limits.thread_stack_mb`` (512 MiB) per OpenMP thread, reserved on top of the kernel's
+    default budget: an ~400 MiB VLA in a parallel region is graded, not crashed."""
     y, samples = fresh_interpreter(call_huge_vla, tmp_path)
     np.testing.assert_array_equal(y, np.full(4, float(sum(range(8)))))
     assert samples == 1
@@ -278,10 +289,10 @@ def test_an_800_mib_vla_on_every_thread_runs_under_the_default_cap(tmp_path: pat
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
-def test_an_800_mib_vla_overflows_the_former_512_mib_stack(tmp_path: pathlib.Path) -> None:
-    """The same kernel launched with the former 512M stacks crashes: the 1 GiB setting is what grades it."""
+def test_a_400_mib_vla_overflows_a_256_mib_stack(tmp_path: pathlib.Path) -> None:
+    """The same kernel launched with 256M stacks crashes: the 512 MiB setting is what grades it."""
     with pytest.raises(RuntimeError, match="SIGSEGV"):
-        fresh_interpreter(call_huge_vla_on_512m, tmp_path, env={"OMP_STACKSIZE": "512M"})
+        fresh_interpreter(call_huge_vla_on_256m, tmp_path, env={"OMP_STACKSIZE": "256M"})
 
 
 def call_huge_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
@@ -300,9 +311,9 @@ def call_huge_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
     return outs["y"], len(samples)
 
 
-def call_huge_vla_on_512m(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
-    """:func:`call_huge_vla` with the former 512 MiB stack configured (the launch env says 512M too)."""
-    with config.overridden("limits.thread_stack_mb", 512):
+def call_huge_vla_on_256m(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
+    """:func:`call_huge_vla` with a 256 MiB stack configured (the launch env says 256M too)."""
+    with config.overridden("limits.thread_stack_mb", 256):
         return call_huge_vla(tmp_path)
 
 
@@ -354,7 +365,8 @@ def oversubscribed_kernel(tmp_path) -> pathlib.Path:
 
 def call_oversubscribed(tmp_path, stack_mb: int = SMALL_STACK_MB) -> np.ndarray:
     """:func:`oversubscribed_kernel` through the real grading child, under a 0.25 GB cap."""
-    with config.overridden("limits.thread_stack_mb", stack_mb):
+    # The reserve is exactly the stacks here: the headroom above them would hide a team that cannot map its own
+    with config.overridden("limits.thread_stack_mb", stack_mb), config.overridden("limits.thread_reserve_mb", stack_mb):
         outs, _samples, _mem, _, _timed = native_call._call_isolated(
             str(oversubscribed_kernel(tmp_path)),
             BINDING,
@@ -736,11 +748,12 @@ def test_a_crash_under_an_armed_cap_names_the_cap() -> None:
     """
     if not shutil.which("gcc"):
         pytest.skip("gcc absent")
-    # Launched with 1 MiB OpenMP stacks: the cap also reserves one stack per thread the process may run,
-    # and at the suite's 1 GiB that reserve alone admits the 1 GiB the kernel asks for.
+    # Launched with 1 MiB OpenMP stacks and a 1 MiB reserve: the cap also reserves limits.thread_reserve_mb per
+    # thread the process may run, and at the default 1 GiB that reserve alone admits the 1 GiB the kernel asks for.
     env = {
         "OMP_STACKSIZE": "1M",
         "HPCAGENT_BENCH_LIMITS_THREAD_STACK_MB": "1",
+        "HPCAGENT_BENCH_LIMITS_THREAD_RESERVE_MB": "1",
         "HPCAGENT_BENCH_LIMITS_KERNEL_MEMORY_GB": "0.125",
         "HPCAGENT_BENCH_TIMEOUTS_GUILLOTINE_FACTOR": "0",
     }
