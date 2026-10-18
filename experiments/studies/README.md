@@ -27,8 +27,8 @@ mi200 (`--system beverin-mi200`). Every other model runs on mi300a.
 | Sampling Temperature | `temperature3` (3) | CPU C | served temperature: default, 0, 1.5 | single | 20 per temperature | [temperature3.md](temperature3.md) |
 
 The submission modes (multi, single, blind) and the prompt files that state them are in
-[docs/prompts.md](../../docs/prompts.md#submission-modes). The corpus holds ~680 kernels (689 manifests: 248
-loop-level, 270 ML, 171 scientific computing). Recount a tag with the resolver every launcher uses:
+[docs/prompts.md](../../docs/prompts.md#submission-modes). The corpus holds 724 kernels (262
+loop-level, 280 ML, 182 scientific computing). Recount a tag with the resolver every launcher uses:
 
 ```bash
 python -m hpcagent_bench.tags resolve llr40 | tr , '\n' | grep -c .

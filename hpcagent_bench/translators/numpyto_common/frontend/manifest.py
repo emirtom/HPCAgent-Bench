@@ -326,7 +326,7 @@ def fallback_shape_for_legacy(preset_symbols: list[str]) -> str | None:
 def infer_scalar_dtype(default_value: object) -> str:
     """Infer a scalar's C type from its default value in ``init.scalars``.
 
-    Integer defaults (``"n1": 1``) imply an integer parameter -- crucial
+    Integer defaults (``"n1": 1``) imply an integer parameter, which matters
     when the scalar is subsequently used as an array subscript or as
     the bound of a ``range`` call. Float defaults stay double; missing
     or non-numeric defaults fall back to double.
