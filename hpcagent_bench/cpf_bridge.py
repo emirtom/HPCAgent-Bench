@@ -51,6 +51,7 @@ from hpcagent_bench.cpf_canonical import (
     parse_kernel,
 )
 from hpcagent_bench.dtypes import c_type, canonical, is_storage_only
+from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import (
     WORKSPACE_NAME,
@@ -578,6 +579,9 @@ class RenderedForm(NamedTuple):
     #: The catalog libraries the units call (CPF's ``Rendering.libraries``: ``blas``, ``lapack``, ``fftw``,
     #: ``rocblas``, ...): what a submission of this form names in ``requests.startup.load``.
     libraries: tuple[str, ...] = ()
+    #: The scratch the host unit carves its transients from (CPF's ``Rendering.workspace_bytes``), an expression
+    #: over the binding's scalar names: the ``workspace_bytes`` a submission of this form requests. ``"0"``: none.
+    workspace_bytes: str = "0"
 
     @property
     def binding_name(self) -> str:
@@ -663,7 +667,27 @@ def render_canonical(
         device_code=clean_form(rendering.device_code, forced) if rendering.device_code else "",
         link=rendering.link,
         libraries=tuple(rendering.libraries),
+        workspace_bytes=binding_workspace_bytes(rendering.workspace_bytes, native, renames),
     )
+
+
+def binding_workspace_bytes(expr: str, native: Binding, renames: Mapping[str, str]) -> str:
+    """CPF's workspace size ``expr`` (over the SDFG's, i.e. the emitted, scalar names) spelled over the binding's
+    scalar names, which is what the judge binds a ``workspace_bytes`` request to. Raises ``ValueError`` when it names
+    anything else: the form would be submitted with a request the judge refuses."""
+    if expr.strip() == "0":
+        return "0"
+    manifest_of = {renames.get(arg.name, arg.name): arg.name for arg in native.args if arg.kind == "scalar"}
+    spelled = re.sub(r"[A-Za-z_][A-Za-z0-9_]*", lambda name: manifest_of.get(name[0], name[0]), expr)
+    try:
+        safe_eval(spelled, dict.fromkeys(manifest_of.values(), 1))
+    except ArithmeticError:
+        pass  # a division by a size that is 1 here; the grade evaluates it at the real sizes
+    except (NameError, SyntaxError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"CPF's workspace size {expr!r} is not an expression over the kernel's scalars: {exc}"
+        ) from exc
+    return spelled
 
 
 @contextlib.contextmanager
@@ -889,6 +913,7 @@ def prerender_sdfg(
                     "entry": form.entry,
                     "forced_abi_symbols": list(form.forced),
                     "libraries": list(form.libraries),
+                    "workspace_bytes": form.workspace_bytes,
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
                 results[language] = RenderOutcome(key=key, verdict="ok", cached=False)

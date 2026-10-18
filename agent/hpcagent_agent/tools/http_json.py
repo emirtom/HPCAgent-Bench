@@ -43,6 +43,7 @@ __all__ = [
     "BUILD_TEXT",
     "ENFORCED_INPUT_MODES",
     "DEFAULT_LOAD_ENV",
+    "DEFAULT_WORKSPACE_ENV",
     "IDENTITY_ENV",
     "KERNEL_ENV",
     "LANGUAGE_PROPERTY",
@@ -81,6 +82,7 @@ __all__ = [
     "task_language",
     "timeout_error",
     "with_default_load",
+    "with_default_workspace",
     "transcript_tokens",
     "usage_jsonl_tokens",
     "warn_unreadable_token_file",
@@ -686,7 +688,7 @@ def submission_body(payload: dict[str, Any]) -> dict[str, Any]:
         value = payload.get(key)
         if value is not None:
             body[key] = os.path.abspath(value) if key in PATH_FIELDS else value
-    return with_default_load(body)
+    return with_default_workspace(with_default_load(body))
 
 
 #: What the agent driver sets per problem: the problems file's ``default_load``, the catalog libraries the
@@ -719,6 +721,20 @@ def with_default_load(body: dict[str, Any]) -> dict[str, Any]:
     startup["load"] = named + [name for name in defaults if name not in named]
     requests["startup"] = startup
     return {**body, "requests": requests}
+
+
+#: What the agent driver sets per problem: the problems file's ``default_workspace_bytes``, the scratch the canonical
+#: parallel form the task starts from (cpf-src) or the tool answers with (cpf-tool) carves its transients from.
+DEFAULT_WORKSPACE_ENV = "HPCAGENT_BENCH_DEFAULT_WORKSPACE_BYTES"
+
+
+def with_default_workspace(body: dict[str, Any]) -> dict[str, Any]:
+    """``body`` requesting :data:`DEFAULT_WORKSPACE_ENV`'s ``workspace_bytes`` when it names none: a form whose
+    temporaries live in the workspace runs from the first submission on, without the agent asking for it."""
+    default = os.environ.get(DEFAULT_WORKSPACE_ENV, "").strip()
+    if not default or body.get("workspace_bytes") is not None:
+        return body
+    return {**body, "workspace_bytes": default}
 
 
 def endpoint(tool: str) -> str:

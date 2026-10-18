@@ -1278,6 +1278,18 @@ def default_load_env(problem: Problem) -> dict[str, str]:
     return {http_json.DEFAULT_LOAD_ENV: json.dumps(raw)} if isinstance(raw, list) and raw else {}
 
 
+#: The problems-file key holding the scratch the task's canonical parallel form needs (``make_problems``'s
+#: ``default_workspace_bytes``); the agent tools request it when a submission names none.
+DEFAULT_WORKSPACE_KEY = "default_workspace_bytes"
+
+
+def default_workspace_env(problem: Problem) -> dict[str, str]:
+    """The problem's :data:`DEFAULT_WORKSPACE_KEY` as ``$HPCAGENT_BENCH_DEFAULT_WORKSPACE_BYTES`` for its tool
+    processes (``http_json.with_default_workspace``); none for a line without it."""
+    raw = problem.get(DEFAULT_WORKSPACE_KEY)
+    return {http_json.DEFAULT_WORKSPACE_ENV: raw} if isinstance(raw, str) and raw else {}
+
+
 def request_actions_env(problem: Problem) -> dict[str, str]:
     """The problem's :data:`REQUEST_ACTIONS_KEY` as ``$HPCAGENT_BENCH_REQUEST_ACTIONS`` (JSON) for its tool
     processes (``http_json.request_actions``); none for a line without it, whose tools then offer no
@@ -2761,6 +2773,7 @@ def write_mcp_config(
                             ),
                             **request_actions_env(problem),
                             **default_load_env(problem),
+                            **default_workspace_env(problem),
                             "AGENT_SUBMISSION_MARKER": str((workdir / SUBMISSION_MARKER).absolute()),
                         },
                     }
@@ -2816,6 +2829,8 @@ def agent_environment(
     # The same for the libraries loaded by default.
     environment.pop(http_json.DEFAULT_LOAD_ENV, None)
     environment.update(default_load_env(problem))
+    environment.pop(http_json.DEFAULT_WORKSPACE_ENV, None)
+    environment.update(default_workspace_env(problem))
     return environment
 
 

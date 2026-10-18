@@ -263,10 +263,10 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
         note = template.format(
             files=files, verb="are", replaces="replace", it="them", mark="a `__global__` kernel launch"
         )
-        return note + form_libraries_note(stem, dialect, hints)
+        return note + form_libraries_note(stem, dialect, hints) + form_workspace_note(stem, dialect, hints)
     files = f"`{module}_reference.{cpf_cache.LANGUAGE_EXT[dialect]}`"
     note = template.format(files=files, verb="is", replaces="replaces", it="it", mark="an OpenMP pragma")
-    return note + form_libraries_note(stem, dialect, hints)
+    return note + form_libraries_note(stem, dialect, hints) + form_workspace_note(stem, dialect, hints)
 
 
 def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
@@ -279,20 +279,33 @@ def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
     raise ValueError(f"{cpf_cache.HINTS_ENV}={named!r} is not one of {cpf_cache.HINT_DETAILS}")
 
 
-def form_libraries(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> tuple[str, ...]:
-    """The catalog libraries the canonical parallel form of ``stem`` in ``dialect`` calls, read from the setup's view
-    (``$CPF_VIEW``; CPF lowers BLAS, LAPACK and FFT nodes to vendor libraries); none when no view answers."""
+def setup_form(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> cpf_cache.Form | None:
+    """The canonical parallel form of ``stem`` in ``dialect`` the setup's view (``$CPF_VIEW``) serves; None when no
+    view answers."""
     view = os.environ.get("CPF_VIEW", "")
     if not stem or not view:
-        return ()
+        return None
     try:
         from hpcagent_bench import cpf_bridge  # binds the kernel; only a cpf-src setup asks
 
         fptype = cpf_bridge.form_fptype(stem, config.current().service.datatype)
-        form = cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype, hints)
+        return cpf_cache.resolve(pathlib.Path(view), stem, dialect, fptype, hints)
     except cpf_cache.CacheMiss:
-        return ()
-    return form.libraries
+        return None
+
+
+def form_libraries(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> tuple[str, ...]:
+    """The catalog libraries the canonical parallel form of ``stem`` in ``dialect`` calls (CPF lowers BLAS, LAPACK
+    and FFT nodes to vendor libraries); none when no view answers."""
+    form = setup_form(stem, dialect, hints)
+    return form.libraries if form else ()
+
+
+def form_workspace_bytes(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str | None:
+    """The ``workspace_bytes`` the canonical parallel form of ``stem`` in ``dialect`` needs (its transients live in
+    the caller's workspace); None when it needs none or no view answers."""
+    form = setup_form(stem, dialect, hints)
+    return form.workspace_bytes if form and form.workspace_bytes != "0" else None
 
 
 def form_libraries_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str:
@@ -307,16 +320,42 @@ def form_libraries_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) ->
     )
 
 
-def default_load(spec: str, language: str, stem: str) -> list[str] | None:
-    """The libraries a problem of ``stem`` loads by default: what the canonical parallel form a CPF packet serves
-    (``packets.CPF_ENV_KEYS``: cpf-src's starting source, cpf-tool's answer) calls. None for any other setup."""
+def form_workspace_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str:
+    """What the cpf-src note says about the drop-in's workspace: requested from the start
+    (:func:`default_workspace_bytes`); "" when it needs none."""
+    needed = form_workspace_bytes(stem, dialect, hints)
+    if needed is None:
+        return ""
+    return (
+        f" Its temporaries live in the `workspace` argument, so every submission requests `workspace_bytes` "
+        f"{json.dumps(needed)} unless you name your own."
+    )
+
+
+def cpf_dialect(spec: str, language: str) -> tuple[str, cpf_cache.HintDetail] | None:
+    """The dialect and hint detail of the canonical parallel form a CPF packet serves (``packets.CPF_ENV_KEYS``:
+    cpf-src's starting source, cpf-tool's answer); None for any other setup."""
     env = dict(packets.resolve(spec, language, fill=False).env) if spec else {}
     if not packets.CPF_ENV_KEYS & env.keys():
         return None
     dialect = cpf_cache.DIALECT.get(language or DROPIN_DEFAULT_LANGUAGE)
     if dialect is None:
         return None
-    return list(form_libraries(stem, dialect, packet_hints(env))) or None
+    return dialect, packet_hints(env)
+
+
+def default_workspace_bytes(spec: str, language: str, stem: str) -> str | None:
+    """The ``workspace_bytes`` a problem of ``stem`` requests by default: what the canonical parallel form a CPF
+    packet serves needs. None for any other setup, or a form that needs none."""
+    served = cpf_dialect(spec, language)
+    return form_workspace_bytes(stem, *served) if served else None
+
+
+def default_load(spec: str, language: str, stem: str) -> list[str] | None:
+    """The libraries a problem of ``stem`` loads by default: what the canonical parallel form a CPF packet serves
+    (:func:`cpf_dialect`) calls. None for any other setup."""
+    served = cpf_dialect(spec, language)
+    return (list(form_libraries(stem, *served)) or None) if served else None
 
 
 def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
@@ -463,6 +502,7 @@ def problem_entry(
         level=spec.level,
         skill_pages=extra_pages or None,
         default_load=default_load(packet, language, spec.short_name),
+        default_workspace_bytes=default_workspace_bytes(packet, language, spec.short_name),
     )
 
 

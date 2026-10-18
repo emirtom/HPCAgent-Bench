@@ -366,6 +366,8 @@ class EntryManifest(pydantic.BaseModel):
     forced_abi_symbols: list[str] = pydantic.Field(default_factory=list[str])
     #: The catalog libraries the form calls: the ``requests.startup.load`` a submission of it names.
     libraries: list[str] = pydantic.Field(default_factory=list[str])
+    #: The scratch the form carves its transients from: the ``workspace_bytes`` a submission of it requests.
+    workspace_bytes: str = "0"
 
     @pydantic.field_validator("layout")
     @classmethod
@@ -572,6 +574,8 @@ class Form(NamedTuple):
     device: pathlib.Path | None = None
     #: The catalog libraries the form calls (``requests.startup.load``).
     libraries: tuple[str, ...] = ()
+    #: The scratch the form carves its transients from (``workspace_bytes``); ``"0"`` when it needs none.
+    workspace_bytes: str = "0"
 
 
 def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail) -> Form:
@@ -587,6 +591,7 @@ def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: 
         where / manifest.artefacts["binding"].name,
         where / device.name if device else None,
         tuple(manifest.libraries),
+        manifest.workspace_bytes,
     )
 
 

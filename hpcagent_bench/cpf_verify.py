@@ -95,6 +95,7 @@ def grade(view: str, kernel: str, language: str, fptype: str, hints: cpf_cache.H
         source=form.source.read_text(encoding="utf-8"),
         device_source=form.device.read_text(encoding="utf-8") if form.device else None,
         requests=Requests.of(libraries=form.libraries),
+        workspace_bytes=None if form.workspace_bytes == "0" else form.workspace_bytes,
     )
     task = Task(key, "restricted", language, residency=grading_residency(key, language))
     result = score(

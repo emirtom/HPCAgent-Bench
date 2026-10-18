@@ -1760,13 +1760,17 @@ class JudgeHandler(BaseHTTPRequestHandler):
         )
         if form.device:
             answer.device_source = form.device.read_text()
+        needs: list[str] = []
         if form.libraries:
             # A form calling a vendor library builds only with that library loaded.
             answer.libraries = list(form.libraries)
-            answer.note = (
-                f"this form calls {', '.join(form.libraries)}: submit it with "
-                f"requests.startup.load = {json.dumps(list(form.libraries))}"
-            )
+            needs.append(f"requests.startup.load = {json.dumps(list(form.libraries))}")
+        if form.workspace_bytes != "0":
+            # Its transients live in the caller's workspace: without the request it writes past an empty buffer.
+            answer.workspace_bytes = form.workspace_bytes
+            needs.append(f"workspace_bytes = {json.dumps(form.workspace_bytes)}")
+        if needs:
+            answer.note = f"submit this form with {' and '.join(needs)}"
         return self._send(HTTPStatus.OK, answer)
 
     def render_canonical_parallel_form(self, view: pathlib.Path, kernel: str, hints: cpf_cache.HintDetail) -> str:

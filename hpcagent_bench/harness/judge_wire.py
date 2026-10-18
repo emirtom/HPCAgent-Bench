@@ -189,6 +189,8 @@ class CanonicalFormAnswer(JudgeAnswer):
     device_source: str | None = None
     binding: str | None = None
     libraries: list[str] | None = None
+    #: The scratch the form carves its transients from: the ``workspace_bytes`` a submission of it requests.
+    workspace_bytes: str | None = None
     note: str | None = None
     error: str | None = None
 

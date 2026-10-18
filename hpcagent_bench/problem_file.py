@@ -36,6 +36,9 @@ class ProblemLine(pydantic.BaseModel):
     #: cpf-tool's answer); the driver exports them as ``$HPCAGENT_BENCH_DEFAULT_LOAD`` and the agent tools load
     #: them on every submission. None loads nothing by default.
     default_load: list[str] | None = None
+    #: The scratch that form carves its transients from; the driver exports it as
+    #: ``$HPCAGENT_BENCH_DEFAULT_WORKSPACE_BYTES`` and the agent tools request it when a submission names none.
+    default_workspace_bytes: str | None = None
     #: Skill page name -> its text, staged beside the task.
     skill_pages: dict[str, str] | None = None
     #: A fused wave's env file and the setup identity its rows carry.
