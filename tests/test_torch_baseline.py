@@ -22,8 +22,8 @@ Five groups:
   with the provenance the reference collector resolves;
 * THE RULES -- init arguments from our manifest, parameters by ``state_dict`` name and shape, the
   two repairs, the positional fallback, and a refusal where none of it reaches;
-* THE NUMBERS -- the bound model against the compiled numba / C reference at the harness's own
-  tolerance, and the per-repeat rebind that keeps the denominator on the candidate's inputs;
+* THE NUMBERS -- the compiled reference against the eager one at the harness's own
+  tolerance (the ML track has no numba or C reference), and the per-repeat rebind that keeps the denominator on the candidate's inputs;
 * THE CHILD -- the timing runs in a spawned child on the candidate's own draw indices, and its
   working cache round-trips through one archive per key.
 """
@@ -47,7 +47,7 @@ from hpcagent_bench.harness import grading, kernelbench_adapter, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
-from tests.reference_outputs import compiled_outputs, other_compiled_kinds
+from tests.reference_outputs import torch_eager_outputs
 
 #: A covered kernel with no parameters at all, one with many, and one whose upstream model the
 #: vendored corpus does not contain (no map row). The tests that need a kernel with NO reference at
@@ -333,26 +333,6 @@ def test_a_torch_baseline_never_degrades_to_numpy() -> None:
 # the numbers
 
 
-@pytest.mark.parametrize("kernel", [PLAIN_KERNEL, WEIGHTED_KERNEL, FLAG_REPAIR_KERNEL, POSITIONAL_KERNEL])
-def test_the_bound_model_computes_what_the_compiled_reference_computes(kernel: str) -> None:
-    """The one thing no binding rule can prove about itself. Held to the harness's own tolerance
-    band -- the band a SUBMISSION must clear -- because a denominator checked more loosely than a
-    candidate is a denominator nobody checked."""
-    torch = load_torch()
-    case = bound(kernel)
-    with torch.no_grad():
-        args = [torch_baseline.stage(torch, case.data[n], "cpu") for n in case.reference.forward_args]
-        result = case.reference.model.forward(*args)
-    values = list(result) if isinstance(result, (tuple, list)) else [result]
-    assert len(values) == len(case.spec.output_args)
-    _kind, want = compiled_outputs(kernel, case.data, other_compiled_kinds(case.spec, PRESET))
-    rtol, atol = tolerances_for(DATATYPE)
-    for name, value in zip(case.spec.output_args, values, strict=False):
-        have = torch_baseline.conform(kernelbench_adapter.from_torch(torch, value), case.data[name])
-        ok, error, detail = compare_arrays(want[name], have, rtol=rtol, atol=atol)
-        assert ok, f"{kernel}/{name}: {detail} (max rel {error:.2e})"
-
-
 def test_the_weights_are_refreshed_per_repeat_and_the_answer_follows() -> None:
     """``rep_variation`` redraws value arrays every timed repeat, weights included, so the reference
     has to be re-bound per repeat or it would be timed on content the candidate never saw. The
@@ -498,7 +478,7 @@ def test_a_kernels_own_torch_reference_is_timed_on_the_grades_inputs(
     assert not measured.refused
     assert len(measured.samples) == 2
     assert drawn == [0, 0, 1, 2]
-    _kind, want = compiled_outputs(SHIPPED_KERNEL, data, other_compiled_kinds(spec, PRESET))
+    want = torch_eager_outputs(spec, data, "cpu")
     rtol, atol = tolerances_for(datatype)
     for name in spec.output_args:
         assert measured.outputs[name].dtype == data[name].dtype
@@ -659,14 +639,14 @@ def test_a_final_grade_input_of_an_ml_kernel_is_reduced_against_torch_autotune()
 
 def test_the_cpu_reference_at_the_track_datatype_matches_the_oracle() -> None:
     """At the ML track's own bf16 the compiled CPU reference is staged, run and read back in bf16 and
-    agrees with the kernel's compiled numba / C reference at the bf16 band."""
+    agrees with the eager torch reference at the bf16 band."""
     from hpcagent_bench.support.bindings.contract import graded_datatype
 
     spec = BenchSpec.load(PLAIN_KERNEL)
     datatype = graded_datatype(spec, DATATYPE)
     data = Benchmark(PLAIN_KERNEL).get_data(preset=PRESET, datatype=datatype, input_seed=7)
     have = torch_baseline.reference_outputs(spec, data, CPU_KIND)
-    _kind, want = compiled_outputs(PLAIN_KERNEL, data, other_compiled_kinds(spec, PRESET))
+    want = torch_eager_outputs(spec, data, "cpu")
     rtol, atol = tolerances_for(datatype)
     for name in spec.output_args:
         assert have[name].dtype == data[name].dtype

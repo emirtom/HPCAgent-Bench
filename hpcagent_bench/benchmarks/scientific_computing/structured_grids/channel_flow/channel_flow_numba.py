@@ -4,16 +4,18 @@
 # npbench/benchmarks/channel_flow/channel_flow_numba.py. Numerics: Barba & Forsyth, CFD Python:
 # 12 Steps to Navier-Stokes (2018), code BSD-3-Clause. Signature follows this kernel's numpy
 # reference (u, v, p updated in place, nothing returned).
-"""Hand-written serial numba reference for channel_flow.
+"""Hand-written parallel numba reference for channel_flow: the three stencil stages over rows in parallel.
 
 The judge's best-of baseline times this file (grading.time_numba_isolated); the missing autogen
 marker makes it a hand override that the NumpyToNumba regenerator leaves alone.
 
 Each stage is ONE loop over the interior rows with the periodic x-neighbours wrapped in the column
-index, writing into buffers allocated once. The loops are serial: a 483-wide XL row is too little
-work per parallel region, and the convergence loop opens thousands of them (XL on one mi300 node:
-serial 30 s, prange at 8 threads 71 s, at the full node 187 s; the NPBench array-expression form
-took 348 s). The per-point arithmetic is the same expressions in the same order.
+index, writing into buffers allocated once, the rows in parallel. The convergence driver stays serial, and so do
+its three ``np.sum`` calls: under ``parallel=True`` they become parallel reductions whose rounding moves the
+``udiff > 0.001`` exit, and with it the number of outer steps (an earlier all-parallel build was 2.4x SLOWER than
+serial at XL for that reason). Measured on one login node at XL: serial 37.4 s, this form 4.4 s at 8 threads and
+5.1 s at 32, bitwise the serial build's fields at every thread count. The per-point arithmetic is the same
+expressions in the same order.
 """
 
 import numba as nb
@@ -32,10 +34,10 @@ def east(j, nx):
     return j + 1 if j < nx - 1 else 0
 
 
-@nb.njit(cache=True)
+@nb.njit(parallel=True, cache=True)
 def build_up_b(b, rho, dt, dx, dy, u, v):
     ny, nx = u.shape
-    for i in range(1, ny - 1):
+    for i in nb.prange(1, ny - 1):
         for j in range(nx):
             jw = west(j, nx)
             je = east(j, nx)
@@ -47,12 +49,14 @@ def build_up_b(b, rho, dt, dx, dy, u, v):
             )
 
 
-@nb.njit(cache=True)
+@nb.njit(parallel=True, cache=True)
 def pressure_poisson_periodic(nit, p, pn, dx, dy, b):
     ny, nx = p.shape
     for unused in range(nit):
-        pn[:] = p
-        for i in range(1, ny - 1):
+        for i in nb.prange(ny):
+            for j in range(nx):
+                pn[i, j] = p[i, j]
+        for i in nb.prange(1, ny - 1):
             for j in range(nx):
                 jw = west(j, nx)
                 je = east(j, nx)
@@ -64,10 +68,10 @@ def pressure_poisson_periodic(nit, p, pn, dx, dy, b):
         p[0, :] = p[1, :]  # dp/dy = 0 at y = 0
 
 
-@nb.njit(cache=True)
+@nb.njit(parallel=True, cache=True)
 def momentum(u, v, un, vn, p, rho, nu, F, dt, dx, dy):
     ny, nx = u.shape
-    for i in range(1, ny - 1):
+    for i in nb.prange(1, ny - 1):
         for j in range(nx):
             jw = west(j, nx)
             je = east(j, nx)

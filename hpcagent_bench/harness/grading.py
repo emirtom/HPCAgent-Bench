@@ -740,9 +740,12 @@ NUMBA_BASELINE_TARGET = "numba"
 
 def numba_impl_module(spec: BenchSpec) -> types.ModuleType:
     """Import the kernel's parallel-numba sibling, generating it first if missing. Raises when the kernel
-    has no emittable numba form."""
+    has no emittable numba form, and :class:`ReferenceUnavailable` on a track with no numba reference
+    (:func:`autogen.has_numba`)."""
     from hpcagent_bench import autogen
 
+    if not autogen.has_numba(spec):
+        raise ReferenceUnavailable(f"{spec.short_name}: the {spec.track} track has no numba reference")
     key = f"{spec.relative_path}/{spec.module_name}"
     autogen.ensure(key, [NUMBA_BASELINE_TARGET])
     return benchmark_module(spec, "_numba")

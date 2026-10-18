@@ -95,7 +95,7 @@ measurement:
                            #   Env: HPCAGENT_BENCH_MEASUREMENT_DENOMINATOR_<TRACK>.
     loop_level_reasoning: best-of(numba,c)
     scientific_computing: best-of(numba,c)
-    machine_learning: torch-autotune
+    machine_learning: torch-autotune # the only value: the ML track has no numba or C reference
   baseline_race: leader-first # leader-first | complete. Order of timing for best-of(numba,c). leader-first: the
                            #   expected winner first (this judge's last winner of the kernel at the preset and
                            #   datatype, else harness/baseline_leaders.yaml, else numba); the other is cut by the

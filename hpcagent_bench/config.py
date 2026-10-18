@@ -159,7 +159,8 @@ class Denominator(Section):
 
     loop_level_reasoning: DenominatorKind
     scientific_computing: DenominatorKind
-    machine_learning: DenominatorKind
+    #: The ML track has no numba or C reference (:data:`hpcagent_bench.autogen.NO_NUMBA_TRACKS`).
+    machine_learning: Literal["torch-autotune"]
 
 
 class Quiescence(Section):

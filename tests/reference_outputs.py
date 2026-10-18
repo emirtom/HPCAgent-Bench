@@ -20,17 +20,12 @@ from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 
-__all__ = ["compiled_outputs", "other_compiled_kinds", "torch_eager_outputs", "track_oracle_kinds"]
+__all__ = ["compiled_outputs", "torch_eager_outputs", "track_oracle_kinds"]
 
 
 def track_oracle_kinds(spec: BenchSpec, preset: str = "S") -> tuple[str, ...]:
     """The references a grade of ``spec`` at ``preset`` tries, in order (the track's oracle)."""
     return grading.oracle_kinds(grading.resolve_oracle(grading.AUTO_ORACLE, spec), spec, preset)
-
-
-def other_compiled_kinds(spec: BenchSpec, preset: str = "S") -> tuple[str, ...]:
-    """``spec``'s numba and C references in grading's order: what the ML torch reference is held to."""
-    return grading.compiled_order(spec, preset)
 
 
 def compiled_outputs(

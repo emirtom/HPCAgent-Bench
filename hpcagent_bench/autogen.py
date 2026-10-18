@@ -38,14 +38,17 @@ __all__ = [
     "EMITTERS",
     "NATIVE_FRAMEWORKS",
     "NATIVE_PRECISIONS",
+    "NO_NUMBA_TRACKS",
     "Emitter",
     "emit_cli",
     "emit_native",
     "emit_targets",
+    "emittable",
     "ensure",
     "ensure_locked",
     "ensure_native",
     "file_for",
+    "has_numba",
     "run_emit_cli",
     "wrapper_path",
 ]
@@ -123,6 +126,20 @@ EMITTERS: dict[str, Emitter] = {
 }
 
 
+#: Tracks no numba sibling is generated for: a machine_learning kernel's only reference is PyTorch.
+NO_NUMBA_TRACKS: frozenset[str] = frozenset({"machine_learning"})
+
+
+def has_numba(spec: BenchSpec) -> bool:
+    """Whether ``spec`` has a numba reference at all (its track is not in :data:`NO_NUMBA_TRACKS`)."""
+    return (spec.track or "") not in NO_NUMBA_TRACKS
+
+
+def emittable(spec: BenchSpec, targets: Iterable[str]) -> list[str]:
+    """``targets`` without ``numba`` on a track that has none (:func:`has_numba`)."""
+    return [t for t in targets if t != "numba" or has_numba(spec)]
+
+
 def _emit_target(target: str, numpy_py: pathlib.Path, kdir: pathlib.Path, bench_info: pathlib.Path) -> str:
     emitter = EMITTERS.get(target)
     if emitter is None:
@@ -139,7 +156,7 @@ def emit_targets(spec: BenchSpec, targets: Iterable[str]) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     with bench_info_tempfile(spec) as bi:
-        for t in targets:
+        for t in emittable(spec, targets):
             try:
                 out[t] = _emit_target(t, numpy_py, kdir, bi)
             except Exception as exc:  # noqa: BLE001 - report, keep going
@@ -174,10 +191,10 @@ def ensure(key: str, targets: Iterable[str]) -> None:
     working tree that kept yesterday's file served a generator that is broken today -- exactly
     what a clean checkout, which has no file to keep, reports as a hard failure.
     """
-    targets = list(targets)
+    spec = BenchSpec.load(key)
+    targets = emittable(spec, targets)
     if not targets:
         return
-    spec = BenchSpec.load(key)
     kdir = paths.BENCHMARKS / spec.relative_path
     if not (kdir / f"{spec.module_name}_numpy.py").exists():
         return
