@@ -63,8 +63,8 @@ def merge(run_dir: pathlib.Path, out: pathlib.Path) -> int:
     shards = shard_paths(run_dir)
     if any(s.resolve() == out.resolve() for s in shards):
         raise SystemExit(f"--out {out} is one of the shards it merges; write it elsewhere")
-    if not shards:
-        raise SystemExit(f"no per-rank result DBs under {run_dir / JUDGE_DIRNAME}; nothing to merge")
+    # No shard when no agent reached the judge (every episode timed out before submitting): the episodes are
+    # still folded in below, so their token spend is recorded.
     with results_db.rebuilding(out) as scratch:
         for shard in shards:
             try:

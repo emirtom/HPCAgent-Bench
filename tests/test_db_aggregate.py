@@ -257,6 +257,23 @@ def test_merge_results_cut_short_by_a_corrupt_shard_leaves_no_partial_results_db
     assert not list(tmp_path.glob("results.db*"))
 
 
+def test_merge_results_without_shards_still_records_the_episodes(tmp_path: pathlib.Path) -> None:
+    """An agent that timed out before its first submit leaves no judge shard; its episode and token spend
+    are still the run's data."""
+    (tmp_path / "judge").mkdir()
+    worker = tmp_path / "agents" / "node-0" / "problem-0-worker-0"
+    worker.mkdir(parents=True)
+    (worker / "tokens.json").write_text(
+        '{"episode_id": "s.n0.p0.w0", "kernel": "gemm", "result": "timeout", "turns": 10}', encoding="utf-8"
+    )
+    out = tmp_path / "results.db"
+
+    merge_results.merge(tmp_path, out)
+
+    with contextlib.closing(sqlite3.connect(out)) as conn:
+        assert conn.execute("SELECT kernel, result, turns FROM episodes").fetchall() == [("gemm", "timeout", 10)]
+
+
 def test_ensure_aggregated_is_a_noop_without_shards(tmp_path) -> None:
     """A single-writer run keeps working untouched -- no aggregate is invented for it."""
     base = str(tmp_path / "hpcagent_bench.db")
