@@ -205,7 +205,12 @@ def test_edf_with_checkout_points_the_package_mount_at_the_tree_under_test(tmp_p
         check=False,
     )
     assert done.returncode == 0, done.stderr
-    assert tomllib.loads(out.read_text())["mounts"] == ["/under/test:/opt/hpcagent-bench", "/data:/data"]
+    # The checkout also at its own path: a step runs its scripts there, and it may lie outside /data.
+    assert tomllib.loads(out.read_text())["mounts"] == [
+        "/under/test:/opt/hpcagent-bench",
+        "/under/test:/under/test",
+        "/data:/data",
+    ]
 
 
 def test_edf_with_checkout_refuses_an_edf_with_no_package_mount(tmp_path: pathlib.Path) -> None:

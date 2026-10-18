@@ -357,12 +357,15 @@ container_wrap() {
 # edf_with_checkout <edf> <checkout> <out> -- writes <out>, a copy of the registered judge EDF <edf> whose
 # /opt/hpcagent-bench mount names <checkout>, the tree under test. For a step that runs a registered EDF as it is
 # (the CI replay, the scaling grade) rather than a role's derived one: the install-time EDF names the checkout it was
-# installed from. Refuses an EDF with no such mount.
+# installed from. The checkout is also mounted at its own path: a step names its scripts there (prepare_job.sh runs
+# ${PWD}/materialize_shared.sh), and a checkout outside the filesystems the EDF was installed with is otherwise not
+# in the container. Refuses an EDF with no such mount.
 edf_with_checkout() {
     local edf="$1" checkout="$2" out="$3"
     grep -qE "\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\"" "${edf}" || {
         echo "edf_with_checkout: ${edf} mounts nothing at ${JUDGE_PACKAGE_MOUNT} (install_edfs.sh renders one that does)" >&2
         return 2
     }
-    sed -E "s|\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\"|\"${checkout}:${JUDGE_PACKAGE_MOUNT}\"|" "${edf}" >"${out}.tmp" && mv -f "${out}.tmp" "${out}"
+    sed -E "s|^([[:space:]]*)\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\",?|\1\"${checkout}:${JUDGE_PACKAGE_MOUNT}\",\n\1\"${checkout}:${checkout}\",|" \
+        "${edf}" >"${out}.tmp" && mv -f "${out}.tmp" "${out}"
 }
