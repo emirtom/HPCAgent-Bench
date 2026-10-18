@@ -186,7 +186,8 @@ jobs:
           ccache: perf
       - name: Perf gate
         run: |
-          export OMP_NUM_THREADS=$(nproc)
+          # Physical cores: the timed child is pinned to one hardware thread per core (native_call.grading_cpus).
+          export OMP_NUM_THREADS=$(python -c "from hpcagent_bench.flags import ncores; print(ncores())")
           tests=$(python -c "from tests.test_canon_perf_gate import PERF_JOBS; \
             print(' '.join(f'tests/test_canon_perf_gate.py::test_canon_is_within_2x_of_the_compiled_baseline[{k}]' \
             for k in PERF_JOBS['${{ matrix.job }}']))")

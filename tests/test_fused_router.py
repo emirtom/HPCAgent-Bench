@@ -107,9 +107,9 @@ def test_the_router_refuses_a_kernel_the_fused_episode_was_not_assigned(
     single-setup one, before the grade lands in the sibling's cell."""
     problems = tmp_path / "problems.jsonl"
     problems.write_text(
-        json.dumps({"id": 0, "kernel": "other_kernel", "task": "t"})
+        json.dumps({"id": 0, "kernel": "other_kernel", "task": "t", "request_actions": {}})
         + "\n"
-        + json.dumps({"id": 1, "kernel": KERNEL, "task": "t"})
+        + json.dumps({"id": 1, "kernel": KERNEL, "task": "t", "request_actions": {}})
         + "\n"
     )
     monkeypatch.setenv("HPCAGENT_BENCH_SERVICE_WARM_PROBLEMS", str(problems))

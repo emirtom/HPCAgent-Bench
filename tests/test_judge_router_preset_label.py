@@ -1,9 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A recorded grade is labelled with the size it was GRADED at, never the one the body asked.
+"""A recorded grade is labelled with the size it was GRADED at; a body cannot ask for one.
 
 A study fixes ONE size and the judge grades at it on every route, so no client picks a size --
-``service.do_POST`` reads ``self.cfg.preset`` and the agent tools do not offer the field. A label
+``service.do_POST`` reads ``self.cfg.preset``, the agent tools do not offer the field, and the wire
+refuses a body that names it. A label
 read off the body would lie while the grade is right, which is worse than it sounds -- ``preset``
 is the column an analysis slices on. The judge records every grade itself, from the size it graded
 at.
@@ -71,17 +72,20 @@ def judge_fixture(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_every_route_is_labelled_with_the_configured_preset_not_the_body(judge) -> None:
-    """A stale client asks for S on each graded route (a source that does not build: the grade is
-    what is recorded, pass or fail); every grade must still name the graded size."""
+    """Each graded route records the configured size (a source that does not build: the grade is what is
+    recorded, pass or fail), and a stale client that still asks for a size is refused: the wire has no
+    ``preset`` field, so no client can pick one."""
     port, shard = judge
     for route in ("/score", "/submit"):
-        body = {"kernel": KERNEL, "language": "c", "rank": 0, "source": "oops", "preset": ASKED, "episode_id": "t"}
+        body = {"kernel": KERNEL, "language": "c", "rank": 0, "source": "oops", "episode_id": "t"}
         assert post(port, route, body) == 200
     presets = [row["preset"] for row in calls(shard)]
     assert presets == [CONFIGURED, CONFIGURED], (
         f"grades were labelled {presets!r}; the judge grades at the configured size on every route, so "
         "recording the body's value puts a size no grade used into the column analysis slices on"
     )
+    stale = {"kernel": KERNEL, "language": "c", "rank": 0, "source": "oops", "preset": ASKED, "episode_id": "t"}
+    assert post(port, "/score", stale) == 400
 
 
 def test_a_refused_request_is_recorded_under_the_configured_preset_too(judge) -> None:

@@ -16,7 +16,10 @@ KERNEL = "gemm"
 def problems_file(tmp_path: pathlib.Path, kernels: list[str]) -> pathlib.Path:
     path = tmp_path / "problems.jsonl"
     path.write_text(
-        "".join(json.dumps({"id": i, "kernel": k, "task": "t"}) + "\n" for i, k in enumerate(kernels)), encoding="utf-8"
+        "".join(
+            json.dumps({"id": i, "kernel": k, "task": "t", "request_actions": {}}) + "\n" for i, k in enumerate(kernels)
+        ),
+        encoding="utf-8",
     )
     return path
 

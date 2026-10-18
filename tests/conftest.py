@@ -161,9 +161,9 @@ def ppcg_missing() -> str:
 
 
 def full_width_missing() -> str:
-    """ "" when OpenMP runs on every core this process owns (its affinity: a CI runner, a Slurm or taskset
-    slice), else what it runs at."""
-    threads, owned = os.environ.get("OMP_NUM_THREADS"), flags.cpus_owned()
+    """ "" when OpenMP runs on every physical core this process owns (its affinity: a CI runner, a Slurm or
+    taskset slice; one thread per core, as a timed child is pinned), else what it runs at."""
+    threads, owned = os.environ.get("OMP_NUM_THREADS"), flags.ncores()
     return "" if threads == str(owned) else f"OMP_NUM_THREADS={threads} on {owned} cores"
 
 

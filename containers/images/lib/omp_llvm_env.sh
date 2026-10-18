@@ -34,6 +34,9 @@
 # (rocm, cuda), ROCM_ARCH (rocm), CUDA_ARCHS (cuda).
 set -eux
 
+# A core dump lands in the crashing process's CWD (the checkout) and Slurm propagates the
+# SUBMITTER's core limit, so the floor has to be set here.
+ulimit -c 0
 variant="${1:?usage: omp_llvm_env.sh cpu|rocm|cuda}"
 spack="${SPACK_ROOT}/bin/spack"
 yaml="${OMP_LLVM_ENV_DIR}/spack.yaml"

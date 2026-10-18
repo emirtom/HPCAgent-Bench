@@ -283,6 +283,7 @@ def test_every_path_an_index_line_names_is_staged_for_the_agent(
                 "id": 0,
                 "kernel": KERNEL,
                 "language": language,
+                "request_actions": {},
                 "task": _task("--language", language, "--image", image, "--packet", spec),
             }
         )

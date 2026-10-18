@@ -24,6 +24,7 @@ from typing import Any, NamedTuple, Optional, cast, overload
 import numpy as np
 
 from hpcagent_bench import config, flags, languages, sizing
+from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import reassociation_agrees
 from hpcagent_bench.fuzz import FUZZED_PRESET, FuzzValue, initializer_seed
@@ -150,26 +151,28 @@ __all__ = [
     "BASELINE_LEADERS",
     "BASELINE_TIMING_CACHE",
     "BASELINE_TIMING_CACHE_MAX",
+    "COMPILED_ORACLES",
+    "CellScore",
     "DEVICE_RUNTIME_REFUSAL",
     "GRADING_PROTOCOL",
+    "IEEE_FLOATS",
     "LOST_REASON_CHARS",
     "ML_LAWS",
     "ML_NOT_LAUNCHED",
+    "MlGrade",
+    "MlLaunch",
+    "MpiBuildError",
+    "MpiLaunch",
     "ORACLE_OUTPUT_CACHE",
     "PYTHON_BASELINES",
     "PYTHON_ORACLES",
     "REP_VERIFY_DETAIL",
     "REVERIFY_LABEL",
-    "TORCH_NOTE_CHARS",
-    "CellScore",
-    "MlGrade",
-    "MlLaunch",
-    "MpiBuildError",
-    "MpiLaunch",
     "Reference",
     "ScalingRuns",
     "Score",
     "ShardedGrade",
+    "TORCH_NOTE_CHARS",
     "TimedCell",
     "VerifyLegs",
     "VerifyResult",
@@ -194,6 +197,7 @@ __all__ = [
     "graded_score",
     "guillotine_seconds",
     "identity",
+    "ieee_reference_data",
     "implausibility",
     "implausible_speedup",
     "in_layout",
@@ -442,6 +446,25 @@ def fallback_oracle(
     raise ReferenceUnavailable("; ".join(failures))
 
 
+#: The oracles that compute in IEEE fp32 / fp64 only (:func:`first_oracle`).
+COMPILED_ORACLES = frozenset({"numba", "c"})
+#: The IEEE formats the compiled oracles take as they are.
+IEEE_FLOATS = frozenset({np.dtype(np.float32), np.dtype(np.float64)})
+
+
+def ieee_reference_data(data: dict[str, Any]) -> dict[str, Any]:
+    """``data`` with every floating array of a format narrower than fp32 (fp16, bf16, fp8) as an fp64 copy;
+    ``data`` itself when there is none."""
+    narrow = [
+        name
+        for name, value in data.items()
+        if isinstance(value, np.ndarray)
+        and dtype_registry.is_float_dtype(value.dtype)
+        and value.dtype not in IEEE_FLOATS
+    ]
+    return data if not narrow else {**data, **{name: data[name].astype(np.float64) for name in narrow}}
+
+
 def first_oracle(
     kinds: Sequence[str],
     spec: BenchSpec,
@@ -453,11 +476,16 @@ def first_oracle(
     memory_gb: float,
 ) -> tuple[str, dict[str, np.ndarray]]:
     """``(kind, outputs)`` from the first of ``kinds`` that can answer for ``data``; every failure
-    is named when none can (:class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`)."""
+    is named when none can (:class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`).
+
+    The numba and C references compute in IEEE fp32 / fp64 only: they answer for ``data`` promoted to fp64
+    (:func:`ieee_reference_data`), so a narrower format is checked against the fp64 reference on the same
+    values, the rule a precision request is graded by."""
     failures: list[str] = []
     for kind in kinds:
         try:
-            return kind, oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)(data)
+            inputs = ieee_reference_data(data) if kind in COMPILED_ORACLES else data
+            return kind, oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)(inputs)
         except ReferenceUnavailable as exc:
             failures.append(str(exc))
     raise ReferenceUnavailable("; ".join(failures) or f"no oracle reference for {spec.short_name}")

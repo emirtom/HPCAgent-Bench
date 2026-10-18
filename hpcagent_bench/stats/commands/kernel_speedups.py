@@ -17,6 +17,12 @@ from hpcagent_bench.stats import cost, population
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
 from hpcagent_bench.stats.figures import kernel_speedups, setup_names
 
+__all__ = [
+    "build_parser",
+    "draw",
+    "main",
+]
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

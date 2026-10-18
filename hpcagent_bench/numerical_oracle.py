@@ -56,13 +56,14 @@ __all__ = [
     "PY_FORK_TIMEOUT_S",
     "ProbeRecord",
     "ProbeVerdict",
+    "TORCH_PORT_TOLERANCE",
     "all_backend_status",
     "binding_shape",
     "call_by_name",
-    "compiled_reference",
     "cap_compile_memory",
     "comparison_array",
     "compile_command",
+    "compiled_reference",
     "custom_initialize",
     "dace_build_root",
     "dep_available",
@@ -217,7 +218,7 @@ from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
-from hpcagent_bench.spec import BenchSpec  # noqa: E402
+from hpcagent_bench.spec import BenchSpec, Track  # noqa: E402
 from hpcagent_bench.support.bindings.contract import index_base  # noqa: E402
 from hpcagent_bench.translators.numpyto_c.bindings import read_binding  # noqa: E402
 from hpcagent_bench.translators.numpyto_common.dtypes import canonical, compute_dtype  # noqa: E402
@@ -427,6 +428,12 @@ PRECISIONS: dict[str, tuple[type[np.floating], Precision, str, float, float]] = 
     "fp16": (np.float16, Precision.FP16, "float16", 2e-2, 2e-2),
 }
 
+#: The band a machine_learning sweep is never TIGHTER than: its oracle is the kernel's torch model, which the numpy
+#: port the translator lowers matches to ~1e-7, not fp64's 1e-9 (gelu's erf is Abramowitz-Stegun 7.1.26, |error|
+#: <= 1.5e-7, where torch's is exact; triplet_margin_loss's pairwise distance adds torch's eps=1e-6 inside the
+#: norm). Below this the sweep would fail the port, not the translator; far above it hides translator bugs.
+TORCH_PORT_TOLERANCE: tuple[float, float] = (1e-6, 1e-6)
+
 #: Backends with a native half type. gfortran rejects ``real(2)``, and its emit silently falls back
 #: to double for float16 -- asking it would build a DOUBLE kernel and pass a meaningless fp16 check.
 FP16_BACKENDS = frozenset({"c", "cpp"})
@@ -572,17 +579,26 @@ def custom_initialize(spec: BenchSpec, syms, datatype: type[np.floating] = np.fl
 
 
 def compiled_reference(spec: BenchSpec, values: dict[str, Any]) -> dict[str, np.ndarray]:
-    """``spec``'s expected outputs on ``values`` from the compiled reference a grade takes its answer from:
+    """``spec``'s expected outputs on ``values`` from the reference a grade takes its answer from: on
+    machine_learning the kernel's torch model, run eagerly (:func:`torch_baseline.eager_outputs`); elsewhere
     the track's oracle references in the grade's order (:func:`~hpcagent_bench.harness.grading.oracle_kinds`),
     through the grade's own road to them (:func:`~hpcagent_bench.harness.scoring.first_oracle`). Raises
     :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` when none answers."""
-    from hpcagent_bench.harness import scoring, timing  # deferred: the judge's machinery, for a sweep that grades
-    from hpcagent_bench.harness.grading import AUTO_ORACLE, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness import scoring, timing, torch_baseline  # deferred: the judge's machinery
+    from hpcagent_bench.harness.grading import AUTO_ORACLE, ReferenceUnavailable, oracle_kinds, resolve_oracle
     from hpcagent_bench.harness.task import Task
     from hpcagent_bench.support.bindings import binding_from_spec
 
+    oracle = resolve_oracle(AUTO_ORACLE, spec)
+    if oracle == "torch":
+        # The ML oracle is the kernel's torch model; a correctness sweep runs it eagerly, on the CPU, on
+        # ieee copies of narrow formats -- the same model torch-autotune compiles, without a compile per kernel.
+        try:
+            return torch_baseline.eager_outputs(spec, scoring.ieee_reference_data(dict(values)))
+        except Exception as exc:  # noqa: BLE001 -- any failure of the model is "no reference", named
+            raise ReferenceUnavailable(f"torch reference of {spec.short_name}: {type(exc).__name__}: {exc}") from exc
     _kind, outputs = scoring.first_oracle(
-        oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec),
+        oracle_kinds(oracle, spec),
         spec,
         Task(spec.short_name),
         binding_from_spec(spec),
@@ -715,13 +731,23 @@ def run_kernel(
     chaotic = CHAOTIC_FLOAT_TOLERANCE.get(short)
     if chaotic is not None:
         rtol, atol = max(rtol, chaotic[0]), max(atol, chaotic[1])
+    torch_oracle = spec.track == Track.MACHINE_LEARNING.value
+    if torch_oracle:
+        rtol, atol = max(rtol, TORCH_PORT_TOLERANCE[0]), max(atol, TORCH_PORT_TOLERANCE[1])
     out_args = list(spec.output_args)
     syms = dict(spec.parameters[preset])
     # Polybench presets are huge (NI=1000+); scale every size symbol down proportionally to ~48
     # (keeping ratios, floor 10) since correctness is size-independent and hand-written initializers
     # are slow in Python. Foundation kernels and NO_SCALE kernels (reference only valid at declared
     # size) run at true size instead.
-    if "loop_level_reasoning" not in spec.relative_path and short not in NO_SCALE:
+    # A torch-oracle kernel runs at its graded sizes: the torch model is built from the manifest's
+    # hyperparameters, and a shrunk size symbol would hand it arrays it was not built for. Only the JAX
+    # small-size pass (``max_size``) shrinks one.
+    if (
+        "loop_level_reasoning" not in spec.relative_path
+        and short not in NO_SCALE
+        and (not torch_oracle or max_size is not None)
+    ):
         ints = {k: v for k, v in syms.items() if isinstance(v, int) and not isinstance(v, bool)}
         mx = max(ints.values(), default=0)
         # max_size (JAX small-size pass) tightens the 48 default so even sub-48 presets shrink.
@@ -886,11 +912,23 @@ def run_kernel(
 
         framework.np_float = np_float
         framework.np_complex = np.complex64 if np_float == np.float32 else np.complex128
+        # The compiled reference is called through the grading ABI, which names every size symbol and every
+        # output buffer -- the native backends below get the same: the symbols in ``syms``, and a zeroed
+        # buffer for each pointer argument the initializer did not provide (a return value such as
+        # nbody's KE), shaped and typed from the binding.
+        reference_data = {**syms, **values}
+        for a in ptr_args:
+            if a["name"] not in reference_data:
+                reference_data[a["name"]] = np.zeros(
+                    binding_shape(a, syms), dtype=_np_dtype_for_kind(a["kind"], np_float)
+                )
         try:
-            reference = compiled_reference(spec, values)
+            reference = compiled_reference(spec, reference_data)
         except ReferenceUnavailable as exc:
             # No compiled reference answers: there is no ground truth, so FAIL every backend.
-            reason = (str(exc).strip().splitlines() or ["no reference"])[0][:160]
+            from hpcagent_bench.harness.scoring import one_line  # deferred: the judge's machinery
+
+            reason = one_line(exc)
             return dict.fromkeys((*BACKENDS, *PY_BACKENDS), f"FAIL:no-reference:{reason}")
 
         # A kernel's outputs are (a) its returns -> extra_outputs (unfilled ptr args, e.g. gramschmidt's Q/R)

@@ -24,6 +24,11 @@ from hpcagent_bench import studies, tags
 from hpcagent_bench.stats import cost, population, reliability
 from hpcagent_bench.stats.figures import efficacy, kernel_runs, per_kernel
 
+__all__ = [
+    "build_parser",
+    "main",
+]
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

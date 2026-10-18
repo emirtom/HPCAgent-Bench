@@ -41,6 +41,7 @@ DECLARED_DATATYPE = "fp64"
 #: The distributed ML-scaling ports (``dist_*``), whose torch module is their track's reference.
 DISTRIBUTED_PREFIX = "dist_"
 
+
 def ml_kernels() -> list[str]:
     """Every machine_learning kernel (the adapter's table covers the whole track)."""
     return sorted(kernelbench_adapter.mapping())

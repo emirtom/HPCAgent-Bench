@@ -35,7 +35,9 @@ def stage(problem: dict, tmp_path: pathlib.Path) -> pathlib.Path:
     """``--stage-skills`` over a problems file holding ``problem``; returns the shared folder."""
     problems = tmp_path / "problems.jsonl"
     # A problems line always names its id and kernel (make_problems.ProblemLine); the test cares about the task.
-    problems.write_text(json.dumps({"id": 0, "kernel": "argmax_value", **problem}) + "\n", encoding="utf-8")
+    problems.write_text(
+        json.dumps({"id": 0, "kernel": "argmax_value", "request_actions": {}, **problem}) + "\n", encoding="utf-8"
+    )
     shared = tmp_path / "shared"
     subprocess.run(
         [sys.executable, str(SCRIPT), "--stage-skills", str(problems), str(shared)],
