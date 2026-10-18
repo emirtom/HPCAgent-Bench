@@ -74,6 +74,7 @@ __all__ = [
     "log2_change",
     "mean_ci",
     "mean_interval",
+    "mean_ratio_ci",
     "median_ci",
     "sign_flip_interval",
     "sign_flip_pvalue",
@@ -271,6 +272,51 @@ def bootstrap_ci(
         if math.isfinite(low) and math.isfinite(high):
             return Interval(name, point, low, high, confidence, f"bootstrap-{attempt}", n)
     return Interval(name, point, point, point, confidence, "bootstrap-degenerate", n)
+
+
+def mean_ratio_ci(
+    numerator: Samples,
+    denominator: Samples,
+    confidence: float = DEFAULT_CONFIDENCE,
+    n_resamples: int = DEFAULT_RESAMPLES,
+    seed: int = 0,
+) -> Interval:
+    """The ratio of two ARITHMETIC means over paired samples, ``mean(numerator) / mean(denominator)``, and its
+    paired BCa bootstrap interval (one resample draws the same pairs on both sides).
+
+    The summary of a cost change (Hoefler and Belli, SC15: costs summarize with the arithmetic mean, so a change
+    in cost is a ratio of means, not a mean of per-item ratios). BCa falls back to the percentile interval and
+    says so in ``method``, as :func:`bootstrap_ci` does; fewer than 3 pairs or no spread is the point alone."""
+    top: FloatArray = np.asarray(numerator, dtype=np.float64)
+    bottom: FloatArray = np.asarray(denominator, dtype=np.float64)
+    n = int(top.size)
+    point = float(np.mean(top) / np.mean(bottom)) if n else math.nan
+    if n < 3 or (float(np.ptp(top)) == 0.0 and float(np.ptp(bottom)) == 0.0):
+        return Interval("mean ratio", point, point, point, confidence, "bootstrap-degenerate", n)
+    from scipy.stats import bootstrap  # pyright: ignore[reportMissingTypeStubs, reportUnknownVariableType]
+
+    def ratio(a: FloatArray, b: FloatArray, axis: int = -1) -> FloatArray:
+        return np.mean(a, axis=axis) / np.mean(b, axis=axis)
+
+    for attempt in ("BCa", "percentile"):
+        try:
+            res = bootstrap(  # pyright: ignore[reportUnknownVariableType] -- unstubbed scipy
+                (top, bottom),
+                ratio,
+                paired=True,
+                confidence_level=confidence,
+                n_resamples=n_resamples,
+                method=attempt,
+                vectorized=True,
+                random_state=np.random.default_rng(seed),  # pyright: ignore[reportCallIssue] -- scipy compat spelling
+            )
+        except (ValueError, ZeroDivisionError, FloatingPointError):
+            continue
+        low = float(res.confidence_interval.low)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        high = float(res.confidence_interval.high)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        if math.isfinite(low) and math.isfinite(high):
+            return Interval("mean ratio", point, low, high, confidence, f"bootstrap-{attempt}", n)
+    return Interval("mean ratio", point, point, point, confidence, "bootstrap-degenerate", n)
 
 
 def usable_ratios(values: Samples, label: str = "", warn: bool = True) -> FloatArray:

@@ -144,9 +144,11 @@ def test_a_relaunched_episode_row_reports_the_crashed_spend_and_the_cut(tmp_path
 
 def test_an_episode_the_job_cancelled_is_flagged_on_its_row(tmp_path: pathlib.Path) -> None:
     """T6/X8: an agent still running when the job went down ends ``cancelled``, and the flag has to
-    reach the row -- the analysis drops the task off it."""
+    reach the row -- the analysis drops the task off it. The driver writes no closing subtype then
+    (``result`` '') and leaves its marker file beside the record (``agent_driver.mark_cancelled``)."""
     job_dir = job(tmp_path)
-    write_record(job_dir, 0, result=agent_driver.CANCELLED_MARKER)
+    record = write_record(job_dir, 0, result="", returncode=143)
+    agent_driver.mark_cancelled(record.parent, 143)
     write_record(job_dir, 1)
 
     rows = {row["episode_id"]: row["episode_cancelled"] for row in episode_rows(merged(job_dir))}

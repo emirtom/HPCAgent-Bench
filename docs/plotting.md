@@ -16,9 +16,10 @@ Every figure in the HPCAgent-Bench papers follows these rules. A figure that bre
 2. **Speedup axis = log2 of the ratio** (`summary.log2_change`): 2x at +1, 0.5x at -1, 0 = no change,
    ticks labeled back in ratios (`style.ratio_tick_label`). Never `signed_change` (ratio - 1), never a
    bare ratio axis.
-3. **Statistics per Hoefler and Belli (SC15)**, as `stats.rules` encodes them: paired per kernel, the
-   geomean of per-kernel ratios with the 95% BCa bootstrap interval (`summary.geomean_ci`) for speedup
-   and cost. Nothing is joined by a trend line (rule 12); the emitted table carries raw milliseconds
+3. **Statistics per Hoefler and Belli (SC15)**, as `stats.rules` encodes them: paired per kernel. A
+   ratio (speedup) summarizes with the geomean of per-kernel ratios and its 95% BCa bootstrap interval
+   (`summary.geomean_ci`); a cost (tokens) with the ARITHMETIC mean, so a cost change is a ratio of
+   arithmetic means with a paired bootstrap interval (`summary.mean_ratio_ci`). Nothing is joined by a trend line (rule 12); the emitted table carries raw milliseconds
    and token counts (rule 4). Speedup and token cost never share one axis.
 4. **Colour = model, shape = treatment.** One registry, one lookup per channel, the same answer in
    every figure:
@@ -38,18 +39,19 @@ Every figure in the HPCAgent-Bench papers follows these rules. A figure that bre
      inks and statistic inks, never a model or treatment colour. No figure carries a hex literal.
    - Standalone optimizers (DaCe, CPF as a compiler, Pluto, PPCG) keep `palette.marker` shapes in
      the compiler figures, where the optimizer is the entity.
-5. **Efficacy figure** (`plot_score_change.py`, dot rows only). One row of panels, each an
+5. **Efficacy figure** (`hpcagent-bench plot efficacy`, dot rows only). One row of panels, each an
    intervention against its control; rows: speedup (log2, over each kernel's own baseline), solved
    rate (%, no interval: a census), billed token cost. The x axis groups by delivery (C | Fortran,
    HIP | Triton | OpenMP): one tick per language, its models side by side in their colours, a light
    rule between languages. Several packets in one panel (`intervention=packets`) sit under their
    language's tick in their own shapes; a harness panel (`intervention=harness`) gives each harness
-   its own group and shape. Speedup and cost are geometric means over kernels with 95% bootstrap
-   intervals from `summary.MIN_PAIRS_FOR_INTERVAL` (6) kernels. Compiler/framework comparators (`comparators=`) sit after the
+   its own group and shape. Speedup is a geometric mean and token cost an arithmetic mean over kernels,
+   each with a 95% bootstrap interval; `--mode relative` draws each as the change over the LLM's own
+   no-packet baseline. Intervals from `summary.MIN_PAIRS_FOR_INTERVAL` (6) kernels. Compiler/framework comparators (`comparators=`) sit after the
    models of their delivery on the speedup and solved rows only, in `palette.framework_color` and
    an optimizer shape no packet wears (`figures.efficacy.comparator_shapes`). The paper key has four
    columns (`PAPER_CONFIG.legend_ncol`, compact spacing).
-6. **Per-kernel figure** (`plot_kernel_speedups.py`): wide, two rows on one kernel axis: log2 speedup per kernel with
+6. **Per-kernel figure** (`hpcagent-bench plot kernel-speedups`): wide, two rows on one kernel axis: log2 speedup per kernel with
    its interval on top, tokens per kernel below. Past a dashed separator, one summary slot per
    series: speedup = geomean with 95% bootstrap interval over the SOLVED kernels, tokens = median over
    the served kernels. The tokens row is omitted when no series carries tokens and is labelled by the
@@ -143,10 +145,10 @@ episode's answer only.
 
 | script | figure | library |
 |---|---|---|
-| `plot_score_change.py` | efficacy: speedup, tasks completed and token cost per comparison | `figures.efficacy.figure_dot_row` |
-| `plot_kernel_speedups.py` | every kernel of a tag: canon columns (compilers) and setups over one baseline, tokens below | `figures.kernel_speedups.kernel_comparison` |
-| `plot_scaling.py` | distributed track: eta(P), sigma(P), per-kernel, per-setup summary | `figures.scaling` |
-| `plot_kernel_runs.py` | every run (slot) per kernel and model, conditions (temperatures, packets) stacked side by side: speedup, token cost and solved runs; box or violin | `figures.kernel_runs.kernel_runs_figure`, `stats.reliability` |
+| `hpcagent-bench plot efficacy` | efficacy: speedup, tasks completed and token cost per comparison | `figures.efficacy.figure_dot_row` |
+| `hpcagent-bench plot kernel-speedups` | every kernel of a tag: canon columns (compilers) and setups over one baseline, tokens below | `figures.kernel_speedups.kernel_comparison` |
+| `hpcagent-bench plot scaling` | distributed track: eta(P), sigma(P), per-kernel, per-setup summary | `figures.scaling` |
+| `hpcagent-bench plot kernel-runs` | every run (slot) per kernel and model, conditions (temperatures, packets) stacked side by side: speedup, token cost and solved runs; box or violin | `figures.kernel_runs.kernel_runs_figure`, `stats.reliability` |
 
 Run any script with `-h` for its flags. Worked commands for every figure, with the default protocol
 behind the numbers: [statistics/README.md](../statistics/README.md#examples). Every command writes the
@@ -155,7 +157,7 @@ before quoting a figure.
 
 ### Kernel runs figure (designed repeats, conditions stacked)
 
-`plot_kernel_runs.py` (`figures.kernel_runs.kernel_runs_figure`) draws every run (slot) of a designed repeat
+`hpcagent-bench plot kernel-runs` (`figures.kernel_runs.kernel_runs_figure`) draws every run (slot) of a designed repeat
 (`population.designed_runs`, spec R8) per kernel and model, the conditions it ran under stacked side by side
 (repeat5: 20 slots per setup and kernel; temperature3: 3 kernels x 20 slots x 3 temperatures per model).
 Every run is one dot; nothing is averaged away.
@@ -200,11 +202,11 @@ with its condition, state, speedup and tokens; `--table` writes the per-cell rel
 
 ```bash
 python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
-python statistics/plot_kernel_runs.py data/temperature3.db --experiment temperature3 --tag temperature3 \
+hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
     --conditions t0,default --out figures/temperature3_t0_t1.pdf          # the paper's figure: square, one column
-python statistics/plot_kernel_runs.py data/temperature3.db --experiment temperature3 --tag temperature3 \
+hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
     --style violin --out figures/temperature3-violin.pdf
-python statistics/plot_kernel_runs.py data/repeat5.db --tag repeat5 --out figures/repeat5-runs.pdf \
+hpcagent-bench plot kernel-runs data/repeat5.db --tag repeat5 --out figures/repeat5-runs.pdf \
     --table data/repeat5-reliability.csv
 ```
 
@@ -212,12 +214,25 @@ python statistics/plot_kernel_runs.py data/repeat5.db --tag repeat5 --out figure
 
 ![efficacy packets and scope](figures/example-efficacy-packets-and-scope.png)
 
-Drawn by `figures.efficacy.figure_dot_row`. Each column is one model and delivery: control = hollow
-circle, treated = the packet's shape. Rows:
+Drawn by `figures.efficacy.figure_dot_row` in one of two modes (`--mode`, `FigureConfig.mode`):
+
+- **`absolute`** (default): each column is one model and delivery; the control is a hollow circle,
+  named "Baseline (<control>)" in the key, the treated setup the packet's shape.
+- **`relative`**: each LLM's no-packet control is its own 1x line ("Baseline (<control>) = 1x"); the
+  one mark per column is the treated setup's change over it (speedup: geomean of paired ratios;
+  tokens: ratio of arithmetic means), and comparators are not drawn (they have no control). A
+  baseline band at the foot of the speedup and token rows prints each control's absolute level in
+  its model's colour: its geomean speedup over the experiment baseline (`5.4x`) and its arithmetic-mean
+  tokens per kernel (`1.15M`); the solved row draws the control's rate as a dash. The emitted
+  `-pairs.csv` carries both levels with their intervals (`control_speedup*`, `control_mean_tokens*`,
+  `treated_*`) beside the ratios, so a caption can quote them.
+
+Panels are tagged `(a)`, `(b)`, ... as LaTeX subfigures; row names are folded onto two lines and set
+at one size for every row; tick and key text is in title case (`efficacy.title_case`). Rows:
 
 - **Speedup**: geomean over the kernels both setups solved; a wrong answer is left out, a correct
   slower answer keeps its sub-1 ratio. `--speedup-over served` draws every kernel with a failure at 1x.
-- **Tasks completed**: kernels solved per setup on a 0..N axis, no interval (census).
+- **Solved Rate**: kernels solved per setup on a 0-100% axis, no interval (census).
   `--no-success-row` drops it.
 - **Token cost**: every served kernel, failed ones included, priced with `--cost-model` (the
   library prices with the `billed` card when called without one: `figures.efficacy.paired_kernels`).
@@ -246,7 +261,7 @@ verdicts are the stars; the figure recomputes only the drawn point through
 A single comparison can also use top-level flags:
 
 ```bash
-python statistics/plot_score_change.py scored.csv blind.csv \
+hpcagent-bench plot efficacy scored.csv blind.csv \
     --pairs-csv blind_vs_scored.csv --intervention no-score --control-label "Score Tool" \
     --out figures/blind.pdf --table data/blind.csv
 ```
@@ -258,7 +273,7 @@ python statistics/plot_score_change.py scored.csv blind.csv \
 
 ![compilers per kernel](figures/example-compilers-per-kernel.png)
 
-`plot_kernel_speedups.py` draws one row per `--canon-columns` column of the canon DB and per setup of
+`hpcagent-bench plot kernel-speedups` draws one row per `--canon-columns` column of the canon DB and per setup of
 `--experiment` (`<experiment>-<model>-<language>[-<packet>]`, narrowed by `--setups` and
 `--conditions`), every kernel of `--tag-file` on one axis:
 
@@ -274,7 +289,7 @@ python statistics/plot_score_change.py scored.csv blind.csv \
 
 ## Scaling figures
 
-`statistics/plot_scaling.py` draws the distributed track from the same observations, rows with
+`hpcagent_bench/stats/commands/scaling.py` draws the distributed track from the same observations, rows with
 `record == "scaling"`. Required columns: `ranks` (P), `ranked_ns` (T(P)), `single_rank_ns` (T(1));
 optional: `scaling_mode` (`weak`/`strong`), `nodes`, `work_ratio` (r; missing on a weak row means
 r = P), `scaling_note`. The judge persists `scaling_points` (`harness.recording.record_scaling`);
@@ -297,13 +312,13 @@ control's grey, dashed, beside the models; `--no-torch-dist` leaves it out.
 
 ```bash
 OBS=data/mlscale20.db  # python -m hpcagent_bench.dataset --study mlscale20 --out data/mlscale20.db
-python statistics/plot_scaling.py "$OBS" --experiment mlscale --out figures/scaling --table data/scaling.csv
-python statistics/plot_scaling.py "$OBS" --experiment mlscale --figure efficiency --out figures/scaling
-python statistics/plot_scaling.py "$OBS" --experiment mlscale --figure speedup --out figures/scaling
-python statistics/plot_scaling.py "$OBS" --experiment mlscale --figure per-kernel --mode strong \
+hpcagent-bench plot scaling "$OBS" --experiment mlscale --out figures/scaling --table data/scaling.csv
+hpcagent-bench plot scaling "$OBS" --experiment mlscale --figure efficiency --out figures/scaling
+hpcagent-bench plot scaling "$OBS" --experiment mlscale --figure speedup --out figures/scaling
+hpcagent-bench plot scaling "$OBS" --experiment mlscale --figure per-kernel --mode strong \
     --quantity efficiency --out figures/scaling
-python statistics/plot_scaling.py "$OBS" --experiment mlscale --figure summary --out figures/scaling
-python statistics/plot_scaling.py "$OBS" --setups 'mlscale-qwen38-hip' --width 5.5 --out figures/scaling-qwen38
+hpcagent-bench plot scaling "$OBS" --experiment mlscale --figure summary --out figures/scaling
+hpcagent-bench plot scaling "$OBS" --setups 'mlscale-qwen38-hip' --width 5.5 --out figures/scaling-qwen38
 ```
 
 ## A new figure
@@ -311,4 +326,4 @@ python statistics/plot_scaling.py "$OBS" --setups 'mlscale-qwen38-hip' --width 5
 Add a function under `hpcagent_bench/stats/figures/` with a test, then a thin script in
 `statistics/`. Call `style.apply()` before importing pyplot, take colours and shapes from `palette`
 (`model_color`, `model_markers`), names from `study_tags`, and save with `style.save` (PDF and
-PNG). `statistics/plot_kernel_speedups.py` is a short example.
+PNG). `hpcagent_bench/stats/commands/kernel_speedups.py` is a short example.

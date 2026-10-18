@@ -23,6 +23,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Self
 
 import pydantic
+from hpcagent_agent.driver.promote_unsubmitted import AGENT_FOLDERS_LOG
 
 from hpcagent_bench import config, flags, languages, omp_context, seal
 from hpcagent_bench.flags import Mode
@@ -81,11 +82,6 @@ DEFAULT_SHARED_DIR = "/shared"
 def shared_dir() -> str:
     """The agent<->judge shared lib/header folder (HPCAGENT_BENCH_SHARED_DIR or default)."""
     return os.environ.get("HPCAGENT_BENCH_SHARED_DIR") or DEFAULT_SHARED_DIR
-
-
-#: Every agent attempt's folder, ``RUN_DIR/<this>``: one ``{"episode_id", "folder"}`` line per attempt, appended
-#: by ``agent_driver.allocate_agent_folder``; an episode's last line is its live folder.
-AGENT_FOLDERS_LOG = "agent-folders.jsonl"
 
 
 class AgentFolderLine(pydantic.BaseModel):

@@ -174,10 +174,6 @@ class CounterGenerator:
             return order
         return x[order]
 
-    def shuffle(self, x: NDArray[Any]) -> None:
-        """Permute ``x`` along its first axis, in place."""
-        x[...] = self.permutation(x)
-
     @overload
     def choice(
         self,

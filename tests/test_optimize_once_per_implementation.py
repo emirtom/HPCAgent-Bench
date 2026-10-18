@@ -3,8 +3,7 @@
 """``Test.run`` optimizes each implementation ONCE: the first/validation execution optimizes it, and
 the timed median execution measures the handle that call returned. Optimizing again in the median
 execution re-ran a DaCe column's whole search (parse, pipeline, compile, reference, verify, score)
-a second time per kernel. The output-only executions (the oracle, first/validation) run the kernel
-once: their timings are never read. Grading that ONE call alone is weaker than grading the third
+a second time per kernel. The output-only execution (first/validation) runs the kernel once: their timings are never read. Grading that ONE call alone is weaker than grading the third
 call of the handle, as the timed measure did before, so the median run's final capture is graded
 against the same oracle too."""
 
@@ -39,7 +38,7 @@ def test_run_optimizes_each_implementation_once_and_times_the_optimized_handle(m
         return handle
 
     monkeypatch.setattr(type(frmwrk), "optimize", optimize)  # slotted: patch the class
-    test = Test(Benchmark("gemm"), frmwrk, generate_framework("numpy"))
+    test = Test(Benchmark("gemm"), frmwrk)
     res = test.run(preset="S", validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True)
 
     ((name, timing),) = res.items()
@@ -53,11 +52,9 @@ def test_run_optimizes_each_implementation_once_and_times_the_optimized_handle(m
 
 
 def gemm_through_numba(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, wrong_after_first_call: bool) -> bool:
-    """Run gemm's numpy reference as the numba column's implementation, adding 1 to ``C`` on every call
-    after the first when ``wrong_after_first_call``; return whether the column validated.
-
-    numba, not numpy, because a numpy column IS the oracle and never reaches the comparison; the
-    implementation is swapped in so no sibling file is generated."""
+    """Run gemm's task program as the numba column's implementation, adding 1 to ``C`` on every call
+    after the first when ``wrong_after_first_call``; return whether the column validated against the
+    compiled reference. The implementation is swapped in so no sibling file is generated."""
     from hpcagent_bench.frameworks import Test
 
     bench = Benchmark("gemm")
@@ -72,9 +69,7 @@ def gemm_through_numba(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, 
 
     frmwrk = generate_framework("numba")
     monkeypatch.setattr(type(frmwrk), "implementations", lambda self, bench: [(kernel, "default")])
-    res = Test(bench, frmwrk, generate_framework("numpy")).run(
-        preset="S", validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True
-    )
+    res = Test(bench, frmwrk).run(preset="S", validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True)
     ((name, timing),) = res.items()
     assert timing["python"], (name, timing)
     assert len(timing["python"]) == 3, (name, timing)

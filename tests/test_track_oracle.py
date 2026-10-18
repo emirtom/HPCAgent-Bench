@@ -2,13 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The per-track correctness oracle, and the reference-output cache the judge reuses across rounds.
 
-Interpreted NumPy grades nothing: ``loop_level_reasoning`` references are scalar loops (tsvc_2_s212:
-~118 s at its XL), ``scientific_computing`` ones cost hours (nussinov) or ~3.4 KB per particle
-(warpx_field_gather). Those two tracks grade against their compiled best-of(numba, c) references and
-``machine_learning`` against the compiled PyTorch one, so the numpy reference must be UNREACHABLE on
-all of them -- not merely unpreferred (tests/test_grading_never_numpy.py drives real grades of every
-track through it). These tests pin the absence on the loop track: they replace every numpy entry
-point with a raise and drive real grades through it.
+There is no NumPy oracle: ``loop_level_reasoning`` and ``scientific_computing`` grade against their
+compiled best-of(numba, c) references and ``machine_learning`` against the compiled PyTorch one
+(tests/test_grading_never_numpy.py pins that no oracle kind names numpy). These tests pin the
+resolution per track and drive real loop-track grades through the compiled references.
 """
 
 import pathlib
@@ -58,19 +55,6 @@ def clean_caches():
     yield
     for cache in (scoring.ORACLE_OUTPUT_CACHE, scoring.BASELINE_TIMING_CACHE):
         cache.clear()
-
-
-@pytest.fixture(name="no_numpy")
-def no_numpy_fixture(monkeypatch) -> None:
-    """Every road to the interpreted numpy reference raises -- its import and its runner -- so a grade
-    that touches one FAILS the test."""
-
-    def forbidden(*_args, **_kwargs) -> None:
-        raise AssertionError("the numpy reference ran on a track that forbids it")
-
-    grading.reference_function.cache_clear()
-    monkeypatch.setattr(grading, "import_reference", forbidden)
-    monkeypatch.setattr(grading, "_numpy_reference", forbidden)
 
 
 # track -> oracle resolution
@@ -217,10 +201,10 @@ def test_an_empty_ladder_keeps_every_case_at_the_timed_preset() -> None:
     assert {case.preset for case in cases} == {"M"}
 
 
-def test_a_build_error_never_pays_for_the_references(no_numpy, monkeypatch) -> None:
+def test_a_build_error_never_pays_for_the_references(monkeypatch) -> None:
     """References and baselines run AFTER the candidate build, or a submission that does not compile
-    buys a full oracle + baseline pass (up to ~30 min) to be told so. ``no_numpy`` setups the numpy
-    entry points; every reference this grade could reach raises, so reaching one fails the test rather than merely slowing it."""
+    buys a full oracle + baseline pass (up to ~30 min) to be told so. Every reference this grade could
+    reach raises, so reaching one fails the test rather than merely slowing it."""
 
     def forbidden(*_args, **_kwargs) -> None:
         raise AssertionError("a failed build still paid for the C reference")
@@ -232,19 +216,17 @@ def test_a_build_error_never_pays_for_the_references(no_numpy, monkeypatch) -> N
     assert not result.correct
     assert result.baseline_ns == 0
     # The resolved denominator is still reported: defaulting to "numpy" here would mislabel every
-    # loop-track build error, the track where numpy is unreachable.
+    # loop-track build error; numpy is never a denominator.
     assert result.baseline in grading.track_baseline_set("loop_level_reasoning")
     assert result.oracle == "c"
 
 
-# score(): numpy is unreachable on the loop track
+# score(): the loop track's compiled references
 
 
-def test_a_failed_c_reference_hands_a_loop_track_grade_to_numba_never_numpy(
-    no_numpy, monkeypatch, candidate_builds
-) -> None:
-    """A C oracle that cannot build hands the grade to the next python-level oracle, numba, never to
-    the interpreted numpy reference (~118 s per case), and the C failure stays in the detail."""
+def test_a_failed_c_reference_hands_a_loop_track_grade_to_numba(monkeypatch, candidate_builds) -> None:
+    """A C oracle that cannot build hands the grade to the next compiled oracle, numba, and the C failure
+    stays in the detail."""
 
     def unbuildable(*_args, **_kwargs) -> None:
         raise RuntimeError("c reference build failed:\nundefined reference to `s212'")
@@ -260,7 +242,7 @@ def test_a_failed_c_reference_hands_a_loop_track_grade_to_numba_never_numpy(
     assert result.baseline_ns == 0
 
 
-def test_a_loop_track_score_grades_against_c(no_numpy, monkeypatch, candidate_builds) -> None:
+def test_a_loop_track_score_grades_against_c(monkeypatch, candidate_builds) -> None:
     """The oracle actually used is C: the C outputs are what the submission is graded against."""
     expected = {"a": np.zeros(4), "b": np.zeros(4)}
     monkeypatch.setattr(scoring, "_run_c_reference", lambda *a, **k: (expected, 1234, {}, [1234]))
@@ -273,8 +255,8 @@ def test_a_loop_track_score_grades_against_c(no_numpy, monkeypatch, candidate_bu
 
 
 @pytest.mark.integration
-def test_a_successful_loop_track_grade_never_touches_numpy(no_numpy) -> None:
-    """The whole real path -- emit, build, run, grade public AND held-out -- with numpy forbidden."""
+def test_a_successful_loop_track_grade_is_c_graded() -> None:
+    """The whole real path -- emit, build, run, grade public AND held-out -- against the C reference."""
     if not gcc_available():
         pytest.skip("gcc absent")
     task = Task(LOOP_KERNEL, "restricted", "c")
@@ -288,7 +270,7 @@ def test_a_successful_loop_track_grade_never_touches_numpy(no_numpy) -> None:
 
 
 @pytest.mark.integration
-def test_a_loop_track_verify_never_touches_numpy(no_numpy) -> None:
+def test_a_loop_track_verify_passes_on_its_compiled_references() -> None:
     """The hardening gate re-derives its own references; on this track they come from C too."""
     if not gcc_available():
         pytest.skip("gcc absent")
@@ -302,7 +284,7 @@ def test_a_loop_track_verify_never_touches_numpy(no_numpy) -> None:
 # independent_verify(): the JUDGE failing the harden leg is not the submission failing it
 
 
-def test_a_failed_c_reference_in_the_verify_leg_is_a_judge_fault(no_numpy, monkeypatch) -> None:
+def test_a_failed_c_reference_in_the_verify_leg_is_a_judge_fault(monkeypatch) -> None:
     """The harden twin of the score() rule above. tsvc_2_s252 scored a correct 63x and
     lost it to the verify leg's C reference build dying on a stale file handle -- recorded as the
     submission failing verify. Nothing unverified is credited (``ok`` stays False), but the verdict
@@ -453,12 +435,12 @@ def test_a_second_grade_of_one_kernel_reuses_the_cached_reference_outputs(monkey
     if not gcc_available():
         pytest.skip("gcc absent")
     calls = []
-    real = grading._numpy_reference  # the stand-in the counter wraps: numba's outputs equal numpy's (tests/CI)
+    real = grading.numba_reference_outputs  # the compiled reference the counter wraps
     monkeypatch.setattr(
         scoring,
         "numba_reference_outputs",
         lambda spec, data, memory_gb=0.0, rep_data=None: (
-            calls.append(spec.short_name) or real(spec, data if rep_data is None else rep_data(0))
+            calls.append(spec.short_name) or real(spec, data, memory_gb, rep_data=rep_data)
         ),
     )
     task = Task(NUMBA_LED_KERNEL, "restricted", "c")

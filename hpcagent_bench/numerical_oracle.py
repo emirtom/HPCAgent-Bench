@@ -1,6 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Numerical-correctness oracle: emit each backend fresh per kernel, run it, and compare to numpy."""
+"""Numerical-correctness oracle: emit each backend fresh per kernel, run it, and compare it to the kernel's
+compiled reference (:func:`compiled_reference`: the numba or sequential C one a grade uses, or the kernel's own
+``_reference.<c|cpp|f90>``). A kernel's ``_numpy.py`` is the task program the backends are emitted from, never the
+answer they are checked against."""
 
 import contextlib
 import ctypes
@@ -56,6 +59,7 @@ __all__ = [
     "all_backend_status",
     "binding_shape",
     "call_by_name",
+    "compiled_reference",
     "cap_compile_memory",
     "comparison_array",
     "compile_command",
@@ -71,7 +75,6 @@ __all__ = [
     "mismatch_detail",
     "native_build_command",
     "needs_fftw",
-    "numpy_fn",
     "outputs_match",
     "pin_one_thread",
     "pluto_reject_reason",
@@ -210,6 +213,7 @@ from hpcagent_bench import (  # noqa: E402 -- after the thread-count environment
     pluto_transform,
 )
 from hpcagent_bench.frameworks.forked import die_with_parent, run_forked  # noqa: E402
+from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
@@ -567,19 +571,26 @@ def custom_initialize(spec: BenchSpec, syms, datatype: type[np.floating] = np.fl
     return by
 
 
-def numpy_fn(bench: BenchSpec):
-    import importlib.util
+def compiled_reference(spec: BenchSpec, values: dict[str, Any]) -> dict[str, np.ndarray]:
+    """``spec``'s expected outputs on ``values`` from the compiled reference a grade takes its answer from:
+    the track's oracle references in the grade's order (:func:`~hpcagent_bench.harness.grading.oracle_kinds`),
+    through the grade's own road to them (:func:`~hpcagent_bench.harness.scoring.first_oracle`). Raises
+    :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` when none answers."""
+    from hpcagent_bench.harness import scoring, timing  # deferred: the judge's machinery, for a sweep that grades
+    from hpcagent_bench.harness.grading import AUTO_ORACLE, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness.task import Task
+    from hpcagent_bench.support.bindings import binding_from_spec
 
-    p = paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_numpy.py"
-    spec = importlib.util.spec_from_file_location(bench.module_name, p)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"{p} is not importable as a module")
-    m = importlib.util.module_from_spec(spec)
-    # Registered BEFORE exec: dataclasses resolves a string annotation through
-    # sys.modules[cls.__module__], which is None for a module loaded by path alone.
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return vars(m)[bench.func_name]
+    _kind, outputs = scoring.first_oracle(
+        oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec),
+        spec,
+        Task(spec.short_name),
+        binding_from_spec(spec),
+        values,
+        timeout=timing.kernel_timeout_s(),
+        memory_gb=0.0,
+    )
+    return outputs
 
 
 def call_by_name(fn, ordered_names, values):
@@ -862,10 +873,9 @@ def run_kernel(
             ptr_args = []
             extra_outputs = [nm for nm in out_args if nm not in by and nm not in syms]
 
-        # numpy oracle on private input copies (in-place mutation captured).
+        # The compiled reference on private input copies. Real type, not int()-cast: e.g. cavity_flow's
+        # nu=0.1 truncated to 0 gave a phantom mismatch when the C/Fortran backends kept the correct float.
         npd = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in by.items()}
-        # Real type, not int()-cast: e.g. cavity_flow's nu=0.1 truncated to 0 gave a phantom
-        # mismatch when the C/Fortran backends kept the correct float.
         values = {**{nm: syms[nm] for nm in spec.input_args if nm in syms}, **npd}
         unresolved = [nm for nm in spec.input_args if nm not in values]
         if unresolved:
@@ -877,25 +887,20 @@ def run_kernel(
         framework.np_float = np_float
         framework.np_complex = np.complex64 if np_float == np.float32 else np.complex128
         try:
-            ret = call_by_name(numpy_fn(spec), spec.input_args, values)
-        except Exception as exc:  # noqa: BLE001
-            # The numpy reference itself failed: ground truth is broken, so FAIL every backend.
-            return {b: f"FAIL:numpy-error:{type(exc).__name__}" for b in (*BACKENDS, *PY_BACKENDS)}
-        ret_vals = list(ret) if isinstance(ret, tuple) else [ret] if ret is not None else []
+            reference = compiled_reference(spec, values)
+        except ReferenceUnavailable as exc:
+            # No compiled reference answers: there is no ground truth, so FAIL every backend.
+            reason = (str(exc).strip().splitlines() or ["no reference"])[0][:160]
+            return dict.fromkeys((*BACKENDS, *PY_BACKENDS), f"FAIL:no-reference:{reason}")
 
-        # A kernel's outputs are (a) array-valued returns -> extra_outputs (unfilled ptr args, e.g.
-        # gramschmidt's Q/R), and (b) in-place outputs -> out_args the init mutated. A scalar return
-        # (channel_flow's stepcount) is ignored, not mis-mapped onto an array out_arg.
+        # A kernel's outputs are (a) its returns -> extra_outputs (unfilled ptr args, e.g. gramschmidt's Q/R)
+        # and (b) in-place outputs -> out_args the init provided; the reference names each by its arg.
         expected: dict[str, np.ndarray] = {}
         compare: list[str] = []
-        array_rets = [rv for rv in ret_vals if isinstance(rv, np.ndarray) and np.ndim(rv) > 0]
-        for nm, rv in zip(extra_outputs, array_rets, strict=False):  # promoted returns
-            expected[nm] = comparison_array(rv)
-            compare.append(nm)
-        for nm in out_args:  # in-place outputs
-            if nm in compare or nm not in npd:
+        for nm in (*extra_outputs, *out_args):
+            if nm in compare or nm not in reference or (nm not in extra_outputs and nm not in npd):
                 continue
-            expected[nm] = comparison_array(npd[nm])
+            expected[nm] = comparison_array(reference[nm])
             compare.append(nm)
         # Allocate every output buffer the init did not provide.
         for a in ptr_args:

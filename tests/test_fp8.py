@@ -69,12 +69,12 @@ def test_fp8_excludes_the_native_backends() -> None:
 @pytest.mark.parametrize("datatype", ["fp8_e4m3", "fp8_e5m2"])
 @pytest.mark.parametrize("kernel", FP8_KERNELS)
 def test_fp8_kernel_executes_via_jax(kernel, datatype) -> None:
-    """An fp8-safe kernel runs at fp8 through JAX and validates against the numpy reference."""
+    """An fp8-safe kernel runs at fp8 through JAX and validates against the compiled reference."""
     import_or_skip("jax")
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
     try:
-        res = Test(Benchmark(kernel), generate_framework("jax"), generate_framework("numpy")).run(
+        res = Test(Benchmark(kernel), generate_framework("jax")).run(
             preset="S", validate=True, repeat=1, timeout=180.0, datatype=datatype, ignore_errors=True
         )
     except ModuleNotFoundError as e:

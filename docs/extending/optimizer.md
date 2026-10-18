@@ -181,5 +181,5 @@ Numba - nopython-mode-parallel - median: 31.714ms
 ```
 
 `run-framework` forks each kernel (`-b` takes a kernel, track, dwarf, directory prefix or `all`) and validates
-against NumPy; `--canon-db FILE` records one row per (kernel, framework) for the canon figures. Then
+against the compiled reference a grade uses; `--canon-db FILE` records one row per (kernel, framework) for the canon figures. Then
 `uv run pytest tests/test_frameworks.py`.

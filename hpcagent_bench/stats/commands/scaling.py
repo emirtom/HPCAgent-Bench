@@ -139,8 +139,8 @@ def draw(curves: list[scaling.Curve], args: argparse.Namespace) -> list[pathlib.
     return written
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     frame = load(args.observations, args.experiment, args.setups, not args.no_torch_dist)
     curves = scaling.curves(frame)
     if not curves:

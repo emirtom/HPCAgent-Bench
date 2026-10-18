@@ -77,6 +77,7 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.task import Residency, Task
 from hpcagent_bench.harness.timing import measurement_baseline, measurement_repeat, pin_threads
 from hpcagent_bench.harness.torch_reference import graded_rank_counts
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.languages import LANG_EXT
 from hpcagent_bench.spec import KERNELS, BenchSpec, ResolvedBench, Track, selector_slug
 from hpcagent_bench.stats import score_rule
@@ -342,7 +343,7 @@ class KernelTask:
     @property
     def kernel_arg(self) -> str:
         """The grader's ``--kernel``: the loadable path stem."""
-        return self.key.rsplit("/", 1)[-1]
+        return kernel_stem(self.key)
 
     def _path(self, name: str) -> str:
         return f"{WORKDIR}/{self.subdir}/{name}"
@@ -531,8 +532,8 @@ This directory is a git repository with the seed committed on `main`. Open a pul
 ## What to do
 
 - Create a branch and optimize the {language} implementation in `{src}` in place.
-- Keep the results numerically identical -- the NumPy reference in `reference.py` is the
-  correctness oracle. Do NOT change the exported C-ABI symbol `{sym}` or its signature; the exact
+- Keep the results numerically identical -- `reference.py` specifies what the kernel computes, and
+  the verifier checks your outputs against a compiled reference (numba or sequential C) of it. Do NOT change the exported C-ABI symbol `{sym}` or its signature; the exact
   C-ABI is in `signature.json`.
 - Change ONLY files under `src/`. Commit your work and open a PR into `main`.
 
@@ -682,7 +683,7 @@ def mpi_instruction_md(kt: KernelTask, language: str, ranks: int, mode: ScalingL
         f"\n## Grading\n\nThe verifier builds/loads `{sym}`, launches {ranks} ranks, scatters your "
         f"declared layout, times the parallel region (`MPI_Barrier` + `MPI_Wtime`, MAX over ranks, "
         f"best of repeats -- scatter/gather/launch are OUTSIDE the timed number), gathers the "
-        f"outputs, and grades the reconstructed whole-domain result against the NumPy reference. "
+        f"outputs, and grades the reconstructed whole-domain result against the compiled reference. "
         f"Every collective, halo exchange and stream sync you issue is INSIDE the timed region: "
         f"your communication is part of the measurement.{sweep_rule} Load imbalance counts against "
         f"you; maximize speedup while staying correct.\n"
@@ -1300,7 +1301,7 @@ def grade(
         source=source,
         library=library,
         workspace_bytes=workspace_bytes,
-        requests=Requests.from_obj(requests),
+        requests=Requests.validate(requests),
     )
     task = Task(kernel, mode, language, residency=residency)
     if residency != Residency.DISTRIBUTED.value:

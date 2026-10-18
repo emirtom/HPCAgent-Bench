@@ -678,8 +678,9 @@ def cmd_run_framework(args: argparse.Namespace) -> int:
     ``--canon-db`` records one row per (kernel, framework) into that canon DB as each kernel finishes;
     ``--summarize`` reports on such a DB instead of running anything (narrowed to ``--canon-run`` when
     given). Its exit code is a three-way verdict, not the raw failure count: 0 every row is green, 1 at
-    least one row crashed/failed/disagreed with NumPy (a real measurement with known failures), 2 no row
-    at all -- the sweep produced nothing and a caller must never tolerate that as if it were case 1.
+    least one row crashed/failed/disagreed with the compiled reference (a real measurement with known
+    failures), 2 no row at all -- the sweep produced nothing and a caller must never tolerate that as if it
+    were case 1.
     """
     if args.summarize:
         from hpcagent_bench.harness import recording
@@ -797,6 +798,13 @@ def cmd_extract(args: argparse.Namespace) -> int:
     from hpcagent_bench.observations_extract import main as extract_main
 
     return extract_main(args.forwarded)
+
+
+def cmd_plot(args: argparse.Namespace) -> int:
+    """Draw one paper figure (:mod:`hpcagent_bench.stats.plot`)."""
+    from hpcagent_bench.stats.plot import main as plot_main
+
+    return plot_main(args.forwarded)
 
 
 def cmd_owed(args: argparse.Namespace) -> int:
@@ -926,7 +934,13 @@ def add_sweep_options(p: argparse.ArgumentParser) -> None:
     """The framework / preset / timing arguments the ``run-*`` collection verbs share."""
     p.add_argument("-f", "--framework", default="numpy", help="framework short name (default numpy)")
     p.add_argument("-p", "--preset", type=preset_arg, default="fuzzed", help="data-size preset (default fuzzed)")
-    p.add_argument("-v", "--validate", action="store_true", default=True, help="validate vs NumPy (default on)")
+    p.add_argument(
+        "-v",
+        "--validate",
+        action="store_true",
+        default=True,
+        help="validate vs the compiled reference a grade uses (default on)",
+    )
     p.add_argument("--no-validate", dest="validate", action="store_false")
     p.add_argument("-r", "--repeat", type=int, default=10)
     p.add_argument("-t", "--timeout", type=float, default=200.0)
@@ -1347,11 +1361,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="forwarded to hpcagent_bench.cluster.jobs.main(); see 'hpcagent-bench job --help'",
     )
     jb.set_defaults(func=cmd_job)
+
+    pl = sub.add_parser("plot", help="draw a paper figure from an observations table", add_help=False)
+    pl.add_argument(
+        "forwarded",
+        nargs=argparse.REMAINDER,
+        metavar="efficacy|kernel-speedups|kernel-runs|scaling ...",
+        help="forwarded to hpcagent_bench.stats.plot.main(); see 'hpcagent-bench plot efficacy --help'",
+    )
+    pl.set_defaults(func=cmd_plot)
     return p
 
 
 #: Verbs whose whole argument list belongs to another module's parser (it may start with an option).
-FORWARDED = {"collect": cmd_collect, "extract": cmd_extract, "job": cmd_job, "owed": cmd_owed}
+FORWARDED = {"collect": cmd_collect, "extract": cmd_extract, "job": cmd_job, "owed": cmd_owed, "plot": cmd_plot}
 
 
 def main(argv: list[str] | None = None) -> int:

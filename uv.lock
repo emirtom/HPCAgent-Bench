@@ -208,7 +208,7 @@ wheels = [
 [[package]]
 name = "alloy"
 version = "0.0.1"
-source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=56a32b35c2b73975f4e703acd4f993a4c531a69b#56a32b35c2b73975f4e703acd4f993a4c531a69b" }
+source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=aeca753a0bc83f5a34924f7d6d14c28c16f7363c#aeca753a0bc83f5a34924f7d6d14c28c16f7363c" }
 dependencies = [
     { name = "dace" },
     { name = "numpy" },
@@ -1514,7 +1514,7 @@ wheels = [
 [[package]]
 name = "dace"
 version = "2.0.0a10"
-source = { git = "https://github.com/spcl/dace.git?rev=7bede512e8c61322722bb95007e8edbfebd57cb2#7bede512e8c61322722bb95007e8edbfebd57cb2" }
+source = { git = "https://github.com/spcl/dace.git?rev=3f5d9a884c5d0547a65f17e61397e28c14947342#3f5d9a884c5d0547a65f17e61397e28c14947342" }
 dependencies = [
     { name = "astunparse" },
     { name = "click" },
@@ -2449,7 +2449,7 @@ wheels = [
 
 [[package]]
 name = "hpcagent-agent"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "agent" }
 
 [package.dev-dependencies]
@@ -2472,7 +2472,7 @@ harness-openhands = [
 
 [[package]]
 name = "hpcagent-bench"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
@@ -2639,7 +2639,7 @@ openblas-build = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate" },
-    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=56a32b35c2b73975f4e703acd4f993a4c531a69b" },
+    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=aeca753a0bc83f5a34924f7d6d14c28c16f7363c" },
     { name = "anthropic" },
     { name = "apache-tvm", specifier = ">=0.25" },
     { name = "cffi" },
@@ -2649,7 +2649,7 @@ requires-dist = [
     { name = "cuda-tile", marker = "extra == 'nvgpu'" },
     { name = "cupy", marker = "platform_machine == 'x86_64' and extra == 'amdgpu'" },
     { name = "cupy-cuda13x", marker = "extra == 'nvgpu'" },
-    { name = "dace", git = "https://github.com/spcl/dace.git?rev=7bede512e8c61322722bb95007e8edbfebd57cb2" },
+    { name = "dace", git = "https://github.com/spcl/dace.git?rev=3f5d9a884c5d0547a65f17e61397e28c14947342" },
     { name = "datasets", specifier = ">=2.17" },
     { name = "einops" },
     { name = "fastapi" },
@@ -2699,7 +2699,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "pythran", specifier = "<0.19" },
     { name = "pyyaml" },
-    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=675621e3e18aa2f8d07587d29c658a3cf583fd56" },
+    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },
@@ -2748,7 +2748,7 @@ openblas-build = [
 
 [[package]]
 name = "hpcagent-bench-harbor-adapter"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "adapters/hpcagent_bench" }
 dependencies = [
     { name = "hpcagent-bench" },
@@ -8242,7 +8242,7 @@ wheels = [
 [[package]]
 name = "relayout"
 version = "0.1.0"
-source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=675621e3e18aa2f8d07587d29c658a3cf583fd56#675621e3e18aa2f8d07587d29c658a3cf583fd56" }
+source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=2718b2fee48a0a60b0ed1b65f281d9636e75f0f8#2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" }
 dependencies = [
     { name = "dace" },
     { name = "islpy" },

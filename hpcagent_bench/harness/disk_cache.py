@@ -39,7 +39,7 @@ from collections.abc import Hashable, Mapping
 import numpy as np
 import numpy.typing as npt
 
-from hpcagent_bench import config, paths
+from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.cache_files import replacing, sha256_hex
 from hpcagent_bench.dtypes import is_storage_only
 from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots
@@ -96,7 +96,8 @@ __all__ = [
 DTYPE_PREFIX = "dtype."
 #: Sub-directory of ``$FAST_SCRATCH`` the store defaults to when ``cache.disk_results_dir`` is empty.
 DIRNAME = "hpcagent-bench-judge-cache"
-#: The judge image digest run_cluster.sh exports (the same one torch_reference keys on).
+#: The judge image digest the launcher exports (``<sqsh>.sha256``, see hpcagent_bench/cluster/run_cluster.sh);
+#: this cache and torch_reference's Inductor cache both key on it.
 IMAGE_KEY_ENV = "HPCAGENT_BENCH_IMAGE_SHA"
 #: The commit a job runs at (run_cluster.sh exports its checkout's HEAD).
 COMMIT_ENV = "HPCAGENT_BENCH_SNAPSHOT_COMMIT"
@@ -247,21 +248,16 @@ def kernel_harness_key(relative_path: str) -> str:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def node_key() -> str:
-    """CPU model, the node's CPU count and judge slots per node: what a grade's core share and its
-    numerics depend on. mi200 and mi300 nodes differ in the first. The node's count, not this
-    process's affinity: timing pins the judge process for a while, and a key read then would differ."""
-    model = ""
-    try:
-        with pathlib.Path("/proc/cpuinfo").open(encoding="utf-8") as fh:
-            model = next((line.split(":", 1)[1].strip() for line in fh if line.startswith("model name")), "")
-    except OSError:
-        pass
-    return f"{model}|cpus={os.cpu_count()}|slots={judge_gpu_slots()}"
+    """CPU model (:func:`osinfo.cpu_model`, the identity every CPU-keyed table uses), the node's CPU
+    count and judge slots per node: what a grade's core share and its numerics depend on. mi200 and
+    mi300 nodes differ in the first. The node's count, not this process's affinity: timing pins the
+    judge process for a while, and a key read then would differ."""
+    return f"{osinfo.cpu_model()}|cpus={os.cpu_count()}|slots={judge_gpu_slots()}"
 
 
 def image_key() -> str:
     """The exported judge image digest, else the interpreter and numpy versions."""
-    return os.environ.get(IMAGE_KEY_ENV, "") or f"python-{sys.version.split()[0]}-numpy-{np.__version__}"
+    return config.env_value(IMAGE_KEY_ENV) or f"python-{sys.version.split()[0]}-numpy-{np.__version__}"
 
 
 def entry_path(kind: str, code: str, key: Hashable) -> pathlib.Path:

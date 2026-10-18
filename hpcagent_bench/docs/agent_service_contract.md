@@ -45,7 +45,7 @@ Locally, the judge alone serves the same routes.
 - `workspace_bytes` requests untimed scratch passed as the trailing `workspace`/`workspace_size`
   arguments: a byte count or an expression over size symbols (`"8*NI*NJ + 256"`). See
   [abi_contract.md](abi_contract.md).
-- The size is always the run's configured `service.preset`. A `preset` key in the body is ignored.
+- The size is always the run's configured `service.preset`. A body naming `preset` is refused 400 (the body has no such field).
 
 ## Answers
 
@@ -162,7 +162,7 @@ are listed in `hpcagent_bench/harness/gpu_profiling.py:CAUSES`. Reports from `nc
 
 | Key | Values | Meaning |
 |---|---|---|
-| `oracle` | `auto`, `compiled`, `numba`, `c`, `torch` (`numpy` and `both` resolve to `auto`) | correctness reference (`auto`: the compiled numba/C references on `loop_level_reasoning` and `scientific_computing`, the compiled PyTorch one on `machine_learning`; never interpreted NumPy) |
+| `oracle` | `auto`, `compiled`, `numba`, `c`, `torch` | correctness reference (`auto`: the compiled numba/C references on `loop_level_reasoning` and `scientific_computing`, the compiled PyTorch one on `machine_learning`; never interpreted NumPy) |
 | `input_mode` | `py-binding`, `source`, `library`, `any` | what a submission may carry |
 | `preset` | `S`, `M`, `L`, `XL`, with optional `+fuzz` (default `XL+fuzz`) | size graded at |
 | `datatype` | numpy dtype name | precision graded at |

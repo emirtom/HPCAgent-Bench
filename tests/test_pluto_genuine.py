@@ -1441,8 +1441,7 @@ def test_a_validation_that_could_not_run_is_not_recorded_as_validated(tmp_path, 
     config.set_override("record.allow_memory_db", True)
     monkeypatch.setattr(utilities, "validate", boom)
     try:
-        numpy_oracle = generate_framework("numpy")
-        timings = Test(Benchmark("arc_distance"), generate_framework("numba"), numpy_oracle).run(
+        timings = Test(Benchmark("arc_distance"), generate_framework("numba")).run(
             preset="S", validate=True, repeat=1, timeout=120.0, ignore_errors=True
         )
     finally:

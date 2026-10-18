@@ -11,6 +11,7 @@ import pathlib
 import types
 
 from hpcagent_bench import studies
+from hpcagent_bench.stats.commands import efficacy as efficacy_command
 from tests.conftest import script_path
 from tests.fresh_module import module_at
 
@@ -22,7 +23,7 @@ def load_script(name: str) -> types.ModuleType:
     return module_at(script_path(name), name)
 
 
-score_change = load_script("plot_score_change")
+score_change = efficacy_command
 
 
 def test_read_observations_reads_the_extracted_db_the_same_shape_as_a_csv() -> None:

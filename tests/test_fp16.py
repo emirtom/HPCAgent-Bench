@@ -103,12 +103,12 @@ def test_fp16_native_kernel_executes(kernel) -> None:
 
 @pytest.mark.parametrize("kernel", FP16_KERNELS)
 def test_fp16_kernel_executes_via_jax(kernel) -> None:
-    """An fp16-safe kernel runs at float16 through JAX and validates vs numpy."""
+    """An fp16-safe kernel runs at float16 through JAX and validates vs the compiled reference."""
     import_or_skip("jax")
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
     try:
-        res = Test(Benchmark(kernel), generate_framework("jax"), generate_framework("numpy")).run(
+        res = Test(Benchmark(kernel), generate_framework("jax")).run(
             preset="S", validate=True, repeat=1, timeout=180.0, datatype="float16", ignore_errors=True
         )
     except ModuleNotFoundError as e:

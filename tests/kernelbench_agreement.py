@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Run one machine_learning port beside the PyTorch model it was ported from, and compare.
 
-The numpy reference is the correctness oracle for every backend, which makes it the one thing in
-the corpus nothing checks: the ``kernelbench_map`` table names each port's upstream model, and the collected
-original is never imported. A port that quietly computes a different function than its upstream
-model grades every submission against the wrong answer, and nothing goes red.
+The numpy port is the task program every compiled reference is emitted from, which makes it the one
+thing in the corpus nothing else checks: the ``kernelbench_map`` table names each port's upstream
+model, and the collected original is never imported. A port that quietly computes a different
+function than its upstream model asks every agent for the wrong answer, and nothing goes red.
 
 Four things stand between a port and its upstream model, and each is a place to be wrong silently:
 

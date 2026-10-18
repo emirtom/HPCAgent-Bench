@@ -135,7 +135,7 @@ def submitted(plan: dict | DistributionPlan) -> Submission:
 def requested(grid: list[int], operations: list[dict]) -> Submission:
     """A submission carrying ``operations`` over ``grid`` as an agent would send them."""
     return Submission(
-        language="c", source="x", requests=Requests.from_obj({"startup": {"grid": grid}, "operations": operations})
+        language="c", source="x", requests=Requests.validate({"startup": {"grid": grid}, "operations": operations})
     )
 
 

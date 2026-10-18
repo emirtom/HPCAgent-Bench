@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-import functools
-import logging
+import sys
 import traceback
-import types
-import warnings
 from typing import NotRequired, TypedDict
 
 import numpy as np
@@ -20,7 +17,6 @@ from hpcagent_bench.spec import BenchSpec
 __all__ = [
     "DEFAULT_TIMEOUT_S",
     "FLOAT_SCALARS",
-    "NJIT_INTERPRETED",
     "TOLERANCES",
     "ImplTiming",
     "NumpyArray",
@@ -28,10 +24,8 @@ __all__ = [
     "detect_precision",
     "failed_timing",
     "float_scalar_of",
-    "is_float16_array",
     "kernel_tolerances",
-    "njit_reference",
-    "rebind",
+    "reference_outputs",
     "tolerance_datatype",
     "tolerances_for",
 ]
@@ -68,288 +62,6 @@ def tolerance_datatype(requested: str | None, detected: type[np.floating] | None
     return None if detected is None else detected.__name__
 
 
-#: Kernels whose ``_numpy`` reference numba cannot type or answers past reassociation, so the interpreter stays the
-#: oracle (every other oracle is sequential-njit compiled). From ``helpers/scripts/njit_oracle_gate.py``; it only saves a
-#: doomed compile (:func:`njit_reference` falls back at call time anyway).
-NJIT_INTERPRETED: frozenset[str] = frozenset(
-    {
-        "alexnet",
-        "argmax_over_a_dimension",
-        "argmin_over_a_dimension",
-        "average_pooling_1d",
-        "average_pooling_2d",
-        "average_pooling_3d",
-        "azimint_hist",
-        "azimint_naive",
-        "batch_norm",
-        "batched_matrix_multiplication",
-        "bellman_ford",
-        "bfs",
-        "bicg_solvers",
-        "bicgstab",
-        "blasst",
-        "bmm_instance_norm_sum_residual_add_multiply",
-        "cegterg",
-        "cg",
-        "chebyshev_filter_subspace",
-        "comet_int4_gemm",
-        "contour_integral",  # disagree: the compiled answer moves past the LAPACK reassociation bound on x86
-        "conv2d",
-        "conv2d_activation_batch_norm",
-        "conv2d_add_scale_sigmoid_group_norm",
-        "conv2d_avg_pool_sigmoid_sum",
-        "conv2d_batch_norm_scaling",
-        "conv2d_divide_leaky_relu",
-        "conv2d_gelu_global_avg_pool",
-        "conv2d_group_norm_scale_max_pool_clamp",
-        "conv2d_group_norm_tanh_hardswish_residual_add_logsumexp",
-        "conv2d_hardswish_relu",
-        "conv2d_instance_norm_divide",
-        "conv2d_min_add_multiply",
-        "conv2d_min_tanh_tanh",
-        "conv2d_mish_mish",
-        "conv2d_multiply_leaky_relu_gelu",
-        "conv2d_relu_bias_add",
-        "conv2d_relu_hardswish",
-        "conv2d_scaling_min",
-        "conv2d_subtract_hardswish_max_pool_mish",
-        "conv2d_subtract_subtract_mish",
-        "conv2d_subtract_tanh_subtract_avg_pool",
-        "conv2d_tanh_scaling_bias_add_max",
-        "conv3d_divide_max_global_avg_pool_bias_add_sum",
-        "conv3d_group_norm_mean",
-        "conv3d_group_norm_min_clamp_dropout",
-        "conv3d_hardswish_group_norm_mean",
-        "conv3d_max_logsumexp_relu",
-        "conv3d_min_softmax",
-        "conv3d_multiply_instance_norm_clamp_multiply_max",
-        "conv3d_softmax_max_pool_max_pool",
-        "conv_3d",
-        "conv_depthwise_2d_square_input_asymmetric_kernel",
-        "conv_depthwise_separable_2d",
-        "conv_pointwise_2d",
-        "conv_standard_2d_asymmetric_input_asymmetric_kernel",
-        "conv_standard_2d_asymmetric_input_square_kernel",
-        "conv_standard_2d_square_input_asymmetric_kernel",
-        "conv_standard_2d_square_input_asymmetric_kernel_dilated_padded",
-        "conv_standard_2d_square_input_square_kernel_variant_b",
-        "conv_transpose2d_add_min_gelu_multiply",
-        "conv_transpose2d_batch_norm_tanh_max_pool_group_norm",
-        "conv_transpose2d_bias_add_clamp_scaling_clamp_divide",
-        "conv_transpose2d_gelu_group_norm",
-        "conv_transpose2d_global_avg_pool_bias_add_logsumexp_sum_multiply",
-        "conv_transpose2d_max_pool_hardtanh_mean_tanh",
-        "conv_transpose2d_min_sum_gelu_add",
-        "conv_transpose2d_mish_add_hardtanh_scaling",
-        "conv_transpose2d_multiply_global_avg_pool_global_avg_pool_mean",
-        "conv_transpose2d_softmax_bias_add_scaling_sigmoid",
-        "conv_transpose2d_subtract_tanh",
-        "conv_transpose3d_add_hardswish",
-        "conv_transpose3d_avg_pool_clamp_softmax_multiply",
-        "conv_transpose3d_batch_norm_avg_pool_avg_pool",
-        "conv_transpose3d_batch_norm_subtract",
-        "conv_transpose3d_clamp_min_divide",
-        "conv_transpose3d_layer_norm_gelu_scaling",
-        "conv_transpose3d_leaky_relu_multiply_leaky_relu_max",
-        "conv_transpose3d_logsumexp_hardswish_subtract_clamp",
-        "conv_transpose3d_max_max_sum",
-        "conv_transpose3d_max_pool_softmax_subtract_swish_max",
-        "conv_transpose3d_mean_add_softmax_tanh_scaling",
-        "conv_transpose3d_multiply_max_global_avg_pool_clamp",
-        "conv_transpose3d_relu_group_norm",
-        "conv_transpose3d_scale_batch_norm_global_avg_pool",
-        "conv_transpose3d_scaling_avg_pool_bias_add_scaling",
-        "conv_transpose3d_softmax_sigmoid",
-        "conv_transpose3d_sum_layer_norm_avg_pool_gelu",
-        "conv_transpose3d_sum_residual_add_multiply_residual_add",
-        "conv_transpose3d_swish_group_norm_hardswish",
-        "conv_transposed_1d",
-        "conv_transposed_1d_asymmetric_input_square_kernel_padded_strided_dilated",
-        "conv_transposed_1d_dilated",
-        "conv_transposed_2d_asymmetric_input_asymmetric_kernel",
-        "conv_transposed_2d_asymmetric_input_asymmetric_kernel_padded",
-        "conv_transposed_2d_asymmetric_input_asymmetric_kernel_strided_grouped_padded_dilated",
-        "conv_transposed_2d_asymmetric_input_square_kernel",
-        "conv_transposed_2d_asymmetric_input_square_kernel_dilated_padded_strided",
-        "conv_transposed_2d_square_input_asymmetric_kernel",
-        "conv_transposed_2d_square_input_square_kernel",
-        "conv_transposed_3d_asymmetric_input_asymmetric_kernel",
-        "conv_transposed_3d_asymmetric_input_asymmetric_kernel_strided_padded_grouped",
-        "conv_transposed_3d_asymmetric_input_square_kernel",
-        "conv_transposed_3d_asymmetric_input_square_kernel_strided_padded_grouped",
-        "conv_transposed_3d_square_input_asymmetric_kernel",
-        "conv_transposed_3d_square_input_square_kernel",
-        "conv_transposed_3d_square_input_square_kernel_padded_dilated_strided",
-        "convolutional_vision_transformer",
-        "cp2k_density_matrix_trs4",
-        "cp2k_grid_integrate",
-        "cross_entropy_loss",
-        "cumprod",
-        "cumsum_exclusive",
-        "cumsum_reverse",
-        "daubechies_dwt2d",
-        "densenet121",
-        "densenet121_dense_block",
-        "densenet121_transition_layer",
-        "densenet201",
-        "dist_causal_attention",
-        "dist_contrastive_loss",
-        "dist_conv2d_halo",
-        "dist_cross_entropy",
-        "dist_gemm_gn_swish",
-        "dist_layer_norm",
-        "dist_matmul_gelu_softmax",
-        "dist_matmul_large_k",
-        "dist_mlp_tp",
-        "dist_moe_dispatch",
-        "dist_moe_router",
-        "dist_rmsnorm",
-        "dist_sdpa",
-        "dist_softmax",
-        "dist_split_kv_decode",
-        "dist_sync_batchnorm",
-        "distribution_search",
-        "doitgen",
-        "edge_laplacian",
-        "efficientnet_b0",
-        "efficientnet_b1",
-        "efficientnet_b2",
-        "efficientnet_mb_conv",
-        "fft_1d",
-        "fft_3d",
-        "four_d_tensor_matrix_multiplication",
-        "frobenius_norm",
-        "gemm_batch_norm_gelu_relu",
-        "gemm_batch_norm_scaling_softmax",
-        "gemm_bias_add_hardtanh_mish_group_norm",
-        "gemm_divide_sum_scaling",
-        "gemm_group_norm_hardtanh",
-        "gemm_group_norm_min_bias_add",
-        "gemm_group_norm_swish_multiply_swish",
-        "gemm_logsumexp_leaky_relu_leaky_relu_gelu_gelu",
-        "gemm_max_subtract_gelu",
-        "gemm_scale_batch_norm",
-        "gemm_sigmoid_logsumexp",
-        "gemm_subtract_global_avg_pool_logsumexp_gelu_residual_add",
-        "gmres",
-        "googlenet_inception_module",
-        "googlenet_inception_v1",
-        "gpt2_block",
-        "group_norm",
-        "gru",
-        "gru_bidirectional",
-        "gru_bidirectional_hidden",
-        "gru_hidden",
-        "hinge_loss",
-        "hotspot",
-        "hotspot_3d",
-        "hotspot_rodinia",
-        "icon_scatter",
-        "instance_norm",
-        "kmeans",
-        "l1_norm",
-        "l2_norm",
-        "laplacian_stencil_3d",
-        "layer_norm",
-        "lenet",
-        "lenet5",
-        "log_softmax",
-        "ls3df_scf",
-        "lstm",
-        "lstm_bidirectional",
-        "lstm_cn",
-        "lstm_hn",
-        "lulesh",
-        "mamba2_return_final_state",
-        "mamba2_return_y",
-        "mandelbrot1",
-        "mandelbrot2",
-        "matmul_avg_pool_gelu_scale_max",
-        "matmul_batch_norm_bias_add_divide_swish",
-        "matmul_dropout_softmax",
-        "matmul_for_lower_triangular_matrices",
-        "matmul_for_symmetric_matrices",
-        "matmul_for_upper_triangular_matrices",
-        "matmul_gelu_softmax",
-        "matmul_group_norm_leaky_relu_sum",
-        "matmul_max_pool_sum_scale",
-        "matmul_scale_residual_add_clamp_logsumexp_mish",
-        "matmul_sigmoid_sum",
-        "matmul_sum_max_avg_pool_logsumexp_logsumexp",
-        "matmul_swish_sum_group_norm",
-        "matmul_with_irregular_shapes",
-        "matmul_with_large_k_dimension",
-        "matmul_with_small_k_dimension",
-        "matmul_with_transposed_a",
-        "matmul_with_transposed_b",
-        "matmul_with_transposed_both",
-        "matrix_vector_multiplication",
-        "max_filter",
-        "max_pooling_1d",
-        "max_pooling_2d",
-        "max_reduction_over_a_dimension",
-        "mean_reduction_over_a_dimension",
-        "min_gpt_causal_attention",
-        "min_reduction_over_a_dimension",
-        "mini_gpt_block",
-        "minres",
-        "mlp",
-        "mnist_infer",
-        "mobilenet_v1",
-        "mobilenet_v2",
-        "mse_loss",
-        "nbody",
-        "netvlad_no_ghost_clusters",
-        "netvlad_with_ghost_clusters",
-        "poisson_cg_3d",
-        "regnet",
-        "relu_self_attention",
-        "resnet",
-        "resnet101",
-        "resnet18",
-        "resnet_basic_block",
-        "rms_norm",
-        "scaled_dot_product_attention",
-        "seissol_batched_gemm",
-        "seissol_tensor_contraction",
-        "shufflenet",
-        "shufflenet_unit",
-        "snapkv",
-        "softmax",
-        "softmax_kernelbench",
-        "spmm",
-        "spmv",
-        "square_matrix_multiplication",
-        "squeezenet",
-        "squeezenet_fire_module",
-        "standard_matrix_multiplication",
-        "stencil_3d",
-        "stencil_4d",
-        "stencil_4d_vc",
-        "stockham_fft",
-        "sum_reduction_over_a_dimension",
-        "swin_mlp",
-        "swin_transformer_v2",
-        "tall_skinny_matrix_multiplication",
-        "three_d_tensor_matrix_multiplication",
-        "triplet_margin_loss",
-        "unet_softmax",
-        "vadv",
-        "vector_stencil_4d",
-        "vector_stencil_4d_vc",
-        "velocity_tendencies",
-        "velocity_tendencies_multiblock",
-        "vexx_k",
-        "vgg16",
-        "vgg19",
-        "vision_attention",
-        "vision_transformer",
-        "viterbi",
-        "vloc_psi_k_acc",
-    }
-)
-
-
 #: The float scalar types data is detected as; a mixture in one dataset is rejected.
 FLOAT_SCALARS: tuple[type[np.float32], type[np.float64]] = (np.float32, np.float64)
 
@@ -366,14 +78,6 @@ class ImplTiming(TypedDict):
     native: list[float] | None
     validated: bool
     failure: NotRequired[str]
-
-
-def is_float16_array(value: ArgValue) -> bool:
-    """Whether ``value`` is an ARRAY at float16, the precision numba's data model refuses."""
-    if not isinstance(value, np.ndarray):
-        return False
-    array: NumpyArray = value
-    return array.dtype == np.dtype(np.float16)
 
 
 def float_scalar_of(value: ArgValue) -> type[np.floating] | None:
@@ -406,74 +110,39 @@ def failed_timing(failure: str) -> ImplTiming:
     return {"python": None, "native": None, "validated": False, "failure": failure}
 
 
-def rebind(func: types.FunctionType, globals_dict: dict[str, object]) -> types.FunctionType:
-    """``func``'s code object bound to ``globals_dict`` -- same source, different name resolution."""
-    return types.FunctionType(func.__code__, globals_dict, func.__name__, func.__defaults__, func.__closure__)
+def reference_outputs(bench: Benchmark, bdata: BenchData, preset: str | None = None) -> list[OutputValue]:
+    """``bench``'s expected outputs on ``bdata``, in ``output_args`` order, from the compiled reference a
+    grade of it takes its answer from: the track's oracle
+    (:func:`~hpcagent_bench.harness.grading.resolve_oracle`), its references tried in the grade's order
+    (:func:`~hpcagent_bench.harness.grading.oracle_kinds`: the numba and C references on the numpy
+    tracks, the compiled PyTorch one on machine_learning) through the grade's own road to them
+    (:func:`~hpcagent_bench.harness.scoring.first_oracle`). ``preset`` names the race leader's preset
+    (None: the XL one, as a grade's).
 
+    Raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` naming the kernel and every
+    reference's failure when none answers: there is no fallback, and a kernel's ``_numpy.py`` is the task
+    program, never an oracle."""
+    # Deferred: the judge's machinery is only needed by a validating run.
+    from hpcagent_bench.harness import scoring, timing
+    from hpcagent_bench.harness.grading import AUTO_ORACLE, ReferenceUnavailable, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness.task import Task
+    from hpcagent_bench.support.bindings import binding_from_spec
 
-def njit_reference(impl: KernelImpl, bench: Benchmark, data: BenchData | None = None) -> KernelImpl:
-    """``impl`` njit-compiled when bench's numpy reference is a known interpreted loop nest.
-
-    The test framework's oracle (``run-framework --validate``); a grade never runs it, its oracle is a
-    compiled reference proven equal to this one (:func:`hpcagent_bench.harness.grading.resolve_oracle`).
-    A compile failure, or a handle that is not a plain Python function, falls back to the interpreter
-    loudly. An fp16 run keeps the plain reference (numba has no float16 arrays)."""
-    module = bench.spec.module_name
-    # Keyed by the kernel's short name, as the gate and its tests name it (it differs from module_name for some).
-    if bench.spec.short_name in NJIT_INTERPRETED:
-        return impl
-    if data is not None and any(is_float16_array(v) for v in data.values()):
-        return impl
-    # Deferred: importing numba costs seconds, and only an oracle run needs it.
-    from numba import njit
-    from numba.core.errors import LoweringError, NumbaError, NumbaPerformanceWarning, TypingError, UnsupportedError
-
-    if not isinstance(impl, types.FunctionType):
-        logging.getLogger(__name__).warning(
-            "the %s reference is a %s, which has no globals to rebind; using the interpreter",
-            module,
-            type(impl).__name__,
-        )
-        return impl
+    spec = bench.spec
+    kinds = oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset)
     try:
-        # Every same-module helper is compiled against one shared globals dict, mutated in place, so helper
-        # chains and mutual recursion resolve.
-        shared: dict[str, object] = dict(impl.__globals__)
-        for name, value in list(shared.items()):
-            if isinstance(value, types.FunctionType) and value.__module__ == impl.__module__:
-                helper: object = njit(cache=True)(rebind(value, shared))
-                shared[name] = helper
-        compiled: KernelImpl = njit(cache=True)(rebind(impl, shared))
-    except (NumbaError, RuntimeError) as exc:  # numba's own refusal, or a function it cannot cache
-        logging.getLogger(__name__).warning(
-            "njit reference unavailable for %s (%s); using the interpreter", module, exc
+        _kind, outputs = scoring.first_oracle(
+            kinds,
+            spec,
+            Task(bench.bname),
+            binding_from_spec(spec),
+            dict(bdata),
+            timeout=timing.kernel_timeout_s(),
+            memory_gb=0.0,  # uncapped: the reference's own share of the node (sizing.reference_memory_gb)
         )
-        return impl
-
-    # njit compiles lazily, so typing errors surface on the first call. Only the compile-stage errors are
-    # caught (raised before any output buffer is touched); runtime faults propagate.
-    compile_stage = (TypingError, UnsupportedError, LoweringError)
-    state = {"compiled": True}
-
-    # functools.wraps sets ``__wrapped__``, so ``call_args``' inspect.signature sees the real parameters.
-    @functools.wraps(impl)
-    def guarded(*args: ArgValue, **kwargs: ArgValue) -> KernelResult:
-        if state["compiled"]:
-            try:
-                # A non-contiguous-slice performance hint is not a fault; keep it from failing under -W error.
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", NumbaPerformanceWarning)
-                    return compiled(*args, **kwargs)
-            except compile_stage as exc:
-                logging.getLogger(__name__).warning(
-                    "njit reference for %s failed to compile on call (%s); using the interpreter",
-                    module,
-                    str(exc).splitlines()[0],
-                )
-                state["compiled"] = False
-        return impl(*args, **kwargs)
-
-    return guarded
+    except ReferenceUnavailable as exc:
+        raise ReferenceUnavailable(f"{spec.short_name}: no compiled reference answered ({exc})") from exc
+    return [outputs[name] for name in spec.output_args]
 
 
 #: Seconds one framework run may take when the caller gives no timeout.
@@ -483,12 +152,11 @@ DEFAULT_TIMEOUT_S: float = 200.0
 class Test:
     """A class for testing a framework on a benchmark."""
 
-    __slots__ = ("_last_failure", "_measured_impl", "bench", "frmwrk", "numpy")
+    __slots__ = ("_last_failure", "_measured_impl", "bench", "frmwrk")
 
-    def __init__(self, bench: Benchmark, frmwrk: Framework, npfrmwrk: Framework | None = None) -> None:
+    def __init__(self, bench: Benchmark, frmwrk: Framework) -> None:
         self.bench = bench
         self.frmwrk = frmwrk
-        self.numpy = npfrmwrk
         #: Structured failure reason from the last :meth:`_execute`; None means it produced output.
         self._last_failure: str | None = None
         #: The handle :meth:`_execute` actually MEASURED (post-``optimize``), which :meth:`timed_run` re-times.
@@ -608,8 +276,7 @@ class Test:
             if datatype is None:
                 self.frmwrk.set_datatype(detected_dtype.__name__)
 
-        validate = validate and self.frmwrk.fname != "numpy" and self.numpy is not None
-        np_out = self.oracle_output(bdata, ignore_errors) if validate else None
+        ref_out = self.oracle_output(bdata, preset, ignore_errors) if validate else None
         band_rtol, band_atol = tolerances_for(tolerance_datatype(datatype, detected_dtype))
         # Keyed by the data precision when no --datatype was given; the spec carries no per-bench rtol/atol
         # (spec.py rejects them), so the band is the datatype's alone.
@@ -643,24 +310,27 @@ class Test:
                 if not ignore_errors and self._last_failure != "unsupported":
                     raise RuntimeError(f"{impl_name}: {self._last_failure}")
                 continue
-            # The numpy oracle producing no output (failed under ignore_errors) cannot assert correctness.
+            # No reference output (none answered, under ignore_errors) asserts nothing: the run fails validation.
             valid = not validate or (
-                np_out is not None
-                and self.matches_oracle(np_out, frmwrk_out, impl_name, "validation", band, ignore_errors)
+                ref_out is not None
+                and self.matches_oracle(ref_out, frmwrk_out, impl_name, "validation", band, ignore_errors)
             )
-            timing = self.timed_run(impl_name, context, repeat, ignore_errors, valid, validate, np_out, band)
+            timing = self.timed_run(impl_name, context, repeat, ignore_errors, valid, validate, ref_out, band)
             if timing is not None:
                 per_impl_timings[impl_name] = timing
         return per_impl_timings
 
-    def oracle_output(self, bdata: BenchData, ignore_errors: bool) -> list[OutputValue] | None:
-        """The NumPy oracle's outputs for ``bdata`` (njit-compiled where it can be), ``None`` if it failed."""
-        oracle = self.numpy
-        if oracle is None:
+    def oracle_output(self, bdata: BenchData, preset: str, ignore_errors: bool) -> list[OutputValue] | None:
+        """The compiled reference's outputs for ``bdata`` (:func:`reference_outputs`). When none answers the
+        run fails validation loudly: the failure names the kernel, and it raises unless ``ignore_errors``,
+        where it is ``None`` and no implementation validates."""
+        try:
+            return reference_outputs(self.bench, bdata, preset)
+        except Exception as e:
+            print(f"VALIDATION FAILED: {self.bench.bname}: {e}", file=sys.stderr, flush=True)
+            if not ignore_errors:
+                raise
             return None
-        np_impl, np_impl_name = oracle.implementations(self.bench)[0]
-        np_impl = njit_reference(np_impl, self.bench, bdata)
-        return self._execute(oracle, np_impl, np_impl_name, "validation", bdata, 0, ignore_errors)[0]
 
     def timed_run(
         self,
@@ -670,7 +340,7 @@ class Test:
         ignore_errors: bool,
         valid: bool,
         validate: bool,
-        np_out: list[OutputValue] | None,
+        ref_out: list[OutputValue] | None,
         band: tuple[float, float],
     ) -> ImplTiming | None:
         """Time the handle the first execution optimized (``optimize`` runs once per kernel) and grade the
@@ -682,9 +352,9 @@ class Test:
         later_out, timelist, native_times = self._execute(
             self.frmwrk, measured, impl_name, "median", context, repeat, ignore_errors, optimized=True
         )
-        if valid and validate and timelist and later_out is not None and np_out is not None:
+        if valid and validate and timelist and later_out is not None and ref_out is not None:
             valid = self._last_failure is None and self.matches_oracle(
-                np_out, later_out, impl_name, "later-call validation", band, ignore_errors
+                ref_out, later_out, impl_name, "later-call validation", band, ignore_errors
             )
             if not valid:
                 print(f"{self.frmwrk.info['full_name']} - {impl_name}: later call did not validate")
@@ -694,14 +364,14 @@ class Test:
 
     def matches_oracle(
         self,
-        np_out: list[OutputValue],
+        ref_out: list[OutputValue],
         frmwrk_out: list[OutputValue] | None,
         impl_name: str,
         stage: str,
         band: tuple[float, float],
         ignore_errors: bool,
     ) -> bool:
-        """Whether ``frmwrk_out`` agrees with the oracle's ``np_out`` within ``band`` (rtol, atol); ``stage``
+        """Whether ``frmwrk_out`` agrees with the oracle's ``ref_out`` within ``band`` (rtol, atol); ``stage``
         names the call in the log. A comparison that raised is a failed validation, also under
         ``ignore_errors``."""
         try:
@@ -713,7 +383,7 @@ class Test:
             frmwrk_name = self.frmwrk.info["full_name"] + " - " + impl_name
             spec = self.bench.spec
             valid = util.validate(
-                np_out, host, frmwrk_name, rtol=band[0], atol=band[1], mismatch_fraction=spec.mismatch_fraction or 0.0
+                ref_out, host, frmwrk_name, rtol=band[0], atol=band[1], mismatch_fraction=spec.mismatch_fraction or 0.0
             )
             if valid:
                 print(f"{frmwrk_name} - {impl_name} - {stage}: SUCCESS")

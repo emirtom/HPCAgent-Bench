@@ -30,6 +30,7 @@ __all__ = [
     "main",
     "merge",
     "shard_paths",
+    "submitted_records",
 ]
 
 
@@ -58,13 +59,30 @@ def judge_shards(run_dir: pathlib.Path) -> list[pathlib.Path]:
     return [db for _, _, db in sorted(found)]
 
 
+def submitted_records(run_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Every episode record under ``run_dir`` whose episode ended by submitting (the driver's return code
+    for it, or that result): a judge graded it, so its job must hold a shard."""
+    submitted = [code for code, result in episodes.ENDED_BY.items() if result == "submitted"]
+    found = []
+    for path in sorted(run_dir.glob(episodes.RECORD_GLOB)):
+        record = episodes.read_record(path)
+        if record is not None and (record.returncode in submitted or record.result == "submitted"):
+            found.append(path)
+    return found
+
+
 def merge(run_dir: pathlib.Path, out: pathlib.Path) -> int:
     """Rebuild ``out`` from everything ``run_dir`` recorded and return the rows it ends up holding."""
     shards = shard_paths(run_dir)
     if any(s.resolve() == out.resolve() for s in shards):
         raise SystemExit(f"--out {out} is one of the shards it merges; write it elsewhere")
     # No shard when no agent reached the judge (every episode timed out before submitting): the episodes are
-    # still folded in below, so their token spend is recorded.
+    # still folded in below, so their token spend is recorded. An episode that submitted was graded, so a run
+    # with one and no shard lost its judge's record: refused, or the run reads as a setup that solved nothing.
+    if not shards and (submitted := submitted_records(run_dir)):
+        raise SystemExit(
+            f"no judge shard under {run_dir / JUDGE_DIRNAME}, but {len(submitted)} episodes submitted: {submitted[0]}"
+        )
     with results_db.rebuilding(out) as scratch:
         for shard in shards:
             try:
@@ -73,6 +91,8 @@ def merge(run_dir: pathlib.Path, out: pathlib.Path) -> int:
                 # Loud and stop: a shard that fails to read (e.g. truncated by an OOM-killed rank) must not
                 # be quietly dropped -- the merged file would look complete but miss that shard's rows.
                 raise SystemExit(f"corrupt shard, aborting merge: {shard}: {exc}") from exc
+            except results_db.MergeConflict as exc:
+                raise SystemExit(f"conflicting shard, aborting merge: {shard}: {exc}") from exc
             detail = ", ".join(f"{table}={count}" for table, count in sorted(copied.items()) if count)
             print(f"{shard}: {sum(copied.values())} rows ({detail or 'empty'})")
         with contextlib.closing(results_db.open_db(scratch)) as conn:

@@ -1,7 +1,7 @@
 -- Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 12). There is one
+-- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 13). There is one
 -- schema and no migration: a file of any other user_version, or holding a table outside this file, is refused.
 --
 -- One file holds everything an experiment produced: a judge rank's shard, a job and the whole
@@ -22,7 +22,7 @@
 -- indices (0 is real), the device-synchronization readings (0 ns is real; CPU grades have none), p_value
 -- (no test ran) and work_ratio (strong scaling has none).
 
-PRAGMA user_version = 12;
+PRAGMA user_version = 13;
 
 -- One experimental condition: everything a run's identity has in common across its repetitions.
 CREATE TABLE setups (
@@ -35,8 +35,10 @@ CREATE TABLE setups (
     harness    TEXT NOT NULL,                           -- what produced the code: an agent harness (claude,
                                                         -- miniswe, openhands, autokernel) or a compiler
                                                         -- (pluto, ppcg)
-    temperature REAL NOT NULL DEFAULT 1.0               -- sampling temperature the serving engine applied;
+    temperature REAL NOT NULL DEFAULT 1.0,              -- sampling temperature the serving engine applied;
                                                         -- 1.0 is every served model's own default
+    tag_version TEXT NOT NULL DEFAULT ''                -- hash of what the study's kernel tag resolved to at
+                                                        -- submit (tags.version); '' = not a tagged run
 ) STRICT;
 
 -- One agent's episode: one worker of one setup on its assigned kernel, in one Slurm job. The token
@@ -105,8 +107,10 @@ CREATE TABLE grades (
     requested_build     TEXT NOT NULL DEFAULT '',       -- JSON list; '' = none requested
     requests         TEXT NOT NULL DEFAULT '',          -- JSON: the submission's requests block, as relayout's
                                                         -- models validate and write it (libraries, grid,
-                                                        -- the operations); '' = none. Its entries are the
-                                                        -- grade_requests rows
+                                                        -- the operations); '' = an agent call that asked for
+                                                        -- none. Its entries are the grade_requests rows. A
+                                                        -- final/regrade row holds none of its own: its request
+                                                        -- is the of_grade_id grade's
     build_commands   TEXT NOT NULL DEFAULT '',          -- JSON list of the grade's own commands
     build_ok         INTEGER CHECK (build_ok IN (0, 1)),
     correct          INTEGER CHECK (correct IN (0, 1)),
@@ -141,7 +145,6 @@ CREATE TABLE grades (
     cpu              TEXT NOT NULL DEFAULT '',
     commit_sha       TEXT NOT NULL DEFAULT '',
     task_hash        TEXT NOT NULL,                     -- spec.task_fingerprint of the kernel when graded
-    UNIQUE (episode_id, kernel, ts_ms, kind),
     CHECK ((kind IN ('final', 'regrade')) = (of_grade_id IS NOT NULL)),
     CHECK (credited_speedup = 0 OR (build_ok = 1 AND correct = 1))
 ) STRICT;
@@ -193,7 +196,7 @@ CREATE TABLE grade_cells (
 -- value the JSON list of its extents over the rank count P), then every operation, top to bottom (kind its
 -- relayout action). Written with the grade from the same validated request (results_db.add_grade), so the
 -- rows and the JSON never disagree; results_db.requests_from_rows rebuilds the request. A grade that
--- requests nothing has none.
+-- requests nothing has none, and neither has a final/regrade row (join on its of_grade_id grade).
 CREATE TABLE grade_requests (
     grade_id INTEGER NOT NULL REFERENCES grades (id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK (position >= 0),  -- the entry's place in the request: libraries, grid,
@@ -271,8 +274,8 @@ CREATE TABLE reference_scaling_points (
 ) STRICT;
 
 -- One deterministic baseline-sweep measurement (``hpcagent-bench job baseline``): a column's time for a kernel, no
--- agent and no judge. Written as each kernel finishes (support/collect/canon_db.py), a re-run replacing its row;
--- read by the baseline figures (stats/canon.py) and the canon perf gate. median_ms is NULL for a kernel the column
+-- agent and no judge. Written as each kernel finishes (support/collect/canon_db.py), a re-run replacing its row
+-- (and, across merged files, the row with the latest ts_ms winning); read by the baseline figures (stats/canon.py) and the canon perf gate. median_ms is NULL for a kernel the column
 -- produced no time for (a crash, a decline), never 0.
 CREATE TABLE canon (
     run          TEXT NOT NULL,                         -- the sweep's run label
@@ -291,16 +294,21 @@ CREATE TABLE canon (
     cpu          TEXT NOT NULL DEFAULT '',              -- its CPU model (osinfo.cpu_model)
     gpu          TEXT NOT NULL DEFAULT '',              -- its GPU model; '' for a CPU column
     execution    TEXT NOT NULL DEFAULT 'native' CHECK (execution IN ('native', 'container')),  -- record.execution
+    ts_ms        INTEGER NOT NULL DEFAULT 0,            -- when the row was written; the latest wins a merge
     UNIQUE (run, "column", kernel, preset, datatype)
 ) STRICT;
 
 CREATE INDEX grades_episode ON grades (episode_id, kernel);
+-- A grade's natural key. A final/regrade row is told apart by the submission it re-timed: two finals of two
+-- submissions stamped in one millisecond (two regrade files) are two rows. COALESCE because a NULL never
+-- equals another in a UNIQUE index.
+CREATE UNIQUE INDEX grades_key ON grades (episode_id, kernel, ts_ms, kind, COALESCE(of_grade_id, 0));
 CREATE INDEX grades_of ON grades (of_grade_id);
 CREATE INDEX grade_sources_hash ON grade_sources (hash);
 CREATE UNIQUE INDEX episodes_key ON episodes (job, label);
 
 CREATE VIEW grades_flat AS
-SELECT a.study, a.model, a.language, a.device, a.packet, a.harness, r.setup, r.job, r.label, r.slot, g.*
+SELECT a.study, a.model, a.language, a.device, a.packet, a.harness, a.tag_version, r.setup, r.job, r.label, r.slot, g.*
 FROM grades AS g
 JOIN episodes AS r ON r.id = g.episode_id
 JOIN setups AS a ON a.setup = r.setup;

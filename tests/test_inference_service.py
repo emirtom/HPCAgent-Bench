@@ -507,7 +507,7 @@ def listing(model: str, *pricings: dict[str, str]) -> dict[str, object]:
 
 def test_a_model_priced_zero_on_every_endpoint_is_free(service: types.ModuleType) -> None:
     body = listing("stealth/union-alpha", {"prompt": "0", "completion": "0", "discount": 0})
-    assert service.not_free(body, "stealth/union-alpha") is None
+    assert service.not_free(service.PricingListing.model_validate(body), "stealth/union-alpha") is None
 
 
 @pytest.mark.parametrize(
@@ -526,7 +526,7 @@ def test_a_free_only_setup_refuses_any_listing_that_does_not_prove_the_model_fre
 ) -> None:
     """A router picks the provider per request, so ONE paid endpoint, one metered unit, or a listing
     that proves nothing is enough to bill a key the user allowed only for a free model."""
-    got = service.not_free(body, "m")
+    got = service.not_free(service.PricingListing.model_validate(body), "m")
     assert got is not None, got
     assert reason in got, got
 

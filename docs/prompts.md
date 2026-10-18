@@ -196,7 +196,8 @@ From finest to coarsest:
    order, and the built-in `prompts/` directory is the last one. The same roots can shadow skills. With
    `prompt.debug: true`, each fragment is preceded by the path it was loaded from, and the header lists
    the sections that are off or replaced.
-3. **A knob.** The `prompt:` block in `hpcagent_bench/config.py` maps one-to-one onto `PromptConfig`:
+3. **A knob.** The `prompt:` block of `hpcagent_bench/config.yaml` (its defaults and comments; the model is in
+   `hpcagent_bench/config.py`) maps one-to-one onto `PromptConfig`:
    `template`, `template_dir`, `template_dirs`, `generator`, `debug`, `inline_kernel`,
    `container_workdir`, `include_translation`, `include_reference`, `strategy`,
    `optimization_guidance`, `profiling_guidance`, `language_track`, `native`, `sections`. Each also

@@ -435,7 +435,7 @@ def amd_compute_once(root: pathlib.Path, request_file: pathlib.Path, *, exe: str
     analysis.mkdir(parents=True, exist_ok=True)
     # Sealed OUTSIDE the profiler, as rocprof_record seals rocprofv3: rocprof-compute drives the same
     # rocprofiler-sdk preload, under which the seal cannot enter its namespaces (gpu_profiling.child_argv).
-    plan = gpu_profiling.request_plan(request_file)
+    plan = profiling.request_plan(request_file)
     measured = gpu_profiling.measured_argv(request_file, sealed_outside=plan is not None)
     argv = seal.wrap(plan, rocprof_compute_profile_argv(exe, workload, measured))
     env = {**os.environ, **gpu_profiling.ROCPROF_CHILD_ENV}

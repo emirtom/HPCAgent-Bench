@@ -756,7 +756,6 @@ class RenderRecord(pydantic.BaseModel):
     errtype: str = ""
     frame: str = ""
     entry: str = ""
-    forced_abi_symbols: list[str] = pydantic.Field(default_factory=list[str])
     source: str = ""
     device: str = ""
     binding: str = ""
@@ -795,8 +794,6 @@ def render_sdfg(
     canonicalize_for(parsed, target, cpf_canonical.small_symbols(spec), cpf_canonical.nonnegative_symbols(spec))
     form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target, hints)
     rec.entry = form.entry
-    if form.forced:
-        rec.forced_abi_symbols = list(form.forced)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths_by_role: dict[str, str] = {}
     for role, name, text in form.artefacts():
@@ -911,7 +908,6 @@ def prerender_sdfg(
                     "inputs": {"canonical": canonical, "dace_commit": dace_commit, "options": options},
                     "kernel": spec.short_name,
                     "entry": form.entry,
-                    "forced_abi_symbols": list(form.forced),
                     "libraries": list(form.libraries),
                     "workspace_bytes": form.workspace_bytes,
                 }
@@ -1087,7 +1083,7 @@ def track_specs(track: str) -> list[BenchSpec]:
     specs: list[BenchSpec] = []
     for key in sorted(KERNELS):
         try:
-            spec = BenchSpec.load(key.rsplit("/", 1)[-1])
+            spec = BenchSpec.load(key)
         except Exception:  # noqa: BLE001 -- unregistered / unloadable -> not part of the sweep
             continue
         if spec.track == track:

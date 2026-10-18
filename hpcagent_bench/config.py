@@ -290,10 +290,6 @@ class Attempts(Section):
     token_budget_override: PositiveInt | None
 
 
-#: Release registry repository every default image reference lives in.
-IMAGE_REPOSITORY = "docker.io/spcleth/hpcagent-bench"
-
-
 class CpuImages(Section):
     """``images.cpu``: agent (toolchain only) and verifier (full harness) OCI references."""
 
@@ -354,6 +350,7 @@ class Record(Section):
     harness: str
     temperature: NonNegativeFloat
     commit: str
+    tag_version: str
     db_path: str
     speedup_suspect_above_host: PositiveFloat
     speedup_suspect_above_device: PositiveFloat
@@ -638,7 +635,8 @@ def env_name(dotted: str) -> str:
 ENV_KEYS: dict[str, str] = {env_name(dotted): dotted for dotted in FIELDS}
 
 #: ``HPCAGENT_BENCH_*`` names under a section prefix that are not configuration keys: read directly by the
-#: code that owns them. :func:`check_env` accepts them.
+#: code that owns them, or (``HPCAGENT_BENCH_JUDGE_SIF``) only by a test: tests/test_container_launch.py
+#: finds its judge SIF there, and nothing in production reads it. :func:`check_env` accepts them.
 NON_CONFIG_ENV = frozenset(
     {
         "HPCAGENT_BENCH_AGENT_DIR",
@@ -656,7 +654,6 @@ NON_CONFIG_ENV = frozenset(
         "HPCAGENT_BENCH_MPI_PMI",
         "HPCAGENT_BENCH_RECORD_AGENT_MAX_TOKENS",
         "HPCAGENT_BENCH_RECORD_AGENT_TIMEOUT_SECONDS",
-        "HPCAGENT_BENCH_RECORD_TAG_VERSION",
         "HPCAGENT_BENCH_SEEDS_FIRST",
         "HPCAGENT_BENCH_SEEDS_PUBLIC_OK",
         "HPCAGENT_BENCH_SEEDS_SECOND",

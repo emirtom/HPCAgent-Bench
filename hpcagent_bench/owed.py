@@ -42,7 +42,8 @@ from hpcagent_bench import tags
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import episodes, results_db
 from hpcagent_bench.harness.recording import slot_of
-from hpcagent_bench.problem_file import ProblemLine, read_lines
+from hpcagent_bench.kernel_key import kernel_stem
+from hpcagent_bench.problem_file import ProblemLine, raw_lines, read_lines
 from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
@@ -63,7 +64,6 @@ __all__ = [
     "delivered_at",
     "designed_runs",
     "job_setup",
-    "kernel_stem",
     "latest_classes",
     "launch_files",
     "launch_problems",
@@ -72,7 +72,6 @@ __all__ = [
     "parse_run",
     "problem_run",
     "read_env",
-    "read_problems",
     "regrade_dbs",
     "rerun_problems",
     "selected",
@@ -117,7 +116,7 @@ def parse_run(line: str) -> Run:
 
 def problem_run(problem: ProblemLine) -> Run:
     """The :class:`Run` a problems-file line is."""
-    return Run(kernel_stem(problem.kernel), problem.slot or 1)
+    return Run(kernel_stem(problem.kernel or ""), problem.slot or 1)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -216,17 +215,13 @@ def task_changed(dbs: Iterable[pathlib.Path], setup: str) -> dict[Run, int]:
     return changed
 
 
-def kernel_stem(kernel: object) -> str:
-    return str(kernel or "").rsplit("/", 1)[-1]
-
-
 def latest_classes(job_dirs: Iterable[pathlib.Path]) -> dict[Run, OwedClass]:
     """run -> the class of its latest episode (``final_attempt_start_ms``, else the file's mtime)."""
     latest: dict[Run, tuple[int, OwedClass]] = {}
     for job_dir in job_dirs:
         for path in job_dir.glob(episodes.RECORD_GLOB):
             record = episodes.read_record(path)
-            kernel = kernel_stem(record.kernel) if record is not None else ""
+            kernel = kernel_stem(record.kernel or "") if record is not None else ""
             if record is None or not kernel:
                 continue
             run = Run(kernel, slot_of(record.episode_id))
@@ -244,7 +239,7 @@ def designed_runs(jobs: Sequence[Job], tag_kernels: Sequence[str]) -> list[Run]:
     for job in jobs:
         problems = launch_problems(job.path)
         if problems is not None:
-            slots.update(problem_run(problem).slot for problem in read_problems(problems))
+            slots.update(problem_run(problem).slot for problem in read_lines(problems))
     return [Run(kernel, slot) for kernel in tag_kernels for slot in sorted(slots)]
 
 
@@ -341,16 +336,11 @@ def launch_files(job_dir: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     return problems.parent / ".env", problems
 
 
-def read_problems(problems: pathlib.Path) -> list[ProblemLine]:
-    """The problems of a problems file."""
-    return read_lines(problems)
-
-
 def rerun_problems(problems: pathlib.Path, runs: set[Run]) -> list[str]:
     """The problem lines of ``problems`` that are one of ``runs``; refuses a run it lacks."""
-    lines = [line for line in problems.read_text(encoding="utf-8").splitlines() if line.strip()]
-    kept = [line for line in lines if problem_run(ProblemLine.model_validate_json(line)) in runs]
-    missing = runs - {problem_run(ProblemLine.model_validate_json(line)) for line in kept}
+    parsed = [(line, problem_run(ProblemLine.model_validate_json(line))) for line in raw_lines(problems)]
+    kept = [line for line, run in parsed if run in runs]
+    missing = runs - {run for _, run in parsed}
     if missing:
         raise SystemExit(f"{problems} holds no problem for {sorted(run.line() for run in missing)}")
     return kept

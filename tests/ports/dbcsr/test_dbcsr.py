@@ -50,7 +50,6 @@ P_N = 1
 P_K = 2
 P_A_FIRST = 3
 P_B_FIRST = 4
-P_C_FIRST = 5
 P_C_BLK = 6
 
 

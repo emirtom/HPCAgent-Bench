@@ -15,7 +15,7 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.stats import population, score_rule
-from tests.fresh_module import module_at
+from hpcagent_bench.stats.commands import efficacy as efficacy_command
 
 REPO = paths.ROOT
 
@@ -161,7 +161,7 @@ def test_an_answer_scores_by_its_suspect_flag(suspect: object, want: float) -> N
 
 
 def load_plot_script():
-    return module_at(REPO / "statistics" / "plot_score_change.py")
+    return efficacy_command
 
 
 @pytest.mark.parametrize("recorded", [None, "s-v1", "s-v5"])

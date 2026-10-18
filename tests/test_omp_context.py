@@ -149,7 +149,11 @@ def test_a_prebuilt_library_takes_the_context_of_the_runtime_it_names(
         ("libomp.so.5", "llvm"),
         ("libiomp5.so", "llvm"),
         ("libnvomp.so", "nvhpc"),
+        ("libgomp-a34b3233.so.1.0.0", "gnu"),
         ("libc.so.6", "gnu"),
+        # LLVM's offload and debugging plugins are not runtimes (openmp_runtimes.RUNTIME_FILE).
+        ("libomptarget.so", "gnu"),
+        ("libompd.so", "gnu"),
     ]:
         readelf(needed)
         assert omp_context.context_for_library(lib) == context, needed

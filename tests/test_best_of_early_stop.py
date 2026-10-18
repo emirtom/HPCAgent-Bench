@@ -36,7 +36,7 @@ C_FAST_NS = 1_000_000
 AUTOPAR_NS = 3_000_000
 
 
-pytestmark = pytest.mark.usefixtures("numba_oracle_from_numpy", "fresh_baseline_memo")
+pytestmark = pytest.mark.usefixtures("fresh_baseline_memo")
 
 
 def rep_samples(per_rep_ns: int) -> list[int]:
@@ -69,7 +69,7 @@ def seq_c(
         if per_rep_ns * 1e-9 > timeout:
             raise NativeCallTimeout(f"native call exceeded {timeout:g}s on a single rep and was killed")
         samples = rep_samples(per_rep_ns)
-        return grading._numpy_reference(spec, data), min(samples), {}, samples
+        return grading.numba_reference_outputs(spec, data), min(samples), {}, samples
 
     return fake
 

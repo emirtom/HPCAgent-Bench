@@ -91,6 +91,7 @@ __all__ = [
     "now_ms",
     "open_episode",
     "open_episode_in_job",
+    "packet_key",
     "packet_tag",
     "realized_candidates",
     "record",
@@ -108,6 +109,7 @@ __all__ = [
     "store_delivery",
     "study_tag",
     "submission_envelope",
+    "tag_version_tag",
     "trajectory_stamps",
 ]
 
@@ -281,7 +283,11 @@ def packet_tag() -> str:
     groupable. The empty string is the no-packet control, not a missing value. Accepts ``;`` as a
     separator too, so an ad-hoc spec (see :mod:`hpcagent_bench.packets`) records the same key
     whether it is written ``a;b`` or ``a+b``."""
-    raw = config.current().record.packet
+    return packet_key(config.current().record.packet)
+
+
+def packet_key(raw: str) -> str:
+    """The canonical key of the packet spec ``raw`` (:func:`packet_tag`)."""
     return "+".join(sorted({part for part in re.split(r"[+;,\s]+", raw) if part}))
 
 
@@ -306,6 +312,12 @@ def setup_tag() -> str | None:
 def temperature_tag() -> float:
     """``record.temperature`` -- the sampling temperature the setup's serving engine applied."""
     return config.current().record.temperature
+
+
+def tag_version_tag() -> str:
+    """``record.tag_version`` -- what the setup's kernel tag resolved to at submit
+    (``cluster/record_identity.sh`` record_tag_version); '' for a run of no tag."""
+    return config.current().record.tag_version.strip()
 
 
 def harness_tag() -> str | None:
@@ -349,6 +361,8 @@ class Identity(NamedTuple):
     packet: str
     setup: str | None
     harness: str | None
+    tag_version: str
+    temperature: float
 
 
 def identity() -> Identity:
@@ -361,6 +375,8 @@ def identity() -> Identity:
         packet_tag(),
         setup_tag(),
         harness_tag(),
+        tag_version_tag(),
+        temperature_tag(),
     )
 
 
@@ -438,7 +454,7 @@ JOB_ENV = "SLURM_JOB_ID"
 #: An episode's episode id, ``<setup>.n<node>.p<problem>.w<worker>``, then ``.s<slot>`` for a designed repeat's
 #: run: how the slot travels from the agent to the judge, which stores it in ``episodes.slot``. A setup name may
 #: hold dots (``temperature3-qwen38-c-t1.5``): only the fixed suffix delimits it.
-LABEL = re.compile(r"(?P<setup>.+)\.n\d+\.p\d+\.w\d+(?:\.s(?P<slot>\d+))?")
+LABEL = re.compile(r"(?P<setup>.+)\.n(?P<node>\d+)\.p(?P<problem>\d+)\.w(?P<worker>\d+)(?:\.s(?P<slot>\d+))?")
 #: ``optimizer`` markers a replayed request carries: how its source was obtained, the grade's kind.
 ORIGIN_KINDS: dict[str, str] = {
     "promoted-unsubmitted": "promoted",
@@ -482,14 +498,20 @@ def open_episode(conn: sqlite3.Connection, episode_id: str, setup_language: str 
     return open_episode_in_job(conn, episode_id, job_tag(), setup_language)
 
 
-def open_episode_in_job(conn: sqlite3.Connection, episode_id: str, job: int, setup_language: str | None = None) -> int:
+def open_episode_in_job(
+    conn: sqlite3.Connection,
+    episode_id: str,
+    job: int,
+    setup_language: str | None = None,
+    who: Identity | None = None,
+) -> int:
     """The ``episodes`` id of episode ``episode_id`` in ``job``, its setup recorded first.
 
-    The setup's identity is this judge's own configuration (:func:`identity`); the first grade of a setup
-    fixes it. ``setup_language`` fills the language only when the setup declared none, and a caller may
-    pass it ONLY when it is the harness's own task language: a request body is agent-controlled and
-    has arrived naming ``py``, ``zzz`` and a file path."""
-    who = identity()
+    The setup's identity is ``who``, by default this process's own configuration (:func:`identity`); the
+    first writer of a setup fixes it. ``setup_language`` fills the language only when the setup declared
+    none, and a caller may pass it ONLY when it is the harness's own task language: a request body is
+    agent-controlled and has arrived naming ``py``, ``zzz`` and a file path."""
+    who = who or identity()
     setup = setup_of(episode_id)
     results_db.ensure_setup(
         conn,
@@ -501,7 +523,8 @@ def open_episode_in_job(conn: sqlite3.Connection, episode_id: str, job: int, set
             study=who.study,
             model=who.model,
             packet=who.packet,
-            temperature=temperature_tag(),
+            temperature=who.temperature,
+            tag_version=who.tag_version,
         ),
     )
     return results_db.ensure_episode(conn, setup, episode_id, job, slot_of(episode_id))
@@ -594,7 +617,7 @@ def envelope_values(
 
 def submission_envelope(submission: Submission) -> dict[str, results_db.Value]:
     """:func:`envelope_values` of a parsed submission."""
-    return envelope_values(submission.build, submission.requests_json(), submission.workspace_bytes)
+    return envelope_values(submission.build, submission.requests.recorded_json(), submission.workspace_bytes)
 
 
 def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submission) -> None:

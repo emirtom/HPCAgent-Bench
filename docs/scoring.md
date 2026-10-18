@@ -315,8 +315,8 @@ extractor underneath. `studies.read_observations` applies X6-X8 on read.
   worker directory (T3).
 - X2. `attempt_index`: the judge's `round` for `call` rows; for `submission` / `attempt` rows the
   1-based ordinal among the episode's rows of that table, ordered by `(ts, id)`.
-- X3. `setup`, `packet`, `language` come from the setup name when a row did not record them
-  (`studies.fill_setup_identity`); recorded values are kept in `recorded_<column>`.
+- X3. `setup`, `packet`, `language` (and `harness`) are the episode's recorded setup row (`setups`), never
+  parsed off the episode id or the setup name.
 - X4. Only the final grade (`mw4x5`) under the kernel's configured denominator is credited
   (`denominator.credited`). A submission whose final grade is missing, faulted or under an older
   stamp or another denominator stays on record uncredited and is owed a final grade
@@ -417,7 +417,7 @@ can mark the placeholder.
 - M1. Benjamini-Hochberg (`statistics.correction`) at `q = 0.05` over one family
   (`significance.verdicts`); only a
   corrected verdict is starred. A test without a p is not a family member. A `paired_setups.py` family
-  is every pair's `speedup` and `tokens` legs; the solved rate is reported, not tested. One `plot_score_change.py`
+  is every pair's `speedup` and `tokens` legs; the solved rate is reported, not tested. One `hpcagent-bench plot efficacy`
   `--treatment` per invocation is one family; one `paired_setups.py` invocation (all `--pair` legs) is
   one family; tests from different invocations are never corrected together. The same one key corrects a
   per-kernel reliability comparison (`reliability.compare_setups`, repeat5): its family is the kernels compared,

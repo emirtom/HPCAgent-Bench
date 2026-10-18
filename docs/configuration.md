@@ -186,7 +186,9 @@ The Container Engine names its images by EDF, and the EDF name carries the hardw
 EDFs of its base hardware (`HPCAGENT_BENCH_BASE_HARDWARE=mi300`); `submit.sh` pins `HPCAGENT_BENCH_HARDWARE` and, for
 any other hardware, renames every `*_CE_ENV` to the `-<hardware>-` EDF and pins `layers/hardware-<hardware>.env`
 (and `hardware-<hardware>-<model>.env` for a model served on our nodes). A recorded experiment on another hardware
-must name it, so its rows never pool with the base hardware's. Under the Container Engine no hardware is an error;
+must name it, so its rows never pool with the base hardware's; the setup's name names it too
+(`<experiment>-<hardware>-<model>-<variant>`, unless the experiment already does), because setups are keyed by
+name alone. Under the Container Engine no hardware is an error;
 the other runtimes name an image per role (`INFERENCE_IMAGE`, `BENCH_IMAGE`) and need none.
 
 ## The guard

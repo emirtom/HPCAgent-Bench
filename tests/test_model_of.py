@@ -13,7 +13,7 @@ from hpcagent_bench import paths, study_tags
 
 #: The scripts that call it. A figure that cannot resolve its model draws every setup as one series.
 CALLERS = (
-    "statistics/plot_score_change.py",
+    "hpcagent_bench/stats/commands/efficacy.py",
     "hpcagent_bench/studies.py",
 )
 

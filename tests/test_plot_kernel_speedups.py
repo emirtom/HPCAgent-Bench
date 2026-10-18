@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``statistics/plot_kernel_speedups.py``: speedup per kernel, compilers and setups over one baseline."""
+"""``hpcagent_bench/stats/commands/kernel_speedups.py``: speedup per kernel, compilers and setups over one baseline."""
 
 import pathlib
 import sqlite3
@@ -11,11 +11,11 @@ import pytest
 
 from hpcagent_bench import paths
 from hpcagent_bench.stats import cost
-from tests.fresh_module import module_at
+from hpcagent_bench.stats.commands import kernel_speedups as kernel_speedups_command
 
 REPO = paths.ROOT
 
-plot = module_at(REPO / "statistics" / "plot_kernel_speedups.py")
+plot = kernel_speedups_command
 
 
 def test_a_canon_db_alone_draws_its_columns_over_the_baseline(tmp_path: pathlib.Path) -> None:

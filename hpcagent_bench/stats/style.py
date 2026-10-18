@@ -331,6 +331,7 @@ def legend_below(
     span: tuple[float, float] | None = None,
     columnspacing: float = 1.6,
     handlelength: float = 2.0,
+    exact: bool = False,
 ) -> float:
     """One legend, centred under the whole figure and wrapped to its width; never inside the axes.
     Returns the legend's height in inches, for the caller's bottom margin.
@@ -338,7 +339,9 @@ def legend_below(
     The requested column count is a ceiling: a row too wide for the canvas drops a column until it
     fits. ``fontsize``/``markerscale`` override the defaults for a figure too short to afford them.
     ``span``, the plot body's (left, right) in figure fractions, makes the body's width the limit
-    instead of the canvas, and centres the legend on it.
+    instead of the canvas, and centres the legend on it. ``exact`` keeps the column count as given: a key laid
+    out by columns (one meaning per column) that does not fit draws nothing and returns -1.0, for the caller to
+    lay it out over fewer columns itself rather than have its columns refilled out of order.
     """
     columns = ncol if ncol != 0 else min(len(handles), 5)
     left, right = span if span is not None else (0.0, 1.0)
@@ -360,7 +363,10 @@ def legend_below(
             borderpad=0.1,
         )
         box = legend.get_window_extent(renderer_of(fig)).transformed(fig.dpi_scale_trans.inverted())
-        if columns <= 1 or box.width <= limit:
+        if exact and columns > 1 and box.width > limit:
+            legend.remove()
+            return -1.0
+        if exact or columns <= 1 or box.width <= limit:
             # Fill the box: the fewest columns that give this many rows (12 entries: 4, not 5).
             full = -(-len(handles) // max(1, -(-len(handles) // columns)))
             if full < columns:

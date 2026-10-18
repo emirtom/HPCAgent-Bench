@@ -31,7 +31,7 @@ FORMAT = {"action": "format", "array": "A", "to": "csc"}
 
 def requests(*operations: dict, **startup: object) -> Requests:
     """The request of ``operations`` with ``startup`` fields (``grid``, ``load``) where given."""
-    return Requests.from_obj(
+    return Requests.validate(
         {"startup": startup, "operations": list(operations)} if startup else {"operations": list(operations)}
     )
 

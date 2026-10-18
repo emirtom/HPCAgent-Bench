@@ -26,6 +26,7 @@ import pydantic
 import yaml
 
 from hpcagent_bench import columns, external_skills, models, paths, skill_packets, spec
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.vocabulary import (
     KINDS,
     MODELS,
@@ -387,10 +388,8 @@ def language_of(setup: str, unknown: str = "") -> str:
     Setups are ``<study>-<model>-<language>[-skills|-cpf-tool|-cpf-src|-cpf-tool-kinds|...]``, so the language is a
     whole dash-delimited token, same rule as :func:`model_of` and for the same reason.
 
-    THE LAST RESORT, same as :func:`model_of`: a recorded ``language`` column is provenance, and
-    this exists for the rows an experiment never stamped it onto at all -- a setup whose every row
-    predates the column has nothing :func:`hpcagent_bench.studies.fill_setup_identity` could fill
-    from, and the setup name is the only place the language still is.
+    A last resort, like :func:`model_of`: a row's identity is its recorded ``setups`` row (no name fallback on
+    read); this reads a name only where there is no such row.
     """
     return token_of(setup, "languages", unknown)
 
@@ -417,8 +416,8 @@ def packet_spellings() -> tuple[tuple[str, str], ...]:
 def packet_of(setup: str, unknown: str = "") -> str:
     """The packet a setup ran, read from a packet token after its model token; ``unknown`` when there is none.
 
-    A name without a packet token is the control or a setup named before packets were suffixed, so the caller decides
-    what no token means (:func:`hpcagent_bench.studies.fill_setup_identity` falls back to the recorded value).
+    A name without a packet token is the control, so the caller decides what no token means. A last resort, like
+    :func:`model_of`: a row's identity is its recorded ``setups`` row (no name fallback on read).
     """
     suffix = setup_suffix(setup)
     for packet, spelling in packet_spellings():
@@ -434,23 +433,21 @@ SHORT_NAME_MAX: int = 14
 
 @functools.lru_cache(maxsize=1, typed=True)
 def manifest_names() -> tuple[Names, Names]:
-    """``(names, short_names)``, both keyed by ``short_name``, from ONE pass over the corpus.
+    """``(names, short_names)``, both keyed by kernel name (the manifest stem), from ONE pass over the corpus.
 
     ``names`` holds every manifest's ``name``; ``short_names`` only the manifests that declare a
     ``short-name``. A light YAML read of each manifest rather than a full
     :class:`hpcagent_bench.spec.BenchSpec` parse: only these fields are wanted, and a manifest too
-    broken to parse must not stop a figure from drawing -- it falls back to its stem."""
+    broken to parse must not stop a figure from drawing -- it is left out, and its axis label is its stem."""
     found: Names = {}
     short: Names = {}
     for key in spec.KERNELS:
         path = spec.KERNELS[key]
-        stem = key.rsplit("/", 1)[-1]
+        kernel = kernel_stem(key)
         try:
             raw = spec.load_yaml(path.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001 -- a broken manifest just keeps its stem on the axis
             continue
-        identifier = raw.get("short_name")
-        kernel = identifier if isinstance(identifier, str) and identifier else stem
         title = raw.get("name")
         if isinstance(title, str) and title:
             found[kernel] = title

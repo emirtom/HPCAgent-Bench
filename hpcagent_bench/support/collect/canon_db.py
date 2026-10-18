@@ -5,14 +5,17 @@ kernel, preset, datatype) a baseline sweep measured.
 
 Every rank of a sweep (``hpcagent-bench job baseline``) writes its rows here as each kernel finishes, into the one
 persistent DB every column of every experiment shares (``$HPCAGENT_BENCH_RESULTS_DIR/canon.db``, an
-hb-results-v1.0 file); :mod:`hpcagent_bench.stats.canon` reads it back for ``statistics/plot_kernel_speedups.py``. A
-row is ``INSERT OR REPLACE`` on its key, so a re-run of a kernel, or a retried write, never doubles it.
+hb-results-v1.0 file); :mod:`hpcagent_bench.stats.canon` reads it back for ``hpcagent_bench/stats/commands/kernel_speedups.py``. A
+row is ``INSERT OR REPLACE`` on its key, so a re-run of a kernel, or a retried write, never doubles it; it is stamped
+with when it was written (``ts_ms``), so a merge of several files keeps the latest measurement
+(:data:`hpcagent_bench.harness.results_db.NEWEST_WINS`).
 """
 
 import contextlib
 import fcntl
 import pathlib
 import sqlite3
+import time
 from collections.abc import Iterable, Mapping
 
 from hpcagent_bench.harness import results_db
@@ -39,6 +42,7 @@ COLUMNS: tuple[str, ...] = (
     "cpu",
     "gpu",
     "execution",
+    "ts_ms",
 )
 
 #: A row's identity; a later row with the same key replaces it.
@@ -63,8 +67,10 @@ def connect(path: pathlib.Path) -> sqlite3.Connection:
 
 def record(path: pathlib.Path, rows: Iterable[Mapping[str, object]]) -> int:
     """``INSERT OR REPLACE`` every row (a mapping over :data:`COLUMNS`; returns how many). A missing or ``None``
-    value takes the column's default where it has one (``build`` an unset label, ...), else is NULL."""
+    value takes the column's default where it has one (``build`` an unset label, ...; ``ts_ms`` now), else is
+    NULL."""
     defaults = {
+        "ts_ms": int(time.time() * 1000),
         "build": "",
         "impl": "",
         "failure": "",

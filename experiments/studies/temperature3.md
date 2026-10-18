@@ -15,10 +15,10 @@ Figure (speedup, token cost and solved runs per model, kernel and temperature; [
 
 ```bash
 python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
-python statistics/plot_kernel_runs.py data/temperature3.db --experiment temperature3 --tag temperature3 \
+hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
     --out figures/temperature3.pdf
-python statistics/plot_kernel_runs.py data/temperature3.db --experiment temperature3 --tag temperature3 \
+hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
     --style violin --out figures/temperature3-violin.pdf
-python statistics/plot_kernel_runs.py data/temperature3.db --experiment temperature3 --tag temperature3 \
+hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
     --conditions t0,default --out figures/temperature3_t0_t1.pdf  # the paper's figure: square, one column
 ```

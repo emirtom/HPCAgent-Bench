@@ -27,6 +27,20 @@ def site_environment(values: dict[str, str]) -> Callable[[Mapping[str, str]], di
     return lambda environ: dict(values)
 
 
+def test_a_named_site_layer_that_does_not_exist_is_an_error_not_ignored(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(SystemExit, match="site layer failed to load"):
+        systems.site_environment({**os.environ, "HPCAGENT_BENCH_SITE_ENV": str(tmp_path / "missing.env")})
+
+
+def test_a_site_layer_value_reaches_the_environment(tmp_path: pathlib.Path) -> None:
+    layer = tmp_path / "site.env"
+    layer.write_text('SBATCH_PARTITION="${SBATCH_PARTITION:-fromlayer}"\n')
+    environ = {k: v for k, v in os.environ.items() if k != "SBATCH_PARTITION"}
+    assert (
+        systems.site_environment({**environ, "HPCAGENT_BENCH_SITE_ENV": str(layer)})["SBATCH_PARTITION"] == "fromlayer"
+    )
+
+
 def test_the_shipped_systems_name_every_shape_field_a_job_needs() -> None:
     for name, entry in SHIPPED.items():
         assert {"partition", "ntasks_per_node", "cpus_per_task"} <= set(entry.given()), name

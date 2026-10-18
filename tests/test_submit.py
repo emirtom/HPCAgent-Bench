@@ -377,6 +377,18 @@ def test_a_hosted_model_setup_lands_on_mi200_without_a_serving_layer(tmp_path: p
     assert_on_mi200(root, env)
 
 
+def test_the_setup_name_carries_a_hardware_other_than_the_base(tmp_path: pathlib.Path) -> None:
+    """Setups are keyed by name alone: the same experiment on two machines must be two setups, as its study is.
+    An experiment that does not name the hardware gains it as its last segment, so the name still parses."""
+    root = tree(tmp_path)
+    done = submit_mi200(root, "musespark", EXPERIMENT="x")
+    assert done.returncode == 0, done.stderr
+    env = setup_env(root, "x-mi200-musespark-c")
+    assert env["HPCAGENT_BENCH_RECORD_STUDY"] == "llr40-mi200"
+    assert env["PROBLEMS_FILE"] == "problems-x-mi200-musespark-c-subset.jsonl"
+    assert not (root / "experiments" / ".env.x-musespark-c-subset").exists()
+
+
 def test_a_served_model_setup_on_mi200_takes_its_serving_layer(tmp_path: pathlib.Path) -> None:
     """A self-served model runs on mi200 through layers/hardware-mi200-<model>.env, pinned over the
     setup after the hardware layer. The test writes its own layer, so it holds whatever ships."""

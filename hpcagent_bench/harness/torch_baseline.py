@@ -541,8 +541,8 @@ def shipped_samples(
 
 
 def reference_outputs(spec: BenchSpec, data: Mapping[str, Any], baseline: str) -> dict[str, np.ndarray]:
-    """The compiled reference's outputs through the SAME child and callable the timing runs -- what the
-    equivalence tests hold to the numpy reference."""
+    """The compiled reference's outputs through the SAME child and callable the timing runs -- the
+    machine_learning oracle, which the equivalence tests hold to the kernel's numba / C reference."""
     job = slot_job(spec, baseline, repeat=1, warmup=0, data=dict(data), want_outputs=True)
     return child_result(job).outputs
 

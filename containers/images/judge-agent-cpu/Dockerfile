@@ -316,77 +316,12 @@ RUN set -eux; \
     rm -rf "${work}"
 
 # ---------------------------------------------------------------------------------------------
-# 2b. The llvm OpenMP context's library variants (hpcagent_bench/omp_context.py).
-#
-# A process maps ONE OpenMP runtime, and clang, flang and hipcc cannot use libgomp, so the llvm family runs in
-# a context of its own: libomp, and every library of the gnu view that links -- or, through OpenBLAS, reaches --
-# an OpenMP runtime built AGAIN by the llvm compiler, same versions, variants and sonames, into
-# /opt/omp/llvm/view (containers/images/lib/omp_contexts.sh links their shared libraries into the context's lib/).
-# numpy and scipy were built once, against libopenblas.so.0 by soname, so they pick the variant of the context
-# they run in through LD_LIBRARY_PATH.
-#
-# shared_linking: runpath, unlike the primary environment: an RPATH (spack's default) is searched BEFORE
-# LD_LIBRARY_PATH and would pin each variant to the libomp of whichever llvm built it. The context's lib/
-# names the one libomp every variant maps.
-#
-# `packages:` requires llvm ONLY of the packages that link or reach an OpenMP runtime; everything they need
-# that maps none (METIS, Scotch, HDF5, MPICH ...) is the gnu build installed above, reused. A package that
-# fails to build with llvm fails this layer: it is then reported, and the catalog record
-# (hpcagent_bench/omp_catalog.py) refuses it to llvm-family submissions rather than the image dropping it.
-# Each requirement names every language the package compiles (`%c,fortran=llvm`): in spack 1.x a bare `%llvm`
-# binds one language only, and C then stays on the gcc@16 preference (libgomp).
+# 2b. The llvm OpenMP context's library variants (hpcagent_bench/omp_context.py), built by the one script
+# every judge-agent image runs (containers/images/lib/omp_llvm_env.sh, which documents the environment and its
+# cpu package list).
 ENV OMP_LLVM_ENV_DIR=/opt/omp/llvm/env
-RUN set -eux; \
-    spack="${SPACK_ROOT}/bin/spack"; \
-    "${spack}" compiler find --scope site "/usr/lib/llvm-${LLVM_MAJOR}"; \
-    mkdir -p "${OMP_LLVM_ENV_DIR}"; \
-    printf '%s\n' \
-      'spack:' \
-      '  concretizer:' \
-      '    unify: true' \
-      '  config:' \
-      '    shared_linking:' \
-      '      type: runpath' \
-      '      bind: false' \
-      '  packages:' \
-      '    blas:' \
-      '      require: [openblas]' \
-      '    lapack:' \
-      '      require: [openblas]' \
-      '    openblas:' \
-      '      variants: threads=openmp +fortran +dynamic_dispatch' \
-      '      require: ["%c,cxx,fortran=llvm"]' \
-      '    netlib-scalapack:' \
-      '      require: ["%c,fortran=llvm"]' \
-      '    mumps:' \
-      '      require: ["%c,fortran=llvm"]' \
-      '  specs:' \
-      '  - openblas@0.3.30' \
-      '  - netlib-scalapack' \
-      '  - mumps ~mpi +shared' \
-      '  view:' \
-      '    default:' \
-      '      root: /opt/omp/llvm/view' \
-      '      link: roots' \
-      '      link_type: symlink' \
-      > "${OMP_LLVM_ENV_DIR}/spack.yaml"; \
-    # clang miscompiles 0.3.30's DYNAMIC_ARCH kernels on aarch64 (18 real level-2 routines and potrf fail
-    # its tests); 0.3.33 passes. x86_64 stays on 0.3.30.
-    if [ "$(uname -m)" = aarch64 ]; then \
-      sed -i 's/openblas@0\.3\.30/openblas@0.3.33/' "${OMP_LLVM_ENV_DIR}/spack.yaml"; \
-    fi; \
-    # A package's own `require` replaces `all: require`, so the portable target is named on each
-    # one: without it sundials is built for the build node's zen4.
-    if [ -n "${SPACK_TARGET}" ]; then \
-      sed -i "s/^\\( *require: \\[\\\"%.*\\)\\]\$/\\1, \\\"target=${SPACK_TARGET}\\\"]/" "${OMP_LLVM_ENV_DIR}/spack.yaml"; \
-    fi; \
-    "${spack}" -e "${OMP_LLVM_ENV_DIR}" concretize -f | tail -60; \
-    "${spack}" -e "${OMP_LLVM_ENV_DIR}" install --fail-fast; \
-    if [ -d /spack-buildcache ]; then \
-      "${spack}" -e "${OMP_LLVM_ENV_DIR}" buildcache push --unsigned --update-index /spack-buildcache || true; \
-    fi; \
-    "${spack}" clean --stage; \
-    ls /opt/omp/llvm/view/lib/libopenblas.so
+COPY containers/images/lib/omp_llvm_env.sh /omp_llvm_env.sh
+RUN sh /omp_llvm_env.sh cpu && rm /omp_llvm_env.sh
 
 # ---------------------------------------------------------------------------------------------
 # 3. The source-built pieces: tblis, HPTT and Pluto (polycc) from the repo's scripts. clang 17 is
@@ -679,22 +614,7 @@ COPY third_party/KernelBench/KernelBench /opt/kernelbench/KernelBench
 COPY third_party/KernelBench/LICENSE /opt/kernelbench/LICENSE
 ENV HPCAGENT_BENCH_ML_KERNELBENCH_DIR=/opt/kernelbench/KernelBench
 
-RUN sed -i 's/^--no-install-project //' /opt/launch/sync.args && ! grep -q no-install-project /opt/launch/sync.args
-
-# The firewall is asserted rather than trusted: neither the package nor a held-out test is in this image.
-RUN python3 - <<'PY'
-import importlib.util
-import os
-
-assert importlib.util.find_spec("hpcagent_bench") is None, "hpcagent_bench is importable in the judge image"
-found: dict[str, list[str]] = {"hpcagent_bench": [], "hidden_tests": []}
-for root, dirs, _ in os.walk("/"):
-    if root.startswith("/proc"):
-        dirs.clear()
-    for name, paths in found.items():
-        if name in dirs:
-            paths.append(os.path.join(root, name))
-assert not found["hpcagent_bench"], f"package code in the judge image: {found['hpcagent_bench']}"
-assert not found["hidden_tests"], f"hidden tests leaked into the judge image: {found['hidden_tests']}"
-print("judge stage OK: no package code, no hidden tests")
-PY
+# Opens the launch sync to the mounted checkout and asserts the firewall (neither the package nor a held-out test is in
+# this image): containers/images/lib/judge_stage.py, shared by every judge-agent image.
+COPY containers/images/lib/judge_stage.py /judge_stage.py
+RUN python3 /judge_stage.py && rm /judge_stage.py

@@ -571,7 +571,7 @@ CLANG_VECT_UNLIMITED = "-mllvm -force-target-instruction-cost=1 -mllvm -slp-thre
 #: pass keeps nvcc's IEEE defaults (``-prec-div``/``-prec-sqrt`` true, no flush-to-zero).
 #: ``-arch=sm_<SM>`` is appended per-host by :func:`compose_cuda` after :func:`detect_sm`.
 #: NO ``--use_fast_math`` and no host ``-ffast-math``: rule (1) at the top of this module holds on
-#: the GPU too, since a GPU submission is graded against the same NumPy oracle and compared against
+#: the GPU too, since a GPU submission is graded against the same compiled oracle and compared against
 #: the same CPU baselines.
 CUDA_BASELINE = f"-O3 -Xcompiler='-O3 -march=native {_FP_RELAX} {_FP_ASSOC} {_FP_CONTRACT} -fPIC'"
 

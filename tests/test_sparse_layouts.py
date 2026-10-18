@@ -203,7 +203,7 @@ def test_a_block_edge_that_does_not_tile_the_matrix_is_refused() -> None:
 )
 def test_a_malformed_format_is_a_request_fault(label: object, match: str) -> None:
     with pytest.raises(ValueError, match=match):
-        Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": label}]})
+        Requests.validate({"operations": [{"action": "format", "array": "A", "to": label}]})
 
 
 def test_the_format_operations_ride_the_envelope_both_ways() -> None:

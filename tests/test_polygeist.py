@@ -5,7 +5,7 @@
 The shim and entry-point tests pin the ABI glue without a toolchain: a descriptor stride that is wrong reads the
 wrong element and computes a plausible number, and a scalar passed through an unprototyped call is promoted
 (fp32 -> double) without a diagnostic. The end-to-end tests run the real pipeline through the harness and check
-every implementation against NumPy, each in a process of its own (the library maps LLVM's OpenMP runtime, and the
+every implementation against the compiled reference, each in a process of its own (the library maps LLVM's OpenMP runtime, and the
 GPU column needs HSA_XNACK set before HIP starts); they skip where the Polygeist tools are not on PATH (the judge
 image has them).
 """
@@ -104,15 +104,15 @@ def test_both_columns_build_from_the_polygeist_transform() -> None:
 
 
 def run_and_validate(framework: str, kernel: str) -> None:
-    """``kernel`` through ``framework`` at preset S, every implementation validated against NumPy."""
+    """``kernel`` through ``framework`` at preset S, every implementation validated against the compiled reference."""
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
-    test = Test(Benchmark(kernel), generate_framework(framework), generate_framework("numpy"))
+    test = Test(Benchmark(kernel), generate_framework(framework))
     results = test.run(preset="S", validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
     assert results, f"{framework}/{kernel}: no implementation ran"
     for impl, result in results.items():
         assert not result.get("failure"), f"{framework}/{kernel}/{impl}: {result.get('failure')}"
-        assert result.get("validated"), f"{framework}/{kernel}/{impl}: did not validate against numpy"
+        assert result.get("validated"), f"{framework}/{kernel}/{impl}: did not validate against the compiled reference"
 
 
 @pytest.mark.skipif(bool(polygeist_transform.missing_tools()), reason=NO_POLYGEIST)

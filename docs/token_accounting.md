@@ -74,13 +74,13 @@ Two scripts price tokens with a card, default `billed`:
 ```bash
 python statistics/paired_setups.py --observations obs.csv --pair SETUP_A,SETUP_B --family skills \
     --out pairs_billed.csv --cost-model billed
-python statistics/plot_score_change.py obs.csv --pairs-csv pairs_billed.csv --intervention lang-skills \
+hpcagent-bench plot efficacy obs.csv --pairs-csv pairs_billed.csv --intervention lang-skills \
     --cost-model billed
 ```
 
 `--cost-model` also takes inline weights (`fresh_input=1,cached_input=0.25,output=4`), and
 `--cost-models my_cards.yaml` adds cards in the shape of `cost_models.yaml`. `paired_setups.py` writes the card into its CSV (`cost_model`), and
-`plot_score_change.py` refuses a pair table priced with a different card. The other figure scripts
+`hpcagent-bench plot efficacy` refuses a pair table priced with a different card. The other figure scripts
 plot the raw `tokens` column, that is, the `effective` card.
 
 ## Budget caps
@@ -120,7 +120,7 @@ Pricing a compaction:
   counts once in both.
 
 A `tokens.json` record reaches the results DB as the token columns of its episode's `episodes` row
-(`episodes.ingest`); the record's `token_fold` names the fold rule it was counted by.
+(`episodes.ingest`).
 
 ## Reading a run
 

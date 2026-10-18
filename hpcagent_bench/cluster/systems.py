@@ -65,8 +65,8 @@ __all__ = [
     "main",
     "options_main",
     "resolve",
-    "scalar_text",
     "sbatch_command",
+    "scalar_text",
     "script_header",
     "site_environment",
 ]
@@ -155,18 +155,23 @@ def load_systems(environ: Mapping[str, str]) -> dict[str, SystemEntry]:
 
 def site_environment(environ: Mapping[str, str]) -> dict[str, str]:
     """``environ`` with the site layer applied under it (``helpers/scripts/site_env.sh``: the layer keeps what the
-    environment already holds), so a layer's ``SBATCH_PARTITION`` counts as if it were exported."""
+    environment already holds), so a layer's ``SBATCH_PARTITION`` counts as if it were exported. A layer that fails
+    to load (a named ``HPCAGENT_BENCH_SITE_ENV`` that is no file, a syntax error) is an error, never ignored."""
     script = paths.repo_root() / "helpers" / "scripts" / "site_env.sh"
     if not script.is_file():
         return dict(environ)
     done = subprocess.run(
-        ["bash", "-c", '. "$1" >/dev/null 2>&1; env -0', "_", str(script)],
+        ["bash", "-c", '. "$1" >&2 || exit; env -0', "_", str(script)],
         capture_output=True,
         env=dict(environ),
         check=False,
     )
+    if done.returncode:
+        raise SystemExit(
+            f"systems: the site layer failed to load (rc {done.returncode}):\n{done.stderr.decode(errors='replace')}"
+        )
     pairs = (entry.partition("=") for entry in done.stdout.decode(errors="replace").split("\0") if "=" in entry)
-    return {key: value for key, _, value in pairs} or dict(environ)
+    return {key: value for key, _, value in pairs}
 
 
 def script_header(script: pathlib.Path) -> dict[str, str]:

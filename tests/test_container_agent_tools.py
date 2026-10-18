@@ -143,7 +143,7 @@ def free_choice_judge(
             {"source": "void k(void) {}", "compiler": "llvm"},
         ),
         (
-            dict(language="c", source="void k(void) {}", requests=Requests.from_obj(ROW_SPLIT)),
+            dict(language="c", source="void k(void) {}", requests=Requests.validate(ROW_SPLIT)),
             {"source": "void k(void) {}", "requests": ROW_SPLIT},
         ),
     ],
@@ -467,7 +467,7 @@ def test_a_distributed_submission_reaches_the_judge_with_its_layout(monkeypatch)
     assert body["requests"] == ROW_SPLIT
     # the route reads ``kernel`` from the body; the rest is the submission
     submission = Submission.from_obj({key: value for key, value in body.items() if key != "kernel"})
-    assert submission.requests == Requests.from_obj(ROW_SPLIT)
+    assert submission.requests == Requests.validate(ROW_SPLIT)
 
 
 def test_an_enforced_track_ignores_a_language_the_model_sent(agent_tools) -> None:

@@ -30,6 +30,7 @@ import threading
 from collections.abc import Sequence
 
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import graded_datatype
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
@@ -140,7 +141,7 @@ def render_kernel(
         outcome = cpf_bridge.RenderOutcome(verdict="fail", error=f"{type(exc).__name__}: {exc}"[:400])
         for language in languages:
             cpf_cache.record(view, kernel, language, fptype, hints, outcome.model_dump())
-        return cpf_cache.short_name(kernel), dict.fromkeys(languages, outcome)
+        return kernel_stem(kernel), dict.fromkeys(languages, outcome)
     # The form a kernel is graded against is rendered at the datatype it is graded in (a bf16 ML kernel's).
     precision = graded_datatype(spec, precision)
     fptype = fptype_tag(precision)

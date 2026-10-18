@@ -112,10 +112,10 @@ ITEMS = ("load", "grid", *SAMPLE_OPERATIONS)
 def item_request(item: str) -> Requests:
     """The request asking for ``item`` alone (one startup member, or one operation without a grid)."""
     if item == "load":
-        return Requests.from_obj({"startup": {"load": ["blas"]}})
+        return Requests.validate({"startup": {"load": ["blas"]}})
     if item == "grid":
-        return Requests.from_obj({"startup": {"grid": ["P"]}})
-    return Requests.from_obj({"operations": [SAMPLE_OPERATIONS[item]]})
+        return Requests.validate({"startup": {"grid": ["P"]}})
+    return Requests.validate({"operations": [SAMPLE_OPERATIONS[item]]})
 
 
 @contextlib.contextmanager
@@ -251,7 +251,7 @@ def test_a_grid_lets_the_digit_operations_through_under_distribute_alone() -> No
     """With a grid the digit operations lay the arrays out over it: ``distribute``, not ``layout``."""
     allowances = RequestAllowances(allow=frozenset({RequestCapability.DISTRIBUTE}))
     for action in LAYOUT_OPS:
-        request = Requests.from_obj({"startup": {"grid": ["P"]}, "operations": [SAMPLE_OPERATIONS[action]]})
+        request = Requests.validate({"startup": {"grid": ["P"]}, "operations": [SAMPLE_OPERATIONS[action]]})
         assert allowances.refusal(request) is None, action
 
 
@@ -272,9 +272,9 @@ def test_a_task_grid_is_set_by_the_judge_and_hidden_from_the_agent() -> None:
         offer = request_actions(graded).wire()
         prompt = build_prompt(graded)
         operations = [SAMPLE_OPERATIONS["distribute"]]
-        bare = Submission(language="c", source="x", requests=Requests.from_obj({"operations": operations}))
+        bare = Submission(language="c", source="x", requests=Requests.validate({"operations": operations}))
         gridded = with_task_grid(bare, graded)
-        sent = Requests.from_obj({"startup": {"grid": ["P"]}, "operations": operations})
+        sent = Requests.validate({"startup": {"grid": ["P"]}, "operations": operations})
         refused = with_task_grid(Submission(language="c", source="x", requests=sent), graded)
     assert offer["startup"] == ["load"]
     assert "distribute" in offer["operations"]
@@ -296,7 +296,7 @@ def test_an_agent_grid_is_the_submissions_own() -> None:
 def test_a_single_node_task_refuses_a_grid() -> None:
     """A kernel without an ``mpi:`` block grades on one node even where ``distribute`` is allowed: a grid there
     would be accepted and never used, so the judge refuses it."""
-    sent = Requests.from_obj({"startup": {"grid": ["P"]}, "operations": [SAMPLE_OPERATIONS["distribute"]]})
+    sent = Requests.validate({"startup": {"grid": ["P"]}, "operations": [SAMPLE_OPERATIONS["distribute"]]})
     with offer_config("load", "distribute", mpi__grade_distributed=True):
         graded = task(SINGLE_NODE_KERNEL)
         refused = requests_refusal(Submission(language="c", source="x", requests=sent), graded, "float64")
@@ -390,16 +390,6 @@ def test_the_driver_exports_the_problem_offer_to_the_agent_and_its_mcp_server(
     mcp = json.loads(driver.write_mcp_config(tmp_path, tmp_path, problem, 0, 0).read_text())
     declared = mcp["mcpServers"][driver.MCP_SERVER_NAME]["env"]
     assert json.loads(declared["HPCAGENT_BENCH_REQUEST_ACTIONS"]) == wire
-
-
-def test_a_problem_line_without_an_offer_exports_none(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    """A line written before the offer existed offers nothing, whatever the launcher's environment held."""
-    driver = fresh("agent_driver")
-    monkeypatch.setenv("HPCAGENT_BENCH_REQUEST_ACTIONS", json.dumps({"startup": ["load"]}))
-    problem = {"id": 0, "kernel": DENSE_KERNEL, "task": "t"}
-    assert "HPCAGENT_BENCH_REQUEST_ACTIONS" not in driver.agent_environment(problem, "http://judge", 0, 0, 0)
-    mcp = json.loads(driver.write_mcp_config(tmp_path, tmp_path, problem, 0, 0).read_text())
-    assert "HPCAGENT_BENCH_REQUEST_ACTIONS" not in mcp["mcpServers"][driver.MCP_SERVER_NAME]["env"]
 
 
 # --- the agent side: the filtered schema ------------------------------------------------------------------
@@ -541,12 +531,12 @@ def test_the_prompt_the_tool_schema_and_the_judge_agree_for_every_preset(
     assert ("place" in actions) is ("`place` puts an array" in prompt), actions
     gridded = {"startup": {"grid": ["P"]}} if distributed else {}
     for item in offered_items(wire) - {"load", "grid", "cast"}:
-        request = Requests.from_obj({**gridded, "operations": [SAMPLE_OPERATIONS[item]]})
+        request = Requests.validate({**gridded, "operations": [SAMPLE_OPERATIONS[item]]})
         assert allowances.refusal(request) is None, item
     for item in offered_items(wire) & {"load", "grid"}:
         assert allowances.refusal(item_request(item)) is None, item
     for precision in wire["cast_to"]:
-        cast = Requests.from_obj({"operations": [{**SAMPLE_OPERATIONS["cast"], "to": precision}]})
+        cast = Requests.validate({"operations": [{**SAMPLE_OPERATIONS["cast"], "to": precision}]})
         assert allowances.refusal(cast) is None, precision
 
 

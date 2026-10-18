@@ -105,12 +105,10 @@ __all__ = [
     "declared_chain_length",
     "default_baseline_for_track",
     "default_oracle_for_track",
-    "demoted",
     "early_stop_seconds",
     "effective_output_symbols",
     "fastest_baseline",
     "graded_extent",
-    "import_reference",
     "is_best_of",
     "largest_input_extent",
     "leader_hints",
@@ -130,7 +128,6 @@ __all__ = [
     "race_order",
     "record_residual",
     "reference_compiler",
-    "reference_function",
     "reference_omp_context",
     "reference_plan",
     "reference_submission",
@@ -710,11 +707,6 @@ def benchmark_module(spec: BenchSpec, suffix: str) -> types.ModuleType:
     return importlib.import_module(f"{package}.{spec.module_name}{suffix}")
 
 
-def import_reference(spec: BenchSpec) -> types.ModuleType:
-    """The kernel's NumPy reference module, ``<module_name>_numpy`` (every manifest ships one)."""
-    return benchmark_module(spec, "_numpy")
-
-
 def time_python_reference(
     func: Callable[..., object],
     call_order: Sequence[str],
@@ -813,14 +805,6 @@ def bind_kernel_outputs(
     return dict(zip(output_args, cast("list[np.ndarray]", values), strict=False))
 
 
-@functools.lru_cache(maxsize=None, typed=True)
-def reference_function(kernel: str) -> Callable[..., Any]:
-    """The kernel's interpreted NumPy reference: what tests and CI hold every compiled reference to
-    (preset S). No grading path runs it (tests/test_grading_never_numpy.py)."""
-    spec = BenchSpec.load(kernel)
-    return vars(import_reference(spec))[spec.func_name]
-
-
 class ReferenceUnavailable(RuntimeError):
     """A compiled oracle could not produce outputs: no emittable form, a typing or build error, a crash
     or a hung child. The judge's gap, never the submission's fault; never answered by the interpreter."""
@@ -872,26 +856,6 @@ def promoted(value: object) -> object:
     return copy.deepcopy(value)
 
 
-def demoted(value: np.ndarray, declared: object) -> np.ndarray:
-    """A reference output in the storage dtype its buffer declares (writes demote); else unchanged."""
-    if isinstance(declared, np.ndarray) and dtype_registry.is_storage_only(declared.dtype.name):
-        return np.asarray(value).astype(declared.dtype)
-    return value
-
-
-def _numpy_reference(spec: BenchSpec, data: dict) -> dict[str, np.ndarray]:
-    """Run the interpreted NumPy reference on a copy of data -> outputs (in-place or functional form). A
-    storage-only precision is computed in its compute dtype and stored back (:func:`promoted`).
-
-    For tests and CI, which hold the compiled references to it at preset S; no grading path calls it
-    (:func:`resolve_oracle`)."""
-    func = reference_function(spec.short_name)
-    args = [promoted(data[name]) for name in spec.input_args]
-    result = func(*args)
-    outputs = bind_kernel_outputs(result, args, spec.input_args, spec.output_args)
-    return {name: demoted(value, data.get(name)) for name, value in outputs.items()}
-
-
 #: The references a grade's expected outputs come from: the kernel's numba reference, its sequential C
 #: reference, its compiled-PyTorch reference (``torch-autotune``, :mod:`hpcagent_bench.harness.torch_baseline`).
 ORACLE_KINDS = ("numba", "c", "torch")
@@ -907,9 +871,8 @@ AUTO_ORACLE = "auto"
 ORACLE_OPTIONS = (*ORACLE_KINDS, COMPILED_ORACLE, AUTO_ORACLE)
 
 #: Per-track default correctness oracle: the compiled best-of(numba, c) references on the two numpy
-#: tracks, the compiled PyTorch reference on machine_learning. Interpreted NumPy grades nothing: its
-#: cost is ~3.4 KB per particle on warpx_field_gather and hours on nussinov, and it is only the SPEC the
-#: compiled references are proven equal to (preset S, in tests and CI).
+#: tracks, the compiled PyTorch reference on machine_learning. A kernel's ``_numpy.py`` is the task
+#: program, never an oracle: :data:`ORACLE_KINDS` is every reference a grade can take its answer from.
 TRACK_DEFAULT_ORACLE: dict[str, str] = {
     "loop_level_reasoning": COMPILED_ORACLE,
     "machine_learning": "torch",
@@ -925,10 +888,11 @@ DEFAULT_ORACLE = COMPILED_ORACLE
 TRACK_COMPILED_HEAD: dict[str, str] = {"loop_level_reasoning": "c"}
 
 #: Kernels whose oracle starts from a compiled reference other than the race leader, because the leader
-#: does not match the NumPy reference at the graded sizes (preset M, public input and held-out cases):
+#: does not compute the task program's answer at the graded sizes (preset M, public input and held-out
+#: cases):
 #:
-#: ``bdf_newton_krylov``: numba matches NumPy; the sequential C reference (the XL race leader) differs by
-#: 4e-9 relative, 2.6e5 x the tolerance band.
+#: ``bdf_newton_krylov``: numba does; the sequential C reference (the XL race leader) differs by 4e-9
+#: relative, 2.6e5 x the tolerance band.
 KERNEL_COMPILED_HEAD: dict[str, str] = {"bdf_newton_krylov": "numba"}
 
 #: Tracks whose C oracle never runs the write probe (:func:`probe_write_mask`): their tolerance floor keeps

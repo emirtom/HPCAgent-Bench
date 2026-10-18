@@ -211,7 +211,7 @@ def test_a_layout_never_reaches_a_stored_input_or_output(monkeypatch: pytest.Mon
     another layout hands the reference, and caches, byte for byte what the CSR grade does. The
     repeats' nonce is fixed so both grades draw the same repeats."""
     inputs: list[dict] = []
-    reference = grading._numpy_reference  # numba's outputs equal numpy's (tests/test_e2e_numerical.py)
+    reference = grading.numba_reference_outputs  # the compiled reference the recorder wraps
 
     def recording(
         spec: BenchSpec, data: dict, memory_gb: float = 0.0, rep_data: Callable[[int], dict] | None = None

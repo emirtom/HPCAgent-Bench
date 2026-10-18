@@ -48,6 +48,7 @@ except ImportError:  # PyYAML built without libyaml
 from hpcagent_bench import config, fuzz, manifest_schema, paths
 from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.manifest_schema import Number, Value
 from hpcagent_bench.support.distributions import domain as domain_mod
 from hpcagent_bench.support.helpers.sparse.abi import (
@@ -76,7 +77,6 @@ __all__ = [
     "FINGERPRINT_MANIFEST_KEYS",
     "FUZZ_SUFFIX",
     "HARNESS_KWARGS",
-    "IDENTIFIER",
     "INITIALIZER",
     "KERNELS",
     "KNOWN_MANIFEST_KEYS",
@@ -2577,11 +2577,7 @@ class BenchSpec(BaseModel):
         this stem -- so each sparse layout is a fully-independent kernel.
 
         Keyed on ``module_name`` because the emitter derives the stem from the
-        ``<module>_numpy.py`` filename it is handed, deliberately independent of
-        the manifest's ``short_name`` abbreviation (``numpyto_c.cli``). Using
-        ``short_name`` here desyncs for the 26 kernels that abbreviate: the
-        emitter writes ``arc_distance_fp64.c`` while the loader hunts for
-        ``arc_distance_fp64.c`` and reports the sources as ungenerated.
+        ``<module>_numpy.py`` filename it is handed (``numpyto_c.cli``).
         """
         return self.module_name if config in (None, "dense") else f"{self.module_name}_{config}"
 
@@ -2661,32 +2657,7 @@ def _safe_level(path_key: str) -> int | None:
 @functools.lru_cache(maxsize=1, typed=True)
 def stem_aliases() -> dict[str, str]:
     """Kernel name (manifest stem) -> its path-key."""
-    return {key.rsplit("/", 1)[-1]: key for key in _scan_kernels()}
-
-
-@functools.lru_cache(maxsize=1, typed=True)
-def _key_to_short_name() -> dict[str, str]:
-    """Path-key -> manifest ``short_name`` (the value the results DB stores in its
-    ``benchmark`` column -- written at ``frameworks/test.py`` from ``info['short_name']``),
-    defaulting to the key's stem when a manifest omits it (mirrors ``from_yaml``'s
-    ``setdefault('short_name', p.stem)``).
-
-    The bridge the plot selectors need: ``select`` / ``select_keys`` work in path-key /
-    stem space, the results DB in short_name space, and the two DIVERGE for 26 kernels
-    (``heat_3d`` stem / ``heat_3d`` short_name, ``jacobi_2d`` / ``jacobi_2d``, ...). Without
-    this map a narrow plot selector silently filters the results table to zero rows. A
-    light YAML read (not a full ``BenchSpec.load``): only the one field is needed."""
-    out: dict[str, str] = {}
-    for key, path in _scan_kernels().items():
-        stem = key.rsplit("/", 1)[-1]
-        try:
-            raw = load_yaml(path.read_text()) or {}
-        except Exception:  # noqa: BLE001 -- a broken manifest falls back to its stem
-            out[key] = stem
-            continue
-        sn = raw.get("short_name")
-        out[key] = sn if isinstance(sn, str) and sn else stem
-    return out
+    return {kernel_stem(key): key for key in _scan_kernels()}
 
 
 class KernelRegistry:
@@ -2817,7 +2788,7 @@ class KernelRegistry:
         """Resolve a selection token into a sorted list of kernel short-names
         (bare stems). See :meth:`select_keys` for the path-keys and
         for the selector granularity. Raises ``KeyError`` when nothing matches."""
-        return sorted({k.rsplit("/", 1)[-1] for k in self.select_keys(selector)})
+        return sorted({kernel_stem(k) for k in self.select_keys(selector)})
 
     def resolved(self) -> list["ResolvedBench"]:
         """Every sub-benchmark across the corpus -- one :class:`ResolvedBench`
@@ -2838,7 +2809,6 @@ class KernelRegistry:
         behind keeps serving the old manifests with nothing to show it is stale."""
         _scan_kernels.cache_clear()
         stem_aliases.cache_clear()
-        _key_to_short_name.cache_clear()
         load_spec.cache_clear()
         for clear in MANIFEST_DERIVED_CACHES:
             clear()
@@ -2944,7 +2914,6 @@ RESERVED_BACKEND_NAMES = C_KEYWORDS | CPP_KEYWORDS
 SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 #: Comprehensions bind their ``for`` targets only inside themselves.
 COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
-IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def defines_function(path: pathlib.Path, fn_name: str) -> bool:
@@ -3097,7 +3066,7 @@ def shape_reads_init_scalars(spec: BenchSpec) -> list[str]:
     that ``parameters:`` or ``config:`` declare."""
     if spec.init is None or not spec.init.scalars:
         return []
-    read = {name for shape in spec.init.shapes.values() for name in IDENTIFIER.findall(shape)}
+    read = set().union(*(shape_identifiers(shape) for shape in spec.init.shapes.values()))
     visible = spec.config_names.union(*(set(values) for values in spec.parameters.values()))
     return [
         f"{spec.short_name}: a shape reads the scalar value args.{sym}, which initialization cannot see; "
@@ -3142,26 +3111,12 @@ BARE_LEVEL = re.compile(r"l(?:vl|evel)?_?(\d)$", re.IGNORECASE)
 
 
 def select_short_names(selector: str) -> list[str]:
-    """Manifest SHORT-NAMES matched by ``selector``, for filtering the results table
-    (whose ``benchmark`` column is the short_name -- see ``frameworks/test.py``). Accepts
-    the full :meth:`KernelRegistry.select` grammar (kernel / track / dwarf / ``@lvl<n>``)
-    plus two conveniences a plot user expects: a bare level (``lvl2`` -> ``all@lvl2``) and
-    an underscore in the level suffix (``scientific_computing/structured_grids@lvl_1`` -> ``...@lvl1``).
-
-    Resolves through :meth:`KernelRegistry.select_keys` (collision-proof path-keys) and
-    maps each to its manifest short_name via :func:`_key_to_short_name` -- NOT the bare
-    directory stem :meth:`KernelRegistry.select` returns, which diverges from the DB key
-    for 26 kernels (``heat_3d`` stem vs ``heat_3d`` short_name) and would filter a narrow
-    selection to zero rows. A selector that is itself a short_name the user copied from the
-    DB (``heat_3d``) is honoured directly."""
+    """Kernel names matched by ``selector``, for filtering the results table (whose ``kernel``
+    column is the kernel name, the manifest stem). Accepts the full :meth:`KernelRegistry.select`
+    grammar (kernel / track / dwarf / ``@lvl<n>``) plus two conveniences a plot user expects: a bare
+    level (``lvl2`` -> ``all@lvl2``) and an underscore in the level suffix
+    (``scientific_computing/structured_grids@lvl_1`` -> ``...@lvl1``)."""
     sel = selector.strip()
     bare = BARE_LEVEL.fullmatch(sel)
     sel = f"all@lvl{bare.group(1)}" if bare else re.sub(r"@l(?:vl|evel)?_?(\d)", r"@lvl\1", sel, flags=re.IGNORECASE)
-    key_to_sn = _key_to_short_name()
-    try:
-        keys = KERNELS.select_keys(sel)
-    except KeyError:
-        if sel in set(key_to_sn.values()):  # a raw DB short_name (e.g. "heat_3d"), not a stem
-            return [sel]
-        raise
-    return sorted({key_to_sn[k] for k in keys})
+    return KERNELS.select(sel)

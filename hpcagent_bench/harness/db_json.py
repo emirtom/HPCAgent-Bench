@@ -12,7 +12,7 @@ column (``''``, the schema default) means "not recorded" and reads as the column
 
 ``grades.requests`` is the one JSON column that is not here: it is a request, read and written by
 relayout's models (:data:`hpcagent_bench.harness.requests_api.REQUESTS_ADAPTER`;
-:meth:`Submission.requests_json <hpcagent_bench.harness.envelope.Submission.requests_json>` writes it,
+:meth:`Requests.recorded_json <hpcagent_bench.harness.requests_api.Requests.recorded_json>` writes it,
 :func:`hpcagent_bench.harness.results_db.requests_of_row` reads it).
 """
 
@@ -48,9 +48,11 @@ class JsonColumn[T]:
         return json.dumps(self.adapter.dump_python(self.adapter.validate_python(value)), sort_keys=True)
 
     def loads(self, text: object) -> T:
-        """The column's value of ``text`` (a column value: ``''`` and NULL read as :attr:`empty`)."""
-        raw = self.empty if text is None or text == "" else json.loads(str(text))
-        return self.adapter.validate_python(raw)
+        """The column's value of ``text`` (a column value: ``''`` and NULL read as :attr:`empty`;
+        ``pydantic.ValidationError`` when it is not one, malformed JSON included)."""
+        if text is None or text == "":
+            return self.adapter.validate_python(self.empty)
+        return self.adapter.validate_json(str(text))
 
 
 def plain(value: object) -> pydantic.JsonValue:

@@ -47,7 +47,7 @@ def test_two_device_variants_of_one_optimizer_get_distinct_row_labels(canon: pd.
 def test_one_device_variant_keeps_its_optimizer_name(canon: pd.DataFrame) -> None:
     """The fallback fires only on a collision; a figure drawing one variant is unchanged."""
     (row,) = kernel_speedups.kernel_rows(canon, None, TAG_KERNELS, ("dace_cpu_canon",))
-    assert row.label == "Canonical Parallel Form"
+    assert row.label == "DaCe+CPF"
 
 
 @pytest.mark.parametrize(

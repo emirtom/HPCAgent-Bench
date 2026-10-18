@@ -414,10 +414,6 @@ class Requests(relayout.ops.Requests):
         parsed = raw if isinstance(raw, relayout.ops.Requests) else parse_requests(raw)
         return cls(parsed.startup, parsed.operations)
 
-    #: :meth:`validate` under the name the recorders and the sweep harness read a stored ``requests`` with; a
-    #: pydantic model declares its field as :data:`RequestsField` instead.
-    from_obj = validate
-
     def asks_nothing(self) -> bool:
         """True for the empty request (no startup, no operation), which a submission leaves out."""
         return self.startup == Startup() and not self.operations

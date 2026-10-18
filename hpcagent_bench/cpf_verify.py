@@ -26,6 +26,7 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
 from hpcagent_bench.harness.service import from_config
 from hpcagent_bench.harness.task import Task, grading_residency
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import workspace_c_params
@@ -35,12 +36,11 @@ __all__ = ["abi_refusal", "grade", "main", "registry_key", "stub_prototype"]
 
 
 def registry_key(kernel: str) -> str:
-    """The full registry key of a tag name; views and tags use the last segment."""
-    short = cpf_cache.short_name(kernel)
-    matches = [key for key in KERNELS if key.rsplit("/", 1)[-1] == short]
-    if len(matches) != 1:
-        raise LookupError(f"{kernel!r} names {len(matches)} registered kernels: {matches}")
-    return matches[0]
+    """The full registry key of a tag name; views and tags use the last segment.
+
+    :raises KeyError: no kernel has that name; the message lists the closest names.
+    """
+    return KERNELS.key_for_name(kernel_stem(kernel))
 
 
 def stub_prototype(key: str, language: str) -> tuple[str, str]:
@@ -148,7 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             verdict = {"verdict": "unverified", "reason": str(exc)}
         failed += verdict["verdict"] != "ok"
         print(
-            f"rank {args.rank}: {cpf_cache.short_name(kernel)}: {verdict['verdict']} {verdict.get('reason', '')}",
+            f"rank {args.rank}: {kernel_stem(kernel)}: {verdict['verdict']} {verdict.get('reason', '')}",
             flush=True,
         )
     return 1 if failed else 0

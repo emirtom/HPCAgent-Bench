@@ -132,7 +132,6 @@ __all__ = [
     "record_failure",
     "recording",
     "render_report",
-    "request_plan",
     "rocm_agents",
     "rocprof_check",
     "rocprof_command",
@@ -947,7 +946,7 @@ SEALED_OUTSIDE_FLAG = "--sealed-outside"
 
 def measured_argv(request_file: pathlib.Path, *, sealed_outside: bool = False) -> list[str]:
     """The measured child, identical under every profiler (unsealed; see :func:`child_argv` and
-    :func:`request_plan`). ``sealed_outside`` means the seal wraps the tracer, so the native call
+    :func:`profiling.request_plan`). ``sealed_outside`` means the seal wraps the tracer, so the native call
     enters none. Names this module, whose ``main`` forces the spawn context CUPTI and HSA need."""
     return [
         sys.executable,
@@ -959,12 +958,6 @@ def measured_argv(request_file: pathlib.Path, *, sealed_outside: bool = False) -
     ]
 
 
-def request_plan(request_file: pathlib.Path) -> seal.SealPlan | None:
-    """The grading seal for a traced run whose work area is ``request_file``'s directory
-    (:func:`profiling.request_plan`)."""
-    return profiling.request_plan(request_file)
-
-
 def child_argv(request_file: pathlib.Path) -> list[str]:
     """:func:`measured_argv` sealed on its own, for the NVIDIA tracers.
 
@@ -972,7 +965,7 @@ def child_argv(request_file: pathlib.Path) -> list[str]:
     ``compute_profiling.amd_compute_once``): rocprofv3's preloaded threads make any seal under it
     multi-threaded, and ``unshare(CLONE_NEWUSER)`` then fails, so those children run with
     ``sealed_outside``."""
-    return seal.wrap(request_plan(request_file), measured_argv(request_file))
+    return seal.wrap(profiling.request_plan(request_file), measured_argv(request_file))
 
 
 def empty_trace(tool: str) -> GpuProfilerUnavailable:
@@ -1044,7 +1037,7 @@ def profile_amd_once(
     :func:`rocprof_check`. The workload's own failure is reported first. Copy volume is ``null``."""
     tool, exe = profiler
     outdir = root / ROCPROF_OUTDIR
-    plan = request_plan(request_file)
+    plan = profiling.request_plan(request_file)
     proc = rocprof_record(
         measured_argv(request_file, sealed_outside=plan is not None),
         outdir,

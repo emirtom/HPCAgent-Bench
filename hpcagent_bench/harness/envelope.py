@@ -127,11 +127,6 @@ class Submission(pydantic.BaseModel):
                 f"them)"
             )
 
-    def requests_json(self) -> str | None:
-        """The ``requests`` block as recorded (:meth:`Requests.recorded_json`), None when the submission asks for
-        nothing."""
-        return self.requests.recorded_json()
-
     def source_texts(self) -> tuple[str, ...]:
         """This submission's translation-unit texts, in :func:`languages.source_units` order.
 

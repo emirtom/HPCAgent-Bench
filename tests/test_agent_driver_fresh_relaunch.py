@@ -148,4 +148,4 @@ def test_the_cost_record_names_the_final_attempts_start_as_the_cut(relaunched: p
     record = json.loads((workdir / "tokens.json").read_text(encoding="utf-8"))
     assert record["final_attempt_start_ms"] == ledger(workdir)[1]["start_ms"]
     assert record["attempts"] == 2
-    assert record["relaunch"] == "fresh"
+    assert "relaunch" not in record

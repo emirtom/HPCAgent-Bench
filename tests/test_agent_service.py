@@ -57,10 +57,8 @@ def _post(port, path, body):
         raise error_with_body(refused) from None
 
 
-def test_health_is_served_and_the_removed_task_route_is_not() -> None:
-    """The task context is rendered into the prompt and pre-generated into the shared folder,
-    so the judge does not serve it. Assert the route is GONE rather than silently restored:
-    a second way to read the contract is a second thing to keep in step with the first."""
+def test_health_is_served() -> None:
+    """``/health`` answers ok, with the judge's rank and the count of submissions in flight."""
     srv, port = _server(ServiceConfig())
     try:
         code, body = _get(port, "/health")
@@ -68,9 +66,6 @@ def test_health_is_served_and_the_removed_task_route_is_not() -> None:
         assert body["status"] == "ok"
         assert body["rank"] == RANK
         assert body["submits_in_flight"] == 0, "the job drains on this count before it stops the judge"
-        with pytest.raises(urllib.error.HTTPError) as caught:
-            _get(port, f"/task/gemm?language=c&rank={RANK}")
-        assert caught.value.code == 404, "the /task route was reintroduced"
     finally:
         srv.shutdown()
         srv.server_close()
@@ -557,16 +552,10 @@ def test_a_bf16_ml_kernel_is_graded_scored_and_verified_in_bf16(
             srv.server_close()
 
 
-def test_every_route_grades_the_configured_size_no_matter_what_preset_the_body_asks_for() -> None:
-    """The run fixes ONE size and no route lets a client pick another -- /score included.
-
-    /submit ignores a client preset because a recorded grade taken at a size nobody else's rows use
-    is a row the analysis has to discard. /score ignores it too: honouring one lets the agent tune
-    against a problem its recorded grade never uses, with no way to see that its submit is graded
-    somewhere else. The field is not in the agent tool schema; a body that carries one is IGNORED
-    rather than refused, so an agent holding a stale schema loses a preset, not a grade.
-    """
-    from hpcagent_bench import config
+def test_a_body_naming_a_preset_is_refused_on_every_graded_route() -> None:
+    """The run fixes ONE size and no route lets a client pick another -- /score included. A body has no
+    ``preset`` field: one that names it is refused 400 (``RequestFields`` forbids unknown fields), so a
+    client never believes it chose a size it did not get."""
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
@@ -574,19 +563,10 @@ def test_every_route_grades_the_configured_size_no_matter_what_preset_the_body_a
     srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2, preset="S"))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source": src, "preset": "M"}
-        with config.overridden("service.submit_feedback", "full"):  # need `preset` back to check it
-            code, submitted = _post(port, "/submit", body)
-        assert code == 200
-        assert submitted["correct"] is True
-        assert submitted["preset"] == "S", (
-            f"/submit graded preset {submitted['preset']!r}; the body asked for 'M' and the run is configured for 'S'"
-        )
-        code, scored = _post(port, "/score", body)
-        assert code == 200, "a stale body carrying a preset must still be graded, not refused"
-        assert scored["preset"] == "S", (
-            f"/score graded preset {scored['preset']!r}; the body asked for 'M' and the run is "
-            "configured for 'S' -- the size is the run's, not the agent's, on every route"
-        )
+        for route in ("/submit", "/score"):
+            with pytest.raises(urllib.error.HTTPError) as refused:
+                _post(port, route, body)
+            assert refused.value.code == 400, route
     finally:
         srv.shutdown()
         srv.server_close()

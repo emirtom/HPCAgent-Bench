@@ -22,6 +22,7 @@ import time
 from types import ModuleType
 
 import pytest
+from hpcagent_agent.driver.agent_driver import write_cost_record
 from hpcagent_agent.driver.promote_unsubmitted import AGENT_FOLDERS_LOG
 
 from hpcagent_bench.harness import results_db
@@ -483,13 +484,14 @@ def test_the_teardown_sweep_reads_each_workers_cut_off_its_own_worker_directory(
     promoter: ModuleType, tmp_path: pathlib.Path
 ) -> None:
     """The sweep sees every worker at once and the cut is per worker, so it comes from the files the
-    driver left: the episode id from mcp.json, the stamp from tokens.json."""
+    driver left: the episode id and the stamp, both from tokens.json (written by write_cost_record)."""
     run_dir = make_relaunched_run_dir(tmp_path)
     worker = run_dir / "agents" / "node-0" / "problem-1-worker-1"
     worker.mkdir(parents=True)
-    (worker / "tokens.json").write_text(json.dumps({"final_attempt_start_ms": 2000}), encoding="utf-8")
-    server = {"hpcagent-bench": {"command": "python3", "env": {"HPCAGENT_BENCH_EPISODE_ID": "setup.n0.p1.w1"}}}
-    (worker / "mcp.json").write_text(json.dumps({"mcpServers": server}), encoding="utf-8")
+    write_cost_record(
+        worker / "tokens.json", {"id": 1, "kernel": "gemm"}, 1, 0, 0, 0, "success",
+        final_attempt_start_ms=2000, episode_id="setup.n0.p1.w1",
+    )  # fmt: skip
 
     assert promoter.worker_cuts(run_dir) == {"setup.n0.p1.w1": 2000}
     assert promoter.swept_candidates(run_dir)[0]["source"] == "/* the answer */"
@@ -539,9 +541,10 @@ def test_the_teardown_sweep_ignores_a_submission_from_before_the_workers_cut(
     add_submission(run_dir, 1000)
     worker = run_dir / "agents" / "node-0" / "problem-1-worker-1"
     worker.mkdir(parents=True)
-    (worker / "tokens.json").write_text(json.dumps({"final_attempt_start_ms": 2000}), encoding="utf-8")
-    server = {"hpcagent-bench": {"command": "python3", "env": {"HPCAGENT_BENCH_EPISODE_ID": "setup.n0.p1.w1"}}}
-    (worker / "mcp.json").write_text(json.dumps({"mcpServers": server}), encoding="utf-8")
+    write_cost_record(
+        worker / "tokens.json", {"id": 1, "kernel": "gemm"}, 1, 0, 0, 0, "success",
+        final_attempt_start_ms=2000, episode_id="setup.n0.p1.w1",
+    )  # fmt: skip
 
     (item,) = promoter.swept_candidates(run_dir)
     assert item["source"] == "/* the answer */"

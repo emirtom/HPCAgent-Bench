@@ -48,7 +48,6 @@ __all__ = [
     "built_and_correct",
     "candidates",
     "db_files",
-    "declared_episode_id",
     "grade_detail",
     "harvest_enabled",
     "judge_rank",
@@ -303,28 +302,11 @@ def read_json(path: pathlib.Path) -> dict[str, object]:
     return {str(key): value for key, value in parsed.items()} if isinstance(parsed, dict) else {}
 
 
-def declared_episode_id(mcp_config: pathlib.Path) -> str:
-    """The episode id the driver declared for this worker's MCP server (``HPCAGENT_BENCH_EPISODE_ID``).
-
-    The worker directory names the node and the worker but not the PROBLEM index, which the episode id
-    carries, so the config the driver wrote is where the two are tied together.
-    """
-    servers = read_json(mcp_config).get("mcpServers")
-    if not isinstance(servers, dict):
-        return ""
-    for server in servers.values():
-        environment = server.get("env") if isinstance(server, dict) else None
-        episode_id = environment.get("HPCAGENT_BENCH_EPISODE_ID") if isinstance(environment, dict) else None
-        if isinstance(episode_id, str) and episode_id:
-            return episode_id
-    return ""
-
-
 def worker_cuts(run_dir: pathlib.Path) -> dict[str, int]:
     """``episode_id`` -> the epoch ms its final attempt started, over every worker directory of the run.
 
     Read off the files the driver leaves in each worker directory: ``tokens.json`` carries the stamp
-    and the episode id it belongs to (``mcp.json`` names the episode id of a record written before it did).
+    and the episode id it belongs to.
     A worker that never relaunched carries the stamp too and applying it costs nothing -- its first
     attempt is its final one.
     """
@@ -332,7 +314,7 @@ def worker_cuts(run_dir: pathlib.Path) -> dict[str, int]:
     for tokens_path in sorted(run_dir.glob("agents/*/*/tokens.json")):
         record = read_json(tokens_path)
         start = record.get("final_attempt_start_ms")
-        episode_id = str(record.get("episode_id") or "") or declared_episode_id(tokens_path.parent / "mcp.json")
+        episode_id = str(record.get("episode_id") or "")
         if isinstance(start, int) and start > 0 and episode_id:
             cuts[episode_id] = start
     return cuts

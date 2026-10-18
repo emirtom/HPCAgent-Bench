@@ -152,7 +152,15 @@ stage_setup() {
     [[ "${harness}" == claude ]] || variant+="-${harness}"
     [[ "${temperature}" != default ]] || temperature=""
     variant+="${temperature:+-t${temperature}}"
-    SETUP="${EXPERIMENT}-${model}-${variant}${SETUP_SUFFIX:-}"
+    # A hardware other than the base's is part of the setup's name: setups are keyed by name alone, so one name
+    # for two machines would fold their rows into one setup. Same rule as apply_hardware's study: the experiment
+    # segment gains -<hardware> unless it already names it, so the name still parses <experiment>-<model>-<variant>.
+    local hardware experiment=${EXPERIMENT}; hardware=$(job_options --print hardware) || return 2
+    if [[ -n "${hardware}" && "${hardware}" != "$(base_value "${flat}" HPCAGENT_BENCH_BASE_HARDWARE)" \
+        && "${experiment}" != *"${hardware}"* ]]; then
+        experiment+="-${hardware}"
+    fi
+    SETUP="${experiment}-${model}-${variant}${SETUP_SUFFIX:-}"
     local file_sfx; file_sfx=$(setup_file_suffix)
     ENV="${ENV_ONLY:+${ENV_ONLY}/}.env.${SETUP}${file_sfx}"
     local problems="problems-${SETUP}${file_sfx}.jsonl" staged="${ENV}.staging"
@@ -200,7 +208,7 @@ stage_setup() {
         packet_env=$("${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/packet_env.py" --packet "${packet}" --language "${lang}" \
             --requests-allow "$(base_value "${flat}" HPCAGENT_BENCH_REQUESTS_ALLOW)") || { rm -f "${staged}"; return 2; }
         # The hint detail a -kinds packet serves its form at; the view check below reads the forms at it.
-        hints=$(sed -n 's/^HPCAGENT_BENCH_CPF_HINTS=//p' <<<"${packet_env}")
+        hints=$(base_value "${packet_env}" HPCAGENT_BENCH_CPF_HINTS)
         while IFS= read -r line; do
             case "${line}" in
                 HPCAGENT_BENCH_RECORD_PACKET=*) packet="${line#*=}" ;;

@@ -39,6 +39,7 @@ from typing import Literal, NamedTuple
 import pydantic
 
 from hpcagent_bench.cache_files import file_sha256, json_digest, sha256_hex, write_atomic
+from hpcagent_bench.kernel_key import kernel_stem
 
 __all__ = [
     "CACHE_CONFIG_KEY",
@@ -93,7 +94,6 @@ __all__ = [
     "render_lock",
     "resolve",
     "served_dialect",
-    "short_name",
     "stage",
     "unverified",
     "verified_manifest",
@@ -363,7 +363,6 @@ class EntryManifest(pydantic.BaseModel):
     kernel: str = ""
     entry: str = ""
     inputs: EntryInputs | None = None
-    forced_abi_symbols: list[str] = pydantic.Field(default_factory=list[str])
     #: The catalog libraries the form calls: the ``requests.startup.load`` a submission of it names.
     libraries: list[str] = pydantic.Field(default_factory=list[str])
     #: The scratch the form carves its transients from: the ``workspace_bytes`` a submission of it requests.
@@ -491,17 +490,12 @@ def read_view(view: pathlib.Path) -> ViewHeader:
         raise CacheMiss(f"view {view} has a header this reader (layout {LAYOUT}) cannot read: {exc}") from exc
 
 
-def short_name(kernel: str) -> str:
-    """A tag may name a kernel by its full registry key; views are keyed by its last segment."""
-    return kernel.rsplit("/", 1)[-1]
-
-
 def pointer_name(kernel: str, fptype: str, dialect: str, hints: HintDetail) -> str:
     """The exact pointer file name. The precision tag is one segment, so no kernel matches another's; a
     detail other than :data:`DEFAULT_HINTS` suffixes the ``cpf`` segment (``_cpf-kinds.``), so one view holds
     both details of a kernel side by side and a ``proofs`` view stays readable as it was rendered."""
     detail = "" if hints == DEFAULT_HINTS else f"-{hints}"
-    return f"{short_name(kernel)}_{fptype}_cpf{detail}.{LANGUAGE_EXT[dialect]}.json"
+    return f"{kernel_stem(kernel)}_{fptype}_cpf{detail}.{LANGUAGE_EXT[dialect]}.json"
 
 
 def record(
@@ -509,7 +503,7 @@ def record(
 ) -> None:
     """Point ``view`` at the outcome of one render: a key and a verdict, or why there is none."""
     pointer = Pointer.model_validate(
-        {**outcome, "kernel": short_name(kernel), "language": dialect, "precision": fptype}
+        {**outcome, "kernel": kernel_stem(kernel), "language": dialect, "precision": fptype}
     )
     write_json(view / ENTRIES_NAME / pointer_name(kernel, fptype, dialect, hints), pointer)
 
@@ -528,7 +522,7 @@ def recorded(view: pathlib.Path, kernel: str, dialect: str, fptype: str, hints: 
 def render_lock(cache_root: pathlib.Path, view: pathlib.Path, kernel: str, fptype: str) -> Generator[None]:
     """Hold the one render of ``kernel`` into ``view`` at ``fptype``, across threads, processes and
     nodes (flock on a file in the cache root); a second caller blocks until the first is done."""
-    name = json_digest({"view": str(view.resolve()), "kernel": short_name(kernel), "precision": fptype})
+    name = json_digest({"view": str(view.resolve()), "kernel": kernel_stem(kernel), "precision": fptype})
     lock = cache_root / LOCKS_DIR / f"{name}.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open("a") as handle:
@@ -651,7 +645,7 @@ def missing(
         except CacheMiss as exc:
             reason = str(exc)
         if reason:
-            misses.append(f"{short_name(kernel)}: {reason}")
+            misses.append(f"{kernel_stem(kernel)}: {reason}")
     return misses
 
 
@@ -703,7 +697,7 @@ def stage(
     if reason := wrong_target(view, target):
         raise CacheMiss(reason)
     form = resolve(view, kernel, language, fptype, hints)
-    stem = name or short_name(kernel)
+    stem = name or kernel_stem(kernel)
     dest.mkdir(parents=True, exist_ok=True)
     for path in filter(None, (form.source, form.device)):
         shutil.copyfile(path, dest / f"{stem}{path.suffix}")

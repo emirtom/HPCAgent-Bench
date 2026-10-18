@@ -809,39 +809,6 @@ jobs:
         with:
           coverage: alloy
 
-  # The compiled (numba) numpy reference agrees with the interpreted one for every kernel, dealt
-  # round-robin over two containers so each takes half of every kernel family.
-  njit-oracle:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: njit-oracle (the compiled numpy reference vs the interpreted one)
-    runs-on: ubuntu-24.04
-    # One runner deals both halves ("0,1" of 2): each takes ~6 min. Split the hands again here if
-    # the file outgrows one runner.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [ "0,1" ]
-    timeout-minutes: 45
-    env:
-      # Read by tests/test_njit_reference.py::shard (an index list over a count).
-      HPCAGENT_BENCH_NJIT_SHARD: ${{ matrix.shard }}/2
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup
-      - name: The compiled oracle still computes what the interpreter computes @ S
-        # The whole file, not `-m njit_oracle`: its unmarked tests run in no other job.
-        if: ${{ !cancelled() }}
-        timeout-minutes: 40
-        run: |
-          python -m pytest -p no:cacheprovider -rfEs -n auto -v \
-            --maxfail=20 --durations=25 --timeout=1500 tests/test_njit_reference.py
-      - uses: ./.github/actions/finish
-        if: always()
-        with:
-          coverage: njit-oracle
-
   # Hardware-marked tests and the GPU codegen columns on a real GPU. Manual only: a self-hosted
   # GPU runner is not always attached.
   gpu:
@@ -906,7 +873,7 @@ jobs:
     name: coverage (combined total)
     # Every job that uploads coverage data, or the total is built from a subset.
     needs: [ unit, e2e, integration, translators, native, native-e2e, mpi, dace-numeric,
-             dace-frontend, njit-oracle, alloy ]
+             dace-frontend, alloy ]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

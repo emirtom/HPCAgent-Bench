@@ -32,9 +32,6 @@ FLOOR_S = 1.0
 FACTOR = 2.0
 
 
-pytestmark = pytest.mark.usefixtures("numba_oracle_from_numpy")
-
-
 @pytest.fixture(autouse=True)
 def fresh_memos(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """No timing memo and no remembered leader from another test; no shipped hints unless a test
@@ -71,7 +68,7 @@ def seq_c(per_rep_ns: int, timed: list[str]) -> Callable[..., tuple[dict, int, d
         if per_rep_ns * 1e-9 > timeout:
             raise NativeCallTimeout(f"native call exceeded {timeout:g}s on a single rep and was killed")
         samples = rep_samples(per_rep_ns)
-        return grading._numpy_reference(spec, data), min(samples), {}, samples
+        return grading.numba_reference_outputs(spec, data), min(samples), {}, samples
 
     return fake
 

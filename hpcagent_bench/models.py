@@ -98,7 +98,7 @@ class Glm53:
 class Dace:
     __slots__ = ()
 
-    name = "DaCe"
+    name = "DaCe+AOpt"
 
 
 @optimizer(
@@ -115,7 +115,7 @@ class Dace:
 class Cpf:
     __slots__ = ()
 
-    name = "Canonical Parallel Form"
+    name = "DaCe+CPF"
 
 
 @optimizer("pluto", order=2)

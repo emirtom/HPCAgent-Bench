@@ -1832,7 +1832,7 @@ def test_a_regrade_rebuilds_the_build_tokens_and_requests_the_submission_recorde
     (item,) = grade_under.build_worklist([db], [])[0]
     item = grade_under.Item.of_json(item.as_json())  # through the worklist file
     submission = grade_under.submission_of(item)
-    assert (submission.build, submission.requests) == (build, Requests.from_obj(requests))
+    assert (submission.build, submission.requests) == (build, Requests.validate(requests))
 
 
 def test_a_regrade_refuses_a_grade_whose_source_is_not_the_one_listed(tmp_path: pathlib.Path) -> None:

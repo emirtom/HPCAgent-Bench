@@ -28,6 +28,7 @@ from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 from hpcagent_bench.frameworks.forked import RunResult, forked_failure_reason, run_forked
 from hpcagent_bench.frameworks.utilities import MPI_LAUNCHER_VARS
 from hpcagent_bench.harness import recording
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.collect import canon_db
@@ -86,8 +87,9 @@ def run_one(
     datatype: str | None,
     distributed: bool = False,
 ) -> dict[str, dict[str, Any]]:
-    """Run ``benchname`` under each framework in ``framework_names`` (against NumPy); the per-kernel unit of
-    the framework/sparse sweeps.
+    """Run ``benchname`` under each framework in ``framework_names`` (validated against the compiled reference
+    a grade uses, :func:`~hpcagent_bench.frameworks.test.reference_outputs`); the per-kernel unit of the
+    framework/sparse sweeps.
 
     :param distributed: this process is an MPI rank, so keep the launcher variables. Default ``False``
         (independent shards), the safe choice: guessing wrong there deadlocks.
@@ -100,9 +102,8 @@ def run_one(
     results: dict[str, dict[str, Any]] = {}
     for name in framework_names:
         frmwrk = generate_framework(name)
-        numpy = generate_framework("numpy")
         bench = Benchmark(benchname)
-        test = Test(bench, frmwrk, numpy)
+        test = Test(bench, frmwrk)
         results[name] = test.run(preset, validate, repeat, timeout, ignore_errors, datatype) or {}
     return results
 
@@ -349,7 +350,7 @@ def is_failed(row: Mapping[str, object]) -> bool:
 
 
 def is_wrong(row: Mapping[str, object]) -> bool:
-    """Validation ran and disagreed with NumPy (``failure`` set means it never compared)."""
+    """Validation ran and disagreed with the compiled reference (``failure`` set means it never compared)."""
     return row["status"] == "ok" and not row["failure"] and row["validated"] == 0
 
 
@@ -391,7 +392,7 @@ def summarize(rows: Sequence[dict[str, object]]) -> int:
     print_rows("FAILED (no comparable output -- load/runtime error, timeout, unsupported)", failed_rows, "failure")
     # Wrong answers are reported last, as the worst failure.
     wrong_rows = [r for r in rows if is_wrong(r)]
-    print_rows("MISCOMPILES (failed validation vs NumPy)", wrong_rows, None)
+    print_rows("MISCOMPILES (failed validation vs the compiled reference)", wrong_rows, None)
     return len(crashed) + len(failed_rows) + len(wrong_rows)
 
 
@@ -417,7 +418,7 @@ SPARSE_OK_STATUSES = frozenset({"graded", "refused"})
 
 def discover_sparse_benches(filter_names: Sequence[str] | None = None) -> list[str]:
     """Every kernel with a ``layouts`` block (optionally restricted to ``filter_names``), by name."""
-    names = sorted(key.rsplit("/", 1)[-1] for key in KERNELS)
+    names = sorted(kernel_stem(key) for key in KERNELS)
     wanted = set(filter_names) if filter_names else None
     return [n for n in names if (wanted is None or n in wanted) and BenchSpec.load(n).sparse_layouts]
 

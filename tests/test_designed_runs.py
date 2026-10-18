@@ -58,7 +58,8 @@ def test_a_setup_name_with_a_dot_keeps_its_slot_and_its_name() -> None:
     temperature study landed in slot 1, and the observations named the setup ``...-t1``."""
     label = "temperature3-qwen38-c-t1.5.n0.p41.w41.s7"
     assert recording.slot_of(label) == 7
-    assert recording.setup_of(label) == studies.setup_of(label) == "temperature3-qwen38-c-t1.5"
+    assert recording.setup_of(label) == "temperature3-qwen38-c-t1.5"
+    assert studies.agent_indices(label) == studies.AgentIndices("0", "41", "41")
 
 
 def test_a_rerun_with_an_answer_fills_the_slot_its_unanswered_run_left() -> None:

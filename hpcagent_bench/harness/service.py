@@ -52,11 +52,12 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+from hpcagent_agent.tools import submit
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
-from hpcagent_bench.config import GridChooser
 from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
+from hpcagent_bench.config import GridChooser
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.fuzz import safe_eval
@@ -116,6 +117,7 @@ from hpcagent_bench.harness.scoring import (
 from hpcagent_bench.harness.task import GPU_LANGUAGES, Task, grading_residency, setup_declared_host_only
 from hpcagent_bench.harness.timing import local_repeat, measurement_baseline, measurement_repeat
 from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
@@ -430,8 +432,9 @@ class RequestBody:
         return self.fields.get(field)
 
     def text(self, field: str, default: str = "") -> str:
-        """The field as text, ``default`` when absent; a null reads as ``"None"``."""
-        return str(self.fields[field]) if field in self.fields else default
+        """The field as text, ``default`` when absent or null."""
+        value = self.fields.get(field)
+        return default if value is None else str(value)
 
     def optional_text(self, field: str) -> str | None:
         """The field as text, or None when absent or null; "" stays ""."""
@@ -583,7 +586,7 @@ SUBMISSION_BUILD_MODE: Mode = Mode.SINGLE_CORE
 
 #: The ``cause`` of a 500 the judge answers for its own failure before any grade was recorded (the manifest,
 #: an exception in the grade itself): like a verdict's ``judge_fault``, it spends no single submission.
-JUDGE_FAULT_CAUSE = "judge_fault"
+JUDGE_FAULT_CAUSE = submit.JUDGE_FAULT
 
 #: Delivery languages each enforced ``input_mode`` accepts: ``source`` compiles, ``py-binding``
 #: calls Python. ``any`` and ``library`` are absent (not enforced).
@@ -836,7 +839,7 @@ def _source_from_file(path: str, kernel: str, language: str, episode_id: str | N
     host_lang = languages.GPU_HOST_LANG.get(language)
     ext_owner = language if device or host_lang is None else host_lang
     # A path-style key names the same kernel; its last segment names the files.
-    allowed = [f"{kernel.rsplit('/', 1)[-1]}.{e}" for e in (ext, *SOURCE_EXT_ALIASES.get(ext_owner, ()))]
+    allowed = [f"{kernel_stem(kernel)}.{e}" for e in (ext, *SOURCE_EXT_ALIASES.get(ext_owner, ()))]
     if resolved.name not in allowed:
         raise ValueError(
             f"'{field}' must be named {' or '.join(map(repr, allowed))} -- the kernel plus a {ext_owner} "
@@ -1383,6 +1386,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
     #: The body of the graded request in flight (``/score``, ``/submit``): what a refusal is recorded
     #: against. None on every other request.
     graded_body: RequestBody | None = None
+    #: The granted request of the graded request in flight once the judge set the task's grid on it
+    #: (:func:`with_task_grid`): what a later refusal records, as its grade would. None before that.
+    granted_requests: Requests | None = None
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 -- the overridden method's own signature
         """Quiet: the judge prints nothing per request. The parameter name matches the base class."""
@@ -1394,6 +1400,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self.graded_body = None
+        self.granted_requests = None
         with (
             self.abandoned_when_client_leaves(),
             SUBMITS_IN_FLIGHT.held(self.route in TERMINAL_ROUTES),
@@ -1493,7 +1500,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
     def record_refusal(self, body: RequestBody, detail: str) -> None:
         """Record a graded request that got no verdict (refused, or the grade failed) as a
         ``score_error`` call of the agent's trajectory: its turn was spent either way. A body naming
-        no known kernel is attributable to nothing and is not recorded."""
+        no known kernel is attributable to nothing and is not recorded. Its ``requests`` are the granted
+        ones once the judge set the task's grid (:attr:`granted_requests`), as a graded call records them;
+        before that, the body's."""
         kernel = body.raw("kernel")
         if not config.current().record.enabled or not isinstance(kernel, str) or kernel not in KERNELS:
             return
@@ -1513,7 +1522,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 datatype=self.cfg.datatype,
                 tokens=request_tokens(body),
                 detail=detail,
-                requests=refused_requests(body.raw("requests")),
+                requests=(
+                    self.granted_requests.recorded_json()
+                    if self.granted_requests is not None
+                    else refused_requests(body.raw("requests"))
+                ),
                 workspace_bytes=body.optional_text("workspace_bytes"),
                 build=body.argv("build"),
             )
@@ -1541,7 +1554,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 preset=cfg.preset,
                 datatype=cfg.datatype,
                 tokens=request_tokens(body),
-                requests=submission.requests_json(),
+                requests=submission.requests.recorded_json(),
                 workspace_bytes=submission.workspace_bytes,
                 build=submission.build,
                 submission=submission,
@@ -1593,7 +1606,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if self.misrouted(first_param(qs, "rank")):
             return None
         kernel, language = self._task(parts, qs)
-        # The run's size, never the query's (see serve_post); a sent preset is ignored for old tools.
+        # The run's size, never the query's (see serve_post); a preset in the query is ignored.
         preset = self.cfg.preset
         if not kernel:
             return self._send(
@@ -1870,6 +1883,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if isinstance(gridded, str):
             return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=gridded))
         submission = gridded
+        self.granted_requests = submission.requests
         # Distribution refusals apply to every grading route, /profile included.
         try:
             refused = distribution_refusal(submission, task, preset)
@@ -1946,13 +1960,15 @@ class JudgeHandler(BaseHTTPRequestHandler):
         ``service.submit_feedback`` is ``full`` (the loopback upstream behind the redacting router).
         ``cfg`` is the grade's own; ``curves`` are recorded, never answered; ``final`` is the final
         grade a credited one is also recorded as (:func:`grade_under.submit_grade`)."""
+        from hpcagent_bench.harness import recording
+
         request_id = uuid.uuid4().hex
         recorded = record_result(  # record_result owns the record.enabled gate
             cfg,
             result,
             submission,
             task,
-            body.text("episode_id", "adhoc"),
+            body.text("episode_id", recording.ADHOC_EPISODE_ID),
             body.optional_text("optimizer"),
             preset,
             tokens=request_tokens(body),

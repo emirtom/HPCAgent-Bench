@@ -175,8 +175,9 @@ MANIFEST="${PACK}/manifest.json"
 step() { printf '\n===== prepare: %s =====\n' "$*"; }
 
 kernels_of() { "${host_python}" -c '
-import json, sys
-print(",".join(json.loads(l)["kernel"] for l in open(sys.argv[1]) if l.strip()))' "$1"; }
+import pathlib, sys
+from hpcagent_bench.problem_file import read_lines
+print(",".join(problem.kernel for problem in read_lines(pathlib.Path(sys.argv[1]))))' "$1"; }
 
 # 1. problems
 step "problems (${PROBLEMS})"
@@ -237,11 +238,12 @@ mkdir -p "${GEN_CACHE}"
 if [[ "${CHECK_ONLY:-0}" != 1 ]]; then
     container_step env HPCAGENT_BENCH_REFERENCES_GENERATED_CACHE_DIR="${GEN_CACHE}" \
         bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON}" - "$@"' _ "${PROBLEMS}" "${LANG_}" <<'PY'
-import json, sys
+import pathlib, sys
 from hpcagent_bench.harness import agent
+from hpcagent_bench.problem_file import read_lines
 
 problems, language = sys.argv[1], sys.argv[2]
-kernels = sorted({json.loads(l)["kernel"] for l in open(problems) if l.strip()})
+kernels = sorted({problem.kernel for problem in read_lines(pathlib.Path(problems))})
 hit = miss = fail = 0
 for k in kernels:
     try:

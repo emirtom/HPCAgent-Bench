@@ -225,7 +225,7 @@ written with every unset field left out.
 
 | Column | Holds |
 | --- | --- |
-| `grades.requests TEXT NOT NULL DEFAULT ''` | the request, validated, as relayout's models write it (sorted keys); `''` = none |
+| `grades.requests TEXT NOT NULL DEFAULT ''` | the request, validated, as relayout's models write it (sorted keys); `''` = none; a `final` / `regrade` row's request is its `of_grade_id` grade's |
 | `grade_requests` (one row per entry) | the same request, one typed row per library, the grid and each operation |
 | `grades.convert_in_ns INTEGER NOT NULL DEFAULT 0` | sparse conversion + cast-in of the credited rep |
 | `grades.convert_out_ns INTEGER NOT NULL DEFAULT 0` | cast-out of the credited rep |
@@ -233,7 +233,9 @@ written with every unset field left out.
 `results_db.add_grade` writes both from one validated `Requests`, in one transaction, so they never
 disagree; a request that does not validate is refused before anything is written (a refused call whose
 request was malformed records none: `service.refused_requests`). `results_db.requests_of_row` reads the
-JSON back and `results_db.requests_from_rows` the rows; both give the request that was sent. The table,
+JSON back and `results_db.requests_from_rows` the rows; both give the request as granted: under
+`requests.grid: task` the judge injects the task's `startup.grid`, and graded and refused calls alike record
+it (`service.with_task_grid`, `JudgeHandler.granted_requests`), so a grid row there is not the agent's choice. The table,
 its `kind`s and a query over it are in [results_db.md](results_db.md#requests).
 
 ## 5. Open items

@@ -148,7 +148,7 @@ Key variables (full lists: `layers/common.env`, `run_cluster.sh`):
 | --- | --- | --- |
 | `INFERENCE_NODES`, `AGENT_NODES`, `JUDGE_NODES` | 2, 1, 1 | Role sizes; their sum is the allocation. |
 | `GPUS_PER_NODE` | none | GPUs per node: pinned by `submit.sh` from `--gpus-per-node`, and required. |
-| `INFERENCE_CE_ENV`, `AMD_CE_ENV`, `JUDGE_CE_ENV` | none; the layers name `hpcagent-bench-*-mi300-latest` | Registered EDF names per role. Their names carry the hardware: `HPCAGENT_BENCH_BASE_HARDWARE` (`layers/common.env`) is the hardware the layers name, and `--hardware` renames them for another. |
+| `INFERENCE_CE_ENV`, `AMD_CE_ENV`, `JUDGE_CE_ENV` | none; the layers name `hpcagent-bench-*-mi300-latest` | Registered EDF names per role. Their names carry the hardware: `HPCAGENT_BENCH_BASE_HARDWARE` (`layers/common.env`) is the hardware the layers name, and `--hardware` renames them for another. A hardware other than the base's is also named by the setup's experiment segment (`<experiment>-<hardware>-<model>-<variant>`, unless the experiment already names it), as it is by the recorded study, so two machines never share a setup. |
 | `PROBLEMS_FILE` / `KERNELS` | empty | JSON/JSONL problems, or a comma list of kernels. |
 | `AGENTS_PER_NODE` | 4 | Concurrent workers per agent node. |
 | `AGENT_TIMEOUT_SECONDS`, `AGENT_MAX_TOKENS` | 72000 s, 120M (`setups.yaml`, every track) | Per-episode budget. |

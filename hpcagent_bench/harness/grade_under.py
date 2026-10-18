@@ -93,7 +93,7 @@ from hpcagent_bench.harness.recording import (
     snapshot_commit,
 )
 from hpcagent_bench.harness.requests_api import Requests, RequestsField
-from hpcagent_bench.harness.scoring import ML_LAWS, Score, TimedCell, VerifyResult, score
+from hpcagent_bench.harness.scoring import ML_LAWS, Score, TimedCell, VerifyResult, geomean_ns, score
 from hpcagent_bench.harness.service import delivery_language, from_config, scales
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, grading_residency
 from hpcagent_bench.protocols import Protocol, Role
@@ -1284,16 +1284,14 @@ def protocol_grade(
         return result, None
     rows, values = final_rows(graded, task, BenchSpec.load(task.kernel).short_name, stamp=protocol.stamp)
     measured = graded.measured
-    natives = [cell.native_ns for cell in measured if cell.native_ns > 0]
-    baselines = [cell.baseline_ns for cell in measured if cell.baseline_ns > 0]
     worst = max((one.result for one in graded.inputs), key=lambda result: result.timing_residual_ns)
     result = dataclasses.replace(
         graded.inputs[0].result,
         correct=graded.solved,
         public_correct=graded.solved,
         max_rel_error=max(one.result.max_rel_error for one in graded.inputs),
-        native_ns=round(metric.geomean(natives)) if natives else 0,
-        baseline_ns=round(metric.geomean(baselines)) if baselines else 0,
+        native_ns=geomean_ns(cell.native_ns for cell in measured),
+        baseline_ns=geomean_ns(cell.baseline_ns for cell in measured),
         speedup=float(graded.credit.score),
         floor_ns=min((one.result.floor_ns for one in graded.inputs if one.result.floor_ns > 0), default=0.0),
         timing_reduction=values["timing_reduction"],

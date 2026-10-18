@@ -10,7 +10,6 @@ Rendering code lives in :mod:`hpcagent_bench.cpf_bridge` and keys its forms on t
 edit there re-renders without re-canonicalizing.
 """
 
-import hashlib
 import importlib
 import os
 import pathlib
@@ -24,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import pydantic
 
 from hpcagent_bench import cpf_cache, paths
+from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
@@ -165,7 +165,7 @@ def dace_environment() -> dict[str, str]:
 
 def producer_digest() -> str:
     """Hash of this module, the code between the generated program and the canonical SDFG."""
-    return hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()
+    return file_sha256(pathlib.Path(__file__))
 
 
 def small_symbols(spec: BenchSpec) -> frozenset[str]:
@@ -208,7 +208,7 @@ def canonical_key(
         options["small"] = sorted(small)
     if nonnegative:
         options["nonnegative"] = sorted(nonnegative)
-    return cpf_cache.canonical_key(hashlib.sha256(program.read_bytes()).hexdigest(), commit, options)
+    return cpf_cache.canonical_key(file_sha256(program), commit, options)
 
 
 def emit_program(spec: BenchSpec) -> "pathlib.Path | dict[str, str]":

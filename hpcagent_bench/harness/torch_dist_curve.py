@@ -51,6 +51,7 @@ import pydantic
 from hpcagent_bench import config, flags
 from hpcagent_bench.harness import (
     db_json,
+    disk_cache,
     mpi_call,
     mpi_gang,
     mpi_shard_driver,
@@ -106,7 +107,7 @@ EAGER: str = "eager"
 SEED: int = 0
 #: This module, as the rank driver ``mpi_entry`` runs.
 DRIVER_MODULE: str = "hpcagent_bench.harness.torch_dist_curve"
-#: ``image`` when the launcher exported no image digest (:data:`torch_reference.IMAGE_KEY_ENV`).
+#: ``image`` when the launcher exported no image digest (:data:`disk_cache.IMAGE_KEY_ENV`).
 UNKEYED_IMAGE: str = "unkeyed"
 #: The grade DB glob of an out dir (``scaling_grade``'s shard and chunk DBs).
 GRADE_DB_GLOB: str = "scaling-grade-*.db"
@@ -148,7 +149,7 @@ def stack() -> Stack:
             arch = flags.detect_gfx()
         except RuntimeError:
             arch = "unknown"
-    return Stack(arch, config.env_value(torch_reference.IMAGE_KEY_ENV) or UNKEYED_IMAGE)
+    return Stack(arch, config.env_value(disk_cache.IMAGE_KEY_ENV) or UNKEYED_IMAGE)
 
 
 def row_key(point: Point, where: Stack) -> tuple[object, ...]:

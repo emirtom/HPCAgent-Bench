@@ -99,7 +99,7 @@ def test_a_pydantic_field_reads_and_writes_the_request() -> None:
     assert envelope.model_dump(mode="json") == {"requests": raw}
     assert envelope.model_dump() == {"requests": raw}
     assert Envelope.model_validate(envelope.model_dump()) == envelope
-    assert Requests.from_obj(raw) == envelope.requests
+    assert Requests.validate(raw) == envelope.requests
     assert Envelope().model_dump(mode="json") == {"requests": {}}
     assert REQUESTS_ADAPTER.validate_python(None) == Requests()
     assert REQUESTS_ADAPTER.dump_python(envelope.requests, mode="json") == raw
@@ -128,9 +128,9 @@ def test_the_submission_declares_requests_as_the_pydantic_field() -> None:
     assert empty.requests == Requests()
     assert "requests" not in empty.model_dump(mode="json")
     assert empty.to_json() == {"language": "c", "source": "x", "build": []}
-    assert empty.requests_json() is None
+    assert empty.requests.recorded_json() is None
     assert (
-        submission.requests_json()
+        submission.requests.recorded_json()
         == '{"operations": [{"action": "distribute", "array": "A", "dim": 0, "grid_dim": 0, "scheme": "block"}], "startup": {"grid": ["P"]}}'
     )
 

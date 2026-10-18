@@ -21,7 +21,8 @@ from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import kernel_runs
 from tests import repeat_runs_stub as stub
 
-SCRIPT = paths.ROOT / "statistics" / "plot_kernel_runs.py"
+#: The figure's command, as a user runs it.
+PLOT: tuple[str, ...] = ("-m", "hpcagent_bench.stats.plot", "kernel-runs")
 SUFFIXES: tuple[str, ...] = ("-t0", "", "-t1.5")
 
 
@@ -142,7 +143,7 @@ def test_the_script_writes_the_figure_and_the_runs_behind_it(tmp_path: pathlib.P
     stub_observations().to_csv(observations, index=False)
     out = tmp_path / "temperature.pdf"
     command = [
-        sys.executable, str(SCRIPT), str(observations), "--tag", "repeat5", "--allow-owed",
+        sys.executable, *PLOT, str(observations), "--tag", "repeat5", "--allow-owed",
         "--cost-model", "effective", "--out", str(out),
     ]  # fmt: skip
     subprocess.run(command, check=True, capture_output=True, cwd=paths.ROOT)
@@ -158,7 +159,7 @@ def test_the_script_draws_only_the_conditions_asked_for(tmp_path: pathlib.Path) 
     stub_observations().to_csv(observations, index=False)
     out = tmp_path / "temperature.pdf"
     command = [
-        sys.executable, str(SCRIPT), str(observations), "--tag", "repeat5", "--allow-owed",
+        sys.executable, *PLOT, str(observations), "--tag", "repeat5", "--allow-owed",
         "--cost-model", "effective", "--conditions", "t0,default", "--out", str(out),
     ]  # fmt: skip
     subprocess.run(command, check=True, capture_output=True, cwd=paths.ROOT)
@@ -196,7 +197,7 @@ def test_one_condition_draws_one_unruled_untitled_group() -> None:
 def test_the_script_refuses_owed_runs_by_default(tmp_path: pathlib.Path) -> None:
     observations = tmp_path / "stub.csv"
     stub_observations().to_csv(observations, index=False)
-    command = [sys.executable, str(SCRIPT), str(observations), "--out", str(tmp_path / "runs.pdf")]
+    command = [sys.executable, *PLOT, str(observations), "--out", str(tmp_path / "runs.pdf")]
     done = subprocess.run(command, check=False, capture_output=True, text=True, cwd=paths.ROOT)
     assert done.returncode != 0
     assert "owed runs" in done.stderr

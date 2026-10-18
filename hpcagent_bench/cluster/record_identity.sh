@@ -44,7 +44,8 @@ record_identity() {
 # setup's env points at is already frozen the moment it is written -- a later edit of the tag's file
 # (hpcagent_bench/tags/<tag>.txt) cannot touch a run dir that already exists. This is for the OTHER
 # half: telling two DIFFERENT runs of "the same tag name" apart when the tag's own definition moved
-# between them, e.g. a query pooling by (study, tag_version) instead of (study) alone.
+# between them: the judge and the episode records store it as setups.tag_version
+# (recording.tag_version_tag), so a query pools by (study, tag_version) instead of (study) alone.
 record_tag_version() {
     local env="$1" tag="$2" version
     version=$("${HPCAGENT_BENCH_HOST_PYTHON:?source helpers/scripts/host_python.sh}" -m hpcagent_bench.tags version "${tag}") \

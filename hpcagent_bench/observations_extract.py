@@ -66,7 +66,7 @@ from hpcagent_bench.run_layout import AGENT_DIR_PREFIX, JUDGE_DIRNAME, SHARED_DI
 from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.stats import population, score_rule
 from hpcagent_bench.stats.databases import check_setups
-from hpcagent_bench.studies import agent_indices, judge_database, setup_of
+from hpcagent_bench.studies import agent_indices, judge_database
 
 __all__ = [
     "ADHOC_SETUP",
@@ -650,8 +650,8 @@ ORDER BY g.ts_ms, g.id
 #: Every scaling point, with the grade it is a curve of: a replay (a ``regrade``) reads as the
 #: submission it replayed.
 SCALING_ROWS = """
-SELECT p.*, s.single_rank_ns, r.label, r.slot, r.job AS episode_job, r.setup, a.harness AS setup_harness,
-       a.packet AS setup_packet, o.kernel, o.ts_ms
+SELECT p.*, s.single_rank_ns, r.label, r.slot, r.job AS episode_job, r.setup, a.language AS setup_language,
+       a.harness AS setup_harness, a.packet AS setup_packet, o.kernel, o.ts_ms
 FROM scaling_points p
 JOIN scaling_grades s ON s.grade_id = p.grade_id AND s.mode = p.mode AND s.input = p.input
 JOIN grades g ON g.id = p.grade_id
@@ -714,7 +714,7 @@ def results_database(path: pathlib.Path) -> bool:
 def identity_row(db: Database, row: Mapping[str, Any], record: str) -> dict[str, Any]:
     """The columns every row of one episode carries."""
     episode_id = str(row["label"])
-    setup = setup_of(episode_id)
+    setup = str(row["setup"])
     return {
         "run_root": db.run_root,
         "job": job_of(row["episode_job"]),
@@ -818,7 +818,7 @@ def graded_rows(
     sources: list[dict[str, Any]] = []
     ordinals: collections.Counter[tuple[str, str, str]] = collections.Counter()
     for grade in conn.execute(GRADE_ROWS):
-        if not setup_admitted(setup_of(grade["label"]), *setup_selection) or before_the_c_fix(grade, c_fix_ms):
+        if not setup_admitted(grade["setup"], *setup_selection) or before_the_c_fix(grade, c_fix_ms):
             continue
         rows = [call_row(db, grade)] if grade["call_index"] > 0 else []
         if (
@@ -868,7 +868,7 @@ def episode_rows(
     how it ended, and no speedup (R1-R2 only look at ``submission`` rows)."""
     rows: list[dict[str, Any]] = []
     for run in conn.execute(EPISODE_ROWS):
-        if not setup_admitted(setup_of(run["label"]), *setup_selection):
+        if not setup_admitted(run["setup"], *setup_selection):
             continue
         row: dict[str, Any] = dict.fromkeys(OBSERVATION_FIELDS, "")
         row |= identity_row(db, {**dict(run), "episode_job": run["job"]}, "episode")
@@ -897,12 +897,13 @@ def scaling_rows(
     excluded tokens) admits (:func:`setup_admitted`), stamped with the submission it measured."""
     out: list[dict[str, Any]] = []
     for row in conn.execute(SCALING_ROWS):
-        if not setup_admitted(setup_of(row["label"]), *setup_selection):
+        if not setup_admitted(row["setup"], *setup_selection):
             continue
         out.append(
             identity_row(db, row, SCALING_RECORD)
             | {
                 "kernel": row["kernel"],
+                "language": row["setup_language"] or "",
                 "ts_ms": row["ts_ms"],
                 "scaling_ranks": row["ranks"],
                 "scaling_nodes": unmeasured(row["nodes"]),

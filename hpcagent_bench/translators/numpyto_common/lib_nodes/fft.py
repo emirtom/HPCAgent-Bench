@@ -144,8 +144,7 @@ def expand_dftn(
     ``library`` (a single, whole-array 1-D transform -- ``rank == 1``) emits
     :data:`FFT_LIBRARY_MARKER` instead of the naive loop below: each C/C++/Fortran emitter
     renders it as an FFTW3 call (O(N log N)); numba's emitter renders it as an ``objmode`` call
-    into ``numpy.fft`` (numba's nopython mode cannot type ``np.fft.*`` at all -- see
-    ``frameworks/test.py``'s ``njit_reference`` compile-stage fallback). DaCe is untouched: its
+    into ``numpy.fft`` (numba's nopython mode cannot type ``np.fft.*`` at all). DaCe is untouched: its
     driver never sets ``library``, so it receives this function's naive body (see
     numpyto_c/dace_emit.py). A batched / N-D transform (``rank > 1``: fft_3d, ls3df_scf,
     vloc_psi_k_acc, bout_hasegawa_wakatani, cegterg, vexx_k) keeps the naive loop on every target:

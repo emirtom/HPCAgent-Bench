@@ -527,8 +527,8 @@ def numba_ungated_params() -> Iterator[ParameterSet]:
 
 
 @pytest.mark.parametrize("stem", list(numba_ungated_params()))
-def test_numba_computes_what_numpy_computes_on_every_ungated_kernel(stem: str) -> None:
-    """A numba run either matches numpy or declines (``skip:``, numba cannot type the construct);
+def test_numba_matches_the_compiled_reference_on_every_ungated_kernel(stem: str) -> None:
+    """A numba run either matches the kernel's compiled reference or declines (``skip:``, numba cannot type the construct);
     it never returns a wrong answer."""
     status = _result(stem).get("numba", "skip:absent")
     excused = BROKEN_NUMPY_REFERENCE.get(stem)

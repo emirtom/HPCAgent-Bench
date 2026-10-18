@@ -30,7 +30,6 @@ Nothing here reads the image: a host without ``<root>/<context>/`` (a login node
 import functools
 import os
 import pathlib
-import re
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
@@ -149,12 +148,10 @@ def context_for_python_imports(imported: AbstractSet[str]) -> str:
     return LLVM if imported & LLVM_MODULES else DEFAULT_CONTEXT
 
 
-#: The runtime a shared library records in ``DT_NEEDED``, by soname stem, and the context that runtime is.
-NEEDED_RUNTIME_CONTEXT: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"libgomp[-\w]*\.so"), GNU),
-    (re.compile(r"lib(?:omp|iomp5)[-\w]*\.so"), LLVM),
-    (re.compile(r"libnvomp[-\w]*\.so"), NVHPC),
-)
+#: The context of the runtime a shared library records in ``DT_NEEDED``, by soname stem: a soname counts
+#: when it names a runtime file (:data:`hpcagent_bench.openmp_runtimes.RUNTIME_FILE`, so ``libomptarget``
+#: and ``libompd`` do not), and Intel's ``libiomp5`` is LLVM's runtime.
+NEEDED_RUNTIME_CONTEXT: Mapping[str, str] = {**RUNTIME_CONTEXT, "libiomp5": LLVM}
 
 #: Seconds ``readelf`` gets to read one library's dynamic section.
 READELF_TIMEOUT_S = 30
@@ -171,9 +168,8 @@ def context_for_library(path: pathlib.Path) -> str:
         return DEFAULT_CONTEXT
     needed = [line.rpartition("[")[2].rstrip("]") for line in dynamic.splitlines() if "(NEEDED)" in line]
     for soname in needed:
-        for pattern, context in NEEDED_RUNTIME_CONTEXT:
-            if pattern.match(soname):
-                return context
+        if openmp_runtimes.RUNTIME_FILE.fullmatch(soname):
+            return NEEDED_RUNTIME_CONTEXT[soname.partition(".so")[0].partition("-")[0]]
     return DEFAULT_CONTEXT
 
 

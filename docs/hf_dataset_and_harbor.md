@@ -56,7 +56,7 @@ The exporter is a pure regenerator over the manifest tree; nothing is cached in 
 ```bash
 hpcagent-bench export-hf --selector all --out hf_dataset                    # build + validate the folder
 HF_TOKEN=... hpcagent-bench export-hf --selector all --push <org>/<dataset> [--private]
-helpers/scripts/do_dataset_release.sh [--out DIR] [--selector SEL] [--push ORG/NAME]
+helpers/scripts/do_dataset_release.sh --selector all --out hf_dataset     # the same, under the job environment
 ```
 
 The validated folder written to `--out` is exactly what `--push` uploads. `tests/test_hf_export.py`

@@ -11,9 +11,9 @@ Owed runs (a final grade still to come, or a run owed a rerun) are refused, figu
 ``--allow-owed`` draws them as a "?" for a look at an unfinished study (the table is still refused).
 
     python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
-    python statistics/plot_kernel_runs.py data/temperature3.db --experiment temperature3 --tag temperature3 \\
+    hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \\
         --conditions t0,default --out figures/temperature3_t0_t1.pdf
-    python statistics/plot_kernel_runs.py data/repeat5.db --tag repeat5 --out figures/repeat5-runs.pdf \\
+    hpcagent-bench plot kernel-runs data/repeat5.db --tag repeat5 --out figures/repeat5-runs.pdf \\
         --table data/repeat5-reliability.csv
 """
 
@@ -58,8 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     card = cost.resolve(args.cost_model, args.cost_models)
     frame = population.select_setups(studies.read_observations(args.observations), args.experiment, args.setups)
     if args.conditions:

@@ -67,6 +67,7 @@ __all__ = [
     "FUSED_PROBLEM_FLAG",
     "FUSED_PROBLEM_KEYS",
     "GRADE_FIELD",
+    "IDENTITY_KEYS",
     "JOB_CANCELLED",
     "JOB_END_MARGIN_S",
     "MATERIAL_DIR_ENV",
@@ -90,7 +91,6 @@ __all__ = [
     "RC_TOKEN_BUDGET",
     "RECORD_DEVICE_DEFAULT",
     "RELAUNCH_KEEPS",
-    "RELAUNCH_POLICY",
     "RESOLVED_SUFFIX",
     "RESULT_TAIL_BYTES",
     "SEAL_UNSHARE",
@@ -102,7 +102,6 @@ __all__ = [
     "START_GATE_POLL_SECONDS",
     "SUBMISSION_MARKER",
     "TOKEN_DIR_NAME",
-    "TOKEN_FOLD",
     "TOKEN_POLL_SECONDS",
     "TRUE_FLAG_SPELLINGS",
     "UNREMINDED_PAGES",
@@ -1325,8 +1324,9 @@ def task_dir(kernel: str) -> pathlib.Path:
 
 
 #: The driver's record of which shared folder each attempt of an episode worked in, one JSON line per attempt
-#: under RUN_DIR (``promote_unsubmitted.workspace_dir`` reads the latest line of an episode).
-AGENT_FOLDERS_LOG = "agent-folders.jsonl"
+#: under RUN_DIR (``promote_unsubmitted.workspace_dir`` reads the latest line of an episode). Defined once, in
+#: promote_unsubmitted, which the judge side imports too.
+AGENT_FOLDERS_LOG = promote_unsubmitted.AGENT_FOLDERS_LOG
 #: The prefix of an agent's folder in the shared mount: ``agent-<n>``, n counting every attempt the run started.
 AGENT_FOLDER_PREFIX = "agent-"
 
@@ -1656,17 +1656,9 @@ def task_token_totals(workdir: pathlib.Path) -> token_cost.EpisodeTotals:
         return token_cost.EpisodeTotals(0, None, None, 0, 0, 0)
 
 
-#: The token fold a cost record was computed with (docs 8.2 T7-T12). The extractor reads a record
-#: only from fold 3 on and re-folds older ones.
-#:
-#: 3: fold 2's records never recovered a compaction request's own tokens
-#: (``token_cost.fold_compaction_recovery``), so the extractor re-folds them from their surviving
-#: transcripts.
-TOKEN_FOLD = 3
-
-#: What this driver does to a crashed agent's state before relaunching it (T5), recorded in
-#: tokens.json so a reading of the run does not have to date the driver.
-RELAUNCH_POLICY = "fresh"
+#: The setup identity tokens.json carries as ``identity``, each read from ``HPCAGENT_BENCH_RECORD_<KEY>``
+#: (upper-cased) in the driver's environment; '' when unset (a ``temperature`` of '' = the served default).
+IDENTITY_KEYS = ("study", "model", "language", "device", "packet", "harness", "tag_version", "temperature")
 
 #: Written in the worker directory when the JOB took the agent down (T6). Extraction reads it and
 #: the analysis drops every row of such a task (X8): the agent was interrupted, so what it left is
@@ -1850,7 +1842,7 @@ def write_cost_record(
     """
     record: Problem = {
         "problem": problem.get("id"),
-        "kernel": problem.get("kernel") or problem.get("kernel"),
+        "kernel": problem.get("kernel"),
         "worker": worker_index,
         "returncode": returncode,
         # The per-turn sum. Kept under its old name and still what AGENT_MAX_TOKENS enforces:
@@ -1878,8 +1870,8 @@ def write_cost_record(
     # The TASK total (T1-T2, T5). A relaunch wipes the agent's state, so the task IS its final
     # attempt: `tokens` and the breakdown above are the reported cost, and what the crashed attempts
     # spent is reported beside them rather than added to them.
-    record["relaunch"] = RELAUNCH_POLICY
-    record["token_fold"] = TOKEN_FOLD
+    # The setup identity the episode ran under, from the record env the cluster submit wrote.
+    record["identity"] = {key: os.environ.get(f"HPCAGENT_BENCH_RECORD_{key.upper()}", "") for key in IDENTITY_KEYS}
     # The cut every analysis of this task applies (X7): a judge row stamped before it belongs to
     # state that was thrown away. Epoch ms, the judge's own `ts` unit.
     record["final_attempt_start_ms"] = final_attempt_start_ms

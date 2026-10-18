@@ -35,12 +35,10 @@ submission at a time (one device slot, see run_cluster.sh JUDGE_GANG_NODES).
 The judge's environment rides to the ranks in an ``env K=V ...`` prefix, since the relay's srun
 exports the batch host's environment, not the judge container's.
 
-The ``<id>.req`` file is the relay's format, read with bare :mod:`json` on the batch host, so it is
-written here with bare :mod:`json` too, not a pydantic model (docs/results_db.md#formats).
+The ``<id>.req`` file is a :class:`GangRequest`, written here and read by the relay.
 """
 
 import fcntl
-import json
 import math
 import os
 import sys
@@ -50,6 +48,8 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+import pydantic
 
 from hpcagent_bench import config, osinfo
 
@@ -66,6 +66,7 @@ __all__ = [
     "STALE_MARK",
     "STALL_S",
     "Gang",
+    "GangRequest",
     "RelayFault",
     "launch_nodes",
     "launch_timeout",
@@ -124,6 +125,14 @@ RC_WAIT_SLACK_S = 120.0
 
 #: Variables a rank gets from its own step; never forwarded through the relay.
 RANK_OWNED_PREFIXES: tuple[str, ...] = ("SLURM_", "PMI_", "PMIX_", "PMI2_")
+
+
+class GangRequest(pydantic.BaseModel):
+    """The ``<id>.req`` file a judge hands the host-side relay: the argv of the one ``srun`` it starts."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    argv: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +282,7 @@ def relay_call(directory: Path, ident: str, cmd: Sequence[str], timeout: float, 
     alive = base.with_name(base.name + ".alive")
     alive.touch()
     staged = base.with_name(base.name + ".req.tmp")
-    staged.write_text(json.dumps({"argv": list(cmd)}))
+    staged.write_text(GangRequest(argv=list(cmd)).model_dump_json())
     staged.rename(base.with_name(base.name + ".req"))
     rc_file = base.with_name(base.name + ".rc")
     since = last = time.time()

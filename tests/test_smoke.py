@@ -31,7 +31,6 @@ from hpcagent_bench.harness.judge_wire import GradeAnswer, ScorePreview
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.task import Task
 from tests import results_seed
-from tests.conftest import script_path
 from tests.own_process import isolated
 from tests.test_prompt_render_matrix import VARIANTS, empty_sections, materialize, render
 from tests.test_submit import staged, submit, tree
@@ -180,9 +179,19 @@ def test_a_regrade_writes_a_correct_final_grade_and_the_dataset_draws_it(
 
     figure = tmp_path / "figure.pdf"
     drawn = subprocess.run(
-        [sys.executable, str(script_path("plot_kernel_runs")), str(observations), "--experiment", STUDY]
-        # The seeded DB holds the graded submission but no episode record, so the run reads as owed a rerun.
-        + ["--allow-owed", "--out", str(figure)],
+        [
+            sys.executable,
+            "-m",
+            "hpcagent_bench.stats.plot",
+            "kernel-runs",
+            str(observations),
+            "--experiment",
+            STUDY,
+            # The seeded DB holds the graded submission but no episode record, so the run reads as owed a rerun.
+            "--allow-owed",
+            "--out",
+            str(figure),
+        ],
         capture_output=True,
         text=True,
         check=False,

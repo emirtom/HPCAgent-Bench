@@ -31,15 +31,10 @@ def _reference_submission(kernel: str = "gemm", language: str = "c") -> Submissi
 def test_client_reads_health_and_baseline(
     make_judge: Callable[[ServiceConfig], tuple[ThreadingHTTPServer, str]],
 ) -> None:
-    """The two read endpoints the client still has, and proof the third one is gone.
-
-    There is no ``/task``: the signature, tolerances and goal are rendered into the prompt, so a
-    client that answers ``task`` would mean the route came back without the prompt being updated.
-    """
+    """The client's two read endpoints."""
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", repeat=2))
     client = tools.JudgeClient(url)
     assert client.health().status == "ok"
-    assert not hasattr(client, "task"), "the /task route is gone; the prompt carries the spec now"
     base = client.baseline("gemm", "c", "S")
     assert base.baselines["c"] > 0  # baseline runs in the judge (always C here)
 

@@ -29,7 +29,7 @@ LAYOUT = {
 
 
 def sparse_submission(requests: dict | None) -> Submission:
-    return Submission(language="c", source="void spmv(void) {}", requests=Requests.from_obj(requests))
+    return Submission(language="c", source="void spmv(void) {}", requests=Requests.validate(requests))
 
 
 def test_the_manifest_refuses_an_mpi_block_beside_sparse_layouts() -> None:

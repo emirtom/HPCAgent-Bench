@@ -3,7 +3,7 @@
 """Speedup per kernel: every kernel of a tag, canon-sweep columns (compilers) and an experiment's setups as rows of
 speedups over one baseline, with tokens spent below (:func:`hpcagent_bench.stats.figures.kernel_speedups.kernel_comparison`).
 
-    python statistics/plot_kernel_speedups.py obs.csv --experiment llr40 --canon-db canon.db \
+    hpcagent-bench plot kernel-speedups obs.csv --experiment llr40 --canon-db canon.db \
         --canon-columns pluto,dace_cpu --out figures/kernel_speedups.pdf
 """
 
@@ -92,7 +92,7 @@ def draw(args: argparse.Namespace, card: cost.CostModel) -> None:
         observations = cost.priced(observations, card)
     baseline = args.baseline
     if baseline is None:
-        submitted = observations[observations.row_kind == "submission"] if observations is not None else None
+        submitted = observations.loc[observations.row_kind == "submission"] if observations is not None else None
         baseline = (
             population.rows_denominator(submitted)
             if submitted is not None and not submitted.empty
@@ -120,8 +120,8 @@ def draw(args: argparse.Namespace, card: cost.CostModel) -> None:
     print(f"tables -> {stem}-kernels.csv, {stem}-summary.csv")
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     draw(args, cost.resolve(args.cost_model, args.cost_models))
 
 

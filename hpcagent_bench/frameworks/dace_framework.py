@@ -54,7 +54,7 @@ from hpcagent_bench.frameworks.framework import (
     is_dense,
     is_numpy_array,
 )
-from hpcagent_bench.frameworks.test import njit_reference, tolerance_datatype, tolerances_for
+from hpcagent_bench.frameworks.test import reference_outputs, tolerance_datatype, tolerances_for
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 
 if TYPE_CHECKING:
@@ -937,7 +937,7 @@ class DaceFramework(Framework):
     def verify(
         self, variant: TimedCompiledSDFG, reference: list[OutputValue], bench: Benchmark, bdata: BenchData
     ) -> bool:
-        """Run ``variant`` and check its output against the NumPy reference via the harness validator."""
+        """Run ``variant`` and check its output against the compiled reference's via the harness validator."""
         try:
             out = self.collect_outputs(self, variant, bench, bdata)
         except Exception as exc:  # noqa: BLE001 -- a variant that raises fails verification
@@ -955,16 +955,15 @@ class DaceFramework(Framework):
         )
 
     def reference_outputs(self, bench: Benchmark, bdata: BenchData) -> list[OutputValue] | None:
-        """The NumPy reference outputs for ``bdata``, or ``None`` (skips the gate). On a GPU flavor they are
-        staged to the device once, so every variant compares on the device."""
+        """The outputs of the compiled reference a grade uses for ``bdata``
+        (:func:`~hpcagent_bench.frameworks.test.reference_outputs`), or ``None`` (skips the gate;
+        ``run-framework --validate`` still fails the run). On a GPU flavor they are staged to the device
+        once, so every variant compares on the device."""
         try:
-            numpy_fw = Framework("numpy")
-            np_impl, _ = numpy_fw.implementations(bench)[0]
-            # The harness's njit oracle wrapper: this runs inside first_execution, whose time counts against
-            # the framework's timeout.
-            reference = self.collect_outputs(numpy_fw, njit_reference(np_impl, bench, bdata), bench, bdata)
+            # This runs inside first_execution, whose time counts against the framework's timeout.
+            reference = reference_outputs(bench, bdata)
         except Exception as exc:  # noqa: BLE001 -- no reference means no verification, not a failed run
-            print(f"DaCe optimize: numpy reference unavailable ({exc}); verification skipped")
+            print(f"DaCe optimize: {bench.spec.short_name}: no compiled reference ({exc}); verification skipped")
             return None
         if self.info["arch"] != "gpu":
             return reference

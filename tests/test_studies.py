@@ -1,16 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``read_observations`` fills a setup's blank identity from its own recorded value.
-
-An experiment's judge tables do not always stamp ``language`` or ``packet`` onto every row of an
-setup -- an attempt or call row can predate the stamp a submission row gets. A caller that groups the
-raw column then reads one setup as several identity slices and undercounts its own kernel coverage,
-which is what fragmented ``git-scicomp``'s setup-summary figure. These tests state the contract that
-fixes it without hiding a real conflict.
-"""
+"""``studies``: which files are judge records, and the rules ``read_observations`` applies to the rows it reads
+(foreign kernels, relaunches, cancellations, ad-hoc rows). A row's identity is its setup's recorded row, read as
+it is."""
 
 import contextlib
-import math
 import pathlib
 import sqlite3
 import warnings
@@ -37,44 +31,6 @@ def test_a_job_marked_merge_failed_is_read_from_its_shards_not_its_results_db(
 
     assert studies.judge_database(merged) is not merge_failed
     assert studies.judge_database(shard) is merge_failed
-
-
-def test_a_blank_and_filled_setup_reads_as_one_identity() -> None:
-    """One setup, packet recorded on some rows and blank on others, fills to one value."""
-    frame = pd.DataFrame(
-        {
-            "setup": ["a", "a", "a"],
-            "packet": ["repo", "", None],
-            "language": ["c", "c", "c"],
-        }
-    )
-    filled = studies.fill_setup_identity(frame)
-    assert filled.packet.tolist() == ["repo", "repo", "repo"]
-
-
-def test_a_conflicting_setup_raises_by_name() -> None:
-    """Two different non-blank values under one setup label is contamination, not a gap."""
-    frame = pd.DataFrame({"setup": ["a", "a"], "language": ["c", "fortran"]})
-    with pytest.raises(ValueError, match="'a'"):
-        studies.fill_setup_identity(frame)
-
-
-def test_a_setup_with_no_value_anywhere_stays_blank() -> None:
-    """No row of the setup ever recorded the column: filling has nothing to fill from."""
-    frame = pd.DataFrame({"setup": ["a", "a"], "packet": ["", None]})
-    filled = studies.fill_setup_identity(frame)
-    assert filled.packet.map(studies.is_blank).all()
-
-
-def test_a_language_never_recorded_on_any_row_falls_back_to_the_setup_name() -> None:
-    """``llr40-*-c-cpf`` never once stamped ``language`` (every row predates it), so there
-    is no recorded value to fill from -- unlike ``packet``, the setup name is the last resort here,
-    same rule :func:`hpcagent_bench.study_tags.model_of` already uses. Without this, the setup's
-    language stayed blank and it shared no (model, language) key with its control at all, which is
-    what crashed ``statistics/plot_score_change.py`` rather than skipping the pair."""
-    frame = pd.DataFrame({"setup": ["llr40-oss120b-c-cpf-tool"] * 2, "language": ["", None]})
-    filled = studies.fill_setup_identity(frame)
-    assert filled.language.tolist() == ["c", "c"]
 
 
 def foreign_kernel_frame() -> pd.DataFrame:
@@ -305,104 +261,6 @@ def test_read_observations_never_returns_an_adhoc_row(tmp_path: pathlib.Path) ->
     with pytest.warns(UserWarning, match="stored under episode id 'adhoc'"):
         frame = studies.read_observations(path)
     assert frame.episode_id.tolist() == ["a.n0.p4.w4"]
-
-
-@pytest.mark.parametrize(
-    ("setup", "packet"),
-    [
-        ("llr40-oss120b-c-cpf-tool", "cpf-tool-cpu"),
-        ("llr40-qwen38-c-cpf-src", "cpf-cpu-src"),
-        ("llr40-qwen38-hip-cpf-gpu-src", "cpf-gpu-src"),
-        ("llr40-oss120b-c-cpf-tool-kinds", "cpf-tool-cpu-kinds"),
-        ("llr40-qwen38-c-cpf-src-kinds", "cpf-cpu-src-kinds"),
-        ("llr40-qwen38-hip-cpf-gpu-src-kinds", "cpf-gpu-src-kinds"),
-        ("llr40-kimi27sglang-c-lang-skills", "lang-skills"),
-        ("llr40-kimi27sglang-c-openmp-lang-skills", "lang-skills"),
-        ("llr40-qwen38-c-perf-playbook-cpu", "perf-playbook-cpu"),
-    ],
-)
-def test_a_packet_token_after_the_model_is_the_setups_packet(setup: str, packet: str) -> None:
-    """Most ``-skills`` setups never recorded their packet; without the name the skills contrast found one pair of
-    fifteen. Replaces the earlier rule that packet had no name fallback, which is what lost those pairs."""
-    frame = pd.DataFrame({"setup": [setup] * 2, "packet": ["", None]})
-    assert studies.fill_setup_identity(frame).packet.tolist() == [packet, packet]
-
-
-@pytest.mark.parametrize("setup", ["llr40-qwen38-c", "llr40-oss120b-fortran"])
-def test_the_study_prefix_never_reads_as_a_packet(setup: str) -> None:
-    """A setup with no ``cpf-tool`` token after its model is the control setup and must stay the control."""
-    frame = pd.DataFrame({"setup": [setup], "packet": [""]})
-    assert studies.is_blank(studies.fill_setup_identity(frame).packet.iloc[0])
-
-
-def test_the_setup_name_wins_over_a_rows_claimed_language_and_the_claim_is_kept() -> None:
-    """A HIP setup's agent can submit C; the setup still ran HIP, and the row's claim stays inspectable."""
-    frame = pd.DataFrame({"setup": ["llr40-qwen38-hip"] * 3, "language": ["hip", "c", ""]})
-    filled = studies.fill_setup_identity(frame)
-    assert filled.language.tolist() == ["hip", "hip", "hip"]
-    assert filled.recorded_language.tolist() == ["hip", "c", ""]
-
-
-def test_two_setups_are_filled_independently() -> None:
-    """One setup's recorded value never leaks into a different setup's blank cells."""
-    frame = pd.DataFrame({"setup": ["a", "a", "b", "b"], "packet": ["repo", "", "", ""]})
-    filled = studies.fill_setup_identity(frame)
-    assert filled.packet.tolist() == ["repo", "repo", "", ""]
-
-
-def test_a_blank_setup_label_is_never_pooled_into_one_identity() -> None:
-    """Rows with no setup at all (an ad-hoc grade) keep their own recorded values, unfilled."""
-    frame = pd.DataFrame({"setup": ["", None], "language": ["c", "fortran"]})
-    filled = studies.fill_setup_identity(frame)
-    assert filled.language.tolist() == ["c", "fortran"]
-
-
-def test_a_frame_with_no_setup_column_passes_through_unchanged() -> None:
-    """A frame that cannot name a setup at all is returned as given, not filtered or raised on."""
-    frame = pd.DataFrame({"language": ["c", "fortran"]})
-    filled = studies.fill_setup_identity(frame)
-    assert filled.language.tolist() == ["c", "fortran"]
-
-
-@pytest.mark.parametrize("value", [None, "", "  ", float("nan")])
-def test_is_blank_recognizes_every_recorded_form_of_no_value(value: object) -> None:
-    assert studies.is_blank(value)
-
-
-@pytest.mark.parametrize("value", ["c", "repo", "0", "nan_repo"])
-def test_is_blank_rejects_a_real_value(value: object) -> None:
-    assert not studies.is_blank(value)
-
-
-def test_read_observations_fills_setup_identity_from_a_csv(tmp_path: pathlib.Path) -> None:
-    """The public entry point applies the fill, not just the helper underneath it."""
-    path = tmp_path / "observations.csv"
-    pd.DataFrame({"setup": ["a", "a"], "packet": ["repo", ""]}).to_csv(path, index=False)
-    frame = studies.read_observations(path)
-    assert frame.packet.tolist() == ["repo", "repo"]
-
-
-def test_nan_is_blank_but_zero_is_not() -> None:
-    assert studies.is_blank(math.nan)
-    assert not studies.is_blank("0")
-
-
-def test_a_column_no_row_in_the_table_ever_recorded_still_fills_from_the_setup_name() -> None:
-    """The bug this guards: a column NOTHING recorded reads back from CSV as all-NaN float64, and
-    writing a setup's recovered language into that raised ``Invalid value 'c' for dtype 'float64'``
-    -- a crash where the caller asked for a fill. It is exactly the shape an experiment whose judge
-    never stamped a language produces, and it is the shape a paired figure reads."""
-    frame = pd.DataFrame(
-        {
-            "setup": ["llr40-qwen38-c", "llr40-qwen38-c"],
-            "language": [math.nan, math.nan],
-        }
-    )
-
-    filled = studies.fill_setup_identity(frame)
-
-    assert filled.language.tolist() == ["c", "c"]
-    assert [math.isnan(value) for value in filled.recorded_language.tolist()] == [True, True]
 
 
 def graded_episode(kernel: str, graded: list[tuple[str, str]]) -> pd.DataFrame:

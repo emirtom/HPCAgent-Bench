@@ -28,7 +28,7 @@ from hpcagent_bench.harness.scoring import (
 )
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec, ConfigRow, PresetTable, shape_dims
-from hpcagent_bench.stats import score_rule, summary
+from hpcagent_bench.stats import score_rule
 from hpcagent_bench.units import NS_PER_MS
 
 __all__ = [
@@ -84,10 +84,10 @@ UNMEASURED: float = 0.0
 
 
 def geomean(xs: Sequence[float]) -> float:
-    """Geometric mean of the positive entries; :data:`UNMEASURED` when there are none (non-positive
-    entries are unscored cells, not slowdowns)."""
-    positive = [x for x in xs if x > 0]
-    return summary.geomean(positive) if positive else UNMEASURED
+    """Geometric mean of the positive entries (:func:`score_rule.geomean`: one entry is its own geomean
+    exactly); :data:`UNMEASURED` when there are none (non-positive entries are unscored cells, not
+    slowdowns)."""
+    return score_rule.geomean([x for x in xs if x > 0])
 
 
 def _hmean(xs: Sequence[float]) -> float:

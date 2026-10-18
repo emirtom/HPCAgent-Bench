@@ -1174,7 +1174,7 @@ def build_context(
         "translation": (_translation(task) if prompt_config.include_translation else ""),
         # Whether to embed the kernel source (``prompt.inline_kernel``).
         "inline_kernel": prompt_config.inline_kernel,
-        # Original ported sources (repo-relative); the numpy reference stays the oracle.
+        # Original ported sources (repo-relative); the compiled references stay the oracle.
         "include_reference": prompt_config.include_reference,
         "has_reference": has_reference,
         "original_path": original_path,

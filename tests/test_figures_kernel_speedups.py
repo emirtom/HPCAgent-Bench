@@ -173,7 +173,7 @@ def test_canon_row_matches_the_ratio_and_scopes_to_the_tag(llr40_canon: pd.DataF
     assert row.delivered == {"k1": True, "k2": True, "k3": False}
     assert row.color == palette.framework_color("dace_cpu_canon")
     assert row.marker == palette.marker("cpf")
-    assert row.label == "Canonical Parallel Form"
+    assert row.label == "DaCe+CPF"
     # No repetition and no agent: nothing to bound, nothing spent.
     assert row.ratios_low == {}
     assert row.ratios_high == {}
@@ -431,10 +431,10 @@ def test_legend_names_each_optimizer_and_the_cross_only_when_one_is_drawn(llr40_
         handle.get_label()
         for handle in kernel_speedups.legend_handles(rows, kernel_speedups.kernel_metrics(rows, TAG40))
     ]
-    assert labels == ["DaCe", "Canonical Parallel Form", style.NOT_DELIVERED_LABEL]
+    assert labels == ["DaCe+AOpt", "DaCe+CPF", style.NOT_DELIVERED_LABEL]
     complete = kernel_rows(llr40_canon, None, ("k1",))
     handles = kernel_speedups.legend_handles(complete, kernel_speedups.kernel_metrics(complete, ("k1",)))
-    assert [handle.get_label() for handle in handles] == ["DaCe", "Canonical Parallel Form"]
+    assert [handle.get_label() for handle in handles] == ["DaCe+AOpt", "DaCe+CPF"]
 
 
 def test_standalone_optimizers_wear_their_own_shapes(llr40_canon: pd.DataFrame) -> None:
@@ -562,11 +562,11 @@ def test_the_legend_keys_pending_apart_from_the_cross(pending_canon: pd.DataFram
     only_pending = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", ("k1", "k3"), mark_pending=True)
     metrics = kernel_speedups.kernel_metrics([only_pending], ("k1", "k3"))
     labels = [handle.get_label() for handle in kernel_speedups.legend_handles([only_pending], metrics)]
-    assert labels == ["Canonical Parallel Form", style.PENDING_LABEL]
+    assert labels == ["DaCe+CPF", style.PENDING_LABEL]
     both = kernel_speedups.canon_kernel_row(pending_canon, "dace_cpu_canon", TAG40, mark_pending=True)
     metrics = kernel_speedups.kernel_metrics([both], TAG40)
     labels = [handle.get_label() for handle in kernel_speedups.legend_handles([both], metrics)]
-    assert labels == ["Canonical Parallel Form", style.NOT_DELIVERED_LABEL, style.PENDING_LABEL]
+    assert labels == ["DaCe+CPF", style.NOT_DELIVERED_LABEL, style.PENDING_LABEL]
 
 
 def test_the_figure_draws_one_pending_mark_per_pending_kernel(pending_canon: pd.DataFrame) -> None:

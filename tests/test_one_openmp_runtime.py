@@ -23,6 +23,7 @@ import sys
 import tempfile
 
 import pytest
+import yaml
 
 from hpcagent_bench import openmp_runtimes, paths
 
@@ -168,27 +169,57 @@ def test_the_launch_venv_links_its_wheels_to_the_one_runtime_after_syncing() -> 
     assert launch.index("uv sync") < launch.index('one_openmp.sh" --link-only')
 
 
+#: The variant of containers/images/lib/omp_llvm_env.sh each image runs.
+LLVM_ENV_VARIANT = {"judge-agent-amd": "rocm", "judge-agent-cpu": "cpu", "judge-agent-cuda": "cuda"}
+
+
+def llvm_environment(variant: str, tmp_path: pathlib.Path) -> dict:
+    """The spack.yaml omp_llvm_env.sh writes for ``variant``, run against a spack that does nothing."""
+    spack = tmp_path / "spack" / "bin" / "spack"
+    spack.parent.mkdir(parents=True)
+    spack.write_text('#!/bin/sh\ncase "$1" in location) echo /fake/llvm ;; esac\n', encoding="utf-8")
+    spack.chmod(0o755)
+    env = {
+        "PATH": os.environ["PATH"],
+        "SPACK_ROOT": str(tmp_path / "spack"),
+        "OMP_LLVM_ENV_DIR": str(tmp_path / "env"),
+        "SPACK_TARGET": "",
+        "LLVM_MAJOR": "22",
+        "LLVM_VERSION": "22.1.8",
+        "ROCM_ARCH": "gfx942;gfx90a",
+        "CUDA_ARCHS": "90",
+    }
+    script = REPO / "containers" / "images" / "lib" / "omp_llvm_env.sh"
+    # The script ends in `ls` of the installed view, which a fake spack never creates.
+    body = re.sub(r"^\s*ls /opt/omp.*$", "true", script.read_text(encoding="utf-8"), flags=re.MULTILINE)
+    runner = tmp_path / "omp_llvm_env.sh"
+    runner.write_text(body, encoding="utf-8")
+    subprocess.run(["sh", str(runner), variant], env=env, check=True, capture_output=True)
+    return yaml.safe_load((tmp_path / "env" / "spack.yaml").read_text(encoding="utf-8"))["spack"]
+
+
 @pytest.mark.parametrize("image", IMAGES)
-def test_every_image_builds_the_llvm_variants_with_runpath_and_clang_only_where_openmp_is_reached(image: str) -> None:
+def test_every_image_builds_the_llvm_variants_with_runpath_and_clang_only_where_openmp_is_reached(
+    image: str, tmp_path: pathlib.Path
+) -> None:
     """RPATH is searched before LD_LIBRARY_PATH: spack's default would pin every variant to the libomp of
     the llvm it was built with, whatever context the child runs in."""
-    agent = agent_stage(image)
-    env = agent[agent.index("OMP_LLVM_ENV_DIR=/opt/omp/llvm/env") :]
-    env = env[: env.index("ls /opt/omp/llvm/view/lib/libopenblas.so")]
-    assert "type: runpath" in env
-    assert "root: /opt/omp/llvm/view" in env
-    assert "link: roots" in env
-    assert "require: [openblas]" in env, "a spack BLAS provider left open picks MKL from the image"
-    llvm_required = set(
-        re.findall(
-            r"'    ([a-z-]+):'[^\n]*\n\s+'      (?:variants: [^\n]*'[^\n]*\n\s+'      )?require: \[\"%(?:llvm|[a-z,]+=llvm)\"\]",
-            env,
-        )
-    )
+    variant = LLVM_ENV_VARIANT[image]
+    assert f"RUN sh /omp_llvm_env.sh {variant} " in agent_stage(image), "the image runs the shared script"
+    env = llvm_environment(variant, tmp_path)
+    assert env["config"]["shared_linking"]["type"] == "runpath"
+    assert env["view"]["default"] == {"root": "/opt/omp/llvm/view", "link": "roots", "link_type": "symlink"}
+    packages = env["packages"]
+    assert packages["blas"]["require"] == ["openblas"], "a spack BLAS provider left open picks MKL from the image"
+    assert packages["lapack"]["require"] == ["openblas"]
+    llvm_required = {
+        name for name, entry in packages.items() if any("llvm" in str(item) for item in entry.get("require", []))
+    }
     assert {"openblas", "netlib-scalapack"} <= llvm_required, llvm_required
     # every library the gnu environment builds against OpenMP has its llvm twin
+    roots = {spec.split()[0].split("@")[0] for spec in env["specs"]}
     for name in llvm_required - {"butterflypack"}:
-        assert re.search(rf"'  - {name}[ @']", env) or re.search(rf'"  - {name}[ @]', env), f"{name} has no root spec"
+        assert name in roots, f"{name} has no root spec"
 
 
 def gcc_libgomp() -> pathlib.Path:

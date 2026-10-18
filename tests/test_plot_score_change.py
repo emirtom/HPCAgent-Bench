@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``statistics/plot_score_change.py`` -- the efficacy figure and the stars on it.
+"""``hpcagent_bench/stats/commands/efficacy.py`` -- the efficacy figure and the stars on it.
 
 The load-bearing assertions are about MULTIPLICITY (a raw threshold does not survive the BH
 correction, a real effect does) and about the DOT-ROW CONTRACT: one column per (LLM, delivery), the
@@ -27,11 +27,11 @@ from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.figure import Figure
 
 from hpcagent_bench import paths, studies
-from hpcagent_bench.stats import cost, palette, population, score_rule
+from hpcagent_bench.stats import cost, palette, population, score_rule, summary
 from hpcagent_bench.stats import style as plotstyle
+from hpcagent_bench.stats.commands import efficacy as efficacy_command
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
 from hpcagent_bench.stats.significance import Finding
-from tests.fresh_module import module_at
 
 REPO = paths.ROOT
 
@@ -44,12 +44,7 @@ LANGUAGES: tuple[str, ...] = ("c", "fortran")
 KERNELS: int = 8
 
 
-def load_script():
-    """Import ``statistics/plot_score_change.py`` as a module (statistics/ is not a package)."""
-    return module_at(REPO / "statistics" / "plot_score_change.py")
-
-
-plot = load_script()
+plot = efficacy_command
 
 #: Per-kernel factors whose two smallest magnitudes go the wrong way, so the paired t test on their
 #: logs gives a raw two-sided p of 0.0197 at n = 8 -- inside a per-row 5% threshold, which is the case
@@ -203,7 +198,7 @@ def test_the_family_the_marks_are_corrected_over_is_every_test_the_figure_could_
 PACKET_ONLY = cost.resolve("effective")
 
 
-def test_skills_are_read_off_the_recorded_packet_before_the_setup_name(tmp_path: pathlib.Path) -> None:
+def test_skills_are_read_off_the_recorded_packet_not_the_setup_name(tmp_path: pathlib.Path) -> None:
     """A setup whose name lacks the ``-skills`` suffix but which records ``lang-skills`` is the skilled side, and a
     recorded packet beats a ``-skills`` name."""
     path = tmp_path / "observations.csv"
@@ -211,7 +206,6 @@ def test_skills_are_read_off_the_recorded_packet_before_the_setup_name(tmp_path:
         [
             {"setup": "renamed-qwen38-c", "packet": "lang-skills"},
             {"setup": "qwen38-fortran-lang-skills", "packet": "cpf-tool"},
-            {"setup": "qwen38-c-lang-skills", "packet": ""},
         ]
     ).to_csv(path, index=False)
 
@@ -220,7 +214,6 @@ def test_skills_are_read_off_the_recorded_packet_before_the_setup_name(tmp_path:
     by_setup = frame.set_index("setup").skills
     assert bool(by_setup["renamed-qwen38-c"]) is True
     assert "qwen38-fortran-lang-skills" not in by_setup.index
-    assert bool(by_setup["qwen38-c-lang-skills"]) is True
 
 
 def test_a_composite_packet_counts_as_skilled(tmp_path: pathlib.Path) -> None:
@@ -307,12 +300,10 @@ def test_points_never_raises_a_bare_keyerror_when_the_two_sides_share_no_model_l
     assert list(frame.columns) == list(plot.POINT_COLUMNS)
 
 
-def test_a_treatment_setup_that_never_recorded_its_language_still_pairs_against_control(
+def test_a_treatment_setup_pairs_against_its_control_by_model_and_language(
     tmp_path: pathlib.Path,
 ) -> None:
-    """``load`` (through ``studies.fill_setup_identity``) must recover ``c`` from the setup's own
-    name, and ``one_treatment_panel`` must then find the (model, language) key it shares with its
-    control instead of finding nothing."""
+    """``one_treatment_panel`` finds the (model, language) key a treatment setup shares with its control."""
     path = tmp_path / "observations.csv"
     rows = []
     for kernel in range(KERNELS):
@@ -329,7 +320,7 @@ def test_a_treatment_setup_that_never_recorded_its_language_still_pairs_against_
         }  # fmt: skip
         for setup, packet, language, speedup in (
             ("llr40-oss120b-c", "", "c", 2.0),
-            ("llr40-oss120b-c-cpf-tool", "cpf-tool", "", 2.4),
+            ("llr40-oss120b-c-cpf-tool", "cpf-tool", "c", 2.4),
         ):
             run = f"{setup}-{kernel}"
             base = {**common, "setup": setup, "packet": packet, "language": language, "episode_id": run}
@@ -344,7 +335,7 @@ def test_a_treatment_setup_that_never_recorded_its_language_still_pairs_against_
 
     frame_all = studies.setup_rows(path, prefix="")
     treated = frame_all[frame_all.setup == "llr40-oss120b-c-cpf-tool"]
-    assert set(treated.language) == {"c"}, "the setup name is the last resort when no row ever recorded it"
+    assert set(treated.language) == {"c"}
 
     control = plot.control_rows(frame_all)
     tag_kernels = sorted(frame_all.kernel.dropna().unique())
@@ -756,11 +747,11 @@ def test_a_measure_row_border_never_opens_an_empty_tick_step(measure: str) -> No
 
 
 @pytest.mark.parametrize(
-    "name", ["i) Loop Reasoning (LLR), CPU", "iii) Repository Context", "iv) Repo vs. Kernel", "ii) X"]
+    "name", ["(a) Loop Reasoning (LLR), CPU", "(c) Repository Context", "(d) Repo vs. Kernel", "(b) X"]
 )
 def test_a_panel_name_never_folds_onto_a_third_line(name: str) -> None:
     """A third line comes out of the panel. The width is SEARCHED because the first line carries
-    the tag as well as its first word ("iii) Repository"), which no per-word rule predicts -- the
+    the tag as well as its first word ("(c) Repository"), which no per-word rule predicts -- the
     estimate put "Repository Context" on three lines in an 11-character column."""
     lines = efficacy_figures.PAPER_CONFIG.max_name_lines
     folded = efficacy_figures.wrapped_label(name, efficacy_figures.name_line_width(name, 11, lines))
@@ -838,7 +829,7 @@ def test_several_treatments_of_one_experiment_draw_one_dot_row(
     out = tmp_path / "fig.pdf"
     old_argv = sys.argv
     sys.argv = [
-        "plot_score_change.py", str(obs), "--experiment", "exp", "--treatment", "skills", "--treatment", "cpf-tool",
+        "hpcagent-bench-plot-efficacy", str(obs), "--experiment", "exp", "--treatment", "skills", "--treatment", "cpf-tool",
         "--out", str(out), "--table", str(tmp_path / "table.csv"),
     ]  # fmt: skip
     try:
@@ -958,8 +949,12 @@ def test_dropping_the_success_row_keeps_the_width_and_every_other_box(
     assert full.get_size_inches()[0] == pytest.approx(short.get_size_inches()[0])
     assert full.get_size_inches()[1] > short.get_size_inches()[1]
     speedup, success, cost = full.axes[:3]
-    assert box_inches(full, speedup) == pytest.approx(box_inches(short, short.axes[0]), abs=1e-3)
-    assert box_inches(full, cost) == pytest.approx(box_inches(short, short.axes[1]), abs=1e-3)
+    # The heights match exactly; the widths to within the success row's own "100%" ticks, which are wider than
+    # any other row's and so widen the shared left margin by about one glyph.
+    for full_box, short_box in ((box_inches(full, speedup), box_inches(short, short.axes[0])),
+                                (box_inches(full, cost), box_inches(short, short.axes[1]))):  # fmt: skip
+        assert full_box[1] == pytest.approx(short_box[1], abs=1e-3)
+        assert full_box[0] == pytest.approx(short_box[0], abs=0.12)
     width, height = box_inches(full, speedup)
     share = efficacy_figures.MEASURE_HEIGHT["success"] / efficacy_figures.MEASURE_HEIGHT["speedup"]
     assert box_inches(full, success) == pytest.approx((width, height * share), abs=1e-3), "the success row's share"
@@ -972,7 +967,7 @@ def test_a_full_tag_mark_on_the_ceiling_is_drawn_whole() -> None:
 
     fig, ax = plt.subplots()
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", setup(1.0, 2.0, 8, 8), setup(1.0, 2.0, 8, 8))
-    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved (%)")
+    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved Rate")
     marks = [collection for collection in ax.collections if isinstance(collection, PathCollection)]
     assert marks
     assert not any(mark.get_clip_on() for mark in marks)
@@ -984,7 +979,7 @@ def test_the_success_row_draws_its_marks_and_no_interval() -> None:
     bar under a 10/10 mark reaching down to 7 read as seven solved."""
     fig, ax = plt.subplots()
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", setup(1.0, 2.0, 7, 10), setup(1.0, 2.0, 10, 10))
-    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved (%)")
+    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved Rate")
     assert [collection for collection in ax.collections if isinstance(collection, PathCollection)]
     assert not [collection for collection in ax.collections if isinstance(collection, LineCollection)]
     plt.close(fig)
@@ -1004,7 +999,7 @@ def test_a_success_mark_sits_at_the_solved_rate(
     fig, ax = plt.subplots()
     control, treated = (setup(1.0, 2.0, count, served) for count in solved)
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", control, treated)
-    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved (%)")
+    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved Rate")
     marks = [collection for collection in ax.collections if isinstance(collection, PathCollection)]
     drawn = sorted({(float(x), float(y)) for mark in marks for x, y in mark.get_offsets()})
     assert drawn == pytest.approx(want)
@@ -1136,10 +1131,10 @@ def test_the_success_row_runs_to_100_percent_and_carries_no_x_ticks() -> None:
 
     fig, ax = plt.subplots()
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", setup(1.0, 2.0, 2, 8), setup(1.0, 2.0, 8, 8))
-    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved (%)")
+    efficacy_figures.draw_success_row(ax, [row], "^", efficacy_figures.PAPER_CONFIG, "Solved Rate")
     fig.canvas.draw()
     assert list(ax.get_yticks()) == [0.0, 0.5, 1.0]
-    assert [label.get_text() for label in ax.get_yticklabels()] == ["0", "50", "100"]
+    assert [label.get_text() for label in ax.get_yticklabels()] == ["0%", "50%", "100%"]
     assert ax.get_ylim() == pytest.approx((-0.05, 1.05))
     (ceiling,) = [line for line in ax.lines if line.get_linestyle() == "--"]
     assert list(ceiling.get_ydata()) == [1.0, 1.0]
@@ -1381,7 +1376,7 @@ def test_a_comparator_gets_no_interval_below_min_pairs_for_interval(kernels: int
     assert math.isfinite(point.x_low) is interval
     assert math.isfinite(point.x_high) is interval
     if interval:
-        want = efficacy_figures.summary.geomean_ci(values)
+        want = summary.geomean_ci(values)
         assert (2.0**point.x_low, 2.0**point.x_high) == pytest.approx((want.low, want.high))
 
 

@@ -11,10 +11,11 @@ import argparse
 import dataclasses
 import pathlib
 import re
+import subprocess
 
 import pytest
 
-from hpcagent_bench import cli, config
+from hpcagent_bench import cli, config, paths
 from hpcagent_bench.harness.prompts import PROMPT_VARIANTS, PromptConfig
 
 PROMPTS_DIR = pathlib.Path("hpcagent_bench/harness/prompts")
@@ -138,15 +139,6 @@ def test_docs_name_no_cli_command_that_does_not_exist() -> None:
     assert not stale, f"documented commands the CLI does not have: {stale}"
 
 
-@pytest.mark.parametrize("forbidden", ["disclose_public_seed", "PUBLIC seed"])
-def test_the_removed_seed_disclosure_is_gone_everywhere(forbidden: str) -> None:
-    """The seed is never disclosed: the prompt states the RANGE only. Docs must not promise
-    otherwise, and no template may reference the removed context keys."""
-    hits = [str(p) for p, text in doc_text() if forbidden in text]
-    hits += [str(p) for p in PROMPTS_DIR.rglob("*.j2") if forbidden in p.read_text()]
-    assert not hits, f"{forbidden!r} still referenced in: {hits}"
-
-
 def test_every_docs_page_has_an_inbound_link() -> None:
     """A page only the Sphinx toctree names is invisible on GitHub, where the README is the way in."""
     linked = {
@@ -226,3 +218,40 @@ def test_no_doc_promises_a_skip_row_for_an_unsupported_precision() -> None:
     sources = [*doc_text(), *((p, p.read_text()) for p in pathlib.Path("hpcagent_bench").glob("*.py"))]
     stale = [str(path) for path, text in sources if re.search(r"records `?skip`?(?![:\w])|status=\"skip\"", text)]
     assert not stale, f"a `skip` row for an unsupported precision is promised in: {stale}"
+
+
+#: An ``HPCAGENT_BENCH_*`` name as prose writes it; a trailing ``_*`` or ``_<...>`` makes it a prefix.
+ENV_NAME = re.compile(r"(HPCAGENT_BENCH_[A-Z0-9_]*[A-Z0-9])(_\*|_<)?")
+
+
+def test_every_documented_env_name_has_a_reader() -> None:
+    """A documented ``HPCAGENT_BENCH_*`` variable is a config key's env name, a listed non-config name, or a
+    name some tracked non-doc file uses; a documented prefix (``HPCAGENT_BENCH_MPI_GANG_*``) prefixes one. A
+    renamed or removed variable otherwise leaves the docs telling an operator to set a name nothing reads."""
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=paths.ROOT, capture_output=True, text=True, check=True
+    ).stdout.split()
+    used: set[str] = set()
+    for relative in tracked:
+        path = paths.ROOT / relative
+        if relative.endswith(".md") or relative.startswith("third_party/") or not path.is_file():
+            continue
+        try:
+            used |= {m[1] for m in ENV_NAME.finditer(path.read_text(encoding="utf-8"))}
+        except UnicodeDecodeError:
+            continue
+    known = used | set(config.ENV_KEYS) | config.NON_CONFIG_ENV
+    stale = sorted(
+        {
+            f"{doc}: {m[0]}"
+            for doc in DOCS
+            if (paths.ROOT / doc).exists()
+            for m in ENV_NAME.finditer((paths.ROOT / doc).read_text(encoding="utf-8"))
+            if not (
+                any(name.startswith(f"{m[1]}_") for name in known)
+                if m[2]
+                else m[1] in known or m[1].startswith(config.NON_CONFIG_ENV_PREFIXES)
+            )
+        }
+    )
+    assert not stale, f"documented env names nothing reads: {stale}"

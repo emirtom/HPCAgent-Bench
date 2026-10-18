@@ -57,7 +57,7 @@ GRADE = grade_answer(
         hidden_correct=True,
         hidden_passed=8,
         hidden_total=8,
-        oracle="numpy",
+        oracle="numba",
     ),
     "gemm",
     "c",

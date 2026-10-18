@@ -251,7 +251,14 @@ def test_a_json_column_reads_back_what_it_wrote_and_refuses_another_shape() -> N
     assert db_json.DISCLOSURE.dumps({"x": float("nan")}) == '{"x": NaN}'
     assert db_json.SAMPLES.loads("[3, 1]") == (3, 1)
     assert db_json.RACE_CUTS.loads(db_json.RACE_CUTS.dumps({"c": 5})) == {"c": 5}
-    for column, bad in ((db_json.RACE_CUTS, '{"c": "slow"}'), (db_json.STRINGS, '{"a": 1}'), (db_json.SHAPE, "[1]")):
+    # a wrongly typed cell and a truncated one fail alike
+    for column, bad in (
+        (db_json.RACE_CUTS, '{"c": "slow"}'),
+        (db_json.STRINGS, '{"a": 1}'),
+        (db_json.SHAPE, "[1]"),
+        (db_json.RACE_CUTS, '{"c": 5'),
+        (db_json.STRINGS, '["cc -O2'),
+    ):
         with pytest.raises(pydantic.ValidationError):
             column.loads(bad)
     with pytest.raises(pydantic.ValidationError):

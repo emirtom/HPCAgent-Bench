@@ -113,7 +113,7 @@ def test_a_device_layout_conversion_matches_the_host_one() -> None:
         cp.cuda.runtime.getDeviceCount()
     except cp.cuda.runtime.CUDARuntimeError:
         pytest.skip("no GPU")
-    requests = Requests.from_obj({"operations": LAYOUT_OPERATIONS})
+    requests = Requests.validate({"operations": LAYOUT_OPERATIONS})
     layouts = requests.single_node([ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float64")]).layouts
     logical = np.random.default_rng(5).standard_normal((7, 10))
     cases = [("A", "float64"), ("B", "float64"), ("B", "float32")]
@@ -146,7 +146,7 @@ def test_a_device_regroup_matches_the_host_one() -> None:
         ArraySpec("B", 2, element="float64"),
         ArraySpec("Q", 2, extents=(3, None), element="float64"),
     ]
-    requests = Requests.from_obj(
+    requests = Requests.validate(
         {
             "operations": [
                 {"action": "zip", "arrays": ["A", "B"], "into": "S", "dim": 0},
@@ -156,7 +156,7 @@ def test_a_device_regroup_matches_the_host_one() -> None:
         }
     )
     stacked, unzipped = requests.single_node(arrays).regroups
-    struct_requests = Requests.from_obj(
+    struct_requests = Requests.validate(
         {
             "operations": [
                 {"action": "cast", "array": "A", "to": "fp32"},
@@ -199,7 +199,7 @@ def test_the_storage_formats_are_ml_dtypes() -> None:
 def requested(precision: dict[str, str], language: str = "c", **fields: object) -> Submission:
     source = "def scaled_add(x, y, LEN_1D, alpha):\n    pass\n" if language == "python" else "void k(void) {}"
     casts = [{"action": "cast", "array": name, "to": to} for name, to in precision.items()]
-    return Submission(language=language, source=source, requests=Requests.from_obj({"operations": casts, **fields}))
+    return Submission(language=language, source=source, requests=Requests.validate({"operations": casts, **fields}))
 
 
 @pytest.mark.parametrize(
@@ -248,7 +248,7 @@ def laid_out(language: str = "c", operations: list | None = None) -> Submission:
     return Submission(
         language=language,
         source=LAID_OUT_JACOBI,
-        requests=Requests.from_obj({"operations": LAYOUT_OPERATIONS if operations is None else operations}),
+        requests=Requests.validate({"operations": LAYOUT_OPERATIONS if operations is None else operations}),
     )
 
 
@@ -268,22 +268,22 @@ def test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where
     unzip_three = [{"action": "unzip", "array": "aa", "into": ["a0", "a1", "a2"], "dim": 0}]
     assert "splits into 2 array(s)" in str(requests_refusal(laid_out(operations=unzip_three), s132, "float64"))
     assert converts_kernel_arrays(
-        Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
+        Requests.validate({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
     )
     assert not converts_kernel_arrays(
-        Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": "csr"}]})
+        Requests.validate({"operations": [{"action": "format", "array": "A", "to": "csr"}]})
     )
 
 
 def test_a_zip_of_problem_arrays_of_different_types_is_a_struct() -> None:
     """The problem's own element types decide stack or struct, as the casts do."""
     arrays = [ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float32")]
-    zipped = Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
+    zipped = Requests.validate({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
     (struct,) = zipped.single_node(arrays).regroups
     assert struct.group.struct == "hb_zip_Z"
     assert struct.part_dtypes == ("float64", "float32")
     cast_first = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
-    (stacked,) = Requests.from_obj({"operations": cast_first}).single_node(arrays).regroups
+    (stacked,) = Requests.validate({"operations": cast_first}).single_node(arrays).regroups
     assert stacked.group.dim == 2
     assert stacked.whole_dtype == np.float32
 
@@ -349,7 +349,7 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
         (UNZIPPED_S132, unzip, Task("tsvc_2_s132", "restricted", "c"), {}),
     ]
     for source, operations, task, tolerance in cases:
-        submission = Submission(language="c", source=source, requests=Requests.from_obj({"operations": operations}))
+        submission = Submission(language="c", source=source, requests=Requests.validate({"operations": operations}))
         assert requests_refusal(submission, task, "float64") is None
         result = score(submission, task, preset="S", repeat=2, hidden=False, baseline="c", **tolerance)
         assert result.build_ok, result.detail

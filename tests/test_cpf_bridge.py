@@ -38,6 +38,7 @@ from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec, ConfigKnob
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.bindings.stubs import gen_call_stub
+from tests.reference_outputs import compiled_outputs
 
 if TYPE_CHECKING:
     from dace import SDFG
@@ -61,19 +62,6 @@ def spec() -> BenchSpec:
     return BenchSpec.load(KERNEL)
 
 
-def numpy_reference(spec: BenchSpec) -> Callable[..., None]:
-    """The kernel's numpy function, imported from the reference the dace sibling was generated from."""
-    module = importlib.import_module(
-        ".".join(
-            (paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py")
-            .relative_to(paths.ROOT)
-            .with_suffix("")
-            .parts
-        )
-    )
-    return vars(module)[spec.func_name]
-
-
 def build_dropin(source: pathlib.Path, work: pathlib.Path, language: str = "c") -> str:
     """Compile a drop-in and return the ``.so`` path, for loading by the harness rather than ctypes.
 
@@ -92,12 +80,12 @@ def build_dropin(source: pathlib.Path, work: pathlib.Path, language: str = "c") 
 
 @pytest.mark.integration
 @pytest.mark.parametrize("language", sorted(DRIVERS))
-def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduces_numpy(
+def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduces_the_reference(
     spec: BenchSpec, language: str, tmp_path: pathlib.Path
 ) -> None:
     """The rendered signature is the prompt's stub, byte for byte, and the harness's own caller -- which
-    passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back numpy's
-    numbers through it."""
+    passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back the compiled
+    reference's numbers through it."""
     record = cpf_bridge.render_kernel(spec, tmp_path, language=language)
     assert record.verdict == "ok", f"{KERNEL} did not render: {record}"
     native = binding_from_spec(spec)
@@ -115,8 +103,9 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     rng = np.random.default_rng(0)
     data = {a.name: np.ascontiguousarray(rng.random(EXTENT)) for a in native.args if a.kind == "ptr"}
     data.update({a.name: EXTENT for a in native.args if a.kind == "scalar"})
-    expected = {name: value.copy() for name, value in data.items() if isinstance(value, np.ndarray)}
-    numpy_reference(spec)(**expected)
+    _kind, expected = compiled_outputs(
+        KERNEL, {name: (value.copy() if isinstance(value, np.ndarray) else value) for name, value in data.items()}
+    )
     (outs,), _, _, _ = _call_native(library, native, data, "c", workspace_bytes="8*N")
     assert outs, "the kernel declared no outputs"
     for name, got in outs.items():

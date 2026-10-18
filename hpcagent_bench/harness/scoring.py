@@ -17,7 +17,7 @@ import secrets
 import sys
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Any, NamedTuple, Optional, cast, overload
 
@@ -132,7 +132,7 @@ from hpcagent_bench.harness.torch_baseline import TorchBaselineUnavailable
 from hpcagent_bench.harness.torch_baseline import time_samples as torch_time_samples
 from hpcagent_bench.precision import UngradeableTolerance, accumulation_eps, precision_from_datatype
 from hpcagent_bench.spec import BenchSpec, as_block
-from hpcagent_bench.stats import score_rule, summary
+from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import ResolvedLayout
@@ -189,6 +189,7 @@ __all__ = [
     "floor_bandwidth_gbps",
     "floor_suspect",
     "folded_inputs",
+    "geomean_ns",
     "graded_protocol",
     "graded_score",
     "guillotine_seconds",
@@ -1710,7 +1711,7 @@ def graded_score(
     ``oracle`` selects the correctness reference (:func:`~hpcagent_bench.harness.grading.resolve_oracle`):
     ``auto`` is the track's, the compiled numba and C references (the race leader first, the other when it
     cannot answer) or, on machine_learning, the compiled torch one; ``numba`` / ``c`` / ``torch`` name one;
-    ``numpy`` and ``both`` are old spellings that land on ``auto``. ``baseline`` selects the denominator
+    any other name raises ``ValueError``. ``baseline`` selects the denominator
     (``c``, ``numba``, a ``*-autopar`` kind, ``torch-autotune``). The C reference is built once and reused;
     a reference that cannot answer is a scored judge fault, never a silent numpy fallback. ``repeat`` timed runs
     per side on the public inputs; hidden cases are correctness-only.
@@ -3918,20 +3919,24 @@ def score_ml(
     return MlGrade(score, laws)
 
 
+def geomean_ns(times: Iterable[float]) -> int:
+    """The geomean of the positive ``times`` in whole ns, 0 when none is positive: how a grade folds its
+    inputs' native and baseline times into one (a non-positive time is an unmeasured input)."""
+    return round(score_rule.geomean([t for t in times if t > 0]))
+
+
 def folded_inputs(per_input: Sequence[Score], cells: Sequence[TimedCell]) -> Score:
     """The ML grade's one :class:`Score` from its correct, timed inputs: S_i is the geomean of the
     per-input credits (:func:`score_rule.credit`); the times are the inputs' geomeans; an input
     without a reduction (a timing gap) leaves the grade without one."""
     ratios = [one.speedup for one in per_input]
     reduced = all(one.timing_reduction for one in per_input)
-    natives = [one.native_ns for one in per_input if one.native_ns > 0]
-    baselines = [one.baseline_ns for one in per_input if one.baseline_ns > 0]
     first = per_input[0]
     return replace(
         first,
         max_rel_error=max(one.max_rel_error for one in per_input),
-        native_ns=round(summary.geomean(natives)) if natives else 0,
-        baseline_ns=round(summary.geomean(baselines)) if baselines else 0,
+        native_ns=geomean_ns(one.native_ns for one in per_input),
+        baseline_ns=geomean_ns(one.baseline_ns for one in per_input),
         speedup=score_rule.credit(ratios, solved=True).score if reduced else 0.0,
         timing_reduction=first.timing_reduction if reduced else None,
         detail="; ".join(dict.fromkeys(one.detail for one in per_input if one.detail)),

@@ -91,7 +91,7 @@ the public input and on the 6 pool inputs its runs use): 4 builds, `m (n + 1) = 
 reference runs the first time a cell is graded, 4 after that (the pool inputs' expected outputs are reused). The
 judge memoizes baseline timings per (kernel, cell, runs), so a kernel's later `/submit`s time none. On the recorded final grades of 91
 kernels the timed calls of one sweep, `sum 6 (baseline_ns + native_ns)` over the 4 inputs, take a median of
-5 s and a 90th percentile of 106 s; `cholesky` takes 1849 s and `banded_mmt` 628 s (builds and NumPy oracles
+5 s and a 90th percentile of 106 s; `cholesky` takes 1849 s and `banded_mmt` 628 s (builds and reference runs
 come on top). What bounds one request: `JUDGE_TIMEOUT_SECONDS` (1800 s, how long the agent's tool waits; a
 `/submit` is graded to completion and recorded after the client gives up), `JUDGE_UPSTREAM_TIMEOUT_SECONDS`
 (5400 s, the router's wait, also `promote_unsubmitted`'s) and `timeouts.kernel_s*` per native call.
@@ -147,11 +147,11 @@ them (and, for a kernel in `cache.disk_results_levels`, the disk store serves th
 
 ### The oracle
 
-Interpreted NumPy grades nothing. It costs ~3.4 KB per particle on `warpx_field_gather` and hours on
-`nussinov`, so it is the SPEC the compiled references are proven equal to, at preset S in tests and CI,
-and never a grading-time reference: not the oracle, not a timed denominator, not the dual-oracle leg
-(`tests/test_grading_never_numpy.py` replaces every road to it with a raise and drives real grades of
-each track through it). `grading.TRACK_DEFAULT_ORACLE` names the oracle per track:
+There is no NumPy oracle. A kernel's `<module>_numpy.py` is the task program the agent optimizes; its
+references are `<module>_numba.py` (generated from it by the numba translator, or hand-written),
+`<module>_reference.<c|cpp|f90|cu|hip>`, and on `machine_learning` its PyTorch model. None of the oracle,
+the timed denominator or the dual-oracle leg can be NumPy (`grading.ORACLE_KINDS`,
+`tests/test_grading_never_numpy.py`). `grading.TRACK_DEFAULT_ORACLE` names the oracle per track:
 
 | track | oracle | tried in order |
 |---|---|---|
@@ -160,17 +160,16 @@ each track through it). `grading.TRACK_DEFAULT_ORACLE` names the oracle per trac
 | `machine_learning` | `torch`: the kernel's PyTorch reference under `torch.compile(mode="max-autotune-no-cudagraphs")` on the grade's device kind, the child that times the `torch-autotune-cpu` / `-gpu` denominator (`torch_baseline.reference_outputs`) | no second choice |
 
 The leader is a static table, not the judge's remembered winner, so a kernel's oracle does not move
-between calls (`grading.compiled_order`). A kernel whose leader is known not to reproduce NumPy at the
-sizes graded starts from the other reference instead (`grading.KERNEL_COMPILED_HEAD`, each entry says
+between calls (`grading.compiled_order`). A kernel whose leader is known not to compute the task
+program's answer at the sizes graded starts from the other reference instead (`grading.KERNEL_COMPILED_HEAD`, each entry says
 why). A reference that cannot answer (no emittable form, a typing
 error, a crash, a timeout) raises `ReferenceUnavailable` and the grade moves to the next kind; when none
-answers, the grade is a `harness_fault` naming each reason, never a numpy grade. The interpreter's
-`oracle=numpy` / `both` spellings resolve to the track's oracle. A compiled reference stands in for
-NumPy only where it is proven equal at S: the emitted forms by `tests/test_e2e_numerical.py`, the
-hand-written numba ones by `tests/test_numba_reference_overrides.py`.
+answers, the grade is a `harness_fault` naming each reason; `oracle=numpy` is refused. The hand-written
+numba references are held to the C reference at S (`tests/test_numba_reference_overrides.py`).
 
-Interpreted NumPy still runs in `run-framework --validate` and the S-preset CI sweeps, where it is the
-reference each backend is held to. The distributed ML sweep (`score_ml`) is the one exception to the
+`run-framework --validate` takes the same oracle (`frameworks.test.reference_outputs`: the track's
+references in the grade's order, through `scoring.first_oracle`); when none answers, validation fails
+naming the kernel. The distributed ML sweep (`score_ml`) is the one exception to the
 compiled oracle: it grades each rank's shard against the kernel's eager `reference_dist`
 (`torch.distributed`), a collective that is not one compilable function.
 
@@ -404,10 +403,10 @@ register yourself is chosen without touching the code that calls it.
 
 | Test type | Call sites | Output that names it |
 |---|---|---|
-| paired | [`statistics/paired_setups.py`](../statistics/paired_setups.py) (`score_leg`, `cost_leg`: the speedup and tokens legs of every `--pair`); [`statistics/plot_score_change.py`](../statistics/plot_score_change.py) (`compare_slice`: both axes of every mark of the score-change figure, `--treatment`, `--comparison` and `--pairs-csv` routes) | `test` column of the `paired_setups.py --out` CSV and of the `plot_score_change.py --table` CSV; the printed `report()` line |
+| paired | [`statistics/paired_setups.py`](../statistics/paired_setups.py) (`score_leg`, `cost_leg`: the speedup and tokens legs of every `--pair`); [`hpcagent_bench/stats/commands/efficacy.py`](../hpcagent_bench/stats/commands/efficacy.py) (`compare_slice`: both axes of every mark of the score-change figure, `--treatment`, `--comparison` and `--pairs-csv` routes) | `test` column of the `paired_setups.py --out` CSV and of the `plot_score_change.py --table` CSV; the printed `report()` line |
 | proportion | [`stats/reliability.py`](../hpcagent_bench/stats/reliability.py) `compare_cells` / `compare_setups` (a kernel's solve counts on two setups of a designed repeat such as `repeat5`) | `SetupComparison.proportion_test` |
 | paired proportion | [`statistics/paired_setups.py`](../statistics/paired_setups.py) `pair_rows` (the kernels both setups ran: `coverage_p`) | `coverage_test` column of the `paired_setups.py --out` CSV |
-| correction | `statistics.correction`, through `significance.verdicts`: once per `paired_setups.py` invocation (every leg of every pair), once per `plot_score_change.py` panel (its significance stars); [`stats/reliability.py`](../hpcagent_bench/stats/reliability.py) `compare_setups`, across the kernels of one per-kernel reliability comparison (repeat5) | `correction` column beside `p_adjusted` (`paired_setups.py`, `plot_score_change.py`); `SetupComparison.correction` |
+| correction | `statistics.correction`, through `significance.verdicts`: once per `paired_setups.py` invocation (every leg of every pair), once per `hpcagent-bench plot efficacy` panel (its significance stars); [`stats/reliability.py`](../hpcagent_bench/stats/reliability.py) `compare_setups`, across the kernels of one per-kernel reliability comparison (repeat5) | `correction` column beside `p_adjusted` (`paired_setups.py`, `hpcagent-bench plot efficacy`); `SetupComparison.correction` |
 | timing (grading) | the judge, inside `timing.reduce_mannwhitney_delta`, with the test the final grade declares (`timing.TIMING_TEST`): every input of the final grade (`/submit` and `grade-under run`, mw4x5), its A/A calibration (`grade-under run --aa`, mw4x5-aa), the `/score` preview (mw2x5) and every live `mannwhitney_delta` grade (`mwd-v2`, `mwd-v3`). A distributed `/score` reduces with `median_of_k` and runs no test | the grade's `timing_reduction` stamp and each cell's `p_value` |
 | two-sample (reporting) | [`stats/reliability.py`](../hpcagent_bench/stats/reliability.py) `compare_cells` / `compare_setups` (a kernel's scored runs on two setups of repeat5) | `SetupComparison.two_sample_test` |
 
@@ -454,4 +453,4 @@ Framework sweeps (`hpcagent-bench run-benchmark -r N`, default 10 repeats) recor
 sample in `record.db_path` (`config.yaml`: `hpcagent_bench.db`, relative to the repo root). Per (framework, kernel) the
 median-fastest implementation is normalized to NumPy, `speedup = t_numpy / t_framework`; the group
 total is the geomean. Figure conventions: [plotting.md](plotting.md); the per-kernel figure of
-compilers and agent setups is `statistics/plot_kernel_speedups.py`.
+compilers and agent setups is `hpcagent_bench/stats/commands/kernel_speedups.py`.

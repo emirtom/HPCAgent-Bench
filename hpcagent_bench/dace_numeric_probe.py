@@ -1,10 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Run ONE generated ``*_dace.py`` against a prepared numpy case; print a JSON verdict.
+"""Run ONE generated ``*_dace.py`` against a prepared case; print a JSON verdict.
 
 The child of :mod:`tests.test_dace_numeric_agreement`. Parsing is not correctness:
 :mod:`tests.test_dace_frontend_validity` proves the frontend READS the generated corpus, and this
-proves the SDFG it builds AGREES with the numpy reference -- through the same comparison the
+proves the SDFG it builds AGREES with the kernel's compiled reference (the case's expected outputs,
+:func:`hpcagent_bench.numerical_oracle.compiled_reference`) -- through the same comparison the
 c/cpp/fortran legs use (:func:`hpcagent_bench.numerical_oracle.outputs_match`), on the same inputs.
 
 One kernel per process, like the parse probe: DaCe's parse state is process-global, a frontend that
@@ -145,7 +146,7 @@ def main() -> int:
             print(rec.line(), flush=True)
             return 0
     # A PROMOTED RETURN is an output PARAMETER of the emitted program but not a manifest input: the
-    # numpy reference allocates it and returns it, so ``by`` has no entry and the loop above never
+    # kernel allocates it and returns it, so ``by`` has no entry and the loop above never
     # bound it. nbody read ``Missing program argument "KE"`` for exactly this. Zero-filled, the way
     # the reference's own ``np.zeros`` left it, and registered in ``call`` so the readback below
     # reads the array the program actually wrote.
