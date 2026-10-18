@@ -186,9 +186,3 @@ def test_the_playbook_renders_its_pages_in_definition_order() -> None:
     assert [text.index(f"/skills/{page}.md") for page in pages] == sorted(
         text.index(f"/skills/{page}.md") for page in pages
     )
-
-
-def test_an_extra_root_needs_a_packet() -> None:
-    result = run("--track", "loop_level_reasoning", "--kernel", KERNEL, "--extra-skill-root", "/nonexistent")
-    assert result.returncode == 2
-    assert "--packet" in result.stderr

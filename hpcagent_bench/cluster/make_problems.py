@@ -26,7 +26,7 @@ from collections.abc import Mapping, Sequence
 
 from hpcagent_agent.driver import harnesses
 
-from hpcagent_bench import config, cpf_cache, flags, packets, paths
+from hpcagent_bench import config, cpf_cache, external_skills, flags, packets, paths
 from hpcagent_bench.harness.prompts import Skill, cluster_facts, distributed_contract, load_skills, request_actions
 from hpcagent_bench.harness.task import Residency, Task, grading_residency
 from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
@@ -183,18 +183,13 @@ def skill_index(skills: list[Skill], harness: str = harnesses.CLAUDE) -> str:
     )
 
 
-def packet_pages(
-    spec: str, language: str, image: str | None = None, multinode: bool = False, extra_root: str = ""
-) -> list[Skill]:
+def packet_pages(spec: str, language: str, image: str | None = None, multinode: bool = False) -> list[Skill]:
     """The pages ``--packet spec`` names (:func:`hpcagent_bench.packets.resolve`), in spec and definition
-    order, then the pages ``extra_root`` adds for ``language`` (``--extra-skill-root``).
+    order: shipped pages and external ones (``skills.external``).
 
     ``language`` is required whenever ``spec`` expands the ``lang`` skill token (directly, or through a
     registered packet that composes it): ``packets.resolve`` needs a concrete language to pick
     ``lang-<language>``.
-
-    An extra root contributes only pages it ADDS (a root shadowing a shipped page is a different study),
-    and a page belongs to a language by its ``-<language>`` suffix (``loop-deps-c``).
 
     :raises ValueError: an unknown packet/skill token, a spec that names ``lang`` with no ``language``,
         a frozen key, or a device packet for a language its device does not run -- all CLI usage errors,
@@ -211,19 +206,9 @@ def packet_pages(
     by_name = {skill.file: skill for skill in load_skills(())}
     missing = [n for n in names if n not in by_name]
     if missing:
-        raise SystemExit(f"missing shipped skill: {', '.join(missing)}")
+        raise SystemExit(f"missing skill page: {', '.join(missing)}")
     assert_language_pages_paired(names, by_name, language, image)
-    pages = [by_name[n] for n in names]
-    if extra_root:
-        extra = [
-            skill
-            for skill in load_skills((extra_root,))
-            if skill.file not in by_name and (not language or skill.file.endswith(f"-{language}"))
-        ]
-        if not extra:
-            raise SystemExit(f"--extra-skill-root {extra_root} adds no page for language {language or 'any'}")
-        pages += extra
-    return pages
+    return [by_name[n] for n in names]
 
 
 def packet_skills_text(
@@ -361,8 +346,8 @@ def default_load(spec: str, language: str, stem: str) -> list[str] | None:
 def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
     """Copy exactly the skill pages ``problems`` names into ``shared``.
 
-    A page comes from the path its problem recorded under ``skill_pages`` (an --extra-skill-root
-    page), else from the shipped page of that directory name. A named page with neither is reported:
+    A page comes from the path its problem recorded under ``skill_pages`` (an external page), else from the
+    shipped page of that directory name. A named page with neither is reported:
     the packet told the agent the file exists, so a miss is a turn spent on a failed Read.
     """
     wanted = sorted(set(SKILL_PAGE.findall(problems.read_text(encoding="utf-8"))))
@@ -407,19 +392,20 @@ def selected_keys(tokens: Sequence[str]) -> set[str]:
 
 def skill_section(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[str, dict[str, str]]:
     """The skills section every task carries (the same for every problem: the language is fixed for the
-    run), and the ``--extra-skill-root`` pages by directory, where ``--stage-skills`` copies them from."""
-    if args.extra_skill_root and not args.packet:
-        parser.error("--extra-skill-root adds pages to a --packet; name the packet")
+    run), and the external pages (``skills.external``) by name, with the file ``--stage-skills`` copies each from:
+    the problems file is the record, so staging needs no external folder configured."""
     if not args.packet:
         return "", {}
     try:
-        pages = packet_pages(args.packet, args.language, args.image, args.multinode, args.extra_skill_root)
+        pages = packet_pages(args.packet, args.language, args.image, args.multinode)
         # Checked once here, so an unrenderable language is refused before any kernel is read.
         packet_note(args.packet, args.language, "", "")
     except ValueError as exc:
         parser.error(str(exc))
-    shipped = {skill.file for skill in load_skills(())}
-    return skill_index(pages, args.harness) if pages else "", {s.file: s.path for s in pages if s.file not in shipped}
+    external = external_skills.load().pages
+    return skill_index(pages, args.harness) if pages else "", {
+        s.file: str(external[s.file]) for s in pages if s.file in external
+    }
 
 
 def selection(args: argparse.Namespace) -> tuple[list[str], set[str]]:
@@ -577,12 +563,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the pages --packet selects for --language/--image, one per line, and exit",
     )
     parser.add_argument(
-        "--extra-skill-root",
-        default="",
-        help="study track: add to the --packet the skills/*/SKILL.md pages this root adds "
-        "for the packet language (suffix convention: <name>-<language>)",
-    )
-    parser.add_argument(
         "--stage-skills",
         nargs=2,
         metavar=("PROBLEMS", "SHARED_DIR"),
@@ -601,7 +581,7 @@ def main() -> int:
 
     if args.list_skills:
         try:
-            pages = packet_pages(args.packet, args.language, args.image, args.multinode, args.extra_skill_root)
+            pages = packet_pages(args.packet, args.language, args.image, args.multinode)
         except ValueError as exc:
             parser.error(str(exc))
         print("\n".join(skill.file for skill in pages))

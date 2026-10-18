@@ -259,6 +259,12 @@ class Prompt(Section):
     variants: dict[str, dict[str, Any]]
 
 
+class Skills(Section):
+    """``skills``: skill pages and packets kept outside the repository (:mod:`hpcagent_bench.external_skills`)."""
+
+    external: tuple[str, ...]
+
+
 class References(Section):
     """``references``: where the compiled reference source comes from (harness/agent.py)."""
 
@@ -559,6 +565,7 @@ class Settings(Section):
     preset: Preset
     repo: Repo
     prompt: Prompt
+    skills: Skills
     references: References
     cache: Cache
     attempts: Attempts

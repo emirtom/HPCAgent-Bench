@@ -22,7 +22,17 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 import jinja2
 import numpy as np
 
-from hpcagent_bench import config, cpf_cache, fuzz, languages, manifest_schema, packets, paths, protocols
+from hpcagent_bench import (
+    config,
+    cpf_cache,
+    external_skills,
+    fuzz,
+    languages,
+    manifest_schema,
+    packets,
+    paths,
+    protocols,
+)
 from hpcagent_bench.config import GridChooser, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
@@ -575,14 +585,16 @@ class Skill:
     file: str = ""
 
 
-def parse_skill(text: str, path: pathlib.Path) -> Skill:
-    """Split a SKILL.md into its frontmatter (:class:`hpcagent_bench.packets.SkillFrontmatter`) and body.
-    ``name`` defaults to the directory; a file without frontmatter is all body."""
+def parse_skill(text: str, path: pathlib.Path, file: str = "") -> Skill:
+    """Split a skill page into its frontmatter (:class:`hpcagent_bench.packets.SkillFrontmatter`) and body.
+    ``file`` (the page's identity) defaults to the directory of a ``SKILL.md``, and ``name`` to ``file``; a file
+    without frontmatter is all body."""
     meta, body = packets.split_frontmatter(text)
+    file = file or path.parent.name
     return Skill(
-        name=meta.name or path.parent.name,
+        name=meta.name or file,
         description=meta.description,
-        file=path.parent.name,
+        file=file,
         body=body.strip(),
         path=local_path(path),
         when=meta.when,
@@ -590,11 +602,14 @@ def parse_skill(text: str, path: pathlib.Path) -> Skill:
 
 
 def load_skills(search_dirs: Sequence[str] = ()) -> list[Skill]:
-    """Every ``skills/<name>/SKILL.md`` on the search path; the first root with a given directory name
-    wins. No skill body is inlined (the legality contract is the ``optimization`` skill page)."""
+    """Every ``skills/<name>/SKILL.md`` on the search path, the first root with a given directory name winning,
+    then every external page (``skills.external``, :mod:`hpcagent_bench.external_skills`). No skill body is
+    inlined (the legality contract is the ``optimization`` skill page)."""
     # Keyed by directory name, the skill's override identity.
     found = discover(search_dirs, "skills/*/SKILL.md", lambda p: p.parent.name, builtin_root=paths.PACKAGE)
     skills = {name: parse_skill(path.read_text(), path) for name, path in found.items()}
+    for name, path in external_skills.load().pages.items():
+        skills.setdefault(name, parse_skill(path.read_text(encoding="utf-8"), path, name))
     return [skills[k] for k in sorted(skills)]
 
 

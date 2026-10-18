@@ -101,3 +101,32 @@ python -m pytest --maxfail=10 tests/test_packets.py tests/test_packet_env.py \
 
 `packet_env.py` prints the resolved env and a final `HPCAGENT_BENCH_RECORD_PACKET=<canonical key>`
 line, which `record_identity` writes into the setup's `.env` and the DB stores as `setups.packet`.
+
+## External packets (pages kept outside the repository)
+
+A study can bring its own skill pages without committing them. `skills.external`
+(`HPCAGENT_BENCH_SKILLS_EXTERNAL`, a list of folders) names folders that each hold a `skills.yaml`:
+
+```yaml
+packets:
+  preconditioner-v4-single:
+    name: Solver Preconditioners v4, One Page
+    pages: [single/solver-preconditioners.md]
+  preconditioner-v4-split:
+    name: Solver Preconditioners v4, Five Pages
+    pages: [split/solver-preconditioners-verdict.md, split/solver-preconditioners-frozen.md]
+```
+
+- A page is a markdown file inside the folder with the shipped pages' frontmatter (`name`, `description`,
+  `when`). Its `name` is its identity: the task lists it as `/skills/<name>.md` and it is staged under that name.
+- An external packet stages pages and nothing else. `tools`, `env` and `method` are refused: a tool runs beside
+  the judge, and an external one could read what grading hides. `packets` may name shipped packets or pages
+  to stage with it.
+- No external page or packet reuses a shipped name or another folder's.
+- External packets join the vocabulary after the shipped ones, in key order, so each gets a slot of its own.
+- A setup names one in `record.packet` (`PACKETS`) like a shipped packet, with `HPCAGENT_BENCH_SKILLS_EXTERNAL`
+  in its env. `make_problems.py` records each page's file in the problems line, so staging needs no external
+  folder; plotting a study's rows needs `skills.external` set again so the packet's display name resolves.
+- The registry is read once per process: a running job does not see an edit to the folder.
+
+`hpcagent_bench/external_skills.py` reads the folders; `tests/test_external_skills.py` pins the rules.

@@ -222,6 +222,13 @@ prompt:
                               #   my_exp: {strategy: profile_first, include_reference: true,
                               #            sections: {timing: off}}
 
+# Skill pages and packets kept outside the repository (hpcagent_bench/external_skills.py,
+# docs/extending/packets.md). A setup names an external packet in record.packet like a shipped one.
+skills:
+  external: []                # list[path]. Folders, each with a skills.yaml naming its packets and their page
+                              # files (markdown with name, description and when frontmatter). Pages only: an
+                              # external packet carries no tools, env switches or methods.
+
 # Source of the compiled reference: the speedup denominator and, on the compiled tracks, the correctness oracle
 # (hpcagent_bench/harness/grading.py). Read by hpcagent_bench/harness/agent.py:emit_reference_source.
 references:

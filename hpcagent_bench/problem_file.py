@@ -39,7 +39,7 @@ class ProblemLine(pydantic.BaseModel):
     #: The scratch that form carves its transients from; the driver exports it as
     #: ``$HPCAGENT_BENCH_DEFAULT_WORKSPACE_BYTES`` and the agent tools request it when a submission names none.
     default_workspace_bytes: str | None = None
-    #: Skill page name -> its text, staged beside the task.
+    #: External skill page name (``skills.external``) -> the file ``--stage-skills`` copies it from.
     skill_pages: dict[str, str] | None = None
     #: A fused wave's env file and the setup identity its rows carry.
     env_file: str | None = None
