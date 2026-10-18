@@ -94,8 +94,8 @@ class ManifestFreeBench(Benchmark):
     def __init__(self, bname: str = "mm") -> None:
         self.bname = bname
         self.bdata: dict[Any, Any] = {}
-        #: The three keys ``CallPlan`` reads; a manifest-free bench has no arguments to marshal.
-        self.info: dict[str, Any] = {"input_args": [], "array_args": [], "output_args": []}
+        #: The three argument lists ``CallPlan`` reads; a manifest-free bench has no arguments to marshal.
+        self.spec = types.SimpleNamespace(input_args=(), array_args=(), output_args=())
 
 
 def no_impl(*args: Any, **kwargs: Any) -> None:

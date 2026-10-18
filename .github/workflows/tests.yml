@@ -200,7 +200,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
     # One leg per backend: numba+jax measured 26.6 min together and pythran 18.1, so one runner
     # cannot hold all three under the 45-minute ceiling.
-    name: e2e[${{ matrix.leg.backend }}] (numerical sweep @ S)
+    name: e2e[${{ matrix.leg.backend }}${{ matrix.leg.shard && format(' {0}', matrix.leg.shard) || '' }}] (numerical sweep @ S)
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -208,8 +208,10 @@ jobs:
         leg:
           - { backend: numba, workers: auto }
           - { backend: jax, workers: auto }
-          # One pythran compile peaks at ~7 GB: two at once exhaust the 16 GB runner.
-          - { backend: pythran, workers: 1 }
+          # One pythran compile peaks at ~7 GB: two at once exhaust the 16 GB runner, so its one worker takes
+          # 30-35 minutes for the sweep and it runs as two halves of the stems.
+          - { backend: pythran, workers: 1, shard: "0/2" }
+          - { backend: pythran, workers: 1, shard: "1/2" }
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -225,6 +227,7 @@ jobs:
         timeout-minutes: 35
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: ${{ matrix.leg.backend }}
+          HPCAGENT_BENCH_E2E_SHARD: ${{ matrix.leg.shard || '' }}
           HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
         run: |
           python -m pytest -p no:cacheprovider -rfEs -n ${{ matrix.leg.workers }} --dist loadgroup --durations=25 \
@@ -232,7 +235,7 @@ jobs:
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: e2e-${{ matrix.leg.backend }}
+          coverage: e2e-${{ matrix.leg.backend }}${{ matrix.leg.shard && format('-{0}', strategy.job-index) || '' }}
 
   # The @pytest.mark.integration tests under tests/ (build and run real artifacts). The translator
   # tree's half of the marker runs in `translators`. Two shards: the one Phase 6 step measured
@@ -559,7 +562,8 @@ jobs:
 
       - name: Phase 5e -- emitted references are well-formed and share one ABI
         if: ${{ !cancelled() }}
-        timeout-minutes: 8
+        # 8 minutes cut it off on a slow runner (one xdist group, so it runs serially).
+        timeout-minutes: 15
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=900 tests/test_generated_references.py
 

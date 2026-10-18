@@ -306,3 +306,6 @@ experiments/mwd-final-*/
 
 # anonymous.4open.science replacement terms (identifying, never committed)
 .anonymize-terms.txt
+
+# Polygeist lowering artifacts a pluto build writes next to the reference
+*_pluto_input_polygeist_*

@@ -46,6 +46,23 @@ _bad = [b for b in E2E_BACKENDS if b not in _ALL_E2E_BACKENDS]
 if _bad:
     raise ValueError(f"HPCAGENT_BENCH_E2E_BACKENDS has unknown backend(s) {_bad}; valid: {list(_ALL_E2E_BACKENDS)}")
 
+# HPCAGENT_BENCH_E2E_SHARD="<index>/<count>": the stems this runner sweeps, round-robin over the sorted list; unset =
+# every stem. CI splits the single-worker pythran leg this way.
+E2E_SHARD = os.environ.get("HPCAGENT_BENCH_E2E_SHARD", "").strip()
+if E2E_SHARD:
+    shard_index, shard_sep, shard_count = E2E_SHARD.partition("/")
+    if not (shard_sep and shard_index.isdigit() and shard_count.isdigit() and int(shard_index) < int(shard_count)):
+        raise ValueError(f"HPCAGENT_BENCH_E2E_SHARD={E2E_SHARD!r} is not '<index>/<count>' with index < count")
+
+
+def in_shard(position: int) -> bool:
+    """Whether the stem at ``position`` of the sorted sweep belongs to :data:`E2E_SHARD`."""
+    if not E2E_SHARD:
+        return True
+    index, count = E2E_SHARD.split("/")
+    return position % int(count) == int(index)
+
+
 # HPCAGENT_BENCH_E2E_PRECISION: fp64 short-circuits apply_precision; only fp32/fp16 exercise precision-lowering.
 E2E_PRECISION = os.environ.get("HPCAGENT_BENCH_E2E_PRECISION", "").strip() or "fp64"
 if E2E_PRECISION not in PRECISIONS:
@@ -271,7 +288,8 @@ def _params() -> Iterator[ParameterSet]:
     # OPT-IN. The default is the whole gated corpus, so a local run and a scheduled run are
     # unchanged; only a job that sets this trades breadth for wall clock.
     stems = subset_stems() if os.environ.get("HPCAGENT_BENCH_E2E_SUBSET") == "1" else _gated_stems()
-    for stem in (s for s in stems if declares(s, E2E_PRECISION)):
+    declared = sorted(s for s in stems if declares(s, E2E_PRECISION))
+    for stem in (s for position, s in enumerate(declared) if in_shard(position)):
         for backend in E2E_BACKENDS:
             # Grouped by STEM so ``--dist loadgroup`` keeps one stem's backends on one worker.
             # ``_result`` builds EVERY backend in one call and memoises per process, so with the
