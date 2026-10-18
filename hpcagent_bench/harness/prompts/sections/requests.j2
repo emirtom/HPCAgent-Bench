@@ -21,8 +21,9 @@ submission. This setup accepts only the requests listed below; any other request
 - Before every timed call the judge converts each requested input to its type, and after it converts
   each requested output back to `{{ problem_precision }}`, with its own parallel kernels (on every rank's host tiles
   on the distributed track). Those conversions are timed separately and are NOT part of your score.
-  Outputs are graded in `{{ problem_precision }}` with the same tolerance as an unconverted submission, so the
-  accuracy of a narrower type is your risk.
+  A low-precision output is upcast to `{{ problem_precision }}` and compared against the `{{ problem_precision }}`
+  reference with the same tolerance as an unconverted submission; there is no looser tolerance for a
+  narrower type, so its accuracy is your risk.
 {% endif %}
 {% if request_actions.layouts %}
 - Layout operations: the judge can hand you an array laid out differently. The digits of an `n`-D array
