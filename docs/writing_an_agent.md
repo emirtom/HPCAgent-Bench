@@ -110,8 +110,7 @@ agent can call it with `curl` or [JudgeClient](../hpcagent_bench/harness/tools.p
 | `POST /profile` | diagnostics, dispatched on `tool` (`linuxperf`, `papi`, `nsys`, `rocprofv3`, `none`, `opt-report`); never scored | tool output |
 | `POST /search` | router only: web search (below) | results, or 503/502 |
 
-The judge also answers `/oracle` as an alias of `/submit`. The router answers `/bench` as `/score` and
-`/web-search` as `/search`, and relays `GET /canonical_parallel_form/<kernel>`. The request body of `/score`,
+The router relays `GET /canonical_parallel_form/<kernel>`. The request body of `/score`,
 `/submit` and `/profile` is:
 
 ```json

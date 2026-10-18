@@ -634,7 +634,6 @@ ENV_KEYS: dict[str, str] = {env_name(dotted): dotted for dotted in FIELDS}
 #: code that owns them. :func:`check_env` accepts them.
 NON_CONFIG_ENV = frozenset(
     {
-        "HPCAGENT_BENCH_AGENT_API_URL",
         "HPCAGENT_BENCH_AGENT_DIR",
         "HPCAGENT_BENCH_CACHE_DIR",
         "HPCAGENT_BENCH_CPF_PRERENDER_DIR",

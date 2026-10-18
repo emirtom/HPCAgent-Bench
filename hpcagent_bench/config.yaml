@@ -51,7 +51,7 @@ inputs:
   noise_eps: 0.0
 
 # Judge service (`hpcagent-bench serve`, harness/service.py). Runs in the services instance of the image; the
-# agent runs in a second instance and reaches it over HTTP. Routes include /submit (alias /oracle), /score,
+# agent runs in a second instance and reaches it over HTTP. Routes include /submit, /score,
 # /profile and /baseline. The speedup denominator is measurement.baseline; the timed-rep count is
 # measurement.repeat.
 service:
@@ -494,8 +494,7 @@ runtime:
   # installed member in containers.KNOWN_BACKENDS order (oci: docker, then podman), else to its first member; or
   # a runtime docker | podman | apptainer | ce | native. Also selects the Harbor --env provider
   # (containers.harbor_env_for: docker -> docker, podman -> podman, apptainer -> singularity; ce and native have
-  # none). Env: HPCAGENT_BENCH_RUNTIME_BACKEND. $HPCAGENT_BENCH_CONTAINER_RUNTIME is read only by the bash
-  # launcher.
+  # none). Env: HPCAGENT_BENCH_RUNTIME_BACKEND.
   backend: oci
   # auto | fork | spawn | forkserver. multiprocessing start method of the isolated native call and the forked
   # run (osinfo.mp_context). auto: fork on Linux/WSL2, spawn on macOS. The judge service sets forkserver via

@@ -106,15 +106,15 @@ def test_baseline_endpoint() -> None:
         srv.server_close()
 
 
-def test_oracle_scores_the_reference() -> None:
+def test_submit_scores_the_reference() -> None:
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
     src = reference_source(Task("gemm", "restricted", "c"))
     srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
     try:
-        code, body = _post(port, "/oracle", {"kernel": "gemm", "language": "c", "rank": RANK, "source": src})
-        # /oracle is /submit's alias, so it answers the verdict alone.
+        code, body = _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "source": src})
+        # /submit answers the verdict alone.
         assert code == 200
         assert body["correct"] == "yes", body
         assert set(body) == {"correct", "request_id"}, body
@@ -123,8 +123,8 @@ def test_oracle_scores_the_reference() -> None:
         srv.server_close()
 
 
-def test_profile_route_rejects_bad_bodies_exactly_like_oracle() -> None:
-    """/profile shares /oracle's POST body contract (missing kernel, unknown kernel, the
+def test_profile_route_rejects_bad_bodies_exactly_like_submit() -> None:
+    """/profile shares /submit's POST body contract (missing kernel, unknown kernel, the
     input_mode policy), asserted AS PARITY so the two routes cannot drift into two contracts.
     What the profile itself returns is tests/test_profiling.py."""
     srv, port = _server(ServiceConfig(input_mode="source"))
@@ -137,7 +137,7 @@ def test_profile_route_rejects_bad_bodies_exactly_like_oracle() -> None:
     try:
         bodies = ({}, {"kernel": "no_such_kernel", "source": "x"}, {"kernel": "gemm", "library": "/tmp/x.so"})
         for body in ({**b, "rank": RANK} for b in bodies):
-            assert status("/profile", body) == status("/oracle", body), body
+            assert status("/profile", body) == status("/submit", body), body
         assert status("/profile", {"rank": RANK}) == 400
     finally:
         srv.shutdown()
@@ -596,10 +596,10 @@ def test_unknown_kernel_is_404_on_both_post_routes() -> None:
     """A kernel that does not exist is a REQUEST fault: refused 404 before either route builds,
     times or profiles anything. Pinned separately from the parity test above because parity alone
     cannot see this drift on a host that HAS perf -- there /profile fails at the same
-    BenchSpec.load as /oracle, so both routes drift together (to 500) and the test stays green."""
+    BenchSpec.load as /submit, so both routes drift together (to 500) and the test stays green."""
     srv, port = _server(ServiceConfig(input_mode="source"))
     try:
-        for route in ("/oracle", "/profile"):
+        for route in ("/submit", "/profile"):
             with pytest.raises(urllib.error.HTTPError) as ei:
                 _post(port, route, {"kernel": "no_such_kernel", "language": "c", "rank": RANK, "source": "x"})
             assert ei.value.code == 404, route
@@ -608,12 +608,12 @@ def test_unknown_kernel_is_404_on_both_post_routes() -> None:
         srv.server_close()
 
 
-def test_oracle_rejects_wrong_input_mode() -> None:
+def test_submit_rejects_wrong_input_mode() -> None:
     """input_mode=source must reject a prebuilt-library submission (400)."""
     srv, port = _server(ServiceConfig(input_mode="source"))
     try:
         with pytest.raises(urllib.error.HTTPError) as ei:
-            _post(port, "/oracle", {"kernel": "gemm", "language": "c", "rank": RANK, "library": "/tmp/x.so"})
+            _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "library": "/tmp/x.so"})
         assert ei.value.code == 400
     finally:
         srv.shutdown()

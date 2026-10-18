@@ -561,7 +561,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     The SERVICES instance of the two-container topology: it holds the hidden
     tests + references + timer and exposes /task, /baseline, /score, /submit
-    (alias /oracle) and /profile. A second
+    and /profile. A second
     instance of the SAME image runs the agent and calls these ports.
 
     ``--rank`` is this judge's index in the deployment's judge list; every request must

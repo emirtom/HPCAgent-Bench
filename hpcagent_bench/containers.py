@@ -187,7 +187,7 @@ def resolve_backend(explicit: str | None = None) -> str:
     caller downstream keeps working with one.
 
     A family resolves to its first member :func:`detect_backend` finds on PATH, else to its first member.
-    The shell launcher's ``$HPCAGENT_BENCH_CONTAINER_RUNTIME`` is not read here. Raises ``ValueError`` for an
+    Raises ``ValueError`` for an
     ``explicit`` name outside :data:`SELECTABLE`."""
     backend = (explicit or config.current().runtime.backend).strip()
     if backend in FAMILIES:

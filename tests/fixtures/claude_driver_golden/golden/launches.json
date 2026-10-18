@@ -121,10 +121,6 @@
             "http://j1:8802"
           ],
           [
-            "HPCAGENT_BENCH_AGENT_API_URL",
-            "http://j1:8802"
-          ],
-          [
             "JUDGE_RANK",
             "1"
           ],
@@ -293,10 +289,6 @@
           ],
           [
             "JUDGE_URL",
-            "http://j1:8802"
-          ],
-          [
-            "HPCAGENT_BENCH_AGENT_API_URL",
             "http://j1:8802"
           ],
           [
@@ -472,10 +464,6 @@
           ],
           [
             "JUDGE_URL",
-            "http://j1:8802"
-          ],
-          [
-            "HPCAGENT_BENCH_AGENT_API_URL",
             "http://j1:8802"
           ],
           [

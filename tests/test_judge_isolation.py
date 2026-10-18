@@ -74,10 +74,10 @@ def test_a_crashed_anticheat_gate_is_a_judge_fault_not_a_silent_pass(monkeypatch
     assert [(code, payload.get("judge_fault")) for code, payload in sent] == [(200, True)]
 
 
-def test_an_oracle_request_is_counted_as_a_submit_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``/oracle`` is a terminal grade like ``/submit``: the job's drain must wait for it too."""
+def test_a_submit_request_is_counted_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/submit`` is a terminal grade: the job's drain must wait for it."""
     monkeypatch.delenv(fused.SETUPS_DIR_ENV, raising=False)
-    handler = bare_handler("/oracle")[0]
+    handler = bare_handler("/submit")[0]
     seen: list[int] = []
     handler.serve_post = lambda: seen.append(service.SUBMITS_IN_FLIGHT.count)  # type: ignore[method-assign]
     handler.do_POST()
@@ -171,7 +171,7 @@ if __name__ == "__main__":
                 test(*args)
 
     scoped(test_a_crashed_anticheat_gate_is_a_judge_fault_not_a_silent_pass)
-    scoped(test_an_oracle_request_is_counted_as_a_submit_in_flight)
+    scoped(test_a_submit_request_is_counted_in_flight)
     scoped(test_a_graded_request_from_an_episode_the_run_never_started_is_refused_unrecorded, root=True, judge=True)
     scoped(test_an_opt_report_whose_build_crashes_answers_500, judge=True)
     scoped(test_a_recording_judge_refuses_the_public_seeds, root=True)

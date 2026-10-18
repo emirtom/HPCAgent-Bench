@@ -14,11 +14,6 @@ import re
 from hpcagent_bench.harness import service, tools
 from hpcagent_bench.harness.envelope import Submission
 
-#: Routes deliberately absent from :class:`~hpcagent_bench.harness.tools.JudgeClient`: an alias for
-#: a route the client already calls under its own name. ``/oracle`` predates the ``/score`` vs
-#: ``/submit`` split and stays for judges and pages that still address it.
-ALIAS_ROUTES = {"oracle"}
-
 
 def post_routes() -> set[str]:
     """The POST routes the handler accepts, read from ``serve_post``'s own guard tuple (``do_POST`` only
@@ -40,7 +35,7 @@ def client_paths() -> set[str]:
 
 def test_every_post_route_has_a_python_call() -> None:
     """An agent scripting the judge in Python must reach everything the HTTP API offers."""
-    missing = sorted(post_routes() - client_paths() - ALIAS_ROUTES)
+    missing = sorted(post_routes() - client_paths())
     assert not missing, (
         f"POST routes with no JudgeClient method: {missing}. "
         "A route only an HTTP client can reach is a route half the callers cannot use."

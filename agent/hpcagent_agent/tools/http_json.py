@@ -117,9 +117,8 @@ def worker_token_header() -> dict[str, str]:
 
 
 def judge_base() -> str:
-    """The judge this client is bound to: ``$JUDGE_URL``, else the container's
-    ``$HPCAGENT_BENCH_AGENT_API_URL``, else localhost."""
-    base = os.environ.get("JUDGE_URL") or os.environ.get("HPCAGENT_BENCH_AGENT_API_URL") or DEFAULT_JUDGE_URL
+    """The judge this client is bound to: ``$JUDGE_URL``, else localhost."""
+    base = os.environ.get("JUDGE_URL") or DEFAULT_JUDGE_URL
     return base.rstrip("/")
 
 
@@ -723,14 +722,11 @@ def with_default_load(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def endpoint(tool: str) -> str:
-    """The non-judge (search) endpoint for ``tool``: its own override, else the shared API base."""
+    """The non-judge (search) endpoint for ``tool``: its own override, else the judge's (:func:`judge_base`)."""
     override = os.environ.get(f"HPCAGENT_BENCH_{tool.upper()}_ENDPOINT", "").strip()
     if override:
         return override
-    base = os.environ.get("HPCAGENT_BENCH_AGENT_API_URL", "").rstrip("/")
-    if not base:
-        raise RuntimeError("HPCAGENT_BENCH_AGENT_API_URL must be set, or set the per-tool endpoint override")
-    return f"{base}/{tool}"
+    return f"{judge_base()}/{tool}"
 
 
 def post_json(url: str, payload: dict[str, Any], timeout: float | None = None) -> dict[str, Any]:

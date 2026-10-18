@@ -54,7 +54,7 @@ __all__ = [
 
 
 class RequestFields(pydantic.BaseModel):
-    """Every field a POST body may carry (``/submit``, ``/oracle``, ``/score``, ``/profile``, ``/requests/check``),
+    """Every field a POST body may carry (``/submit``, ``/score``, ``/profile``, ``/requests/check``),
     typed. A field the model does not name is refused (400); a route reads only its own."""
 
     model_config = pydantic.ConfigDict(extra="forbid")

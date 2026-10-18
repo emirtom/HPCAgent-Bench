@@ -143,13 +143,6 @@ def test_resolve_backend_precedence(monkeypatch) -> None:
     assert containers.resolve_backend() == "docker"
 
 
-def test_resolve_backend_ignores_the_legacy_bash_var(monkeypatch) -> None:
-    # $HPCAGENT_BENCH_CONTAINER_RUNTIME is the shell launcher's own knob; only $HPCAGENT_BENCH_RUNTIME_BACKEND is shared.
-    monkeypatch.setattr(containers.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setenv("HPCAGENT_BENCH_CONTAINER_RUNTIME", "apptainer")
-    assert containers.resolve_backend() == "docker"  # config's `oci`, not the bash-only var
-
-
 def test_resolve_backend_rejects_unknown() -> None:
     # "singularity" is a Harbor PROVIDER name, not a backend this factory spells (apptainer is);
     # neither it nor an unsupported runtime may silently resolve to a neighbouring one.

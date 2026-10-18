@@ -224,8 +224,7 @@ counts reruns: a kernel stays owed until delivered. Inside one episode a crashed
 from an empty workspace up to `AGENT_CRASH_ATTEMPTS` (3) times; a timeout is not.
 
 **Recover before rerunning.** A crashed episode can hold a correct `/score` it never submitted.
-The driver promotes it at agent exit; for older runs, promotion
-([LAUNCH.md](LAUNCH.md#1-grade-under-the-final-protocol)) is cheaper than a second agent.
+The driver promotes it at agent exit.
 
 **Latest answer.** `population.latest_episodes` keeps, per (setup, kernel), the run with the newest valid submission, so a
 rerun that ends without one leaves the earlier answer standing.
@@ -272,10 +271,10 @@ DaCe build tree and shard DB.
 | Route | Purpose |
 | --- | --- |
 | `GET /health` | Health, rank, routes. |
-| `POST /score` (`/bench`) | Feedback grade under the preview protocol `mw2x5`: 2 timed inputs x 5 runs per side, Mann-Whitney reduction. A distributed task's `/score` takes `measurement.local_repeat` runs reduced by median. |
+| `POST /score` | Feedback grade under the preview protocol `mw2x5`: 2 timed inputs x 5 runs per side, Mann-Whitney reduction. A distributed task's `/score` takes `measurement.local_repeat` runs reduced by median. |
 | `POST /submit` | Terminal grade: fuzzed correctness plus the m x n timed protocol. |
 | `POST /profile` | Profiler run; `tool` selects the profiler. |
-| `POST /search` (`/web-search`) | Web search with model synthesis; 503 `not_provisioned` without a key. |
+| `POST /search` | Web search with model synthesis; 503 `not_provisioned` without a key. |
 
 The router forwards bodies byte for byte; rank checks, shared-mount confinement and hidden seeds live
 in the upstream judge. `421` names a rank the judge does not serve; `400` carries the judge's message

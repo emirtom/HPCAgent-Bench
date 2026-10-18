@@ -386,7 +386,7 @@ def episode_id_refusal(body: bytes) -> Response | None:
 
 
 #: The routes answered here; every other declared route relays to the judge.
-IMPLEMENTED = ("health", "in-flight", "search", "web-search")
+IMPLEMENTED = ("health", "in-flight", "search")
 
 
 def relayed_routes() -> list[str]:
@@ -436,7 +436,6 @@ async def canonical_parallel_form(request: Request, kernel: str) -> Response:
 
 
 @app.post("/search")
-@app.post("/web-search")
 async def search(request: SearchRequest) -> Response:
     query = request.query
     if request.context:

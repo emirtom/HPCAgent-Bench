@@ -857,7 +857,7 @@ EOF
     if [[ -n "${EFFORT_LADDER:-}" ]]; then
         export AGENT_EFFORT="$("${HPCAGENT_BENCH_IMAGE_PYTHON}" -m hpcagent_agent.driver.effort)"
     fi
-    export HPCAGENT_BENCH_AGENT_API_URL="${JUDGE_BASE_URL}"
+    export JUDGE_URL="${JUDGE_BASE_URL}"
     export AGENT_NODE_RANK="${agent_rank}"
     # agent_driver.py reads its tools, packets and prompts from the payload bound at launch.
     export HPCAGENT_BENCH_AGENT_DIR="${AGENT_PAYLOAD_MOUNT}"

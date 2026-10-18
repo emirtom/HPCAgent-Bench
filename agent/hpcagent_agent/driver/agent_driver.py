@@ -2793,9 +2793,7 @@ def agent_environment(
         environment.pop("CLAUDE_CODE_EFFORT_LEVEL", None)
     environment["KERNEL"] = str(problem.get("kernel", ""))
     environment["LANGUAGE"] = str(problem.get("language", environment.get("LANGUAGE", "hip")))
-    # The MCP server is a separate process and reads all three from the environment; JUDGE_URL and
-    # HPCAGENT_BENCH_AGENT_API_URL are the two names it accepts for the same judge, and they must agree or
-    # a tool that reads the other name grades somewhere else. JUDGE_RANK must be present AND must be
+    # The MCP server is a separate process and reads all three from the environment. JUDGE_RANK must be present AND must be
     # this judge's own index: every judge route validates the rank the request names and answers 421
     # rather than grading a mismatch, so a wrong one is not a hint -- it is a refusal per call.
     # Claude Code's two MCP budgets, both in MILLISECONDS and both read straight off the env
@@ -2808,7 +2806,6 @@ def agent_environment(
     environment.setdefault("MCP_CONNECT_TIMEOUT_MS", "60000")
     environment.setdefault("MCP_TIMEOUT", "120000")
     environment["JUDGE_URL"] = judge_url
-    environment["HPCAGENT_BENCH_AGENT_API_URL"] = judge_url
     environment["JUDGE_RANK"] = str(judge_rank)
     # Same channel, same reason: the MCP server puts these in every judge POST body, and a row the
     # judge records without them is one no setup, node or worker can be recovered from afterwards.
