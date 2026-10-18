@@ -91,6 +91,11 @@ is stamped with are the checkout's (`--repo`, default `$HPCAGENT_BENCH_REPO`).
   view pointing at them and each form's verdict in the view, which `cpf_cache check --verified` reads before a
   cpf-src setup is submitted. A failing step is reported per kernel and the job goes on; a form that does not verify
   fails nothing but its verdict.
+- **Known unverified form.** cloudsc's CPU form is unverified on a 192-thread node: it heap-allocates its transients
+  (about 6 GiB at the largest held-out sizes) instead of drawing them from the ABI workspace, so the memory cap, which
+  counts declared arrays and the workspace, refuses an allocation and the call ends in SIGSEGV. The form computes
+  correctly where the cap leaves room (AddressSanitizer-clean at S, M and XL); the fix is the renderer sizing its
+  scratch through the workspace.
 - **Where it runs.** With `JUDGE_EDF` set, `prepare.sbatch` runs every task in the judge image with the checkout
   mounted (a render and a grade need its compilers and BLAS); without it, on `$HPCAGENT_BENCH_PYTHON`.
 
