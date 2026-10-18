@@ -26,6 +26,9 @@ set -eu
 # A core dump lands in the crashing process's CWD (the checkout) and Slurm propagates the
 # SUBMITTER's core limit, so the floor has to be set here.
 ulimit -c 0
+# dace canonicalize and CPF hash iteration order into generated code: every process of the image runs with one hash
+# seed, whether or not its launcher sourced cluster/env.sh.
+export PYTHONHASHSEED=0
 launch=/opt/launch
 workspace=/opt/hpcagent-bench
 if [ "${HPCAGENT_BENCH_LAUNCH_VENV:-1}" = 0 ] || [ ! -f "${launch}/sync.args" ]; then

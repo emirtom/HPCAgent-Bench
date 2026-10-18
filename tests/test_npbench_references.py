@@ -7,7 +7,7 @@ kernel without one, so a missing file does not fail a run: it silently swaps the
 The first test makes that swap loud. ``_triton`` has no translator and needs a GPU, so its presence is the only thing
 checkable on the CPU runners. ``eigh_test`` and ``reduce_2d`` left the tag but keep their manual ``_jax``.
 
-The second test runs each kernel's ``_jax`` through the harness at the S preset against the NumPy oracle, which is the
+The second test runs each kernel's ``_jax`` through the harness at the S preset against the compiled reference, which is the
 check a run applies at its own tolerance.
 """
 
@@ -121,7 +121,7 @@ def test_jax_reference_matches_numpy(kernel: str) -> None:
     # Imported here: a module-level ``Test`` is collected by pytest, which warns that it cannot be.
     from hpcagent_bench.frameworks import Test
 
-    test = Test(Benchmark(kernel), generate_framework("jax"), generate_framework("numpy"))
+    test = Test(Benchmark(kernel), generate_framework("jax"))
     result = test.run(preset="S", validate=True, repeat=1, timeout=600.0, datatype="float64", ignore_errors=True)
     assert "default" in result, f"{kernel}: the jax reference did not run"
     assert not result["default"].get("failure"), f"{kernel}: {result['default'].get('failure')}"
@@ -132,7 +132,7 @@ def test_jax_reference_matches_numpy(kernel: str) -> None:
 def test_jax_lib_variant_matches_numpy(kernel: str) -> None:
     from hpcagent_bench.frameworks import Test
 
-    test = Test(Benchmark(kernel), generate_framework("jax"), generate_framework("numpy"))
+    test = Test(Benchmark(kernel), generate_framework("jax"))
     result = test.run(preset="S", validate=True, repeat=1, timeout=600.0, datatype="float64", ignore_errors=True)
     assert "lib-implementation" in result, f"{kernel}: the jax_lib variant did not run"
     assert result["lib-implementation"].get("validated"), f"{kernel}: the jax_lib variant does not match numpy"

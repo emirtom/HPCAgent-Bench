@@ -3,12 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fold a cluster run's results into one results DB.
 
-Every judge rank records into its own SQLite DB (run_cluster.sh --judge-node points
-``HPCAGENT_BENCH_RECORD_DB_PATH`` at ``<run dir>/judge/rank-<k>/``). That is not a workaround for
-SQLite's locking but the only correct arrangement on a cluster: WAL needs a ``-shm`` mapping, which
-Lustre/NFS/GPFS do not provide, and rollback-journal locking over them is unreliable. So a finished
-run leaves one shard per rank (each ``/submit`` recorded with its own final grade) and one
-``tokens.json`` per agent episode, and no single file to read -- this builds it.
+Every judge rank records into its own SQLite shard (run_cluster.sh --judge-node points
+``HPCAGENT_BENCH_RECORD_DB_PATH`` at ``<run dir>/judge/rank-<k>/``; docs/results_db.md states why ranks never
+share a file). A finished run holds one shard per rank (each ``/submit`` recorded with its own final grade)
+and one ``tokens.json`` per agent episode; this merges them into one DB.
 
     python3 merge_results.py <run dir> [--out DB]
 
@@ -21,28 +19,24 @@ once complete (:func:`results_db.rebuilding`), so a failed merge leaves no parti
 import argparse
 import contextlib
 import pathlib
-import re
 import sqlite3
 import sys
 
 from hpcagent_bench.harness import episodes, results_db
-from hpcagent_bench.studies import MERGED_DB_NAME
+from hpcagent_bench.run_layout import JUDGE_DIRNAME, MERGED_DB_NAME, RANK_DIR
 
 __all__ = [
-    "RANK_DIR",
     "judge_shards",
     "main",
     "merge",
     "shard_paths",
+    "submitted_records",
 ]
-
-#: ``.../judge/rank-<k>/`` -- the per-rank directory run_cluster.sh creates.
-RANK_DIR: re.Pattern[str] = re.compile(r"^rank-(\d+)$")
 
 
 def shard_paths(run_dir: pathlib.Path) -> list[pathlib.Path]:
     """:func:`judge_shards` of ``run_dir``; raises when it has no ``judge/`` directory."""
-    judge_dir = run_dir / "judge"
+    judge_dir = run_dir / JUDGE_DIRNAME
     if not judge_dir.is_dir():
         raise SystemExit(f"{judge_dir} does not exist; is {run_dir} a cluster run directory?")
     return judge_shards(run_dir)
@@ -54,7 +48,7 @@ def judge_shards(run_dir: pathlib.Path) -> list[pathlib.Path]:
     Globs the rank directories rather than a file name, because the DB's stem comes from config
     ``record.db_path`` and a site that changed it must still be mergeable. The ``-wal`` and ``-shm``
     siblings are excluded by the suffix."""
-    judge_dir = run_dir / "judge"
+    judge_dir = run_dir / JUDGE_DIRNAME
     if not judge_dir.is_dir():
         return []
     found: list[tuple[int, str, pathlib.Path]] = []
@@ -65,13 +59,30 @@ def judge_shards(run_dir: pathlib.Path) -> list[pathlib.Path]:
     return [db for _, _, db in sorted(found)]
 
 
+def submitted_records(run_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Every episode record under ``run_dir`` whose episode ended by submitting (the driver's return code
+    for it, or that result): a judge graded it, so its job must hold a shard."""
+    submitted = [code for code, result in episodes.ENDED_BY.items() if result == "submitted"]
+    found = []
+    for path in sorted(run_dir.glob(episodes.RECORD_GLOB)):
+        record = episodes.read_record(path)
+        if record is not None and (record.returncode in submitted or record.result == "submitted"):
+            found.append(path)
+    return found
+
+
 def merge(run_dir: pathlib.Path, out: pathlib.Path) -> int:
     """Rebuild ``out`` from everything ``run_dir`` recorded and return the rows it ends up holding."""
     shards = shard_paths(run_dir)
     if any(s.resolve() == out.resolve() for s in shards):
         raise SystemExit(f"--out {out} is one of the shards it merges; write it elsewhere")
-    if not shards:
-        raise SystemExit(f"no per-rank result DBs under {run_dir / 'judge'}; nothing to merge")
+    # No shard when no agent reached the judge (every episode timed out before submitting): the episodes are
+    # still folded in below, so their token spend is recorded. An episode that submitted was graded, so a run
+    # with one and no shard lost its judge's record: refused, or the run reads as a setup that solved nothing.
+    if not shards and (submitted := submitted_records(run_dir)):
+        raise SystemExit(
+            f"no judge shard under {run_dir / JUDGE_DIRNAME}, but {len(submitted)} episodes submitted: {submitted[0]}"
+        )
     with results_db.rebuilding(out) as scratch:
         for shard in shards:
             try:
@@ -80,6 +91,8 @@ def merge(run_dir: pathlib.Path, out: pathlib.Path) -> int:
                 # Loud and stop: a shard that fails to read (e.g. truncated by an OOM-killed rank) must not
                 # be quietly dropped -- the merged file would look complete but miss that shard's rows.
                 raise SystemExit(f"corrupt shard, aborting merge: {shard}: {exc}") from exc
+            except results_db.MergeConflict as exc:
+                raise SystemExit(f"conflicting shard, aborting merge: {shard}: {exc}") from exc
             detail = ", ".join(f"{table}={count}" for table, count in sorted(copied.items()) if count)
             print(f"{shard}: {sum(copied.values())} rows ({detail or 'empty'})")
         with contextlib.closing(results_db.open_db(scratch)) as conn:

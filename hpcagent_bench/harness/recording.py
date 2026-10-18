@@ -18,7 +18,6 @@ file (:func:`db_path`); :func:`aggregate` folds the shards into the base file by
 """
 
 import contextlib
-import json
 import os
 import pathlib
 import re
@@ -30,19 +29,21 @@ from typing import NamedTuple, Protocol
 
 from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.anticheat import Context, Judgement, judge
-from hpcagent_bench.harness import denominator, grading, results_db
+from hpcagent_bench.harness import db_json, denominator, grading, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.harness.task import RecordDevice, Task
-from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.run_layout import DB_FILENAME
+from hpcagent_bench.spec import BenchSpec, task_fingerprint
 from hpcagent_bench.support.bindings.contract import graded_datatype
 from hpcagent_bench.support.helpers.sparse.request import UNCOVERED
 
 __all__ = [
     "ADHOC_EPISODE_ID",
-    "STOPPED_REASON",
+    "DB_FILENAME",
+    "DEFAULT_DB_PATH",
     "DETAIL_CAP",
     "DETAIL_HEAD_FRACTION",
     "FINAL_SHARED",
@@ -55,6 +56,7 @@ __all__ = [
     "PASSING_STATUS",
     "SHARD_ENV",
     "SNAPSHOT_COMMIT_ENV",
+    "STOPPED_REASON",
     "FinalRecord",
     "Identity",
     "Recorded",
@@ -89,6 +91,7 @@ __all__ = [
     "now_ms",
     "open_episode",
     "open_episode_in_job",
+    "packet_key",
     "packet_tag",
     "realized_candidates",
     "record",
@@ -106,7 +109,7 @@ __all__ = [
     "store_delivery",
     "study_tag",
     "submission_envelope",
-    "table_exists",
+    "tag_version_tag",
     "trajectory_stamps",
 ]
 
@@ -158,6 +161,9 @@ def cap_detail(text: str, cap: int = DETAIL_CAP) -> str:
     return text[:head] + (marker % elided) + text[-tail:]
 
 
+#: The default config ``record.db_path``, relative to the repo root.
+DEFAULT_DB_PATH = f"{paths.RESULTS_DIR}/{DB_FILENAME}"
+
 #: Rank-identity variables a launcher exports, in preference order. ``HPCAGENT_BENCH_DB_SHARD`` is
 #: the explicit override a submission script sets; the rest are read only as a fallback so a job
 #: that forgets to set it still shards instead of corrupting one shared file.
@@ -177,16 +183,17 @@ def db_shard() -> int | None:
 
 
 def base_db_path() -> str:
-    """The UNSHARDED results-DB file (config ``record.db_path``, default ``results/hpcagent_bench.db``).
+    """The UNSHARDED results-DB file (config ``record.db_path``).
 
     A relative path is anchored to the repo root, NOT the process CWD, so the judge writes the same
     file whether launched from the repo, a container, or a test's tmp dir. An absolute configured
     path is used verbatim, but must be durable storage. Nothing writes results HERE -- it is the
     aggregate destination, rebuilt from the shards by :func:`aggregate`, and the one name readers
     open however many ranks produced the run."""
-    configured = pathlib.Path(config.get_str("record.db_path", "results/hpcagent_bench.db"))
+    record = config.current().record
+    configured = pathlib.Path(record.db_path)
     resolved = str(configured if configured.is_absolute() else paths.ROOT / configured)
-    if not config.get("record.allow_memory_db", False):
+    if not record.allow_memory_db:
         memory_fs = memory_backed_fstype(resolved)
         if memory_fs is not None:
             raise ValueError(
@@ -221,7 +228,7 @@ def memory_backed_fstype(path: str) -> str | None:
         if len(entry) < 3:
             continue
         point, fstype = entry[1], entry[2]
-        if (target == point or target.startswith(point.rstrip("/") + "/")) and len(point) > len(best_point):
+        if pathlib.PurePath(target).is_relative_to(point) and len(point) > len(best_point):
             best_point, best_type = point, fstype
     return best_type if best_type in MEMORY_FSTYPES else None
 
@@ -245,18 +252,11 @@ def shard_paths(path: str | None = None) -> list[str]:
 
 
 def db_path() -> str:
-    """The results DB THIS process writes: always its OWN shard, numbered by rank (0 when there is
-    no launcher).
+    """The results DB this process writes: its own shard :func:`shard_db_path` ``(k)``, k = the launcher
+    rank (0 without a launcher; docs/results_db.md states why ranks never share a file).
 
-    Every rank owning a private file is not a workaround for SQLite's locking but the only correct
-    option on a cluster: WAL needs a ``-shm`` mapping, which network filesystems (Lustre, NFS, GPFS)
-    do not provide, and rollback-journal locking over them is famously unreliable.
-
-    A single-writer run shards too, into shard 0. Writing it straight to :func:`base_db_path` would
-    make that file BOTH authoritative and derived, and :func:`aggregate` rebuilds the base from the
-    shards -- so the same file would be erased by the next merge, and its mtime would make
-    :func:`ensure_aggregated` judge a genuinely stale aggregate fresh. One writer rule instead: the
-    shards are the only authoritative results, the base is the cache built from them."""
+    A single-writer run writes shard 0, never :func:`base_db_path`: the shards are the only
+    authoritative results, and the base is rebuilt from them by :func:`aggregate`."""
     shard = db_shard()
     return shard_db_path(0 if shard is None else shard)
 
@@ -266,17 +266,14 @@ def study_tag() -> str | None:
 
     Set it per experiment, not per setup: the point is to filter one study's rows out of a results
     DB that several experiments write to, and the setups of one A/B share the study they are setups
-    of. Env-overridable as ``$HPCAGENT_BENCH_RECORD_STUDY`` like every other config key."""
-    tag = str(config.get("record.study", "") or "").strip()
-    return tag or None
+    of."""
+    return config.current().record.study.strip() or None
 
 
 def device_tag() -> RecordDevice:
-    """``record.device``; ``cpu`` when unset. An unknown value raises rather than being recorded."""
-    device = str(config.get("record.device", "") or "").strip() or RecordDevice.CPU
-    if device not in RecordDevice:
-        raise ValueError(f"record.device {device!r} is not one of {[d.value for d in RecordDevice]}")
-    return RecordDevice(device)
+    """``record.device``; ``cpu`` when null."""
+    device = config.current().record.device
+    return RecordDevice.CPU if device is None else RecordDevice(device)
 
 
 def packet_tag() -> str:
@@ -286,7 +283,11 @@ def packet_tag() -> str:
     groupable. The empty string is the no-packet control, not a missing value. Accepts ``;`` as a
     separator too, so an ad-hoc spec (see :mod:`hpcagent_bench.packets`) records the same key
     whether it is written ``a;b`` or ``a+b``."""
-    raw = str(config.get("record.packet", "") or "")
+    return packet_key(config.current().record.packet)
+
+
+def packet_key(raw: str) -> str:
+    """The canonical key of the packet spec ``raw`` (:func:`packet_tag`)."""
     return "+".join(sorted({part for part in re.split(r"[+;,\s]+", raw) if part}))
 
 
@@ -295,31 +296,34 @@ def language_tag() -> str | None:
 
     The request body's own claim is NOT recorded: a Triton kernel honestly calls itself ``python``,
     and a claim that misleads the judge already shows in ``status`` and ``reason``."""
-    return str(config.get("record.language", "") or "").strip() or None
+    return config.current().record.language.strip() or None
 
 
 def model_tag() -> str | None:
     """``record.model`` -- the checkpoint the setup served, e.g. ``zai-org/GLM-5.3``."""
-    model = str(config.get("record.model", "") or "").strip()
-    return model or None
+    return config.current().record.model.strip() or None
 
 
 def setup_tag() -> str | None:
     """``record.setup`` -- provenance. The four tags above are what queries and figures select on."""
-    setup = str(config.get("record.setup", "") or "").strip()
-    return setup or None
+    return config.current().record.setup.strip() or None
 
 
 def temperature_tag() -> float:
     """``record.temperature`` -- the sampling temperature the setup's serving engine applied."""
-    return config.get_float("record.temperature", 1.0)
+    return config.current().record.temperature
+
+
+def tag_version_tag() -> str:
+    """``record.tag_version`` -- what the setup's kernel tag resolved to at submit
+    (``cluster/record_identity.sh`` record_tag_version); '' for a run of no tag."""
+    return config.current().record.tag_version.strip()
 
 
 def harness_tag() -> str | None:
     """``record.harness`` -- the agent harness that drove the setup (``claude``, ``miniswe``,
     ``openhands``), or None when the setup named none."""
-    harness = str(config.get("record.harness", "") or "").strip()
-    return harness or None
+    return config.current().record.harness.strip() or None
 
 
 #: The commit a cluster job runs at, exported by the job itself (its checkout's HEAD: run_cluster.sh,
@@ -328,9 +332,8 @@ SNAPSHOT_COMMIT_ENV = "HPCAGENT_BENCH_SNAPSHOT_COMMIT"
 
 
 def snapshot_commit() -> str | None:
-    """The commit of the code snapshot this process runs from, or None outside a snapshot job.
-
-    Read raw, not through :func:`config.get`, which would coerce an all-digit sha to an int."""
+    """The commit of the code snapshot this process runs from (``$HPCAGENT_BENCH_SNAPSHOT_COMMIT``), or None
+    outside a snapshot job."""
     commit = (config.env_value(SNAPSHOT_COMMIT_ENV) or "").strip()
     return commit or None
 
@@ -345,8 +348,7 @@ def commit_tag() -> str | None:
     snapshot = snapshot_commit()
     if snapshot is not None:
         return snapshot
-    commit = str(config.get("record.commit", "") or "").strip()
-    return commit or None
+    return config.current().record.commit.strip() or None
 
 
 class Identity(NamedTuple):
@@ -359,6 +361,8 @@ class Identity(NamedTuple):
     packet: str
     setup: str | None
     harness: str | None
+    tag_version: str
+    temperature: float
 
 
 def identity() -> Identity:
@@ -371,16 +375,18 @@ def identity() -> Identity:
         packet_tag(),
         setup_tag(),
         harness_tag(),
+        tag_version_tag(),
+        temperature_tag(),
     )
 
 
 def commit_sha() -> str | None:
-    """The commit the setup ran (:func:`commit_tag`), else this checkout's own; ``None`` when neither
-    is known."""
+    """The commit the setup ran (:func:`commit_tag`), else the HEAD of :func:`hpcagent_bench.paths.repo_root`;
+    ``None`` when neither is known."""
     stamped = commit_tag()
     if stamped is not None:
         return stamped
-    return paths.git_head(pathlib.Path.cwd(), short=True) or None
+    return paths.git_head(paths.repo_root(), short=True) or None
 
 
 #: The per-call point :func:`record_trajectory` reads. Structural on purpose: the concrete type is
@@ -406,19 +412,6 @@ class TrajectoryPoint(Protocol):
 
     @property
     def seconds(self) -> float: ...
-
-
-def table_exists(path: str, table: str) -> bool:
-    """Whether ``path`` holds ``table``, without creating an absent file (``sqlite3.connect`` would)."""
-    if not pathlib.Path(path).exists():
-        return False
-    conn = results_db.connect_ro(path)
-    try:
-        return (
-            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
-        )
-    finally:
-        conn.close()
 
 
 def aggregate(dest: str | None = None, sources: Sequence[str] | None = None) -> int:
@@ -461,7 +454,7 @@ JOB_ENV = "SLURM_JOB_ID"
 #: An episode's episode id, ``<setup>.n<node>.p<problem>.w<worker>``, then ``.s<slot>`` for a designed repeat's
 #: run: how the slot travels from the agent to the judge, which stores it in ``episodes.slot``. A setup name may
 #: hold dots (``temperature3-qwen38-c-t1.5``): only the fixed suffix delimits it.
-LABEL = re.compile(r"(?P<setup>.+)\.n\d+\.p\d+\.w\d+(?:\.s(?P<slot>\d+))?")
+LABEL = re.compile(r"(?P<setup>.+)\.n(?P<node>\d+)\.p(?P<problem>\d+)\.w(?P<worker>\d+)(?:\.s(?P<slot>\d+))?")
 #: ``optimizer`` markers a replayed request carries: how its source was obtained, the grade's kind.
 ORIGIN_KINDS: dict[str, str] = {
     "promoted-unsubmitted": "promoted",
@@ -470,10 +463,10 @@ ORIGIN_KINDS: dict[str, str] = {
 }
 
 
-def job_tag() -> int | None:
-    """The Slurm job this judge runs in; ``None`` outside one."""
+def job_tag() -> int:
+    """The Slurm job this judge runs in; :data:`results_db.LOCAL_JOB` outside one."""
     raw = (os.environ.get(JOB_ENV) or "").strip()
-    return int(raw) if raw.isdigit() else None
+    return int(raw) if raw.isdigit() else results_db.LOCAL_JOB
 
 
 def slot_of(episode_id: str) -> int:
@@ -494,10 +487,10 @@ def setup_of(episode_id: str) -> str:
 JOB_DIR = re.compile(r"(?P<job>\d+)(?:-.*)?")
 
 
-def job_of_dir(directory: pathlib.Path) -> int | None:
-    """The Slurm job the run directory ``directory`` belongs to; None for a local run."""
+def job_of_dir(directory: pathlib.Path) -> int:
+    """The Slurm job the run directory ``directory`` belongs to; :data:`results_db.LOCAL_JOB` for a local run."""
     match = JOB_DIR.fullmatch(directory.name)
-    return int(match["job"]) if match else None
+    return int(match["job"]) if match else results_db.LOCAL_JOB
 
 
 def open_episode(conn: sqlite3.Connection, episode_id: str, setup_language: str | None = None) -> int:
@@ -506,15 +499,19 @@ def open_episode(conn: sqlite3.Connection, episode_id: str, setup_language: str 
 
 
 def open_episode_in_job(
-    conn: sqlite3.Connection, episode_id: str, job: int | None, setup_language: str | None = None
+    conn: sqlite3.Connection,
+    episode_id: str,
+    job: int,
+    setup_language: str | None = None,
+    who: Identity | None = None,
 ) -> int:
     """The ``episodes`` id of episode ``episode_id`` in ``job``, its setup recorded first.
 
-    The setup's identity is this judge's own configuration (:func:`identity`); the first grade of a setup
-    fixes it. ``setup_language`` fills the language only when the setup declared none, and a caller may
-    pass it ONLY when it is the harness's own task language: a request body is agent-controlled and
-    has arrived naming ``py``, ``zzz`` and a file path."""
-    who = identity()
+    The setup's identity is ``who``, by default this process's own configuration (:func:`identity`); the
+    first writer of a setup fixes it. ``setup_language`` fills the language only when the setup declared
+    none, and a caller may pass it ONLY when it is the harness's own task language: a request body is
+    agent-controlled and has arrived naming ``py``, ``zzz`` and a file path."""
+    who = who or identity()
     setup = setup_of(episode_id)
     results_db.ensure_setup(
         conn,
@@ -526,7 +523,8 @@ def open_episode_in_job(
             study=who.study,
             model=who.model,
             packet=who.packet,
-            temperature=temperature_tag(),
+            temperature=who.temperature,
+            tag_version=who.tag_version,
         ),
     )
     return results_db.ensure_episode(conn, setup, episode_id, job, slot_of(episode_id))
@@ -540,7 +538,7 @@ def build_commands_json(score: Score | None) -> str | None:
     grade compiled nothing (a prebuilt library, a refusal before the build, no verdict)."""
     if score is None or not score.build_commands:
         return None
-    return json.dumps(list(score.build_commands))
+    return db_json.STRINGS.dumps(score.build_commands)
 
 
 def layout_values(score: Score) -> dict[str, results_db.Value]:
@@ -552,7 +550,7 @@ def layout_values(score: Score) -> dict[str, results_db.Value]:
         "convert_in_ns": score.convert_in_ns,
         "convert_out_ns": score.convert_out_ns,
         "size_scale": float(score.size_scale),
-        "scale_axes": json.dumps(list(score.scale_axes)),
+        "scale_axes": db_json.STRINGS.dumps(score.scale_axes),
     }
 
 
@@ -561,15 +559,18 @@ def now_ms() -> int:
 
 
 def stamp_values(task: Task, preset: str, datatype: str, score: Score | None) -> dict[str, results_db.Value]:
-    """How a grade was graded: size, datatype, source mode, protocol stamps, machine and code. The
-    datatype is the one the kernel ran in (a storage-only precision the manifest declares, else the
-    configured one): it is part of the grade's identity."""
+    """How a grade was graded: size, datatype, source mode, protocol stamps, machine, code and task
+    (:func:`~hpcagent_bench.spec.task_fingerprint`). The datatype is the one the kernel ran in (a
+    storage-only precision the manifest declares, else the configured one): it is part of the grade's
+    identity."""
+    spec = BenchSpec.load(task.kernel)
     values: dict[str, results_db.Value] = {
         "preset": preset,
-        "datatype": graded_datatype(BenchSpec.load(task.kernel), datatype),
+        "datatype": graded_datatype(spec, datatype),
         "source_mode": task.source_mode,
         "cpu": osinfo.cpu_model(),
         "commit_sha": commit_sha(),
+        "task_hash": task_fingerprint(spec.short_name),
     }
     if score is not None:
         values |= {
@@ -608,7 +609,7 @@ def envelope_values(
     """The request's build tokens (a JSON list, '' when it asked for none), its ``requests`` block (JSON
     as sent) and its scratch request."""
     return {
-        "requested_build": json.dumps(list(build)) if build else "",
+        "requested_build": db_json.STRINGS.dumps(build) if build else "",
         "requests": requests,
         "workspace_bytes": workspace_bytes,
     }
@@ -616,7 +617,7 @@ def envelope_values(
 
 def submission_envelope(submission: Submission) -> dict[str, results_db.Value]:
     """:func:`envelope_values` of a parsed submission."""
-    return envelope_values(submission.build, submission.requests_json(), submission.workspace_bytes)
+    return envelope_values(submission.build, submission.requests.recorded_json(), submission.workspace_bytes)
 
 
 def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submission) -> None:
@@ -753,7 +754,7 @@ def record(
     if judgement is None:
         judgement = judge(Context(submission, task, score, preset, datatype), rerun=False)
     values, (outcome, detail) = credit_values(score, judgement)
-    if outcome != "submission" and not config.get("record.log_attempts", True):
+    if outcome != "submission" and not config.current().record.log_attempts:
         return Recorded("skipped", "log_attempts disabled", None)
     values |= stamp_values(task, preset, datatype, score) | measured_values(score) | submission_envelope(submission)
     values |= {"status": status, "tokens_so_far": int(tokens), "detail": graded_detail(score, judgement) or None}
@@ -794,7 +795,7 @@ def record_final(
     recorded submission, stamped with the same size, datatype, source mode, machine and commit), with
     one ``grade_cells`` row per timed input; returns its id."""
     stamp = stamp_values(task, preset, datatype, None)
-    stamp = {name: stamp[name] for name in ("preset", "datatype", "source_mode", "commit_sha")}
+    stamp = {name: stamp[name] for name in ("preset", "datatype", "source_mode", "commit_sha", "task_hash")}
     values = {**final.values, **stamp, "node": socket.gethostname(), "of_grade_id": of_grade}
     grade_id, stamp_ms = results_db.add_grade(conn, run, kernel, "final", ts_ms=now_ms(), values=values)
     results_db.add_cells(conn, grade_id, final.cells)
@@ -830,7 +831,7 @@ def record_call(
     the request's envelope as sent. ``submission``, when given, is the delivery:
     its source is kept behind a passing grade (``status`` ``ok``), so an agent killed at its wall
     clock holding a verified answer leaves something to promote."""
-    if not config.get("record.log_calls", True):
+    if not config.current().record.log_calls:
         return 0
     values = stamp_values(task, preset, datatype, score) | measured_values(score)
     values |= envelope_values(build, requests, workspace_bytes)
@@ -882,7 +883,7 @@ def record_trajectory(
         "datatype": graded_datatype(BenchSpec.load(task.kernel), datatype),
     }
     stamp |= {"source_mode": source_mode, "baseline": baseline}
-    stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha()}
+    stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha(), "task_hash": task_fingerprint(kernel)}
     stamps = trajectory_stamps(points, now_ms())
     with contextlib.closing(connect(path)) as conn:
         run = open_episode(conn, episode_id, setup_language=language)

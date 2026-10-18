@@ -1,11 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Numerical-correctness oracle: emit each backend fresh per kernel, run it, and compare to numpy."""
+"""Numerical-correctness oracle: emit each backend fresh per kernel, run it, and compare it to the kernel's
+compiled reference (:func:`compiled_reference`: the numba or sequential C one a grade uses, or the kernel's own
+``_reference.<c|cpp|f90>``). A kernel's ``_numpy.py`` is the task program the backends are emitted from, never the
+answer they are checked against."""
 
 import contextlib
 import ctypes
 import inspect
-import json
 import os
 import pathlib
 import pickle
@@ -18,9 +20,10 @@ import sys
 import tempfile
 import time
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+import pydantic
 
 __all__ = [
     "BACKENDS",
@@ -51,9 +54,12 @@ __all__ = [
     "PYTHRAN_BASE_TO_NP",
     "PY_BACKENDS",
     "PY_FORK_TIMEOUT_S",
+    "ProbeRecord",
+    "ProbeVerdict",
     "all_backend_status",
     "binding_shape",
     "call_by_name",
+    "compiled_reference",
     "cap_compile_memory",
     "comparison_array",
     "compile_command",
@@ -69,7 +75,6 @@ __all__ = [
     "mismatch_detail",
     "native_build_command",
     "needs_fftw",
-    "numpy_fn",
     "outputs_match",
     "pin_one_thread",
     "pluto_reject_reason",
@@ -105,8 +110,11 @@ PY_FORK_TIMEOUT_S = int(os.environ.get("HPCAGENT_BENCH_PY_FORK_TIMEOUT_S", "600"
 #: m > N outright, and clamping m = min(m, N//2) gives 4, too few to check against the analytic
 #: Poisson spectrum or to reach the iteration 20-30 range where the ghost eigenvalues appear;
 #: bdf_newton_krylov's step count, order history and Jacobian-reuse count are all data-dependent.
+#: cloudsc_subsidence_forcing runs at the one model level its config knob ``jk`` names (100 of 137,
+#: below CLOUDSC's cloud top): scaled, KLEV falls to 13 and the level lies outside the column.
 NO_SCALE = (
     "bdf_newton_krylov",
+    "cloudsc_subsidence_forcing",
     "distribution_search",
     "ilu0",
     "jfnk_bratu",
@@ -205,11 +213,13 @@ from hpcagent_bench import (  # noqa: E402 -- after the thread-count environment
     pluto_transform,
 )
 from hpcagent_bench.frameworks.forked import die_with_parent, run_forked  # noqa: E402
+from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
-from hpcagent_bench.spec import BenchSpec, as_block  # noqa: E402
+from hpcagent_bench.spec import BenchSpec  # noqa: E402
 from hpcagent_bench.support.bindings.contract import index_base  # noqa: E402
+from hpcagent_bench.translators.numpyto_c.bindings import read_binding  # noqa: E402
 from hpcagent_bench.translators.numpyto_common.dtypes import canonical, compute_dtype  # noqa: E402
 
 # The emitter's own fp-tag helper, so this file's globs match what it names emitted files.
@@ -398,26 +408,14 @@ def all_backend_status(reason: str) -> dict[str, str]:
     return dict.fromkeys((*BACKENDS, *PY_BACKENDS, "jax"), reason)
 
 
-#: Defaults for ``hpcagent_bench/config.yaml``'s ``oracle:`` block when a key is absent.
-_CONFIG_DEFAULTS: dict[str, int | bool | dict[str, object]] = {
-    "compile_timeout_s": 75,
-    # polycc gets its own, longer bound: pluto's schedule search is not a compiler hang, and adi
-    # legitimately needs minutes where 75 s only ever caught wedged builds.
-    "polycc_timeout_s": 360,
-    "numba_fastmath": False,
-    "overrides": {},
-}
-
-
-def _cfg(key: str, short: str = "") -> Any:
-    """Config value for ``key`` from ``oracle:``, honouring per-kernel ``oracle.overrides.<short>``."""
+def _cfg(key: Literal["compile_timeout_s", "polycc_timeout_s", "numba_fastmath"], short: str = "") -> Any:
+    """``oracle.<key>``, replaced by ``oracle.overrides[short].<key>`` when that entry sets it."""
     from hpcagent_bench import config
 
-    if short:
-        ov = as_block(as_block(config.get("oracle.overrides")).get(short))
-        if key in ov:
-            return ov[key]
-    return config.get(f"oracle.{key}", _CONFIG_DEFAULTS.get(key))
+    oracle = config.current().oracle
+    override = oracle.overrides.get(short)
+    value = getattr(override, key) if override is not None else None
+    return value if value is not None else getattr(oracle, key)
 
 
 #: Precision sweep config: name -> (numpy float dtype, Precision enum, emit ``--precision``, rtol, atol).
@@ -514,7 +512,7 @@ def is_perfect_cube(n: int) -> bool:
     return any(c >= 1 and c * c * c == n for c in (r - 1, r, r + 1))
 
 
-def custom_initialize(info, syms, datatype: type[np.floating] = np.float64) -> dict[str, Any]:
+def custom_initialize(spec: BenchSpec, syms, datatype: type[np.floating] = np.float64) -> dict[str, Any]:
     """Run a kernel's hand-written ``initialize`` and bind its results by ``init.output_args``.
 
     ``datatype`` is passed explicitly since polybench initializers often default to float32.
@@ -522,33 +520,35 @@ def custom_initialize(info, syms, datatype: type[np.floating] = np.float64) -> d
     import importlib
     import inspect
 
-    init = info["init"]
+    init = spec.init
+    if init is None:
+        raise ValueError(f"{spec.short_name} declares no init block")
     # Lives in <module>.py beside <module>_numpy.py, never inside it (enforced by
     # tests/test_tree_structure.py); imported as a package module so intra-package imports resolve.
-    src = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}.py"
+    src = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}.py"
     hint = (
-        f"a kernel's {init['func_name']!r} lives in {info['module_name']}.py beside "
-        f"{info['module_name']}_numpy.py; defining it in the _numpy reference is not supported"
+        f"a kernel's {init.func_name!r} lives in {spec.module_name}.py beside "
+        f"{spec.module_name}_numpy.py; defining it in the _numpy reference is not supported"
     )
     if not src.is_file():
         raise FileNotFoundError(
-            f"{info['module_name']}: init.func_name is {init['func_name']!r} but {src} does not exist -- {hint}."
+            f"{spec.module_name}: init.func_name is {init.func_name!r} but {src} does not exist -- {hint}."
         )
     mod = importlib.import_module(
-        "hpcagent_bench.benchmarks.{r}.{m}".format(r=info["relative_path"].replace("/", "."), m=info["module_name"])
+        f"hpcagent_bench.benchmarks.{spec.relative_path.replace('/', '.')}.{spec.module_name}"
     )
-    fn = vars(mod).get(init["func_name"])
+    fn = vars(mod).get(init.func_name)
     if fn is None:
-        raise AttributeError(f"{src} defines no {init['func_name']!r} -- {hint}.")
+        raise AttributeError(f"{src} defines no {init.func_name!r} -- {hint}.")
     # Pass args as-is (already typed int/float); int()-ing everything truncated float params before
     # (nbody's dt=0.05 -> 0 -> div-by-zero).
-    args = [syms.get(a, None) for a in init.get("input_args", [])]
+    args = [syms.get(a, None) for a in init.input_args]
     kwargs = {}
     if "datatype" in inspect.signature(fn).parameters:
         kwargs["datatype"] = datatype
     res = fn(*args, **kwargs)
     outs = list(res) if isinstance(res, tuple) else [res]
-    by = dict(zip(init["output_args"], outs, strict=False))
+    by = dict(zip(init.output_args, outs, strict=False))
     # ONE ``datatype`` builds every array the initializer returns, so an array the manifest declares
     # with a different KIND comes back wrong: floyd_warshall's int32 ``path`` arrived float64. The
     # native legs never saw it -- they re-coerce each argument to the binding's declared element type
@@ -559,32 +559,38 @@ def custom_initialize(info, syms, datatype: type[np.floating] = np.float64) -> d
     # KIND only. The manifest declares one absolute width per array (int32/float64/...) while the
     # sweep's ``precision`` is what chooses the floating width, so narrowing a float on the strength
     # of the declaration would overrule the fp32/fp16 legs with fp64 inputs.
-    for name, decl in (init.get("arrays") or {}).items():
+    for name, declared in init.dtypes.items():
         val = by.get(name)
-        want = decl.get("dtype") if isinstance(decl, dict) else None
-        if want is None or not isinstance(val, np.ndarray):
+        if not isinstance(val, np.ndarray):
             continue
         # Through the registry: numpy has no name for a manifest's ``bf16``, and a storage-only float
         # (bf16, fp8) declares a FLOAT, whose width the sweep's precision chooses.
-        want = np.dtype(compute_dtype(canonical(want)))
+        want = np.dtype(compute_dtype(canonical(declared)))
         if want.kind != val.dtype.kind:
             by[name] = _coerce_to_dtype(val, want.type)
     return by
 
 
-def numpy_fn(info):
-    import importlib.util
+def compiled_reference(spec: BenchSpec, values: dict[str, Any]) -> dict[str, np.ndarray]:
+    """``spec``'s expected outputs on ``values`` from the compiled reference a grade takes its answer from:
+    the track's oracle references in the grade's order (:func:`~hpcagent_bench.harness.grading.oracle_kinds`),
+    through the grade's own road to them (:func:`~hpcagent_bench.harness.scoring.first_oracle`). Raises
+    :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` when none answers."""
+    from hpcagent_bench.harness import scoring, timing  # deferred: the judge's machinery, for a sweep that grades
+    from hpcagent_bench.harness.grading import AUTO_ORACLE, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness.task import Task
+    from hpcagent_bench.support.bindings import binding_from_spec
 
-    p = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}_numpy.py"
-    spec = importlib.util.spec_from_file_location(info["module_name"], p)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"{p} is not importable as a module")
-    m = importlib.util.module_from_spec(spec)
-    # Registered BEFORE exec: dataclasses resolves a string annotation through
-    # sys.modules[cls.__module__], which is None for a module loaded by path alone.
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return vars(m)[info["func_name"]]
+    _kind, outputs = scoring.first_oracle(
+        oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec),
+        spec,
+        Task(spec.short_name),
+        binding_from_spec(spec),
+        values,
+        timeout=timing.kernel_timeout_s(),
+        memory_gb=0.0,
+    )
+    return outputs
 
 
 def call_by_name(fn, ordered_names, values):
@@ -643,7 +649,7 @@ def _diag(proc, limit: int = 240) -> str:
 
 def _emit(
     short,
-    info,
+    bench: BenchSpec,
     out: pathlib.Path,
     precision: str = "",
     mods=("hpcagent_bench.translators.numpyto_c.cli", "hpcagent_bench.translators.numpyto_fortran.cli"),
@@ -656,7 +662,7 @@ def _emit(
     """
     from hpcagent_bench.emit_bridge import bench_info_tempfile
 
-    npy = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}_numpy.py"
+    npy = paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_numpy.py"
     # The emitter reads a bench_info JSON, written from the co-located YAML for this call.
     with bench_info_tempfile(BenchSpec.load(short)) as bi:
         for mod in mods:
@@ -693,10 +699,7 @@ def run_kernel(
     # the same seam production is (harness/native_call.call_with). Read from the SPEC, which is
     # what the emitter read; the emitted binding JSON does not carry the flag.
     index_names = frozenset(spec.init.index_arrays) if spec.init is not None else frozenset()
-    from hpcagent_bench.emit_bridge import legacy_bench_info_dict
-
-    info = legacy_bench_info_dict(BenchSpec.load(short))["benchmark"]
-    if "sparse_layouts" in info:
+    if spec.sparse_layouts:
         # Delegated to tests/translators/test_sparse_oracle.py, which builds the
         # per-layout scipy buffer ABI this sweep cannot (run_kernel's arg list is the logical operand).
         return all_backend_status("skip:sparse")
@@ -712,13 +715,13 @@ def run_kernel(
     chaotic = CHAOTIC_FLOAT_TOLERANCE.get(short)
     if chaotic is not None:
         rtol, atol = max(rtol, chaotic[0]), max(atol, chaotic[1])
-    out_args = info["output_args"]
+    out_args = list(spec.output_args)
     syms = dict(spec.parameters[preset])
     # Polybench presets are huge (NI=1000+); scale every size symbol down proportionally to ~48
     # (keeping ratios, floor 10) since correctness is size-independent and hand-written initializers
     # are slow in Python. Foundation kernels and NO_SCALE kernels (reference only valid at declared
     # size) run at true size instead.
-    if "loop_level_reasoning" not in info.get("relative_path", "") and short not in NO_SCALE:
+    if "loop_level_reasoning" not in spec.relative_path and short not in NO_SCALE:
         ints = {k: v for k, v in syms.items() if isinstance(v, int) and not isinstance(v, bool)}
         mx = max(ints.values(), default=0)
         # max_size (JAX small-size pass) tightens the 48 default so even sub-48 presets shrink.
@@ -766,7 +769,7 @@ def run_kernel(
     # overflow, where the scalar numpy ref raises while C/Fortran return inf (a false mismatch).
     try:
         if spec.init.func_name:
-            by = custom_initialize(info, syms, datatype=np_float)
+            by = custom_initialize(spec, syms, datatype=np_float)
         elif spec.init.shapes:
             by = dict(
                 zip(
@@ -807,7 +810,7 @@ def run_kernel(
         # short-circuit the oracle since jax/py emit independently and may still validate the kernel.
         binding = None
         native_emit_error = None
-        emit_ok, emit_diag = _emit(short, info, tdp, precision=emit_prec)
+        emit_ok, emit_diag = _emit(short, spec, tdp, precision=emit_prec)
         if not emit_ok:
             # One documented-skip channel: in scope, blocked on a named feature. Any OTHER
             # native-emit failure is an undocumented gap and stays a FAIL.
@@ -818,7 +821,7 @@ def run_kernel(
             if not bindings:
                 native_emit_error = "FAIL:no-binding"
             else:
-                binding = json.loads(bindings[0].read_text())
+                binding = read_binding(bindings[0]).model_dump(exclude_none=True)
         # Derive shape symbols from actual input-array dims (a scalar symbol can name an array's
         # extent rather than a preset param, e.g. needleman_wunsch's M = a.shape[0]). Falls back to
         # the spec's symbolic init shapes without a binding. Bare identifiers only.
@@ -870,12 +873,11 @@ def run_kernel(
             ptr_args = []
             extra_outputs = [nm for nm in out_args if nm not in by and nm not in syms]
 
-        # numpy oracle on private input copies (in-place mutation captured).
+        # The compiled reference on private input copies. Real type, not int()-cast: e.g. cavity_flow's
+        # nu=0.1 truncated to 0 gave a phantom mismatch when the C/Fortran backends kept the correct float.
         npd = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in by.items()}
-        # Real type, not int()-cast: e.g. cavity_flow's nu=0.1 truncated to 0 gave a phantom
-        # mismatch when the C/Fortran backends kept the correct float.
-        values = {**{nm: syms[nm] for nm in info["input_args"] if nm in syms}, **npd}
-        unresolved = [nm for nm in info["input_args"] if nm not in values]
+        values = {**{nm: syms[nm] for nm in spec.input_args if nm in syms}, **npd}
+        unresolved = [nm for nm in spec.input_args if nm not in values]
         if unresolved:
             return dict.fromkeys(BACKENDS, f"skip:unresolved-arg:{unresolved[0]}")
         # Set precision globals before loading the reference: some references use np_complex as a
@@ -885,25 +887,20 @@ def run_kernel(
         framework.np_float = np_float
         framework.np_complex = np.complex64 if np_float == np.float32 else np.complex128
         try:
-            ret = call_by_name(numpy_fn(info), info["input_args"], values)
-        except Exception as exc:  # noqa: BLE001
-            # The numpy reference itself failed: ground truth is broken, so FAIL every backend.
-            return {b: f"FAIL:numpy-error:{type(exc).__name__}" for b in (*BACKENDS, *PY_BACKENDS)}
-        ret_vals = list(ret) if isinstance(ret, tuple) else [ret] if ret is not None else []
+            reference = compiled_reference(spec, values)
+        except ReferenceUnavailable as exc:
+            # No compiled reference answers: there is no ground truth, so FAIL every backend.
+            reason = (str(exc).strip().splitlines() or ["no reference"])[0][:160]
+            return dict.fromkeys((*BACKENDS, *PY_BACKENDS), f"FAIL:no-reference:{reason}")
 
-        # A kernel's outputs are (a) array-valued returns -> extra_outputs (unfilled ptr args, e.g.
-        # gramschmidt's Q/R), and (b) in-place outputs -> out_args the init mutated. A scalar return
-        # (channel_flow's stepcount) is ignored, not mis-mapped onto an array out_arg.
+        # A kernel's outputs are (a) its returns -> extra_outputs (unfilled ptr args, e.g. gramschmidt's Q/R)
+        # and (b) in-place outputs -> out_args the init provided; the reference names each by its arg.
         expected: dict[str, np.ndarray] = {}
         compare: list[str] = []
-        array_rets = [rv for rv in ret_vals if isinstance(rv, np.ndarray) and np.ndim(rv) > 0]
-        for nm, rv in zip(extra_outputs, array_rets, strict=False):  # promoted returns
-            expected[nm] = comparison_array(rv)
-            compare.append(nm)
-        for nm in out_args:  # in-place outputs
-            if nm in compare or nm not in npd:
+        for nm in (*extra_outputs, *out_args):
+            if nm in compare or nm not in reference or (nm not in extra_outputs and nm not in npd):
                 continue
-            expected[nm] = comparison_array(npd[nm])
+            expected[nm] = comparison_array(reference[nm])
             compare.append(nm)
         # Allocate every output buffer the init did not provide.
         for a in ptr_args:
@@ -972,14 +969,14 @@ def run_kernel(
                 "skip:native-emit"
                 if native_emit_error is not None
                 else _run_isopar(
-                    short, info, tdp, fptype, emit_prec, binding, by, syms, expected, compare, rtol, atol, index_names
+                    short, spec, tdp, fptype, emit_prec, binding, by, syms, expected, compare, rtol, atol, index_names
                 )
             )
         # DaCe: the generated *_dace.py lowered, compiled and run, opt-in only. Independent of the
         # native emit -- a kernel the C target cannot express still has a DaCe column to grade.
         if only_backends is not None and DACE in only_backends:
             try:
-                status[DACE] = run_dace_backend(short, info, by, syms, expected, compare, rtol, atol)
+                status[DACE] = run_dace_backend(short, spec, by, syms, expected, compare, rtol, atol)
             except Exception as exc:  # noqa: BLE001
                 status[DACE] = exc_status(exc)
         # Pluto: polyhedral transform of the emitted C source, opt-in only.
@@ -1001,8 +998,8 @@ def run_kernel(
                     rtol,
                     atol,
                     status.get("c"),
-                    paths.BENCHMARKS / info["relative_path"],
-                    info["module_name"],
+                    paths.BENCHMARKS / spec.relative_path,
+                    spec.module_name,
                     index_names,
                 )
             )
@@ -1012,14 +1009,14 @@ def run_kernel(
                 continue
             try:
                 status[pb] = run_py_backend(
-                    pb, short, info, by, syms, expected, compare, rtol, atol, emit_prec=emit_prec
+                    pb, short, spec, by, syms, expected, compare, rtol, atol, emit_prec=emit_prec
                 )
             except Exception as exc:  # noqa: BLE001
                 status[pb] = exc_status(exc)
         if only_backends is None or "jax" in only_backends:
             try:
                 status["jax"] = run_jax_backend(
-                    short, info, by, syms, expected, compare, rtol, atol, emit_prec=emit_prec, timeout_s=jax_timeout_s
+                    short, spec, by, syms, expected, compare, rtol, atol, emit_prec=emit_prec, timeout_s=jax_timeout_s
                 )
             except Exception as exc:  # noqa: BLE001
                 status["jax"] = exc_status(exc)
@@ -1131,7 +1128,9 @@ def dep_available(dep: str) -> bool:
     return True
 
 
-def run_py_backend(backend, short, info, by, syms, expected, compare, rtol, atol, emit_prec: str = "") -> str:
+def run_py_backend(
+    backend, short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str = ""
+) -> str:
     """Validate a Python/JIT backend vs numpy in a forked child (extension modules can't unload)."""
     _cli, _extra, _pattern, dep = PY_BACKENDS[backend]
     if not dep_available(dep):
@@ -1139,12 +1138,14 @@ def run_py_backend(backend, short, info, by, syms, expected, compare, rtol, atol
     if backend == "numba" and omp_context.numba_omp_pool_launched():
         return "FAIL:harness:numba omp pool already launched here; a forked child cannot run a parallel region"
     return _forked_status(
-        lambda: py_backend_compute(backend, short, info, by, syms, expected, compare, rtol, atol, emit_prec),
+        lambda: py_backend_compute(backend, short, bench, by, syms, expected, compare, rtol, atol, emit_prec),
         PY_FORK_TIMEOUT_S,
     )
 
 
-def py_backend_compute(backend, short, info, by, syms, expected, compare, rtol, atol, emit_prec: str = "") -> str:
+def py_backend_compute(
+    backend, short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str = ""
+) -> str:
     """Emit + compile + import + run + compare a Python/JIT backend, only in the forked child."""
     import importlib.util
 
@@ -1156,7 +1157,7 @@ def py_backend_compute(backend, short, info, by, syms, expected, compare, rtol, 
         os.environ.update(ORACLE_NUMBA_ENV)
         if short in NUMBA_LOW_OPT:
             os.environ["NUMBA_OPT"] = NUMBA_LOW_OPT[short]
-    npy = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}_numpy.py"
+    npy = paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_numpy.py"
     from hpcagent_bench.emit_bridge import bench_info_tempfile
 
     # bench_info JSON synthesized from the co-located YAML.
@@ -1222,10 +1223,10 @@ def py_backend_compute(backend, short, info, by, syms, expected, compare, rtol, 
             # sys.modules[cls.__module__], which is None for a module loaded by path alone.
             sys.modules[spec.name] = mod
             spec.loader.exec_module(mod)
-            fn = vars(mod)[info["func_name"]]
+            fn = vars(mod)[bench.func_name]
             call = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in by.items()}
             args: list[object] = []
-            for nm in info["input_args"]:
+            for nm in bench.input_args:
                 if nm in call:
                     v = call[nm]
                 elif nm in syms:
@@ -1329,7 +1330,7 @@ def _forked_status(compute, timeout_s: float, expired: str = "skip:too-long") ->
 
 
 def run_jax_backend(
-    short, info, by, syms, expected, compare, rtol, atol, emit_prec: str = "", timeout_s: int | None = None
+    short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str = "", timeout_s: int | None = None
 ) -> str:
     """Validate the NumpyToJAX emitter vs numpy in a forked child; parent stays jax-free (find_spec only).
 
@@ -1350,7 +1351,7 @@ def run_jax_backend(
     outcome = run_forked(
         jax_compute,
         short,
-        info,
+        bench,
         by,
         syms,
         expected,
@@ -1372,7 +1373,7 @@ def run_jax_backend(
     return f"FAIL:{last_line[0].split(':', 1)[0].rsplit('.', 1)[-1] or 'no-result'}"
 
 
-def jax_compute(short, info, by, syms, expected, compare, rtol, atol, emit_prec: str) -> str:
+def jax_compute(short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str) -> str:
     """Emit + run + compare the jax kernel, only in the forked child. JAX is functional -- outputs are
     read from the return tuple even for an in-place numpy reference."""
     import ast
@@ -1383,8 +1384,8 @@ def jax_compute(short, info, by, syms, expected, compare, rtol, atol, emit_prec:
     from hpcagent_bench.translators.numpyto_jax.core import emit_jax
 
     jax.config.update("jax_enable_x64", emit_prec != "float32")
-    npy = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}_numpy.py"
-    func_name = info["func_name"]
+    npy = paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_numpy.py"
+    func_name = bench.func_name
     # HPCAGENT_BENCH_JAX_JIT=1 validates the AoT-compiled classifier form instead of the verbatim eager
     # form (default); falls back to eager if the classifier can't express the kernel.
     jax_jit = os.environ.get("HPCAGENT_BENCH_JAX_JIT") == "1"
@@ -1415,7 +1416,7 @@ def jax_compute(short, info, by, syms, expected, compare, rtol, atol, emit_prec:
             break
     # JAX arrays are immutable and use .at[i].set(...), so inputs must be jax arrays.
     values = {}
-    for nm in info["input_args"]:
+    for nm in bench.input_args:
         if nm in by:
             v = by[nm]
             values[nm] = jnp.asarray(v) if isinstance(v, np.ndarray) else v
@@ -1424,7 +1425,7 @@ def jax_compute(short, info, by, syms, expected, compare, rtol, atol, emit_prec:
         else:
             return f"FAIL:unresolved:{nm}"
     try:
-        ret = call_by_name(fn, info["input_args"], values)
+        ret = call_by_name(fn, bench.input_args, values)
     except Exception as exc:  # noqa: BLE001
         return f"skip:unsupported:{type(exc).__name__}"
     rv = list(ret) if isinstance(ret, tuple) else [ret] if ret is not None else []
@@ -1529,7 +1530,7 @@ def _run_pluto(
         # override's src lives in bench_dir while the binding the translator wrote for this
         # precision -- the ABI src's signature was copied from verbatim -- is still in tdp.
         pb = tdp / f"{base}_{fptype}_pluto_binding.json"
-        pluto_binding = json.loads(pb.read_text()) if pb.exists() else binding
+        pluto_binding = read_binding(pb).model_dump(exclude_none=True) if pb.exists() else binding
         try:
             result = _invoke_isolated("c", pluto_binding, so, by, syms, expected, compare, rtol, atol, index_names)
         except Exception as exc:  # noqa: BLE001
@@ -1544,7 +1545,31 @@ def _run_pluto(
     return result
 
 
-def run_dace_backend(short, info, by, syms, expected, compare, rtol, atol) -> str:
+#: What one ``dace_numeric_probe`` child concluded about its kernel.
+ProbeVerdict = Literal["ok", "mismatch", "parse_fail", "noprogram", "compile_fail", "run_fail", "unbound_symbols"]
+
+
+class ProbeRecord(pydantic.BaseModel):
+    """The JSON line a :mod:`hpcagent_bench.dace_numeric_probe` child prints: its verdict, the detail behind it,
+    the seconds each phase took, and per output ``ok`` or why not. Filled in as the child goes; only the
+    fields it set are printed."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    kernel: str
+    timing: dict[str, float] = pydantic.Field(default_factory=dict[str, float])
+    verdict: ProbeVerdict | None = None
+    detail: str = ""
+    errtype: str = ""
+    frame: str = ""
+    outputs: dict[str, str] = pydantic.Field(default_factory=dict[str, str])
+
+    def line(self) -> str:
+        """The record as the one line the child prints."""
+        return self.model_dump_json(exclude_unset=True)
+
+
+def run_dace_backend(short, bench: BenchSpec, by, syms, expected, compare, rtol, atol) -> str:
     """Lower + compile + run the generated ``*_dace.py`` in its OWN process; ``ok`` / ``FAIL:...``.
 
     A SUBPROCESS, not the forked child the python backends use: DaCe's parse state is process-global
@@ -1556,7 +1581,7 @@ def run_dace_backend(short, info, by, syms, expected, compare, rtol, atol) -> st
     numpy reference outputs and the tolerance this sweep already resolved, and rebuilding any of
     that from the manifest is what made six kernels report defects they did not have.
     """
-    generated = paths.BENCHMARKS / info["relative_path"] / f"{info['module_name']}_dace.py"
+    generated = paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_dace.py"
     if not generated.is_file():
         return "skip:no-dace-program"
     build_dir = dace_build_root() / short
@@ -1569,10 +1594,10 @@ def run_dace_backend(short, info, by, syms, expected, compare, rtol, atol) -> st
     env["DACE_default_build_folder"] = str(build_dir)
     env.setdefault("DACE_BUILD_CACHE_DIR", str(dace_build_root() / "_cache"))
     case = {
-        "relative_path": info["relative_path"],
-        "module_name": info["module_name"],
-        "func_name": info["func_name"],
-        "input_args": list(info["input_args"]),
+        "relative_path": bench.relative_path,
+        "module_name": bench.module_name,
+        "func_name": bench.func_name,
+        "input_args": list(bench.input_args),
         "by": by,
         "syms": syms,
         "expected": expected,
@@ -1592,24 +1617,24 @@ def run_dace_backend(short, info, by, syms, expected, compare, rtol, atol) -> st
             return f"FAIL:timeout:{DACE_TIMEOUT_S:.0f}s"
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("{"):
-            rec = json.loads(line)
+            rec = ProbeRecord.model_validate_json(line)
             # The verdict NAME is what the ratchet keys on, so it stays the second field verbatim.
             # The detail arrives already filtered to its decisive lines and bounded by the probe
             # (dace_numeric_probe.DETAIL_CHARS); clipping it to 160 here threw the compiler's own
             # error away and left "CompilationError: Compiler failure:" as the whole diagnosis.
-            return "ok" if rec["verdict"] == "ok" else f"FAIL:{rec['verdict']}:{rec.get('detail', '')[:3200]}"
+            return "ok" if rec.verdict == "ok" else f"FAIL:{rec.verdict}:{rec.detail[:3200]}"
     return "FAIL:crash:" + (proc.stderr or proc.stdout)[-160:].replace("\n", " ")
 
 
 def _run_isopar(
-    short, info, tdp, fptype, emit_prec, binding, by, syms, expected, compare, rtol, atol, index_names
+    short, bench: BenchSpec, tdp, fptype, emit_prec, binding, by, syms, expected, compare, rtol, atol, index_names
 ) -> str:
     """ISO standard-algorithm backend: emit ``<base>_isopar.cpp``, compile it as ordinary C++, and
     call it through the SAME binding as ``cpp`` -- the variant keeps the symbol and the ABI, only the
     body's spelling changes. ``par_unseq`` licenses reassociation, which is why this is graded on the
     same tolerance as every other backend rather than bit-exactly against ``cpp``."""
     ok, diag = _emit(
-        short, info, tdp, precision=emit_prec, mods=("hpcagent_bench.translators.numpyto_c.cli",), extra=("--isopar",)
+        short, bench, tdp, precision=emit_prec, mods=("hpcagent_bench.translators.numpyto_c.cli",), extra=("--isopar",)
     )
     if not ok:
         return "FAIL:emit" + diag

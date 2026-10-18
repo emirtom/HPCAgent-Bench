@@ -14,6 +14,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import tools
+from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import BlasReductionOptimizer, have_openblas
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
@@ -39,11 +40,12 @@ def test_language_option(kernel, make_judge) -> None:
     _srv, url = make_judge(_cfg())
     with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, kernel)
-    assert r["build_ok"] is True, r["detail"]
-    assert r["correct"] is True, r["detail"]
-    assert r["baseline_ns"] > 0
-    assert r["native_ns"] > 0
-    assert r["speedup"] > 0.0
+    assert isinstance(r, GradeAnswer)
+    assert r.build_ok is True, r.detail
+    assert r.correct is True, r.detail
+    assert r.baseline_ns > 0
+    assert r.native_ns > 0
+    assert r.speedup > 0.0
 
 
 @pytest.mark.parametrize("kernel", KERNELS)
@@ -58,10 +60,11 @@ def test_abi_option(kernel, make_judge, tmp_path, monkeypatch) -> None:
     _srv, url = make_judge(_cfg())
     with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, kernel)
-    assert r["build_ok"] is True, r["detail"]
-    assert r["correct"] is True, r["detail"]
-    assert r["baseline_ns"] > 0
-    assert r["speedup"] > 0.0
+    assert isinstance(r, GradeAnswer)
+    assert r.build_ok is True, r.detail
+    assert r.correct is True, r.detail
+    assert r.baseline_ns > 0
+    assert r.speedup > 0.0
 
 
 def test_unsupported_kernel_is_refused() -> None:

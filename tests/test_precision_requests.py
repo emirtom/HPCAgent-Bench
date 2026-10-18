@@ -4,22 +4,17 @@
 
 The harness's casts are bit-exact against the ml_dtypes/numpy conversions; the judge refuses a request
 that changes nothing or that this delivery cannot take; a grade records the conversion time beside the
-kernel time it never enters; and the MPI driver and its wire carry the same casts per rank. A results
-file of schema 6, before the ``requests`` column, is still read, merged and upgraded.
+kernel time it never enters; and the MPI driver and its wire carry the same casts per rank.
 """
 
-import contextlib
-import json
-import pathlib
 import shutil
-import sqlite3
 
 import ml_dtypes
 import numpy as np
 import pytest
 from relayout.ops import ArraySpec
 
-from hpcagent_bench.harness import grading, mpi_wire, precision_casts, results_db
+from hpcagent_bench.harness import grading, mpi_wire, precision_casts
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
 from hpcagent_bench.harness.requests_api import Requests
@@ -32,6 +27,9 @@ from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.mpi_driver import gen_mpi_driver
 from tests.own_process import isolated
 from tests.port_toolchain import gcc_available
+from tests.request_allowances import every_request_allowed
+
+pytestmark = pytest.mark.usefixtures("every_request_allowed")
 
 KERNEL = "scaled_add"  # y[i] = y[i] + alpha * x[i]: one input, one inout output, a scalar
 #: ``scaled_add`` in double, for a float32 problem whose x and y are requested in fp64 (a widening, so the
@@ -115,7 +113,7 @@ def test_a_device_layout_conversion_matches_the_host_one() -> None:
         cp.cuda.runtime.getDeviceCount()
     except cp.cuda.runtime.CUDARuntimeError:
         pytest.skip("no GPU")
-    requests = Requests.from_obj({"operations": LAYOUT_OPERATIONS})
+    requests = Requests.validate({"operations": LAYOUT_OPERATIONS})
     layouts = requests.single_node([ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float64")]).layouts
     logical = np.random.default_rng(5).standard_normal((7, 10))
     cases = [("A", "float64"), ("B", "float64"), ("B", "float32")]
@@ -148,7 +146,7 @@ def test_a_device_regroup_matches_the_host_one() -> None:
         ArraySpec("B", 2, element="float64"),
         ArraySpec("Q", 2, extents=(3, None), element="float64"),
     ]
-    requests = Requests.from_obj(
+    requests = Requests.validate(
         {
             "operations": [
                 {"action": "zip", "arrays": ["A", "B"], "into": "S", "dim": 0},
@@ -158,7 +156,7 @@ def test_a_device_regroup_matches_the_host_one() -> None:
         }
     )
     stacked, unzipped = requests.single_node(arrays).regroups
-    struct_requests = Requests.from_obj(
+    struct_requests = Requests.validate(
         {
             "operations": [
                 {"action": "cast", "array": "A", "to": "fp32"},
@@ -201,7 +199,7 @@ def test_the_storage_formats_are_ml_dtypes() -> None:
 def requested(precision: dict[str, str], language: str = "c", **fields: object) -> Submission:
     source = "def scaled_add(x, y, LEN_1D, alpha):\n    pass\n" if language == "python" else "void k(void) {}"
     casts = [{"action": "cast", "array": name, "to": to} for name, to in precision.items()]
-    return Submission(language=language, source=source, requests=Requests.from_obj({"operations": casts, **fields}))
+    return Submission(language=language, source=source, requests=Requests.validate({"operations": casts, **fields}))
 
 
 @pytest.mark.parametrize(
@@ -250,7 +248,7 @@ def laid_out(language: str = "c", operations: list | None = None) -> Submission:
     return Submission(
         language=language,
         source=LAID_OUT_JACOBI,
-        requests=Requests.from_obj({"operations": LAYOUT_OPERATIONS if operations is None else operations}),
+        requests=Requests.validate({"operations": LAYOUT_OPERATIONS if operations is None else operations}),
     )
 
 
@@ -270,22 +268,22 @@ def test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where
     unzip_three = [{"action": "unzip", "array": "aa", "into": ["a0", "a1", "a2"], "dim": 0}]
     assert "splits into 2 array(s)" in str(requests_refusal(laid_out(operations=unzip_three), s132, "float64"))
     assert converts_kernel_arrays(
-        Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
+        Requests.validate({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
     )
     assert not converts_kernel_arrays(
-        Requests.from_obj({"operations": [{"action": "format", "array": "A", "to": "csr"}]})
+        Requests.validate({"operations": [{"action": "format", "array": "A", "to": "csr"}]})
     )
 
 
 def test_a_zip_of_problem_arrays_of_different_types_is_a_struct() -> None:
     """The problem's own element types decide stack or struct, as the casts do."""
     arrays = [ArraySpec("A", 2, element="float64"), ArraySpec("B", 2, element="float32")]
-    zipped = Requests.from_obj({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
+    zipped = Requests.validate({"operations": [{"action": "zip", "arrays": ["A", "B"], "into": "Z"}]})
     (struct,) = zipped.single_node(arrays).regroups
     assert struct.group.struct == "hb_zip_Z"
     assert struct.part_dtypes == ("float64", "float32")
     cast_first = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
-    (stacked,) = Requests.from_obj({"operations": cast_first}).single_node(arrays).regroups
+    (stacked,) = Requests.validate({"operations": cast_first}).single_node(arrays).regroups
     assert stacked.group.dim == 2
     assert stacked.whole_dtype == np.float32
 
@@ -351,7 +349,7 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
         (UNZIPPED_S132, unzip, Task("tsvc_2_s132", "restricted", "c"), {}),
     ]
     for source, operations, task, tolerance in cases:
-        submission = Submission(language="c", source=source, requests=Requests.from_obj({"operations": operations}))
+        submission = Submission(language="c", source=source, requests=Requests.validate({"operations": operations}))
         assert requests_refusal(submission, task, "float64") is None
         result = score(submission, task, preset="S", repeat=2, hidden=False, baseline="c", **tolerance)
         assert result.build_ok, result.detail
@@ -362,18 +360,27 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
 
 def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal() -> None:
     operations = [*LAYOUT_OPERATIONS, {"action": "cast", "array": "B", "to": "fp32"}]
-    answer = requests_check("jacobi_2d", "c", {"operations": operations}, "float64")
+    answer = requests_check("jacobi_2d", "c", {"operations": operations}, "float64").to_json()
+    assert answer["accepted"] is True
+    assert "plan" not in answer
     assert answer["arrays"] == {
         "A": {"dtype": "float64", "extents": ["d1", "d0"]},
         "B": {"dtype": "float32", "extents": ["d0", "(d1 + 3) // 4", "4"]},
     }
     assert answer["signature"] == "void jacobi_2d_fp64(double *, float *, int64_t, int64_t, uint8_t *, int64_t);"
     struct = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
-    assert requests_check("jacobi_2d", "c", {"operations": struct}, "float64")["signature"] == (
+    zipped = requests_check("jacobi_2d", "c", {"operations": struct}, "float64").to_json()
+    assert zipped["arrays"]["Z"] == {
+        "extents": ["d0", "d1"],
+        "zips": ["A", "B"],
+        "struct": {"type": "hb_zip_Z", "members": {"A": "float32", "B": "float64"}},
+    }
+    assert zipped["signature"] == (
         "typedef struct { float A; double B; } hb_zip_Z;\n"
         "void jacobi_2d_fp64(hb_zip_Z *, int64_t, int64_t, uint8_t *, int64_t);"
     )
-    refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64")
+    refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64").to_json()
+    assert set(refused) == {"accepted", "refusal"}
     assert refused["accepted"] is False
     assert "python" in str(refused["refusal"])
 
@@ -421,72 +428,6 @@ def test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score() ->
     assert result.convert_out_ns > 0
 
 
-def legacy_db(path: pathlib.Path) -> None:
-    """A schema-6 results file: the per-request columns v7 folded, one grade asking for a cyclic split and blas."""
-    with contextlib.closing(results_db.open_db(path)) as conn:
-        conn.execute("ALTER TABLE grades DROP COLUMN requests")
-        conn.execute("ALTER TABLE grades DROP COLUMN convert_in_ns")
-        conn.execute("ALTER TABLE grades DROP COLUMN convert_out_ns")
-        for column, ddl in (
-            ("requested_libraries", "TEXT NOT NULL DEFAULT ''"),
-            ("distribution", "TEXT NOT NULL DEFAULT ''"),
-            ("layout_request", "TEXT NOT NULL DEFAULT ''"),
-            ("layout_prep_ns", "INTEGER NOT NULL DEFAULT 0"),
-        ):
-            conn.execute(f"ALTER TABLE grades ADD COLUMN {column} {ddl}")
-        conn.execute("INSERT INTO setups (setup, language, device, harness) VALUES ('s', 'c', 'cpu', 'claude')")
-        conn.execute("INSERT INTO episodes (setup, label, rep) VALUES ('s', 'l', 1)")
-        plan = {"grid": [4], "arrays": {"x": {"axes": [{"grid_dim": 0, "scheme": "cyclic"}]}}}
-        conn.execute(
-            "INSERT INTO grades (episode_id, kernel, ts_ms, kind, requested_libraries, distribution, layout_prep_ns) "
-            "VALUES (1, 'k', 1, 'score', ?, ?, 123)",
-            (json.dumps(["blas"]), json.dumps(plan)),
-        )
-        conn.execute("PRAGMA user_version = 6")
-        conn.commit()
-
-
-EXPECTED = {
-    "startup": {"load": ["blas"], "grid": ["P"]},
-    "operations": [{"action": "distribute", "array": "x", "grid_dim": 0, "dim": 0, "scheme": "cyclic"}],
-}
-
-
-def test_a_schema_6_file_is_read_through_the_new_columns(tmp_path: pathlib.Path) -> None:
-    legacy_db(tmp_path / "v6.db")
-    with results_db.reading(tmp_path / "v6.db") as conn:
-        select = results_db.grade_columns(conn, "g", ("requests", "requested_libraries", "distribution"))
-        row = dict(conn.execute(f"SELECT {select} FROM grades g").fetchone())
-    assert results_db.requests_of_row(row).to_json() == EXPECTED
-
-
-def test_a_schema_6_file_merges_and_upgrades_in_place(tmp_path: pathlib.Path) -> None:
-    legacy_db(tmp_path / "v6.db")
-    shutil.copy(tmp_path / "v6.db", tmp_path / "upgraded.db")
-    results_db.merge(tmp_path / "merged.db", [tmp_path / "v6.db"])
-    with contextlib.closing(results_db.open_db(tmp_path / "upgraded.db")) as upgraded:
-        assert results_db.schema_version(upgraded) == results_db.SCHEMA_VERSION
-    for name in ("merged.db", "upgraded.db"):
-        with contextlib.closing(sqlite3.connect(tmp_path / name)) as conn:
-            requests, convert_in = conn.execute("SELECT requests, convert_in_ns FROM grades").fetchone()
-            assert (json.loads(requests), convert_in) == (EXPECTED, 123), name
-            columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(grades)")}
-            assert not columns & set(results_db.LEGACY_GRADE_COLUMNS), name
-
-
-def test_a_refused_calls_distribution_folds_to_what_it_can_and_the_file_upgrades(tmp_path: pathlib.Path) -> None:
-    """v6 recorded the distribution a refused call sent, which need not be a plan: it folds to the libraries
-    alone, and the upgrade in place still completes."""
-    legacy_db(tmp_path / "v6.db")
-    with contextlib.closing(sqlite3.connect(tmp_path / "v6.db")) as conn:
-        conn.execute("UPDATE grades SET distribution = ?", (json.dumps({"grid": [4]}),))
-        conn.commit()
-    with contextlib.closing(results_db.open_db(tmp_path / "v6.db")) as upgraded:
-        assert results_db.schema_version(upgraded) == results_db.SCHEMA_VERSION
-        (requests,) = upgraded.execute("SELECT requests FROM grades").fetchone()
-    assert json.loads(requests) == {"startup": {"load": ["blas"]}}
-
-
 def test_the_mpi_driver_calls_the_kernel_on_converted_tiles() -> None:
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     source = gen_mpi_driver(binding, (4,), casts={"x": "float32", "y": "float32"})
@@ -526,34 +467,29 @@ def test_the_prompt_tables_the_precisions_for_a_compiled_task_only() -> None:
 
 
 if __name__ == "__main__":
-    import tempfile
-
-    test_every_host_cast_is_bit_exact_against_the_reference_conversion()
-    test_a_host_cast_refuses_a_strided_buffer()
-    test_every_device_cast_matches_the_host_cast()
-    test_a_device_layout_conversion_matches_the_host_one()
-    test_a_device_regroup_matches_the_host_one()
-    test_the_storage_formats_are_ml_dtypes()
-    test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32", "y": "bf16"}, "float64", "c", None)
-    test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp64"}, "float32", "c", None)
-    test_the_judge_refuses_a_precision_this_kernel_cannot_take(
-        {"x": "fp64"}, "float64", "c", "already the array's problem precision"
-    )
-    test_the_judge_refuses_a_precision_this_kernel_cannot_take({"alpha": "fp32"}, "float64", "c", "not a floating")
-    test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32"}, "float64", "python", "not implemented")
-    test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where_it_is_not_carried()
-    test_a_zip_of_problem_arrays_of_different_types_is_a_struct()
-    test_zipped_and_unzipped_grades_regroup_around_the_call()
-    test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal()
-    test_a_laid_out_grade_converts_in_and_out_and_is_correct()
-    test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi()
-    test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score()
-    with tempfile.TemporaryDirectory() as scratch:
-        test_a_schema_6_file_is_read_through_the_new_columns(pathlib.Path(scratch))
-    with tempfile.TemporaryDirectory() as scratch:
-        test_a_schema_6_file_merges_and_upgrades_in_place(pathlib.Path(scratch))
-    with tempfile.TemporaryDirectory() as scratch:
-        test_a_refused_calls_distribution_folds_to_what_it_can_and_the_file_upgrades(pathlib.Path(scratch))
-    test_the_mpi_driver_calls_the_kernel_on_converted_tiles()
-    test_the_outfile_carries_the_cast_samples()
-    test_the_prompt_tables_the_precisions_for_a_compiled_task_only()
+    with every_request_allowed():
+        test_every_host_cast_is_bit_exact_against_the_reference_conversion()
+        test_a_host_cast_refuses_a_strided_buffer()
+        test_every_device_cast_matches_the_host_cast()
+        test_a_device_layout_conversion_matches_the_host_one()
+        test_a_device_regroup_matches_the_host_one()
+        test_the_storage_formats_are_ml_dtypes()
+        test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp32", "y": "bf16"}, "float64", "c", None)
+        test_the_judge_refuses_a_precision_this_kernel_cannot_take({"x": "fp64"}, "float32", "c", None)
+        test_the_judge_refuses_a_precision_this_kernel_cannot_take(
+            {"x": "fp64"}, "float64", "c", "already the array's problem precision"
+        )
+        test_the_judge_refuses_a_precision_this_kernel_cannot_take({"alpha": "fp32"}, "float64", "c", "not a floating")
+        test_the_judge_refuses_a_precision_this_kernel_cannot_take(
+            {"x": "fp32"}, "float64", "python", "not implemented"
+        )
+        test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where_it_is_not_carried()
+        test_a_zip_of_problem_arrays_of_different_types_is_a_struct()
+        test_zipped_and_unzipped_grades_regroup_around_the_call()
+        test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal()
+        test_a_laid_out_grade_converts_in_and_out_and_is_correct()
+        test_the_compiled_reference_runs_a_float32_grade_through_casts_into_its_fp64_abi()
+        test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score()
+        test_the_mpi_driver_calls_the_kernel_on_converted_tiles()
+        test_the_outfile_carries_the_cast_samples()
+        test_the_prompt_tables_the_precisions_for_a_compiled_task_only()

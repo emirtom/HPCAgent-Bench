@@ -16,7 +16,7 @@ import csv
 import pathlib
 
 from hpcagent_bench import observations_extract as extract_llr40
-from hpcagent_bench.harness import results_db
+from hpcagent_bench.harness import recording, results_db
 
 SETUP_A = "llr40-oss120b-c-skills"
 SETUP_B = "llr40-oss120b-hip-perf-playbook-amd"
@@ -27,12 +27,18 @@ KERNEL_B = "wf_diff_skew"
 def write_run(db_path: pathlib.Path, episode_id: str, kernel: str, language: str, device: str, credited: bool) -> None:
     """A judge shard holding one grade of ``episode_id`` under its own setup: a credited submission, or --
     the shape of the real w17, every attempt failing to build -- a failed call only."""
-    setup = extract_llr40.setup_of(episode_id)
+    setup = recording.setup_of(episode_id)
     db_path.parent.mkdir(parents=True)
     with contextlib.closing(results_db.open_db(db_path)) as conn:
         results_db.ensure_setup(conn, results_db.Setup(setup, language, device, study="llr-focus40", model="oss120b"))
         run = results_db.ensure_episode(conn, setup, episode_id, int(db_path.parents[2].name))
-        stamp = {"preset": "fuzzed", "datatype": "float64", "source_mode": "restricted", "baseline": "c"}
+        stamp = {
+            "preset": "fuzzed",
+            "datatype": "float64",
+            "source_mode": "restricted",
+            "task_hash": "test-task",
+            "baseline": "c",
+        }
         if credited:
             grade = {"build_ok": 1, "correct": 1, "speedup": 2.0, "credited_speedup": 2.0, "suspect": 0}
             results_db.add_grade(conn, run, kernel, "submit", ts_ms=10, values=stamp | grade)

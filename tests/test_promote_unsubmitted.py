@@ -13,7 +13,6 @@ The device half matters for the same reason: a hip submission is two translation
 promotion carrying only the host unit would be refused for what looks like the agent's mistake.
 """
 
-import contextlib
 import io
 import json
 import pathlib
@@ -23,6 +22,7 @@ import time
 from types import ModuleType
 
 import pytest
+from hpcagent_agent.driver.agent_driver import write_cost_record
 from hpcagent_agent.driver.promote_unsubmitted import AGENT_FOLDERS_LOG
 
 from hpcagent_bench.harness import results_db
@@ -143,30 +143,6 @@ def test_a_host_only_setup_promotes_without_a_device_unit(promoter, tmp_path) ->
     (item,) = promoter.candidates(run_dir)
     assert item["source"] == "void gemm(void){}"
     assert "device_source" not in item
-
-
-def to_schema_6(shard: pathlib.Path, libraries: str, distribution: str) -> None:
-    """``shard`` as a schema-6 file: the per-request columns v7 folded into ``requests``."""
-    with contextlib.closing(sqlite3.connect(shard)) as conn:
-        conn.execute("ALTER TABLE grades DROP COLUMN requests")
-        for column in ("requested_libraries", "distribution", "layout_request"):
-            conn.execute(f"ALTER TABLE grades ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
-        conn.execute("UPDATE grades SET requested_libraries = ?, distribution = ?", (libraries, distribution))
-        conn.commit()
-
-
-def test_a_schema_6_shard_promotes_its_libraries_and_skips_what_it_cannot_fold(
-    promoter: ModuleType, tmp_path: pathlib.Path
-) -> None:
-    """A shard written before the requests column: its libraries become startup.load; a grade that also
-    recorded a distribution is not resubmitted without it."""
-    run_dir = make_run_dir(tmp_path / "v6", "void gemm(void){}")
-    to_schema_6(run_dir / SHARD, json.dumps(["blas"]), "")
-    (item,) = promoter.candidates(run_dir)
-    assert json.loads(item["requests"]) == {"startup": {"load": ["blas"]}}
-    distributed = make_run_dir(tmp_path / "v6_mpi", "void gemm(void){}")
-    to_schema_6(distributed / SHARD, "[]", json.dumps({"grid": [4], "arrays": {}}))
-    assert promoter.candidates(distributed) == []
 
 
 def make_run_dir_many(tmp_path: pathlib.Path, kernels: list[tuple[str, float]]) -> pathlib.Path:
@@ -508,13 +484,14 @@ def test_the_teardown_sweep_reads_each_workers_cut_off_its_own_worker_directory(
     promoter: ModuleType, tmp_path: pathlib.Path
 ) -> None:
     """The sweep sees every worker at once and the cut is per worker, so it comes from the files the
-    driver left: the episode id from mcp.json, the stamp from tokens.json."""
+    driver left: the episode id and the stamp, both from tokens.json (written by write_cost_record)."""
     run_dir = make_relaunched_run_dir(tmp_path)
     worker = run_dir / "agents" / "node-0" / "problem-1-worker-1"
     worker.mkdir(parents=True)
-    (worker / "tokens.json").write_text(json.dumps({"final_attempt_start_ms": 2000}), encoding="utf-8")
-    server = {"hpcagent-bench": {"command": "python3", "env": {"HPCAGENT_BENCH_EPISODE_ID": "setup.n0.p1.w1"}}}
-    (worker / "mcp.json").write_text(json.dumps({"mcpServers": server}), encoding="utf-8")
+    write_cost_record(
+        worker / "tokens.json", {"id": 1, "kernel": "gemm"}, 1, 0, 0, 0, "success",
+        final_attempt_start_ms=2000, episode_id="setup.n0.p1.w1",
+    )  # fmt: skip
 
     assert promoter.worker_cuts(run_dir) == {"setup.n0.p1.w1": 2000}
     assert promoter.swept_candidates(run_dir)[0]["source"] == "/* the answer */"
@@ -564,9 +541,10 @@ def test_the_teardown_sweep_ignores_a_submission_from_before_the_workers_cut(
     add_submission(run_dir, 1000)
     worker = run_dir / "agents" / "node-0" / "problem-1-worker-1"
     worker.mkdir(parents=True)
-    (worker / "tokens.json").write_text(json.dumps({"final_attempt_start_ms": 2000}), encoding="utf-8")
-    server = {"hpcagent-bench": {"command": "python3", "env": {"HPCAGENT_BENCH_EPISODE_ID": "setup.n0.p1.w1"}}}
-    (worker / "mcp.json").write_text(json.dumps({"mcpServers": server}), encoding="utf-8")
+    write_cost_record(
+        worker / "tokens.json", {"id": 1, "kernel": "gemm"}, 1, 0, 0, 0, "success",
+        final_attempt_start_ms=2000, episode_id="setup.n0.p1.w1",
+    )  # fmt: skip
 
     (item,) = promoter.swept_candidates(run_dir)
     assert item["source"] == "/* the answer */"

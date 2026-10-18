@@ -4,7 +4,7 @@
 
 Each class is registered by :func:`hpcagent_bench.vocabulary.packet`; ``order`` is the slot of the
 packet's hue (and of its shape, unless it names a ``marker``), and the lead of a combination is the part
-with the lowest slot: the lead of ``cpf-src+lang-skills`` is ``cpf-src``, so a CPF figure's setups stay one
+with the lowest slot: the lead of ``cpf-cpu-src+lang-skills`` is ``cpf-cpu-src``, so a CPF figure's setups stay one
 family. A packet names a SKILL, or a set of skills, tools and env switches, never a device and never a
 programming model: ``device=gpu`` with ``language=c`` is OpenMP offload by construction, so there is no
 offload packet. A single skill is automatically its own packet and needs no class; only a named or a
@@ -35,6 +35,7 @@ alias.
 
 from typing import ClassVar
 
+from hpcagent_bench.cpf_cache import HINTS_ENV
 from hpcagent_bench.vocabulary import packet
 
 #: Nothing is imported by name: every class registers itself through its decorator on import.
@@ -45,8 +46,14 @@ __all__ = [
     "AllInNvidia",
     "Autokernel",
     "Caveman",
-    "CpfSrc",
-    "CpfTool",
+    "CpfCpuSrc",
+    "CpfCpuSrcKinds",
+    "CpfGpuSrc",
+    "CpfGpuSrcKinds",
+    "CpfToolCpu",
+    "CpfToolCpuKinds",
+    "CpfToolGpu",
+    "CpfToolGpuKinds",
     "DistRcclAmd",
     "DistributedAmd",
     "DivideAndConquer",
@@ -73,36 +80,38 @@ class NoPacket:
     name = "No Skill Packet"
 
 
-@packet("cpf-src", order=0)
-class CpfSrc:
-    """The kernel's source IS its canonical parallel form: the drop-in replaces the hand-written reference
-    (``CPF_DROPIN_DIR``, staged by materialize_shared.sh and announced by ``make_problems.packet_note``)."""
+@packet("cpf-cpu-src", order=0, aliases=("cpf-src",))
+class CpfCpuSrc:
+    """The kernel's source IS its CPU canonical parallel form (C/C++ with OpenMP): the drop-in replaces the
+    hand-written reference (``CPF_DROPIN_DIR``, staged by materialize_shared.sh and announced by
+    ``make_problems.packet_note``). ``cpf-src`` names it on a CPU setup and ``cpf-gpu-src`` on a GPU one
+    (:func:`hpcagent_bench.packets.by_device`)."""
 
     __slots__ = ()
 
-    name = "Canonical Parallel Form as Source"
-    skills = ("cpf-src",)
+    name = "Canonical Parallel Form as Source, CPU"
+    skills = ("cpf-cpu-src",)
     env: ClassVar[dict[str, str]] = {
         "CPF_DROPIN_DIR": "${CPF_VIEW}",
     }
     marker = "s"
-    short = "CPF src"
+    short = "CPF src CPU"
 
 
-@packet("cpf-tool", order=1)
-class CpfTool:
-    """The canonical parallel form on request: the ``canonical_parallel_form`` tool answers with it, and the
-    source the agent starts from stays the hand-written reference."""
+@packet("cpf-tool-cpu", order=1, aliases=("cpf-tool",))
+class CpfToolCpu:
+    """The CPU canonical parallel form on request: the ``canonical_parallel_form`` tool answers with it, and the
+    source the agent starts from stays the hand-written reference. ``cpf-tool`` names it on a CPU setup."""
 
     __slots__ = ()
 
-    name = "Canonical Parallel Form Tool"
-    skills = ("cpf-tool",)
+    name = "Canonical Parallel Form Tool, CPU"
+    skills = ("cpf-tool-cpu",)
     tools = ("canonical_parallel_form",)
     env: ClassVar[dict[str, str]] = {
         "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
     }
-    short = "CPF tool"
+    short = "CPF tool CPU"
 
 
 @packet("lang-skills", order=2)
@@ -215,7 +224,7 @@ class AllIn:
     __slots__ = ()
 
     name = "All-in"
-    packets = ("cpf-src", "divide-and-conquer", "profiling", "lang")
+    packets = ("cpf-cpu-src", "divide-and-conquer", "profiling", "lang")
 
 
 @packet("perf-playbook-cpu", order=13)
@@ -250,7 +259,7 @@ class AllInCpu:
     __slots__ = ()
 
     name = "All-in (CPU)"
-    packets = ("cpf-src", "perf-playbook-cpu", "lang")
+    packets = ("cpf-cpu-src", "perf-playbook-cpu", "lang")
 
 
 @packet("all-in-amd", order=17)
@@ -258,7 +267,7 @@ class AllInAmd:
     __slots__ = ()
 
     name = "All-in (AMD)"
-    packets = ("cpf-src", "perf-playbook-amd", "lang")
+    packets = ("cpf-gpu-src", "perf-playbook-amd", "lang")
 
 
 @packet("all-in-nvidia", order=18)
@@ -266,7 +275,7 @@ class AllInNvidia:
     __slots__ = ()
 
     name = "All-in (NVIDIA)"
-    packets = ("cpf-src", "perf-playbook-nvidia", "lang")
+    packets = ("cpf-gpu-src", "perf-playbook-nvidia", "lang")
 
 
 @packet("kernel", order=19)
@@ -321,3 +330,106 @@ class DistRcclAmd:
     name = "RCCL Hints"
     skills = ("rccl",)
     device = "amd"
+
+
+@packet("cpf-gpu-src", order=24)
+class CpfGpuSrc:
+    """The kernel's source IS its GPU canonical parallel form: the HIP host unit and device unit replace the
+    hand-written reference (``CPF_DROPIN_DIR``). ``cpf-src`` names it on a GPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form as Source, GPU"
+    skills = ("cpf-gpu-src",)
+    env: ClassVar[dict[str, str]] = {
+        "CPF_DROPIN_DIR": "${CPF_VIEW}",
+    }
+    short = "CPF src GPU"
+
+
+@packet("cpf-tool-gpu", order=25)
+class CpfToolGpu:
+    """The GPU canonical parallel form (HIP) on request through the ``canonical_parallel_form`` tool; the source
+    stays the hand-written reference. ``cpf-tool`` names it on a GPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form Tool, GPU"
+    skills = ("cpf-tool-gpu",)
+    tools = ("canonical_parallel_form",)
+    env: ClassVar[dict[str, str]] = {
+        "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
+    }
+    short = "CPF tool GPU"
+
+
+#: The ``-kinds`` CPF packets: the same forms, staged and served the same way, with each loop's hint reduced to one
+#: ``// par``, ``// seq`` or ``// unknown`` (:data:`hpcagent_bench.cpf_cache.HintDetail`). Each pairs with the packet
+#: of the same name without ``-kinds`` (which keeps the whole hints, ``proofs``) in one variable: the hint detail,
+#: and the page that defines the three words in place of the hint table.
+
+
+@packet("cpf-cpu-src-kinds", order=26, aliases=("cpf-src-kinds",))
+class CpfCpuSrcKinds:
+    """:class:`CpfCpuSrc` with one ``// par``, ``// seq`` or ``// unknown`` per loop. ``cpf-src-kinds`` names it on
+    a CPU setup and ``cpf-gpu-src-kinds`` on a GPU one."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form as Source, CPU, Kinds Only"
+    skills = ("cpf-cpu-src-kinds",)
+    env: ClassVar[dict[str, str]] = {
+        "CPF_DROPIN_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF src CPU kinds"
+
+
+@packet("cpf-tool-cpu-kinds", order=27, aliases=("cpf-tool-kinds",))
+class CpfToolCpuKinds:
+    """:class:`CpfToolCpu` with one ``// par``, ``// seq`` or ``// unknown`` per loop. ``cpf-tool-kinds`` names it
+    on a CPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form Tool, CPU, Kinds Only"
+    skills = ("cpf-tool-cpu-kinds",)
+    tools = ("canonical_parallel_form",)
+    env: ClassVar[dict[str, str]] = {
+        "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF tool CPU kinds"
+
+
+@packet("cpf-gpu-src-kinds", order=28)
+class CpfGpuSrcKinds:
+    """:class:`CpfGpuSrc` with one ``// par``, ``// seq`` or ``// unknown`` per loop and kernel. ``cpf-src-kinds``
+    names it on a GPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form as Source, GPU, Kinds Only"
+    skills = ("cpf-gpu-src-kinds",)
+    env: ClassVar[dict[str, str]] = {
+        "CPF_DROPIN_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF src GPU kinds"
+
+
+@packet("cpf-tool-gpu-kinds", order=29)
+class CpfToolGpuKinds:
+    """:class:`CpfToolGpu` with one ``// par``, ``// seq`` or ``// unknown`` per loop and kernel. ``cpf-tool-kinds``
+    names it on a GPU setup."""
+
+    __slots__ = ()
+
+    name = "Canonical Parallel Form Tool, GPU, Kinds Only"
+    skills = ("cpf-tool-gpu-kinds",)
+    tools = ("canonical_parallel_form",)
+    env: ClassVar[dict[str, str]] = {
+        "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}",
+        HINTS_ENV: "kinds",
+    }
+    short = "CPF tool GPU kinds"

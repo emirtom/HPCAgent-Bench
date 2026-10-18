@@ -208,10 +208,11 @@ wheels = [
 [[package]]
 name = "alloy"
 version = "0.0.1"
-source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=439663658a932c3f2ff017a66b0a3d0fbac1d1d8#439663658a932c3f2ff017a66b0a3d0fbac1d1d8" }
+source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=aeca753a0bc83f5a34924f7d6d14c28c16f7363c#aeca753a0bc83f5a34924f7d6d14c28c16f7363c" }
 dependencies = [
     { name = "dace" },
     { name = "numpy" },
+    { name = "pydantic" },
 ]
 
 [[package]]
@@ -1513,7 +1514,7 @@ wheels = [
 [[package]]
 name = "dace"
 version = "2.0.0a10"
-source = { git = "https://github.com/spcl/dace.git?rev=0f445383e4d32a6016997a03decbbd50c8ba7f18#0f445383e4d32a6016997a03decbbd50c8ba7f18" }
+source = { git = "https://github.com/spcl/dace.git?rev=3f5d9a884c5d0547a65f17e61397e28c14947342#3f5d9a884c5d0547a65f17e61397e28c14947342" }
 dependencies = [
     { name = "astunparse" },
     { name = "click" },
@@ -2448,7 +2449,7 @@ wheels = [
 
 [[package]]
 name = "hpcagent-agent"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "agent" }
 
 [package.dev-dependencies]
@@ -2471,7 +2472,7 @@ harness-openhands = [
 
 [[package]]
 name = "hpcagent-bench"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
@@ -2505,6 +2506,7 @@ dependencies = [
     { name = "psutil" },
     { name = "py-cpuinfo" },
     { name = "pyarrow" },
+    { name = "pydantic" },
     { name = "pygount" },
     { name = "pythran" },
     { name = "pyyaml" },
@@ -2513,7 +2515,6 @@ dependencies = [
     { name = "rich", version = "15.0.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-cpu') or (extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra == 'extra-14-hpcagent-bench-cpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-miniswe') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-nvgpu' and extra != 'group-14-hpcagent-bench-judge-proxy') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-miniswe') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra == 'group-14-hpcagent-bench-harbor') or (extra != 'extra-14-hpcagent-bench-amdgpu' and extra != 'extra-14-hpcagent-bench-cpu' and extra != 'group-14-hpcagent-bench-judge-proxy')" },
     { name = "scipy" },
     { name = "setuptools" },
-    { name = "sqlmodel" },
     { name = "sympy" },
     { name = "tenacity" },
     { name = "transformers" },
@@ -2638,7 +2639,7 @@ openblas-build = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate" },
-    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=439663658a932c3f2ff017a66b0a3d0fbac1d1d8" },
+    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=aeca753a0bc83f5a34924f7d6d14c28c16f7363c" },
     { name = "anthropic" },
     { name = "apache-tvm", specifier = ">=0.25" },
     { name = "cffi" },
@@ -2648,7 +2649,7 @@ requires-dist = [
     { name = "cuda-tile", marker = "extra == 'nvgpu'" },
     { name = "cupy", marker = "platform_machine == 'x86_64' and extra == 'amdgpu'" },
     { name = "cupy-cuda13x", marker = "extra == 'nvgpu'" },
-    { name = "dace", git = "https://github.com/spcl/dace.git?rev=0f445383e4d32a6016997a03decbbd50c8ba7f18" },
+    { name = "dace", git = "https://github.com/spcl/dace.git?rev=3f5d9a884c5d0547a65f17e61397e28c14947342" },
     { name = "datasets", specifier = ">=2.17" },
     { name = "einops" },
     { name = "fastapi" },
@@ -2687,6 +2688,7 @@ requires-dist = [
     { name = "psutil" },
     { name = "py-cpuinfo" },
     { name = "pyarrow" },
+    { name = "pydantic", specifier = ">=2.12" },
     { name = "pygount" },
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
@@ -2697,13 +2699,12 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "pythran", specifier = "<0.19" },
     { name = "pyyaml" },
-    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=15925bff731d5a90f5dd90a842bc29e5533d0dac" },
+    { name = "relayout", git = "https://github.com/ThrudPrimrose/relayout.git?rev=2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },
     { name = "setuptools" },
     { name = "sphinx", marker = "extra == 'docs'" },
-    { name = "sqlmodel" },
     { name = "sympy" },
     { name = "tenacity" },
     { name = "torch", marker = "python_full_version < '3.14' and platform_machine == 'x86_64' and extra == 'amdgpu'", index = "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/", conflict = { package = "hpcagent-bench", extra = "amdgpu" } },
@@ -2747,7 +2748,7 @@ openblas-build = [
 
 [[package]]
 name = "hpcagent-bench-harbor-adapter"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "adapters/hpcagent_bench" }
 dependencies = [
     { name = "hpcagent-bench" },
@@ -8241,11 +8242,12 @@ wheels = [
 [[package]]
 name = "relayout"
 version = "0.1.0"
-source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=15925bff731d5a90f5dd90a842bc29e5533d0dac#15925bff731d5a90f5dd90a842bc29e5533d0dac" }
+source = { git = "https://github.com/ThrudPrimrose/relayout.git?rev=2718b2fee48a0a60b0ed1b65f281d9636e75f0f8#2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" }
 dependencies = [
     { name = "dace" },
     { name = "islpy" },
     { name = "numpy" },
+    { name = "pydantic" },
     { name = "z3-solver" },
 ]
 
@@ -8815,49 +8817,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3b/44/6716b257b0aa6bfd51a1b31665d1c205fb12cb5ad56de752dfa15657de2f/sphinxcontrib_serializinghtml-2.0.0.tar.gz", hash = "sha256:e9d912827f872c029017a53f0ef2180b327c3f7fd23c87229f7a8e8b70031d4d", size = 16080, upload-time = "2024-07-29T01:10:09.332Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/52/a7/d2782e4e3f77c8450f727ba74a8f12756d5ba823d81b941f1b04da9d033a/sphinxcontrib_serializinghtml-2.0.0-py3-none-any.whl", hash = "sha256:6e2cb0eef194e10c27ec0023bfeb25badbbb5868244cf5bc5bdc04e4464bf331", size = 92072, upload-time = "2024-07-29T01:10:08.203Z" },
-]
-
-[[package]]
-name = "sqlalchemy"
-version = "2.0.54"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-cpu') or (extra == 'extra-14-hpcagent-bench-amdgpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra == 'extra-14-hpcagent-bench-cpu' and extra == 'extra-14-hpcagent-bench-nvgpu') or (extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-agent-harness-openhands') or (extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-bench-harbor') or (extra == 'group-14-hpcagent-agent-harness-miniswe' and extra == 'group-14-hpcagent-bench-judge-proxy') or (extra == 'group-14-hpcagent-agent-harness-openhands' and extra == 'group-14-hpcagent-bench-harbor') or (extra == 'group-14-hpcagent-agent-harness-openhands' and extra == 'group-14-hpcagent-bench-judge-proxy') or (extra == 'group-14-hpcagent-bench-harbor' and extra == 'group-14-hpcagent-bench-judge-proxy')" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/29/9c/271aa905cf2964f841371a97f3e63ab692bf51b4423d0491e67bc7f64037/sqlalchemy-2.0.54.tar.gz", hash = "sha256:baa8521e8ee9f24e75dfc7aaabc08020e551ef0d48d7c3e3536f5cddf277586b", size = 9969559, upload-time = "2026-09-15T21:06:57.337Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/3d/5dfbb9528a391186a99986daecc5cbe003f34408dee91db8f5cdcf917040/sqlalchemy-2.0.54-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:63cae7210fea9899e0bf35c1f1ae55d3ddd9c6d47cae8b6b43d945afa79dd65b", size = 3448745, upload-time = "2026-09-15T22:40:18.168Z" },
-    { url = "https://files.pythonhosted.org/packages/d9/93/34fdc4a4faced77037a6b3ba1db1acd92e9bd12c21e229b327edd1d3e881/sqlalchemy-2.0.54-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:68d994e9b0d0423a02a20039631fa6fcbb7fa829a992f7605025774940305d19", size = 3466644, upload-time = "2026-09-15T22:35:37.7Z" },
-    { url = "https://files.pythonhosted.org/packages/66/68/4beab40ae60ac3d679dbbb46bc0d2bb277013264a0bde37ecaf4b6780e98/sqlalchemy-2.0.54-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:3de32cc6721eb42c3aad35bcfb244bb7a18f66c00f3582aae6281d6287a339b5", size = 3401519, upload-time = "2026-09-15T22:40:19.907Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/df/a24757e3249b1c7c1c5f0317666d16a8ab901ba239819ecef29eb4ed172e/sqlalchemy-2.0.54-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:d31a2bc06a854ee52dd86b455be4df7c750b28817e2d1b884e31fff126c4fd7b", size = 3432590, upload-time = "2026-09-15T22:35:39.434Z" },
-    { url = "https://files.pythonhosted.org/packages/74/8f/f95de908a4af7ac3a6925cdcb837a93274f608925a0fbc786df38811bccf/sqlalchemy-2.0.54-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:31d5458672a6f72db2c087f4a5098b3c8503ea0254186ff29205d63afa9401a4", size = 3398792, upload-time = "2026-09-15T22:29:35.218Z" },
-    { url = "https://files.pythonhosted.org/packages/84/26/bd327a1a6be223e438c98ac8faf299307d83797225a81f3b209607a9fd98/sqlalchemy-2.0.54-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:cad78d04254967bdbcccbed5e631d88fe4868530946ab0929aa45e9032849518", size = 3417562, upload-time = "2026-09-15T22:40:32.637Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/b1/f13a8fe8e8e167d8e65484b91b827897b8a5ca1efd7ba6e87a5f63412fed/sqlalchemy-2.0.54-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:48611087a75d26d798003645c688c7d3cfc26b89dbe4a2c568d6b378d330deae", size = 3349138, upload-time = "2026-09-15T22:29:36.729Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/b7/5fd58f03281a74c57f02f509433e1be58a79d9f5b0e14020e665e0dcb614/sqlalchemy-2.0.54-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:d6adf80277372a89910a0f3ccfe960b846d279dc55b366dd5c5ec07f41c84758", size = 3382943, upload-time = "2026-09-15T22:40:34.587Z" },
-    { url = "https://files.pythonhosted.org/packages/12/28/f4424f618bd1f373761a32a821d53ce2c257350e9894bae9b968cb03d8fd/sqlalchemy-2.0.54-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5417322b3c025dd82918725d3bf09ec105fac95efc195722b8b06e1d9c381139", size = 3394763, upload-time = "2026-09-15T22:29:38.131Z" },
-    { url = "https://files.pythonhosted.org/packages/59/d2/7f0c77f8e042cb5f28275fea29c3080b4ac6fd4b3fdd7f59ff1ef3e28c11/sqlalchemy-2.0.54-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6f84099e4b04a5c2d44500a2a8302eee5af4bc6fee63e8c6e9cf6786e747280e", size = 3402800, upload-time = "2026-09-15T22:40:36.509Z" },
-    { url = "https://files.pythonhosted.org/packages/af/32/3eaa930bcf71d17a72587081d2706a5fb97ab3f11a7e0fb838f581f7cff1/sqlalchemy-2.0.54-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:a0956dc754d3884da7fe60097110ec7a8a105d26afa2f0844468f4b1598c6912", size = 3341469, upload-time = "2026-09-15T22:29:39.682Z" },
-    { url = "https://files.pythonhosted.org/packages/eb/cc/cddb6cbd4408e5c55b3bf722be26b9d3b54d42509f901b7ecc15debd3d1f/sqlalchemy-2.0.54-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:87ba8834318b0d8dc94fc6f405d071b5c08be32a6c3fd68107fd6952ee949615", size = 3373232, upload-time = "2026-09-15T22:40:39.181Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/2e/490ad7b3731116cb48ba170f7722eaa99a89707193e54389ca84b7ad55af/sqlalchemy-2.0.54-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:18a8b6417cbb7b735cf91c2b59453c2a554cefa0a8d7bd15aa35740739410d77", size = 3660585, upload-time = "2026-09-15T22:36:06.649Z" },
-    { url = "https://files.pythonhosted.org/packages/eb/25/15dfe6814847eeda773bd58ab6cf42a94b0176e5cf25a578fc1165777160/sqlalchemy-2.0.54-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4e55a0b96a1577a1e108c91ccdeeb9cd92768f28ce206597311c3bf6d6423abd", size = 3624442, upload-time = "2026-09-15T22:36:38.377Z" },
-    { url = "https://files.pythonhosted.org/packages/aa/19/724d0a6a2fb2a86ff2d6008e581c258f722d9b7d8e52adc7b79085febdd4/sqlalchemy-2.0.54-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:69cab115c40fd02c5a22c68e4ee630fa6ef9a1650f1de944419aab1f7096fc4f", size = 3562972, upload-time = "2026-09-15T22:36:08.581Z" },
-    { url = "https://files.pythonhosted.org/packages/49/bb/9df1bd81c2f2d000cf5e7a1b1a9b331468a3aab939ad983355e701fa42b2/sqlalchemy-2.0.54-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:e08397c6c42f53b2488acde9108b8bfefd52d7afd1bf2f03d2ffcab7a204aceb", size = 3576479, upload-time = "2026-09-15T22:36:40.272Z" },
-    { url = "https://files.pythonhosted.org/packages/24/a1/bd5e3e99bc9c8863b51ac5b9b03008a7f2da8c6b59695992f5c654e1265b/sqlalchemy-2.0.54-py3-none-any.whl", hash = "sha256:7e33a631ab1474f8fe6b910bd1a07b7b8009c4c78cdd3fb18001b03e3bc2e1d2", size = 1958015, upload-time = "2026-09-15T22:24:22.95Z" },
-]
-
-[[package]]
-name = "sqlmodel"
-version = "0.0.47"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "sqlalchemy" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/60/aa4cb68f03fa6bd1ca9e9a9ca89c3bc6c67f50981d0abcd9d6364609516d/sqlmodel-0.0.47.tar.gz", hash = "sha256:3606430ea6db7f00c8ae2157458b9766644ea3ad365c601e26a86cf23f5910d5", size = 98136, upload-time = "2026-09-23T17:31:07.921Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f7/b3/988928029b0e68de7ac587c2e1ccd379aa18e7c0aa7cc426628145a032fe/sqlmodel-0.0.47-py3-none-any.whl", hash = "sha256:165294386c3e4b25fa02f151ca1abb0cbf5fdb76f6093a38aca33fdc30dfd485", size = 31314, upload-time = "2026-09-23T17:31:06.8Z" },
 ]
 
 [[package]]

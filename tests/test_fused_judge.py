@@ -34,6 +34,7 @@ from hpcagent_bench.anticheat import Judgement
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness import recording, results_db, tools
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import HealthAnswer, SubmitVerdict
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 
@@ -87,7 +88,7 @@ def publish_view(tmp_path: pathlib.Path) -> pathlib.Path:
     name = "example_kernel_fp64_cpf"
     files = [("source", f"{name}.c", "// form\n"), ("binding", f"{name}_binding.json", "{}")]
     cpf_cache.publish(cache, key, {"kernel": "example_kernel", "entry": "example_kernel_fp64"}, files)
-    cpf_cache.record(view, "example_kernel", "c", "fp64", {"key": key, "verdict": "ok"})
+    cpf_cache.record(view, "example_kernel", "c", "fp64", "proofs", {"key": key, "verdict": "ok"})
     return view
 
 
@@ -131,34 +132,34 @@ def test_a_nested_scoped_environment_layers_over_the_outer_one(monkeypatch: pyte
     """A protocol's scope inside a fused request's setup scope (grade_under.protocol_grade under
     JudgeHandler.setup_scope) adds its keys; the setup's own keys still resolve from the setup."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_SETUP", "job-level")
-    monkeypatch.setenv("HPCAGENT_BENCH_FUSED_TEST_ONLY_KEY", "job-level")
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_STUDY", "job-level")
     monkeypatch.delenv("HPCAGENT_BENCH_MEASUREMENT_REPEAT", raising=False)
-    setup = {"HPCAGENT_BENCH_RECORD_SETUP": "setup-setup", "HPCAGENT_BENCH_FUSED_TEST_ONLY_KEY": None}
+    setup = {"HPCAGENT_BENCH_RECORD_SETUP": "setup-setup", "HPCAGENT_BENCH_RECORD_STUDY": None}
     with config.scoped_environment(setup):
         with config.scoped_environment({"HPCAGENT_BENCH_MEASUREMENT_REPEAT": "5"}):
-            assert config.get_str("record.setup") == "setup-setup"
-            assert config.get("fused.test_only_key", "default") == "default"
+            assert config.current().record.setup == "setup-setup"
+            assert config.current().record.study == ""
             assert config.env_value("HPCAGENT_BENCH_MEASUREMENT_REPEAT") == "5"
             with config.scoped_environment({"HPCAGENT_BENCH_RECORD_SETUP": "inner"}):
-                assert config.get_str("record.setup") == "inner"  # the inner scope still wins its own keys
+                assert config.current().record.setup == "inner"  # the inner scope still wins its own keys
         assert config.env_value("HPCAGENT_BENCH_MEASUREMENT_REPEAT") is None
-        assert config.get_str("record.setup") == "setup-setup"
+        assert config.current().record.setup == "setup-setup"
 
 
 def test_a_scoped_environment_overrides_and_unsets_only_inside_its_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_SETUP", "job-level")
-    monkeypatch.setenv("HPCAGENT_BENCH_FUSED_TEST_ONLY_KEY", "job-level")
-    scope = {"HPCAGENT_BENCH_RECORD_SETUP": "setup-setup", "HPCAGENT_BENCH_FUSED_TEST_ONLY_KEY": None}
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_STUDY", "job-level")
+    scope = {"HPCAGENT_BENCH_RECORD_SETUP": "setup-setup", "HPCAGENT_BENCH_RECORD_STUDY": None}
     with config.scoped_environment(scope):
-        assert config.get_str("record.setup") == "setup-setup"
-        # None means UNSET for the scope: the default, never the process env's value.
-        assert config.get("fused.test_only_key", "default") == "default"
+        assert config.current().record.setup == "setup-setup"
+        # None means UNSET for the scope: the model default, never the process env's value.
+        assert config.current().record.study == ""
         seen: list[str] = []
-        other = threading.Thread(target=lambda: seen.append(config.get_str("record.setup")))
+        other = threading.Thread(target=lambda: seen.append(config.current().record.setup))
         other.start()
         other.join()
         assert seen == ["job-level"], "a scope leaked into another request's thread"
-    assert config.get_str("record.setup") == "job-level"
+    assert config.current().record.setup == "job-level"
 
 
 def test_a_resolved_overlay_parses_sets_and_unsets() -> None:
@@ -333,7 +334,13 @@ class HeaderEcho(BaseHTTPRequestHandler):
     def reply(self) -> None:
         HeaderEcho.headers_seen.append(self.headers.get(http_json.WORKER_TOKEN_HEADER, ""))
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        data = b'{"ok": true, "correct": true}'
+        # What the judge answers the route, as its model dumps it: JudgeClient validates every answer.
+        answer = (
+            HealthAnswer(status="ok", rank=0, oracle="auto", baseline="auto", input_mode="any", submits_in_flight=0)
+            if self.path.startswith("/health")
+            else SubmitVerdict(correct="yes", request_id="r")
+        )
+        data = json.dumps(answer.to_json()).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))

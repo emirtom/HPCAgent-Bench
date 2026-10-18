@@ -38,6 +38,11 @@ not beat `malloc` here.
 {% endif %}
 {% if language in ("c", "cpp", "fortran") %}
 
+Stacks: the main thread's stack is raised to its hard limit (`ulimit -s "$(ulimit -H -s)"`), and every
+OpenMP worker thread gets a {{ thread_stack_mb }} MiB stack (`OMP_STACKSIZE`). Per-thread scratch larger than
+that, such as an array sized by the input inside a parallel region, overflows it: allocate it on the heap,
+where it counts against the kernel's memory budget.
+
 Two flags on that line decide what your source may contain:
 {% endif %}
 {% if language in ("c", "cpp") %}

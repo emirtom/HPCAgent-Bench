@@ -181,9 +181,8 @@ def order_rows(rows: Sequence[RowMeta], order: str = BY_DWARF) -> tuple[list[str
 def short_name_index() -> dict[str, BenchSpec]:
     """``{spec.short_name: BenchSpec}`` over the whole corpus.
 
-    Keyed on the manifest's ``short_name`` (the value the results ``kernel`` column
-    stores), NOT the directory stem the selector grammar uses -- the two differ for kernels
-    like ``heat_3d`` (stem) / ``heat_3d`` (short_name). Memoized; ~1s to parse every manifest.
+    Keyed on the kernel name (``short_name``, the manifest stem, which the results ``kernel``
+    column stores). Memoized; ~1s to parse every manifest.
 
     A manifest that fails to parse is SKIPPED rather than propagated, which keeps
     :func:`row_meta_for`'s "never crashes a plot" promise: one malformed manifest must not kill a
@@ -204,17 +203,15 @@ def short_name_index() -> dict[str, BenchSpec]:
 def row_meta_for(short_names: Sequence[str]) -> list[RowMeta]:
     """Build :class:`RowMeta` for each DB ``kernel`` short_name from its ``BenchSpec``.
 
-    The HPC group is the kernel's ``dwarf``; no other track has one. A short_name with no resolvable manifest lands
-    in the ``other`` bucket (kept in input order) so a legacy / renamed DB name never
-    crashes a plot.
+    The HPC group is the kernel's ``dwarf``; no other track has one. Every DB ``kernel`` names a kernel of the
+    current registry: one that does not is a database of another release and raises ``KeyError``.
     """
     index = short_name_index()
     out: list[RowMeta] = []
     for sn in short_names:
         spec = index.get(sn)
         if spec is None:
-            out.append(RowMeta(sn, TRACK_OTHER, None, None))
-            continue
+            raise KeyError(f"{sn!r} is not a kernel of this registry")
         track = spec.track if spec.track in SECTION_ORDER else TRACK_OTHER
         out.append(RowMeta(sn, track, structural_group(spec, track), spec.level))
     return out
@@ -223,9 +220,8 @@ def row_meta_for(short_names: Sequence[str]) -> list[RowMeta]:
 def structural_group(spec, track: str | None = None) -> str | None:
     """The group a figure bands ``spec``'s row under: the dwarf for HPC, ``None`` for every other track.
 
-    One rule, one place: the results table records it per row (see
-    :func:`hpcagent_bench.emit_bridge.legacy_bench_info_dict`, which is where a run reads it) and
-    the figures band on it, so a second copy of the rule would put the recorded value and the drawn
-    one a refactor apart.
+    One rule, one place: the results table records it per row (the framework run's ``domain``) and the
+    figures band on it, so a second copy of the rule would put the recorded value and the drawn one a
+    refactor apart.
     """
     return spec.dwarf if (track or spec.track) == TRACK_SCIENTIFIC_COMPUTING else None

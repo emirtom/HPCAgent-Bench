@@ -17,6 +17,7 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
+from tests.results_seed import STAMP as GRADE_STAMP
 
 KERNEL = "tsvc_2_s212"  # any real, fast-loading kernel: record() loads its spec
 EPISODE_ID = "mlscale-strong-qwen38-hip.n0.p1.w2"
@@ -62,12 +63,12 @@ def rows(db: pathlib.Path, sql: str) -> list[dict]:
 def the_grade(conn) -> int:
     """The one grade (run ``EPISODE_ID``, kernel, stamp ``TS``) every curve of these tests belongs to."""
     results_db.ensure_setup(conn, results_db.Setup("mlscale-strong-qwen38-hip", "hip", "gpu"))
-    run = results_db.ensure_episode(conn, "mlscale-strong-qwen38-hip", EPISODE_ID, None)
+    run = results_db.ensure_episode(conn, "mlscale-strong-qwen38-hip", EPISODE_ID, results_db.LOCAL_JOB)
     held = conn.execute("SELECT id FROM grades WHERE episode_id = ?", (run,)).fetchone()
     if held is not None:
         return int(held[0])
     values = {"build_ok": 1, "correct": 1, "speedup": 2.0, "credited_speedup": 2.0}
-    return results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=TS, values=values)[0]
+    return results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=TS, values=GRADE_STAMP | values)[0]
 
 
 def record(db: pathlib.Path, curve: metric.ScalingScore | None, mode: str, **kw: object) -> int:

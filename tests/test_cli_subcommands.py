@@ -57,6 +57,8 @@ def _stub_module(monkeypatch, dotted, funcname, recorder) -> None:
     module."""
     fake = types.ModuleType(dotted)
     vars(fake)[funcname] = recorder
+    # The sweep verbs name their canon DB through CanonTarget.default(); the stub target records nothing.
+    vars(fake)["CanonTarget"] = types.SimpleNamespace(default=lambda *a, **k: None)
     monkeypatch.setitem(sys.modules, dotted, fake)
 
 

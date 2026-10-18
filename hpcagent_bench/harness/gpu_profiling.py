@@ -34,7 +34,6 @@ the same :data:`~hpcagent_bench.harness.profiling.RESULT_PREFIX` line as the hos
 
 import argparse
 import csv
-import json
 import math
 import os
 import pathlib
@@ -133,7 +132,6 @@ __all__ = [
     "record_failure",
     "recording",
     "render_report",
-    "request_plan",
     "rocm_agents",
     "rocprof_check",
     "rocprof_command",
@@ -948,7 +946,7 @@ SEALED_OUTSIDE_FLAG = "--sealed-outside"
 
 def measured_argv(request_file: pathlib.Path, *, sealed_outside: bool = False) -> list[str]:
     """The measured child, identical under every profiler (unsealed; see :func:`child_argv` and
-    :func:`request_plan`). ``sealed_outside`` means the seal wraps the tracer, so the native call
+    :func:`profiling.request_plan`). ``sealed_outside`` means the seal wraps the tracer, so the native call
     enters none. Names this module, whose ``main`` forces the spawn context CUPTI and HSA need."""
     return [
         sys.executable,
@@ -960,12 +958,6 @@ def measured_argv(request_file: pathlib.Path, *, sealed_outside: bool = False) -
     ]
 
 
-def request_plan(request_file: pathlib.Path) -> seal.SealPlan | None:
-    """The grading seal for a traced run whose work area is ``request_file``'s directory
-    (:func:`profiling.request_plan`)."""
-    return profiling.request_plan(request_file)
-
-
 def child_argv(request_file: pathlib.Path) -> list[str]:
     """:func:`measured_argv` sealed on its own, for the NVIDIA tracers.
 
@@ -973,7 +965,7 @@ def child_argv(request_file: pathlib.Path) -> list[str]:
     ``compute_profiling.amd_compute_once``): rocprofv3's preloaded threads make any seal under it
     multi-threaded, and ``unshare(CLONE_NEWUSER)`` then fails, so those children run with
     ``sealed_outside``."""
-    return seal.wrap(request_plan(request_file), measured_argv(request_file))
+    return seal.wrap(profiling.request_plan(request_file), measured_argv(request_file))
 
 
 def empty_trace(tool: str) -> GpuProfilerUnavailable:
@@ -1022,8 +1014,8 @@ def profile_nvidia_once(
     if not kernels and not omitted:
         raise empty_trace("nsys")
     return GpuRun(
-        elapsed_ns=profiling.as_int(result["elapsed_ns"], "elapsed_ns"),
-        reps=profiling.as_int(result["reps"], "reps"),
+        elapsed_ns=profiling.workload_result(result)["elapsed_ns"],
+        reps=profiling.workload_result(result)["reps"],
         kernels=kernels,
         memory=memory_stats(reports.get(MEM_TIME_REPORT, []), reports.get(MEM_SIZE_REPORT, [])),
         launches=launch_configs(reports.get(TRACE_REPORT, [])),
@@ -1045,7 +1037,7 @@ def profile_amd_once(
     :func:`rocprof_check`. The workload's own failure is reported first. Copy volume is ``null``."""
     tool, exe = profiler
     outdir = root / ROCPROF_OUTDIR
-    plan = request_plan(request_file)
+    plan = profiling.request_plan(request_file)
     proc = rocprof_record(
         measured_argv(request_file, sealed_outside=plan is not None),
         outdir,
@@ -1062,8 +1054,8 @@ def profile_amd_once(
     if not kernels and not omitted:
         raise empty_trace(tool)
     return GpuRun(
-        elapsed_ns=profiling.as_int(result["elapsed_ns"], "elapsed_ns"),
-        reps=profiling.as_int(result["reps"], "reps"),
+        elapsed_ns=profiling.workload_result(result)["elapsed_ns"],
+        reps=profiling.workload_result(result)["reps"],
         kernels=kernels,
         memory=memory_stats(reports[MEMORY_STATS_CSV], []),
         launches=rocprof_launch_configs(reports[KERNEL_TRACE_CSV], wavefront_size(reports[AGENT_INFO_CSV])),
@@ -1259,7 +1251,7 @@ def main(argv: list[str] | None = None) -> int:
     # CUPTI and rocprofv3's HSA tool library need a spawned (not forked) worker, or the trace is empty.
     config.set_override("runtime.mp_context", "spawn")
     request = profiling.child_request(pathlib.Path(args.request).read_text())
-    print(profiling.RESULT_PREFIX + json.dumps(profiling.run_workload(request)))
+    print(profiling.RESULT_PREFIX + profiling.WORKLOAD_ADAPTER.dump_json(profiling.run_workload(request)).decode())
     return 0
 
 

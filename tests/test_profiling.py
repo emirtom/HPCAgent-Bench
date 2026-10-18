@@ -17,6 +17,7 @@ import pytest
 from hpcagent_bench import flags, perf_reports
 from hpcagent_bench.harness import papi, profiling, tools
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.profile_wire import BuildFailureReport, LinuxperfReport, ThreadCountReport
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
 from tests.test_papi_counters import requires_papi
@@ -390,20 +391,23 @@ def test_profile_endpoint_returns_the_kernel_call_graph(make_judge) -> None:
 
     task = Task("syrk", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="L"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)), "syrk", preset="L", threads=[1], reps=5
+    body = (
+        tools.JudgeClient(url)
+        .profile(Submission(language="c", source=reference_source(task)), "syrk", threads=[1], reps=5)
+        .root
     )
-    assert body["build_ok"] is True
-    assert body["symbol"] == "syrk_fp64"
-    assert body["event"] == perf_reports.PERF_EVENT
-    assert body["representative"] == 1
-    config = body["configs"][0]
+    assert isinstance(body, LinuxperfReport), body
+    assert body.build_ok is True
+    assert body.symbol == "syrk_fp64"
+    assert body.event == perf_reports.PERF_EVENT
+    assert body.representative == 1
+    config = body.configs[0]
     assert config["threads"] == 1
     assert config["samples"] > 0
     assert config["elapsed_ns"] > 0
     assert config["kernel_pct"] > 50.0, f"the kernel is not the profile's hotspot: {config['hotspots'][:3]}"
     assert config["hotspots"][0]["symbol"] == "syrk_fp64"
-    assert body["call_graph_mode"] == "dwarf"
+    assert body.call_graph_mode == "dwarf"
     # The tree is the SUBMISSION's, not the harness's. Measured before this rooting: 94 of 139
     # rendered lines were interpreter and cffi scaffolding -- thirty frames of _PyEval_EvalFrameDefault
     # at 0.00 self, ending in module-import churn -- and the whole response was 44 KB of which 93%
@@ -413,7 +417,7 @@ def test_profile_endpoint_returns_the_kernel_call_graph(make_judge) -> None:
     for scaffolding in ("_PyEval_EvalFrameDefault", "Py_RunMain", "cffistatic_ffi_call", "os_scandir"):
         assert scaffolding not in config["text"], f"{scaffolding!r} is the harness, not the submission"
     assert "syrk_fp64" in config["text"]
-    assert "call graph @ 1 thread(s)" in body["text"]
+    assert "call graph @ 1 thread(s)" in body.text
 
 
 @pytest.mark.perf
@@ -435,12 +439,15 @@ def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(make_judge) -> N
 
     task = Task("gemm", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="M"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)), "gemm", preset="M", threads=[1], reps=3
+    body = (
+        tools.JudgeClient(url)
+        .profile(Submission(language="c", source=reference_source(task)), "gemm", threads=[1], reps=3)
+        .root
     )
-    assert body["build_ok"] is True
-    assert body["symbol"] == "gemm_fp64"
-    config = body["configs"][0]
+    assert isinstance(body, LinuxperfReport), body
+    assert body.build_ok is True
+    assert body.symbol == "gemm_fp64"
+    config = body.configs[0]
     assert config["samples"] > 0
     assert config["elapsed_ns"] > 0
     hottest = config["hotspots"][0]
@@ -448,20 +455,23 @@ def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(make_judge) -> N
     assert "blas" in hottest["dso"].lower(), hottest
     for scaffolding in ("_PyEval_EvalFrameDefault", "Py_RunMain", "cffistatic_ffi_call", "os_scandir"):
         assert scaffolding != hottest["symbol"], f"{scaffolding!r} is the harness, not the submission"
-    assert len(json.dumps(body)) < 20_000, (
-        f"the profile response is {len(json.dumps(body))} bytes; it stays in the agent's context "
+    assert len(json.dumps(body.to_json())) < 20_000, (
+        f"the profile response is {len(json.dumps(body.to_json()))} bytes; it stays in the agent's context "
         "for the rest of the episode, so a whole-process tree is paid for on every later turn"
     )
-    assert body["scalability"][0]["speedup"] == 1.0
+    assert body.scalability[0]["speedup"] == 1.0
 
 
 @pytest.mark.perf
 def test_profile_reports_a_build_failure_instead_of_a_profile(make_judge) -> None:
-    body = tools.JudgeClient(make_judge(ServiceConfig())[1]).profile(
-        Submission(language="c", source="this is not c"), "gemm", threads=[1], reps=1
+    body = (
+        tools.JudgeClient(make_judge(ServiceConfig())[1])
+        .profile(Submission(language="c", source="this is not c"), "gemm", threads=[1], reps=1)
+        .root
     )
-    assert body["build_ok"] is False
-    assert body["detail"]
+    assert isinstance(body, BuildFailureReport), body
+    assert body.build_ok is False
+    assert body.detail
 
 
 def test_profile_endpoint_reports_the_threads_apart_when_asked(make_judge) -> None:
@@ -480,20 +490,23 @@ def test_profile_endpoint_reports_the_threads_apart_when_asked(make_judge) -> No
 
     task = Task("gemm", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="S"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)),
-        "gemm",
-        preset="S",
-        tool="papi",
-        threads=2,
-        reps=2,
-        per_thread=True,
+    body = (
+        tools.JudgeClient(url)
+        .profile(
+            Submission(language="c", source=reference_source(task)),
+            "gemm",
+            tool="papi",
+            threads=2,
+            reps=2,
+            per_thread=True,
+        )
+        .root
     )
-    assert body["build_ok"] is True
-    assert body["threads"] == 2
-    assert "per_thread" in body, "the per_thread knob did not reach the per-thread route"
-    assert "counters" not in body, "per_thread must not fall through to the summed counter route"
-    report = body["per_thread"]
+    # The per_thread knob reached the per-thread route, and did not fall through to the summed counter route.
+    assert isinstance(body, ThreadCountReport), body
+    assert body.build_ok is True
+    assert body.threads == 2
+    report = body.per_thread
     for field in ("threads", "aggregate", "imbalance"):
         assert field in report, f"the per-thread report has no {field!r}"
     if report.get("cause"):
@@ -536,16 +549,20 @@ def test_the_per_thread_route_actually_carries_rows_where_papi_exists(make_judge
         pytest.skip(f"only {flags.ncores()} physical core(s); a distribution needs at least two threads")
     task = Task("gemm", "restricted", "c")
     _srv, url = make_judge(ServiceConfig(preset="S"))
-    body = tools.JudgeClient(url).profile(
-        Submission(language="c", source=reference_source(task)),
-        "gemm",
-        preset="S",
-        tool="papi",
-        threads=2,
-        reps=2,
-        per_thread=True,
+    body = (
+        tools.JudgeClient(url)
+        .profile(
+            Submission(language="c", source=reference_source(task)),
+            "gemm",
+            tool="papi",
+            threads=2,
+            reps=2,
+            per_thread=True,
+        )
+        .root
     )
-    report = body["per_thread"]
+    assert isinstance(body, ThreadCountReport), body
+    report = body.per_thread
     if report.get("cause"):
         pytest.skip(f"this host has PAPI but would not count: {report['cause']} -- {report.get('missing')}")
     rows = report["threads"]

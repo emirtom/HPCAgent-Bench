@@ -13,11 +13,9 @@ rows; the full report (every table, the rendered text, the raw counters) is copi
 shared folder by :mod:`hpcagent_bench.harness.report_staging`, because the sandbox holding it is
 deleted when the request ends.
 
-``rocprof-compute`` was run on MI300A (``profile --no-roof`` then ``analyze --output-format
-csv|txt``), and its readers take that layout. ``ncu`` follows the command shape field-tested on an
-AD107 dev box (``--set basic -c -s -k -o -f --`` and ``-i --page details|raw --csv``); no Nsight
-Compute ran on this repo's cluster, so its CSV reader finds metric ids wherever a row carries them
-instead of assuming a column layout.
+``rocprof-compute``: ``profile --no-roof``, then ``analyze --output-format csv|txt``; the readers expect
+that layout. ``ncu``: ``--set basic -c -s -k -o -f --``, then ``-i --page details|raw --csv``; the CSV reader
+locates metric ids per row and assumes no column order.
 """
 
 import csv
@@ -437,7 +435,7 @@ def amd_compute_once(root: pathlib.Path, request_file: pathlib.Path, *, exe: str
     analysis.mkdir(parents=True, exist_ok=True)
     # Sealed OUTSIDE the profiler, as rocprof_record seals rocprofv3: rocprof-compute drives the same
     # rocprofiler-sdk preload, under which the seal cannot enter its namespaces (gpu_profiling.child_argv).
-    plan = gpu_profiling.request_plan(request_file)
+    plan = profiling.request_plan(request_file)
     measured = gpu_profiling.measured_argv(request_file, sealed_outside=plan is not None)
     argv = seal.wrap(plan, rocprof_compute_profile_argv(exe, workload, measured))
     env = {**os.environ, **gpu_profiling.ROCPROF_CHILD_ENV}

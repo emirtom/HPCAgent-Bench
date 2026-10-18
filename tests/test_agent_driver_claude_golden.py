@@ -13,7 +13,6 @@ Hand-edited fields, each pinning the current rule; everything else is the captur
   from an empty workspace, and ``tokens.json`` reports the final attempt plus ``tokens_*_crashed`` (T5).
 * ``token_fold.json`` / ``closings.json`` cost breakdown: token fold 2, no streamed thinking estimate added to
   ``output_tokens`` (T7-T9, F8 of docs/scoring.md).
-* ``closings.json`` ``token_fold``: 3 (compaction recovery; these transcripts carry no ``compact_boundary``).
 * ``launches.json`` argv: no ``canonical_parallel_form`` tool (cpf-tool packet only) and no ``search`` tool
   (opt-in behind ``AGENT_SEARCH_TOOL``); the ``autocompact`` scenario has no ``--autocompact`` flag.
 * ``launches.json`` env: ``TRITON_CACHE_DIR`` / ``XDG_CACHE_HOME`` (node-local caches, see worker_cache_root;
@@ -35,9 +34,10 @@ from types import ModuleType
 
 import pytest
 
+from hpcagent_bench import paths
 from tests.fresh_module import module_at
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 FIXTURES = REPO / "tests" / "fixtures" / "claude_driver_golden"
 DRIVER = REPO / "agent" / "hpcagent_agent" / "driver" / "agent_driver.py"
 

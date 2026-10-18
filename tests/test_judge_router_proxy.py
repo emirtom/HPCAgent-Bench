@@ -23,6 +23,10 @@ from urllib.parse import urlparse
 
 import pytest
 
+from hpcagent_bench import paths
+from hpcagent_bench.harness.judge_wire import RecordedAnswer
+from hpcagent_bench.harness.scoring import Score
+from hpcagent_bench.harness.service import grade_answer
 from tests.fresh_module import fresh
 from tests.optional_imports import import_or_skip
 
@@ -39,21 +43,29 @@ SUBMISSION = {
     "episode_id": "setup.n0.p1.w1",
 }
 
-#: What the judge answers a graded submission -- a superset of the correctness slice.
-GRADE = {
-    "correct": True,
-    "public_correct": True,
-    "hidden_correct": True,
-    "hidden_passed": 8,
-    "hidden_total": 8,
-    "max_rel_error": 1e-12,
-    "build_ok": True,
-    "detail": "ok",
-    "oracle": "numpy",
-    "speedup": 4.5,
-    "native_ns": 100,
-    "request_id": "rid1",
-}
+#: What the judge answers a graded submission (``service.submit_feedback=full``) -- a superset of the
+#: correctness slice.
+GRADE = grade_answer(
+    Score(
+        correct=True,
+        max_rel_error=1e-12,
+        native_ns=100,
+        build_ok=True,
+        detail="ok",
+        speedup=4.5,
+        public_correct=True,
+        hidden_correct=True,
+        hidden_passed=8,
+        hidden_total=8,
+        oracle="numba",
+    ),
+    "gemm",
+    "c",
+    "S",
+    "host",
+    RecordedAnswer(skipped="record.enabled is false"),
+    "rid1",
+).to_json()
 
 #: The same grade as the agent may read it from /submit: the verdict alone.
 VERDICT = {"correct": "yes", "request_id": "rid1"}
@@ -131,7 +143,7 @@ def client(service: ModuleType, upstream: str, monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.parametrize(
     ("route", "upstream_path"),
-    [("/submit", "/submit"), ("/score", "/score"), ("/bench", "/score"), ("/profile", "/profile")],
+    [("/submit", "/submit"), ("/score", "/score"), ("/profile", "/profile")],
 )
 def test_grading_routes_forward_verbatim(client: "TestClient", route: str, upstream_path: str) -> None:
     """Method, path, body and query (rank included) arrive unchanged; the answer comes back whole."""
@@ -281,14 +293,16 @@ def test_search_still_runs_locally(client: "TestClient", service: ModuleType, mo
     """/search is this container's own tool and is unchanged: same context join, same limit."""
     seen: dict[str, Any] = {}
 
+    found = service.judge_web_search.result_dict("MI300 LDS", "use LDS", [], [])
+
     def fake_search(query: str, limit: int | None) -> dict[str, Any]:
         seen.update(query=query, limit=limit)
-        return {"answer": "use LDS"}
+        return found
 
     monkeypatch.setattr(service.judge_web_search, "run_web_search", fake_search)
     response = client.post("/search", json={"query": "MI300 LDS", "context": "gemm", "limit": 3})
     assert response.status_code == 200
-    assert response.json() == {"answer": "use LDS"}
+    assert response.json() == found
     assert seen == {"query": "MI300 LDS\n\nTask context:\ngemm", "limit": 3}
     assert not StubJudge.calls  # search never touches the judge
 
@@ -380,7 +394,7 @@ def test_the_read_relay_leaves_other_methods_answered_by_the_router(
 #: static prefix up to the first path parameter or the whole literal for a route with none. This is
 #: the class of bug ``/canonical_parallel_form`` was: a tool calling a path this router never
 #: declared a handler for, forwarded to a 404 the agent cannot recover from.
-TOOLS_DIR = pathlib.Path(__file__).resolve().parents[1] / "agent" / "hpcagent_agent" / "tools"
+TOOLS_DIR = paths.ROOT / "agent" / "hpcagent_agent" / "tools"
 JUDGE_CALL_PATTERN = re.compile(r'(get|post)_judge\(\s*\n?\s*f?"(/[^"{]*)')
 
 
@@ -422,7 +436,7 @@ def test_every_agent_tool_judge_call_has_a_router_route(service: ModuleType) -> 
     assert not missing, f"agent tools call judge routes the router does not serve: {missing}"
 
 
-@pytest.mark.parametrize("route", ["/submit", "/score", "/bench"])
+@pytest.mark.parametrize("route", ["/submit", "/score"])
 @pytest.mark.parametrize("episode_id", [None, "", "  "])
 def test_a_recorded_route_without_a_episode_id_is_refused_before_grading(
     client: "TestClient", route: str, episode_id: str | None

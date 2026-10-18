@@ -16,25 +16,25 @@ The mechanism every registered kind shares is in [registry.md](registry.md).
 ## Examples (from `skill_packets.py`)
 
 ```python
-@packet("perf-playbook-cpu", order=13)   # skill bundle, CPU languages only
+@packet("perf-playbook-cpu", order=13)  # skill bundle, CPU languages only
 class PerfPlaybookCpu:
     name = "Performance Toolkit (CPU)"
     device = "cpu"
     skills = ("divide-and-conquer", "profiling", "opt-reports")
 
 
-@packet("cpf-tool", order=1)             # page + packet-only tool, switched on by env
-class CpfTool:
-    name = "Canonical Parallel Form Tool"
-    skills = ("cpf-tool",)
+@packet("cpf-tool-cpu", order=1, aliases=("cpf-tool",))  # page + packet-only tool, switched on by env
+class CpfToolCpu:
+    name = "Canonical Parallel Form Tool, CPU"
+    skills = ("cpf-tool-cpu",)
     tools = ("canonical_parallel_form",)
     env = {"HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}"}
 
 
-@packet("all-in-cpu", order=16)           # composition
+@packet("all-in-cpu", order=16)  # composition
 class AllInCpu:
     name = "All-in (CPU)"
-    packets = ("cpf-src", "perf-playbook-cpu", "lang")
+    packets = ("cpf-cpu-src", "perf-playbook-cpu", "lang")
 ```
 
 ## What a packet class provides
@@ -61,6 +61,22 @@ is the no-packet control: it takes `order=None`.
 A packet that stages a file rather than a page announces it in the task text through `packet_note`
 in `hpcagent_bench/cluster/make_problems.py`.
 
+The canonical parallel form (CPF) packets are four keys: `cpf-cpu-src` and `cpf-gpu-src` stage the form as the
+agent's starting source (`CPF_DROPIN_DIR`), `cpf-tool-cpu` and `cpf-tool-gpu` serve it through the
+`canonical_parallel_form` tool. `cpf-src` and `cpf-tool` are the device-neutral spellings a `PACKETS` knob takes:
+aliases of the CPU keys, which `packets.by_device` renames to the GPU keys for a device language
+(`packets.DEVICE_ONLY_LANGUAGES`). The setup records the device key it resolved to.
+
+Each has a `-kinds` counterpart (`cpf-cpu-src-kinds`, `cpf-gpu-src-kinds`, `cpf-tool-cpu-kinds`,
+`cpf-tool-gpu-kinds`; `cpf-src-kinds` and `cpf-tool-kinds` on a `PACKETS` knob) that serves the same code with
+each loop's hint cut to one `// par`, `// seq` or `// unknown` and no other comment, and whose page defines those
+three words in place of the hint table. The plain keys serve the whole hints (`proofs`: class, reason, witness, the
+header contract and library-node provenance). The detail is `HPCAGENT_BENCH_CPF_HINTS` (`cpf.hints`,
+`cpf_cache.HintDetail`), set by the `-kinds` packets and read by the judge per setup, the tool, the staging scripts
+and the prepare job (`--cpf-hints`). It is part of every cache key and view pointer name (`*_cpf-kinds.<ext>.json`),
+so one view holds both details and never serves one for the other; the judge refuses a request naming a detail its
+setup does not serve.
+
 ## Rules
 
 - `order` is the slot. It sets the packet's hue and, unless it names a `marker`, its shape, and the packet
@@ -85,3 +101,32 @@ python -m pytest --maxfail=10 tests/test_packets.py tests/test_packet_env.py \
 
 `packet_env.py` prints the resolved env and a final `HPCAGENT_BENCH_RECORD_PACKET=<canonical key>`
 line, which `record_identity` writes into the setup's `.env` and the DB stores as `setups.packet`.
+
+## External packets (pages kept outside the repository)
+
+A study can bring its own skill pages without committing them. `skills.external`
+(`HPCAGENT_BENCH_SKILLS_EXTERNAL`, a list of folders) names folders that each hold a `skills.yaml`:
+
+```yaml
+packets:
+  preconditioner-v4-single:
+    name: Solver Preconditioners v4, One Page
+    pages: [single/solver-preconditioners.md]
+  preconditioner-v4-split:
+    name: Solver Preconditioners v4, Five Pages
+    pages: [split/solver-preconditioners-verdict.md, split/solver-preconditioners-frozen.md]
+```
+
+- A page is a markdown file inside the folder with the shipped pages' frontmatter (`name`, `description`,
+  `when`). Its `name` is its identity: the task lists it as `/skills/<name>.md` and it is staged under that name.
+- An external packet stages pages and nothing else. `tools`, `env` and `method` are refused: a tool runs beside
+  the judge, and an external one could read what grading hides. `packets` may name shipped packets or pages
+  to stage with it.
+- No external page or packet reuses a shipped name or another folder's.
+- External packets join the vocabulary after the shipped ones, in key order, so each gets a slot of its own.
+- A setup names one in `record.packet` (`PACKETS`) like a shipped packet, with `HPCAGENT_BENCH_SKILLS_EXTERNAL`
+  in its env. `make_problems.py` records each page's file in the problems line, so staging needs no external
+  folder; plotting a study's rows needs `skills.external` set again so the packet's display name resolves.
+- The registry is read once per process: a running job does not see an edit to the folder.
+
+`hpcagent_bench/external_skills.py` reads the folders; `tests/test_external_skills.py` pins the rules.

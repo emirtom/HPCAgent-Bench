@@ -20,7 +20,6 @@ the parts that matter: a symbolic extent, a real maths lowering (``atan2``/``sqr
 buffer written through a map.
 """
 
-import dataclasses
 import importlib
 import importlib.util
 import json
@@ -39,6 +38,7 @@ from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec, ConfigKnob
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.bindings.stubs import gen_call_stub
+from tests.reference_outputs import compiled_outputs
 
 if TYPE_CHECKING:
     from dace import SDFG
@@ -62,19 +62,6 @@ def spec() -> BenchSpec:
     return BenchSpec.load(KERNEL)
 
 
-def numpy_reference(spec: BenchSpec) -> Callable[..., None]:
-    """The kernel's numpy function, imported from the reference the dace sibling was generated from."""
-    module = importlib.import_module(
-        ".".join(
-            (paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py")
-            .relative_to(paths.ROOT)
-            .with_suffix("")
-            .parts
-        )
-    )
-    return vars(module)[spec.func_name]
-
-
 def build_dropin(source: pathlib.Path, work: pathlib.Path, language: str = "c") -> str:
     """Compile a drop-in and return the ``.so`` path, for loading by the harness rather than ctypes.
 
@@ -93,20 +80,20 @@ def build_dropin(source: pathlib.Path, work: pathlib.Path, language: str = "c") 
 
 @pytest.mark.integration
 @pytest.mark.parametrize("language", sorted(DRIVERS))
-def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduces_numpy(
+def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduces_the_reference(
     spec: BenchSpec, language: str, tmp_path: pathlib.Path
 ) -> None:
     """The rendered signature is the prompt's stub, byte for byte, and the harness's own caller -- which
-    passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back numpy's
-    numbers through it."""
+    passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back the compiled
+    reference's numbers through it."""
     record = cpf_bridge.render_kernel(spec, tmp_path, language=language)
-    assert record["verdict"] == "ok", f"{KERNEL} did not render: {record}"
+    assert record.verdict == "ok", f"{KERNEL} did not render: {record}"
     native = binding_from_spec(spec)
-    assert record["entry"] == native.symbol
+    assert record.entry == native.symbol
 
-    source = pathlib.Path(record["source"])
+    source = pathlib.Path(record.source)
     assert source.name == f"{KERNEL}_fp64_cpf.{cpf_bridge.LANGUAGE_EXT[language]}"
-    assert json.loads(pathlib.Path(record["binding"]).read_text()) == native.to_json()
+    assert json.loads(pathlib.Path(record.binding).read_text()) == native.document().model_dump(exclude_unset=True)
     code = source.read_text()
     stub = gen_call_stub(native, "cpp" if language == "c++" else "c")
     assert entry_prototype(code, native.symbol) == entry_prototype(stub, native.symbol)
@@ -116,8 +103,9 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     rng = np.random.default_rng(0)
     data = {a.name: np.ascontiguousarray(rng.random(EXTENT)) for a in native.args if a.kind == "ptr"}
     data.update({a.name: EXTENT for a in native.args if a.kind == "scalar"})
-    expected = {name: value.copy() for name, value in data.items() if isinstance(value, np.ndarray)}
-    numpy_reference(spec)(**expected)
+    _kind, expected = compiled_outputs(
+        KERNEL, {name: (value.copy() if isinstance(value, np.ndarray) else value) for name, value in data.items()}
+    )
     (outs,), _, _, _ = _call_native(library, native, data, "c", workspace_bytes="8*N")
     assert outs, "the kernel declared no outputs"
     for name, got in outs.items():
@@ -143,23 +131,26 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     declares the ABI order and names the canonical symbol the judge links."""
     cache = tmp_path / "cache"
     first_record = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    first = first_record["results"]["c"]
-    assert (first["verdict"], first["cached"]) == ("ok", False), first
+    assert first_record.results is not None, first_record
+    assert first_record.canonical is not None, first_record
+    first = first_record.results["c"]
+    assert (first.verdict, first.cached) == ("ok", False), first
 
     second_record = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    assert second_record["canonical"] == {"key": first_record["canonical"]["key"]}, second_record
-    second = second_record["results"]["c"]
-    assert (second["key"], second["cached"]) == (first["key"], True)
+    assert second_record.results is not None, second_record
+    assert second_record.canonical == cpf_bridge.CanonicalOutcome(key=first_record.canonical.key), second_record
+    second = second_record.results["c"]
+    assert (second.key, second.cached) == (first.key, True)
 
     view = tmp_path / "view"
     cpf_cache.open_view(view, cache, "cpu", "test-commit")
-    cpf_cache.record(view, spec.short_name, "c", "fp64", second)
-    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64")
+    cpf_cache.record(view, spec.short_name, "c", "fp64", "proofs", second.model_dump())
+    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", "proofs")
     native = binding_from_spec(spec)
     assert form.entry == native.symbol
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     assert declared_parameters(form.source.read_text(), form.entry) == abi
-    assert json.loads(form.binding.read_text()) == native.to_json()
+    assert json.loads(form.binding.read_text()) == native.document().model_dump(exclude_unset=True)
 
 
 def prerender_kwargs() -> dict[str, object]:
@@ -170,6 +161,7 @@ def prerender_kwargs() -> dict[str, object]:
     return {
         "precision": "",
         "target": "cpu",
+        "hints": "proofs",
         "dace_package_root": pathlib.Path(found.origin).resolve().parents[1],
         "dace_commit": "test-commit",
     }
@@ -181,10 +173,12 @@ def test_a_second_language_renders_from_the_cached_canonical_sdfg(spec: BenchSpe
     from the stored SDFG instead of paying the parse and canonicalize again (lulesh's is over 30 minutes)."""
     cache = tmp_path / "cache"
     first = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    assert first["canonical"]["cached"] is False, first
+    assert first.canonical is not None, first
+    assert first.canonical.cached is False, first
     second = cpf_bridge.prerender_kernel(spec, cache, languages=["c++"], **prerender_kwargs())
-    assert second["canonical"] == {"key": first["canonical"]["key"], "cached": True}, second
-    assert second["results"]["c++"]["verdict"] == "ok", second
+    assert second.canonical == cpf_bridge.CanonicalOutcome(key=first.canonical.key, cached=True), second
+    assert second.results is not None, second
+    assert second.results["c++"].verdict == "ok", second
 
 
 @pytest.mark.integration
@@ -194,15 +188,19 @@ def test_a_form_rendered_again_from_the_stored_sdfg_is_the_first_render_byte_for
     """Every render reads the canonical SDFG back from its file, so a dropped form rendered again from the
     cached SDFG must reproduce the published bytes under the same key."""
     cache = tmp_path / "cache"
-    first = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())["results"]["c"]
-    entry = cpf_cache.entry_path(cache, str(first["key"]))
-    manifest = json.loads((entry / cpf_cache.MANIFEST_NAME).read_text())
-    text = (entry / manifest["artefacts"]["source"]["name"]).read_text()
+    rendered = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
+    assert rendered.results is not None, rendered
+    first = rendered.results["c"]
+    entry = cpf_cache.entry_path(cache, str(first.key))
+    manifest = cpf_cache.EntryManifest.model_validate_json((entry / cpf_cache.MANIFEST_NAME).read_bytes())
+    text = (entry / manifest.artefacts["source"].name).read_text()
     shutil.rmtree(entry)
     again = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
-    assert again["canonical"]["cached"] is True, again
-    assert again["results"]["c"]["key"] == first["key"]
-    assert (entry / manifest["artefacts"]["source"]["name"]).read_text() == text
+    assert again.canonical is not None, again
+    assert again.results is not None, again
+    assert again.canonical.cached is True, again
+    assert again.results["c"].key == first.key
+    assert (entry / manifest.artefacts["source"].name).read_text() == text
 
 
 def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
@@ -219,7 +217,7 @@ def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
 
     class Done:
         returncode = 0
-        stdout = '{"verdict": "ok"}'
+        stdout = '{"kernel": "k", "verdict": "ok"}'
         stderr = ""
 
     def fake_run(cmd: list[str], env: dict[str, str] | None = None, **kwargs: object) -> Done:
@@ -398,10 +396,11 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
         "c",
         "fp64",
         "cpu",
+        "proofs",
     )
     assert form.entry == native.symbol
     assert declared_parameters(form.code, form.entry) == abi
-    assert json.loads(form.binding) == native.to_json()
+    assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
     source = tmp_path / form.name
     source.write_text(form.code)
@@ -426,6 +425,7 @@ def test_a_dropin_refuses_a_returned_value_no_argument_holds(tmp_path: pathlib.P
             "c",
             "fp64",
             "cpu",
+            "proofs",
         )
 
 
@@ -481,6 +481,91 @@ def test_a_returned_value_is_dropped_only_when_the_manifest_does_not_grade_it(
     sdfg.validate()
 
 
+def mirrored_count_program(reader: str) -> "SDFG":
+    """``b = 2 * a`` beside a returned ``count`` that host code writes, the shape the GPU offload leaves cegterg's
+    ``__return_2``: a tasklet fills ``count_host``, which is copied into ``__return_0`` and, in a later state,
+    back. ``__return_0`` keeps host storage (its device storage changes nothing the drop reads) so a host
+    tasklet may read it. ``reader`` names a container a tasklet then reads for something else, or ``""``."""
+    import dace
+
+    sdfg = dace.SDFG("mirrored_count")
+    sdfg.add_array("a", [EXTENT], dace.float64)
+    sdfg.add_array("b", [EXTENT], dace.float64)
+    sdfg.add_array("__return_0", [1], dace.float64)
+    sdfg.add_scalar("count_host", dace.float64, transient=True)
+
+    compute = sdfg.add_state("compute")
+    compute.add_mapped_tasklet(
+        "double",
+        {"i": f"0:{EXTENT}"},
+        {"x": dace.Memlet("a[i]")},
+        "y = 2.0 * x",
+        {"y": dace.Memlet("b[i]")},
+        external_edges=True,
+    )
+    count = compute.add_tasklet("count", {"x"}, {"c"}, "c = x + 1.0")
+    compute.add_edge(compute.add_read("a"), None, count, "x", dace.Memlet("a[0]"))
+    host = compute.add_access("count_host")
+    compute.add_edge(count, "c", host, None, dace.Memlet("count_host[0]"))
+    compute.add_nedge(host, compute.add_write("__return_0"), dace.Memlet("count_host[0] -> [0]"))
+
+    copy_back = sdfg.add_state_after(compute, "copy_back")
+    device = copy_back.add_read("__return_0")
+    host_again = copy_back.add_write("count_host")
+    copy_back.add_nedge(device, host_again, dace.Memlet("__return_0[0] -> [0]"))
+    if reader:
+        use = copy_back.add_tasklet("use", {"r"}, {"o"}, "o = 3.0 * r")
+        source = device if reader == "__return_0" else host_again
+        copy_back.add_edge(source, None, use, "r", dace.Memlet(f"{reader}[0]"))
+        copy_back.add_edge(use, "o", copy_back.add_write("b"), None, dace.Memlet("b[0]"))
+    sdfg.validate()
+    return sdfg
+
+
+def tasklet_labels(sdfg: "SDFG") -> set[str]:
+    """The labels of every tasklet in ``sdfg``."""
+    import dace
+
+    return {node.label for node, _ in sdfg.all_nodes_recursive() if isinstance(node, dace.nodes.Tasklet)}
+
+
+def test_an_ungraded_return_mirrored_to_the_host_is_dropped_with_its_mirror() -> None:
+    """The GPU offload copies cegterg's host-written iteration counts to and from a device mirror, and those
+    copies kept three ungraded ``__return`` slots in the entry: the hip render failed the ABI order."""
+    sdfg = mirrored_count_program("")
+
+    dropped = cpf_bridge.drop_returned_arguments(sdfg, ["a", "b", "N"], ("b",), ("count",))
+
+    assert dropped == ("__return_0",)
+    assert not {"__return_0", "count_host"} & set(sdfg.arrays), list(sdfg.arrays)
+    assert "count" not in tasklet_labels(sdfg)  # the code that only computed the count goes too
+    assert "double" in tasklet_labels(sdfg)
+    sdfg.validate()
+
+
+@pytest.mark.parametrize("reader", ["__return_0", "count_host"])
+def test_an_ungraded_return_that_a_tasklet_reads_is_kept(reader: str) -> None:
+    """A copy is not a use, but a tasklet that reads the value, on the device or through its host mirror,
+    still needs it: dropping the slot would discard what that tasklet computes."""
+    sdfg = mirrored_count_program(reader)
+
+    assert cpf_bridge.drop_returned_arguments(sdfg, ["a", "b", "N"], ("b",), ("count",)) == ()
+    assert {"__return_0", "count_host"} <= set(sdfg.arrays)
+    assert {"count", "use"} <= tasklet_labels(sdfg)
+    sdfg.validate()
+
+
+def test_a_graded_return_with_a_host_mirror_is_kept() -> None:
+    """Only an ungraded slot may take its mirror chain with it: a graded value stays for the ordered render to
+    refuse, exactly as before."""
+    sdfg = mirrored_count_program("")
+
+    assert cpf_bridge.drop_returned_arguments(sdfg, ["a", "b", "N"], ("b", "count"), ("count",)) == ()
+    assert {"__return_0", "count_host"} <= set(sdfg.arrays)
+    assert "count" in tasklet_labels(sdfg)
+    sdfg.validate()
+
+
 @pytest.mark.integration
 def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_runs(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
@@ -488,9 +573,7 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
     """cegterg returns its iteration counts beside the graded eigenvalues, and every one of them was a
     ``__return`` slot the ABI does not have, so the kernel had no drop-in at all."""
     monkeypatch.setattr(paths, "BENCHMARKS", tmp_path)
-    spec = dataclasses.replace(
-        returning_spec(), func_name="returns_count", relative_path=".", module_name="returns_count"
-    )
+    spec = returning_spec().replace(func_name="returns_count", relative_path=".", module_name="returns_count")
     native = binding_from_spec(spec)
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     form = cpf_bridge.render_canonical(
@@ -500,6 +583,7 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
         "c",
         "fp64",
         "cpu",
+        "proofs",
     )
     assert declared_parameters(form.code, form.entry) == abi
 
@@ -596,9 +680,9 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     canonical = canonical_program(PINNED_PROGRAM_SOURCE, entry, tmp_path)
     assert ("scalar" if "knob" in canonical.arrays else "symbol") == canonical_kind, "the fixture lost its case"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
     assert declared_parameters(form.code, form.entry) == abi
-    assert json.loads(form.binding) == native.to_json()
+    assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
     source = tmp_path / form.name
     source.write_text(form.code)
@@ -642,7 +726,7 @@ def test_a_dropin_takes_a_rebound_scalar_parameter_by_value(tmp_path: pathlib.Pa
     native = binding_from_spec(spec)
     canonical = canonical_program(REBINDING_PROGRAM_SOURCE, "doubles_its_factor", tmp_path)
     assert "k" in canonical.arrays, "the fixture lost its written scalar"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
     assert {arg["name"]: arg["kind"] for arg in json.loads(form.binding)["args"]}["k"] == "scalar"
 
     source = tmp_path / form.name
@@ -689,7 +773,7 @@ def test_a_dropin_of_a_renamed_argument_declares_the_manifest_name_in_abi_order(
     sdfg = cpf_canonical.parse_program(spec, impl, "")
     cpf_canonical.canonicalize_for(sdfg, "cpu")
 
-    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", "cpu")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", "cpu", "proofs")
 
     want = [arg.name for arg in binding_from_spec(spec).args] + [
         cpf_bridge.WORKSPACE_NAME,
@@ -723,4 +807,8 @@ if __name__ == "__main__":
     test_the_entry_is_respelled_as_the_stub_and_a_renamed_argument_takes_its_manifest_name()
     test_an_abi_symbol_is_forced_through_a_nested_sdfg_when_no_top_level_tasklet_can_carry_it()
     test_a_dropin_of_a_renamed_argument_declares_the_manifest_name_in_abi_order()
+    test_an_ungraded_return_mirrored_to_the_host_is_dropped_with_its_mirror()
+    test_an_ungraded_return_that_a_tasklet_reads_is_kept("__return_0")
+    test_an_ungraded_return_that_a_tasklet_reads_is_kept("count_host")
+    test_a_graded_return_with_a_host_mirror_is_kept()
     print("ok (the integration tests run under pytest -m integration)")

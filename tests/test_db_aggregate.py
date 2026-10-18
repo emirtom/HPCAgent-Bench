@@ -20,37 +20,39 @@ import pytest
 from hpcagent_bench import cli
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import recording, results_db
-from hpcagent_bench.support import update_names
 from tests.results_rows import attempts, submissions
 
 
-def _seed(path: str, *, run: str, kernels: list[str], with_results: bool = True, language: str = "c") -> None:
+def seed_shard(
+    path: str, *, run: str, kernels: list[str], with_canon: bool = True, language: str = "c", timestamp: int = 1
+) -> None:
     """Write one shard: the run's setup and identity, one credited and one failed grade per kernel.
 
     The grades carry no ``language`` of their own -- the identity a figure groups by is the setup the
     run belongs to -- so the shard has to hold that row or the merged DB describes grades nothing
-    can attribute."""
+    can attribute. ``timestamp`` stamps the sweep rows: two shards' sweeps ran at different times."""
     setup = run.split(".", maxsplit=1)[0]
     with contextlib.closing(recording.connect(path)) as conn:
         results_db.ensure_setup(conn, results_db.Setup(setup, language, "cpu", study="agg", model="stub-model"))
-        episode_id = results_db.ensure_episode(conn, setup, run, None)
+        episode_id = results_db.ensure_episode(conn, setup, run, results_db.LOCAL_JOB)
         for kernel in kernels:
-            stamp = {"preset": "S", "datatype": "float64", "source_mode": "restricted", "baseline": "c"}
+            stamp = {
+                "preset": "S",
+                "datatype": "float64",
+                "source_mode": "restricted",
+                "task_hash": "test-task",
+                "baseline": "c",
+            }
             credited = {"build_ok": 1, "correct": 1, "speedup": 1.5, "credited_speedup": 1.5}
             results_db.add_grade(conn, episode_id, kernel, "submit", ts_ms=1, values=stamp | credited)
             failed = {"build_ok": 0, "correct": 0, "reason": "build"}
             results_db.add_grade(conn, episode_id, kernel, "submit", ts_ms=2, values=stamp | failed)
-            if with_results:
-                # The framework ``results`` table belongs to another module's schema but lives in the
-                # same file; aggregation must carry it even though recording.py never creates it.
+            if with_canon:
+                # A baseline sweep's canon row (the run is the sweep, which ran at ``timestamp``).
                 conn.execute(
-                    "CREATE TABLE IF NOT EXISTS results ("
-                    "id INTEGER PRIMARY KEY, timestamp INTEGER, kernel TEXT, preset TEXT, "
-                    "framework TEXT, validated INTEGER, time REAL)"
-                )
-                conn.execute(
-                    "INSERT INTO results(timestamp, kernel, preset, framework, validated, time) VALUES (?,?,?,?,?,?)",
-                    (1, kernel, "S", "numpy", 1, 2.0),
+                    'INSERT INTO canon (run, "column", kernel, preset, datatype, median_ms, validated, status)'
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"sweep{timestamp}", "numpy", kernel, "S", "float64", 2.0, 1, "ok"),
                 )
         conn.commit()
 
@@ -76,21 +78,21 @@ def test_shard_paths_ignores_the_base_and_unrelated_files(tmp_path) -> None:
     pathlib.Path(base).open("w").close()
     pathlib.Path(str(tmp_path / "hpcagent_benchX.db")).open("w").close()
     pathlib.Path(str(tmp_path / "other1.db")).open("w").close()
-    _seed(recording.shard_db_path(1, base), run="r1", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(1, base), run="r1", kernels=["gemm"])
     assert recording.shard_paths(base) == [recording.shard_db_path(1, base)]
 
 
 def test_aggregate_merges_every_table_and_reassigns_ids(tmp_path) -> None:
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm", "jacobi_2d"], language="c")
-    _seed(recording.shard_db_path(1, base), run="r1", kernels=["gemm", "spmv"], language="fortran")
+    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm", "jacobi_2d"], language="c")
+    seed_shard(recording.shard_db_path(1, base), run="r1", kernels=["gemm", "spmv"], language="fortran", timestamp=2)
 
     recording.aggregate(base)
 
     # Every grade is its own natural key; the runs and setups keep one row per key.
     assert len(submissions(base)) == 4
     assert len(attempts(base)) == 4
-    assert _count(base, "results") == 4
+    assert _count(base, "canon") == 4
     assert _count(base, "episodes") == 2
 
     ids = [row["id"] for row in submissions(base)]
@@ -115,7 +117,7 @@ def test_two_ranks_of_one_run_merge_instead_of_colliding(tmp_path: pathlib.Path)
     ranks is one grade too."""
     base = str(tmp_path / "hpcagent_bench.db")
     for rank in (0, 1):
-        _seed(recording.shard_db_path(rank, base), run="llr2-c.n0.p3.w1", kernels=["gemm"], language="c")
+        seed_shard(recording.shard_db_path(rank, base), run="llr2-c.n0.p3.w1", kernels=["gemm"], language="c")
 
     recording.aggregate(base)
 
@@ -129,8 +131,8 @@ def test_aggregate_merges_a_episode_id_shared_by_multiple_shards(tmp_path) -> No
     """A run served by several ranks writes the SAME run into every rank's own shard, so the second
     shard's row for it must not collide with the first's -- it is the same fact."""
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(recording.shard_db_path(0, base), run="shared", kernels=["gemm"])
-    _seed(recording.shard_db_path(1, base), run="shared", kernels=["spmv"])
+    seed_shard(recording.shard_db_path(0, base), run="shared", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(1, base), run="shared", kernels=["spmv"])
 
     recording.aggregate(base)
 
@@ -142,37 +144,24 @@ def test_aggregate_merges_a_episode_id_shared_by_multiple_shards(tmp_path) -> No
     assert len(submissions(base)) == 2
 
 
-def test_aggregate_survives_a_shard_missing_a_column(tmp_path) -> None:
-    """Shards can be written by different code versions; one stale shard must not kill the merge."""
+def test_aggregate_refuses_a_shard_holding_a_table_outside_the_schema(tmp_path) -> None:
+    """There is one schema: a shard carrying any other table (an older writer's) is refused, never folded in."""
     base = str(tmp_path / "hpcagent_bench.db")
-    current, stale = recording.shard_db_path(0, base), recording.shard_db_path(1, base)
-    _seed(current, run="r0", kernels=["gemm"])
-    _seed(stale, run="r1", kernels=["spmv"])
+    current, other = recording.shard_db_path(0, base), recording.shard_db_path(1, base)
+    seed_shard(current, run="r0", kernels=["gemm"])
+    seed_shard(other, run="r1", kernels=["spmv"])
+    with contextlib.closing(sqlite3.connect(other)) as conn, conn:
+        conn.execute("CREATE TABLE results (id INTEGER PRIMARY KEY, framework TEXT)")
 
-    conn = sqlite3.connect(stale)
-    try:  # drop a column the other shard has, the way an older schema would
-        conn.execute("ALTER TABLE results DROP COLUMN framework")
-        conn.commit()
-    finally:
-        conn.close()
-
-    recording.aggregate(base)
-
-    assert _count(base, "results") == 2
-    conn = sqlite3.connect(base)
-    try:
-        frameworks = {r[0] for r in conn.execute("SELECT framework FROM results")}
-    finally:
-        conn.close()
-    # The row survives; only the column the stale shard could not supply is NULL.
-    assert frameworks == {None, "numpy"}
+    with pytest.raises(results_db.SchemaVersionError, match="outside"):
+        recording.aggregate(base)
 
 
 def test_aggregate_is_idempotent(tmp_path) -> None:
     """Rebuilt from scratch, never appended to -- re-merging must not double the rows."""
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
-    _seed(recording.shard_db_path(1, base), run="r1", kernels=["spmv"])
+    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(1, base), run="r1", kernels=["spmv"])
 
     recording.aggregate(base)
     first = len(submissions(base))
@@ -180,41 +169,10 @@ def test_aggregate_is_idempotent(tmp_path) -> None:
     assert len(submissions(base)) == first == 2
 
 
-def framework_shard(path: pathlib.Path, names_version: int, flavor: str = "parallel") -> None:
-    """A framework sweep shard: one ``results`` row, stamped with the names scheme it was written under."""
-    with contextlib.closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute(f"PRAGMA application_id = {names_version}")
-        conn.execute("CREATE TABLE results (id INTEGER PRIMARY KEY, kernel TEXT, framework TEXT, flavor TEXT)")
-        conn.execute("INSERT INTO results (kernel, framework, flavor) VALUES ('gemm', 'dace_cpu', ?)", (flavor,))
-
-
-def test_a_merged_framework_shard_keeps_its_names_stamp(tmp_path: pathlib.Path) -> None:
-    """The merge dropped the names stamp, so update_names then renamed the current ``parallel`` rows to
-    ``loop2map``."""
-    shard, dest = tmp_path / "shard.db", tmp_path / "merged.db"
-    framework_shard(shard, update_names.NAMES_VERSION)
-
-    results_db.merge(dest, [shard])
-
-    assert update_names.update(dest) == 0
-    with contextlib.closing(sqlite3.connect(dest)) as conn:
-        assert conn.execute("SELECT flavor FROM results").fetchall() == [("parallel",)]
-        assert update_names.names_version(conn) == update_names.NAMES_VERSION
-
-
-def test_a_merge_refuses_framework_rows_under_two_names_schemes(tmp_path: pathlib.Path) -> None:
-    current, stale = tmp_path / "current.db", tmp_path / "stale.db"
-    framework_shard(current, update_names.NAMES_VERSION)
-    framework_shard(stale, 0, flavor=None)  # type: ignore[arg-type]
-
-    with pytest.raises(results_db.SchemaVersionError, match="names scheme"):
-        results_db.merge(tmp_path / "merged.db", [current, stale])
-
-
 def test_a_failed_merge_step_raises_its_own_error(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """DETACH after a failed step raised "database src is locked" in place of the error that stopped it."""
     shard = tmp_path / "shard.db"
-    _seed(str(shard), run="r0", kernels=["gemm"], with_results=False)
+    seed_shard(str(shard), run="r0", kernels=["gemm"], with_canon=False)
     real = results_db.merge_rows
 
     def failing(conn: sqlite3.Connection, table: str, ids: results_db.IdMap) -> int:
@@ -232,7 +190,7 @@ def test_aggregate_carries_the_sources_inside_the_db(tmp_path) -> None:
     """A source is a row of the DB, so the merged file holds the text itself: no store beside it."""
     base = str(tmp_path / "hpcagent_bench.db")
     shard = recording.shard_db_path(0, base)
-    _seed(shard, run="r0", kernels=["gemm"])
+    seed_shard(shard, run="r0", kernels=["gemm"])
     with contextlib.closing(recording.connect(shard)) as conn:
         results_db.store_source(conn, 1, "host", "c", "optimize this")
         conn.commit()
@@ -247,7 +205,7 @@ def test_aggregate_carries_the_sources_inside_the_db(tmp_path) -> None:
 
 def test_ensure_aggregated_builds_when_the_aggregate_is_missing(tmp_path) -> None:
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
     assert not pathlib.Path(base).exists()
 
     assert recording.ensure_aggregated(base) == base
@@ -257,12 +215,12 @@ def test_ensure_aggregated_builds_when_the_aggregate_is_missing(tmp_path) -> Non
 def test_ensure_aggregated_rebuilds_when_a_shard_is_newer(tmp_path) -> None:
     """A shard that landed after the last merge must not be read through a stale aggregate."""
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
     recording.ensure_aggregated(base)
     assert len(submissions(base)) == 1
 
     late = recording.shard_db_path(1, base)
-    _seed(late, run="r1", kernels=["spmv"])
+    seed_shard(late, run="r1", kernels=["spmv"])
     os.utime(late, (time.time() + 10, time.time() + 10))
 
     recording.ensure_aggregated(base)
@@ -273,7 +231,7 @@ def test_aggregate_cut_short_by_a_corrupt_shard_leaves_no_partial_aggregate(tmp_
     """The merge commits once per shard: built in place, a failure on shard 1 left shard 0's rows as an
     aggregate newer than every shard, which :func:`recording.ensure_aggregated` then served as current."""
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
     pathlib.Path(recording.shard_db_path(1, base)).write_bytes(b"truncated by an OOM-killed rank")
 
     with pytest.raises(sqlite3.DatabaseError):
@@ -286,7 +244,7 @@ def test_aggregate_cut_short_by_a_corrupt_shard_leaves_no_partial_aggregate(tmp_
 def test_merge_results_cut_short_by_a_corrupt_shard_leaves_no_partial_results_db(tmp_path: pathlib.Path) -> None:
     """A job's ``results.db`` makes every reader skip its shards (:func:`studies.merged_shard`), so one
     holding only the shards before a corrupt one would hide the rest."""
-    _seed(str(tmp_path / "judge" / "rank-0" / "hpcagent_bench0.db"), run="r0", kernels=["gemm"])
+    seed_shard(str(tmp_path / "judge" / "rank-0" / "hpcagent_bench0.db"), run="r0", kernels=["gemm"])
     corrupt = tmp_path / "judge" / "rank-1" / "hpcagent_bench1.db"
     corrupt.parent.mkdir(parents=True)
     corrupt.write_bytes(b"truncated by an OOM-killed rank")
@@ -299,10 +257,27 @@ def test_merge_results_cut_short_by_a_corrupt_shard_leaves_no_partial_results_db
     assert not list(tmp_path.glob("results.db*"))
 
 
+def test_merge_results_without_shards_still_records_the_episodes(tmp_path: pathlib.Path) -> None:
+    """An agent that timed out before its first submit leaves no judge shard; its episode and token spend
+    are still the run's data."""
+    (tmp_path / "judge").mkdir()
+    worker = tmp_path / "agents" / "node-0" / "problem-0-worker-0"
+    worker.mkdir(parents=True)
+    (worker / "tokens.json").write_text(
+        '{"episode_id": "s.n0.p0.w0", "kernel": "gemm", "result": "timeout", "turns": 10}', encoding="utf-8"
+    )
+    out = tmp_path / "results.db"
+
+    merge_results.merge(tmp_path, out)
+
+    with contextlib.closing(sqlite3.connect(out)) as conn:
+        assert conn.execute("SELECT kernel, result, turns FROM episodes").fetchall() == [("gemm", "timeout", 10)]
+
+
 def test_ensure_aggregated_is_a_noop_without_shards(tmp_path) -> None:
     """A single-writer run keeps working untouched -- no aggregate is invented for it."""
     base = str(tmp_path / "hpcagent_bench.db")
-    _seed(base, run="solo", kernels=["gemm"])
+    seed_shard(base, run="solo", kernels=["gemm"])
     before = pathlib.Path(base).stat().st_mtime
     assert recording.ensure_aggregated(base) == base
     assert pathlib.Path(base).stat().st_mtime == before
@@ -382,7 +357,7 @@ def test_aggregate_db_cli_merges_explicit_per_rank_sources_once(
         directory = tmp_path / "judge" / f"rank-{rank}"
         directory.mkdir(parents=True)
         shard = str(directory / "hpcagent_bench.db")
-        _seed(shard, run=f"s{rank}.r{rank}", kernels=kernels)
+        seed_shard(shard, run=f"s{rank}.r{rank}", kernels=kernels, timestamp=rank + 1)
         shards.append(shard)
     dest = str(tmp_path / "merged.db")
     argv = ["aggregate-db", "--db", dest, "--source", shards[0], "--source", shards[1]]
@@ -402,7 +377,7 @@ def test_aggregate_db_cli_without_sources_scans_beside_the_destination(
     assert cli.main(["aggregate-db", "--db", dest]) == 0
     assert "nothing to aggregate" in capsys.readouterr().out
     assert not pathlib.Path(dest).exists()
-    _seed(recording.shard_db_path(0, dest), run="s0.r0", kernels=["gemm"])
-    _seed(recording.shard_db_path(1, dest), run="s1.r1", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(0, dest), run="s0.r0", kernels=["gemm"])
+    seed_shard(recording.shard_db_path(1, dest), run="s1.r1", kernels=["gemm"], timestamp=2)
     assert cli.main(["aggregate-db", "--db", dest]) == 0
     assert _count(dest, "grades") == 4

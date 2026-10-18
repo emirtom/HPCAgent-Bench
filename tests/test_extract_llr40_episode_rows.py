@@ -19,6 +19,7 @@ from hpcagent_bench import observations_extract as extract_llr40
 from hpcagent_bench import studies
 from hpcagent_bench.cluster import merge_results
 from hpcagent_bench.harness import episodes, results_db
+from tests.results_seed import STAMP as GRADE_STAMP
 
 KERNEL = "fuse_stencil_through_transient"
 JOB = 636501
@@ -27,7 +28,7 @@ LABEL = "setup-a.n0.p0.w0"
 START_MS = 1_789_000_000_000
 
 
-def write_record(job_dir: pathlib.Path, worker: int, fold: int | None = 3, **fields: object) -> pathlib.Path:
+def write_record(job_dir: pathlib.Path, worker: int, **fields: object) -> pathlib.Path:
     """The ``tokens.json`` the driver leaves in ``agents/node-0/problem-<w>-worker-<w>/``."""
     worker_dir = job_dir / "agents" / "node-0" / f"problem-{worker}-worker-{worker}"
     worker_dir.mkdir(parents=True)
@@ -44,8 +45,6 @@ def write_record(job_dir: pathlib.Path, worker: int, fold: int | None = 3, **fie
         "final_attempt_start_ms": START_MS,
         **fields,
     }
-    if fold is not None:
-        record["token_fold"] = fold
     path = worker_dir / "tokens.json"
     path.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
     return path
@@ -69,7 +68,7 @@ def shard(job_dir: pathlib.Path, rank: int, label: str, ts_ms: int) -> None:
             "speedup": 2.0,
             "credited_speedup": 2.0,
         }
-        results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=ts_ms, values=values)
+        results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=ts_ms, values=GRADE_STAMP | values)
         conn.commit()
 
 
@@ -120,23 +119,9 @@ def test_an_episode_that_never_reached_the_judge_still_yields_its_episode_row(tm
     assert (rows["setup-a.n0.p3.w3"]["setup"], rows["setup-a.n0.p3.w3"]["tokens"]) == ("setup-a", 5_000)
 
 
-def test_a_record_from_the_double_counting_fold_keeps_its_row_without_a_total(tmp_path: pathlib.Path) -> None:
-    """Fold 1 double-counted reasoning and a record without a fold predates the rule: their numbers
-    are never read, but the episode happened and keeps its row."""
+def test_a_records_tokens_are_read(tmp_path: pathlib.Path) -> None:
     job_dir = job(tmp_path)
-    write_record(job_dir, 0, fold=1)
-    write_record(job_dir, 1, fold=None)
-
-    rows = episode_rows(merged(job_dir))
-
-    assert len(rows) == 2
-    assert {row["tokens"] for row in rows} == {""}
-    assert {row["tokens_output"] for row in rows} == {""}
-
-
-def test_a_fold_2_record_is_trusted(tmp_path: pathlib.Path) -> None:
-    job_dir = job(tmp_path)
-    write_record(job_dir, 0, fold=episodes.MIN_TOKEN_FOLD)
+    write_record(job_dir, 0)
 
     (row,) = episode_rows(merged(job_dir))
 
@@ -159,9 +144,11 @@ def test_a_relaunched_episode_row_reports_the_crashed_spend_and_the_cut(tmp_path
 
 def test_an_episode_the_job_cancelled_is_flagged_on_its_row(tmp_path: pathlib.Path) -> None:
     """T6/X8: an agent still running when the job went down ends ``cancelled``, and the flag has to
-    reach the row -- the analysis drops the task off it."""
+    reach the row -- the analysis drops the task off it. The driver writes no closing subtype then
+    (``result`` '') and leaves its marker file beside the record (``agent_driver.mark_cancelled``)."""
     job_dir = job(tmp_path)
-    write_record(job_dir, 0, result=agent_driver.CANCELLED_MARKER)
+    record = write_record(job_dir, 0, result="", returncode=143)
+    agent_driver.mark_cancelled(record.parent, 143)
     write_record(job_dir, 1)
 
     rows = {row["episode_id"]: row["episode_cancelled"] for row in episode_rows(merged(job_dir))}

@@ -98,7 +98,7 @@ class Glm53:
 class Dace:
     __slots__ = ()
 
-    name = "DaCe"
+    name = "DaCe+AOpt"
 
 
 @optimizer(
@@ -110,14 +110,12 @@ class Dace:
             for arch in ("cpu", "gpu")
             for alloy in ("", "_alloy_profile", "_alloy_heuristic")
         ),
-        "dace_cpu_canonicalize",
-        "dace_gpu_canonicalize",
     ),
 )
 class Cpf:
     __slots__ = ()
 
-    name = "Canonical Parallel Form"
+    name = "DaCe+CPF"
 
 
 @optimizer("pluto", order=2)

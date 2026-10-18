@@ -69,15 +69,15 @@ role_mounts() {
         #
         # ONLY THE SEVEN JIT CATEGORY SUBDIRS run_vllm_node exports (<cache_root>/.<category>/<key>),
         # never the whole JIT_CACHE_ROOT: the root also holds .cpf-prerender and results/canon.db,
-        # which a third-party serving stack (trust_remote_code) must not be able to rewrite. The
-        # default must match cache_env.sh's JIT_CACHE_ROOT exactly.
+        # which a third-party serving stack (trust_remote_code) must not be able to rewrite. The root is
+        # cache_env.sh's JIT_CACHE_ROOT.
         #
         # mkdir -p PER CATEGORY, printing a path only when its own mkdir succeeded: a bind source
         # that does not exist stops the container from starting, so a category that cannot be
         # created is dropped (ephemeral inside the container) instead. `mkdir ... && printf ...`
         # does not trip `set -e`.
         vllm*|inference*)
-            local jit_root="${JIT_CACHE_ROOT:-${SCRATCH:?set SCRATCH}/.hpcagentbench-cache}"
+            local jit_root="${JIT_CACHE_ROOT:?helpers/scripts/cache_env.sh exports it}"
             local jit_category
             for jit_category in .home .xdg .aiter .vllm .triton .inductor .torch-ext; do
                 mkdir -p "${jit_root}/${jit_category}" 2>/dev/null &&
@@ -175,7 +175,7 @@ derived_edf() {
     [[ "${role}" == agent* ]] && read_only=1
     local -a edf_dirs
     EDF_FILE="${RUN_DIR}/edf/${name}.${role}.toml"
-    IFS=: read -r -a edf_dirs <<<"${EDF_PATH:-${HOME}/.edf}"
+    IFS=: read -r -a edf_dirs <<<"${EDF_PATH:?helpers/scripts/site_env.sh exports it}"
     for dir in "${edf_dirs[@]}"; do
         if [[ -f "${dir}/${name}.toml" ]]; then
             src="${dir}/${name}.toml"
@@ -183,7 +183,7 @@ derived_edf() {
         fi
     done
     if [[ -z "${src}" ]]; then
-        echo "EDF '${name}.toml' not found in ${EDF_PATH:-${HOME}/.edf}" >&2
+        echo "EDF '${name}.toml' not found in ${EDF_PATH}" >&2
         exit 2
     fi
     mkdir -p "${RUN_DIR}/edf"
@@ -357,12 +357,15 @@ container_wrap() {
 # edf_with_checkout <edf> <checkout> <out> -- writes <out>, a copy of the registered judge EDF <edf> whose
 # /opt/hpcagent-bench mount names <checkout>, the tree under test. For a step that runs a registered EDF as it is
 # (the CI replay, the scaling grade) rather than a role's derived one: the install-time EDF names the checkout it was
-# installed from. Refuses an EDF with no such mount.
+# installed from. The checkout is also mounted at its own path: a step names its scripts there (prepare_job.sh runs
+# ${PWD}/materialize_shared.sh), and a checkout outside the filesystems the EDF was installed with is otherwise not
+# in the container. Refuses an EDF with no such mount.
 edf_with_checkout() {
     local edf="$1" checkout="$2" out="$3"
     grep -qE "\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\"" "${edf}" || {
         echo "edf_with_checkout: ${edf} mounts nothing at ${JUDGE_PACKAGE_MOUNT} (install_edfs.sh renders one that does)" >&2
         return 2
     }
-    sed -E "s|\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\"|\"${checkout}:${JUDGE_PACKAGE_MOUNT}\"|" "${edf}" >"${out}.tmp" && mv -f "${out}.tmp" "${out}"
+    sed -E "s|^([[:space:]]*)\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\",?|\1\"${checkout}:${JUDGE_PACKAGE_MOUNT}\",\n\1\"${checkout}:${checkout}\",|" \
+        "${edf}" >"${out}.tmp" && mv -f "${out}.tmp" "${out}"
 }

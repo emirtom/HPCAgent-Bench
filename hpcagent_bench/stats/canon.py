@@ -33,7 +33,7 @@ def read_times(frame: "pd.DataFrame") -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = collections.defaultdict(dict)
     columns = (series_of(frame, name) for name in ("validated", "median_ms", "column", "kernel"))
     for validated, cell, column, kernel in zip(*columns, strict=False):
-        if str(validated).strip().lower() not in ("true", "1", "yes"):
+        if validated != 1:
             continue
         if cell is None or (isinstance(cell, float) and math.isnan(cell)):
             continue
@@ -84,5 +84,5 @@ def read_status(frame: "pd.DataFrame") -> dict[str, dict[str, bool]]:
     out: dict[str, dict[str, bool]] = collections.defaultdict(dict)
     columns = (series_of(frame, name) for name in ("column", "kernel", "validated"))
     for column, kernel, validated in zip(*columns, strict=False):
-        out[str(column)][str(kernel)] = str(validated).strip().lower() in ("true", "1", "yes")
+        out[str(column)][str(kernel)] = validated == 1
     return out

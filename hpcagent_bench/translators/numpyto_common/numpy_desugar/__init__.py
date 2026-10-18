@@ -205,7 +205,9 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             changed = changed or inline.changed
     kir_seed: dict[str, int] = {a.name: len(a.shape) for a in kir.arrays}
     kir_dtype_seed: dict[str, str] = {}
-    for a in kir.arrays:
+    # Scalar parameters too: an unknown ``dtime`` is contagious, so ``zc * dtime / h`` and every reduction of it
+    # fell back to an explicit loop nest (velocity_tendencies' masked vcfl max ran serially on the GPU host).
+    for a in [*kir.arrays, *kir.scalars]:
         kind = kind_of_dtype_str(a.dtype)
         if kind:
             kir_dtype_seed[a.name] = kind

@@ -32,10 +32,8 @@ cases rode in the timed call, the timing readings are in the Score) or re-runs t
 * Every gate that only reads the grade runs, and every finding is kept.
 * A gate that re-runs the submission is skipped once the grade is rejected (by the grade itself or an
   earlier gate).
-* A gate labelled `expensive` runs only for a setup that names it in `record.expensive_gates`
-  (`$HPCAGENT_BENCH_RECORD_EXPENSIVE_GATES`, comma-separated gate keys; a key that is not an expensive
-  gate is refused). The judge's stderr gives the seconds each re-running gate took per grade
-  (`anticheat: <kernel>: independent_verify 41.2s, sanitizers 12.0s`), the cost the label rests on.
+* The judge's stderr gives the seconds each re-running gate took per grade
+  (`anticheat: <kernel>: independent_verify 41.2s, sanitizers 12.0s`).
 
 A rejection is recorded in `reason` as `<gate key>: <what it found>` (`size_class_sweep: overfit`,
 `independent_verify: fresh-seed-mismatch`, `sanitizers: heap-buffer-overflow ...`), `; `-joined when
@@ -87,8 +85,9 @@ kernel that wrote its answer once and skipped the later repeats is graded on NaN
 
 ## 6. Every timed run gets new values, and every run is graded
 
-Consecutive calls draw their values from the kernel's own generator at different seeds of the cell's
-pool of 4; structural arrays (sparse indices, offsets, masks) stay fixed. Every timed run's outputs are
+Each call of a measurement draws its values from the kernel's own generator at its own seed of the cell's
+pool of 6, one seed per call (1 warmup + 5 runs), so no input repeats within one measurement; structural
+arrays (sparse indices, offsets, masks) stay fixed. Every timed run's outputs are
 graded against the oracle on that run's own input, so a cross-call cache misses honestly or answers
 wrong, and a latent race that fires in any one run fails the grade. The baseline is timed on the same
 inputs.
@@ -202,7 +201,7 @@ shell (the stack limit there is a one-time `ulimit -s "$(ulimit -H -s)"`), the u
 `limits.thread_stack_mb` per thread; the limit is the logical CPUs the process owns, which is libgomp's own
 default team (a lower one hung a compiled autopar reference at a barrier). It clamps a team a submission
 sizes past those CPUs (`4 * omp_get_num_procs()`), and since the stacks are charged to the kernel's
-`RLIMIT_DATA` cap, the cap reserves exactly `OMP_THREAD_LIMIT` of them. `native_call.check_launch_env` runs
+`RLIMIT_DATA` cap, the cap reserves `OMP_THREAD_LIMIT` x `limits.thread_reserve_mb` (1 GiB, at least one stack) for them; what a 512 MiB stack leaves of it is allocation headroom. `native_call.check_launch_env` runs
 in the grading child and fails the grade as a harness fault (`NativeCallLaunchEnv`) naming the values to
 launch with when they are missing.
 
@@ -229,9 +228,9 @@ them after a rebuild.
   first), so outputs keep their generated initial values; an entry that writes nothing fails
   correctness.
 
-## Known issues (v0.1)
+## Known issues
 
 - **A sibling's single submission can be spent.** The judge router takes `episode_id` from the request body, and
   episode ids are predictable (`<setup>.n<node>.p<problem>.w<worker>`), so an agent can post under a sibling's
-  id and spend that episode's single submission. TODO for v0.1: a per-episode token that the router checks
+  id and spend that episode's single submission. The fix is a per-episode token that the router checks
   (`hpcagent_bench/cluster/judge_service.py`).

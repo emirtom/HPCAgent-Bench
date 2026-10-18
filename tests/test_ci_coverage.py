@@ -12,7 +12,9 @@ from typing import Any
 
 import yaml
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+from hpcagent_bench import paths
+
+REPO = paths.ROOT
 WORKFLOW = REPO / ".github" / "workflows" / "tests.yml"
 DEDICATED = REPO / ".github" / "dedicated_tests.txt"
 ACTIONS = sorted((REPO / ".github" / "actions").glob("*/action.yml"))
@@ -20,6 +22,9 @@ TRANSLATOR_TESTS = REPO / "tests" / "translators"
 
 #: The per-container budget in minutes; a job over it becomes the run's critical path.
 CONTAINER_BUDGET_MINUTES = 45
+#: job -> why it may budget past :data:`CONTAINER_BUDGET_MINUTES`. ``perf`` times one canonicalization of cloudsc,
+#: a single compile that cannot be split, and it reports without blocking (``continue-on-error``).
+OVER_BUDGET_JOBS = {"perf": "cloudsc canonicalization is one indivisible compile; the job does not block"}
 
 
 def dedicated_files() -> set[str]:
@@ -244,9 +249,14 @@ def test_no_job_budgets_itself_past_the_container_ceiling() -> None:
     over = {
         name: job["timeout-minutes"]
         for name, job in workflow_jobs().items()
-        if job.get("if") is not False and int(job.get("timeout-minutes", 10**6)) > CONTAINER_BUDGET_MINUTES
+        if job.get("if") is not False
+        and name not in OVER_BUDGET_JOBS
+        and int(job.get("timeout-minutes", 10**6)) > CONTAINER_BUDGET_MINUTES
     }
     assert not over, f"these jobs budget past {CONTAINER_BUDGET_MINUTES} minutes: {over}; split the work instead"
+    jobs = workflow_jobs()
+    blocking = sorted(name for name in OVER_BUDGET_JOBS if jobs[name].get("continue-on-error") is not True)
+    assert not blocking, f"over-budget jobs must not block the run: {blocking}"
 
 
 def test_every_job_sets_a_timeout_at_all() -> None:

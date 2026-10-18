@@ -15,27 +15,32 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 
+import pydantic
+
 from hpcagent_bench import config, framework_cache, paths
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.usage import TokenUsage
 from hpcagent_bench.languages import LANG_TARGET
-from hpcagent_bench.spec import BenchSpec, as_list, register_manifest_cache
+from hpcagent_bench.spec import BenchSpec, register_manifest_cache
 
 if TYPE_CHECKING:
     from anthropic.types import MessageParam
 
 __all__ = [
     "BACKENDS",
-    "GENERATED_CACHE_DIR",
+    "CHAT_CONFIG",
     "MPI_REF_SUFFIX",
-    "PREFER_COMMITTED_KEY",
     "REF_GLOB",
     "REF_SUFFIX",
     "SYSTEM_PROMPT",
     "AdaptiveThinking",
     "Agent",
     "AnthropicOptions",
+    "ChatChoice",
+    "ChatCompletion",
+    "ChatMessage",
+    "ChatUsage",
     "ClaudeAgent",
     "EffortConfig",
     "HFBatch",
@@ -46,6 +51,7 @@ __all__ = [
     "JsonValue",
     "LocalHFAgent",
     "OpenAIAgent",
+    "PromptTokensDetails",
     "Sampling",
     "ScriptedAgent",
     "StubAgent",
@@ -59,7 +65,6 @@ __all__ = [
     "http_chat_json",
     "json_count",
     "json_object",
-    "json_text",
     "load_hf_model",
     "openai_usage",
     "post_request",
@@ -82,12 +87,6 @@ def json_object(raw: object) -> JsonObject:
     """One JSON object, with the weakest TRUE statement about its contents: a missing block, or
     one filled with a scalar, reads as empty rather than raising."""
     return cast("JsonObject", raw) if isinstance(raw, dict) else {}
-
-
-def json_text(block: JsonObject, key: str) -> str:
-    """``block[key]`` as text. Absent, null, or empty all read as ``""``."""
-    value = block.get(key)
-    return str(value) if value else ""
 
 
 def post_request(url: str, body: dict[str, JsonValue], headers: dict[str, str]) -> urllib.request.Request:
@@ -163,17 +162,13 @@ def budget_tokens(budget: object, default: int) -> int:
 
 
 #: agent language -> the extension of a COMMITTED ``<module>_reference.*`` sidecar beside the
-#: numpy reference. The same spelling ``helpers/scripts/checks/check_reference_naming.py`` enforces.
+#: numpy reference. The spelling ``tests/test_tree_structure.py`` enforces.
 REF_SUFFIX = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
-
-#: Config key for the committed-override knob. Default OFF, so grading is byte-identical to a
-#: tree that has never heard of it.
-PREFER_COMMITTED_KEY = "references.prefer_committed"
 
 
 def prefer_committed_reference() -> bool:
     """Whether a committed hand-written reference outranks the NumpyToX emit for this process."""
-    return config.get_bool(PREFER_COMMITTED_KEY, False)
+    return config.current().references.prefer_committed
 
 
 def committed_reference_override(kernel: str, language: str) -> pathlib.Path | None:
@@ -197,16 +192,10 @@ def committed_reference_override(kernel: str, language: str) -> pathlib.Path | N
     return path if is_override(path) else None
 
 
-#: Where already-emitted reference sources are read from and written to. Same shape as
-#: ``service.canonical_parallel_form_dir``: unset or absent means "no cache", never an error.
-GENERATED_CACHE_DIR = "references.generated_cache_dir"
-
-
 def generated_cache_root() -> pathlib.Path | None:
-    """The generated-source cache, or None when this run has none or it does not exist."""
-    configured = str(
-        config.get(GENERATED_CACHE_DIR, "") or os.environ.get("HPCAGENT_BENCH_GENERATED_CACHE", "")
-    ).strip()
+    """``references.generated_cache_dir``, the directory already-emitted reference sources are read from and
+    written to; None when it is empty or does not exist."""
+    configured = config.current().references.generated_cache_dir.strip()
     if not configured:
         return None
     root = pathlib.Path(configured)
@@ -214,16 +203,11 @@ def generated_cache_root() -> pathlib.Path | None:
 
 
 def _generated_cache_key(kernel: str, language: str, kernel_py: pathlib.Path, bench_info: bytes = b"") -> str:
-    """Keyed by the INPUT CONTENT, not by the kernel name: the ``<module>_numpy.py`` bytes, the
-    target backend, the bench_info the emitter is fed (:func:`emit_bridge.emitter_bench_info`: the
-    manifest's shapes and the dtype every array crosses the ABI in), and the translator sources that
-    do the emitting. Without the bench_info a kernel whose ABI moved to bf16 with ``ml.datatype`` was
-    served its fp64 lowering.
-
-    A name-only key serves a stale lowering after ``<module>_numpy.py`` changes, and a key without
-    the translator served the naive-DFT C of ls3df_scf, cegterg, vexx_k and vloc_psi_k_acc after the
-    translator learned the N-D FFT. The digest is ``framework_cache.source_fingerprint``, the key the
-    framework siblings (``*_numba.py``) already use, so one translator edit misses both caches.
+    """Cache key ``<kernel>.<language>.<digest>``, digest = the first 16 hex digits of
+    ``framework_cache.source_fingerprint`` over: the ``<module>_numpy.py`` bytes, ``language`` and its
+    target backend, ``bench_info`` (:func:`emit_bridge.emitter_bench_info`: manifest shapes and the ABI
+    dtype of every array) and the translator sources. A change to any of them is a miss. The framework
+    siblings (``*_numba.py``) use the same fingerprint.
     """
     extra = f"{language}\x00{LANG_TARGET.get(language, '')}\x00".encode() + bench_info
     digest = framework_cache.source_fingerprint(kernel_py, extra)[:16]
@@ -234,7 +218,7 @@ def emitted_bench_info(spec: BenchSpec) -> bytes:
     """The bench_info the reference emit of ``spec`` is fed, as bytes (the generated-cache key's part)."""
     from hpcagent_bench.emit_bridge import emitter_bench_info, emitter_config
 
-    return json.dumps(emitter_bench_info(spec, emitter_config(spec)), sort_keys=True).encode()
+    return emitter_bench_info(spec, emitter_config(spec)).text(sort_keys=True).encode()
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -407,21 +391,76 @@ def anthropic_usage(usage: object) -> TokenUsage:
     )
 
 
-def openai_usage(body: JsonObject) -> TokenUsage:
-    """TokenUsage from an OpenAI-compatible /v1/chat/completions response body's usage block."""
-    usage = json_object(body.get("usage"))
-    details = json_object(usage.get("prompt_tokens_details"))
+#: An OpenAI-compatible server's response object: the fields this harness reads, every other one (ids,
+#: logprobs, a provider's own extensions) ignored. A count or text a server leaves out or nulls reads as none.
+CHAT_CONFIG = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+
+class ChatMessage(pydantic.BaseModel):
+    """``choices[i].message`` of a ``/v1/chat/completions`` response: the reply text (null without one)."""
+
+    model_config = CHAT_CONFIG
+
+    content: str | None = None
+
+
+class ChatChoice(pydantic.BaseModel):
+    """One ``choices`` entry of a ``/v1/chat/completions`` response."""
+
+    model_config = CHAT_CONFIG
+
+    message: ChatMessage | None = None
+
+
+class PromptTokensDetails(pydantic.BaseModel):
+    """``usage.prompt_tokens_details``: the part of the prompt served from the provider's cache."""
+
+    model_config = CHAT_CONFIG
+
+    cached_tokens: int | None = None
+
+
+class ChatUsage(pydantic.BaseModel):
+    """``usage`` of a ``/v1/chat/completions`` response: the WHOLE prompt (its cached part named inside it) and
+    the completion."""
+
+    model_config = CHAT_CONFIG
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    prompt_tokens_details: PromptTokensDetails | None = None
+
+
+class ChatCompletion(pydantic.BaseModel):
+    """An OpenAI-compatible ``/v1/chat/completions`` response, as :class:`OpenAIAgent` reads it."""
+
+    model_config = CHAT_CONFIG
+
+    choices: tuple[ChatChoice, ...] = ()
+    usage: ChatUsage | None = None
+
+    def text(self) -> str:
+        """The first choice's reply; ``""`` when the server sent none."""
+        message = self.choices[0].message if self.choices else None
+        return (message.content or "") if message is not None else ""
+
+
+def openai_usage(body: ChatCompletion) -> TokenUsage:
+    """TokenUsage from an OpenAI-compatible /v1/chat/completions response's usage block."""
+    usage = body.usage or ChatUsage()
+    details = usage.prompt_tokens_details or PromptTokensDetails()
     return TokenUsage(
-        input_tokens=json_count(usage, "prompt_tokens"),
-        output_tokens=json_count(usage, "completion_tokens"),
-        cached_tokens=json_count(details, "cached_tokens"),
+        input_tokens=usage.prompt_tokens or 0,
+        output_tokens=usage.completion_tokens or 0,
+        cached_tokens=details.cached_tokens or 0,
     )
 
 
 def http_chat_json(
     url: str, payload: dict[str, JsonValue], headers: dict[str, str], timeout: float, unreachable_msg: str
 ) -> JsonObject:
-    """POST payload as JSON to url and return the parsed JSON response, or raise RuntimeError(unreachable_msg)."""
+    """POST payload as JSON to url and return the decoded JSON object, or raise RuntimeError(unreachable_msg).
+    The transport only: the caller validates the answer against the API it called (:class:`ChatCompletion`)."""
     request = post_request(url, payload, headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp:
@@ -726,7 +765,7 @@ class OpenAIAgent(Agent):
                 accepts_sampling=self.accepts_sampling,
             ),
         }
-        body = http_chat_json(
+        reply = http_chat_json(
             f"{self.base_url}/chat/completions",
             payload,
             {"Authorization": f"Bearer {self.api_key}"},
@@ -734,11 +773,10 @@ class OpenAIAgent(Agent):
             f"OpenAIAgent could not reach {self.base_url}; start a vLLM server "
             "(vllm serve <model>) or set OPENAI_BASE_URL/VLLM_BASE_URL",
         )
+        body = ChatCompletion.model_validate(reply)
         u = openai_usage(body)
         self.record_usage(u.input_tokens, u.output_tokens, u.cached_tokens)
-        choices = as_list(body.get("choices"))
-        first = json_object(choices[0]) if choices else {}
-        return json_text(json_object(first.get("message")), "content")
+        return body.text()
 
 
 #: The LLM backends ``hpcagent-bench agent <name>`` runs (:func:`hpcagent_bench.cli.agent_registry`);

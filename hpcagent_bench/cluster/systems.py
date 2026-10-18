@@ -37,8 +37,9 @@ import shlex
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from typing import NamedTuple
+from typing import Annotated, NamedTuple
 
+import pydantic
 import yaml
 
 from hpcagent_bench import paths
@@ -52,9 +53,12 @@ __all__ = [
     "PACKAGED",
     "PAIRS",
     "SHORT",
+    "SYSTEMS_ADAPTER",
     "SYSTEMS_FILE",
     "TASK_FIELDS",
     "Resolved",
+    "SystemEntry",
+    "Value",
     "choose_system",
     "image_partition",
     "load_systems",
@@ -62,6 +66,7 @@ __all__ = [
     "options_main",
     "resolve",
     "sbatch_command",
+    "scalar_text",
     "script_header",
     "site_environment",
 ]
@@ -99,29 +104,74 @@ PACKAGED = pathlib.Path(__file__).with_name("systems.yaml")
 SYSTEMS_FILE = "HPCAGENT_BENCH_SYSTEMS_FILE"
 
 
-def load_systems(environ: Mapping[str, str]) -> dict[str, dict[str, object]]:
+def scalar_text(raw: object) -> object:
+    """A YAML number as the text ``sbatch`` takes; text unchanged, and anything else (a list, a flag)
+    left for the ``str`` check to refuse."""
+    return str(raw) if isinstance(raw, int | float) and not isinstance(raw, bool) else raw
+
+
+#: One ``systems.yaml`` value, as the text it is passed on as.
+Value = Annotated[str, pydantic.BeforeValidator(scalar_text)]
+
+
+class SystemEntry(pydantic.BaseModel):
+    """One system of ``systems.yaml``: the cluster it is on, its :data:`FIELDS` and its :data:`EXTRAS`."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    cluster: Value | None = None
+    nodes: Value | None = None
+    partition: Value | None = None
+    account: Value | None = None
+    ntasks: Value | None = None
+    ntasks_per_node: Value | None = None
+    cpus_per_task: Value | None = None
+    gpus_per_node: Value | None = None
+    gpus_per_task: Value | None = None
+    time: Value | None = None
+    nice: Value | None = None
+    hardware: Value | None = None
+    max_time_hours: Value | None = None
+
+    def given(self) -> dict[str, str]:
+        """The values the entry sets, by field name."""
+        return self.model_dump(exclude_none=True)
+
+
+#: A systems file: system name -> its entry.
+SYSTEMS_ADAPTER: pydantic.TypeAdapter[dict[str, SystemEntry]] = pydantic.TypeAdapter(dict[str, SystemEntry])
+
+
+def load_systems(environ: Mapping[str, str]) -> dict[str, SystemEntry]:
     """The packaged systems, then the file named by ``$HPCAGENT_BENCH_SYSTEMS_FILE`` over them."""
-    systems: dict[str, dict[str, object]] = yaml.safe_load(PACKAGED.read_text(encoding="utf-8")) or {}
+    systems = SYSTEMS_ADAPTER.validate_python(yaml.safe_load(PACKAGED.read_text(encoding="utf-8")) or {})
     extra = environ.get(SYSTEMS_FILE)
     if extra:
-        systems |= yaml.safe_load(pathlib.Path(extra).read_text(encoding="utf-8")) or {}
+        systems |= SYSTEMS_ADAPTER.validate_python(
+            yaml.safe_load(pathlib.Path(extra).read_text(encoding="utf-8")) or {}
+        )
     return systems
 
 
 def site_environment(environ: Mapping[str, str]) -> dict[str, str]:
     """``environ`` with the site layer applied under it (``helpers/scripts/site_env.sh``: the layer keeps what the
-    environment already holds), so a layer's ``SBATCH_PARTITION`` counts as if it were exported."""
+    environment already holds), so a layer's ``SBATCH_PARTITION`` counts as if it were exported. A layer that fails
+    to load (a named ``HPCAGENT_BENCH_SITE_ENV`` that is no file, a syntax error) is an error, never ignored."""
     script = paths.repo_root() / "helpers" / "scripts" / "site_env.sh"
     if not script.is_file():
         return dict(environ)
     done = subprocess.run(
-        ["bash", "-c", '. "$1" >/dev/null 2>&1; env -0', "_", str(script)],
+        ["bash", "-c", '. "$1" >&2 || exit; env -0', "_", str(script)],
         capture_output=True,
         env=dict(environ),
         check=False,
     )
+    if done.returncode:
+        raise SystemExit(
+            f"systems: the site layer failed to load (rc {done.returncode}):\n{done.stderr.decode(errors='replace')}"
+        )
     pairs = (entry.partition("=") for entry in done.stdout.decode(errors="replace").split("\0") if "=" in entry)
-    return {key: value for key, _, value in pairs} or dict(environ)
+    return {key: value for key, _, value in pairs}
 
 
 def script_header(script: pathlib.Path) -> dict[str, str]:
@@ -159,21 +209,21 @@ def image_partition(script: pathlib.Path, script_args: Sequence[str], environ: M
 
 
 def choose_system(
-    name: str | None, systems: Mapping[str, Mapping[str, object]], environ: Mapping[str, str], partition: str = ""
+    name: str | None, systems: Mapping[str, SystemEntry], environ: Mapping[str, str], partition: str = ""
 ) -> str:
     """``name``, else ``$HPCAGENT_BENCH_SYSTEM``, else the system of ``$SLURM_CLUSTER_NAME``, else ``""``. Unless
     ``name`` is given, a ``partition`` that another entry of the same cluster names picks that entry."""
     chosen = name or environ.get("HPCAGENT_BENCH_SYSTEM") or ""
     if not chosen:
         cluster = environ.get("SLURM_CLUSTER_NAME", "")
-        chosen = next((key for key, entry in systems.items() if cluster and entry.get("cluster") == cluster), "")
+        chosen = next((key for key, entry in systems.items() if cluster and entry.cluster == cluster), "")
     if chosen and chosen not in systems:
         raise SystemExit(f"job submit: no system {chosen!r}; known: {', '.join(sorted(systems))}")
-    if name or not chosen or not partition or systems[chosen].get("partition") == partition:
+    if name or not chosen or not partition or systems[chosen].partition == partition:
         return chosen
-    home = systems[chosen].get("cluster")
-    siblings = (key for key, entry in systems.items() if home and entry.get("cluster") == home)
-    return next((key for key in siblings if systems[key].get("partition") == partition), chosen)
+    home = systems[chosen].cluster
+    siblings = (key for key, entry in systems.items() if home and entry.cluster == home)
+    return next((key for key in siblings if systems[key].partition == partition), chosen)
 
 
 class Resolved(NamedTuple):
@@ -211,8 +261,8 @@ def resolve(
     systems = load_systems(environ)
     partition = next((source["partition"] for source in sources if "partition" in source), "")
     name = choose_system(system, systems, environ, partition)
-    entry = systems.get(name, {})
-    sources.append({field: str(value) for field, value in entry.items() if field in fields})
+    entry = systems[name].given() if name else {}
+    sources.append({field: value for field, value in entry.items() if field in fields})
     merged: dict[str, str] = {}
     for source in sources:
         taken = {field for pair in PAIRS if not merged.keys().isdisjoint(pair) for field in pair} | merged.keys()

@@ -258,9 +258,9 @@ class CallPlan:
         self.bench = bench
         self.impl = impl
         self.bdata = bdata
-        self.input_args: list[str] = list(bench.info["input_args"])
-        self.array_args: set[str] = set(bench.info["array_args"])
-        self.output_args: list[str] = list(bench.info.get("output_args", []))
+        self.input_args: list[str] = list(bench.spec.input_args)
+        self.array_args: set[str] = set(bench.spec.array_args)
+        self.output_args: list[str] = list(bench.spec.output_args)
         self._copy: CopyFunc = frmwrk.copy_func()
         self._mutable: dict[str, AnyArray] = {}
         #: The bound (args, kwargs), built by :meth:`before_each` so the timed bracket holds only the call.
@@ -485,9 +485,9 @@ def framework_class(fname: str) -> "type[Framework]":
 def load_impl(bench: Benchmark, postfix: str) -> KernelImpl:
     """The kernel entry point ``func_name`` of ``bench``'s ``<module_name>_<postfix>.py``."""
     module_str = bench.impl_module(postfix)
-    impl: KernelImpl | None = vars(importlib.import_module(module_str)).get(bench.info["func_name"])
+    impl: KernelImpl | None = vars(importlib.import_module(module_str)).get(bench.spec.func_name)
     if impl is None:
-        raise AttributeError(f"{module_str} defines no {bench.info['func_name']}")
+        raise AttributeError(f"{module_str} defines no {bench.spec.func_name}")
     return impl
 
 
@@ -537,7 +537,7 @@ class Framework:
         if targets:
             from hpcagent_bench.autogen import ensure
 
-            # bench.bname is the registry key; bench.info["short_name"] is a free-form label.
+            # bench.bname is the registry key; bench.spec.short_name is a free-form label.
             ensure(bench.bname, targets)
 
     def implementations(self, bench: Benchmark) -> Sequence[tuple[KernelImpl, str]]:
@@ -570,11 +570,11 @@ class Framework:
             params = None
         # An impl with *args/**kwargs can't be bound by name -> positional ABI.
         if params is None or any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in params.values()):
-            return [resolved[a] for a in bench.info["input_args"]], {}
+            return [resolved[a] for a in bench.spec.input_args], {}
         # A required parameter with no matching resolved arg: fall back to the positional ABI order.
         missing = [n for n, p in params.items() if n not in resolved and p.default is inspect.Parameter.empty]
         if missing:
-            return [resolved[a] for a in bench.info["input_args"]], {}
+            return [resolved[a] for a in bench.spec.input_args], {}
         return [], {name: resolved[name] for name in params if name in resolved}
 
     def post_call(self, result: KernelResult) -> KernelResult:
@@ -647,7 +647,7 @@ class Framework:
         """Run ``runner`` ``warmup + repeat`` times, drop the first ``warmup``, and return both timing series.
         ``warmup=None`` reads ``measurement.warmup``."""
         if warmup is None:
-            warmup = max(0, config.get_int("measurement.warmup", 1))
+            warmup = config.current().measurement.warmup
         timer = self.create_timer(impl)
         try:
             samples: list[TimingResult] = []

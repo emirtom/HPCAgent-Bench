@@ -44,7 +44,7 @@ The column declares no fp64 (`precisions` in `columns.py`), but `run-framework` 
 
 ```sh
 uv sync --extra nvgpu      # torch and triton; --extra amdgpu on ROCm
-uv run hpcagent-bench run-framework -f triton -b <kernel> -p S -d float32 -r 3   # validates against NumPy
+uv run hpcagent-bench run-framework -f triton -b <kernel> -p S -d float32 -r 3   # validates against the compiled reference
 uv run hpcagent-bench run-framework -f triton -b <kernel> -d float32              # the default fuzzed preset
 ```
 

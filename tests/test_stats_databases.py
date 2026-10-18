@@ -14,6 +14,7 @@ from hpcagent_bench import dataset, observations_extract, paths
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.stats import databases
 from tests import results_seed
+from tests.results_seed import STAMP as GRADE_STAMP
 
 CORE_SETUP = "llr40-qwen38-c"
 CPF_SETUP = "llr40-qwen38-c-cpf-src"
@@ -32,7 +33,7 @@ def seed(db: pathlib.Path, setup: str, speedups: tuple[float, ...]) -> None:
     with contextlib.closing(results_db.open_db(db)) as conn:
         run = conn.execute("SELECT episode_id FROM grades WHERE id = ?", (last,)).fetchone()[0]
         results_db.add_grade(
-            conn, run, KERNEL, "final", ts_ms=TS_MS + 100, values={"of_grade_id": last, "speedup": 1.5}
+            conn, run, KERNEL, "final", ts_ms=TS_MS + 100, values=GRADE_STAMP | {"of_grade_id": last, "speedup": 1.5}
         )
         conn.commit()
 

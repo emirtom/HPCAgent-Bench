@@ -12,7 +12,7 @@ from typing import cast
 import numpy as np
 import pytest
 
-from hpcagent_bench.harness import grading, torch_reference
+from hpcagent_bench.harness import disk_cache, grading, torch_reference
 from hpcagent_bench.spec import BenchSpec
 
 KERNEL = "matmul_with_large_k_dimension"
@@ -69,9 +69,9 @@ def test_cache_root_defaults_under_scratch(monkeypatch, tmp_path: pathlib.Path) 
 
 def test_image_key_prefers_the_launcher_sha(monkeypatch) -> None:
     """The exported image sha is the key; without it the torch + runtime versions stand in."""
-    monkeypatch.setenv(torch_reference.IMAGE_KEY_ENV, "abc123")
+    monkeypatch.setenv(disk_cache.IMAGE_KEY_ENV, "abc123")
     assert torch_reference.image_key("2.9", "hip-7.0") == "abc123"
-    monkeypatch.delenv(torch_reference.IMAGE_KEY_ENV)
+    monkeypatch.delenv(disk_cache.IMAGE_KEY_ENV)
     assert torch_reference.image_key("2.9", "hip-7.0") == "torch-2.9-hip-7.0"
 
 

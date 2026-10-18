@@ -30,7 +30,7 @@ MATRIX_RHS = "import numpy as np\ndef f(A, B, out):\n    out[:] = np.linalg.solv
 
 def kir(kernel_name: str, **arrays: tuple[str, ...]) -> SimpleNamespace:
     arrs = [SimpleNamespace(name=n, shape=s, dtype="float64") for n, s in arrays.items()]
-    return SimpleNamespace(kernel_name=kernel_name, arrays=arrs)
+    return SimpleNamespace(kernel_name=kernel_name, arrays=arrs, scalars=[])
 
 
 def desugar_vector_rhs(backend: str | None) -> str:

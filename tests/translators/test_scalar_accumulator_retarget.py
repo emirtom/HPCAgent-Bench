@@ -17,7 +17,7 @@ array cell. ``symm`` (``temp2[j] = B[:i, j] @ A[i, :i]``) and ``trmm``
 ``pluto_auto_transform`` assertion) both carried the scalar. The peephole retargets the
 reduction onto the destination cell, so all three emit the same shape.
 
-The AST tests pin the rewrite and, just as importantly, the guard that declines it: the
+The AST tests pin the rewrite and the guard that declines it: the
 loop body must not be able to read back the cell being accumulated into. The native-TU
 tests are the numerical consumers -- symm and trmm have no other c/cpp coverage.
 """

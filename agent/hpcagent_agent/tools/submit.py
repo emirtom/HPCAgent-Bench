@@ -145,6 +145,32 @@ def spends_submission(result: dict[str, Any]) -> bool:
     return spent_at_judge(result) or not graded_nothing
 
 
+#: The marker's size cap, and the longest string a field of it keeps.
+MARKER_LIMIT = 2000
+MARKER_FIELD_LIMIT = 200
+
+
+def shortened(value: Any) -> Any:
+    """``value`` with every string cut to :data:`MARKER_FIELD_LIMIT` characters, containers kept."""
+    if isinstance(value, str):
+        return value[:MARKER_FIELD_LIMIT]
+    if isinstance(value, dict):
+        return {key: shortened(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [shortened(item) for item in value]
+    return value
+
+
+def marker_text(result: dict[str, Any]) -> str:
+    """``result`` as the marker's JSON, always valid: long strings are cut field by field, and an answer
+    still over :data:`MARKER_LIMIT` (a full grade with cells) keeps its scalar fields only."""
+    text = json.dumps(shortened(result), sort_keys=True)
+    if len(text) <= MARKER_LIMIT:
+        return text
+    scalars = {key: item for key, item in shortened(result).items() if not isinstance(item, dict | list)}
+    return json.dumps(scalars, sort_keys=True)
+
+
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     if SINGLE_SUBMISSION and SPENT_MARKER.exists():
         # "ok": False is the wire contract, not decoration: mcp_server sets isError from it and
@@ -163,7 +189,7 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
         # body -- e.g. a HIP submission missing 'device_source') does not burn the one submission
         # the agent gets: nothing was graded, so the agent may fix the body and submit again. The
         # same for a judge nobody reached (judge_never_reached): the agent may simply retry.
-        SPENT_MARKER.write_text(json.dumps(result, sort_keys=True)[:2000], encoding="utf-8")
+        SPENT_MARKER.write_text(marker_text(result), encoding="utf-8")
     return result
 
 

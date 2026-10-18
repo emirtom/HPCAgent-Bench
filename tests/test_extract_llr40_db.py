@@ -73,7 +73,7 @@ def test_every_typed_column_is_a_column_the_table_has() -> None:
 
 
 def test_a_missing_numeric_cell_is_null_and_a_missing_text_cell_stays_empty(tmp_path: pathlib.Path) -> None:
-    """``packet`` is "" for the CONTROL setup -- a value, which fill_setup_identity reads as one -- so
+    """``packet`` is "" for the CONTROL setup -- a value, which every reader takes as the control -- so
     the empty-to-NULL rule is confined to the numeric columns."""
     db = tmp_path / "obs.db"
     extract_llr40.write_db(db, extract_llr40.OBSERVATION_FIELDS, ROWS)

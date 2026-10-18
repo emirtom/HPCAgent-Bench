@@ -228,16 +228,6 @@ class TypeScale:
     line_width: float
     marker_size: float
 
-    @property
-    def hairline_width(self) -> float:
-        """A secondary stroke (median tick, whisker, reference line): half the data line."""
-        return self.line_width / 2.0
-
-    @property
-    def point_size(self) -> float:
-        """A raw-sample dot or a flier: half a data mark, so it never reads as a summary."""
-        return self.marker_size / 2.0
-
 
 AUTHOR_SCALE = TypeScale(TICK_PT, LABEL_PT, SUBTITLE_PT, TICK_PT, ANNOTATION_PT, 1.6, 6.0)
 PRINT_SCALE = TypeScale(PRINT_TICK_PT, PRINT_LABEL_PT, PRINT_LABEL_PT, PRINT_LEGEND_PT, PRINT_TICK_PT, 1.0, 4.0)
@@ -341,6 +331,7 @@ def legend_below(
     span: tuple[float, float] | None = None,
     columnspacing: float = 1.6,
     handlelength: float = 2.0,
+    exact: bool = False,
 ) -> float:
     """One legend, centred under the whole figure and wrapped to its width; never inside the axes.
     Returns the legend's height in inches, for the caller's bottom margin.
@@ -348,7 +339,9 @@ def legend_below(
     The requested column count is a ceiling: a row too wide for the canvas drops a column until it
     fits. ``fontsize``/``markerscale`` override the defaults for a figure too short to afford them.
     ``span``, the plot body's (left, right) in figure fractions, makes the body's width the limit
-    instead of the canvas, and centres the legend on it.
+    instead of the canvas, and centres the legend on it. ``exact`` keeps the column count as given: a key laid
+    out by columns (one meaning per column) that does not fit draws nothing and returns -1.0, for the caller to
+    lay it out over fewer columns itself rather than have its columns refilled out of order.
     """
     columns = ncol if ncol != 0 else min(len(handles), 5)
     left, right = span if span is not None else (0.0, 1.0)
@@ -370,7 +363,10 @@ def legend_below(
             borderpad=0.1,
         )
         box = legend.get_window_extent(renderer_of(fig)).transformed(fig.dpi_scale_trans.inverted())
-        if columns <= 1 or box.width <= limit:
+        if exact and columns > 1 and box.width > limit:
+            legend.remove()
+            return -1.0
+        if exact or columns <= 1 or box.width <= limit:
             # Fill the box: the fewest columns that give this many rows (12 entries: 4, not 5).
             full = -(-len(handles) // max(1, -(-len(handles) // columns)))
             if full < columns:
@@ -399,26 +395,24 @@ def decade_label(value: float, position: int = 0) -> str:
 
 
 def ratio_tick_label(value: float) -> str:
-    """A ratio tick at full precision: ``0.25 -> "0.25x"``, ``1.0 -> "1x"``, ``4.0 -> "4x"``."""
-    if value == 1.0:
-        return "1x"
-    if value > 1.0:
+    """A ratio tick: a speedup as ``Yx`` and a slowdown as its reciprocal ``1/Yx``, so a 2x slowdown reads
+    ``1/2x`` beside the ``2x`` speedup: ``0.25 -> "1/4x"``, ``1.0 -> "1x"``, ``4.0 -> "4x"``."""
+    if value >= 1.0:
         return f"{value:g}x"
-    return f"{float(f'{value:.3g}'):g}x"
+    return f"1/{float(f'{1.0 / value:.3g}'):g}x"
 
 
 def log2_ratio_tick(value: float, position: int = 0) -> str:
-    """:func:`ratio_tick_label` for an axis that holds ``log2(ratio)`` (``+1`` is 2x, ``-1`` 0.5x)."""
+    """:func:`ratio_tick_label` for an axis that holds ``log2(ratio)`` (``+1`` is 2x, ``-1`` 1/2x)."""
     del position
     return ratio_tick_label(2.0**value)
 
 
 def ratio_label(value: float) -> str:
-    """A measured ratio to one decimal (``6.3x``, ``32.5x``), or one significant figure below
-    0.1x so a real slowdown does not print as ``0.0x``."""
+    """A measured ratio to one decimal, a slowdown as its reciprocal: ``6.3x``, ``32.5x``, ``1/2.5x``."""
     if not math.isfinite(value) or value <= 0.0:
         return ""
-    return f"{value:.1f}x" if value >= 0.1 else f"{value:.1g}x"
+    return f"{value:.1f}x" if value >= 1.0 else f"1/{1.0 / value:.1f}x"
 
 
 #: What a value axis holds, for minor-tick purposes (:func:`minor_ticks`): ``ratio`` (log2 axis in

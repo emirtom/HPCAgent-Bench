@@ -59,6 +59,7 @@ class Kir:
         Arr("ix", ("NX",), "int64"),
         Arr("out", ("NZ", "NY", "NX"), "float64"),
     ]
+    scalars: ClassVar[list[Arr]] = []
     sparse = None
     kernel_name = "mesh"
 

@@ -22,10 +22,11 @@ class Kir:
 
     def __init__(self, dtype: str) -> None:
         self.arrays = [Kir.Arr("a", ("N", "M"), dtype), Kir.Arr("out", ("N",), dtype)]
+        self.scalars = [Kir.Arr("dt", (), dtype)]
 
 
-def desugared(body: str, dtype: str = "float64", backend: str = "dace") -> str:
-    src = f"import numpy as np\ndef rows(a, out):\n    out[:] = {body}\n"
+def desugared(body: str, dtype: str = "float64", backend: str = "dace", setup: str = "") -> str:
+    src = f"import numpy as np\ndef rows(a, out, dt):\n{setup}    out[:] = {body}\n"
     return desugar_for_python_backend(src, Kir(dtype), backend=backend)
 
 
@@ -43,6 +44,16 @@ def test_a_float_axis_reduction_stays_a_call_for_dace(body: str, kept: str) -> N
     """Kept as the numpy FUNCTION: DaCe's ``ndarray.max``/``min`` methods take no ``axis`` (vgg16)."""
     out = desugared(body)
     assert kept in out, out
+    assert "__rdo" not in out, out
+
+
+def test_a_reduction_of_a_scalar_scaled_masked_operand_stays_a_call_for_dace() -> None:
+    """velocity_tendencies' ``np.where(clip, np.abs(a * dt), -np.inf).max(axis=1)``: the kind of a scalar parameter and of
+    ``np.inf`` must be known. Unknown, it was contagious and the reduction became a NaN-checking loop nest, whose small
+    outer axis left a serial host loop over device memory on the GPU."""
+    setup = "    clip = a > 0.5\n    masked = np.where(clip, np.abs(a * dt), -np.inf)\n"
+    out = desugared("masked.max(axis=1)", setup=setup)
+    assert "np.max(masked, axis=1)" in out, out
     assert "__rdo" not in out, out
 
 

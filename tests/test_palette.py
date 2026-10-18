@@ -45,7 +45,7 @@ def test_colour_does_not_depend_on_the_other_series():
 
 def test_a_combination_keeps_its_lead_packets_family():
     """`cpf-src+lang-skills` is a CPF setup carrying a second packet, and reads as one."""
-    assert packets.lead(packets.spec_parts("cpf-src+lang-skills")) == "cpf-src"
+    assert packets.lead(packets.spec_parts("cpf-src+lang-skills")) == "cpf-cpu-src"
     assert palette.color("cpf-src+lang-skills") != palette.color("cpf-src")
     assert palette.color("cpf-src+lang-skills") != palette.color("lang-skills")
 
@@ -127,6 +127,16 @@ PUBLISHED_PACKET_COLORS = {
     "": "#4d4d4d",
     "cpf-src": "#1f77b4",
     "cpf-tool": "#ff7f0e",
+    "cpf-cpu-src": "#1f77b4",
+    "cpf-tool-cpu": "#ff7f0e",
+    "cpf-gpu-src": "#7b4173",
+    "cpf-tool-gpu": "#6b6ecf",
+    "cpf-src-kinds": "#b5cf6b",
+    "cpf-tool-kinds": "#e7ba52",
+    "cpf-cpu-src-kinds": "#b5cf6b",
+    "cpf-tool-cpu-kinds": "#e7ba52",
+    "cpf-gpu-src-kinds": "#d6616b",
+    "cpf-tool-gpu-kinds": "#ce6dbd",
     "lang-skills": "#2ca02c",
     "divide-and-conquer": "#d62728",
     "profiling": "#9467bd",
@@ -189,8 +199,14 @@ def test_an_alias_wears_what_it_aliases():
 #: six-hue ramp wraps at seven packets and `warn_on_collision` only ever sees one figure at a time.
 PAPER_FIGURE_PACKETS: tuple[str, ...] = (
     "",  # the no-packet control, on every paired figure
-    "cpf-tool",  # llr40_paired_cpf
-    "cpf-src",  # llr40_paired_cpf_src
+    "cpf-tool-cpu",  # llr40_paired_cpf
+    "cpf-cpu-src",  # llr40_paired_cpf_src
+    "cpf-tool-gpu",  # llr40's GPU half
+    "cpf-gpu-src",  # llr40's GPU half
+    "cpf-tool-cpu-kinds",  # the CPF figure's hint-detail arms
+    "cpf-cpu-src-kinds",
+    "cpf-tool-gpu-kinds",
+    "cpf-gpu-src-kinds",
     "lang-skills",  # llr40_paired_skills, gpu_paired_skills
     "divide-and-conquer",  # scicomp perf-playbook panels
     "profiling",  # scicomp perf-playbook panels

@@ -17,7 +17,7 @@ from tests.translators.source_module import run_source
 def kernel_ir(**arrays: tuple[str, ...]) -> SimpleNamespace:
     """The fields ``desugar_for_python_backend`` reads off a KernelIR, for a kernel named ``k``."""
     return SimpleNamespace(
-        kernel_name="k", arrays=[SimpleNamespace(name=n, shape=s, dtype=None) for n, s in arrays.items()]
+        kernel_name="k", arrays=[SimpleNamespace(name=n, shape=s, dtype=None) for n, s in arrays.items()], scalars=[]
     )
 
 

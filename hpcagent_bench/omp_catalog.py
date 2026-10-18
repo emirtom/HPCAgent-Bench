@@ -59,12 +59,12 @@ def scan_entry(name: str, context: str) -> list[str] | None:
     """The OpenMP runtime realpaths ``name``'s closure maps in ``context``: ``[]`` when it maps none or has
     nothing to link, ``None`` when this context cannot link it (no compiler for it, or the link fails)."""
     entry = languages.load_libraries()[name]
-    lang = next((lang for lang in TRIAL_LANGUAGES if lang in entry.get("langs", ())), "")
+    lang = next((lang for lang in TRIAL_LANGUAGES if lang in entry.langs), "")
     if not lang:
         return []
     compile_tokens, link_tokens = languages.library_tokens(name, lang, context)
     if not link_tokens:
-        return [] if entry.get("header_only") else None
+        return [] if entry.header_only else None
     block_name = languages.compiler_for_family(lang, CONTEXT_FAMILY[context])
     if block_name is None:
         return None
@@ -138,7 +138,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         path = pathlib.Path(args.write) if args.write else omp_context.catalog_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         staged = path.with_name(f".{path.name}.{os.getpid()}")
-        staged.write_text(json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        written = omp_context.CATALOG_ADAPTER.dump_python(omp_context.CATALOG_ADAPTER.validate_python(record))
+        staged.write_text(json.dumps(written, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         staged.replace(path)
         print(f"wrote {path}")
     found = refusals(record)

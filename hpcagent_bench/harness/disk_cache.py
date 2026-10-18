@@ -39,10 +39,12 @@ from collections.abc import Hashable, Mapping
 import numpy as np
 import numpy.typing as npt
 
-from hpcagent_bench import config, paths
+from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.cache_files import replacing, sha256_hex
 from hpcagent_bench.dtypes import is_storage_only
-from hpcagent_bench.spec import BenchSpec, Track
+from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots
+from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.translators.numpyto_common.emit_io import is_generated
 
 __all__ = [
     "BASELINE_PREFIX",
@@ -94,7 +96,8 @@ __all__ = [
 DTYPE_PREFIX = "dtype."
 #: Sub-directory of ``$FAST_SCRATCH`` the store defaults to when ``cache.disk_results_dir`` is empty.
 DIRNAME = "hpcagent-bench-judge-cache"
-#: The judge image digest run_cluster.sh exports (the same one torch_reference keys on).
+#: The judge image digest the launcher exports (``<sqsh>.sha256``, see hpcagent_bench/cluster/run_cluster.sh);
+#: this cache and torch_reference's Inductor cache both key on it.
 IMAGE_KEY_ENV = "HPCAGENT_BENCH_IMAGE_SHA"
 #: The commit a job runs at (run_cluster.sh exports its checkout's HEAD).
 COMMIT_ENV = "HPCAGENT_BENCH_SNAPSHOT_COMMIT"
@@ -115,7 +118,7 @@ OVERRIDE_PREFIX = "o:"
 #: and its output binding, and the grading flow that feeds them. A directory stands for every file
 #: under it. tests/test_disk_cache.py pins that the data path loads no other kernel file.
 DATA_SOURCES = (
-    "config.yaml",
+    "config.py",
     "dtypes.py",
     "fuzz.py",
     "initialize.py",
@@ -128,7 +131,7 @@ DATA_SOURCES = (
     "harness/disk_cache.py",
     "harness/grading.py",
     "harness/hidden_seeds.py",
-    "harness/hidden_tests",
+    paths.HIDDEN_TESTS_REL.removeprefix(f"{paths.PACKAGE.name}/"),
     "harness/rep_variation.py",
     "harness/scoring.py",
     "translators/numpyto_common",
@@ -149,28 +152,13 @@ Timing = tuple[dict[str, int], dict[str, list[int]]]
 
 
 def levels() -> frozenset[int]:
-    """The kernel levels the store serves; empty = off. A bare int in the env is one level."""
-    raw = config.get("cache.disk_results_levels", [])
-    if isinstance(raw, (int, str)):
-        raw = [raw]
-    if not isinstance(raw, list):
-        raise TypeError(f"config cache.disk_results_levels is {raw!r}, not a list of levels")
-    return frozenset(int(str(level)) for level in raw)
+    """The kernel levels the store serves (``cache.disk_results_levels``); empty = off."""
+    return frozenset(config.current().cache.disk_results_levels)
 
 
 def tracks() -> frozenset[str]:
-    """The tracks the store serves whatever the level; empty = none. A bare string in the env is one
-    track; a name that is no :class:`Track` (a list the env could not parse) raises."""
-    raw = config.get("cache.disk_results_tracks", [])
-    if isinstance(raw, str):
-        raw = [raw]
-    if not isinstance(raw, list):
-        raise TypeError(f"config cache.disk_results_tracks is {raw!r}, not a list of tracks")
-    known = {track.value for track in Track}
-    unknown = sorted(str(track) for track in raw if str(track) not in known)
-    if unknown:
-        raise ValueError(f"config cache.disk_results_tracks names no track: {unknown} (known: {sorted(known)})")
-    return frozenset(str(track) for track in raw)
+    """The tracks the store serves whatever the level (``cache.disk_results_tracks``); empty = none."""
+    return frozenset(config.current().cache.disk_results_tracks)
 
 
 def in_scope(spec: BenchSpec) -> bool:
@@ -180,7 +168,7 @@ def in_scope(spec: BenchSpec) -> bool:
 
 def root() -> pathlib.Path:
     """``cache.disk_results_dir``, else :data:`DIRNAME` under :func:`paths.fast_scratch_root`."""
-    raw = config.get_str("cache.disk_results_dir", "")
+    raw = config.current().cache.disk_results_dir
     return pathlib.Path(raw) if raw else paths.fast_scratch_root(DIRNAME)
 
 
@@ -238,9 +226,12 @@ def data_files(relative_path: str, module_name: str) -> list[pathlib.Path]:
 
 def harness_files(relative_path: str) -> list[pathlib.Path]:
     """The files :func:`harness_key` digests: the package outside :data:`HARNESS_SKIP_DIRS` and the
-    kernel's own directory outside :data:`KERNEL_SKIP_DIRS`."""
+    kernel's own directory outside :data:`KERNEL_SKIP_DIRS`, less the siblings a grade generates there on demand
+    (:func:`~hpcagent_bench.translators.numpyto_common.emit_io.is_generated`): they follow from the sources
+    digested here, and digesting them made the first grade's key differ from every later one's."""
     here = paths.BENCHMARKS / relative_path
-    return files_under(package_root(), HARNESS_SKIP_DIRS) + files_under(here, KERNEL_SKIP_DIRS)
+    own = [file for file in files_under(here, KERNEL_SKIP_DIRS) if file.suffix != ".py" or not is_generated(file)]
+    return files_under(package_root(), HARNESS_SKIP_DIRS) + own
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -257,21 +248,16 @@ def kernel_harness_key(relative_path: str) -> str:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def node_key() -> str:
-    """CPU model, the node's CPU count and judge slots per node: what a grade's core share and its
-    numerics depend on. mi200 and mi300 nodes differ in the first. The node's count, not this
-    process's affinity: timing pins the judge process for a while, and a key read then would differ."""
-    model = ""
-    try:
-        with pathlib.Path("/proc/cpuinfo").open(encoding="utf-8") as fh:
-            model = next((line.split(":", 1)[1].strip() for line in fh if line.startswith("model name")), "")
-    except OSError:
-        pass
-    return f"{model}|cpus={os.cpu_count()}|slots={config.get('judge.gpus_per_node', 0)}"
+    """CPU model (:func:`osinfo.cpu_model`, the identity every CPU-keyed table uses), the node's CPU
+    count and judge slots per node: what a grade's core share and its numerics depend on. mi200 and
+    mi300 nodes differ in the first. The node's count, not this process's affinity: timing pins the
+    judge process for a while, and a key read then would differ."""
+    return f"{osinfo.cpu_model()}|cpus={os.cpu_count()}|slots={judge_gpu_slots()}"
 
 
 def image_key() -> str:
     """The exported judge image digest, else the interpreter and numpy versions."""
-    return os.environ.get(IMAGE_KEY_ENV, "") or f"python-{sys.version.split()[0]}-numpy-{np.__version__}"
+    return config.env_value(IMAGE_KEY_ENV) or f"python-{sys.version.split()[0]}-numpy-{np.__version__}"
 
 
 def entry_path(kind: str, code: str, key: Hashable) -> pathlib.Path:

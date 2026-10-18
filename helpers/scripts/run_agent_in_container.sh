@@ -109,7 +109,7 @@ backend_ready() {
   esac
 }
 
-# Backend selection: the shared canonical knob wins, then the legacy bash-only alias, else
+# Backend selection: $HPCAGENT_BENCH_RUNTIME_BACKEND when set, else
 # auto-probe by image availability in KNOWN_BACKENDS order (docker -> podman -> apptainer).
 # OCI is a STANDARD, not a program: docker and podman both implement it, and `oci` resolves to
 # whichever is installed, docker first because it is the one most users have. The last-resort
@@ -120,7 +120,7 @@ backend_ready() {
 # srun, so there is nothing for it to assemble -- see hpcagent_bench/cluster/run_cluster.sh (role_srun).
 # `native` is not probed either: it runs on the host with no image, so there is no image to
 # probe for, and selecting it explicitly is the only way to mean it.
-RUNTIME="${HPCAGENT_BENCH_RUNTIME_BACKEND:-${HPCAGENT_BENCH_CONTAINER_RUNTIME:-}}"
+RUNTIME="${HPCAGENT_BENCH_RUNTIME_BACKEND:-}"
 INNER=(python -m hpcagent_bench.cli agent "${INNER_ARGS[@]}")
 
 if [ "$PRINT" -eq 1 ]; then

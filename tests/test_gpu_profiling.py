@@ -25,8 +25,10 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.harness import gpu_profiling, native_call, profiling, sandbox, tools
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.profile_wire import DeviceTraceReport
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
 
@@ -1055,14 +1057,17 @@ def test_rocprofv3_traces_a_hip_submission_through_the_judge_on_a_real_amd_node(
     from tests.test_compute_profiling import HIP_GEMM_KERNELS
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    submission = Submission("hip", source=_DEVICE_CUDA_GEMM_HOST, device_source=HIP_GEMM_KERNELS)
-    body = tools.JudgeClient(make_judge(ServiceConfig())[1]).profile(
-        submission, "gemm", preset="S", tool="rocprofv3", reps=1
+    submission = Submission(language="hip", source=_DEVICE_CUDA_GEMM_HOST, device_source=HIP_GEMM_KERNELS)
+    body = (
+        tools.JudgeClient(make_judge(ServiceConfig())[1])
+        .profile(submission, "gemm", preset="S", tool="rocprofv3", reps=1)
+        .root
     )
-    assert body["build_ok"] is True, body.get("detail")
-    assert body["tool"] == "rocprofv3", body
-    assert any("gemm_k" in str(kernel["name"]) for kernel in body["kernels"]), body["kernels"]
-    assert body["device_ns"] > 0, body
+    assert isinstance(body, DeviceTraceReport), body
+    assert body.build_ok is True, body
+    assert body.tool == "rocprofv3", body
+    assert any("gemm_k" in str(kernel["name"]) for kernel in body.kernels), body.kernels
+    assert body.device_ns > 0, body
 
 
 def _proc(returncode: int, *, stdout: str = "", stderr: str = ""):
@@ -1119,7 +1124,7 @@ def test_the_amd_occupancy_note_promises_no_agent_report_column_the_payload_does
 def test_the_amd_counter_note_gives_the_papi_this_image_builds_as_the_reason() -> None:
     """The AMD image builds PAPI 7.2.0 without rocp_sdk. Calling the component newer than that PAPI
     sends a reader after a PAPI upgrade that would not add it."""
-    dockerfile = pathlib.Path(__file__).resolve().parents[1] / "containers/images/judge-agent-amd/Dockerfile"
+    dockerfile = paths.ROOT / "containers/images/judge-agent-amd/Dockerfile"
     built = re.search(r'--with-components="([^"]+)"', dockerfile.read_text())
     assert built, "the AMD image no longer names its PAPI components in one --with-components list"
     components = built.group(1).split()

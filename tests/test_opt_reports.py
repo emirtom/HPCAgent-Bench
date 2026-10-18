@@ -62,20 +62,20 @@ def backend(tmp_path: pathlib.Path) -> pathlib.Path:
 @pytest.fixture
 def bench_stub(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
     """A duck-typed ``Benchmark``: :func:`opt_reports.emit_kernel_reports` reads only
-    ``bench.info["module_name"]`` / ``["relative_path"]``, so a real :class:`Benchmark` (which loads
+    ``bench.spec.module_name`` / ``.relative_path``, so a real :class:`Benchmark` (which loads
     a benchmark registry entry) is more machinery than the property under test needs. Points
     ``paths.BENCHMARKS`` at ``tmp_path`` so ``relative_path`` resolves to the fabricated backend
     fixture builds under ``tmp_path / "cpp_backend"``.
     """
     monkeypatch.setattr(paths, "BENCHMARKS", tmp_path)
-    return types.SimpleNamespace(info={"module_name": "probe", "relative_path": "."})
+    return types.SimpleNamespace(spec=types.SimpleNamespace(module_name="probe", relative_path="."))
 
 
 def test_reports_land_under_reports_root_slash_kernel(
     backend: pathlib.Path, bench_stub: types.SimpleNamespace, tmp_path: pathlib.Path
 ) -> None:
     """The documented output layout (``${out_root}/reports/<column>/<kernel>/``) is exactly
-    ``reports_root / bench.info["module_name"] /`` -- broken path-joining here is invisible to
+    ``reports_root / bench.spec.module_name /`` -- broken path-joining here is invisible to
     every OTHER assertion (they read files by walking the manifest), so it gets its own check."""
     out = tmp_path / "reports" / "fortran"
     manifest = opt_reports.emit_kernel_reports(bench_stub, "fortran", out)

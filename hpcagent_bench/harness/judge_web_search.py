@@ -11,6 +11,10 @@ The tool is intentionally service-agnostic:
   5. print JSON to stdout.
 
 A later HTTP service can either spawn this file per request or import run_web_search().
+
+Standard library only: ``containers/images/tools_launch_check.py`` loads this file by path inside the
+tools image, with nothing on ``sys.path``, so it imports nothing beyond the standard library. SerpAPI's and the LLM endpoint's
+answers and the printed result are therefore bare :mod:`json`, not pydantic models (docs/results_db.md#formats).
 """
 
 import argparse

@@ -23,6 +23,7 @@ def test_deterministic_frameworks_matches_the_frozen_pre_derivation_list() -> No
         "numpy",
         "polly",
         "pluto",
+        "polygeist_cpu",
         "cc",
         "cc_autopar",
         "llvm",

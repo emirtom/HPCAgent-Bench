@@ -3,19 +3,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Where a setup's inference comes from: a server this job starts, or a hosted service.
 
-Standard library only, and loaded by path, like ``effort.py``: the launcher shells out to this file
-on the batch host, and the tests import it from the checkout.
+The launcher runs this file under ``HPCAGENT_BENCH_HOST_PYTHON`` on the batch host, and the tests import it from
+the checkout. The provider's pricing listing is read through :class:`PricingListing` (a format this package does
+not own: fields it does not use are ignored) and the ``inference.json`` record it writes is a
+:data:`Provenance` model (docs/results_db.md#formats).
 
-A setup selects the SOURCE the same way it selects a model, with one key in its ``.env``.
-``INFERENCE_SOURCE=node`` (the default, and what every setup written before this mode says by saying
-nothing) keeps the vLLM/SGLang server the job starts on a GPU node. ``INFERENCE_SOURCE=service``
-takes the tokens from a hosted endpoint over the network instead: no inference node, no engine, no
-readiness wait, and the ``INFERENCE_SERVICE_*`` block below says which service.
+A setup selects the source with one key in its ``.env``. ``INFERENCE_SOURCE=node`` (default when unset):
+the job starts a vLLM/SGLang server on a GPU node. ``INFERENCE_SOURCE=service``: a hosted endpoint over the
+network, configured by the ``INFERENCE_SERVICE_*`` block below; no inference node, engine or readiness wait.
 
-The block resolves into the THREE values every consumer downstream already reads -- the base URL,
-the served model name and the key -- so the agent driver's replica striping, the runners'
-``--base-url``/``--model`` and the claude CLI's ``ANTHROPIC_BASE_URL`` all keep working unchanged.
-Adding a fourth path for hosted inference would have meant teaching each of them separately.
+Both resolve into the three values every consumer reads -- the base URL, the served model name and the key
+(:func:`launcher_env`) -- which the agent driver's replica striping, the runners' ``--base-url``/``--model``
+and the claude CLI's ``ANTHROPIC_BASE_URL`` consume.
 
 THE KEY TRAVELS BY NAME. A setup names the variable its key lives in
 (``INFERENCE_SERVICE_KEY_ENV``), never the key, so a committed setup env holds no secret and a
@@ -33,12 +32,14 @@ that bearer. The two are independent, which is why they are two keys.
 
 import argparse
 import dataclasses
-import json
 import os
 import pathlib
 import shlex
 import sys
 from collections.abc import Mapping
+from typing import Literal
+
+import pydantic
 
 __all__ = [
     "API_ANTHROPIC",
@@ -54,7 +55,11 @@ __all__ = [
     "SOURCES",
     "SOURCE_NODE",
     "SOURCE_SERVICE",
+    "NodeProvenance",
+    "PricingListing",
+    "Provenance",
     "Service",
+    "ServiceProvenance",
     "check_free",
     "claude_key_variable",
     "from_environ",
@@ -204,29 +209,52 @@ def launcher_env(service: Service) -> dict[str, str]:
     }
 
 
+class Endpoint(pydantic.BaseModel):
+    """One provider serving the model in a :class:`PricingListing`."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    provider_name: str = "?"
+    #: Metered unit -> price, as the provider spells it (a string number, or a discount number).
+    pricing: dict[str, str | float] = pydantic.Field(default_factory=dict)
+
+
+class ListingData(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    id: str
+    endpoints: list[Endpoint] = pydantic.Field(default_factory=list)
+
+
+class PricingListing(pydantic.BaseModel):
+    """The body of :func:`pricing_url` (OpenRouter's ``/models/<id>/endpoints``)."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    data: ListingData | None = None
+
+
 def pricing_url(service: Service) -> str:
     """The OpenRouter-style listing of the providers serving ``service.model`` and their prices."""
     return f"{service.base_url.rstrip('/')}/models/{service.model}/endpoints"
 
 
-def not_free(listing: Mapping[str, object], model: str) -> str | None:
+def not_free(listing: PricingListing, model: str) -> str | None:
     """Why ``listing`` (the body of :func:`pricing_url`) does not show ``model`` as free, or None.
 
     Free means every endpoint that could serve a request prices EVERY metered unit at zero: a router
     picks the provider per request, so one paid endpoint is enough to bill the setup. A listing with no
     endpoints, or one naming a different model, proves nothing and is refused.
     """
-    data = listing.get("data")
-    if not isinstance(data, dict) or data.get("id") != model:
+    data = listing.data
+    if data is None or data.id != model:
         return f"the provider's listing does not describe {model}"
-    endpoints = data.get("endpoints")
-    if not isinstance(endpoints, list) or not endpoints:
+    if not data.endpoints:
         return f"the provider lists no endpoint serving {model}"
-    for endpoint in endpoints:
-        pricing = endpoint.get("pricing") if isinstance(endpoint, dict) else None
-        if not isinstance(pricing, dict) or not pricing:
+    for endpoint in data.endpoints:
+        if not endpoint.pricing:
             return f"an endpoint for {model} publishes no pricing"
-        for unit, price in pricing.items():
+        for unit, price in endpoint.pricing.items():
             if unit == "discount":
                 continue
             try:
@@ -234,8 +262,7 @@ def not_free(listing: Mapping[str, object], model: str) -> str | None:
             except (TypeError, ValueError):
                 return f"{model} prices {unit} as {price!r}, which is not a number"
             if charged != 0.0:
-                name = endpoint.get("provider_name", "?")
-                return f"{model} is not free: {name} charges {price} per {unit}"
+                return f"{model} is not free: {endpoint.provider_name} charges {price} per {unit}"
     return None
 
 
@@ -245,7 +272,7 @@ def check_free(service: Service, timeout: float = 30.0) -> None:
 
     try:
         with urllib.request.urlopen(pricing_url(service), timeout=timeout) as response:
-            listing = json.load(response)
+            listing = PricingListing.model_validate_json(response.read())
     except (OSError, ValueError) as exc:
         raise SystemExit(f"cannot confirm {service.model} is free ({pricing_url(service)}): {exc}") from exc
     reason = not_free(listing, service.model)
@@ -259,7 +286,36 @@ def shell_block(exported: Mapping[str, str]) -> str:
     return "\n".join(f"{key}={shlex.quote(value)}" for key, value in exported.items())
 
 
-def provenance(environ: Mapping[str, str]) -> dict[str, str]:
+class NodeProvenance(pydantic.BaseModel):
+    """``inference.json`` of a setup whose job started its own server."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal["node"] = "node"
+    engine: str
+    ce_env: str
+    model: str
+
+
+class ServiceProvenance(pydantic.BaseModel):
+    """``inference.json`` of a setup served by a hosted service; names the key's variable, never the key."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal["service"] = "service"
+    provider: str
+    model: str
+    tier: str
+    api: str
+    base_url: str
+    key_env: str
+
+
+#: ``inference.json``, either source (told apart by ``source``).
+Provenance = NodeProvenance | ServiceProvenance
+
+
+def provenance(environ: Mapping[str, str]) -> Provenance:
     """What produced this run's tokens, for either source.
 
     A server setup records the engine, its image and the checkpoint; a service setup records the
@@ -268,30 +324,28 @@ def provenance(environ: Mapping[str, str]) -> dict[str, str]:
     wire and different data policies.
     """
     if source(environ) == SOURCE_NODE:
-        return {
-            "source": SOURCE_NODE,
-            "engine": environ.get("INFERENCE_ENGINE", "").strip() or "vllm",
-            "ce_env": environ.get("INFERENCE_CE_ENV", "").strip(),
-            "model": environ.get("VLLM_MODEL", "").strip(),
-        }
+        return NodeProvenance(
+            engine=environ.get("INFERENCE_ENGINE", "").strip() or "vllm",
+            ce_env=environ.get("INFERENCE_CE_ENV", "").strip(),
+            model=environ.get("VLLM_MODEL", "").strip(),
+        )
     service = from_environ(environ)
-    return {
-        "source": SOURCE_SERVICE,
-        "provider": service.provider,
-        "model": service.model,
-        "tier": service.tier,
-        "api": service.api,
-        "base_url": service.base_url,
-        "key_env": service.key_env,
-    }
+    return ServiceProvenance(
+        provider=service.provider,
+        model=service.model,
+        tier=service.tier,
+        api=service.api,
+        base_url=service.base_url,
+        key_env=service.key_env,
+    )
 
 
-def record(run_dir: pathlib.Path, environ: Mapping[str, str]) -> dict[str, str]:
+def record(run_dir: pathlib.Path, environ: Mapping[str, str]) -> Provenance:
     """Write the run's inference provenance and return it. Holds no key, by construction: every
     value comes from the setup's env block, and the key is only ever named there."""
     written = provenance(environ)
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / RECORD_NAME).write_text(json.dumps(written, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (run_dir / RECORD_NAME).write_text(written.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return written
 
 

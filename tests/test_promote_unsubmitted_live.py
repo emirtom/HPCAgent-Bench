@@ -27,11 +27,14 @@ from typing import ClassVar
 
 import pytest
 
+from hpcagent_bench.harness import recording
+from hpcagent_bench.harness.judge_wire import RouterHealthAnswer, SubmitVerdict
+from hpcagent_bench.harness.service import RequestBody, rank_error
 from tests import results_seed
 from tests.fresh_module import fresh
 
-#: What the judge answers a promotion it accepted.
-GRADE = {"correct": True, "build_ok": True, "speedup": 7.5}
+#: What the router answers a promotion it accepted (the verdict alone, ``judge_wire.SubmitVerdict``).
+GRADE = SubmitVerdict(correct="yes", request_id="r1")
 
 #: The rank this judge answers to -- deliberately NOT the single-judge default, so a promoter that
 #: merely omits the field, or hardcodes 0, fails instead of passing by luck.
@@ -60,19 +63,30 @@ class Judge(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        self.reply(200, {"status": "ok", "judge_rank": JUDGE_RANK})
+        health = RouterHealthAnswer(
+            status="ok",
+            judge_rank=JUDGE_RANK,
+            vllm_base_url="",
+            judge_upstream_url="",
+            implemented=[],
+            proxied=[],
+        )
+        self.reply(200, health.to_json())
 
     def do_POST(self):
-        from hpcagent_bench.harness.service import rank_error
-
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        # THE judge's own body contract: an unknown field or a wrongly typed one is a 400 here, as there.
+        try:
+            parsed = RequestBody.parse(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+        except ValueError as exc:
+            return self.reply(400, {"error": str(exc)})
+        body = parsed.fields
         # THE judge's own guard, imported rather than restated: a request naming no rank is refused
         # before anything is graded, which is the failure this exercises.
         refusal = rank_error(JUDGE_RANK, body.get("rank"))
         if refusal is not None:
-            return self.reply(*refusal)
+            return self.reply(refusal.status, refusal.payload.to_json())
         Judge.posted.append(body)
-        self.reply(200, dict(GRADE))
+        self.reply(200, GRADE.to_json())
         return None
 
 
@@ -100,7 +114,7 @@ def test_a_promotion_is_accepted_by_a_real_judge(promoter, judge, tmp_path, caps
     monkeypatch.setattr(sys, "argv", ["promote_unsubmitted.py", str(run_dir), "--judge", judge])
     assert promoter.main() == 0
     out = capsys.readouterr().out
-    assert "SUBMITTED speedup=7.50x" in out, out
+    assert "SUBMITTED request_id=r1" in out, out
     assert "refused" not in out, out
     (posted,) = Judge.posted
     assert posted["rank"] == JUDGE_RANK, "the rank must be the judge's own, not a guess"
@@ -129,6 +143,27 @@ def test_the_same_judge_refuses_a_body_that_names_no_rank(promoter, judge, tmp_p
     # to carry the judge's own words, or a promotion failure is undiagnosable from the setup's log.
     assert "rank" in outcome, f"the refusal reason must reach the report line, got {outcome!r}"
     assert Judge.posted == [], "a refused promotion must not be recorded as graded"
+
+
+def test_a_promotion_re_sends_the_grades_request_envelope_in_the_judges_own_shapes(
+    promoter: ModuleType,
+    judge: str,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """requests, workspace_bytes and build ride from the grade's columns into the posted body, and the judge's
+    RequestFields accept every one (a column that changed encoding would be refused 400 on every promotion)."""
+    envelope = recording.envelope_values(["-O3"], json.dumps({"startup": {"load": ["rccl"]}}), "n*8")
+    shard = tmp_path / "judge" / "rank-0" / "hpcagent_bench0.db"
+    results_seed.score(shard, "setup.n0.p1.w1", "gemm", 1, 7.5, source="void gemm(void){}", **envelope)
+    monkeypatch.setattr(sys, "argv", ["promote_unsubmitted.py", str(tmp_path), "--judge", judge])
+    assert promoter.main() == 0
+    assert "refused" not in capsys.readouterr().out
+    (posted,) = Judge.posted
+    assert posted["requests"] == {"startup": {"load": ["rccl"]}}
+    assert posted["workspace_bytes"] == "n*8"
+    assert posted["build"] == ["-O3"]
 
 
 def add_worker(rank_dir: pathlib.Path, episode_id: str, bench: str, speedup: float, submitted: bool) -> None:

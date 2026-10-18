@@ -13,6 +13,7 @@ import pytest
 from hpcagent_bench import config
 from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.mpi_descriptor import Descriptor
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.optimizers import NoOpMPIOptimizer
 from hpcagent_bench.harness.requests_api import Requests
@@ -21,6 +22,7 @@ from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings import binding_from_spec
+from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub
 from tests import mpi_launch_helpers
 from tests.mpi_launch_helpers import c_toolchain, cc_override_for, mpi4py_launcher_diagnosis
@@ -453,7 +455,16 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         # (outputs, samples, mem, followup outputs) -- constant serial anchor time
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(
+        task: Task,
+        binding: Binding,
+        submission: Submission,
+        descriptor: Descriptor,
+        cand_data: dict[str, object],
+        cfg: scoring.MpiLaunch,
+        *,
+        k_repeats: int | None = None,
+    ) -> mpi_call.MpiRun:
         p = descriptor.nranks
         if p == 4:
             raise S.MpiBuildError("boom")  # one P fails to build => a note, not a point
@@ -473,7 +484,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         "from_submission",
         classmethod(described),
     )
-    monkeypatch.setattr(S.config, "get", lambda key, default=None: "strong" if key == "mpi.mode" else default)
+    S.config.set_override("mpi.mode", "strong")
     # warmup_count() is a separate config from S.config; zero it so anchor calls == 1, not warmup+1.
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
@@ -517,7 +528,16 @@ def gang_strong_sweep(
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )
 
-    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(
+        task: Task,
+        binding: Binding,
+        submission: Submission,
+        descriptor: Descriptor,
+        cand_data: dict[str, object],
+        cfg: scoring.MpiLaunch,
+        *,
+        k_repeats: int | None = None,
+    ) -> mpi_call.MpiRun:
         p = descriptor.nranks
         if p == fails_at:
             raise fail("boom")
@@ -544,7 +564,8 @@ def gang_strong_sweep(
         return described(cls, submission, binding, ranks)
 
     monkeypatch.setattr(S.Descriptor, "from_submission", classmethod(refusing))
-    monkeypatch.setattr(S.config, "get", lambda key, default=None: overrides.get(key, default))
+    for key, value in overrides.items():
+        S.config.set_override(key, value)
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
     return S.score_scaling(
@@ -629,7 +650,16 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     def _fake_call_isolated(lib, binding, data, lang, reps: int = 1, followups=(), **kw):
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
-    def fake_build_run(task, binding, submission, descriptor, cand_data, cfg):
+    def fake_build_run(
+        task: Task,
+        binding: Binding,
+        submission: Submission,
+        descriptor: Descriptor,
+        cand_data: dict[str, object],
+        cfg: scoring.MpiLaunch,
+        *,
+        k_repeats: int | None = None,
+    ) -> mpi_call.MpiRun:
         p = descriptor.nranks
         return launched([1000 * p])
 
@@ -644,7 +674,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
         "from_submission",
         classmethod(described),
     )
-    monkeypatch.setattr(S.config, "get", lambda key, default=None: "weak" if key == "mpi.mode" else default)
+    S.config.set_override("mpi.mode", "weak")
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     grid1 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
@@ -664,8 +694,6 @@ def patch_work_exponent(monkeypatch: pytest.MonkeyPatch, exponent: int | None) -
     """Load every manifest as if its ``mpi.decomposition`` declared ``work_exponent = exponent``;
     ``None`` removes the key -- the strong-only marker, which no shipped MPI manifest carries (the
     manifest audit in test_mpi_sizing.py pins that), so the refusal path needs a stand-in."""
-    import dataclasses
-
     load = BenchSpec.load
 
     def patched(key: str) -> BenchSpec:
@@ -673,7 +701,7 @@ def patch_work_exponent(monkeypatch: pytest.MonkeyPatch, exponent: int | None) -
         decomp = {k: v for k, v in spec.mpi["decomposition"].items() if k != "work_exponent"}
         if exponent is not None:
             decomp["work_exponent"] = exponent
-        return dataclasses.replace(spec, mpi={**spec.mpi, "decomposition": decomp})
+        return spec.replace(mpi={**spec.mpi, "decomposition": decomp})
 
     monkeypatch.setattr(scoring.BenchSpec, "load", staticmethod(patched))
 

@@ -164,7 +164,9 @@ def test_the_cpf_view_and_its_cache_are_read_only_to_a_kernel(
 
     view, cache = tmp_path / "views" / "v", tmp_path / "cache"
     view.mkdir(parents=True)
-    (view / cpf_cache.VIEW_NAME).write_text(json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": str(cache)}))
+    (view / cpf_cache.VIEW_NAME).write_text(
+        json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": str(cache), "target": "cpu", "dace_commit": "dace"})
+    )
     monkeypatch.setenv("HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR", str(view))
     plan = seal.grading_plan(["/work"])
     assert plan is not None
@@ -197,7 +199,9 @@ def test_a_fused_judges_readonly_set_covers_every_setups_cpf_view(
         view = tmp_path / "views" / name
         cache = tmp_path / "cache" / name
         view.mkdir(parents=True)
-        (view / cpf_cache.VIEW_NAME).write_text(json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": str(cache)}))
+        (view / cpf_cache.VIEW_NAME).write_text(
+            json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": str(cache), "target": "cpu", "dace_commit": "dace"})
+        )
         resolved_overlay(setups_dir, name, str(view))
         views.append((str(view), str(cache)))
     monkeypatch.setenv("HPCAGENT_BENCH_FUSED_SETUPS_DIR", str(setups_dir))
@@ -245,7 +249,9 @@ def test_a_fused_judges_readonly_set_keeps_every_value_of_a_duplicated_key(
     first, second = tmp_path / "views" / "first", tmp_path / "views" / "second"
     for view in (first, second):
         view.mkdir(parents=True)
-        (view / cpf_cache.VIEW_NAME).write_text(json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": ""}))
+        (view / cpf_cache.VIEW_NAME).write_text(
+            json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": "", "target": "cpu", "dace_commit": "dace"})
+        )
     (setups_dir / "armD.resolved").write_text(
         "SETUP=armD\n"
         f"HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR={first}\n"
@@ -314,7 +320,9 @@ def test_the_current_setups_cpf_view_resolved_through_the_config_layer_is_read_o
 
     view = tmp_path / "views" / "scoped"
     view.mkdir(parents=True)
-    (view / cpf_cache.VIEW_NAME).write_text(json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": ""}))
+    (view / cpf_cache.VIEW_NAME).write_text(
+        json.dumps({"layout": cpf_cache.LAYOUT, "cache_root": "", "target": "cpu", "dace_commit": "dace"})
+    )
     with config.scoped_environment({seal.CPF_VIEW_ENV: str(view)}):
         plan = seal.grading_plan(["/work"])
     assert plan is not None
@@ -556,19 +564,18 @@ def test_the_profile_child_argv_hides_devices_only_for_a_host_residency_request(
 
 
 def test_the_traced_gpu_child_seals_its_devices_like_the_profile_child(tmp_path: pathlib.Path) -> None:
-    """gpu_profiling.request_plan (the seal nsys / rocprofv3 children run under) does not keep
+    """profiling.request_plan (the seal the nsys / rocprofv3 children run under) does not keep
     grading_plan's devices=True default whatever the request says; it reads the request's
     ``device`` field exactly as profiling.child_argv does, so a host-residency traced run hides
     every device node and a device-residency one keeps them."""
-    from hpcagent_bench.harness import gpu_profiling, profiling
+    from hpcagent_bench.harness import profiling
 
     nodes = set(seal.device_nodes())
     for device in (False, True):
         request = tmp_path / f"device-{device}.json"
         request.write_text(json.dumps({"device": device}))
-        plan = gpu_profiling.request_plan(request)
+        plan = profiling.request_plan(request)
         assert plan is not None
-        assert plan == profiling.request_plan(request)
         hidden = set(plan.hide) & nodes
         assert hidden == (set() if device else nodes), f"device={device}: hid {sorted(hidden)} of {sorted(nodes)}"
 

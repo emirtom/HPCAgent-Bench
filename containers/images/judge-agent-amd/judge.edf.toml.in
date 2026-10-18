@@ -1,20 +1,19 @@
 # CSCS Container Engine EDF for the JUDGE target of judge-agent-amd/Dockerfile.
 #
-# Same image as the agent EDF plus hpcagent_bench and the numpyto_* translators INSTALLED into
-# site-packages. That is the whole difference, and it is why the judge gets its own name: the
-# package ships hpcagent_bench/benchmarks, the reference implementations agents are graded
-# against, so an image carrying it must never be the one an agent runs.
+# Same image as the agent EDF; the difference is the mount of the checkout at /opt/hpcagent-bench, which the
+# judge's launch sync installs editable (hpcagent_bench and the numpyto_* translators). The image itself holds
+# none of that code, but the checkout ships hpcagent_bench/benchmarks, the reference implementations agents are
+# graded against, so only this EDF may mount it and the agent EDF never does.
 #
-# PYTHONSAFEPATH=1 matters more here than anywhere. With hpcagent_bench installed, a bare
-# DIRECTORY named hpcagent_bench on sys.path (the mounted checkout has one) would shadow the
-# installed package and import as an empty namespace package, and grading would fail in a way
-# that reads like a packaging bug. Dropping the CWD from sys.path is what makes the INSTALLED
-# package win.
+# PYTHONSAFEPATH=1 matters more here than anywhere. It keeps the CWD off sys.path, so hpcagent_bench resolves
+# through the launch venv's editable install of the mounted checkout, never through a bare DIRECTORY named
+# hpcagent_bench in whatever directory a job runs in, which would import as an empty namespace package and
+# fail grading in a way that reads like a packaging bug.
 #
-# The held-out hidden tests are NOT in this image by policy; the judge reads them from the mount.
+# The held-out hidden tests are NOT in the image by policy; the judge reads them from the mount.
 
 # install_edfs.sh rewrites this line. Named for the JUDGE role so a HAND copy of this
-# file does not silently mount the agent image, which has no hpcagent_bench.
+# file does not silently mount the agent image, whose EDF never mounts the checkout.
 image = "${SCRATCH}/ce-images/hpcagent-bench-ce-judge-amd-mi300.sqsh"
 mounts = [
     # install_edfs.sh replaces this item with hpcagent_bench_edf_mounts (helpers/scripts/cache_env.sh):

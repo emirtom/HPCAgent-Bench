@@ -46,11 +46,6 @@ def entry_prototype(code: str, symbol: str) -> str:
     return code[opened : code.index(")", opened) + 1]
 
 
-def registry_key(short: str) -> str:
-    (key,) = (key for key in KERNELS if key.rsplit("/", 1)[-1] == short)
-    return key
-
-
 @pytest.mark.integration
 @pytest.mark.parametrize("dialect", sorted(STUB_LANGUAGE))
 @pytest.mark.parametrize("kernel", KERNELS_UNDER_TEST)
@@ -59,14 +54,16 @@ def test_the_form_takes_the_required_signature_and_grades_correct(
 ) -> None:
     spec = BenchSpec.load(kernel)
     record = cpf_bridge.render_kernel(spec, tmp_path, language=dialect)
-    assert record["verdict"] == "ok", record
+    assert record.verdict == "ok", record
     native = binding_from_spec(spec)
-    code = pathlib.Path(record["source"]).read_text()
+    code = pathlib.Path(record.source).read_text()
     stub = gen_call_stub(native, STUB_LANGUAGE[dialect])
     assert entry_prototype(code, native.symbol) == entry_prototype(stub, native.symbol)
 
     language = STUB_LANGUAGE[dialect]
-    result = score(Submission(language=language, source=code), Task(registry_key(kernel), "restricted", language))
+    result = score(
+        Submission(language=language, source=code), Task(KERNELS.key_for_name(kernel), "restricted", language)
+    )
     assert (result.build_ok, result.correct) == (True, True), result.detail[-2000:]
 
 
@@ -90,7 +87,9 @@ def test_the_route_answers_a_request_naming_no_order_with_the_required_signature
     if os.environ.get("OPENBLAS_ROOT") and not os.environ.get("OPENBLAS_DIR"):
         monkeypatch.setenv("OPENBLAS_DIR", os.environ["OPENBLAS_ROOT"])
     url = make_judge(RunConfig())[1]
-    with urlopen(f"{url}/canonical_parallel_form/{registry_key('gemm')}?language=c&rank={DEFAULT_RANK}") as reply:
+    with urlopen(
+        f"{url}/canonical_parallel_form/{KERNELS.key_for_name('gemm')}?language=c&rank={DEFAULT_RANK}"
+    ) as reply:
         answer = json.loads(reply.read())
     assert answer["verdict"] == "ok", answer
     native = binding_from_spec(BenchSpec.load("gemm"))

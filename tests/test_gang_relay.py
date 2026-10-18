@@ -5,6 +5,7 @@
 import functools
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -31,8 +32,8 @@ def load_relay():
 
 
 def host_python() -> str:
-    """The relay runs on the batch host's python3 (3.6 on Beverin); test with it when present."""
-    return "/usr/bin/python3" if Path("/usr/bin/python3").exists() else sys.executable
+    """The relay runs under the batch host python, which has hpcagent_bench importable."""
+    return sys.executable
 
 
 def test_a_gang_launch_through_the_relay_returns_the_steps_status_and_output(monkeypatch, tmp_path, capsys) -> None:
@@ -135,6 +136,22 @@ def test_an_unstartable_request_gets_an_exit_status_not_silence(tmp_path) -> Non
     relay.step(str(tmp_path), {})
     assert (tmp_path / "bad.rc").read_text().strip() == "127"
     assert "cannot start" in (tmp_path / "bad.err").read_text()
+
+
+def test_a_request_that_is_not_a_gang_request_is_refused_not_coerced(tmp_path: pathlib.Path) -> None:
+    """The judge writes a GangRequest; an argv of non-strings or an extra key is a fault, never str()-coerced."""
+    relay = load_relay()
+    for ident, body in (("num", '{"argv": [1, 2]}'), ("extra", '{"argv": ["true"], "cwd": "/"}'), ("none", "{}")):
+        (tmp_path / f"{ident}.req").write_text(body)
+    relay.step(str(tmp_path), {})
+    for ident in ("num", "extra", "none"):
+        assert (tmp_path / f"{ident}.rc").read_text().strip() == "127", ident
+
+
+def test_the_judges_request_is_what_the_relay_reads(tmp_path: pathlib.Path) -> None:
+    assert mpi_gang.GangRequest.model_validate_json(
+        mpi_gang.GangRequest(argv=["srun", "-n", "2"]).model_dump_json()
+    ).argv == ["srun", "-n", "2"]
 
 
 def test_the_relay_env_prefix_keeps_the_judges_env_but_not_slurm_pmi_or_devices() -> None:

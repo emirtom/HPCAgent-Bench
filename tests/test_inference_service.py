@@ -25,11 +25,12 @@ from typing import ClassVar
 
 import pytest
 
+from hpcagent_bench import paths
 from hpcagent_bench.harness.agent import anthropic_usage, http_chat_json
 from tests.env_render import rendered
 from tests.fresh_module import fresh
 
-CLUSTER_DIR = pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "cluster"
+CLUSTER_DIR = paths.ROOT / "hpcagent_bench" / "cluster"
 
 #: A key value no other string in these cases spells, so a leak search cannot match by accident.
 SECRET = "sk-test-1nf3r3nc3-s3rv1c3-l34k-c4n4ry"
@@ -486,9 +487,7 @@ def test_the_launcher_never_writes_the_key_value_into_the_run_tree() -> None:
     """Two files the launcher writes outlive the job: the LiteLLM proxy config and the container env
     slice. Neither may carry the key's VALUE -- the config names the variable for LiteLLM to read,
     and the slice is a tmpfs file removed with the job, not ``${RUN_DIR}/job.env``."""
-    script = (pathlib.Path(__file__).resolve().parents[1] / "hpcagent_bench" / "cluster" / "run_cluster.sh").read_text(
-        encoding="utf-8"
-    )
+    script = (paths.ROOT / "hpcagent_bench" / "cluster" / "run_cluster.sh").read_text(encoding="utf-8")
     assert "api_key: ${VLLM_API_KEY" not in script, "the proxy config would hold the key literally"
     assert "os.environ/VLLM_API_KEY" in script
     assert 'JOB_ENV_FILE="${RUN_DIR}' not in script, "the env slice would persist in the run tree"
@@ -508,7 +507,7 @@ def listing(model: str, *pricings: dict[str, str]) -> dict[str, object]:
 
 def test_a_model_priced_zero_on_every_endpoint_is_free(service: types.ModuleType) -> None:
     body = listing("stealth/union-alpha", {"prompt": "0", "completion": "0", "discount": 0})
-    assert service.not_free(body, "stealth/union-alpha") is None
+    assert service.not_free(service.PricingListing.model_validate(body), "stealth/union-alpha") is None
 
 
 @pytest.mark.parametrize(
@@ -527,7 +526,7 @@ def test_a_free_only_setup_refuses_any_listing_that_does_not_prove_the_model_fre
 ) -> None:
     """A router picks the provider per request, so ONE paid endpoint, one metered unit, or a listing
     that proves nothing is enough to bill a key the user allowed only for a free model."""
-    got = service.not_free(body, "m")
+    got = service.not_free(service.PricingListing.model_validate(body), "m")
     assert got is not None, got
     assert reason in got, got
 

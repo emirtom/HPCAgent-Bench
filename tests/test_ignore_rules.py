@@ -22,7 +22,7 @@ LLR = "hpcagent_bench/benchmarks/loop_level_reasoning/argmax_value"
 #: One generated path per .gitignore group, plus the repo tools' own outputs found in used trees.
 GIT_IGNORED = [
     "hpcagent_bench/__pycache__/cli.cpython-312.pyc",
-    "dist/hpcagent_bench-0.1.0.tar.gz",
+    "dist/hpcagent_bench-0.2.0.tar.gz",
     "hpcagent_bench.egg-info/PKG-INFO",
     ".venv/bin/python",
     ".pytest_cache/v/cache/nodeids",

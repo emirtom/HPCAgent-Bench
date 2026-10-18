@@ -22,13 +22,13 @@ import queue
 import threading
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
 
 from hpcagent_bench import config
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import SubmitAnswer
 from hpcagent_bench.harness.runner import RunRow, solve_task, status_of
-from hpcagent_bench.harness.scoring import Score, score_from_response
+from hpcagent_bench.harness.scoring import Score, score_from_answer
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import DEFAULT_JUDGE_URL, JudgeClient
 
@@ -114,13 +114,10 @@ def judge_endpoints() -> list[str]:
 
 
 def agent_workers(vllm_urls: list[str | None], judge_urls: list[str]) -> int:
-    """Concurrent agent workers: ``$HPCAGENT_BENCH_AGENT_WORKERS`` / ``agent.workers`` if set, else
-    one per endpoint (``max`` of the two lists) so every endpoint gets at least one worker."""
-    env = os.environ.get("HPCAGENT_BENCH_AGENT_WORKERS")
-    configured = int(env) if env else config.get_int("agent.workers", 0)
-    if env or configured:
-        return max(1, configured)
-    return max(len(vllm_urls), len(judge_urls), 1)
+    """Concurrent agent workers: ``agent.workers`` when set, else one per endpoint (``max`` of the two lists)
+    so every endpoint gets at least one worker."""
+    configured = config.current().agent.workers
+    return configured if configured is not None else max(len(vllm_urls), len(judge_urls), 1)
 
 
 def static_enabled(explicit: str | None, vllm_urls: list[str | None], judge_urls: list[str], workers: int) -> bool:
@@ -137,20 +134,20 @@ def static_enabled(explicit: str | None, vllm_urls: list[str | None], judge_urls
 # authoritative grade over HTTP (the judge tier)
 
 
-def score_from_oracle(resp: dict[str, Any]) -> Score:
-    """Rebuild a :class:`Score` from a judge ``/submit`` response: the full grade, or the verdict an
-    agent-facing judge answers with (correct yes/no only; see :func:`scoring.score_from_response`)."""
-    return score_from_response(resp)
+def score_from_oracle(resp: SubmitAnswer) -> Score:
+    """Rebuild a :class:`Score` from a judge ``/submit`` answer: the full grade, or the verdict an
+    agent-facing judge answers with (correct yes/no only; see :func:`scoring.score_from_answer`)."""
+    return score_from_answer(resp)
 
 
-def http_grade(judge_url: str, judge_rank: int, submission: Submission, task: Task, *, preset: str) -> Score:
+def http_grade(judge_url: str, judge_rank: int, submission: Submission, task: Task) -> Score:
     """The authoritative grade: POST the submission to the assigned judge and return its Score.
     The judge owns re-verification (its harden gate), so there is no client-side re-verify.
 
     ``judge_url`` ROUTES; ``judge_rank`` (the same worker's round-robin index) only asserts the
     routing was right -- the judge answers 421 rather than grading a request that reached it by
     mistake, so a mis-wired endpoint list is a loud failure instead of a plausible number."""
-    resp = JudgeClient(judge_url, rank=judge_rank).submit(submission, task.kernel, preset=preset)
+    resp = JudgeClient(judge_url, rank=judge_rank).submit(submission, task.kernel)
     return score_from_oracle(resp)
 
 
@@ -222,7 +219,7 @@ def run_static(
                     max_rounds=max_rounds,
                 )
                 if jurl and submission is not None and gradable(submission):
-                    rows[i] = merge_graded_row(think_row, http_grade(jurl, jrank, submission, task, preset=preset))
+                    rows[i] = merge_graded_row(think_row, http_grade(jurl, jrank, submission, task))
                 else:
                     rows[i] = think_row
             except BaseException as exc:  # noqa: BLE001 -- one task failing is a scored row, not a sweep death

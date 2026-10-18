@@ -36,7 +36,7 @@ on:
   push:
     branches: [ main, extended, ci-fix ]
   pull_request:
-    branches: [ main, extended, ci-fix ]
+    branches: [ main, extended, ci-fix, "release-*" ]
   merge_group:
     branches: [ main, extended, ci-fix ]
   workflow_dispatch:
@@ -55,8 +55,9 @@ on:
         type: string
         default: amd or rocm or judge_image or ppcg
 
+# Keyed by branch: a push to a release branch and its PR to main share one group, so only the newest run survives.
 concurrency:
-  group: ${{github.workflow}}-${{github.ref}}
+  group: ${{github.workflow}}-${{github.head_ref || github.ref_name}}
   cancel-in-progress: true
 
 jobs:
@@ -166,7 +167,9 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
     name: perf[${{ matrix.job }}] (canon <= 2x the compiled baseline)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # cloudsc's canonicalization alone takes ~20 min on Alps and longer on a runner; the gate passed at 36 and
+    # failed at 42-44 minutes against the former 40-minute test cap.
+    timeout-minutes: 75
     # Reports, does not block, until the canon fixes for the kernels still past 2x are pinned.
     continue-on-error: true
     strategy:
@@ -187,7 +190,7 @@ jobs:
           tests=$(python -c "from tests.test_canon_perf_gate import PERF_JOBS; \
             print(' '.join(f'tests/test_canon_perf_gate.py::test_canon_is_within_2x_of_the_compiled_baseline[{k}]' \
             for k in PERF_JOBS['${{ matrix.job }}']))")
-          python -m pytest -p no:cacheprovider -p no:xdist -rfEs --timeout=2400 -m canon_perf ${tests}
+          python -m pytest -p no:cacheprovider -p no:xdist -rfEs --timeout=3600 -m canon_perf ${tests}
       - uses: ./.github/actions/finish
         if: always()
         with:
@@ -197,7 +200,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
     # One leg per backend: numba+jax measured 26.6 min together and pythran 18.1, so one runner
     # cannot hold all three under the 45-minute ceiling.
-    name: e2e[${{ matrix.leg.backend }}] (numerical sweep @ S)
+    name: e2e[${{ matrix.leg.backend }}${{ matrix.leg.shard && format(' {0}', matrix.leg.shard) || '' }}] (numerical sweep @ S)
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -205,8 +208,10 @@ jobs:
         leg:
           - { backend: numba, workers: auto }
           - { backend: jax, workers: auto }
-          # One pythran compile peaks at ~7 GB: two at once exhaust the 16 GB runner.
-          - { backend: pythran, workers: 1 }
+          # One pythran compile peaks at ~7 GB: two at once exhaust the 16 GB runner, so its one worker takes
+          # 30-35 minutes for the sweep and it runs as two halves of the stems.
+          - { backend: pythran, workers: 1, shard: "0/2" }
+          - { backend: pythran, workers: 1, shard: "1/2" }
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -222,6 +227,7 @@ jobs:
         timeout-minutes: 35
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: ${{ matrix.leg.backend }}
+          HPCAGENT_BENCH_E2E_SHARD: ${{ matrix.leg.shard || '' }}
           HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
         run: |
           python -m pytest -p no:cacheprovider -rfEs -n ${{ matrix.leg.workers }} --dist loadgroup --durations=25 \
@@ -229,7 +235,7 @@ jobs:
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: e2e-${{ matrix.leg.backend }}
+          coverage: e2e-${{ matrix.leg.backend }}${{ matrix.leg.shard && format('-{0}', strategy.job-index) || '' }}
 
   # The @pytest.mark.integration tests under tests/ (build and run real artifacts). The translator
   # tree's half of the marker runs in `translators`. Two shards: the one Phase 6 step measured
@@ -508,6 +514,24 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=1800 tests/test_integration_sweep.py
 
+      - uses: ./.github/actions/finish
+        if: always()
+        with:
+          coverage: native
+
+  # The c/cpp/fortran e2e legs, split off `native` (which builds Pluto): together they took 31-45 of
+  # its 45 minutes, so a slow runner cancelled the job.
+  native-e2e:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
+    name: native-e2e (e2e[c,cpp,fortran] fp64 + fp32 + emitted references)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+        with:
+          ccache: native-e2e
+
       - name: Phase 5 -- e2e numerical sweep [c, cpp, fortran] @ S, fp64, WHOLE gated corpus
         if: ${{ !cancelled() }}
         timeout-minutes: 18
@@ -538,14 +562,15 @@ jobs:
 
       - name: Phase 5e -- emitted references are well-formed and share one ABI
         if: ${{ !cancelled() }}
-        timeout-minutes: 8
+        # 8 minutes cut it off on a slow runner (one xdist group, so it runs serially).
+        timeout-minutes: 15
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=900 tests/test_generated_references.py
 
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: native
+          coverage: native-e2e
 
   # The sudoless Apptainer install and launch path, and the in-process agent-bench suite. No image
   # is built here: every image under containers/images/ takes longer than a runner allows and gates
@@ -714,8 +739,13 @@ jobs:
   # The generated DaCe corpus still computes what numpy computes: a C++ build and a run per kernel.
   dace-numeric:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: dace-numeric (the generated DaCe corpus vs numpy)
+    name: dace-numeric[${{ matrix.shard }}] (the generated DaCe corpus vs numpy)
     runs-on: ubuntu-24.04
+    # Two shards: one runner took 34-40 of its 38 minutes, so a slow runner timed the gate out.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 0, 1 ]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -732,6 +762,7 @@ jobs:
         env:
           # Not /tmp (tmpfs): a full tmpfs fails builds in a way that reads as a kernel defect.
           JIT_CACHE_ROOT: ${{ runner.temp }}/jit
+          HPCAGENT_BENCH_DACE_PARSE_SHARD: "${{ matrix.shard }}/2"
         run: |
           rm -rf "$JIT_CACHE_ROOT/dace_numeric"
           python -c "from tests.test_dace_numeric_agreement import prewarm; \
@@ -742,14 +773,14 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: dace-corpus-numeric
+          name: dace-corpus-numeric-${{ matrix.shard }}
           path: hpcagent_bench/benchmarks/**/*_dace.py
           retention-days: 7
           if-no-files-found: ignore
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: dace-numeric
+          coverage: dace-numeric-${{ matrix.shard }}
 
   # Alloy (the optional `alloy` extra): one kernel's region variants built, verified and screened, and both CPU
   # profile flavors' libraries graded by an in-process judge. gcc and the setup's LLVM clang are its compilers.
@@ -777,39 +808,6 @@ jobs:
         if: always()
         with:
           coverage: alloy
-
-  # The compiled (numba) numpy reference agrees with the interpreted one for every kernel, dealt
-  # round-robin over two containers so each takes half of every kernel family.
-  njit-oracle:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: njit-oracle (the compiled numpy reference vs the interpreted one)
-    runs-on: ubuntu-24.04
-    # One runner deals both halves ("0,1" of 2): each takes ~6 min. Split the hands again here if
-    # the file outgrows one runner.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [ "0,1" ]
-    timeout-minutes: 45
-    env:
-      # Read by tests/test_njit_reference.py::shard (an index list over a count).
-      HPCAGENT_BENCH_NJIT_SHARD: ${{ matrix.shard }}/2
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup
-      - name: The compiled oracle still computes what the interpreter computes @ S
-        # The whole file, not `-m njit_oracle`: its unmarked tests run in no other job.
-        if: ${{ !cancelled() }}
-        timeout-minutes: 40
-        run: |
-          python -m pytest -p no:cacheprovider -rfEs -n auto -v \
-            --maxfail=20 --durations=25 --timeout=1500 tests/test_njit_reference.py
-      - uses: ./.github/actions/finish
-        if: always()
-        with:
-          coverage: njit-oracle
 
   # Hardware-marked tests and the GPU codegen columns on a real GPU. Manual only: a self-hosted
   # GPU runner is not always attached.
@@ -874,8 +872,8 @@ jobs:
     if: ${{!cancelled()}}
     name: coverage (combined total)
     # Every job that uploads coverage data, or the total is built from a subset.
-    needs: [ unit, e2e, integration, translators, native, mpi, dace-numeric,
-             dace-frontend, njit-oracle, alloy ]
+    needs: [ unit, e2e, integration, translators, native, native-e2e, mpi, dace-numeric,
+             dace-frontend, alloy ]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

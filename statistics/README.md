@@ -82,11 +82,10 @@ the geometric mean over its served kernels, with the arithmetic mean beside it
 | Script | Output |
 | --- | --- |
 | `paired_setups.py` | Pair table (both legs, corrected over `--family`) and per-setup table. |
-| `plot_score_change.py` | Efficacy figure (speedup, solved and cost rows per model and delivery); `--per-kernel`: every kernel of a tag, compilers and setups over one baseline. |
-| `plot_setup_summary.py` | Per-setup views. |
-| `plot_scaling.py` | Scaling curves. |
-| `plot_speedup.py` | Framework speedups from the results table. |
-| `plot_repeats.py` | Designed-repeat studies (`repeat5`, `temperature3`). |
+| `hpcagent-bench plot efficacy` | Efficacy figure (speedup, solved and cost rows per model and delivery). |
+| `hpcagent-bench plot kernel-speedups` | Speedup per kernel: every kernel of a tag, compilers and setups over one baseline. |
+| `hpcagent-bench plot scaling` | Scaling curves. |
+| `hpcagent-bench plot kernel-runs` | Every run per kernel and model, conditions (temperatures, packets) stacked: designed repeats (`repeat5`, `temperature3`). |
 | `iteration_counts.py` | Turns and tool calls per episode. |
 | `check_paper_figures.py` | Figure rule checks. |
 
@@ -113,7 +112,7 @@ python3 statistics/paired_setups.py --observations "$OBS" \
 ![efficacy](../docs/figures/example-efficacy-packets-and-scope.png)
 
 ```bash
-python3 statistics/plot_score_change.py "$OBS" \
+hpcagent-bench plot efficacy "$OBS" \
   --comparison "title=Loop Reasoning CPU;intervention=lang-skills;pairs=skills_billed.csv" \
   --comparison "title=Repository Context;intervention=repo;pairs=repo-vs-kernel_billed.csv;observations=gitscicomp10.sqlite;control-label=Kernel Formulation" \
   --cost-model billed --out figures/efficacy.pdf --table figures/efficacy.csv
@@ -122,7 +121,7 @@ python3 statistics/plot_score_change.py "$OBS" \
 **Efficacy figure** of one experiment, each packet against its own no-packet control:
 
 ```bash
-python3 statistics/plot_score_change.py "$OBS" --experiment llr40 --setups 'llr40-(qwen38|oss120b)-c.*' \
+hpcagent-bench plot efficacy "$OBS" --experiment llr40 --setups 'llr40-(qwen38|oss120b)-c.*' \
   --treatment lang-skills --treatment perf-playbook-cpu --out figures/packets.pdf --table figures/packets.csv
 ```
 
@@ -131,7 +130,7 @@ python3 statistics/plot_score_change.py "$OBS" --experiment llr40 --setups 'llr4
 ![compilers](../docs/figures/example-compilers-per-kernel.png)
 
 ```bash
-python3 statistics/plot_score_change.py "$OBS" --per-kernel \
+hpcagent-bench plot kernel-speedups "$OBS" \
   --canon-db "$CANON_DB" --canon-columns pluto,dace_cpu_canon,dace_gpu_canon,ppcg_hip \
   --experiment llr40 --setups 'llr40-(qwen38|oss120b)-c.*' --conditions ,lang-skills --tag-file tag-llr40.txt \
   --offset 0.6 --out figures/compilers-per-kernel.pdf

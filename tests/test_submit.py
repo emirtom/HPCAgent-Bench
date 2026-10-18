@@ -18,10 +18,11 @@ import tempfile
 
 import pytest
 
+from hpcagent_bench import paths
 from tests.bash_stub import bash_stub
 from tests.env_render import SPEC_INPUTS
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+REPO = paths.ROOT
 
 #: What submit.sh reads from the checkout, relative to it.
 INPUTS = (
@@ -76,6 +77,7 @@ KNOBS = frozenset(
         *["BUDGET_SCALE", "TOKEN_SCALE", "TIME_SCALE", "DEADLINE", "EXTRA_ENV_KV", "SETUP_SUFFIX", "SUBMIT"],
         *[
             "DEPEND_ON",
+            "MAX_NODES",
             "BEGIN",
             "NICE",
             "HOLD",
@@ -375,6 +377,18 @@ def test_a_hosted_model_setup_lands_on_mi200_without_a_serving_layer(tmp_path: p
     assert_on_mi200(root, env)
 
 
+def test_the_setup_name_carries_a_hardware_other_than_the_base(tmp_path: pathlib.Path) -> None:
+    """Setups are keyed by name alone: the same experiment on two machines must be two setups, as its study is.
+    An experiment that does not name the hardware gains it as its last segment, so the name still parses."""
+    root = tree(tmp_path)
+    done = submit_mi200(root, "musespark", EXPERIMENT="x")
+    assert done.returncode == 0, done.stderr
+    env = setup_env(root, "x-mi200-musespark-c")
+    assert env["HPCAGENT_BENCH_RECORD_STUDY"] == "llr40-mi200"
+    assert env["PROBLEMS_FILE"] == "problems-x-mi200-musespark-c-subset.jsonl"
+    assert not (root / "experiments" / ".env.x-musespark-c-subset").exists()
+
+
 def test_a_served_model_setup_on_mi200_takes_its_serving_layer(tmp_path: pathlib.Path) -> None:
     """A self-served model runs on mi200 through layers/hardware-mi200-<model>.env, pinned over the
     setup after the hardware layer. The test writes its own layer, so it holds whatever ships."""
@@ -454,3 +468,14 @@ if __name__ == "__main__":
     test_a_served_model_with_no_mi200_serving_layer_is_refused(scratch())
     test_the_mi200_system_entry_is_the_whole_job_shape(scratch())
     test_an_mi200_setup_needs_a_study_naming_mi200(scratch())
+
+
+def test_each_cpf_setup_reads_the_view_of_its_own_device(tmp_path: pathlib.Path) -> None:
+    """One call staging a cpu and a gpu CPF setup: the default view is each setup's own device's. A default kept
+    from the first setup pointed every later hip setup at the cpu view, which its job refuses at start."""
+    tree(tmp_path)
+    done = submit(tmp_path, KERNELS_FILE="subset.txt", LANGUAGES="c hip", PACKETS="cpf-tool")
+    assert done.returncode == 0, done.stderr
+    key = "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR"
+    assert setup_env(tmp_path, "wave-qwen38-c-cpf-tool")[key].endswith("/views/llr40-cpu")
+    assert setup_env(tmp_path, "wave-qwen38-hip-cpf-tool")[key].endswith("/views/llr40-gpu")

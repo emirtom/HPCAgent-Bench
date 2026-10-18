@@ -6,16 +6,15 @@ A deterministic initializer hands the four timed draws the same bytes, so a cand
 across calls and the four timed inputs are one input. The perturbation is what makes them differ,
 and the scenarios are what keep a stencil/PDE draw physical while it does."""
 
-import copy
-
 import numpy as np
 import pytest
 
 from hpcagent_bench import paths
 from hpcagent_bench.frameworks.benchmark import Benchmark
-from hpcagent_bench.harness import grading, rep_variation
+from hpcagent_bench.harness import rep_variation
 from hpcagent_bench.spec import KERNELS, BenchSpec, function_parameters
 from hpcagent_bench.support.distributions.perturbation import POOL_SIZE, Perturbation, resolve
+from tests.reference_outputs import compiled_outputs
 
 #: A scenario's reference output may exceed its input by at most this factor. A stable scheme on a
 #: bounded initial condition stays within the input's range; the slack covers derived fields
@@ -118,10 +117,7 @@ def test_every_scenario_of_a_kernel_gives_a_finite_bounded_reference(kernel: str
         # A pattern-only kernel (spgemm_hash) has no floating input: its index arrays bound it.
         measured = [a for a in arrays if a.dtype.kind == "f"] or arrays
         biggest_in = max(float(np.max(np.abs(a))) for a in measured)
-        args = [copy.deepcopy(data[n]) for n in spec.input_args]
-        outputs = grading.bind_kernel_outputs(
-            grading.reference_function(kernel)(*args), args, spec.input_args, spec.output_args
-        )
+        _kind, outputs = compiled_outputs(kernel, data)  # the track's oracle, as a grade runs it
         for name, out in outputs.items():
             scenario = Perturbation.for_seed(seed, tuple(spec.init.scenarios)).scenario
             assert np.isfinite(out).all(), f"{kernel}/{scenario}: {name} is not finite"

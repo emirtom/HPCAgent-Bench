@@ -57,10 +57,8 @@ def _post(port, path, body):
         raise error_with_body(refused) from None
 
 
-def test_health_is_served_and_the_removed_task_route_is_not() -> None:
-    """The task context is rendered into the prompt and pre-generated into the shared folder,
-    so the judge does not serve it. Assert the route is GONE rather than silently restored:
-    a second way to read the contract is a second thing to keep in step with the first."""
+def test_health_is_served() -> None:
+    """``/health`` answers ok, with the judge's rank and the count of submissions in flight."""
     srv, port = _server(ServiceConfig())
     try:
         code, body = _get(port, "/health")
@@ -68,9 +66,6 @@ def test_health_is_served_and_the_removed_task_route_is_not() -> None:
         assert body["status"] == "ok"
         assert body["rank"] == RANK
         assert body["submits_in_flight"] == 0, "the job drains on this count before it stops the judge"
-        with pytest.raises(urllib.error.HTTPError) as caught:
-            _get(port, f"/task/gemm?language=c&rank={RANK}")
-        assert caught.value.code == 404, "the /task route was reintroduced"
     finally:
         srv.shutdown()
         srv.server_close()
@@ -106,15 +101,15 @@ def test_baseline_endpoint() -> None:
         srv.server_close()
 
 
-def test_oracle_scores_the_reference() -> None:
+def test_submit_scores_the_reference() -> None:
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
     src = reference_source(Task("gemm", "restricted", "c"))
     srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
     try:
-        code, body = _post(port, "/oracle", {"kernel": "gemm", "language": "c", "rank": RANK, "source": src})
-        # /oracle is /submit's alias, so it answers the verdict alone.
+        code, body = _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "source": src})
+        # /submit answers the verdict alone.
         assert code == 200
         assert body["correct"] == "yes", body
         assert set(body) == {"correct", "request_id"}, body
@@ -123,8 +118,8 @@ def test_oracle_scores_the_reference() -> None:
         srv.server_close()
 
 
-def test_profile_route_rejects_bad_bodies_exactly_like_oracle() -> None:
-    """/profile shares /oracle's POST body contract (missing kernel, unknown kernel, the
+def test_profile_route_rejects_bad_bodies_exactly_like_submit() -> None:
+    """/profile shares /submit's POST body contract (missing kernel, unknown kernel, the
     input_mode policy), asserted AS PARITY so the two routes cannot drift into two contracts.
     What the profile itself returns is tests/test_profiling.py."""
     srv, port = _server(ServiceConfig(input_mode="source"))
@@ -137,7 +132,7 @@ def test_profile_route_rejects_bad_bodies_exactly_like_oracle() -> None:
     try:
         bodies = ({}, {"kernel": "no_such_kernel", "source": "x"}, {"kernel": "gemm", "library": "/tmp/x.so"})
         for body in ({**b, "rank": RANK} for b in bodies):
-            assert status("/profile", body) == status("/oracle", body), body
+            assert status("/profile", body) == status("/submit", body), body
         assert status("/profile", {"rank": RANK}) == 400
     finally:
         srv.shutdown()
@@ -557,16 +552,10 @@ def test_a_bf16_ml_kernel_is_graded_scored_and_verified_in_bf16(
             srv.server_close()
 
 
-def test_every_route_grades_the_configured_size_no_matter_what_preset_the_body_asks_for() -> None:
-    """The run fixes ONE size and no route lets a client pick another -- /score included.
-
-    /submit ignores a client preset because a recorded grade taken at a size nobody else's rows use
-    is a row the analysis has to discard. /score ignores it too: honouring one lets the agent tune
-    against a problem its recorded grade never uses, with no way to see that its submit is graded
-    somewhere else. The field is not in the agent tool schema; a body that carries one is IGNORED
-    rather than refused, so an agent holding a stale schema loses a preset, not a grade.
-    """
-    from hpcagent_bench import config
+def test_a_body_naming_a_preset_is_refused_on_every_graded_route() -> None:
+    """The run fixes ONE size and no route lets a client pick another -- /score included. A body has no
+    ``preset`` field: one that names it is refused 400 (``RequestFields`` forbids unknown fields), so a
+    client never believes it chose a size it did not get."""
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
@@ -574,19 +563,10 @@ def test_every_route_grades_the_configured_size_no_matter_what_preset_the_body_a
     srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2, preset="S"))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source": src, "preset": "M"}
-        with config.overridden("service.submit_feedback", "full"):  # need `preset` back to check it
-            code, submitted = _post(port, "/submit", body)
-        assert code == 200
-        assert submitted["correct"] is True
-        assert submitted["preset"] == "S", (
-            f"/submit graded preset {submitted['preset']!r}; the body asked for 'M' and the run is configured for 'S'"
-        )
-        code, scored = _post(port, "/score", body)
-        assert code == 200, "a stale body carrying a preset must still be graded, not refused"
-        assert scored["preset"] == "S", (
-            f"/score graded preset {scored['preset']!r}; the body asked for 'M' and the run is "
-            "configured for 'S' -- the size is the run's, not the agent's, on every route"
-        )
+        for route in ("/submit", "/score"):
+            with pytest.raises(urllib.error.HTTPError) as refused:
+                _post(port, route, body)
+            assert refused.value.code == 400, route
     finally:
         srv.shutdown()
         srv.server_close()
@@ -596,10 +576,10 @@ def test_unknown_kernel_is_404_on_both_post_routes() -> None:
     """A kernel that does not exist is a REQUEST fault: refused 404 before either route builds,
     times or profiles anything. Pinned separately from the parity test above because parity alone
     cannot see this drift on a host that HAS perf -- there /profile fails at the same
-    BenchSpec.load as /oracle, so both routes drift together (to 500) and the test stays green."""
+    BenchSpec.load as /submit, so both routes drift together (to 500) and the test stays green."""
     srv, port = _server(ServiceConfig(input_mode="source"))
     try:
-        for route in ("/oracle", "/profile"):
+        for route in ("/submit", "/profile"):
             with pytest.raises(urllib.error.HTTPError) as ei:
                 _post(port, route, {"kernel": "no_such_kernel", "language": "c", "rank": RANK, "source": "x"})
             assert ei.value.code == 404, route
@@ -608,12 +588,12 @@ def test_unknown_kernel_is_404_on_both_post_routes() -> None:
         srv.server_close()
 
 
-def test_oracle_rejects_wrong_input_mode() -> None:
+def test_submit_rejects_wrong_input_mode() -> None:
     """input_mode=source must reject a prebuilt-library submission (400)."""
     srv, port = _server(ServiceConfig(input_mode="source"))
     try:
         with pytest.raises(urllib.error.HTTPError) as ei:
-            _post(port, "/oracle", {"kernel": "gemm", "language": "c", "rank": RANK, "library": "/tmp/x.so"})
+            _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "library": "/tmp/x.so"})
         assert ei.value.code == 400
     finally:
         srv.shutdown()
@@ -753,4 +733,4 @@ def test_record_enabled_false_stops_every_persistence_path_not_just_submit() -> 
 
     with config.overridden("record.enabled", False):
         out = record_result(boom, boom, boom, boom, "run-1", "offline-regrade", "M")
-    assert out == {"skipped": "record.enabled is false"}
+    assert out.to_json() == {"skipped": "record.enabled is false"}

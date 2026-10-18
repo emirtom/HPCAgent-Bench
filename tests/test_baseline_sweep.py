@@ -38,7 +38,7 @@ args = sys.argv[2:]
 value = lambda flag: args[args.index(flag) + 1]
 row = {
     "run": value("--canon-run"), "column": value("-f"), "kernel": value("-b"), "preset": value("-p"),
-    "datatype": "float64", "median_ms": 1.5, "validated": "True", "status": "ok", "failure": "",
+    "datatype": "float64", "median_ms": 1.5, "validated": 1, "status": "ok", "failure": "",
     "build": os.environ.get("HPCAGENT_BENCH_RECORD_BUILD") or None,
 }
 canon_db.record(pathlib.Path(value("--canon-db")), [row])
@@ -252,7 +252,7 @@ def test_finish_clears_the_build_tree_and_shard_db_and_keeps_the_rows(
     assert f"1 row(s) in {sweep.canon()}" in capsys.readouterr().out
     assert not (sweep.out_root / "dacecache-fakecol").exists()
     assert not (sweep.out_root / "db" / "fakecol").exists()
-    assert {name: row["validated"] for name, row in canon_rows(sweep).items()} == {"fakekernel": "True"}
+    assert {name: row["validated"] for name, row in canon_rows(sweep).items()} == {"fakekernel": 1}
 
 
 def test_a_column_that_recorded_no_row_still_finishes(
@@ -285,8 +285,8 @@ def test_a_kernel_an_earlier_run_reached_never_resurrects(tmp_path: pathlib.Path
     reaches, and a kernel it does reach carries only this run's row: ``begin`` drops the earlier rows."""
     opt = stub_checkout(tmp_path, WRITING_CLI)
     sweep = sweep_of(tmp_path, opt, ("a", "b"))
-    stale = {"run": sweep.run_label, "column": sweep.column, "preset": "fuzzed", "datatype": "float64"}
-    canon_db.record(sweep.canon(), [{**stale, "kernel": k, "median_ms": 999.0, "validated": "True"} for k in "abz"])
+    stale = {"run": sweep.run_label, "column": sweep.column, "preset": "fuzzed", "datatype": "float64", "status": "ok"}
+    canon_db.record(sweep.canon(), [{**stale, "kernel": k, "median_ms": 999.0, "validated": 1} for k in "abz"])
     baseline.begin(sweep)
     for index in (1, 0):
         assert baseline.run(sweep, jobs.Rank(index, 2)) == 0

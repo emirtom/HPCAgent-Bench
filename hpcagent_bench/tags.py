@@ -28,6 +28,7 @@ import sys
 from collections.abc import Iterable, Sequence
 
 from hpcagent_bench import config
+from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.spec import KERNELS
 
 __all__ = [
@@ -140,7 +141,7 @@ def resolve(tag: str) -> list[str]:
 
 def default_seed() -> int:
     """The seed a sample uses when the CLI names none."""
-    return config.get_int("seeds.kernel_sample", 0)
+    return config.current().seeds.kernel_sample
 
 
 def selected(selector: str) -> list[str]:
@@ -205,7 +206,7 @@ def track_kernels(tag: str) -> list[str]:
 
 def stems(keys: Iterable[str]) -> list[str]:
     """Sorted kernel names of path-keys."""
-    return sorted({key.rsplit("/", 1)[-1] for key in keys})
+    return sorted({kernel_stem(key) for key in keys})
 
 
 def kernels_of(tag: str) -> tuple[str, ...]:

@@ -14,9 +14,10 @@ import pytest
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.test import tolerances_for
 from hpcagent_bench.frameworks.utilities import compare_arrays
-from hpcagent_bench.harness import grading, native_call, torch_baseline
+from hpcagent_bench.harness import native_call, torch_baseline
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import graded_datatype
+from tests.reference_outputs import compiled_outputs, other_compiled_kinds
 
 GPU_KIND = "torch-autotune-gpu"
 #: A parameter-free op, a GEMM with weights, and a distributed operator's own ``_torch.py``.
@@ -55,11 +56,12 @@ def test_the_gpu_kind_times_the_model_on_the_device(kernel: str, private_cache: 
     assert "gfx" in archives[0].name
 
 
-def test_the_gpu_reference_computes_what_the_numpy_reference_computes() -> None:
-    """The compiled GPU model against the oracle at the graded datatype's own band."""
+def test_the_gpu_reference_computes_what_the_compiled_reference_computes() -> None:
+    """The compiled GPU model against the kernel's compiled numba / C reference at the graded datatype's
+    own band."""
     spec, data = graded(GEMM_KERNEL)
     have = torch_baseline.reference_outputs(spec, data, GPU_KIND)
-    want = grading._numpy_reference(spec, data)
+    _kind, want = compiled_outputs(GEMM_KERNEL, data, other_compiled_kinds(spec))
     rtol, atol = tolerances_for(graded_datatype(spec, "float64"))
     for name in spec.output_args:
         ok, error, detail = compare_arrays(

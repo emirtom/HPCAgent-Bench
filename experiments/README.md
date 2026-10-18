@@ -127,7 +127,8 @@ A base is `<experiment>:<model>`, rendered by `env_spec.py`; later keys win:
 
 | Layer | Holds |
 | --- | --- |
-| `layers/common.env` | judge sizing, images, budgets, paths |
+| `layers/common.env` | judge sizing and ports, EDF names, run paths, judge config overrides |
+| `layers/{served,replicas,sglang,pp,service}.env` | serving shape a model layer extends (`# extends:`) |
 | `setups.yaml` `<experiment>.env` | the experiment's keys (budget, submission mode, grading) |
 | `layers/model-<m>.env` | one model's serving config (layers name their parent on `# extends:`) |
 | `setups.yaml` `<experiment>.models.<m>` | what differs for that model in that experiment (effort ladder, engine args) |
@@ -147,7 +148,7 @@ Key variables (full lists: `layers/common.env`, `run_cluster.sh`):
 | --- | --- | --- |
 | `INFERENCE_NODES`, `AGENT_NODES`, `JUDGE_NODES` | 2, 1, 1 | Role sizes; their sum is the allocation. |
 | `GPUS_PER_NODE` | none | GPUs per node: pinned by `submit.sh` from `--gpus-per-node`, and required. |
-| `INFERENCE_CE_ENV`, `AMD_CE_ENV`, `JUDGE_CE_ENV` | none; the layers name `hpcagent-bench-*-mi300-latest` | Registered EDF names per role. Their names carry the hardware: `HPCAGENT_BENCH_BASE_HARDWARE` (`layers/common.env`) is the hardware the layers name, and `--hardware` renames them for another. |
+| `INFERENCE_CE_ENV`, `AMD_CE_ENV`, `JUDGE_CE_ENV` | none; the layers name `hpcagent-bench-*-mi300-latest` | Registered EDF names per role. Their names carry the hardware: `HPCAGENT_BENCH_BASE_HARDWARE` (`layers/common.env`) is the hardware the layers name, and `--hardware` renames them for another. A hardware other than the base's is also named by the setup's experiment segment (`<experiment>-<hardware>-<model>-<variant>`, unless the experiment already names it), as it is by the recorded study, so two machines never share a setup. |
 | `PROBLEMS_FILE` / `KERNELS` | empty | JSON/JSONL problems, or a comma list of kernels. |
 | `AGENTS_PER_NODE` | 4 | Concurrent workers per agent node. |
 | `AGENT_TIMEOUT_SECONDS`, `AGENT_MAX_TOKENS` | 72000 s, 120M (`setups.yaml`, every track) | Per-episode budget. |
@@ -209,6 +210,7 @@ kernel is **owed**, classed by how its latest episode ended (`tokens.json` exit 
 | --- | --- | --- |
 | `budget` | the agent's own token cap or timeout (124 / 125) | `TOKEN_SCALE`/`TIME_SCALE` times the 1x (usually 2) |
 | `infra` | the job (wall clock, node or judge failure), unknown exit, a `cancelled` marker, no episode, or a clean exit with no grade | 1x |
+| `task` | a delivered run whose submission a final grade found failing every input after the kernel's task changed (final grade reason `task: ...`, read from the job's shards and from `owed collect --regrades <results DB or dir>`), until a job delivers the run again | 1x |
 
 The 1x is the study's policy budget, raised to the setup's own unscaled budget where it ran with
 more, so a second budget rerun does not compound:
@@ -222,8 +224,7 @@ counts reruns: a kernel stays owed until delivered. Inside one episode a crashed
 from an empty workspace up to `AGENT_CRASH_ATTEMPTS` (3) times; a timeout is not.
 
 **Recover before rerunning.** A crashed episode can hold a correct `/score` it never submitted.
-The driver promotes it at agent exit; for older runs, promotion
-([LAUNCH.md](LAUNCH.md#1-grade-under-the-final-protocol)) is cheaper than a second agent.
+The driver promotes it at agent exit.
 
 **Latest answer.** `population.latest_episodes` keeps, per (setup, kernel), the run with the newest valid submission, so a
 rerun that ends without one leaves the earlier answer standing.
@@ -270,10 +271,10 @@ DaCe build tree and shard DB.
 | Route | Purpose |
 | --- | --- |
 | `GET /health` | Health, rank, routes. |
-| `POST /score` (`/bench`) | Feedback timing: one input, fastest of five runs. |
+| `POST /score` | Feedback grade under the preview protocol `mw2x5`: 2 timed inputs x 5 runs per side, Mann-Whitney reduction. A distributed task's `/score` takes `measurement.local_repeat` runs reduced by median. |
 | `POST /submit` | Terminal grade: fuzzed correctness plus the m x n timed protocol. |
 | `POST /profile` | Profiler run; `tool` selects the profiler. |
-| `POST /search` (`/web-search`) | Web search with model synthesis; 503 `not_provisioned` without a key. |
+| `POST /search` | Web search with model synthesis; 503 `not_provisioned` without a key. |
 
 The router forwards bodies byte for byte; rank checks, shared-mount confinement and hidden seeds live
 in the upstream judge. `421` names a rank the judge does not serve; `400` carries the judge's message

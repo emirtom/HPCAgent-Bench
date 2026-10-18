@@ -27,7 +27,7 @@ A clear and concise description of what you expected to happen.
 Paste the judge reply or the relevant lines of the log (in a code block).
 
 **Environment (please complete the following information):**
- - `hpcagent-bench --version` / commit: [e.g. hpcagent-bench 0.1.0, abc1234]
+ - `hpcagent-bench --version` / commit: [e.g. hpcagent-bench 0.2.0, abc1234]
  - Image tag: [e.g. judge-amd-latest, or "no container"]
  - Partition / GPU: [e.g. mi300, mi200, nvgpu, or CPU only]
  - OS: [e.g. Ubuntu 24.04]

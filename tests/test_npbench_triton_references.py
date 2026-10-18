@@ -15,7 +15,7 @@ Three bug classes broke most of them on a GPU, and the first two are checkable o
   compiler fuses ``a * b + c`` where NumPy rounds the product and the sum separately, which a chaotic iteration
   (``mandelbrot1``, ``mandelbrot2``) or a recurrence that cancels at its end (``vadv``) amplifies past the tolerance, so
   those launch with ``enable_fp_fusion=False``; and the device test runs every reference through the harness against
-  the NumPy oracle at the S preset, and those three also at M, where the amplified differences show (every kernel at M
+  the compiled reference at the S preset, and those three also at M, where the amplified differences show (every kernel at M
   takes 39 minutes on an MI300A).
 """
 
@@ -201,9 +201,9 @@ def test_the_check_sees_an_unrestored_accumulator() -> None:
 def test_the_entry_binds_by_the_manifest_names(kernel: str) -> None:
     bench = Benchmark(kernel)
     entry = next(
-        n for n in triton_source(kernel).body if isinstance(n, ast.FunctionDef) and n.name == bench.info["func_name"]
+        n for n in triton_source(kernel).body if isinstance(n, ast.FunctionDef) and n.name == bench.spec.func_name
     )
-    unknown = [a.arg for a in entry.args.args if a.arg not in bench.info["input_args"]]
+    unknown = [a.arg for a in entry.args.args if a.arg not in bench.spec.input_args]
     assert not unknown, f"{kernel}: {unknown} are not manifest arguments, so the harness binds the call positionally"
 
 
@@ -233,7 +233,7 @@ def test_triton_reference_matches_numpy(kernel: str, preset: str) -> None:
     # Imported here: a module-level ``Test`` is collected by pytest, which warns that it cannot be.
     from hpcagent_bench.frameworks import Test
 
-    test = Test(Benchmark(kernel), generate_framework("triton"), generate_framework("numpy"))
+    test = Test(Benchmark(kernel), generate_framework("triton"))
     result = test.run(preset=preset, validate=True, repeat=1, timeout=900.0, datatype="float64", ignore_errors=True)
     assert "default" in result, f"{kernel} at {preset}: the triton reference did not run"
     assert not result["default"].get("failure"), f"{kernel} at {preset}: {result['default'].get('failure')}"

@@ -28,6 +28,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict, cast
 
+import pydantic
+
 from hpcagent_bench import flags, perf_reports, seal, sizing
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.forked import run_command
@@ -55,7 +57,9 @@ __all__ = [
     "DEFAULT_THREADS",
     "INSTRUMENT_OUTPUT_LIMIT",
     "MODULE",
+    "REQUEST_ADAPTER",
     "RESULT_PREFIX",
+    "WORKLOAD_ADAPTER",
     "BuildFailure",
     "ConfigRow",
     "CountPayload",
@@ -66,6 +70,7 @@ __all__ = [
     "MeasuredBuild",
     "MeasurementRequest",
     "ProfilePayload",
+    "RequestResidency",
     "RisingRow",
     "ScalingRow",
     "ThreadPayload",
@@ -112,6 +117,7 @@ __all__ = [
     "tail",
     "thread_result",
     "thread_sweep",
+    "workload_result",
 ]
 
 #: Thread counts profiled when the request names none, clamped to this process's physical cores.
@@ -156,11 +162,28 @@ class MeasurementRequest(TypedDict):
     omp_context: NotRequired[str]
 
 
+#: Validator of a request file (:class:`MeasurementRequest`).
+REQUEST_ADAPTER: "pydantic.TypeAdapter[MeasurementRequest]" = pydantic.TypeAdapter(MeasurementRequest)
+
+
+class RequestResidency(pydantic.BaseModel):
+    """The one field of a request file (:class:`MeasurementRequest`) the seal around its child reads: only the
+    residency decides it, so a request that differs elsewhere still hides the devices of a host run."""
+
+    model_config = pydantic.ConfigDict(extra="ignore", frozen=True)
+
+    device: bool = True
+
+
 class WorkloadResult(TypedDict):
     """What the sampled child prints back: the best measured rep, and how many it timed."""
 
     elapsed_ns: int
     reps: int
+
+
+#: Validator of a sampled child's result line (:class:`WorkloadResult`).
+WORKLOAD_ADAPTER: "pydantic.TypeAdapter[WorkloadResult]" = pydantic.TypeAdapter(WorkloadResult)
 
 
 class FlatRow(TypedDict):
@@ -450,8 +473,8 @@ def request_plan(request_file: pathlib.Path) -> seal.SealPlan | None:
     ``devices`` mirrors native_call.host_only_grade off the request's ``device`` field, so a host
     profile sees no GPU; a missing or malformed request file keeps ``devices=True``."""
     try:
-        device = bool(json.loads(request_file.read_text())["device"])
-    except (OSError, ValueError, KeyError):
+        device = RequestResidency.model_validate_json(request_file.read_bytes()).device
+    except (OSError, ValueError):
         device = True
     return seal.grading_plan([str(request_file.parent)], devices=not host_only_grade(device))
 
@@ -489,19 +512,25 @@ def as_float(value: object, field: str = "") -> float:
     raise TypeError(f"expected a number, got {type(value).__name__}")
 
 
+def workload_result(raw: JsonObject) -> WorkloadResult:
+    """The sampled child's result line, as :func:`run_workload` produced it."""
+    return WORKLOAD_ADAPTER.validate_python(raw)
+
+
 def counted_result(raw: JsonObject) -> papi.MetricRow:
     """The counting child's result line, as :func:`~hpcagent_bench.harness.papi.count_metric` produced it."""
-    return cast("papi.MetricRow", raw)
+    return pydantic.TypeAdapter(papi.MetricRow).validate_python(raw)
 
 
 def thread_result(raw: JsonObject) -> papi.PerThreadReport:
     """The per-thread child's result line, on the contract :func:`counted_result` reads."""
-    return cast("papi.PerThreadReport", raw)
+    return pydantic.TypeAdapter(papi.PerThreadReport).validate_python(raw)
 
 
 def child_request(text: str) -> MeasurementRequest:
-    """The request file as the child reads it (:func:`measurement_request`'s schema)."""
-    return cast("MeasurementRequest", json.loads(text))
+    """The request file as the child reads it (:func:`measurement_request`'s schema; ``pydantic.ValidationError``
+    when it is not one)."""
+    return REQUEST_ADAPTER.validate_json(text)
 
 
 def flat_rows(rows: Sequence[perf_reports.Hotspot]) -> list[FlatRow]:
@@ -574,7 +603,7 @@ def profile_once(
     shown = scoped if scoped is not None else graph
     return ThreadRun(
         threads=threads,
-        elapsed_ns=as_int(result["elapsed_ns"], "elapsed_ns"),
+        elapsed_ns=workload_result(result)["elapsed_ns"],
         samples=samples,
         kernel_pct=kernel_pct,
         hotspots=spots,
@@ -690,8 +719,8 @@ def measured_build(
             return
         root = sandbox.require_root()
         request = root / name
-        request.write_text(
-            json.dumps(
+        request.write_bytes(
+            REQUEST_ADAPTER.dump_json(
                 measurement_request(
                     submission,
                     task,
@@ -1125,7 +1154,7 @@ def run_agent_build(
             "warmup": 0,
             "threads": threads,
             "exit_code": exit_code,
-            "elapsed_ns": as_int(result["elapsed_ns"], "elapsed_ns") if result else None,
+            "elapsed_ns": workload_result(result)["elapsed_ns"] if result else None,
             "stdout": kept_out,
             "stderr": kept_err,
             "truncated": out_truncated or err_truncated,
@@ -1151,7 +1180,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.metric:
         print(RESULT_PREFIX + json.dumps(run_counted(request, str(args.metric))))
     else:
-        print(RESULT_PREFIX + json.dumps(run_workload(request)))
+        print(RESULT_PREFIX + WORKLOAD_ADAPTER.dump_json(run_workload(request)).decode())
     return 0
 
 

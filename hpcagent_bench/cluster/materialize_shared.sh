@@ -89,6 +89,7 @@ while read -r kernel; do
     if [[ -n "${CPF_DROPIN_DIR:-}" ]]; then
         if ! "${bench_python}" -m hpcagent_bench.cpf_cache stage \
              --view "${CPF_DROPIN_DIR}" --kernel "${stem}" --language "${AGENT_LANGUAGE:-c}" --target "${CPF_TARGET:-cpu}" \
+             ${HPCAGENT_BENCH_CPF_HINTS:+--hints "${HPCAGENT_BENCH_CPF_HINTS}"} \
              --dest "${dest}" --name "${module}_reference"; then
             echo "materialize_shared: HEAD-START setup cannot stage a drop-in for ${stem} from ${CPF_DROPIN_DIR}" >&2
             rm -rf "${dest}"
@@ -240,7 +241,7 @@ done
 # control setup with access to the treatment is not a control.
 #
 # make_problems.py wrote the packet, so it stages it: the pages the problems file names, each from
-# the path its problem recorded (an --extra-skill-root page) or the shipped page. No page named
+# the path its problem recorded (an external page, skills.external) or the shipped page. No page named
 # stages nothing, and a named page with no source is reported by name. A staging run that fails
 # outright stops the launch, as a failed copy did: the setup would run without its treatment.
 if [[ -n "${problems}" && -f "${problems}" ]] && grep -q '/skills/' "${problems}"; then

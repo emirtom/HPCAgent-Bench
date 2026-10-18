@@ -20,7 +20,7 @@ Locally, the judge alone serves the same routes.
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/health` | `{status, rank, oracle, baseline, input_mode}`; answers any rank |
+| GET | `/health` | `{status, rank, oracle, baseline, input_mode, submits_in_flight}`; answers any rank |
 | GET | `/baseline/<kernel>?language=c&rank=0` | the baseline time(s) to beat, measured in this container: each reference's fastest run, while the grade divides the median under `mannwhitney_delta` |
 | GET | `/build/<language>?rank=0` | the exact compile and link argv this judge runs |
 | GET | `/canonical_parallel_form/<kernel>?rank=0` | the kernel's CPF from the setup's view, rendered on its first request when no prerender covered it |
@@ -28,9 +28,6 @@ Locally, the judge alone serves the same routes.
 | POST | `/submit` | grade on the public seed plus the held-out second seed; recorded; returns the verdict only |
 | POST | `/profile` | diagnostic run; `tool` picks the instrument; never graded or recorded |
 | POST | `/search` | web search (router only, see `docs/writing_an_agent.md`) |
-
-`/oracle` (judge) is an alias of `/submit`; `/bench` (router) is an alias
-of `/score`.
 
 ## Request body
 
@@ -48,7 +45,7 @@ of `/score`.
 - `workspace_bytes` requests untimed scratch passed as the trailing `workspace`/`workspace_size`
   arguments: a byte count or an expression over size symbols (`"8*NI*NJ + 256"`). See
   [abi_contract.md](abi_contract.md).
-- The size is always the run's configured `service.preset`. A `preset` key in the body is ignored.
+- The size is always the run's configured `service.preset`. A body naming `preset` is refused 400 (the body has no such field).
 
 ## Answers
 
@@ -65,7 +62,15 @@ recorded in the results DB under `request_id`.
 `/score` returns the grade fields minus the audit residuals (`SCORE_ROUTE_REDACTED_FIELDS`), with
 `detail` naming a failing element and the value produced, never the reference value.
 
-Only malformed requests are 4xx; a failed build or a wrong answer is a normal 200.
+Only malformed requests are 4xx; a failed build or a wrong answer is a normal 200. A refusal or failure answers
+`{"error": ...}`, plus a `cause` where a client acts on it (`judge_fault`, `public_seeds`, ...).
+
+Every answer is a pydantic model in
+[judge_wire.py](../harness/judge_wire.py) (`ScoreAnswer`, `SubmitVerdict`, `GradeAnswer` under
+`service.submit_feedback=full`, `HealthAnswer`, `BaselineAnswer`, `BuildAnswer`, `CanonicalFormAnswer`,
+`ProfileAnswer` (one report model per tool, [profile_wire.py](../harness/profile_wire.py)) / `OptReportAnswer`,
+`JudgeError`; `/requests/check` answers `requests_api.RequestsCheck`). An
+optional key that does not apply (`build_log`, `judge_fault`, `cause`, ...) is absent.
 
 ## Judge rank
 
@@ -108,7 +113,7 @@ modes, their prompt templates and the fallback for an agent that never submits a
   residency passes device pointers, so transfers stay outside the timed region.
 - `/submit` is graded as the final grade is, under the credited protocol (`mw4x5`): 4 timed inputs, and on
   each one every side runs `measurement.warmup` untimed reps, then 5 timed reps; values
-  cycle through the cell's pool of 4 seeded draws (`rep_variation.pool_seeds`), and every run's
+  cycle through the cell's pool of 6 seeded draws, one per call (`rep_variation.pool_seeds`), and every run's
   outputs are graded against its own draw.
 - Speedup per timed input is the baseline median over the submission median, credited only when a
   one-sided Mann-Whitney U test passes alpha 0.1, else 1
@@ -152,12 +157,12 @@ are listed in `hpcagent_bench/harness/gpu_profiling.py:CAUSES`. Reports from `nc
 
 ## Configuration
 
-`service:` in `hpcagent_bench/config.yaml`; any key can be overridden as
+`service:` in `hpcagent_bench/config.py`; any key can be overridden as
 `HPCAGENT_BENCH_SERVICE_<KEY>`.
 
 | Key | Values | Meaning |
 |---|---|---|
-| `oracle` | `auto`, `compiled`, `numba`, `c`, `torch` (`numpy` and `both` resolve to `auto`) | correctness reference (`auto`: the compiled numba/C references on `loop_level_reasoning` and `scientific_computing`, the compiled PyTorch one on `machine_learning`; never interpreted NumPy) |
+| `oracle` | `auto`, `compiled`, `numba`, `c`, `torch` | correctness reference (`auto`: the compiled numba/C references on `loop_level_reasoning` and `scientific_computing`, the compiled PyTorch one on `machine_learning`; never interpreted NumPy) |
 | `input_mode` | `py-binding`, `source`, `library`, `any` | what a submission may carry |
 | `preset` | `S`, `M`, `L`, `XL`, with optional `+fuzz` (default `XL+fuzz`) | size graded at |
 | `datatype` | numpy dtype name | precision graded at |

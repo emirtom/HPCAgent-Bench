@@ -35,7 +35,7 @@ def bare_handler(path: str) -> tuple[service.JudgeHandler, list[tuple[int, dict[
     handler.headers = {}  # type: ignore[assignment] -- only .get is read
     handler.graded_body = None
     sent: list[tuple[int, dict[str, object]]] = []
-    handler._send = lambda code, payload: sent.append((code, payload))  # type: ignore[method-assign]
+    handler._send = lambda code, payload: sent.append((code, payload.to_json()))  # type: ignore[method-assign]
     return handler, sent
 
 
@@ -74,10 +74,10 @@ def test_a_crashed_anticheat_gate_is_a_judge_fault_not_a_silent_pass(monkeypatch
     assert [(code, payload.get("judge_fault")) for code, payload in sent] == [(200, True)]
 
 
-def test_an_oracle_request_is_counted_as_a_submit_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``/oracle`` is a terminal grade like ``/submit``: the job's drain must wait for it too."""
+def test_a_submit_request_is_counted_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/submit`` is a terminal grade: the job's drain must wait for it."""
     monkeypatch.delenv(fused.SETUPS_DIR_ENV, raising=False)
-    handler = bare_handler("/oracle")[0]
+    handler = bare_handler("/submit")[0]
     seen: list[int] = []
     handler.serve_post = lambda: seen.append(service.SUBMITS_IN_FLIGHT.count)  # type: ignore[method-assign]
     handler.do_POST()
@@ -131,8 +131,8 @@ def test_a_recording_judge_refuses_the_public_seeds(tmp_path: pathlib.Path, monk
     with config.overridden("record.enabled", True):
         refusal = service.unrecordable(None)
     assert refusal is not None
-    assert (refusal.status, refusal.payload["cause"]) == (503, "public_seeds")
-    assert "secret_seeds.json" in str(refusal.payload["error"])
+    assert (refusal.status, refusal.payload.cause) == (503, "public_seeds")
+    assert "secret_seeds.json" in refusal.payload.error
     with config.overridden("record.enabled", False):
         assert service.unrecordable(None) is None, "an unrecorded run has nothing to protect"
     monkeypatch.setenv(seeds.PUBLIC_OK_ENV, "1")
@@ -152,7 +152,7 @@ def test_the_secrets_file_supplies_every_seed(tmp_path: pathlib.Path, monkeypatc
     assert "second" in str(seeds.public_seeds_refusal()), "one seed left public is still public"
     seeds.read_seeds.cache_clear()
     secrets_file.write_text(json.dumps({"first": 11, "second": "22"}))
-    with pytest.raises(ValueError, match="needs an integer"):
+    with pytest.raises(ValueError, match="Input should be a valid integer|Field required"):
         seeds.secret_seed_first()
     seeds.read_seeds.cache_clear()
 
@@ -171,7 +171,7 @@ if __name__ == "__main__":
                 test(*args)
 
     scoped(test_a_crashed_anticheat_gate_is_a_judge_fault_not_a_silent_pass)
-    scoped(test_an_oracle_request_is_counted_as_a_submit_in_flight)
+    scoped(test_a_submit_request_is_counted_in_flight)
     scoped(test_a_graded_request_from_an_episode_the_run_never_started_is_refused_unrecorded, root=True, judge=True)
     scoped(test_an_opt_report_whose_build_crashes_answers_500, judge=True)
     scoped(test_a_recording_judge_refuses_the_public_seeds, root=True)

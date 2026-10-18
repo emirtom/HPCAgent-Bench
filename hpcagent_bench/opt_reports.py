@@ -32,13 +32,15 @@ generated sources on disk -- the timed run has not happened, or the column decli
 not exist.
 """
 
-import dataclasses
 import json
 import pathlib
 import shlex
 import subprocess
 import tempfile
 import time
+
+import pydantic
+import pydantic.dataclasses
 
 from hpcagent_bench import languages, paths
 from hpcagent_bench.cache_files import file_sha256
@@ -47,6 +49,7 @@ from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 
 __all__ = [
+    "MANIFEST_ADAPTER",
     "NATIVE_COLUMNS",
     "KernelReportManifest",
     "SourceArtifact",
@@ -63,7 +66,7 @@ __all__ = [
 NATIVE_COLUMNS: frozenset[str] = frozenset(native_runtime.FRAMEWORK_LANG)
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@pydantic.dataclasses.dataclass(frozen=True, slots=True, config=pydantic.ConfigDict(extra="forbid"))
 class SourceArtifact:
     """One compiled source's outcome: the file the report/assembly describes, its hash (so a
     consumer can confirm it is the file that was actually timed), and where its ``.s`` landed."""
@@ -74,7 +77,7 @@ class SourceArtifact:
     error: str
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@pydantic.dataclasses.dataclass(frozen=True, slots=True, config=pydantic.ConfigDict(extra="forbid"))
 class KernelReportManifest:
     """What :func:`emit_kernel_reports` wrote for one (kernel, column): the toolchain identity, the
     exact flags, every source's hash, which report kinds landed, and -- when something did not --
@@ -93,14 +96,15 @@ class KernelReportManifest:
     sources: tuple[SourceArtifact, ...]
     opt_report: str | None
 
-    def to_json(self) -> dict:
-        return dataclasses.asdict(self)
+
+#: ``manifest.json``'s schema.
+MANIFEST_ADAPTER: pydantic.TypeAdapter[KernelReportManifest] = pydantic.TypeAdapter(KernelReportManifest)
 
 
 def write_manifest(out_dir: pathlib.Path, manifest: KernelReportManifest) -> pathlib.Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "manifest.json"
-    path.write_text(json.dumps(manifest.to_json(), indent=2, sort_keys=True) + "\n")
+    path.write_text(json.dumps(MANIFEST_ADAPTER.dump_python(manifest, mode="json"), indent=2, sort_keys=True) + "\n")
     return path
 
 
@@ -153,7 +157,7 @@ def asm_argv(compile_argv: list[str], asm_out: pathlib.Path, report_flags: str) 
 
 def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.Path) -> KernelReportManifest:
     """Compile-only artifact set for ``framework``'s build of ``bench``, under ``reports_root /
-    bench.info["module_name"] /``: the vectorization report (missed + optimized -- gcc's two
+    bench.spec.module_name /``: the vectorization report (missed + optimized -- gcc's two
     ``-fopt-info-vec-*`` flags, clang's three ``-Rpass*`` ones, both the SAME "full opt report" this
     codebase has one table for) and the ``.s`` assembly of every source the timed ``.so`` was built
     from. Never raises: every failure mode -- not a native column, no report channel, no sources on
@@ -165,7 +169,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
     writes to the timed build's own object/library files -- its own compiles land in a throwaway
     temp directory that is removed before it returns.
     """
-    kernel = bench.info["module_name"]
+    kernel = bench.spec.module_name
     out_dir = pathlib.Path(reports_root) / kernel
 
     if framework not in NATIVE_COLUMNS:
@@ -183,7 +187,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
     lang = native_runtime.FRAMEWORK_LANG[framework]
     compiler_override = native_runtime.FRAMEWORK_COMPILER.get(framework)
     extra_flags = native_runtime.framework_extra_flags(framework)
-    cpp_backend = paths.BENCHMARKS / bench.info["relative_path"] / "cpp_backend"
+    cpp_backend = paths.BENCHMARKS / bench.spec.relative_path / "cpp_backend"
 
     try:
         native_runtime.assert_autopar_capable(framework, kernel)
@@ -205,7 +209,7 @@ def emit_kernel_reports(bench: Benchmark, framework: str, reports_root: pathlib.
         return manifest
 
     resolved_name, block = languages.resolved_compiler_for(lang, compiler_override)
-    driver = block.get("cc", "")
+    driver = block.cc
     family = languages.block_family(block)
     rflags = languages.report_flags(lang, compiler=resolved_name)
     reason = "" if rflags else f"compiler family {family!r} (driver {driver!r}) has no optimization-report channel"

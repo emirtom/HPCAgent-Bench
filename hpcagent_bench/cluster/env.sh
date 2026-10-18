@@ -18,6 +18,8 @@ export OMP_STACKSIZE="${OMP_STACKSIZE:-512M}"
 export OMP_THREAD_LIMIT="${OMP_THREAD_LIMIT:-$(env -u OMP_NUM_THREADS -u OMP_THREAD_LIMIT nproc)}"
 # Logs, core dumps and native-mode submissions land here (hpcagent_bench.paths.scratch_dir): the
 # checkout's .scratch/ unless the site names another root.
+# The secret-seeds directory relative to a checkout root (hpcagent_bench.paths.HIDDEN_TESTS_REL).
+export HPCAGENT_BENCH_HIDDEN_TESTS_REL="hpcagent_bench/harness/hidden_tests"
 export HPCAGENT_BENCH_SCRATCH="${HPCAGENT_BENCH_SCRATCH:-${HPCAGENT_BENCH_REPO}/.scratch}"
 # Slurm propagates the submitting shell's limits, so a crashed worker cannot drop a multi-GB core
 # file in its CWD. The soft limit only: a judge-core setup raises its own below the hard limit.

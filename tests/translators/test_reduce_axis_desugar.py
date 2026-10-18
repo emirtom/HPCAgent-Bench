@@ -30,7 +30,7 @@ from tests.translators.source_module import run_source
 def kir_(kernel_name, **arrays):
     """Minimal KernelIR stand-in: name + (name -> shape-tuple) arrays."""
     arrs = [SimpleNamespace(name=n, shape=s, dtype=None) for n, s in arrays.items()]
-    return SimpleNamespace(kernel_name=kernel_name, arrays=arrs)
+    return SimpleNamespace(kernel_name=kernel_name, arrays=arrs, scalars=[])
 
 
 # axis parsing: negative literals + tuple forms                               #
