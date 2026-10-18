@@ -206,6 +206,8 @@ tools/pluto_affine_survey_results.txt
 
 # --- Hand overrides at generated names: committed on purpose, the regenerator leaves them alone ---
 !/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/cholesky/cholesky_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/correlation/correlation_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/covariance/covariance_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/distribution_search/distribution_search_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/durbin/durbin_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/gaussian/gaussian_numba.py
@@ -222,20 +224,26 @@ tools/pluto_affine_survey_results.txt
 !/hpcagent_bench/benchmarks/scientific_computing/graphical_models/viterbi/viterbi_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/arc_distance/arc_distance_jax.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/azimint_naive/azimint_naive_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/map_reduce/fragment_patch_density/fragment_patch_density_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/histogram_equalization/histogram_equalization_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/map_reduce/kmeans/kmeans_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/mandelbrot1/mandelbrot1_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/map_reduce/xsbench/xsbench_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/esirkepov_deposition/warpx_esirkepov_deposition_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/examinimd/examinimd_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/field_gather/warpx_field_gather_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/force_lj/force_lj_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/gem/gem_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/gromacs/nbnxm/gromacs_nbnxm_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/lavamd/lavamd_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/n_body_methods/nbody/nbody_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/sparse_linear_algebra/cp2k_density_matrix_trs4/cp2k_density_matrix_trs4_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/sparse_linear_algebra/lanczos_reorth/lanczos_reorth_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/sparse_linear_algebra/minife/minife_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/sparse_linear_algebra/quatrex_rgf/quatrex_rgf_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/spectral_methods/cegterg/cegterg_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/spectral_methods/chebyshev_filter_subspace/chebyshev_filter_subspace_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/spectral_methods/daubechies_dwt2d/daubechies_dwt2d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/spectral_methods/fft_1d/fft_1d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/spectral_methods/ls3df_scf/ls3df_scf_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/spectral_methods/raman_fitting/raman_fitting_numba.py
@@ -257,10 +265,13 @@ tools/pluto_affine_survey_results.txt
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/icon_w_solve/icon_w_solve_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/jacobi_2d/jacobi_2d_jax.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/jacobi_2d/jacobi_2d_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/structured_grids/laplacian_stencil_3d/laplacian_stencil_3d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/max_filter/max_filter_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/structured_grids/poisson_cg_3d/poisson_cg_3d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/seidel_2d/seidel_2d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/srad/srad_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/vadv/vadv_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/cfd/cfd_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/lulesh/lulesh_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/velocity_tendencies/velocity_tendencies_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/unstructured_grids/zekin_gather/zekin_gather_numba.py
