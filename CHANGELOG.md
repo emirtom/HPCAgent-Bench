@@ -2,7 +2,7 @@
 
 ## 0.2.1 (2026-10)
 
-Pinned with dace extended `b563eaa6f` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
+Pinned with dace extended `6b6c01c7e` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
 relayout `2718b2f`. Fixes the CI failures the 0.2.0 release left and makes every scientific_computing numba reference
 parallel.
 
