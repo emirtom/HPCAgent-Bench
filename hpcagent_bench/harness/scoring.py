@@ -452,17 +452,23 @@ COMPILED_ORACLES = frozenset({"numba", "c"})
 IEEE_FLOATS = frozenset({np.dtype(np.float32), np.dtype(np.float64)})
 
 
-def ieee_reference_data(data: dict[str, Any]) -> dict[str, Any]:
-    """``data`` with every floating array of a format narrower than fp32 (fp16, bf16, fp8) as an fp64 copy;
-    ``data`` itself when there is none."""
-    narrow = [
-        name
+def ieee_reference_data(data: dict[str, Any], widen_complex: bool = False) -> dict[str, Any]:
+    """``data`` with every floating array of a format narrower than fp32 (fp16, bf16, fp8) as an fp64 copy, and with
+    ``widen_complex`` every complex64 array as a complex128 copy; ``data`` itself when there is none."""
+    widened: dict[str, type[np.generic]] = {
+        name: np.float64
         for name, value in data.items()
         if isinstance(value, np.ndarray)
         and dtype_registry.is_float_dtype(value.dtype)
         and value.dtype not in IEEE_FLOATS
-    ]
-    return data if not narrow else {**data, **{name: data[name].astype(np.float64) for name in narrow}}
+    }
+    if widen_complex:
+        widened |= {
+            name: np.complex128
+            for name, value in data.items()
+            if isinstance(value, np.ndarray) and value.dtype == np.complex64
+        }
+    return data if not widened else {**data, **{name: data[name].astype(dtype) for name, dtype in widened.items()}}
 
 
 def first_oracle(
@@ -484,7 +490,8 @@ def first_oracle(
     failures: list[str] = []
     for kind in kinds:
         try:
-            inputs = ieee_reference_data(data) if kind in COMPILED_ORACLES else data
+            # The C reference computes in fp64 and casts its inputs in; the casts have no complex64 kernel.
+            inputs = ieee_reference_data(data, widen_complex=kind == "c") if kind in COMPILED_ORACLES else data
             return kind, oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)(inputs)
         except ReferenceUnavailable as exc:
             failures.append(str(exc))

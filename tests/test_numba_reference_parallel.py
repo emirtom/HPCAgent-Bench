@@ -28,12 +28,7 @@ PARALLEL_DECORATOR = "parallel=True"
 
 #: Kernels whose emit is serial and whose parallel override is still owed, with why. A ratchet both ways: an
 #: entry excuses only a kernel that has no override, and fails the day one ships.
-PENDING_OVERRIDES: dict[str, str] = {
-    "cloudsc_monolith": (
-        "its vectorized (nblocks, klon)-plane body takes numba over 30 min to compile, serial or parallel; the "
-        "owed override is a column-wise scalar port. Its oracle starts from C (harness/baseline_leaders.yaml)"
-    ),
-}
+PENDING_OVERRIDES: dict[str, str] = {}
 
 
 def numpy_references() -> list[pathlib.Path]:

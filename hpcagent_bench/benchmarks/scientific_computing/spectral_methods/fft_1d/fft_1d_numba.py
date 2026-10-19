@@ -71,7 +71,7 @@ def transpose_flat(c: np.ndarray, out: np.ndarray, sign: float, divisor: float) 
 @nb.njit(parallel=True, cache=True)
 def conjugate_into(src: np.ndarray, dst: np.ndarray) -> None:
     for i in nb.prange(src.shape[0]):
-        dst[i] = src[i].conjugate()
+        dst[i] = np.complex128(src[i]).conjugate()
 
 
 @nb.njit(cache=True)
@@ -88,7 +88,9 @@ def four_step(x: np.ndarray, out: np.ndarray, inverse: bool) -> None:
     degenerates to one transform along the single row."""
     n = x.shape[0]
     workers = nb.get_num_threads()
-    source = np.empty_like(x)
+    # complex128 whatever the input's precision (an fp32 grade hands complex64): the transforms run in double and
+    # the transpose stores the answer back in ``out``'s precision.
+    source = np.empty(n, dtype=np.complex128)
     if inverse:
         conjugate_into(x, source)
     else:

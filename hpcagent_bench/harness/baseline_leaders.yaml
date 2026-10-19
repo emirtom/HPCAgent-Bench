@@ -10,7 +10,7 @@ bout_elm_pb: {XL: numba}  # numba 0.1 s, c 0.9 s
 cegterg: {XL: numba}  # numba 0.5 s, c 0.9 s
 channel_flow: {XL: c}  # numba 29.6 s, c 7.6 s
 cloudsc: {XL: numba}  # numba 5.2 s, c 7.1 s
-cloudsc_monolith: {XL: c}  # numba's emit takes over 10 min to COMPILE at any size (949-line body); c builds in seconds
+cloudsc_monolith: {XL: numba}  # hand column-wise override: numba 0.9 s (128 thr), c 89.9 s (EPYC 7A53 login node, not mi300)
 cp2k_density_matrix_trs4: {XL: numba}  # numba 0.1 s, c 2.2 s
 cp2k_grid_integrate: {XL: numba}  # numba 0.0 s, c 20.6 s
 dwt2d: {XL: numba}  # numba 0.6 s, c 1.7 s

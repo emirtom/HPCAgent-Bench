@@ -27,6 +27,7 @@ import pytest
 from hpcagent_bench import cpf_bridge, cpf_cache
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import DEFAULT_RANK
@@ -62,7 +63,13 @@ def test_the_form_takes_the_required_signature_and_grades_correct(
 
     language = STUB_LANGUAGE[dialect]
     result = score(
-        Submission(language=language, source=code), Task(KERNELS.key_for_name(kernel), "restricted", language)
+        Submission(
+            language=language,
+            source=code,
+            requests=Requests.of(libraries=record.libraries),
+            workspace_bytes=None if record.workspace_bytes in ("", "0") else record.workspace_bytes,
+        ),
+        Task(KERNELS.key_for_name(kernel), "restricted", language),
     )
     assert (result.build_ok, result.correct) == (True, True), result.detail[-2000:]
 

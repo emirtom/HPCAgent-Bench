@@ -802,6 +802,10 @@ class RenderRecord(pydantic.BaseModel):
     device: str = ""
     binding: str = ""
     lines: int = 0
+    #: What a submission of the inline form asks for: its scratch (``workspace_bytes``, "0" = none) and the
+    #: catalog libraries it calls (the load request), as :mod:`hpcagent_bench.cpf_verify` submits a cached form.
+    workspace_bytes: str = ""
+    libraries: list[str] = pydantic.Field(default_factory=list)
     seconds: float | None = None
     canonical: CanonicalOutcome | None = None
     results: dict[str, RenderOutcome] | None = None
@@ -846,6 +850,8 @@ def render_sdfg(
         rec.device = paths_by_role["device"]
     rec.verdict = "ok"
     rec.lines = form.lines
+    rec.workspace_bytes = form.workspace_bytes
+    rec.libraries = list(form.libraries)
     return rec
 
 

@@ -255,6 +255,7 @@ tools/pluto_affine_survey_results.txt
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/bout_elm_pb/bout_elm_pb_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/channel_flow/channel_flow_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/cloudsc/cloudsc_numba.py
+!/hpcagent_bench/benchmarks/scientific_computing/structured_grids/cloudsc_monolith/cloudsc_monolith_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/conv_2d/conv_2d_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/cp2k_grid_integrate/cp2k_grid_integrate_numba.py
 !/hpcagent_bench/benchmarks/scientific_computing/structured_grids/deriche/deriche_numba.py

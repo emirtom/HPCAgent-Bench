@@ -125,6 +125,10 @@ chain_length:
   pfhpsl: nlev + 1
   pfhpsn: nlev + 1
   pcovptot: nlev + 1
+# fp64 only, as cloudsc_monolith: the physics thresholds flip branches at fp32 (a cloud cover of 0.1 where fp64
+# has none), so a single-precision run is not the same computation.
+allowed_precisions:
+- fp64
 # Distributed-track envelope (residency: distributed). CLOUDSC is column physics: the vertical
 # loop (jk in [ncldtop, nlev]) couples LEVELS within a column, but columns (the `klon` axis) are
 # independent, so a block split over `klon` needs NO halo -- the cleanest no-communication

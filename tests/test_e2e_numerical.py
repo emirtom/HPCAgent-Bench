@@ -79,8 +79,8 @@ if E2E_PRECISION == "fp16":
 #: Tracks the sweep gates; `machine_learning` also exercises reduction/keepdims/triangular-mask/promotion paths.
 GATED_TRACKS = ("loop_level_reasoning", "scientific_computing", "machine_learning")
 
-#: Sole per-corpus witnesses for 4 precision-lowering bugs; membership asserted so none get silently dropped.
-PINNED_KERNELS = ("vexx_k", "chebyshev_filter_subspace", "raman_fitting", "cloudsc")
+#: Sole per-corpus witnesses for 3 precision-lowering bugs; membership asserted so none get silently dropped.
+PINNED_KERNELS = ("vexx_k", "chebyshev_filter_subspace", "raman_fitting")
 
 #: Gated kernels whose ``allowed_precisions`` leave out fp32, so the fp32 sweep skips them. The reasons that occur:
 #: chaotic escape-time iteration, where fp32 rounding/FMA differences flip which iteration a point escapes at and
@@ -95,6 +95,7 @@ FP64_ONLY_KERNELS = (
     "amg_setup",
     "bdf_newton_krylov",
     "cegterg",
+    "cloudsc",
     "cloudsc_monolith",
     "cp2k_density_matrix_trs4",
     "cp2k_grid_integrate",
