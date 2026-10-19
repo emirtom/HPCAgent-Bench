@@ -11,7 +11,7 @@ through one of four surfaces. On all four, the judge keeps the hidden inputs and
 | HTTP judge | `/baseline`, `/build`, `/score`, `/submit`, `/profile` (+ `/search` on the cluster router) | [service.py](../hpcagent_bench/harness/service.py), [judge_service.py](../hpcagent_bench/cluster/judge_service.py) |
 | MCP tools (cluster agents) | `score`, `submit`, `profile`, `syntax_check`, opt-in `search`, packet tools | [mcp_server.py](../agent/hpcagent_agent/tools/mcp_server.py) |
 
-A cluster harness other than Claude Code (mini-SWE-agent, OpenHands) is added as in
+A cluster harness other than Claude Code (mini-SWE-agent, OpenHands, the optimas, anthropic and openai runners) is added as in
 [extending/agent-harness.md](extending/agent-harness.md).
 
 ## Python API
@@ -164,7 +164,7 @@ are in [scoring.md](scoring.md).
 
 ## Which tools a cluster agent gets
 
-`mcp_server.py` holds two lists of tools:
+`mcp_server.py` serves the tools registered with `@tool` (`agent/hpcagent_agent/tools/registry.py`):
 - `REGISTRY`: every tool.
 - `TOOLS`: the tools one setup serves. They become Claude Code's `--allowedTools` (`ALLOWED_TOOLS`), and
   `prompt_tool_list()` fills the prompt's `{{TOOLS}}` slot.
@@ -176,20 +176,18 @@ A setup whose MCP server does not connect is never run without its tools: the dr
 | Tool | Served when | Switch |
 |---|---|---|
 | `submit`, `syntax_check` | always | -- |
-| `score`, `profile` | every setup except blind | `AGENT_SUBMISSION_MODE=blind` removes them, and the router answers their routes with 403 |
-| `search` | only when opted in; default off | `AGENT_SEARCH_TOOL=1` |
-| `canonical_parallel_form` | setups of the `cpf-tool-cpu` and `cpf-tool-gpu` packets and their `-kinds` counterparts | `HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR` (`PACKET_TOOL_SWITCH`) |
+| `score`, `profile` | every setup except blind (`preview=True`) | `AGENT_SUBMISSION_MODE=blind` removes them, and the router answers their routes with 403 |
+| `search` | the `web-search` packet only (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
+| `canonical_parallel_form` | the `cpf-tool-cpu` and `cpf-tool-gpu` packets and their `-kinds` counterparts (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
 | `agent/hpcagent_agent/packets/<name>/*.py` | `AGENT_PACKET=<name>` | -- |
 
-A packet-gated tool is declared twice:
-- under `tools:` in its `@packet` class in `hpcagent_bench/skill_packets.py`;
-- in `PACKET_TOOL_SWITCH`.
+A packet-gated tool is declared once, under `tools` in its packet; the launcher exports the resolved packet's tools
+as `HPCAGENT_BENCH_PACKET_TOOLS` (`hpcagent_bench/cluster/packet_env.py`). Without its packet, a tool is absent from
+`tools/list`, `--allowedTools` and the prompt. Only that packet stages the tool's skill page, and the `*` skill
+token leaves it out. `syntax_check` never contacts the judge: it runs `-fsyntax-only` locally with the judge's
+dialect flags.
 
-`tests/test_packet_wiring.py` checks that the two agree. Without its packet, a tool is absent from `tools/list`,
-`--allowedTools` and the prompt. Only that packet stages the tool's skill page, and the `*` skill token leaves it
-out. `syntax_check` never contacts the judge: it runs `-fsyntax-only` locally with the judge's dialect flags.
-
-**Web search** is off by default, because a benchmark run must not reach the internet. When a setup opts in,
+**Web search** is off by default, because a benchmark run must not reach the internet. When a setup's packet brings it (`web-search`),
 `search.py` posts to the router's `/search`. The router calls `hpcagent_bench/harness/judge_web_search.py`,
 which runs three stages: SerpAPI, then a Crawl4AI page fetch, then synthesis by a local LLM (`playwright install
 chromium` once). It needs `SERPAPI_API_KEY`, `WEBSEARCH_LLM_BASE_URL` and `WEBSEARCH_LLM_MODEL`; every other key and
@@ -199,8 +197,8 @@ first existing file among `--env-file`, `./.env` and `hpcagent_bench/.env` fills
 - `503 {"cause": "not_provisioned"}`: search is not configured.
 - `502`: this query failed. A different query may still work.
 
-Claude Code's own `WebFetch` and `WebSearch` are in the driver's `--disallowedTools`. The OpenHands and mini-SWE
-runners carry no browsing tool.
+Claude Code's own `WebFetch` and `WebSearch` are in the driver's `--disallowedTools`. The OpenHands, mini-SWE,
+optimas, anthropic and openai runners carry no browsing tool.
 
 ## Harbor mapping
 

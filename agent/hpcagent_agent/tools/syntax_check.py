@@ -20,13 +20,17 @@ import shutil
 import subprocess
 from typing import Any
 
+import pydantic
+
 from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools.registry import schema_of, tool
 
 __all__ = [
     "DESCRIPTION",
     "EXTENSION_LANGUAGES",
     "GPU_HOST_LANGUAGE",
     "INPUT_SCHEMA",
+    "SyntaxCheckInput",
     "LANGUAGE_COMMANDS",
     "LANGUAGE_DIALECT",
     "PROMPT",
@@ -104,18 +108,15 @@ DESCRIPTION = (
     "answers. Warnings arrive in 'output' even when ok is true -- read them."
 )
 
-INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "source_file": {
-            "type": "string",
-            "description": "Path to the file to parse, as you would send it to 'score'/'submit'. Checked "
-            "in THIS container, so any readable path works -- it need not be in the shared "
-            "folder yet.",
-        },
-    },
-    "required": ["source_file"],
-}
+
+class SyntaxCheckInput(pydantic.BaseModel):
+    source_file: str = pydantic.Field(
+        description="Path to the file to parse, as you would send it to 'score'/'submit'. Checked in THIS container, "
+        "so any readable path works -- it need not be in the shared folder yet."
+    )
+
+
+INPUT_SCHEMA: dict[str, Any] = schema_of(SyntaxCheckInput)
 
 
 #: GPU language -> the language its HOST half is written in (the judge's ``languages.GPU_HOST_LANG``,
@@ -149,6 +150,7 @@ def compiler_for(language: str) -> tuple[str, ...] | None:
 PROMPT = "- `syntax_check` -- parse a file with the local compiler. Free, instant, never graded."
 
 
+@tool(description=DESCRIPTION, input=SyntaxCheckInput, prompt=PROMPT)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     """Parse one file and answer ``ok`` plus the compiler's own output.
 

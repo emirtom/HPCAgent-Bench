@@ -664,9 +664,15 @@ def tmp_path_log(tmp_path: pathlib.Path, lines: list[str]) -> pathlib.Path:
     return log
 
 
+#: The third-party packages the agent runtime may import at module level: its declared dependencies
+#: (``agent/pyproject.toml``: the MCP SDK and pydantic) and the ASGI stack the SDK itself brings.
+AGENT_DEPENDENCIES = frozenset({"mcp", "pydantic", "anyio", "starlette", "uvicorn"})
+
+
 def test_the_agent_runtime_imports_the_standard_library_only() -> None:
-    """The agent image has no ``hpcagent_bench`` and no third-party packages for hpcagent_agent to import
-    (a harness runner imports its harness lazily, inside the harness's own venv)."""
+    """The agent image has no ``hpcagent_bench``: hpcagent_agent imports the stdlib, its declared dependencies
+    (:data:`AGENT_DEPENDENCIES`) and itself; a harness runner imports its harness lazily, inside the harness's own
+    venv."""
     outside: list[str] = []
     for path in sorted((REPO / "agent" / "hpcagent_agent").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -675,6 +681,6 @@ def test_the_agent_runtime_imports_the_standard_library_only() -> None:
         outside += [
             f"{path.name}: {name}"
             for name in sorted(imported)
-            if name.split(".")[0] not in sys.stdlib_module_names and name.split(".")[0] != "hpcagent_agent"
+            if name.split(".")[0] not in sys.stdlib_module_names | AGENT_DEPENDENCIES | {"hpcagent_agent"}
         ]
     assert not outside, outside

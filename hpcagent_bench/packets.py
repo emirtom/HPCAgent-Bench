@@ -35,6 +35,7 @@ from hpcagent_bench import study_tags as tags
 from hpcagent_bench.skill_frontmatter import Applies, SkillFrontmatter, split_frontmatter
 
 __all__ = [
+    "PACKET_TOOLS_ENV",
     "CPF_ENV_KEYS",
     "CPF_REQUEST_CAPABILITY",
     "DEVICE_LANGUAGES",
@@ -126,6 +127,8 @@ class Packet:
     parts: tuple[str, ...]
     #: The same pages in spec and definition order, which is the order a problems file lists them.
     pages: tuple[str, ...] = ()
+    #: The non-core MCP tools the packet carries, sorted (``hpcagent_agent.tools.registry.PACKET_TOOLS_ENV``).
+    tools: tuple[str, ...] = ()
 
 
 @functools.lru_cache(maxsize=1, typed=True)
@@ -134,7 +137,7 @@ def tool_pages() -> frozenset[str]:
     declares ``tools``.
 
     ``*`` does not expand to them. ``agent/hpcagent_agent/tools/mcp_server.py`` serves such a tool only
-    in that packet's setups (its ``PACKET_TOOL_SWITCH``), so any other setup staging the page would read
+    in that packet's setups (:data:`PACKET_TOOLS_ENV`), so any other setup staging the page would read
     the manual for a tool it was never given. Naming the page outright
     (``--packet cpf-tool``) still stages it; only ``*`` stops picking it up."""
     return frozenset(
@@ -352,11 +355,11 @@ def refuse_frozen(spec: str) -> None:
 
 def leaves(token: str, definitions: Mapping[str, tags.PacketDef]) -> frozenset[str]:
     """What ``token`` stages, in registry tokens: its page tokens, plus the key itself when it switches
-    env or a method on. Two specs stage the same packet exactly when their leaves agree."""
+    env, a method or a tool on. Two specs stage the same packet exactly when their leaves agree."""
     definition = definitions.get(token)
     if definition is None:
         return frozenset({token})
-    own = frozenset({token}) if definition.env or definition.method else frozenset[str]()
+    own = frozenset({token}) if definition.env or definition.method or definition.tools else frozenset[str]()
     return own.union(definition.skills, *(leaves(sub, definitions) for sub in definition.packets))
 
 
@@ -405,6 +408,16 @@ def resolve(
         method=distinct_methods[0] if distinct_methods else "",
         parts=tuple(sorted(tokens)),
         pages=tuple(skills),
+        tools=tuple(
+            sorted(
+                {
+                    tool
+                    for token in tokens
+                    for key in reached_keys(token, definitions)
+                    for tool in definitions[key].tools
+                }
+            )
+        ),
     )
 
 
@@ -464,6 +477,11 @@ def libraries_enabled(spec: str) -> bool:
 
 
 #: The env keys of a packet that serves a canonical parallel form: the cpf-src drop-in and the cpf-tool view.
+#: The env a launcher exports the resolved packet's :attr:`Packet.tools` under, comma-separated; the agent's MCP
+#: server serves a non-core tool only when it is listed (``hpcagent_agent.tools.registry``, which spells the name:
+#: the agent never imports hpcagent_bench).
+PACKET_TOOLS_ENV = "HPCAGENT_BENCH_PACKET_TOOLS"
+
 CPF_ENV_KEYS: frozenset[str] = frozenset({"CPF_DROPIN_DIR", "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR"})
 #: The ``requests.allow`` capability a CPF packet adds: CPF lowers BLAS, LAPACK and FFT nodes to the
 #: architecture's vendor libraries, and a form calling one builds only with it loaded.

@@ -91,6 +91,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
 )
 from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
+from hpcagent_bench.harness.routes import first_param, load
 from hpcagent_bench.harness.requests_api import (
     CheckedArray,
     CheckedStruct,
@@ -163,9 +164,6 @@ __all__ = [
     "WireAnswer",
     "as_json_object",
     "build_device_pool",
-    "canonical_parallel_form_cache",
-    "canonical_parallel_form_root",
-    "canonical_parallel_form_target",
     "client_closed",
     "default_request_language",
     "delivery_language",
@@ -185,6 +183,8 @@ __all__ = [
     "ml_layout",
     "precision_scope_refusal",
     "preload_lazy_imports",
+    "module_names",
+    "python_entry_refusal",
     "python_residency_refusal",
     "rank_error",
     "record_result",
@@ -356,35 +356,6 @@ class SlotPool:
         with self.changed:
             self.free.append(slot)
             self.changed.notify_all()
-
-
-def canonical_parallel_form_root() -> pathlib.Path | None:
-    """The CPF cache view this run serves from, or None when the setup names none. A run without one
-    answers ``unavailable``; the ablation setup relies on that. The view need not exist yet: the first
-    request for a kernel creates it (:func:`hpcagent_bench.cpf_prerender.render_on_demand`)."""
-    configured = config.current().service.canonical_parallel_form_dir.strip()
-    return pathlib.Path(configured) if configured else None
-
-
-def canonical_parallel_form_cache(view: pathlib.Path) -> pathlib.Path | None:
-    """The cache root an on-demand render of ``view`` writes to: :data:`cpf_cache.CACHE_CONFIG_KEY`,
-    else the root an existing view is pinned to; None when neither names one."""
-    configured = config.current().cpf.cache.strip()
-    if configured:
-        return pathlib.Path(configured)
-    try:
-        return pathlib.Path(cpf_cache.read_view(view).cache_root)
-    except (cpf_cache.CacheMiss, KeyError):
-        return None
-
-
-def canonical_parallel_form_target() -> str:
-    """The device this setup's forms are rendered for, as hpcagent_bench/cluster/prepare_job.sh decides it: the
-    setup's LANGUAGE (hip/cuda -> gpu), else its declared record device, else cpu."""
-    language = config.env_value("LANGUAGE") or ""
-    if language:
-        return "gpu" if language in GPU_LANGUAGES else "cpu"
-    return "gpu" if setup_declared_host_only() is False else "cpu"
 
 
 #: The one tool that can see a device submission, by language -- and that language's default.
@@ -678,6 +649,44 @@ def python_residency_refusal(requested: str) -> str | None:
     return (
         f"language {requested!r} is the device-resident python setup and this judge's setup does not "
         f"declare {languages.PYTHON_DEVICE_ENV}; refused rather than grading it host-resident"
+    )
+
+
+def module_names(source: str) -> list[str] | None:
+    """The names a Python module binds at top level (functions, classes, assignments, imports), in source order;
+    None when it does not parse (the grade then reports the syntax error as its own failure)."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    names: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.append(node.name)
+        elif isinstance(node, ast.Assign | ast.AnnAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names.extend(target.id for target in targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            names.extend((alias.asname or alias.name).partition(".")[0] for alias in node.names)
+    return names
+
+
+def python_entry_refusal(submission: Submission, task: Task) -> str | None:
+    """A 400 message when a Python submission defines no top-level name for the task's entry point, else None.
+
+    Checked before anything is built or timed: the grade would only fail on import with the reason in the judge's
+    log, and the agent paid a call to learn nothing. A dynamic definition (``globals()[...]``) the parser cannot
+    see still reaches the grade."""
+    if not submission.is_python or submission.source is None:
+        return None
+    entry = BenchSpec.load(task.kernel).func_name
+    names = module_names(submission.source)
+    if names is None or entry in names:
+        return None
+    defined = ", ".join(f"'{name}'" for name in names) or "nothing"
+    return (
+        f"this task's entry point is a top-level function named {entry!r}, called with the kernel's arguments; "
+        f"the submission defines {defined}. Rename the entry function (or bind {entry} = <your function>)"
     )
 
 
@@ -1374,10 +1383,8 @@ def record_result(
     return answer
 
 
-def first_param(qs: Mapping[str, list[str]], name: str) -> str | None:
-    """The first value of query parameter ``name``, or ``None`` when the request carries none."""
-    values = qs.get(name)
-    return values[0] if values else None
+#: The tool routes (:mod:`hpcagent_bench.harness.routes`), each a ``@route`` handler in its own module.
+ROUTES = load()
 
 
 class JudgeHandler(BaseHTTPRequestHandler):
@@ -1430,7 +1437,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             overlay = fused.judge_overlay(self.headers.get(fused.SETUP_HEADER, "").strip())
         except fused.FusedRefusal as exc:
             self.close_connection = True
-            self._send(exc.status, JudgeError(error=exc.message))
+            self.reply(exc.status, JudgeError(error=exc.message))
             yield False
             return
         with config.scoped_environment(overlay):
@@ -1482,7 +1489,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             native_call.set_assigned_device(None)
             pool.release(slot)
 
-    def _send(self, code: int, payload: WireAnswer) -> None:
+    def reply(self, code: int, payload: WireAnswer) -> None:
         """Answer ``payload``; a graded request answered with anything but a grade is recorded first as
         a call without a verdict (:meth:`record_refusal`), as a grade is recorded before its answer."""
         if code != HTTPStatus.OK and self.graded_body is not None:
@@ -1585,7 +1592,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         err = rank_error(self.judge_rank, requested)
         if err is None:
             return False
-        self._send(*err)
+        self.reply(*err)
         return True
 
     def serve_get(self) -> None:
@@ -1595,7 +1602,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         route = parts[0]  # str.split("/") is never empty, so parts[0] is always safe
         if route == "health":
             # The one route that answers any rank: a liveness probe; it reports this judge's rank.
-            return self._send(
+            return self.reply(
                 HTTPStatus.OK,
                 HealthAnswer(
                     status="ok",
@@ -1606,19 +1613,19 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     submits_in_flight=SUBMITS_IN_FLIGHT.count,
                 ),
             )
-        if route == "canonical_parallel_form":
-            return self._canonical_parallel_form(parts, qs)
+        if (tool_route := ROUTES.get(route)) is not None:
+            return tool_route(self, parts, qs)
         if route == "build":
             return self._build(parts, qs)
         if route != "baseline":
-            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
+            return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         if self.misrouted(first_param(qs, "rank")):
             return None
         kernel, language = self._task(parts, qs)
         # The run's size, never the query's (see serve_post); a preset in the query is ignored.
         preset = self.cfg.preset
         if not kernel:
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST, JudgeError(error="usage: GET /baseline/<kernel>?language=c&rank=<judge rank>")
             )
         try:
@@ -1635,9 +1642,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     repeat=self.cfg.repeat,
                     baseline=self.cfg.baseline_token,
                 )
-            return self._send(HTTPStatus.OK, BaselineAnswer(kernel=kernel, preset=preset, baselines=bl))
+            return self.reply(HTTPStatus.OK, BaselineAnswer(kernel=kernel, preset=preset, baselines=bl))
         except Exception as exc:  # noqa: BLE001 -- infra failure (e.g. C emit) -> 500
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"baseline failed: {exc}"))
+            return self.reply(HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"baseline failed: {exc}"))
 
     def _build(self, parts: list[str], qs: dict[str, list[str]]) -> None:
         """Serve the exact compile+link argv this judge runs for one delivery language, from
@@ -1648,7 +1655,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             return None
         language = (parts[1] if len(parts) > 1 else "") or (qs.get("language") or [""])[0]
         if language not in languages.LANG_EXT:
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(error=f"unknown language {language!r}; choose from {', '.join(sorted(languages.LANG_EXT))}"),
             )
@@ -1660,7 +1667,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 language, first_param(qs, "compiler"), vendor=sandbox.OFFLOAD_VENDOR
             )
         except KeyError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         try:
             offload = languages.agent_offload_flags()
             commands = languages.build_shared_lib_commands(
@@ -1674,11 +1681,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 extra_link=offload,
             )
         except Exception as exc:  # noqa: BLE001 -- no compiler block wired for it here -> 500
-            return self._send(
+            return self.reply(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 JudgeError(error=f"no build command for {language!r} on this judge: {exc}"),
             )
-        return self._send(
+        return self.reply(
             HTTPStatus.OK,
             BuildAnswer(
                 language=language,
@@ -1692,128 +1699,6 @@ class JudgeHandler(BaseHTTPRequestHandler):
             ),
         )
 
-    def _canonical_parallel_form(self, parts: list[str], qs: dict[str, list[str]]) -> None:
-        """Serve the canonical parallel form for one kernel from the cache view
-        (:func:`hpcagent_bench.cpf_cache.resolve`). A kernel the view does not hold yet is rendered on
-        this request (:func:`hpcagent_bench.cpf_prerender.render_on_demand`, minutes) and cached for
-        every later one, under a device slot so it never overlaps a timed grade. A form that cannot be
-        served is ``unavailable`` with 200, not 404, so its absence does not read as a verdict on the
-        kernel. Rank-checked like every other agent route.
-
-        The hint detail is the setup's (:data:`cpf_cache.HINTS_CONFIG_KEY`, scoped per setup on a fused
-        judge): the query (:class:`CanonicalFormQuery`) may name it, and a request naming another detail is
-        refused (400), so no agent reads the hints of the arm it is not in."""
-        if self.misrouted(first_param(qs, "rank")):
-            return None
-        try:
-            query = CanonicalFormQuery.model_validate({name: values[0] for name, values in qs.items() if values})
-        except ValueError as exc:  # a pydantic ValidationError
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid canonical_parallel_form query: {exc}"))
-        kernel = "/".join(parts[1:]) or query.kernel or ""
-        if not kernel:
-            return self._send(
-                HTTPStatus.BAD_REQUEST,
-                JudgeError(error="usage: GET /canonical_parallel_form/<kernel>?language=c%2B%2B&rank=<judge rank>"),
-            )
-        hints = config.current().cpf.hints
-        if query.hints is not None and query.hints != hints:
-            return self._send(
-                HTTPStatus.BAD_REQUEST,
-                JudgeError(error=f"this setup serves the {hints!r} hint detail, not {query.hints!r}"),
-            )
-        language = query.language
-        if language not in cpf_cache.LANGUAGE_EXT:
-            return self._send(
-                HTTPStatus.BAD_REQUEST,
-                JudgeError(
-                    error=f"unknown dialect {language!r}; choose from {', '.join(sorted(cpf_cache.LANGUAGE_EXT))}"
-                ),
-            )
-        root = canonical_parallel_form_root()
-        if root is None:
-            return self._send(
-                HTTPStatus.OK,
-                CanonicalFormAnswer(
-                    kernel=kernel,
-                    verdict="unavailable",
-                    note="this run pre-rendered no canonical parallel forms; this says nothing "
-                    "about whether the kernel can be parallelized",
-                ),
-            )
-        from hpcagent_bench import cpf_bridge  # renders and binds; only a CPF request needs it
-
-        fptype = cpf_bridge.form_fptype(kernel, self.cfg.datatype)
-        try:
-            form = cpf_cache.resolve(root, kernel, language, fptype, hints)
-        except cpf_cache.CacheMiss:
-            with self.device_slot() as slot:
-                if slot is None:
-                    return None
-                problem = self.render_canonical_parallel_form(root, kernel, hints)
-            try:
-                form = cpf_cache.resolve(root, kernel, language, fptype, hints)
-            except cpf_cache.CacheMiss as exc:
-                # Loud for the operator, soft for the agent: the log names the key, the answer stays 200.
-                reason = problem or str(exc)
-                print(f"canonical_parallel_form: {reason}", file=sys.stderr, flush=True)
-                return self._send(
-                    HTTPStatus.OK,
-                    CanonicalFormAnswer(
-                        kernel=kernel,
-                        verdict="unavailable",
-                        error=reason,
-                        note=f"no {language} form could be rendered for this kernel; this says "
-                        "nothing about whether the kernel can be parallelized",
-                    ),
-                )
-        # A gpu form is the hip dialect: the host unit (.cpp) in ``source``, the kernels in ``device_source``.
-        dialect = (
-            "hip"
-            if form.device
-            else next(name for name, ext in cpf_cache.LANGUAGE_EXT.items() if f".{ext}" == form.source.suffix)
-        )
-        answer = CanonicalFormAnswer(
-            kernel=kernel,
-            verdict="ok",
-            dialect=dialect,
-            entry=form.entry,
-            source=form.source.read_text(),
-            binding=form.binding.read_text(),
-        )
-        if form.device:
-            answer.device_source = form.device.read_text()
-        needs: list[str] = []
-        if form.libraries:
-            # A form calling a vendor library builds only with that library loaded.
-            answer.libraries = list(form.libraries)
-            needs.append(f"requests.startup.load = {json.dumps(list(form.libraries))}")
-        if form.workspace_bytes != "0":
-            # Its transients live in the caller's workspace: without the request it writes past an empty buffer.
-            answer.workspace_bytes = form.workspace_bytes
-            needs.append(f"workspace_bytes = {json.dumps(form.workspace_bytes)}")
-        if needs:
-            answer.note = f"submit this form with {' and '.join(needs)}"
-        return self._send(HTTPStatus.OK, answer)
-
-    def render_canonical_parallel_form(self, view: pathlib.Path, kernel: str, hints: cpf_cache.HintDetail) -> str:
-        """Render ``kernel`` into ``view`` at ``hints`` for a request that missed; "" when an outcome is recorded."""
-        from hpcagent_bench import cpf_prerender
-
-        cache = canonical_parallel_form_cache(view)
-        fptype = fptype_tag(self.cfg.datatype)
-        if cache is None:
-            return f"no cache root to render {kernel} into: set {cpf_cache.CACHE_ENV}"
-        print(f"canonical_parallel_form: rendering {kernel} into {view} on first request", file=sys.stderr, flush=True)
-        return cpf_prerender.render_on_demand(
-            view,
-            cache,
-            kernel,
-            target=canonical_parallel_form_target(),
-            # The spelling hpcagent_bench.cpf_prerender renders with ("" is fp64), so both land on one key.
-            precision="" if fptype == "fp64" else fptype,
-            hints=hints,
-        )
-
     def serve_requests_check(self) -> None:
         """``POST /requests/check`` ``{"kernel", "language", "requests"}``: :func:`requests_check`, free and
         unrecorded."""
@@ -1821,17 +1706,17 @@ class JudgeHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
             body = RequestBody.parse(self.rfile.read(length))
         except (ValueError, TypeError) as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
         kernel = body.raw("kernel")
         if not isinstance(kernel, str) or kernel not in KERNELS:
-            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
+            return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
         language = delivery_language(body.text("language", default_request_language()), self.cfg.input_mode)
         try:
             datatype = graded_datatype(BenchSpec.load(kernel), self.cfg.datatype)
             answer = requests_check(kernel, language, body.raw("requests"), datatype)
         except ValueError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
-        return self._send(HTTPStatus.OK, answer)
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+        return self.reply(HTTPStatus.OK, answer)
 
     def serve_post(self) -> None:
         parts = urlparse(self.path).path.strip("/").split("/")
@@ -1839,16 +1724,16 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if route == "requests" and parts[1:] == ["check"]:
             return self.serve_requests_check()
         if route not in ("submit", "score", "profile"):
-            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
+            return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = RequestBody.parse(self.rfile.read(length))
         except (ValueError, TypeError) as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
         if route != "profile":
             untrusted = unrecordable(body.text_or_none("episode_id"))
             if untrusted is not None:
-                return self._send(*untrusted)  # before graded_body: a refusal row would carry the same identity
+                return self.reply(*untrusted)  # before graded_body: a refusal row would carry the same identity
             self.graded_body = body
         if self.misrouted(body.raw("rank")):
             return None
@@ -1857,13 +1742,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
         language = delivery_language(requested, self.cfg.input_mode)
         refusal = gpu_language_refusal(language) or python_residency_refusal(requested)
         if refusal is not None:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=refusal))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=refusal))
         # The run's configured size on every route; a body cannot name one (RequestFields has no preset).
         preset = self.cfg.preset
         # A client preset naming nothing is a request fault (400, not a 500 from score()). Only bare
         # presets: ``+fuzz`` modifiers set process-global overrides.
         if preset not in PRESET_CHOICES:
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(
                     error=f"unknown preset {preset!r}; choose from {', '.join(PRESET_CHOICES)}. "
@@ -1872,38 +1757,40 @@ class JudgeHandler(BaseHTTPRequestHandler):
             )
         # A non-str kernel is a body-shape fault: the registry lookup below would raise TypeError on it.
         if not isinstance(kernel, str) or not kernel:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error="body must include 'kernel' (a kernel name)"))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error="body must include 'kernel' (a kernel name)"))
         if kernel not in KERNELS:
             # Kernel existence is a request fault, checked before reading the body.
-            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
+            return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
         try:
             submission = _submission_from_body(body, kernel, language, self.cfg, body.text_or_none("episode_id"))
         except ValueError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         try:
             source_mode = task_source_mode(self.cfg.input_mode, library=submission.library is not None)
             # A GPU language grades on the device (task.default_residency); the reference stays host-resident.
             # mpi.grade_distributed gives ``distributed`` here.
             task = Task(kernel, source_mode, language, residency=grading_residency(kernel, language))
         except Exception as exc:  # noqa: BLE001 -- defensive: a bad source_mode/residency triple -> 404
-            return self._send(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: {exc}"))
+            return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: {exc}"))
         # The task's grid where the setup sets it, before every check reads the request.
         gridded = with_task_grid(submission, task)
         if isinstance(gridded, str):
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=gridded))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=gridded))
         submission = gridded
         self.granted_requests = submission.requests
         # Distribution refusals apply to every grading route, /profile included.
         try:
             refused = distribution_refusal(submission, task, preset)
         except ValueError as exc:  # a malformed mpi.replicatable list is the MANIFEST's fault
-            return self._send(HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=str(exc), cause=JUDGE_FAULT_CAUSE))
+            return self.reply(HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=str(exc), cause=JUDGE_FAULT_CAUSE))
         if refused is None:
             refused = requests_refusal(submission, task, self.cfg.datatype)
         if refused is None:
             refused = layout_refusal(submission, task)
         if refused is None:
             refused = workspace_refusal(submission, task)
+        if refused is None:
+            refused = python_entry_refusal(submission, task)
         if refused is None and route == "profile" and requested_layout(BenchSpec.load(kernel), submission) is not None:
             refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"
         if refused is None and route == "profile" and converts_kernel_arrays(submission.requests):
@@ -1912,7 +1799,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 "operations from a /profile request"
             )
         if refused is not None:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=refused))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=refused))
         if route == "profile":
             return self._profile(submission, task, body, preset)
         # The grade's datatype is the kernel's when it crosses the ABI in one storage-only precision
@@ -1930,9 +1817,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 graded = grade_request(submission, task, cfg, preset, hidden)
                 result = graded.result
             except LayoutRefused as exc:  # a padded layout past its limit on the graded input: 400
-                return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+                return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
             except Exception as exc:  # noqa: BLE001 -- scoring infra failure -> 500
-                return self._send(
+                return self.reply(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     JudgeError(error=f"score failed for {kernel!r}: {exc}", cause=JUDGE_FAULT_CAUSE),
                 )
@@ -1950,7 +1837,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     final=graded.final,
                 )
             self.record_score(result, submission, task, body, cfg)
-        return self._send(HTTPStatus.OK, score_answer(result, kernel, language, preset, task.residency))
+        return self.reply(HTTPStatus.OK, score_answer(result, kernel, language, preset, task.residency))
 
     def send_submit(
         self,
@@ -1988,8 +1875,8 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if recorded.judge_fault:
             result = dataclasses.replace(result, harness_fault=True)
         if config.current().service.submit_feedback != "full":
-            return self._send(HTTPStatus.OK, submit_verdict(result, request_id))
-        return self._send(
+            return self.reply(HTTPStatus.OK, submit_verdict(result, request_id))
+        return self.reply(
             HTTPStatus.OK, grade_answer(result, kernel, language, preset, task.residency, recorded, request_id)
         )
 
@@ -2034,13 +1921,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
         offload_compute_tool = OFFLOAD_COMPUTE_TOOL if offloaded else None
         tool = body.text_or_none("tool") or device_tool or offload_tool or "linuxperf"
         if tool not in PROFILE_TOOLS:
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST, JudgeError(error=f"unknown tool {tool!r}: one of {', '.join(PROFILE_TOOLS)}")
             )
         if tool == OPT_REPORT_TOOL:
             return self._opt_report(submission, task)
         if device_tool is not None and tool not in (device_tool, compute_tool):
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(
                     error=f"tool {tool!r} does not serve {task.language!r}: "
@@ -2055,7 +1942,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 else f"'linuxperf', 'papi', 'none', {offload_tool!r} or {offload_compute_tool!r}"
             )
             verb = "counts" if tool in COMPUTE_DEVICE_TOOLS.values() else "traces"
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(error=f"tool {tool!r} {verb} a device submission: profile {task.language!r} with {served}"),
             )
@@ -2063,7 +1950,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             task = dataclasses.replace(task, residency=body.text("residency", task.residency))
             min_percent = body.number("min_percent", 1.0)
             if not 0.0 <= min_percent <= 100.0:  # NaN fails this too
-                return self._send(
+                return self.reply(
                     HTTPStatus.BAD_REQUEST,
                     JudgeError(error=f"min_percent must be between 0 and 100, got {min_percent!r}"),
                 )
@@ -2145,14 +2032,14 @@ class JudgeHandler(BaseHTTPRequestHandler):
                         )
                     )
         except ProfilerUnavailable as exc:
-            return self._send(HTTPStatus.SERVICE_UNAVAILABLE, JudgeError(error=str(exc), cause=exc.cause))
+            return self.reply(HTTPStatus.SERVICE_UNAVAILABLE, JudgeError(error=str(exc), cause=exc.cause))
         except (TypeError, ValueError) as exc:  # unknown counter group / non-numeric threads: the request's fault
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         except Exception as exc:  # noqa: BLE001 -- a failed profiled run is infra, not a score
-            return self._send(
+            return self.reply(
                 HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"profile failed for {task.kernel!r}: {exc}")
             )
-        return self._send(HTTPStatus.OK, payload)
+        return self.reply(HTTPStatus.OK, payload)
 
     def _opt_report(self, submission: Submission, task: Task) -> None:
         """``tool="opt-report"``: the compiler's optimization report and toolchain, from :meth:`Sandbox.build`
@@ -2162,7 +2049,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         from hpcagent_bench.support.bindings.contract import binding_from_spec
 
         if submission.is_python or submission.library is not None:
-            return self._send(
+            return self.reply(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(error="tool 'opt-report' reports on a compile: send source in c, cpp, fortran, cuda or hip"),
             )
@@ -2171,9 +2058,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 task.language, submission.compiler, vendor=sandbox.OFFLOAD_VENDOR
             )
         except KeyError as exc:
-            return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         if not toolchain.report_flags:
-            return self._send(
+            return self.reply(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 JudgeError(
                     error=f"{toolchain.driver} (family {toolchain.family or 'none'}) has no optimization-report flags",
@@ -2189,10 +2076,10 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 ) as box:
                     built = box.build(submission, mode=SUBMISSION_BUILD_MODE, report=True)
             except Exception as exc:  # noqa: BLE001 -- the judge failed the build itself: 500, never a dead thread
-                return self._send(
+                return self.reply(
                     HTTPStatus.INTERNAL_SERVER_ERROR, JudgeError(error=f"opt-report failed for {task.kernel!r}: {exc}")
                 )
-        return self._send(
+        return self.reply(
             HTTPStatus.OK,
             OptReportAnswer(
                 tool=OPT_REPORT_TOOL,

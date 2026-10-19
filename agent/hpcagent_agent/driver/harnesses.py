@@ -9,9 +9,9 @@ gate, the wall clock (rc 124), the token cap (rc 125), the submission marker (rc
 relaunch, promotion and ``tokens.json``. A :class:`Harness` is only what differs: the command, the
 environment on top of the shared one, the log it writes, the file its token spend is folded from,
 and the record of how it ended. The claude spec is built in ``agent_driver.py`` from the functions
-that already live there; the three runner specs are here.
+that already live there; the runner specs are here.
 
-Runner contract (miniswe, openhands), relative to the workdir:
+Runner contract (miniswe, openhands, optimas, anthropic, openai), relative to the workdir:
 
 * ``usage.jsonl`` -- one JSON object per model call, ``{"input", "cached_input", "output",
   "reasoning"}``, four DISJOINT counts: the uncached prompt, the cached prompt, the completion
@@ -33,6 +33,7 @@ from typing import NamedTuple, cast
 from hpcagent_agent.driver import effort
 
 __all__ = [
+    "ANTHROPIC_RUNGS",
     "CLAUDE",
     "CLAUDE_ONLY_ENV",
     "CONSUMED_FIELDS",
@@ -42,6 +43,7 @@ __all__ = [
     "END_FILE",
     "HARNESSES",
     "HARNESS_INTERPRETER",
+    "OPENAI_RUNGS",
     "OPENHANDS_RUNGS",
     "PAGE_READER",
     "REPLY_FRACTION_DENOMINATOR",
@@ -55,6 +57,7 @@ __all__ = [
     "ContextPolicy",
     "Harness",
     "accumulate_usage_tokens",
+    "anthropic_command",
     "call_tokens",
     "client_effort",
     "compaction_args",
@@ -66,6 +69,8 @@ __all__ = [
     "miniswe_command",
     "miniswe_env",
     "openai_args",
+    "openai_command",
+    "optimas_command",
     "openhands_command",
     "openhands_env",
     "page_opening",
@@ -83,7 +88,8 @@ __all__ = [
 CLAUDE = "claude"
 
 #: The tool each harness opens a staged skill page with, by name. Only claude has a tool called Read;
-#: mini-SWE's one tool is the shell and OpenHands has its own editor, so a runner is named no tool.
+#: mini-SWE's and the SDK runners' file tool is the shell and OpenHands has its own editor, so a
+#: runner is named no tool.
 PAGE_READER = {CLAUDE: "Read"}
 
 USAGE_FILE = "usage.jsonl"
@@ -143,6 +149,10 @@ class Closing(NamedTuple):
     turns: int
     context_overflow: bool
     api_timeout: bool
+    #: The model's reply outgrew the reply reserve (``CLAUDE_CODE_MAX_OUTPUT_TOKENS``): the run is out of budget.
+    output_cap: bool = False
+    #: The server refused the model's own malformed request (a tool call that is not valid JSON): a model failure.
+    model_error: bool = False
 
 
 class Harness(NamedTuple):
@@ -299,9 +309,15 @@ def reasoning_effort() -> str:
 
 #: The rungs ``openhands.sdk.LLM.reasoning_effort`` is TYPED for: it is a Literal, so a value outside
 #: them fails validation and the episode never starts.
-#: openhands-sdk 1.47.0, openhands/sdk/llm/llm.py: reasoning_effort is
+#: openhands-sdk 1.55.1, openhands/sdk/llm/llm.py: reasoning_effort is
 #: Literal["low", "medium", "high", "xhigh", "none"] (read from the agent image).
 OPENHANDS_RUNGS = frozenset({"low", "medium", "high", "xhigh", "none"})
+#: The rungs the Messages API's ``output_config.effort`` is typed for (anthropic 1.15.0
+#: ``OutputConfigParam``), which api.anthropic.com refuses anything outside of.
+ANTHROPIC_RUNGS = frozenset({"low", "medium", "high", "xhigh", "max"})
+#: The rungs ``openai.types.shared.Reasoning.effort`` is typed for (openai 3.35, the Agents SDK's
+#: ``ModelSettings.reasoning``): a pydantic Literal, so a value outside it fails before the first request.
+OPENAI_RUNGS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max"})
 
 
 def client_effort(accepted: frozenset[str]) -> str:
@@ -317,11 +333,13 @@ def client_effort(accepted: frozenset[str]) -> str:
     return resolved if resolved in accepted else ""
 
 
-def openai_args(context: Context, rung: str) -> list[str]:
-    """The endpoint, model, usage and reply-cap flags every runner takes, at ``rung``."""
+def openai_args(context: Context, rung: str, base_url: str = "") -> list[str]:
+    """The endpoint, model, usage and reply-cap flags every runner takes, at ``rung``. The endpoint is
+    the replica's OpenAI-compatible ``/v1`` unless ``base_url`` names another (the Messages API client
+    takes the server root, as the claude CLI does)."""
     args = [
         "--base-url",
-        f"{context.replica_root}/v1",
+        base_url or f"{context.replica_root}/v1",
         "--model",
         served_model(),
         "--usage",
@@ -354,7 +372,8 @@ def request_timeout_args() -> list[str]:
 
 def compaction_args() -> list[str]:
     """``--compaction-trigger T`` for the runners that compact history: OpenHands through its
-    condenser's ``max_tokens``, mini-SWE through the runner's own history window (2.4.6 has none)."""
+    condenser's ``max_tokens``, mini-SWE and the SDK runners through ``runner_common.HistoryWindow``
+    (mini-SWE 2.4.6 has none of its own)."""
     return ["--compaction-trigger", str(context_policy(os.environ).trigger)]
 
 
@@ -366,6 +385,9 @@ def compaction_args() -> list[str]:
 HARNESS_INTERPRETER: dict[str, str] = {
     "miniswe": "/opt/harness/miniswe/bin/python",
     "openhands": "/opt/harness/openhands/bin/python",
+    "optimas": "/opt/harness/optimas/bin/python",
+    "anthropic": "/opt/harness/anthropic/bin/python",
+    "openai": "/opt/harness/openai/bin/python",
 }
 
 
@@ -409,6 +431,51 @@ def openhands_command(context: Context) -> list[str]:
         "--mcp-config",
         str(context.mcp_config),
     ]
+
+
+def anthropic_command(context: Context) -> list[str]:
+    """The Messages API runner: the server root (it appends ``/v1/messages`` itself), and its key from
+    the ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN the launcher already exports for the claude CLI."""
+    return [
+        interpreter("anthropic"),
+        "-m",
+        "hpcagent_agent.harness.run_anthropic",
+        "--workdir",
+        str(context.workdir),
+        "--cwd",
+        str(context.cwd),
+        "--prompt",
+        str(context.prompt_file),
+        *openai_args(context, client_effort(ANTHROPIC_RUNGS), base_url=context.replica_root),
+        *compaction_args(),
+        *request_timeout_args(),
+        "--mcp-config",
+        str(context.mcp_config),
+    ]
+
+
+def openai_command(context: Context, name: str = "openai") -> list[str]:
+    """The Agents SDK runner, or ``name``'s runner on the same arguments (optimas drives that agent)."""
+    return [
+        interpreter(name),
+        "-m",
+        f"hpcagent_agent.harness.run_{name}",
+        "--workdir",
+        str(context.workdir),
+        "--cwd",
+        str(context.cwd),
+        "--prompt",
+        str(context.prompt_file),
+        *openai_args(context, client_effort(OPENAI_RUNGS)),
+        *compaction_args(),
+        *request_timeout_args(),
+        "--mcp-config",
+        str(context.mcp_config),
+    ]
+
+
+def optimas_command(context: Context) -> list[str]:
+    return openai_command(context, "optimas")
 
 
 def runner_env(context: Context, base: dict[str, str]) -> dict[str, str]:
@@ -469,6 +536,9 @@ def runner(
 RUNNERS: dict[str, Harness] = {
     "miniswe": runner("miniswe", miniswe_command, miniswe_env),
     "openhands": runner("openhands", openhands_command, openhands_env),
+    "optimas": runner("optimas", optimas_command, runner_env),
+    "anthropic": runner("anthropic", anthropic_command, runner_env),
+    "openai": runner("openai", openai_command, runner_env),
 }
 
 #: Every harness the driver can launch: claude (built in ``agent_driver.py``) and the runners above.

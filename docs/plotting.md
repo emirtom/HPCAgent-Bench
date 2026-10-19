@@ -27,9 +27,9 @@ Every figure in the HPCAgent-Bench papers follows these rules. A figure that bre
      without a packet, on several devices, in several pairs) wears close shades of its colour,
      `palette.model_shade(model, step)`; its no-packet control is `palette.CONTROL_SHADE` (one step)
      lighter. Compilers and libraries take `palette.framework_color`, never a model colour.
-   - **Shape** is the treatment: every registered harness, then every registered packet (skill, tool,
-     method) takes the next free shape of the registry's `shapes:` pool in file order
-     (`palette.shape_table`, `palette.harness_marker`, `palette.packet_marker`). A packet may pin one
+   - **Shape** is the treatment, from the registry's one `shapes:` pool: its first `harness_shapes` free
+     shapes are the harnesses', the rest the packets' (skill, tool, method), each kind taking its part in slot
+     order (`palette.shape_table`, `palette.harness_marker`, `palette.packet_marker`). A packet may pin one
      with `marker:` (the paper's Skills diamond, CPF square, Terse triangle, Git X). Two treatments
      never share a shape; the pool outgrown is a registry error. Registering a treatment gives it a
      shape without reshaping any other.

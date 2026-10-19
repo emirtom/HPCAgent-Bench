@@ -11,7 +11,8 @@ different packets.
     packet_env.py --packet "perf-playbook-cpu;lang" --language c
     packet_env.py --list
 
-Every line's value has its ``${VAR}`` placeholders filled from the process environment (the same
+A packet that carries tools adds ``HPCAGENT_BENCH_PACKET_TOOLS=<tool>,...``, the non-core MCP tools the agent's
+server then serves. Every line's value has its ``${VAR}`` placeholders filled from the process environment (the same
 one a sourcing shell already has), and the last line is always
 ``HPCAGENT_BENCH_RECORD_PACKET=<canonical key>`` -- what ``record_identity`` writes into the setup's
 ``.env`` for the results DB. The empty spec (the control) prints only that one line, empty.
@@ -66,6 +67,8 @@ def main() -> int:
 
     for key, value in resolved.env:
         print(f"{key}={value}")
+    if resolved.tools:
+        print(f"{packets.PACKET_TOOLS_ENV}={','.join(resolved.tools)}")
     if args.requests_allow is not None:
         allow = packets.request_allowance(args.packet, args.language, args.requests_allow)
         if allow != args.requests_allow:

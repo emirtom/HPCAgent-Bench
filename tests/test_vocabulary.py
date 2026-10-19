@@ -33,6 +33,9 @@ PINNED_HARNESSES = {
     "claude": 0,
     "miniswe": 1,
     "openhands": 2,
+    "optimas": 3,
+    "anthropic": 4,
+    "openai": 5,
 }
 
 PINNED_LANGUAGES = {
@@ -83,6 +86,7 @@ PINNED_PACKETS = {
     "cpf-tool-cpu-kinds": 27,
     "cpf-gpu-src-kinds": 28,
     "cpf-tool-gpu-kinds": 29,
+    "web-search": 30,
 }
 
 PINNED_FRAMEWORKS = {

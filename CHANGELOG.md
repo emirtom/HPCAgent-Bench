@@ -25,8 +25,33 @@ Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2
 - **Single-source submissions in `any` mode.** An `any`-mode task accepts one C or Fortran source built with the
   agent's own compile flags (fast-math included); link flags stay restricted to `-l`/`-L`. Multi-file builds go
   through the existing `library` delivery.
+- **Tools on the official MCP SDK.** The agent's tool server (`agent/hpcagent_agent/tools/mcp_server.py`) runs on the
+  `mcp` SDK's low-level server (stdio, or streamable HTTP with `--http <port>`), and a tool is one file: `@tool` on its
+  `run()` with a pydantic input model (`agent/hpcagent_agent/tools/registry.py`), plus `@route` on a judge handler in
+  `hpcagent_bench/harness/routes/` when the judge serves it. The agent package now depends on `mcp` and `pydantic`.
+- **Packets gate tools by name.** A packet's `tools` reach the agent as `HPCAGENT_BENCH_PACKET_TOOLS`; a non-core tool
+  is served only where it is listed. `search` is no longer switched on by `AGENT_SEARCH_TOOL` but by the new
+  `web-search` packet, and the per-tool env switches are gone.
+- **A skill page declares its own packet.** A `packet:` block in a page's frontmatter registers it (the CPF, tracer
+  and caveman packets moved there; their definitions are unchanged), and staging drops the block from the agent's copy.
+- **New harnesses** `anthropic` (Messages API) and `openai` (Agents SDK, any OpenAI-compatible endpoint), both MCP
+  clients of the one tool server, and **Optimas** again, on the Agents SDK with no tool shim. claude-code 2.1.303,
+  openhands 1.55.1. mini-SWE and OpenHands now really send the effort rung (litellm dropped it).
+- **Markers by kind.** The first `harness_shapes` free shapes of the pool are the harnesses', the rest the packets':
+  registering either kind never reshapes the other.
+- **Flavor composition** (from `registry-flavor-composition`): framework entries compose from mixins, adding the
+  `dace_{cpu,gpu}_autoopt_alloy_{profile,heuristic}` flavors and the `tvm` alias.
 
 ### Fixed
+- **Episode identity is proven.** Each agent gets a token for its own episode (HMAC of the episode id under a job
+  secret the seal hides), the tools send it, and the router refuses a request naming an episode its token does not
+  prove: an agent can no longer spend a sibling's single submission.
+- Claude Code's "Response stalled mid-stream" and "Connection closed mid-response" are transport faults like the
+  client timeout (rc 127): the agent is relaunched within its deadline instead of ending as an agent fault (21 v0.2
+  episodes). A reply over the output cap (rc 128, `output_cap`) and a tool call the engine refuses as malformed
+  JSON (rc 129, `model_error`) are recorded as what they are, not as faults, and are not relaunched.
+- A Python submission without the task's entry function is refused before grading, naming the function and what the
+  module defines (it failed on import, with the reason only in the judge log).
 - The correctness sweep hands the compiled reference every size symbol and the returned-output buffers
   (`no-reference` failures), never shrinks a torch-oracle kernel, and launches the per-kernel reference tests
   with the OpenMP environment grading requires.

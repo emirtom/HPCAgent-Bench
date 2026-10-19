@@ -228,9 +228,12 @@ them after a rebuild.
   first), so outputs keep their generated initial values; an entry that writes nothing fails
   correctness.
 
-## Known issues
+## Episode identity
 
-- **A sibling's single submission can be spent.** The judge router takes `episode_id` from the request body, and
-  episode ids are predictable (`<setup>.n<node>.p<problem>.w<worker>`), so an agent can post under a sibling's
-  id and spend that episode's single submission. The fix is a per-episode token that the router checks
-  (`hpcagent_bench/cluster/judge_service.py`).
+Episode ids are predictable (`<setup>.n<node>.p<problem>.w<worker>`), so the id in a request body proves nothing.
+Each agent's driver therefore hands it a token for its own episode, `$HPCAGENT_BENCH_EPISODE_TOKEN` =
+HMAC-SHA256 of the episode id under the job's secret (`$RUN_DIR/episode-secret`, which the seal hides from every
+agent). The benchmark tools send it as `X-HPCAgent-Bench-Episode-Token`, and the judge router refuses (403) a
+request whose body names an episode its token does not prove, before anything is graded or recorded
+(`hpcagent_bench/cluster/judge_service.py`). An agent can therefore neither spend a sibling's single submission
+nor have its rows recorded under a sibling's id.

@@ -60,6 +60,7 @@ import pathlib
 from typing import Any
 
 from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools.registry import tool
 
 __all__ = [
     "COUNTER_GROUPS",
@@ -247,6 +248,7 @@ else:
     )
 
 
+@tool(description=DESCRIPTION, input=INPUT_SCHEMA, prompt=PROMPT, preview=True, name="profile")
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     return http_json.post_judge("/profile", profile_body(payload))
 

@@ -69,8 +69,8 @@ def load_tools(
     monkeypatch.setenv("LANGUAGE", language)
     monkeypatch.setenv("AGENT_SKILL_DIR", str(skill_dir) if skill_dir is not None else os.devnull)
     # No packet: what these tests read is the CONTROL setup's tool set, whatever view the developer's
-    # shell happens to point at (mcp_server.PACKET_TOOL_SWITCH).
-    monkeypatch.delenv("HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR", raising=False)
+    # shell happens to carry (HPCAGENT_BENCH_PACKET_TOOLS).
+    monkeypatch.delenv("HPCAGENT_BENCH_PACKET_TOOLS", raising=False)
     if request_actions is None:
         monkeypatch.delenv("HPCAGENT_BENCH_REQUEST_ACTIONS", raising=False)
     else:
@@ -313,8 +313,7 @@ def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_t
     core tools and no packet tool. It also pins the ABSENCE of ``task``: the spec is rendered into the
     prompt, so a ``task`` in this list would mean the route returned without the prompt being updated.
     """
-    started = agent_tools.mcp_server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize"})
-    instructions = started["result"]["instructions"]
+    instructions = agent_tools.mcp_server.build_server().instructions
     assert instructions.startswith(agent_tools.mcp_server.MCP_HEAD), (
         "the server names its tools as the client lists them"
     )
@@ -322,33 +321,24 @@ def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_t
         "the server instructions are the prompt's tool list, mode slot filled"
     )
     assert "{{" not in instructions, "a raw template slot reaches the agent"
-    listed = agent_tools.mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
+    tools = {tool.name: tool for tool in agent_tools.mcp_server.tool_definitions()}
     assert list(tools) == list(agent_tools.mcp_server.TOOLS)
     assert "task" not in tools
     assert "canonical_parallel_form" not in tools
     for name in ("score", "submit", "profile"):
-        assert "kernel" not in tools[name]["inputSchema"]["properties"]
-        assert "language" not in tools[name]["inputSchema"]["properties"], (
+        assert "kernel" not in tools[name].inputSchema["properties"]
+        assert "language" not in tools[name].inputSchema["properties"], (
             f"{name} invites the model to choose a language the enforced track will refuse"
         )
-    called = agent_tools.mcp_server.handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "score", "arguments": {"kernel": KERNEL, "source_file": "not_the_kernel.c"}},
-        }
-    )
-    assert called["result"]["isError"] is True
-    assert f"{KERNEL}.c" in called["result"]["content"][0]["text"]
+    called = agent_tools.mcp_server.answer("score", {"kernel": KERNEL, "source_file": "not_the_kernel.c"})
+    assert called.isError is True
+    assert f"{KERNEL}.c" in called.content[0].text
 
 
 def test_every_tool_module_in_the_directory_is_registered(agent_tools: types.SimpleNamespace) -> None:
-    """A tool module written beside the others but left out of ``REGISTRY`` is served by nobody, and
-    nothing fails."""
+    """A tool module written beside the others without ``@tool`` is served by nobody, and nothing fails."""
     modules = {path.stem for path in TOOLS_DIR.glob("*.py") if "\ndef run(" in path.read_text(encoding="utf-8")}
-    registered = {module.__name__.rpartition(".")[2] for module in agent_tools.mcp_server.REGISTRY.values()}
+    registered = {entry.run.__module__.rpartition(".")[2] for entry in agent_tools.mcp_server.REGISTRY.values()}
     assert registered == modules, (
         f"not registered: {sorted(modules - registered)}; no run(): {sorted(registered - modules)}"
     )
@@ -677,20 +667,12 @@ def test_the_mcp_server_serves_syntax_check_as_its_own_tool(agent_tools, tmp_pat
     parse comes back as ``isError`` content carrying the compiler's message."""
     if shutil.which("gcc") is None:
         pytest.skip("gcc absent: syntax_check has nothing to parse c with")
-    listed = agent_tools.mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    schema = {tool["name"]: tool for tool in listed["result"]["tools"]}["syntax_check"]["inputSchema"]
+    schema = {tool.name: tool for tool in agent_tools.mcp_server.tool_definitions()}["syntax_check"].inputSchema
     assert schema["required"] == ["source_file"]
     assert "kernel" not in schema["properties"]
 
     path = tmp_path / "broken.c"
     path.write_text(SNIPPETS["c"][1])
-    called = agent_tools.mcp_server.handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "syntax_check", "arguments": {"source_file": str(path)}},
-        }
-    )
-    assert called["result"]["isError"] is True
-    assert "error" in called["result"]["content"][0]["text"].lower()
+    called = agent_tools.mcp_server.answer("syntax_check", {"source_file": str(path)})
+    assert called.isError is True
+    assert "error" in called.content[0].text.lower()

@@ -14,6 +14,7 @@ import os
 import pathlib
 import re
 import secrets
+import socket
 import shutil
 import signal
 import statistics
@@ -50,7 +51,9 @@ __all__ = [
     "AGGREGATE_MIN_INTERVAL_SECONDS",
     "AGGREGATE_PROBE_SECONDS",
     "AGGREGATE_SATURATED_FRACTION",
-    "API_TIMEOUT_MARK",
+    "API_TIMEOUT_MARKS",
+    "MODEL_ERROR_MARKS",
+    "OUTPUT_CAP_MARK",
     "BLANK_RUN",
     "BUILD_TOKENS_DEFAULT",
     "CANCELLED_MARKER",
@@ -84,6 +87,8 @@ __all__ = [
     "PROBE_PROMPT",
     "RC_AGENT_FAULT",
     "RC_API_TIMEOUT",
+    "RC_MODEL_ERROR",
+    "RC_OUTPUT_CAP",
     "RC_CONTEXT",
     "RC_MCP_UNAVAILABLE",
     "RC_SUBMITTED",
@@ -143,6 +148,7 @@ __all__ = [
     "claude_supports_flag",
     "clear_for_relaunch",
     "closing_crashed",
+    "closing_text_has",
     "closing_returncode",
     "context_overflow",
     "cost_breakdown",
@@ -167,6 +173,7 @@ __all__ = [
     "hints_text",
     "hit_turn_cap",
     "host_home_root",
+    "episode_secret",
     "identity_env",
     "issue_worker_token",
     "job_is_ending",
@@ -1255,9 +1262,34 @@ def identity_env(problem_index: int, worker_index: int, slot: int | None = None,
         "CLAUDE_MODEL", "hpcagent-bench-llm"
     )
     identity = {"HPCAGENT_BENCH_EPISODE_ID": episode_id, "HPCAGENT_BENCH_OPTIMIZER": optimizer}
+    if (secret := episode_secret()) is not None:
+        identity[http_json.EPISODE_TOKEN_ENV] = http_json.episode_token(secret, episode_id)
     if kernel:
         identity[http_json.KERNEL_ENV] = kernel_stem(kernel)
     return identity
+
+
+def episode_secret() -> bytes | None:
+    """The job's episode-token secret (``$RUN_DIR/episode-secret``), created by the first driver that asks; None
+    without a ``RUN_DIR`` (a local run, whose router checks no token either).
+
+    Every node's driver and the router read the one file on the shared run directory; the seal keeps it from the
+    agents, so each holds only its own episode's token (:func:`identity_env`)."""
+    run_dir = os.environ.get("RUN_DIR", "").strip()
+    if not run_dir:
+        return None
+    path = pathlib.Path(run_dir) / http_json.EPISODE_SECRET_NAME
+    if not path.exists():
+        # Written whole, then linked into place: a link never replaces, so the first driver wins and no reader
+        # ever sees a half-written secret.
+        staged = path.with_name(f"{path.name}.{socket.gethostname()}.{os.getpid()}.{secrets.token_hex(4)}")
+        staged.write_text(secrets.token_hex(32), encoding="utf-8")
+        staged.chmod(0o600)
+        with contextlib.suppress(FileExistsError):
+            os.link(staged, path)
+        staged.unlink(missing_ok=True)
+    secret = path.read_text(encoding="utf-8").strip()
+    return secret.encode("utf-8") if secret else None
 
 
 #: The problems-file key holding what the agent tools offer in ``requests`` (``make_problems.py`` writes it
@@ -1373,6 +1405,10 @@ RC_TIMEOUT = 124
 RC_TOKEN_BUDGET = 125
 RC_CONTEXT = 126
 RC_API_TIMEOUT = 127
+#: The model's reply outgrew the reply reserve (:data:`OUTPUT_CAP_MARK`): out of budget, not relaunched.
+RC_OUTPUT_CAP = 128
+#: The engine refused a request the model malformed (:data:`MODEL_ERROR_MARKS`): a model failure, not relaunched.
+RC_MODEL_ERROR = 129
 RC_SUBMITTED = 123
 #: The agent never ran: its MCP server did not connect in AGENT_MCP_ATTEMPTS tries (:class:`McpUnavailable`).
 #: An infrastructure failure, recorded per agent so it costs the node nothing but this one episode.
@@ -1388,11 +1424,24 @@ CLEAN_ENDS = frozenset({0, RC_SUBMITTED, RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT
 #: context length of 262144 tokens". runner_common matches the same substring.
 CONTEXT_OVERFLOW_MARK = "maximum context length"
 
-#: The CLI's text for a request that hit the client-side timeout, as it reaches the closing event.
-#: The whole message is "API Error: The operation timed out."; matched on the tail so a version that
-#: renames the "API Error" prefix still lands. This is a TRANSPORT fault, not a budget: the agent had
-#: hours of clock and turns left, and one request took longer than the cap allowed.
-API_TIMEOUT_MARK = "operation timed out"
+#: The CLI's texts for a request the TRANSPORT lost, as they reach the closing event, lower-cased: the client-side
+#: timeout ("API Error: The operation timed out."), a stream the server stopped feeding ("Response stalled
+#: mid-stream") and a connection it dropped ("Connection closed mid-response"). Matched on the tail so a version that
+#: renames the "API Error" prefix still lands. None is a budget: the agent had clock and turns left, and one request
+#: never came back whole.
+API_TIMEOUT_MARKS = ("operation timed out", "stalled mid-stream", "connection closed mid-response")
+
+#: The CLI's text when the model's reply outgrew the reply reserve ("Claude's response exceeded the 32768 output token
+#: maximum"): the run spent the budget one reply may have, recorded as ``output_cap``, not relaunched.
+OUTPUT_CAP_MARK = "output token maximum"
+
+#: The served engine's refusal of a request the MODEL malformed (vLLM's "400 Expecting ',' delimiter" for a tool call
+#: that is not valid JSON): a model failure, recorded as ``model_error``, not relaunched.
+MODEL_ERROR_MARKS = (
+    "api error: 400 expecting",
+    "api error: 400 unterminated",
+    "api error: 400 invalid control character",
+)
 
 #: How often the token watcher re-reads the growing transcript. Seconds, not turns: the budget is
 #: enforced between polls, so a single very long turn can overshoot by one poll's worth of output.
@@ -2251,8 +2300,13 @@ def api_timeout(log_path: pathlib.Path) -> bool:
     run with subtype ``success`` and marks it only with ``is_error``, so the cost sidecar wrote
     ``result=success`` for an agent that died 2 h into a 3.5 h budget with its kernel unsubmitted.
     """
+    return closing_text_has(log_path, API_TIMEOUT_MARKS)
+
+
+def closing_text_has(log_path: pathlib.Path, marks: tuple[str, ...]) -> bool:
+    """True when the run's closing event is an error whose text holds one of ``marks`` (lower case)."""
     event = result_event(log_path)
-    return event is not None and event.is_error and API_TIMEOUT_MARK in event.text
+    return event is not None and event.is_error and any(mark in event.text.lower() for mark in marks)
 
 
 def open_tool_use_index(tail: str) -> int | None:
@@ -2348,6 +2402,8 @@ def transcript_closing(log_path: pathlib.Path) -> Closing:
         turns=turns,
         context_overflow=context_overflow(log_path),
         api_timeout=api_timeout(log_path),
+        output_cap=closing_text_has(log_path, (OUTPUT_CAP_MARK,)),
+        model_error=closing_text_has(log_path, MODEL_ERROR_MARKS),
     )
 
 
@@ -2496,12 +2552,13 @@ def harness_spec(name: str) -> Harness:
 
 
 #: CLAUDE_BARE=0 tool set for the harness comparison (harness20): the native default toolset
-#: measured on the pinned claude-code 2.1.197 linux-x64 binary is the whole product surface
+#: measured on the claude-code 2.1.197 linux-x64 binary is the whole product surface
 #: (Cron*, Workflow, SendMessage, Monitor, PushNotification, ScheduleWakeup, DesignSync,
 #: EnterWorktree/ExitWorktree, ReportFindings, Task/TaskCreate/.../TaskStop, WebFetch, WebSearch,
 #: alongside Bash/Edit/NotebookEdit/Read/Skill/Write) -- none of it reachable without internet or a
 #: cloud session, which this sandbox has neither of. Curated to the coding tools every harness gets
-#: plus Skill, the one native capability this study exists to compare against --bare.
+#: plus Skill, the one native capability this study exists to compare against --bare. The pinned 2.1.303
+#: publishes exactly these six under ``--tools`` (probed against a stub endpoint).
 CLAUDE_NATIVE_TOOLS = "Bash,Edit,NotebookEdit,Read,Skill,Write"
 
 
@@ -2564,8 +2621,9 @@ def claude_command(context: Context) -> list[str]:
         # built-in set under --bare: naming Write/MultiEdit/Glob/Grep here publishes none of
         # them (measured, claude 2.1.224 and 2.1.233 -- `--tools default` also yields exactly
         # these three). Creating a file is a shell heredoc on this path. Under CLAUDE_BARE=0
-        # the built-in set is the CLI's real one (measured on the pinned linux-x64 2.1.197
-        # binary directly, --print/no-bare/no-mcp) -- CLAUDE_NATIVE_TOOLS names the coding subset.
+        # the built-in set is the CLI's real one (measured on the linux-x64 2.1.197 binary
+        # directly, --print/no-bare/no-mcp) -- CLAUDE_NATIVE_TOOLS names the coding subset. The
+        # pinned 2.1.303 publishes the same three and six (probed against a stub endpoint).
         "--tools",
         "Read,Edit,Bash" if bare else CLAUDE_NATIVE_TOOLS,
         "--allowedTools",
@@ -2590,7 +2648,8 @@ def claude_command(context: Context) -> list[str]:
 #: p99.9 30.0k, max 32.6k -- and 2.1.197 leaves the newest turn out of the compaction request (it is
 #: kept verbatim after the summary), so that request is the previous one plus ~2k.
 
-#: claude-code 2.1.197 compacts at floor(E * pct / 100), E = window - min(max output, this).
+#: claude-code 2.1.197 compacts at min(floor(E * pct / 100), E - 13000), E = window - min(max output,
+#: this); the pinned 2.1.303 computes the same threshold (read from its bundle).
 CLAUDE_SUMMARY_RESERVE = 20000
 
 
@@ -2621,8 +2680,9 @@ def claude_context_env(environment: Mapping[str, str]) -> dict[str, str]:
 
 
 #: The claude-code 2.1.197 switch that drops ``run_in_background`` from the Bash tool's schema and
-#: its "you'll be notified when it completes" line from the system prompt (probed on the pinned
-#: binary, --bare and native alike). Under --print that promise is false: the session ends at the
+#: its "you'll be notified when it completes" line from the system prompt (probed on the binary,
+#: --bare and native alike). The pinned 2.1.303 still reads it, and under --print already offers no
+#: ``run_in_background`` without it (probed); it stays set so an older CLI behaves the same. Under --print that promise is false: the session ends at the
 #: first turn with no tool call and the CLI kills every background task it started, so a submission
 #: an agent parks in one never runs.
 CLAUDE_BACKGROUND_TASKS_OFF = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
@@ -2894,15 +2954,22 @@ def watched_returncode(
 
 
 def closing_returncode(returncode: int, closing: Closing) -> int:
-    """The rc once the harness's closing record is read: a context overflow or an API timeout."""
+    """The rc once the harness's closing record is read: a context overflow, a transport fault, the output cap or a
+    model error."""
     # Whatever the agent exited with, only the driver's own caps outrank a recorded overflow: a
     # runner's end file names it at any exit, and claude-code 2.1.197 closes such a run with exit 1.
     if closing.context_overflow and returncode not in (RC_TIMEOUT, RC_TOKEN_BUDGET, RC_SUBMITTED):
         return RC_CONTEXT
     # Named in the rc for the same reason: the subtype the CLI leaves behind says "success", so the
     # rc is the only field that can tell a run out of API from a run out of work.
-    if returncode not in (RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT, RC_SUBMITTED) and closing.api_timeout:
+    if returncode in (RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT, RC_SUBMITTED):
+        return returncode
+    if closing.api_timeout:
         return RC_API_TIMEOUT
+    if closing.output_cap:
+        return RC_OUTPUT_CAP
+    if closing.model_error:
+        return RC_MODEL_ERROR
     return returncode
 
 
@@ -2916,6 +2983,10 @@ def ended_reason(returncode: int, timeout_s: float, max_tokens: int, tokens: int
         return " died=context"
     if returncode == RC_API_TIMEOUT:
         return " died=api_timeout"
+    if returncode == RC_OUTPUT_CAP:
+        return " died=output_cap"
+    if returncode == RC_MODEL_ERROR:
+        return " died=model_error"
     if returncode == RC_MCP_UNAVAILABLE:
         return " died=mcp_unavailable"
     return ""

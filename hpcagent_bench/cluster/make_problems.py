@@ -31,6 +31,7 @@ from hpcagent_bench.harness.prompts import Skill, cluster_facts, distributed_con
 from hpcagent_bench.harness.task import Residency, Task, grading_residency
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
+from hpcagent_bench.skill_frontmatter import without_packet_block
 from hpcagent_bench.spec import KERNELS, BenchSpec
 
 __all__ = [
@@ -363,7 +364,8 @@ def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
         if source is None:
             print(f"materialize_shared: packet names {page} but no such skill page", file=sys.stderr)
             continue
-        shutil.copyfile(paths.ROOT / source, folder / f"{page}.md")
+        page_text = (paths.ROOT / source).read_text(encoding="utf-8")
+        (folder / f"{page}.md").write_text(without_packet_block(page_text), encoding="utf-8")
         for companion in PAGE_COMPANIONS.get(page, ()):
             shutil.copyfile(companion, folder / companion.name)
         staged += 1

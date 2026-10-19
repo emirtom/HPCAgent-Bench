@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""HARNESS dispatch in the cluster agent driver: one launch path, four harnesses.
+"""HARNESS dispatch in the cluster agent driver: one launch path, every harness.
 
 ``agent_driver.py`` keeps every budget and watcher for itself -- the wall clock, the token cap, the
 submission marker, crash relaunch -- and asks a harness only for its command, its environment and
@@ -31,7 +31,7 @@ AGENT = REPO / "agent"
 KERNEL = "loop_level_reasoning/argmax_value/argmax_value"
 #: Rendered before any test patches subprocess: the facts probe the toolchain.
 PROBLEM = problem_line(7, KERNEL, "optimize argmax_value")
-RUNNERS = ("miniswe", "openhands")
+RUNNERS = ("miniswe", "openhands", "optimas", "anthropic", "openai")
 
 #: Shell variables that would change what the driver launches if the test process inherited them.
 LEAKY_PREFIXES = (
@@ -44,6 +44,7 @@ LEAKY_PREFIXES = (
     "MCP_",
     "MINISWE_",
     "OPENHANDS_",
+    "OPENAI_",
     "HPCAGENT_BENCH_",
 )
 LEAKY_NAMES = (
@@ -190,8 +191,8 @@ def test_the_claude_setup_launches_the_command_every_recorded_experiment_ran(dri
     among the allowed tools. Setups recorded before 2026-09 were allowed it whatever their packet, and
     the ones with no rendered view spent turns on a tool whose only answer is ``unavailable``.
     ``mcp__hpcagent-bench__search`` is likewise absent: it reaches the real internet and this
-    benchmark's runs must not have internet access, so it needs ``AGENT_SEARCH_TOOL=1`` -- an
-    opt-in no shipped ``experiments/.env.*`` sets -- and this test does not set it either."""
+    benchmark's runs must not have internet access, so only the ``web-search`` packet carries it -- a
+    packet no shipped experiment uses -- and this test does not use it either."""
     monkeypatch.setenv("HARNESS", harness)
     launches = launcher(monkeypatch, driver, claude_run)
     rc, workdir = run(driver, tmp_path)
@@ -307,20 +308,25 @@ def expected_runner_argv(harness: str, workdir: pathlib.Path) -> list[str]:
     endpoint += ["--max-output-tokens", "32768"]
     window = ["--context-length", "262144"]
     compaction = ["--compaction-trigger", "197919"]
+    launch = [
+        f"/opt/harness/{harness}/bin/python",
+        "-m",
+        f"hpcagent_agent.harness.run_{harness}",
+        "--workdir",
+        str(workdir),
+        "--cwd",
+        str(agent_folder(workdir)),
+        "--prompt",
+        str(workdir / "prompt.txt"),
+    ]
+    mcp = ["--mcp-config", str(workdir / "mcp.json")]
     if harness == "miniswe":
-        return [
-            "/opt/harness/miniswe/bin/python",
-            "-m",
-            "hpcagent_agent.harness.run_miniswe",
-            "--workdir",
-            str(workdir),
-            "--cwd",
-            str(agent_folder(workdir)),
-            "--prompt",
-            str(workdir / "prompt.txt"),
-            *endpoint,
-            *compaction,
-        ]
+        return [*launch, *endpoint, *compaction]
+    if harness == "anthropic":
+        # The Messages API client takes the server root, as the claude CLI's ANTHROPIC_BASE_URL does.
+        return [*launch, "--base-url", "http://n1:8000", *endpoint[2:], *compaction, *mcp]
+    if harness in ("openai", "optimas"):
+        return [*launch, *endpoint, *compaction, *mcp]
     return [
         "/opt/harness/openhands/bin/python",
         "-m",
@@ -408,9 +414,9 @@ def test_a_runner_is_told_the_launchers_reply_cap(
     assert argv[argv.index("--max-output-tokens") + 1] == "16384"
 
 
-@pytest.mark.parametrize(("harness", "told"), [("miniswe", "3600"), ("openhands", "3600")])
+@pytest.mark.parametrize("harness", RUNNERS)
 def test_a_runner_waits_on_a_model_request_as_long_as_claude_does(
-    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str, told: str | None
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str
 ) -> None:
     """run_cluster.sh's API_TIMEOUT_MS is claude's whole-request cap; OpenHands (300 s) and mini-SWE's
     litellm (600 s) would give up sooner on the same queued request."""
@@ -419,15 +425,18 @@ def test_a_runner_waits_on_a_model_request_as_long_as_claude_does(
     launches = launcher(monkeypatch, driver, runner_run(end=FINISHED))
     run(driver, tmp_path)
     argv = launches[0]["argv"]
-    assert (argv[argv.index("--request-timeout") + 1] if "--request-timeout" in argv else None) == told
+    assert (argv[argv.index("--request-timeout") + 1] if "--request-timeout" in argv else None) == "3600"
 
 
 #: qwen38's declared ladder, and what each runner's client can be sent off it. OpenHands types the
-#: field as a Literal that includes `xhigh` (openhands-sdk 1.47.0 llm.py:548), so it gets xhigh too.
+#: field as a Literal that includes `xhigh` (openhands-sdk 1.55.1 llm.py), and so do the Messages API's
+#: output_config.effort and openai's Reasoning.effort, so every runner gets xhigh.
 QWEN_LADDER = "low medium xhigh"
+#: A ladder topped by a rung only some clients can spell: OpenHands' Literal has no `max`.
+MAX_LADDER = "low medium high max"
 
 
-@pytest.mark.parametrize(("harness", "rung"), [("miniswe", "xhigh"), ("openhands", "xhigh")])
+@pytest.mark.parametrize(("harness", "rung"), [(harness, "xhigh") for harness in RUNNERS])
 def test_a_runner_is_sent_the_top_rung_of_its_models_ladder_that_its_client_can_spell(
     driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str, rung: str
 ) -> None:
@@ -436,6 +445,23 @@ def test_a_runner_is_sent_the_top_rung_of_its_models_ladder_that_its_client_can_
     monkeypatch.setenv("HARNESS", harness)
     monkeypatch.setenv("EFFORT_LADDER", QWEN_LADDER)
     monkeypatch.setenv("AGENT_EFFORT", "xhigh")
+    launches = launcher(monkeypatch, driver, runner_run(end=FINISHED))
+    run(driver, tmp_path)
+    argv = launches[0]["argv"]
+    assert argv[argv.index("--reasoning-effort") + 1] == rung
+
+
+@pytest.mark.parametrize(
+    ("harness", "rung"), [("openhands", "high"), ("anthropic", "max"), ("openai", "max"), ("optimas", "max")]
+)
+def test_a_native_runner_is_sent_a_rung_its_sdk_types_that_openhands_cannot_spell(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str, rung: str
+) -> None:
+    """Each SDK's effort type is its own clamp: `max` is a rung of the Messages API and of openai's
+    Reasoning, so those runners are not held to OpenHands' lower ceiling."""
+    monkeypatch.setenv("HARNESS", harness)
+    monkeypatch.setenv("EFFORT_LADDER", MAX_LADDER)
+    monkeypatch.setenv("AGENT_EFFORT", "max")
     launches = launcher(monkeypatch, driver, runner_run(end=FINISHED))
     run(driver, tmp_path)
     argv = launches[0]["argv"]
@@ -462,6 +488,9 @@ def test_a_model_with_no_ladder_sends_no_effort_flag_at_all(
 POLICY_FLAGS = {
     "miniswe": {"--max-output-tokens": "16384", "--compaction-trigger": "98959"},
     "openhands": {"--max-output-tokens": "16384", "--context-length": "131072", "--compaction-trigger": "98959"},
+    "anthropic": {"--max-output-tokens": "16384", "--compaction-trigger": "98959"},
+    "openai": {"--max-output-tokens": "16384", "--compaction-trigger": "98959"},
+    "optimas": {"--max-output-tokens": "16384", "--compaction-trigger": "98959"},
 }
 
 
@@ -483,6 +512,22 @@ def test_a_runner_is_told_the_context_policy_of_the_window_its_engine_serves(
         if flag in argv
     }
     assert told == POLICY_FLAGS[harness]
+
+
+def test_the_anthropic_runner_keeps_the_key_the_launcher_exports_for_the_claude_cli(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The Messages API client authenticates exactly as the claude CLI does, from ANTHROPIC_API_KEY and
+    ANTHROPIC_AUTH_TOKEN (run_cluster.sh keeps only the one the service's auth spelling names), and is
+    handed its endpoint as --base-url rather than through claude's ANTHROPIC_BASE_URL."""
+    monkeypatch.setenv("HARNESS", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-service")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "sk-service")
+    launches = launcher(monkeypatch, driver, runner_run(end=FINISHED))
+    run(driver, tmp_path)
+    env = launches[0]["env"]
+    assert (env["ANTHROPIC_API_KEY"], env["ANTHROPIC_AUTH_TOKEN"]) == ("sk-service", "sk-service")
+    assert "ANTHROPIC_BASE_URL" not in env
 
 
 def test_a_runner_without_a_replica_key_sends_empty(driver, monkeypatch, tmp_path) -> None:
@@ -665,7 +710,7 @@ def materialize_prompts(tmp_path, monkeypatch, prompt: pathlib.Path = AGENT / "p
     repo = tmp_path / "repo"
     (repo / "agent").mkdir(parents=True)
     shutil.copy(prompt, repo / "agent" / "prompt.md")
-    for name in ("tools-cli.md", "tools-openhands.md", "http-api.md"):
+    for name in ("tools-cli.md", "tools-openhands.md", "tools-native.md", "http-api.md"):
         shutil.copy(AGENT / name, repo / "agent" / name)
     shared = tmp_path / "shared"
     monkeypatch.setenv("HPCAGENT_BENCH_IMAGE_PYTHON", sys.executable)
@@ -698,6 +743,7 @@ def test_the_claude_setup_still_reads_prompt_md_byte_for_byte(tmp_path, monkeypa
     [
         ("prompt-cli.md", "tools-cli.md", True),
         ("prompt-openhands.md", "tools-openhands.md", False),
+        ("prompt-native.md", "tools-native.md", False),
     ],
 )
 def test_a_harness_prompt_is_prompt_md_with_only_the_file_tools_swapped(tmp_path, monkeypatch, variant, fragment, cli):
@@ -706,7 +752,7 @@ def test_a_harness_prompt_is_prompt_md_with_only_the_file_tools_swapped(tmp_path
     assert (shared / variant).read_text(encoding="utf-8") == swapped_prompt(fragment, cli)
 
 
-@pytest.mark.parametrize("variant", ["prompt-cli.md", "prompt-openhands.md"])
+@pytest.mark.parametrize("variant", ["prompt-cli.md", "prompt-openhands.md", "prompt-native.md"])
 def test_a_harness_prompt_names_no_claude_file_tool(tmp_path, monkeypatch, variant) -> None:
     """Told its file tools are Read and Edit, a harness that has neither spends turns calling them."""
     text = (materialize_prompts(tmp_path, monkeypatch) / variant).read_text(encoding="utf-8")
@@ -731,7 +777,7 @@ def test_a_prompt_without_the_file_tools_paragraph_writes_no_variant(tmp_path, m
     bare = tmp_path / "bare-prompt.md"
     bare.write_text("base rules\n{{HINTS}}\n\nTask:\n\n{{TASK}}\n", encoding="utf-8")
     shared = materialize_prompts(tmp_path, monkeypatch, bare)
-    assert not any((shared / name).exists() for name in ("prompt-cli.md", "prompt-openhands.md"))
+    assert not any((shared / name).exists() for name in ("prompt-cli.md", "prompt-openhands.md", "prompt-native.md"))
     assert "no file-tools paragraph" in (shared / "stderr.txt").read_text(encoding="utf-8")
 
 

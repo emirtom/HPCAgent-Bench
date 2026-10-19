@@ -35,7 +35,7 @@ def bare_handler(path: str) -> tuple[service.JudgeHandler, list[tuple[int, dict[
     handler.headers = {}  # type: ignore[assignment] -- only .get is read
     handler.graded_body = None
     sent: list[tuple[int, dict[str, object]]] = []
-    handler._send = lambda code, payload: sent.append((code, payload.to_json()))  # type: ignore[method-assign]
+    handler.reply = lambda code, payload: sent.append((code, payload.to_json()))  # type: ignore[method-assign]
     return handler, sent
 
 

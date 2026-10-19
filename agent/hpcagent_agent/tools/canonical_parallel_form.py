@@ -13,11 +13,15 @@ serve).
 """
 
 import os
-from typing import Any
+from typing import Any, Literal
+
+import pydantic
 
 from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools.registry import schema_of, tool
 
 __all__ = [
+    "CanonicalParallelFormInput",
     "DEFAULT_RENDER_LANGUAGE",
     "DESCRIPTION",
     "HINTS_ENV",
@@ -85,23 +89,20 @@ def description() -> str:
 #: What ``tools/list`` shows: fixed for the server's life, as the setup's detail is.
 DESCRIPTION = description()
 
+
 #: The kernel is the driver's assignment (:func:`http_json.assigned_kernel`). ``dialect`` is NOT the run's
 #: ``language`` field: the form is rendered as C, C++ or HIP whatever the track submits in, and conflating the two
 #: would invite a Fortran track to ask for a Fortran rendering that does not exist.
-INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "dialect": {
-            "type": "string",
-            "description": "Which dialect to render the form in: 'c' or 'c++' on a CPU task, 'hip' (the "
-            "device form) on a GPU task, which gets the hip form whatever it asks. Optional; defaults to "
-            "the run's language when that is one of these, hip for cuda, and c++ otherwise. The "
-            "parallelism facts are the same either way.",
-            "enum": ["c", "c++", "hip"],
-        },
-    },
-    "required": [],
-}
+class CanonicalParallelFormInput(pydantic.BaseModel):
+    dialect: Literal["c", "c++", "hip"] | None = pydantic.Field(
+        None,
+        description="Which dialect to render the form in: 'c' or 'c++' on a CPU task, 'hip' (the device form) on a "
+        "GPU task, which gets the hip form whatever it asks. Optional; defaults to the run's language when that is "
+        "one of these, hip for cuda, and c++ otherwise. The parallelism facts are the same either way.",
+    )
+
+
+INPUT_SCHEMA: dict[str, Any] = schema_of(CanonicalParallelFormInput)
 
 #: Dialects the renderer emits. The run's language picks one (cuda gets the hip device form: there is no
 #: CUDA form); anything else (fortran) still gets a form, rendered as C++ -- the parallelism facts in it
@@ -120,8 +121,8 @@ def render_language(payload: dict[str, Any]) -> str:
 
 
 #: No bullet: the prompt never listed this tool, and adding one would change every recorded setup's prompt.
-#: A CPF tool packet's skill page is what tells an agent the tool is there; mcp_server serves the tool
-#: only in the setups that packet built (PACKET_TOOL_SWITCH), so no other setup can reach this module.
+#: A CPF tool packet's skill page is what tells an agent the tool is there; the MCP server serves the tool
+#: only in the setups whose packet carries it (``core=False``), so no other setup can reach this module.
 PROMPT = ""
 
 
@@ -155,6 +156,7 @@ def judge_query(payload: dict[str, Any]) -> dict[str, str]:
     return query
 
 
+@tool(description=DESCRIPTION, input=CanonicalParallelFormInput, prompt=PROMPT, core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     """Ask the judge for the form, and never let a miss read as a fact.
 

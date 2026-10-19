@@ -26,18 +26,21 @@ from types import ModuleType, SimpleNamespace
 from typing import NamedTuple
 
 import pytest
+from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import fused
 from hpcagent_bench.paths import ROOT
 from tests.fresh_module import fresh
+from tests.mcp_stdio import served_tools
+from tests.mcp_stdio import tool_names as stdio_tool_names
 
 REPO = ROOT
 GOLDEN = REPO / "tests" / "fixtures" / "claude_driver_golden"
-MCP_SERVER = REPO / "agent" / "hpcagent_agent" / "tools" / "mcp_server.py"
 KERNEL = "loop_level_reasoning/argmax_value/argmax_value"
 STEM = KERNEL.rsplit("/", 1)[-1]
 PROBLEM_INDEX = 3
-CPF_TOOL_SWITCH = "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR"
+#: The env that carries a packet's MCP tools to the server (``hpcagent_bench.packets.PACKET_TOOLS_ENV``).
+CPF_TOOL_SWITCH = "HPCAGENT_BENCH_PACKET_TOOLS"
 
 #: What every setup of the wave shares: the job env of a qwen38 claude job.
 JOB_ENV = {
@@ -226,6 +229,15 @@ def without_material(argv: list[str], material: str, shared: str) -> list[str]:
     return out
 
 
+def masked_tokens(mcp_config: str) -> str:
+    """``mcp_config`` with each episode token replaced by a placeholder (it must be present)."""
+    config = json.loads(mcp_config)
+    for server in config["mcpServers"].values():
+        assert server["env"].pop(http_json.EPISODE_TOKEN_ENV)
+        server["env"][http_json.EPISODE_TOKEN_ENV] = "<token>"
+    return json.dumps(config, sort_keys=True)
+
+
 @pytest.mark.parametrize("setup", sorted(SETUPS))
 def test_a_fused_worker_is_launched_exactly_as_its_single_setup_job_launches_it(
     setup: str, tmp_path: pathlib.Path
@@ -236,14 +248,17 @@ def test_a_fused_worker_is_launched_exactly_as_its_single_setup_job_launches_it(
     shared = f"{fused_root}/mnt/shared"
     material = f"{shared}/setups/{setup}"
     assert fused_run.prompt.replace(fused_root, single_root) == single.prompt
-    assert fused_run.mcp.replace(fused_root, single_root) == single.mcp
+    # Each job's drivers issue episode tokens under their own run's secret: the same shape, another value.
+    assert masked_tokens(fused_run.mcp.replace(fused_root, single_root)) == masked_tokens(single.mcp)
     fused_env = {key: value.replace(fused_root, single_root) for key, value in fused_run.env.items()}
     assert {key: fused_env.pop(key, None) for key in FUSED_ONLY} == {
         "HPCAGENT_BENCH_WORKER_TOKEN": "secret",
         "HPCAGENT_BENCH_MATERIAL_DIR": material.replace(fused_root, single_root),
         "HPCAGENT_BENCH_START_GATE_DIR": f"{single_root}/gate",
     }
-    assert fused_env == single.env
+    single_env = dict(single.env)
+    assert fused_env.pop(http_json.EPISODE_TOKEN_ENV) and single_env.pop(http_json.EPISODE_TOKEN_ENV)
+    assert fused_env == single_env
     argv = [word.replace(fused_root, single_root) for word in without_material(fused_run.argv, material, shared)]
     assert argv == single.argv
     assert "--material" in fused_run.argv
@@ -282,31 +297,18 @@ def test_a_setup_that_sets_no_key_unsets_it_whatever_the_job_env_holds(tmp_path:
 
 
 def tool_names(env: dict[str, str]) -> set[str]:
-    """``tools/list`` of a fresh mcp_server.py under exactly ``env``, started as the worker's CLI starts it:
-    ``env -u PYTHONSAFEPATH python3 mcp_server.py``, so the server's own directory heads sys.path."""
-    base = {
-        key: value
-        for key, value in os.environ.items()
-        if key not in OWNED and key not in {"AGENT_PACKET", "PYTHONSAFEPATH"}
-    }
-    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
-    result = subprocess.run(
-        [sys.executable, str(MCP_SERVER)],
-        input=request,
-        env={**base, **env},
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    return {tool["name"] for tool in json.loads(result.stdout.splitlines()[0])["result"]["tools"]}
+    """``tools/list`` of a fresh MCP server under exactly ``env`` (the job's other owned keys stripped)."""
+    base = {key: "" for key in OWNED if key not in env}
+    result = served_tools(**base, **env)
+    assert result.returncode == 0, result.stderr
+    return stdio_tool_names(result)
 
 
 def test_only_the_cpf_setups_worker_is_served_the_cpf_tool(tmp_path: pathlib.Path) -> None:
     """Both workers of one fused job; the job env itself carries the switch, as a leak would."""
     driver = load("agent_driver")
-    job = {CPF_TOOL_SWITCH: "/views/leaked"}
-    cpf = {**overlay_of("setup-c-skills.budget4x"), CPF_TOOL_SWITCH: "/views/cpf"}
+    job = {CPF_TOOL_SWITCH: "canonical_parallel_form"}
+    cpf = {**overlay_of("setup-c-skills.budget4x"), CPF_TOOL_SWITCH: "canonical_parallel_form"}
     control = overlay_of("setup-hip")
     cpf_env = driver.fused_child_env(job, cpf, "t1", "/shared/setups/a", "/tmp/g")
     control_env = driver.fused_child_env(job, control, "t2", "/shared/setups/b", "/tmp/g")

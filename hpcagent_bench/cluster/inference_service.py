@@ -22,9 +22,9 @@ rotation is an export in the launching shell. :func:`launcher_env` therefore car
 NAME and run_cluster.sh copies the value by indirection; nothing here ever reads it.
 
 Two things the shape decides. The WIRE FORMAT (``INFERENCE_SERVICE_API``) picks which harnesses may
-run: the three runners speak ``/v1/chat/completions`` and the claude CLI speaks ``/v1/messages``, so
-pairing one with the other service 404s every request and a setup discovers that by spending its
-whole wall clock. The AUTH SPELLING (``INFERENCE_SERVICE_AUTH``) picks which variable the claude
+run: miniswe, openhands, optimas and openai speak ``/v1/chat/completions``, claude and anthropic
+``/v1/messages``, so pairing one with the other service 404s every request and a setup discovers that
+by spending its whole wall clock. The AUTH SPELLING (``INFERENCE_SERVICE_AUTH``) picks which variable the claude
 CLI's key belongs in: the CLI sends ``Authorization: Bearer`` whenever ANTHROPIC_AUTH_TOKEN is set,
 which a first-party Anthropic endpoint answers with 401, while Meta's Messages surface wants exactly
 that bearer. The two are independent, which is why they are two keys.
@@ -85,11 +85,11 @@ AUTH_BEARER = "bearer"
 AUTH_KEY_HEADER = "x-api-key"
 
 #: Harnesses that can speak each wire format. ``agent/hpcagent_agent/driver/harnesses.py`` owns the runner list;
-#: repeated here as the three names rather than imported, because this file is also read on the
+#: repeated here by name rather than imported, because this file is also read on the
 #: batch host, where the agent payload is not staged.
 HARNESSES_BY_API = {
-    API_OPENAI: ("miniswe", "openhands"),
-    API_ANTHROPIC: ("claude",),
+    API_OPENAI: ("miniswe", "openhands", "optimas", "openai"),
+    API_ANTHROPIC: ("claude", "anthropic"),
 }
 
 #: Which variable the claude CLI's key belongs in, per auth spelling.

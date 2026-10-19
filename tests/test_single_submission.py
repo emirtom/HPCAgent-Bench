@@ -59,8 +59,7 @@ def test_the_mcp_server_instructions_carry_the_modes_submit_bullet_and_no_raw_sl
     monkeypatch.setenv(submission_mode.KEY, mode.value)
     server = fresh("mcp_server")
     try:
-        started = server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize"})
-        instructions = started["result"]["instructions"]
+        instructions = server.build_server().instructions or ""
         assert "{{" not in instructions, f"{mode.value}: a raw template slot reaches the agent"
         assert "- `submit` --" in instructions, f"{mode.value}: the instructions leave out the submit tool"
         assert instructions.startswith(server.MCP_HEAD)
@@ -145,7 +144,7 @@ def test_single_submission_keeps_the_score_tool(monkeypatch) -> None:
     importlib.reload(mcp_server)
     assert "score" in mcp_server.TOOLS, "the last correct score is what a non-submitting agent is graded on"
     assert "submit" in mcp_server.TOOLS
-    assert {d["name"] for d in mcp_server.tool_definitions()} >= {"score", "submit"}
+    assert {tool.name for tool in mcp_server.tool_definitions()} >= {"score", "submit"}
 
 
 def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:

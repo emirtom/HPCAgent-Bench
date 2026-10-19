@@ -151,6 +151,8 @@ class RegistryFile(pydantic.BaseModel):
     markers: tuple[str, ...] = ()
     #: The treatments' shape pool: a marker code or a ``[sides, style, angle]`` list.
     shapes: tuple[Marker, ...] = ()
+    #: How many of the pool's free shapes, from the front, are the harnesses'; packets take the rest.
+    harness_shapes: int = pydantic.Field(default=8, ge=0)
     lightness_step: float = 0.13
 
 
@@ -185,9 +187,11 @@ class Registry:
 
     control_color: str
     markers: tuple[str, ...]
-    #: The treatments' shape pool (packets then harnesses, in file order): a marker code or a
+    #: The treatments' shape pool (harnesses take its front, packets the rest): a marker code or a
     #: (sides, style, angle) tuple, see :mod:`hpcagent_bench.stats.palette`.
     shapes: tuple["Marker", ...]
+    #: The front of the pool's free shapes reserved for harnesses (:func:`hpcagent_bench.stats.palette.shape_table`).
+    harness_shapes: int
     lightness_step: float
     studies: Names
     models: dict[str, ModelEntry]
@@ -234,6 +238,7 @@ def registry() -> Registry:
         control_color=pools.control_color,
         markers=pools.markers,
         shapes=pools.shapes,
+        harness_shapes=pools.harness_shapes,
         lightness_step=pools.lightness_step,
         studies=dict(doc.studies),
         models={key: MODELS.entries[key] for key in MODELS},

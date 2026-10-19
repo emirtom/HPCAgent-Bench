@@ -217,7 +217,7 @@ def test_the_cpf_src_drop_in_setup_keeps_its_prompt(driver: ModuleType) -> None:
     assert driver.skill_reminder(packet_task_text("cpf-src"), "c") == ""
 
 
-@pytest.mark.parametrize("harness", ["miniswe", "openhands"])
+@pytest.mark.parametrize("harness", ["miniswe", "openhands", "optimas", "anthropic", "openai"])
 def test_a_harness_without_a_read_tool_is_not_told_to_use_one(driver: ModuleType, harness: str) -> None:
     """mini-SWE's one tool is the shell (tools-cli.md: "there are no file tools"); a prompt telling it
     to "Open them with Read" names a tool the agent does not have, in the index and in the reminder."""

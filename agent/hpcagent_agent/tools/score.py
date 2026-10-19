@@ -21,6 +21,7 @@ resend it unchanged. A build failure or a wrong answer is NOT a 400: it is a nor
 from typing import Any
 
 from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools.registry import tool
 
 __all__ = [
     "DESCRIPTION",
@@ -49,6 +50,7 @@ PROMPT = (
 )
 
 
+@tool(description=DESCRIPTION, input=INPUT_SCHEMA, prompt=PROMPT, preview=True)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     return http_json.post_judge("/score", http_json.submission_body(payload))
 

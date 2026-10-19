@@ -14,8 +14,8 @@ argument takes to generate). run_cluster.sh hands this ONE value to both CLI idl
 ``API_FORCE_IDLE_TIMEOUT=0`` so Bun's own ~300 s fetch socket timeout ("The operation timed out.")
 does not cut a non-first-party stream first. ``agent_driver.watch_dead_stream`` polls the transcript
 tail and kills a silent open ``tool_use`` once the same value has passed. The installed CLI clamps
-the byte watchdog into ``[FLOOR_MS, CEILING_MS]`` itself (2.1.224 bundle ``ViS``/``KiS``, 2.1.197
-``NPd``/``BPd``) -- so a value above the ceiling is not a bigger number, it is the ceiling with
+the byte watchdog into ``[FLOOR_MS, CEILING_MS]`` itself (2.1.303 bundle ``Ws``/``zl``, 2.1.224
+``ViS``/``KiS``, 2.1.197 ``NPd``/``BPd``) -- so a value above the ceiling is not a bigger number, it is the ceiling with
 extra steps, and this module says so instead of leaving that to be rediscovered by hand.
 
 The number is derived, not copied: the worst-case LEGITIMATE gap is a full-context prefill at the

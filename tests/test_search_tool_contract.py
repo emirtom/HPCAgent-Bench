@@ -53,19 +53,13 @@ def test_prompt_bullet_explains_503_versus_502_not_a_blanket_never_retry() -> No
     assert "502" in search.PROMPT
 
 
-def test_search_defaults_off_because_a_run_must_not_have_internet_access(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The MCP-level gate (mcp_server.SEARCH_TOOL_ENABLED) is covered end to end in
-    tests/test_packet_wiring.py; this pins the switch's own default value in isolation."""
-    import importlib
-    import sys
+def test_search_is_a_packet_tool_because_a_run_must_not_have_internet_access() -> None:
+    """The MCP-level gate is covered end to end in tests/test_packet_wiring.py; this pins the declaration in
+    isolation: ``search`` is no core tool, so only a packet that carries it (``web-search``) is served it."""
+    from hpcagent_agent.tools import registry
 
-    monkeypatch.delenv("AGENT_SEARCH_TOOL", raising=False)
-    mcp_server = importlib.import_module("hpcagent_agent.tools.mcp_server")
-    try:
-        mcp_server = importlib.reload(mcp_server)
-        assert mcp_server.SEARCH_TOOL_ENABLED is False
-    finally:
-        sys.modules.pop("mcp_server", None)
+    load_search()
+    assert registry.REGISTRY["search"].core is False
 
 
 def test_web_search_md_does_not_claim_the_agents_own_capability() -> None:

@@ -322,7 +322,7 @@ def tag_version_tag() -> str:
 
 def harness_tag() -> str | None:
     """``record.harness`` -- the agent harness that drove the setup (``claude``, ``miniswe``,
-    ``openhands``), or None when the setup named none."""
+    ``openhands``, ``optimas``, ``anthropic``, ``openai``), or None when the setup named none."""
     return config.current().record.harness.strip() or None
 
 

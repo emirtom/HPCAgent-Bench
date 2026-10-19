@@ -261,24 +261,24 @@ CONTROL_MARKER: str = "o"
 
 @functools.lru_cache(maxsize=1, typed=True)
 def shape_table() -> dict[tuple[str, str], Marker]:
-    """``(kind, key) -> shape`` for every registered treatment: harnesses, then packets, each taking
-    the next free shape of the registry's pool in file order, or its packet entry's own ``marker:``.
-    The control's circle is never handed out. Registering a treatment therefore gives it a shape of
-    its own without reshaping any other; a pool too small, or two treatments on one shape, is a
-    registry error raised here rather than two treatments drawn alike."""
+    """``(kind, key) -> shape`` for every registered treatment, from the registry's one pool, so a harness and a
+    packet in one figure never share a shape. The pool's free shapes split in two: the first ``harness_shapes``
+    (the clearest filled ones) are the harnesses', the rest the packets', each kind taking its part in slot order
+    unless a packet entry names its own ``marker:``. Registering a treatment of either kind therefore never reshapes
+    another of either kind; the control's circle is never handed out, and a part too small is a registry error raised
+    here rather than two treatments drawn alike."""
     reg = registry()
-    # Harnesses first: there are few of them and each is drawn in every harness comparison, so they
-    # take the pool's clearest filled shapes; packets follow in file order.
-    entities = [("harnesses", key) for key in hue_order("harnesses")] + [
-        ("packets", key) for key in hue_order("packets")
-    ]
     fixed = fixed_packet_markers(reg)
     free = [shape for shape in reg.shapes if shape not in fixed.values() and shape != CONTROL_MARKER]
-    unfixed = [entity for entity in entities if entity not in fixed]
-    if len(unfixed) > len(free):
-        raise ValueError(f"registry: {len(entities)} treatments outgrow the {len(reg.shapes)}-shape pool")
-    table = dict(zip(unfixed, free, strict=False)) | fixed
-    return {entity: table[entity] for entity in entities}
+    harness_part, packet_part = free[: reg.harness_shapes], free[reg.harness_shapes :]
+    harnesses = [("harnesses", key) for key in hue_order("harnesses")]
+    packets_left = [("packets", key) for key in hue_order("packets") if ("packets", key) not in fixed]
+    if len(harnesses) > len(harness_part) or len(packets_left) > len(packet_part):
+        raise ValueError(
+            f"registry: {len(harnesses)} harnesses need {len(harnesses)} of {len(harness_part)} harness shapes and "
+            f"{len(packets_left)} packets {len(packets_left)} of {len(packet_part)}: raise harness_shapes or add shapes"
+        )
+    return dict(zip(harnesses, harness_part, strict=False)) | dict(zip(packets_left, packet_part, strict=False)) | fixed
 
 
 def fixed_packet_markers(reg: Registry) -> dict[tuple[str, str], Marker]:

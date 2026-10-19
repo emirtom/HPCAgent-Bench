@@ -20,6 +20,8 @@ client-side "fix" would hide the one measurement the judge exists to protect.
 """
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import pathlib
@@ -33,6 +35,9 @@ from typing import Any, NamedTuple
 from hpcagent_agent.driver import harnesses, token_cost
 
 __all__ = [
+    "EPISODE_SECRET_NAME",
+    "EPISODE_TOKEN_ENV",
+    "EPISODE_TOKEN_HEADER",
     "DEFAULT_JUDGE_PORT",
     "DEFAULT_JUDGE_TIMEOUT",
     "DEFAULT_JUDGE_URL",
@@ -87,6 +92,8 @@ __all__ = [
     "usage_jsonl_tokens",
     "warn_unreadable_token_file",
     "worker_token_header",
+    "episode_token",
+    "episode_token_header",
 ]
 
 #: The judge service's TCP port when the run configures none (``hpcagent-bench serve --port``, ``JUDGE_PORT``).
@@ -116,6 +123,27 @@ def worker_token_header() -> dict[str, str]:
     """The fused-job worker token as a request header; none outside a fused job."""
     token = os.environ.get(WORKER_TOKEN_ENV, "").strip()
     return {WORKER_TOKEN_HEADER: token} if token else {}
+
+
+#: The episode's proof of identity, read from this variable and sent on every judge request in this header. The
+#: driver derives it from the job's secret (``$RUN_DIR/episode-secret``, which the seal hides from every agent), so
+#: an agent can name a sibling's ``episode_id`` but cannot prove it, and the router refuses a recorded request
+#: whose token does not match its episode (``hpcagent_bench/cluster/judge_service.py``).
+EPISODE_TOKEN_ENV = "HPCAGENT_BENCH_EPISODE_TOKEN"
+EPISODE_TOKEN_HEADER = "X-HPCAgent-Bench-Episode-Token"
+#: The job secret's file under ``$RUN_DIR``.
+EPISODE_SECRET_NAME = "episode-secret"
+
+
+def episode_token(secret: bytes, episode_id: str) -> str:
+    """The token that proves ``episode_id`` under the job ``secret``."""
+    return hmac.new(secret, episode_id.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def episode_token_header() -> dict[str, str]:
+    """The episode token as a request header; none where the driver issued none."""
+    token = os.environ.get(EPISODE_TOKEN_ENV, "").strip()
+    return {EPISODE_TOKEN_HEADER: token} if token else {}
 
 
 def judge_base() -> str:
@@ -229,7 +257,7 @@ def call_json(url: str, data: bytes | None, timeout: float) -> dict[str, Any]:
     payload (``error``, plus ``judge_rank`` / ``requested_rank`` on a misrouted call). Nothing is
     retried and nothing is rewritten.
     """
-    headers = {"Accept": "application/json", **worker_token_header()}
+    headers = {"Accept": "application/json", **worker_token_header(), **episode_token_header()}
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method="GET" if data is None else "POST")

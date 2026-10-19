@@ -5,8 +5,8 @@ workflow. This tool NEVER calls the judge -- the caller passes in the JSON its o
 already returned. All state lives under the ledger root as plain files, re-derived from
 ``results.tsv`` on every call, so a relaunched agent picks up exactly where the last one left off.
 
-Loaded by file path (the module stem ``experiment`` is the MCP tool name), so this file is STDLIB
-ONLY: no ``http_json``, no ``hpcagent_bench``, no sibling-module imports.
+``AGENT_PACKET=autokernel`` makes the MCP server import this module; ``@tool`` registers it under its stem,
+``experiment``.
 """
 
 import hashlib
@@ -14,6 +14,8 @@ import os
 import pathlib
 import shutil
 from typing import Any
+
+from hpcagent_agent.tools.registry import tool
 
 __all__ = [
     "ACTIONS",
@@ -320,6 +322,7 @@ def action_list(payload: dict[str, Any], root: pathlib.Path) -> dict[str, Any]:
     return {"ok": True, "rows": [parse_row(row) for row in tail]}
 
 
+@tool(description=DESCRIPTION, input=INPUT_SCHEMA)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     action = payload.get("action")
     if action not in ACTIONS:

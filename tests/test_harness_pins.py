@@ -38,8 +38,8 @@ IMAGE_DOCKERFILES: tuple[str, ...] = tuple(
     sorted(str(path.relative_to(CE_IMAGES)) for path in CE_IMAGES.rglob("Dockerfile"))
 )
 
-#: Every recorded claude setup ran this CLI.
-CLAUDE_CODE_VERSION: str = "2.1.197"
+#: The CLI agent_driver's claude settings (flags, tool set, compaction variables) were checked against.
+CLAUDE_CODE_VERSION: str = "2.1.303"
 #: Python harness venv -> the import its image gate runs: every module its runner imports.
 PYTHON_HARNESSES: dict[str, str] = {
     "miniswe": (
@@ -48,6 +48,15 @@ PYTHON_HARNESSES: dict[str, str] = {
     "openhands": (
         "import openhands.sdk.event.conversation_error, openhands.tools.file_editor, openhands.tools.preset.default, "
         "openhands.tools.terminal"
+    ),
+    "optimas": (
+        "import agents, agents.exceptions, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, "
+        "litellm, openai, openai.types.shared, optimas.arch.base, optimas.optim.opro, optimas.wrappers.example"
+    ),
+    "anthropic": "import anthropic, anthropic.lib.tools, anthropic.lib.tools.mcp, mcp, mcp.client.stdio",
+    "openai": (
+        "import agents, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, openai, "
+        "openai.types.shared"
     ),
 }
 PYPROJECT: pathlib.Path = ROOT / "agent" / "pyproject.toml"
@@ -134,7 +143,7 @@ def test_every_npm_cli_is_pinned_to_an_exact_version(package: str) -> None:
     assert EXACT_VERSION.fullmatch(version), f"{package} is pinned as {version!r}, not an exact version"
 
 
-def test_claude_code_is_the_version_every_recorded_claude_setup_ran() -> None:
+def test_claude_code_is_the_version_the_drivers_claude_settings_were_checked_against() -> None:
     assert dependencies()["@anthropic-ai/claude-code"] == CLAUDE_CODE_VERSION
 
 

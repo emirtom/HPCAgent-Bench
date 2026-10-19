@@ -42,6 +42,8 @@ ENDED_BY: dict[int, str] = {
     125: "budget",
     126: "context",
     127: "api_timeout",
+    128: "output_cap",
+    129: "model_error",
 }
 
 

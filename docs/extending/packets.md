@@ -10,7 +10,7 @@ The mechanism every registered kind shares is in [registry.md](registry.md).
 | Kind | Files |
 |---|---|
 | skill bundle | one class in `skill_packets.py` |
-| env or tool switch | the class with `env` (and `tools`); a packet tool also goes in `PACKET_TOOL_SWITCH` in `agent/hpcagent_agent/tools/mcp_server.py` |
+| env or tool switch | the class (or the page's `packet:` block) with `env` and `tools`; a listed tool is a `@tool(core=False)`, served only where `HPCAGENT_BENCH_PACKET_TOOLS` names it |
 | method | the class with `method`, plus `agent/hpcagent_agent/packets/<name>/packet.md`, optional `<stem>.py` MCP tools (stdlib only), `SOURCE` and `LICENSE` when adapted from upstream |
 
 ## Examples (from `skill_packets.py`)

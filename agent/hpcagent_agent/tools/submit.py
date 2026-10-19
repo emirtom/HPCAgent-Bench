@@ -30,6 +30,7 @@ from typing import Any
 
 from hpcagent_agent import submission_mode
 from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools.registry import tool
 
 __all__ = [
     "DESCRIPTION",
@@ -171,6 +172,7 @@ def marker_text(result: dict[str, Any]) -> str:
     return json.dumps(scalars, sort_keys=True)
 
 
+@tool(description=DESCRIPTION, input=INPUT_SCHEMA, prompt=PROMPT)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     if SINGLE_SUBMISSION and SPENT_MARKER.exists():
         # "ok": False is the wire contract, not decoration: mcp_server sets isError from it and

@@ -415,6 +415,9 @@ def pytest_file(target: str) -> tuple[bool, str]:
 HARNESS_RUNTIMES = {
     "miniswe": ("/opt/harness/miniswe/bin/python", "minisweagent.agents.default"),
     "openhands": ("/opt/harness/openhands/bin/python", "openhands.tools.preset.default"),
+    "optimas": ("/opt/harness/optimas/bin/python", "optimas.optim.opro"),
+    "anthropic": ("/opt/harness/anthropic/bin/python", "anthropic.lib.tools.mcp"),
+    "openai": ("/opt/harness/openai/bin/python", "agents.mcp"),
 }
 
 

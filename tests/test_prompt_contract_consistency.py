@@ -91,7 +91,7 @@ def test_the_prompt_has_a_bullet_for_exactly_the_tools_the_agent_is_served(
     tool_list = driver.fill_mode_slots(registry["prompt"])
     listed = set(TOOL_BULLET_RE.findall(tool_list))
     # What the server SERVES under this environment, not merely every tool module that exists:
-    # ``search`` is off by default (no ``AGENT_SEARCH_TOOL`` here, as in every shipped setup) and a
+    # ``search`` is a packet tool (no ``web-search`` packet here, as in every shipped setup) and a
     # packet tool is served only to a setup carrying its packet.
     served = set(registry["served_tools"])
     assert listed <= served, f"the prompt lists tools the MCP server does not serve: {sorted(listed - served)}"

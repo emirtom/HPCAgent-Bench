@@ -77,7 +77,7 @@ def test_the_prompt_states_neither_budget_although_both_are_enforced(
 def test_a_run_without_the_search_tool_is_told_it_has_no_internet(
     driver: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("AGENT_SEARCH_TOOL", raising=False)
+    monkeypatch.delenv("HPCAGENT_BENCH_PACKET_TOOLS", raising=False)
     problem = problem_line(0, "gemm", "Optimize gemm in c.")
     prompt = driver.render_prompt(problem, pathlib.Path(driver.__file__).resolve().parents[2], "")
     assert driver.NO_INTERNET.strip() in prompt

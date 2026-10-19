@@ -28,7 +28,9 @@ __all__ = [
     "Kimi27sglang",
     "Miniswe",
     "Omp",
+    "Openai",
     "Openhands",
+    "Optimas",
     "Oss120b",
     "Pluto",
     "PpcgHip",
@@ -149,6 +151,28 @@ class Openhands:
     __slots__ = ()
 
     name = "OpenHands"
+
+
+# Slot 3 is Optimas', which it held before it was dropped (fe5373d2c) and holds again.
+@harness("optimas", order=3)
+class Optimas:
+    __slots__ = ()
+
+    name = "Optimas"
+
+
+@harness("anthropic", order=4)
+class Anthropic:
+    __slots__ = ()
+
+    name = "Anthropic Messages API"
+
+
+@harness("openai", order=5)
+class Openai:
+    __slots__ = ()
+
+    name = "OpenAI Agents SDK"
 
 
 # Languages

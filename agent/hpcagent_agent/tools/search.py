@@ -1,8 +1,7 @@
 """Search through the configured remote endpoint.
 
-This tool reaches the real internet, so it is OFF BY DEFAULT: ``agent/hpcagent_agent/tools/
-mcp_server.py`` (``SEARCH_TOOL_ENABLED``) serves it only under an operator's explicit
-``AGENT_SEARCH_TOOL=1``, and no shipped ``experiments/.env.*`` sets it -- a benchmark run must not
+This tool reaches the real internet, so it is not a core tool: only a setup whose packet carries it
+(``web-search``) is served it, and no shipped experiment uses that packet -- a benchmark run must not
 have internet access unless someone turns it on for that run. Everything below describes the
 tool's OWN behaviour for the setups where it has been opted in; it says nothing about whether this
 run is one of them.
@@ -30,11 +29,15 @@ Fields:
 
 from typing import Any
 
+import pydantic
+
 from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools.registry import schema_of, tool
 
 __all__ = [
     "DESCRIPTION",
     "INPUT_SCHEMA",
+    "SearchInput",
     "PROMPT",
     "run",
 ]
@@ -49,15 +52,15 @@ DESCRIPTION = (
     "run has no search configured at all (stop calling it); a 502 means this one call failed "
     "(worth retrying once with a different query, not in a loop)."
 )
-INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "query": {"type": "string", "description": "Question or search query."},
-        "context": {"type": "string", "description": "Optional task context to guide the search."},
-        "limit": {"type": "integer", "description": "Optional requested number of results."},
-    },
-    "required": ["query"],
-}
+
+
+class SearchInput(pydantic.BaseModel):
+    query: str = pydantic.Field(description="Question or search query.")
+    context: str | None = pydantic.Field(None, description="Optional task context to guide the search.")
+    limit: int | None = pydantic.Field(None, description="Optional requested number of results.")
+
+
+INPUT_SCHEMA: dict[str, Any] = schema_of(SearchInput)
 
 PROMPT = (
     "- `search` -- web and API research. Use it before guessing at an API, the spelling of a pragma or\n"
@@ -67,6 +70,7 @@ PROMPT = (
 )
 
 
+@tool(description=DESCRIPTION, input=SearchInput, prompt=PROMPT, core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     return http_json.post_json(http_json.endpoint("search"), payload)
 
