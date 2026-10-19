@@ -18,7 +18,8 @@ from types import ModuleType
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc, KernelIR
-from hpcagent_bench.translators.numpyto_numba.emit import emit_numba
+from hpcagent_bench.translators.numpyto_common.numpy_desugar.numba import NonePlaceholderDrop
+from hpcagent_bench.translators.numpyto_numba.emit import emit_numba, without_memo_decorators
 from tests.own_process import isolated
 from tests.translators.source_module import run_source
 
@@ -454,9 +455,9 @@ def scans(a, b, out_a, out_b, out_c, out_d):
 
 @isolated
 def test_an_axis_scan_matches_numpy_bit_for_bit_at_every_rank_a_helper_sees(tmp_path: pathlib.Path) -> None:
-    """numba's cumsum / cumprod take no ``axis``. Lowered one slice at a time they keep numpy's left-to-right
-    order, and a negative axis stays relative to the end, so ``segment`` is right for the 2-D and the 3-D
-    call alike (mamba2's ``_segsum``, where pinning ``-1`` to one rank breaks the other)."""
+    """Lowered one slice at a time, an axis scan keeps numpy's left-to-right order, and a negative axis stays
+    relative to the end, so ``segment`` is right for the 2-D and the 3-D call alike (mamba2's ``_segsum``, where
+    pinning ``-1`` to one rank breaks the other)."""
     arrays = [
         ("a", "float64", ("N", "M")),
         ("b", "float64", ("K", "N", "M")),
@@ -553,6 +554,35 @@ def test_a_memoized_helper_is_callable_from_the_njit_kernel(tmp_path: pathlib.Pa
     out = np.zeros(5)
     module.scale(x, out)
     np.testing.assert_array_equal(out, x * 2.0 ** np.arange(5))
+
+
+#: A ``None`` placeholder some bare read can still see: in a branch, a loop body, a ``while`` test, or past a
+#: name only a comprehension rebinds.
+REACHING_NONE_SRCS = (
+    "def f(x, c):\n    a = x\n    if c:\n        a = None\n    return g(a)\n",
+    "def f(x, n):\n    a = x\n    for i in range(n):\n        a = None\n    return g(a)\n",
+    "def f(x):\n    a = x\n    while a is not None:\n        a = None\n    return 0\n",
+    "def f(xs):\n    a = None\n    ys = [0 for a in xs]\n    return g(a)\n",
+)
+
+
+def test_a_none_placeholder_a_bare_read_can_still_see_is_kept() -> None:
+    """Dropping any of these placeholders would hand the read the earlier binding instead of ``None``."""
+    for src in REACHING_NONE_SRCS:
+        fn = ast.parse(src).body[0]
+        assert isinstance(fn, ast.FunctionDef)
+        assert not NonePlaceholderDrop(fn).names, src
+
+
+def test_only_a_functools_memo_decorator_is_dropped() -> None:
+    """``functools`` caches go under any alias; a local decorator that happens to be called ``cache`` stays."""
+    aliased = (
+        "import functools as ft\nfrom functools import lru_cache as lc\n\n\n"
+        "@lc(maxsize=None)\ndef g(x):\n    return x\n\n\n@ft.cache\ndef h(x):\n    return x\n"
+    )
+    assert "@" not in without_memo_decorators(aliased)
+    local = "def cache(f):\n    return f\n\n\n@cache\ndef g(x):\n    return x\n"
+    assert without_memo_decorators(local) == local
 
 
 UNARY_NEWAXIS_SRC = """import numpy as np

@@ -261,8 +261,7 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             # Before every temp-minting pass: an ``or`` clones its if-body, and clones sharing a hoisted
             # temp would redeclare it per branch. After the const folds, whose bound-once table clones stale.
             BoolOpIfToChain(),
-            # numba only: its cumsum / cumprod take no ``axis``. Ahead of the next pass, which pins a negative
-            # axis to one rank (hoist_cumulative_axis needs none).
+            # Before NormalizeNegativeAxis, which pins a negative scan axis to one rank of a helper.
             *([ValueHoist(CUMULATIVE_AXIS_HOIST, tables)] if backend == "numba" else []),
             NormalizeNegativeAxis(ranks),
             IxWriteToLoop(ranks, dtypes, fn),
