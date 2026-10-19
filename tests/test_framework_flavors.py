@@ -88,10 +88,10 @@ def test_native_flavors_carry_language_and_compiler() -> None:
 
 
 def test_arch_families_share_one_class() -> None:
-    # One column per device, one flavor per optimizer: three deterministic pipelines and four Alloy autotuners
+    # One column per device, one flavor per optimizer: three deterministic pipelines and six Alloy autotuners
     # on each device. Listed so adding one stays a deliberate edit here rather than a silent asymmetry.
     optimizers = ("canon", "parallel", "autoopt") + tuple(
-        f"{p}_alloy_{m}" for p in ("canon", "parallel") for m in ("profile", "heuristic")
+        f"{p}_alloy_{m}" for p in ("canon", "parallel", "autoopt") for m in ("profile", "heuristic")
     )
     assert sorted(framework_flavors("dace")) == sorted(
         [f"dace_{arch}" for arch in ("cpu", "gpu")]

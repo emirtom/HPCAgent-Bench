@@ -128,6 +128,10 @@ PINNED_FRAMEWORKS = {
     "dace_gpu_parallel_alloy_heuristic": 44,
     "polygeist_cpu": 45,
     "polygeist_gpu": 46,
+    "dace_cpu_autoopt_alloy_profile": 47,
+    "dace_cpu_autoopt_alloy_heuristic": 48,
+    "dace_gpu_autoopt_alloy_profile": 49,
+    "dace_gpu_autoopt_alloy_heuristic": 50,
 }
 
 PINNED = {

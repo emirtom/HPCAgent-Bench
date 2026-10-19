@@ -105,6 +105,8 @@ class FrameworkMeta(TypedDict):
     arch: str
     precisions: frozenset[Precision]
     pipelines: NotRequired[tuple[str, ...]]
+    stage: NotRequired[str]
+    tuner: NotRequired[str]
     column: NotRequired[str]
     flavor: NotRequired[str]
     language: NotRequired[str]
@@ -125,6 +127,8 @@ OPTIMIZER_ADAPTER_MODULE = "hpcagent_bench.harness.optimizers"
 #: The optional descriptor fields; one a class leaves out is absent from its entry, not ``None``.
 FRAMEWORK_OPTIONAL = (
     "pipelines",
+    "stage",
+    "tuner",
     "column",
     "flavor",
     "language",
@@ -196,6 +200,8 @@ FRAMEWORKS = Kind(
         "sweep_deterministic": Field(bool, doc="a deterministic (unjudged, no-agent) sweep may select it"),
         "precisions": Field(frozenset, doc="the Precision set it can execute; run-framework does not enforce it"),
         "pipelines": Field(tuple, None, "the SDFG pipelines a DaCe flavor compiles and scores"),
+        "stage": Field(str, None, "a DaCe flavor's pipeline stage: canon, parallel or autoopt"),
+        "tuner": Field(str, None, "the autotuner a DaCe flavor runs after its stage: alloy_profile or alloy_heuristic"),
         "column": Field(str, None, "with flavor: the DB column this name groups under"),
         "flavor": Field(str, None, "with column: the optimizer; the name must be <column>_<flavor>"),
         "language": Field(str, None, "what the native/pluto column compiles"),
