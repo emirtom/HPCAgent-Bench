@@ -94,8 +94,8 @@ LABEL org.opencontainers.image.title="hpcagent-bench-judge-agent-cuda" \
 
 ARG DEBIAN_FRONTEND=noninteractive
 # One SASS per GPU generation: a GPU runs the SASS of an older minor of its own major (sm_80 on sm_86/89,
-# sm_120 on sm_121). image.sh passes the list per CPU family: the x86_64 image adds sm_75 (Turing,
-# RTX 2080 Ti). CUDA 13 dropped offline compilation for Volta (sm_70) and older, and spack's
+# sm_120 on sm_121). image.sh passes the list per CPU family: the x86_64 image adds sm_75 (Turing, RTX 2080 Ti)
+# and native sm_86/sm_89 (RTX 30/40, Ampere and Ada workstation cards), so every RTX generation runs its own SASS. CUDA 13 dropped offline compilation for Volta (sm_70) and older, and spack's
 # cuda_arch=70 and older need cuda@:12.9, so Pascal and Volta have no SASS in either image. Spack's
 # comma spelling; the gates check every one.
 ARG CUDA_ARCHS=80,90,100,120
