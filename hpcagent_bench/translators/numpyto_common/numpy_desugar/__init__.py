@@ -85,7 +85,9 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.matmul import (
     noncontig_names,
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.numba import (
+    CUMULATIVE_AXIS_HOIST,
     NdimFold,
+    NonePlaceholderDrop,
     NumbaDtypeFixups,
     OuterBroadcastPeel,
     ReshapeFortranOrderInline,
@@ -203,6 +205,9 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             inline = SliceObjectInline(func)
             inline.visit(func)
             changed = changed or inline.changed
+            placeholders = NonePlaceholderDrop(func)
+            placeholders.visit(func)
+            changed = changed or placeholders.changed
     kir_seed: dict[str, int] = {a.name: len(a.shape) for a in kir.arrays}
     kir_dtype_seed: dict[str, str] = {}
     # Scalar parameters too: an unknown ``dtime`` is contagious, so ``zc * dtime / h`` and every reduction of it
@@ -256,6 +261,9 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             # Before every temp-minting pass: an ``or`` clones its if-body, and clones sharing a hoisted
             # temp would redeclare it per branch. After the const folds, whose bound-once table clones stale.
             BoolOpIfToChain(),
+            # numba only: its cumsum / cumprod take no ``axis``. Ahead of the next pass, which pins a negative
+            # axis to one rank (hoist_cumulative_axis needs none).
+            *([ValueHoist(CUMULATIVE_AXIS_HOIST, tables)] if backend == "numba" else []),
             NormalizeNegativeAxis(ranks),
             IxWriteToLoop(ranks, dtypes, fn),
             FancySliceStoreToLoop(ranks, dtypes),
