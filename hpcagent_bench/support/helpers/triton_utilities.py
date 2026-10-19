@@ -63,13 +63,13 @@ def complex_mul2(a, b):
 
     a_real, a_imag = tl.split(a)
     b_real, b_imag = tl.split(b)
-    c_real, c_imag = complex_mul(a_real, a_imag, b_real, b_imag)
+    c_real, c_imag = complex_mul(a_real, a_imag, b_real, b_imag)  # pyright: ignore[reportGeneralTypeIssues]  # a jit value is iterable in a kernel; the stub says NoReturn
     return tl.join(c_real, c_imag)
 
 
 @triton.jit()
 def complex_div(a_real, a_imag, b_real, b_imag):
-    num_real, num_imag = complex_mul(a_real, a_imag, b_real, -b_imag)
+    num_real, num_imag = complex_mul(a_real, a_imag, b_real, -b_imag)  # pyright: ignore[reportGeneralTypeIssues]  # a jit value is iterable in a kernel; the stub says NoReturn
     denom_real, _ = complex_mul(b_real, b_imag, b_real, -b_imag)
     return num_real / denom_real, num_imag / denom_real
 
@@ -163,7 +163,7 @@ def get_4d_tile_offsets(c0, c1, c2, c3, tile_dims: tl.constexpr, matrix_dims: tl
     n3: tl.constexpr = tile_dims[3]
     m0, m1, m2, m3 = matrix_dims
     # A jit call binds constexpr parameters from plain tuples and ints; the stubs demand constexpr objects.
-    tile, mask = get_6d_tile_offsets(
+    tile, mask = get_6d_tile_offsets(  # pyright: ignore[reportGeneralTypeIssues]  # a jit value is iterable in a kernel; the stub says NoReturn
         0,
         0,
         c0,
@@ -225,7 +225,7 @@ def get_2d_tile_offsets(
 def get_1d_tile_offsets(x, tile_width, vector_width):
     """Offset tile of 'tile_width' elements at 'x' in a 'vector_width'-length vector, plus the in-bounds mask."""
     # A jit call binds constexpr parameters from plain ints; the stubs demand constexpr objects.
-    tile, mask, rows, columns = get_2d_tile_offsets(
+    tile, mask, rows, columns = get_2d_tile_offsets(  # pyright: ignore[reportGeneralTypeIssues]  # a jit value is iterable in a kernel; the stub says NoReturn
         x=x,
         y=0,
         tile_width=tile_width,
@@ -280,7 +280,7 @@ def kernel_mean_and_sumsq(
     i = tl.program_id(axis=0)
     j = tl.program_id(axis=1)
 
-    tile, mask, rows, columns = get_2d_tile_offsets(
+    tile, mask, rows, columns = get_2d_tile_offsets(  # pyright: ignore[reportGeneralTypeIssues]  # a jit value is iterable in a kernel; the stub says NoReturn
         x=j * BLOCK_SIZE_N,
         y=i * BLOCK_SIZE_M,
         tile_width=BLOCK_SIZE_N,

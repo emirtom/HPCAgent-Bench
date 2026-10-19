@@ -701,7 +701,12 @@ def nest(tree: dict[str, Any], dotted: str, value: object) -> None:
 def adapter(dotted: str) -> TypeAdapter[Any]:
     """The validator of leaf ``dotted``: its annotation with its constraints."""
     field = FIELDS[dotted]
-    return TypeAdapter(Annotated[(field.annotation, *field.metadata)] if field.metadata else field.annotation)
+    if field.annotation is None:
+        raise TypeError(f"config leaf {dotted!r} has no annotation")
+    if not field.metadata:
+        return TypeAdapter(field.annotation)
+    constrained: Any = Annotated[(field.annotation, *field.metadata)]  # a type built at runtime
+    return TypeAdapter(constrained)
 
 
 def strip_optional(annotation: object) -> tuple[object, bool]:
