@@ -55,7 +55,16 @@ push_one() {
     mkdir -p -m 0700 "${XDG_RUNTIME_DIR}"
     local -a pm=(podman --root "${root}/root" --runroot "${root}/run" --storage-driver overlay
                  --storage-opt ignore_chown_errors=true)
-    if ! local_tag="$("${pm[@]}" pull "oci-archive:${archive}" | tail -1)" || [[ -z "${local_tag}" ]]; then
+    # Under sbatch the job inherits a session bus podman cannot reach (as ce_podman_env), and the job's first
+    # podman load came back without an image ID while the next role's loaded: no bus, and a second attempt.
+    unset DBUS_SESSION_BUS_ADDRESS
+    local attempt
+    for attempt in 1 2; do
+        local_tag="$("${pm[@]}" pull "oci-archive:${archive}" | tail -1)" && [[ -n "${local_tag}" ]] && break
+        echo "${role}: load attempt ${attempt} of ${archive##*/} gave no image ID" >&2
+        local_tag=""
+    done
+    if [[ -z "${local_tag}" ]]; then
         echo "${role}: loading ${archive} into ${root} failed (a full tmpfs? run registry.sbatch)" >&2
         podman unshare rm -rf "${root}" 2>/dev/null || rm -rf "${root}"
         return 1
