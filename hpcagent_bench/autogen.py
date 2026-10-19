@@ -29,7 +29,7 @@ import sys
 import time
 from collections.abc import Callable, Iterable
 
-from hpcagent_bench import framework_cache, paths
+from hpcagent_bench import framework_cache, paths, phase_clock
 from hpcagent_bench.emit_bridge import BenchInfoDocument, bench_info_tempfile
 from hpcagent_bench.frameworks.framework import native_column_languages
 from hpcagent_bench.languages import LANG_TARGET
@@ -227,9 +227,10 @@ def ensure_locked(spec: BenchSpec, kdir: pathlib.Path, targets: list[str]) -> No
         if not framework_cache.load_generated(cache_dir, canonical, fingerprint):
             to_emit.append(t)
     for t in to_emit:
-        # One target per emit, so each cached file records the seconds its own emit took (optimize_clock).
+        # One target per emit, so each cached file records the seconds its own emit took (phase_clock).
         started = time.perf_counter()
-        status = emit_targets(spec, [t]).get(t, "")
+        with phase_clock.phase("codegen"):
+            status = emit_targets(spec, [t]).get(t, "")
         seconds = time.perf_counter() - started
         # Cache only a freshly generated file (status "ok"): an "override" is a hand file and a
         # "fail: ..." left any stale bytes untouched -- caching either would defeat the guard.

@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, cpf_canonical, languages, optimize_clock, paths
+from hpcagent_bench import config, cpf_canonical, languages, phase_clock, paths
 from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS, LANGUAGE_EXT, HintDetail
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
@@ -942,7 +942,7 @@ def prerender_sdfg(
             todo.append(language)
     if todo:
         # The canonical SDFG's production time (credited on a hit) plus a language's render is what the form cost.
-        with optimize_clock.measuring() as canonical_clock:
+        with phase_clock.measuring() as canonical_clock:
             sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
         canonical_rec.cached = cached
         if isinstance(sdfg, dict):
@@ -952,7 +952,7 @@ def prerender_sdfg(
             for language in todo:
                 key, options = plan[language]
                 try:
-                    with optimize_clock.measuring() as render_clock:
+                    with phase_clock.measuring() as render_clock, phase_clock.phase("codegen"):
                         form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
                     results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})
@@ -963,7 +963,9 @@ def prerender_sdfg(
                     "entry": form.entry,
                     "libraries": list(form.libraries),
                     "workspace_bytes": form.workspace_bytes,
-                    "seconds": canonical_clock.seconds + render_clock.seconds,
+                    "seconds": {
+                        name: canonical_clock.seconds[name] + render_clock.seconds[name] for name in phase_clock.PHASES
+                    },
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
                 results[language] = RenderOutcome(key=key, verdict="ok", cached=False)

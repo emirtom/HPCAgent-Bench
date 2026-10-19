@@ -56,6 +56,7 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.frameworks.test import reference_outputs, tolerance_datatype, tolerances_for
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
+from hpcagent_bench import phase_clock
 
 if TYPE_CHECKING:
     from dace.frontend.python.common import SDFGClosure
@@ -908,7 +909,8 @@ class DaceFramework(Framework):
                     stack.enter_context(
                         dace.config.set_temporary(*key, value=f"{dace.Config.get(*key)} {STRICT_FP_FLAG}")
                     )
-                rebuilt = TimedCompiledSDFG(strict.compile(), strict, f"{name}_strict_fp")
+                with phase_clock.phase("compile"):
+                    rebuilt = TimedCompiledSDFG(strict.compile(), strict, f"{name}_strict_fp")
         except Exception as exc:  # noqa: BLE001 -- the strict-FP rebuild is optional; the fast build stands
             print(f"DaCe optimize: strict-FP rebuild of {name!r} failed to compile: {exc}")
             return fallback
@@ -928,7 +930,9 @@ class DaceFramework(Framework):
             if sdfg is None:
                 continue
             try:
-                dc_exec = sdfg.compile()
+                # DaCe generates the code inside compile(): it counts as compile until dace reports the two apart.
+                with phase_clock.phase("compile"):
+                    dc_exec = sdfg.compile()
                 compiled[name] = TimedCompiledSDFG(dc_exec, sdfg, name)
             except Exception as exc:  # noqa: BLE001 -- a variant that does not compile is skipped
                 print(f"DaCe optimize: failed to compile {self.info['arch']} {name}: {exc}")

@@ -102,7 +102,9 @@ SCHEMA_NAME = "hb-results-v1.0"
 SCHEMA_VERSION = 14
 #: Additive steps from an earlier ``user_version`` to :data:`SCHEMA_VERSION`, applied when such a file is opened for
 #: writing; a read or a merge takes it as it is (the added columns read as absent, i.e. ``NULL``).
-ADDITIVE_UPGRADES: dict[int, tuple[str, ...]] = {13: ("ALTER TABLE canon ADD COLUMN optimize_s REAL",)}
+ADDITIVE_UPGRADES: dict[int, tuple[str, ...]] = {
+    13: tuple(f"ALTER TABLE canon ADD COLUMN {phase}_time REAL" for phase in ("transform", "codegen", "compile")),
+}
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import pydantic
 
-from hpcagent_bench import cpf_cache, optimize_clock, paths
+from hpcagent_bench import cpf_cache, phase_clock, paths
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -372,5 +372,5 @@ def canonical_sdfg(
         return {"verdict": manifest.verdict, "error": manifest.error}, cached
     # Produced by the prerender (or an earlier run), the canonicalize is still this run's work: its time counts.
     if cached:
-        optimize_clock.credit(manifest.seconds)
+        phase_clock.credit(manifest.seconds, "transform")
     return SDFG.from_file(str(stored)), cached

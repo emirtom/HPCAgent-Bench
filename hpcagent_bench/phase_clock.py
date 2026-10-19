@@ -1,0 +1,99 @@
+# Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""How long a framework column takes to turn a kernel into a binary, split into the three phases the canon table
+records (``transform_time``, ``codegen_time``, ``compile_time``), cached work included.
+
+* ``transform``: everything that is not one of the other two -- parsing, simplify, canonicalize, auto-optimize,
+  a polyhedral transform (``polycc``);
+* ``codegen``: emitting source (the numpy-to-C/Fortran translators, DaCe's code generator, a CPF form render);
+* ``compile``: the backend compiler building the emitted source.
+
+The span is measured by :func:`measuring` around a column's emit, optimize and compile steps
+(:meth:`hpcagent_bench.frameworks.test.Test.run`); a step inside it marks its phase with :func:`phase`, and the rest of
+the span is ``transform``. A cache that serves an artifact credits the seconds producing it took to the phase that
+produced it (:func:`credit`), so a column that read its canonical SDFG or its emitted sources from a cache reports what
+the work costs, not what the cache saved.
+
+    with phase_clock.measuring() as clock:
+        with phase_clock.phase("compile"):
+            ...                              # the backend compiler
+        phase_clock.credit(12.5, "codegen")  # a cache hit on emitted sources
+    clock.times()                            # {"transform_time": ..., "codegen_time": ..., "compile_time": ...}
+"""
+
+import contextlib
+import dataclasses
+import time
+from collections.abc import Iterator
+from typing import Literal
+
+__all__ = ["MARKS", "PHASES", "RUNNING", "Clock", "Mark", "Phase", "credit", "measuring", "phase"]
+
+#: The phases, in pipeline order; each is the canon column ``<phase>_time``.
+PHASES: tuple["Phase", ...] = ("transform", "codegen", "compile")
+Phase = Literal["transform", "codegen", "compile"]
+
+
+@dataclasses.dataclass(slots=True, eq=False)  # identity: RUNNING removes this measurement, not an equal one
+class Clock:
+    """One measurement: the seconds each phase took, filled in as the span runs and finished when it ends."""
+
+    seconds: dict[str, float] = dataclasses.field(default_factory=lambda: dict.fromkeys(PHASES, 0.0))
+    #: Wall seconds spent inside marked phases (credits excluded): the span's rest is ``transform``.
+    marked_wall: float = 0.0
+
+    def times(self) -> dict[str, float]:
+        """The canon columns: ``<phase>_time`` for every phase."""
+        return {f"{name}_time": self.seconds[name] for name in PHASES}
+
+
+@dataclasses.dataclass(slots=True)
+class Mark:
+    """A running :func:`phase`: its name, start, and the wall seconds phases nested in it took."""
+
+    name: str
+    started: float
+    nested: float = 0.0
+
+
+#: The measurements running in this process, innermost last; time and credit go to every one of them.
+RUNNING: list[Clock] = []
+#: The marked phases running in this process, innermost last.
+MARKS: list[Mark] = []
+
+
+def credit(seconds: float, name: Phase) -> None:
+    """Add a cached artifact's production ``seconds`` to ``name`` in every running measurement."""
+    for clock in RUNNING:
+        clock.seconds[name] += max(float(seconds), 0.0)
+
+
+@contextlib.contextmanager
+def phase(name: Phase) -> Iterator[None]:
+    """Mark the enclosed block as ``name``. A phase marked inside another takes its own seconds from the outer one."""
+    mark = Mark(name, time.perf_counter())
+    MARKS.append(mark)
+    try:
+        yield
+    finally:
+        MARKS.pop()
+        elapsed = time.perf_counter() - mark.started
+        own = elapsed - mark.nested
+        for clock in RUNNING:
+            clock.seconds[name] += own
+            clock.marked_wall += own
+        if MARKS:
+            MARKS[-1].nested += elapsed
+
+
+@contextlib.contextmanager
+def measuring() -> Iterator[Clock]:
+    """Measure the enclosed block. On exit, ``transform`` also holds the span's wall time no marked phase took."""
+    clock = Clock()
+    RUNNING.append(clock)
+    started = time.perf_counter()
+    try:
+        yield clock
+    finally:
+        RUNNING.remove(clock)
+        clock.seconds["transform"] += max(time.perf_counter() - started - clock.marked_wall, 0.0)

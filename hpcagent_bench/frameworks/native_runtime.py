@@ -14,6 +14,7 @@ from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.frameworks.framework import native_column_languages
 from hpcagent_bench.languages import LANG_EXT
+from hpcagent_bench import phase_clock
 
 if TYPE_CHECKING:
     from numpy.typing import DTypeLike
@@ -152,7 +153,7 @@ def _ensure_built(cpp_backend: pathlib.Path, short: str, framework: str) -> path
     # Objects and the link land in a private directory and the .so is renamed into place: two
     # processes building the same column otherwise interleave writes, and one dlopens a half-linked
     # file ("file too short").
-    with tempfile.TemporaryDirectory(dir=bd) as private:
+    with tempfile.TemporaryDirectory(dir=bd) as private, phase_clock.phase("compile"):
         staged = pathlib.Path(private) / so_name
         for cmd in build_kernel_lib_commands(
             sources,

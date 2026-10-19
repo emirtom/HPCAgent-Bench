@@ -18,10 +18,13 @@ Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2
   `cloudsc_monolith`, because its physics thresholds branch differently at fp32.
 
 ### New
-- **Optimize time per framework.** Canon results carry an optional `optimize_s` column (results schema 14; a v13
-  file gains the column when opened for writing). HPCAgent-Bench times every framework's emit, optimize and compile
-  steps, and a cached or prerendered artifact (emitted sources, parsed SDFG, canonical SDFG, CPF form) adds the time
-  it took to produce, so a cache hit reports the same total as a cold run.
+- **Build time per framework, by phase.** Canon rows carry three optional columns, `transform_time` (parse,
+  simplify, canonicalize, auto-optimize, polycc), `codegen_time` (emitting source) and `compile_time` (the backend
+  compiler), in seconds; their sum is the total, and NULL means not measured. Results schema 14 is 13 plus these
+  columns: a 13 file gains them when opened for writing and is read and merged as it is. A cached or prerendered
+  artifact (emitted sources, parsed SDFG, canonical SDFG, CPF form) credits the time producing it took to its phase,
+  so a cache hit reports what a cold run costs. DaCe's code generation counts as compile until dace reports the two
+  apart.
 - **Single-source submissions in `any` mode.** An `any`-mode task accepts one C or Fortran source built with the
   agent's own compile flags (fast-math included); link flags stay restricted to `-l`/`-L`. Multi-file builds go
   through the existing `library` delivery.

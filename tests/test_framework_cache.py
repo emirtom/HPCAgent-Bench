@@ -24,7 +24,7 @@ import subprocess
 import pytest
 
 from hpcagent_bench import framework_cache as fc
-from hpcagent_bench import optimize_clock
+from hpcagent_bench import phase_clock
 from hpcagent_bench.cache_files import sha256_hex
 from tests.optional_imports import import_or_skip
 
@@ -82,9 +82,9 @@ def test_generated_source_cache_hit_restore_and_invalidation(tmp_path) -> None:
 
     assert fc.load_generated(cache, canonical, fp1) is False, "empty cache must MISS"
     fc.save_generated(cache, canonical, fp1, 2.5)
-    with optimize_clock.measuring() as clock:
+    with phase_clock.measuring() as clock:
         assert fc.load_generated(cache, canonical, fp1) is True, "unchanged source must HIT"
-    assert clock.credited == 2.5, "a hit credits the seconds the emit took"
+    assert clock.seconds["codegen"] == 2.5, "a hit credits the seconds the emit took to codegen"
 
     canonical.unlink()  # a hit RESTORES the sibling from the cache without re-emitting
     assert fc.load_generated(cache, canonical, fp1) is True

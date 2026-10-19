@@ -2,9 +2,9 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
 -- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 14). There is one
--- schema; the one additive step from 13 (canon.optimize_s) is applied when a 13 file is opened for writing
--- (results_db.ADDITIVE_UPGRADES), and a file of any other user_version, or holding a table outside this file, is
--- refused.
+-- schema; the one additive step from 13 (the optional canon.{transform,codegen,compile}_time) is applied when a 13
+-- file is opened for writing (results_db.ADDITIVE_UPGRADES), and a file of any other user_version, or holding a table
+-- outside this file, is refused.
 --
 -- One file holds everything an experiment produced: a judge rank's shard, a job and the whole
 -- dataset use this same schema, and merging remaps the surrogate ids through the natural keys.
@@ -297,8 +297,11 @@ CREATE TABLE canon (
     gpu          TEXT NOT NULL DEFAULT '',              -- its GPU model; '' for a CPU column
     execution    TEXT NOT NULL DEFAULT 'native' CHECK (execution IN ('native', 'container')),  -- record.execution
     ts_ms        INTEGER NOT NULL DEFAULT 0,            -- when the row was written; the latest wins a merge
-    optimize_s   REAL,                                  -- emit + optimize + compile wall time, cached work included;
-                                                        -- NULL = not measured (a row from before user_version 14)
+    -- How long the column took to turn the kernel into a binary, by phase (hpcagent_bench.phase_clock), seconds, cached
+    -- work included; their sum is the total. NULL = not measured (a row from before user_version 14).
+    transform_time REAL,                                -- parse, simplify, canonicalize, auto-optimize, polycc, ...
+    codegen_time   REAL,                                -- emitting source: translators, DaCe codegen, a CPF render
+    compile_time   REAL,                                -- the backend compiler
     UNIQUE (run, "column", kernel, preset, datatype)
 ) STRICT;
 

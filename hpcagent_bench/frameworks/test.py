@@ -6,7 +6,7 @@ from typing import NotRequired, TypedDict
 
 import numpy as np
 
-from hpcagent_bench import optimize_clock
+from hpcagent_bench import phase_clock
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import timeout_decorator as tout
 from hpcagent_bench.frameworks import utilities as util
@@ -79,8 +79,10 @@ class ImplTiming(TypedDict):
     native: list[float] | None
     validated: bool
     failure: NotRequired[str]
-    #: Emit + optimize + compile wall seconds, cached work credited (:mod:`hpcagent_bench.optimize_clock`).
-    optimize_s: NotRequired[float]
+    #: Seconds per phase, cached work credited (:mod:`hpcagent_bench.phase_clock`): the canon table's optional columns.
+    transform_time: NotRequired[float]
+    codegen_time: NotRequired[float]
+    compile_time: NotRequired[float]
 
 
 def float_scalar_of(value: ArgValue) -> type[np.floating] | None:
@@ -155,15 +157,15 @@ DEFAULT_TIMEOUT_S: float = 200.0
 class Test:
     """A class for testing a framework on a benchmark."""
 
-    __slots__ = ("_last_failure", "_measured_impl", "_optimize_s", "bench", "frmwrk")
+    __slots__ = ("_last_failure", "_measured_impl", "bench", "frmwrk", "prepared")
 
     def __init__(self, bench: Benchmark, frmwrk: Framework) -> None:
         self.bench = bench
         self.frmwrk = frmwrk
         #: Structured failure reason from the last :meth:`_execute`; None means it produced output.
         self._last_failure: str | None = None
-        #: The optimize + compile seconds of the implementation :meth:`_execute` last prepared.
-        self._optimize_s = 0.0
+        #: The phase seconds of the implementation :meth:`_execute` last prepared (its optimize and build_call).
+        self.prepared = phase_clock.Clock()
         #: The handle :meth:`_execute` actually MEASURED (post-``optimize``), which :meth:`timed_run` re-times.
         self._measured_impl: KernelImpl | None = None
 
@@ -185,16 +187,16 @@ class Test:
         self._last_failure = None
         self._measured_impl = impl
         try:
-            # Optimize once before the runner and timer are built, outside the timed bracket; the optimize clock
-            # measures it, and the compile in build_call, as the column's optimize time.
-            with optimize_clock.measuring() as clock:
+            # Optimize once before the runner and timer are built, outside the timed bracket; the phase clock
+            # measures it and the build in build_call.
+            with phase_clock.measuring() as clock:
                 if not optimized:
                     impl = frmwrk.optimize(impl, self.bench, bdata)
                 self._measured_impl = impl
                 plan = frmwrk.build_call(self.bench, impl, bdata)
             if not optimized:
-                # The timed reruns reuse the optimized implementation: only the first preparation is optimize time.
-                self._optimize_s = clock.seconds
+                # The timed reruns reuse the optimized implementation: only the first preparation is counted.
+                self.prepared = clock
         except NotSupportedByFramework as e:
             # A decline records no row; errors.decline_kind separates ``unsupported`` from ``tool_missing``.
             print(f"UNSUPPORTED: {e}")
@@ -300,12 +302,12 @@ class Test:
             return self._execute(self.frmwrk, impl, impl_name, "first/validation", context, 0, ignore_errors)
 
         per_impl_timings: dict[str, ImplTiming] = {}
-        # Emitting and parsing the implementations is optimize time too, shared by every implementation listed.
-        with optimize_clock.measuring() as listing:
+        # Emitting and parsing the implementations is counted too, shared by every implementation listed.
+        with phase_clock.measuring() as listing:
             implementations = list(self.frmwrk.implementations(self.bench))
         for impl, impl_name in implementations:
             self._last_failure = None
-            self._optimize_s = 0.0
+            self.prepared = phase_clock.Clock()
             try:
                 frmwrk_out, _, _ = first_execution(impl, impl_name)
             except KeyboardInterrupt:
@@ -331,7 +333,13 @@ class Test:
             )
             timing = self.timed_run(impl_name, context, repeat, ignore_errors, valid, validate, ref_out, band)
             if timing is not None:
-                per_impl_timings[impl_name] = {**timing, "optimize_s": listing.seconds + self._optimize_s}
+                seconds = {name: listing.seconds[name] + self.prepared.seconds[name] for name in phase_clock.PHASES}
+                per_impl_timings[impl_name] = {
+                    **timing,
+                    "transform_time": seconds["transform"],
+                    "codegen_time": seconds["codegen"],
+                    "compile_time": seconds["compile"],
+                }
         return per_impl_timings
 
     def oracle_output(self, bdata: BenchData, preset: str, ignore_errors: bool) -> list[OutputValue] | None:

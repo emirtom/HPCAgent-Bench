@@ -7,22 +7,29 @@ set -u
 ulimit -c 0
 # The same default build_common.sh ce_mirror_args reads.
 MIRROR="${GIT_MIRRORS:-${SCRATCH:?}/git-mirrors}"
-QUEUE="
-spack/spack
-spack/spack-packages
-ofiwg/libfabric
-HewlettPackard/shs-cassini-headers
-HewlettPackard/shs-libcxi
-HewlettPackard/shs-cxi-driver
-vllm-project/vllm
-ROCm/aiter
-triton-lang/triton
-ROCm/triton
-bondhugula/pluto
-icl-utk-edu/papi
-spcl/dace
-ThrudPrimrose/relayout
-"
+
+#   mirror-repos.sh                    every repo any image clones
+#   mirror-repos.sh judge-agent-cuda   only what the named images clone (several may be named)
+# The judge/agent images share one toolchain recipe; the serving images clone their engines.
+JUDGE_AGENT_REPOS="spack/spack spack/spack-packages ofiwg/libfabric HewlettPackard/shs-cassini-headers
+HewlettPackard/shs-libcxi HewlettPackard/shs-cxi-driver bondhugula/pluto icl-utk-edu/papi spcl/dace
+ThrudPrimrose/relayout"
+repos_of() {
+  case "$1" in
+    judge-agent-amd | judge-agent-cpu | judge-agent-cuda) echo "${JUDGE_AGENT_REPOS}" ;;
+    sglang) echo "ofiwg/libfabric HewlettPackard/shs-cassini-headers HewlettPackard/shs-libcxi
+HewlettPackard/shs-cxi-driver ROCm/aiter triton-lang/triton ROCm/triton" ;;
+    vllm | vllm-cuda) echo "vllm-project/vllm" ;;
+    *) echo "mirror-repos.sh: no image '$1' (judge-agent-amd judge-agent-cpu judge-agent-cuda sglang vllm vllm-cuda)" >&2
+       exit 2 ;;
+  esac
+}
+if [ "$#" -eq 0 ]; then
+  QUEUE="${JUDGE_AGENT_REPOS} $(repos_of sglang) $(repos_of vllm)"
+else
+  QUEUE=""
+  for image in "$@"; do QUEUE="${QUEUE} $(repos_of "${image}")"; done
+fi
 export GIT_TERMINAL_PROMPT=0
 seen=""
 

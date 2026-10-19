@@ -29,7 +29,7 @@ import pathlib
 import subprocess
 from typing import TYPE_CHECKING
 
-from hpcagent_bench import optimize_clock
+from hpcagent_bench import phase_clock
 from hpcagent_bench.cache_files import replacing, sha256_hex, write_atomic
 
 __all__ = [
@@ -126,11 +126,11 @@ def seconds_path(artifact: pathlib.Path) -> pathlib.Path:
     return artifact.with_name(artifact.name + ".seconds")
 
 
-def credit_production(artifact: pathlib.Path) -> None:
-    """Credit a cache hit on ``artifact`` with the seconds producing it took (:func:`optimize_clock.credit`); an
-    entry written before production times were stored credits nothing."""
+def credit_production(artifact: pathlib.Path, name: phase_clock.Phase) -> None:
+    """Credit a cache hit on ``artifact`` with the seconds producing it took to phase ``name``
+    (:func:`phase_clock.credit`); an entry written before production times were stored credits nothing."""
     try:
-        optimize_clock.credit(float(seconds_path(artifact).read_text().strip()))
+        phase_clock.credit(float(seconds_path(artifact).read_text().strip()), name)
     except (OSError, ValueError):
         pass
 
@@ -160,7 +160,7 @@ def load_generated(cache_dir: pathlib.Path, canonical: pathlib.Path, fingerprint
     payload = cached.read_bytes()
     if not canonical.exists() or canonical.read_bytes() != payload:
         write_atomic(canonical, payload)
-    credit_production(cached)
+    credit_production(cached, "codegen")
     return True
 
 
@@ -198,7 +198,7 @@ def load_sdfg(cache_dir: pathlib.Path, module_name: str, device_tag: str, finger
         sdfg = dace.SDFG.from_file(str(path))
     except Exception:  # noqa: BLE001 -- a corrupt/incompatible cache entry must fall back to a rebuild
         return None
-    credit_production(path)
+    credit_production(path, "transform")
     return sdfg
 
 
