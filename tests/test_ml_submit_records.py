@@ -148,7 +148,7 @@ def setup_judge(
     baselines: list[Mapping[str, object]] = []
 
     @contextlib.contextmanager
-    def fake_sandbox(binding: object) -> Iterator[types.SimpleNamespace]:
+    def fake_sandbox(binding: object, source_mode: str = "restricted") -> Iterator[types.SimpleNamespace]:
         def build_mpi(sub: Submission, desc: Descriptor, cc_override: object = None) -> types.SimpleNamespace:
             exe = tmp_path / ("wrong" if WRONG in (sub.device_source or "") else "right") / "bench"
             exe.parent.mkdir(exist_ok=True)

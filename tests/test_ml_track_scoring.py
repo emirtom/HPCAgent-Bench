@@ -153,7 +153,7 @@ def test_time_scaling_anchor_runs_a_gpu_anchor_on_the_device(monkeypatch: pytest
     seen: list[bool] = []
 
     @contextlib.contextmanager
-    def fake_sandbox(binding):
+    def fake_sandbox(binding: object, source_mode: str = "restricted") -> Iterator[types.SimpleNamespace]:
         yield types.SimpleNamespace(build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("a.so"), log=""))
 
     def fake_call(lib, binding, data, lang, *, device, reps=1, **kw):
@@ -284,7 +284,7 @@ def fake_ml_grade(
     base_dim = scoring.BenchSpec.load("dist_softmax").parameters[preset]["dim"]
 
     @contextlib.contextmanager
-    def fake_sandbox(binding: object) -> Iterator[types.SimpleNamespace]:
+    def fake_sandbox(binding: object, source_mode: str = "restricted") -> Iterator[types.SimpleNamespace]:
 
         def build_mpi(sub: Submission, desc: Descriptor, cc_override: object = None) -> types.SimpleNamespace:
             seen["builds"].append(desc.grid.nranks)
