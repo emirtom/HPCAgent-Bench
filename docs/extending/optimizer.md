@@ -14,7 +14,7 @@ A new PyPI dependency goes in a `pyproject.toml` extra, the only dependency list
 
 The shipped optimizers are `noop` (the NumpyToX reference unchanged), `blas-reduction` (C, `tsvc_2_vdotr` and
 `gesummv` only), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels) and the Alloy flavors
-`dace_<cpu|gpu>_<canon|parallel>_alloy_<profile|heuristic>`, of which only the CPU `profile` ones are built
+`dace_<cpu|gpu>_<canon|parallel|autoopt>_alloy_<profile|heuristic>`, of which only the CPU `profile` ones are built
 (`--extra alloy`, [jobs.md](../jobs.md#baseline)); all are in `hpcagent_bench/harness/optimizers.py`
 (`optimizer_registry()`). Grading needs the OpenMP launch environment before Python starts (the numpy import
 fixes it once): `hpcagent_bench/cluster/env.sh` exports `OMP_STACKSIZE=512M` and `OMP_THREAD_LIMIT` (the cores the

@@ -79,3 +79,17 @@ database has recorded it; a changed meaning goes under a new key.
 2. Add its slot to the matching table in `tests/test_vocabulary.py`, in the same commit.
 3. For a model, add its serving layer (see [inference.md](inference.md)); for a packet, its pages
    (see [packets.md](packets.md)).
+
+## Composing an entry
+
+A decorator reads the attributes a class defines or inherits; a class overrides its bases. A family therefore
+declares what its members share once, as plain mixins. The DaCe columns in `hpcagent_bench/columns.py` are the
+example: `Dace` (the family), a stage (`Canon`, `Parallel`, `Autoopt`), an optional tuner (`AlloyProfile`,
+`AlloyHeuristic`) and a device (`Cpu`, `Gpu`). `@dace` derives the column, flavor, pipeline and display names
+from those parts, so a new flavor is two lines:
+
+```python
+@dace("dace_cpu_canon_alloy_profile", order=37)
+class DaceCpuCanonAlloyProfile(AlloyProfile, Canon, Cpu):
+    __slots__ = ()
+```

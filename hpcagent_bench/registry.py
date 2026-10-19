@@ -56,8 +56,15 @@ class Field:
 
 
 def fields_of(cls: type) -> dict[str, Any]:
-    """The public attributes ``cls`` itself defines (no inherited ones, no dunders, no methods)."""
-    return {key: value for key, value in vars(cls).items() if not key.startswith("_") and not callable(value)}
+    """The public attributes ``cls`` defines or inherits (no dunders, no methods); a subclass overrides its bases,
+    so a family of entries composes from mixins."""
+    return {
+        key: value
+        for base in reversed(cls.__mro__)
+        if base is not object
+        for key, value in vars(base).items()
+        if not key.startswith("_") and not callable(value)
+    }
 
 
 class Kind[Entry]:

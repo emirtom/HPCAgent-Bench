@@ -29,14 +29,24 @@ it runs in ``pipelines``.
 The authoring guide is ``docs/extending/registry.md``; ``tests/test_vocabulary.py`` pins every slot.
 """
 
+from collections.abc import Callable
+from typing import Any
+
 from hpcagent_bench.languages import gpu_backend
 from hpcagent_bench.precision import Precision
+from hpcagent_bench.registry import fields_of
 from hpcagent_bench.vocabulary import FRAMEWORKS, framework
 
 __all__ = [
     "ALL_PRECISIONS",
+    "DACE_STAGES",
+    "DACE_TUNERS",
     "FRAMEWORKS",
     "IEEE_PRECISIONS",
+    "AlloyHeuristic",
+    "AlloyProfile",
+    "Autoopt",
+    "Canon",
     "Cc",
     "CcAutopar",
     "CcLlvm",
@@ -44,9 +54,13 @@ __all__ = [
     "CcNvhpc",
     "CcNvhpcAutopar",
     "Cpp",
+    "Cpu",
     "Cupy",
+    "Dace",
     "DaceCpu",
     "DaceCpuAutoopt",
+    "DaceCpuAutooptAlloyHeuristic",
+    "DaceCpuAutooptAlloyProfile",
     "DaceCpuCanon",
     "DaceCpuCanonAlloyHeuristic",
     "DaceCpuCanonAlloyProfile",
@@ -55,6 +69,8 @@ __all__ = [
     "DaceCpuParallelAlloyProfile",
     "DaceGpu",
     "DaceGpuAutoopt",
+    "DaceGpuAutooptAlloyHeuristic",
+    "DaceGpuAutooptAlloyProfile",
     "DaceGpuCanon",
     "DaceGpuCanonAlloyHeuristic",
     "DaceGpuCanonAlloyProfile",
@@ -64,14 +80,16 @@ __all__ = [
     "Flang",
     "Fortran",
     "FortranAutopar",
+    "Gpu",
     "Jax",
     "Llvm",
     "Numba",
     "Numpy",
+    "Parallel",
     "Pluto",
+    "Polly",
     "PolygeistCpu",
     "PolygeistGpu",
-    "Polly",
     "Ppcg",
     "PpcgCuda",
     "PpcgHip",
@@ -79,6 +97,8 @@ __all__ = [
     "Triton",
     "TvmCpu",
     "TvmGpu",
+    "dace",
+    "dace_names",
 ]
 
 #: The IEEE pair every non-ml_dtypes-aware framework can execute (C/C++/Fortran, Numba, Pythran).
@@ -167,276 +187,227 @@ class Pythran:
     precisions = IEEE_PRECISIONS
 
 
-@framework("dace_cpu", order=3)
-class DaceCpu:
-    """The DB column every DaCe CPU flavor groups under; it runs nothing itself (it names no pipeline)."""
+#: A DaCe stage -> its label alone, its label beside a tuner, and its full-name word.
+DACE_STAGES = {
+    "canon": ("canonicalized", "canon", "canonicalize"),
+    "parallel": ("parallel", "parallel", "parallel"),
+    "autoopt": ("auto-opt", "auto-opt", "auto_optimize"),
+}
+#: A DaCe tuner -> its display suffix and its full-name suffix.
+DACE_TUNERS = {
+    "alloy_profile": ("Alloy profile", "Alloy (profiled)"),
+    "alloy_heuristic": ("Alloy heuristic", "Alloy (heuristic)"),
+}
 
+
+def dace_names(attrs: dict[str, Any]) -> dict[str, Any]:
+    """The names a DaCe entry derives from its ``arch``, ``stage`` and ``tuner``: a column (no stage) gets its
+    display names, a flavor also its column, flavor and pipeline."""
+    arch, stage, tuner = attrs["arch"], attrs.get("stage"), attrs.get("tuner")
+    device = arch.upper()
+    if stage is None:
+        return {"display": f"DaCe ({device})", "full_name": f"DaCe {device}"}
+    alone, beside, word = DACE_STAGES[stage]
+    names = {
+        "column": f"dace_{arch}",
+        "flavor": stage,
+        "pipelines": (f"{stage}_{arch}",),
+        "display": f"DaCe ({device}, {alone})",
+        "full_name": f"DaCe {device} {word}",
+    }
+    if tuner is not None:
+        display, full_name = DACE_TUNERS[tuner]
+        names |= {
+            "flavor": f"{stage}_{tuner}",
+            "display": f"DaCe ({device}, {beside}) + {display}",
+            "full_name": f"DaCe {device} {beside} + {full_name}",
+        }
+    return names
+
+
+def dace(key: str, *, order: int) -> Callable[[type], type]:
+    """Register a DaCe column or flavor under ``key``; :func:`dace_names` fills in the names its mixins imply."""
+
+    def apply(cls: type) -> type:
+        for name, value in dace_names(fields_of(cls)).items():
+            setattr(cls, name, value)
+        return framework(key, order=order)(cls)
+
+    return apply
+
+
+class Cpu:
     __slots__ = ()
 
-    display = "DaCe (CPU)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe CPU"
-    postfix = "dace"
     arch = "cpu"
-    sweep_deterministic = False
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
 
 
-@framework("dace_gpu", order=22)
-class DaceGpu:
-    """The DB column every DaCe GPU flavor groups under; it runs nothing itself (it names no pipeline)."""
-
+class Gpu:
     __slots__ = ()
 
-    display = "DaCe (GPU)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe GPU"
-    postfix = "dace"
     arch = "gpu"
-    sweep_deterministic = False
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
 
 
-@framework("dace_cpu_canon", order=8)
-class DaceCpuCanon:
+class Dace:
+    """The DaCe family: one adapter, every flavor a pipeline stage, optionally followed by a tuner."""
+
     __slots__ = ()
 
-    display = "DaCe (CPU, canonicalized)"
     adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
     base = "dace"
-    full_name = "DaCe CPU canonicalize"
     postfix = "dace"
-    arch = "cpu"
     sweep_deterministic = True
     precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
-    pipelines = ("canon_cpu",)
-    column = "dace_cpu"
-    flavor = "canon"
 
 
-@framework("dace_cpu_parallel", order=35)
-class DaceCpuParallel:
+class Canon(Dace):
     __slots__ = ()
 
-    display = "DaCe (CPU, parallel)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe CPU parallel"
-    postfix = "dace"
-    arch = "cpu"
-    sweep_deterministic = True
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
-    pipelines = ("parallel_cpu",)
-    column = "dace_cpu"
-    flavor = "parallel"
+    stage = "canon"
 
 
-@framework("dace_cpu_autoopt", order=9)
-class DaceCpuAutoopt:
+class Parallel(Dace):
+    __slots__ = ()
+
+    stage = "parallel"
+
+
+class Autoopt(Dace):
     """Upstream DaCe's auto_optimize, which also runs on stock DaCe."""
 
     __slots__ = ()
 
-    display = "DaCe (CPU, auto-opt)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe CPU auto_optimize"
-    postfix = "dace"
-    arch = "cpu"
-    sweep_deterministic = True
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
-    pipelines = ("autoopt_cpu",)
-    column = "dace_cpu"
-    flavor = "autoopt"
+    stage = "autoopt"
 
 
-@framework("dace_gpu_canon", order=24)
-class DaceGpuCanon:
+class AlloyProfile:
+    """Alloy (github.com/ThrudPrimrose/alloy) in profile mode after the stage: an autotuning Agent, not a sweep."""
+
     __slots__ = ()
 
-    display = "DaCe (GPU, canonicalized)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe GPU canonicalize"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = True
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
-    pipelines = ("canon_gpu",)
-    column = "dace_gpu"
-    flavor = "canon"
-
-
-@framework("dace_gpu_parallel", order=36)
-class DaceGpuParallel:
-    __slots__ = ()
-
-    display = "DaCe (GPU, parallel)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe GPU parallel"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = True
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
-    pipelines = ("parallel_gpu",)
-    column = "dace_gpu"
-    flavor = "parallel"
-
-
-@framework("dace_gpu_autoopt", order=23)
-class DaceGpuAutoopt:
-    __slots__ = ()
-
-    display = "DaCe (GPU, auto-opt)"
-    adapter = "hpcagent_bench.frameworks.dace_framework:DaceFramework"
-    base = "dace"
-    full_name = "DaCe GPU auto_optimize"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = True
-    precisions = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
-    pipelines = ("autoopt_gpu",)
-    column = "dace_gpu"
-    flavor = "autoopt"
-
-
-@framework("dace_cpu_canon_alloy_profile", order=37)
-class DaceCpuCanonAlloyProfile:
-    __slots__ = ()
-
-    display = "DaCe (CPU, canon) + Alloy profile"
+    tuner = "alloy_profile"
     adapter = "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"
-    base = "dace"
-    full_name = "DaCe CPU canon + Alloy (profiled)"
-    postfix = "dace"
-    arch = "cpu"
     sweep_deterministic = False
     precisions = IEEE_PRECISIONS
-    pipelines = ("canon_cpu",)
-    column = "dace_cpu"
-    flavor = "canon_alloy_profile"
 
 
-@framework("dace_cpu_canon_alloy_heuristic", order=38)
-class DaceCpuCanonAlloyHeuristic:
+class AlloyHeuristic:
+    """Alloy in heuristic mode after the stage: an autotuning Agent, not a sweep."""
+
     __slots__ = ()
 
-    display = "DaCe (CPU, canon) + Alloy heuristic"
+    tuner = "alloy_heuristic"
     adapter = "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"
-    base = "dace"
-    full_name = "DaCe CPU canon + Alloy (heuristic)"
-    postfix = "dace"
-    arch = "cpu"
     sweep_deterministic = False
     precisions = IEEE_PRECISIONS
-    pipelines = ("canon_cpu",)
-    column = "dace_cpu"
-    flavor = "canon_alloy_heuristic"
 
 
-@framework("dace_cpu_parallel_alloy_profile", order=39)
-class DaceCpuParallelAlloyProfile:
+@dace("dace_cpu", order=3)
+class DaceCpu(Dace, Cpu):
+    """The DB column every DaCe CPU flavor groups under; it runs nothing itself (it names no pipeline)."""
+
     __slots__ = ()
 
-    display = "DaCe (CPU, parallel) + Alloy profile"
-    adapter = "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"
-    base = "dace"
-    full_name = "DaCe CPU parallel + Alloy (profiled)"
-    postfix = "dace"
-    arch = "cpu"
     sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
-    pipelines = ("parallel_cpu",)
-    column = "dace_cpu"
-    flavor = "parallel_alloy_profile"
 
 
-@framework("dace_cpu_parallel_alloy_heuristic", order=40)
-class DaceCpuParallelAlloyHeuristic:
+@dace("dace_gpu", order=22)
+class DaceGpu(Dace, Gpu):
+    """The DB column every DaCe GPU flavor groups under; it runs nothing itself (it names no pipeline)."""
+
     __slots__ = ()
 
-    display = "DaCe (CPU, parallel) + Alloy heuristic"
-    adapter = "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"
-    base = "dace"
-    full_name = "DaCe CPU parallel + Alloy (heuristic)"
-    postfix = "dace"
-    arch = "cpu"
     sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
-    pipelines = ("parallel_cpu",)
-    column = "dace_cpu"
-    flavor = "parallel_alloy_heuristic"
 
 
-@framework("dace_gpu_canon_alloy_profile", order=41)
-class DaceGpuCanonAlloyProfile:
+@dace("dace_cpu_canon", order=8)
+class DaceCpuCanon(Canon, Cpu):
     __slots__ = ()
 
-    display = "DaCe (GPU, canon) + Alloy profile"
-    adapter = "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"
-    base = "dace"
-    full_name = "DaCe GPU canon + Alloy (profiled)"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
-    pipelines = ("canon_gpu",)
-    column = "dace_gpu"
-    flavor = "canon_alloy_profile"
 
-
-@framework("dace_gpu_canon_alloy_heuristic", order=42)
-class DaceGpuCanonAlloyHeuristic:
+@dace("dace_cpu_parallel", order=35)
+class DaceCpuParallel(Parallel, Cpu):
     __slots__ = ()
 
-    display = "DaCe (GPU, canon) + Alloy heuristic"
-    adapter = "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"
-    base = "dace"
-    full_name = "DaCe GPU canon + Alloy (heuristic)"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
-    pipelines = ("canon_gpu",)
-    column = "dace_gpu"
-    flavor = "canon_alloy_heuristic"
 
-
-@framework("dace_gpu_parallel_alloy_profile", order=43)
-class DaceGpuParallelAlloyProfile:
+@dace("dace_cpu_autoopt", order=9)
+class DaceCpuAutoopt(Autoopt, Cpu):
     __slots__ = ()
 
-    display = "DaCe (GPU, parallel) + Alloy profile"
-    adapter = "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"
-    base = "dace"
-    full_name = "DaCe GPU parallel + Alloy (profiled)"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
-    pipelines = ("parallel_gpu",)
-    column = "dace_gpu"
-    flavor = "parallel_alloy_profile"
 
-
-@framework("dace_gpu_parallel_alloy_heuristic", order=44)
-class DaceGpuParallelAlloyHeuristic:
+@dace("dace_gpu_canon", order=24)
+class DaceGpuCanon(Canon, Gpu):
     __slots__ = ()
 
-    display = "DaCe (GPU, parallel) + Alloy heuristic"
-    adapter = "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"
-    base = "dace"
-    full_name = "DaCe GPU parallel + Alloy (heuristic)"
-    postfix = "dace"
-    arch = "gpu"
-    sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
-    pipelines = ("parallel_gpu",)
-    column = "dace_gpu"
-    flavor = "parallel_alloy_heuristic"
+
+@dace("dace_gpu_parallel", order=36)
+class DaceGpuParallel(Parallel, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_autoopt", order=23)
+class DaceGpuAutoopt(Autoopt, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_cpu_canon_alloy_profile", order=37)
+class DaceCpuCanonAlloyProfile(AlloyProfile, Canon, Cpu):
+    __slots__ = ()
+
+
+@dace("dace_cpu_canon_alloy_heuristic", order=38)
+class DaceCpuCanonAlloyHeuristic(AlloyHeuristic, Canon, Cpu):
+    __slots__ = ()
+
+
+@dace("dace_cpu_parallel_alloy_profile", order=39)
+class DaceCpuParallelAlloyProfile(AlloyProfile, Parallel, Cpu):
+    __slots__ = ()
+
+
+@dace("dace_cpu_parallel_alloy_heuristic", order=40)
+class DaceCpuParallelAlloyHeuristic(AlloyHeuristic, Parallel, Cpu):
+    __slots__ = ()
+
+
+@dace("dace_cpu_autoopt_alloy_profile", order=47)
+class DaceCpuAutooptAlloyProfile(AlloyProfile, Autoopt, Cpu):
+    __slots__ = ()
+
+
+@dace("dace_cpu_autoopt_alloy_heuristic", order=48)
+class DaceCpuAutooptAlloyHeuristic(AlloyHeuristic, Autoopt, Cpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_canon_alloy_profile", order=41)
+class DaceGpuCanonAlloyProfile(AlloyProfile, Canon, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_canon_alloy_heuristic", order=42)
+class DaceGpuCanonAlloyHeuristic(AlloyHeuristic, Canon, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_parallel_alloy_profile", order=43)
+class DaceGpuParallelAlloyProfile(AlloyProfile, Parallel, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_parallel_alloy_heuristic", order=44)
+class DaceGpuParallelAlloyHeuristic(AlloyHeuristic, Parallel, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_autoopt_alloy_profile", order=49)
+class DaceGpuAutooptAlloyProfile(AlloyProfile, Autoopt, Gpu):
+    __slots__ = ()
+
+
+@dace("dace_gpu_autoopt_alloy_heuristic", order=50)
+class DaceGpuAutooptAlloyHeuristic(AlloyHeuristic, Autoopt, Gpu):
+    __slots__ = ()
 
 
 @framework("cc", order=2, aliases=("c",))
@@ -792,7 +763,7 @@ class Triton:
     precisions = frozenset({Precision.FP8_E5M2, Precision.FP8_E4M3, Precision.FP32, Precision.FP16, Precision.BF16})
 
 
-@framework("tvm_gpu", order=14)
+@framework("tvm_gpu", order=14, aliases=("tvm",))
 class TvmGpu:
     """One base, two hardware flavors sharing the unified ``<kernel>_tvm.py`` (``tvm_build.active_kernel``)."""
 

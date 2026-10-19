@@ -50,7 +50,7 @@ def test_a_new_optimizer_class_is_registered_without_a_registry_edit(monkeypatch
 def test_every_autotuning_flavor_is_an_optimizer_labelled_with_its_name() -> None:
     """``hpcagent-bench agent <flavor>`` resolves, and the rows it writes carry the flavor's own name."""
     flavors = [name for name, meta in FRAMEWORKS.entries.items() if is_optimizer_adapter(meta["adapter"])]
-    assert len(flavors) == 8
+    assert len(flavors) == 12
     reg = optimizers.optimizer_registry()
     for name in flavors:
         sut = reg[name]()

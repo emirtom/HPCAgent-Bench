@@ -7,6 +7,7 @@ its colour and marker are read from (see there, and ``docs/extending/registry.md
 one: a new entry takes the next free slot, so no entry already drawn changes colour or shape.
 """
 
+from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.vocabulary import device, harness, language, llm, optimizer
 
 #: Nothing is imported by name: every class registers itself through its decorator on import.
@@ -34,6 +35,7 @@ __all__ = [
     "Python",
     "Qwen38",
     "Triton",
+    "dace_flavors",
 ]
 
 # LLMs
@@ -75,6 +77,11 @@ class Glm53:
     serves = "zai-org/GLM-5.3"
 
 
+def dace_flavors(stage: str) -> tuple[str, ...]:
+    """Every DaCe flavor on ``stage``, tuned or not: one optimizer on either device."""
+    return tuple(key for key, meta in FRAMEWORKS.entries.items() if meta.get("stage") == stage)
+
+
 # Standalone optimizers
 # A compiler or a pipeline that stands where an LLM stands on a figure. Their markers count from the
 # end of the pool, so a new LLM never repaints them. A skill packet an agent is given (cpf, cpf-src) is
@@ -85,15 +92,7 @@ class Glm53:
 @optimizer(
     "dace",
     order=0,
-    aliases=(
-        *(
-            f"dace_{arch}_parallel{alloy}"
-            for arch in ("cpu", "gpu")
-            for alloy in ("", "_alloy_profile", "_alloy_heuristic")
-        ),
-        "dace_cpu",
-        "dace_gpu",
-    ),
+    aliases=(*dace_flavors("parallel"), "dace_cpu", "dace_gpu"),
 )
 class Dace:
     __slots__ = ()
@@ -104,13 +103,7 @@ class Dace:
 @optimizer(
     "cpf",
     order=1,
-    aliases=(
-        *(
-            f"dace_{arch}_canon{alloy}"
-            for arch in ("cpu", "gpu")
-            for alloy in ("", "_alloy_profile", "_alloy_heuristic")
-        ),
-    ),
+    aliases=dace_flavors("canon"),
 )
 class Cpf:
     __slots__ = ()
