@@ -12,7 +12,8 @@ Numba types a large subset of numpy plus plain loops, so a dense kernel keeps it
   and at most one provably independent ``range`` loop becomes ``nb.prange``
   (:mod:`numpyto_numba.parfor`). A loop that cannot be proven independent stays serial;
 * an augmented store of a reshaped operand is spelled out as a plain store, which numba's parfor
-  pass broadcasts correctly (:func:`numpyto_numba.parfor.spell_out_reshape_augassigns`).
+  pass broadcasts correctly (:func:`numpyto_numba.parfor.spell_out_reshape_augassigns`);
+* a ``functools.lru_cache`` / ``cache`` decorator is dropped (:func:`without_memo_decorators`).
 """
 
 import ast
@@ -32,7 +33,7 @@ from hpcagent_bench.translators.numpyto_numba.parfor import (
 )
 from hpcagent_bench.translators.numpyto_numba.sparse import rewrite_sparse_matmuls
 
-__all__ = ["emit_numba", "without_sparse_dispatch"]
+__all__ = ["emit_numba", "without_memo_decorators", "without_sparse_dispatch"]
 
 
 def without_sparse_dispatch(source: str) -> str:
@@ -47,6 +48,48 @@ def without_sparse_dispatch(source: str) -> str:
     return source if ast.dump(tree) == before else ast.unparse(ast.fix_missing_locations(tree))
 
 
+#: The memoizing decorators of ``functools``.
+MEMO_DECORATORS = frozenset({"lru_cache", "cache"})
+
+
+def is_memo_decorator(dec: ast.expr, modules: set[str], names: set[str]) -> bool:
+    """``@lru_cache``, ``@lru_cache(maxsize=None)``, ``@functools.cache``, ... given the names ``functools``
+    (``modules``) and its memoizing decorators (``names``) are imported as."""
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    if isinstance(target, ast.Attribute):
+        return target.attr in MEMO_DECORATORS and isinstance(target.value, ast.Name) and target.value.id in modules
+    return isinstance(target, ast.Name) and target.id in names
+
+
+def without_memo_decorators(source: str) -> str:
+    """``source`` with every ``functools`` memoizing decorator of a top-level ``def`` deleted, comments kept.
+
+    The njit decorator goes directly above the ``def``, so a memo decorator would wrap the dispatcher in a global
+    nopython code cannot call (cp2k_grid_integrate's ``coset_triples``). The cache is a pure speed-up."""
+    tree = ast.parse(source)
+    modules = {
+        a.asname or a.name for n in tree.body if isinstance(n, ast.Import) for a in n.names if a.name == "functools"
+    }
+    names = {
+        a.asname or a.name
+        for n in tree.body
+        if isinstance(n, ast.ImportFrom) and n.module == "functools"
+        for a in n.names
+        if a.name in MEMO_DECORATORS
+    }
+    drop = {
+        line
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        for dec in node.decorator_list
+        if is_memo_decorator(dec, modules, names)
+        for line in range(dec.lineno, (dec.end_lineno or dec.lineno) + 1)
+    }
+    if not drop:
+        return source
+    return "".join(text for i, text in enumerate(source.splitlines(keepends=True), 1) if i not in drop)
+
+
 def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None = None) -> str:
     """Translate one numpy kernel source into its Numba sibling.
 
@@ -59,7 +102,7 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
     :returns: Python source code.
     """
     sparse = False
-    numpy_source = without_sparse_dispatch(numpy_source)
+    numpy_source = without_memo_decorators(without_sparse_dispatch(numpy_source))
     if kir is not None:
         from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
 
