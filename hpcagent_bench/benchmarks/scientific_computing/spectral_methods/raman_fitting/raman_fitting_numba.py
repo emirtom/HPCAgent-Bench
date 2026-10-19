@@ -108,7 +108,9 @@ def raman_fitting(x: np.ndarray, y: np.ndarray, params: np.ndarray, offset: np.n
         for i in range(nparams):
             if scale[i] <= 0.0:
                 scale[i] = 1.0
-        step = np.linalg.solve(normal + damping * np.diag(scale), -gradient)
+        # The float64 damping would promote an fp32 system to double: the step stays in the inputs' precision.
+        damped = (normal + damping * np.diag(scale)).astype(normal.dtype)
+        step = np.linalg.solve(damped, -gradient)
 
         trial = p + step
         model_residual(x, y, trial, npeaks, trial_residual)

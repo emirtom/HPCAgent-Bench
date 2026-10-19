@@ -690,6 +690,8 @@ class PythonIntegerForm(ast.NodeTransformer):
             return node
         if name in ("Min", "Max"):
             return ast.Call(func=ast.Name(id=name.lower(), ctx=ast.Load()), args=node.args, keywords=[])
+        if len(node.args) != 2 or node.keywords:
+            return node  # not the two-operand helper: left as it is, for the caller's evaluation to report
         left, right = node.args
         if name == "ipow":
             return ast.BinOp(left=left, op=ast.Pow(), right=right)

@@ -1458,7 +1458,7 @@ class CBodyEmitter(BaseEmitter):
 
     def emit_compare_operand(self, node: ast.expr) -> str:
         """A comparison operand; in a narrow kernel a float constant expression is folded and compared in double, as
-        the numpy reference compares it (:func:`operators.folded_float_constant`)."""
+        the references compare it (:func:`operators.folded_float_constant`)."""
         value = operators.folded_float_constant(node)
         if value is not None and default_float_dtype(self.kir) in NARROW_FLOAT_DTYPES:
             return f"({value!r})" if value < 0 else repr(value)

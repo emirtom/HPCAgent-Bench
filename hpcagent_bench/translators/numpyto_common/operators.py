@@ -101,9 +101,9 @@ def folded_float_constant(node: ast.expr) -> float | None:
     """The value of ``node`` when it is a float constant expression (numeric literals under unary +/- and binary
     + - * /, at least one of them a float), folded in double as Python evaluates it; else None.
 
-    A narrow kernel compares against it in double: the numpy reference evaluates ``za > 1.0 - 1e-8`` with the
-    constant in double, while the same constant folded in float is 1.0, so the comparison never holds
-    (cloudsc's full-cloud branch, the whole snow flux off at fp32).
+    A narrow kernel compares against it in double, as the references it is graded against do (the numba reference
+    compares a float32 value with a float64 constant in double, the C reference computes in fp64): folded in float,
+    ``1.0 - 1e-8`` is 1.0, so ``za > 1.0 - 1e-8`` never holds for a full cloud (cloudsc's snow flux off at fp32).
     """
     value, is_float = fold(node)
     if value is None or not is_float or not math.isfinite(value):

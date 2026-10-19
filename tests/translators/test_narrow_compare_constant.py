@@ -1,10 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A float32 kernel compares against a float constant expression in double, as the numpy reference does.
+"""A float32 kernel compares against a float constant expression in double, as its references do.
 
 cloudsc's ``za > 1.0 - 1e-8`` emitted as ``za > (1.0f - 1e-08f)``: in float that constant is exactly 1.0, so a
-full cloud (``za == 1``) never took the full-cloud branch and the fp32 snow flux came out 60% off. The numpy
-reference evaluates the constant in double (0.99999999), so the emit folds it and compares in double.
+full cloud (``za == 1``) never took the full-cloud branch and the fp32 snow flux came out 60% off. The numba
+reference compares the float32 value with the float64 constant in double and the C reference computes in fp64, so
+the emit folds the constant in double (0.99999999) and compares in double.
 """
 
 from hpcagent_bench.translators.numpyto_c.emit import emit_c

@@ -13,15 +13,15 @@ Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2
   oracle at XL. `tests/test_numba_reference_parallel.py` fails any new kernel whose numba reference is serial.
 - **No numba on the machine_learning track.** Its oracle is torch only; the ML numba kernels are deleted and the
   correctness sweep compares against the eager torch model.
-- **Low-precision bands follow the precision** (fp32 1e-2, fp16 2e-2) against the fp64 reference; `cloudsc` is fp64
-  only, like `cloudsc_monolith`, because its physics thresholds branch differently at fp32.
+- **Narrow formats against the fp64 reference.** Every path of a grade hands the numba and C references fp16/bf16
+  inputs promoted to fp64 (and complex64 as complex128 to C). `cloudsc` is fp64 only, like
+  `cloudsc_monolith`, because its physics thresholds branch differently at fp32.
 
 ### Fixed
 - The correctness sweep hands the compiled reference every size symbol and the returned-output buffers
-  (`no-reference` failures), widens complex64 inputs to complex128 for the C reference, and launches the
-  per-kernel reference tests with the OpenMP environment grading requires.
-- Single-precision C/C++/Fortran compare against a float constant expression in double, as the numpy reference
-  does (`za > 1.0 - 1e-8` had folded to `za > 1.0f`).
+  (`no-reference` failures), never shrinks a torch-oracle kernel, and launches the per-kernel reference tests
+  with the OpenMP environment grading requires.
+- The raman_fitting numba reference compiles at fp32; fft_1d's no longer asks numba to cache an objmode function.
 - A CPF form gets the workspace and libraries it requests in the ABI check; DaCe integer helpers (`ipow`, ...) in a
   workspace size are translated to Python.
 - CI sizes OpenMP from the physical cores of the runner.

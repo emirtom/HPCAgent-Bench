@@ -422,10 +422,8 @@ def _cfg(key: Literal["compile_timeout_s", "polycc_timeout_s", "numba_fastmath"]
 #: Precision sweep config: name -> (numpy float dtype, Precision enum, emit ``--precision``, rtol, atol).
 PRECISIONS: dict[str, tuple[type[np.floating], Precision, str, float, float]] = {
     "fp64": (np.float64, Precision.FP64, "", 1e-9, 1e-9),
-    # Below fp64 the band is against the fp64 reference (the numba and C references compute in it), so it grows
-    # with the format: fp32 1e-2 covers a threshold-sensitive output (cloudsc's cloud cover, 4.1e-3 apart at
-    # fp32) and still fails a structural defect, which moves an output by O(1).
-    "fp32": (np.float32, Precision.FP32, "float32", 1e-2, 1e-2),
+    # fp32 tolerance is looser to absorb op-order noise while still catching dtype-emit bugs.
+    "fp32": (np.float32, Precision.FP32, "float32", 1e-3, 1e-3),
     # fp16 is C/C++ only: gfortran has no half-precision REAL kind (see FP16_BACKENDS).
     "fp16": (np.float16, Precision.FP16, "float16", 2e-2, 2e-2),
 }
@@ -734,6 +732,10 @@ def run_kernel(
     if chaotic is not None:
         rtol, atol = max(rtol, chaotic[0]), max(atol, chaotic[1])
     torch_oracle = spec.track == Track.MACHINE_LEARNING.value
+    if torch_oracle and max_size is not None:
+        # The torch model is built from the manifest's hyperparameters, so a torch-oracle kernel only runs at its
+        # graded sizes, which the capped small-size pass exists to avoid.
+        return all_backend_status("skip:torch-oracle-graded-size-only")
     if torch_oracle:
         rtol, atol = max(rtol, TORCH_PORT_TOLERANCE[0]), max(atol, TORCH_PORT_TOLERANCE[1])
     out_args = list(spec.output_args)
@@ -742,14 +744,9 @@ def run_kernel(
     # (keeping ratios, floor 10) since correctness is size-independent and hand-written initializers
     # are slow in Python. Foundation kernels and NO_SCALE kernels (reference only valid at declared
     # size) run at true size instead.
-    # A torch-oracle kernel runs at its graded sizes: the torch model is built from the manifest's
-    # hyperparameters, and a shrunk size symbol would hand it arrays it was not built for. Only the JAX
-    # small-size pass (``max_size``) shrinks one.
-    if (
-        "loop_level_reasoning" not in spec.relative_path
-        and short not in NO_SCALE
-        and (not torch_oracle or max_size is not None)
-    ):
+    # A torch-oracle kernel runs at its graded sizes: the torch model is built from the manifest's hyperparameters,
+    # and a shrunk size symbol would hand it arrays it was not built for.
+    if "loop_level_reasoning" not in spec.relative_path and short not in NO_SCALE and not torch_oracle:
         ints = {k: v for k, v in syms.items() if isinstance(v, int) and not isinstance(v, bool)}
         mx = max(ints.values(), default=0)
         # max_size (JAX small-size pass) tightens the 48 default so even sub-48 presets shrink.

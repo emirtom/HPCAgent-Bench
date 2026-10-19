@@ -74,18 +74,17 @@ def conjugate_into(src: np.ndarray, dst: np.ndarray) -> None:
         dst[i] = np.complex128(src[i]).conjugate()
 
 
-@nb.njit(cache=True)
 def batched_fft(a: np.ndarray, axis: int, workers: int) -> np.ndarray:
     """One batched ``scipy.fft.fft`` along ``axis`` of a C-contiguous 2-D array, on ``workers`` threads."""
-    with nb.objmode(out="complex128[:, ::1]"):
-        out = np.ascontiguousarray(scipy.fft.fft(a, axis=axis, workers=workers))
-    return out
+    return np.ascontiguousarray(scipy.fft.fft(a, axis=axis, workers=workers))
 
 
-@nb.njit(cache=True)
 def four_step(x: np.ndarray, out: np.ndarray, inverse: bool) -> None:
     """``out = fft(x)`` (``inverse``: ``ifft(x)``) by the four-step factorisation. A prime ``n`` (``n1 = 1``)
-    degenerates to one transform along the single row."""
+    degenerates to one transform along the single row.
+
+    Plain Python around the compiled steps: the transforms are scipy calls, and numba caches nothing that holds an
+    ``objmode`` block, so driving them from here keeps every compiled step cached."""
     n = x.shape[0]
     workers = nb.get_num_threads()
     # complex128 whatever the input's precision (an fp32 grade hands complex64): the transforms run in double and
@@ -102,7 +101,6 @@ def four_step(x: np.ndarray, out: np.ndarray, inverse: bool) -> None:
     transpose_flat(c, out, -1.0 if inverse else 1.0, float(n) if inverse else 1.0)
 
 
-@nb.njit(cache=True)
 def fft_1d(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> None:
     four_step(x, y, False)
     four_step(y, z, True)

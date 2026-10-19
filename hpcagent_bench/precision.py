@@ -213,8 +213,7 @@ def derived_band(precision: Precision) -> ToleranceBand:
 _BAND_OVERRIDES: dict[Precision, ToleranceBand] = {
     Precision.FP64: ToleranceBand(1e-9, 1e-11),
     Precision.FP32: ToleranceBand(1e-3, 1e-5),
-    # Against the fp64 reference: fp16's eps accumulates over a time-stepped kernel (jacobi_2d drifts 5.3e-3).
-    Precision.FP16: ToleranceBand(2e-2, 2e-2),
+    Precision.FP16: ToleranceBand(1e-2, 1e-3),
     Precision.BF16: ToleranceBand(3e-2, 1e-2),
     Precision.FP8_E4M3: ToleranceBand(1e-1, 0.125),
     Precision.FP8_E5M2: ToleranceBand(2e-1, 0.25),

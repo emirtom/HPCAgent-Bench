@@ -1870,7 +1870,7 @@ class FortranBodyEmitter(BaseEmitter):
 
     def emit_compare_operand(self, node: ast.expr) -> str:
         """A comparison operand; in a single-precision kernel a float constant expression is folded and compared in
-        double, as the numpy reference compares it (:func:`operators.folded_float_constant`)."""
+        double, as the references compare it (:func:`operators.folded_float_constant`)."""
         value = operators.folded_float_constant(node)
         if value is not None and self._rk != "c_double":
             return f"({value!r}_c_double)" if value < 0 else f"{value!r}_c_double"

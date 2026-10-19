@@ -151,28 +151,27 @@ __all__ = [
     "BASELINE_LEADERS",
     "BASELINE_TIMING_CACHE",
     "BASELINE_TIMING_CACHE_MAX",
-    "COMPILED_ORACLES",
-    "CellScore",
     "DEVICE_RUNTIME_REFUSAL",
     "GRADING_PROTOCOL",
     "IEEE_FLOATS",
     "LOST_REASON_CHARS",
     "ML_LAWS",
     "ML_NOT_LAUNCHED",
-    "MlGrade",
-    "MlLaunch",
-    "MpiBuildError",
-    "MpiLaunch",
     "ORACLE_OUTPUT_CACHE",
     "PYTHON_BASELINES",
     "PYTHON_ORACLES",
     "REP_VERIFY_DETAIL",
     "REVERIFY_LABEL",
+    "TORCH_NOTE_CHARS",
+    "CellScore",
+    "MlGrade",
+    "MlLaunch",
+    "MpiBuildError",
+    "MpiLaunch",
     "Reference",
     "ScalingRuns",
     "Score",
     "ShardedGrade",
-    "TORCH_NOTE_CHARS",
     "TimedCell",
     "VerifyLegs",
     "VerifyResult",
@@ -197,6 +196,8 @@ __all__ = [
     "graded_score",
     "guillotine_seconds",
     "identity",
+    "ieee_draw",
+    "ieee_drawn",
     "ieee_reference_data",
     "implausibility",
     "implausible_speedup",
@@ -394,14 +395,22 @@ def oracle_function(
     (``torch-autotune``, on the grade's device kind) in the child that times it. Interpreted NumPy is
     not an option: this is the one road from a grade to a reference output. A reference that cannot
     answer raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`, and the caller moves to
-    the next kind or scores the judge's fault."""
+    the next kind or scores the judge's fault.
+
+    The numba and C references compute in IEEE fp32 / fp64 only: they answer for the inputs with every narrower
+    float promoted to fp64 (:func:`ieee_reference_data`), so a narrower format is checked against the fp64
+    reference on the same values, whichever path of a grade asks."""
 
     def numba_reference(data: dict[str, Any], draw: Callable[[int], dict] | None = None) -> dict[str, np.ndarray]:
-        return numba_reference_outputs(spec, data, memory_gb, rep_data=draw)
+        return numba_reference_outputs(spec, ieee_reference_data(data), memory_gb, rep_data=ieee_draw(draw))
 
     def c_reference(data: dict[str, Any], draw: Callable[[int], dict] | None = None) -> dict[str, np.ndarray]:
+        # The C reference casts its inputs in, and the casts have no complex64 kernel.
+        inputs = ieee_reference_data(data, widen_complex=True)
         try:
-            return _run_c_reference(spec, task, binding, data, [], 1, timeout, memory_gb, rep_data=draw)[0]
+            return _run_c_reference(
+                spec, task, binding, inputs, [], 1, timeout, memory_gb, rep_data=ieee_draw(draw, widen_complex=True)
+            )[0]
         except RuntimeError as exc:
             raise ReferenceUnavailable(f"C reference of {spec.short_name}: {one_line(exc)}") from exc
 
@@ -446,15 +455,14 @@ def fallback_oracle(
     raise ReferenceUnavailable("; ".join(failures))
 
 
-#: The oracles that compute in IEEE fp32 / fp64 only (:func:`first_oracle`).
-COMPILED_ORACLES = frozenset({"numba", "c"})
-#: The IEEE formats the compiled oracles take as they are.
+#: The float formats the compiled oracles compute in; any other is promoted to fp64 for them.
 IEEE_FLOATS = frozenset({np.dtype(np.float32), np.dtype(np.float64)})
 
 
 def ieee_reference_data(data: dict[str, Any], widen_complex: bool = False) -> dict[str, Any]:
-    """``data`` with every floating array of a format narrower than fp32 (fp16, bf16, fp8) as an fp64 copy, and with
-    ``widen_complex`` every complex64 array as a complex128 copy; ``data`` itself when there is none."""
+    """``data`` with every floating array of a format the compiled references do not compute in (fp16, bf16, fp8,
+    extended precision) as an fp64 copy, and with ``widen_complex`` every complex64 array as a complex128 copy;
+    ``data`` itself when there is none."""
     widened: dict[str, type[np.generic]] = {
         name: np.float64
         for name, value in data.items()
@@ -471,6 +479,21 @@ def ieee_reference_data(data: dict[str, Any], widen_complex: bool = False) -> di
     return data if not widened else {**data, **{name: data[name].astype(dtype) for name, dtype in widened.items()}}
 
 
+def ieee_drawn(draw: Callable[[int], dict[str, Any]], widen_complex: bool, rep: int) -> dict[str, Any]:
+    """Input set ``rep`` of ``draw`` through :func:`ieee_reference_data`."""
+    return ieee_reference_data(draw(rep), widen_complex=widen_complex)
+
+
+def ieee_draw(
+    draw: Callable[[int], dict[str, Any]] | None, widen_complex: bool = False
+) -> Callable[[int], dict[str, Any]] | None:
+    """``draw`` with each drawn input set passed through :func:`ieee_reference_data`; a ``functools.partial`` of a
+    module-level function, so it pickles into the spawn / forkserver child that runs the reference."""
+    if draw is None:
+        return None
+    return functools.partial(ieee_drawn, draw, widen_complex)
+
+
 def first_oracle(
     kinds: Sequence[str],
     spec: BenchSpec,
@@ -482,17 +505,11 @@ def first_oracle(
     memory_gb: float,
 ) -> tuple[str, dict[str, np.ndarray]]:
     """``(kind, outputs)`` from the first of ``kinds`` that can answer for ``data``; every failure
-    is named when none can (:class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`).
-
-    The numba and C references compute in IEEE fp32 / fp64 only: they answer for ``data`` promoted to fp64
-    (:func:`ieee_reference_data`), so a narrower format is checked against the fp64 reference on the same
-    values, the rule a precision request is graded by."""
+    is named when none can (:class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`)."""
     failures: list[str] = []
     for kind in kinds:
         try:
-            # The C reference computes in fp64 and casts its inputs in; the casts have no complex64 kernel.
-            inputs = ieee_reference_data(data, widen_complex=kind == "c") if kind in COMPILED_ORACLES else data
-            return kind, oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)(inputs)
+            return kind, oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)(data)
         except ReferenceUnavailable as exc:
             failures.append(str(exc))
     raise ReferenceUnavailable("; ".join(failures) or f"no oracle reference for {spec.short_name}")
