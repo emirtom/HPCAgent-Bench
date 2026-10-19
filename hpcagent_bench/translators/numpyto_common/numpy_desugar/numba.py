@@ -108,7 +108,9 @@ class OuterBroadcastPeel(RankedRewritePass):
     Under ``parallel=True`` (the build the benchmark measures) numba's parfor analysis asserts
     ``Sizes of $a, $b do not match`` when two operands put non-1 extents in different axes, as in
     ``a[:, None] + b[None, :]``. Each peeled row is an ordinary broadcast the analysis accepts and
-    still a parallelisable array expression; reshapes and ``np.add.outer`` hit the same assert.
+    still a parallelisable array expression; reshapes and ``np.add.outer`` hit the same assert. A row
+    that is still an outer product is peeled again (:meth:`peel_rows`), and a view of one is peeled
+    through a temp (:meth:`hoist_view_base`).
 
     Extents are ``<name>.shape[k]`` tokens from the rank table, since manifest shape symbols are
     not bound in the kernel. An operand whose axes cannot be placed declines the whole statement."""
@@ -231,6 +233,65 @@ class OuterBroadcastPeel(RankedRewritePass):
             return self.peel_subscript(expr, idx)
         return None
 
+    def leaf_extents(self, expr: ast.expr) -> list[list[str]] | None:
+        """The extent tokens of every operand an elementwise tree broadcasts together, or None."""
+        if isinstance(expr, ast.UnaryOp):
+            return self.leaf_extents(expr.operand)
+        ops = self.operands_(expr)
+        if ops is None:
+            ext = self.extents_(expr)
+            return None if ext is None else [ext]
+        out: list[list[str]] = []
+        for o in ops:
+            sub = self.leaf_extents(o)
+            if sub is None:
+                return None
+            out.extend(sub)
+        return out
+
+    def sole_extent(self, value: ast.expr, rank: int) -> bool:
+        """True when exactly one operand gives axis 0 of the rank-``rank`` ``value`` an extent that is not
+        a newaxis, so that token IS the broadcast extent, even where it is 1 at run time.
+
+        Two differently spelled tokens are assumed equal (:func:`bcast_tokens`), which a declared size-1
+        axis breaks: ``p[i, :, None] * n[i]`` with ``p`` of shape ``(M, 1)`` loops ``range(p.shape[1])``
+        and fills one row of ``K``. The nested and the view peels take only an axis without that
+        ambiguity, so neither turns numba's refusal of such a statement into a wrong answer."""
+        leaves = self.leaf_extents(value)
+        if leaves is None:
+            return False
+        tokens = {([ONE] * (rank - len(e)) + e)[0] for e in leaves if len(e) <= rank}
+        return len(tokens - {ONE}) == 1
+
+    def peel_rows(self, value: ast.expr, ivar: str, rank: int) -> tuple[list[str], ast.expr, ast.expr] | None:
+        """``(loop variables, row, probe)`` for an outer product of rank ``rank``, or None to decline.
+
+        Peeling axis 0 leaves a rank ``rank - 1`` row, which is itself an outer product when the
+        broadcast splits on two later axes (``a[:, None, None, :] * b[None, :, None, :] * c[None, None]``
+        peels to ``a[i] * b[:, None] * c``, a (1, 1, n) * (p, 1, n) * (1, q, n) broadcast the parfor
+        analysis lowers by indexing ``c`` with three indices). Each such row is peeled again, one nested
+        loop per axis, until the row is one the analysis accepts. ``probe`` is the row at index 0 of
+        every peeled axis, peeled as deep: it is evaluated to read the dtype, so it must compile too."""
+        row = self.peel(copy.deepcopy(value), ivar, rank)
+        probe = self.peel(copy.deepcopy(value), "0", rank)
+        if row is None or probe is None:
+            return None
+        ivars = [ivar]
+        while (depth := rank - len(ivars)) >= 2:
+            ext = self.extents_(row)
+            if ext is None or len(ext) != depth or ext[0] == ONE or not self.outer_product(row, depth):
+                break
+            if not self.sole_extent(row, depth):  # an inner axis two operands size (see sole_extent)
+                break
+            inner = f"{ivar}{len(ivars)}"
+            next_row = self.peel(copy.deepcopy(row), inner, depth)
+            next_probe = self.peel(copy.deepcopy(probe), "0", depth)
+            if next_row is None or next_probe is None:
+                break
+            row, probe = next_row, next_probe
+            ivars.append(inner)
+        return ivars, row, probe
+
     def rebuild(self, expr: ast.AST, peeled: list[ast.expr]) -> ast.expr:
         if isinstance(expr, ast.BinOp):
             return ast.BinOp(left=peeled[0], op=expr.op, right=peeled[1])
@@ -341,10 +402,42 @@ class OuterBroadcastPeel(RankedRewritePass):
         elif isinstance(node, ast.Call):
             node.args[i] = operand
 
+    def hoist_view_base(self, node: ast.Assign) -> list[ast.stmt] | None:
+        """``x = (a + b[:, None])[:, None, :]`` -> the outer product bound to a temp, peeled, then
+        ``x = temp[:, None, :]``; None when the value is not a view of an outer product.
+
+        :meth:`axes_` cannot place the axes of a computed base, so the product under the view would
+        otherwise reach numba whole."""
+        value = node.value
+        if not isinstance(value, ast.Subscript) or self.operands_(value.value) is None:
+            return None
+        ext = self.extents_(value.value)
+        if ext is None or len(ext) < 2 or ext[0] == ONE or not self.outer_product(value.value, len(ext)):
+            return None
+        if not self.sole_extent(value.value, len(ext)):
+            return None
+        temp = f"__ob{self._ctr}_v"
+        self.ranks[temp] = len(ext)
+        bind = ast.Assign(targets=[store_(temp)], value=value.value)
+        ast.copy_location(bind, node)
+        peeled = self.visit_Assign(bind)
+        if not isinstance(peeled, list):
+            del self.ranks[temp]
+            return None
+        view = ast.Assign(
+            targets=node.targets, value=ast.Subscript(value=name_(temp), slice=value.slice, ctx=ast.Load())
+        )
+        ast.copy_location(view, node)
+        ast.fix_missing_locations(view)
+        return [*peeled, view]
+
     def visit_Assign(self, node: ast.Assign) -> ast.AST | list[ast.stmt]:
         if len(node.targets) != 1:
             return node
         self.drop_newaxes(node.value)
+        hoisted = self.hoist_view_base(node)
+        if hoisted is not None:
+            return hoisted
         ext = self.extents_(node.value)
         if ext is None or len(ext) < 2 or ext[0] == ONE or not self.outer_product(node.value, len(ext)):
             return node
@@ -357,10 +450,10 @@ class OuterBroadcastPeel(RankedRewritePass):
         if not direct and not isinstance(target, (ast.Name, ast.Subscript)):
             return node
         temp, ivar = f"__ob{self._ctr}", f"__ob{self._ctr}_i"
-        row = self.peel(copy.deepcopy(node.value), ivar, rank)
-        probe = self.peel(copy.deepcopy(node.value), "0", rank)
-        if row is None or probe is None:
+        peeled = self.peel_rows(node.value, ivar, rank)
+        if peeled is None:
             return node
+        ivars, row, probe = peeled
         self._ctr += 1
         self.changed = True
         out: list[ast.stmt] = []
@@ -374,8 +467,11 @@ class OuterBroadcastPeel(RankedRewritePass):
         elif not direct and isinstance(target, ast.Subscript):
             # The store casts into the target's dtype, so the temp takes it.
             out.append(ast.parse(f"{dest} = np.empty(({shape},), ({ast.unparse(target.value)}).dtype)").body[0])
-        store = ast.Assign(targets=[ast.Subscript(value=name_(dest), slice=name_(ivar), ctx=ast.Store())], value=row)
-        out.append(range_for(ivar, [expr_of(ext[0])], [store]))
+        index = name_(ivar) if len(ivars) == 1 else ast.Tuple(elts=[name_(v) for v in ivars], ctx=ast.Load())
+        loop: ast.stmt = ast.Assign(targets=[ast.Subscript(value=name_(dest), slice=index, ctx=ast.Store())], value=row)
+        for k in reversed(range(len(ivars))):
+            loop = range_for(ivars[k], [expr_of(ext[k])], [loop])
+        out.append(loop)
         if not direct:
             out.append(ast.Assign(targets=[target], value=name_(dest)))
         for s in out:

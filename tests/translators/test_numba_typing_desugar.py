@@ -20,6 +20,7 @@ import numpy as np
 from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc, KernelIR
 from hpcagent_bench.translators.numpyto_numba.emit import emit_numba
 from tests.own_process import isolated
+from tests.translators.source_module import run_source
 
 
 def kernel_ir(src: str, name: str, arrays: Sequence[tuple[str, str, tuple[str, ...]]]) -> KernelIR:
@@ -267,6 +268,93 @@ def test_a_column_vector_broadcast_in_a_helper_runs_under_parallel_numba(tmp_pat
     expected[1:, :] = g[:, None] * x
     np.testing.assert_array_equal(out, expected)
     np.testing.assert_array_equal(scaled, x * g[:, None])
+
+
+TRIPLE_OUTER_SRC = """import numpy as np
+
+
+def triple(sx, sy, sz, out):
+    weight = sx[:, None, None, :] * sy[None, :, None, :] * sz[None, None, :, :]
+    out[:, :, :, :] = weight
+"""
+
+
+@isolated
+def test_a_rank_4_outer_product_of_2d_arrays_runs_under_parallel_numba(tmp_path: pathlib.Path) -> None:
+    """Peeling axis 0 of ``(p, 1, 1, n) * (1, q, 1, n) * (1, 1, r, n)`` leaves ``sx[i] * sy[:, None] * sz``,
+    still an outer product, which numba's parfor pass lowers by indexing the 2-D ``sz`` with three indices
+    (warpx_field_gather's ``_tap3`` weights). Every axis that is still split must be peeled."""
+    arrays = [
+        ("sx", "float64", ("P", "N")),
+        ("sy", "float64", ("Q", "N")),
+        ("sz", "float64", ("R", "N")),
+        ("out", "float64", ("P", "Q", "R", "N")),
+    ]
+    emitted, module = emit_and_load(tmp_path, TRIPLE_OUTER_SRC, kernel_ir(TRIPLE_OUTER_SRC, "triple", arrays))
+    assert "parallel=True" in emitted
+    rng = np.random.default_rng(0)
+    sx, sy, sz = rng.standard_normal((2, 5)), rng.standard_normal((3, 5)), rng.standard_normal((4, 5))
+    out = np.zeros((2, 3, 4, 5))
+    module.triple(sx, sy, sz, out)
+    np.testing.assert_array_equal(out, sx[:, None, None, :] * sy[None, :, None, :] * sz[None, None, :, :])
+
+
+TAP3_SRC = """import numpy as np
+
+
+def tap3(vol, sx, ix0, sy, iy0, sz, iz0, ntx, nty, ntz, n):
+    tx = np.arange(ntx)
+    ty = np.arange(nty)
+    tz = np.arange(ntz)
+    ix = (ix0[None, :] + tx[:, None])[:, None, None, :]
+    iy = (iy0[None, :] + ty[:, None])[None, :, None, :]
+    iz = (iz0[None, :] + tz[:, None])[None, None, :, :]
+    ix_b = np.empty((ntx, nty, ntz, n), dtype=np.int64)
+    ix_b[:] = ix
+    iy_b = np.empty((ntx, nty, ntz, n), dtype=np.int64)
+    iy_b[:] = iy
+    iz_b = np.empty((ntx, nty, ntz, n), dtype=np.int64)
+    iz_b[:] = iz
+    gathered = vol[ix_b, iy_b, iz_b]
+    weight = sx[:, None, None, :] * sy[None, :, None, :] * sz[None, None, :, :]
+    return np.sum(weight * gathered, axis=(0, 1, 2))
+
+
+def gather(field, sx, ix0, sy, iy0, sz, iz0, out, ntx, nty, ntz, n):
+    out += tap3(field[:, :, :, 0], sx, ix0, sy, iy0, sz, iz0, ntx, nty, ntz, n)
+"""
+
+
+@isolated
+def test_a_3d_gather_through_a_4d_slice_view_with_outer_product_weights_matches_numpy(tmp_path: pathlib.Path) -> None:
+    """warpx_field_gather's 3-D tap: per-particle index rows built as a view of an outer product
+    (``(i0[None, :] + t[:, None])[:, None, None, :]``), a 3-index gather out of the ``[:, :, :, 0]`` view of
+    a 4-D field, and rank-4 outer-product weights summed over the tap axes. Both outer products must be
+    peeled for the parallel njit to type."""
+    arrays = [
+        ("field", "float64", ("G", "G", "G", "C")),
+        ("sx", "float64", ("T", "N")),
+        ("ix0", "int64", ("N",)),
+        ("sy", "float64", ("T", "N")),
+        ("iy0", "int64", ("N",)),
+        ("sz", "float64", ("T", "N")),
+        ("iz0", "int64", ("N",)),
+        ("out", "float64", ("N",)),
+    ]
+    emitted, module = emit_and_load(tmp_path, TAP3_SRC, kernel_ir(TAP3_SRC, "gather", arrays))
+    assert "parallel=True" in emitted
+    rng = np.random.default_rng(1)
+    ntx, nty, ntz, n = 4, 3, 2, 7
+    field = rng.standard_normal((9, 9, 9, 1))
+    sx, sy, sz = rng.random((ntx, n)), rng.random((nty, n)), rng.random((ntz, n))
+    ix0, iy0, iz0 = (rng.integers(0, 5, n) for unused in range(3))
+    out = np.zeros(n)
+    module.gather(field, sx, ix0, sy, iy0, sz, iz0, out, ntx, nty, ntz, n)
+    reference: dict[str, object] = {}
+    run_source(TAP3_SRC, reference)
+    expected = np.zeros(n)
+    reference["gather"](field, sx, ix0, sy, iy0, sz, iz0, expected, ntx, nty, ntz, n)
+    np.testing.assert_allclose(out, expected, rtol=1e-13, atol=0)
 
 
 UNARY_NEWAXIS_SRC = """import numpy as np
