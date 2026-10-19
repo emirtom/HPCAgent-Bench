@@ -45,6 +45,7 @@ __all__ = [
     "TOOLCHAIN_RUNTIME_LIBRARIES",
     "BuildResult",
     "Sandbox",
+    "agent_build",
     "agent_flags_allowed",
     "build_link_refusal",
     "catalog_linkable_names",
@@ -395,6 +396,19 @@ def split_build(tokens: list[str], *, allow_flags: bool = False) -> tuple[list[s
     return compile_tokens, link_tokens
 
 
+def agent_build(tokens: list[str], source_mode: str) -> tuple[list[str], list[str]]:
+    """A submission's ``build`` list as ``(compile, link)`` tokens for a task in ``source_mode``.
+
+    ``restricted``: :func:`split_build`, the flag filter. ``any``: every compile token as given, ``-ffast-math`` and
+    ``-std=`` included, since an ``any`` task already accepts a prebuilt ``.so`` built with them; the link argv keeps
+    :func:`safe_link`'s rule and takes no compile flag, so no FP startup object (``crtfastmath.o``) changes the
+    whole process."""
+    if source_mode != "any":
+        return split_build(tokens, allow_flags=agent_flags_allowed())
+    link_tokens = [t for t in tokens if t.startswith(LINK_PREFIXES) and safe_link(t)]
+    return [t for t in tokens if not t.startswith(LINK_PREFIXES)], link_tokens
+
+
 def finalize_build(
     cmds: list[list[str]], cwd: pathlib.Path, artifact: pathlib.Path, *, as_exe: bool, devices: bool = False
 ) -> BuildResult:
@@ -480,10 +494,12 @@ class Sandbox:
     """A throwaway workdir that turns one submission into ``lib<short>.so``; a context manager (read
     results before leaving the block)."""
 
-    __slots__ = ("_tmp", "binding", "root")
+    __slots__ = ("_tmp", "binding", "root", "source_mode")
 
-    def __init__(self, binding: Binding) -> None:
+    def __init__(self, binding: Binding, source_mode: str = "restricted") -> None:
         self.binding = binding
+        #: The task's ``source_mode``: in ``any`` a source is built with the agent's own flags (:func:`agent_build`).
+        self.source_mode = source_mode
         self._tmp: tempfile.TemporaryDirectory | None = None
         self.root: pathlib.Path | None = None
 
@@ -580,7 +596,7 @@ class Sandbox:
             return BuildResult(False, None, residency_error)
 
         shared = shared_dir()
-        agent_compile, agent_link = split_build(submission.build, allow_flags=agent_flags_allowed())
+        agent_compile, agent_link = agent_build(submission.build, self.source_mode)
         catalog_compile, catalog_link = languages.library_build_flags(
             submission.language, submission.requests.startup.load, omp
         )
@@ -703,7 +719,7 @@ class Sandbox:
             return BuildResult(False, None, link_error)
 
         shared = shared_dir()
-        agent_compile, agent_link = split_build(submission.build, allow_flags=agent_flags_allowed())
+        agent_compile, agent_link = agent_build(submission.build, self.source_mode)
         catalog_compile, catalog_link = languages.library_build_flags(
             submission.language, submission.requests.startup.load
         )

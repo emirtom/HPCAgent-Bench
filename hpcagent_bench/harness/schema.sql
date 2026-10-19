@@ -1,8 +1,10 @@
 -- Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
--- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 13). There is one
--- schema and no migration: a file of any other user_version, or holding a table outside this file, is refused.
+-- The HPCAgent-Bench results database, schema hb-results-v1.0 (PRAGMA user_version = 14). There is one
+-- schema; the one additive step from 13 (canon.optimize_s) is applied when a 13 file is opened for writing
+-- (results_db.ADDITIVE_UPGRADES), and a file of any other user_version, or holding a table outside this file, is
+-- refused.
 --
 -- One file holds everything an experiment produced: a judge rank's shard, a job and the whole
 -- dataset use this same schema, and merging remaps the surrogate ids through the natural keys.
@@ -22,7 +24,7 @@
 -- indices (0 is real), the device-synchronization readings (0 ns is real; CPU grades have none), p_value
 -- (no test ran) and work_ratio (strong scaling has none).
 
-PRAGMA user_version = 13;
+PRAGMA user_version = 14;
 
 -- One experimental condition: everything a run's identity has in common across its repetitions.
 CREATE TABLE setups (
@@ -295,6 +297,8 @@ CREATE TABLE canon (
     gpu          TEXT NOT NULL DEFAULT '',              -- its GPU model; '' for a CPU column
     execution    TEXT NOT NULL DEFAULT 'native' CHECK (execution IN ('native', 'container')),  -- record.execution
     ts_ms        INTEGER NOT NULL DEFAULT 0,            -- when the row was written; the latest wins a merge
+    optimize_s   REAL,                                  -- emit + optimize + compile wall time, cached work included;
+                                                        -- NULL = not measured (a row from before user_version 14)
     UNIQUE (run, "column", kernel, preset, datatype)
 ) STRICT;
 

@@ -249,6 +249,8 @@ class CanonicalManifest(pydantic.BaseModel):
     target: str = ""
     precision: str = ""
     sha256: str = ""
+    #: Wall seconds parse + canonicalize took; a hit credits them to the optimize time (optimize_clock).
+    seconds: float = 0.0
 
     @pydantic.field_validator("layout")
     @classmethod
@@ -367,6 +369,8 @@ class EntryManifest(pydantic.BaseModel):
     libraries: list[str] = pydantic.Field(default_factory=list[str])
     #: The scratch the form carves its transients from: the ``workspace_bytes`` a submission of it requests.
     workspace_bytes: str = "0"
+    #: Seconds producing the form took: its canonicalize and its render (:mod:`hpcagent_bench.optimize_clock`).
+    seconds: float = 0.0
 
     @pydantic.field_validator("layout")
     @classmethod

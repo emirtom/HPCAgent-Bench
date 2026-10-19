@@ -776,8 +776,9 @@ class DaceFramework(Framework):
         if cached is not None:
             print(f"DaCe optimize: loaded base SDFG from cache .cache/{module}_{tag}.sdfgz")
             return cached
+        started = time.perf_counter()
         sdfg = build()
-        framework_cache.save_sdfg(cache_dir, module, tag, fingerprint, sdfg)
+        framework_cache.save_sdfg(cache_dir, module, tag, fingerprint, sdfg, time.perf_counter() - started)
         return sdfg
 
     def cached_canonical(self, bench: Benchmark, cache_root: pathlib.Path) -> dace.SDFG:

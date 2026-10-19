@@ -333,6 +333,7 @@ def sweep_rows(
                     "status": "ok",
                     "validated": None if "validated" not in timing else int(bool(timing["validated"])),
                     "median_ms": best_ms(timing.get("native"), timing.get("python")),
+                    "optimize_s": timing.get("optimize_s"),
                     "failure": timing.get("failure") or "",
                 }
             )

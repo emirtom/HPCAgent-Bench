@@ -29,9 +29,11 @@ import pathlib
 import subprocess
 from typing import TYPE_CHECKING
 
+from hpcagent_bench import optimize_clock
 from hpcagent_bench.cache_files import replacing, sha256_hex, write_atomic
 
 __all__ = [
+    "credit_production",
     "dace_tree_fingerprint",
     "kernel_cache_dir",
     "load_generated",
@@ -39,6 +41,7 @@ __all__ = [
     "save_generated",
     "save_sdfg",
     "sdfg_cache_path",
+    "seconds_path",
     "sidecar_path",
     "source_fingerprint",
     "stored_fingerprint",
@@ -118,6 +121,20 @@ def sidecar_path(artifact: pathlib.Path) -> pathlib.Path:
     return artifact.with_name(artifact.name + ".fp")
 
 
+def seconds_path(artifact: pathlib.Path) -> pathlib.Path:
+    """The ``.seconds`` sidecar for a cached ``artifact``: how long producing it took."""
+    return artifact.with_name(artifact.name + ".seconds")
+
+
+def credit_production(artifact: pathlib.Path) -> None:
+    """Credit a cache hit on ``artifact`` with the seconds producing it took (:func:`optimize_clock.credit`); an
+    entry written before production times were stored credits nothing."""
+    try:
+        optimize_clock.credit(float(seconds_path(artifact).read_text().strip()))
+    except (OSError, ValueError):
+        pass
+
+
 def stored_fingerprint(artifact: pathlib.Path) -> str | None:
     """The fingerprint recorded for ``artifact``, or ``None`` when no readable sidecar exists."""
     try:
@@ -143,16 +160,18 @@ def load_generated(cache_dir: pathlib.Path, canonical: pathlib.Path, fingerprint
     payload = cached.read_bytes()
     if not canonical.exists() or canonical.read_bytes() != payload:
         write_atomic(canonical, payload)
+    credit_production(cached)
     return True
 
 
-def save_generated(cache_dir: pathlib.Path, canonical: pathlib.Path, fingerprint: str) -> None:
-    """Persist the freshly-emitted ``canonical`` into the cache under ``fingerprint`` (copy + sidecar).
-    No-op when ``canonical`` is absent (a failed emit is never cached)."""
+def save_generated(cache_dir: pathlib.Path, canonical: pathlib.Path, fingerprint: str, seconds: float) -> None:
+    """Persist the freshly-emitted ``canonical`` into the cache under ``fingerprint`` (copy + sidecar), with the
+    ``seconds`` its emit took. No-op when ``canonical`` is absent (a failed emit is never cached)."""
     if not canonical.exists():
         return
     cached = cache_dir / canonical.name
     write_atomic(cached, canonical.read_bytes())
+    write_atomic(seconds_path(cached), f"{seconds:.6f}".encode())
     write_atomic(sidecar_path(cached), fingerprint.encode())
 
 
@@ -176,13 +195,18 @@ def load_sdfg(cache_dir: pathlib.Path, module_name: str, device_tag: str, finger
     try:
         import dace
 
-        return dace.SDFG.from_file(str(path))
+        sdfg = dace.SDFG.from_file(str(path))
     except Exception:  # noqa: BLE001 -- a corrupt/incompatible cache entry must fall back to a rebuild
         return None
+    credit_production(path)
+    return sdfg
 
 
-def save_sdfg(cache_dir: pathlib.Path, module_name: str, device_tag: str, fingerprint: str, sdfg: "dace.SDFG") -> None:
-    """Save ``sdfg`` as a compressed ``.sdfgz`` for ``(module_name, device_tag)`` and record ``fingerprint``.
+def save_sdfg(
+    cache_dir: pathlib.Path, module_name: str, device_tag: str, fingerprint: str, sdfg: "dace.SDFG", seconds: float
+) -> None:
+    """Save ``sdfg`` as a compressed ``.sdfgz`` for ``(module_name, device_tag)`` and record ``fingerprint`` and the
+    ``seconds`` its parse took.
 
     The sidecar is written only after a successful save, so an interrupted save (sdfgz without a
     matching sidecar) is a MISS on the next load. A failed save is swallowed and its partial file
@@ -191,6 +215,7 @@ def save_sdfg(cache_dir: pathlib.Path, module_name: str, device_tag: str, finger
     try:
         with replacing(path) as tmp:
             sdfg.save(str(tmp), compress=True)
+        write_atomic(seconds_path(path), f"{seconds:.6f}".encode())
         write_atomic(sidecar_path(path), fingerprint.encode())
     except Exception:  # noqa: BLE001 -- never let a cache write fail a run
         path.unlink(missing_ok=True)

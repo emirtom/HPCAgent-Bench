@@ -1120,7 +1120,7 @@ def independent_verify(
     determinism_ok = reverify_ok = dual_oracle_ok = False
     dual_oracle_applied = False
     try:
-        with Sandbox(cand_binding) as sb:
+        with Sandbox(cand_binding, source_mode=task.source_mode) as sb:
             built = sb.build(submission, mode=Mode.SINGLE_CORE)
             if not built.ok:
                 return VerifyResult(False, False, False, False, False, "rebuild failed")
@@ -1232,7 +1232,7 @@ def sanitized_run(
     data = _data_seeded(task.kernel, "S", datatype, seed)
     if choice is not None:
         data = laid_out(BenchSpec.load(task.kernel), choice, data)
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE, judge_compile=compile_flags, judge_link=link_flags)
         if not built.ok or built.lib is None:
             return sanitizers.SanitizerVerdict(False, note=f"the sanitized rebuild failed: {built.log[-400:]}")
@@ -1949,7 +1949,7 @@ def graded_score(
     # The early-stop race behind the denominator, when one ran here (race_record).
     race: tuple[str, str, str] = ("", "", "")
     # Built first: a submission that does not compile must not pay for the reference runs.
-    with Sandbox(cand_binding) as sb:
+    with Sandbox(cand_binding, source_mode=task.source_mode) as sb:
         built = sb.build(submission, mode=mode)
         if not built.ok:
             return Score(
@@ -2850,7 +2850,7 @@ def _verify_distributed(
         return VerifyResult(False, False, False, False, False, str(exc), harness_fault=True)
 
     try:
-        with Sandbox(binding) as sb:
+        with Sandbox(binding, source_mode=task.source_mode) as sb:
             built = sb.build_mpi(submission, descriptor, cc_override=mpi_cc_override())
             if not built.ok:
                 return VerifyResult(False, False, False, False, False, "mpi rebuild failed")
@@ -2982,7 +2982,7 @@ def _build_run_mpi(
 
     ``k_repeats`` overrides ``mpi.k_repeats``: :func:`score_distributed` passes its ``repeat``; the
     scaling sweep keeps the default."""
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         built = sb.build_mpi(submission, descriptor, cc_override=mpi_cc_override())
         if not built.ok:
             raise MpiBuildError(built.log[-2000:])
@@ -3027,7 +3027,7 @@ def build_run_sharded(
     """The ML-track counterpart of :func:`_build_run_mpi`: no host data, no gather. Each rank generates
     its own input shard, runs the submission and ``reference_dist``, and grades its own shard
     (:func:`torch_reference.rank_verdict`). Returns ``(ok, max_err, detail, samples_ns)``."""
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         built = sb.build_mpi(submission, descriptor, cc_override=mpi_cc_override())
         if not built.ok:
             raise MpiBuildError(built.log[-2000:])
@@ -3455,7 +3455,7 @@ def time_scaling_anchor(
     a_memory = config.current().limits.kernel_memory_gb
     device = single_rank_anchor.language in ("cuda", "hip")
     # T_1(N_1): built and timed once on the base problem, shared by every P.
-    with Sandbox(binding) as asb:
+    with Sandbox(binding, source_mode=task.source_mode) as asb:
         abuilt = asb.build(single_rank_anchor, mode=Mode.SINGLE_CORE)
         if not abuilt.ok:
             return 0, f"single-node anchor build failed: {abuilt.log[-500:]}"
@@ -3857,7 +3857,7 @@ def score_ml(
         return refused(
             f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language}"
         )
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         # The rank driver's kernel library is grid-independent, so one build serves every P and law.
         built = sb.build_mpi(submission, lead, cc_override=mpi_cc_override())
         if not built.ok:
@@ -4254,7 +4254,7 @@ def score_cells(
         return outs, samples, int(mem.memory.increment_bytes), mem
 
     results: list[CellScore] = []
-    with Sandbox(cand_binding) as sb:
+    with Sandbox(cand_binding, source_mode=task.source_mode) as sb:
         built = sb.build(submission, mode=mode)
         if not built.ok:
             log = built.log[-2000:]
@@ -4273,7 +4273,7 @@ def score_cells(
         if plan.need_seq_c:
             try:
                 ctask = replace(task, language="c", source_mode="restricted", residency="host")
-                c_ctx = Sandbox(binding)
+                c_ctx = Sandbox(binding, source_mode=task.source_mode)
                 csb = c_ctx.__enter__()
                 # Same family as the candidate, for the same reason score() does it.
                 c_submission = reference_submission(ctask, "c", submission.compiler)
@@ -4295,7 +4295,7 @@ def score_cells(
         bl_ctxs: list[Sandbox] = []
         if plan.bl_own_build and plan.compiled is not None:
             for compiler in plan.compiled[2]:
-                ctx = Sandbox(binding)
+                ctx = Sandbox(binding, source_mode=task.source_mode)
                 try:
                     absb = ctx.__enter__()
                     ref_built = build_reference_lib(

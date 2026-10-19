@@ -17,6 +17,15 @@ Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2
   inputs promoted to fp64 (and complex64 as complex128 to C). `cloudsc` is fp64 only, like
   `cloudsc_monolith`, because its physics thresholds branch differently at fp32.
 
+### New
+- **Optimize time per framework.** Canon results carry an optional `optimize_s` column (results schema 14; a v13
+  file gains the column when opened for writing). HPCAgent-Bench times every framework's emit, optimize and compile
+  steps, and a cached or prerendered artifact (emitted sources, parsed SDFG, canonical SDFG, CPF form) adds the time
+  it took to produce, so a cache hit reports the same total as a cold run.
+- **Single-source submissions in `any` mode.** An `any`-mode task accepts one C or Fortran source built with the
+  agent's own compile flags (fast-math included); link flags stay restricted to `-l`/`-L`. Multi-file builds go
+  through the existing `library` delivery.
+
 ### Fixed
 - The correctness sweep hands the compiled reference every size symbol and the returned-output buffers
   (`no-reference` failures), never shrinks a torch-oracle kernel, and launches the per-kernel reference tests

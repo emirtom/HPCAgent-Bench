@@ -200,6 +200,7 @@ __all__ = [
     "setup_language_refusal",
     "source_file_ext",
     "submit_verdict",
+    "task_source_mode",
     "triton_launch_problem",
     "unrecordable",
 ]
@@ -587,6 +588,14 @@ SUBMISSION_BUILD_MODE: Mode = Mode.SINGLE_CORE
 #: The ``cause`` of a 500 the judge answers for its own failure before any grade was recorded (the manifest,
 #: an exception in the grade itself): like a verdict's ``judge_fault``, it spends no single submission.
 JUDGE_FAULT_CAUSE = submit.JUDGE_FAULT
+
+
+def task_source_mode(input_mode: InputMode, *, library: bool) -> str:
+    """The task's ``source_mode`` a submission grades in: ``any`` for a prebuilt library, and for every delivery of an
+    ``any`` setup, whose source is then built with the agent's own compiler flags (:func:`sandbox.agent_build`);
+    ``restricted`` otherwise."""
+    return "any" if library or input_mode is InputMode.ANY else "restricted"
+
 
 #: Delivery languages each enforced ``input_mode`` accepts: ``source`` compiles, ``py-binding``
 #: calls Python. ``any`` and ``library`` are absent (not enforced).
@@ -1509,7 +1518,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         from hpcagent_bench.harness import recording
 
         try:
-            source_mode = "any" if body.raw("library") else "restricted"
+            source_mode = task_source_mode(self.cfg.input_mode, library=bool(body.raw("library")))
             task = Task(kernel, source_mode, body.text("language", default_request_language()))
             recording.record_call(
                 None,
@@ -1872,7 +1881,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             return self._send(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         try:
-            source_mode = "any" if submission.library is not None else "restricted"
+            source_mode = task_source_mode(self.cfg.input_mode, library=submission.library is not None)
             # A GPU language grades on the device (task.default_residency); the reference stays host-resident.
             # mpi.grade_distributed gives ``distributed`` here.
             task = Task(kernel, source_mode, language, residency=grading_residency(kernel, language))
@@ -2175,7 +2184,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
             if slot is None:
                 return None
             try:
-                with sandbox.Sandbox(binding_from_spec(BenchSpec.load(task.kernel))) as box:
+                with sandbox.Sandbox(
+                    binding_from_spec(BenchSpec.load(task.kernel)), source_mode=task.source_mode
+                ) as box:
                     built = box.build(submission, mode=SUBMISSION_BUILD_MODE, report=True)
             except Exception as exc:  # noqa: BLE001 -- the judge failed the build itself: 500, never a dead thread
                 return self._send(

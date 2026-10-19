@@ -14,6 +14,7 @@ import importlib
 import os
 import pathlib
 import tempfile
+import time
 import urllib.parse
 from collections.abc import Mapping, Sequence
 from importlib import metadata
@@ -22,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import pydantic
 
-from hpcagent_bench import cpf_cache, paths
+from hpcagent_bench import cpf_cache, optimize_clock, paths
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -320,7 +321,13 @@ def produce(
     Only an ``Exception`` is published: a timeout or a kill ends this process before it gets here,
     so an interrupted canonicalize is retried rather than remembered.
     """
-    manifest = {"kernel": spec.short_name, "program": impl.name, "target": target, "precision": fptype_tag(precision)}
+    manifest: dict[str, object] = {
+        "kernel": spec.short_name,
+        "program": impl.name,
+        "target": target,
+        "precision": fptype_tag(precision),
+    }
+    started = time.perf_counter()
     try:
         parsed = parse_program(spec, impl, precision)
         if isinstance(parsed, dict):
@@ -330,6 +337,7 @@ def produce(
     except Exception as exc:  # noqa: BLE001 -- a raised error is a verdict worth remembering
         cpf_cache.publish_canonical(cache_root, key, {**manifest, **failure(exc)}, None)
         return
+    manifest["seconds"] = time.perf_counter() - started
     cache_root.mkdir(parents=True, exist_ok=True)
     staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{key}.", dir=cache_root))
     try:
@@ -362,4 +370,7 @@ def canonical_sdfg(
     manifest, stored = entry
     if stored is None:
         return {"verdict": manifest.verdict, "error": manifest.error}, cached
+    # Produced by the prerender (or an earlier run), the canonicalize is still this run's work: its time counts.
+    if cached:
+        optimize_clock.credit(manifest.seconds)
     return SDFG.from_file(str(stored)), cached

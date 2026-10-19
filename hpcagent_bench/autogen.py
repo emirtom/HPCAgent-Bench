@@ -26,6 +26,7 @@ import importlib
 import pathlib
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterable
 
 from hpcagent_bench import framework_cache, paths
@@ -225,16 +226,16 @@ def ensure_locked(spec: BenchSpec, kdir: pathlib.Path, targets: list[str]) -> No
             continue
         if not framework_cache.load_generated(cache_dir, canonical, fingerprint):
             to_emit.append(t)
-    if not to_emit:
-        return
-    statuses = emit_targets(spec, to_emit)
     for t in to_emit:
+        # One target per emit, so each cached file records the seconds its own emit took (optimize_clock).
+        started = time.perf_counter()
+        status = emit_targets(spec, [t]).get(t, "")
+        seconds = time.perf_counter() - started
         # Cache only a freshly generated file (status "ok"): an "override" is a hand file and a
         # "fail: ..." left any stale bytes untouched -- caching either would defeat the guard.
         canonical = kdir / file_for(spec.module_name, t)
-        status = statuses.get(t, "")
         if status == "ok" and is_generated(canonical):
-            framework_cache.save_generated(cache_dir, canonical, fingerprint)
+            framework_cache.save_generated(cache_dir, canonical, fingerprint, seconds)
         elif status.startswith("fail") and is_generated(canonical):
             canonical.unlink()
 

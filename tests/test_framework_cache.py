@@ -24,6 +24,7 @@ import subprocess
 import pytest
 
 from hpcagent_bench import framework_cache as fc
+from hpcagent_bench import optimize_clock
 from hpcagent_bench.cache_files import sha256_hex
 from tests.optional_imports import import_or_skip
 
@@ -80,8 +81,10 @@ def test_generated_source_cache_hit_restore_and_invalidation(tmp_path) -> None:
     fp1 = sha256_hex(b"source-v1")
 
     assert fc.load_generated(cache, canonical, fp1) is False, "empty cache must MISS"
-    fc.save_generated(cache, canonical, fp1)
-    assert fc.load_generated(cache, canonical, fp1) is True, "unchanged source must HIT"
+    fc.save_generated(cache, canonical, fp1, 2.5)
+    with optimize_clock.measuring() as clock:
+        assert fc.load_generated(cache, canonical, fp1) is True, "unchanged source must HIT"
+    assert clock.credited == 2.5, "a hit credits the seconds the emit took"
 
     canonical.unlink()  # a hit RESTORES the sibling from the cache without re-emitting
     assert fc.load_generated(cache, canonical, fp1) is True
@@ -310,7 +313,7 @@ def test_sdfg_cache_roundtrip_invalidation_and_corruption(tmp_path, monkeypatch)
     fp = sha256_hex(b"gemm-fp64-v1")
 
     assert fc.load_sdfg(cache, "gemm", "cpu", fp) is None, "empty cache must MISS"
-    fc.save_sdfg(cache, "gemm", "cpu", fp, fresh)
+    fc.save_sdfg(cache, "gemm", "cpu", fp, fresh, 1.0)
     saved = cache / "gemm_cpu.sdfgz"
     assert saved.exists(), "the base SDFG must be saved as <module>_cpu.sdfgz"
 
