@@ -439,6 +439,8 @@ def emit_signature(kir: KernelIR, fn_name: str, order: list[str] | None = None) 
 # Operator tables live in numpyto_common.operators, keyed by target; local aliases keep existing call sites.
 BINOP_ = operators.BINOP["c"]
 CMPOP_ = operators.CMPOP["c"]
+#: Kernel float dtypes whose literals carry a narrow suffix; their compare-side constants are folded in double.
+NARROW_FLOAT_DTYPES = frozenset({"float32", "float16"})
 BOOLOP_ = operators.BOOLOP["c"]
 
 # cpp_isopar: loop shapes that have a faithful <algorithm> / <numeric> spelling
@@ -1440,7 +1442,7 @@ class CBodyEmitter(BaseEmitter):
             return "(" + f" {op} ".join(parts) + ")"
         if isinstance(node, ast.Compare):
             # Python chained comparison (a < b < c) means (a<b) and (b<c); C has no chaining, so emit an explicit conjunction.
-            operands = [self.emit_expr(node.left)] + [self.emit_expr(c) for c in node.comparators]
+            operands = [self.emit_compare_operand(node.left)] + [self.emit_compare_operand(c) for c in node.comparators]
             terms = [f"({operands[i]} {CMPOP_[type(op)]} {operands[i + 1]})" for i, op in enumerate(node.ops)]
             return terms[0] if len(terms) == 1 else "(" + " && ".join(terms) + ")"
         if isinstance(node, ast.Subscript):
@@ -1453,6 +1455,14 @@ class CBodyEmitter(BaseEmitter):
         raise NotImplementedError(
             f"expression {type(node).__name__} (line {vars(node).get('lineno', '?')}): {ast.unparse(node)[:120]}"
         )
+
+    def emit_compare_operand(self, node: ast.expr) -> str:
+        """A comparison operand; in a narrow kernel a float constant expression is folded and compared in double, as
+        the references compare it (:func:`operators.folded_float_constant`)."""
+        value = operators.folded_float_constant(node)
+        if value is not None and default_float_dtype(self.kir) in NARROW_FLOAT_DTYPES:
+            return f"({value!r})" if value < 0 else repr(value)
+        return self.emit_expr(node)
 
     def emit_constant(self, v: object) -> str:
         """A literal: bool as 0/1, float with the float32 ``f`` suffix, inf/nan as the <math.h> macros."""

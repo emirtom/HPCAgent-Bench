@@ -209,7 +209,12 @@ def repo_fixture(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def problems_file(path: pathlib.Path, kernels: list[str]) -> pathlib.Path:
-    path.write_text("".join(json.dumps({"id": i, "kernel": k, "task": "opt"}) + "\n" for i, k in enumerate(kernels)))
+    path.write_text(
+        "".join(
+            json.dumps({"id": i, "kernel": k, "task": "opt", "request_actions": {}}) + "\n"
+            for i, k in enumerate(kernels)
+        )
+    )
     return path
 
 

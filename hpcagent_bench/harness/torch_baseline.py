@@ -72,18 +72,18 @@ if TYPE_CHECKING:
 __all__ = [
     "ARCHIVE_DIRNAME",
     "ARCHIVE_SUFFIX",
+    "CacheLayer",
     "FREEZE_WEIGHTS",
+    "Job",
     "LOCK_SUFFIX",
+    "Measured",
     "NS_PER_MS",
     "SEEDED_MARKER",
+    "Source",
     "TORCH_BASELINES",
+    "TorchBaselineUnavailable",
     "WARM_PUBLISH_EVERY",
     "WORK_DIRNAME",
-    "CacheLayer",
-    "Job",
-    "Measured",
-    "Source",
-    "TorchBaselineUnavailable",
     "Workload",
     "archive_root",
     "baseline_device",
@@ -93,6 +93,7 @@ __all__ = [
     "compile_reference",
     "conform",
     "coverage",
+    "eager_outputs",
     "file_count",
     "import_torch",
     "kernelbench_workload",
@@ -538,6 +539,30 @@ def shipped_samples(
     of a distributed ML grade, timed per grade through the same child as every other torch baseline."""
     job = slot_job(spec, baseline, repeat=max(repeat, 1), warmup=max(warmup, 0), params=dict(params), seed=seed)
     return list(child_result(job).samples)
+
+
+def eager_outputs(spec: BenchSpec, data: Mapping[str, Any], device: str = "cpu") -> dict[str, np.ndarray]:
+    """The kernel's torch reference run EAGERLY on ``device``: its own ``_torch.py`` when it ships one, else the
+    bound upstream KernelBench model -- the function :func:`reference_outputs` compiles. Outputs by name, host
+    numpy in the declared shapes. What a correctness sweep holds a machine_learning kernel to: the same model,
+    without a ``torch.compile`` per kernel. Raises :class:`TorchBaselineUnavailable` when the model returns
+    another number of outputs than the manifest declares."""
+    torch = import_torch()
+    with torch.no_grad():
+        if torch_reference.has_torch_reference(spec):
+            module = torch_reference.load_torch_module(spec)
+            positional, keyword = kernelbench_adapter.reference_arguments(spec, module.reference)
+            args = [stage(torch, data[name], device) for name in positional]
+            result = module.reference(*args, **{name: kernelbench_adapter.scalar(data[name]) for name in keyword})
+        else:
+            bound = kernelbench_adapter.build(spec, data, device, torch)
+            result = bound.model.forward(*[stage(torch, data[n], device) for n in bound.forward_args])
+    values = list(result) if isinstance(result, (tuple, list)) else [result]
+    if len(values) != len(spec.output_args):
+        raise TorchBaselineUnavailable(f"{spec.short_name}: {len(values)} outputs for {list(spec.output_args)}")
+    return {
+        name: conform(to_numpy(torch, value), data[name]) for name, value in zip(spec.output_args, values, strict=True)
+    }
 
 
 def reference_outputs(spec: BenchSpec, data: Mapping[str, Any], baseline: str) -> dict[str, np.ndarray]:

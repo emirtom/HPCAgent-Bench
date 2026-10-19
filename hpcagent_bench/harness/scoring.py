@@ -24,6 +24,7 @@ from typing import Any, NamedTuple, Optional, cast, overload
 import numpy as np
 
 from hpcagent_bench import config, flags, languages, sizing
+from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import reassociation_agrees
 from hpcagent_bench.fuzz import FUZZED_PRESET, FuzzValue, initializer_seed
@@ -152,6 +153,7 @@ __all__ = [
     "BASELINE_TIMING_CACHE_MAX",
     "DEVICE_RUNTIME_REFUSAL",
     "GRADING_PROTOCOL",
+    "IEEE_FLOATS",
     "LOST_REASON_CHARS",
     "ML_LAWS",
     "ML_NOT_LAUNCHED",
@@ -194,6 +196,9 @@ __all__ = [
     "graded_score",
     "guillotine_seconds",
     "identity",
+    "ieee_draw",
+    "ieee_drawn",
+    "ieee_reference_data",
     "implausibility",
     "implausible_speedup",
     "in_layout",
@@ -390,14 +395,22 @@ def oracle_function(
     (``torch-autotune``, on the grade's device kind) in the child that times it. Interpreted NumPy is
     not an option: this is the one road from a grade to a reference output. A reference that cannot
     answer raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`, and the caller moves to
-    the next kind or scores the judge's fault."""
+    the next kind or scores the judge's fault.
+
+    The numba and C references compute in IEEE fp32 / fp64 only: they answer for the inputs with every narrower
+    float promoted to fp64 (:func:`ieee_reference_data`), so a narrower format is checked against the fp64
+    reference on the same values, whichever path of a grade asks."""
 
     def numba_reference(data: dict[str, Any], draw: Callable[[int], dict] | None = None) -> dict[str, np.ndarray]:
-        return numba_reference_outputs(spec, data, memory_gb, rep_data=draw)
+        return numba_reference_outputs(spec, ieee_reference_data(data), memory_gb, rep_data=ieee_draw(draw))
 
     def c_reference(data: dict[str, Any], draw: Callable[[int], dict] | None = None) -> dict[str, np.ndarray]:
+        # The C reference casts its inputs in, and the casts have no complex64 kernel.
+        inputs = ieee_reference_data(data, widen_complex=True)
         try:
-            return _run_c_reference(spec, task, binding, data, [], 1, timeout, memory_gb, rep_data=draw)[0]
+            return _run_c_reference(
+                spec, task, binding, inputs, [], 1, timeout, memory_gb, rep_data=ieee_draw(draw, widen_complex=True)
+            )[0]
         except RuntimeError as exc:
             raise ReferenceUnavailable(f"C reference of {spec.short_name}: {one_line(exc)}") from exc
 
@@ -440,6 +453,45 @@ def fallback_oracle(
             continue
         return kind, reference
     raise ReferenceUnavailable("; ".join(failures))
+
+
+#: The float formats the compiled oracles compute in; any other is promoted to fp64 for them.
+IEEE_FLOATS = frozenset({np.dtype(np.float32), np.dtype(np.float64)})
+
+
+def ieee_reference_data(data: dict[str, Any], widen_complex: bool = False) -> dict[str, Any]:
+    """``data`` with every floating array of a format the compiled references do not compute in (fp16, bf16, fp8,
+    extended precision) as an fp64 copy, and with ``widen_complex`` every complex64 array as a complex128 copy;
+    ``data`` itself when there is none."""
+    widened: dict[str, type[np.generic]] = {
+        name: np.float64
+        for name, value in data.items()
+        if isinstance(value, np.ndarray)
+        and dtype_registry.is_float_dtype(value.dtype)
+        and value.dtype not in IEEE_FLOATS
+    }
+    if widen_complex:
+        widened |= {
+            name: np.complex128
+            for name, value in data.items()
+            if isinstance(value, np.ndarray) and value.dtype == np.complex64
+        }
+    return data if not widened else {**data, **{name: data[name].astype(dtype) for name, dtype in widened.items()}}
+
+
+def ieee_drawn(draw: Callable[[int], dict[str, Any]], widen_complex: bool, rep: int) -> dict[str, Any]:
+    """Input set ``rep`` of ``draw`` through :func:`ieee_reference_data`."""
+    return ieee_reference_data(draw(rep), widen_complex=widen_complex)
+
+
+def ieee_draw(
+    draw: Callable[[int], dict[str, Any]] | None, widen_complex: bool = False
+) -> Callable[[int], dict[str, Any]] | None:
+    """``draw`` with each drawn input set passed through :func:`ieee_reference_data`; a ``functools.partial`` of a
+    module-level function, so it pickles into the spawn / forkserver child that runs the reference."""
+    if draw is None:
+        return None
+    return functools.partial(ieee_drawn, draw, widen_complex)
 
 
 def first_oracle(
@@ -1068,7 +1120,7 @@ def independent_verify(
     determinism_ok = reverify_ok = dual_oracle_ok = False
     dual_oracle_applied = False
     try:
-        with Sandbox(cand_binding) as sb:
+        with Sandbox(cand_binding, source_mode=task.source_mode) as sb:
             built = sb.build(submission, mode=Mode.SINGLE_CORE)
             if not built.ok:
                 return VerifyResult(False, False, False, False, False, "rebuild failed")
@@ -1180,7 +1232,7 @@ def sanitized_run(
     data = _data_seeded(task.kernel, "S", datatype, seed)
     if choice is not None:
         data = laid_out(BenchSpec.load(task.kernel), choice, data)
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE, judge_compile=compile_flags, judge_link=link_flags)
         if not built.ok or built.lib is None:
             return sanitizers.SanitizerVerdict(False, note=f"the sanitized rebuild failed: {built.log[-400:]}")
@@ -1897,7 +1949,7 @@ def graded_score(
     # The early-stop race behind the denominator, when one ran here (race_record).
     race: tuple[str, str, str] = ("", "", "")
     # Built first: a submission that does not compile must not pay for the reference runs.
-    with Sandbox(cand_binding) as sb:
+    with Sandbox(cand_binding, source_mode=task.source_mode) as sb:
         built = sb.build(submission, mode=mode)
         if not built.ok:
             return Score(
@@ -2798,7 +2850,7 @@ def _verify_distributed(
         return VerifyResult(False, False, False, False, False, str(exc), harness_fault=True)
 
     try:
-        with Sandbox(binding) as sb:
+        with Sandbox(binding, source_mode=task.source_mode) as sb:
             built = sb.build_mpi(submission, descriptor, cc_override=mpi_cc_override())
             if not built.ok:
                 return VerifyResult(False, False, False, False, False, "mpi rebuild failed")
@@ -2930,7 +2982,7 @@ def _build_run_mpi(
 
     ``k_repeats`` overrides ``mpi.k_repeats``: :func:`score_distributed` passes its ``repeat``; the
     scaling sweep keeps the default."""
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         built = sb.build_mpi(submission, descriptor, cc_override=mpi_cc_override())
         if not built.ok:
             raise MpiBuildError(built.log[-2000:])
@@ -2975,7 +3027,7 @@ def build_run_sharded(
     """The ML-track counterpart of :func:`_build_run_mpi`: no host data, no gather. Each rank generates
     its own input shard, runs the submission and ``reference_dist``, and grades its own shard
     (:func:`torch_reference.rank_verdict`). Returns ``(ok, max_err, detail, samples_ns)``."""
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         built = sb.build_mpi(submission, descriptor, cc_override=mpi_cc_override())
         if not built.ok:
             raise MpiBuildError(built.log[-2000:])
@@ -3403,7 +3455,7 @@ def time_scaling_anchor(
     a_memory = config.current().limits.kernel_memory_gb
     device = single_rank_anchor.language in ("cuda", "hip")
     # T_1(N_1): built and timed once on the base problem, shared by every P.
-    with Sandbox(binding) as asb:
+    with Sandbox(binding, source_mode=task.source_mode) as asb:
         abuilt = asb.build(single_rank_anchor, mode=Mode.SINGLE_CORE)
         if not abuilt.ok:
             return 0, f"single-node anchor build failed: {abuilt.log[-500:]}"
@@ -3805,7 +3857,7 @@ def score_ml(
         return refused(
             f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language}"
         )
-    with Sandbox(binding) as sb:
+    with Sandbox(binding, source_mode=task.source_mode) as sb:
         # The rank driver's kernel library is grid-independent, so one build serves every P and law.
         built = sb.build_mpi(submission, lead, cc_override=mpi_cc_override())
         if not built.ok:
@@ -4202,7 +4254,7 @@ def score_cells(
         return outs, samples, int(mem.memory.increment_bytes), mem
 
     results: list[CellScore] = []
-    with Sandbox(cand_binding) as sb:
+    with Sandbox(cand_binding, source_mode=task.source_mode) as sb:
         built = sb.build(submission, mode=mode)
         if not built.ok:
             log = built.log[-2000:]
@@ -4221,7 +4273,7 @@ def score_cells(
         if plan.need_seq_c:
             try:
                 ctask = replace(task, language="c", source_mode="restricted", residency="host")
-                c_ctx = Sandbox(binding)
+                c_ctx = Sandbox(binding, source_mode=task.source_mode)
                 csb = c_ctx.__enter__()
                 # Same family as the candidate, for the same reason score() does it.
                 c_submission = reference_submission(ctask, "c", submission.compiler)
@@ -4243,7 +4295,7 @@ def score_cells(
         bl_ctxs: list[Sandbox] = []
         if plan.bl_own_build and plan.compiled is not None:
             for compiler in plan.compiled[2]:
-                ctx = Sandbox(binding)
+                ctx = Sandbox(binding, source_mode=task.source_mode)
                 try:
                     absb = ctx.__enter__()
                     ref_built = build_reference_lib(

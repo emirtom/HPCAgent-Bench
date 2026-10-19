@@ -11,7 +11,7 @@ import pytest
 import yaml
 from _pytest.mark.structures import ParameterSet
 
-from hpcagent_bench import paths
+from hpcagent_bench import autogen, paths
 from hpcagent_bench.numerical_oracle import (
     CHAOTIC_FLOAT_TOLERANCE,
     COMPILE,
@@ -79,8 +79,8 @@ if E2E_PRECISION == "fp16":
 #: Tracks the sweep gates; `machine_learning` also exercises reduction/keepdims/triangular-mask/promotion paths.
 GATED_TRACKS = ("loop_level_reasoning", "scientific_computing", "machine_learning")
 
-#: Sole per-corpus witnesses for 4 precision-lowering bugs; membership asserted so none get silently dropped.
-PINNED_KERNELS = ("vexx_k", "chebyshev_filter_subspace", "raman_fitting", "cloudsc")
+#: Sole per-corpus witnesses for 3 precision-lowering bugs; membership asserted so none get silently dropped.
+PINNED_KERNELS = ("vexx_k", "chebyshev_filter_subspace", "raman_fitting")
 
 #: Gated kernels whose ``allowed_precisions`` leave out fp32, so the fp32 sweep skips them. The reasons that occur:
 #: chaotic escape-time iteration, where fp32 rounding/FMA differences flip which iteration a point escapes at and
@@ -95,6 +95,7 @@ FP64_ONLY_KERNELS = (
     "amg_setup",
     "bdf_newton_krylov",
     "cegterg",
+    "cloudsc",
     "cloudsc_monolith",
     "cp2k_density_matrix_trs4",
     "cp2k_grid_integrate",
@@ -291,6 +292,8 @@ def _params() -> Iterator[ParameterSet]:
     declared = sorted(s for s in stems if declares(s, E2E_PRECISION))
     for stem in (s for position, s in enumerate(declared) if in_shard(position)):
         for backend in E2E_BACKENDS:
+            if backend == "numba" and not autogen.has_numba(BenchSpec.load(stem)):
+                continue  # the ML track has no numba reference
             # Grouped by STEM so ``--dist loadgroup`` keeps one stem's backends on one worker.
             # ``_result`` builds EVERY backend in one call and memoises per process, so with the
             # default per-test distribution each of a stem's backend tests lands on a different
@@ -499,54 +502,9 @@ def test_every_required_ok_pair_is_swept_on_every_push() -> None:
     )
 
 
-#: Ungated kernels whose NUMPY REFERENCE cannot run on the sweep's inputs, with the status that
-#: says so. Not a numba defect: the size scaling hands conv_depthwise_2d_asymmetric_input_square_kernel
-#: conv2d_groups=32 against a weight sized for its manifest's 128 groups, so the reference's own
-#: indexing overflows. Ratcheted both ways, like MISSING_EMIT_FEATURE: the entry excuses exactly this
-#: status, and the day the inputs are fixed the status stops matching and the entry must go.
-BROKEN_NUMPY_REFERENCE = {
-    "conv_depthwise_2d_asymmetric_input_square_kernel": "FAIL:numpy-error:IndexError",
-}
-
-
-def numba_ungated_params() -> Iterator[ParameterSet]:
-    """The ungated kernels, each on numba, when this run sweeps numba over the WHOLE corpus.
-
-    :data:`UNGATED_TAGS` keeps the KernelBench ports out of :func:`test_e2e_numerical_correctness`
-    because their C pass/fail split is not stable. The numba emit is a different question -- it
-    keeps the numpy body -- and that exclusion is exactly where a numba miscompile hid: every conv
-    port's ``out += bias.reshape(...)`` read past the bias buffer under ``parallel=True``, and no
-    CI leg ran one. Together with the gated sweep this puts every corpus kernel under numba. The
-    per-push slice skips it (``HPCAGENT_BENCH_E2E_SUBSET=1``); the full, dispatched sweep runs it.
-    """
-    if "numba" not in E2E_BACKENDS or os.environ.get("HPCAGENT_BENCH_E2E_SUBSET") == "1":
-        return
-    for stem in sorted(set(_ungated_stems())):
-        if declares(stem, E2E_PRECISION):
-            yield pytest.param(stem, id=f"{stem}-numba", marks=pytest.mark.xdist_group(name=stem))
-
-
-@pytest.mark.parametrize("stem", list(numba_ungated_params()))
-def test_numba_matches_the_compiled_reference_on_every_ungated_kernel(stem: str) -> None:
-    """A numba run either matches the kernel's compiled reference or declines (``skip:``, numba cannot type the construct);
-    it never returns a wrong answer."""
-    status = _result(stem).get("numba", "skip:absent")
-    excused = BROKEN_NUMPY_REFERENCE.get(stem)
-    if excused is not None:
-        assert status == excused, (
-            f"{stem} [numba] -> {status}, but BROKEN_NUMPY_REFERENCE lists it as {excused!r}; "
-            f"if the reference now runs, DELETE the entry"
-        )
-        pytest.skip(status)
-    if status.startswith("skip"):
-        pytest.skip(status)
-    assert status == "ok", f"{stem} [numba] -> {status}"
-
-
 def test_the_full_ci_sweep_runs_numba_over_every_kernel() -> None:
     """Some CI leg sweeps this file on numba with the per-push slice switched off for a dispatched
-    run, which is what collects :func:`test_numba_computes_what_numpy_computes_on_every_ungated_kernel`
-    beside the whole gated corpus."""
+    run, which puts every kernel of a track with a numba reference under numba."""
     workflow = yaml.safe_load((paths.ROOT / ".github" / "workflows" / "tests.yml").read_text())
     job = workflow["jobs"]["e2e"]
     sweeps = [s for s in job["steps"] if "tests/test_e2e_numerical.py" in str(s.get("run", ""))]
@@ -559,9 +517,3 @@ def test_the_full_ci_sweep_runs_numba_over_every_kernel() -> None:
         assert "workflow_dispatch' && '0'" in str(env.get("HPCAGENT_BENCH_E2E_SUBSET")), (
             "a dispatched run must sweep the whole corpus, not the per-push slice"
         )
-
-
-def test_every_broken_reference_is_an_ungated_kernel() -> None:
-    """The excuse list covers only kernels the numba-wide test sweeps, so an entry cannot quietly
-    excuse a gated kernel."""
-    assert set(BROKEN_NUMPY_REFERENCE) <= set(_ungated_stems())

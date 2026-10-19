@@ -68,11 +68,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The full sweep on the latest release, in two ~25 min shards; the requires-python floor
-        # (the images' interpreter) gets the short `floor` leg: lint, import every module, collect.
+        # The full sweep on the latest release, in three shards (two ran into the 38 min step cap); the
+        # requires-python floor (the images' interpreter) gets the short `floor` leg: lint, import every module, collect.
         include:
           - { python: '3.14', shard: 0 }
           - { python: '3.14', shard: 1 }
+          - { python: '3.14', shard: 2 }
           - { python: '3.12', shard: floor }
     timeout-minutes: 45
     steps:
@@ -88,8 +89,9 @@ jobs:
           # harbor: test_harbor.py checks task.toml against Harbor's own model.
           sync-args: "--group harbor --all-packages"
           ccache: unit-${{ matrix.python }}-${{ matrix.shard }}
-          # Only shard 0 carries an nvc++ case (test_parallelism_dispatch.py); the floor leg runs none.
-          vendor-compilers: ${{ matrix.shard == 0 && 'nvhpc' || '' }}
+          # Only shard 2 carries an nvc++ case (test_parallelism_dispatch.py, file 365 of the round-robin);
+          # the floor leg runs none.
+          vendor-compilers: ${{ matrix.shard == 2 && 'nvhpc' || '' }}
 
       # Format (ruff / clang-format / fprettify) and ruff's pyupgrade rules at the py312 floor, on
       # the files the change touches. Once, on the floor interpreter.
@@ -145,7 +147,7 @@ jobs:
           excl=$(mktemp)
           grep -vE '^\s*(#|$)' .github/dedicated_tests.txt > "$excl"
           # Round-robin over the sorted list, so the shards partition it.
-          files=$(ls tests/test_*.py | grep -vxF -f "$excl" | awk 'NR % 2 == ${{ matrix.shard }}')
+          files=$(ls tests/test_*.py | grep -vxF -f "$excl" | awk 'NR % 3 == ${{ matrix.shard }}')
           test -n "$files" || { echo 'unit sweep selected no files'; exit 1; }
           echo "$files" | tr ' ' '\n' | wc -l | xargs echo "sweeping files:"
           # -v names each test as it starts: a step cap is a SIGKILL and prints no summary.
@@ -186,7 +188,8 @@ jobs:
           ccache: perf
       - name: Perf gate
         run: |
-          export OMP_NUM_THREADS=$(nproc)
+          # Physical cores: the timed child is pinned to one hardware thread per core (native_call.grading_cpus).
+          export OMP_NUM_THREADS=$(python -c "from hpcagent_bench.flags import ncores; print(ncores())")
           tests=$(python -c "from tests.test_canon_perf_gate import PERF_JOBS; \
             print(' '.join(f'tests/test_canon_perf_gate.py::test_canon_is_within_2x_of_the_compiled_baseline[{k}]' \
             for k in PERF_JOBS['${{ matrix.job }}']))")
@@ -510,7 +513,8 @@ jobs:
       # Serial: its module fixture drives both sweeps into one DB.
       - name: Phase 6s -- integration sweep (CLI -> DB -> plot, numpy + native autopar)
         if: ${{ !cancelled() }}
-        timeout-minutes: 5
+        # Each kernel's grade builds its compiled numba/C reference: about 3 min on a 64-core node, past 5 on a runner.
+        timeout-minutes: 15
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=1800 tests/test_integration_sweep.py
 
@@ -523,8 +527,14 @@ jobs:
   # its 45 minutes, so a slow runner cancelled the job.
   native-e2e:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: native-e2e (e2e[c,cpp,fortran] fp64 + fp32 + emitted references)
+    name: native-e2e[${{ matrix.shard }}] (e2e[c,cpp,fortran] fp64 + fp32 + emitted references)
     runs-on: ubuntu-24.04
+    # Two shards of the sweeps: with the compiled numba/C reference per kernel the whole fp64 corpus no longer fits
+    # one runner's step budget. The single-run phases (5c, 5e) run on shard 0.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 0, 1 ]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -537,6 +547,7 @@ jobs:
         timeout-minutes: 18
         env:
           HPCAGENT_BENCH_E2E_BACKENDS: "c,cpp,fortran"
+          HPCAGENT_BENCH_E2E_SHARD: ${{ matrix.shard }}/2
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs -n auto --dist loadgroup --timeout=600 tests/test_e2e_numerical.py
 
@@ -549,19 +560,20 @@ jobs:
           HPCAGENT_BENCH_E2E_BACKENDS: "c,cpp,fortran"
           HPCAGENT_BENCH_E2E_SUBSET: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
           HPCAGENT_BENCH_E2E_PRECISION: "fp32"
+          HPCAGENT_BENCH_E2E_SHARD: ${{ matrix.shard }}/2
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs -n auto --dist loadgroup --timeout=600 tests/test_e2e_numerical.py
 
       # The KernelBench ratchet itself is integration-marked and runs in `integration`.
       - name: Phase 5c -- kernelbench corpus size pin
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 0 }}
         timeout-minutes: 2
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=2400 -m "not integration" \
             tests/test_kernelbench_translation.py
 
       - name: Phase 5e -- emitted references are well-formed and share one ABI
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 0 }}
         # 8 minutes cut it off on a slow runner (one xdist group, so it runs serially).
         timeout-minutes: 15
         run: |
@@ -570,7 +582,7 @@ jobs:
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: native-e2e
+          coverage: native-e2e-${{ matrix.shard }}
 
   # The sudoless Apptainer install and launch path, and the in-process agent-bench suite. No image
   # is built here: every image under containers/images/ takes longer than a runner allows and gates
@@ -699,8 +711,8 @@ jobs:
           # per call (>180x slower here). COVERAGE_CORE=sysmon falls back with branch coverage.
           PYTEST_ADDOPTS: ""
         run: |
-          python -m pytest -q -p no:cacheprovider -rfEs --import-mode=importlib -n auto --timeout=600 \
-            hpcagent_bench/benchmarks/
+          python -m pytest -q -p no:cacheprovider -p tests.openmp_launch_plugin -rfEs --import-mode=importlib \
+            -n auto --timeout=600 hpcagent_bench/benchmarks/
 
       # The ML ports still compute what their PyTorch models compute; UNALIGNED is a ratchet. Every ML
       # kernel resolves to a torch reference that agrees with its numpy oracle.

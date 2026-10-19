@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.1 (2026-10)
+
+Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2f`). Fixes the CI failures the
+0.2.0 release left and makes every scientific_computing numba reference parallel.
+
+### Changed
+- **Parallel numba references.** The scientific_computing oracle is best-of(numba, c), and 30 kernels' numba half
+  ran on one core (the emit drops `parallel=True` for a `max`/`min` call, an in-place self-dependent slice update or
+  an FFT) or could not be lowered at all. Each now ships a hand-written parallel override, including a four-step
+  `fft_1d` and a column-wise `cloudsc_monolith` that compiles in seconds instead of over 30 minutes and leads its
+  oracle at XL. `tests/test_numba_reference_parallel.py` fails any new kernel whose numba reference is serial.
+- **No numba on the machine_learning track.** Its oracle is torch only; the ML numba kernels are deleted and the
+  correctness sweep compares against the eager torch model.
+- **Narrow formats against the fp64 reference.** Every path of a grade hands the numba and C references fp16/bf16
+  inputs promoted to fp64 (and complex64 as complex128 to C). `cloudsc` is fp64 only, like
+  `cloudsc_monolith`, because its physics thresholds branch differently at fp32.
+
+### New
+- **Optimize time per framework.** Canon results carry an optional `optimize_s` column (results schema 14; a v13
+  file gains the column when opened for writing). HPCAgent-Bench times every framework's emit, optimize and compile
+  steps, and a cached or prerendered artifact (emitted sources, parsed SDFG, canonical SDFG, CPF form) adds the time
+  it took to produce, so a cache hit reports the same total as a cold run.
+- **Single-source submissions in `any` mode.** An `any`-mode task accepts one C or Fortran source built with the
+  agent's own compile flags (fast-math included); link flags stay restricted to `-l`/`-L`. Multi-file builds go
+  through the existing `library` delivery.
+
+### Fixed
+- The correctness sweep hands the compiled reference every size symbol and the returned-output buffers
+  (`no-reference` failures), never shrinks a torch-oracle kernel, and launches the per-kernel reference tests
+  with the OpenMP environment grading requires.
+- The raman_fitting numba reference compiles at fp32; fft_1d's no longer asks numba to cache an objmode function.
+- A CPF form gets the workspace and libraries it requests in the ABI check; DaCe integer helpers (`ipow`, ...) in a
+  workspace size are translated to Python.
+- CI sizes OpenMP from the physical cores of the runner.
+
 ## 0.2.0 (2026-10)
 
 Pinned with dace extended `3f5d9a884`, Alloy `aeca753` and relayout `2718b2f`. Not backwards compatible with 0.1:

@@ -43,6 +43,7 @@ COLUMNS: tuple[str, ...] = (
     "gpu",
     "execution",
     "ts_ms",
+    "optimize_s",
 )
 
 #: A row's identity; a later row with the same key replaces it.

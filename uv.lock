@@ -2449,7 +2449,7 @@ wheels = [
 
 [[package]]
 name = "hpcagent-agent"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "agent" }
 
 [package.dev-dependencies]
@@ -2472,7 +2472,7 @@ harness-openhands = [
 
 [[package]]
 name = "hpcagent-bench"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },

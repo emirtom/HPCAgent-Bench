@@ -1864,9 +1864,17 @@ class FortranBodyEmitter(BaseEmitter):
                 return f"({self.emit_expr(left)} {op} {self.emit_expr(right)})"
         # Python chained comparison a < b < c == (a<b) and (b<c); Fortran has
         # no chaining, so emit an explicit .and. join.
-        operands = [self.emit_expr(node.left)] + [self.emit_expr(c) for c in node.comparators]
+        operands = [self.emit_compare_operand(node.left)] + [self.emit_compare_operand(c) for c in node.comparators]
         terms = [f"({operands[i]} {CMPOP_[type(op)]} {operands[i + 1]})" for i, op in enumerate(node.ops)]
         return terms[0] if len(terms) == 1 else "(" + " .and. ".join(terms) + ")"
+
+    def emit_compare_operand(self, node: ast.expr) -> str:
+        """A comparison operand; in a single-precision kernel a float constant expression is folded and compared in
+        double, as the references compare it (:func:`operators.folded_float_constant`)."""
+        value = operators.folded_float_constant(node)
+        if value is not None and self._rk != "c_double":
+            return f"({value!r}_c_double)" if value < 0 else f"{value!r}_c_double"
+        return self.emit_expr(node)
 
     def expr_is_real(self, e: ast.expr) -> bool:
         """True only when e is PROVABLY real-typed; deliberately not the complement of expr_is_integer."""

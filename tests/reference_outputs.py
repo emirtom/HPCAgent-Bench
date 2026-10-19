@@ -15,22 +15,17 @@ from typing import Any
 
 import numpy as np
 
-from hpcagent_bench.harness import grading, kernelbench_adapter, scoring, timing, torch_baseline, torch_reference
+from hpcagent_bench.harness import grading, scoring, timing, torch_baseline
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 
-__all__ = ["compiled_outputs", "other_compiled_kinds", "torch_eager_outputs", "track_oracle_kinds"]
+__all__ = ["compiled_outputs", "torch_eager_outputs", "track_oracle_kinds"]
 
 
 def track_oracle_kinds(spec: BenchSpec, preset: str = "S") -> tuple[str, ...]:
     """The references a grade of ``spec`` at ``preset`` tries, in order (the track's oracle)."""
     return grading.oracle_kinds(grading.resolve_oracle(grading.AUTO_ORACLE, spec), spec, preset)
-
-
-def other_compiled_kinds(spec: BenchSpec, preset: str = "S") -> tuple[str, ...]:
-    """``spec``'s numba and C references in grading's order: what the ML torch reference is held to."""
-    return grading.compiled_order(spec, preset)
 
 
 def compiled_outputs(
@@ -52,21 +47,5 @@ def compiled_outputs(
 
 
 def torch_eager_outputs(spec: BenchSpec, data: Mapping[str, Any], device: str = "cpu") -> dict[str, np.ndarray]:
-    """The kernel's torch reference run eagerly: its own ``_torch.py`` when it ships one, else the bound
-    upstream KernelBench model. Outputs by name, host numpy in the declared shapes."""
-    torch = torch_baseline.import_torch()
-    with torch.no_grad():
-        if torch_reference.has_torch_reference(spec):
-            module = torch_reference.load_torch_module(spec)
-            positional, keyword = kernelbench_adapter.reference_arguments(spec, module.reference)
-            args = [torch_baseline.stage(torch, data[name], device) for name in positional]
-            result = module.reference(*args, **{name: kernelbench_adapter.scalar(data[name]) for name in keyword})
-        else:
-            bound = kernelbench_adapter.build(spec, data, device, torch)
-            result = bound.model.forward(*[torch_baseline.stage(torch, data[n], device) for n in bound.forward_args])
-    values = list(result) if isinstance(result, (tuple, list)) else [result]
-    assert len(values) == len(spec.output_args), f"{spec.short_name}: {len(values)} outputs for {spec.output_args}"
-    return {
-        name: torch_baseline.conform(torch_baseline.to_numpy(torch, value), data[name])
-        for name, value in zip(spec.output_args, values, strict=True)
-    }
+    """The kernel's torch reference run eagerly (:func:`torch_baseline.eager_outputs`)."""
+    return torch_baseline.eager_outputs(spec, data, device)

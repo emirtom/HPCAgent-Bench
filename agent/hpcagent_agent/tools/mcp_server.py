@@ -226,7 +226,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "hpcagent_bench", "version": "0.2.0"},
+                "serverInfo": {"name": "hpcagent_bench", "version": "0.2.1"},
                 "instructions": server_instructions(),
             },
             request_id,

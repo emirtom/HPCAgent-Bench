@@ -78,8 +78,6 @@ def test_llr_races_c_and_numba_and_ml_times_torch_autotune_on_its_device() -> No
     assert ml.track == "machine_learning"
     assert grading.resolve_baseline_set("auto", ml) == ("torch-autotune-cpu",)
     assert grading.resolve_baseline_set("auto", ml, on_gpu=True) == ("torch-autotune-gpu",)
-    with config.overridden("measurement.denominator.machine_learning", "numba"):
-        assert grading.resolve_baseline_set("auto", ml) == ("numba",)
 
 
 def test_a_kernel_with_a_hand_written_reference_races_its_tracks_set() -> None:

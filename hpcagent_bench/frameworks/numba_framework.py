@@ -5,6 +5,7 @@ import inspect
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from hpcagent_bench import autogen
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks.framework import load_impl
 
@@ -61,7 +62,10 @@ class NumbaFramework(Framework):
         return [], bound
 
     def implementations(self, bench: Benchmark) -> Sequence[tuple[Callable, str]]:
-        """The ``<module>_numba.py`` kernel (generated when missing); none when it cannot be generated."""
+        """The ``<module>_numba.py`` kernel (generated when missing); none when it cannot be generated, and
+        none on a track with no numba reference (:func:`autogen.has_numba`), whatever file a tree holds."""
+        if not autogen.has_numba(bench.spec):
+            return []
         self.ensure_impls(bench)
         try:
             return [(load_impl(bench, self.info["postfix"]), IMPL_NAME)]

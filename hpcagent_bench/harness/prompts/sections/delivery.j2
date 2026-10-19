@@ -22,6 +22,10 @@ compiles the reference and restricted submissions with:
 {{ compile_flags }}
 ```
 If you use OpenMP or pthreads, list `-fopenmp` or `-lpthread` too, in the shared folder or in `build`.
+
+Instead of a library you may return one source file (`source`, or `source_file` in the shared folder) with its
+`language` and `compiler` family. The judge compiles it with that family's command plus your `build` flags exactly
+as given, `-ffast-math` included, and links it into `{{ lib_name }}` itself: the link line stays the judge's.
 {% else %}
 {% if language == "python" %}
 ## Delivery: a Python module

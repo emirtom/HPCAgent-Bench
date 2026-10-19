@@ -5,6 +5,7 @@
 import pathlib
 import shutil
 import types
+from collections.abc import Iterator
 from typing import Self
 
 import numpy as np
@@ -115,7 +116,7 @@ def test_verify_distributed_ungradeable_tolerance_is_flagged_not_a_crash(monkeyp
     from hpcagent_bench.precision import UngradeableTolerance
 
     class FakeSandbox:
-        def __init__(self, _binding: object) -> None:
+        def __init__(self, _binding: object, source_mode: str = "restricted") -> None:
             pass
 
         def __enter__(self) -> Self:
@@ -445,7 +446,9 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
     calls = {"anchor": 0}
 
     @contextlib.contextmanager
-    def _fake_sandbox(binding):  # production Sandbox(binding) takes one arg
+    def _fake_sandbox(
+        binding: object, source_mode: str = "restricted"
+    ) -> Iterator[types.SimpleNamespace]:  # production Sandbox(binding, source_mode)
         yield types.SimpleNamespace(
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )
@@ -523,7 +526,7 @@ def gang_strong_sweep(
     fail = error or S.MpiBuildError
 
     @contextlib.contextmanager
-    def fake_sandbox(binding):
+    def fake_sandbox(binding: object, source_mode: str = "restricted") -> Iterator[types.SimpleNamespace]:
         yield types.SimpleNamespace(
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )
@@ -642,7 +645,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     from hpcagent_bench.harness import scoring as S
 
     @contextlib.contextmanager
-    def _fake_sandbox(binding):
+    def _fake_sandbox(binding: object, source_mode: str = "restricted") -> Iterator[types.SimpleNamespace]:
         yield types.SimpleNamespace(
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )

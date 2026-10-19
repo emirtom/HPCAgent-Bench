@@ -30,6 +30,7 @@ from hpcagent_bench.harness import db_json
 from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
+    "ADDITIVE_UPGRADES",
     "BUSY_TIMEOUT_S",
     "CALL_KINDS",
     "DEFAULT_HARNESS",
@@ -98,7 +99,10 @@ __all__ = [
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
 #: The schema's name, and its ``PRAGMA user_version``.
 SCHEMA_NAME = "hb-results-v1.0"
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
+#: Additive steps from an earlier ``user_version`` to :data:`SCHEMA_VERSION`, applied when such a file is opened for
+#: writing; a read or a merge takes it as it is (the added columns read as absent, i.e. ``NULL``).
+ADDITIVE_UPGRADES: dict[int, tuple[str, ...]] = {13: ("ALTER TABLE canon ADD COLUMN optimize_s REAL",)}
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.
@@ -177,11 +181,19 @@ def table_names(conn: sqlite3.Connection, schema: str = "main") -> set[str]:
     return {str(row[0]) for row in conn.execute(f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table'")}
 
 
-def check_schema(conn: sqlite3.Connection, where: str) -> bool:
-    """Whether ``conn`` holds the current schema; ``False`` for a file with no results tables at all.
-    Raises :class:`SchemaVersionError` for any other version."""
+def check_schema(conn: sqlite3.Connection, where: str, upgrade: bool = False) -> bool:
+    """Whether ``conn`` holds the current schema, or one :data:`ADDITIVE_UPGRADES` reaches (applied in place when
+    ``upgrade``, for a connection opened for writing); ``False`` for a file with no results tables at all. Raises
+    :class:`SchemaVersionError` for any other version."""
     version = schema_version(conn)
     if version == SCHEMA_VERSION:
+        return True
+    if version in ADDITIVE_UPGRADES:
+        if upgrade:
+            with conn:
+                for statement in ADDITIVE_UPGRADES[version]:
+                    conn.execute(statement)
+                conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         return True
     if version or table_names(conn) & set(TABLES):
         raise SchemaVersionError(f"{where} is not an {SCHEMA_NAME} results database (user_version {version})")
@@ -197,7 +209,7 @@ def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
     conn = sqlite3.connect(target.as_uri(), uri=True, timeout=BUSY_TIMEOUT_S)
     try:
         conn.execute("PRAGMA journal_mode = WAL")
-        if not check_schema(conn, str(target)):
+        if not check_schema(conn, str(target), upgrade=True):
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         conn.execute("PRAGMA foreign_keys = ON")
     except BaseException:
@@ -569,7 +581,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
         version = int(conn.execute("PRAGMA src.user_version").fetchone()[0])
         copied: dict[str, int] = {}
         ids = IdMap()
-        if version == SCHEMA_VERSION:
+        if version == SCHEMA_VERSION or version in ADDITIVE_UPGRADES:
             copied = {table: merge_rows(conn, table, ids) for table in TABLES}
         elif version or names & set(TABLES):
             raise SchemaVersionError(f"{path} is not an {SCHEMA_NAME} results database (user_version {version})")

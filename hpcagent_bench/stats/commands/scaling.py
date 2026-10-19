@@ -18,6 +18,16 @@ from hpcagent_bench.stats import population
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import scaling
 
+__all__ = [
+    "FIGURES",
+    "build_parser",
+    "draw",
+    "load",
+    "main",
+    "report",
+    "write_tables",
+]
+
 #: ``--figure`` choices; ``all`` draws every one in a single pass.
 FIGURES: tuple[str, ...] = (
     "all",

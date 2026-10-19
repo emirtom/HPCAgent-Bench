@@ -8,7 +8,7 @@ Derived mechanically from a per-column loop form of ``cloudsc_numpy.cloudsc`` (m
 <= 1e-14 relative), keeping its per-element arithmetic order:
 
 * Columns (``jl``) are independent, so every ``for jl in range(kidia, kfdia + 1)`` loop is
-  dropped and the whole column runs inside one call; ``_run`` pranges over contiguous column
+  dropped and the whole column runs inside one call; ``run_chunks`` pranges over contiguous column
   chunks and each chunk walks its columns sequentially. A column writes only its own ``jl``
   slot of the outputs, so there is no race.
 * Every klon-wide temporary of the reference loses its klon axis and becomes one row of a small
@@ -1556,11 +1556,11 @@ def _as_list(arrays):
 
 
 @nb.njit(cache=True)
-def _columns(vec_f, vec_i, fld2, fld3, kfdia, kidia, klon, nlev, ptsphy, lo, hi):
-    """Run columns [lo, hi) (1-based jl) sequentially on one private workspace."""
+def column_chunk(vec_f, zvqx, vec_i, fld2, fld3, kfdia, kidia, klon, nlev, ptsphy, lo, hi):
+    """Run columns [lo, hi) (1-based jl) sequentially on one private workspace. ``zvqx`` (fall speeds, float64 as
+    the reference keeps them) travels apart from ``vec_f``, whose arrays share the input precision."""
     plsm = vec_f[0]
     prainfrac_toprfz = vec_f[1]
-    zvqx = vec_f[2]
     imelt = vec_i[0]
     iphase = vec_i[1]
     ktype = vec_i[2]
@@ -1720,7 +1720,7 @@ def _columns(vec_f, vec_i, fld2, fld3, kfdia, kidia, klon, nlev, ptsphy, lo, hi)
 
 
 @nb.njit(parallel=True, cache=True)
-def _run(vec_f, vec_i, fld2, fld3, kfdia, kidia, klon, nlev, ptsphy, nchunk):
+def run_chunks(vec_f, zvqx, vec_i, fld2, fld3, kfdia, kidia, klon, nlev, ptsphy, nchunk):
     """prange over contiguous column chunks; columns are independent, each writes only its own."""
     vec_f_list = _as_list(vec_f)
     vec_i_list = _as_list(vec_i)
@@ -1730,7 +1730,7 @@ def _run(vec_f, vec_i, fld2, fld3, kfdia, kidia, klon, nlev, ptsphy, nchunk):
     for ichunk in nb.prange(nchunk):
         lo = kidia + ichunk * ncol // nchunk
         hi = kidia + (ichunk + 1) * ncol // nchunk
-        _columns(vec_f_list, vec_i_list, fld2_list, fld3_list, kfdia, kidia, klon, nlev, ptsphy, lo, hi)
+        column_chunk(vec_f_list, zvqx, vec_i_list, fld2_list, fld3_list, kfdia, kidia, klon, nlev, ptsphy, lo, hi)
 
 
 def cloudsc(
@@ -1820,12 +1820,12 @@ def cloudsc(
     llfall[ncldqi - 1] = False
     ncol = int(kfdia) - int(kidia) + 1
     nchunk = max(1, min(ncol, 8 * nb.get_num_threads()))
-    _run(
+    run_chunks(
         (
             plsm,
             prainfrac_toprfz,
-            zvqx,
         ),
+        zvqx,
         (
             imelt,
             iphase,

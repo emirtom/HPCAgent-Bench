@@ -66,7 +66,12 @@ def materialize(repo: pathlib.Path, shared, problems: str = ""):
 
 
 def problems_file(path, kernels):
-    path.write_text("".join(json.dumps({"id": i, "kernel": k, "task": "opt"}) + "\n" for i, k in enumerate(kernels)))
+    path.write_text(
+        "".join(
+            json.dumps({"id": i, "kernel": k, "task": "opt", "request_actions": {}}) + "\n"
+            for i, k in enumerate(kernels)
+        )
+    )
     return path
 
 

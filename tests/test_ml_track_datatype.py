@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, sizing
-from hpcagent_bench.harness import grading
 from hpcagent_bench.spec import KERNELS, BenchSpec, Preset, load_yaml
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import declared_float_dtype, graded_datatype
@@ -126,12 +125,30 @@ def test_the_grade_and_the_abi_run_in_the_track_datatype() -> None:
 NARROW_DATATYPES: tuple[str, ...] = ("bf16", "fp16", "fp8_e4m3", "fp8_e5m2")
 
 
+def cpu_reference(spec: BenchSpec, data: dict) -> dict[str, np.ndarray]:
+    """The kernel's torch reference run eagerly on the CPU the way the C reference's casts run it: every array
+    of a format narrower than fp32 read as an fp32 copy (torch's CPU kernels lack several of them, e.g.
+    ``avg_pool3d`` in bf16 / fp16), every output stored back in its argument's format."""
+    wide = {
+        name: value.astype(np.float32)
+        if isinstance(value, np.ndarray) and value.dtype.kind in "fV" and value.dtype.itemsize < 4
+        else value
+        for name, value in data.items()
+    }
+    return {
+        name: np.asarray(value).astype(data[name].dtype)
+        if isinstance(data.get(name), np.ndarray)
+        else np.asarray(value)
+        for name, value in torch_eager_outputs(spec, wide).items()
+    }
+
+
 @pytest.mark.parametrize("kernel", ml_kernels())
 def test_every_ml_kernel_draws_its_graded_datatype_and_its_oracle_runs(kernel: str) -> None:
     """Every ML kernel's inputs are drawn in its graded datatype -- a custom ``initialize`` draws in
     float32 and is stored back, since numpy's generators have no bf16 -- and its torch reference (the
     track's oracle, run eagerly here) computes on them and returns its float outputs in the same storage
-    dtype."""
+    dtype (:func:`cpu_reference`)."""
     from hpcagent_bench.frameworks.benchmark import Benchmark
 
     spec = BenchSpec.load(kernel)
@@ -141,7 +158,7 @@ def test_every_ml_kernel_draws_its_graded_datatype_and_its_oracle_runs(kernel: s
     floats = [v for v in data.values() if isinstance(v, np.ndarray) and v.dtype.kind in "fV"]
     assert floats, kernel
     assert all(value.dtype == storage for value in floats), kernel
-    outputs = [np.asarray(v) for v in torch_eager_outputs(spec, data).values()]
+    outputs = list(cpu_reference(spec, data).values())
     assert all(value.dtype == storage for value in outputs if value.dtype.kind in "fV"), kernel
 
 
@@ -153,8 +170,8 @@ def test_every_ml_kernel_stays_finite_in_every_narrow_format(kernel: str, dataty
     :func:`hpcagent_bench.initialize.ml_default_domain`), bounded so no product-sum over its fan-in
     leaves the format (:func:`hpcagent_bench.support.distributions.reduction_bound`). The ``dist_*``
     operators declare bf16 alone and are checked at it. The answer is the kernel's torch reference run
-    eagerly with reads promoted to a storage-only format's compute dtype and writes stored back in the
-    format (torch has no CPU fp8 arithmetic), as the C reference's casts do."""
+    eagerly with every narrow format read as fp32 and written back in the format (:func:`cpu_reference`;
+    torch has no CPU fp8 arithmetic), as the C reference's casts do."""
     from hpcagent_bench.frameworks.benchmark import Benchmark
 
     spec = BenchSpec.load(kernel)
@@ -163,11 +180,6 @@ def test_every_ml_kernel_stays_finite_in_every_narrow_format(kernel: str, dataty
     data = Benchmark(kernel).get_data(preset="S", datatype=datatype, input_seed=7)
     arrays = [v for v in data.values() if isinstance(v, np.ndarray) and v.dtype.kind in "fV"]
     assert all(np.isfinite(value.astype(np.float64)).all() for value in arrays), f"{kernel} inputs at {datatype}"
-    wide = {name: grading.promoted(value) for name, value in data.items()}
-    stored = {
-        name: np.asarray(value).astype(data[name].dtype) if isinstance(data.get(name), np.ndarray) else value
-        for name, value in torch_eager_outputs(spec, wide).items()
-    }
-    outputs = [np.asarray(v) for v in stored.values()]
+    outputs = list(cpu_reference(spec, data).values())
     finite = all(np.isfinite(v.astype(np.float64)).all() for v in outputs if v.dtype.kind in "fV")
     assert finite, f"{kernel} oracle at {datatype}"

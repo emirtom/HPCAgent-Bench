@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, cpf_canonical, languages, paths
+from hpcagent_bench import config, cpf_canonical, languages, optimize_clock, paths
 from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS, LANGUAGE_EXT, HintDetail
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
@@ -66,13 +66,15 @@ from hpcagent_bench.translators.numpyto_common.naming import fptype_tag, short_f
 
 __all__ = [
     "ABI_SYMBOL_LOCAL",
-    "DACE_BANNER",
-    "DEVICE_LANGUAGE",
-    "GPU_CODEGEN",
     "CHILD_LINE_ADAPTER",
-    "RENDER_TIMEOUT_KEY",
     "CanonicalOutcome",
     "ChildRun",
+    "DACE_BANNER",
+    "DACE_INTEGER_HELPERS",
+    "DEVICE_LANGUAGE",
+    "GPU_CODEGEN",
+    "PythonIntegerForm",
+    "RENDER_TIMEOUT_KEY",
     "RenderOutcome",
     "RenderPlan",
     "RenderRecord",
@@ -96,6 +98,7 @@ __all__ = [
     "prerender_kernel",
     "prerender_sdfg",
     "privatize_rebound_arguments",
+    "python_integer_form",
     "render_canonical",
     "render_kernel",
     "render_options",
@@ -671,6 +674,45 @@ def render_canonical(
     )
 
 
+#: dace's integer helpers in a symbolic size, as the Python operators the judge's evaluator
+#: (:func:`hpcagent_bench.fuzz.safe_eval`) knows: ``ipow(a, n)`` is ``a ** n``, ``int_floor(a, b)`` is ``a // b``,
+#: ``int_ceil(a, b)`` is ``-(-a // b)``, and ``Min`` / ``Max`` are ``min`` / ``max``.
+DACE_INTEGER_HELPERS = frozenset({"ipow", "int_floor", "int_ceil", "Min", "Max"})
+
+
+class PythonIntegerForm(ast.NodeTransformer):
+    """Rewrites the :data:`DACE_INTEGER_HELPERS` calls of a size expression into Python operators."""
+
+    def visit_Call(self, node: ast.Call) -> ast.expr:
+        self.generic_visit(node)
+        name = node.func.id if isinstance(node.func, ast.Name) else ""
+        if name not in DACE_INTEGER_HELPERS:
+            return node
+        if name in ("Min", "Max"):
+            return ast.Call(func=ast.Name(id=name.lower(), ctx=ast.Load()), args=node.args, keywords=[])
+        if len(node.args) != 2 or node.keywords:
+            return node  # not the two-operand helper: left as it is, for the caller's evaluation to report
+        left, right = node.args
+        if name == "ipow":
+            return ast.BinOp(left=left, op=ast.Pow(), right=right)
+        if name == "int_floor":
+            return ast.BinOp(left=left, op=ast.FloorDiv(), right=right)
+        negated = ast.BinOp(left=ast.UnaryOp(op=ast.USub(), operand=left), op=ast.FloorDiv(), right=right)
+        return ast.UnaryOp(op=ast.USub(), operand=negated)
+
+
+def python_integer_form(expr: str) -> str:
+    """``expr`` with dace's integer helpers spelled as Python operators (:class:`PythonIntegerForm`); ``expr``
+    itself when it names none, or does not parse (the caller's evaluation reports that)."""
+    if not any(helper in expr for helper in DACE_INTEGER_HELPERS):
+        return expr
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        return expr
+    return ast.unparse(ast.fix_missing_locations(PythonIntegerForm().visit(tree)))
+
+
 def binding_workspace_bytes(expr: str, native: Binding, renames: Mapping[str, str]) -> str:
     """CPF's workspace size ``expr`` (over the SDFG's, i.e. the emitted, scalar names) spelled over the binding's
     scalar names, which is what the judge binds a ``workspace_bytes`` request to. Raises ``ValueError`` when it names
@@ -678,7 +720,9 @@ def binding_workspace_bytes(expr: str, native: Binding, renames: Mapping[str, st
     if expr.strip() == "0":
         return "0"
     manifest_of = {renames.get(arg.name, arg.name): arg.name for arg in native.args if arg.kind == "scalar"}
-    spelled = re.sub(r"[A-Za-z_][A-Za-z0-9_]*", lambda name: manifest_of.get(name[0], name[0]), expr)
+    spelled = re.sub(
+        r"[A-Za-z_][A-Za-z0-9_]*", lambda name: manifest_of.get(name[0], name[0]), python_integer_form(expr)
+    )
     try:
         safe_eval(spelled, dict.fromkeys(manifest_of.values(), 1))
     except ArithmeticError:
@@ -760,6 +804,10 @@ class RenderRecord(pydantic.BaseModel):
     device: str = ""
     binding: str = ""
     lines: int = 0
+    #: What a submission of the inline form asks for: its scratch (``workspace_bytes``, "0" = none) and the
+    #: catalog libraries it calls (the load request), as :mod:`hpcagent_bench.cpf_verify` submits a cached form.
+    workspace_bytes: str = ""
+    libraries: list[str] = pydantic.Field(default_factory=list)
     seconds: float | None = None
     canonical: CanonicalOutcome | None = None
     results: dict[str, RenderOutcome] | None = None
@@ -804,6 +852,8 @@ def render_sdfg(
         rec.device = paths_by_role["device"]
     rec.verdict = "ok"
     rec.lines = form.lines
+    rec.workspace_bytes = form.workspace_bytes
+    rec.libraries = list(form.libraries)
     return rec
 
 
@@ -891,7 +941,9 @@ def prerender_sdfg(
         else:
             todo.append(language)
     if todo:
-        sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
+        # The canonical SDFG's production time (credited on a hit) plus a language's render is what the form cost.
+        with optimize_clock.measuring() as canonical_clock:
+            sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
         canonical_rec.cached = cached
         if isinstance(sdfg, dict):
             for language in todo:
@@ -900,7 +952,8 @@ def prerender_sdfg(
             for language in todo:
                 key, options = plan[language]
                 try:
-                    form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
+                    with optimize_clock.measuring() as render_clock:
+                        form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
                     results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})
                     continue
@@ -910,6 +963,7 @@ def prerender_sdfg(
                     "entry": form.entry,
                     "libraries": list(form.libraries),
                     "workspace_bytes": form.workspace_bytes,
+                    "seconds": canonical_clock.seconds + render_clock.seconds,
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
                 results[language] = RenderOutcome(key=key, verdict="ok", cached=False)

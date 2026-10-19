@@ -26,6 +26,7 @@ import enum
 import os
 import pathlib
 import re
+import resource
 import shlex
 import shutil
 import subprocess
@@ -72,9 +73,9 @@ __all__ = [
     "OPT_LEVEL",
     "PAPI_RANGES_H",
     "PLUTO_PAR",
-    "POLYGEIST_PAR",
     "POLLY_OUTLINE_PATTERN",
     "POLLY_PAR",
+    "POLYGEIST_PAR",
     "PYTHRAN_BASELINE",
     "ROCMINFO_GFX_NAME",
     "ROCMINFO_TIMEOUT",
@@ -98,6 +99,7 @@ __all__ = [
     "cpus_owned",
     "detect_gfx",
     "detect_sm",
+    "enter_openmp_launch_env",
     "gcc_autopar_capability",
     "image_gpu_arch",
     "loaded_threaded_runtimes",
@@ -805,6 +807,14 @@ def openmp_launch_env() -> dict[str, str]:
     a limit below it hangs a compiled autopar reference at a barrier, and a team a submission sizes past
     it (``4 * omp_get_num_procs()``) is clamped instead of failing to map its stacks under the memory cap."""
     return {"OMP_STACKSIZE": f"{thread_stack_bytes() // BYTES_PER_MIB}M", "OMP_THREAD_LIMIT": str(cpus_owned())}
+
+
+def enter_openmp_launch_env() -> None:
+    """Make this process the outermost launch :func:`openmp_launch_env` asks for: its environment set and the stack
+    soft limit raised to the hard one. Call it before anything imports numpy; children inherit both."""
+    os.environ.update(openmp_launch_env())
+    hard = resource.getrlimit(resource.RLIMIT_STACK)[1]
+    resource.setrlimit(resource.RLIMIT_STACK, (hard, hard))
 
 
 #: Library name prefixes of the threaded runtimes a process can carry in from its parent (OpenBLAS, OpenMP).
