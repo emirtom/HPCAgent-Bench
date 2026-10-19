@@ -22,6 +22,9 @@ TRANSLATOR_TESTS = REPO / "tests" / "translators"
 
 #: The per-container budget in minutes; a job over it becomes the run's critical path.
 CONTAINER_BUDGET_MINUTES = 45
+#: Concurrent jobs a free GitHub plan runs on hosted runners: past it, the run queues a second wave and its wall time
+#: becomes the sum of two critical paths.
+HOSTED_RUNNER_WAVE = 20
 #: job -> why it may budget past :data:`CONTAINER_BUDGET_MINUTES`. ``perf`` times one canonicalization of cloudsc,
 #: a single compile that cannot be split, and it reports without blocking (``continue-on-error``).
 OVER_BUDGET_JOBS = {"perf": "cloudsc canonicalization is one indivisible compile; the job does not block"}
@@ -259,6 +262,113 @@ def test_no_job_budgets_itself_past_the_container_ceiling() -> None:
     assert not blocking, f"over-budget jobs must not block the run: {blocking}"
 
 
+def matrix_legs(job: dict) -> list[dict]:
+    """The job's matrix legs, ``{axis: value}`` each (``include`` entries, or the product of the axes); one empty leg
+    for a job without a matrix."""
+    matrix = dict((job.get("strategy") or {}).get("matrix") or {})
+    include = list(matrix.pop("include", []))
+    legs: list[dict] = [{}]
+    for axis, values in matrix.items():
+        legs = [{**leg, axis: value} for leg in legs for value in values]
+    return legs if matrix else (include or [{}])
+
+
+def matrix_value(leg: dict, path: str) -> object:
+    """``matrix.<path>`` on one leg; None where the leg lacks the field (GitHub's empty value)."""
+    value: object = leg
+    for key in path.split("."):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+#: ``matrix.<path>``, optionally compared (``== 0``, ``!= 'x'``), in a step's ``if:``.
+MATRIX_TEST = re.compile(r"matrix\.([\w.]+)(?:\s*(==|!=)\s*'?([\w./-]+)'?)?")
+#: An env value that is a bare matrix field, optionally defaulted to '' (``${{ matrix.leg.shard || '' }}``).
+MATRIX_FIELD = re.compile(r"^\$\{\{\s*matrix\.([\w.]+)(?:\s*\|\|\s*'')?\s*\}\}$")
+
+
+def runs_on_leg(step: dict, leg: dict) -> bool:
+    """Whether a step's ``if:`` lets it run on this leg. The workflow's conditions on the matrix are conjunctions of
+    fields (``matrix.leg.pythran && !cancelled()``) and comparisons (``matrix.shard.id == 0``)."""
+    for path, op, literal in MATRIX_TEST.findall(str(step.get("if", ""))):
+        value = matrix_value(leg, path)
+        if (op == "==" and str(value) != literal) or (op == "!=" and str(value) == literal) or (not op and not value):
+            return False
+    return True
+
+
+def leg_steps() -> list[tuple[str, dict, dict, dict[str, str]]]:
+    """``(job, leg, step, env)`` for every step every leg runs, env fields that name the matrix resolved."""
+    out = []
+    for name, job in workflow_jobs().items():
+        for leg in matrix_legs(job):
+            for step in job.get("steps", []):
+                if not runs_on_leg(step, leg):
+                    continue
+                env = {}
+                for key, value in (step.get("env") or {}).items():
+                    field = MATRIX_FIELD.match(str(value))
+                    env[key] = str(matrix_value(leg, field.group(1)) or "") if field else str(value)
+                out.append((name, leg, step, env))
+    return out
+
+
+def test_the_run_fits_one_wave_of_hosted_runners() -> None:
+    """Every job that starts with the run (no ``needs``) on a hosted runner; the self-hosted ``gpu`` job is manual.
+    Fold short work into steps of a job with room rather than adding legs."""
+    jobs = workflow_jobs()
+    wave = {
+        name: len(matrix_legs(job))
+        for name, job in jobs.items()
+        if "needs" not in job and "self-hosted" not in str(job.get("runs-on"))
+    }
+    assert sum(wave.values()) <= HOSTED_RUNNER_WAVE, (
+        f"the first wave asks for {sum(wave.values())} runners ({wave}); a free plan runs {HOSTED_RUNNER_WAVE} at once"
+    )
+
+
+#: Corpus-slice knobs a sweep is dealt over, one ``I/N`` per step (a literal, or a matrix field).
+SLICE_KNOBS = ("HPCAGENT_BENCH_DACE_PARSE_SHARD", "HPCAGENT_BENCH_E2E_SHARD")
+
+
+def test_every_sliced_sweep_runs_each_slice_exactly_once() -> None:
+    """A sweep is the steps, on any job and leg, that run the same test files with the same env but the slice: it
+    has to run each of 0..N-1 exactly once. A dropped slice is corpus nothing runs, and every job still goes green;
+    a doubled one is a runner's minutes paid twice."""
+    sweeps: dict[tuple[str, ...], list[str]] = {}
+    for name, leg, step, env in leg_steps():
+        files = " ".join(sorted(set(re.findall(r"tests/[\w/]+\.py", str(step.get("run", ""))))))
+        for knob in SLICE_KNOBS:
+            index, _, count = env.get(knob, "").rpartition("/")
+            if not env.get(knob):
+                continue  # unset: the step sweeps the whole corpus
+            assert index.isdigit() and count.isdigit(), f"{name} {leg}: {knob}={env[knob]!r} is not I/N"
+            rest = repr(sorted((key, value) for key, value in env.items() if key != knob))
+            sweeps.setdefault((knob, count, files, rest), []).append(index)
+    assert sweeps, "no sweep is dealt over slices; this guard has lost its subject"
+    for (knob, count, files, rest), indices in sorted(sweeps.items()):
+        assert sorted(indices, key=int) == [str(i) for i in range(int(count))], (
+            f"{knob} slices {sorted(indices, key=int)} of {count} run for {files} with {rest}"
+        )
+
+
+def test_every_e2e_backend_is_swept_at_fp64() -> None:
+    """The slice guard sees a sweep only while one of its slices runs; this sees a sweep that no step runs at all
+    (a rider whose leg lost its field, a backend whose leg was dropped)."""
+    from tests.test_e2e_numerical import _ALL_E2E_BACKENDS
+
+    swept = {
+        backend.strip()
+        for _, _, step, env in leg_steps()
+        if "tests/test_e2e_numerical.py" in str(step.get("run", ""))
+        and env.get("HPCAGENT_BENCH_E2E_PRECISION", "fp64") == "fp64"
+        for backend in env.get("HPCAGENT_BENCH_E2E_BACKENDS", "").split(",")
+        if backend.strip()
+    }
+    missing = sorted(set(_ALL_E2E_BACKENDS) - swept)
+    assert not missing, f"no CI step sweeps tests/test_e2e_numerical.py at fp64 on {missing}"
+
+
 def test_every_job_sets_a_timeout_at_all() -> None:
     """A job with no ``timeout-minutes`` inherits GitHub's 360."""
     missing = sorted(name for name, job in workflow_jobs().items() if "timeout-minutes" not in job)
@@ -276,16 +386,31 @@ def test_the_unit_sweep_matrix_runs_every_slice_it_deals_into() -> None:
 
 
 def test_the_unit_sweep_runs_the_python_floor_and_the_default() -> None:
-    """The full sweep's shards run on the interpreter every other job uses; the ``floor`` leg runs on
-    ``requires-python``'s floor (lint, import every module, collect every test)."""
+    """The full sweep's shards run on the interpreter every other job uses; exactly one leg also imports and
+    collects under ``requires-python``'s floor, in an environment it syncs at ``FLOOR_PYTHON``."""
     floor = re.search(r">=\s*(\d+\.\d+)", pyproject()["project"]["requires-python"])
     assert floor, "requires-python has no >= floor"
-    default = str(yaml.safe_load(WORKFLOW.read_text())["env"]["PYTHON_VERSION"])
-    legs = workflow_jobs()["unit"]["strategy"]["matrix"]["include"]
-    sharded = {str(leg["python"]) for leg in legs if str(leg["shard"]).isdigit()}
-    floors = {str(leg["python"]) for leg in legs if leg["shard"] == "floor"}
-    assert sharded == {default}, f"the sharded sweep runs {sorted(sharded)}, not {default}"
-    assert floors == {floor.group(1)}, f"the floor leg runs {sorted(floors)}, not {floor.group(1)}"
+    env = yaml.safe_load(WORKFLOW.read_text())["env"]
+    assert str(env["FLOOR_PYTHON"]) == floor.group(1), f"FLOOR_PYTHON is {env['FLOOR_PYTHON']}, not {floor.group(1)}"
+    job = workflow_jobs()["unit"]
+    legs = matrix_legs(job)
+    assert all("python" not in leg for leg in legs), "a unit leg overrides the interpreter; the sweep runs the default"
+    setup = next(step for step in job["steps"] if step.get("uses") == "./.github/actions/setup")
+    assert "python-version" not in setup.get("with", {}), "the unit setup overrides PYTHON_VERSION"
+    floor_legs = [leg for leg in legs if leg.get("floor")]
+    assert len(floor_legs) == 1, f"{len(floor_legs)} unit legs run the floor checks; exactly one has to"
+    floor_steps = [
+        step
+        for _, leg, step, _ in leg_steps()
+        if leg in floor_legs and '--python "$FLOOR_PYTHON"' in step.get("run", "")
+    ]
+    assert len(floor_steps) == 1, "no unit step syncs an environment at FLOOR_PYTHON"
+    run = floor_steps[0]["run"]
+    for check in ("import_module", "--collect-only tests", "tests/test_interpreter_floor.py"):
+        assert check in run, f"the floor step no longer runs {check!r} under the floor interpreter"
+    assert "python -m pytest" not in run.replace('venv-floor/bin/python" -m pytest', ""), (
+        "a floor check runs on the default interpreter"
+    )
 
 
 def test_ruff_and_pyright_target_the_python_floor() -> None:
@@ -409,10 +534,21 @@ def test_every_integration_shard_keeps_its_own_coverage_and_ccache() -> None:
 
 
 def test_the_perf_jobs_run_every_curated_kernel_once() -> None:
-    """The perf matrix is PERF_JOBS, and PERF_JOBS partitions the gate's curated list: a kernel in no job is never
-    timed, a kernel in two is timed twice."""
+    """Every PERF_JOBS group is timed by exactly one step on one leg (``PERF_JOB``), and PERF_JOBS partitions the
+    gate's curated list: a kernel in no group is never timed, a kernel in two is timed twice. The perf steps report
+    without blocking, so each sits in a ``continue-on-error`` job or is one itself."""
     from tests.test_canon_perf_gate import CURATED, PERF_JOBS
 
-    assert workflow_jobs()["perf"]["strategy"]["matrix"]["job"] == sorted(PERF_JOBS)
+    jobs = workflow_jobs()
+    steps = [(name, step, env["PERF_JOB"]) for name, _, step, env in leg_steps() if env.get("PERF_JOB")]
+    assert sorted(group for _, _, group in steps) == sorted(PERF_JOBS), (
+        f"perf steps time {sorted(group for _, _, group in steps)}; PERF_JOBS is {sorted(PERF_JOBS)}"
+    )
+    blocking = [
+        f"{name}: {step['name']}"
+        for name, step, _ in steps
+        if step.get("continue-on-error") is not True and jobs[name].get("continue-on-error") is not True
+    ]
+    assert not blocking, f"perf steps that would block the run: {blocking}"
     timed = [kernel for kernels in PERF_JOBS.values() for kernel in kernels]
     assert sorted(timed) == sorted(CURATED)

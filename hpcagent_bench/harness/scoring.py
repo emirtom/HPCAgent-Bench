@@ -4273,7 +4273,7 @@ def score_cells(
         if plan.need_seq_c:
             try:
                 ctask = replace(task, language="c", source_mode="restricted", residency="host")
-                c_ctx = Sandbox(binding, source_mode=task.source_mode)
+                c_ctx = Sandbox(binding, source_mode=ctask.source_mode)
                 csb = c_ctx.__enter__()
                 # Same family as the candidate, for the same reason score() does it.
                 c_submission = reference_submission(ctask, "c", submission.compiler)

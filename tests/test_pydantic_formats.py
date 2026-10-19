@@ -50,7 +50,7 @@ def test_a_canonical_manifest_of_another_layout_or_with_an_unknown_field_is_a_mi
     """A manifest is read only when it is exactly this reader's layout and fields; anything else renders again."""
     good = {"key": "k", "layout": cpf_cache.LAYOUT, "verdict": "fail", "error": "boom"}
     assert cpf_cache.CanonicalManifest.model_validate(good).error == "boom"
-    for bad in ({**good, "layout": cpf_cache.LAYOUT - 1}, {**good, "seconds": 1.0}, {"key": "k", "verdict": "ok"}):
+    for bad in ({**good, "layout": cpf_cache.LAYOUT - 1}, {**good, "unknown": 1.0}, {"key": "k", "verdict": "ok"}):
         with pytest.raises(pydantic.ValidationError):
             cpf_cache.CanonicalManifest.model_validate(bad)
 

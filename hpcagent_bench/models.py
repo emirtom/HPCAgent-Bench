@@ -12,6 +12,7 @@ from hpcagent_bench.vocabulary import device, harness, language, llm, optimizer
 
 #: Nothing is imported by name: every class registers itself through its decorator on import.
 __all__ = [
+    "Anthropic",
     "C",
     "Claude",
     "Cpf",

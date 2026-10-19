@@ -1,5 +1,5 @@
 """The ``hpcagent_bench`` MCP server: every tool registered with ``@tool`` (:mod:`hpcagent_agent.tools.registry`)
-that this setup is offered, served with the official MCP SDK over stdio (``--http <port>``: streamable HTTP).
+that this setup is offered, served with the official MCP SDK over stdio.
 
 One tool per judge route the agent needs, plus ``syntax_check`` (the one tool that talks to no service: THIS
 process runs inside the agent's container next to the compilers) and the tools a packet brings. ``score`` and
@@ -12,7 +12,6 @@ harnesses (``hpcagent_agent.harness``). mini-SWE has only a shell and reaches th
 ``hpcagent-bench-tool`` CLI.
 """
 
-import contextlib
 import importlib
 import importlib.metadata
 import json
@@ -21,7 +20,6 @@ import pathlib
 import pkgutil
 import re
 import sys
-from collections.abc import AsyncIterator
 from typing import Any
 
 import anyio
@@ -38,9 +36,9 @@ __all__ = [
     "ALLOWED_ORDER",
     "ALLOWED_TOOLS",
     "BULLET_HEAD",
+    "LIST_ORDER",
     "MCP_HEAD",
     "NOT_TOOLS",
-    "LIST_ORDER",
     "PACKET",
     "PROMPT_ORDER",
     "SERVER_NAME",
@@ -191,24 +189,6 @@ async def serve_stdio(server: Server) -> None:
         await server.run(read, write, server.create_initialization_options())
 
 
-def serve_http(server: Server, port: int) -> None:
-    """Streamable HTTP on ``127.0.0.1:<port>/mcp``, for a harness that connects by URL."""
-    import uvicorn  # noqa: PLC0415 -- only the HTTP transport needs the ASGI stack
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager  # noqa: PLC0415
-    from starlette.applications import Starlette  # noqa: PLC0415
-    from starlette.routing import Mount  # noqa: PLC0415
-
-    manager = StreamableHTTPSessionManager(app=server, stateless=True)
-
-    @contextlib.asynccontextmanager
-    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
-        async with manager.run():
-            yield
-
-    app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)], lifespan=lifespan)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-
-
 def describe() -> dict[str, Any]:
     """What this setup is offered, for the launcher: ``--allowedTools``, the tools this process serves and the
     prompt's tool lists."""
@@ -224,11 +204,8 @@ def main(argv: list[str]) -> int:
     if argv == ["--describe"]:
         print(json.dumps(describe()))
         return 0
-    if len(argv) == 2 and argv[0] == "--http" and argv[1].isdigit():
-        serve_http(build_server(), int(argv[1]))
-        return 0
     if argv:
-        print("usage: python -m hpcagent_agent.tools.mcp_server [--describe | --http <port>]", file=sys.stderr)
+        print("usage: python -m hpcagent_agent.tools.mcp_server [--describe]", file=sys.stderr)
         return 2
     anyio.run(serve_stdio, build_server())
     return 0

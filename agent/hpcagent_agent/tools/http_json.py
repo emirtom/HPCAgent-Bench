@@ -35,25 +35,24 @@ from typing import Any, NamedTuple
 from hpcagent_agent.driver import harnesses, token_cost
 
 __all__ = [
-    "EPISODE_SECRET_NAME",
-    "EPISODE_TOKEN_ENV",
-    "EPISODE_TOKEN_HEADER",
+    "BUILD_LOAD_CLAUSE",
+    "BUILD_TEXT",
     "DEFAULT_JUDGE_PORT",
     "DEFAULT_JUDGE_TIMEOUT",
     "DEFAULT_JUDGE_URL",
     "DEFAULT_LANGUAGE",
-    "DEFAULT_RANK",
-    "DELIVERY_LANGUAGES",
-    "BUILD_LOAD_CLAUSE",
-    "BUILD_TEXT",
-    "ENFORCED_INPUT_MODES",
     "DEFAULT_LOAD_ENV",
+    "DEFAULT_RANK",
     "DEFAULT_WORKSPACE_ENV",
+    "DELIVERY_LANGUAGES",
+    "ENFORCED_INPUT_MODES",
+    "EPISODE_SECRET_NAME",
+    "EPISODE_TOKEN_ENV",
+    "EPISODE_TOKEN_HEADER",
     "IDENTITY_ENV",
     "KERNEL_ENV",
     "LANGUAGE_PROPERTY",
     "PATH_FIELDS",
-    "RequestActions",
     "REQUESTS_REFERENCE",
     "REQUESTS_SCHEMA",
     "REQUEST_ACTIONS_ENV",
@@ -63,19 +62,24 @@ __all__ = [
     "TOKENS_READ_OK",
     "WORKER_TOKEN_ENV",
     "WORKER_TOKEN_HEADER",
+    "RequestActions",
     "assigned_kernel",
     "call_json",
     "default_load",
     "endpoint",
+    "episode_token",
+    "episode_token_header",
     "get_judge",
     "identity_fields",
+    "job_episode_secret",
     "judge_base",
+    "judge_headers",
     "judge_rank",
     "judge_timeout",
     "language_clause",
     "language_is_enforced",
-    "post_json",
     "offered_operation",
+    "post_json",
     "post_judge",
     "request_actions",
     "request_language",
@@ -86,14 +90,12 @@ __all__ = [
     "submission_body",
     "task_language",
     "timeout_error",
-    "with_default_load",
-    "with_default_workspace",
     "transcript_tokens",
     "usage_jsonl_tokens",
     "warn_unreadable_token_file",
+    "with_default_load",
+    "with_default_workspace",
     "worker_token_header",
-    "episode_token",
-    "episode_token_header",
 ]
 
 #: The judge service's TCP port when the run configures none (``hpcagent-bench serve --port``, ``JUDGE_PORT``).
@@ -140,10 +142,31 @@ def episode_token(secret: bytes, episode_id: str) -> str:
     return hmac.new(secret, episode_id.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def episode_token_header() -> dict[str, str]:
-    """The episode token as a request header; none where the driver issued none."""
-    token = os.environ.get(EPISODE_TOKEN_ENV, "").strip()
+def job_episode_secret(environ: Mapping[str, str] = os.environ) -> bytes | None:
+    """The job's episode-token secret (``$RUN_DIR/episode-secret``, written by the first driver), None when there is
+    none or it cannot be read -- always the case inside an agent's sealed view."""
+    run_dir = environ.get("RUN_DIR", "").strip()
+    if not run_dir:
+        return None
+    try:
+        secret = (pathlib.Path(run_dir) / EPISODE_SECRET_NAME).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return secret.encode("utf-8") if secret else None
+
+
+def episode_token_header(episode_id: str = "") -> dict[str, str]:
+    """The episode token as a request header. A caller that can read the job secret (the driver, promoting an
+    episode it ran) derives the token of ``episode_id``; an agent sends the one its driver gave it; none where the
+    driver issued none."""
+    secret = job_episode_secret() if episode_id else None
+    token = episode_token(secret, episode_id) if secret else os.environ.get(EPISODE_TOKEN_ENV, "").strip()
     return {EPISODE_TOKEN_HEADER: token} if token else {}
+
+
+def judge_headers(episode_id: str = "") -> dict[str, str]:
+    """The identity headers of every judge request: the fused worker token and the episode token."""
+    return {**worker_token_header(), **episode_token_header(episode_id)}
 
 
 def judge_base() -> str:
@@ -257,7 +280,7 @@ def call_json(url: str, data: bytes | None, timeout: float) -> dict[str, Any]:
     payload (``error``, plus ``judge_rank`` / ``requested_rank`` on a misrouted call). Nothing is
     retried and nothing is rewritten.
     """
-    headers = {"Accept": "application/json", **worker_token_header(), **episode_token_header()}
+    headers = {"Accept": "application/json", **judge_headers()}
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method="GET" if data is None else "POST")

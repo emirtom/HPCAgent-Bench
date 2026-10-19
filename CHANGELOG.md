@@ -2,8 +2,9 @@
 
 ## 0.2.1 (2026-10)
 
-Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2f`). Fixes the CI failures the
-0.2.0 release left and makes every scientific_computing numba reference parallel.
+Pinned with dace extended `b563eaa6f` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
+relayout `2718b2f`. Fixes the CI failures the 0.2.0 release left and makes every scientific_computing numba reference
+parallel.
 
 ### Changed
 - **Parallel numba references.** The scientific_computing oracle is best-of(numba, c), and 30 kernels' numba half
@@ -29,7 +30,7 @@ Same pins as 0.2.0 (dace extended `3f5d9a884`, Alloy `aeca753`, relayout `2718b2
   agent's own compile flags (fast-math included); link flags stay restricted to `-l`/`-L`. Multi-file builds go
   through the existing `library` delivery.
 - **Tools on the official MCP SDK.** The agent's tool server (`agent/hpcagent_agent/tools/mcp_server.py`) runs on the
-  `mcp` SDK's low-level server (stdio, or streamable HTTP with `--http <port>`), and a tool is one file: `@tool` on its
+  `mcp` SDK's low-level server over stdio, and a tool is one file: `@tool` on its
   `run()` with a pydantic input model (`agent/hpcagent_agent/tools/registry.py`), plus `@route` on a judge handler in
   `hpcagent_bench/harness/routes/` when the judge serves it. The agent package now depends on `mcp` and `pydantic`.
 - **Packets gate tools by name.** A packet's `tools` reach the agent as `HPCAGENT_BENCH_PACKET_TOOLS`; a non-core tool

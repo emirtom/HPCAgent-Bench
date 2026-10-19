@@ -637,6 +637,10 @@ _TOOL_ORDER = ("baseline", "score", "submit", "web-search")
 #: search is one of them: runs have no internet unless a packet (``web-search``) brings it.
 PACKET_TOOL_FRAGMENTS = {"canonical-parallel-form": "canonical_parallel_form", "web-search": "search"}
 
+#: Fragment stem -> the config key that makes this judge serve the tool's route without a packet: a judge pointed at a
+#: CPF view (``hpcagent-bench serve``) answers the route, so its own prompt documents it.
+SERVED_BY_CONFIG = {"canonical-parallel-form": cpf_cache.CONFIG_KEY}
+
 #: Fragment stem -> the languages its route serves: PAPI counts a host process, never a device kernel or
 #: a Python call (``POST /profile`` refuses those).
 LANGUAGE_TOOL_FRAGMENTS = {"counters": frozenset({"c", "cpp", "fortran"})}
@@ -645,9 +649,11 @@ LANGUAGE_TOOL_FRAGMENTS = {"counters": frozenset({"c", "cpp", "fortran"})}
 def tool_fragment_offered(stem: str, language: str = "c") -> bool:
     """Whether this run's judge can actually serve the tool ``stem`` documents for ``language``."""
     tool = PACKET_TOOL_FRAGMENTS.get(stem)
-    carried = os.environ.get(packets.PACKET_TOOLS_ENV, "").split(",")
+    carried = tool in (config.env_value(packets.PACKET_TOOLS_ENV) or "").split(",")
+    key = SERVED_BY_CONFIG.get(stem)
+    configured = key is not None and bool(str(config.get(key) or "").strip())
     served = LANGUAGE_TOOL_FRAGMENTS.get(stem)
-    return (tool is None or tool in carried) and (served is None or language in served)
+    return (tool is None or carried or configured) and (served is None or language in served)
 
 
 def tool_fragments(search_dirs: Sequence[str] = (), off: Collection[str] = (), language: str = "c") -> list[str]:

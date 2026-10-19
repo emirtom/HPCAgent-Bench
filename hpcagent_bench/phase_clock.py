@@ -14,6 +14,9 @@ the span is ``transform``. A cache that serves an artifact credits the seconds p
 produced it (:func:`credit`), so a column that read its canonical SDFG or its emitted sources from a cache reports what
 the work costs, not what the cache saved.
 
+The running measurements and marks are per context (:mod:`contextvars`), so each thread -- a judge thread rendering
+a form on demand next to another -- times and credits only its own spans.
+
     with phase_clock.measuring() as clock:
         with phase_clock.phase("compile"):
             ...                              # the backend compiler
@@ -22,19 +25,20 @@ the work costs, not what the cache saved.
 """
 
 import contextlib
+import contextvars
 import dataclasses
 import time
 from collections.abc import Iterator
 from typing import Literal
 
-__all__ = ["MARKS", "PHASES", "RUNNING", "Clock", "Mark", "Phase", "credit", "measuring", "phase"]
+__all__ = ["MARKS", "PHASES", "RUNNING", "Clock", "Mark", "Phase", "credit", "measuring", "phase", "shift"]
 
 #: The phases, in pipeline order; each is the canon column ``<phase>_time``.
 PHASES: tuple["Phase", ...] = ("transform", "codegen", "compile")
 Phase = Literal["transform", "codegen", "compile"]
 
 
-@dataclasses.dataclass(slots=True, eq=False)  # identity: RUNNING removes this measurement, not an equal one
+@dataclasses.dataclass(slots=True)
 class Clock:
     """One measurement: the seconds each phase took, filled in as the span runs and finished when it ends."""
 
@@ -56,44 +60,54 @@ class Mark:
     nested: float = 0.0
 
 
-#: The measurements running in this process, innermost last; time and credit go to every one of them.
-RUNNING: list[Clock] = []
-#: The marked phases running in this process, innermost last.
-MARKS: list[Mark] = []
+#: The measurements running in this context, innermost last; time and credit go to every one of them.
+RUNNING: contextvars.ContextVar[tuple[Clock, ...]] = contextvars.ContextVar("phase_clock_running", default=())
+#: The marked phases running in this context, innermost last.
+MARKS: contextvars.ContextVar[tuple[Mark, ...]] = contextvars.ContextVar("phase_clock_marks", default=())
 
 
 def credit(seconds: float, name: Phase) -> None:
-    """Add a cached artifact's production ``seconds`` to ``name`` in every running measurement."""
-    for clock in RUNNING:
+    """Add a cached artifact's production ``seconds`` to ``name`` in every measurement running in this context."""
+    for clock in RUNNING.get():
         clock.seconds[name] += max(float(seconds), 0.0)
+
+
+def shift(seconds: float, source: Phase, target: Phase) -> None:
+    """Move ``seconds`` of a marked phase to ``target`` in every measurement running in this context: a step that
+    reports its own split after the fact (DaCe's ``SDFG.compile(stats=...)`` generating code before it compiles)."""
+    for clock in RUNNING.get():
+        moved = min(max(float(seconds), 0.0), clock.seconds[source])
+        clock.seconds[source] -= moved
+        clock.seconds[target] += moved
 
 
 @contextlib.contextmanager
 def phase(name: Phase) -> Iterator[None]:
     """Mark the enclosed block as ``name``. A phase marked inside another takes its own seconds from the outer one."""
     mark = Mark(name, time.perf_counter())
-    MARKS.append(mark)
+    token = MARKS.set((*MARKS.get(), mark))
     try:
         yield
     finally:
-        MARKS.pop()
+        MARKS.reset(token)
         elapsed = time.perf_counter() - mark.started
         own = elapsed - mark.nested
-        for clock in RUNNING:
+        for clock in RUNNING.get():
             clock.seconds[name] += own
             clock.marked_wall += own
-        if MARKS:
-            MARKS[-1].nested += elapsed
+        outer = MARKS.get()
+        if outer:
+            outer[-1].nested += elapsed
 
 
 @contextlib.contextmanager
 def measuring() -> Iterator[Clock]:
     """Measure the enclosed block. On exit, ``transform`` also holds the span's wall time no marked phase took."""
     clock = Clock()
-    RUNNING.append(clock)
+    token = RUNNING.set((*RUNNING.get(), clock))
     started = time.perf_counter()
     try:
         yield clock
     finally:
-        RUNNING.remove(clock)
+        RUNNING.reset(token)
         clock.seconds["transform"] += max(time.perf_counter() - started - clock.marked_wall, 0.0)

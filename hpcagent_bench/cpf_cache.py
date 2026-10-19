@@ -369,9 +369,6 @@ class EntryManifest(pydantic.BaseModel):
     libraries: list[str] = pydantic.Field(default_factory=list[str])
     #: The scratch the form carves its transients from: the ``workspace_bytes`` a submission of it requests.
     workspace_bytes: str = "0"
-    #: Seconds producing the form took, by phase (:mod:`hpcagent_bench.phase_clock`): its canonicalize
-    #: (``transform``) and its render (``codegen``).
-    seconds: dict[str, float] = pydantic.Field(default_factory=dict[str, float])
 
     @pydantic.field_validator("layout")
     @classmethod

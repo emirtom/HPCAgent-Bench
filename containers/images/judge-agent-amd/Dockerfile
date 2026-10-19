@@ -1114,14 +1114,13 @@ RUN set -eux; \
     done
 
 # ---------------------------------------------------------------------------------------------
-# 13a. The isolated venvs for the Python harnesses (mini-SWE-agent, OpenHands, Optimas, the anthropic and
-# openai SDK runners) on the base's python${HARNESS_PYTHON}, kept off the system python so their deps cannot displace
-# system litellm[proxy]==1.94.0. Each venv is
-# `uv sync --package hpcagent-agent --group harness-<name>` from uv.lock, which carries none of the
-# project's own dependencies and gives the venv the same hook. An agent step binds the submitting checkout's
-# agent/ at /opt/hpcagent-bench-agent, and that is the whole setup (containers/images/lib/package_hook.sh). No
-# agent code is in the image; prompts and tool scripts are bound at launch, so the image carries their
-# dependencies only.
+# 13a. The isolated venvs for the Python harnesses (mini-SWE-agent, OpenHands, Optimas, the anthropic and openai SDK
+# runners) on the base's python${HARNESS_PYTHON}, kept off the system python so their deps cannot displace system
+# litellm[proxy]==1.94.0. Each venv is `uv sync --package hpcagent-agent --group harness-<name>` from uv.lock: the
+# group's harness plus hpcagent-agent's own dependencies (mcp, pydantic), none of hpcagent-bench's, and the same
+# hook. An agent step binds the submitting checkout's agent/ at /opt/hpcagent-bench-agent, and that is the whole
+# setup (containers/images/lib/package_hook.sh). No agent code is in the image; prompts and tool scripts are bound at
+# launch, so the image carries their dependencies only.
 COPY containers/images/lib/package_hook.sh /tmp/package_hook.sh
 RUN set -eux; \
     . /opt/harness/pins.env; \

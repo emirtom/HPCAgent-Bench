@@ -35,12 +35,12 @@ from hpcagent_bench import study_tags as tags
 from hpcagent_bench.skill_frontmatter import Applies, SkillFrontmatter, split_frontmatter
 
 __all__ = [
-    "PACKET_TOOLS_ENV",
     "CPF_ENV_KEYS",
     "CPF_REQUEST_CAPABILITY",
     "DEVICE_LANGUAGES",
     "DEVICE_ONLY_LANGUAGES",
     "LIBRARY_ENABLED_PACKETS",
+    "PACKET_TOOLS_ENV",
     "PLACEHOLDER_PATTERN",
     "SKILLS_DIR",
     "SKILL_LANGUAGE",
@@ -60,18 +60,18 @@ __all__ = [
     "has_part",
     "hue_order",
     "label",
-    "request_allowance",
     "lead",
     "leaves",
     "libraries_enabled",
     "page_applies",
     "page_file",
-    "split_frontmatter",
     "reached_keys",
     "refuse_frozen",
+    "request_allowance",
     "resolve",
     "setup_order",
     "spec_parts",
+    "split_frontmatter",
     "tool_pages",
 ]
 
@@ -476,12 +476,12 @@ def libraries_enabled(spec: str) -> bool:
     return any(key in LIBRARY_ENABLED_PACKETS for part in spec_parts(spec) for key in reached_keys(part, definitions))
 
 
-#: The env keys of a packet that serves a canonical parallel form: the cpf-src drop-in and the cpf-tool view.
 #: The env a launcher exports the resolved packet's :attr:`Packet.tools` under, comma-separated; the agent's MCP
 #: server serves a non-core tool only when it is listed (``hpcagent_agent.tools.registry``, which spells the name:
 #: the agent never imports hpcagent_bench).
 PACKET_TOOLS_ENV = "HPCAGENT_BENCH_PACKET_TOOLS"
 
+#: The env keys of a packet that serves a canonical parallel form: the cpf-src drop-in and the cpf-tool view.
 CPF_ENV_KEYS: frozenset[str] = frozenset({"CPF_DROPIN_DIR", "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR"})
 #: The ``requests.allow`` capability a CPF packet adds: CPF lowers BLAS, LAPACK and FFT nodes to the
 #: architecture's vendor libraries, and a form calling one builds only with it loaded.

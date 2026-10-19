@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Canon must stay within 2x of the compiled baseline on the kernels where it has regressed before.
 
-Correctness is the ordinary CI's job; this is the speed half, run by the separate ``perf`` jobs (:data:`PERF_JOBS`) one test at a
+Correctness is the ordinary CI's job; this is the speed half, run by the CI perf steps (:data:`PERF_JOBS`) one test at a
 time (no xdist), with ``OMP_NUM_THREADS`` at the runner's core count. Each kernel is timed at preset M (big
 enough to amortize the thread team, small enough for a CI runner; KERNEL_PRESETS names the exceptions) as the median of 3 runs, under
 ``dace_cpu_canon`` and under the compiled baselines (both, unless KERNEL_BASELINES narrows them); the gate is canon <= 2x the faster baseline.
@@ -33,8 +33,9 @@ CURATED = {
     "velocity_tendencies_multiblock": "unstructured-grid stencil with indirect accesses, the ICON dycore kernel",
 }
 
-#: CI perf job -> the curated kernels it times, one after another. The CloudSC builds take most of a runner's 45-minute
-#: budget each; every other kernel finishes in 1-5 minutes, so they share one runner.
+#: CI perf group -> the curated kernels one perf step times, one after another (``PERF_JOB`` in tests.yml). cloudsc's
+#: canonicalization takes most of a runner's 45-minute budget, so it has a runner to itself; cloudsc_monolith (11 min)
+#: and the rest (1-5 minutes each, 12 together) ride as steps on runners with room.
 PERF_JOBS: dict[str, tuple[str, ...]] = {
     "cloudsc": ("cloudsc",),
     "cloudsc_monolith": ("cloudsc_monolith",),

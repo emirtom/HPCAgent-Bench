@@ -10,11 +10,11 @@ import tempfile
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from hpcagent_bench import phase_clock
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.frameworks.framework import native_column_languages
 from hpcagent_bench.languages import LANG_EXT
-from hpcagent_bench import phase_clock
 
 if TYPE_CHECKING:
     from numpy.typing import DTypeLike

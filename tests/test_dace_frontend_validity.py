@@ -661,25 +661,34 @@ def test_an_unexcused_refusal_is_a_regression_whatever_the_verdict() -> None:
     assert regressions == ["scientific_computing/brand_new: timeout: the frontend did not finish parsing in 360s"]
 
 
-#: The env var the dace-frontend CI matrix sets, and the workflow that has to keep covering all of it.
+#: The env var the dace-frontend CI job sets, and the workflow that has to keep covering all of it.
 SHARD_ENV = "HPCAGENT_BENCH_DACE_PARSE_SHARD"
 WORKFLOW = REPO / ".github" / "workflows" / "tests.yml"
 
 
-def ci_parse_shards(job_name: str = "dace-frontend") -> tuple[list[int], int]:
-    """``(shard indices the named job's matrix runs, the count they are shards OF)``."""
+def ci_parse_shards(job_name: str = "dace-frontend", test_file: str | None = None) -> tuple[list[int], int]:
+    """``(shard indices the named job runs, the count they are shards OF)``.
+
+    A job deals the corpus over matrix legs (``${{ matrix.shard }}/N``) or over sequential steps, one
+    ``I/N`` each. ``test_file`` keeps the steps whose command runs it, so a job that shards two files
+    is checked per file: a slice one file runs cannot stand in for a slice the other skips."""
     import yaml
 
-    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-    job = jobs[job_name]
-    indices = [int(s) for s in job["strategy"]["matrix"]["shard"]]
+    job = yaml.safe_load(WORKFLOW.read_text())["jobs"][job_name]
+    matrix = [int(s) for s in ((job.get("strategy") or {}).get("matrix") or {}).get("shard", [])]
     # Step-level env or the job's -- the variable sits on the step it belongs to here, but a later
     # edit hoisting it to the job must not turn this gate into a silent pass.
+    scopes = [(job.get("env") or {}, None)]
+    scopes += [(step.get("env") or {}, str(step.get("run", ""))) for step in job["steps"]]
+    indices: list[int] = []
     counts = set()
-    for env in [job.get("env") or {}] + [step.get("env") or {} for step in job["steps"]]:
+    for env, run in scopes:
         spec = env.get(SHARD_ENV)
-        if spec:
-            counts.add(int(str(spec).rsplit("/", 1)[-1]))
+        if not spec or (test_file is not None and run is not None and test_file not in run):
+            continue
+        index, _, count = str(spec).rpartition("/")
+        counts.add(int(count))
+        indices += matrix if "matrix.shard" in index else [int(index)]
     assert len(counts) == 1, f"{job_name} names {counts or 'no'} shard counts; it has to name exactly one"
     return indices, counts.pop()
 
@@ -740,11 +749,12 @@ def test_the_hang_entries_land_in_different_shards() -> None:
 
 @pytest.mark.dace_frontend
 def test_ci_runs_every_shard_it_splits_the_corpus_into() -> None:
-    """The workflow half of the partition. A matrix that lists 0 and 1 of 3 shards is a third of the
-    corpus never parsed, and every job in it goes green."""
-    indices, count = ci_parse_shards()
+    """The workflow half of the partition. Steps that run 0 and 1 of 3 shards leave a third of the
+    corpus never parsed, and the job still goes green."""
+    indices, count = ci_parse_shards(test_file="tests/test_dace_frontend_validity.py")
     assert sorted(indices) == list(range(count)), (
-        f"dace-frontend runs shards {sorted(indices)} of {count}; the missing ones are corpus nothing parses"
+        f"dace-frontend parses shards {sorted(indices)} of {count}; a missing one is corpus nothing parses, "
+        "a repeated one is parsed twice"
     )
 
 

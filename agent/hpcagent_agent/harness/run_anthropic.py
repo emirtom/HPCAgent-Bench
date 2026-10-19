@@ -14,7 +14,10 @@ The request is the one the claude CLI sends the same server (``/v1/messages`` at
 driver owns wall clock and tokens; it also owns the reply cap (``max_tokens``), the request timeout and
 the compaction trigger, past which ``runner_common.HistoryWindow`` sends the task and the newest steps
 only. A reply cut off at ``max_tokens`` before it called a tool is answered with :data:`CONTINUE_NOTE`
-instead of ending the episode, as the claude CLI recovers from one.
+instead of ending the episode, as the claude CLI recovers from one. A reply cut off inside a tool call
+carries that call's input as far as it streamed (the SDK parses partial JSON), so the call is not run:
+it is answered with an error result, :data:`CUT_OFF_NOTE`, and the model resends it -- a truncated
+``submit`` must never spend the single submission.
 
 Writes ``usage.jsonl`` (one line per model call), ``anthropic.messages.jsonl`` (every message of the
 history, one per line) and ``harness-end.json``; see ``runner_common``. Prints ``harness: tools ready:
@@ -35,6 +38,7 @@ from hpcagent_agent.harness import runner_common
 
 __all__ = [
     "CONTINUE_NOTE",
+    "CUT_OFF_NOTE",
     "HEAD_MESSAGES",
     "THINKING",
     "TRANSCRIPT",
@@ -42,6 +46,7 @@ __all__ = [
     "request_params",
     "run_episode",
     "stop_outcome",
+    "tool_results",
 ]
 
 TRANSCRIPT = "anthropic.messages.jsonl"
@@ -52,6 +57,10 @@ THINKING = {"type": "adaptive"}
 CONTINUE_NOTE = (
     "Your reply reached the output token limit before it called a tool, so it was cut off. "
     "Continue where it stopped, more concisely."
+)
+CUT_OFF_NOTE = (
+    "This tool call was cut off at the output token limit, so its input is incomplete and it was not run. "
+    "Resend the whole call, more concisely."
 )
 #: Stop reasons that end the episode as finished: the model answered without calling a tool.
 FINISHED_STOPS = frozenset({"end_turn", "stop_sequence"})
@@ -150,6 +159,19 @@ async def tool_result(block: Any, tools: Mapping[str, Any]) -> dict[str, Any]:
     return answer
 
 
+async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The ``tool_result`` blocks answering every ``tool_use`` block of one reply, in order. A reply cut
+    off at ``max_tokens`` whose last block is a tool call stopped inside that call: it is answered with
+    :data:`CUT_OFF_NOTE` as an error instead of being run on its partial input; the calls before it are
+    whole and run."""
+    calls = [block for block in reply.content if block.type == "tool_use"]
+    cut = reply.stop_reason == "max_tokens" and reply.content[-1].type == "tool_use"
+    results = [await tool_result(block, tools) for block in (calls[:-1] if cut else calls)]
+    if cut:
+        results.append({"type": "tool_result", "tool_use_id": calls[-1].id, "content": CUT_OFF_NOTE, "is_error": True})
+    return results
+
+
 async def run_episode_async(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
     """Run the tool-use loop to its end; return (end reason, detail)."""
     import anthropic
@@ -186,9 +208,8 @@ async def run_episode_async(args: runner_common.RunnerArgs, usage_log: runner_co
                 window.calibrate(sent, line["input"] + line["cached_input"])
             content = [block.model_dump(mode="json", exclude_none=True) for block in reply.content]
             transcript.append(messages, {"role": "assistant", "content": content})
-            calls = [block for block in reply.content if block.type == "tool_use"]
-            if calls:
-                results = [await tool_result(block, runnable) for block in calls]
+            results = await tool_results(reply, runnable)
+            if results:
                 transcript.append(messages, {"role": "user", "content": results})
                 continue
             outcome = stop_outcome(reply.stop_reason)

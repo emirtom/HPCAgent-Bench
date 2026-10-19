@@ -36,6 +36,7 @@ __all__ = [
     "RENDER_LANGUAGES",
     "TASK_DIALECT",
     "description",
+    "dialect_name",
     "hint_detail",
     "judge_query",
     "reminder",
@@ -90,6 +91,21 @@ def description() -> str:
 DESCRIPTION = description()
 
 
+#: Dialects the renderer emits. The run's language picks one (cuda gets the hip device form: there is no
+#: CUDA form); anything else (fortran) still gets a form, rendered as C++ -- the parallelism facts in it
+#: are the point and they do not depend on the dialect it is spelled in.
+RENDER_LANGUAGES = ("c", "c++", "hip")
+DEFAULT_RENDER_LANGUAGE = "c++"
+TASK_DIALECT = {"c": "c", "cpp": "c++", "hip": "hip", "cuda": "hip"}
+
+
+def dialect_name(asked: str) -> str:
+    """A dialect as the caller spelled it, in the renderer's spelling: case and padding ignored, and the
+    run's language name ``cpp`` read as ``c++``."""
+    name = asked.strip().lower()
+    return "c++" if name == "cpp" else name
+
+
 #: The kernel is the driver's assignment (:func:`http_json.assigned_kernel`). ``dialect`` is NOT the run's
 #: ``language`` field: the form is rendered as C, C++ or HIP whatever the track submits in, and conflating the two
 #: would invite a Fortran track to ask for a Fortran rendering that does not exist.
@@ -101,20 +117,19 @@ class CanonicalParallelFormInput(pydantic.BaseModel):
         "one of these, hip for cuda, and c++ otherwise. The parallelism facts are the same either way.",
     )
 
+    @pydantic.field_validator("dialect", mode="before")
+    @classmethod
+    def spelled(cls, dialect: object) -> object:
+        """``C++``, `` c `` and ``cpp`` name a dialect as well as ``c++`` and ``c`` do."""
+        return dialect_name(dialect) if isinstance(dialect, str) else dialect
+
 
 INPUT_SCHEMA: dict[str, Any] = schema_of(CanonicalParallelFormInput)
-
-#: Dialects the renderer emits. The run's language picks one (cuda gets the hip device form: there is no
-#: CUDA form); anything else (fortran) still gets a form, rendered as C++ -- the parallelism facts in it
-#: are the point and they do not depend on the dialect it is spelled in.
-RENDER_LANGUAGES = ("c", "c++", "hip")
-DEFAULT_RENDER_LANGUAGE = "c++"
-TASK_DIALECT = {"c": "c", "cpp": "c++", "hip": "hip", "cuda": "hip"}
 
 
 def render_language(payload: dict[str, Any]) -> str:
     """The dialect to ask for: the caller's, else the run's, else C++."""
-    asked = str(payload.get("dialect") or "").strip().lower()
+    asked = dialect_name(str(payload.get("dialect") or ""))
     if asked in RENDER_LANGUAGES:
         return asked
     return TASK_DIALECT.get(http_json.task_language(), DEFAULT_RENDER_LANGUAGE)

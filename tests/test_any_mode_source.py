@@ -9,6 +9,7 @@ agent named, ``-ffast-math`` included (:func:`sandbox.agent_build`). The link li
 ``restricted`` task keeps the flag filter.
 """
 
+from hpcagent_bench import config
 from hpcagent_bench.api import InputMode
 from hpcagent_bench.harness import sandbox
 from hpcagent_bench.harness.service import task_source_mode
@@ -42,9 +43,16 @@ def test_a_restricted_task_keeps_the_flag_filter() -> None:
     assert not any(bad in token for token in compile_tokens for bad in sandbox.NEVER_ALLOWED)
 
 
+def test_an_any_task_honours_the_operators_build_token_switch() -> None:
+    """``grading.allow_agent_build_tokens`` off drops every agent token, in ``any`` mode as everywhere."""
+    with config.overridden("grading.allow_agent_build_tokens", False):
+        assert sandbox.agent_build(AGENT_BUILD, "any") == ([], [])
+
+
 if __name__ == "__main__":
     test_an_any_setup_grades_a_source_as_any()
     test_a_source_setup_grades_a_source_as_restricted()
     test_an_any_task_compiles_every_agent_flag_as_given()
     test_an_any_task_links_only_safe_link_tokens_and_no_compile_flag()
     test_a_restricted_task_keeps_the_flag_filter()
+    test_an_any_task_honours_the_operators_build_token_switch()

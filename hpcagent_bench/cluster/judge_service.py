@@ -52,13 +52,10 @@ from hpcagent_bench.harness.judge_wire import (
 from hpcagent_bench.kernel_key import kernel_stem
 
 __all__ = [
-    "EPISODE_SECRET",
-    "UNPROVEN_EPISODE",
-    "episode_secret",
-    "refuse_unproven_episode",
     "CLIENT_CLOSED_REQUEST",
     "EPISODE_ID_MISSING",
     "EPISODE_PROBLEM",
+    "EPISODE_SECRET",
     "FOREIGN_SETUP",
     "GRADED_WITHOUT_CLIENT",
     "IMPLEMENTED",
@@ -69,6 +66,7 @@ __all__ = [
     "SEARCH_NOT_PROVISIONED",
     "SPENT_SUBMISSIONS",
     "SUBMISSION_SPENT",
+    "UNPROVEN_EPISODE",
     "UPSTREAM_TIMEOUT_SECONDS",
     "UPSTREAM_URL",
     "JSONValue",
@@ -84,6 +82,7 @@ __all__ = [
     "client_left",
     "contract_value",
     "episode_id_refusal",
+    "episode_secret",
     "forward",
     "graded_nothing",
     "health",
@@ -93,6 +92,7 @@ __all__ = [
     "read_route",
     "refuse_foreign_kernel",
     "refuse_foreign_setup",
+    "refuse_unproven_episode",
     "relay",
     "relayed_routes",
     "router_error",

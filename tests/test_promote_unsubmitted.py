@@ -72,6 +72,25 @@ def test_a_promotion_names_the_judge_rank(promoter, monkeypatch) -> None:
     assert outcome.startswith("SUBMITTED")
 
 
+def test_a_promotion_proves_the_episode_it_submits_for(
+    promoter: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Once the drivers issued episode tokens, the router refuses a recorded request whose token does not prove its
+    episode: the driver promoting an episode derives that episode's token from the job secret."""
+    from hpcagent_agent.tools import http_json
+
+    (tmp_path / http_json.EPISODE_SECRET_NAME).write_text("job-secret", encoding="utf-8")
+    monkeypatch.setenv("RUN_DIR", str(tmp_path))
+    monkeypatch.delenv(http_json.EPISODE_TOKEN_ENV, raising=False)
+    captured: list = []
+    monkeypatch.setattr(promoter.urllib.request, "urlopen", fake_urlopen(captured))
+    item = {"kernel": "gemm", "episode_id": "setup.n0.p1.w1", "language": "c", "source": "void gemm(void){}"}
+    promoter.promote("http://judge:8800", item, dry_run=False, rank=3)
+    sent = dict(captured[-1].header_items())
+    expected = http_json.episode_token(b"job-secret", "setup.n0.p1.w1")
+    assert sent[http_json.EPISODE_TOKEN_HEADER.capitalize()] == expected
+
+
 @pytest.mark.parametrize(
     ("health", "expected_rank"),
     [

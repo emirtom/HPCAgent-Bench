@@ -21,9 +21,12 @@ repos_of() {
 HewlettPackard/shs-cxi-driver ROCm/aiter triton-lang/triton ROCm/triton" ;;
     vllm | vllm-cuda) echo "vllm-project/vllm" ;;
     *) echo "mirror-repos.sh: no image '$1' (judge-agent-amd judge-agent-cpu judge-agent-cuda sglang vllm vllm-cuda)" >&2
-       exit 2 ;;
+       return 2 ;;
   esac
 }
+# Every name is checked first: repos_of runs in a command substitution below, where a failure would only end
+# the subshell and the script would go on mirroring the names it did know.
+for image in "$@"; do repos_of "${image}" >/dev/null || exit 2; done
 if [ "$#" -eq 0 ]; then
   QUEUE="${JUDGE_AGENT_REPOS} $(repos_of sglang) $(repos_of vllm)"
 else

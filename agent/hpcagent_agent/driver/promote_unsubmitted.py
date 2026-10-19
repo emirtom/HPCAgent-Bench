@@ -492,8 +492,9 @@ def promote(judge: str, item: dict[str, str], dry_run: bool, rank: int, timeout:
         if item.get(key):
             payload[key] = json.loads(item[key])
     body = json.dumps(payload).encode()
-    # A fused job's judge grades only under the worker's own setup (hpcagent_bench.fused).
-    headers = {"Content-Type": "application/json", **http_json.worker_token_header()}
+    # A fused job's judge grades only under the worker's own setup (hpcagent_bench.fused), and the router records only
+    # an episode its caller proves: the driver derives the episode's token from the job secret.
+    headers = {"Content-Type": "application/json", **http_json.judge_headers(str(item["episode_id"]))}
     req = urllib.request.Request(f"{judge.rstrip('/')}/submit", data=body, headers=headers)
     wait = min(timeout, SUBMIT_TIMEOUT_S)
     try:

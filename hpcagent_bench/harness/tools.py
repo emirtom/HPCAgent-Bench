@@ -33,7 +33,7 @@ from hpcagent_agent.tools.http_json import (
     DEFAULT_JUDGE_URL,
     DEFAULT_RANK,
     identity_fields,
-    worker_token_header,
+    judge_headers,
 )
 
 from hpcagent_bench.harness.envelope import Submission
@@ -119,15 +119,16 @@ class JudgeClient:
     def get(self, path: str, query: dict[str, str] | None = None) -> bytes:
         """GET ``path`` with ``query`` plus this client's ``rank``."""
         q = urllib.parse.urlencode({**(query or {}), "rank": self.rank})
-        return self.exchange(urllib.request.Request(f"{self.base_url}{path}?{q}", headers=worker_token_header()))
+        return self.exchange(urllib.request.Request(f"{self.base_url}{path}?{q}", headers=judge_headers()))
 
     def post(self, path: str, body: dict[str, JsonValue]) -> bytes:
         """POST ``body`` plus this client's ``rank`` and run identity, merged after the caller's fields."""
+        payload = {**body, **identity_fields(), "rank": self.rank}
         return self.exchange(
             urllib.request.Request(
                 f"{self.base_url}{path}",
-                data=json.dumps({**body, **identity_fields(), "rank": self.rank}).encode("utf-8"),
-                headers={"Content-Type": "application/json", **worker_token_header()},
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", **judge_headers(str(payload.get("episode_id") or ""))},
                 method="POST",
             )
         )

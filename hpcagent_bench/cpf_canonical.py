@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import pydantic
 
-from hpcagent_bench import cpf_cache, phase_clock, paths
+from hpcagent_bench import cpf_cache, paths, phase_clock
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec

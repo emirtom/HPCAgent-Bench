@@ -3,8 +3,8 @@
 """The agent tool's ``requests`` schema is the one the judge validates with, regenerated whenever relayout's
 pin moves.
 
-The agent runtime is stdlib-only and cannot import relayout or pydantic, so it ships the schema as JSON; this
-is the check that the committed copy is byte for byte what the pydantic models generate.
+The agent runtime does not depend on relayout, whose pydantic models define a request, so it ships the schema as
+JSON; this is the check that the committed copy is byte for byte what those models generate.
 """
 
 import json

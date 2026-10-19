@@ -24,21 +24,28 @@ import dataclasses
 import functools
 import os
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, cast
 
 import pydantic
+import pydantic.json_schema
+import pydantic_core
+from pydantic.json_schema import JsonSchemaValue
 
 from hpcagent_agent import submission_mode
 
 __all__ = [
+    "KEY_ORDER",
+    "NAMED_SCHEMAS",
     "PACKET_TOOLS_ENV",
     "REGISTRY",
     "Run",
+    "InputSchema",
     "Tool",
     "offered",
     "packet_tools",
     "schema_of",
     "tool",
+    "wire_form",
 ]
 
 #: A tool's body: the call's arguments in, the JSON answer the model reads out.
@@ -65,21 +72,48 @@ class Tool:
 REGISTRY: dict[str, Tool] = {}
 
 
-def strip_titles(schema: Any) -> Any:
-    """``schema`` without pydantic's generated ``title`` keys: the field descriptions are the prompt text,
-    the titles only repeat the field names."""
-    if isinstance(schema, dict):
-        return {key: strip_titles(value) for key, value in schema.items() if key != "title"}
+#: The key order of the hand-written input schemas the recorded ``tools/list`` answers carry: a model's schema is
+#: rendered in it, so a tool moved onto a pydantic model shows the agent the same bytes.
+KEY_ORDER = ("type", "description", "enum", "properties", "required")
+#: Schema keys whose value maps names to schemas: the names keep their declared order.
+NAMED_SCHEMAS = frozenset({"properties", "$defs"})
+
+
+class InputSchema(pydantic.json_schema.GenerateJsonSchema):
+    """A tool's input schema as the hand-written ones read: an optional field is its plain type, with no
+    ``null`` branch and no ``default`` (leaving the field out is how a caller says "none")."""
+
+    def nullable_schema(self, schema: pydantic_core.core_schema.NullableSchema) -> JsonSchemaValue:
+        return self.generate_inner(schema["schema"])
+
+    def default_schema(self, schema: pydantic_core.core_schema.WithDefaultSchema) -> JsonSchemaValue:
+        if self.get_default_value(schema) is None:
+            return self.generate_inner(schema["schema"])
+        return super().default_schema(schema)
+
+
+def wire_form(schema: Any) -> Any:
+    """``schema`` in :data:`KEY_ORDER` and without pydantic's generated ``title`` keys: the field descriptions
+    are the prompt text, the titles only repeat the field names."""
     if isinstance(schema, list):
-        return [strip_titles(value) for value in schema]
-    return schema
+        return [wire_form(value) for value in cast("list[Any]", schema)]
+    if not isinstance(schema, dict):
+        return schema
+    node = cast("dict[str, Any]", schema)
+    keys = [key for key in KEY_ORDER if key in node] + [key for key in node if key not in {*KEY_ORDER, "title"}]
+    return {
+        key: {name: wire_form(value) for name, value in node[key].items()}
+        if key in NAMED_SCHEMAS
+        else wire_form(node[key])
+        for key in keys
+    }
 
 
 def schema_of(model: type[pydantic.BaseModel]) -> dict[str, Any]:
-    """The input schema ``tools/list`` shows for ``model``."""
-    schema: dict[str, Any] = strip_titles(model.model_json_schema())
+    """The input schema ``tools/list`` shows for ``model`` (:class:`InputSchema`, :func:`wire_form`)."""
+    schema = model.model_json_schema(schema_generator=InputSchema)
     schema.setdefault("required", [])
-    return schema
+    return wire_form(schema)
 
 
 def validated(model: type[pydantic.BaseModel], run: Run) -> Run:

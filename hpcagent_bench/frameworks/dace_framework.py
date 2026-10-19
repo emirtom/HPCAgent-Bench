@@ -31,7 +31,7 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
-from hpcagent_bench import cpf_canonical, languages, paths
+from hpcagent_bench import cpf_canonical, languages, paths, phase_clock
 from hpcagent_bench import flags as bench_flags
 from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
 from hpcagent_bench.frameworks import Benchmark, Framework
@@ -56,7 +56,6 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.frameworks.test import reference_outputs, tolerance_datatype, tolerances_for
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
-from hpcagent_bench import phase_clock
 
 if TYPE_CHECKING:
     from dace.frontend.python.common import SDFGClosure
@@ -106,6 +105,7 @@ __all__ = [
     "row_major_copy",
     "stage_device_arguments",
     "stage_to_device",
+    "timed_compile",
 ]
 
 dc_float: dace_dtypes.typeclass | None = None
@@ -368,6 +368,15 @@ def pin_build_caching() -> None:
     if ccache is not None:
         for lang in ("C", "CXX", "CUDA"):
             os.environ.setdefault(f"CMAKE_{lang}_COMPILER_LAUNCHER", ccache)
+
+
+def timed_compile(sdfg: dace.SDFG) -> CompiledSDFG:
+    """``sdfg.compile()`` timed as ``compile``, less the seconds DaCe reports generating its code (``codegen``)."""
+    stats: dict[str, float | bool] = {}
+    with phase_clock.phase("compile"):
+        program = sdfg.compile(stats=stats)
+    phase_clock.shift(float(stats["codegen_seconds"]), "compile", "codegen")
+    return program
 
 
 # Pipeline registry: adding a new SDFG pipeline is one entry here.
@@ -909,8 +918,7 @@ class DaceFramework(Framework):
                     stack.enter_context(
                         dace.config.set_temporary(*key, value=f"{dace.Config.get(*key)} {STRICT_FP_FLAG}")
                     )
-                with phase_clock.phase("compile"):
-                    rebuilt = TimedCompiledSDFG(strict.compile(), strict, f"{name}_strict_fp")
+                rebuilt = TimedCompiledSDFG(timed_compile(strict), strict, f"{name}_strict_fp")
         except Exception as exc:  # noqa: BLE001 -- the strict-FP rebuild is optional; the fast build stands
             print(f"DaCe optimize: strict-FP rebuild of {name!r} failed to compile: {exc}")
             return fallback
@@ -930,9 +938,7 @@ class DaceFramework(Framework):
             if sdfg is None:
                 continue
             try:
-                # DaCe generates the code inside compile(): it counts as compile until dace reports the two apart.
-                with phase_clock.phase("compile"):
-                    dc_exec = sdfg.compile()
+                dc_exec = timed_compile(sdfg)
                 compiled[name] = TimedCompiledSDFG(dc_exec, sdfg, name)
             except Exception as exc:  # noqa: BLE001 -- a variant that does not compile is skipped
                 print(f"DaCe optimize: failed to compile {self.info['arch']} {name}: {exc}")

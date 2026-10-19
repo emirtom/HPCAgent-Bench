@@ -49,8 +49,6 @@ __all__ = [
     "AllInCpu",
     "AllInNvidia",
     "Autokernel",
-    "page_packet",
-    "register_page_packets",
     "DistRcclAmd",
     "DistributedAmd",
     "Kernel",
@@ -63,6 +61,8 @@ __all__ = [
     "PerfPlaybookNvidia",
     "Repo",
     "WebSearch",
+    "page_packet",
+    "register_page_packets",
 ]
 
 

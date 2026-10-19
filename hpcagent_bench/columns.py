@@ -226,12 +226,18 @@ def dace_names(attrs: dict[str, Any]) -> dict[str, Any]:
 
 
 def dace(key: str, *, order: int) -> Callable[[type], type]:
-    """Register a DaCe column or flavor under ``key``; :func:`dace_names` fills in the names its mixins imply."""
+    """Register a DaCe column or flavor under ``key``: the decorated class becomes a subclass of itself that also
+    carries the names :func:`dace_names` derives from its mixins."""
 
     def apply(cls: type) -> type:
-        for name, value in dace_names(fields_of(cls)).items():
-            setattr(cls, name, value)
-        return framework(key, order=order)(cls)
+        namespace = {
+            "__slots__": (),
+            "__module__": cls.__module__,
+            "__qualname__": cls.__qualname__,
+            "__doc__": cls.__doc__,
+            **dace_names(fields_of(cls)),
+        }
+        return framework(key, order=order)(type(cls.__name__, (cls,), namespace))
 
     return apply
 

@@ -199,8 +199,8 @@ def test_collecting_this_module_generates_nothing() -> None:
 
 
 def test_ci_lowers_every_shard_it_deals_the_kernels_into() -> None:
-    """A matrix missing a shard index is kernels nothing lowers, and every job in it goes green."""
-    indices, count = ci_parse_shards("dace-frontend")
+    """A missing shard index is kernels nothing lowers, and the job still goes green."""
+    indices, count = ci_parse_shards("dace-frontend", "tests/test_dace_port_lowering.py")
     assert sorted(indices) == list(range(count)), f"dace-frontend lowers shards {sorted(indices)} of {count}"
 
 

@@ -115,7 +115,6 @@ def run(payload: dict[str, Any]) -> dict[str, Any]: ...
 
 Every harness consumes the same server: Claude Code, Codex and OpenHands as MCP clients over stdio, the native
 Anthropic and OpenAI harnesses through the SDKs' MCP clients, and mini-SWE through `hpcagent-bench-tool`.
-`python -m hpcagent_agent.tools.mcp_server --http <port>` serves it over streamable HTTP at `/mcp`.
 
 ```bash
 python -m hpcagent_agent.tools.mcp_server --describe

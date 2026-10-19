@@ -45,7 +45,7 @@ import time
 import traceback
 import types
 import uuid
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Generator, Sequence
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -55,7 +55,7 @@ import numpy as np
 from hpcagent_agent.tools import submit
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
-from hpcagent_bench import anticheat, config, core_dumps, cpf_cache, fused, languages, seal
+from hpcagent_bench import anticheat, config, core_dumps, fused, languages, seal
 from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
 from hpcagent_bench.config import GridChooser
 from hpcagent_bench.flags import Mode
@@ -67,8 +67,6 @@ from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_
 from hpcagent_bench.harness.judge_wire import (
     BaselineAnswer,
     BuildAnswer,
-    CanonicalFormAnswer,
-    CanonicalFormQuery,
     GradeAnswer,
     HealthAnswer,
     JudgeAnswer,
@@ -91,7 +89,6 @@ from hpcagent_bench.harness.mpi_descriptor import (
 )
 from hpcagent_bench.harness.native_call import reclaim_memory
 from hpcagent_bench.harness.profiling import as_float, as_int
-from hpcagent_bench.harness.routes import first_param, load
 from hpcagent_bench.harness.requests_api import (
     CheckedArray,
     CheckedStruct,
@@ -105,6 +102,7 @@ from hpcagent_bench.harness.requests_api import (
     precision_problem_dtypes,
     precision_refusal,
 )
+from hpcagent_bench.harness.routes import first_param, load
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
@@ -123,7 +121,6 @@ from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_pres
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
 from hpcagent_bench.support.helpers.sparse.request import resolve_layout
-from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
 __all__ = [
     "ABANDONABLE_ROUTES",
@@ -163,6 +160,7 @@ __all__ = [
     "SlotPool",
     "WireAnswer",
     "as_json_object",
+    "bound_names",
     "build_device_pool",
     "client_closed",
     "default_request_language",
@@ -181,9 +179,10 @@ __all__ = [
     "local_device_slots",
     "make_server",
     "ml_layout",
+    "module_names",
     "precision_scope_refusal",
     "preload_lazy_imports",
-    "module_names",
+    "python_entry",
     "python_entry_refusal",
     "python_residency_refusal",
     "rank_error",
@@ -192,7 +191,6 @@ __all__ = [
     "request_label",
     "request_tokens",
     "requests_refusal",
-    "with_task_grid",
     "scales",
     "score_answer",
     "serve",
@@ -203,6 +201,7 @@ __all__ = [
     "task_source_mode",
     "triton_launch_problem",
     "unrecordable",
+    "with_task_grid",
 ]
 
 if TYPE_CHECKING:
@@ -652,36 +651,55 @@ def python_residency_refusal(requested: str) -> str | None:
     )
 
 
-def module_names(source: str) -> list[str] | None:
-    """The names a Python module binds at top level (functions, classes, assignments, imports), in source order;
-    None when it does not parse (the grade then reports the syntax error as its own failure)."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return None
+def bound_names(body: Sequence[ast.stmt]) -> list[str]:
+    """The names ``body`` binds at its own level -- functions, classes, assignments (tuple targets too), imports --
+    and in the bodies of its ``if`` / ``try`` / ``with`` blocks, which run at that level too; ``*`` for a star
+    import, whose names no parser can see."""
     names: list[str] = []
-    for node in tree.body:
+    for node in body:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             names.append(node.name)
-        elif isinstance(node, ast.Assign | ast.AnnAssign):
+        elif isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            names.extend(target.id for target in targets if isinstance(target, ast.Name))
+            names.extend(name.id for target in targets for name in ast.walk(target) if isinstance(name, ast.Name))
         elif isinstance(node, ast.Import | ast.ImportFrom):
             names.extend((alias.asname or alias.name).partition(".")[0] for alias in node.names)
+        elif isinstance(node, ast.If | ast.Try | ast.With):
+            nested = [*node.body, *node.orelse] if isinstance(node, ast.If) else list(node.body)
+            if isinstance(node, ast.Try):
+                nested += [*node.orelse, *node.finalbody, *(stmt for handler in node.handlers for stmt in handler.body)]
+            names.extend(bound_names(nested))
     return names
+
+
+def module_names(source: str) -> list[str] | None:
+    """The names a Python module binds at top level (:func:`bound_names`), in source order; None when it does not
+    parse (the grade then reports the syntax error as its own failure)."""
+    try:
+        return bound_names(ast.parse(source).body)
+    except SyntaxError:
+        return None
+
+
+def python_entry(task: Task) -> str:
+    """The function a Python submission of ``task`` must define: ``kernel_mpi`` on a distributed grade, scaling
+    sweeps included (:data:`mpi_shard_driver.PY_KERNEL`), else the manifest's ``func_name``."""
+    if task.residency == "distributed":
+        return mpi_shard_driver.PY_KERNEL
+    return BenchSpec.load(task.kernel).func_name
 
 
 def python_entry_refusal(submission: Submission, task: Task) -> str | None:
     """A 400 message when a Python submission defines no top-level name for the task's entry point, else None.
 
     Checked before anything is built or timed: the grade would only fail on import with the reason in the judge's
-    log, and the agent paid a call to learn nothing. A dynamic definition (``globals()[...]``) the parser cannot
-    see still reaches the grade."""
+    log, and the agent paid a call to learn nothing. A name the parser cannot see (a star import, ``globals()[...]``)
+    is left to the grade."""
     if not submission.is_python or submission.source is None:
         return None
-    entry = BenchSpec.load(task.kernel).func_name
+    entry = python_entry(task)
     names = module_names(submission.source)
-    if names is None or entry in names:
+    if names is None or entry in names or "*" in names:
         return None
     defined = ", ".join(f"'{name}'" for name in names) or "nothing"
     return (
@@ -1789,7 +1807,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             refused = layout_refusal(submission, task)
         if refused is None:
             refused = workspace_refusal(submission, task)
-        if refused is None:
+        if refused is None and route != "profile":  # /profile answers a Python delivery with its own refusals
             refused = python_entry_refusal(submission, task)
         if refused is None and route == "profile" and requested_layout(BenchSpec.load(kernel), submission) is not None:
             refused = "profiling runs the default sparse layout; drop the format operations from a /profile request"

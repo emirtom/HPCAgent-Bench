@@ -102,8 +102,6 @@ def serve(judge: Judge, parts: list[str], qs: dict[str, list[str]]) -> None:
         )
     from hpcagent_bench import cpf_bridge  # renders and binds; only a CPF request needs it
 
-    from hpcagent_bench import cpf_bridge  # noqa: PLC0415 -- imports dace; only a CPF request needs it
-
     fptype = cpf_bridge.form_fptype(kernel, judge.cfg.datatype)
     try:
         form = cpf_cache.resolve(root, kernel, language, fptype, hints)
@@ -161,8 +159,6 @@ def serve(judge: Judge, parts: list[str], qs: dict[str, list[str]]) -> None:
 def render(cfg: RunConfig, view: pathlib.Path, kernel: str, hints: cpf_cache.HintDetail) -> str:
     """Render ``kernel`` into ``view`` at ``hints`` for a request that missed; "" when an outcome is recorded."""
     from hpcagent_bench import cpf_prerender
-
-    from hpcagent_bench import cpf_prerender  # noqa: PLC0415 -- imports dace; only a render needs it
 
     cache = canonical_parallel_form_cache(view)
     fptype = fptype_tag(cfg.datatype)

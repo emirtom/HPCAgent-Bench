@@ -14,9 +14,9 @@ import os
 import pathlib
 import re
 import secrets
-import socket
 import shutil
 import signal
+import socket
 import statistics
 import subprocess
 import sys
@@ -52,8 +52,6 @@ __all__ = [
     "AGGREGATE_PROBE_SECONDS",
     "AGGREGATE_SATURATED_FRACTION",
     "API_TIMEOUT_MARKS",
-    "MODEL_ERROR_MARKS",
-    "OUTPUT_CAP_MARK",
     "BLANK_RUN",
     "BUILD_TOKENS_DEFAULT",
     "CANCELLED_MARKER",
@@ -80,17 +78,19 @@ __all__ = [
     "METRIC_PROMPT",
     "METRIC_RUNNING",
     "METRIC_WAITING",
+    "MODEL_ERROR_MARKS",
     "MODE_SLOT",
     "NO_INTERNET",
     "OFFLOAD_LANGUAGES",
+    "OUTPUT_CAP_MARK",
     "PROBE_MAX_TOKENS",
     "PROBE_PROMPT",
     "RC_AGENT_FAULT",
     "RC_API_TIMEOUT",
-    "RC_MODEL_ERROR",
-    "RC_OUTPUT_CAP",
     "RC_CONTEXT",
     "RC_MCP_UNAVAILABLE",
+    "RC_MODEL_ERROR",
+    "RC_OUTPUT_CAP",
     "RC_SUBMITTED",
     "RC_TIMEOUT",
     "RC_TOKEN_BUDGET",
@@ -148,8 +148,8 @@ __all__ = [
     "claude_supports_flag",
     "clear_for_relaunch",
     "closing_crashed",
-    "closing_text_has",
     "closing_returncode",
+    "closing_text_has",
     "context_overflow",
     "cost_breakdown",
     "cost_record_fields",
@@ -160,6 +160,7 @@ __all__ = [
     "ended_reason",
     "engine_totals",
     "env_flag",
+    "episode_secret",
     "experiment_setup",
     "fetch_problems",
     "fill_mode_slots",
@@ -173,7 +174,6 @@ __all__ = [
     "hints_text",
     "hit_turn_cap",
     "host_home_root",
-    "episode_secret",
     "identity_env",
     "issue_worker_token",
     "job_is_ending",
@@ -198,7 +198,6 @@ __all__ = [
     "open_tool_use_stall_seconds",
     "own_page",
     "packet_dir",
-    "packet_tools",
     "parse_prometheus",
     "parse_resolved",
     "pin",
@@ -1094,14 +1093,6 @@ def packet_dir() -> pathlib.Path | None:
     return path
 
 
-def packet_tools() -> tuple[str, ...]:
-    """The MCP tools a method packet adds: one per module in its directory, named by the module stem."""
-    path = packet_dir()
-    return (
-        () if path is None else tuple(sorted(module.stem for module in path.glob("*.py") if module.stem != "__init__"))
-    )
-
-
 def hints_text() -> str:
     """The {{HINTS}} slot: the method packet's ``packet.md``, or nothing without a packet. Skill pages never
     ride here; they reach the agent as trigger lines and files."""
@@ -1281,15 +1272,14 @@ def episode_secret() -> bytes | None:
     path = pathlib.Path(run_dir) / http_json.EPISODE_SECRET_NAME
     if not path.exists():
         # Written whole, then linked into place: a link never replaces, so the first driver wins and no reader
-        # ever sees a half-written secret.
+        # ever sees a half-written secret. Created 0600, never readable by anyone else even for a moment.
         staged = path.with_name(f"{path.name}.{socket.gethostname()}.{os.getpid()}.{secrets.token_hex(4)}")
-        staged.write_text(secrets.token_hex(32), encoding="utf-8")
-        staged.chmod(0o600)
+        with os.fdopen(os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as out:
+            out.write(secrets.token_hex(32))
         with contextlib.suppress(FileExistsError):
             os.link(staged, path)
         staged.unlink(missing_ok=True)
-    secret = path.read_text(encoding="utf-8").strip()
-    return secret.encode("utf-8") if secret else None
+    return http_json.job_episode_secret()
 
 
 #: The problems-file key holding what the agent tools offer in ``requests`` (``make_problems.py`` writes it
@@ -1416,7 +1406,7 @@ RC_MCP_UNAVAILABLE = 122
 #: An agent thread raised something the driver has no rc for; the node goes on with the others.
 RC_AGENT_FAULT = 1
 #: Episode ends that are results, not faults. An API timeout still counts as a failure.
-CLEAN_ENDS = frozenset({0, RC_SUBMITTED, RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT})
+CLEAN_ENDS = frozenset({0, RC_SUBMITTED, RC_TIMEOUT, RC_TOKEN_BUDGET, RC_CONTEXT, RC_OUTPUT_CAP, RC_MODEL_ERROR})
 
 #: The served refusal of an over-long prompt, as it reaches the transcript's closing event. The one
 #: substring both engines' messages share: vLLM's "Input length (66001) exceeds model's maximum context
@@ -2628,7 +2618,8 @@ def claude_command(context: Context) -> list[str]:
         "Read,Edit,Bash" if bare else CLAUDE_NATIVE_TOOLS,
         "--allowedTools",
         "Bash",
-        *[f"mcp__{MCP_SERVER_NAME}__{name}" for name in (*agent_tools(), *packet_tools())],
+        # The method packet's tools are among them: the server registers and serves them (AGENT_PACKET).
+        *[f"mcp__{MCP_SERVER_NAME}__{name}" for name in agent_tools()],
         "--disallowedTools",
         "WebFetch",
         "WebSearch",

@@ -403,7 +403,7 @@ def agent_build(tokens: list[str], source_mode: str) -> tuple[list[str], list[st
     ``-std=`` included, since an ``any`` task already accepts a prebuilt ``.so`` built with them; the link argv keeps
     :func:`safe_link`'s rule and takes no compile flag, so no FP startup object (``crtfastmath.o``) changes the
     whole process."""
-    if source_mode != "any":
+    if source_mode != "any" or not config.current().grading.allow_agent_build_tokens:
         return split_build(tokens, allow_flags=agent_flags_allowed())
     link_tokens = [t for t in tokens if t.startswith(LINK_PREFIXES) and safe_link(t)]
     return [t for t in tokens if not t.startswith(LINK_PREFIXES)], link_tokens

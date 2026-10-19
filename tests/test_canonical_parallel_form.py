@@ -21,6 +21,7 @@ import pytest
 
 from hpcagent_bench import cpf_cache
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.harness.routes import canonical_parallel_form as cpf_route
 from tests.fresh_module import fresh
 
 JudgeFactory = Callable[..., tuple[ThreadingHTTPServer, str]]
@@ -95,15 +96,15 @@ def test_a_gpu_task_asks_for_the_hip_form(monkeypatch: pytest.MonkeyPatch, langu
 def test_the_server_lists_it_for_the_packet_that_renders_the_view(monkeypatch: pytest.MonkeyPatch) -> None:
     """A tool the server does not list is a tool no agent can call -- which is the point in a setup
     with no rendered view, where every call it could make answers ``unavailable``. The cpf-tool packet
-    pins the view, and that is the setup the tool belongs to."""
-    monkeypatch.setenv("HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR", "/views/cpf")
+    carries the tool (``HPCAGENT_BENCH_PACKET_TOOLS``), and that is the setup the tool belongs to."""
+    monkeypatch.setenv("HPCAGENT_BENCH_PACKET_TOOLS", "canonical_parallel_form")
     server = fresh("mcp_server")
-    assert "canonical_parallel_form" in [d["name"] for d in server.tool_definitions()]
+    assert "canonical_parallel_form" in [tool.name for tool in server.tool_definitions()]
     # Reloaded back into the control state LAST: the module stays in sys.modules after this test,
     # and a cached one built under the view would answer for a setup that has none.
-    monkeypatch.delenv("HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR")
+    monkeypatch.delenv("HPCAGENT_BENCH_PACKET_TOOLS")
     server = fresh("mcp_server")
-    assert "canonical_parallel_form" not in [d["name"] for d in server.tool_definitions()]
+    assert "canonical_parallel_form" not in [tool.name for tool in server.tool_definitions()]
 
 
 def publish_view(tmp_path: pathlib.Path, kernel: str, source: str) -> pathlib.Path:
@@ -142,7 +143,7 @@ def test_the_route_serves_the_cached_form(
     config.set_override("service.canonical_parallel_form_dir", str(view))
     _, url = make_judge(RunConfig())
     answer = get_form(url, "example_kernel")
-    assert service.canonical_parallel_form_root() == view
+    assert cpf_route.canonical_parallel_form_root() == view
     assert (answer["verdict"], answer["dialect"], answer["entry"]) == ("ok", "c", "example_kernel_fp64")
     assert answer["source"] == "// pre-rendered\n"
     assert answer["binding"] == "{}"
@@ -236,7 +237,7 @@ def test_no_directory_means_no_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from hpcagent_bench.harness import service
 
     config.set_override("service.canonical_parallel_form_dir", "")
-    assert service.canonical_parallel_form_root() is None
+    assert cpf_route.canonical_parallel_form_root() is None
 
 
 def test_a_request_is_never_answered_with_another_kernels_form(tmp_path: pathlib.Path) -> None:

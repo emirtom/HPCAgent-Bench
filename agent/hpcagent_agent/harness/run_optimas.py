@@ -30,12 +30,15 @@ import os
 import sys
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Protocol, cast
+
+import pydantic
 
 from hpcagent_agent.harness import run_openai, runner_common
 
 __all__ = [
     "CANDIDATES",
+    "Keyed",
     "PROPOSER_PREAMBLE",
     "ROUND_TURNS",
     "SCORE_TOOL",
@@ -45,6 +48,7 @@ __all__ = [
     "proposer_usage",
     "run_episode",
     "score_reward",
+    "tool_text",
 ]
 
 TRANSCRIPT = "optimas.items.jsonl"
@@ -62,13 +66,36 @@ PROPOSER_PREAMBLE = (
 )
 
 
-def score_reward(result: Any) -> float | None:
+class Keyed(Protocol):
+    """What :func:`best_reward` reads off one prediction: optimas' ``Prediction`` (an ``Example``) is a
+    mapping of the component's output fields with ``get``."""
+
+    def get(self, key: str, default: object = None) -> object: ...
+
+
+def tool_text(result: object) -> str | None:
+    """The text of one tool answer as ``on_tool_end`` hands it over. For an MCP tool the Agents SDK 0.24
+    (``MCPUtil.invoke_mcp_tool``) passes its one content block, ``{"type": "text", "text": <json>}``, a list
+    of such blocks when the answer has several, or ``json.dumps`` of the structured content when the
+    server is asked for that; a failed call arrives as the error message string."""
+    if isinstance(result, str):
+        return result
+    blocks = cast("list[object]", result) if isinstance(result, list) else [result]
+    texts = [
+        text
+        for block in blocks
+        if isinstance(block, Mapping) and isinstance(text := cast("Mapping[str, object]", block).get("text"), str)
+    ]
+    return "".join(texts) if texts else None
+
+
+def score_reward(result: object) -> float | None:
     """The reward one ``score`` answer credits: its ``speedup`` when the judge found the version correct,
     0.0 when it did not; ``None`` for an answer that is not a judge verdict (a refusal, a tool error).
-    The Agents SDK hands an MCP result over as its content block, ``{"type": "text", "text": <json>}``."""
-    text = result.get("text") if isinstance(result, Mapping) else result
+    ``result`` is any shape :func:`tool_text` reads."""
+    text = tool_text(result)
     try:
-        answer = json.loads(text) if isinstance(text, str) else None
+        answer = json.loads(text) if text is not None else None
     except ValueError:
         return None
     if not isinstance(answer, dict) or "correct" not in answer:
@@ -79,19 +106,22 @@ def score_reward(result: Any) -> float | None:
     return float(speedup)
 
 
-def best_reward(_trainset: Sequence[Any], predictions: Sequence[Any]) -> float:
+def best_reward(_trainset: Sequence[Any], predictions: Sequence[Keyed]) -> float:
     """OPRO's metric over one evaluation: the best round reward among its predictions (one per round)."""
-    rewards = [getattr(prediction, "reward", None) for prediction in predictions]
+    rewards = [prediction.get("reward") for prediction in predictions]
     return max((float(reward) for reward in rewards if isinstance(reward, int | float)), default=0.0)
 
 
 def proposer_usage(usage_log: runner_common.UsageLog) -> Callable[..., None]:
-    """A litellm success callback appending each proposer call's usage to ``usage_log``."""
+    """A litellm success callback appending each proposer call's usage to ``usage_log``. litellm's
+    ``ModelResponse`` is a pydantic model carrying ``usage`` (an extra field) as the OpenAI usage object;
+    only that field is dumped, as the choices' dump warns."""
 
-    def record(_kwargs: Any, response: Any, _start: Any, _end: Any) -> None:
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            usage_log.append(runner_common.openai_usage(usage.model_dump()))
+    def record(_kwargs: object, response: object, _start: object, _end: object) -> None:
+        dumped = response.model_dump(include={"usage"}) if isinstance(response, pydantic.BaseModel) else {}
+        usage = dumped.get("usage")
+        if isinstance(usage, dict):
+            usage_log.append(runner_common.openai_usage(cast("dict[str, object]", usage)))
 
     return record
 

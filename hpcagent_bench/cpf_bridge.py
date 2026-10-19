@@ -941,9 +941,7 @@ def prerender_sdfg(
         else:
             todo.append(language)
     if todo:
-        # The canonical SDFG's production time (credited on a hit) plus a language's render is what the form cost.
-        with phase_clock.measuring() as canonical_clock:
-            sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
+        sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
         canonical_rec.cached = cached
         if isinstance(sdfg, dict):
             for language in todo:
@@ -952,7 +950,7 @@ def prerender_sdfg(
             for language in todo:
                 key, options = plan[language]
                 try:
-                    with phase_clock.measuring() as render_clock, phase_clock.phase("codegen"):
+                    with phase_clock.phase("codegen"):
                         form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
                     results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})
@@ -963,9 +961,6 @@ def prerender_sdfg(
                     "entry": form.entry,
                     "libraries": list(form.libraries),
                     "workspace_bytes": form.workspace_bytes,
-                    "seconds": {
-                        name: canonical_clock.seconds[name] + render_clock.seconds[name] for name in phase_clock.PHASES
-                    },
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
                 results[language] = RenderOutcome(key=key, verdict="ok", cached=False)

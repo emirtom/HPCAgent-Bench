@@ -665,8 +665,8 @@ def tmp_path_log(tmp_path: pathlib.Path, lines: list[str]) -> pathlib.Path:
 
 
 #: The third-party packages the agent runtime may import at module level: its declared dependencies
-#: (``agent/pyproject.toml``: the MCP SDK and pydantic) and the ASGI stack the SDK itself brings.
-AGENT_DEPENDENCIES = frozenset({"mcp", "pydantic", "anyio", "starlette", "uvicorn"})
+#: (``agent/pyproject.toml``: the MCP SDK and pydantic, with pydantic_core) and anyio, the async runtime the SDK runs on.
+AGENT_DEPENDENCIES = frozenset({"mcp", "pydantic", "pydantic_core", "anyio"})
 
 
 def test_the_agent_runtime_imports_the_standard_library_only() -> None:
