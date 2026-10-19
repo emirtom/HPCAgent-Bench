@@ -373,7 +373,7 @@ class PpcgHipOptimizer(Agent):
 class AlloyOptimizer(LibraryOptimizer):
     """An autotuning DaCe flavor (``hpcagent_bench.columns``): Alloy (github.com/ThrudPrimrose/alloy) on the SDFG of
     the flavor's one pipeline, on the flavor's device. Constructed with the flavor's name, which is the label its rows
-    carry; :func:`optimizer_registry` binds it. CPU C/C++ libraries only; Alloy is an optional install."""
+    carry; :func:`optimizer_registry` binds it. C/C++ libraries; Alloy is an optional install."""
 
     __slots__ = ("fname",)
 
@@ -398,18 +398,19 @@ class AlloyOptimizer(LibraryOptimizer):
 
 
 class AlloyProfileOptimizer(AlloyOptimizer):
-    """Alloy's profile mode: every region candidate built, verified and timed locally, the best few per region
-    ranked on the judge's ``/score`` while the kernel's budget allows."""
+    """Alloy's profile mode: every region candidate built, verified and screened locally, the best few per region
+    timed on the judge as ``/profile`` stubs, and the chosen library scored once (:mod:`alloy_adapter`)."""
 
     __slots__ = ()
 
     def tune(self, task: Task, pipeline: str) -> Submission:
-        from alloy import bench  # pyright: ignore[reportMissingImports] -- Alloy is an optional install
+        # Deferred: the adapter imports Alloy, an optional install.
+        from hpcagent_bench.harness import alloy_adapter
 
         def deliver(code: str, link: Sequence[str]) -> Submission:
             return self._library_submission(task, code, extra_link=link)
 
-        return bench.optimize(task, pipeline, deliver)
+        return alloy_adapter.optimize(task, pipeline, deliver)
 
 
 class AlloyHeuristicOptimizer(AlloyOptimizer):
