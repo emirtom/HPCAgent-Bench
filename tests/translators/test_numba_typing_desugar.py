@@ -357,6 +357,204 @@ def test_a_3d_gather_through_a_4d_slice_view_with_outer_product_weights_matches_
     np.testing.assert_allclose(out, expected, rtol=1e-13, atol=0)
 
 
+PAIR_FORCE_SRC = """import numpy as np
+
+
+def pair_force(fpair, dpos, out):
+    out[:] = np.sum(fpair[:, :, np.newaxis] * dpos, axis=1)
+"""
+
+
+@isolated
+def test_an_inner_axis_two_operands_size_is_peeled_under_a_runtime_check(tmp_path: pathlib.Path) -> None:
+    """force_lj: the row ``fpair[i, :, None] * dpos[i]`` takes its axis from two operands. Peeled behind a
+    check that the two extents agree, it matches numpy; a size-1 ``fpair`` axis raises instead of filling one
+    column (test_length1_slice_broadcast holds that side)."""
+    arrays = [("fpair", "float64", ("N", "N")), ("dpos", "float64", ("N", "N", "3")), ("out", "float64", ("N", "3"))]
+    emitted, module = emit_and_load(tmp_path, PAIR_FORCE_SRC, kernel_ir(PAIR_FORCE_SRC, "pair_force", arrays))
+    assert "parallel=True" in emitted
+    assert "raise ValueError" in emitted
+    rng = np.random.default_rng(2)
+    fpair, dpos = rng.standard_normal((6, 6)), rng.standard_normal((6, 6, 3))
+    out = np.zeros((6, 3))
+    module.pair_force(fpair, dpos, out)
+    np.testing.assert_allclose(out, np.sum(fpair[:, :, np.newaxis] * dpos, axis=1), rtol=1e-14, atol=0)
+
+
+WINDOW_OUTER_SRC = """import numpy as np
+
+
+def windows(sy, sz, lo, hi, out):
+    for ip in range(sy.shape[0]):
+        j0, j1 = lo[ip], hi[ip]
+        g = sy[ip, j0:j1, None] * sz[ip, None, j0:j1]
+        out[ip] = np.sum(g)
+"""
+
+
+@isolated
+def test_an_outer_product_of_runtime_bounded_slices_is_peeled(tmp_path: pathlib.Path) -> None:
+    """warpx_esirkepov_deposition's ``sy_new[ip, j0:j1, None] * sz_new[ip, None, k0:k1]``: a slice bound read
+    at run time has no extent in the source, so the view's own ``.shape`` sizes the peel."""
+    arrays = [
+        ("sy", "float64", ("P", "W")),
+        ("sz", "float64", ("P", "W")),
+        ("lo", "int64", ("P",)),
+        ("hi", "int64", ("P",)),
+        ("out", "float64", ("P",)),
+    ]
+    emitted, module = emit_and_load(tmp_path, WINDOW_OUTER_SRC, kernel_ir(WINDOW_OUTER_SRC, "windows", arrays))
+    assert "parallel=True" in emitted
+    rng = np.random.default_rng(3)
+    sy, sz = rng.standard_normal((5, 7)), rng.standard_normal((5, 7))
+    lo, hi = np.array([0, 1, 2, 0, 3]), np.array([7, 5, 4, 1, 9])  # 9 clips to 7, as numpy's slice does
+    out = np.zeros(5)
+    module.windows(sy, sz, lo, hi, out)
+    expected = np.array([np.sum(sy[p, lo[p] : hi[p], None] * sz[p, None, lo[p] : hi[p]]) for p in range(5)])
+    np.testing.assert_allclose(out, expected, rtol=1e-13, atol=0)
+
+
+ARANGE_OUTER_SRC = """import numpy as np
+
+
+def positions(base, fanout, out):
+    pos = base[:, None] + np.arange(fanout, dtype=np.int64)
+    out[:, :] = pos
+"""
+
+
+@isolated
+def test_an_outer_product_with_an_arange_operand_is_peeled(tmp_path: pathlib.Path) -> None:
+    """cp2k_density_matrix_trs4's ``b_base[:, None] + np.arange(fanout)``: the arange is 1-D, so it only
+    broadcasts along the peeled rows."""
+    arrays = [("base", "int64", ("N",)), ("out", "int64", ("N", "F"))]
+    emitted, module = emit_and_load(tmp_path, ARANGE_OUTER_SRC, kernel_ir(ARANGE_OUTER_SRC, "positions", arrays))
+    assert "parallel=True" in emitted
+    base = np.array([0, 4, 8, 20])
+    out = np.zeros((4, 3), dtype=np.int64)
+    module.positions(base, 3, out)
+    np.testing.assert_array_equal(out, base[:, None] + np.arange(3))
+
+
+CUMULATIVE_SRC = """import numpy as np
+
+
+def segment(x):
+    c = np.cumsum(x, axis=-1)
+    return c[..., -1]
+
+
+def scans(a, b, out_a, out_b, out_c, out_d):
+    out_a[:] = np.cumprod(a, axis=0)
+    out_b[:] = np.cumsum(b, axis=1)
+    out_c[:] = segment(a)
+    out_d[:] = segment(b)
+"""
+
+
+@isolated
+def test_an_axis_scan_matches_numpy_bit_for_bit_at_every_rank_a_helper_sees(tmp_path: pathlib.Path) -> None:
+    """numba's cumsum / cumprod take no ``axis``. Lowered one slice at a time they keep numpy's left-to-right
+    order, and a negative axis stays relative to the end, so ``segment`` is right for the 2-D and the 3-D
+    call alike (mamba2's ``_segsum``, where pinning ``-1`` to one rank breaks the other)."""
+    arrays = [
+        ("a", "float64", ("N", "M")),
+        ("b", "float64", ("K", "N", "M")),
+        ("out_a", "float64", ("N", "M")),
+        ("out_b", "float64", ("K", "N", "M")),
+        ("out_c", "float64", ("N",)),
+        ("out_d", "float64", ("K", "N")),
+    ]
+    emitted, module = emit_and_load(tmp_path, CUMULATIVE_SRC, kernel_ir(CUMULATIVE_SRC, "scans", arrays))
+    assert "cumsum(x, axis" not in emitted
+    assert "cumprod(a, axis" not in emitted
+    rng = np.random.default_rng(4)
+    a, b = rng.random((4, 5)) + 0.5, rng.standard_normal((3, 4, 5))
+    outs = [np.zeros((4, 5)), np.zeros((3, 4, 5)), np.zeros(4), np.zeros((3, 4))]
+    module.scans(a, b, *outs)
+    np.testing.assert_array_equal(outs[0], np.cumprod(a, axis=0))
+    np.testing.assert_array_equal(outs[1], np.cumsum(b, axis=1))
+    np.testing.assert_array_equal(outs[2], np.cumsum(a, axis=-1)[..., -1])
+    np.testing.assert_array_equal(outs[3], np.cumsum(b, axis=-1)[..., -1])
+
+
+NONE_PLACEHOLDER_SRC = """import numpy as np
+
+
+def maybe_scaled(x, flag, out):
+    s = t = None
+    if flag:
+        s = x * 2.0
+        t = np.where(s > 1.0, s, x)
+    for i in range(x.shape[0]):
+        if flag:
+            out[i] = s[i, 0] + t[i, 1]
+
+
+def guarded(x, out):
+    s = None
+    if x.shape[0] > 2:
+        s = x * 3.0
+    if s is None:
+        out[:] = 0.0
+    else:
+        out[:] = s[:, 0]
+"""
+
+
+@isolated
+def test_a_none_placeholder_only_indexed_is_dropped_so_parallel_numba_types_it(tmp_path: pathlib.Path) -> None:
+    """``s = t = None`` ahead of array bindings: numba types ``s`` Optional(array) and its parfor analysis
+    asserts "Dimension mismatch" (warpx_esirkepov_deposition). A placeholder read bare before any binding,
+    ``s is None`` here, is kept: dropping it would change the answer."""
+    arrays = [("x", "float64", ("N", "M")), ("out", "float64", ("N",))]
+    emitted, module = emit_and_load(
+        tmp_path, NONE_PLACEHOLDER_SRC, kernel_ir(NONE_PLACEHOLDER_SRC, "maybe_scaled", arrays)
+    )
+    assert "s = t = None" not in emitted
+    assert "s = None" in emitted
+    x = np.arange(12.0).reshape(6, 2) / 4.0
+    for flag in (True, False):
+        out = np.zeros(6)
+        module.maybe_scaled(x, flag, out)
+        expected = np.zeros(6)
+        if flag:
+            s = x * 2.0
+            expected = s[:, 0] + np.where(s > 1.0, s, x)[:, 1]
+        np.testing.assert_array_equal(out, expected)
+
+
+MEMO_SRC = """from functools import lru_cache
+
+import numpy as np
+
+
+@lru_cache(maxsize=None)
+def powers(n):
+    p = np.zeros(n, dtype=np.int64)
+    for i in range(n):
+        p[i] = 2**i
+    return p
+
+
+def scale(x, out):
+    out[:] = x * powers(x.shape[0])
+"""
+
+
+@isolated
+def test_a_memoized_helper_is_callable_from_the_njit_kernel(tmp_path: pathlib.Path) -> None:
+    """An ``lru_cache`` above the njit decorator wraps the dispatcher in a global nopython code cannot call
+    (cp2k_grid_integrate's ``coset_triples``); the cache is dropped."""
+    arrays = [("x", "float64", ("N",)), ("out", "float64", ("N",))]
+    emitted, module = emit_and_load(tmp_path, MEMO_SRC, kernel_ir(MEMO_SRC, "scale", arrays))
+    assert "@lru_cache" not in emitted
+    x = np.linspace(0.0, 1.0, 5)
+    out = np.zeros(5)
+    module.scale(x, out)
+    np.testing.assert_array_equal(out, x * 2.0 ** np.arange(5))
+
+
 UNARY_NEWAXIS_SRC = """import numpy as np
 
 

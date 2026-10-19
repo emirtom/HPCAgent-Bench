@@ -1,8 +1,11 @@
-"""numba-only rewrites: outer-broadcast peel, Fortran-order reshape, dtype fixups, slice objects, ``ndim``."""
+"""numba-only rewrites: outer-broadcast peel, Fortran-order reshape, dtype fixups, slice objects, ``ndim``,
+None placeholders, axis scans."""
 
 import ast
 import copy
+import re
 from collections.abc import Sequence
+from typing import TypeGuard
 
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int, expr_of, name_, range_for, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module, numpy_call_attr
@@ -11,13 +14,16 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     RewritePass,
     name_store_counts,
 )
+from hpcagent_bench.translators.numpyto_common.numpy_desugar.hoist import HoistForm, ValueHoist
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.kinds import dtype_kind
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.ranks import expr_rank
 from hpcagent_bench.translators.numpyto_common.subscripts import is_full_slice, is_newaxis
 
 __all__ = [
+    "CUMULATIVE_AXIS_HOIST",
     "ONE",
     "NdimFold",
+    "NonePlaceholderDrop",
     "NumbaDtypeFixups",
     "OuterBroadcastPeel",
     "ReshapeFortranOrderInline",
@@ -157,6 +163,8 @@ class OuterBroadcastPeel(RankedRewritePass):
         if isinstance(expr, ast.Subscript):
             axes = self.axes_(expr)
             return None if axes is None else [ext for unused, unused, ext in axes]
+        if numpy_call_attr(expr) == "arange":
+            return [f"({ast.unparse(expr)}).shape[0]"]  # always 1-D, so it only ever broadcasts
         return None
 
     def axes_(self, sub: ast.Subscript):
@@ -176,6 +184,9 @@ class OuterBroadcastPeel(RankedRewritePass):
                 if bi >= len(base):
                     return None
                 ext = slice_extent_token(e, base[bi])
+                if ext is None and e.step is None:
+                    # Runtime bounds (``x[ip, j0:j1]``): the view's own extent, exact where the slice clips.
+                    ext = f"({ast.unparse(sub)}).shape[{len(axes)}]"
                 if ext is None:
                     return None
                 axes.append((i, "slice", ext))
@@ -249,48 +260,67 @@ class OuterBroadcastPeel(RankedRewritePass):
             out.extend(sub)
         return out
 
-    def sole_extent(self, value: ast.expr, rank: int) -> bool:
-        """True when exactly one operand gives axis 0 of the rank-``rank`` ``value`` an extent that is not
-        a newaxis, so that token IS the broadcast extent, even where it is 1 at run time.
+    def axis_tokens(self, value: ast.expr, rank: int) -> set[str] | None:
+        """The extent tokens the operands of the rank-``rank`` ``value`` give its axis 0, newaxes left out;
+        None when an operand cannot be placed.
 
-        Two differently spelled tokens are assumed equal (:func:`bcast_tokens`), which a declared size-1
-        axis breaks: ``p[i, :, None] * n[i]`` with ``p`` of shape ``(M, 1)`` loops ``range(p.shape[1])``
-        and fills one row of ``K``. The nested and the view peels take only an axis without that
-        ambiguity, so neither turns numba's refusal of such a statement into a wrong answer."""
+        One token IS the broadcast extent, even where it is 1 at run time. Two differently spelled tokens are
+        assumed equal (:func:`bcast_tokens`), which a declared size-1 axis breaks: ``p[i, :, None] * n[i]``
+        with ``p`` of shape ``(M, 1)`` would loop ``range(p.shape[1])`` and fill one row of ``K``. The nested
+        peel checks such an axis at run time (:meth:`peel_rows`); the view peel takes only a sole token."""
         leaves = self.leaf_extents(value)
         if leaves is None:
-            return False
-        tokens = {([ONE] * (rank - len(e)) + e)[0] for e in leaves if len(e) <= rank}
-        return len(tokens - {ONE}) == 1
+            return None
+        return {([ONE] * (rank - len(e)) + e)[0] for e in leaves if len(e) <= rank} - {ONE}
 
-    def peel_rows(self, value: ast.expr, ivar: str, rank: int) -> tuple[list[str], ast.expr, ast.expr] | None:
-        """``(loop variables, row, probe)`` for an outer product of rank ``rank``, or None to decline.
+    def peel_rows(
+        self, value: ast.expr, ivar: str, rank: int
+    ) -> tuple[list[str], ast.expr, ast.expr, list[list[str]]] | None:
+        """``(loop variables, row, probe, checks)`` for an outer product of rank ``rank``, or None to decline.
 
         Peeling axis 0 leaves a rank ``rank - 1`` row, which is itself an outer product when the
         broadcast splits on two later axes (``a[:, None, None, :] * b[None, :, None, :] * c[None, None]``
         peels to ``a[i] * b[:, None] * c``, a (1, 1, n) * (p, 1, n) * (1, q, n) broadcast the parfor
         analysis lowers by indexing ``c`` with three indices). Each such row is peeled again, one nested
         loop per axis, until the row is one the analysis accepts. ``probe`` is the row at index 0 of
-        every peeled axis, peeled as deep: it is evaluated to read the dtype, so it must compile too."""
+        every peeled axis, peeled as deep: it is evaluated to read the dtype, so it must compile too.
+
+        An inner axis two operands size (``fpair[i, :, None] * dpos[i]``) is peeled only when its tokens
+        read no loop variable, and ``checks`` carries them: the caller raises unless they agree, so a size-1
+        axis numpy would broadcast stays an error, never a wrong answer (:meth:`axis_tokens`)."""
         row = self.peel(copy.deepcopy(value), ivar, rank)
         probe = self.peel(copy.deepcopy(value), "0", rank)
         if row is None or probe is None:
             return None
         ivars = [ivar]
+        checks: list[list[str]] = []
         while (depth := rank - len(ivars)) >= 2:
             ext = self.extents_(row)
             if ext is None or len(ext) != depth or ext[0] == ONE or not self.outer_product(row, depth):
                 break
-            if not self.sole_extent(row, depth):  # an inner axis two operands size (see sole_extent)
+            tokens = self.axis_tokens(row, depth)
+            if not tokens:
                 break
+            if len(tokens) > 1:
+                if any(re.search(rf"\b{re.escape(v)}\b", t) for t in tokens for v in ivars):
+                    break
+                checks.append(sorted(tokens))
             inner = f"{ivar}{len(ivars)}"
             next_row = self.peel(copy.deepcopy(row), inner, depth)
             next_probe = self.peel(copy.deepcopy(probe), "0", depth)
             if next_row is None or next_probe is None:
+                if len(tokens) > 1:
+                    checks.pop()
                 break
             row, probe = next_row, next_probe
             ivars.append(inner)
-        return ivars, row, probe
+        if len(ivars) > 1:
+            # Axis 0 too: a row left whole fails numba's size assert where axis 0 mis-sizes the loop, a
+            # peeled one would not.
+            outer = self.axis_tokens(value, rank) or set()
+            if len(outer) > 1:
+                checks.insert(0, sorted(outer))
+        return ivars, row, probe, checks
 
     def rebuild(self, expr: ast.AST, peeled: list[ast.expr]) -> ast.expr:
         if isinstance(expr, ast.BinOp):
@@ -414,7 +444,7 @@ class OuterBroadcastPeel(RankedRewritePass):
         ext = self.extents_(value.value)
         if ext is None or len(ext) < 2 or ext[0] == ONE or not self.outer_product(value.value, len(ext)):
             return None
-        if not self.sole_extent(value.value, len(ext)):
+        if len(self.axis_tokens(value.value, len(ext)) or ()) != 1:
             return None
         temp = f"__ob{self._ctr}_v"
         self.ranks[temp] = len(ext)
@@ -453,10 +483,15 @@ class OuterBroadcastPeel(RankedRewritePass):
         peeled = self.peel_rows(node.value, ivar, rank)
         if peeled is None:
             return node
-        ivars, row, probe = peeled
+        ivars, row, probe, checks = peeled
         self._ctr += 1
         self.changed = True
-        out: list[ast.stmt] = []
+        out: list[ast.stmt] = [
+            ast.parse(
+                f"if not ({' == '.join(c)}):\n    raise ValueError('operands could not be broadcast together')"
+            ).body[0]
+            for c in checks
+        ]
         dest = base if direct and base is not None else f"{temp}_o"
         shape = ", ".join(ext)
         if isinstance(target, ast.Name):
@@ -531,6 +566,117 @@ class SliceObjectInline(ast.NodeTransformer):
             node.slice.elts = [self.entry(e) for e in node.slice.elts]
         else:
             node.slice = self.entry(node.slice)
+        return node
+
+
+def is_none_assign(node: ast.AST) -> TypeGuard[ast.Assign]:
+    """``a = b = None``."""
+    return isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and node.value.value is None
+
+
+def bare_reads(node: ast.AST) -> set[str]:
+    """The names ``node`` reads other than as the base of a subscript or an attribute."""
+    return {
+        child.id
+        for parent in ast.walk(node)
+        for child in ast.iter_child_nodes(parent)
+        if isinstance(child, ast.Name)
+        and isinstance(child.ctx, ast.Load)
+        and not (isinstance(parent, (ast.Subscript, ast.Attribute)) and parent.value is child)
+    }
+
+
+def stored_names(node: ast.AST) -> set[str]:
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+
+
+def uncovered_reads(stmts: Sequence[ast.stmt], bound: set[str], names: set[str], unsafe: set[str]) -> None:
+    """Add to ``unsafe`` every name of ``names`` some statement reads bare before a binding that is not
+    None reaches it. ``bound`` holds the names already rebound on entry; a compound statement's bindings do
+    not count after it, and a loop body does not count a name it resets to None itself."""
+    bound = set(bound)
+    for stmt in stmts:
+        if isinstance(stmt, (ast.If, ast.While)):
+            unsafe |= bare_reads(stmt.test) & (names - bound)
+        elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+            unsafe |= bare_reads(stmt.iter) & (names - bound)
+        elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+            for item in stmt.items:
+                unsafe |= bare_reads(item.context_expr) & (names - bound)
+        if isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
+            reset = {t.id for n in ast.walk(stmt) if is_none_assign(n) for t in n.targets if isinstance(t, ast.Name)}
+            inner = (
+                bound | (stored_names(stmt.target) if isinstance(stmt, (ast.For, ast.AsyncFor)) else set())
+            ) - reset
+            uncovered_reads(stmt.body, inner, names, unsafe)
+            uncovered_reads(stmt.orelse, bound, names, unsafe)
+        elif isinstance(stmt, (ast.If, ast.With, ast.AsyncWith)):
+            uncovered_reads(stmt.body, bound, names, unsafe)
+            uncovered_reads(getattr(stmt, "orelse", []), bound, names, unsafe)
+        elif isinstance(stmt, ast.Try):
+            for block in (stmt.body, *(h.body for h in stmt.handlers), stmt.orelse, stmt.finalbody):
+                uncovered_reads(block, bound, names, unsafe)
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Match)):
+            unsafe |= names  # not followed: decline every placeholder
+        else:
+            unsafe |= bare_reads(stmt) & (names - bound)
+            if is_none_assign(stmt):
+                bound -= {t.id for t in stmt.targets if isinstance(t, ast.Name)}
+            else:
+                bound |= stored_names(stmt)
+
+
+class NonePlaceholderDrop(ast.NodeTransformer):
+    """``a = b = None`` ahead of the array bindings that replace it -> dropped (numba only).
+
+    numba types the name Optional(array) at the join, and its parfor analysis asserts ``Dimension mismatch``
+    on the two versions (warpx_esirkepov_deposition's ``sx_new = sx_old = ... = None``); the rank table
+    drops the name as two ranks, so every broadcast it takes part in loses its extents. Exact when the name
+    is bound again and every bare read (``f(a)``, ``a is None``) comes after a binding that is not None
+    (:func:`uncovered_reads`): what is left reads the placeholder only through ``a[...]`` / ``a.attr``, which
+    numpy raises on. Runs before the rank table is built."""
+
+    __slots__ = ("changed", "names")
+
+    def __init__(self, fn: ast.FunctionDef) -> None:
+        self.changed = False
+        self.names: set[str] = set()
+        if any(
+            isinstance(n, (ast.Lambda, ast.FunctionDef, ast.Global, ast.Nonlocal)) and n is not fn for n in ast.walk(fn)
+        ):
+            return
+        targets = [t for node in ast.walk(fn) if is_none_assign(node) for t in node.targets if isinstance(t, ast.Name)]
+        if not targets:
+            return
+        placeholders = {t.id for t in targets}
+        own = {id(t) for t in targets}
+        params = {a.arg for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs}
+        bound_again = {
+            n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and id(n) not in own
+        }
+        unsafe: set[str] = set()
+        uncovered_reads(fn.body, set(), placeholders, unsafe)
+        self.names = (placeholders & bound_again) - unsafe - params
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+        self.generic_visit(node)
+        # A block whose only statement was a placeholder keeps a ``pass``.
+        for n in ast.walk(node):
+            body = getattr(n, "body", None)
+            if isinstance(body, list) and not body:
+                body.append(ast.copy_location(ast.Pass(), n))
+        return node
+
+    def visit_Assign(self, node: ast.Assign) -> ast.AST | None:
+        if not is_none_assign(node):
+            return node
+        kept = [t for t in node.targets if not (isinstance(t, ast.Name) and t.id in self.names)]
+        if len(kept) == len(node.targets):
+            return node
+        self.changed = True
+        if not kept:
+            return None
+        node.targets = kept
         return node
 
 
@@ -656,3 +802,50 @@ class NdimFold(ast.NodeTransformer):
             self.changed = True
             return node.body if node.test.value else node.orelse
         return node
+
+
+#: The scans :func:`hoist_cumulative_axis` lowers -> the operator one step of each applies.
+CUMULATIVE_OPS = {"cumsum": "+", "cumprod": "*"}
+
+
+def hoist_cumulative_axis(node: ast.expr, hoist: ValueHoist) -> ast.expr | None:
+    """``np.cumsum(x, axis=k)`` / ``np.cumprod`` -> a temp filled one slice of axis ``k`` at a time (numba
+    only: its scans take no ``axis``, "got an unexpected keyword argument 'axis'").
+
+    ``k`` must be a constant. Each slice is the previous slice combined with the next input slice, the strict
+    left-to-right order numpy's accumulate keeps, so the result is bit for bit numpy's. The dtype is numba's
+    own scan of the first element: an integer narrower than ``int64`` widens as in numpy. No rank is read: a
+    non-negative ``k`` indexes ``x[:, ..., i]`` with ``k`` leading slices and a negative one ``x[..., i, :]``
+    from the back, so a helper called at several ranks (mamba2's ``_segsum``) is right at each. It runs
+    before :class:`NormalizeNegativeAxis`, which would pin a negative axis to one of those ranks."""
+    op = numpy_call_attr(node)
+    if op not in CUMULATIVE_OPS or not isinstance(node, ast.Call) or not node.args or len(node.args) > 2:
+        return None
+    axis_kw = [kw for kw in node.keywords if kw.arg == "axis"]
+    if len(axis_kw) != len(node.keywords) or (axis_kw and len(node.args) == 2):
+        return None  # dtype= / out= are left alone
+    axis = axis_kw[0].value if axis_kw else node.args[1] if len(node.args) == 2 else None
+    k = None if axis is None else const_int(axis)
+    if k is None:
+        return None
+    t = f"__cs{hoist.ctr}"
+    hoist.ctr += 1
+    x, i, sym = f"{t}_x", f"{t}_i", CUMULATIVE_OPS[op]
+
+    def at(e: str) -> str:
+        return f"{':, ' * k}{e}" if k >= 0 else f"..., {e}{', :' * (-k - 1)}"
+
+    hoist.queue(
+        [
+            f"{x} = {ast.unparse(node.args[0])}",
+            f"{t} = np.empty({x}.shape, np.{op}({x}.ravel()[:1]).dtype)",
+            f"if {x}.shape[{k}] > 0:",
+            f"    {t}[{at('0')}] = {x}[{at('0')}]",
+            f"    for {i} in range(1, {x}.shape[{k}]):",
+            f"        {t}[{at(i)}] = {t}[{at(f'{i} - 1')}] {sym} {x}[{at(i)}]",
+        ]
+    )
+    return name_(t)
+
+
+CUMULATIVE_AXIS_HOIST = HoistForm(frozenset(CUMULATIVE_OPS), (), hoist_cumulative_axis)
