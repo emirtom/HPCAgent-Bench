@@ -814,6 +814,20 @@ def cmd_owed(args: argparse.Namespace) -> int:
     return owed_main(args.forwarded)
 
 
+def cmd_canon_times(args: argparse.Namespace) -> int:
+    """Print each column's build time by phase over a canon DB's kernels: p50, p90, max and the slowest kernel."""
+    from hpcagent_bench.stats import canon
+    from hpcagent_bench.support.collect import canon_db
+
+    rows = canon_db.read(pathlib.Path(args.db), run=args.run, column=args.column)
+    summary = canon.build_times(rows)
+    if not summary:
+        print(f"{args.db}: no canon row carries a build time (a run before results schema 14?)", file=sys.stderr)
+        return 1
+    print(canon.format_build_times(summary))
+    return 0
+
+
 def cmd_job(args: argparse.Namespace) -> int:
     """Run this Slurm task's share of a helper job (:mod:`hpcagent_bench.cluster.jobs`)."""
     from hpcagent_bench.cluster.jobs import main as job_main
@@ -1352,6 +1366,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="forwarded to hpcagent_bench.owed.main(); see 'hpcagent-bench owed collect --help'",
     )
     ow.set_defaults(func=cmd_owed)
+
+    ct = sub.add_parser("canon-times", help="build time by phase (transform/codegen/compile) per canon column")
+    ct.add_argument("db", help="a canon results DB (the baseline sweep's)")
+    ct.add_argument("--run", default=None, help="only this run")
+    ct.add_argument("--column", default=None, help="only this framework column")
+    ct.set_defaults(func=cmd_canon_times)
 
     jb = sub.add_parser("job", help="a helper job whose tasks split the work over SLURM_PROCID / SLURM_NTASKS")
     jb.add_argument(
