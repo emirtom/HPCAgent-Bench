@@ -117,17 +117,11 @@ def failed_timing(failure: str) -> ImplTiming:
 
 
 def reference_outputs(bench: Benchmark, bdata: BenchData, preset: Preset | None = None) -> list[OutputValue]:
-    """``bench``'s expected outputs on ``bdata``, in ``output_args`` order, from the compiled reference a
-    grade of it takes its answer from: the track's oracle
-    (:func:`~hpcagent_bench.harness.grading.resolve_oracle`), its references tried in the grade's order
-    (:func:`~hpcagent_bench.harness.grading.oracle_kinds`: the numba and C references on the numpy
-    tracks, the compiled PyTorch one on machine_learning) through the grade's own road to them
-    (:func:`~hpcagent_bench.harness.scoring.first_oracle`). ``preset`` names the race leader's preset
-    (None: the XL one, as a grade's).
+    """``bench``'s expected outputs on ``bdata`` in ``output_args`` order, from the grade's compiled reference
+    (the track's oracle, references tried in the grade's order; ``preset`` None = XL).
 
-    Raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` naming the kernel and every
-    reference's failure when none answers: there is no fallback, and a kernel's ``_numpy.py`` is the task
-    program, never an oracle."""
+    Raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` when none answers: there is no fallback (a
+    ``_numpy.py`` is the task program, never an oracle)."""
     # Deferred: the judge's machinery is only needed by a validating run.
     from hpcagent_bench.harness import scoring, timing
     from hpcagent_bench.harness.grading import ReferenceUnavailable, oracle_kinds, resolve_oracle
@@ -291,8 +285,7 @@ class Test:
 
         ref_out = self.oracle_output(bdata, preset, ignore_errors) if validate else None
         band_rtol, band_atol = tolerances_for(tolerance_datatype(datatype, detected_dtype))
-        # Keyed by the data precision when no --datatype was given; the spec carries no per-bench rtol/atol
-        # (spec.py rejects them), so the band is the datatype's alone.
+        # Keyed by the data precision when no --datatype was given (manifests carry no per-bench rtol/atol).
         band = (band_rtol, band_atol)
         context: BenchData = {**bdata, **self.frmwrk.imports()}
 

@@ -389,11 +389,8 @@ def framework_flavors(base: str) -> list[str]:
 
 
 def split_flavor(fname: str) -> tuple[str, str | None]:
-    """``"dace_cpu_parallel"`` -> ``("dace_cpu", "parallel")``; a column with no flavor -> ``(name, None)``.
-
-    One name on the command line, two DB columns (``framework`` groups every DaCe row, ``flavor`` names
-    the optimizer). The split is declared (``column`` + ``flavor``), never parsed from underscores;
-    :func:`check_flavor_registry` checks it composes back."""
+    """``"dace_cpu_parallel"`` -> ``("dace_cpu", "parallel")``; a column with no flavor -> ``(name, None)``. Declared
+    (``column`` + ``flavor``), never parsed from underscores."""
     entry = FRAMEWORKS.entries[fname]
     if entry.flavor is None or entry.column is None:  # Column refuses one without the other
         return fname, None
@@ -607,10 +604,7 @@ class Framework:
         return Timer(program)
 
     def synchronize_device(self) -> None:
-        """Block until the device is idle, so a host timer brackets this call's work only.
-
-        No-op on CPU. Event-timed frameworks (CuPy, the torch mixin) never reach this; a framework whose
-        device is not reachable through the project's device array module overrides it."""
+        """Block until the device is idle, so a host timer brackets this call's work only (no-op on CPU)."""
         if self.column.arch is not Arch.GPU:
             return
         device_array_module().cuda.stream.get_current_stream().synchronize()
