@@ -21,7 +21,7 @@ from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
 REPO = paths.ROOT
-TAG = "transcendental-approx"
+TAG = "qe"
 TAG_KERNELS = list(tags.kernels_of(TAG))
 TAG_RUNS = [owed.Run(kernel) for kernel in TAG_KERNELS]
 

@@ -96,13 +96,13 @@ def test_level_suffix_forms_and_errors() -> None:
 
 def test_tag_suffix_selects_by_provenance() -> None:
     """``@<label>`` is the second filter on the same syntax: provenance, not difficulty."""
-    assert _split_suffix("scientific_computing@npbench") == ("scientific_computing", None, "npbench")
-    npbench = set(KERNELS.select_keys("scientific_computing@npbench"))
+    assert _split_suffix("scientific_computing@qe") == ("scientific_computing", None, "qe")
+    qe = set(KERNELS.select_keys("scientific_computing@qe"))
     whole = set(KERNELS.select_keys("scientific_computing"))
-    assert npbench, "no HPC kernel is tagged npbench"
-    assert npbench < whole, "the npbench tag selected the whole HPC track, so it filtered nothing"
-    for key in npbench:
-        assert "npbench" in BenchSpec.load(key).study_tags
+    assert qe, "no HPC kernel is tagged qe"
+    assert qe < whole, "the qe tag selected the whole HPC track, so it filtered nothing"
+    for key in qe:
+        assert "qe" in BenchSpec.load(key).study_tags
 
 
 def test_validate_level_rejects_out_of_range() -> None:
@@ -125,15 +125,9 @@ def test_loop_level_reasoning_cannot_declare_level_three() -> None:
 
 
 def test_a_label_matches_a_tag_or_a_subtrack() -> None:
-    """One selector, since provenance is recorded in one place: npbench, kernelbench and polybench
-    are tag files."""
+    """One selector, since provenance is recorded in one place: kernelbench, qe and relayout are tag files."""
     assert len(KERNELS.select_keys("all@kernelbench")) > 0
-    assert len(KERNELS.select_keys("all@polybench")) > 0
-    # npbench spans tracks -- it is not an HPC-only suite, and selecting by track drops the 5 that
-    # live under machine_learning/ (lenet, resnet, mlp, conv2d, softmax).
-    every = set(KERNELS.select_keys("all@npbench"))
-    assert every > set(KERNELS.select_keys("scientific_computing@npbench"))
-    assert {k for k in every if k.startswith("machine_learning/")}
+    assert len(KERNELS.select_keys("all@relayout")) > 0
 
 
 def test_an_unknown_label_raises_rather_than_selecting_nothing() -> None:
