@@ -25,7 +25,6 @@ from hpcagent_bench import flags, languages, modules, paths, perf_reports
 from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import gpu_profiling, papi, profiling, service
 from hpcagent_bench.harness.prompts import load_skills, parse_skill
-from hpcagent_bench.languages import Language
 
 # The rocprofv3 CSVs live with the readers they exercise; a second copy here would drift, and the
 # whole point of these checks is that the skill describes rows the code really produces.

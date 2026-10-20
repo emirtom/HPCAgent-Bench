@@ -3,6 +3,7 @@
 """The registered anti-cheat gates: the order a submission meets them, what each one names, the docs table,
 and :func:`anticheat.judge`, the loop that runs the post-run gates on a finished grade."""
 
+import dataclasses
 import importlib
 import re
 

@@ -38,7 +38,6 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, languages, paths
-from hpcagent_bench.api import Baseline
 from hpcagent_bench.categories import Baseline, Language, Preset, Residency, SourceMode
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.forked import RunResult

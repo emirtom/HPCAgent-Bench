@@ -15,6 +15,7 @@ import pytest
 
 from hpcagent_bench import config, containers, flags, languages, paths, seal, spec
 from hpcagent_bench.api import InputMode, Oracle
+from hpcagent_bench.categories import Denominator, RecordDevice, Track
 from hpcagent_bench.cli import Execution
 from hpcagent_bench.harness import (
     agent,
