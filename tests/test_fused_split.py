@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``fused_split``: a fused wave's problems are grouped by the env file each names, and keep their recorded setup.
-
-A fused job serves the owed kernels of several env files. Each problem row names its env file under ``env_file``
-and carries the identity its rows are recorded under as ``setup``; the split writes one env and one problems file per
-env file, the problems untouched.
-"""
+"""``fused_split`` groups a fused wave's problems by their ``env_file`` into one env and problems file each,
+problems (and their ``setup``) untouched."""
 
 import json
 import pathlib

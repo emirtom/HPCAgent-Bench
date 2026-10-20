@@ -1,32 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The prepare job (``hpcagent-bench job prepare``): every cache an experiment reads, filled once before it starts.
-
-Run as one Slurm step of N tasks (``hpcagent_bench/cluster/prepare.sbatch``); each task takes
-``kernels[SLURM_PROCID::SLURM_NTASKS]`` of the problems file, tag or kernel list and never submits
-anything itself. Each step fills the cache its consumer already reads, so a judge finds a hit and
-nothing new is trusted:
-
-1. ``sources``: the NumpyToX reference in the setup's language (the generated-source cache,
-   :func:`hpcagent_bench.harness.agent.emit_reference_source`);
-2. ``frameworks``: each listed framework's generated sibling, and DaCe's parsed base SDFG
-   (:meth:`Framework.prepare`, :mod:`hpcagent_bench.framework_cache`);
-3. ``grade``: the compiled reference graded as the ``/score`` route grades it, so the judge's disk store
-   (:mod:`hpcagent_bench.harness.disk_cache`, when the kernel's level or track is served) holds the
-   golden reference outputs and the baseline timings, the numba compile lands in its shared cache and
-   the ML denominator's compile in the torch archive;
-4. ``torch``: every timed cell of an ML kernel's denominator (:func:`torch_baseline.warm_kernel`);
-5. ``cpf``: the canonical parallel forms rendered into ``--cpf-view`` (:mod:`hpcagent_bench.cpf_prerender`),
-   then each graded once in ``--language`` as ``/submit`` would (:mod:`hpcagent_bench.cpf_verify`), which
-   a cpf-src setup requires before it is submitted, at the setup's ``--cpf-hints`` (a ``-kinds`` packet's
-   ``kinds``). On by default when ``--cpf-view`` is given. The canonical
-   SDFGs the forms render from stay in the cache, where the ``dace_*_canon`` columns read them.
-
-A step that fails is reported per kernel and the job goes on: a cold cache costs a judge time, never a
-grade; a form that does not verify is its verdict in the view.
-
-    python -m hpcagent_bench.harness.prepare (--problems FILE | --tag TAG | --kernels-file FILE) --language LANG
-"""
+"""The prepare job (``hpcagent-bench job prepare``): fill every cache an experiment reads (sources, frameworks,
+grades, torch, cpf) before it starts, one Slurm task per kernel shard. A failed step is reported per kernel and the
+job goes on: a cold cache costs a judge time, never a grade."""
 
 import argparse
 import dataclasses
@@ -62,7 +38,7 @@ __all__ = [
 
 #: The per-kernel steps, in the order they run.
 KERNEL_STEPS = ("sources", "frameworks", "grade", "torch")
-#: Every step: the per-kernel ones, then ``cpf`` over this task's share (``--steps`` picks a subset).
+#: Every step: the per-kernel ones, then ``cpf`` over this task's share.
 STEPS = (*KERNEL_STEPS, "cpf")
 
 
@@ -97,10 +73,7 @@ def selected_kernels(args: argparse.Namespace) -> list[str]:
 def prepare_cpf(args: argparse.Namespace, kernels: Sequence[str]) -> int:
     """Render this task's share of ``kernels`` into the view, then grade the same share in ``--language``.
 
-    Both split with :func:`hpcagent_bench.cpf_prerender.shard`, so a task verifies only what it rendered
-    and needs no barrier. Only a render error fails the task: a form that does not verify is its verdict,
-    filed in the view (``cpf_cache check --verified`` reads it before a cpf-src setup is submitted).
-    """
+    Only a render error fails the task: a form that does not verify is its verdict, filed in the view."""
     from hpcagent_bench import cpf_cache, cpf_prerender, cpf_verify
     from hpcagent_bench.harness.task import GPU_LANGUAGES
     from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
@@ -171,7 +144,7 @@ def grade_reference(kernel: str, plan: Plan) -> None:
             baseline=plan.baseline,
             hidden=False,
         )
-    else:  # the /score grade the judge answers, so its cells' oracles and baselines are what it reads
+    else:  # the /score grade the judge answers
         result = grade_under.score_grade(submission, task, cfg)
     if not result.correct:
         raise RuntimeError(f"the reference graded incorrect: {result.detail[-300:]}")
@@ -204,7 +177,7 @@ def run_kernel(kernel: str, plan: Plan) -> list[str]:
     for step in plan.steps:
         try:
             STEP_FUNCTIONS[step](kernel, plan)
-        except Exception as exc:  # noqa: BLE001 -- a cold cache costs time, never the rest of the job
+        except Exception as exc:  # noqa: BLE001 -- a cold cache costs time, never the job
             failed.append(f"{step}: {type(exc).__name__}: {exc}")
             traceback.print_exc(file=sys.stderr)
     return failed

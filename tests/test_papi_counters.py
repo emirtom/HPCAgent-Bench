@@ -1,21 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The PAPI counting wrapper: what it resolves, what it refuses, and what a crash costs.
-
-Most of this runs on ANY host, because the parts that can be wrong on a host without PAPI are
-pure: the metric -> event ladder, the sign arithmetic of a derived expression, and the rule that
-an unexpressible metric is reported missing rather than filled with a different quantity.
-
-The handful of tests that genuinely need counters are gated on EXPLICIT predicates -- Linux +
-``find_library("papi")`` + ``papi.perf_event_reason()`` -- rather than a swallowed import error,
-so a skip here always means "this host cannot count" and never "something changed and the guard
-stopped noticing".
-
-A host with libpapi and no countable event is NOT one of those, though a hosted runner is exactly
-that host: an absent event is a thing this module promises to degrade over, by name, so the tests
-that measure something assert the refusal on such a machine rather than skipping it, and simulate
-one (``available_events`` patched empty) on a machine that can count.
-"""
+"""The PAPI counting wrapper: event resolution, derived-metric arithmetic and missing-metric reporting run
+anywhere; counter tests are gated on explicit predicates, and a host without countable events asserts the
+refusal."""
 
 import ctypes
 import faulthandler

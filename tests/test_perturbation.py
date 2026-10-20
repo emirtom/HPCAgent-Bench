@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The perturbation a fallback ``initialize`` draws from, and the scenario kernels that use it.
-
-A deterministic initializer hands the four timed draws the same bytes, so a candidate can cache
-across calls and the four timed inputs are one input. The perturbation is what makes them differ,
-and the scenarios are what keep a stencil/PDE draw physical while it does."""
+"""The perturbation a fallback ``initialize`` draws from (making the timed draws differ) and the scenario kernels
+that keep it physical."""
 
 import numpy as np
 import pytest

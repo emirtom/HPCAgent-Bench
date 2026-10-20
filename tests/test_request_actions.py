@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """``requests.allow``: one resolved capability set that the judge refuses by, the prompt states and the agent
-tools offer.
-
-HB resolves the set from the effective config, defaults included (:class:`RequestAllowances`), and narrows it
-per task to what the prompt states (``RequestAllowances.actions`` in ``prompts.build_context``);
-``make_problems.py`` writes that offer into the problem line, the driver exports it as
-``$HPCAGENT_BENCH_REQUEST_ACTIONS`` and the stdlib tools filter the vendored request schema by it
-(``http_json.requests_property``). The agent's own environment never carries the config defaults, so an absent
-variable offers nothing.
-"""
+tools offer (via ``$HPCAGENT_BENCH_REQUEST_ACTIONS``; absent offers nothing)."""
 
 import contextlib
 import itertools

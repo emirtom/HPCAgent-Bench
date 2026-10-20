@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The CPF hint detail (``proofs`` or ``kinds``) is the setup's, flows packet -> prerender -> cache -> render, and a
-form of one detail is never served for the other.
-
-A ``-kinds`` packet hands the agent the same code as its plain counterpart with each loop's hint cut to one
-``// par``, ``// seq`` or ``// unknown``; the two arms of the CPF figure differ in that alone. The failure modes
-pinned here are the ones that would silently merge the arms: a cache key or pointer name blind to the detail
-(a kinds setup served the proofs text, or the reverse), a hop that drops the detail on its way to dace's renderer,
-a judge that lets the agent pick the other arm's detail, and a kinds page or note that still teaches the proof
-table. dace's ``render`` is faked where the detail reaches it: the pinned dace may predate ``hints=``.
-"""
+"""The CPF hint detail (``proofs`` or ``kinds``) is the setup's, flows packet -> prerender -> cache -> render, and
+a form of one detail is never served for the other (dace's ``render`` faked where the detail reaches it)."""
 
 import json
 import pathlib

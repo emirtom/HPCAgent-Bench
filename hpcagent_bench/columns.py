@@ -1,12 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The framework columns: every way a kernel is built and run, one :class:`~hpcagent_bench.vocabulary.Column` each.
-
-A name is ``<column>[_<flavor>]``: the column is ``<backend>`` or ``<backend>_<arch>``, a flavor (``column`` and
-``flavor`` set) is the optimizer run on it. ``adapter`` names what runs a column, imported on first use. Registration
-order is the listing order and each column's slot (colour and marker): a new column is added last.
-``docs/extending/registry.md`` is the authoring guide.
-"""
+"""The framework columns: every way a kernel is built and run, one :class:`~hpcagent_bench.vocabulary.Column` each,
+named ``<column>[_<flavor>]``. Registration order is each column's slot (colour and marker): a new column is added
+last (``docs/extending/registry.md``)."""
 
 from hpcagent_bench.languages import gpu_backend
 from hpcagent_bench.precision import Precision
@@ -56,9 +52,8 @@ DACE_PRECISIONS = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
 
 
 def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: str | None = None) -> Column:
-    """The DaCe family's entry on ``arch``: the DB column every flavor groups under (no ``stage``; it runs nothing
-    itself), a pipeline ``stage`` (``auto_optimize`` also runs on stock DaCe), or a stage followed by an
-    autotuning ``tuner``, which runs as an Agent rather than in a sweep."""
+    """The DaCe family's entry on ``arch``: the grouping DB column (no ``stage``), a pipeline ``stage``, or a stage
+    followed by an autotuning ``tuner`` (run as an Agent)."""
     device = arch.text.upper()
     if stage is None:
         return Column(
@@ -101,8 +96,6 @@ def add_dace(arch: Arch, stage: DaceStage | None = None, tuner: str | None = Non
     FRAMEWORKS.add(f"dace_{key}", dace_column(arch, stage, tuner))
 
 
-# Registration order is each column's slot (its colour and marker): a new column goes last.
-
 FRAMEWORKS.add(
     "numpy",
     Column(
@@ -133,8 +126,7 @@ FRAMEWORKS.add(
 )
 
 
-# Native backend: one flavor per (language, compiler), each building its own .so. ``polly`` is the C++
-# flavor with a polyhedral flags preset; ``pluto`` is a separate source-to-source base.
+# Native backend: one flavor per (language, compiler); ``polly`` is the C++ flavor with a polyhedral flags preset.
 FRAMEWORKS.add(
     "cc",
     Column(
@@ -171,7 +163,7 @@ FRAMEWORKS.add(
 )
 
 
-# The gcc C++ column, completing gcc/g++/gfortran as one family (``llvm`` and ``polly`` are clang).
+# The gcc C++ column (``llvm`` and ``polly`` are clang).
 FRAMEWORKS.add(
     "cpp",
     Column(
@@ -204,7 +196,7 @@ FRAMEWORKS.add(
 )
 
 
-# gcc's auto-parallelizer, the GCC half of the autopar axis clang already had via polly.
+# gcc's auto-parallelizer, the GCC half of the autopar axis.
 FRAMEWORKS.add(
     "cc_autopar",
     Column(
@@ -244,8 +236,7 @@ FRAMEWORKS.add(
 )
 
 
-# Tiled OpenMP C. Pluto and PPCG share the pet/isl front end but run on different hardware, so they stay
-# separate columns; polycc reads the C target's ``_pluto_input.c`` and writes C (VLA ``restrict`` parameters).
+# Tiled OpenMP C: polycc reads the C target's ``_pluto_input.c`` and writes C (separate from PPCG: other hardware).
 FRAMEWORKS.add(
     "pluto",
     Column(
@@ -318,8 +309,7 @@ FRAMEWORKS.add(
 )
 
 
-# The C family across the graded vendors, named ``cc_<vendor>`` (``llvm`` and ``polly`` already name the
-# clang C++ columns).
+# The C family across the graded vendors, named ``cc_<vendor>``.
 FRAMEWORKS.add(
     "cc_llvm",
     Column(
@@ -410,7 +400,7 @@ FRAMEWORKS.add(
 )
 
 
-# The Fortran half of the autopar axis (same emitted Fortran as ``fortran``, autopar flags differ).
+# The Fortran half of the autopar axis.
 FRAMEWORKS.add(
     "fortran_autopar",
     Column(
@@ -464,8 +454,7 @@ FRAMEWORKS.add(
 )
 
 
-# ppcg emits CUDA; the compiled language is the local GPU toolchain's (hipify on ROCm,
-# ``hpcagent_bench.ppcg_transform``), and compilers.yaml maps it to its compiler.
+# ppcg emits CUDA; the compiled language is the local GPU toolchain's (hipify on ROCm).
 FRAMEWORKS.add(
     "ppcg",
     Column(
@@ -505,9 +494,8 @@ FRAMEWORKS.add(
 )
 
 
-# ppcg's CUDA through hipify-perl, built by hipcc (``hpcagent_bench.ppcg_transform``). The label is NOT
-# "PPCG (HIP)": ppcg has no AMD target (``--target`` takes c, cuda or opencl), so a reader comparing it with a
-# hand-written HIP column is comparing against a translated source, not what a polyhedral compiler emits.
+# ppcg's CUDA through hipify-perl, built by hipcc. Not labelled "PPCG (HIP)": ppcg has no AMD target, so this is a
+# translated source.
 FRAMEWORKS.add(
     "ppcg_hip",
     Column(
@@ -555,8 +543,7 @@ add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_profile")
 add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_heuristic")
 
 
-# Polygeist's cgeist lowers the C target's ``_pluto_input.c`` to affine MLIR, Polymer reschedules it with
-# Pluto, MLIR parallelizes it to OpenMP, and clang compiles the LLVM IR (``hpcagent_bench.polygeist_transform``).
+# Polygeist lowers the C target to affine MLIR, Polymer reschedules it with Pluto, MLIR parallelizes it to OpenMP.
 FRAMEWORKS.add(
     "polygeist_cpu",
     Column(
@@ -576,8 +563,7 @@ FRAMEWORKS.add(
 )
 
 
-# The same affine MLIR mapped to GPU blocks and threads and lowered through ROCDL; the arrays stay where the
-# caller allocated them (``xnack+`` under ``HSA_XNACK=1``), so the pipeline has no data-movement step.
+# The same affine MLIR mapped to GPU blocks and threads through ROCDL; arrays stay where the caller allocated them.
 FRAMEWORKS.add(
     "polygeist_gpu",
     Column(

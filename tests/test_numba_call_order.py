@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge calls the parallel-numba reference with the arguments ITS signature names.
-
-A sparse kernel's numba reference takes the unpacked CSR buffers while the manifest names the
-logical ``scipy.sparse`` operand; bound by the manifest, the judge's best-of bracket raised
-``TypeError: not enough arguments: expected 6, got 4`` and silently dropped numba from the race.
-"""
+"""The judge calls the parallel-numba reference with the arguments ITS signature names (a sparse reference takes
+the unpacked CSR buffers)."""
 
 import numpy as np
 

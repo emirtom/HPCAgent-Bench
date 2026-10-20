@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The stdlib-only agent runtime writes JSON by hand; the host reads it through pydantic models.
-
-Each test runs the REAL agent-side writer on sample input and validates what it wrote with the HB model that
-reads it, so a rename on either side fails here and not in a multi-hour job: tokens.json against
-``EpisodeRecord``, ``agent-folders.jsonl`` against ``AgentFolderLine``, the submit tool's request against the
-judge's ``RequestBody`` and its marker against the driver's reader, the problems line against the driver's key
-constants, and the cause strings the tool branches on against the ones the judge and router send.
-"""
+"""The stdlib agent runtime's hand-written JSON validates against the host's pydantic models (tokens.json,
+agent-folders.jsonl, the submit request and marker, the problems line, cause strings)."""
 
 import json
 import pathlib

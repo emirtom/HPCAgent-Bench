@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""/submit answers ONLY correct yes/no plus a request id.
-
-Every other field of a grade -- the error size, the failing element, a held-out label, a pass count,
-a timing -- asked for over repeated submits is an oracle for the recorded answer. Only what
-describes the agent's own REQUEST may come back: the compiler log of code that did not build.
-"""
+"""/submit answers ONLY correct yes/no plus a request id (and the compiler log of code that did not build)."""
 
 import dataclasses
 

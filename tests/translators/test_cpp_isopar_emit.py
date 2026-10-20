@@ -1,31 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ISO standard-algorithm C++ backend (``numpyto --target cpp_isopar``).
-
-``emit_cpp_isopar`` emits the same ABI as ``emit_cpp``, but every loop with a faithful
-``<algorithm>``/``<numeric>`` spelling is emitted as that call instead of as a hand-written loop --
-a map as ``std::transform``, a reduction as ``std::reduce``/``std::transform_reduce``, a prefix
-recurrence as ``std::inclusive_scan``, a constant store as ``std::fill``, a plain move as
-``std::copy``. The source then states the kernel's STRUCTURE and leaves the schedule to the
-toolchain, the way Fortran array intrinsics and ``do concurrent`` do.
-
-Every converted call carries an execution policy -- ``par_unseq`` everywhere except
-``inclusive_scan``, which carries ``unseq`` because libstdc++'s PARALLEL scan miscomputes any
-combine whose identity is not zero (see ``ISOPAR_SCAN_POLICY``). Without a policy at all, ISO
-specifies the algorithm as sequential and the emitted source would license nothing the loop did not.
-
-Two halves, both on real output:
-
-* the conversions fire and produce exactly the call they claim to (including the explicit
-  ``static_cast`` at every width change, which is what keeps the generated C++ warning-clean);
-* every shape that has NO faithful algorithm stays a loop -- a stencil, a strided or reversed
-  sweep, a scatter, a scaled recurrence, a multi-statement body. A wrong algorithm here is a silent
-  miscompile, so these are the load-bearing tests.
-
-Numerics run the emitted C++ against numpy through the shared oracles: ``run_op`` for the shape
-probes, ``run_kernel`` for corpus kernels across the four shapes (elementwise, reduction, scan,
-convolution nest).
-"""
+"""The ISO standard-algorithm C++ backend (``numpyto --target cpp_isopar``): faithful loops become
+``<algorithm>``/``<numeric>`` calls with an execution policy, shapes with no faithful algorithm stay loops, and
+the emitted C++ matches numpy."""
 
 import json
 import pathlib

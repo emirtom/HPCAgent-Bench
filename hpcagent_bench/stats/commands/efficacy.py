@@ -251,12 +251,7 @@ def shared_spelling(pair: tuple[str, str], packet: str) -> str:
 
 
 def setup_languages(frame: pd.DataFrame) -> dict[str, str]:
-    """``{setup: recorded language}``.
-
-    The language column is the identity the extractor STAMPED; the setup name is a fallback for rows
-    that predate it. gitscicomp10's setups are ``git-scicomp-<model>-repo`` and carry no language token
-    at all, so reading the name there gives an empty leg -- a blank tick and an unnamed shape.
-    """
+    """``{setup: recorded language}``: the extractor's stamp, the setup name only for rows predating it."""
     if "setup" not in frame.columns or "language" not in frame.columns:
         return {}
     known = frame[["setup", "language"]].dropna().astype(str)
@@ -500,11 +495,8 @@ def safe_pairs_table(
     over: population.KernelPolicy = efficacy_figures.SPEEDUP_OVER,
     card: cost.CostModel | None = None,
 ) -> pd.DataFrame:
-    """:func:`~hpcagent_bench.stats.figures.efficacy.pairs_table`, but a raw-row population that
-    mixes timing-reduction stamps is named on stderr
-    and skipped -- an extraction issue in the SOURCE data, never this figure's to silently paper
-    over. The drawn marks are unaffected: they come from the caller's own pre-corrected ``stats``
-    table, never from this recompute, which exists only for the informational per-point CSV."""
+    """:func:`~hpcagent_bench.stats.figures.efficacy.pairs_table` for the informational per-point CSV; a
+    population mixing timing-reduction stamps is named on stderr and skipped (drawn marks are unaffected)."""
     try:
         return efficacy_figures.pairs_table(frame, over, card)
     except population.MixedPopulationError as error:
@@ -602,11 +594,8 @@ def build_multi_comparison(
     card: cost.CostModel,
     over: population.KernelPolicy = efficacy_figures.SPEEDUP_OVER,
 ) -> tuple[str, Sequence[str], dict[str, pd.DataFrame], dict[str, pd.DataFrame]] | None:
-    """``treatments=a,b,c`` as ONE panel of several packets against their shared no-packet
-    control -- every llr40 skill packet against C at once, say, instead of a row of one-packet
-    panels. Packet-suffix only:
-    an explicit ``pairs=`` figure is already one panel per pair list, and mixing the two routes in
-    one panel would need a control this function has no way to reconcile."""
+    """``treatments=a,b,c`` as ONE panel of several packets against their shared no-packet control (packet-suffix
+    route only)."""
     treatments = [t.strip() for t in spec["treatments"].split(",") if t.strip()]
     title = spec.get("title") or " / ".join(study_tags.packet_name(t) for t in treatments)
     loaded = spec_experiment(spec, default_observations, default_experiment, card)
@@ -638,9 +627,7 @@ def build_comparison(
     :func:`build_multi_comparison`), or a single packet-suffix split (``treatment=``) of its own or
     the default experiment. ``treatment`` is the registry key(s) the panel is SHAPED by."""
     if spec.get("stub", "").lower() in ("1", "true", "yes"):
-        # A PLACEHOLDER panel: the box, the axes and the caption, with nothing plotted. It keeps a
-        # slot in the row for a comparison that has not finished running, so the figure can go into
-        # the paper at its final width and the panel fills in later without re-laying out the page.
+        # A PLACEHOLDER panel (box, axes, caption, nothing plotted) keeps the row's final layout.
         return spec.get("title", ""), spec.get("intervention", ""), pd.DataFrame(), pd.DataFrame()
     if "treatments" in spec:
         return build_multi_comparison(spec, default_observations, default_experiment, include_incomplete, card, over)

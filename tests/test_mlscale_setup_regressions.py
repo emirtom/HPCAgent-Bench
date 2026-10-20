@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge-, tool- and prompt-side contract of the mlscale setups, each case run at the setups' REAL
-judge config (``test_ml_submit_records.setup_judge``: preset fuzzed, hip, ``mpi.ranks`` 4, P = 1, 2, 4,
-the real ``dist_*`` manifests) with only the GPU build, the rank launch and the torch baseline child
-faked.
-
-* A correct score the agent never submitted is promoted WITH its requests (layout, libraries) and scratch.
-* A request with no (or an unresolvable) layout is a 400, like every other layout fault, so it
-  cannot spend the one submission.
-* A ``grid: [1]`` layout, re-gridded to every P by the grade, is re-verified as it was graded.
-* The reference receives a replicated input on the kernel's default split, so a correct kernel
-  holding ``x`` replicated grades against a reference shard of its own shape.
-* The prompt and the refusal name which ``requests.startup.load`` still link (``rccl``, ``mpi``).
-* A wrong answer at any graded rank count fails the grade; a timed-out rank count is a hole in the
-  curve.
-"""
+"""The judge-, tool- and prompt-side contract of the mlscale setups at their real judge config (only the GPU
+build, rank launch and torch baseline faked)."""
 
 import json
 import pathlib

@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The half of the GPU measurement contract that only a REAL GPU can answer.
-
-tests/test_gpu_timing_contract.py pins the same contract where a pure function can: the residency
-rule, the bracket stamps, the build refusal, and the probe arithmetic. What it cannot reach is
-whether the harness's own synchronization actually WAITS, whether a grading child actually reaches
-one device, and whether a sample actually excludes the transfer -- each of those is a claim about
-hardware, and a claim about hardware that is only asserted against a fake is not asserted at all.
-
-Nothing here skips on a missing GPU. Every test is in the ``judge_image`` hardware group
-(tests/conftest.py): deselected unless ``-m`` names it, and on a host that is asked for it and has no
-device, a red test rather than a skip. Run it inside the judge image on an mi300 node with
-``-m judge_image``. The properties below are the ones whose failure produces a number that VERIFIES
--- the right answer, rc 0, and the wrong quantity recorded -- so silence about them is the failure
-mode this file exists to remove.
-"""
+"""The GPU measurement contract on a REAL GPU (``-m judge_image``, never skipped on a requested host): the
+harness's synchronization waits, a grading child reaches one device, and samples exclude transfers."""
 
 import pathlib
 from collections.abc import Iterator

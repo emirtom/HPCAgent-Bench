@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A setup whose inference comes from a hosted service rather than a server the job starts.
-
-``hpcagent_bench/cluster/inference_service.py`` is the one place that reads a setup's ``INFERENCE_SERVICE_*``
-block. It resolves that block into the three values every consumer downstream already reads (the
-base URL, the served model name, the key), decides which variable the claude CLI's key belongs in,
-refuses a harness that cannot speak the service's wire shape, and writes the run's inference
-provenance. The fake-server cases below drive the repo's own HTTP poster and usage parsers against
-that resolved endpoint, so a service setup's request shape and its token accounting are both proven
-against a server that records what it received.
-
-The secret itself never crosses this boundary: the setup names the VARIABLE its key lives in, and the
-launcher copies it by indirection. The cases that matter most here are the ones asserting a key
-value reaches the worker and reaches nothing else.
-"""
+"""A setup whose inference comes from a hosted service: the ``INFERENCE_SERVICE_*`` block resolves to URL, model
+and key variable, harnesses are matched to the wire shape, and the key value reaches the worker and nothing
+else."""
 
 import http.server
 import json

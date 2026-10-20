@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The submission mode of a setup: ONE key, ``AGENT_SUBMISSION_MODE``, and everything it decides.
-
-A mode is a template, ``agent/submission-<mode>.md``, whose sections fill the prompt's ``{{MODE:<section>}}``
-slots, plus the rules below. The driver, the MCP server, the submit tool, the workspace harvest and the
-judge router all read the mode from here, so the prompt and the enforcement cannot disagree.
-
-=========  ===========  ======================  ==================================
-mode       submissions  ``score``, ``profile``  an agent cut off before submitting
-=========  ===========  ======================  ==================================
-multi      unlimited    served                  its last correct score is promoted
-single     one          served                  its last correct score is promoted
-blind      one          not served              its write folder is graded
-=========  ===========  ======================  ==================================
-"""
+"""The submission mode of a setup (``AGENT_SUBMISSION_MODE``): ``multi`` (unlimited), ``single`` (one) or ``blind``
+(one, no ``score``/``profile``, the write folder graded at cut-off). Its template ``agent/submission-<mode>.md`` fills
+the ``{{MODE:<section>}}`` slots; every component reads the mode from here, so prompt and enforcement agree."""
 
 import enum
 import os
@@ -81,10 +70,8 @@ def template_sections(path: pathlib.Path) -> dict[str, str]:
 
 
 def fill_slots(prompt: str, sections: Mapping[str, str], template: str) -> str:
-    """``prompt`` with every ``{{MODE:<section>}}`` slot filled; a slot ``template`` lacks stops the launch.
-
-    ONE filler for every text that carries a slot -- the rendered prompt and the MCP server's
-    ``initialize`` instructions -- so neither can reach the agent with a raw slot in it."""
+    """``prompt`` with every ``{{MODE:<section>}}`` slot filled (the one filler for every slotted text); a slot the
+    ``template`` lacks stops the launch."""
     missing = sorted({name for name in SLOT.findall(prompt) if name not in sections})
     if missing:
         raise SystemExit(f"{template} has no section for the prompt slots {missing}")

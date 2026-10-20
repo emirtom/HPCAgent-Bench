@@ -65,12 +65,8 @@ __all__ = [
 
 
 def drop_mpi_launcher_vars() -> list[str]:
-    """Unset the MPI launcher variables in this process; returns the names removed.
-
-    DaCe's parser calls ``ensure_mpi_initialized()`` at import unless none is set, and Slurm's pmix
-    exports ``PMIX_RANK`` for every step, so a forked per-kernel child would call ``MPI_Init`` under an
-    MPI-holding parent and deadlock (``MPI4PY_RC_INITIALIZE=0`` does not help). The framework sweep is
-    not an MPI program; the MPI residency never calls this."""
+    """Unset the MPI launcher variables in this process (a forked child of an MPI-holding parent would deadlock in
+    DaCe's ``MPI_Init``); returns the names removed. Never called on an MPI residency."""
     removed = [var for var in MPI_LAUNCHER_VARS if var in os.environ]
     for var in removed:
         del os.environ[var]
@@ -173,15 +169,9 @@ def shard_names(
     ranks_per_node: int | None = None,
     node_ram_bytes: int | None = None,
 ) -> list[str]:
-    """This rank's slice of ``names`` for ``shard=(index, count)``.
-
-    With a ``preset``: a cost-aware LPT bin-pack (:func:`sizing.pack_lpt`) on the preset's predicted
-    costs, deterministic so every rank computes the same partition (the results DB is keyed by
-    shard). Without one (or when no cost resolves): the ``names[index::total]`` stride.
-
-    ``ranks_per_node`` and ``node_ram_bytes`` (arguments: the harness cannot read the node count) make
-    a packing whose per-node working set overruns the budget a refusal. A manifest that fails to load
-    propagates, so the partition stays reproducible."""
+    """This rank's slice of ``names`` for ``shard=(index, count)``: a deterministic LPT bin-pack on ``preset``'s
+    predicted costs (:func:`sizing.pack_lpt`), else the ``names[index::total]`` stride. ``ranks_per_node`` and
+    ``node_ram_bytes`` refuse a packing that overruns a node."""
     index, total = shard
     if preset is None:
         return names[index::total]
@@ -418,12 +408,8 @@ class SparseCase:
     elapsed_s: float = 0.0
 
 
-#: Outcomes of a :class:`SparseCase`. ``graded`` = the per-layout reference translation scored
-#: correct through the judge's own grading path; ``refused`` = the judge refuses the layout on this
-#: input (a padded format past its limit), as it would an agent's request. ``untranslated`` (the
-#: translators emit no reference for an offered layout), ``wrong`` and ``error`` fail the sweep, and
-#: so does ``judge-fault`` (the grade had no denominator or reference: nothing about the layout was
-#: checked).
+#: Outcomes of a :class:`SparseCase` that pass: ``graded`` (scored correct through the judge's path) and ``refused``
+#: (the judge refuses the layout on this input); ``untranslated``, ``wrong``, ``error`` and ``judge-fault`` fail.
 SPARSE_OK_STATUSES = frozenset({"graded", "refused"})
 
 

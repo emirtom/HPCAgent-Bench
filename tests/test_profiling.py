@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The perf call-graph mechanism (:mod:`hpcagent_bench.perf_reports`) and the ``/profile`` endpoint.
-
-The folding / rendering / availability layers are exercised with synthetic stacks, so they hold on
-a host with no ``perf`` at all; the end-to-end profile of a real submission runs only where perf
-can actually sample (checked through the same :func:`perf_check` the endpoint calls).
-"""
+"""The perf call-graph mechanism and ``/profile``: folding and rendering on synthetic stacks anywhere, end to end
+only where perf can sample (:func:`perf_check`)."""
 
 import json
 import subprocess

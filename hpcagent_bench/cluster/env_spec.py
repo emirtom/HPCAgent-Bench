@@ -122,9 +122,8 @@ def experiment_chain(name: str, spec: dict[str, Experiment]) -> list[Experiment]
 
 
 def requests_env(lineage: list[Experiment]) -> dict[str, str]:
-    """The keys of the requests preset the last experiment of ``lineage`` (root first) to name one names, else
-    of :data:`DEFAULT_REQUESTS`. Only a preset sets ``HPCAGENT_BENCH_REQUESTS_*``: an experiment's ``env`` that
-    sets one is refused."""
+    """The keys of the requests preset the last experiment of ``lineage`` names, else :data:`DEFAULT_REQUESTS`; an
+    experiment ``env`` setting ``HPCAGENT_BENCH_REQUESTS_*`` is refused."""
     for experiment in lineage:
         named = sorted(key for key in experiment.env if key.startswith("HPCAGENT_BENCH_REQUESTS_"))
         if named:

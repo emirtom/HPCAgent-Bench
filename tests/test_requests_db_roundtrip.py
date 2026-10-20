@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every requests-API entry survives the results database, both ways it is stored.
-
-A grade records its submission's ``requests`` twice, from one validated request in one transaction: as the
-JSON ``grades.requests`` (:func:`results_db.requests_of_row` reads it) and as one ``grade_requests`` row per
-library, grid and operation (:func:`results_db.requests_from_rows` reads them). Each read must give back the
-request the submission sent, for every operation relayout defines, through the judge's own writer
-(:func:`recording.submission_envelope` into :func:`results_db.add_grade`), a merge and a grade copy.
-"""
+"""Every requests-API entry survives the results database both ways it is stored (``grades.requests`` JSON and
+``grade_requests`` rows), through the judge's own writer, a merge and a grade copy."""
 
 import contextlib
 import json

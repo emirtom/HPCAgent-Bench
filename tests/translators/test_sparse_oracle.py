@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""End-to-end scipy-oracle validation for every sparse kernel.
-
-Unlike ``test_sparse_matvec`` (which exec's individual dispatcher loop
-nests in-process), this drives the FULL pipeline per kernel:
-emit C -> gcc -shared -> ctypes call, then compares the compiled
-output against the numpy reference run with scipy.sparse inputs.
-
-The kernel list is discovered from bench_info (any benchmark with a
-``sparse_layouts`` block), so new sparse kernels are covered with no
-edit here. Each kernel runs under several seeds to shake out
-density/structure-dependent bugs.
-"""
+"""End-to-end scipy-oracle validation for every sparse kernel (discovered from bench_info), under several
+seeds."""
 
 import pathlib
 import sys

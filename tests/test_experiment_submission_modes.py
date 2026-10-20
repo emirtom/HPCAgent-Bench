@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every setups.yaml experiment names its submission mode, the default is single, and blind comes only from the
-``no-score-tool`` packet.
-
-``layers/common.env`` defaults to single, so an experiment that only inherited it would change its contract with
-that default; each one names the mode it runs. Blind is a treatment (no oracle), recorded as a packet, so no
-experiment sets it.
-"""
+"""Every setups.yaml experiment names its submission mode explicitly (default single); blind comes only from
+the ``no-score-tool`` packet."""
 
 import pytest
 from hpcagent_agent import submission_mode

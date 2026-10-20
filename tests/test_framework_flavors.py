@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Framework flavor-grouping regression tests (pure metadata, no compile/run).
-
-Pins the consolidated registry: one Framework subclass per ``base`` flavor family,
-the native backend split into its base languages, each language's autopar variant,
-and polly, vs Pluto as its own toolchain, and APPy fully removed.
-"""
+"""The consolidated framework registry: one Framework subclass per ``base`` family, native languages and autopar
+variants, polly and Pluto. Pure metadata."""
 
 import dataclasses
 import pathlib

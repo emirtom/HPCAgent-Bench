@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The toolchain a submission is built with, and the optimization-report flags that follow it.
-
-:meth:`Sandbox.build` and the judge's ``opt-report`` profile tool both resolve through
-:func:`languages.submission_toolchain`, so a report cannot describe a compiler the grade never ran.
-"""
+"""``Sandbox.build`` and the ``opt-report`` profile tool resolve the same toolchain
+(:func:`languages.submission_toolchain`), and the report flags follow it."""
 
 import os
 import pathlib

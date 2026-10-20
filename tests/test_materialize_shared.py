@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The cluster experiment's shared-folder materialization: read-only task material + write folders.
-
-``materialize_shared.sh`` runs once in the launcher, before any role starts; ``agent_driver.py``
-hands every agent its own subfolder. Both are pinned here because their failure modes are silent: a
-missing ``tasks/`` folder only makes the agents' prompts point at nothing, and a shared write folder
-that repeats across agents lets ten agents on ONE kernel overwrite each other's submission.
-"""
+"""The shared-folder materialization: ``materialize_shared.sh`` stages read-only task material and
+``agent_driver.py`` gives every agent its own write subfolder."""
 
 import json
 import os

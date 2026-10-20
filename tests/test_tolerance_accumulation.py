@@ -1,30 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The USER tolerance decision: ``atol_eff = max(atol_p, eps_acc(p) * sqrt(l) *
-||x_ref||_inf)`` per output array, where ``l`` is the CONTRACTED EXTENT -- the
-PER-INPUT MAXIMUM: for each input, the product of its own shape symbols' values that do not appear
-in the output's (effective) shape, maximized over the inputs -- and ``eps_acc(p)`` is the unit
-roundoff of the precision the arithmetic actually ACCUMULATES in, not the one its operands are
-stored in.
-
-Five pieces, five groups of tests:
-
-* :func:`hpcagent_bench.harness.grading.contracted_extent` -- the ``l`` computation itself, on the
-  four worked examples from the decision plus the "reduction into one element of a declared
-  buffer" effective-shape case. Returns a :class:`~hpcagent_bench.harness.grading.ContractedExtent`
-  (``value``, ``rule``); the ambiguous-symbol case does not refuse,
-  it takes the same largest-input fallback the no-symbolic-shapes case does.
-* :func:`hpcagent_bench.precision.accumulation_eps` -- the eps_acc column.
-* the GUARD (:class:`hpcagent_bench.precision.UngradeableTolerance`) -- refusing a config where the
-  floor already consumes the whole rtol band, raised out of
-  :func:`hpcagent_bench.frameworks.utilities.compare_arrays` -- the ONLY place this exception is
-  raised any more; ``contracted_extent`` itself never raises.
-* the replay/determinism leg (``scoring._reproduces``) sharing the SAME per-output ``l``, and the
-  residual columns (including ``l_rule``) a leaderboard row persists.
-* the write probe (:func:`hpcagent_bench.harness.grading.probe_write_mask` /
-  :func:`~hpcagent_bench.harness.grading.typed_contracted_extents`) -- widens ``l`` and never narrows
-  what is graded.
-"""
+"""The accumulation tolerance ``atol_eff = max(atol_p, eps_acc(p) * sqrt(l) * ||x_ref||_inf)`` per output:
+the contracted extent ``l``, ``eps_acc``, the ungradeable-tolerance guard, the replay leg and the write probe."""
 
 import math
 import types

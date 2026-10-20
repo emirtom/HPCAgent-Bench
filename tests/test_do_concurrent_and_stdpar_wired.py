@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every Fortran column threads `do concurrent`, and every C++ column links TBB.
-
-Both are SILENT when missing. A `do concurrent` loop built without its family's flag compiles,
-runs, and answers correctly -- serially, under a parallel name; libstdc++ picks its parallel
-`<execution>` backend per translation unit with `__has_include(<tbb/tbb.h>)`, so `par`/`par_unseq`
-without `-ltbb` fall back to the sequential overloads just as quietly. Neither shows up as a build
-error, so nothing catches them except a check that the wiring is declared -- which is what this
-file is. Both gaps were real: mpifort carried no do-concurrent flag and mpicxx no stdpar link ref
-before this was wired, so an MPI kernel using either construct was timed single-threaded.
-"""
+"""Every Fortran column threads ``do concurrent`` and every C++ column links TBB (both fall back to serial
+silently when missing), MPI wrappers included."""
 
 import pytest
 

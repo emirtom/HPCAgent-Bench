@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""One DaCe flavor per SDFG pipeline, and the two things that make them meaningful.
-
-THREE optimizers -- ``parallel``, ``autoopt``, ``canon`` -- times TWO targets, and nothing else.
-There are no ``strict``/``fusion`` rungs any more: those were stages of a search, and a search
-reports its winner, which answers "how fast is DaCe" rather than "how fast is THIS optimizer".
-
-A flavor that scores one pipeline is only useful if it scores THAT pipeline and pays for nothing
-else, and if the columns that need spcl/dace@extended are exactly the ones that ask for it --
-the ``autoopt`` columns are upstream DaCe's own optimizer and must stay runnable on a stock
-install, so a fork gate that fired on every ``dace_*`` name would make that impossible while the
-column still looked fine locally.
-"""
+"""One DaCe flavor per SDFG pipeline (``parallel``, ``autoopt``, ``canon`` x two targets): each scores exactly its
+pipeline, and only the columns needing spcl/dace@extended ask for it."""
 
 import dataclasses
 import types

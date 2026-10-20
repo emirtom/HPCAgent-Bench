@@ -1,25 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every kernel initializer builds its inputs on ``xp`` with the same bits on numpy and cupy.
-
-A device-resident grade builds its inputs on the GPU (``Benchmark.get_data(xp=cupy)``), while the reference it
-is graded against ran once, cached, on inputs built on the host. That is sound only if both builds give the same
-bits, so an initializer module (a kernel's ``<module>.py``) may use only:
-
-* draws of the harness's ``rng`` (:class:`~hpcagent_bench.support.counter_generator.CounterGenerator`) or of
-  :mod:`hpcagent_bench.support.counter_rng`, never ``np.random``;
-* array operations IEEE 754 rounds the same everywhere: ``+ - * /``, ``sqrt``, comparisons, ``where``, integer
-  arithmetic, indexing, ``min``/``max``; elementary functions only from
-  :mod:`hpcagent_bench.support.exact_math`;
-* no floating reduction whose order an array library chooses (``sum``, ``mean``, ``cumsum``, ``dot``, ``@``,
-  ``linalg``), no ``linspace`` (numpy and cupy compute it differently) and no ``**`` on an array;
-* ``xp`` for every array it creates: ``np`` only for dtypes and constants.
-
-A kernel with a sparse array is exempt: its matrix is a scipy object (often a SuiteSparse file) that is built and
-expanded into CSR buffers on the host, whatever the grade's device (``Benchmark.initialize``).
-
-The static check runs everywhere; :func:`test_device_inputs_equal_host_inputs` compares the bits on a GPU.
-"""
+"""Every kernel initializer builds its inputs on ``xp`` with the same bits on numpy and cupy: only counter-RNG
+draws, IEEE-exact operations and ``xp`` arrays (sparse kernels exempt). Static check everywhere, bit comparison
+on a GPU."""
 
 import ast
 import importlib.util

@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A canonical parallel form may call vendor libraries (CPF lowers BLAS, LAPACK and FFT nodes to them), so a CPF
-setup must let a submission load them, and loads the ones its form calls from the first submission on.
-
-- the cpf-src and cpf-tool packets add ``load`` to the preset's ``requests.allow`` (``packets.request_allowance``,
-  printed by ``packet_env.py --requests-allow``), which every other packet leaves as is;
-- ``make_problems`` writes the libraries the setup's view records for the kernel as the line's ``default_load``;
-- the driver exports it, and the agent tools add it to ``requests.startup.load`` on every submission;
-- ``cpf_verify`` grades a form with the load an agent's submission of it would carry.
-"""
+"""A CPF setup allows ``load`` and loads the libraries its form calls from the first submission: packet
+allowance, ``default_load`` in the problem line, the tools' startup load, and ``cpf_verify``."""
 
 import json
 import os

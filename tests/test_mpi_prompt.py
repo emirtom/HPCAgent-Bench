@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The distributed (MPI) prompt contract -- ``prompts.build_prompt`` for a
-``residency=Residency.DISTRIBUTED`` task.
-
-``node_mode`` (single | multi, derived from residency) and ``scaling`` (strong | weak, from the
-mpi config) are first-class prompt knobs: a multi-node task renders ``sections/mpi.j2`` (the Sec. 12
-``kernel_mpi`` signature, the you-choose-it data distribution, the executable/mpi4py delivery, and
-the MPI timing + strong/weak sizing) INSTEAD of the single-node api/delivery/timing/fuzzing
-sections. The single-node prompt must be byte-unchanged (no MPI leak). Pure: no MPI launch.
-"""
+"""The distributed (MPI) prompt contract: a multi-node task renders ``sections/mpi.j2`` instead of the
+single-node sections, and the single-node prompt stays byte-unchanged. Pure: no MPI launch."""
 
 import json
 import re

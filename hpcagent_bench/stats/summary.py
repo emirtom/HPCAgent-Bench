@@ -1,42 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every statistic a figure or a table in this repo reports, defined exactly once.
-
-A number with two definitions is a number nobody can check: two geometric means that disagree on
-an empty set or a zero ratio give two plots of the same data that do not match.
-
-WHAT LIVES HERE. Robust outlier rejection, the median and its bootstrap interval, the geometric
-mean and its bootstrap interval, the arithmetic mean and its bootstrap interval, the signed-change axis
-transform, the one-value-per-kernel reduction, and the building blocks of the paired test (sign flips). Which test a comparison runs is
-the test registry's choice (:mod:`hpcagent_bench.stats.significance`), which builds on these and is never
-imported from here.
-
-NO NORMALITY IS ASSUMED (Hoefler and Belli, SC15, Rule 6). Per-kernel ratios are often two spikes (many
-kernels at 1x, a few at 40x), so a Student-t interval on their logs would rest on an assumption the data
-breaks. Every interval over kernels is a BCa bootstrap over the kernels, and the default paired comparison is
-a sign-flip permutation test with the interval that inverts it.
-
-Timing samples are right-skewed -- a run is never faster than the hardware minimum, but an OS
-hiccup can make a single run arbitrarily slow. So a sample is summarized with the MEDIAN and a
-non-parametric bootstrap CI (:func:`scipy.stats.bootstrap`) rather than a mean +/- std, and the
-VERY bad upper outliers are dropped first by a robust (median / MAD) rule that a lone 10x sample
-cannot mask. Every drop is warned about -- a silently discarded sample reads as clean data.
-
-A set of RATIOS is summarized with the geometric mean, and Hoefler et al. (SC15) Rule 4 applies:
-the ratio is never the only thing reported. See :mod:`hpcagent_bench.stats.rules`.
-
-Reported defaults (so a run's rigor is documented, not implicit):
-* outlier rule -- modified z-score ``(x - median) / (1.4826 * MAD)``, upper tail only,
-  threshold :data:`DEFAULT_MAD_Z` (5.0);
-* CI -- :func:`scipy.stats.bootstrap` of the median, ``confidence_level``
-  :data:`DEFAULT_CONFIDENCE` (0.95), ``n_resamples`` :data:`DEFAULT_RESAMPLES` (9999),
-  ``method`` :data:`DEFAULT_CI_METHOD` (``"percentile"`` -- the robust choice for a median,
-  whose BCa acceleration estimate is unstable);
-* interval over kernels -- BCa bootstrap of the statistic (:func:`geomean_ci`, :func:`mean_ci`), 9999
-  resamples, seed 0, withheld below :data:`MIN_PAIRS_FOR_INTERVAL` values;
-* sign flips -- exact up to :data:`SIGN_FLIP_EXACT_MAX_N` pairs, else :data:`SIGN_FLIP_DRAWS` seeded sign
-  vectors; :func:`sign_flip_interval` is the set of shifts the test does not reject.
-"""
+"""Every statistic a figure or a table reports, defined exactly once: outlier rejection, medians, geometric and
+arithmetic means with bootstrap intervals, the signed-change transform and sign-flip building blocks. No normality
+is assumed (SC15 Rule 6); test choice lives in :mod:`hpcagent_bench.stats.significance`."""
 
 import enum
 import math
@@ -84,9 +50,7 @@ __all__ = [
     "usable_ratios",
 ]
 
-# scipy is imported INSIDE the functions that need it: the grading path takes its geometric mean from
-# this module and already pays for numpy; a second of scipy import per judge process for ten lines of
-# arithmetic is not worth it.
+# scipy is imported INSIDE the functions that need it: the grading path imports this module.
 
 #: One timing sample per element. float64 is what ``np.asarray(..., dtype=float)`` produces.
 FloatArray = npt.NDArray[np.float64]
@@ -109,9 +73,7 @@ MEANAD_TO_SIGMA: float = 1.253314
 #: "very bad" (OS-hiccup) samples, not ordinary run-to-run jitter.
 DEFAULT_MAD_Z: float = 5.0
 
-#: Fewest samples a percentile bootstrap of a MEDIAN can say anything about. Below it the resampled
-#: median takes only a handful of values and the 2.5/97.5 percentiles land on the data points
-#: themselves: measured widths did not shrink with n (0.16 at n=2 against 0.64 at n=3-4).
+#: Fewest samples a percentile bootstrap of a MEDIAN can say anything about.
 MIN_INTERVAL_SAMPLES: int = 5
 
 #: Bootstrap median-CI defaults, exposed so callers and docs can report them.
@@ -123,20 +85,11 @@ DEFAULT_CI_METHOD: str = "percentile"
 def drop_outliers(
     samples: Samples, threshold: float = DEFAULT_MAD_Z, warn: bool = True, label: str = ""
 ) -> tuple[FloatArray, FloatArray]:
-    """Drop upper-tail outliers by robust modified z-score, one-sided (slow side only).
+    """Drop upper-tail outliers by robust modified z-score ``(x - median) / (1.4826 * MAD)`` above ``threshold``
+    (slow side only); returns ``(kept, dropped)``.
 
-    ``modified_z = (x - median) / (1.4826 * MAD)``; a sample with ``modified_z > threshold``
-    is dropped. Using the median and MAD (median absolute deviation) makes the rule immune
-    to the very outliers it removes -- a lone 10x sample cannot inflate the scale the way a
-    mean / std would. Only the SLOW side is trimmed: a timing sample is never faster than the
-    hardware minimum, so a low value is real signal, not a hiccup.
-
-    Returns ``(kept, dropped)`` as float arrays. When ``warn`` and anything is dropped, emits
-    a :class:`UserWarning` naming the count and the dropped values -- a dropped sample must
-    never vanish silently. ``label`` (e.g. ``"<kernel>@<framework>"``) prefixes the warning.
-    Fewer than 3 samples, or a degenerate spread (MAD == 0, i.e. at least half identical),
-    yield no drops.
-    """
+    When ``warn``, every drop is warned about (prefixed by ``label``). Fewer than 3 samples or an all-identical
+    sample yield no drops; MAD == 0 falls back to the mean absolute deviation."""
     x: FloatArray = np.asarray(samples, dtype=np.float64)
     empty: FloatArray = np.empty(0, dtype=np.float64)
     if x.size < 3:
@@ -145,9 +98,7 @@ def drop_outliers(
     abs_dev: FloatArray = np.abs(x - med)
     scale = float(np.median(abs_dev)) * MAD_TO_SIGMA
     if scale == 0.0:
-        # >= half the samples equal the median, so MAD is 0 and the modified z is undefined.
-        # Fall back to the mean absolute deviation about the median (Iglewicz-Hoaglin) so a
-        # clear outlier above an otherwise-constant cluster is still caught.
+        # MAD is 0 (>= half the samples equal the median): fall back to the mean absolute deviation (Iglewicz-Hoaglin).
         scale = float(np.mean(abs_dev)) * MEANAD_TO_SIGMA
     if scale == 0.0:
         return x, empty  # truly all identical: no robust scale, nothing to flag
@@ -176,17 +127,8 @@ def median_ci(
     seed: int = 0,
     min_n: int = 0,
 ) -> tuple[float, float, float, int]:
-    """Median and a non-parametric bootstrap CI, after robust outlier rejection.
-
-    Fewer than ``min_n`` samples (after the drop) get the median with a NaN interval: a cell that
-    thin supports no interval, and a point drawn as one would claim a precision it does not have.
-
-    Runs :func:`scipy.stats.bootstrap` on the median with the module defaults
-    (``method='percentile'``, ``confidence_level=0.95``, ``n_resamples=9999``). Returns
-    ``(median, ci_low, ci_high, n_dropped)``. With ``drop`` the upper outliers are removed
-    first (:func:`drop_outliers`, which warns). A point CI ``(m, m, m)`` is returned when
-    there is no spread or too few samples to bootstrap.
-    """
+    """``(median, ci_low, ci_high, n_dropped)``: a percentile bootstrap CI after optional outlier rejection
+    (:func:`drop_outliers`); fewer than ``min_n`` samples get a NaN interval, no spread a point interval."""
     x: FloatArray = np.asarray(samples, dtype=np.float64)
     n_dropped = 0
     if drop:
@@ -210,9 +152,7 @@ MIN_PAIRS_FOR_INTERVAL: int = 6
 
 @dataclass(frozen=True, slots=True)
 class Interval:
-    """A confidence interval and, critically, WHAT IT IS FOR. An interval around the mean is not
-    an interval around the min-of-k; ``statistic`` keeps the two from being confused in a table
-    or a figure caption."""
+    """A confidence interval and WHAT IT IS FOR (``statistic``), so a table never confuses two."""
 
     statistic: str  # "mean" | "median" | "geomean" | "min_of_k" | "speedup(min_of_k)" | ...
     point: float
@@ -236,17 +176,9 @@ def bootstrap_ci(
     method: str = "BCa",
     seed: int = 0,
 ) -> Interval:
-    """Non-parametric bootstrap interval for ``statistic`` of ``samples``, the one bootstrap here.
-
-    ``statistic`` is a numpy reduction taking ``axis`` (``np.median``, ``np.mean``, ``np.min``), so
-    scipy evaluates every resample in one vectorized call. ``samples`` is used as given: a timing
-    caller cleans it first, and a log-ratio caller must keep its negative values.
-
-    BCa's acceleration term needs a jackknife and degenerates on tiny or near-constant samples, so
-    a failure falls back to the percentile interval and SAYS SO in ``method``; a silent method swap
-    would make two differently-derived intervals look alike in a table. Fewer than 3 samples or no
-    spread returns the point as a degenerate interval.
-    """
+    """Non-parametric bootstrap interval for ``statistic`` (a numpy reduction taking ``axis``) of ``samples`` as
+    given; a BCa failure falls back to percentile and SAYS SO in ``method``. Fewer than 3 samples or no spread is a
+    degenerate interval."""
     x: FloatArray = np.asarray(samples, dtype=np.float64)
     n = int(x.size)
     point = float(statistic(x)) if n else math.nan
@@ -281,12 +213,8 @@ def mean_ratio_ci(
     n_resamples: int = DEFAULT_RESAMPLES,
     seed: int = 0,
 ) -> Interval:
-    """The ratio of two ARITHMETIC means over paired samples, ``mean(numerator) / mean(denominator)``, and its
-    paired BCa bootstrap interval (one resample draws the same pairs on both sides).
-
-    The summary of a cost change (Hoefler and Belli, SC15: costs summarize with the arithmetic mean, so a change
-    in cost is a ratio of means, not a mean of per-item ratios). BCa falls back to the percentile interval and
-    says so in ``method``, as :func:`bootstrap_ci` does; fewer than 3 pairs or no spread is the point alone."""
+    """``mean(numerator) / mean(denominator)`` over paired samples with its paired BCa bootstrap interval (a cost
+    change, SC15); percentile fallback named in ``method``; fewer than 3 pairs or no spread is the point alone."""
     top: FloatArray = np.asarray(numerator, dtype=np.float64)
     bottom: FloatArray = np.asarray(denominator, dtype=np.float64)
     n = int(top.size)
@@ -320,15 +248,8 @@ def mean_ratio_ci(
 
 
 def usable_ratios(values: Samples, label: str = "", warn: bool = True) -> FloatArray:
-    """The entries of ``values`` a geometric mean may be taken over: finite and strictly positive.
-
-    A zero, a negative or a non-finite ratio is a MISSING measurement, not a slow one. Dropping it
-    is the only defensible reading. Do not clamp it to a small epsilon or hand it to
-    :func:`scipy.stats.gmean`, whose ``log(0)`` sends the whole geomean to 0.0: either enters an absent
-    datum as a catastrophic regression that never happened.
-
-    Every drop is warned about, naming the count and the values. ``label`` prefixes the warning.
-    """
+    """The entries of ``values`` a geometric mean may be taken over: finite and strictly positive. Anything else is
+    a MISSING measurement, dropped (never clamped) with a warning prefixed by ``label``."""
     x: FloatArray = np.asarray(values, dtype=np.float64)
     keep: npt.NDArray[np.bool_] = np.isfinite(x) & (x > 0.0)
     dropped: FloatArray = x[~keep]
@@ -366,13 +287,8 @@ def geomean(values: Samples, unusable: Unusable = Unusable.RAISE) -> float:
 
 
 def geomean_ci(values: Samples, confidence: float = 1.0 - DEFAULT_ALPHA) -> Interval:
-    """Geometric mean and its BCa bootstrap interval over the values, resampled in LOG space and mapped back.
-
-    No distribution is assumed: per-kernel ratios are often two spikes (many at 1x, a few at 40x), which a
-    Student-t interval on their logs would misstate. The ends come back as ratios; ``exp`` is not linear,
-    so they are not symmetric about the point. Fewer than 3 values, or no spread, has no interval: the
-    point itself.
-    """
+    """Geometric mean and its BCa bootstrap interval, resampled in LOG space (ends asymmetric about the point);
+    fewer than 3 values or no spread is the point alone."""
     x: FloatArray = np.asarray(values, dtype=np.float64)
     point = geomean(x)
     logs = bootstrap_ci(np.log(x), np.mean, name="geomean", confidence=confidence)
@@ -392,8 +308,8 @@ def geomean_interval(values: Samples, confidence: float = 1.0 - DEFAULT_ALPHA) -
 
 
 def mean_ci(values: Samples, confidence: float = 1.0 - DEFAULT_ALPHA) -> Interval:
-    """Arithmetic mean and its BCa bootstrap interval: the summary of a COST (Hoefler and Belli Rule 3),
-    where the total is what the reader pays. Fewer than 3 values, or no spread, has no interval."""
+    """Arithmetic mean and its BCa bootstrap interval (a COST summary, SC15 Rule 3); fewer than 3 values or no spread
+    is the point alone."""
     return bootstrap_ci(np.asarray(values, dtype=np.float64), np.mean, name="mean", confidence=confidence)
 
 
@@ -409,33 +325,16 @@ def mean_interval(values: Samples, confidence: float = 1.0 - DEFAULT_ALPHA) -> I
 
 
 def signed_change(ratio: float) -> float:
-    """Speedup ratio -> signed relative change. ``2x -> +1``, ``1x -> 0``, ``0.5x -> -1``.
-
-    ``r >= 1`` maps to ``r - 1`` and ``r < 1`` to ``-(1/r - 1)``, so a 2x win (+1) and a 2x
-    slow-down (-1) sit the same distance from 0 and the transform is odd about no change:
-    ``signed_change(1/r) == -signed_change(r)`` exactly. A raw ratio axis crushes every slow-down
-    into the 0..1 sliver and gives every speedup an unbounded tail, so the eye reads a 0.5x
-    regression as a SMALLER event than a 1.5x win when they are the same magnitude.
-
-    Anything that is not a finite POSITIVE ratio -- 0, negative, +/-inf, NaN, a cell that was
-    never measured -- returns NaN, never 0.0: 0 is the exact value of "measured, and nothing
-    changed", and an absent measurement must not be able to claim it.
-    """
+    """Speedup ratio -> signed relative change: ``r - 1`` for ``r >= 1``, ``-(1/r - 1)`` below, so
+    ``signed_change(1/r) == -signed_change(r)``. Not a finite positive ratio -> NaN, never 0.0."""
     if not math.isfinite(ratio) or ratio <= 0.0:
         return math.nan
     return ratio - 1.0 if ratio >= 1.0 else -(1.0 / ratio - 1.0)
 
 
 def log2_change(ratio: float) -> float:
-    """Speedup ratio -> its base-2 logarithm. ``2x -> +1``, ``1x -> 0``, ``0.5x -> -1``: the same
-    zero and the same sign as :func:`signed_change`, but every DOUBLING is the same distance apart
-    rather than every additional multiple of the baseline -- a 75x outlier sits at +6.2, not at
-    +74, and does not swamp an axis a reader is comparing every other ratio against. The axis this
-    draws on still reads as a speedup (ticks labelled back in ratios,
-    :func:`~hpcagent_bench.stats.style.ratio_tick_label`); only the GEOMETRY is log2.
-
-    Anything that is not a finite POSITIVE ratio returns NaN, matching :func:`signed_change`.
-    """
+    """Speedup ratio -> its base-2 logarithm (same zero and sign as :func:`signed_change`, one unit per doubling);
+    not a finite positive ratio -> NaN."""
     if not math.isfinite(ratio) or ratio <= 0.0:
         return math.nan
     return math.log2(ratio)
@@ -459,8 +358,7 @@ def signs(differences: Samples) -> Signs:
 #: Up to this many pairs the sign-flip test enumerates every sign vector (2**16 = 65536 of them).
 SIGN_FLIP_EXACT_MAX_N: int = 16
 
-#: Above :data:`SIGN_FLIP_EXACT_MAX_N`, the seeded sign vectors drawn (plus the identity): a p value's
-#: Monte Carlo error at p = 0.05 is about 0.0015, and the same seed gives the same published value.
+#: Above :data:`SIGN_FLIP_EXACT_MAX_N`, the seeded sign vectors drawn (plus the identity).
 SIGN_FLIP_DRAWS: int = 19_999
 
 
@@ -476,10 +374,8 @@ def sign_flips(n: int, seed: int = 0) -> FloatArray:
 
 
 def sign_flip_pvalue(differences: Samples, flips: FloatArray) -> float:
-    """Two-sided sign-flip p of the mean of paired ``differences``: the share of sign vectors whose flipped
-    mean is at least as far from 0 as the observed one. Exact under the null that each difference is as
-    likely positive as negative, which pairing makes the natural null: swapping the two setups' labels on a
-    kernel must not change anything if neither is better."""
+    """Two-sided sign-flip p of the mean of paired ``differences``: the share of sign vectors whose flipped mean is
+    at least as far from 0 as the observed one."""
     x: FloatArray = np.asarray(differences, dtype=np.float64)
     observed = abs(float(np.mean(x)))
     flipped = np.abs(flips @ x) / x.size
@@ -487,11 +383,8 @@ def sign_flip_pvalue(differences: Samples, flips: FloatArray) -> float:
 
 
 def sign_flip_interval(differences: Samples, flips: FloatArray, alpha: float = DEFAULT_ALPHA) -> tuple[float, float]:
-    """The shifts ``delta`` the sign-flip test does NOT reject at ``alpha`` on ``differences - delta``: the
-    interval that inverts :func:`sign_flip_pvalue`, so it excludes 0 exactly when that test rejects. Found by
-    bisection on each side of the mean: the test cannot reject at the mean, and rejects a sample's range
-    beyond its extremes once there are :data:`MIN_PAIRS_FOR_INTERVAL` pairs. An end on a closed boundary (a
-    shift the test only just fails to reject) reads within the p comparison's 1e-12 tolerance of it."""
+    """The shifts ``delta`` the sign-flip test does NOT reject at ``alpha`` on ``differences - delta`` (the interval
+    that inverts :func:`sign_flip_pvalue`), found by bisection; ends hold within the p comparison's 1e-12 tolerance."""
     x: FloatArray = np.asarray(differences, dtype=np.float64)
     centre = float(np.mean(x))
     span = float(np.ptp(x))

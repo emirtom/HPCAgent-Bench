@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""ML scaling track wiring: torch baseline, T_1 = the PyTorch reference on one GPU, shard-wise grades, and BOTH
-scaling laws graded on one build.
-
-Every launch seam (the build, run_built_sharded, the torch baseline child) is faked: these pin the
-scorer's wiring, not the launch branch's rank driver."""
+"""ML scaling track wiring with every launch seam faked: torch baseline, T_1 = the PyTorch reference on one GPU,
+shard-wise grades, and both scaling laws from one build."""
 
 import contextlib
 import json

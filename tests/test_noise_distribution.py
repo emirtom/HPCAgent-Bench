@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The opt-in ``noise`` input distribution (``support/distributions/noise.py``).
-
-It multiplies float inputs by ``1 + eps * u``, ``u`` the counter generator's uniform in ``[-1, 1)``. These tests pin
-what makes it safe to offer: it is never applied unless selected, it leaves integer, index and structural arrays
-alone, it is deterministic per seed and distinct across seeds and arrays, it keeps zeros, signs and ranges, its
-default step per format is as documented, and it reaches the arrays of a declarative kernel and of a custom
-initializer alike.
-"""
+"""The opt-in ``noise`` input distribution (``1 + eps * u``): never applied unless selected, float arrays only,
+deterministic per seed, zero/sign/range-preserving, reaching declarative and custom initializers."""
 
 import math
 

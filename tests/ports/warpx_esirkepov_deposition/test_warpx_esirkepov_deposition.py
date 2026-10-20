@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Port-fidelity gate: the WarpX Esirkepov deposition NumPy reference vs original C++.
-
-``warpx_esirkepov_deposition_reference.cpp`` (kept next to the NumPy reference for
-provenance) is a faithful standalone transcription of the upstream WarpX kernel
-``doEsirkepovDepositionShapeN``. This test compiles it and checks that it
-reproduces the NumPy port on the benchmark's own ``initialize()`` data across the
-kernel's full configuration space -- every geometry (1D_Z / XZ / RZ / 3D /
-RCYLINDER / RSPHERE), every shape order 1..4, the ionization-level weighting, the
-reduced-shape / embedded-boundary re-deposition, and (for RZ) several azimuthal
-mode counts -- so a divergence from the original charge-conserving algorithm is
-caught for every branch.
-
-The C++ is built on demand with ``g++`` (``-ffp-contract=off`` so fused
-multiply-add does not reorder the arithmetic). The test SKIPS where no C++
-compiler is available.
+"""Port-fidelity gate: the WarpX Esirkepov deposition NumPy reference against the original C++ transcription
+over the whole configuration space (skips without a C++ compiler).
 
     pytest tests/ports/warpx_esirkepov_deposition/
 """

@@ -1,27 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sharded rank driver of the distributed ML track: no host-side data, no scatter, no gather.
-
-One process per rank (``python -m hpcagent_bench.harness.mpi_entry hpcagent_bench.harness.mpi_shard_driver <plan.json> <out.json>``
-under the MPI launcher). Each rank
-
-1. binds GPU = node-local rank, before any allocation;
-2. generates ITS OWN input shard with the kernel's ``<module>_torch.make_inputs(params, seed, device,
-   shard=(rank, world))`` -- counter-based, so an 8 GB problem is never built whole anywhere;
-3. calls the submission's ``kernel_mpi`` on device pointers (the kernel-only shared library
-   :func:`~hpcagent_bench.support.bindings.mpi_driver.kernel_library_path`, or a python module)
-   ``k_repeats`` times (fewer when the warmup call says they would outrun ``timed_budget_s``),
-   each timed between barriers with the device drained;
-4. regenerates the inputs (a kernel that wrote its inputs must not bend the reference) and runs
-   ``reference_dist`` on the SAME ranks over torch.distributed (``nccl`` = RCCL);
-5. grades its own output shards with ``torch_reference.rank_verdict``.
-
-A launch runs every draw of its plan (``{"draws": [build_plan(...), ...]}``, one per input, sharing the
-grid and the build) in turn on one communicator, so a grade's inputs pay for one MPI start and one
-torch.distributed rendezvous. Rank 0 writes ``{"draws": [{"samples": [MAX-over-ranks seconds per repeat],
-"verdicts": [[ok, err, detail] per rank]}, ...]}``. Each draw (:func:`build_plan`) is computed by the
-judge, which never imports torch.
-"""
+"""Sharded rank driver of the distributed ML track: each rank generates its own input shard, times the submission's
+``kernel_mpi`` between barriers, runs ``reference_dist`` on the same ranks and grades its own shards. No host-side
+data, no scatter, no gather; the judge builds the plan and never imports torch."""
 
 import ctypes
 import faulthandler
@@ -52,7 +33,7 @@ from hpcagent_bench.sizing import shape_namespace
 from hpcagent_bench.spec import BenchSpec, as_tuple, shape_dims
 from hpcagent_bench.support.bindings.contract import Binding
 
-if TYPE_CHECKING:  # the ranks import torch and mpi4py at run time, after MPI_Init
+if TYPE_CHECKING:  # imported at run time, after MPI_Init
     import torch
     from mpi4py import MPI
 
@@ -120,8 +101,7 @@ def torch_dtype(torch: ModuleType, datatype: str) -> "torch.dtype":
 #: The python-delivery entry point, as the mpi4py driver names it.
 PY_KERNEL = "kernel_mpi"
 
-#: cuda | cpu. "cuda" (default when unset): torch.distributed over NCCL/RCCL, GPU binding and device
-#: synchronize. "cpu" (CI): torch.distributed over gloo, no GPU binding or device synchronize.
+#: cuda | cpu: "cuda" (default) runs torch.distributed over NCCL/RCCL with GPU binding; "cpu" (CI) over gloo.
 MPI_DEVICE_ENV = "HPCAGENT_BENCH_MPI_DEVICE"
 
 
@@ -233,10 +213,9 @@ def build_plan(
     workspace_bytes: str | None,
     timed_budget_s: float | None = None,
 ) -> dict[str, object]:
-    """The JSON plan every rank reads: argument layout, per-rank tile shapes, localized scalars and
-    workspace. ``inputs`` is ``make_inputs``'s order -- the reference argument order, i.e. the
-    manifest's ``init.output_args`` minus the kernel outputs -- and ``outputs`` is
-    ``spec.output_args``, the order ``reference_dist`` returns shards in."""
+    """The JSON plan every rank reads: argument layout, per-rank tiles, localized scalars and workspace.
+
+    ``inputs`` follow ``make_inputs``'s order, ``outputs`` the order ``reference_dist`` returns shards in."""
     outputs = [str(n) for n in spec.output_args]
     init_arrays = [str(n) for n in (spec.init.output_args if spec.init else ())]
     inputs = [n for n in init_arrays if n not in outputs]
@@ -246,14 +225,11 @@ def build_plan(
         raise ValueError(f"{kernel}: kernel arrays {missing} are neither make_inputs inputs nor outputs")
     shapes = global_shapes(spec, params, pointer_names)
     symbols = {a.name: int(cast("int", params[a.name])) for a in binding.scalars if a.role == "symbol"}
-    # The manifest's preset-independent knobs (``init.scalars``: ln_eps, group_norm_eps), which no
-    # size preset carries; a preset value wins, as spec.py resolves a name held by both.
+    # The manifest's preset-independent knobs; a preset value wins, as spec.py resolves a name held by both.
     values = {**(spec.init.scalars if spec.init else {}), **params}
     whole = sorted(n for n in inputs if n in pointer_names and descriptor.holds_whole(n, shapes[n]))
     layout = {n: array_dist_to_dict(descriptor.dist_for(n, shapes[n])) for n in pointer_names}
-    # reference_dist is written against the kernel's DEFAULT layout: it gathers a replicatable input
-    # from its split tiles itself. Handed the whole copy the submission asked for, it gathered P
-    # copies of it and graded a (P*batch, ...) shard against the submission's (batch, ...) one.
+    # reference_dist is written against the kernel's DEFAULT layout (it gathers a replicatable input itself).
     default = Descriptor.from_plan(
         distribution_for_kernel(spec.mpi, binding, descriptor.grid.nranks), binding, descriptor.grid.nranks
     )
@@ -280,22 +256,18 @@ def build_plan(
         {
             "kernel": kernel,
             "datatype": datatype,
-            # Inputs the submission declared replicated (its allowlisted arrays): every rank generates
-            # them whole (make_inputs(..., whole=...)) instead of its block, as the layout says.
+            # Inputs the submission declared replicated: every rank generates them whole.
             "whole": whole,
             "seed": int(seed),
             "rtol": float(rtol),
             "atol": float(atol),
             "k_repeats": int(k_repeats),
-            # Seconds the warmup plus the timed repeats may take (time_kernel), or None for no cap.
+            # Seconds the warmup plus the timed repeats may take, or None for no cap.
             "timed_budget_s": None if timed_budget_s is None else float(timed_budget_s),
             "grid": [int(d) for d in descriptor.grid.dims],
-            # The RESOLVED per-array layout (the lowered submission.requests plan, exactly, so a
-            # rank never re-derives it from the manifest): make_inputs(layout=..., grid=...) realizes
-            # whichever axis/scheme each array actually declared, not just the manifest default.
+            # The RESOLVED per-array layout, so a rank never re-derives it from the manifest.
             "layout": layout,
-            # The layout the REFERENCE regenerates its inputs in (:func:`check_rank`): ``layout`` with
-            # every whole-held input back on the kernel's default split.
+            # ``layout`` with every whole-held input back on the default split, for the reference's inputs.
             "reference_layout": reference_layout,
             "params": {k: (v.item() if isinstance(v, np.generic) else v) for k, v in params.items()},
             "artifact": str(artifact),
@@ -310,9 +282,7 @@ def build_plan(
 
 
 def plan_layout(plan: Mapping[str, Any], key: str = "layout") -> tuple[dict[str, Any], Grid]:
-    """The plan's resolved per-array layout (``build_plan``'s ``layout``, or ``reference_layout``
-    for the reference's inputs) and processor :class:`Grid`, reconstructed the way a rank driver
-    passes them to ``make_inputs``."""
+    """The plan's resolved layout (or ``reference_layout``) and :class:`Grid`, as passed to ``make_inputs``."""
     entries = dict(plan[key])
     layout = {name: array_dist_from_dict(entry) for name, entry in entries.items()}
     return layout, Grid(tuple(int(d) for d in plan["grid"]))
@@ -321,10 +291,7 @@ def plan_layout(plan: Mapping[str, Any], key: str = "layout") -> tuple[dict[str,
 def rank_tensors(
     plan: Mapping[str, Any], rank: int, world: int, module: ModuleType, torch: ModuleType, device: "torch.device"
 ) -> dict[str, Any]:
-    """This rank's input shards (``make_inputs``; an input the layout replicates comes back whole)
-    and fresh output buffers, by kernel array name. A shard whose shape differs from the declared
-    distribution's tile is a layout mismatch between the submission and the manifest, raised
-    rather than fed to the kernel."""
+    """This rank's input shards and fresh output buffers, by name; a shard off the declared tile shape raises."""
     shapes = plan["ranks"][rank]["shapes"]
     layout, grid = plan_layout(plan)
     got = as_tuple(
@@ -351,8 +318,7 @@ def rank_tensors(
 
 
 def c_kernel(library: str, symbol: str, args: Sequence[Mapping[str, str]]) -> Callable[..., object]:
-    """The C ``kernel_mpi`` entry from the kernel library, typed by the Sec. 12 signature: every
-    pointer a ``void *``, every scalar its declared type, then comm, workspace, workspace size."""
+    """The C ``kernel_mpi`` entry, typed by the Sec. 12 signature (pointers ``void *``, scalars, comm, workspace)."""
     fn = ctypes.CDLL(library, mode=ctypes.RTLD_GLOBAL)[symbol]
     argtypes = [ctypes.c_void_p if a["kind"] == "ptr" else SCALAR_CTYPES[a["dtype"]] for a in args]
     fn.argtypes = [*argtypes, ctypes.c_int, ctypes.c_void_p, ctypes.c_int64]
@@ -393,9 +359,8 @@ def kernel_call(
 
 
 def poison_outputs(outputs: Sequence[Any]) -> Callable[[], None]:
-    """Fill every output buffer with NaN. Run UNTIMED before each repeat, so a kernel that wrote
-    the right answer on its first call and skipped the rest is graded on NaN: the verdict reads
-    the buffers the LAST repeat left, and without this it would read the first repeat's."""
+    """Fill every output buffer with NaN, untimed, before each repeat, so a kernel that skips later calls is graded
+    on NaN."""
 
     def poison() -> None:
         for tensor in outputs:
@@ -405,10 +370,8 @@ def poison_outputs(outputs: Sequence[Any]) -> Callable[[], None]:
 
 
 def repeats_within(repeats: int, warmup_s: float, budget_s: float | None) -> int:
-    """The timed repeats a launch runs: ``repeats``, or fewer when ``repeats`` more calls as slow as
-    the warmup would outrun ``budget_s`` (warmup included) -- never fewer than one. ``None`` is no
-    budget. A launch that fits keeps every repeat; a call too slow for the launch timeout loses
-    repeats rather than the whole launch."""
+    """The timed repeats a launch runs: ``repeats``, or fewer (at least one) when calls as slow as the warmup would
+    outrun ``budget_s``; ``None`` is no budget."""
     wanted = max(0, int(repeats))
     if budget_s is None or warmup_s <= 0.0 or wanted == 0:
         return wanted
@@ -426,17 +389,11 @@ def time_kernel(
     slowest: Callable[[float], float] = float,
     after_repeat: Callable[[], None] = lambda: None,
 ) -> list[float]:
-    """This rank's per-repeat seconds: device drained and ranks aligned before the clock starts,
-    device drained again before it stops (launches are asynchronous), ranks aligned after.
+    """This rank's per-repeat seconds: device drained and ranks aligned around each clock.
 
-    One UNTIMED warmup call first, matching the torch baseline's discarded first call: the RCCL
-    communicator builds its channels on the first collective, which would otherwise be charged to
-    repeat 0. The output buffers are poisoned before the warmup and before every repeat, also
-    untimed. The warmup's wall time, agreed over the ranks by ``slowest`` (every rank must run the
-    same number of calls: they hold collectives), caps the repeats at ``budget_s``
-    (:func:`repeats_within`). ``after_repeat`` runs after each timed repeat, off the clock (the grader
-    keeps that repeat's outputs).
-    """
+    One untimed warmup first (RCCL builds its channels on the first collective); outputs are poisoned before every
+    call. The warmup's time, agreed over the ranks, caps the repeats at ``budget_s``. ``after_repeat`` runs off
+    the clock after each repeat."""
     samples: list[float] = []
     poison()
     t0 = time.perf_counter()
@@ -466,10 +423,8 @@ def check_rank(
     verdict: Callable[..., tuple[bool, float, str]],
     device: "torch.device",
 ) -> tuple[bool, float, str]:
-    """This rank's grade: ``reference_dist`` once, on freshly generated inputs -- in the kernel's default
-    layout wherever the submission held an input whole (``reference_layout``) -- and every repeat's output
-    shards (``runs``, kept off the device) compared against it, one repeat on the device at a time. The
-    first wrong repeat is the verdict, named by its number."""
+    """This rank's grade: ``reference_dist`` once on fresh inputs, every repeat's output shards compared against
+    it; the first wrong repeat is the verdict."""
     layout, grid = plan_layout(plan, "reference_layout")
     fresh = as_tuple(
         module.make_inputs(
@@ -497,9 +452,7 @@ def check_rank(
 
 
 def check_gpu_binding(placements: Sequence[tuple[str, int]]) -> None:
-    """Every rank on its own GPU: no two ranks of one host on the same device index. The launch
-    strips the visibility variables and binds GPU = node-local rank; a placement that put two
-    ranks on one GPU would time them sharing it, so it aborts the launch instead."""
+    """Abort the launch when two ranks of one host share a GPU (they would be timed sharing it)."""
     seen: dict[tuple[str, int], int] = {}
     for rank, placement in enumerate(placements):
         key = (str(placement[0]), int(placement[1]))
@@ -509,9 +462,7 @@ def check_gpu_binding(placements: Sequence[tuple[str, int]]) -> None:
 
 
 def init_torch_distributed(dist: ModuleType, comm: "MPI.Intracomm", device: "torch.device") -> None:
-    """torch.distributed (nccl = RCCL on a cuda ``device``, gloo on a cpu one) over the SAME
-    ranks, rendezvous address from MPI rank 0. ``device_id`` (an eager-init hint gloo does not take) is
-    passed only for a cuda ``device``."""
+    """torch.distributed over the SAME ranks (nccl = RCCL on cuda, gloo on cpu), rendezvous from MPI rank 0."""
     if comm.rank == 0:
         with socket.socket() as probe:
             probe.bind(("", 0))
@@ -531,11 +482,8 @@ def init_torch_distributed(dist: ModuleType, comm: "MPI.Intracomm", device: "tor
     )
 
 
-#: A rank's phase marker, ``phase.<rank>`` beside the result file (:func:`mark_phase`), and its
-#: fault record, ``fault.<rank>``: written BY the failing rank itself -- the Python traceback of an
-#: exception (:func:`main`), or faulthandler's dump on a fatal signal (SIGSEGV, SIGBUS, SIGFPE,
-#: SIGILL, SIGABRT). Together they are what the judge reads to tell a crash of the submission from
-#: its own failure (:func:`submission_fault`).
+#: A rank's phase marker (``phase.<rank>``) and fault record (``fault.<rank>``), written by the failing rank itself:
+#: how the judge tells a submission crash from its own failure (:func:`submission_fault`).
 SUBMISSION_PHASE = "submission"
 JUDGE_PHASE = "judge"
 
@@ -551,14 +499,8 @@ def mark_phase(out_path: str | Path, rank: int, phase: str) -> None:
 
 
 def submission_fault(out_path: str | Path) -> str:
-    """The fault record of a failed launch that died of the submission's own crash -- some rank
-    left one (it raised, or died of a fatal signal) while its marker read :data:`SUBMISSION_PHASE`
-    -- or ``""``.
-
-    Everything else is the judge's: no marker (the launch never reached the submission -- gang
-    relay, MPI start, input generation, the judge's RCCL probe), a fault after every rank left the
-    submission's phase (the reference, the verdict), and a rank killed from OUTSIDE with no record
-    of its own (a step cancelled by the relay or Slurm, the OOM killer, the launch timeout)."""
+    """The fault record of a launch that died in the submission's own code (a rank left one while in
+    :data:`SUBMISSION_PHASE`), or ``""``: everything else, including a kill from outside, is the judge's."""
     for marker in Path(out_path).parent.glob("phase.*"):
         fault = marker.with_name("fault." + marker.name.removeprefix("phase."))
         if marker.read_text().strip() == SUBMISSION_PHASE and fault.is_file() and fault.stat().st_size:
@@ -567,8 +509,7 @@ def submission_fault(out_path: str | Path) -> str:
 
 
 def cpu_sync() -> None:
-    """The cpu device's ``sync`` callback for :func:`time_kernel`: a cpu kernel call is already
-    synchronous, so there is nothing to drain (the cuda branch's ``torch.cuda.synchronize``)."""
+    """The cpu device's ``sync`` callback: a cpu kernel call is already synchronous."""
     return
 
 
@@ -586,9 +527,8 @@ def run_draw(
     cart: "MPI.Cartcomm",
     out_path: str,
 ) -> tuple[list[float] | None, list[Any] | None]:
-    """One draw of the launch on this rank: its input shard, the timed submission calls, then the verdict
-    against ``reference_dist``. Returns rank 0's ``(MAX-over-ranks seconds per repeat, per-rank verdicts)``
-    and ``(None, None)`` on every other rank."""
+    """One draw on this rank: input shard, timed calls, verdict. Returns rank 0's ``(MAX-over-ranks seconds per
+    repeat, per-rank verdicts)``, ``(None, None)`` elsewhere."""
     import torch
     from mpi4py import MPI
 
@@ -601,10 +541,7 @@ def run_draw(
     outputs = [tensors[name] for name in draw["outputs"]]
     # Every timed repeat's output shards, copied off the device after its clock stopped: each one is graded.
     runs: list[list[torch.Tensor]] = []
-    # The submission's phase, bracketed by barriers so every rank is inside it or past it together:
-    # a launch that dies while any rank's marker reads SUBMISSION_PHASE died in the submission's
-    # calls (or in the sync/poison that surfaces their asynchronous device errors) if that rank left
-    # a fault record of its own (submission_fault).
+    # The submission's phase, bracketed by barriers so every rank is inside it or past it together.
     cart.Barrier()
     mark_phase(out_path, rank, SUBMISSION_PHASE)
     budget = draw.get("timed_budget_s")
@@ -623,9 +560,7 @@ def run_draw(
     cart.Barrier()
     slowest = [cart.reduce(dt, op=MPI.MAX, root=0) for dt in mine]  # the slowest rank sets each repeat (None off root)
 
-    # Everything the submission held goes before the verdict pass allocates: the kernel library
-    # handle and its closure, the scratch workspace, and the input tiles the reference regenerates
-    # for itself. reference_dist needs the device memory the kernel was using.
+    # Free everything the submission held before reference_dist needs the device memory.
     del call, workspace
     for name in draw["inputs"]:
         tensors.pop(name, None)
@@ -641,8 +576,7 @@ def run_draw(
 
 
 def run(plan_path: str, out_path: str) -> None:
-    """One rank, end to end (see the module docstring): every draw of the plan in turn, on one
-    communicator and one torch.distributed group."""
+    """One rank, end to end: every draw of the plan in turn, on one communicator and torch.distributed group."""
     started = time.perf_counter()
     from mpi4py import MPI
 
@@ -678,9 +612,7 @@ def run(plan_path: str, out_path: str) -> None:
     # A fatal signal leaves this rank's own record of where it died (submission_fault).
     FAULT_FILES.append(rank_file(out_path, "fault", rank).open("w"))
     faulthandler.enable(file=FAULT_FILES[-1], all_threads=False)
-    # The judge's own collective path first, proven by one allreduce: a broken RCCL transport
-    # then fails HERE, in the judge's phase, rather than inside the submission's own collectives
-    # where it would read as the submission's crash.
+    # The judge's collective path first, proven by one allreduce: a broken RCCL transport fails in the judge's phase.
     init_torch_distributed(dist, cart, device)
     probe = torch.ones(1, device=device)
     dist.all_reduce(probe)
@@ -693,7 +625,7 @@ def run(plan_path: str, out_path: str) -> None:
         if samples is not None and verdicts is not None:  # rank 0 only
             results.append(DrawResult(samples=samples, verdicts=verdicts))
     if rank == 0:
-        # Rank 0's seconds: launch init, then every draw (inputs, timed calls, reference and verdict).
+        # Rank 0's seconds: launch init, then every draw.
         phases = {"init": round(init_s, 3), "draws": round(time.perf_counter() - started - init_s, 3)}
         Path(out_path).write_text(ShardResult(draws=results, phases_s=phases).model_dump_json())
     dist.destroy_process_group()
@@ -710,8 +642,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         run(args[0], args[1])
     except BaseException:  # noqa: BLE001 -- any failure on one rank must abort all of them
-        # One rank's exception must end the whole job: the others would wait in a collective until
-        # the launch timeout. The traceback is what mpi_call reports as the failure.
+        # One rank's exception must end the whole job, or the others wait in a collective until the timeout.
         traceback.print_exc()
         sys.stderr.flush()
         from mpi4py import MPI

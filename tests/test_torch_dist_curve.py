@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The torch.distributed baseline curve of the scaling grade (hpcagent_bench/harness/torch_dist_curve.py)
-and its wiring into a scaling shard (scaling_grade.run_shard, grade-under run), the extractor and the
-scaling figure.
-
-The CPU/gloo end-to-end case at the bottom launches the REAL rank driver through the grade's own
-launch path (``mpi_call.launch`` over mpi4py ranks, ``HPCAGENT_BENCH_MPI_DEVICE=cpu``); the rest
-replaces the launch with a fake timing so the caching and hole rules are checked exactly.
-"""
+"""The torch.distributed baseline curve of the scaling grade and its wiring into a scaling shard, the extractor
+and the figure; one CPU/gloo case launches the real rank driver, the rest fake the timing."""
 
 import contextlib
 import dataclasses

@@ -1,29 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Render a kernel's DaCe SDFG as ONE self-contained C/C++ translation unit (DaCe's CPF).
-
-The pipeline is four steps, and each already exists somewhere else:
-
-1. :func:`hpcagent_bench.autogen.emit_targets` writes the ``<module>_dace.py`` sibling from the
-   numpy reference (the same file the dace framework leg runs),
-2. that module's ``@dace.program`` is parsed to an SDFG,
-3. ``canonicalize`` + ``finalize_for_target`` turn it into the canonical parallel CPU form,
-4. ``dace.codegen.cpf.render`` emits a translation unit that a bare host compiler accepts -- no
-   ``-I``, no ``libdace``, no BLAS -- with each loop's hint at the setup's detail
-   (:data:`hpcagent_bench.cpf_cache.HintDetail`).
-
-Every rendered unit is a DROP-IN: its entry is the canonical native symbol
-(``numpyto_common.naming.entry_symbol``) and its signature is the C ABI's, spelled exactly as the
-prompt's "Required signature" stub (:func:`hpcagent_bench.support.bindings.stubs.gen_call_stub`):
-array pointers by name, then scalars and size symbols by name, then ``workspace`` and
-``workspace_size``, with the stub's ``const`` and ``restrict``. The judge links it in place of a
-submission, and its binding is the native one (:func:`binding_from_spec`).
-
-Rendering runs in a CHILD PROCESS with a timeout. The DaCe python frontend is the part that wedges
-on a large kernel, and a sweep must lose that kernel rather than the sweep -- the same reason
-``tests/dace_parse_probe.py`` exists. This module is both the parent (:func:`render_kernel`) and
-the child (``python -m hpcagent_bench.cpf_bridge``).
-"""
+"""Render a kernel's DaCe SDFG as ONE self-contained C/C++ translation unit (DaCe's CPF): a drop-in whose entry is the
+canonical native symbol with the stub's exact C ABI signature. Rendering runs in a CHILD process with a timeout (the
+DaCe frontend can wedge); this module is both parent (:func:`render_kernel`) and child (``python -m``)."""
 
 import argparse
 import ast
@@ -119,14 +98,10 @@ if TYPE_CHECKING:
     from dace.data import Data
     from dace.sdfg.graph import MultiConnectorEdge
 
-#: The dialect a device render takes, regardless of ``--language``: a GPU SDFG carries device
-#: storages/schedules the host dialects refuse outright, so the target decides this and
-#: ``--language`` only picks between the two HOST spellings.
+#: The dialect a device render takes regardless of ``--language`` (which picks between the HOST spellings only).
 DEVICE_LANGUAGE = "hip"
-#: The DaCe GPU code generator a ``gpu`` form renders through (``compiler.cuda.implementation``): the
-#: experimental generator, whose preprocessing passes (GPU offloading, stream and copy lowering) run before
-#: any device code is emitted. Pinned per render because the dace framework sets the process-wide value per
-#: pipeline (``CLASSIC_CODEGEN`` selects ``legacy``).
+#: The DaCe GPU code generator (``compiler.cuda.implementation``) a ``gpu`` form renders through, pinned per render
+#: because the dace framework sets the process-wide value per pipeline.
 GPU_CODEGEN = "experimental"
 
 #: Config key for one kernel's render wall clock (see :func:`render_timeout_s`).
@@ -139,11 +114,8 @@ def render_timeout_s() -> float:
 
 
 def generated_renames(path: pathlib.Path) -> dict[str, str]:
-    """``{manifest name: emitted name}`` the dace emitter recorded for arguments it had to respell.
-
-    A kernel argument spelled like a sympy callable (``field``, ``poly``, ``symbols``) cannot be a dace
-    variable, so the generated program takes it as ``__field``; the ABI still names it ``field``.
-    """
+    """``{manifest name: emitted name}`` the dace emitter recorded for respelled arguments (``field`` ->
+    ``__field``)."""
     if not path.is_file():
         return {}
     for node in ast.parse(path.read_text()).body:
@@ -158,11 +130,9 @@ def generated_renames(path: pathlib.Path) -> dict[str, str]:
 
 
 def returned_slots(path: pathlib.Path, entry: str) -> tuple[str | None, ...]:
-    """What the impl's entry program returns, slot by slot: the returned name, or ``None`` for an expression.
+    """What the impl's entry returns, slot by slot (dace's ``__return_i``): the name, or ``None`` for an expression.
 
-    Slot ``i`` is dace's ``__return_i`` (``__return`` for a lone value). Empty when there is no impl,
-    or the entry returns nothing or returns from more than one place, so no slot is named on a guess.
-    """
+    Empty when there is no impl, no return, or more than one return site."""
     if not path.is_file():
         return ()
     tree = ast.parse(path.read_text())
@@ -184,19 +154,15 @@ def returned_slots(path: pathlib.Path, entry: str) -> tuple[str | None, ...]:
 #: CPF dialect -> the stub language whose ``restrict`` spelling the entry takes: the gpu host unit is the hip stub's.
 ABI_LANGUAGE: dict[str, Language] = {"c": Language.C, "c++": Language.CPP, DEVICE_LANGUAGE: Language.HIP}
 
-#: The type a CPF unit computes a storage-only element in, per dialect: the toolkit's or the compiler's own 16-bit
-#: float, which DaCe's CPF emits for ``dace::bfloat16``. Two bytes in the bit layout of the stub's storage
-#: (``typedef uint16_t __npb_bf16;``), so the unit names the stub's type for it (:func:`native_storage_typedefs`)
-#: and the entry keeps the stub's spelling while the judge passes its storage pointers unchanged. C has none: CPF
-#: refuses a bf16 kernel in the C dialect and names the C++ one.
+#: The native 16-bit float a CPF unit computes a storage-only element in, per dialect, typedef'd to the stub's
+#: storage type (same bit layout). C has none: CPF refuses a bf16 kernel in the C dialect.
 NATIVE_STORAGE_TYPES: dict[str, dict[str, str]] = {
     "bfloat16": {DEVICE_LANGUAGE: "__hip_bfloat16", "cuda": "__nv_bfloat16", "c++": "__bf16"},
 }
 
 
 def native_storage_typedefs(binding: Binding, dialect: str) -> str:
-    """``typedef <native> <stub type>;`` for each storage-only element ``binding`` passes, as ``dialect`` computes
-    it (:data:`NATIVE_STORAGE_TYPES`); "" when it passes none.
+    """``typedef <native> <stub type>;`` for each storage-only element ``binding`` passes in ``dialect``; "" when none.
 
     :raises ValueError: for a storage-only element ``dialect`` has no native type for.
     """
@@ -220,9 +186,8 @@ def insert_before_entry(code: str, entry: str, text: str) -> str:
 
 
 def form_fptype(kernel: str, datatype: str) -> str:
-    """The precision tag a kernel's canonical form is rendered and looked up at: the datatype its grade runs in
-    (:func:`graded_datatype` -- a bf16 ML kernel's form is the bf16 one whatever the run's ``service.datatype``),
-    else ``datatype``'s, for a name no kernel answers to."""
+    """The precision tag a kernel's canonical form is rendered and looked up at: its graded datatype, else
+    ``datatype``'s for an unknown name."""
     try:
         spec = BenchSpec.load(kernel)
     except Exception:  # noqa: BLE001 -- an agent's unknown name keeps the run's precision; the lookup then misses
@@ -239,11 +204,8 @@ def abi_parameters(binding: Binding, dialect: str) -> tuple[str, ...]:
 def exact_abi_signature(code: str, entry: str, parameters: Sequence[str], renames: Mapping[str, str]) -> str:
     """Respell every declaration of ``entry`` in ``code`` as ``parameters``, one per line like the stub.
 
-    CPF's ``EntrySignature`` already put the parameters in ABI order; this pass changes only their spelling:
-    the stub's ``const`` on scalars, a writable ``workspace`` and its ``restrict`` keyword. Every
-    emitted name in ``renames`` (``__field``) is respelled to its manifest name (``field``) throughout,
-    so the signature names what the stub names. A declared name list that is not the ABI's is refused.
-    """
+    Only the spelling changes (scalar ``const``, a writable ``restrict`` workspace, emitted names back to manifest
+    names); a declared name list that is not the ABI's is refused."""
     for emitted, name in renames.items():
         code = re.sub(rf"\b{re.escape(emitted)}\b", name, code)
     wanted = [declared.split()[-1] for declared in parameters]
@@ -261,8 +223,7 @@ def exact_abi_signature(code: str, entry: str, parameters: Sequence[str], rename
     return respelled
 
 
-#: DaCe stamps this on every generated unit -- correct for a file nobody edits, wrong for the one
-#: the head-start setup hands an agent to optimize: "DO NOT MODIFY" contradicts the task.
+#: DaCe's generated-unit banner: wrong for a unit an agent is handed to optimize.
 DACE_BANNER = "/* DaCe AUTO-GENERATED FILE. DO NOT MODIFY */"
 
 #: Prefix for a forced ABI symbol's local -- unique enough that :func:`clean_form` matches only these.
@@ -279,18 +240,10 @@ def dace_int64() -> "dace_dtypes.typeclass":
 def force_abi_symbols(sdfg: "SDFG", wanted: Sequence[str]) -> tuple[str, ...]:
     """Make ``wanted`` symbols part of the entry signature even where nothing uses them.
 
-    A size parameter the ABI passes can be absent from the SDFG entirely: ``fuse_move_ifs`` takes
-    ``K``, no array is shaped by it and no statement reads it, so it never becomes a symbol at all
-    and the rendered entry cannot be called through the ABI. ``arglist`` derives scalars from
-    ``free_symbols``, so the symbol has to be USED to appear -- a comment does not do it, because
-    ``ast.parse`` discards comments before dace ever sees them (measured: a tasklet whose body is
-    ``y = x  # K`` reports no free symbols).
+    ``arglist`` derives scalars from USED free symbols, so a dead assignment is appended to a LIVE tasklet (surviving
+    dead-code elimination); :func:`clean_form` strips the rendered line.
 
-    So a dead assignment is appended to a LIVE tasklet: dead enough to change nothing, live enough
-    to survive dead-code elimination because the tasklet it rides in is doing real work. The line
-    it renders (``auto _unused_K = K;``) is stripped from the emitted text by :func:`clean_form`.
-
-    :returns: the symbols actually forced, for the record.
+    :returns: the symbols actually forced.
     """
     from dace import nodes as dace_nodes
 
@@ -298,8 +251,7 @@ def force_abi_symbols(sdfg: "SDFG", wanted: Sequence[str]) -> tuple[str, ...]:
     missing = [name for name in wanted if name not in have]
     if not missing:
         return ()
-    # A canonical kernel can keep every live tasklet inside a nested SDFG (indirect_gather_3nbr's loop body), so the
-    # host is searched for recursively and the symbol is mapped down through each nested SDFG to it.
+    # The live tasklets may all sit in nested SDFGs: search recursively and map the symbol down to the host.
     host = next(
         (
             (node, state.sdfg)
@@ -366,13 +318,8 @@ def copies_whole_value(sdfg: "SDFG", state: "SDFGState", edge: "MultiConnectorEd
 
 
 def mirror_chain(sdfg: "SDFG", name: str, abi: set[str]) -> set[str] | None:
-    """``name`` and every transient that only mirrors its value, or ``None`` when anything else reads it.
-
-    The GPU offload keeps a host<->device copy of a value host code writes (cegterg's ``__return_2`` and
-    its ``buffer__return_2_host``), so the return container has readers that are only copies of itself.
-    A mirror is a non-ABI transient filled by a whole copy; every reader of the chain must be another
-    such copy, and no interstate edge or region condition may read any container in it.
-    """
+    """``name`` and every transient that only mirrors its value (a whole-copy, non-ABI transient such as the GPU
+    offload's host<->device copy), or ``None`` when anything else (incl. an interstate edge or condition) reads it."""
     chain = {name}
     pending = [name]
     while pending:
@@ -407,15 +354,9 @@ def drop_returned_arguments(
 ) -> tuple[str, ...]:
     """Remove every return container the native ABI has no slot for and no graded result lives in.
 
-    The native ABI returns nothing: the emitters strip a kernel's trailing ``return f``
-    (``numpyto_common.frontend``) because ``f`` is already a parameter the caller holds. DaCe gives
-    the returned value its own non-transient ``__return``, so the entry takes a pointer the judge
-    never passes. Dropped: a container only ever filled by a whole copy of an ABI argument, and one
-    whose slot in ``returned`` names a value outside ``graded`` (cegterg's iteration counts), together
-    with the transients that only mirror it (:func:`mirror_chain`, the GPU offload's host<->device copies).
-    Any other container (an unnamed or graded computed value, a partial copy) or one read by anything
-    else is kept, and the ordered render refuses it instead of discarding a result the caller needs. The kept
-    tuple slots are renumbered from ``__return_0``.
+    The native ABI returns nothing. Dropped: a container only filled by a whole copy of an ABI argument, or one whose
+    ``returned`` slot names a value outside ``graded``, with its :func:`mirror_chain`. Anything else is kept (the
+    ordered render then refuses it); kept slots are renumbered from ``__return_0``.
 
     :returns: the containers removed.
     """
@@ -465,8 +406,7 @@ def drop_returned_arguments(
         for container in sorted(chain):
             sdfg.remove_data(container, validate=False)
         dropped.append(name)
-    # The kept tuple slots are renumbered without gaps: DaCe refuses ``__return_1`` with no ``__return_0``.
-    # Their numbers carry nothing past here, since the ordered render refuses any return container left.
+    # Renumbered without gaps: DaCe refuses ``__return_1`` with no ``__return_0``.
     kept = sorted((n for n in sdfg.arrays if n != RETURN_PREFIX and is_return_name(n)), key=return_slot)
     sdfg.replace_dict({old: f"{RETURN_PREFIX}_{i}" for i, old in enumerate(kept) if old != f"{RETURN_PREFIX}_{i}"})
     return tuple(dropped)
@@ -478,12 +418,8 @@ def return_slot(name: str) -> int:
 
 
 def privatize_rebound_arguments(sdfg: "SDFG", by_value: Sequence[str]) -> tuple[str, ...]:
-    """Give every by-value ABI scalar the kernel writes a local copy, so the entry still takes it by value.
-
-    Rebinding a parameter is local to the kernel and the native ABI passes the scalar by value, but CPF
-    promotes every WRITTEN non-transient scalar to a length-1 out-pointer: cegterg's ``nvecx = int(nvecx)``
-    rendered a pointer the caller filled with the value itself. The body keeps its writes on a transient
-    that the entry initializes from the argument.
+    """Give every by-value ABI scalar the kernel writes a local copy (CPF would turn a WRITTEN non-transient scalar
+    into an out-pointer).
 
     :returns: the arguments given a local copy.
     """
@@ -515,15 +451,8 @@ def privatize_rebound_arguments(sdfg: "SDFG", by_value: Sequence[str]) -> tuple[
 
 
 def bind_pinned_config(sdfg: "SDFG", pinned: Mapping[str, object]) -> tuple[str, ...]:
-    """Assign every entry argument a pinned ``config:`` knob names its manifest value inside the SDFG.
-
-    The native ABI has no slot for a pinned knob: the emitters declare it ``constexpr`` and
-    ``binding_from_spec`` leaves it out. The dace program still takes a knob that sizes nothing as a
-    runtime scalar, and canonicalization promotes one that guards a branch to a symbol (minife's
-    ``tolerance``), so the drop-in would take an argument the judge never passes. CPF renders no
-    ``constants_prop``, so a new start state assigns the value: a scalar becomes a transient its
-    tasklet writes, a symbol is assigned on the state's outgoing edge. A knob the entry does not take
-    is skipped.
+    """Assign every entry argument a pinned ``config:`` knob names its manifest value inside the SDFG (the native
+    ABI has no slot for it): a new start state writes a scalar's transient or assigns a symbol on its edge.
 
     :returns: the knobs bound.
     """
@@ -555,7 +484,7 @@ def clean_form(code: str, forced: Sequence[str]) -> str:
     """The rendered TU as a file an agent can be handed: no DaCe banner, no forcing artefacts."""
     code = code.replace(DACE_BANNER + "\n", "").replace(DACE_BANNER, "")
     for name in forced:
-        # The whole line, indentation included, so no blank is left unexplained; a real use of the symbol is untouched.
+        # The whole line, indentation included; a real use of the symbol is untouched.
         code = re.sub(
             rf"(?m)^[ \t]*(?:auto|int64_t|long long)\s+{ABI_SYMBOL_LOCAL}{name}\s*=\s*{name}\s*;\s*\n", "", code
         )
@@ -565,8 +494,7 @@ def clean_form(code: str, forced: Sequence[str]) -> str:
 class RenderedForm(NamedTuple):
     """Step 4's output for one language, not yet written anywhere."""
 
-    #: ``<short>_<fptype>_cpf.<ext>``; on the gpu target the host unit, ``.cpp``: the extern "C" entry, which only
-    #: launches.
+    #: ``<short>_<fptype>_cpf.<ext>``; on the gpu target the host unit (``.cpp``, the extern "C" launcher entry).
     name: str
     code: str
     #: The native binding as JSON text: the C ABI the entry takes.
@@ -577,14 +505,11 @@ class RenderedForm(NamedTuple):
     lines: int
     #: The gpu target's device unit (``.hip``): the kernels and the launchers ``code`` calls; empty on cpu.
     device_code: str = ""
-    #: What the units link against beyond the system's, in order: the archives and flags of the SDFG's
-    #: ``ExternCall`` nodes (CPF's ``Rendering.link``); empty for a kernel that calls nothing external.
+    #: What the units link against beyond the system's, in order (CPF's ``Rendering.link``).
     link: tuple[str, ...] = ()
-    #: The catalog libraries the units call (CPF's ``Rendering.libraries``: ``blas``, ``lapack``, ``fftw``,
-    #: ``rocblas``, ...): what a submission of this form names in ``requests.startup.load``.
+    #: The catalog libraries the units call (CPF's ``Rendering.libraries``): a submission's ``requests.startup.load``.
     libraries: tuple[str, ...] = ()
-    #: The scratch the host unit carves its transients from (CPF's ``Rendering.workspace_bytes``), an expression
-    #: over the binding's scalar names: the ``workspace_bytes`` a submission of this form requests. ``"0"``: none.
+    #: Host-unit scratch (CPF's ``Rendering.workspace_bytes``) over the binding's scalar names; ``"0"``: none.
     workspace_bytes: str = "0"
 
     @property
@@ -604,19 +529,11 @@ class RenderedForm(NamedTuple):
 def render_canonical(
     spec: BenchSpec, short: str, canonical: "SDFG", language: str, precision: str, target: Target, hints: HintDetail
 ) -> RenderedForm:
-    """Step 4 on a canonical SDFG, which is copied first so one parse serves every language.
+    """Step 4 on a canonical SDFG, copied first so one parse serves every language.
 
-    The entry takes the canonical native symbol, so the judge links it as ``<kernel>_fp64``, and is
-    rendered in the ABI order: the kernel's args THEN the reserved scratch pair (a pointer behind the
-    scalars). The order and the workspace pair are handed to the renderer (``EntrySignature``);
-    force_abi_symbols fills any gap and drop_returned_arguments / bind_pinned_config remove the return
-    slot and pinned knobs the ABI does not have, so a mismatch surfaces as a refusal and never as
-    shifted arguments. :func:`exact_abi_signature` then spells each parameter as the stub does (CPF keeps
-    its own qualifiers: no ``const`` on scalars, a read-only workspace) and the unit is compiled.
-
-    ``hints`` is handed to the renderer only when it is not :data:`DEFAULT_HINTS`, whose text is the renderer's
-    default: a ``proofs`` form renders on a dace that predates the parameter.
-    """
+    The entry takes the canonical native symbol and the ABI order (kernel args, then the workspace pair); a mismatch
+    surfaces as a refusal, never as shifted arguments. ``hints`` is passed only when not :data:`DEFAULT_HINTS` (an
+    older dace lacks the parameter)."""
     import copy
 
     from dace.codegen.cpf import EntrySignature, compile_check, dialect_for, render
@@ -635,8 +552,7 @@ def render_canonical(
     privatize_rebound_arguments(sdfg, [name for name in by_value if name not in outputs])
     forced = force_abi_symbols(sdfg, emitted_args)
     sdfg.name = native.symbol  # pyright: ignore[reportAttributeAccessIssue] -- dace's SDFG.name is a Property descriptor the checker sees as read-only
-    # The device form is the hip dialect, a host unit and a device unit; --language only picks between the two HOST
-    # spellings of a cpu form.
+    # The device form is the hip dialect (a host and a device unit).
     emitted = DEVICE_LANGUAGE if target is Target.GPU else language
     try:
         signature = EntrySignature(abi_args, workspace=WORKSPACE_NAME, workspace_size=WORKSPACE_SIZE_NAME)
@@ -655,8 +571,7 @@ def render_canonical(
             f"{spec.short_name}: cannot render the C ABI -- {exc} The judge links this symbol "
             f"and would call it with its arguments shifted."
         ) from exc
-    # Compiled once, after the respelling: the stub's ``const`` on a scalar refuses a body that writes it.
-    # A unit calling a vendor library compiles against the catalog's headers, as the judge builds it.
+    # Compiled once, after the respelling, against the catalog's headers as the judge builds it.
     library_flags, _ = languages.library_build_flags(ABI_LANGUAGE[emitted], rendering.libraries)
     for unit in filter(None, (code, rendering.device_code)):
         compile_check(unit, native.symbol, dialect_for(emitted), extra_flags=library_flags)
@@ -675,9 +590,8 @@ def render_canonical(
     )
 
 
-#: dace's integer helpers in a symbolic size, as the Python operators the judge's evaluator
-#: (:func:`hpcagent_bench.fuzz.safe_eval`) knows: ``ipow(a, n)`` is ``a ** n``, ``int_floor(a, b)`` is ``a // b``,
-#: ``int_ceil(a, b)`` is ``-(-a // b)``, and ``Min`` / ``Max`` are ``min`` / ``max``.
+#: dace's integer helpers as the judge's evaluator (:func:`hpcagent_bench.fuzz.safe_eval`) spells them: ``ipow`` is
+#: ``**``, ``int_floor`` is ``//``, ``int_ceil(a, b)`` is ``-(-a // b)``, ``Min``/``Max`` are ``min``/``max``.
 DACE_INTEGER_HELPERS = frozenset({"ipow", "int_floor", "int_ceil", "Min", "Max"})
 
 
@@ -715,9 +629,8 @@ def python_integer_form(expr: str) -> str:
 
 
 def binding_workspace_bytes(expr: str, native: Binding, renames: Mapping[str, str]) -> str:
-    """CPF's workspace size ``expr`` (over the SDFG's, i.e. the emitted, scalar names) spelled over the binding's
-    scalar names, which is what the judge binds a ``workspace_bytes`` request to. Raises ``ValueError`` when it names
-    anything else: the form would be submitted with a request the judge refuses."""
+    """CPF's workspace size ``expr`` respelled over the binding's scalar names; ``ValueError`` when it names anything
+    else (the judge would refuse the request)."""
     if expr.strip() == "0":
         return "0"
     manifest_of = {renames.get(arg.name, arg.name): arg.name for arg in native.args if arg.kind == "scalar"}
@@ -737,9 +650,8 @@ def binding_workspace_bytes(expr: str, native: Binding, renames: Mapping[str, st
 
 @contextlib.contextmanager
 def gpu_codegen_pinned(target: Target) -> Iterator[None]:
-    """For the gpu ``target``: ``compiler.cuda.implementation`` is :data:`GPU_CODEGEN` for the block, and a
-    ``DACE_compiler_cuda_implementation`` environment value that outranks it is refused (``RuntimeError``).
-    Any other target: no change."""
+    """For the gpu ``target``: pin ``compiler.cuda.implementation`` to :data:`GPU_CODEGEN` for the block, refusing
+    an outranking environment value (``RuntimeError``)."""
     if target is not Target.GPU:
         yield
         return
@@ -756,8 +668,7 @@ def gpu_codegen_pinned(target: Target) -> Iterator[None]:
 
 
 class RenderOutcome(pydantic.BaseModel):
-    """One language's outcome of a cache render: the key it rendered (``None`` when the child never got one),
-    its verdict, whether the entry was already a hit, and the error behind a failing verdict."""
+    """One language's outcome of a cache render: its key (``None`` if never planned), verdict, hit and error."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -785,10 +696,8 @@ class RenderPlan(pydantic.BaseModel):
 
 
 class RenderRecord(pydantic.BaseModel):
-    """One kernel's verdict, the last line a render child prints: ``verdict`` and why (``error``, and for a
-    crash ``errtype`` and ``frame``); an inline render's entry, artefact paths and line count; a cache
-    render's canonical entry and ``results`` per language. The parent adds the ``seconds`` it took. Filled in
-    as the render goes; only the fields set are printed (:meth:`line`)."""
+    """One kernel's verdict, the last line a render child prints (only the fields set; the parent adds
+    ``seconds``)."""
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
@@ -805,8 +714,7 @@ class RenderRecord(pydantic.BaseModel):
     device: str = ""
     binding: str = ""
     lines: int = 0
-    #: What a submission of the inline form asks for: its scratch (``workspace_bytes``, "0" = none) and the
-    #: catalog libraries it calls (the load request), as :mod:`hpcagent_bench.cpf_verify` submits a cached form.
+    #: What a submission of the inline form asks for: ``workspace_bytes`` ("0" = none) and its catalog libraries.
     workspace_bytes: str = ""
     libraries: list[str] = pydantic.Field(default_factory=list)
     seconds: float | None = None
@@ -831,11 +739,7 @@ def render_sdfg(
     target: Target = Target.CPU,
     hints: HintDetail = DEFAULT_HINTS,
 ) -> RenderRecord:
-    """Steps 1-4 for one kernel, in THIS process, written straight to ``out_dir``. Returns the verdict record.
-
-    An inline render for inspection; nothing an experiment serves reads ``out_dir``. Experiments render
-    through :func:`prerender_kernel` into the cache.
-    """
+    """Steps 1-4 for one kernel in THIS process, written to ``out_dir`` (inspection only); returns the verdict."""
     rec = RenderRecord(kernel=spec.short_name, language=language, precision=precision or "fp64", target=target)
     parsed = parse_kernel(spec, numpy_py, precision)
     if isinstance(parsed, cpf_canonical.RenderFailure):
@@ -871,8 +775,8 @@ def bridge_digest() -> str:
 def render_options(
     spec: BenchSpec, language: str, precision: str, target: Target, hints: HintDetail
 ) -> dict[str, object]:
-    """Every input besides the SDFG and dace that decides one artefact's text, for its cache key: the hint
-    detail among them, so a ``kinds`` form never hits a ``proofs`` entry or the reverse."""
+    """Every input besides the SDFG and dace that decides one artefact's text, for its cache key (hint detail
+    included)."""
     dialect = DEVICE_LANGUAGE if target is Target.GPU else language
     native = binding_from_spec(spec)
     return {
@@ -908,11 +812,8 @@ def prerender_sdfg(
 ) -> RenderRecord:
     """Render every language of one kernel whose key is not already a hit, into the cache.
 
-    Every key is known before any parse: a form keys on its canonical SDFG's entry, which keys on the
-    generated program and the dace commit. A kernel whose forms all hit is neither parsed nor
-    canonicalized, and a miss renders from the stored canonical SDFG. The keys are printed before any
-    render so a parent that has to kill this child still names what it was rendering.
-    """
+    Keys are computed and printed before any parse or render, so an all-hit kernel is never parsed and a killed child
+    still names what it was rendering."""
     from hpcagent_bench import cpf_cache
 
     if dace_root() != expected_root.resolve():
@@ -984,8 +885,7 @@ class ChildRun(NamedTuple):
 
 
 def child_lines(text: str) -> tuple[list[RenderPlan], list[RenderRecord]]:
-    """The plans and the verdicts among ``text``'s lines, in order. A line that is neither (a library's own
-    print that happens to start with ``{``) is skipped."""
+    """The plans and verdicts among ``text``'s lines, in order (any other line is skipped)."""
     plans: list[RenderPlan] = []
     records: list[RenderRecord] = []
     for line in text.splitlines():
@@ -1003,12 +903,7 @@ def child_lines(text: str) -> tuple[list[RenderPlan], list[RenderRecord]]:
 
 
 def run_child(cmd: list[str], target: Target, timeout: float | None, extra_env: dict[str, str] | None) -> ChildRun:
-    """Run one render child under the render budget.
-
-    A CPU rendering must not see a GPU (cupy imports and device probes cost seconds each). A GPU
-    rendering is the opposite case and must NOT be blinded, or the offload pass comes back
-    host-scheduled.
-    """
+    """Run one render child under the render budget; a CPU render is blinded to GPUs, a GPU render must not be."""
     env = {**config.environment(), **(extra_env or {})}
     if target is Target.CPU:
         env["CUDA_VISIBLE_DEVICES"] = ""
@@ -1024,8 +919,7 @@ def run_child(cmd: list[str], target: Target, timeout: float | None, extra_env: 
 
 
 def timeout_error(budget: float) -> str:
-    """The budget is NAMED along with the knob that moves it: a timeout says the render outran this
-    number, not that the kernel cannot render at all."""
+    """A timeout error naming the budget and the knob that moves it."""
     return f"render exceeded {budget:.0f}s; raise ${config.env_name(RENDER_TIMEOUT_KEY)} to give it more"
 
 
@@ -1042,15 +936,8 @@ def render_kernel(
 ) -> RenderRecord:
     """Render ``spec``'s kernel to a self-contained TU in ``out_dir``; returns the verdict record.
 
-    Takes the loaded :class:`~hpcagent_bench.spec.BenchSpec` for the same reason
-    :func:`hpcagent_bench.emit_bridge.emit_kernel` does -- the caller already holds it, and
-    re-loading by name only invites the two to drift. The CHILD reloads by ``short_name``, which is
-    the manifest stem and addresses the same spec.
-
-    ``verdict`` is one of ``ok`` / ``refused`` (CPF named a construct it cannot render) / ``noemit``
-    / ``noprogram`` / ``fail`` / ``timeout``. A refusal is a RESULT, not an error: CPF refuses
-    loudly by design and the message names the construct, which is what a sweep is measuring.
-    """
+    ``verdict`` is ``ok`` / ``refused`` (CPF named a construct it cannot render: a result, not an error) /
+    ``noemit`` / ``noprogram`` / ``fail`` / ``timeout``. The child reloads the spec by ``short_name``."""
     if language not in LANGUAGE_EXT:
         raise ValueError(f"unknown CPF language {language!r}; known: {sorted(LANGUAGE_EXT)}")
     cmd = [sys.executable, "-m", __spec__.name, "--kernel", spec.short_name, "--out", str(out_dir)]
@@ -1095,12 +982,8 @@ def prerender_kernel(
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
 ) -> RenderRecord:
-    """Pre-render one kernel into the cache in a child; returns its record, ``results`` set for every language.
-
-    Every language gets an outcome, a child that died or timed out included, with the key it
-    was rendering whenever the child got as far as printing its plan. ``extra_env`` is added to the
-    child's environment only (its temp and build directories), never to this process's.
-    """
+    """Pre-render one kernel into the cache in a child; returns its record with ``results`` for every language (a
+    dead child included). ``extra_env`` goes to the child only."""
     cmd = [sys.executable, "-m", __spec__.name, "--kernel", spec.short_name, "--cache", str(cache_root)]
     cmd += ["--dace-commit", dace_commit, "--dace-root", str(dace_package_root)]
     cmd += ["--target", target.text, "--hints", hints.text]
@@ -1129,11 +1012,7 @@ def prerender_kernel(
 
 
 def track_specs(track: Track) -> list[BenchSpec]:
-    """Every registered spec on ``track``, ordered by name.
-
-    Loaded rather than listed because a registry key is not always loadable (an entry whose
-    manifest moved), and a sweep must skip those quietly instead of dying on the first one.
-    """
+    """Every loadable registered spec on ``track``, ordered by name (unloadable keys are skipped)."""
     from hpcagent_bench.spec import KERNELS
 
     specs: list[BenchSpec] = []
@@ -1158,11 +1037,7 @@ def render_track(
     timeout: float | None = None,
     jsonl: os.PathLike[str] | None = None,
 ) -> list[RenderRecord]:
-    """Render every kernel on ``track``, appending one verdict per line to ``jsonl``.
-
-    Written as it goes rather than at the end: a sweep over a few hundred kernels is minutes per
-    kernel, and a run that is interrupted has to leave behind what it already learned.
-    """
+    """Render every kernel on ``track``, appending one verdict per line to ``jsonl`` as it goes."""
     records: list[RenderRecord] = []
     with contextlib.ExitStack() as stack:
         sink = stack.enter_context(pathlib.Path(jsonl).open("a")) if jsonl is not None else None
@@ -1179,11 +1054,8 @@ def render_track(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """The child: render ONE kernel and print its verdict as a single JSON line.
-
-    ``--out`` renders one language inline; ``--cache`` pre-renders every ``--language`` into the cache. Every failure mode is a verdict rather than a traceback to stderr, so a
-    sweep reading stdout learns WHY a kernel did not render without re-running it.
-    """
+    """The child: render ONE kernel (``--out`` inline, ``--cache`` every ``--language``) and print its verdict as one
+    JSON line; every failure mode is a verdict."""
     p = argparse.ArgumentParser(description="render one kernel's SDFG as a self-contained TU")
     p.add_argument("--kernel", required=True, help="registry key / manifest stem")
     p.add_argument("--out", default=None, help="directory to write the TU and its binding into")

@@ -69,15 +69,8 @@ ABI_TAG = "c-abi-v2"
 #: Parameter names that are never real kernel arguments -- a captured numpy module reference (Sec. 2).
 PHANTOM_ARG_NAMES = frozenset({"np", "numpy"})
 
-#: Reserved scratch-workspace names (Sec. 11): a byte buffer and its length, appended after the
-#: kernel's own args (scalars included), so a pointer follows scalars:
-#:
-#:     void fuse_move_ifs_fp64(double *restrict a, double *restrict b, const double *restrict cond,
-#:                             const double *restrict src, const int64_t K, const int64_t LEN_2D,
-#:                             uint8_t *restrict workspace, const int64_t workspace_size)
-#:
-#: DaCe's ``SDFG.arglist()`` puts arrays before scalars, so ``cpf_bridge.render_sdfg(dropin=True)``
-#: checks the order and refuses a mismatched form. Manifests may not use these names.
+#: Reserved scratch-workspace names (Sec. 11): a byte buffer and its length, appended after the kernel's own args
+#: (scalars included), so a pointer follows scalars; manifests may not use them.
 WORKSPACE_NAME = "workspace"
 WORKSPACE_SIZE_NAME = "workspace_size"
 WORKSPACE_DTYPE = "uint8"
@@ -332,13 +325,9 @@ def _shape_identifiers(spec: BenchSpec, config: str) -> set[str]:
 
 
 def _symbol_names(spec: BenchSpec, config: str) -> tuple[str, ...]:
-    """Size-symbol names the kernel ABI consumes (abi_contract.md Sec. 2): ``parameters`` keys across the
-    real size classes (not ``fuzzed``), kept when named in ``input_args`` or in a declared shape, so
-    init-only knobs (``seed``, ``density``) do not become phantom scalars.
-
-    Asymmetric on purpose: a phantom trailing argument is survivable, but dropping a declared one shifts
-    every later positional argument (a crash or a wrong answer). A name is dropped only on positive
-    evidence; with no declared shapes (e.g. gemm's hand-written ``initialize()``) every name is kept."""
+    """Size-symbol names the kernel ABI consumes (Sec. 2): ``parameters`` keys of the real size classes kept when
+    named in ``input_args`` or a declared shape. A name is dropped only on positive evidence (a dropped argument
+    shifts every later one); without declared shapes every name is kept."""
     names: set = set()
     for size_class_name, size_class in spec.parameters.items():
         if size_class_name == Preset.FUZZED.text:
@@ -402,11 +391,8 @@ def dense_dtype(spec: BenchSpec, name: str) -> str:
 
 
 def declared_float_dtype(spec: BenchSpec) -> str:
-    """The dtype a kernel's floating arrays cross the ABI in: the datatype its grade runs in
-    (:func:`graded_datatype`) when that is not the fp64 leg -- the storage-only precision a kernel
-    declares alone (``bf16``, the distributed ML operators), or its track's datatype (``ml.datatype`` for
-    every other machine_learning kernel). Every other kernel uses the fp64 leg (a lone ``fp32`` kernel
-    keeps fp64: retyping would change a recorded ABI)."""
+    """The dtype a kernel's floating arrays cross the ABI in: its graded datatype (:func:`graded_datatype`) when that
+    is not the fp64 leg, else the fp64 leg (a lone ``fp32`` kernel keeps fp64: a recorded ABI)."""
     graded = graded_datatype(spec, DEFAULT_FLOAT_DTYPE)
     return DEFAULT_FLOAT_DTYPE if graded == DEFAULT_FLOAT_DTYPE else canonical(graded)
 
@@ -452,12 +438,8 @@ def dense_shape(spec: BenchSpec, name: str) -> tuple[str, ...] | None:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def reference_writes(relative_path: str, module_name: str, func_name: str) -> frozenset[str]:
-    """The entry parameters the numpy reference writes, directly or through a helper of its module.
-
-    ``output_args`` says what is GRADED, not what is mutable: a scratch array the reference writes is
-    still written, so its pointer must not be ``const`` (a ``const`` array the kernel writes is a C++
-    compile error). The per-function scan is the translator's own (:class:`ArrayUseScan`); a helper
-    writes a caller's argument when it writes the parameter in that position, settled to a fixpoint."""
+    """The entry parameters the numpy reference writes, directly or through a helper of its module (a written
+    scratch array must not be ``const``), via the translator's :class:`ArrayUseScan`, settled to a fixpoint."""
     ref = numpy_reference_path(relative_path, module_name)
     if ref is None:
         return frozenset()
@@ -600,9 +582,7 @@ def binding_from_spec(spec: BenchSpec, config: str | None = None) -> Binding:
             f"(workspace / workspace_size); rename them in the manifest"
         )
 
-    # Canonical symbol <native_base>_fp64, the same for every language (a sparse config is part of the
-    # stem), both halves from the emitter (spec.native_base, keyed on module_name; entry_symbol,
-    # lowercase and folded to Fortran's 63 chars). ``kernel`` stays short_name.
+    # Canonical symbol <native_base>_fp64, the same for every language; ``kernel`` stays short_name.
     symbols = {lang: entry_symbol(f"{spec.native_base(config)}_fp64") for lang in LANG_SYMBOLS}
     sym = symbols[Language.C]
     if not sym[0].isalpha():

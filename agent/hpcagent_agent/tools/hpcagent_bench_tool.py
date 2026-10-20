@@ -1,11 +1,6 @@
-"""Command-line access to the HPCAgent-Bench tools, for harnesses whose only tool is a shell.
-
-``hpcagent_bench_tool.py <tool> '<json>'`` (or the JSON on stdin) calls the same ``run(payload)`` the MCP
-server calls, with the same judge URL, rank, identity and single-submission marker, and prints the
-JSON result. ``--list`` names the tools; ``--describe <tool>`` prints the full description and input
-schema the MCP setups see. Exit status: 0 for a result without ``ok: false``, 1 otherwise, 2 for a
-usage error.
-"""
+"""Command-line access to the HPCAgent-Bench tools for shell-only harnesses: ``<tool> '<json>'`` calls the MCP
+server's ``run(payload)``; ``--list`` / ``--describe <tool>``. Exit 0 unless the result is ``ok: false`` (1), 2 on a
+usage error."""
 
 import json
 import sys

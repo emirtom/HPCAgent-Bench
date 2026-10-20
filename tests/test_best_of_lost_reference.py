@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A best-of grade never credits a speedup over a race that lost a compiled reference.
-
-A C or c-autopar reference that does not build, crashes under its memory cap or times out is the
-JUDGE failing: the ratio over whatever survived (numba alone, or the numpy degradation) is not the
-measurement the row's stamp names, and it inflated xsbench to 8000x. Such a grade is a harness
-fault. A lost numba stays allowed: under ``best-of-v1`` it is disclosed, under ``best-of-v2`` the
-c-autopar reference stands in for it.
-"""
+"""A best-of grade that lost a compiled C or c-autopar reference is a harness fault, never a credited speedup; a
+lost numba stays allowed."""
 
 from collections.abc import Callable
 from typing import Any

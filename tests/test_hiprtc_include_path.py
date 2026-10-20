@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The include list cupy hands HIPRTC, and the one directory that must not be on it.
-
-cupy flattens hipcc's ordered, KINDED search list into plain ``-I`` when it drives HIPRTC,
-which puts clang's ``cuda_wrappers`` -- a directory the driver keeps to itself -- onto an RTC
-command line. With it there every ``_GLIBCXX_*`` macro ends up undefined and a device grade dies
-inside ``<initializer_list>``; without it cupy works on the image's own gcc 16 + LLVM 22.
-
-The rule is MEASURED, not derived (reordering the list does not help, only removal does), so what
-is locked here is the rule itself and the guard that fires when the cupy hook it hangs on moves.
-"""
+"""The include list cupy hands HIPRTC must not carry clang's ``cuda_wrappers`` directory (a measured rule), and
+a guard fires when the cupy hook moves."""
 
 import pytest
 

@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Smoke tests for the collection/reporting subcommands folded in from ``helpers/scripts/``.
-
-run_benchmark / run_framework / run_sparse_benchmark are ``hpcagent_bench`` CLI subcommands dispatching DIRECTLY to importable package functions.
-These tests assert, without any toolchain (no compile, no Pluto):
-
-* every new subcommand is registered on the top-level parser;
-* each parses a trivial invocation and binds the right ``cmd_*`` dispatcher;
-* dispatch reaches the target module function DIRECTLY (no subprocess / importlib) with
-  the expected, preset-resolved arguments -- the target is stubbed via ``sys.modules``
-  so the heavy framework / matplotlib / Pluto stacks are never imported here;
-* the preserved argparse contract holds (``preset_arg`` validation, required ``-b``);
-* ``main`` clears the launcher's inherited SIGCHLD block before it dispatches ANY verb -- the
-  single place that keeps cmake from hanging, so it is pinned on the CLI, not on one framework.
-"""
+"""Smoke tests for the collection/reporting CLI subcommands: registered, parsed, dispatched directly to their
+module functions (stubbed), argparse contracts kept, and ``main`` unblocks SIGCHLD before any verb."""
 
 import argparse
 import gc

@@ -1,41 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""One colour and one shape per entity, decided by its identity and by nothing else.
-
-A reader carries a colour between figures whether or not we meant them to, so a colour has to be a
-property of the entity rather than of its position in whatever list one figure happened to hold:
-dropping a series must not repaint the survivors.
-
-**Shape is always the MODEL, colour whatever the figure VARIES -- except the packet efficacy
-panels, which invert this.** There are a few models and there will be many packets, and colour
-separates more values than shape does, so the model takes the shape and keeps it everywhere, EXCEPT
-in :mod:`hpcagent_bench.stats.figures.efficacy` and
-:mod:`hpcagent_bench.stats.figures.kernel_speedups`: those panels already split one packet per
-panel (or per pair), so colour is spent there for nothing, while the few models sharing that one
-panel need telling apart at a glance when their summary marks overlap -- checked by rendering both
-orders on the same llr40 figure; a shared hue with only a circle-vs-square edge to tell two
-overlapping marks apart read far worse than two distinct hues with a shape that does not have to
-carry any information. Those two modules read colour off :func:`model_color` and shape off
-:func:`packet_marker` instead of :func:`color` and :func:`marker`.
-
-Four things get coloured, and a figure varies exactly one of them, so they never compete for the
-ramp: an INTERVENTION (a skill packet, or a scope such as `kernel`/`repo`/`no-score`), a HARNESS (an
-agent-harness comparison), a FRAMEWORK (a compiler/library comparison, which has no agent in it), or
-a MODEL (a figure whose only axis is which LLM ran).
-
-ONE GLOBAL PALETTE: matplotlib's ``tab20``, extended by ``tab20b`` once its twenty slots are spent,
-and nothing else. Every entity a figure colours -- packet, framework, model, harness, language --
-takes a SLOT decided by the explicit ``order`` of its registered class (:mod:`hpcagent_bench.vocabulary`;
-the yaml kinds, studies and frameworks, by position), so a colour is looked up in exactly one table and no
-figure, script or registry entry carries a hex literal of its own.
-
-A packet's colour is :func:`color`: its LEAD packet's slot and one lightness step per additional
-packet, so ``cpf-src`` and ``cpf-src+lang-skills`` read as the same treatment family at two
-strengths, and neutral grey for the no-packet control.
-
-THE VOCABULARY AND THE ORDER ARE REGISTERED in code, beside the display names: one registry for one
-vocabulary. The pools (neutral colour, marker shapes, lightness step) are ``envs/registry.yaml``.
-"""
+"""One colour and one shape per entity, decided by its identity (its registered ``order``), so dropping a series
+never repaints the others. Shape is the MODEL and colour what the figure varies, except the packet efficacy panels
+(colour = model, shape = packet). One palette: ``tab20``, extended by ``tab20b``."""
 
 import colorsys
 import functools
@@ -94,19 +61,13 @@ __all__ = [
 
 LOG = logging.getLogger(__name__)
 
-#: The colormap every figure in this repo draws from. The user's global palette decision.
+#: The colormap every figure draws from.
 TAB20: str = "tab20"
 
-#: tab20 slots in DARK-FIRST order: its ten saturated slots, then their ten light twins. tab20 is
-#: laid out as light/dark PAIRS, so reading it straight through would spend the second colour of a
-#: figure on a pale wash of its first; taken this way the entities plotted most take the ten
-#: colours that stay apart at 4pt, and the light twin of a hue only comes back once the dark ones
-#: are spent.
+#: tab20 slots in DARK-FIRST order (tab20 is light/dark pairs): the ten saturated colours, then their light twins.
 TAB20_ORDER: tuple[int, ...] = (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19)
 
-#: Slots 21-40: the 21st entity extends the palette; it never wraps or shares a colour.
-#: tab20b is five hues of four shades each; taken darkest shade of every hue first, then the next
-#: shade, so its first entries stay as far apart as tab20's dark half.
+#: Slots 21-40 (never wrapping): tab20b, darkest shade of every hue first.
 TAB20B: str = "tab20b"
 TAB20B_ORDER: tuple[int, ...] = (0, 4, 8, 12, 16, 2, 6, 10, 14, 18, 1, 5, 9, 13, 17, 3, 7, 11, 15, 19)
 
@@ -147,10 +108,7 @@ def control_color() -> str:
 
 
 def hue_order(kind: str) -> tuple[str, ...]:
-    """``kind``'s tags in the order that assigns hues.
-
-    The control packet is dropped: it is a registered name with its own neutral colour, and leaving
-    it in the ramp would shift every treatment one hue and repaint every figure already drawn."""
+    """``kind``'s tags in hue order, the control packet dropped (it has its own neutral colour)."""
     return tuple(tag for tag in order(kind) if tag)
 
 
@@ -195,11 +153,7 @@ def ordered_color(kind: str, name: str) -> str:
 
 
 def warn_on_collision(chosen: dict[str, str], kind: str) -> dict[str, str]:
-    """Pass ``chosen`` through, warning when two entities in ONE figure draw the same colour.
-
-    There are more entities than hues, so the ramp wraps. Harmless until two that wrap onto each
-    other appear together, where they read as one series. Warned rather than raised: a flagged plot
-    beats no plot, and the fix is another hue, not a dropped series."""
+    """Pass ``chosen`` through, warning when two entities in ONE figure draw the same colour (the ramp wraps)."""
     seen: dict[str, str] = {}
     for name, hue in chosen.items():
         entity = canonical(f"{kind}s", name)
@@ -222,9 +176,7 @@ def darken(hex_color: str, steps: int) -> str:
 
 
 def lighten(hex_color: str, steps: int) -> str:
-    """``hex_color`` moved ``steps`` toward white in HLS, capped short of white so it stays visible.
-
-    What makes a combination read as its lead packet's family rather than as a fourth treatment."""
+    """``hex_color`` moved ``steps`` toward white in HLS, capped short of white (a combination's family shade)."""
     if steps <= 0:
         return hex_color
     r, g, b = (int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
@@ -255,11 +207,7 @@ def colors(names: Iterable[str]) -> dict[str, str]:
 
 
 def in_order(names: Iterable[str], kind: str = "models") -> list[str]:
-    """``names`` in registry order, unregistered ones last and alphabetical among themselves.
-
-    The draw order of a figure's series, so a dodge or a legend is the same in every figure. Sorting
-    by name alone would reorder every panel the day a model is renamed, and an unregistered name
-    needs a tiebreak or two of them land in whatever order the frame happened to hold."""
+    """``names`` in registry order, unregistered ones last and alphabetical (every figure's series order)."""
     known = order(kind)
 
     def rank(name: str) -> tuple[int, str]:
@@ -270,10 +218,8 @@ def in_order(names: Iterable[str], kind: str = "models") -> list[str]:
 
 
 def marker(model: str) -> str:
-    """The one SHAPE an optimizer wears: an LLM (``models``) or a standalone optimizer
-    (``optimizers``, e.g. DaCe or CPF), shape being how a compiler figure tells the two apart. Models take shapes
-    from the FRONT of the sequence by slot and standalone optimizers from the BACK, so registering another model
-    never reshapes DaCe or CPF. An unregistered name warns and takes a stable CRC shape."""
+    """The one SHAPE an optimizer wears: models from the FRONT of the sequence by slot, standalone optimizers from
+    the BACK (so a new model never reshapes them); an unregistered name warns and takes a stable CRC shape."""
     shapes = markers()
     index = slot("models", model)
     if index is not None:
@@ -295,11 +241,9 @@ def framework_marker(name: str) -> Marker:
 
 @functools.lru_cache(maxsize=1, typed=True)
 def shape_table() -> dict[tuple[str, str], Marker]:
-    """``(kind, key) -> shape`` for every registered treatment, from the registry's one pool, so a harness and a
-    packet in one figure never share a shape. The pool's free shapes split in two: the first ``harness_shapes``
-    (the clearest filled ones) are the harnesses', the rest the packets', each kind taking its part in slot order
-    unless a packet entry names its own ``marker:``. Registering a treatment of either kind therefore never reshapes
-    another of either kind; the control's circle is never handed out, and a part too small wraps with a warning."""
+    """``(kind, key) -> shape`` for every registered treatment from one pool: the first ``harness_shapes`` free
+    shapes are the harnesses', the rest the packets' (slot order unless a packet names ``marker:``). The control's
+    circle is never handed out; an overfull part wraps with a warning."""
     reg = registry()
     fixed = fixed_packet_markers(reg)
     free = [shape for shape in reg.shapes if shape not in fixed.values() and shape != CONTROL_MARKER]
@@ -385,19 +329,13 @@ def framework_color(name: str) -> str:
 
 
 def model_color(name: str) -> str:
-    """The one colour a model wears: a figure whose ONLY axis is which model ran, or a packet
-    efficacy panel (:func:`packet_marker`'s own docstring), where shape is spent on the packet.
-
-    Shape identifies the model everywhere else; this exists because a figure that varies nothing
-    else would otherwise draw four series in one grey."""
+    """The one colour a model wears (a model-only figure, or a packet efficacy panel where shape is the packet)."""
     return ordered_color("models", name)
 
 
 def model_shade(name: str, step: int) -> str:
-    """The ``step``-th close shade of a model's colour (0 = the colour itself): the rule for ONE
-    model drawn several times in one figure -- with and without a packet, on several devices, in
-    several pairs -- so the series stay the same model at a glance yet tell apart where their marks
-    or intervals overlap. One step is :data:`registry().lightness_step`."""
+    """The ``step``-th close shade of a model's colour (0 = itself), for one model drawn several times in one
+    figure; one step is :data:`registry().lightness_step`."""
     return lighten(model_color(name), step)
 
 

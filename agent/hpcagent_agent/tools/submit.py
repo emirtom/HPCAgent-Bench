@@ -1,26 +1,6 @@
-"""POST /submit -- the TERMINAL action. A different grade from :mod:`score`, not a repeat of it.
-
-One build, graded by the final grade (mw4x5, ``hpcagent_bench.harness.grade_under.FINAL``) on inputs
-``score`` never runs: its timed inputs of their own sizes, correctness checked on values salted
-with a fresh per-call nonce plus the held-out cases, and the only route whose grade the judge records.
-What comes back is ONLY ``correct`` ("yes" or "no") and a ``request_id`` -- no error, no failing case,
-no timing; the grade itself stays in the judge's database. An implementation that is correct on
-``score``'s input can still fail these -- that is the point of the split, and it is why a good
-``score`` is not a result until it has been submitted.
-
-Iterate with ``score``; settle with this, on the best implementation, when the work is done.
-
-Under a single-submission mode (``AGENT_SUBMISSION_MODE`` single or blind) it is the agent's only
-submission and the driver ends the episode once the judge has answered; an agent that never calls it has its last correct ``score`` promoted to a
-submission at teardown.
-
-The body is exactly the ``score`` body: deliver the code ONE way -- inline ``source``, or
-``source_file`` / ``library`` as paths in the shared folder (``$HPCAGENT_BENCH_SHARED_DIR``, default
-``/shared``) -- and the language follows the track (the task's where the judge pins one, the model's
-where it does not). A build failure or a wrong answer is a normal 200 with ``correct: "no"`` (a build
-failure also carries ``build_log``); a 400 is the request's own fault and its message says what was
-refused.
-"""
+"""POST /submit: the TERMINAL action, graded by the final grade on inputs ``score`` never runs, and the only route
+the judge records. It answers only ``correct`` and a ``request_id``; under a single-submission mode it is the
+agent's one submission (a 4xx refusal does not spend it)."""
 
 import json
 import os
@@ -65,50 +45,35 @@ DESCRIPTION = (
 #: The bullet depends on the submission mode, so the prompt takes it from the mode's template.
 PROMPT = "{{MODE:tool}}"
 
-#: Single-submission mode, enforced here rather than trusted to the prompt (submission-single.md explains
-#: it). The marker below is also what agent_driver.watch_submission watches to stop the agent.
+#: Single-submission mode, enforced here; the marker is what agent_driver.watch_submission watches.
 SINGLE_SUBMISSION = submission_mode.current().single_submission
-#: Per-agent, not per-kernel: an agent runs exactly one problem, and the file lives in its own
-#: workdir, so a retried agent process cannot spend a submission the previous one already used.
+#: Per-agent, in its own workdir, so a retried agent process cannot spend a used submission again.
 SPENT_MARKER = pathlib.Path(os.environ.get("AGENT_SUBMISSION_MARKER", ".submission-spent"))
 
 
 def request_refused(result: dict[str, Any]) -> bool:
-    """Whether ``result`` is the judge REFUSING the request (4xx), not grading it.
-
-    ``http_json.call_json`` never raises on an HTTP error status -- it catches
-    ``urllib.error.HTTPError`` and returns ``{"ok": False, "status": <code>, ...}`` instead, so a
-    malformed body (two source spellings, a HIP submission missing ``device_source``, ...) comes
-    back through here exactly like a graded 200. Only a 4xx is the AGENT's request being wrong; a
-    5xx or a timeout is the judge's own trouble and still ends the episode, since the grade it
-    started may already be running server-side (see ``call_json``'s ``TimeoutError`` branch). A
-    judge that was never reached at all is :func:`judge_never_reached`, not a refusal.
-    """
+    """Whether ``result`` is the judge REFUSING the request (4xx), not grading it; a 5xx or timeout may still be
+    grading server-side."""
     status = result.get("status")
     return isinstance(status, int) and HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-#: The judge router's ``cause`` when it refuses a second submission of this episode's kernel
-#: (hpcagent_bench/cluster/judge_service.py): the judge already holds the one grade, so the episode is over.
+#: The judge router's ``cause`` when it refuses a second submission of this episode's kernel.
 SPENT_AT_JUDGE = "single_submission_spent"
 
 
 def spent_at_judge(result: dict[str, Any]) -> bool:
-    """Whether ``result`` is the judge refusing a submission this episode already made -- a 409 the
-    marker must still record, or the driver would never end an episode whose grade is on file."""
+    """Whether ``result`` is the judge refusing an already-made submission (the marker must still record it)."""
     body = result.get("body")
     return isinstance(body, dict) and body.get("cause") == SPENT_AT_JUDGE
 
 
-#: The judge router's ``detail.cause`` when its upstream judge was never reached (judge_service.py).
+#: The judge router's ``detail.cause`` when its upstream judge was never reached.
 JUDGE_UNREACHABLE = "judge_unreachable"
 
 
 def judge_never_reached(result: dict[str, Any]) -> bool:
-    """Whether no judge ever saw the request, so nothing was graded: this tool could not connect to
-    the router (``http_json.call_json``'s ``unreached``), or the router could not connect to its
-    judge (its 503 ``judge_unreachable``). A timeout or any other 5xx is NOT this -- the body arrived
-    and a grade may be running or recorded."""
+    """Whether no judge saw the request (unreachable router or judge); a timeout or other 5xx may have graded."""
     if result.get("unreached") is True:
         return True
     body = result.get("body")
@@ -116,14 +81,12 @@ def judge_never_reached(result: dict[str, Any]) -> bool:
     return isinstance(detail, dict) and detail.get("cause") == JUDGE_UNREACHABLE
 
 
-#: The ``cause`` of a 500 the judge answers for its own failure before recording any grade
-#: (``hpcagent_bench.harness.service.JUDGE_FAULT_CAUSE``).
+#: The ``cause`` of a 500 the judge answers for its own failure before recording any grade.
 JUDGE_FAULT = "judge_fault"
 
 
 def judge_failed(result: dict[str, Any]) -> bool:
-    """Whether the judge answered with a 500 naming its own failure: nothing was recorded, so a retry is
-    allowed, as for a verdict's ``judge_fault``."""
+    """Whether the judge answered a 500 naming its own failure: nothing was recorded, so a retry is allowed."""
     body = result.get("body")
     return (
         result.get("status") == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -133,8 +96,7 @@ def judge_failed(result: dict[str, Any]) -> bool:
 
 
 def spends_submission(result: dict[str, Any]) -> bool:
-    """Whether the judge's answer ``result`` uses up the one submission (writes the marker). A verdict the
-    judge marks ``judge_fault`` is its own failure, recorded as one, and spends nothing there either."""
+    """Whether ``result`` uses up the one submission; a ``judge_fault`` verdict spends nothing."""
     graded_nothing = (
         request_refused(result)
         or judge_never_reached(result)
@@ -161,8 +123,7 @@ def shortened(value: Any) -> Any:
 
 
 def marker_text(result: dict[str, Any]) -> str:
-    """``result`` as the marker's JSON, always valid: long strings are cut field by field, and an answer
-    still over :data:`MARKER_LIMIT` (a full grade with cells) keeps its scalar fields only."""
+    """``result`` as the marker's JSON, always valid: long strings cut, and an oversized answer keeps its scalars."""
     text = json.dumps(shortened(result), sort_keys=True)
     if len(text) <= MARKER_LIMIT:
         return text
@@ -182,10 +143,7 @@ def spec(setup: Setup) -> Spec:
 @tool(spec=spec)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     if SINGLE_SUBMISSION and SPENT_MARKER.exists():
-        # "ok": False is the wire contract, not decoration: mcp_server sets isError from it and
-        # hpcagent_bench_tool.py turns it into the process exit status. Without it a REFUSED
-        # resubmission returned isError=false and exit 0 -- indistinguishable from a successful
-        # submit for the shell-only harnesses, which have nothing but the exit status to read.
+        # "ok": False is the wire contract: mcp_server sets isError from it and the CLI its exit status.
         return {
             "ok": False,
             "error": "single-submission mode: this agent has already submitted, and the grade it "
@@ -194,10 +152,7 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
         }
     result = http_json.post_judge("/submit", http_json.submission_body(payload))
     if SINGLE_SUBMISSION and spends_submission(result):
-        # Written AFTER the judge answered, so a request the judge refused (a 400 on a malformed
-        # body -- e.g. a HIP submission missing 'device_source') does not burn the one submission
-        # the agent gets: nothing was graded, so the agent may fix the body and submit again. The
-        # same for a judge nobody reached (judge_never_reached): the agent may simply retry.
+        # Written AFTER the judge answered, so a refused or unreached request does not burn the one submission.
         SPENT_MARKER.write_text(marker_text(result), encoding="utf-8")
     return result
 

@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A method packet (``AGENT_METHOD`` and its tools) reaches the agent through the MCP server and the driver, and an
-setup without one sees exactly the core tools and its own hints.
-
-Also the other direction: a tool a PACKET brings must be absent from every setup that packet did not
-build. ``canonical_parallel_form`` was served in all of them -- 24 of 40 bare agents and
-6 of 6 skills-setup calls got ``unavailable`` for a form only the cpf-tool packet's view
-holds, which is a turn spent and a treatment leaked into the control."""
+"""A method packet reaches the agent through the MCP server and the driver; a setup sees only the core tools plus
+its own packet's, never another packet's (e.g. ``canonical_parallel_form``)."""
 
 import json
 import subprocess

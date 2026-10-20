@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Cross-platform (Linux / macOS / WSL2) portability of the build + isolation layers.
-
-Locks the OS-aware behaviour the portability audit called for: the multiprocessing
-start method is `fork` on Linux and `spawn` on macOS (fork-after-BLAS-threads aborts
-the child there); the CPU flag matrix drops the glibc-only pieces (`libgomp`/`libmvec`)
-off Linux and uses `-mcpu=native` on Apple Silicon; `ru_maxrss` is scaled to bytes per
-platform (KB on Linux, bytes on macOS); and a missing compiler is a scored build
-failure, not a crashed runner.
-"""
+"""Linux / macOS / WSL2 portability of the build and isolation layers: start method, OS-aware CPU flags,
+``ru_maxrss`` units, and a missing compiler as a scored build failure."""
 
 from hpcagent_bench import config, flags, osinfo
 from hpcagent_bench.categories import Language, SourceMode

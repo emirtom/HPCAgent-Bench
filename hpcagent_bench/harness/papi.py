@@ -1,37 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Hardware counters through PAPI: one metric per run, each run in its own crashable child.
+"""Hardware counters through PAPI (ctypes): one metric per run (no multiplexing), each run in its own crashable child.
 
-The sampling half (where the cycles went) is :mod:`hpcagent_bench.perf_reports`; this is the
-counting half (what the hardware did).
-
-* **One metric per run.** More events than counter registers forces multiplexing, whose scaled
-  estimates are not counts; each metric therefore costs one measured run.
-* **Availability is discovered.** :func:`available_events` walks PAPI's preset table and then
-  arms each survivor (:func:`countable`): on a virtualised host a preset can query yes and still
-  fail to add.
-* **ctypes only.** ``libpapi.so`` needs no build step; there is one availability oracle.
-* **A missing number is named, never substituted.** Each metric has candidate expressions, best
-  first (:data:`METRICS`); candidates may differ in cache level but never in quantity. A metric
-  with no surviving candidate carries ``missing``.
-* **Counters bracket exactly what the judge times**, via the ``timed_call`` seam of
-  :func:`~hpcagent_bench.harness.native_call._call_native_impl`.
-
-Callers ask questions, not event strings: :data:`GROUPS` expands a question to metrics, and
-:data:`RATIOS` owns the arithmetic, shipping each derived value with its formula, inputs and the
-cache line size (:func:`cache_line_bytes`). An uncomputable ratio is listed with its reason.
-
-Threads: PAPI counts per thread, and a judge cannot run code on an opaque ``.so``'s OpenMP
-workers. So the master thread enumerates the threads (:func:`thread_ids`), opens one
-``PAPI_attach``-ed event set per worker (:func:`open_counter`) after a warmup rep created the
-pool, and sums; PAPI is only ever called from one thread (no ``PAPI_thread_init``). The thread
-set is re-read at every rep boundary. :func:`count_per_thread` keeps the per-thread rows instead
-(cycles and instructions in one set) to report CPI/IPC and the ``max / mean`` cycle imbalance a
-sum discards; pinning, SMT siblings, the governor and the counter budget are probed per run and
-reported in ``caveats``. Crash safety is :func:`~hpcagent_bench.frameworks.forked.run_forked`.
-
-Device kernels are profiled by :mod:`hpcagent_bench.harness.gpu_profiling` (nsys, rocprofv3), not PAPI."""
+Counters bracket exactly what the judge times; a missing number is named, never substituted. Threads are counted by
+``PAPI_attach``-ing one event set per OpenMP worker from the master thread (no ``PAPI_thread_init``)."""
 
 import ctypes
 import ctypes.util
@@ -152,10 +125,10 @@ __all__ = [
 #: PAPI's success code; everything else is an error whose text ``PAPI_strerror`` owns.
 PAPI_OK = 0
 
-#: The "no event set yet" handle ``PAPI_create_eventset`` expects to be handed.
+#: The "no event set yet" handle ``PAPI_create_eventset`` expects.
 PAPI_NULL = -1
 
-#: High bit of a PRESET event code -- where the preset enumeration starts.
+#: High bit of a PRESET event code: where the preset enumeration starts.
 PRESET_MASK = 0x80000000
 
 #: ``PAPI_enum_event`` modifiers: 1 seeds the walk at the first preset, 0 steps to the next.
@@ -165,38 +138,34 @@ ENUM_NEXT = 0
 #: ``PAPI_MAX_STR_LEN``: the buffer ``PAPI_event_code_to_name`` writes into.
 NAME_LEN = 128
 
-#: Where a process lists its own thread ids: how a counted run finds the OpenMP workers of a
-#: ``.so`` it cannot inject into.
+#: Where a process lists its own thread ids (finds the OpenMP workers of an opaque ``.so``).
 TASK_DIR = pathlib.Path("/proc/self/task")
 
-#: Where a process lists its mapped files (:func:`library_file` finds libpapi's directory here).
+#: Where a process lists its mapped files.
 MAPS = pathlib.Path("/proc/self/maps")
 
-#: OpenMP placement forced on a counted run: one place per physical core, filled in order, so no
-#: two counted threads share SMT siblings (which share L1/L2). Another process's sibling thread
-#: cannot be fenced out, so ``smt`` is also reported.
+#: OpenMP placement forced on a counted run: one place per physical core, so no two counted threads share SMT
+#: siblings (another process's sibling cannot be fenced out, so ``smt`` is reported).
 PINNED_ENV: dict[str, str] = {"OMP_PLACES": "cores", "OMP_PROC_BIND": "close"}
 
 #: The metrics a CPI/IPC report is made of (resolved through :data:`METRICS` like any other).
 PER_THREAD_METRICS: tuple[str, str] = ("cycles", "instructions")
 
-#: CPI and IPC written out and shipped with the values: they are reciprocals.
 PER_THREAD_FORMULAS: dict[str, str] = {"cpi": "cycles / instructions", "ipc": "instructions / cycles"}
 
-#: The imbalance figure: max over mean cycles (the thread everyone waits for over the even split).
+#: The imbalance figure: max over mean cycles.
 IMBALANCE_FORMULA = "max(cycles) / mean(cycles)"
 
-#: Per-thread CPU affinity (``Cpus_allowed_list``): a migrating thread leaves cycles on another
-#: core's counters, so pinning is checked.
+#: Per-thread CPU affinity: a migrating thread leaves cycles on another core's counters.
 CPUS_ALLOWED = re.compile(r"^Cpus_allowed_list:\s*(?P<cpus>\S+)", re.MULTILINE)
 
-#: Linux's SMT sibling set of a cpu: two counted threads in one group count one core twice.
+#: Linux's SMT sibling set of a cpu.
 SIBLINGS_SYSFS = flags.SIBLINGS
 
 #: The frequency governor; anything but ``performance`` breaks inference from cycles to time.
 GOVERNOR_SYSFS = pathlib.Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
 
-#: The perf_event_open gate PAPI's cpu component uses; same check as :mod:`hpcagent_bench.perf_reports`.
+#: The perf_event_open gate PAPI's cpu component uses.
 PARANOID_SYSCTL = pathlib.Path("/proc/sys/kernel/perf_event_paranoid")
 
 #: Every machine-readable reason a per-thread report can be absent.
@@ -221,15 +190,12 @@ CAUSES = (
     "no_gpu_event",
 )
 
-#: (major, minor) pairs tried against ``PAPI_library_init``, newest first. ``PAPI_VER_CURRENT`` is a
-#: header constant the library does not export, and a mismatch fails harmlessly with ``PAPI_EINVAL``.
+#: (major, minor) pairs tried against ``PAPI_library_init``, newest first (``PAPI_VER_CURRENT`` is not exported).
 VERSION_MAJORS = range(9, 2, -1)
 VERSION_MINORS = range(15, -1, -1)
 
-#: Metric -> candidate expressions, best first. A candidate is a tuple of preset names; a leading
-#: ``-`` subtracts; the first candidate whose every event is available wins. Names state the
-#: quantity delivered: PAPI's integer and FMA presets count instructions, not operations.
-#: ``cache_hits`` derives accesses minus misses where ``PAPI_L1_DCH`` is absent.
+#: Metric -> candidate expressions, best first: preset tuples, a leading ``-`` subtracts, the first fully
+#: available wins. Candidates may differ in cache level, never in quantity.
 METRICS: dict[str, tuple[tuple[str, ...], ...]] = {
     "cycles": (("PAPI_TOT_CYC",),),
     "stalled_cycles": (("PAPI_RES_STL",),),
@@ -254,7 +220,6 @@ METRICS: dict[str, tuple[tuple[str, ...], ...]] = {
 }
 
 #: Counter groups: a question -> the metrics that answer it (one measured run per metric).
-#: ``cycles`` and ``instructions`` are in most groups as the denominators of :data:`RATIOS`.
 GROUPS: dict[str, tuple[str, ...]] = {
     "overview": ("cycles", "instructions", "data_cache_misses", "fp_ops"),
     "cache": ("cycles", "instructions", "data_cache_misses", "cache_hits", "l2_cache_misses", "l3_cache_misses"),
@@ -266,13 +231,13 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "all": tuple(METRICS),
 }
 
-#: Where Linux publishes the L1 line size, read because every bytes-moved number multiplies by it.
+#: Where Linux publishes the L1 line size (every bytes-moved number multiplies by it).
 LINE_SIZE_SYSFS = pathlib.Path("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size")
 
 #: Used when sysfs will not say; shipped in the payload either way.
 DEFAULT_LINE_BYTES = 64
 
-#: Pulls the cache LEVEL out of a resolved expression (``PAPI_L1_DCA - PAPI_L1_DCM`` -> L1).
+#: Pulls the cache LEVEL out of a resolved expression.
 CACHE_LEVEL = re.compile(r"PAPI_(L[123])_")
 
 
@@ -296,9 +261,7 @@ class FeatureSet(TypedDict):
 
 
 class MetricRow(TypedDict):
-    """One metric's answer, counted or absent (a dict: it crosses a fork and a JSON line).
-    ``count is None`` means absent, with ``missing`` saying why; the other keys describe a count that
-    happened. Device rows (:func:`gpu_counting_worker`) carry their own half."""
+    """One metric's answer (a dict: it crosses a fork and a JSON line); ``count is None`` means absent (``missing``)."""
 
     metric: str
     count: int | None
@@ -416,8 +379,7 @@ class ThreadReport(TypedDict):
 
 
 class MissingThreadReport(TypedDict):
-    """The "no per-thread report" answer: ``aggregate`` and ``imbalance`` are ``None``, ``threads`` is
-    empty, ``cause`` is one of :data:`CAUSES`."""
+    """The "no per-thread report" answer: empty, with ``cause`` one of :data:`CAUSES`."""
 
     threads: list[ThreadRow]
     aggregate: None
@@ -427,20 +389,17 @@ class MissingThreadReport(TypedDict):
     text: NotRequired[str]
 
 
-#: Either answer. The two are told apart by the ``missing`` key, which only the absent one has.
+#: Either answer, told apart by the ``missing`` key.
 PerThreadReport = ThreadReport | MissingThreadReport
 
 
 class PapiUnavailable(ProfilerUnavailable):
-    """PAPI cannot count here. ``cause`` is ``not_linux`` / ``papi_missing`` / ``papi_init_failed`` /
-    ``not_native``."""
+    """PAPI cannot count here (``cause``: ``not_linux`` / ``papi_missing`` / ``papi_init_failed`` / ``not_native``)."""
 
 
 @functools.lru_cache(maxsize=None, typed=True)
 def check() -> ctypes.CDLL:
-    """The loaded ``libpapi`` handle, or :class:`PapiUnavailable`. Loads without initialising: the
-    parent answers "can this host count" before compiling, and bring-up happens in the counting
-    process (:func:`initialised`)."""
+    """The loaded ``libpapi`` handle, or :class:`PapiUnavailable`; loads without initialising (that is the child's)."""
     if not osinfo.IS_LINUX:
         raise PapiUnavailable(
             "not_linux",
@@ -470,8 +429,7 @@ def library_file() -> pathlib.Path:
 
 
 def build_flags() -> tuple[list[str], list[str]]:
-    """``(compile, link)`` tokens that build C against the libpapi :func:`check` loads: the ``include``
-    beside the library (when it has ``papi.h``) and an rpath."""
+    """``(compile, link)`` tokens that build C against the libpapi :func:`check` loads."""
     lib = library_file().parent
     include = lib.parent / "include"
     compile_tokens = [f"-I{include}"] if (include / "papi.h").is_file() else []
@@ -485,7 +443,7 @@ def initialised() -> ctypes.CDLL:
     for major in VERSION_MAJORS:
         for minor in VERSION_MINORS:
             wanted = (major << 24) | (minor << 16)
-            if lib.PAPI_library_init(wanted) == wanted:  # returns the version on success, <0 otherwise
+            if lib.PAPI_library_init(wanted) == wanted:  # the version on success, <0 otherwise
                 return lib
     raise PapiUnavailable(
         "papi_init_failed",
@@ -496,23 +454,20 @@ def initialised() -> ctypes.CDLL:
 
 
 def strerror(lib: ctypes.CDLL, code: int) -> str:
-    """PAPI's own text for an error code, with the number (its table misses component errors such as
-    ``PAPI_EMISC``)."""
+    """PAPI's own text for an error code, with the number."""
     lib.PAPI_strerror.restype = ctypes.c_char_p
     text = lib.PAPI_strerror(code)
     return f"{text.decode()} (PAPI code {code})" if text else f"PAPI error {code}"
 
 
 def demand(lib: ctypes.CDLL, code: int, what: str) -> None:
-    """Raise unless ``code`` is :data:`PAPI_OK`; callers are in a forked child, so this becomes one
-    metric's ``missing`` reason."""
+    """Raise unless ``code`` is :data:`PAPI_OK` (in a forked child: one metric's ``missing`` reason)."""
     if code != PAPI_OK:
         raise PapiUnavailable("papi_init_failed", f"{what} failed: {strerror(lib, code)}")
 
 
 def countable(lib: ctypes.CDLL, code: int) -> bool:
-    """Whether this machine can arm ``code``: add it to a scratch set and start it. ``PAPI_query_event``
-    reads the CPU-model preset table, which a virtualised guest answers yes to without a PMU."""
+    """Whether this machine can arm ``code`` (a virtualised guest answers ``PAPI_query_event`` yes without a PMU)."""
     eventset = ctypes.c_int(PAPI_NULL)
     if lib.PAPI_create_eventset(ctypes.byref(eventset)) != PAPI_OK:
         return False
@@ -528,8 +483,7 @@ def countable(lib: ctypes.CDLL, code: int) -> bool:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def available_events() -> tuple[str, ...]:
-    """Every PAPI preset event this CPU can count, in PAPI's enumeration order: ``PAPI_query_event`` as
-    the cheap filter, then :func:`countable` on the survivors."""
+    """Every PAPI preset event this CPU can count, in enumeration order."""
     lib = initialised()
     code = ctypes.c_int(PRESET_MASK)
     name = ctypes.create_string_buffer(NAME_LEN)
@@ -548,8 +502,7 @@ def available_events() -> tuple[str, ...]:
 
 
 def hardware_counters() -> int:
-    """How many events this CPU can count at once (0 when PAPI will not say); more than this means
-    multiplexed estimates."""
+    """How many events this CPU can count at once (0 when PAPI will not say)."""
     return max(0, int(initialised().PAPI_num_cmp_hwctrs(0)))
 
 
@@ -580,8 +533,7 @@ def combine(terms: Sequence[str], values: Sequence[int]) -> int:
 
 
 def host_rep(ns: int) -> RepTiming:
-    """One counted rep in the form the ``_call_native_impl`` timed-call seam expects (the host bracket
-    is both the credited and the host sample)."""
+    """One counted rep in the form the ``_call_native_impl`` timed-call seam expects."""
     return RepTiming(ns=ns, host_ns=ns)
 
 
@@ -591,8 +543,7 @@ def missing(metric: str, reason: str) -> MetricRow:
 
 
 def feature_set(metrics: Sequence[str] = ()) -> FeatureSet:
-    """What this machine can measure, without running a workload: ``supported`` maps metric -> resolved
-    expression, ``unsupported`` maps metric -> why."""
+    """What this machine can measure: ``supported`` metric -> expression, ``unsupported`` metric -> why."""
     available = available_events()
     supported: dict[str, ResolvedMetric] = {}
     unsupported: dict[str, str] = {}
@@ -620,8 +571,7 @@ def feature_set(metrics: Sequence[str] = ()) -> FeatureSet:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def cache_line_bytes() -> int:
-    """This machine's cache line in bytes, from sysfs, or :data:`DEFAULT_LINE_BYTES`; reported with the
-    numbers it converted."""
+    """This machine's cache line in bytes, from sysfs, or :data:`DEFAULT_LINE_BYTES`."""
     text = LINE_SIZE_SYSFS.read_text().strip() if LINE_SIZE_SYSFS.exists() else ""
     return int(text) if text.isdigit() and int(text) > 0 else DEFAULT_LINE_BYTES
 
@@ -639,18 +589,13 @@ def quotient(numerator: float, denominator: float) -> float | None:
 
 
 def cache_levels(expressions: Sequence[str]) -> tuple[str, ...]:
-    """The distinct cache levels a set of resolved expressions names, sorted (two levels in one ratio
-    means its operands are about different caches)."""
+    """The distinct cache levels a set of resolved expressions names, sorted."""
     return tuple(sorted({level for expr in expressions for level in CACHE_LEVEL.findall(expr)}))
 
 
 @dataclass(frozen=True, slots=True)
 class Ratio:
-    """One derived number: what it divides by what, the metrics it needs, how to read it. The formula
-    ships with the value.
-
-    ``compute`` gets the counts of ``needs`` plus ``line_bytes`` (:func:`cache_line_bytes`) and
-    ``seconds``, the elapsed time of the run that produced ``needs[0]``."""
+    """One derived number and its formula; ``compute`` gets the counts of ``needs``, ``line_bytes`` and ``seconds``."""
 
     formula: str
     needs: tuple[str, ...]
@@ -658,7 +603,6 @@ class Ratio:
     compute: Callable[[dict[str, float]], float | None]
 
 
-#: The derived metrics, computed in one place.
 RATIOS: dict[str, Ratio] = {
     "ipc": Ratio(
         "instructions / cycles",
@@ -736,9 +680,7 @@ RATIOS: dict[str, Ratio] = {
 
 
 def derive(rows: Sequence[MetricRow]) -> Derived:
-    """Every ratio :data:`RATIOS` can compute from ``rows`` (:func:`counting_worker` payloads), and in
-    ``unavailable`` a reason for each it cannot (uncountable metrics or a zero denominator).
-    ``caveat`` flags a ratio whose operands resolved to different cache levels."""
+    """Every ratio computable from ``rows``, a reason for each that is not, and a caveat for mixed cache levels."""
     counts: dict[str, int] = {}
     counted: dict[str, MetricRow] = {}
     for measured in rows:
@@ -778,8 +720,7 @@ def derive(rows: Sequence[MetricRow]) -> Derived:
 
 
 def thread_ids() -> tuple[int, ...]:
-    """This process's thread ids, the calling thread first (its set needs no attach, so a teardown can
-    fall back to it alone)."""
+    """This process's thread ids, the calling thread first (its set needs no attach)."""
     me = os.getpid()  # the main thread's tid IS the pid
     return (me, *sorted(int(p.name) for p in TASK_DIR.iterdir() if int(p.name) != me))
 
@@ -789,18 +730,17 @@ def open_counter(
 ) -> tuple[ctypes.c_int, str | None]:
     """An event set counting thread ``tid``, or ``(_, reason)`` when this host will not attach.
 
-    ``multiplex`` is opt-in for the per-thread path (two events in one set on a CPU with fewer
-    registers); its numbers are estimates and the caller labels them."""
+    ``multiplex`` is opt-in (per-thread path only); its numbers are estimates and the caller labels them."""
     eventset = ctypes.c_int(PAPI_NULL)
     demand(lib, lib.PAPI_create_eventset(ctypes.byref(eventset)), "PAPI_create_eventset")
     # An attached set must be bound to a component BEFORE the attach; the default (0) is the CPU.
     demand(lib, lib.PAPI_assign_eventset_component(eventset, 0), "PAPI_assign_eventset_component")
-    if multiplex:  # library-wide arming first, then this set; both refuse loudly rather than count
+    if multiplex:
         demand(lib, lib.PAPI_multiplex_init(), "PAPI_multiplex_init")
         demand(lib, lib.PAPI_set_multiplex(eventset), "PAPI_set_multiplex")
     if tid != os.getpid():
         rc = lib.PAPI_attach(eventset, ctypes.c_ulong(tid))
-        if rc != PAPI_OK:  # a refused attach makes the SUM wrong, so it is a reason, not a warning
+        if rc != PAPI_OK:  # a refused attach makes the SUM wrong
             return eventset, f"cannot attach to thread {tid}: {strerror(lib, rc)}"
     for code in codes:
         demand(lib, lib.PAPI_add_event(eventset, code), "PAPI_add_event")
@@ -818,9 +758,7 @@ class CounterScope:
 
 @dataclass(frozen=True, slots=True)
 class CountedRun:
-    """What one counted run saw, per thread and per event. :func:`counting_worker` sums it,
-    :func:`count_per_thread` keeps the rows: both read the same measurement. ``per_thread`` holds the
-    fastest rep as ``(tid, one value per term)``, calling thread first."""
+    """What one counted run saw, per thread and per event; ``per_thread`` holds the fastest rep."""
 
     elapsed_ns: int
     per_thread: tuple[tuple[int, tuple[int, ...]], ...]
@@ -847,13 +785,10 @@ def counted_run(
 ) -> CountedRun:
     """Child: count ``terms`` across every thread of the timed call; returns a :class:`CountedRun`.
 
-    PAPI is brought up in this short-lived process. Counters are armed after the warmup reps (the
-    warmup creates libgomp's thread pool, so ``warmup`` is floored at 1) and warmup reps are dropped
-    as :func:`hpcagent_bench.harness.timing.sampled_reps` drops them."""
-    import resource  # child-local, like _native_call_worker's: nothing in the parent needs it
+    Counters are armed after the warmup reps (warmup floored at 1: it creates the OpenMP pool)."""
+    import resource
 
     lib = initialised()
-    # The same additive memory cap _native_call_worker applies.
     if memory_bytes > 0:
         cap = _current_vmsize_bytes() + memory_bytes
         resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
@@ -876,7 +811,7 @@ def counted_run(
         tids = thread_ids()
         for tid in tids:
             eventset, why = open_counter(lib, tid, codes, multiplex)
-            if why is not None:  # one thread we cannot see makes the SUM wrong, not merely partial
+            if why is not None:  # one unseen thread makes the SUM wrong
                 for _t, extra in handles[1:]:
                     lib.PAPI_destroy_eventset(ctypes.byref(extra))
                 del handles[1:]
@@ -891,21 +826,20 @@ def counted_run(
     def counted(fn: CKernel, c_args: list[CArgument], settle: Callable[[], None]) -> RepTiming:
         index = len(calls)
         calls.append(0)
-        if index < warm:  # untimed as far as the counters go: this is what creates the OpenMP pool
+        if index < warm:  # uncounted: this creates the OpenMP pool
             start = time.perf_counter_ns()
             fn(*c_args)
-            settle()  # the pool setup() enumerates below must be the one the kernel actually used
+            settle()  # the enumerated pool must be the one the kernel used
             return host_rep(time.perf_counter_ns() - start)
         if index == warm:
             setup()
-        # Sampled at every rep boundary, outside the read bracket.
         seen.update(thread_ids())
         # Read-delta per rep: PAPI_start arms once, and two reads isolate one call.
         for (_tid, eventset), (before, _after) in zip(handles, buffers, strict=False):
             demand(lib, lib.PAPI_read(eventset, before), "PAPI_read")
         t0 = time.perf_counter_ns()
         fn(*c_args)
-        settle()  # deferred OpenMP tasks still running after fn() returns must be counted too
+        settle()  # deferred OpenMP tasks must be counted too
         ns = time.perf_counter_ns() - t0
         for (_tid, eventset), (_before, after) in zip(handles, buffers, strict=False):
             demand(lib, lib.PAPI_read(eventset, after), "PAPI_read")
@@ -930,8 +864,7 @@ def counted_run(
         warmup=warm,
         rep_timeout=rep_timeout,
     )
-    # No thread may have appeared under the counters: its work would be missing from every total.
-    # The union over rep boundaries catches a thread that came and went between two of them.
+    # No thread may have appeared under the counters (its work would be missing from every total).
     appeared = tuple(sorted(seen.union(thread_ids()).difference(scope.threads)))
     # Disarm only, unchecked: the counts are already harvested.
     for _tid, eventset in handles:
@@ -960,9 +893,7 @@ def counting_worker(
     rep_timeout: float,
     memory_bytes: int,
 ) -> MetricRow:
-    """Child: resolve ``metric`` on this CPU and count it across every thread of the timed call.
-    Resolving first means an inexpressible metric costs a fork, not a run. The per-thread readings are
-    summed (the kernel's total work); :func:`count_per_thread` keeps the distribution."""
+    """Child: resolve ``metric`` (an inexpressible one costs a fork, not a run) and count it summed over threads."""
     features = feature_set((metric,))
     if metric in features["unsupported"]:
         return missing(metric, features["unsupported"][metric])
@@ -1021,9 +952,7 @@ def count_metric(
     rep_timeout: float = 0.0,
     memory_gb: float = 0.0,
 ) -> MetricRow:
-    """Count one metric over ``reps`` timed calls of ``lib_path``'s kernel, in an isolated child.
-    Never raises for a measurement failure (segfault, OOM, PAPI error, timeout): each comes back as
-    :func:`missing`, so only this metric's number is lost."""
+    """Count one metric over ``reps`` timed calls in an isolated child; a failure comes back as :func:`missing`."""
     run = run_forked(
         counting_worker,
         str(lib_path),
@@ -1044,21 +973,15 @@ def count_metric(
     return run.result
 
 
-# Per-thread CPI/IPC (see the module docstring and count_per_thread).
-
-
 def missing_report(cause: str, reason: str) -> MissingThreadReport:
-    """The "no per-thread report" payload: ``cause`` from :data:`CAUSES`, ``missing`` naming the fix,
-    ``aggregate`` ``None`` and ``threads`` empty."""
+    """The "no per-thread report" payload: ``cause`` from :data:`CAUSES`, ``missing`` naming the fix."""
     return {"threads": [], "aggregate": None, "imbalance": None, "cause": cause, "missing": reason}
 
 
 def perf_event_reason() -> tuple[str, str] | None:
-    """``(cause, message)`` when the perf_event gate blocks counting (PAPI's cpu component uses
-    ``perf_event_open``), else ``None``. Returned, not raised, so it crosses a fork as data; without
-    it PAPI reports ``PAPI_ESYS`` at ``PAPI_start``."""
+    """``(cause, message)`` when the perf_event gate blocks counting, else ``None`` (data, so it crosses a fork)."""
     if not osinfo.IS_LINUX:
-        return None  # not_linux is check()'s answer, and it is the more specific one
+        return None  # check()'s not_linux is more specific
     if not PARANOID_SYSCTL.is_file():
         return (
             "no_perf_events",
@@ -1079,11 +1002,10 @@ def perf_event_reason() -> tuple[str, str] | None:
             ),
         )
     # An open gate is not a countable machine: a hypervisor may expose perf_event without a PMU.
-    # available_events arms what it reports, so that arrives as an empty set.
     try:
         armable = available_events()
     except PapiUnavailable:
-        return None  # papi_missing / papi_init_failed is check()'s answer, and it is more specific
+        return None  # check()'s answer is more specific
     if not armable:
         return (
             "events_unsupported",
@@ -1108,8 +1030,7 @@ def cpu_list(text: str) -> tuple[int, ...]:
 
 
 def thread_cpus(tid: int) -> tuple[int, ...]:
-    """The cpus thread ``tid`` may run on, from ``/proc/self/task/<tid>/status`` (the process-wide mask
-    is the master's); empty when gone or unreadable."""
+    """The cpus thread ``tid`` may run on; empty when gone or unreadable."""
     status = TASK_DIR / str(tid) / "status"
     if not status.is_file():
         return ()
@@ -1119,15 +1040,13 @@ def thread_cpus(tid: int) -> tuple[int, ...]:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def sibling_group(cpu: int) -> str:
-    """The SMT sibling set ``cpu`` belongs to, as sysfs spells it (its own id when unreadable, as
-    :func:`hpcagent_bench.flags.physical_cores` reads it)."""
+    """The SMT sibling set ``cpu`` belongs to, as sysfs spells it (its own id when unreadable)."""
     path = pathlib.Path(SIBLINGS_SYSFS.format(cpu=cpu))
     return path.read_text().strip() if path.is_file() else str(cpu)
 
 
 def core_of(cpus: Sequence[int]) -> str | None:
-    """The one physical core ``cpus`` all belong to, or ``None``. With ``OMP_PLACES=cores`` a place is a
-    whole core (two cpus under SMT), which is still pinned."""
+    """The one physical core ``cpus`` all belong to, or ``None`` (a whole-core place still counts as pinned)."""
     groups = list(dict.fromkeys(sibling_group(cpu) for cpu in cpus))  # ordered: it reaches the payload
     return groups[0] if len(groups) == 1 else None
 
@@ -1138,22 +1057,19 @@ def governor() -> str:
 
 
 def placement(tid: int) -> Placement:
-    """Where thread ``tid`` may run: its cpus, their core, and whether that is one core (``pinned``). A
-    migrating thread's counts mix two cores."""
+    """Where thread ``tid`` may run: its cpus, their core, and whether that is one core (``pinned``)."""
     cpus = thread_cpus(tid)
     core = core_of(cpus) if cpus else None
     return {"cpus": list(cpus), "pinned": core is not None, "core": core}
 
 
 def imbalance(cycles: Sequence[int]) -> Spread | None:
-    """The spread of ``cycles`` across threads (:data:`IMBALANCE_FORMULA`): ``max_over_mean`` is 1.0
-    when balanced and N for one thread of N doing everything; ``wasted_fraction`` = ``1 - mean/max``.
-    Both ``None`` when nothing was counted."""
+    """The spread of ``cycles`` across threads (``max_over_mean`` 1.0 when balanced); ``None`` when uncounted."""
     if not cycles:
         return None
     peak, mean = max(cycles), sum(cycles) / len(cycles)
     ratio = quotient(peak, mean)
-    if ratio is None or not peak:  # every thread counted 0 cycles: there is no distribution to report
+    if ratio is None or not peak:  # nothing counted: no distribution
         return None
     return {
         "max_over_mean": ratio,
@@ -1171,11 +1087,9 @@ def imbalance(cycles: Sequence[int]) -> Spread | None:
 def per_thread_rows(
     per_thread: Sequence[tuple[int, tuple[int, ...]]], cycle_terms: Sequence[str], instruction_terms: Sequence[str]
 ) -> list[ThreadRow]:
-    """One row per counted thread: cycles, instructions, CPI and IPC (both labelled,
-    :data:`PER_THREAD_FORMULAS`), and ``cycle_share``. Pure.
+    """One row per counted thread: cycles, instructions, CPI, IPC and ``cycle_share``. Pure.
 
-    ``participated`` is whether the thread burned any cycle: the process also has threads outside the
-    OpenMP pool, and their zeros must stay out of the imbalance denominator."""
+    ``participated`` keeps non-pool threads' zeros out of the imbalance denominator."""
     width = len(cycle_terms)
     counts = [
         (tid, combine(cycle_terms, values[:width]), combine(instruction_terms, values[width:]))
@@ -1200,9 +1114,7 @@ def per_thread_rows(
 def measurement_caveats(
     rows: Sequence[ThreadRow], idle: Sequence[ThreadRow], *, multiplexed: bool, budget: int, events: int
 ) -> list[str]:
-    """Every trap that fired on this run, in fixed order, as actionable text (unpinned threads, SMT
-    collisions, a moving clock, multiplexing are invisible in the numbers). ``rows`` participated,
-    ``idle`` counted nothing; the split is itself a caveat."""
+    """Every measurement trap that fired on this run, in fixed order, as actionable text."""
     notes: list[str] = []
     if idle:
         idle_tids = ", ".join(str(row["tid"]) for row in idle)
@@ -1269,8 +1181,7 @@ def per_thread_report(
     rep_timeout: float,
     memory_bytes: int,
 ) -> PerThreadReport:
-    """Child: count cycles and instructions per thread in one event set per thread, and report the
-    distribution. A CPU without either event is refused by name (:func:`feature_set`)."""
+    """Child: count cycles and instructions per thread and report the distribution."""
     features = feature_set(PER_THREAD_METRICS)
     if features["unsupported"]:
         why = "; ".join(f"{metric}: {reason}" for metric, reason in features["unsupported"].items())
@@ -1326,7 +1237,7 @@ def per_thread_report(
             "threads greater than 1 if the kernel is meant to be parallel",
         )
     spread = imbalance([row["cycles"] for row in working])
-    if spread is None:  # unreachable: every working row burned cycles, so the spread exists
+    if spread is None:  # unreachable: every working row burned cycles
         return missing_report("no_measured_rep", "the counted threads produced no cycle distribution")
     cycles = sum(row["cycles"] for row in rows)
     instructions = sum(row["instructions"] for row in rows)
@@ -1375,8 +1286,7 @@ def per_thread_worker(
     rep_timeout: float,
     memory_bytes: int,
 ) -> PerThreadReport:
-    """Child entry: :func:`per_thread_report` with the gate checked, converting :class:`PapiUnavailable`
-    to data so its ``cause`` survives the fork."""
+    """Child entry: :func:`per_thread_report` with the gate checked; :class:`PapiUnavailable` becomes data."""
     gate = perf_event_reason()
     if gate is not None:
         return missing_report(*gate)
@@ -1400,19 +1310,10 @@ def count_per_thread(
     rep_timeout: float = 0.0,
     memory_gb: float = 0.0,
 ) -> PerThreadReport:
-    """Per-thread cycles, instructions, CPI, IPC and the cycle imbalance, in one measured run in an
-    isolated child.
+    """Per-thread cycles, instructions, CPI, IPC and the cycle imbalance, in one measured run in an isolated child.
 
-    ``CPI = cycles / instructions``, ``IPC = instructions / cycles``, both reported and labelled; the
-    aggregate is a ratio of sums. ``imbalance.max_over_mean`` is what a parallel kernel is limited by.
-
-    Traps probed per run and reported in ``caveats``: pinning (:data:`PINNED_ENV` is read when the
-    ``.so`` loads, so masks are re-read, :func:`thread_cpus`), SMT siblings (:func:`sibling_group`),
-    frequency scaling (:func:`governor`), and multiplexing (labelled ``estimate``).
-
-    Absence carries a ``cause`` from :data:`CAUSES` (``papi_missing``, ``perf_event_paranoid``,
-    ``no_perf_events``, ``not_native``, ``not_openmp``, ``attach_refused``); a segfault or timeout is
-    ``run_failed``. Never raises for a measurement failure."""
+    The aggregate is a ratio of sums. Pinning, SMT siblings, frequency scaling and multiplexing are probed per run and
+    reported in ``caveats``; absence carries a ``cause`` from :data:`CAUSES`. Never raises for a measurement failure."""
     report: PerThreadReport
     if lang is Language.PYTHON:
         report = missing_report(
@@ -1451,8 +1352,7 @@ def fmt(value: float | None, digits: int = 4) -> str:
 
 
 def render_thread_report(report: PerThreadReport) -> str:
-    """The human view: per-thread table, aggregate, imbalance, caveats (shipped with the payload). An
-    absent report renders as its reason."""
+    """The human view of a thread report; an absent report renders as its reason."""
     if "missing" in report:
         # mypy does not narrow a TypedDict union on ``"key" in``; pyright does.
         return f"per-thread counters unavailable [{report['cause']}]: {report['missing']}"  # type: ignore[typeddict-item]

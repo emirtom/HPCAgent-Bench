@@ -1,30 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""HPCAgent-Bench under Harbor: task generation, validation, the in-container grader, and the CLI.
-
-A Harbor task is a directory: ``task.toml`` + ``instruction.md`` + ``tests/test.sh`` (the
-verifier) + ``environment/`` (uploaded to the agent container's ``/app``). :func:`generate`
-writes one per kernel (or per directory bundle) from the HF export rows, :func:`validate_task`
-checks one offline, and :func:`grade` is what ``tests/test.sh`` runs in the separate verifier
-image. The reward is the final grade's S_i (``grade_under.final_grade``, rule ``mw4x5``), the
-number a native submission is credited.
-
-    python -m hpcagent_bench.harbor generate --out tasks/ --selector gemm
-    python -m hpcagent_bench.harbor validate tasks/
-    python -m hpcagent_bench.harbor generate --out tasks/ --selector gemm --run --agent claude-code
-    python -m hpcagent_bench.harbor grade --kernel gemm --source sub.c --reward reward.json
-    python -m hpcagent_bench.harbor stage-repo gemm shared/gemm/repo
-    python -m hpcagent_bench.harbor metadata > adapters/hpcagent_bench/adapter_metadata.json
-
-(``hpcagent-bench harbor ...`` is the same CLI; ``adapters/hpcagent_bench/`` is the adapter-registry
-face of it, a thin wrapper over this module.)
-
-Each kernel is graded as its task's ``requests.json`` asks (docs/requests_api.md): the starter holds the
-kernel's default requests (its default MPI layout on the distributed track, its default sparse formats on
-a sparse kernel), which the agent may change, and adds precision or library requests to. No oracle solution is shipped: it would need the harness in the
-agent image.
-"""
+"""HPCAgent-Bench under Harbor: task generation (one task dir per kernel or bundle), offline validation, the
+in-container grader (the reward is the final grade's S_i) and the CLI (``python -m hpcagent_bench.harbor
+generate|validate|grade|stage-repo|metadata``). No oracle solution ships: it would need the harness in the agent
+image."""
 
 import argparse
 import contextlib
@@ -194,32 +174,25 @@ class Layout(Coded):
 
 type KernelRow = tuple[str, BenchSpec, hf_export.ExportRow]
 
-#: The hardware targets ``--hardware`` selects: the ``images.<hw>`` config pair and the
-#: devices both containers are given (:data:`GPU_ACCESS`).
+#: The hardware targets ``--hardware`` selects (the ``images.<hw>`` pair and the containers' devices).
 HARDWARE: tuple[Hardware, ...] = tuple(Hardware)
 DEFAULT_HARDWARE = Hardware.CPU
-#: GPU passthrough per hardware target, as compose service keys. AMD: the KFD compute node and the
-#: DRI render nodes, plus the groups that own them on a ROCm host; NVIDIA: the CDI device the
-#: container toolkit's CDI spec names (podman and docker >= 25 resolve it); cpu: nothing.
+#: GPU passthrough per hardware target, as compose service keys (AMD: KFD and DRI nodes plus groups; NVIDIA: CDI).
 GPU_ACCESS: dict[Hardware, dict[str, list[str]]] = {
     Hardware.CPU: {},
     Hardware.AMD: {"devices": ["/dev/kfd", "/dev/dri"], "group_add": ["video", "render"]},
     Hardware.NVIDIA: {"devices": ["nvidia.com/gpu=all"]},
 }
-#: Harbor's service for the agent container (``harbor.environments`` execs every agent and verifier
-#: command in it); a compose file adds services beside it.
+#: Harbor's service for the agent container (every agent and verifier command execs in it).
 MAIN_SERVICE = "main"
-#: Harbor's compose file names: ``environment/docker-compose.yaml`` (the agent container) and, for a
-#: separate verifier, ``tests/docker-compose.yaml`` (its build context is ``tests/``).
+#: Harbor's compose file name (``environment/`` for the agent, ``tests/`` for a separate verifier).
 COMPOSE_NAME = "docker-compose.yaml"
 GRADER_MODULE = "hpcagent_bench.harbor"
 WORKDIR = "/app"
 REWARD_PATH = "/logs/verifier/reward.json"
-#: Host directory of the secret seeds (``hpcagent_bench/harness/hidden_tests``) the verifier mounts.
-#: Generated tasks never carry the seeds; ``hpcagent-bench harbor run`` sets this from the checkout.
+#: Host directory of the secret seeds the verifier mounts (never carried by generated tasks).
 HIDDEN_TESTS_ENV = "HPCAGENT_BENCH_HIDDEN_TESTS"
-#: Where the verifier container sees them, named in its HPCAGENT_BENCH_HIDDEN_TESTS
-#: (:mod:`hpcagent_bench.harness` imports ``hidden_tests`` from there).
+#: Where the verifier container sees them.
 HIDDEN_TESTS_MOUNT = "/opt/hpcagent-bench-hidden/hidden_tests"
 #: The verifier's only volume; compose refuses to start when the variable is unset.
 SEEDS_VOLUME = (
@@ -233,7 +206,7 @@ PER_KERNEL_TIMEOUT_S = 1200.0
 RESIDENCIES: tuple[Residency, ...] = (Residency.HOST, Residency.DISTRIBUTED)
 #: A directory with more microkernels than this is emitted per-kernel instead of as one bundle.
 MAX_BUNDLE = 24
-#: `make` outputs: kept out of the agent's PR (.gitignore) and out of the repo artifact tar.
+#: `make` outputs: kept out of the agent's PR and out of the repo artifact tar.
 BUILD_ARTIFACT_GLOBS = ("*.so", "*.o", "*.dylib", "*.dll")
 #: Harbor's task-name segment pattern (ORG_NAME_PATTERN).
 NAME_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -252,8 +225,7 @@ def task_dir_name(task_id: str) -> str:
 
 
 def images_for(hardware: Hardware, distributed: bool = False) -> tuple[str, str]:
-    """``(agent_image, verifier_image)`` of config ``images.<hardware>``; a distributed cpu task's are
-    ``images.mpi``."""
+    """``(agent_image, verifier_image)`` of ``images.<hardware>`` (a distributed cpu task's: ``images.mpi``)."""
     images = config.current().images
     pair = images.mpi if distributed and hardware is Hardware.CPU else images.pair(hardware)
     return pair.agent, pair.verifier
@@ -275,14 +247,8 @@ def compose_text(header: str, services: dict[str, dict[str, object]]) -> str:
 
 
 def agent_compose(agent_image: str, hardware: Hardware) -> str:
-    """``environment/docker-compose.yaml``: the agent container, built FROM ``agent_image`` with the
-    task's ``environment/`` copied to ``/app``.
-
-    Harbor merges it over its own base compose, which names the :data:`MAIN_SERVICE`, keeps it alive
-    and mounts ``/logs``; a task that ships this file gets no upload of ``environment/``, so the
-    files enter through the image instead. ``image: ${MAIN_IMAGE_NAME}`` tags the build with Harbor's
-    content-addressed name, so an unchanged task reuses it. A judge or an inference server is added
-    as a further service; ``main`` does not change."""
+    """``environment/docker-compose.yaml``: the agent container built FROM ``agent_image`` with ``environment/`` at
+    ``/app``, tagged ``${MAIN_IMAGE_NAME}`` so an unchanged task reuses it."""
     main: dict[str, object] = {
         "image": "${MAIN_IMAGE_NAME:-hpcagent-bench-task}",
         "build": {"context": ".", "dockerfile_inline": f"FROM {agent_image}\nCOPY . {WORKDIR}\n"},
@@ -298,9 +264,8 @@ def agent_compose(agent_image: str, hardware: Hardware) -> str:
 
 
 def verifier_compose(hardware: Hardware) -> str:
-    """``tests/docker-compose.yaml`` for the separate verifier: the secret seeds, mounted read-only
-    from ``$HPCAGENT_BENCH_HIDDEN_TESTS`` (compose refuses to start without it), and on a GPU target
-    the devices the grade times on. The image is ``[verifier.environment].docker_image``."""
+    """``tests/docker-compose.yaml`` for the separate verifier: the secret seeds read-only, plus a GPU target's
+    devices."""
     service: dict[str, object] = {**GPU_ACCESS[hardware], "volumes": [SEEDS_VOLUME]}
     header = (
         f"HPCAgent-Bench verifier environment ({hardware.text}): the secret seeds the hidden-input gate reads, and\n"
@@ -319,9 +284,7 @@ REQUESTS_FILE = "requests.json"
 
 
 def requests_starter(spec: BenchSpec, distributed_binding: Binding | None, ranks: int) -> dict[str, Any]:
-    """The ``requests.json`` a task ships: the kernel's default MPI layout on the distributed track
-    (``distributed_binding`` given), every sparse array in its default format on a sparse kernel, else
-    nothing requested."""
+    """The ``requests.json`` a task ships: the default MPI layout (distributed), default sparse formats, or nothing."""
     if distributed_binding is not None:
         return default_requests(spec.mpi, distributed_binding, ranks).to_json()
     if spec.sparse_layouts:
@@ -341,7 +304,7 @@ class KernelTask:
 
     row: hf_export.ExportRow
     subdir: str
-    key: str  # registry key; row.kernel is the short_name, which is not always loadable
+    key: str  # registry key (row.kernel is not always loadable)
 
     @classmethod
     def of(cls, row: hf_export.ExportRow, key: str) -> "KernelTask":
@@ -518,7 +481,7 @@ def _translation_source(kt: KernelTask, language: Language) -> str | None:
 
     try:
         return reference_source(Task(kt.key, language=language))
-    except Exception:  # noqa: BLE001 -- a translator gap skips the kernel, never breaks generation
+    except Exception:  # noqa: BLE001 -- a translator gap skips the kernel
         return None
 
 
@@ -560,7 +523,7 @@ def repo_makefile(kt: KernelTask, language: Language) -> str:
     try:
         cc = languages.compile_variant(BenchSpec.load(kt.key), language, src=pathlib.Path(src))[0]
         flags = languages.baseline_flags(language)
-    except Exception:  # noqa: BLE001 -- no compiler table: a minimal shared-lib line
+    except Exception:  # noqa: BLE001 -- no compiler table: a minimal line
         cc = {Language.C: "gcc", Language.CPP: "g++", Language.FORTRAN: "gfortran"}.get(language, "gcc")
         flags = "-O2 -fPIC"
     return (
@@ -612,7 +575,7 @@ def mpi_instruction_md(kt: KernelTask, language: Language, ranks: int, mode: Sca
         else "STRONG scaling (the TOTAL problem is fixed at the one-node base and decomposed over the "
         "ranks; you are scored on speedup `T_1_node / T_R`)"
     )
-    # Name the development rank counts and the rule, never the (larger) rank count the curve is read at.
+    # Name the development rank counts and the rule, never the larger graded rank count.
     sweep = graded_rank_counts(spec)
     sweep_rule = (
         ""
@@ -722,7 +685,7 @@ def test_sh(
             arg += f" --requests {shlex.quote(kt.requests_path())}"
         if repo:
             arg += f" --repo-dir {shlex.quote(kt.repo_dir_path())}"
-            if seed_sha:  # the shipped seed commit, so a rewritten root cannot move the PR base
+            if seed_sha:  # the shipped seed commit pins the PR base
                 arg += f" --seed-sha {shlex.quote(seed_sha)}"
         lines.append(arg + ")")
     flags = ""
@@ -761,8 +724,7 @@ def task_toml(
     layout: Layout = Layout.KERNEL,
     seed_sha: str | None = None,
 ) -> str:
-    """Render ``task.toml`` (schema 1.3). The agent container is ``environment/docker-compose.yaml``
-    (:func:`agent_compose`); the verifier runs in a separate image; submissions are artifacts."""
+    """Render ``task.toml`` (schema 1.3): compose agent container, separate verifier image, submissions as artifacts."""
 
     def q(s: str | int) -> str:
         return json.dumps(str(s))
@@ -813,7 +775,7 @@ def task_toml(
     arts: list[tuple[str, str, tuple[str, ...]]] = []
     for kt in kts:
         if repo:
-            # The whole repo dir, .git included: the separate verifier reconstructs the PR from it.
+            # The whole repo dir, .git included: the verifier reconstructs the PR from it.
             arts.append((kt.repo_dir_path(), f"{kt.subdir}/repo", BUILD_ARTIFACT_GLOBS))
             continue
         arts.append((kt.submission_path(language), kt.submission_rel(language), ()))
@@ -832,8 +794,7 @@ def task_toml(
         "[metadata]",
         *[f"{k} = {q(v)}" for k, v in meta.items()],
         "",
-        # The agent container is environment/docker-compose.yaml (the agent image: toolchain only, no
-        # harness or hidden tests), so no docker_image here: with one Harbor would skip the build.
+        # No docker_image: the agent container is built from environment/docker-compose.yaml.
         "[environment]",
         f"workdir = {q(WORKDIR)}",
         "",
@@ -869,17 +830,9 @@ def write_task(
     timeout_sec: float | None = None,
     hardware: Hardware = DEFAULT_HARDWARE,
 ) -> pathlib.Path:
-    """Write one task directory under ``out_dir``.
-
-    The agent container is ``environment/docker-compose.yaml`` (:func:`agent_compose`, FROM
-    ``agent_image`` with the GPU of ``hardware``); a GPU target's verifier gets its devices from
-    ``tests/docker-compose.yaml`` (:func:`verifier_compose`).
-
-    ``environment/<kernel>/`` gets the reference, the signature and a submission starter: an empty
-    stub or the ``kernel_mpi`` stub (distributed) plus the ``requests.json`` starter, or a mock git repo
-    whose ``src/`` holds ``seed_source`` committed on ``main`` (repo layout). ``agent_image`` / ``judge_image``
-    None = :func:`images_for` of :data:`DEFAULT_HARDWARE`.
-    """
+    """Write one task directory under ``out_dir``: compose files, and per kernel the reference, signature and a
+    submission starter (stub, MPI stub + ``requests.json``, or a seeded git repo); images default to
+    :data:`DEFAULT_HARDWARE`'s."""
     default_agent, default_judge = images_for(DEFAULT_HARDWARE)
     agent_image, judge_image = agent_image or default_agent, judge_image or default_judge
     distributed = residency is Residency.DISTRIBUTED
@@ -911,7 +864,7 @@ def write_task(
         (env_kdir / "reference.py").write_text(ref_text)
         (env_kdir / "signature.json").write_text(sig_text)
         if distributed:
-            # Same builders the no-op MPI optimizer submits, so the starter is always gradeable.
+            # The same builders the no-op MPI optimizer submits, so the starter is always gradeable.
             spec, binding = mpi_binding(kt)
             (env_kdir / f"submission.{_ext(language)}").write_text(gen_kernel_mpi_stub(binding, language))
             starter = requests_starter(spec, binding, ranks)
@@ -943,8 +896,7 @@ def write_task(
 
 
 def write_solution(task_dir: pathlib.Path, kts: list[KernelTask], language: Language, sources: dict[str, str]) -> None:
-    """``solution/solve.sh`` for Harbor's ``oracle`` agent: copy each kernel's reference translation
-    into its submission path. Only the oracle agent ever sees ``solution/``."""
+    """``solution/solve.sh`` for Harbor's ``oracle`` agent: copy each kernel's reference translation in place."""
     sol = task_dir / "solution"
     lines = ["#!/bin/bash", "set -euo pipefail", 'here="$(cd "$(dirname "$0")" && pwd)"']
     for kt in kts:
@@ -1023,17 +975,12 @@ def generate(
     commit: str | None = None,
     oracle: bool = False,
 ) -> list[pathlib.Path]:
-    """Generate task dirs under ``out_dir`` plus a ``tasks.json`` listing them; return the dirs.
+    """Generate task dirs under ``out_dir`` plus a ``tasks.json``; returns the dirs.
 
-    ``hardware`` (:data:`HARDWARE`, default cpu) picks the ``images.<hw>`` pair and the GPU both
-    containers get. Distributed tasks cover only kernels with an ``mpi:`` block, one kernel per
-    task, on the ``mpi`` image pair when ``hardware`` is cpu. The repo layout is one host kernel per task and
-    skips kernels with no NumpyToX translation for ``language``. ``oracle`` also ships a
-    ``solution/`` with the reference translation, run by Harbor's ``oracle`` agent (no LLM).
-    """
+    Distributed tasks cover only kernels with an ``mpi:`` block; the repo layout skips kernels without a translation;
+    ``oracle`` also ships ``solution/``."""
     check_modes(group, residency, layout, oracle=oracle)
     distributed = residency is Residency.DISTRIBUTED
-    # A distributed cpu task runs on the mpi image pair (the cpu pair unless overridden).
     cfg_agent, cfg_judge = images_for(hardware, distributed)
     baseline = baseline or baseline_text(measurement_baseline())
     commit = paths.git_head() if commit is None else commit
@@ -1076,11 +1023,7 @@ def generate(
 
 
 def stage_repo(kernel: str, dest: str | pathlib.Path, language: Language = Language.C) -> pathlib.Path | None:
-    """Build one kernel's repo-layout git repo and copy it to ``dest`` (the experiment's shared folder).
-
-    Returns ``dest``, or None when the kernel has no translation to seed it. An existing ``dest``
-    is left untouched.
-    """
+    """Build one kernel's repo-layout git repo into ``dest`` (left untouched if present); None without a translation."""
     dest = pathlib.Path(dest)
     if dest.exists():
         return dest
@@ -1127,7 +1070,7 @@ def toml_problems(cfg: dict, td: pathlib.Path) -> list[str]:
     return [msg for ok, msg in checks if not ok]
 
 
-#: Compose service keys that reach past the container: host namespaces, privilege, host mounts.
+#: Compose service keys that reach past the container (host namespaces, privilege, host mounts).
 HOST_REACHING_KEYS: tuple[str, ...] = (
     "privileged",
     "network_mode",
@@ -1141,8 +1084,8 @@ HOST_REACHING_KEYS: tuple[str, ...] = (
 
 
 def compose_problems(path: pathlib.Path, *, agent: bool) -> list[str]:
-    """A generated compose file Harbor can merge: a ``main`` service, no host networking, no
-    privilege, no host path; the agent's ``main`` builds FROM a fully qualified image into ``/app``."""
+    """Problems with a generated compose file: ``main`` present, no host reach, ``main`` built FROM a qualified
+    image."""
     name = path.relative_to(path.parents[1]).as_posix()
     try:
         doc = yaml.safe_load(path.read_text())
@@ -1152,7 +1095,7 @@ def compose_problems(path: pathlib.Path, *, agent: bool) -> list[str]:
     main = services.get(MAIN_SERVICE) if isinstance(services, dict) else None
     if not isinstance(services, dict) or not isinstance(main, dict):
         return [f"{name}: no services.{MAIN_SERVICE}"]
-    # The verifier's one host path: the secret seeds, read-only, from the variable harbor run sets.
+    # The verifier's one host path: the secret seeds, read-only.
     seeds_only = [SEEDS_VOLUME]
     problems = [
         f"{name}: services.{svc}.{key} is set"
@@ -1206,12 +1149,8 @@ def environment_problems(td: pathlib.Path) -> list[str]:
 
 
 def validate_task(task_dir: str | pathlib.Path) -> list[str]:
-    """Offline check of one generated task dir; returns the problems (empty = valid).
-
-    ``task.toml`` fields and artifacts, a non-empty prompt, an executable verifier calling the
-    grader, the per-kernel files, and ``solution/solve.sh`` when shipped. With ``harbor``
-    installed, its own ``TaskConfig`` model is applied too.
-    """
+    """Offline check of one generated task dir; returns the problems (empty = valid), with Harbor's own
+    ``TaskConfig`` when installed."""
     td = pathlib.Path(task_dir)
     try:
         text = (td / "task.toml").read_text()
@@ -1236,7 +1175,7 @@ def validate_task(task_dir: str | pathlib.Path) -> list[str]:
         return problems
     try:
         TaskConfig.model_validate_toml(text)
-    except Exception as exc:  # noqa: BLE001 -- any model error is a validation problem
+    except Exception as exc:  # noqa: BLE001 -- any model error is a problem
         problems.append(f"harbor TaskConfig: {exc}")
     return problems
 
@@ -1280,14 +1219,10 @@ def grade(
     seed_sha: str | None = None,
     single_rank_anchor: Submission | None = None,
 ) -> HostGrade | DistributedGrade:
-    """Grade one artifact and return its grade; unset measurement args come from the config.
+    """Grade one artifact; unset measurement args come from the config.
 
-    A single-node artifact is graded exactly as the final grade grades a submission
-    (:func:`hpcagent_bench.harness.grade_under.final_grade` under :func:`grade_under.final_settings`: every
-    timed input of the credited protocol, 1 warmup + its runs per side, its per-input statistic, the
-    geomean of the credited ratios; rule ``score_rule.SCORE_RULE``).
-    ``k``, ``repeat`` and ``verify`` apply to the distributed track only, which keeps the fuzzed
-    sweep (:func:`metric.score_task_fuzzed`) and its scaling curve."""
+    Single-node: exactly the final grade (:func:`grade_under.final_grade`). ``k``, ``repeat`` and ``verify`` apply
+    to the distributed track only (fuzzed sweep and scaling curve)."""
     baseline = baseline or baseline_text(measurement_baseline())
     datatype = datatype or config.current().service.datatype
     repeat = repeat if repeat is not None else measurement_repeat()
@@ -1314,7 +1249,7 @@ def grade(
         verify=verify,
         single_rank_anchor=single_rank_anchor,
     )
-    # The multi-node scaling curve is disclosed next to the scalar reward, never folded into it.
+    # The scaling curve is disclosed beside the reward, never folded into it.
     curve = None
     if ts.scaling is not None:
         fields = dataclasses.asdict(ts.scaling)
@@ -1324,7 +1259,7 @@ def grade(
     swept = DistributedGrade(
         reward=ts.s_i,
         solved=ts.solved,
-        speedup=ts.raw_speedup,  # g_i, the geomean of the credited ratios
+        speedup=ts.raw_speedup,  # g_i
         gsd=ts.gsd,
         score_rule=ts.score_rule,
         baseline=ts.baseline,
@@ -1361,11 +1296,10 @@ def final_reward(submission: Submission, task: Task, *, baseline: str, datatype:
     return HostGrade(
         reward=graded.credit.score,
         solved=graded.solved,
-        speedup=graded.credit.geomean,  # g_i, the geomean of the credited per-input ratios
+        speedup=graded.credit.geomean,  # g_i over the credited per-input ratios
         gsd=graded.credit.gsd,
         score_rule=score_rule.SCORE_RULE,
-        # The denominator's identity is the raced set (policy), as the results DB pools by it; the
-        # per-input winners are disclosed beside it.
+        # The denominator's identity is the raced set (as the results DB pools); winners are disclosed.
         baseline="+".join(policies),
         baseline_winner="+".join(sorted({cell.baseline for cell in graded.measured})),
         kernel=task.kernel,
@@ -1394,11 +1328,10 @@ def final_reward(submission: Submission, task: Task, *, baseline: str, datatype:
 def _gate_repo_pr(
     reward: HostGrade | DistributedGrade, repo_dir: str, speedup_min: float | None, seed_sha: str | None = None
 ) -> HostGrade | DistributedGrade:
-    """``reward`` under the repo-task PR acceptance rule, the verdict recorded beside it; a rejected PR
-    scores as a non-win everywhere."""
+    """``reward`` gated by the repo-task PR acceptance rule (a rejected PR is a non-win), with the verdict."""
     smin = speedup_min if speedup_min is not None else config.current().repo.speedup_min
     pr = repo_pr.evaluate(repo_dir, seed_sha=seed_sha)
-    # Gate on S_i (after the dispersion gate), so the two gates agree.
+    # Gate on S_i, so the two gates agree.
     accepted, why = repo_pr.accepts(pr, solved=reward.solved, speedup=reward.reward, speedup_min=smin)
     verdict = {"pr": PrRecord.of(pr), "accepted": accepted, "accept_reason": why, "speedup_min": smin}
     floor = {} if accepted else {"reward": 1.0, "solved": False, "speedup": 1.0}
@@ -1406,11 +1339,7 @@ def _gate_repo_pr(
 
 
 def combine(rewards: Sequence[KernelGrade]) -> BundleGrade:
-    """One task reward from per-kernel rewards: geomean of S_i, gated to 1.0 unless all are solved.
-
-    Refuses a bundle divided by two different baselines (``one_denominator``). A row naming no
-    baseline (a neutral 1.0 from a failed item) does not vote.
-    """
+    """One task reward from per-kernel rewards: geomean of S_i, 1.0 unless all solved; refuses mixed baselines."""
     graded = [r for r in rewards if not isinstance(r, FailedGrade)]
     named = [r.baseline for r in graded if is_named(r.baseline)]
     denominator = one_denominator(named, label="combine") if named else ""
@@ -1430,11 +1359,7 @@ def combine(rewards: Sequence[KernelGrade]) -> BundleGrade:
 
 
 def harbor_reward(reward: Grade) -> dict[str, float | int]:
-    """The flat, numeric reward Harbor accepts in ``reward.json`` (it rejects any non-numeric value).
-
-    Keeps the finite scalar numbers of ``reward``'s ``grade.json`` object (booleans as 0/1); the full
-    grade goes to the detail file next to it.
-    """
+    """The flat numeric reward ``reward.json`` takes (finite scalars, booleans as 0/1); the full grade goes beside."""
     flat: dict[str, float | int] = {}
     for key, value in reward.model_dump().items():
         if isinstance(value, bool):
@@ -1559,8 +1484,7 @@ def grade_items(
 
 # running under Harbor
 
-#: Our agent backends and the Harbor agent that plays each. ``noop`` submits the reference
-#: unchanged, which is what Harbor's ``oracle`` agent does with the shipped ``solution/``.
+#: Our agent backends and the Harbor agent that plays each (``noop`` is Harbor's ``oracle``).
 HARBOR_AGENTS = {"claude": "claude-code", "openai": "terminus-2", "vllm": "terminus-2", "noop": "oracle", "stub": "nop"}
 
 
@@ -1575,12 +1499,7 @@ def _first(*names: str) -> str:
 
 
 def agent_args(agent: str) -> list[str]:
-    """Harbor ``--agent/--model/--ae/--allow-agent-host`` for one of our agent backends.
-
-    The model and endpoint come from the env vars the native agents read (``OPENAI_BASE_URL``,
-    ``HPCAGENT_BENCH_VLLM_URLS``, ``HPCAGENT_BENCH_OPENAI_MODEL``, ``ANTHROPIC_*``). API keys stay in
-    the environment, where Harbor reads them; they never go on argv.
-    """
+    """Harbor ``--agent/--model/--ae/--allow-agent-host`` for one of our backends; API keys stay in the environment."""
     if agent not in HARBOR_AGENTS:
         raise ValueError(f"no Harbor agent for {agent!r}; choices: {sorted(HARBOR_AGENTS)}")
     args = ["--agent", HARBOR_AGENTS[agent]]
@@ -1605,14 +1524,12 @@ def agent_args(agent: str) -> list[str]:
     return args
 
 
-#: Harbor providers that build a task's ``environment/docker-compose.yaml``; its singularity
-#: provider runs a ``docker_image`` only.
+#: Harbor providers that build a compose task (its singularity provider runs a ``docker_image`` only).
 COMPOSE_PROVIDERS: tuple[str, ...] = ("docker", "podman")
 
 
 def run_argv(task_root: str | pathlib.Path, *, job_name: str, jobs_dir: str | pathlib.Path) -> list[str]:
-    """``harbor run`` over every task dir under ``task_root``, on the configured container runtime;
-    ValueError for a runtime that cannot build a compose task (:data:`COMPOSE_PROVIDERS`)."""
+    """``harbor run`` over every task dir under ``task_root``; ValueError for a runtime that cannot build compose."""
     provider = containers.harbor_env_for()
     if provider not in COMPOSE_PROVIDERS:
         raise ValueError(
@@ -1670,12 +1587,7 @@ def run_agent(
     hardware: Hardware = DEFAULT_HARDWARE,
     extra: Sequence[str] = (),
 ) -> tuple[int, list[Grade]]:
-    """Run one of our agent backends on ``selector`` under Harbor; return (exit code, grades).
-
-    Generates the tasks under ``<out_dir>/tasks`` (with oracle solutions for ``noop``), runs
-    ``harbor run`` into ``<out_dir>/jobs``, and reads back each trial's grade -- the same
-    :func:`grade` a native run uses.
-    """
+    """Run one of our agent backends on ``selector`` under Harbor; returns (exit code, grades read back)."""
     out = pathlib.Path(out_dir)
     tasks = out / "tasks"
     shutil.rmtree(tasks, ignore_errors=True)
@@ -1689,9 +1601,7 @@ def run_agent(
 
 
 def adapter_metadata() -> dict[str, object]:
-    """``adapters/hpcagent_bench/adapter_metadata.json``, derived from this module and the release's
-    vocabulary (tracks, languages, score rule) so the registry entry cannot drift from the generator.
-    Regenerate with ``python -m hpcagent_bench.harbor metadata``."""
+    """``adapters/hpcagent_bench/adapter_metadata.json``, derived from this module and the vocabulary."""
     version = tomllib.loads((paths.ROOT / "pyproject.toml").read_text())["project"]["version"]
     return {
         "name": "hpcagent_bench",
@@ -1832,7 +1742,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_generate(args: argparse.Namespace, harbor_extra: list[str]) -> int:
     out = pathlib.Path(args.out)
-    if args.run:  # Harbor runs every task dir under -p: drop an earlier generation
+    if args.run:  # drop an earlier generation
         for child in out.glob("hpcagent_bench-*"):
             shutil.rmtree(child, ignore_errors=True)
     dirs = generate(

@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""There is no NumPy oracle, on any track.
-
-A kernel's ``<module>_numpy.py`` is the task program the agent optimizes, never a reference.
-``scientific_computing`` and ``loop_level_reasoning`` grade against their compiled best-of(numba, c)
-references (the race leader first, the other when it cannot answer), ``machine_learning`` against the
-compiled PyTorch reference (``torch-autotune``). These tests pin the absence structurally -- no oracle
-kind, option or runner names numpy -- and drive real grades of each track through the compiled
-references, including the faults when none of them answers.
-"""
+"""There is no NumPy oracle on any track: structurally absent, and real grades of each track go through the
+compiled references (with faults when none answers)."""
 
 import ast
 import pathlib

@@ -3,15 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Write the ``PROBLEMS_FILE`` JSONL that ``agent_driver.py`` reads, for one track or a kernel selection.
 
-A generator rather than a checked-in list: the registry moves, and a stale list is the kind of
-input that runs to completion and reports a number for the wrong set of kernels.
-
     python3 make_problems.py --track loop_level_reasoning --language fortran > problems-llr.jsonl
     python3 make_problems.py --select tsvc_2_s235,kmp --select all@harness20 --language c
 
-Language is the TRACK's language, not a per-kernel choice: the judge refuses a foreign language on
-an enforced track, so every problem in one run carries the same one. Omit it for the free-choice
-variant, where the agent picks and delivers a prebuilt library instead.
+``--language`` is the TRACK's (the judge refuses a foreign one); omit it for the free-choice variant.
 """
 
 import argparse
@@ -62,23 +57,19 @@ __all__ = [
     "trigger_line",
 ]
 
-#: The skill folder: --stage-skills copies the pages a packet names to <shared>/SKILL_SUBDIR, and the agent reads
-#: them read-only at SKILL_DIR (the seal binds them there). A trigger naming a path that does not exist is worse
-#: than no trigger, because the agent spends a turn discovering it.
+#: The skill folder: --stage-skills copies a packet's pages to <shared>/SKILL_SUBDIR, read-only at SKILL_DIR.
 SKILL_SUBDIR = "skills"
 SKILL_DIR = f"/{SKILL_SUBDIR}"
 
 #: A page as the packet names it; group 1 is the page's directory name.
 SKILL_PAGE = re.compile(rf"{re.escape(SKILL_DIR)}/([A-Za-z0-9._-]+)\.md")
 
-#: Files staged beside a page, by page name: COPIES of what the judge builds with, so the reader can
-#: open the API the page teaches.
+#: Files staged beside a page, by page name: COPIES of what the judge builds with.
 PAGE_COMPANIONS: dict[str, tuple[pathlib.Path, ...]] = {"profiling": (flags.PAPI_RANGES_H,)}
 
-#: What a CPF-as-source packet STAGES, said in the task text itself (a skill page may go unread). The
-#: transformation list is what dace's canonicalize pipeline applies (see the cpf-cpu-src / cpf-gpu-src pages);
-#: the loop labels are annotate_loop_kinds' own strings. ``{files}`` names the staged file(s), ``{mark}`` what
-#: else marks a parallel loop in that dialect.
+#: What a CPF-as-source packet STAGES, said in the task text itself (a page may go unread); the transformations are
+#: dace canonicalize's and the loop labels annotate_loop_kinds'. ``{files}`` names the staged file(s), ``{mark}``
+#: the dialect's other parallel marker.
 CPFSRC_NOTE = (
     "Canonical parallel form as source: {files} in your folder {verb} this kernel's ONLY source and {replaces} "
     "the hand-written reference. It is DaCe's Canonical Parallel Form (CPF) of the reference, ALREADY PARALLELIZED "
@@ -92,8 +83,7 @@ CPFSRC_NOTE = (
     "graded), then spend your effort on tiling, fusion, vectorization, memory layout and scheduling."
 )
 
-#: :data:`CPFSRC_NOTE` for a ``-kinds`` packet, whose form carries one ``// par``, ``// seq`` or ``// unknown`` per
-#: loop and no other comment: the three words, defined once each, in place of the verdict contract.
+#: :data:`CPFSRC_NOTE` for a ``-kinds`` packet (one ``// par``/``// seq``/``// unknown`` per loop, nothing else).
 CPFSRC_KINDS_NOTE = (
     "Canonical parallel form as source: {files} in your folder {verb} this kernel's ONLY source and {replaces} "
     "the hand-written reference. It is DaCe's Canonical Parallel Form (CPF) of the reference, ALREADY PARALLELIZED "
@@ -106,25 +96,16 @@ CPFSRC_KINDS_NOTE = (
     "your effort on tiling, fusion, vectorization, memory layout and scheduling."
 )
 
-#: What materialize_shared.sh stages a drop-in as on a free-choice setup, which pins no language
-#: (``--language "${AGENT_LANGUAGE:-c}"``). The note must name the file that setup will actually find.
+#: The language materialize_shared.sh stages a drop-in in on a free-choice setup.
 DROPIN_DEFAULT_LANGUAGE = "c"
 
 
 def assert_language_pages_paired(
     names: Sequence[str], by_name: dict, language: str = "any", image: str | None = None
 ) -> None:
-    """Refuse a packet that takes ``lang-<X>`` without ``openmp-<X>``, or the reverse.
+    """Refuse a packet that takes ``lang-<X>`` without ``openmp-<X>``, or the reverse: the pair is one treatment.
 
-    The two are one treatment, not two: ``lang-<X>`` teaches how to write the language and
-    ``openmp-<X>`` how to parallelize it, and the ablation that measured "the language packet" has
-    always meant both. Shipping one alone is a packet nothing has ever measured, and it reads in the
-    results table under the same name as the pair -- so it is refused rather than rendered.
-
-    Only pairs that EXIST and APPLY to the setup are required: hip and cuda have a language page and no
-    openmp partner, so naming ``lang-hip`` alone is complete rather than half a packet -- and a HIP
-    setup that leans on ``lang-cpp`` for the host half of its file is not handed ``openmp-cpp``, a
-    host-threading page whose own ``applies:`` says it is for C++ tasks.
+    Only partners that EXIST and APPLY to the setup are required (``lang-hip`` alone is complete).
 
     :param names: the pages this packet was asked for.
     :param by_name: every shipped page, used to tell a missing partner from one that never existed.
@@ -143,13 +124,7 @@ def assert_language_pages_paired(
 
 
 def trigger_line(skill: Skill) -> str:
-    """One page as ONE line: its trigger, then the file that answers it.
-
-    The trigger is the whole of what the packet spends on a page. `when` is the page's own; it
-    falls back to the description (prompts.Skill). A line that named the file without saying when
-    to open it is a path the reader has no reason to follow. The file is named by the page's
-    directory, the name it is staged under.
-    """
+    """One page as ONE line: its trigger (``when``, else the description), then the file (its directory name)."""
     return (
         textwrap.fill(
             f"- When {skill.when or skill.description} -- read `{SKILL_DIR}/{skill.file}.md`.",
@@ -163,13 +138,8 @@ def trigger_line(skill: Skill) -> str:
 
 
 def skill_index(skills: list[Skill], harness: str = harnesses.CLAUDE) -> str:
-    """The skill section: a heading, then one :func:`trigger_line` per page in ``skills``, and a note to
-    read the language page when a ``lang-*`` page is present. The same renderer serves every setup; setups
-    differ only in ``skills``. Page bodies are not inlined (materialize_shared.sh stages the files).
-
-    ``harness`` names the tool a page is opened with (:func:`harnesses.page_opening`): only claude has
-    one called Read.
-    """
+    """The skill section: a heading, one :func:`trigger_line` per page, and a read-the-language-page note when a
+    ``lang-*`` page is present; ``harness`` names the page-opening tool (:func:`harnesses.page_opening`)."""
     lines = "".join(trigger_line(skill) for skill in skills)
     # Only a setup that stages a language page is told to read one; the CPF and method packets carry none.
     language_note = (
@@ -185,16 +155,10 @@ def skill_index(skills: list[Skill], harness: str = harnesses.CLAUDE) -> str:
 
 
 def packet_pages(spec: str, language: str, image: str | None = None, multinode: bool = False) -> list[Skill]:
-    """The pages ``--packet spec`` names (:func:`hpcagent_bench.packets.resolve`), in spec and definition
-    order: shipped pages and external ones (``skills.external``).
+    """The pages ``--packet spec`` names (shipped and external), in spec and definition order.
 
-    ``language`` is required whenever ``spec`` expands the ``lang`` skill token (directly, or through a
-    registered packet that composes it): ``packets.resolve`` needs a concrete language to pick
-    ``lang-<language>``.
-
-    :raises ValueError: an unknown packet/skill token, a spec that names ``lang`` with no ``language``,
-        a frozen key, or a device packet for a language its device does not run -- all CLI usage errors,
-        left for the caller to turn into ``exit(2)``.
+    :raises ValueError: an unknown token, ``lang`` without ``language``, a frozen key, or a device packet for a
+        language its device does not run (CLI usage errors).
     """
     try:
         packets.refuse_frozen(spec)
@@ -221,16 +185,10 @@ def packet_skills_text(
 
 
 def packet_note(spec: str, language: str, stem: str, module: str) -> str:
-    """What ``spec`` staged that no skill page announces, for kernel ``stem`` (files named after
-    ``module``); "" when it staged nothing of the kind.
+    """What ``spec`` staged that no skill page announces (the CPF-as-source drop-in ``<module>_reference.<ext>``,
+    keyed on the resolved ``CPF_DROPIN_DIR``), for kernel ``stem``; "" when nothing.
 
-    That is the CPF-as-source drop-in, which materialize_shared.sh stages as ``<module>_reference.<ext>`` in the
-    kernel's task material (copied into the agent's folder) in place of the hand-written reference.
-    Keyed on the RESOLVED env, the same ``CPF_DROPIN_DIR`` that script stages the file from, so
-    every packet that composes cpf-cpu-src or cpf-gpu-src (all-in, all-in-cpu, all-in-amd) announces it.
-
-    :raises ValueError: ``spec`` stages a drop-in in a language the CPF renderer has no dialect for
-        (fortran and the device languages beyond hip), where the setup cannot materialize at all.
+    :raises ValueError: a drop-in language the CPF renderer has no dialect for.
     """
     env = dict(packets.resolve(spec, language, fill=False).env)
     if "CPF_DROPIN_DIR" not in env:
@@ -256,8 +214,7 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
 
 
 def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
-    """The hint detail a packet's resolved ``env`` serves its form at: the one its
-    :data:`~hpcagent_bench.cpf_cache.HINTS_ENV` names, else the default (``proofs``)."""
+    """The hint detail a packet's resolved ``env`` serves its form at (its ``HINTS_ENV``, else ``proofs``)."""
     named = env.get(cpf_cache.HINTS_ENV)
     if named is None:
         return cpf_cache.DEFAULT_HINTS
@@ -268,8 +225,7 @@ def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
 
 
 def setup_form(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> cpf_cache.Form | None:
-    """The canonical parallel form of ``stem`` in ``dialect`` the setup's view (``$CPF_VIEW``) serves; None when no
-    view answers."""
+    """The canonical parallel form of ``stem`` in ``dialect`` the setup's ``$CPF_VIEW`` serves; None when none."""
     view = os.environ.get("CPF_VIEW", "")
     if not stem or not view:
         return None
@@ -283,22 +239,19 @@ def setup_form(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> cpf_cach
 
 
 def form_libraries(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> tuple[str, ...]:
-    """The catalog libraries the canonical parallel form of ``stem`` in ``dialect`` calls (CPF lowers BLAS, LAPACK
-    and FFT nodes to vendor libraries); none when no view answers."""
+    """The catalog libraries the canonical parallel form of ``stem`` in ``dialect`` calls; none when no view answers."""
     form = setup_form(stem, dialect, hints)
     return form.libraries if form else ()
 
 
 def form_workspace_bytes(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str | None:
-    """The ``workspace_bytes`` the canonical parallel form of ``stem`` in ``dialect`` needs (its transients live in
-    the caller's workspace); None when it needs none or no view answers."""
+    """The ``workspace_bytes`` the canonical parallel form of ``stem`` in ``dialect`` needs; None when none."""
     form = setup_form(stem, dialect, hints)
     return form.workspace_bytes if form and form.workspace_bytes != "0" else None
 
 
 def form_libraries_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str:
-    """What the cpf-src note says about the libraries the drop-in calls: they are loaded from the start
-    (:func:`default_load`); "" when it calls none."""
+    """The cpf-src note's line on the drop-in's libraries (loaded from the start); "" when it calls none."""
     libraries = form_libraries(stem, dialect, hints)
     if not libraries:
         return ""
@@ -309,8 +262,7 @@ def form_libraries_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) ->
 
 
 def form_workspace_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> str:
-    """What the cpf-src note says about the drop-in's workspace: requested from the start
-    (:func:`default_workspace_bytes`); "" when it needs none."""
+    """The cpf-src note's line on the drop-in's workspace (requested from the start); "" when it needs none."""
     needed = form_workspace_bytes(stem, dialect, hints)
     if needed is None:
         return ""
@@ -321,8 +273,7 @@ def form_workspace_note(stem: str, dialect: str, hints: cpf_cache.HintDetail) ->
 
 
 def cpf_dialect(spec: str, language: str) -> tuple[str, cpf_cache.HintDetail] | None:
-    """The dialect and hint detail of the canonical parallel form a CPF packet serves (``packets.CPF_ENV_KEYS``:
-    cpf-src's starting source, cpf-tool's answer); None for any other setup."""
+    """The dialect and hint detail of the form a CPF packet serves (``packets.CPF_ENV_KEYS``); None otherwise."""
     env = dict(packets.resolve(spec, language, fill=False).env) if spec else {}
     if not packets.CPF_ENV_KEYS & env.keys():
         return None
@@ -333,26 +284,20 @@ def cpf_dialect(spec: str, language: str) -> tuple[str, cpf_cache.HintDetail] | 
 
 
 def default_workspace_bytes(spec: str, language: str, stem: str) -> str | None:
-    """The ``workspace_bytes`` a problem of ``stem`` requests by default: what the canonical parallel form a CPF
-    packet serves needs. None for any other setup, or a form that needs none."""
+    """The ``workspace_bytes`` a problem of ``stem`` requests by default (its CPF form's); None otherwise."""
     served = cpf_dialect(spec, language)
     return form_workspace_bytes(stem, *served) if served else None
 
 
 def default_load(spec: str, language: str, stem: str) -> list[str] | None:
-    """The libraries a problem of ``stem`` loads by default: what the canonical parallel form a CPF packet serves
-    (:func:`cpf_dialect`) calls. None for any other setup."""
+    """The libraries a problem of ``stem`` loads by default (its CPF form's, :func:`cpf_dialect`); None otherwise."""
     served = cpf_dialect(spec, language)
     return (list(form_libraries(stem, *served)) or None) if served else None
 
 
 def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
-    """Copy exactly the skill pages ``problems`` names into ``shared``.
-
-    A page comes from the path its problem recorded under ``skill_pages`` (an external page), else from the
-    shipped page of that directory name. A named page with neither is reported:
-    the packet told the agent the file exists, so a miss is a turn spent on a failed Read.
-    """
+    """Copy exactly the skill pages ``problems`` names into ``shared`` (a recorded external path, else the shipped
+    page); a page with neither is reported."""
     wanted = sorted(set(SKILL_PAGE.findall(problems.read_text(encoding="utf-8"))))
     if not wanted:
         return 0
@@ -378,11 +323,8 @@ def stage_skill_pages(problems: pathlib.Path, shared: pathlib.Path) -> int:
 
 
 def selected_keys(tokens: Sequence[str]) -> set[str]:
-    """Path-keys named by selector tokens in the ``KERNELS.select_keys`` grammar.
-
-    One token may hold several selectors separated by commas. An unresolvable selector is fatal:
-    skipping it would write a problems file for fewer kernels than were asked for.
-    """
+    """Path-keys named by selector tokens (``KERNELS.select_keys`` grammar, comma-separated); an unresolvable one is
+    fatal."""
     keys: set[str] = set()
     for token in (part.strip() for value in tokens for part in value.split(",")):
         if not token:
@@ -395,9 +337,8 @@ def selected_keys(tokens: Sequence[str]) -> set[str]:
 
 
 def skill_section(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[str, dict[str, str]]:
-    """The skills section every task carries (the same for every problem: the language is fixed for the
-    run), and the external pages (``skills.external``) by name, with the file ``--stage-skills`` copies each from:
-    the problems file is the record, so staging needs no external folder configured."""
+    """The skills section every task carries, and the external pages by name with the file each is staged from (the
+    problems file is the record)."""
     if not args.packet:
         return "", {}
     try:
@@ -416,9 +357,7 @@ def selection(args: argparse.Namespace) -> tuple[list[str], set[str]]:
     """The ``--select`` / ``--kernels-file`` tokens and the path-keys they name."""
     tokens: list[str] = list(args.select)
     if args.kernels_file:
-        # A name is whatever precedes a `#`, so a tag that annotates each line with its dwarf
-        # reads the same as a bare list. Matching the whole line silently kept NOTHING from an
-        # annotated tag and reported a file with no kernels in it.
+        # A name is whatever precedes a `#` (tags annotate lines with their dwarf).
         with pathlib.Path(args.kernels_file).open() as fh:
             lines = [name for name in (ln.split("#", 1)[0].strip() for ln in fh) if name]
         if not lines:
@@ -437,20 +376,15 @@ def task_text(args: argparse.Namespace, name: str, spec: BenchSpec, skills_text:
     language = graded_language(args.language)
     if args.note:
         task = f"{task} {args.note}"
-    # A kernel the judge grades DISTRIBUTED (mpi.grade_distributed, read from the environment the
-    # submit script exports for this call) is graded against the kernel_mpi ABI, not the
-    # single-node one, and only this text can tell the agent so: the experiment never renders
-    # build_prompt, where that contract otherwise lives.
+    # A DISTRIBUTED kernel is graded against the kernel_mpi ABI; only this text can tell the agent (no build_prompt).
     residency = grading_residency(name, language)
     if residency is Residency.DISTRIBUTED:
         task = f"{task}\n\n{distributed_contract(Task(name, SourceMode.RESTRICTED, language, residency=residency))}"
-    # Before the triggers: what the packet PUT THERE is a fact about the task, and the
-    # triggers are the manual for reading it.
+    # Before the triggers: what the packet put there is a fact about the task.
     if args.packet and (note := packet_note(args.packet, args.language, spec.short_name, spec.module_name)):
         task = f"{task}\n\n{note}"
     if skills_text:
-        # Triggers LAST: the last thing the agent reads before acting is what to open and when.
-        # The block is a few lines, so the prefix-cache cost is negligible.
+        # Triggers LAST: the last thing read before acting is what to open and when.
         task = f"{task}\n\n{skills_text}"
     return task
 
@@ -474,12 +408,9 @@ def problem_entry(
     slot: int | None = None,
     packet: str = "",
 ) -> ProblemLine:
-    """One problems-file line, with the facts the driver fills the prompt's slots from
-    (:func:`~hpcagent_bench.harness.prompts.cluster_facts`) and what its tools offer in ``requests``
-    (:func:`~hpcagent_bench.harness.prompts.request_actions`). ``slot`` is the 1-based run of a designed
-    repeat (``--repeat`` above 1): the driver puts it in the episode label, and an owed rerun replays the
-    line, so a rerun keeps its slot. ``packet`` (the ``--packet`` spec) decides the libraries it loads by default
-    (:func:`default_load`)."""
+    """One problems-file line, with the prompt-slot facts (:func:`~hpcagent_bench.harness.prompts.cluster_facts`)
+    and ``requests`` actions; ``slot`` is the 1-based run of a designed repeat (kept by an owed rerun), and
+    ``packet`` decides the default libraries (:func:`default_load`)."""
     graded_as = graded_language(language)
     graded = Task(name, SourceMode.RESTRICTED, graded_as, residency=grading_residency(name, graded_as))
     return ProblemLine(
@@ -608,8 +539,7 @@ def main() -> int:
             continue
         if not in_scope(args, name, spec, tagged):
             continue
-        # A kernel that does not support the requested language would be a guaranteed refusal, so
-        # it is dropped here rather than burning an agent's whole turn budget on 400s.
+        # A kernel without the requested language would be a guaranteed refusal: dropped.
         if args.language and spec.languages and graded_language(args.language) not in spec.languages:
             if wanted:
                 dropped.append(f"{name} (does not support {args.language})")

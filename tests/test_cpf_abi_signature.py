@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every CPF form takes the C ABI exactly as the prompt's "Required signature" spells it, and grades as a submission.
-
-The prompt hands an agent ``gen_call_stub``'s signature (``harness/prompts/sections/api.j2``) and the judge
-links that symbol and calls it with that argument order. A CPF form that differs in one ``const``, in the
-position of the workspace pair or in the case-sensitive order of its scalars would read the wrong memory,
-so the entry prototype is compared to the stub's as text, and the form is graded through ``scoring.score``,
-the call ``POST /submit`` makes, against the numpy reference.
-
-The kernels: loop-level reasoning (``tsvc_2_s311``; ``indirect_gather_3nbr``, whose ``field`` the dace
-emitter respells), scientific computing level 1 (``gemm``: upper-case size symbols sort before the
-``alpha``/``beta`` scalars) and level 2 (``atax``; ``heat_3d``, a scalar beside its sizes). Every one takes
-the trailing ``workspace``/``workspace_size`` pair. Nobody passes the order: the judge's route renders
-from a request that names only the kernel and the dialect.
-"""
+"""Every CPF form's entry prototype equals the prompt stub's text, and the form grades through
+``scoring.score`` against numpy, on kernels covering symbol order, respelled names and the workspace pair."""
 
 import json
 import os

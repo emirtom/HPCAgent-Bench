@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A recorded grade is labelled with the size it was GRADED at; a body cannot ask for one.
-
-A study fixes ONE size and the judge grades at it on every route, so no client picks a size --
-``service.do_POST`` reads ``self.cfg.preset``, the agent tools do not offer the field, and the wire
-refuses a body that names it. A label
-read off the body would lie while the grade is right, which is worse than it sounds -- ``preset``
-is the column an analysis slices on. The judge records every grade itself, from the size it graded
-at.
-"""
+"""A recorded grade is labelled with the size it was GRADED at (``cfg.preset``); a body naming a size is
+refused."""
 
 import contextlib
 import json

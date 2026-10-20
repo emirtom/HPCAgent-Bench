@@ -187,15 +187,10 @@ class Measure(enum.Enum):
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class FigureConfig:
-    """Every knob a reader of this figure might want to change by hand, in one place. Pass a
-    replacement instance to a drawing function's ``config`` argument rather than editing a constant
-    inside it. The row width stays the caller's (``row_width_in``/``--row-width``).
-    """
+    """Every knob a reader of this figure might change, in one place; pass a replacement to a drawing function's
+    ``config`` (the row width stays the caller's)."""
 
-    #: Every type size: ticks and category names (``tick_pt``), axis labels (``label_pt``), panel
-    #: names (``title_pt``), point notes and superscripts (``annotation_pt``) and the key
-    #: (``legend_pt``). One of :mod:`~hpcagent_bench.stats.style`'s scales, so two figures of one
-    #: page print at one size.
+    #: Every type size (ticks, labels, titles, annotations, key): one of :mod:`~hpcagent_bench.stats.style`'s scales.
     type_: style.TypeScale = style.AUTHOR_SCALE
     #: Where a mark sits (:class:`Mode`); relative mode prints the control's own level in a baseline band
     #: (:func:`draw_baseline_band`): speedup as a geomean of paired ratios, tokens as a ratio of arithmetic means.
@@ -205,9 +200,7 @@ class FigureConfig:
     mark: Mark = Mark.SCATTER
     #: A bar's width under :attr:`Mark.BAR`, in category units: at most ``2 * dodge`` so a pair never overlaps.
     bar_width: float = 0.24
-    #: A legend SWATCH's own size, points, and how far matplotlib scales it past that. At paper
-    #: type a swatch drawn for authoring scale is taller than the row it sits in and the rows
-    #: collide.
+    #: A legend SWATCH's own size, points, and how far matplotlib scales it past that.
     legend_marker_pt: float = 9.0
     legend_marker_scale: float = 1.4
     #: The legend's column count ceiling (:func:`~hpcagent_bench.stats.style.legend_below` wraps a
@@ -218,75 +211,48 @@ class FigureConfig:
     mark_pending: bool = False
     #: A summary mark's own size (points^2, matplotlib's ``s=``).
     mark_size: float = 74.0
-    #: How far a point's label sits from its mark, in points. SMALL: a label further from its mark
-    #: than from its neighbour's is a label a reader has to guess the owner of.
+    #: How far a point's label sits from its mark, in points (small, so its owner is unambiguous).
     label_offset_pt: float = 9.0
-    #: How far a bare significance superscript sits from ITS mark, in points. Smaller than a
-    #: label's: a lone ``*`` has to read as belonging to the mark beside it, and at the label's own
-    #: offset it floated between two columns.
+    #: How far a bare significance superscript sits from ITS mark, in points (closer than a label).
     symbol_offset_pt: float = 4.0
-    #: The TOKEN-COST interval's line style. Dashed, so the two axes' intervals cannot be read as
-    #: one quantity: they are a speedup and a spend, on their own scales (SC15 Rule 4). The
-    #: speedup interval stays solid.
+    #: The TOKEN-COST interval's line style: dashed, so it never reads as the (solid) speedup interval.
     cost_linestyle: LineStyleType = "--"
     #: Most labelled ticks an axis may carry. Raising it thins the spacing between whole ratios.
     max_ticks: int = 13
-    #: Where a labelled tick lands within each decade of a TOKEN axis. A count axis spends most of
-    #: an experiment inside one decade, so 1-2-5 leaves it three ticks -- but a short row cannot carry
-    #: six either, and a caller sizing one replaces this.
+    #: Where a labelled tick lands within each decade of a TOKEN axis.
     token_subs: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0, 5.0, 7.0)
-    #: Fractional padding ``ax.margins`` adds around the plotted extent on each axis -- SMALL: the
-    #: panel fits the data and its 95% intervals plus a little air, not a fixed wide window.
+    #: Fractional padding ``ax.margins`` adds around the plotted extent on each axis.
     margin: float = 0.15
-    #: The narrowest total span EITHER axis is ever drawn at, in octaves (log2 units): a panel whose
-    #: every setup moved a kernel by a few percent still gets more than the one tick a degenerate
-    #: sub-octave window would leave (:func:`~hpcagent_bench.stats.style.value_axis`'s own log2
-    #: branch). Small on purpose -- large enough for >=2 ticks, not so large it reopens the "huge
-    #: empty area" a wider floor left around a tightly clustered result.
+    #: The narrowest total span EITHER axis is drawn at, in octaves (log2 units): enough for >= 2 ticks.
     min_span: float = 1.0
-    #: The minor grid's own line weight and colour (:func:`minor_grid`), lighter than the major grid
-    #: (:data:`~hpcagent_bench.stats.style.RULE`) so it reads as a finer ruling under the marks, not
-    #: a second reference. Default to :mod:`~hpcagent_bench.stats.style`'s, the one source.
+    #: The minor grid's line weight and colour (:func:`minor_grid`), lighter than the major grid.
     minor_grid_width: float = style.MINOR_GRID_WIDTH
     minor_grid_color: str = style.MINOR_RULE
-    #: An interval's own line weight, the major grid's, and the panel frame's. Separate knobs
-    #: because a figure drawn at its FINAL printed size needs all three thinner: a 1.2pt whisker
-    #: that reads as a line at authoring scale reproduces as a bar at 8pt type.
+    #: An interval's line weight, the major grid's, and the panel frame's (thinner at final printed size).
     interval_width: float = 1.2
     #: Half the width of the cap on a capped interval bar, points.
     interval_cap_pt: float = 2.0
-    #: How far past the outermost MARK of a dot-row panel an interval is drawn, as a factor (4 = two
-    #: octaves). A few-kernel interval reaching 0.004x stretched its panel over twenty octaves, the
-    #: ticks read 0.00391x and every mark sat in a sliver; the interval is cut at this reach instead,
-    #: with an arrowhead where it continues (:func:`~hpcagent_bench.stats.figures.marks.draw_interval`).
+    #: How far past the outermost MARK of a dot-row panel an interval is drawn, as a factor (4 = two octaves); cut
+    #: with an arrowhead beyond (:func:`~hpcagent_bench.stats.figures.marks.draw_interval`).
     interval_reach: float = 4.0
-    #: The fewest kernels a dot-row mark's interval is drawn from. Three kernels put the 95% log-t
-    #: critical value at 4.3 and the interval over three decades, cut at both ends; below this the
-    #: mark stands alone and the key says why (:data:`FEW_KERNELS_NOTE`).
+    #: The fewest kernels a dot-row mark's interval is drawn from; below it the key says why
+    #: (:data:`FEW_KERNELS_NOTE`).
     min_interval_kernels: int = summary.MIN_PAIRS_FOR_INTERVAL
     grid_width: float = 0.7
     spine_width: float = 0.8
-    #: Join a setup to its own no-packet twin with a faint segment (:func:`draw_measure_row`). OFF: at
-    #: paper scale the segment reads as a third mark between the two;
-    #: :func:`draw_difference_arrow` draws the displacement, labelled, on request.
+    #: Join a setup to its own no-packet twin with a faint segment (:func:`draw_measure_row`).
     link_pairs: bool = False
     link_width: float = 0.9
     link_alpha: float = 0.35
-    #: How far either side of its category's own position each of the two setups is drawn, in
-    #: category units. Half of it is the gap between the pair; 0.5 would put one pair's mark on top
-    #: of the next pair's.
+    #: How far either side of its category position each of the two setups is drawn, in category units (< 0.5).
     dodge: float = 0.16
     #: The gap between the two measure rows, as a fraction of a row's own height.
     row_gap: float = 0.2
-    #: The gap between two columns of a stacked row, as a fraction of a column's own width. Wide
-    #: enough that each column reads as its own panel, since they share no Y scale.
+    #: The gap between two columns of a stacked row, as a fraction of a column's width (they share no Y scale).
     column_gap: float = 0.3
-    #: What the WIDEST column keeps of its share. A column with three times the categories does not
-    #: need three times the width -- its marks are already the densest on the page -- and what it
-    #: gives back is width the narrow columns have nothing else to take from.
+    #: What the WIDEST column keeps of its share of the width.
     wide_column_scale: float = 0.85
-    #: The chrome LEFT of the data box, in inches: the first estimate :func:`figure_dot_row` lays
-    #: out with before it measures the Y labels and takes exactly what they need.
+    #: The chrome LEFT of the data box, in inches: a first estimate before the Y labels are measured.
     left_chrome_in: float = 1.0
     #: The band BELOW the category names the key is fitted into, in inches (:func:`fit_legend`).
     legend_chrome_in: float = 0.48
@@ -296,17 +262,14 @@ class FigureConfig:
     #: How far :func:`stagger_crowded_ticks` shrinks the category names, as a fraction of
     #: the tick size, when two staggered lines still leave them touching.
     category_min_scale: float = 0.7
-    #: The most lines a panel's name, or a rotated axis label, may fold onto. A third line comes out
-    #: of the panel.
+    #: The most lines a panel's name, or a rotated axis label, may fold onto.
     max_name_lines: int = 2
     #: The widest a delivery's tick text runs before it folds.
     tick_wrap: int = 8
-    #: The category names' size against the tick size: under nine columns of a text-width row the
-    #: names are the densest text on the figure (20% smaller than the ticks).
+    #: The category names' size against the tick size.
     category_scale: float = 1.0
-    #: Put the key's text-only notes in the key: abbreviations, the few-kernels note, and one row per
-    #: significance superscript. A paper figure turns it off: the notes go to the caption and the two
-    #: superscripts share one row, so the key fits four columns.
+    #: Put the key's text-only notes in the key (abbreviations, few-kernels note, one row per superscript); a paper
+    #: figure moves them to the caption.
     key_notes: bool = True
     #: Set the key with :data:`~hpcagent_bench.stats.style.COMPACT_KEY` spacing, so four columns of
     #: a paper figure fit the plot body.
@@ -317,24 +280,19 @@ class FigureConfig:
 #: reproduced at roughly half its width (:data:`~hpcagent_bench.stats.style.AUTHOR_SCALE`).
 DEFAULT_CONFIG = FigureConfig()
 
-#: For a figure drawn at the size it will be PRINTED at: a row of panels budgeted to a paper's own
-#: text width, which goes into the page at scale 1.0 and is never shrunk.
-#:
-#: Figure size and type size are one decision, not two: the type is
-#: :data:`~hpcagent_bench.stats.style.PRINT_SCALE`, and the marks and rules follow it thinner.
+#: For a figure drawn at the size it is PRINTED at (a paper's text width, scale 1.0): type at
+#: :data:`~hpcagent_bench.stats.style.PRINT_SCALE`, marks and rules thinner.
 PAPER_CONFIG = dataclasses.replace(
     DEFAULT_CONFIG,
     type_=style.PRINT_SCALE,
     legend_ncol=5,
     key_notes=False,
     compact_key=True,
-    # 19% over the earlier 0.8: the category names read small beside the marks.
     category_scale=0.95,
     legend_min_scale=1.0,
     category_min_scale=style.PRINT_MIN_PT / style.PRINT_SCALE.tick_pt,
     legend_marker_pt=5.5,
     legend_marker_scale=1.0,
-    # 15% under the earlier 19 pt^2: neighbouring marks of one delivery overlapped.
     mark_size=13.3,
     label_offset_pt=6.0,
     symbol_offset_pt=3.0,
@@ -370,22 +328,9 @@ def paired_kernels(
     treated: pd.DataFrame,
     card: cost_models.CostModel | None = None,
 ) -> pd.DataFrame:
-    """One row per kernel BOTH sides cover on speedup; its tokens are NaN where either side has no
-    task total.
-
-    The speedup leg is paired over every such kernel, the same population ``paired_setups.py``'s
-    score leg (and so the family's corrected test) is taken over; the token leg over the subset
-    with a total on both sides (:func:`reduce_pair`). Intersecting the two would move the speedup
-    coordinate off the table's value whenever a token record is missing. ``delivered`` is True only
-    when BOTH sides verified an answer there; a kernel either side only served
-    (:data:`~hpcagent_bench.stats.population.NOT_DELIVERED`) is a placeholder ratio, not a
-    measurement.
-
-    Tokens are priced with ``card`` (:func:`~hpcagent_bench.stats.cost.priced`), the ``billed`` card
-    by default: a frame handed in unpriced carries effective tokens, and the cost row is labelled
-    with the card. Pricing is idempotent, so a frame the caller already priced with ``card`` is
-    unchanged.
-    """
+    """One row per kernel BOTH sides cover on speedup (tokens NaN where either side lacks a task total), so the
+    speedup leg matches the paired-setups test population; ``delivered`` only when both sides verified an answer.
+    Tokens are priced with ``card`` (idempotent)."""
     card = card or cost_models.resolve()
     control, treated = cost_models.priced(control, card), cost_models.priced(treated, card)
     control_answers = population.kernel_answers(control)
@@ -434,12 +379,8 @@ def reduce_pair(
     over: population.KernelPolicy = SPEEDUP_OVER,
     card: cost_models.CostModel | None = None,
 ) -> Series | None:
-    """``(control, treated)`` as a :class:`Series`; ``None`` when they share no usable kernel or no
-    kernel has a token total on both sides.
-
-    ``x`` is over every paired kernel, ``y`` over the ones with both token totals
-    (:func:`paired_kernels`); ``token_kernels`` says how many that is.
-    """
+    """``(control, treated)`` as a :class:`Series` (``x`` over every paired kernel, ``y`` over those with both token
+    totals, counted in ``token_kernels``); ``None`` when either set is empty."""
     paired = paired_kernels(control, treated, card)
     if paired.empty:
         return None
@@ -477,14 +418,8 @@ def setup_points(
     over: population.KernelPolicy = SPEEDUP_OVER,
     card: cost_models.CostModel | None = None,
 ) -> tuple[SetupPoint, SetupPoint] | None:
-    """``(control, treated)`` as the two marks a dot-row column draws: where each setup sits against
-    the STUDY BASELINE, not where one sits against the other.
-
-    Both are taken over the kernels the two setups SHARE (:func:`paired_kernels`), so the pair is
-    comparable and the displacement between the two speedups is EXACTLY :func:`reduce_pair`'s
-    ``x`` -- a geomean of ratios is the ratio of the geomeans. That is the reading "HIP reached
-    3.2x" needs and a ratio alone cannot give.
-    """
+    """``(control, treated)`` as the two marks a dot-row column draws, each against the STUDY BASELINE over the
+    kernels both share (so their displacement is exactly :func:`reduce_pair`'s ``x``)."""
     paired = paired_kernels(control, treated, card)
     if paired.empty:
         return None
@@ -500,10 +435,7 @@ def setup_points(
     )
 
 
-#: The one shape a CONTROL mark ever wears, hollow: the palette's, so every figure agrees. A hollow
-#: copy of the treatment's own shape reads as "the same thing, lighter" at print size; a different
-#: outline reads as a different thing, which is what it is. No packet is ever given this shape
-#: (:func:`treatment_marker`).
+#: The one shape a CONTROL mark wears, hollow (the palette's); no packet is ever given it.
 CONTROL_MARKER: str = palette.CONTROL_MARKER
 
 
@@ -582,18 +514,13 @@ def key_columns(groups: Sequence[Sequence[Line2D]], ncol: int) -> tuple[list[Lin
     return flat, len(columns)
 
 
-#: The most labelled ticks the X axis draws before its whole-ratio spacing widens. A few outlier
-#: kernels (one crashed to 1/512x, another ran away to 256x) autoscale the window past twenty
-#: octaves, and :data:`MultipleLocator(1.0)` -- a tick at EVERY power of 2 -- smears that many labels
-#: into one panel's width until they overlap into a solid bar.
+#: The most labelled ticks the X axis draws before its whole-ratio spacing widens.
 MAX_X_TICKS: int = 9
 
 
 def x_tick_step(span: float, max_ticks: int = MAX_X_TICKS) -> int:
-    """The whole-ratio spacing (in log2 units: 1 is every power of 2, 2 every power of 4, ...) that
-    keeps the X axis under :data:`MAX_X_TICKS` labelled ticks for a window ``span`` wide. Doubled
-    rather than picked from an arbitrary "nice number" table, so a tick always lands on an INTEGER
-    log2 value -- the only kind :func:`~hpcagent_bench.stats.style.log2_ratio_tick` spells as a clean ratio."""
+    """The whole-ratio spacing in log2 units (doubling, so ticks stay on INTEGER log2 values) keeping the X axis
+    under :data:`MAX_X_TICKS` labelled ticks for a window ``span`` wide."""
     step = 1
     while span / step > max(max_ticks - 1, 1):
         step *= 2
@@ -601,14 +528,12 @@ def x_tick_step(span: float, max_ticks: int = MAX_X_TICKS) -> int:
 
 
 def cost_card_name(name: str) -> str:
-    """A cost card's KEY as a label word: ``billed`` -> ``Billed`` (:data:`~hpcagent_bench.stats.
-    style.INK`'s own module docstring carries this repo's Title Case rule for figure text)."""
+    """A cost card's KEY as a label word: ``billed`` -> ``Billed``."""
     return str(name).replace("-", " ").replace("_", " ").title()
 
 
 def cost_row_label(name: str) -> str:
-    """The one-line token-cost Y title of a dot row: the card's name (``billed`` -> ``Billed Tokens``).
-    The weight vector goes into the caption; spelled on the axis it folds the title onto three lines."""
+    """The one-line token-cost Y title of a dot row (``billed`` -> ``Billed Tokens``); weights go to the caption."""
     card = cost_card_name(name)
     return f"{card} Tokens" if card else "Tokens"
 
@@ -622,24 +547,15 @@ def cost_axis_label(card: cost_models.CostModel) -> str:
 
 @functools.lru_cache(maxsize=1, typed=True)
 def delivery_order() -> tuple[str, ...]:
-    """Every delivery a figure can draw, in SHAPE-assignment order: the registry's languages in
-    their own order, then the offload delivery, which is a device plus a language
-    (:data:`~hpcagent_bench.study_tags.OFFLOAD_DELIVERY_NAME`) and so has no tag of its own.
-
-    Keyed on the DISPLAY name rather than the language tag on purpose: an offload setup's tag is
-    plain ``c``, and sharing C's shape would give a joined row's CPU panel and its GPU panel the
-    same mark for two different things.
-    """
+    """Every delivery a figure can draw, in SHAPE-assignment order: the registry's languages, then the offload
+    delivery (keyed by DISPLAY name, since its tag is plain ``c``)."""
     names = study_tags.names("languages")
     ordered = [names[tag] for tag in study_tags.order("languages") if tag in names]
     return (*ordered, study_tags.OFFLOAD_DELIVERY_NAME)
 
 
-#: Shapes for deliveries past the registry's own eight-marker table. Appended HERE rather than to
-#: the registry because :func:`~hpcagent_bench.stats.palette.marker` hands standalone optimizers
-#: shapes from the BACK of that table -- growing it would repaint every DaCe and CPF mark already
-#: in the paper. Nine deliveries against eight markers is what made "OpenMP Offload" and "C" the
-#: same circle.
+#: Shapes for deliveries past the registry's eight markers, appended here (growing the registry would reshape the
+#: standalone optimizers, which take shapes from its back).
 EXTRA_MARKERS: tuple[str, ...] = ("<", ">", "p", "h", "8")
 
 
@@ -654,9 +570,7 @@ def delivery_markers() -> tuple[Marker, ...]:
 MEASURE_PAD_IN: float = 0.08
 
 
-#: One character of panel name, as a fraction of the type's own point size. The sans face this
-#: repo sets averages a little over half an em across mixed case; measured rather than assumed
-#: would need a renderer, and the fold only has to be close.
+#: One character of panel name, as a fraction of the type's point size (an estimate; see ``measured_char_em``).
 NAME_CHAR_EM: float = 0.52
 
 
@@ -665,9 +579,7 @@ def panel_name_wrap(side: float, points: float, em: float = NAME_CHAR_EM) -> int
     return max(4, int(side * style.POINTS_PER_INCH / (points * em)))
 
 
-#: The gid a panel's own name is drawn under, so a later pass can find it, measure it and replace
-#: it. It is an annotation rather than a title because a left-aligned title is not the artist
-#: ``ax.title`` returns -- measuring that one measures the empty centre title instead.
+#: The gid a panel's own name is drawn under (an annotation, since a left-aligned title is not ``ax.title``).
 PANEL_NAME_GID: str = "efficacy-panel-name"
 
 
@@ -697,10 +609,7 @@ MEASURE_LABELS: dict[Measure, str] = {
     Measure.COST: "Token Cost",
 }
 
-#: Each measure's row height as a fraction of ``row_height_in``. A count out of N needs no ladder of
-#: ratios, so the success row is the shortest; the speedup and cost rows are 0.7 of one and the
-#: success row 0.45 (15% and 10% below the earlier 0.82 and 0.5); the speedup row
-#: 25% taller, 0.875 (speedup differences were hard to see).
+#: Each measure's row height as a fraction of ``row_height_in``.
 MEASURE_HEIGHT: dict[Measure, float] = {Measure.SPEEDUP: 0.875, Measure.SUCCESS: 0.45, Measure.COST: 0.7}
 
 #: The height ``MEASURE_HEIGHT`` is a fraction of, inches: a dot row placed at a paper's text width.
@@ -748,11 +657,8 @@ class SetupRow:
 
     @property
     def label(self) -> str:
-        """The category's own tick text: what it DELIVERED, or the MODEL where the comparison has
-        no delivery of its own (gitscicomp10's repository against the bare kernel). The model is
-        otherwise drawn once per run of columns instead (:func:`draw_category_axis`) -- spelled on
-        every column, "Qwen3.8-27B" three times over collides with itself long before nine
-        categories."""
+        """The category's own tick text: what it DELIVERED, or the MODEL where the comparison has no delivery of its
+        own (otherwise the model is drawn once per run of columns, :func:`draw_category_axis`)."""
         return self.leg or study_tags.model_name(self.model)
 
 
@@ -761,13 +667,8 @@ def setup_rows(
     over: population.KernelPolicy = SPEEDUP_OVER,
     card: cost_models.CostModel | None = None,
 ) -> list[SetupRow]:
-    """Every (model, leg) of ``frame`` as a category, in the order the categorical axis draws them.
-
-    Sorted by DELIVERY first, then model: one tick names a language once, its
-    models stand side by side in their colours, and a light rule separates the languages
-    (:func:`column_x`, :func:`leg_runs`). The model is the colour; repeating "C, Fortran" under every
-    model named the same thing three times.
-    """
+    """Every (model, leg) of ``frame`` as a category, in axis order: by DELIVERY, then model (one tick per
+    language, models side by side in their colours)."""
     rows: list[SetupRow] = []
     for model, leg, pair in setup_groups(frame):
         points = setup_points(*skill_halves(pair), over, card)
@@ -870,9 +771,7 @@ def column_limits(rows: Sequence[SetupRow]) -> tuple[float, float]:
     return -0.6, max(xs[-1] + 0.6, 0.6)
 
 
-#: Short tick spellings for deliveries whose display name does not fit a column of a joined row,
-#: with the footnote the key carries for each. The tick is the abbreviation, so the column stays
-#: readable; the key is where the reader finds out what it stands for.
+#: Short tick spellings for deliveries whose display name does not fit a column, with the key's footnote for each.
 TICK_ALIASES: dict[str, tuple[str, str]] = {
     study_tags.OFFLOAD_DELIVERY_NAME: ("OpenMP", "OpenMP = OpenMP offload"),
 }
@@ -933,10 +832,7 @@ def alias_footnotes(legs: Sequence[str]) -> list[Line2D]:
     ]
 
 
-#: How much taller one line of drawn text makes a band than the type itself: leading plus the gap
-#: to whatever sits under it. Bands are DERIVED from the type scale rather than fixed in inches --
-#: a 0.22in band is right above a 13.5pt name and half empty above an 8pt one, and that empty half
-#: is what makes a page-budgeted row's panels look small.
+#: How much taller one line of drawn text makes a band than the type itself (bands derive from the type scale).
 LINE_BAND: float = 1.5
 
 
@@ -978,14 +874,8 @@ def label_wrap(config: FigureConfig) -> int:
 
 
 def wrapped_label(text: str, width: int = 18, hyphens: bool = False) -> str:
-    """A label folded onto as many lines as it needs, never INSIDE a word. A dot-row panel is about
-    two inches tall and its Y label is rotated, so "Geomean Speedup Over Numba" on one line runs
-    off both ends of the row -- but a fold at the hyphen gives "Geomean Speed-" over "Up", which is
-    worse than the overflow.
-
-    ``hyphens`` allows the fold at a hyphen, for a TICK: a model name has no spaces to fold at
-    ("Qwen3.8-27B"), so without it three of them under three columns print on top of one another.
-    """
+    """A label folded onto as many lines as it needs, never INSIDE a word; ``hyphens`` also allows a fold at a
+    hyphen (for ticks such as model names)."""
     return textwrap.fill(text, width=width, break_long_words=False, break_on_hyphens=hyphens)
 
 
@@ -1000,12 +890,8 @@ def panel_tag(index: int) -> str:
 
 
 def fold_width(text: str, wrap: int, lines: int) -> int:
-    """The narrowest width at or above ``wrap`` that folds ``text`` onto at most ``lines``.
-
-    Searched rather than estimated: the first line carries the tag as well as its first word
-    ("iii) Repository"), which no per-word or per-character rule predicts -- estimating it is what
-    put one panel name on three lines.
-    """
+    """The narrowest width at or above ``wrap`` that folds ``text`` onto at most ``lines`` (searched, since the
+    first line also carries the tag)."""
     for width in range(max(wrap, -(-len(text) // lines)), max(len(text), wrap) + 1):
         if wrapped_label(text, width).count("\n") < lines:
             return width
@@ -1020,13 +906,8 @@ def name_line_width(text: str, wrap: int, lines: int = 2) -> int:
 def name_layout(
     names: Sequence[str], spans: Sequence[float], points: float, lines: int = 2, em: float = NAME_CHAR_EM
 ) -> tuple[float, list[int]]:
-    """``(one type size, one fold width per panel)`` for a row of panel names.
-
-    ONE size, the smallest any name needs: set at its own size each, a row whose third name is
-    longer than its column reads as three headings rather than one row of them. Each fold width is
-    then that panel's own span measured at THAT size, so every name folds onto at most ``lines`` --
-    and onto ONE where its span holds it.
-    """
+    """``(one type size, one fold width per panel)`` for a row of panel names: ONE size (the smallest any name
+    needs), and each panel's span measured at it, so every name folds onto at most ``lines``."""
     size, folds = points, [len(name) for name in names]
     # The fold decides the size and the size decides the fold, so it is iterated to a fixed point
     # (a long word folds wider than ceil(len/lines)).
@@ -1049,11 +930,7 @@ DifferenceKey = tuple[str, str]
 
 
 def parse_differences(spec: str) -> frozenset[DifferenceKey]:
-    """``HIP:qwen38,Triton:kimi27sglang`` as the set of comparisons to draw an arrow across.
-
-    Asked for BY NAME rather than drawn everywhere: an arrow on every column is a second grid, and
-    the ones worth drawing are the ones a caption is going to quote.
-    """
+    """``HIP:qwen38,Triton:kimi27sglang`` as the set of comparisons to draw an arrow across (by name only)."""
     keys: set[DifferenceKey] = set()
     for token in str(spec).split(","):
         leg, _, model = token.strip().partition(":")
@@ -1119,9 +996,8 @@ SNAP_PAD: float = 0.1
 
 
 def near_ticks(ticks: tuple[float, float], data: tuple[float, float], steps: int, log: bool) -> tuple[float, float]:
-    """The snapped ``ticks`` either side of ``data``, each pulled in to the data (with
-    :data:`SNAP_PAD`) where it sits more than :data:`SNAP_REACH` of a tick step away: a 0.94x
-    interval end would otherwise open the axis down to 0.5x, a whole empty step."""
+    """The snapped ``ticks`` either side of ``data``, each pulled in to the data (with :data:`SNAP_PAD`) where it
+    sits more than :data:`SNAP_REACH` of a tick step away."""
     to_axis = math.log if log else (lambda value: value)
     from_axis = math.exp if log else (lambda value: value)
     (low, high), (data_low, data_high) = (tuple(map(to_axis, pair)) for pair in (ticks, data))
@@ -1254,10 +1130,8 @@ def placeholder_rows(rows: Sequence[SetupRow], deliveries: Sequence[str]) -> lis
 
 
 def pending_rows(rows: Sequence[SetupRow], models: Sequence[str], leg: str = "") -> list[SetupRow]:
-    """``rows`` plus one empty category per model of ``models`` not drawn yet, under the delivery the
-    drawn models use, or ``leg`` in a stub panel (its placeholder delivery), in the registry's model
-    order. A stub category with no delivery would be named by its model, which the colour already
-    says and which overprints at a stub's column width."""
+    """``rows`` plus one empty category per not-yet-drawn model of ``models``, under the drawn models' delivery (or
+    ``leg`` in a stub panel), in registry order."""
     drawn = {row.model for row in rows}
     leg = rows[0].leg if rows else leg
     extra = [
@@ -1411,11 +1285,8 @@ def comparator_table(comparators: Sequence[Comparator]) -> pd.DataFrame:
 
 
 def comparator_shapes(names: Sequence[str]) -> dict[str, str]:
-    """Each comparator's shape: its registered optimizer shape (:func:`~hpcagent_bench.stats.palette.
-    marker`) unless a registered packet or the control wears it, else the first of the registry's
-    ``markers`` no packet, control or earlier comparator (``frameworks`` order) wears. A comparator
-    never reads as a packet, two never share a shape, and the same set of comparators gets the same
-    shapes in every figure. Keyed by FRAMEWORK: ``jax_cpu`` and ``jax_gpu`` are one JAX, one shape."""
+    """Each comparator's shape, keyed by FRAMEWORK: its registered optimizer shape unless a packet or the control
+    wears it, else the first free registry marker (``frameworks`` order). Stable across figures, never shared."""
     taken: list[object] = [CONTROL_MARKER, *(palette.packet_marker(key) for key in palette.hue_order("packets"))]
     shapes: dict[str, str] = {}
     optimizers = study_tags.order("optimizers")
@@ -1464,8 +1335,7 @@ def with_comparators(columns: Sequence[DotColumn], comparators: Sequence[Sequenc
     return placed
 
 
-#: Short category names for the X ticks. The legend carries the full name; a tick has about 30pt at
-#: five categories across a column, and "Qwen3.8" beside "GPT-OSS" already overprinted there.
+#: Short category names for the X ticks (the legend carries the full name).
 SHORT_NAMES: dict[str, str] = {
     "qwen38": "Qwen",
     "oss120b": "OSS",
@@ -1499,8 +1369,7 @@ def first_per_label(handles: Sequence[Line2D]) -> list[Line2D]:
     return list(kept.values())
 
 
-#: The narrowest a column may be, in categories. A stub column has none, and at a width ratio of
-#: one beside a nine-category neighbour it collapsed to a sliver its own name could not sit over.
+#: The narrowest a column may be, in categories (a stub column has none).
 MIN_COLUMN_CATEGORIES: int = 2
 
 
@@ -1514,18 +1383,14 @@ def dot_row_widths(columns: Sequence[DotColumn], config: FigureConfig = DEFAULT_
     return widths
 
 
-#: A short row's token ticks: 1-2-5 per decade, each one labelled. 1 and 3 left a decade two grid
-#: lines, too few to read a mark's cost off.
+#: A short row's token ticks: 1-2-5 per decade, each one labelled.
 SHORT_ROW_TOKEN_SUBS: tuple[float, ...] = (1.0, 2.0, 5.0)
 #: A row lower than this (inches) is short: it takes :data:`SHORT_ROW_TOKEN_SUBS`.
 SHORT_ROW_IN: float = 1.6
 
 
 def measure_row_config(config: FigureConfig, row_height_in: float) -> FigureConfig:
-    """``config`` sized for a row this tall. A rotated Y label and a tick ladder are both bounded by
-    the row's HEIGHT, not by the figure's width: the same 8pt label and thirteen ratios that fit a
-    1.5in row overprint each other in half of one.
-    """
+    """``config`` sized for a row this tall (rotated labels and tick ladders are bounded by row HEIGHT)."""
     return dataclasses.replace(
         retyped(config, label_pt=min(config.type_.label_pt, max(6.0, row_height_in * 8.0))),
         max_ticks=max(4, int(row_height_in * 7.0)),
@@ -1540,12 +1405,8 @@ NAME_CLEARANCE_IN: float = 0.1
 def dot_row_heights(
     measures: Sequence[Measure], row_height_in: float, config: FigureConfig
 ) -> tuple[list[float], float, float]:
-    """``(height ratios, data box height in inches, hspace)`` of a dot-row grid.
-
-    The DATA box's height is the fixed quantity: rows of a stated height plus the gaps between
-    them. The chrome is measured and added OUTSIDE it, so a taller key grows the canvas instead of
-    shrinking the rows, and every dot-row figure of a paper draws rows of one height. hspace is a
-    fraction of the MEAN axes height, so it is rescaled to keep the gaps ``row_gap`` rows."""
+    """``(height ratios, data box height in inches, hspace)`` of a dot-row grid: the DATA box height is fixed and
+    chrome is added outside it; hspace is rescaled to keep the gaps ``row_gap`` rows."""
     heights = [MEASURE_HEIGHT[measure] for measure in measures]
     data_height = row_height_in * (sum(heights) + config.row_gap * (len(measures) - 1))
     return heights, data_height, config.row_gap * len(measures) / sum(heights)
@@ -1554,13 +1415,8 @@ def dot_row_heights(
 def dot_row_grid(
     columns: Sequence[DotColumn], row_width_in: float, config: FigureConfig
 ) -> tuple[list[float], list[float]]:
-    """``(each column's width in inches, the grid's width ratios)``, a spacer column between panels.
-
-    The gaps come OUT of the data width: matplotlib's wspace is a fraction of the mean axes width,
-    so n panels and n-1 gaps share it. Ignoring that overstated every span by about a fifth, which
-    is what let two panel names overlap. Every gap is a spacer column of its own, so each can be
-    widened to what its neighbour's tick labels need (:func:`fit_column_gaps`) without narrowing
-    the gaps that need nothing."""
+    """``(each column's width in inches, the grid's width ratios)``, with a spacer column between panels (gaps come
+    out of the data width; each spacer can widen alone, :func:`fit_column_gaps`)."""
     n = len(columns)
     ratios = dot_row_widths(columns, config)
     data_width = row_width_in - config.left_chrome_in
@@ -1571,10 +1427,7 @@ def dot_row_grid(
 
 
 def name_spans(widths: Sequence[float], config: FigureConfig) -> list[float]:
-    """The width each panel name may fold against: its column PLUS the gap to the next one. The
-    space beside a left-aligned name is empty until the next name starts, and refusing to use it
-    forced two lines onto names that fit on one. The LAST name has no next one to run into, but no
-    canvas either -- its own width and nothing more."""
+    """The width each panel name may fold against: its column PLUS the gap to the next (the last: its own width)."""
     gap = config.column_gap * (sum(widths) / max(len(widths), 1))
     return [width + gap for width in widths[:-1]] + list(widths[-1:])
 

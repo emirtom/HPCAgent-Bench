@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""best-of-v4: best-of(numba,c) raced leader first, the other reference cut by the early stop.
-
-The expected winner is timed first -- this judge's last winner of the kernel, else the shipped hint,
-else numba -- and the other one, numba included, is cut once a rep outlasts max(floor, 2 x the
-leader's slowest rep). In the XL sweep channel_flow's numba took 348 s against 7.8 s for sequential C, and
-seidel_2d's 161 s against 4.6 s: every grade waited for the loser.
-"""
+"""best-of-v4: best-of(numba,c) races the expected winner first (last winner, else the hint, else numba) and cuts
+the other once a rep outlasts max(floor, 2 x the leader's slowest rep)."""
 
 import json
 from collections.abc import Callable, Iterator

@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""PromptConfig + optimization-strategy prompt knobs.
-
-Pins that the prompt is assembled from a single :class:`PromptConfig` (config
-defaults, overridable per call), that the named optimization strategies produce
-distinct how-to guidance, and that the guidance / language-track / original-source
-knobs gate their sections leak-free. All pure: no compile, no hidden tests.
-"""
+"""The prompt is assembled from one :class:`PromptConfig`; optimization strategies give distinct guidance and the
+knobs gate their sections leak-free. Pure."""
 
 import pytest
 

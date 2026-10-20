@@ -1,32 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The committed TSVC ``_reference.c`` files are hand ports that still satisfy the v2 C-ABI.
-
-``loop_level_reasoning`` emits its native sources on demand
-(:mod:`tests.test_generated_references`). These 222 files are the deliberate exception: 212 hand
-ports of the TSVC C++ microkernels and 10 kernels with no C++ at all whose loop nests were written
-by hand, committed as frozen sources and kept so the corpus can ask
-whether a compiler vectorizes and parallelizes HUMAN-WRITTEN C where it fails on
-translator-generated C. That question only means something while three properties hold, and each
-one has failed silently in this corpus before:
-
-* they carry NO ``hpcagent_bench-autogen`` marker -- the marker is what makes ``emit_io`` overwrite
-  a file, and a regenerated reference would put translator output on both sides of the comparison;
-* they export ``binding.symbols["c"]`` with the manifest's argument list in canonical order, not
-  verbatim TSVC (named ``s115``, taking ``struct args_t *``, reading the TSVC globals), which cannot
-  load (``undefined symbol: aa``) and is scored ``incorrect``, against the model;
-* they compute what the kernel's numpy reference computes. numpy stays the oracle, so a reference
-  that disagrees with it is a reference that teaches an agent the wrong answer.
-
-A fourth property: the harness can REACH these files, behind ``references.prefer_committed``
-(otherwise it emits a fresh NumpyToX translation on every grade), and both settings of that knob
-are asserted here -- on, because an unreachable corpus answers nothing; off, because a scoring change that
-arrives without being asked for invalidates every earlier run.
-
-The numeric half runs in a CHILD process (:mod:`tests.tsvc_reference_oracle`) because a bad port
-segfaults rather than returning: the child names the kernel it died on instead of taking the
-session with it.
-"""
+"""The committed hand-ported TSVC ``_reference.c`` files: no autogen marker, the v2 C-ABI symbol and argument
+order, numpy-equal results (checked in a child, :mod:`tests.tsvc_reference_oracle`, since a bad port segfaults),
+and reachable behind ``references.prefer_committed`` in both settings."""
 
 import re
 

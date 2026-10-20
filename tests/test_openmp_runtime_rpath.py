@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""An OpenMP shared library must still LOAD after it links.
-
-LLVM 17 and later park ``libomp.so`` under a target-triple libdir
-(``lib/x86_64-unknown-linux-gnu``) that no loader searches, and clang links it by absolute path
-while writing no RUNPATH. The .so builds clean, reports success, and then dies at ``dlopen`` with
-``libomp.so: cannot open shared object file``. Measured on spack clang 22.1.8, where it took the
-REFERENCE build down and voided every graded call of four experiment setups -- a whole column of zeros
-behind a build line that said OK.
-
-The hermetic tests drive :func:`languages.driver_library_dir` with stub drivers, so the three
-answers a driver can give are all covered on a host with no compiler at all. The build test is the
-one that would have caught it: it links and then loads.
-"""
+"""An OpenMP shared library still LOADS after it links (LLVM >= 17 keeps ``libomp.so`` in a triple libdir with no
+RUNPATH): :func:`languages.driver_library_dir` with stub drivers, plus a link-and-load test."""
 
 import ctypes
 import pathlib

@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The BEST-OF denominator: which candidates a track races, which one wins, and what the row says.
-
-The rule under test: on ``scientific_computing`` the speedup denominator is the
-FASTEST of ``c-autopar``, ``c`` and ``numba``, all timed in the same grading call. A single fixed
-kind is not uniformly the strongest -- autopar loses to sequential C on ``subset_sum`` and on
-``sp_minres``/``sp_bicgstab`` at XL -- so a fixed choice credits the agent for the gap on exactly
-the kernels where its choice is the weak one.
-
-Two properties matter as much as the selection itself, and both are here:
-
-* the row says which rule produced it (:func:`grading.baseline_policy_stamp`), because
-  ``baseline=c-autopar`` reads identically whether autopar was the only candidate or won a race;
-* a frame that mixes the two rules is REFUSED rather than pooled, so the guarantee does not depend
-  on anyone remembering to filter.
-"""
+"""The BEST-OF denominator on ``scientific_computing``: the fastest of ``c-autopar``, ``c`` and ``numba`` wins,
+the row stamps the rule (``baseline_policy_stamp``), and frames mixing rules are refused."""
 
 import pandas as pd
 import pytest

@@ -1,23 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The full grade the Harbor verifier writes to ``grade.json``, one model per shape it takes.
-
-``harbor grade`` writes two files side by side: the flat, numeric ``reward.json`` Harbor reads
-(:func:`hpcagent_bench.harbor.harbor_reward`), and ``grade.json``, the full grade it is cut from. The
-full grade is one of four records:
-
-* :class:`HostGrade` -- a single-node kernel under the final grade (``harbor.final_reward``);
-* :class:`DistributedGrade` -- a multi-node kernel under the fuzzed sweep, with its scaling curve;
-* :class:`FailedGrade` -- an item that could not be graded at all: the neutral 1.0 and the reason;
-* :class:`BundleGrade` -- a multi-kernel task: the per-kernel grades and their geomean (``harbor.combine``).
-
-The file carries no tag naming its record; :func:`grade_kind` tells them apart by the key only that
-record writes. Harbor and external tooling read the file, so a dump is the JSON the grader wrote
-before these models existed, byte for byte: :func:`grade_text` is ``json.dumps`` of the field-order
-dump, a number is kept exactly as computed (:data:`Number`), and a field the grade did not set is
-left out rather than written as ``null``.
-"""
+"""The full grade the Harbor verifier writes to ``grade.json`` beside ``reward.json``: one model per record
+(:class:`HostGrade`, :class:`DistributedGrade`, :class:`FailedGrade`, :class:`BundleGrade`), told apart by
+:func:`grade_kind`. Dumps are byte-identical to the legacy JSON: numbers kept as computed, unset fields omitted."""
 
 import json
 from typing import Annotated
@@ -52,9 +38,7 @@ __all__ = [
 
 
 def recorded_number(value: object) -> float:
-    """``value`` unchanged when it is a number. An int stays an int and a float a float (NaN and the
-    infinities included): ``2`` and ``2.0`` are different bytes in ``grade.json``, and a single
-    credited ratio is its own geomean, so S_i can be an int."""
+    """``value`` unchanged when it is a number (an int stays an int: ``2`` and ``2.0`` differ in ``grade.json``)."""
     if not isinstance(value, int | float):
         raise ValueError(f"not a number: {value!r}")
     return value

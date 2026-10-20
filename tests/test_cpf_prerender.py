@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A shard's rank must finish and record a verdict for every kernel it owns, never kill its siblings.
-
-A rank that returns nonzero for a per-kernel render failure inside its own shard lets srun's
-kill-on-bad-exit take the other ranks down mid-render, and the tag-wide check that runs afterward
-mistakes their unfinished kernels for misses. So failure reporting is the recorded verdict
-(:mod:`hpcagent_bench.cpf_cache`), and the rank's own exit status signals only an internal error.
-"""
+"""A prerender rank records a verdict for every kernel it owns and exits nonzero only on an internal error (so
+srun never kills its siblings mid-render)."""
 
 import argparse
 import pathlib

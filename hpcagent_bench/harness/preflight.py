@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What a batch job must check BEFORE it spends an allocation, in one place.
-
-Every submission script needs the same answers: are the requested columns ones this deployment can
-actually run, does the installed dace carry the fork's pipeline, is the polyhedral toolchain whose
-output the Pluto column compiles installed, and does this node's compiler genuinely parallelize for
-an autopar column. The autopar answer is :func:`hpcagent_bench.flags.probe_autopar`, which
-compiles the column's REAL composed flags and accepts either a ``GOMP_*`` reference or a matched
-outlined symbol as evidence.
-
-A vacuous autopar column is REPORTED, never fatal: the flags are correct and the corpus still
-runs. What is at stake is how to read the numbers, because a serial ``-O3`` run published under
-an autopar name is a wrong measurement wearing a right label.
-"""
+"""What a batch job must check BEFORE it spends an allocation: runnable columns, the dace fork, the polyhedral
+toolchains and autopar evidence. A vacuous autopar column is reported, never fatal."""
 
 from collections.abc import Sequence
 
@@ -38,22 +27,12 @@ __all__ = [
     "thread_env",
 ]
 
-#: Columns a deterministic (unjudged) sweep may run: same artifact every run, no sampling and no
-#: model in the loop. An agent column needs the inference and judge roles such a job has no
-#: allocation for, so naming one here is a submission error, not a runtime one. Derived from
-#: the registered columns' ``sweep_deterministic`` flag (:mod:`hpcagent_bench.columns`), the
-#: single source of truth, rather than a second hand-kept list that can silently drift from it.
+#: Columns a deterministic (unjudged) sweep may run, from the registered columns' ``sweep_deterministic`` flag.
 DETERMINISTIC_FRAMEWORKS: tuple[str, ...] = tuple(
     name for name, column in FRAMEWORKS.entries.items() if column.sweep_deterministic
 )
 
 #: Autopar column -> the capability probe that decides whether it is one in fact as well as name.
-#:
-#: ``cpp_isopar`` is listed although no SCORED column names it yet (its only consumers today are
-#: correctness oracles, where a serial backend is slow rather than wrong). It is here so that the
-#: column, when it is timed, cannot be added ungated: the parallelism of ``<execution>`` policies is
-#: a per-translation-unit property of the installed headers, invisible in flags, exit codes and
-#: answers alike, so it is exactly the kind of column this table exists for.
 AUTOPAR_PROBES = {
     "polly": flags.polly_capability,
     "cc_autopar": flags.gcc_autopar_capability,
@@ -68,10 +47,7 @@ def check_deterministic(frameworks: Sequence[str]) -> list[str]:
 
 
 def needs_canonicalize(frameworks: Sequence[str]) -> list[str]:
-    """The requested columns whose SDFG pipelines include ``canonicalize``, so they need the fork.
-
-    Derived from the flavor's own ``pipelines``, never from a second list here: a new flavor is one
-    registered framework column, and whether it needs spcl/dace@extended follows from what it runs."""
+    """The requested columns whose SDFG pipelines include ``canonicalize`` (they need the dace fork)."""
     out: list[str] = []
     for name in frameworks:
         column = FRAMEWORKS.entries.get(name)
@@ -83,14 +59,7 @@ def needs_canonicalize(frameworks: Sequence[str]) -> list[str]:
 
 
 def needs_polycc(frameworks: Sequence[str]) -> list[str]:
-    """The requested columns whose TIMED build runs ``polycc``.
-
-    Pluto is source-to-source: its library is compiled from what polycc wrote, not from what the
-    translator emitted (``pluto_transform.transformed_sources``). With polycc absent the column has
-    no source to compile and declines EVERY kernel -- correctly, since the alternative is timing the
-    untransformed C++ under Pluto's name -- so a job asking only for it would burn its allocation
-    producing nothing but skips. Reported once here instead of once per kernel. Read from the
-    column's ``transform``, the same field that routes its build to polycc."""
+    """The requested columns whose TIMED build runs ``polycc`` (without it they decline every kernel)."""
     return [
         name
         for name in frameworks
@@ -99,10 +68,7 @@ def needs_polycc(frameworks: Sequence[str]) -> list[str]:
 
 
 def check_polycc() -> str:
-    """``""`` when ``polycc`` is on PATH, else why not.
-
-    Asked through :func:`pluto_transform.polycc_exe` -- the same lookup the build and the
-    transformation report use -- so a preflight cannot pass on a polycc the build would not find."""
+    """``""`` when ``polycc`` is on PATH (the lookup the build uses), else why not."""
     if pluto_transform.polycc_exe() is None:
         return (
             "polycc is not on PATH; the pluto column compiles polycc's output and has nothing to "
@@ -112,12 +78,7 @@ def check_polycc() -> str:
 
 
 def needs_ppcg(frameworks: Sequence[str]) -> list[str]:
-    """The requested columns whose TIMED build runs ``ppcg``.
-
-    The GPU half of the polyhedral pair, and the same argument as :func:`needs_polycc`: ppcg is
-    source-to-source, so with ppcg absent the column has nothing to compile and declines every
-    kernel. Read from the column's ``transform``, the same field that routes its
-    build to ppcg."""
+    """The requested columns whose TIMED build runs ``ppcg`` (without it they decline every kernel)."""
     return [
         name
         for name in frameworks
@@ -126,11 +87,7 @@ def needs_ppcg(frameworks: Sequence[str]) -> list[str]:
 
 
 def check_ppcg(frameworks: Sequence[str]) -> str:
-    """``""`` when every requested ppcg column's toolchain is here, else why not.
-
-    Asked through :func:`ppcg_transform.missing_tool` -- the same answer the per-kernel build uses
-    -- and asked PER COLUMN, because the vendor is what decides whether ``hipify-perl`` is part of
-    the toolchain: ``ppcg_hip`` builds ppcg's CUDA through hipify, ``ppcg_cuda`` does not."""
+    """``""`` when every requested ppcg column's toolchain is here (checked per column: vendors differ), else why."""
     from hpcagent_bench.frameworks.native_runtime import FRAMEWORK_LANG
 
     for name in frameworks:
@@ -141,12 +98,7 @@ def check_ppcg(frameworks: Sequence[str]) -> str:
 
 
 def missing_tools(frameworks: Sequence[str]) -> list[tuple[str, str]]:
-    """``(column, why)`` for every requested column whose own COMPILER this host does not have.
-
-    The source-to-source columns are the only ones that shell out to a tool the image may not
-    carry, and a job that runs one without it produces a full set of rows that all say the column
-    declined -- indistinguishable, in a results table, from a corpus the compiler genuinely cannot
-    handle. Called at job startup so the answer is one loud line instead of one silent row per kernel."""
+    """``(column, why)`` for every requested column whose own compiler this host lacks (else silent declines)."""
     out: list[tuple[str, str]] = []
     for name in needs_polycc(frameworks):
         problem = check_polycc()
@@ -163,11 +115,7 @@ def missing_tools(frameworks: Sequence[str]) -> list[tuple[str, str]]:
 def check_dace_pipeline() -> str:
     """``""`` when the installed dace carries the fork's canonicalize pipeline, else why not.
 
-    Canonicalize + finalize exists only on spcl/dace@extended. Checked here so a job dies with the
-    cause named, rather than hundreds of kernels deep with a canonicalize column silently scored on
-    the weaker upstream ``auto_optimize``. Only columns that ASK for canonicalize are gated:
-    ``dace_cpu_autoopt`` IS upstream ``auto_optimize`` and is meant to run on stock DaCe, which is
-    exactly how the fork's optimizer gets an honest same-corpus comparison."""
+    Only columns that ask for canonicalize are gated; ``dace_cpu_autoopt`` is meant to run on stock DaCe."""
     try:
         __import__("dace.transformation.passes.canonicalize.pipeline", fromlist=["canonicalize"])
     except ImportError as exc:
@@ -188,16 +136,7 @@ def check_autopar(frameworks: Sequence[str]) -> list[tuple[str, AutoparVerdict, 
 
 
 def thread_env(mode: Mode = Mode.MULTI_CORE, ranks_per_node: int = 1) -> dict[str, str]:
-    """The thread-count environment a timed run needs, from the one source the harness documents.
-
-    ``ranks_per_node`` > 1 splits the node between co-resident ranks. Without it every rank claims
-    every core, four ranks on a node oversubscribe it 4x, and the numbers are contention, not
-    runtime -- silently, because each rank's own log still looks correct. Integer division, floor
-    of at least 1: leftover cores go unused rather than handed twice to different ranks.
-
-    The count goes through ``cpu_env(threads=...)`` rather than being divided back out of what it
-    returned: that is the one way to pin an explicit thread count, and re-parsing its values would
-    break the moment one of them stopped being a bare integer."""
+    """The thread-count environment a timed run needs; ``ranks_per_node`` > 1 splits the node's cores (floor 1)."""
     if ranks_per_node <= 1:
         return flags.cpu_env(mode)
     # SINGLE_CORE means one thread per rank however many ranks share the node.
@@ -210,22 +149,11 @@ def run(
 ) -> tuple[int, list[str], list[str]]:
     """Every preflight check, as ``(exit_code, report_lines, env_lines)``.
 
-    The two line lists are separate because a caller EVALS the second one: a submission script
-    runs ``eval "$(hpcagent-bench preflight --print-env)"``, so a diagnostic sharing that stream
-    would be executed as a command. Report goes to stderr, exports to stdout.
-
-    Non-zero only for a FATAL finding -- the job cannot produce a valid measurement at all: a
-    column this deployment cannot run, a dace that would silently score the wrong pipeline, or a
-    missing polycc, which leaves the Pluto column with nothing to compile. A vacuous autopar probe
-    only warns, because the run is still valid; its LABEL is what misleads.
-    """
+    ``env_lines`` are separate because a caller EVALS them. Non-zero only for a fatal finding; a vacuous autopar
+    probe only warns."""
     report: list[str] = []
     if tools_only:
-        #: TOOL PRESENCE ONLY, for a runner that has already settled which columns it may run:
-        #: ``hpcagent-bench job baseline`` runs columns (numba, the ppcg family) that
-        #: :data:`DETERMINISTIC_FRAMEWORKS` does not list, so the full check below would refuse a
-        #: running experiment. What it must never do is start a column whose
-        #: compiler is absent -- that check is this one, and it is cheap enough to run per column.
+        #: Tool presence only, for a runner that has already settled which columns it may run.
         absent = missing_tools(frameworks)
         for name, problem in absent:
             report.append(f"preflight: FATAL -- {name} cannot run here: {problem}")

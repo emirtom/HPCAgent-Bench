@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Optimizer search budget (hpcagent_bench.optimize).
-
-Pins the ONE-knob contract: every optimizer (JAX AoT / DaCe compile, TVM
-MetaSchedule, Triton autotune, an Agent) draws its budget from
-:class:`OptimizeBudget`, and a framework declares whether it is an optimizer.
-"""
+"""Every optimizer draws its search budget from :class:`OptimizeBudget`, and a framework declares whether it is
+an optimizer."""
 
 from typing import TYPE_CHECKING
 

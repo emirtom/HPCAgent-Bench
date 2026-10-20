@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sparse and distributed never combine: a sparse task takes no MPI layout and never scales.
-
-A sparse kernel's format is fixed by its task (one sub-benchmark per format configuration), and
-distributed sparse layouts are unsupported. Three places hold that line: the manifest (no ``mpi:``
-block beside ``sparse_layouts``), the request (a ``requests.grid`` on a sparse task, or a layout op on a
-sparse array, is refused before any build), and the grade (no weak or strong scaling curve for a
-sparse kernel).
-"""
+"""Sparse and distributed never combine: refused in the manifest, the request and the grade (no scaling curve
+for a sparse kernel)."""
 
 import pytest
 

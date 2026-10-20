@@ -60,9 +60,8 @@ async def run_agent(
     max_turns: int = MAX_TURNS,
     on_tool_result: Callable[[str, Any], None] | None = None,
 ) -> None:
-    """Run one agent on the task to its end: the MCP servers are started for it and stopped after it.
-    ``instructions`` is the system prompt (none by default), ``on_tool_result`` sees every tool's
-    answer by tool name. ``run_optimas`` runs one of these per round of its prompt search."""
+    """Run one agent on the task to its end (MCP servers started and stopped around it); ``on_tool_result`` sees
+    every tool's answer by name."""
     from agents import Agent, FunctionTool, ModelSettings, RunConfig, RunContextWrapper, RunHooks, Runner
     from agents.mcp import MCPServerStdio
     from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel

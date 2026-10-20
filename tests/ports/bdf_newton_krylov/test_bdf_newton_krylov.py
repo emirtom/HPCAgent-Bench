@@ -1,31 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Acceptance gates for the BDF/Newton/Krylov Brusselator solver.
+"""Acceptance gates for the BDF/Newton/Krylov Brusselator solver: order adaptation reaches order >= 3,
+Jacobian reuse engages, and (integration) the problem is stiff, checked against scipy's ``solve_ivp``.
 
-Three things a plain "it ran and produced numbers" check cannot see are graded here.
-
-ORDER ADAPTATION actually engages: a controller pinned at order 1 is backward Euler wearing a BDF
-label, and the variable-order machinery -- the whole point of this kernel over ``jfnk_bratu`` or
-``rk45_ensemble`` -- would be untested. ``test_order_adaptation_and_jacobian_reuse`` reads the
-returned order history and asserts it reaches order >= 3 and changes at least twice.
-
-JACOBIAN REUSE actually engages: the same test counts ``njev`` (the number of times the frozen
-reaction-Jacobian state is refreshed) against ``nsteps`` and asserts reuse, not "it happened to
-converge."
-
-STIFFNESS is real and GROWS with the grid: ``test_s_preset_clears_every_gate_and_the_stiffness_gap_grows_with_n``
-(``@pytest.mark.integration``, since it needs two grid sizes no single manifest preset expresses)
-runs ``scipy.integrate.solve_ivp``'s explicit RK45 at the kernel's own tolerance and shows it needs
->= 25x more steps than BDF at S, with the ratio growing between two grid sizes -- the alpha/h^2
-argument from the manifest's docstring, measured rather than asserted in prose.
-
-The independent path throughout is ``scipy.integrate.solve_ivp`` (``BDF``/``Radau`` for the
-solution cross-check, ``RK45`` for the stiffness ratio) called against the kernel's own
-``brusselator_rhs`` -- an external, separately implemented integrator, not a second copy of this
-file's math.
-
-    pytest tests/ports/bdf_newton_krylov/
-    pytest tests/ports/bdf_newton_krylov/ -m integration
+    pytest tests/ports/bdf_newton_krylov/ [-m integration]
 """
 
 import time

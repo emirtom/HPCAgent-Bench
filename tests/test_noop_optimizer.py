@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The no-op (identity) optimizer, verified + scored both submission ways.
-
-:class:`NoOpOptimizer` submits the NumpyToX reference unchanged. It needs no
-external library, so it is the canonical fixture for exercising the full harness
--- the tools client's verify/score endpoints, the in-judge C baseline, and BOTH
-source options (language + ABI) -- on a plain kernel.
-"""
+"""The no-op optimizer submits the NumpyToX reference unchanged, exercising verify/score, the in-judge C baseline
+and both source options."""
 
 import pathlib
 

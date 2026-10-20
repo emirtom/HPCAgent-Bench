@@ -1,9 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The closed categories a grade is configured and recorded by, as :class:`~hpcagent_agent.coded.Coded` enums.
-
-A leaf module (imports nothing of the package) so :mod:`hpcagent_bench.config` can type its fields with them.
-"""
+"""The closed categories a grade is configured and recorded by, as :class:`~hpcagent_agent.coded.Coded` enums; a
+leaf module so :mod:`hpcagent_bench.config` can type its fields with them."""
 
 import enum
 from typing import Annotated
@@ -75,11 +73,8 @@ class Oracle(Coded):
 
 
 class Baseline(Coded):
-    """The reference a submission is timed against.
-
-    ``torch-autotune`` resolves per grade to its ``-cpu`` / ``-gpu`` kind. The per-track default is ``None``
-    (spelled :data:`AUTO_BASELINE`), resolved by :func:`hpcagent_bench.harness.grading.resolve_baseline`.
-    """
+    """The reference a submission is timed against; ``torch-autotune`` resolves per grade to ``-cpu`` / ``-gpu``,
+    and ``None`` (:data:`AUTO_BASELINE`) is the per-track default."""
 
     SEPARATOR = enum.nonmember("-")
 
@@ -133,7 +128,7 @@ class InputMode(Coded):
 class SourceMode(Coded):
     """How the agent delivers its implementation for a task."""
 
-    RESTRICTED = enum.auto()  # a single SOURCE file in the task language; the judge compiles it
+    RESTRICTED = enum.auto()  # one SOURCE file in the task language, compiled by the judge
     ANY = enum.auto()  # a prebuilt C-ABI .so in any language
 
 
@@ -186,11 +181,7 @@ class Denominator(Coded):
 
 
 class Language(Coded):
-    """A delivery language: what a submission is written in and graded as.
-
-    A setup's ``record.language`` (``triton``, ``omp``, ...) is an open vocabulary key mapped onto a member by
-    :func:`hpcagent_bench.harness.service.delivery_language`.
-    """
+    """A delivery language: what a submission is written in and graded as (setup languages map onto it)."""
 
     C = enum.auto()
     CPP = enum.auto()

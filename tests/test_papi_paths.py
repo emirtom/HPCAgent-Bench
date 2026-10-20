@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The counting control flow of :mod:`hpcagent_bench.harness.papi`, driven through a scripted libpapi.
-
-No PAPI, no PMU and no kernel: the ctypes library is a fake whose ``PAPI_read`` answers from a
-script keyed on how many times the fake kernel has run, and the native call is a loop over the
-timed-call seam. What is left is exactly the code between those two boundaries -- arming, the read
-bracket, the rep selection, the thread bookkeeping and the reports built from them.
-"""
+"""The counting control flow of :mod:`hpcagent_bench.harness.papi` through a scripted fake libpapi: arming, read
+brackets, rep selection, thread bookkeeping and reports."""
 
 import ctypes
 import os

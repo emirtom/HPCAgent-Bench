@@ -37,20 +37,15 @@ EVENTS = "openhands.events.jsonl"
 AGENT_USAGE_ID = "agent"
 CONDENSER_USAGE_ID = "condenser"
 MAX_ITERATIONS = sys.maxsize
-#: The SDK's tmux backend puts every session of a user on one tmux server (a fixed socket name), so
-#: agents sharing a node could start shells with each other's environment. Subprocess shells inherit ours.
+#: Subprocess shells: the SDK's tmux backend shares one tmux server per user across a node's agents.
 TERMINAL_TYPE = "subprocess"
-#: The terminal's shell: bash without rc files, so a HOME whose .bashrc changes directory cannot move
-#: the agent's commands out of the workdir.
+#: The terminal's shell: bash without rc files, so a .bashrc cannot move the agent's commands out of the workdir.
 TERMINAL_SHELL = pathlib.Path(__file__).resolve().parent / "bash-norc"
 
 
 def build_agent(args: runner_common.RunnerArgs, environ: Mapping[str, str]) -> Any:
-    """The episode's Agent. Its condenser is the default preset's, built the way
-    ``openhands.tools.preset.default.get_default_agent`` builds it: ``get_default_condenser`` on a copy
-    of the agent's LLM under usage_id ``condenser``, with ``max_tokens`` set to the compaction trigger
-    when the driver names one. ``LLMSummarizingCondenser`` condenses (HARD) once the view counts more
-    than min(max_tokens, max_input_tokens) tokens, down to half of it."""
+    """The episode's Agent with the default preset's condenser, its ``max_tokens`` set to the compaction trigger when
+    the driver names one."""
     from openhands.sdk import (
         LLM,
         Agent,
@@ -73,11 +68,8 @@ def build_agent(args: runner_common.RunnerArgs, environ: Mapping[str, str]) -> A
         fields["max_input_tokens"] = args.context_length
     if args.request_timeout is not None:
         fields["timeout"] = args.request_timeout
-    # Sent as given: ``LLM.reasoning_effort`` is a Literal, and the driver already resolved the rung
-    # over the part of this model's ladder the SDK can spell (agent/hpcagent_agent/driver/harnesses.py).
-    # The SDK passes the field on only for a model litellm's metadata says takes one, and litellm (under
-    # the SDK's drop_params) drops it for any other; no served ``openai/<name>`` is in that metadata, so
-    # the rung also rides in the request body itself, which neither inspects.
+    # Sent as given (the driver resolved a spellable rung); litellm may drop the field for an unknown model, so the
+    # rung also rides in the request body itself.
     if args.reasoning_effort:
         fields["reasoning_effort"] = args.reasoning_effort
         fields["litellm_extra_body"] = {"reasoning_effort": args.reasoning_effort}
@@ -107,10 +99,7 @@ class WaitingExecutor(Protocol):
 
 
 def lengthen_tool_waits(tools: Iterable[Any], executor_type: type[WaitingExecutor], seconds: float) -> list[str]:
-    """Set the wait of every tool run by an ``executor_type`` executor to ``seconds``; return their names.
-
-    ``MCPToolExecutor.timeout`` is the SDK's only hold on how long one MCP call is waited for; every MCP
-    tool the agent built carries its own executor."""
+    """Set the wait of every tool run by an ``executor_type`` executor to ``seconds``; returns their names."""
     lengthened: list[str] = []
     for tool in tools:
         if isinstance(tool.executor, executor_type):

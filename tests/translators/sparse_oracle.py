@@ -1,28 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Generalized scipy-oracle harness for sparse kernels.
-
-Drives the FULL NumpyToC pipeline for any kernel that declares a
-``sparse_layouts`` block in its bench_info, then checks the compiled C
-output against a scipy reference:
-
-    bench_info + numpy ref  ->  emit C  ->  gcc -shared  ->  ctypes call
-                            \\->  run numpy ref with scipy.sparse inputs (oracle)
-                                 compare output_args, element-wise.
-
-The harness is data-driven: it reads the ``sparse_layouts`` /
-``configurations`` blocks to learn each logical array's format, the
-binding JSON (emitted alongside the C source) to learn the exact C
-argument order + per-arg kind, and the manifest's declared-array surface
-(``numpyto_common.frontend.declared_shapes``) for the dense arrays.
-Nothing here is spmv/spmm-specific, so new sparse kernels are picked up
-automatically by :func:`discover_sparse_kernels`.
-
-Format materialization (scipy matrix -> per-role physical buffers) covers
-all nine supported layouts; csr/csc/coo/dia/bcsr come straight from
-scipy, bcoo/ell/jds/sell_c_sigma reuse the builders validated in
-``test_sparse_matvec``.
-"""
+"""Scipy-oracle harness for sparse kernels: emit C via NumpyToC, build, call through ctypes per the binding
+JSON, and compare against the numpy reference run on scipy.sparse inputs, for all nine layouts."""
 
 import ctypes
 import json

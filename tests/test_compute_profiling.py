@@ -1,9 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The compute profilers (:mod:`hpcagent_bench.harness.compute_profiling`): ``rocprof-compute`` on AMD,
-``ncu`` on NVIDIA. CPU group: no GPU, no ROCm and no Nsight Compute here. The readers run against the
-tables rocprof-compute 3.4.0 wrote on MI300A, and every process is a stand-in that writes what the
-real tool writes, so the path taken when a tool fails is provable on the host that has none."""
+"""The compute profilers (``rocprof-compute``, ``ncu``) on a host without them: readers against real MI300A
+tables, every process a stand-in, so the failure paths are provable."""
 
 import ast
 import json

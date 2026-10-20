@@ -1,11 +1,5 @@
-"""What the non-Claude runners share: launch arguments, the usage line, the end record, the mcp.json
-conversion, the history window and the shell tool. Stdlib and pydantic only: each runner has its own venv.
-
-``usage.jsonl``: one line per model call; ``input``, ``cached_input``, ``output`` and ``reasoning`` are disjoint
-and sum to the call's total. ``harness-end.json``: ``{"reason", "turns", "detail", "effort"}``, ``effort`` being
-the rung actually sent. Limits are passed in (``driver/harnesses.py``), never read here, so every harness runs a
-setup under the same ones.
-"""
+"""What the non-Claude runners share: launch arguments, the usage line, the end record, the mcp.json conversion,
+the history window and the shell tool. Stdlib and pydantic only; limits are passed in, never read here."""
 
 import argparse
 import enum
@@ -97,13 +91,11 @@ class EndReason(Coded):
 #: Exception class names (anywhere in the cause chain or MRO) that set the end reason.
 CONTEXT_OVERFLOW_TYPES = frozenset({"ContextWindowExceededError", "LLMContextWindowExceedError"})
 API_TIMEOUT_TYPES = frozenset({"Timeout", "APITimeoutError", "LLMTimeoutError"})
-#: vLLM/SGLang refuse an over-long prompt with a plain 400 that neither SDK maps to its own type,
-#: e.g. "Input length (66001) exceeds model's maximum context length (65536)"; the Messages API's own
-#: refusal reads "prompt is too long".
+#: The over-long-prompt refusals neither SDK maps to its own type (vLLM/SGLang, and the Messages API).
 CONTEXT_OVERFLOW_MARKS = ("maximum context length", "longer than the model's context length", "prompt is too long")
 
 
-#: The reply cap when the launcher named none, the same number ``run_cluster.sh`` defaults to.
+#: The reply cap when the launcher named none.
 DEFAULT_MAX_OUTPUT_TOKENS = 32768
 #: The judge's answer deadline when the setup names none, the tools' own default.
 DEFAULT_JUDGE_TIMEOUT_SECONDS = 300
@@ -112,8 +104,8 @@ JUDGE_CALL_MARGIN_SECONDS = 300
 
 
 def judge_call_timeout(environ: Mapping[str, str]) -> int:
-    """Seconds a runner waits on one judge call: ``JUDGE_TIMEOUT_SECONDS`` plus a margin, so the judge
-    answers (with its own "did not answer" reason at worst) before the client gives up."""
+    """Seconds a runner waits on one judge call: ``JUDGE_TIMEOUT_SECONDS`` plus a margin, so the judge answers
+    first."""
     judge = int(float(environ.get("JUDGE_TIMEOUT_SECONDS", "") or DEFAULT_JUDGE_TIMEOUT_SECONDS))
     return judge + JUDGE_CALL_MARGIN_SECONDS
 
@@ -136,7 +128,7 @@ class RunnerArgs:
     compaction_trigger: int | None = None
     #: Seconds one model request may take; ``None`` keeps the client's own default.
     request_timeout: int | None = None
-    #: Where the agent's commands run: its own folder in the shared mount (the driver's ``--cwd``); None = workdir.
+    #: Where the agent's commands run (its shared-mount folder); None = workdir.
     cwd: pathlib.Path | None = None
 
     @property
@@ -181,8 +173,7 @@ def parse_args(argv: Sequence[str], *, with_mcp_config: bool, with_context_lengt
 
 
 def litellm_model(served_name: str) -> str:
-    """LiteLLM's name for a model on an OpenAI-compatible server. Always prefixed, because a served
-    name can itself begin with an organisation such as ``openai/``."""
+    """LiteLLM's name for a model on an OpenAI-compatible server, always prefixed (a name may start ``openai/``)."""
     return f"openai/{served_name}"
 
 
@@ -198,8 +189,7 @@ def token_count(value: object) -> int:
 
 
 def usage_line(prompt_tokens: int, cached_tokens: int, completion_tokens: int, reasoning_tokens: int) -> dict[str, int]:
-    """The four disjoint counts from OpenAI-style totals, where the prompt includes its cached part and
-    the completion includes its reasoning."""
+    """The four disjoint counts from OpenAI-style totals (prompt includes cached, completion includes reasoning)."""
     prompt = max(prompt_tokens, 0)
     completion = max(completion_tokens, 0)
     cached = min(max(cached_tokens, 0), prompt)
@@ -208,9 +198,7 @@ def usage_line(prompt_tokens: int, cached_tokens: int, completion_tokens: int, r
 
 
 def anthropic_usage(usage: Mapping[str, object]) -> dict[str, int]:
-    """One Messages API ``usage`` object as a usage line. Its three input fields are disjoint (the
-    uncached prompt, the prompt written to the cache, the prompt read from it) and ``output_tokens``
-    counts the thinking too, which the API does not report apart."""
+    """One Messages API ``usage`` object as a usage line (``output_tokens`` includes the thinking)."""
     cached = token_count(usage.get("cache_read_input_tokens"))
     prompt = token_count(usage.get("input_tokens")) + token_count(usage.get("cache_creation_input_tokens")) + cached
     return usage_line(prompt, cached, token_count(usage.get("output_tokens")), 0)
@@ -246,14 +234,10 @@ MCP_SERVER_KEYS = ("command", "args")
 
 
 def mcp_servers(config_path: pathlib.Path, environ: Mapping[str, str], workdir: pathlib.Path) -> dict[str, Any]:
-    """The ``mcpServers`` map of a Claude-format mcp.json as stdio launch parameters,
-    ``{name: {"command", "args", "env", "cwd"}}`` -- the shape OpenHands' ``mcp_config``, the mcp
-    SDK's ``StdioServerParameters`` and the Agents SDK's ``MCPServerStdioParams`` all take.
+    """The ``mcpServers`` map of a Claude-format mcp.json as stdio launch parameters.
 
-    Those clients start a stdio server with only HOME/LOGNAME/PATH/SHELL/TERM/USER plus the entry's own
-    ``env``; Claude Code hands it the whole environment. So each server's env is ``environ`` overlaid with
-    the entry's, and its cwd is the workdir, where submit.py's relative marker must land.
-    """
+    Each server's env is ``environ`` overlaid with the entry's (these clients pass almost nothing by default), and
+    its cwd is the workdir, where submit.py's relative marker must land."""
     data = json.loads(config_path.read_text(encoding="utf-8"))
     servers = data.get("mcpServers") if isinstance(data, dict) else None
     if not isinstance(servers, dict) or not servers:
@@ -270,8 +254,7 @@ def mcp_servers(config_path: pathlib.Path, environ: Mapping[str, str], workdir: 
     return converted
 
 
-#: A cut goes down to this fraction of the trigger, as OpenHands' condenser does (half its max_tokens),
-#: so the prefix cache is broken once per many steps rather than on every step past the trigger.
+#: A cut goes down to this fraction of the trigger, so the prefix cache breaks once per many steps.
 CUT_FRACTION = 0.5
 ELIDED_NOTE = (
     "[{steps} earlier steps of this conversation were removed to keep it within the model's context "
@@ -282,21 +265,18 @@ REPLY_ITEM_TYPES = frozenset({"function_call", "reasoning"})
 
 
 def is_reply(message: Mapping[str, Any]) -> bool:
-    """Whether a history entry is the model's own: an assistant message in any of the three wire
-    formats, or a Responses-API call or reasoning item."""
+    """Whether a history entry is the model's own (an assistant message, or a Responses-API call/reasoning item)."""
     return message.get("role") == "assistant" or message.get("type") in REPLY_ITEM_TYPES
 
 
 def message_chars(message: Mapping[str, Any]) -> int:
-    """A message's size as the request carries it: every field but mini-SWE's own ``extra``, the
-    retained ``reasoning_content`` included."""
+    """A message's size as the request carries it (mini-SWE's ``extra`` excluded)."""
     return len(json.dumps({key: value for key, value in message.items() if key != "extra"}, default=str))
 
 
 def history_steps(messages: Sequence[Mapping[str, Any]], head: int) -> list[list[Mapping[str, Any]]]:
-    """The messages past the first ``head``, one list per step: the model's reply and everything after
-    it up to its next one (its tool results, a format error). Dropping whole steps never leaves a tool
-    result without the call it answers."""
+    """The messages past the first ``head``, one list per step (a reply and what follows it), so dropping whole steps
+    never orphans a tool result."""
     steps: list[list[Mapping[str, Any]]] = []
     replied = False
     for message in messages[head:]:
@@ -310,14 +290,11 @@ def history_steps(messages: Sequence[Mapping[str, Any]], head: int) -> list[list
 
 @dataclass(slots=True)
 class HistoryWindow:
-    """The messages each request carries: the whole history until its estimate passes ``trigger``
-    tokens, then the ``head`` messages (the task, and the system message where the history holds one),
-    a note and the newest steps, cut to ``CUT_FRACTION`` of the trigger and cut again only once it grows
-    back. The cut only moves forward, so between cuts the request is the previous one plus the new step
-    and the server's prefix cache holds.
+    """The messages each request carries: the whole history until it passes ``trigger`` tokens, then the ``head``,
+    a note and the newest steps cut to ``CUT_FRACTION`` of the trigger.
 
-    Tokens are estimated from characters at the ratio the server's own count gave the previous
-    request, so no tokenizer is needed and the estimate follows the served model's."""
+    The cut only moves forward, so the server's prefix cache holds; tokens are estimated from characters at the
+    ratio the server's last count gave."""
 
     trigger: int
     head: int
@@ -346,8 +323,7 @@ class HistoryWindow:
             self.tokens_per_char = prompt_tokens / chars
 
 
-#: bash without rc files, the argv every runner shell command runs under: /bin/sh on the image is dash,
-#: and an rc file that changes directory would move the agent's commands out of its folder.
+#: bash without rc files (/bin/sh is dash, and an rc file could change directory).
 BASH = ("bash", "--norc", "--noprofile", "-c")
 SHELL_TOOL = "bash"
 
@@ -367,7 +343,7 @@ class ShellInput(pydantic.BaseModel):
 
 
 SHELL_SCHEMA: dict[str, Any] = ShellInput.model_json_schema()
-#: Output past this many characters is returned as its head and tail, as mini-SWE's observation does.
+#: Output past this many characters is returned as its head and tail.
 OBSERVATION_LIMIT = 10000
 
 
@@ -388,8 +364,8 @@ def shell_observation(returncode: int, output: str) -> str:
 
 
 def run_shell(arguments: Mapping[str, Any], cwd: pathlib.Path, timeout: float) -> str:
-    """Run one shell tool call in ``cwd``; its observation. A command still running after ``timeout`` is killed with
-    every process it started, and answers with what it printed so far."""
+    """Run one shell tool call in ``cwd``; on ``timeout`` the whole process tree is killed and the output so far
+    returned."""
     try:
         command = ShellInput.model_validate(arguments).command
     except pydantic.ValidationError as exc:
@@ -450,8 +426,7 @@ def write_end(workdir: pathlib.Path, reason: EndReason, turns: int, detail: str,
 
 
 def run_and_record(args: RunnerArgs, run_episode: Callable[[RunnerArgs, UsageLog], tuple[EndReason, str]]) -> int:
-    """Run one episode with a fresh usage log and write its end record, whatever stopped it; return
-    the runner's exit status (:func:`write_end`)."""
+    """Run one episode with a fresh usage log and write its end record whatever stopped it; returns the exit status."""
     usage_log = UsageLog(args.usage)
     try:
         reason, detail = run_episode(args, usage_log)

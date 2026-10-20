@@ -1,7 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The recorded outcome of a graded request and of a scaling replay (the ``status`` of ``grades`` and
-``scaling_laws``); a leaf module, so the runner, the recorder and the judge can all import it."""
+"""The recorded outcome of a graded request and of a scaling replay; a leaf module, importable by all."""
 
 import enum
 
@@ -36,8 +35,7 @@ class RunStatus(Coded):
 
 
 class GradeStatus(Coded):
-    """A scaling replay's outcome, per law (``scaling_laws.status``): a curve; correct but no valid curve;
-    failed (fuzz gate or leaderboard run); refused before building (``service.distribution_refusal``); raised."""
+    """A scaling replay's outcome, per law (``scaling_laws.status``)."""
 
     SEPARATOR = enum.nonmember("-")
 

@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the shipped skills SAY, checked against the code that has to make it true.
-
-``tests/test_prompt_skills.py`` covers how a skill is discovered, parsed and layered -- the
-mechanism. This covers the content, because a skill is documentation that gets INJECTED INTO
-EVERY PROMPT and therefore drifts in the most expensive possible direction: silently, into an
-agent's instructions. A skill naming a metric the code does not report, or quoting a perf event the
-code does not record, is worse than no skill -- it is a confident wrong answer with the repo's name
-on it.
-
-Every assertion here is a cross-check against a constant or a table that already exists. Nothing
-pins prose for its own sake: rewording is free, contradicting the code is not.
-"""
+"""What the shipped skills SAY, cross-checked against the constants and tables that make it true (rewording is
+free, contradicting the code is not)."""
 
 import dataclasses
 import inspect

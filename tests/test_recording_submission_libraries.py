@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``requested_build`` / ``requests.startup.load``: what a graded submission asked to link, recorded on
-every grade a ``build`` or ``requests.startup.load`` request touched -- pass or fail.
-
-Nothing else records a submission's free-form ``build`` list or its catalog ``requests.startup.load``.
-"""
+"""Every grade a ``build`` or ``requests.startup.load`` request touched records what it asked to link, pass or
+fail."""
 
 import json
 

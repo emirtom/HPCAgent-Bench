@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The non-Claude harness runners and the ``hpcagent-bench-tool`` CLI keep the driver's contract.
-
-``agent/harness`` runs inside isolated venvs in the agent image, so these tests cover the
-logic that needs neither mini-SWE-agent nor OpenHands: the launch arguments, the usage line the token
-watcher sums, the end record, the mcp.json conversion, and the CLI shim driven at a fake judge.
-"""
+"""The non-Claude harness runners and the ``hpcagent-bench-tool`` CLI keep the driver's contract (launch args,
+usage lines, end record, mcp.json conversion, CLI at a fake judge)."""
 
 import dataclasses
 import http.server

@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``device_source_file`` -- the file twin of ``device_source``, symmetric with how ``source_file``
-is of ``source``.
-
-An agent reaches for the file-delivery convention it uses for every other language
-(``source_file``), so a GPU submission must not be limited to inline ``source`` + inline
-``device_source`` (``envelope.Submission._validate_gpu_sources``): each half of a GPU submission is
-delivered independently, inline or as a file.
-"""
+"""``device_source_file``, the file twin of ``device_source``: each half of a GPU submission is delivered inline
+or as a file."""
 
 import os
 import pathlib

@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The best-of baseline is measured once per cell and reused by every later /score and /submit.
-
-The first grade of a cell times the references exactly as before; a later grade of the same cell
-(same sizes, dtype, candidate set, rep budget, compiler family, thread count and draw rule) reads
-the remembered time instead of re-timing, in this process and, through the disk tier, in another
-judge rank or job on the same node type. The per-call nonce and the route's value seed are not in
-the key: the protocol redraws the value arrays for every timed repeat anyway.
-"""
+"""The best-of baseline is measured once per cell (sizes, dtype, candidates, rep budget, compiler family,
+threads, draw rule) and reused by later grades, in process and across ranks via the disk tier."""
 
 import pathlib
 from typing import Any

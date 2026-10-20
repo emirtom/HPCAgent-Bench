@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Recorded grades draw their inputs from a PER-CALL nonce, not from constants.
-
-With fixed seeds every /submit and every harden leg graded the same inputs, so a kernel could carry
-an answer from one grade to the next (a disk or shm cache), and the secret shape was one literal in
-config.yaml. Each test pins one piece: the nonce differs per call and is stamped, the held-out cases
-and the harden legs follow it, the harden seed is a third one, and the secret shape is drawn per
-call.
-"""
+"""Recorded grades draw their inputs from a per-call, stamped nonce: held-out cases and harden legs follow it,
+the harden seed is a third one, and the secret shape is drawn per call."""
 
 import dataclasses
 import pathlib

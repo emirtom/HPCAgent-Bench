@@ -1,32 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The test registry: every statistical test is a named entry, and the configuration picks one by name.
-
-Five registries, one decorator each (``docs/measurement_statistics.md#the-test-registry``):
-
-* :func:`paired_test` -- per-kernel log ratios of two setups (speed or tokens); ``statistics.paired_test``.
-* :func:`proportion_test` -- solved and total runs of two setups; ``statistics.proportion_test``.
-* :func:`paired_proportion_test` -- the kernels exactly one of two setups solved; ``statistics.paired_proportion_test``.
-* :func:`correction` -- the p values of one family; ``statistics.correction`` (every reported family).
-* :func:`timing_test` -- two independent samples, one input. A grading protocol names the test that decides
-  each credit (:attr:`hpcagent_bench.protocols.Protocol.timing_test`): another test is another protocol, never a
-  config switch. The same tests serve one reporting comparison, two setups' scored runs on one kernel
-  (``statistics.two_sample_test``), which never touches a grade.
-
-A test registers itself and every caller reaches it through :func:`paired`, :func:`proportion`,
-:func:`paired_proportion`, :func:`correct`, :func:`verdicts`, :func:`two_sample` or :func:`timing`, never by
-importing the function::
-
-    @significance.paired_test("trimmed-mean", version="1")
-    def trimmed(log_ratios: FloatArray, alpha: float) -> significance.Result: ...
-
-Every test returns a :class:`Result`; the registry stamps its name and version on it. A name that is not
-registered raises :class:`~hpcagent_bench.registry.RegistryError` listing the registered names
-(:func:`configured`, which every entry point calls before it reads data): a typo never falls back to the
-default. Registration happens at import, so a user's test lives in a module imported before the run.
-
-numpy and scipy are imported inside the tests: the judge's timing path imports this module.
-"""
+"""The test registry: every statistical test is a named, versioned entry (five registries: paired, proportion,
+paired-proportion, correction, timing; ``docs/measurement_statistics.md#the-test-registry``) reached only through
+:func:`paired`, :func:`proportion`, ... Unknown names raise; numpy/scipy are imported lazily (the judge imports
+this)."""
 
 import dataclasses
 import enum

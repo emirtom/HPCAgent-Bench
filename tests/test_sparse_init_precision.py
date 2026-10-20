@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Guards for the sparse solver initializers: precision propagation and a well-posed system in
-every scenario.
-
-The fp32 leg once graded fp64 data (the precision kwarg was misnamed and never bound), and gmres
-once drew a near-singular system; both only show when each (solver, scenario, precision) is built.
-"""
+"""The sparse solver initializers propagate precision and build a well-posed system for every (solver,
+scenario, precision)."""
 
 import numpy as np
 import pytest

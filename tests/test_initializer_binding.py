@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A fallback ``initialize()``'s return tuple binds to the manifest's names by position, so the counts
-must agree.
-
-The binding was ``zip(..., strict=False)``: a count mismatch was truncated without a word. lulesh
-returned 50 values for 46 declared names and nbody 4 for 3. The orders happened to line up, but a
-value added or reordered mid-tuple would have shifted every later array onto the wrong name, and two
-same-shape arrays would have swapped with no error.
-"""
+"""A fallback ``initialize()``'s return tuple binds to the manifest's names by position, so a count mismatch
+raises instead of truncating."""
 
 import importlib
 

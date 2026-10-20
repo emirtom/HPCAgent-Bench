@@ -80,8 +80,7 @@ class Detector(Coded):
 
 
 class ToolSpec(pydantic.BaseModel):
-    """One tool of :data:`TOOLSET`: how it is detected, the names a detector looks for, and the targets
-    that require it."""
+    """One tool of :data:`TOOLSET`: how it is detected, the names looked for, and the targets requiring it."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -118,11 +117,7 @@ class PlatformInfo(TypedDict):
 
 
 class Evidence(TypedDict, total=False):
-    """What a positive detection carries beyond the yes/no; a miss carries none of it.
-
-    ``path`` and ``version`` come from a binary, ``via`` names the strategy that resolved a
-    library, ``variants`` lists every name a binary answered to.
-    """
+    """What a positive detection carries beyond the yes/no (path, version, resolving strategy, variants)."""
 
     path: str
     version: str | None
@@ -151,7 +146,7 @@ class Report(TypedDict):
 
 
 def detect_platform() -> PlatformInfo:
-    sysname = platform.system()  # Linux / Darwin / Windows
+    sysname = platform.system()
     info: PlatformInfo = {"system": sysname.lower(), "machine": platform.machine(), "wsl": False, "distro": ""}
     if sysname == "Darwin":
         info["distro"] = "macos " + platform.mac_ver()[0]

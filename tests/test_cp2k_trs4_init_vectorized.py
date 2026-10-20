@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""CP2K TRS4's initializer builds bit-identical inputs to the shipped scalar loops.
-
-The shipped ``initialize`` walked every block and matrix entry in Python with one scalar
-``rng.uniform`` per diagonal energy and per off-diagonal coupling. The vectorized one replays that
-interleaved draw stream in one broadcast call; this pins it to a copy of the loops that draws the same
-counter-based stream one value at a time (:mod:`tests.counter_stream`), at both precisions, including
-the number of draws.
-"""
+"""CP2K TRS4's vectorized initializer is bit-identical to the scalar loops (replayed with
+:mod:`tests.counter_stream`) at both precisions, draw count included."""
 
 import numpy as np
 import pytest

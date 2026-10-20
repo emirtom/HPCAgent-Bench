@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Acceptance gates for the SGS-preconditioned CG kernel and the operator it runs on.
-
-Two things are graded here that a plain output comparison cannot see.
-
-The KERNEL is checked against an independent scipy path (``spsolve_triangular`` for each half of
-the symmetric Gauss-Seidel sweep, scipy's own CSR matvec for the Krylov recurrence), so a
-transcription slip in the hand-written CSR walks shows up as a different iterate, not as a
-plausible number.
-
-The OPERATOR is checked for the property the benchmark exists to measure: SGS preconditioning must
-buy at least 2.5x fewer iterations than unpreconditioned CG. That ratio is a property of the input
-DISTRIBUTION, not of the solver -- on a constant-coefficient operator, or on one carrying a
-diagonal-dominance shift, it collapses and the benchmark measures nothing. The Jacobi count is
-carried alongside as the control: at CG/Jacobi ~ 1.0 the coefficient spread is gone.
+"""Acceptance gates for the SGS-preconditioned CG kernel: agreement with an independent scipy path, and an
+operator where SGS buys >= 2.5x fewer iterations than unpreconditioned CG.
 
     pytest tests/ports/sgs_pcg/
 """

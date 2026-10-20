@@ -173,22 +173,14 @@ __all__ = [
 
 
 def significance_legend_marks(score_sig: bool, cost_sig: bool) -> list[Line2D]:
-    """One legend row per superscript the panel actually drew: the symbol itself as the swatch,
-    then what it means (:data:`SCORE_SIG_LABEL`/:data:`COST_SIG_LABEL`). Fixed text, so the key
-    carries each once.
-
-    No test count and no threshold: the family size differs panel to panel, the threshold is one
-    sentence of caption, and a caller after either already has it from ``report()``'s printed line
-    or the emitted stats CSV.
-    """
+    """One legend row per superscript the panel drew: the symbol as text, then what it means (fixed text; no test
+    count or threshold)."""
     rows = (
         (score_sig, SCORE_SIG_MARK, SCORE_SIG_LABEL),
         (cost_sig, COST_SIG_MARK, COST_SIG_LABEL),
     )
     return [
-        # The symbol goes in the TEXT, not in the swatch: a mathtext swatch renders the asterisk as
-        # a six-pointed star, and a reader matching it against the plain one beside a mark does not
-        # find it.
+        # The symbol goes in the TEXT: a mathtext swatch renders the asterisk as a six-pointed star.
         Line2D([], [], linestyle="none", marker="none", label=f"{symbol}  {text}")
         for drawn, symbol, text in rows
         if drawn
@@ -196,9 +188,7 @@ def significance_legend_marks(score_sig: bool, cost_sig: bool) -> list[Line2D]:
 
 
 def model_legend_marks(models: Sequence[str], config: FigureConfig = DEFAULT_CONFIG) -> list[Line2D]:
-    """One legend row per model: a neutral circle in the model's own colour -- the shape the mark
-    itself wears is the panel's packet, never the model's, so the swatch does not pretend to draw
-    it."""
+    """One legend row per model: a neutral circle in the model's colour (the mark's shape is the packet's)."""
     return [
         Line2D(
             [],
@@ -218,12 +208,8 @@ def control_legend_mark(
     control_name: str = "",
     config: FigureConfig = DEFAULT_CONFIG,
 ) -> Line2D:
-    """The hollow control reference's one legend row. ``control_over`` is every treatment the
-    FIGURE reads against this one control -- a joined row takes the whole set so the text
-    (:func:`hpcagent_bench.packets.control_label`) is not read off one panel's own treatment while
-    the row draws several. ``control_name`` overrides that text outright, for a control that is not
-    the absence of a packet. The swatch is the hollow :data:`CONTROL_MARKER` every control wears.
-    """
+    """The hollow control's one legend row; its text covers every treatment the FIGURE reads against this control
+    (``control_over``), unless ``control_name`` overrides it."""
     name = f"Baseline ({control_name or packets.control_label(list(control_over))})"
     if config.mode is Mode.RELATIVE:
         # The control is the 1x line and, on the solved row, a dash: its key swatch is the dash.
@@ -330,10 +316,8 @@ def thin_rules(ax: Axes, config: FigureConfig) -> None:
 
 
 def required_left_margin(fig: Figure, ax: Axes) -> float:
-    """How far left of ``ax``'s own box its Y ticks and axis label protrude, in inches, plus
-    :data:`~hpcagent_bench.stats.style.PLACED_SIDE_PAD_IN` -- what a figure must reserve so a long
-    Y label, or a wide-ranging axis's longest tick (``0.0078125x``), never renders past the
-    canvas's own left edge, and no more: a wider reserve is an empty band left of the label."""
+    """How far left of ``ax``'s own box its Y ticks and label protrude, in inches, plus
+    :data:`~hpcagent_bench.stats.style.PLACED_SIDE_PAD_IN`: the left margin a figure must reserve, and no more."""
     fig.canvas.draw()
     return style.left_protrusion_in(fig, ax) + style.PLACED_SIDE_PAD_IN
 
@@ -345,12 +329,8 @@ def panel_name_artist(ax: Axes) -> Annotation | None:
 
 
 def measured_char_em(ax: Axes, points: float) -> float:
-    """What one character of the drawn name ACTUALLY occupies, as a fraction of its point size.
-
-    :data:`NAME_CHAR_EM` is a guess at the face's average, and a guess that runs optimistic puts
-    two names on top of one another and the last one off the canvas. One measurement of what was
-    drawn replaces it.
-    """
+    """What one character of the drawn name ACTUALLY occupies, as a fraction of its point size (replacing the
+    :data:`NAME_CHAR_EM` estimate)."""
     name = panel_name_artist(ax)
     if name is None or points <= 0.0:
         return NAME_CHAR_EM
@@ -362,13 +342,8 @@ def measured_char_em(ax: Axes, points: float) -> float:
 
 
 def draw_category_axis(ax: Axes, rows: Sequence[SetupRow], config: FigureConfig) -> None:
-    """The shared categorical X of a dot-row figure: one tick per column naming what it delivered,
-    each model named ONCE under its own run of columns, and a light rule between runs.
-
-    The MODEL is never labelled: it is the colour, and the key already names it. Three model names
-    under three columns of a text-width row print on top of one another whatever they are folded
-    to, and the reader was being told the same thing twice.
-    """
+    """The shared categorical X of a dot-row figure: one tick per column naming what it delivered, and a light rule
+    between runs; the model is never labelled (it is the colour, named in the key)."""
     ax.set_xticks(leg_centres(rows))
     ax.set_xticklabels(
         [category_tick(leg or row_label(rows, first), config) for leg, first, _ in leg_runs(rows)],
@@ -381,11 +356,8 @@ def draw_category_axis(ax: Axes, rows: Sequence[SetupRow], config: FigureConfig)
 
 
 def stagger_crowded_ticks(fig: Figure, axes: Sequence[Axes], config: FigureConfig) -> None:
-    """Drop every other category tick one line lower in a column whose tick labels overlap.
-
-    A nine-category column at text width gives each tick about 16pt, and "Triton" beside "OMP" at
-    7pt needs more. Folding cannot help a word with no break in it; alternating two lines can, and
-    the category band already reserves two (:func:`figure_dot_row`)."""
+    """Drop every other category tick one line lower in a column whose tick labels overlap (the category band
+    reserves two lines)."""
     renderer = style.renderer_of(fig)
     # Two labels closer than a third of the type size read as one word ("OMPTriton").
     name_pt = config.type_.tick_pt * config.category_scale
@@ -398,8 +370,7 @@ def stagger_crowded_ticks(fig: Figure, axes: Sequence[Axes], config: FigureConfi
                 drop = name_pt * 1.15
                 tick.set_pad(style.tick_pad(tick) + drop)
                 tick.tick1line.set_markersize(tick.tick1line.get_markersize() + STAGGER_TICK_SHARE * drop)
-    # Two lines are not always enough: three "Fortran" placeholders two columns apart still touch on
-    # their shared line, so their type steps down, the same in every column.
+    # Two lines may still touch: the type then steps down, the same in every column.
     style.shrink_crowded_ticks(fig, axes, name_pt, max(style.PRINT_MIN_PT, name_pt * config.category_min_scale))
 
 
@@ -430,12 +401,8 @@ def draw_difference_arrow(
     ax: Axes, x: float, control_value: float, treated_value: float, colour: str, measure: Measure,
     config: FigureConfig = DEFAULT_CONFIG, top: float = math.nan,
 ) -> None:  # fmt: skip
-    """A double-headed arrow spanning one comparison's two marks, labelled with the factor between
-    them -- so a number a caption quotes is on the figure instead of being measured off the axis.
-    The label starts ABOVE ``top``, the higher end of both setups' intervals (beside the bracket it
-    lands on the treated mark, which is only ``dodge`` away); being wider than a narrow column, it is
-    settled clear of the neighbouring marks and inside the frame at save time
-    (:func:`~hpcagent_bench.stats.style.settle_clear_labels`)."""
+    """A double-headed arrow spanning one comparison's two marks, labelled with the factor between them; the label
+    starts above ``top`` and is settled clear at save time (:func:`~hpcagent_bench.stats.style.settle_clear_labels`)."""
     if not (np.isfinite(control_value) and np.isfinite(treated_value)):
         return
     factor = difference_factor(control_value, treated_value, measure)
@@ -467,18 +434,10 @@ def few_kernel_marks(rows: Sequence[SetupRow], config: FigureConfig) -> bool:
 
 
 def snap_axis_to_ticks(ax: Axes, data_low: float, data_high: float) -> None:
-    """Pull the Y limits in to the outermost TICKS that still contain the data.
-
-    A fractional margin leaves the top and bottom borders in dead space: the panel is taller than
-    anything it draws and the reader's eye has no labelled edge to measure a mark against. Snapping
-    to the tick either side puts a number on both borders.
-    """
+    """Pull the Y limits in to the outermost TICKS that still contain the data, so both borders are labelled."""
     if not (math.isfinite(data_low) and math.isfinite(data_high)):
         return
-    # Asked over the DATA's own range a locator answers with the ticks INSIDE it, and the tick
-    # either side -- the one this needs -- is exactly what it leaves out. The range is widened
-    # first, so both ends are in the answer: a token axis that fell through this kept the padded
-    # window and drew no labelled tick on either border.
+    # A locator over the data's own range omits the ticks either side, so the range is widened first.
     log = ax.get_yscale() == "log"
     reach = max(data_high - data_low, 1.0)
     span = (data_low / 100.0, data_high * 100.0) if log else (data_low - reach, data_high + reach)
@@ -519,15 +478,8 @@ def draw_measure_row(
     reference_name: str = "",
     differences: frozenset[DifferenceKey] = frozenset(),
 ) -> None:
-    """ONE measure over the shared categorical X: two marks per category, the no-packet setup HOLLOW
-    and the packet setup FILLED, each with its 95% interval as a vertical bar, joined by a faint
-    segment -- except the success row (:func:`draw_success_row`): a mark at the count only.
-
-    The two marks are dodged either side of the category's own position so they never sit on top of
-    one another, and the pair is read vertically: how far the filled mark is ABOVE the hollow one is
-    the packet's effect, in the measure's own units, against a reference a reader already knows
-    (1x over the experiment baseline on the speedup row).
-    """
+    """ONE measure over the shared categorical X: per category the no-packet setup HOLLOW and the packet setup
+    FILLED, dodged apart, each with its 95% interval (the success row: :func:`draw_success_row`)."""
     relative = config.mode is Mode.RELATIVE
     # The token row is a count in absolute mode; in relative mode it is a change, on the speedup's own log2 axis.
     count = measure is Measure.COST and not relative
@@ -539,7 +491,7 @@ def draw_measure_row(
     if count:
         token_axis(ax, rows, config)
     else:
-        # Relative mode's 1x line is named in the key: on the line it ran into the rightmost column's marks.
+        # Relative mode's 1x line is named in the key, not on the line.
         ratio_axis(ax, "" if relative else reference_name, config)
     category_x_axis(ax, rows)
     ax.margins(y=config.margin)
@@ -599,8 +551,7 @@ def draw_setup(
 
 
 def draw_verdict(ax: Axes, x: float, value: float, measure: Measure, config: FigureConfig) -> None:
-    """The measure's significance mark just above the treated mark at ``(x, value)``: beside it, it ran
-    into the next category's control where the categories sit close."""
+    """The measure's significance mark just above the treated mark at ``(x, value)``."""
     ax.annotate(
         VERDICT_MARKS.get(measure, SCORE_SIG_MARK),
         (x, value),
@@ -701,9 +652,7 @@ def ratio_axis(ax: Axes, reference_name: str, config: FigureConfig) -> None:
     """The speedup row's log2 axis and its 1x reference line, named by ``reference_name``."""
     ax.axhline(0.0, color=style.REFERENCE, linewidth=1.0, zorder=1)
     if reference_name:
-        # The denominator, ON the 1x line at its right end, in the chart's own light ink. It
-        # belongs to the line, not to the axis, so the Y label does not have to carry
-        # "Over Numba" and wrap onto a second rotated line to say it.
+        # The denominator, ON the 1x line at its right end, so the Y label need not carry it.
         ax.annotate(
             reference_name, xy=(1.0, 0.0), xycoords=("axes fraction", "data"), xytext=(-3.0, 0.0),
             textcoords="offset points", ha="right", va="center", fontsize=config.type_.annotation_pt,
@@ -716,9 +665,8 @@ def ratio_axis(ax: Axes, reference_name: str, config: FigureConfig) -> None:
 
 
 def ratio_ticks(ax: Axes, span: Sequence[float], config: FigureConfig) -> None:
-    """Widen the speedup row to its minimum span and space its ticks by the DATA's own ``span``, not
-    the autoscaled window: sized against the padded window and then snapped outward, a six-octave
-    panel came back spanning fourteen."""
+    """Widen the speedup row to its minimum span and space its ticks by the DATA's own ``span``, not the
+    autoscaled window."""
     widen_y_axis_linear(ax, config)
     reach = max(span) - min(span) if span else config.min_span
     ax.yaxis.set_major_locator(MultipleLocator(x_tick_step(max(reach, config.min_span), config.max_ticks)))
@@ -748,12 +696,8 @@ def draw_success_row(
     ylabel: str,
     significance: dict[tuple[str, str], Significance] | None = None,
 ) -> None:
-    """The success row: the RATE each setup solved its pair's kernels at, solved over served, on an axis
-    running 0 to 100% (user; a count per pair put pairs of different tag sizes on
-    different scales), as a mark and NOTHING around it. The tag is fixed, so
-    the rate is a census, not a sample: there is no sampling error to draw, and an interval under a
-    10/10 mark reaching down to 70% read as seven solved. The control wears its lighter shade
-    (:data:`~hpcagent_bench.stats.palette.CONTROL_SHADE`), as on every other row."""
+    """The success row: each setup's solved-over-served RATE on a 0-100% axis, as a mark only (the tag is fixed: a
+    census has no sampling interval); the control in its lighter shade."""
     for x, row in zip(column_x(rows), rows, strict=True):
         for point, filled, dodge, mark, colour in setup_marks(row, shape, config):
             if point.served == 0:
@@ -867,15 +811,8 @@ def figure_setup_dots(
     over: population.KernelPolicy = SPEEDUP_OVER,
     card: cost_models.CostModel | None = None,
 ) -> pathlib.Path:
-    """ONE comparison as stacked 1-D rows: one panel per measure, one column per (LLM, delivery),
-    two marks per column.
-
-    The category is the X axis and each measure gets its own row, so the columns line up: two setups
-    of one pair are one short vertical segment, and the same column on the row below says what that
-    segment cost. ``measures`` picks the rows and
-    their order; ``labels`` overrides a row's Y label (the cost card's own weights, the baseline's
-    name).
-    """
+    """ONE comparison as stacked 1-D rows: one panel per measure (``measures`` picks and orders them, ``labels``
+    overrides Y labels), one column per (LLM, delivery), two marks per column."""
     import matplotlib.pyplot as plt
 
     rows = relative_rows(frame, over, card) if config.mode is Mode.RELATIVE else setup_rows(frame, over, card)
@@ -888,9 +825,8 @@ def figure_setup_dots(
     # Both placements that draw ABOVE a panel need the band reserved once per row -- once at the
     # top of the figure and once between the rows.
     rows_config = measure_row_config(config, row_height_in)
-    # The band above a panel holds its own letter AND the row's "Higher -> Better", one above the
-    # other. 0.12in even with neither: a two-line rotated Y label is taller than the axes box it is
-    # centred on, and clipped off the canvas without it.
+    # The band above a panel holds its letter and "Higher -> Better"; 0.12in minimum keeps a two-line rotated Y label
+    # on the canvas.
     note_pad = config.type_.annotation_pt * 1.7
     band = text_band(config.type_.title_pt) + note_pad / style.POINTS_PER_INCH
     category_band = text_band(config.type_.tick_pt, 2) + text_band(config.type_.label_pt)
@@ -945,8 +881,8 @@ def treatment_legend_marks(drawn: Sequence[DotColumn], config: FigureConfig) -> 
 
 
 def control_key_marks(drawn: Sequence[DotColumn], config: FigureConfig) -> list[Line2D]:
-    """The ONE control row: every panel's control wears the one hollow circle, so the key names each
-    panel's control there; a circle per panel repeated the same swatch three times."""
+    """The ONE control row: every panel's control wears the hollow circle, so the key names each panel's control
+    once."""
     names = list(dict.fromkeys(column.control or packets.control_label([column.treatment]) for column in drawn))
     if not names:
         return []
@@ -1019,19 +955,12 @@ def fit_panel_names(
     config: FigureConfig,
     drawn_pt: float,
 ) -> None:
-    """Redraw the row's names at the largest type that MEASURES inside each panel's span.
-
-    The first pass is set from :data:`NAME_CHAR_EM`, an average of the face. One measurement of
-    what that actually drew gives its real width, and the names are laid out again against it --
-    the difference between two names overlapping, the last one running off the canvas, and both
-    fitting on one line.
-    """
+    """Redraw the row's names at the largest type that MEASURES inside each panel's span (the first pass used the
+    :data:`NAME_CHAR_EM` estimate)."""
     if not top:
         return
     fig.canvas.draw()
-    # Measured against the size the titles were ACTUALLY drawn at, not the config's ceiling: the
-    # first pass may already have shrunk them, and dividing by the wrong size hands back the same
-    # optimistic width the pass was there to replace.
+    # Measured at the size the titles were ACTUALLY drawn at (the first pass may already have shrunk them).
     em = max((measured_char_em(ax, drawn_pt) for ax in top if ax.get_title()), default=NAME_CHAR_EM)
     # A name that fills its span to the last glyph runs straight into the next one ("(LLR)ii)").
     spans = [span - NAME_CLEARANCE_IN for span in spans[:-1]] + list(spans[-1:])
@@ -1048,14 +977,8 @@ def draw_column_names(top: Sequence[Axes], names: Sequence[str], config: FigureC
 def fit_legend(
     fig: Figure, groups: Sequence[Sequence[Line2D]], config: FigureConfig, span: tuple[float, float] | None = None
 ) -> float:
-    """Draw the key below ``fig`` inside the ``legend_chrome_in`` band, shrinking its type where it
-    does not fit; returns the height it settled at. ``span`` is the plot body the key may not be
-    wider than (:func:`~hpcagent_bench.stats.style.legend_below`).
-
-    A key still taller than the band at ``legend_min_scale`` keeps that size and its height is
-    returned anyway, for the caller to grow the canvas by: returning the band instead drew a key
-    that could not fit a text-width page over the category names.
-    """
+    """Draw the key below ``fig`` in the ``legend_chrome_in`` band, shrinking its type where it does not fit (no
+    wider than ``span``); returns its height, which may exceed the band (the caller grows the canvas)."""
     scale = 1.0
     # A wrap-width figure: a compact key, allowed the whole canvas rather than the plot body, so it
     # keeps two columns instead of one tall one.
@@ -1063,8 +986,7 @@ def fit_legend(
     while True:
         height = place_key(
             fig, groups, config.legend_ncol, y=0.005, fontsize=config.type_.legend_pt * scale,
-            # Centred on the whole canvas, Y-label strip included: centred on the
-            # panels alone it sat off the page's centre.
+            # Centred on the whole canvas, Y-label strip included.
             markerscale=config.legend_marker_scale,
             spacing=style.COMPACT_KEY if narrow or config.compact_key else None,
         )  # fmt: skip
@@ -1092,13 +1014,8 @@ def figure_dot_row(
     comparators: Sequence[Sequence[Comparator]] = (),
     card: cost_models.CostModel | None = None,
 ) -> pathlib.Path:
-    """N comparisons as a GRID of stacked 1-D panels: one column per comparison, one ROW per
-    measure, every column sharing the row's Y scale and every row sharing the column's categories.
-
-    The delivery is the X axis, so nine comparisons fit one column, and the same column on the row
-    below says what they cost. Columns are as wide as they have categories (:func:`dot_row_widths`).
-    ``comparators[i]`` are drawn in column ``i`` beside its models (:func:`with_comparators`).
-    """
+    """N comparisons as a GRID of stacked 1-D panels: one column per comparison (as wide as its categories), one ROW
+    per measure; ``comparators[i]`` are drawn in column ``i`` (:func:`with_comparators`)."""
     columns = dot_columns(
         panels, references, control_names, differences, placeholders, over, pending,
         card, config.mode,
@@ -1129,15 +1046,14 @@ def figure_dot_row(
         left=config.left_chrome_in / row_width_in, right=0.995,
         top=1.0 - (title_band + MEASURE_PAD_IN) / height, bottom=0.01, hspace=hspace, wspace=0.0,
     )  # fmt: skip
-    # The left margin is what the Y labels measure, not the reserve: the reserve's slack comes out
-    # of the columns, and on a text-width figure that is what overprints neighbouring category names.
+    # The left margin is what the Y labels measure, not the reserve.
     fig.subplots_adjust(left=max(required_left_margin(fig, ax) for ax in axes[:, 0]) / row_width_in)
     fit_column_gaps(fig, axes)
     # The names are fitted to the columns as finally placed: a widened gap narrows every column.
     fit_panel_names(fig, list(axes[0]), tagged, names, placed_spans(axes, row_width_in), config, size)
     body = (axes[0][0].get_position().x0, axes[0][-1].get_position().x1)
     stagger_crowded_ticks(fig, axes[-1], config)
-    # The canvas grows by the key's own height, not the reserve: a two-line key left a blank band.
+    # The canvas grows by the key's own height, not the reserve.
     legend_in = fit_legend(fig, groups, config, body)
     fit_canvas(fig, axes, row_width_in, data_height, legend_in)
     even_row_labels(np.asarray(axes).ravel(), config)
@@ -1188,9 +1104,8 @@ def fit_canvas(fig: Figure, axes: np.ndarray, row_width_in: float, data_height: 
 
 
 def fit_column_gaps(fig: Figure, axes: np.ndarray) -> None:
-    """Widen each spacer column of :func:`figure_dot_row` until the Y tick labels of the panel to
-    its right clear the panel to its left. Each column has its own speedup scale, so one wide
-    ladder ("0.00391x") would otherwise print over its neighbour."""
+    """Widen each spacer column of :func:`figure_dot_row` until the Y tick labels of the panel to its right clear
+    the panel to its left (each column has its own speedup scale)."""
     grid = axes[0][0].get_subplotspec().get_gridspec()
     ratios = list(grid.get_width_ratios())
     fig.canvas.draw()

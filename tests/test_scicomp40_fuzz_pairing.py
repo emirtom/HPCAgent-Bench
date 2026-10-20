@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fuzz size <-> config pairing for every kernel of the scicomp40 tag.
-
-score_task_fuzzed's Stage-2 timed set pairs ``perf.n_large_shapes`` large shapes with configs
-ROUND-ROBIN (``metric._timed_cells``): shape ``i`` uses config ``i % len(enumerate_configs(...))`` and
-size class ``fuzz.SIZE_CLASSES[i % 4]``. This gate checks that the pairing produces every timed draw
-for every kernel in the tag: a constraint that rejects every seed of a config drops its cells."""
+"""Every scicomp40 kernel yields every timed draw of the round-robin size <-> config pairing
+(``metric._timed_cells``)."""
 
 import pytest
 

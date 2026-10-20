@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The registered vocabulary: every slot pinned, and what an entry must hold.
-
-An entry's slot is its registration position, and its hue and marker are read from it; each kind's order is
-pinned here, so a reorder (a repaint of every figure) is a decision. A NEW entity is appended here too.
-"""
+"""The registered vocabulary: every kind's slot order is pinned (a reorder repaints every figure), new entities
+are appended, and each entry holds what it must."""
 
 import dataclasses
 

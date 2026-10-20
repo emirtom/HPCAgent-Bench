@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Kernel difficulty levels + the ``<selector>@lvl<n>`` filter.
-
-Levels are the KernelBench scale, curated as explicit ``level:`` data in each
-manifest (no runtime classifier): L1 = a single primitive op, L2 = a fused/composite
-sequence or data-dependent control, L3 = a full application (``kind: microapp``).
-Foundation is loop microkernels only, so it never reaches L3.
-"""
+"""Kernel difficulty levels (explicit ``level:`` data, KernelBench scale L1-L3) and the ``<selector>@lvl<n>``
+filter."""
 
 import contextlib
 import re

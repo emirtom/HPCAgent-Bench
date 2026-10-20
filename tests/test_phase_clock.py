@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A column's build time, by phase, counts cached work: a cache hit credits what producing the artifact took.
-
-A canon row's ``transform_time`` / ``codegen_time`` / ``compile_time`` are the same whether the run produced its
-canonical SDFG, emitted sources and parsed SDFG itself or read them from a cache (:mod:`hpcagent_bench.phase_clock`);
-a results file written before the columns existed (user_version 13) is upgraded in place when opened for writing,
-and read as it is.
-"""
+"""A column's per-phase build times count cached work (a hit credits the production time); pre-column results
+files are upgraded when opened for writing."""
 
 import contextlib
 import pathlib

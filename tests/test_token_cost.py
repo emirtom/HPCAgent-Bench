@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``token_cost``: the TASK TOKEN TOTAL (T2) of one worker directory, and what one episode's OUTPUT is.
-
-A relaunched task's attempts are separate transcripts -- the driver moves a crashed attempt's log
-aside (``claude.attemptN.log``) and starts the next one from an empty context AND an empty workspace
-(T5) -- so the task is what its FINAL attempt did and the earlier attempts are reported beside it as
-spend. A worker directory the driver never entered must not read as a task that cost 0.
-
-The other property here is the OUTPUT RULE (8.2, F8): both engines serve ``/v1/messages`` with an
-``output_tokens`` that already counts reasoning, so the streamed thinking estimate is informational
-and is never added to anything.
-"""
+"""``token_cost``: the task token total (T2) of one worker directory (final attempt, earlier attempts beside it;
+an untouched directory is not 0), and the output rule (streamed thinking is never added)."""
 
 import ast
 import json

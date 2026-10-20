@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The CPF skill pages and the pinned dace agree on every loop verdict the rendered form can carry.
-
-An agent reads a CPF form's loop comments through its page's table. A verdict dace emits that no table
-row explains is a comment the agent has to guess at; a row naming a verdict dace no longer emits teaches a
-comment the agent will never see. Both directions are checked against the strings dace itself writes.
-"""
+"""The CPF skill pages and the pinned dace agree on every loop verdict string, in both directions."""
 
 import re
 

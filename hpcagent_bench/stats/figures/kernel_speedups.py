@@ -1,13 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Speedup per kernel: canon-sweep columns (compilers) and agent setups on one kernel axis
-(:func:`kernel_figure`, :func:`kernel_comparison`; ``hpcagent_bench/stats/commands/kernel_speedups.py`` draws it).
-
-The speedup axis is log2 of the ratio (:mod:`per_kernel`): 2x faster sits at +1, 2x slower at -1; the
-tables also carry the signed relative change (:func:`hpcagent_bench.stats.summary.signed_change`). Follows Hoefler and Belli (SC15) rules 4 (report
-costs), 5/7 (report intervals) and 12 (no line between unordered rows), checked by
-:mod:`hpcagent_bench.stats.rules`.
-"""
+"""Speedup per kernel: canon-sweep columns (compilers) and agent setups on one log2 kernel axis
+(:func:`kernel_figure`, :func:`kernel_comparison`), following SC15 rules 4, 5/7 and 12
+(:mod:`hpcagent_bench.stats.rules`)."""
 
 import dataclasses
 import math
@@ -204,15 +199,9 @@ def canon_kernel_row(
     mark_pending: bool = False,
     baseline_fallback: str = "",
 ) -> Row:
-    """One canon-sweep column's row against ``baseline``, tag-complete (restricted to
-    ``tag``, since a canon sweep commonly spans more kernels than one figure's).
-
-    A tag kernel ``column`` produced no validated result for is filled at 1x, never dropped
-    (:func:`hpcagent_bench.stats.canon.tag_speedups`), flagged via ``delivered`` so the figure
-    draws it crossed; the summary slot leaves it out. ``mark_pending`` instead sets aside a kernel
-    with no canon row yet for ``column`` or ``baseline``, landing in ``pending``. ``baseline_fallback``
-    times a kernel ``baseline`` did not verify against that column instead.
-    """
+    """One canon-sweep column's row against ``baseline``, restricted to ``tag``: a kernel without a validated result
+    is filled at 1x and flagged undelivered (never dropped); ``mark_pending`` sets aside kernels without a canon row;
+    ``baseline_fallback`` times a kernel the baseline did not verify against that column instead."""
     times, substituted = canon.with_fallback(canon.read_times(canon_frame), baseline, baseline_fallback)
     substituted = substituted & set(tag_kernels)
     base, cur = times.get(baseline, {}), times.get(column, {})
@@ -261,13 +250,8 @@ def pending_note(pending: frozenset[str]) -> str:
 
 
 def distinct_canon_labels(rows: Sequence[Row]) -> list[Row]:
-    """``rows`` with every label two of them share replaced by the framework's own name.
-
-    A canon column is labelled by its optimizer, and the registry aliases both device variants of
-    one optimizer to one name (``dace_cpu_canon`` and ``dace_gpu_canon`` are both
-    "DaCe+CPF"). Only a shared label falls back to the ``frameworks`` name, which
-    carries the device.
-    """
+    """``rows`` with every label two of them share (one optimizer on two devices) replaced by the framework's own
+    name."""
     counts: dict[str, int] = {}
     for row in rows:
         counts[row.label] = counts.get(row.label, 0) + 1
@@ -360,14 +344,9 @@ def kernel_rows(
     mark_pending: bool = False,
     baseline_fallback: str = "",
 ) -> list[Row]:
-    """The canon-sweep rows of ``canon_columns``, then every TAG-COMPLETE setup row
-    (:func:`~hpcagent_bench.stats.population.complete_setups`) ``pattern`` names
-    (:func:`~hpcagent_bench.stats.figures.setup_names.setup_pattern`), all against ``baseline``.
-    ``conditions`` keeps only those setup conditions (``""`` is the control); ``None`` keeps all.
-    ``observations=None`` draws the canon rows alone.
-
-    ``mark_pending`` also keeps a setup that has not been served every tag kernel yet, its missing
-    kernels in ``pending``, where the default drops it."""
+    """The canon rows of ``canon_columns``, then every TAG-COMPLETE setup row ``pattern`` names, against
+    ``baseline``; ``conditions`` filters setups (``""`` = control), ``observations=None`` draws canon rows alone, and
+    ``mark_pending`` keeps incomplete setups with their missing kernels pending."""
     rows = distinct_canon_labels(
         [
             canon_kernel_row(canon_frame, column, tag_kernels, baseline, mark_pending, baseline_fallback)
@@ -432,15 +411,9 @@ def row_color(row: Row) -> str:
 def kernel_metrics(
     rows: Sequence[Row], tag_kernels: Sequence[str], baseline: str = BASELINE, cost_label: str = "Billed Tokens"
 ) -> list[per_kernel.Metric]:
-    """The compiler figure's panels over ``sorted(tag)``, as :mod:`per_kernel` draws them.
-
-    Speedup for every row: a kernel's own repeat interval (SC15 rules 5/7) as its whisker, a
-    compiler's 1x placeholder crossed (``Row.delivered``), an unanswered agent kernel filled at 1x and
-    crossed, a pending kernel as "?"; the 1x line wears the baseline's own colour, since it IS the
-    baseline. Token cost only when some row spends any -- a compiler-only render has nothing to
-    put there (``cost_label`` names the priced card, :func:`efficacy.cost_axis_label`), and an empty panel is omitted rather than left blank; a row that spends none (a canon
-    column) keeps its dodge offset and summary slot on it and draws nothing.
-    """
+    """The compiler figure's panels over ``sorted(tag)``: speedup for every row (whiskers = per-kernel 95%
+    intervals, placeholders crossed, pending as "?", the 1x line in the baseline's colour), and token cost only when
+    some row spends tokens (``cost_label`` names the card)."""
     kernels = sorted(tag_kernels)
     speed = [
         per_kernel.Series(
@@ -469,10 +442,7 @@ def kernel_metrics(
 
 
 def legend_handles(rows: Sequence[Row], metrics: Sequence[per_kernel.Metric]) -> list[Artist]:
-    """One legend entry per row -- its own colour and shape, and the display name :func:`kernel_rows`
-    built into ``row.label`` -- plus the status marks ``metrics`` actually draw
-    (:func:`per_kernel.status_handles`). The interval method and its n belong to the caption: every
-    whisker on this figure is a 95% interval."""
+    """One legend entry per row (its colour, shape and ``row.label``) plus the status marks ``metrics`` draw."""
     handles: list[Artist] = [
         Line2D(
             [], [], marker=palette.marker_style(row.marker), linestyle="none", color=row_color(row),
@@ -493,16 +463,9 @@ def kernel_figure(
     panel_height_in: float = PANEL_HEIGHT_IN,
     cost_label: str = "Billed Tokens",
 ) -> matplotlib.figure.Figure:
-    """The per-kernel figure: canon-sweep columns and setups on ONE kernel axis, a speedup panel (log2, ratio-labelled ticks) over a token-cost panel when
-    any row spends tokens (:func:`kernel_metrics`), each with per_kernel's summary column past a
-    dashed separator -- one slot per row, the geomean with its 95% interval on both panels, over
-    the kernels the row solved, value printed.
-
-    Drawn by :func:`per_kernel.figure_panels` at the size it prints (text width,
-    :data:`~hpcagent_bench.stats.style.DOUBLE_COLUMN_WIDTH`, print type) with the kernels' short
-    names and the key under them, every band measured. No title unless ``title`` names one: a
-    paper's caption already does. Every row of a kernel sits at the SAME x (the optimizers differ by
-    shape), unless ``offset`` spreads them over that fraction of a kernel column."""
+    """The per-kernel figure: canon-sweep columns and setups on ONE kernel axis, a log2 speedup panel over a token
+    panel when any row spends tokens, each with a geomean summary column, drawn at print size by
+    :func:`per_kernel.figure_panels`. ``offset`` spreads a kernel's rows over that fraction of a column."""
     if not rows:
         raise ValueError("no row to draw")
     style.apply()
@@ -521,12 +484,9 @@ def kernel_figure(
 
 
 def token_summary_table(rows: Sequence[Row]) -> pd.DataFrame:
-    """Each token-spending row's GEOMEAN spend over the kernels it was served and has a task total
-    for, with the 95% log-t interval the figure's token summary slot draws
-    (:func:`per_kernel.summary_geomean` over the same cells). The interval is blank under
-    ``summary.MIN_PAIRS_FOR_INTERVAL`` kernels, and a table where EVERY row is that thin fails Rule 5
-    (:func:`hpcagent_bench.stats.rules.require_interval`). A row that spends no tokens (a canon
-    column) is ABSENT, never entered at zero."""
+    """Each token-spending row's GEOMEAN spend over its served kernels with a task total, with the figure's 95%
+    interval (blank under ``summary.MIN_PAIRS_FOR_INTERVAL`` kernels; all-blank fails Rule 5). Non-spending rows are
+    ABSENT."""
     records: list[dict[str, object]] = []
     for row in rows:
         cells = per_kernel.kernel_cells(row.tokens, sorted(row.tokens), fill=False)
@@ -565,14 +525,8 @@ def kernel_comparison(
     panel_height_in: float = PANEL_HEIGHT_IN,
     cost_label: str = "Billed Tokens",
 ) -> pathlib.Path:
-    """Build the per-kernel rows (:func:`kernel_rows`), write their tables (Rule 4's costs, rules 5/7's
-    intervals -- :func:`write_tables`, :func:`token_summary_table`) and render the two-panel
-    figure. The ONE function ``hpcagent_bench/stats/commands/kernel_speedups.py`` calls.
-    ``labels`` renames a row by its framework or setup key (a paper's own name for a column); the
-    tables carry the same names the legend does.
-    ``dpi`` defaults to 150 -- this figure's own review/paper convention, not
-    :func:`~hpcagent_bench.stats.style.save`'s general-purpose 200.
-    """
+    """Build the per-kernel rows (:func:`kernel_rows`), write their tables (:func:`write_tables`,
+    :func:`token_summary_table`) and render the figure; ``labels`` renames rows by key, ``dpi`` defaults to 150."""
     rows = kernel_rows(
         canon_frame,
         observations,
@@ -594,11 +548,8 @@ def kernel_comparison(
 
 
 def write_tables(rows: Sequence[Row], stem: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
-    """Write the per-kernel and per-row tables beside the figure. Returns both paths.
-
-    Written BEFORE the figure is drawn, and diffed rather than the image: a figure whose numbers
-    moved is a regression, and a figure whose pixels moved because the frame changed is not.
-    """
+    """Write the per-kernel and per-row tables beside the figure (written first; the tables are what gets diffed);
+    returns both paths."""
     stem.parent.mkdir(parents=True, exist_ok=True)
     per_kernel = stem.with_name(f"{stem.name}-kernels.csv")
     per_row = stem.with_name(f"{stem.name}-summary.csv")

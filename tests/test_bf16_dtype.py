@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""bfloat16 end to end: the registry row, bit-exact C/C++/Fortran conversions, and the distributed
-ABI the ten bf16 ML operators cross.
-
-The regression this file exists for: the manifests declared ``allowed_precisions: [bf16]`` while the
-registry had no bf16 row and ``binding_from_spec`` typed every float array fp64. The fuzzed
-correctness path then generated bfloat16 inputs, ``mpi_wire.pack_infile`` refused to cast them to
-the fp64 the binding declared, and every submission to every bf16 kernel graded incorrect however
-right it was. The generated MPI driver also declared ``double *`` with 8-byte elements.
-"""
+"""bfloat16 end to end: the registry row, bit-exact C/C++/Fortran conversions, and the distributed ABI the bf16 ML
+operators cross."""
 
 import ctypes
 import pathlib

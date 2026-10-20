@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Pluto column times what polycc wrote, or it times nothing.
-
-The failure these pin: ``pluto`` building the same ``<base>_fpNN.cpp`` as ``llvm``, with the same
-clang, and never running polycc -- every pluto-vs-llvm number is then llvm-vs-llvm under a
-polyhedral label. Each way of getting there is silent. A fallback to the untransformed source compiles and runs. A positional
-call in the canonical ABI order against polycc's symbols-first VLA signature returns numbers. A
-cached ``.so`` from before the column was rebuilt loads. None of them raise.
-
-So these tests are mostly about what the column REFUSES to do. ``tests/test_native_autogen.py``
-covers the emitted binding's order against the canonical one; here it is the build path, the
-marshalling that consumes that order, the polycc invocation, and -- with a real toolchain -- that
-the transformed library computes the right answer.
-"""
+"""The Pluto column times what polycc wrote, or nothing: no fallback to the untransformed source, polycc's
+argument order, no stale ``.so``, and (with a toolchain) correct results."""
 
 import concurrent.futures
 import contextlib

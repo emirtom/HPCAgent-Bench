@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""gmres stops on its residual, and the C lowering follows the numpy reference through that stop.
-
-The system is diagonally dominant, so GMRES reaches rounding level in ~10 of the ``max_iter``
-steps. Modified Gram-Schmidt then loses orthogonality and ``H``'s leading block turns singular:
-numpy's SVD ``lstsq`` truncates and stays stable, the C lowering's Gaussian elimination (no
-pivoting) does not. The reference therefore breaks on ``|g[k + 1]| < tol * beta`` and solves the
-size-``kk`` system; ``kk`` is a separate variable so ``m`` (the extent of Q and H) is never rebound.
-"""
+"""gmres stops on its residual (``|g[k + 1]| < tol * beta``), and the C lowering follows the numpy reference
+through that stop."""
 
 import ctypes
 import json

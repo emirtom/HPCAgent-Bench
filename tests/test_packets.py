@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""PACKETS: resolving a spec into skills/env/method, the canonical identity, the label, the colour.
-
-Covers every predefined packet (the four CPF keys, lang, lang-skills, profiling bundle, repo,
-no-score-tool, autokernel, all-in, the perf-playbook and all-in device variants), an implicit
-single-skill packet, an ad-hoc ``;``-separated list, the device and frozen refusals, the error paths,
-and the identity/colour round trips that ``setups.packet`` already depends on.
-"""
+"""Packet specs resolve into skills/env/method with a canonical identity, label and colour, for every predefined,
+implicit and ad-hoc packet, plus refusals and error paths."""
 
 import dataclasses
 

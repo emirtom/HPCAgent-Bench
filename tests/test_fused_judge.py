@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A fused owed wave's JUDGE records and serves every request under the worker's own setup.
-
-One fused job grades workers of many setups with one judge. The judge process holds no setup
-identity of its own; each request is resolved from the worker's secret token (router) to its setup,
-and graded under that setup's ``HPCAGENT_BENCH_*`` keys (upstream, :mod:`hpcagent_bench.fused`).
-What is pinned here:
-
-* GOLDEN identity: a row a fused judge records for a setup is the row a single-setup judge of that
-  setup records -- runs, submissions and calls alike.
-* ISOLATION: a control worker's token never reaches the CPF view or the score route of another
-  setup, whatever setup its body claims; a request without a token grades nothing.
-* the agent-side clients send the token, and only inside a fused job.
-"""
+"""A fused owed wave's JUDGE grades every request under the worker's own setup (resolved from its token): rows
+equal a single-setup judge's, workers are isolated, and clients send the token only in a fused job."""
 
 import contextlib
 import json

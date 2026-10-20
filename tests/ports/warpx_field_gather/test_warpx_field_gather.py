@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Port-fidelity gate: the WarpX field-gather NumPy reference vs the ORIGINAL C++.
-
-``warpx_field_gather_reference.cpp`` (kept next to the NumPy reference for
-provenance) is a faithful standalone transcription of the upstream WarpX kernel
-``doGatherShapeN``. This test compiles it and checks that it reproduces the NumPy
-port on the benchmark's own ``initialize()`` data across the kernel's full
-configuration space -- every geometry (1D_Z / XZ / RZ / 3D / RCYLINDER / RSPHERE),
-every shape order 1..4, both Galerkin settings, and (for RZ) several azimuthal
-mode counts -- so a divergence from the original algorithm is caught for every
-branch, not just the profiled 3D path.
-
-The C++ is built on demand with ``g++`` (``-ffp-contract=off`` so fused
-multiply-add does not reorder the arithmetic). The test SKIPS where no C++
-compiler is available.
+"""Port-fidelity gate: the WarpX field-gather NumPy reference against the original C++ transcription over the
+whole configuration space (skips without a C++ compiler).
 
     pytest tests/ports/warpx_field_gather/
 """

@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``grades.build_commands``: what really built each grade, recorded from the grade itself.
-
-A C grade records the exact compile and link argvs the sandbox ran (compiler, every flag, the
-output); a python (JIT) grade records its framework's version from the grading environment; a
-prebuilt library compiled nothing and records ``''`` (schema 5: the column's default, none). Each case runs a real grade and reads the row
-back, so the whole chain -- ``Sandbox.build`` -> ``Score.build_commands`` -> ``record_call`` -- is
-what is checked, not a stub of it.
-"""
+"""``grades.build_commands`` records what really built each grade (C argvs, a JIT framework's version, ``''`` for a
+prebuilt library), checked by running real grades through ``Sandbox.build`` -> ``record_call``."""
 
 import importlib.metadata
 import importlib.util

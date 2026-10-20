@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""promote_unsubmitted.py against a judge that enforces the judge's OWN request contract.
-
-The bug this covers was not reachable by any mock. `promote()` built a body, posted it, and the
-judge refused it 400 for a field the body never carried -- so a test that stubs `urlopen` and
-asserts on what was sent passes just as happily against the broken version. What made the failure
-invisible in production is the same shape: the script prints "refused 400" per line and exits 0,
-and it ran at teardown where nobody reads the log. It refused every promotion it ever attempted.
-
-So the server here validates with :func:`hpcagent_bench.harness.service.rank_error` -- the judge's
-own function, not a re-statement of it -- and the control case asserts that a body without the
-field really is refused, which is what pins this test to the contract rather than to today's code.
-"""
+"""promote_unsubmitted.py against a server validating with the judge's own ``rank_error``; the control asserts a
+body without the rank really is refused."""
 
 import contextlib
 import http.server

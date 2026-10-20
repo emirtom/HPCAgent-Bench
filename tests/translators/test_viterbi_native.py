@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the viterbi kernel (graphical-models dwarf).
-
-The emitted kernel is compiled into a SINGLE translation unit with a
-self-checking driver that embeds the canonical inputs (from the kernel's own
-``initialize``) and the numpy-reference ``path`` as the oracle, then run. Float
-inputs are embedded with full ``repr`` precision so the native run is fed
-bit-identical doubles and the decoded path must match exactly.
-
-Covers, end to end: ``V[:, None]`` newaxis broadcast, ``np.argmax(scores,
-axis=0)`` into a 2-D row, the partial-subscript row store, and the
-``log_emit[:, obs[t]]`` column-gather flattening.
-"""
+"""Standalone-TU e2e test for viterbi: the emitted kernel plus a self-checking driver embedding the inputs and the
+numpy ``path`` in one executable (newaxis broadcast, axis argmax, row store, column gather)."""
 
 import importlib.util
 import sys

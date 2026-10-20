@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""In an ``any`` setup a single source file grades as ``any``: the judge builds it with the agent's flags as given.
-
-The mode comes from the setup, not from the delivery (:func:`service.task_source_mode`): an ``any`` task already
-accepts a prebuilt ``.so`` built with any flags, so a source it is handed is compiled with every compile token the
-agent named, ``-ffast-math`` included (:func:`sandbox.agent_build`). The link line stays the judge's: only safe
-``-l``/``-L`` tokens reach it, and no compile flag, so no FP startup object changes the whole process. A
-``restricted`` task keeps the flag filter.
-"""
+"""In an ``any`` setup a source file is built with the agent's compile flags as given (:func:`sandbox.agent_build`);
+the link line takes only safe ``-l``/``-L`` tokens; ``restricted`` keeps the filter."""
 
 from hpcagent_bench import config
 from hpcagent_bench.api import InputMode

@@ -1,23 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge's tool routes: ``GET`` or ``POST /<name>/...`` answered by a ``@route`` handler, one module per tool,
-so adding a judge-side tool never edits :mod:`hpcagent_bench.harness.service`.
-
-    @route("canonical_parallel_form")
-    def serve(judge: Judge, request: RouteRequest) -> None: ...
-
-    @route("apply_move", methods=(HTTPMethod.POST,))
-    def apply_move(judge: Judge, request: RouteRequest) -> None:
-        session = SESSIONS.get(request.episode_id)   # an EpisodeStore: one state per episode
-        ...
-
-The modules of this package register themselves when :func:`load` imports them, and so do the route modules a
-plugin ships (:mod:`hpcagent_bench.plugins`). A ``POST`` reaches its handler only from an episode the run started:
-the router checks the episode's token and the judge the episode itself (``service.unrecordable``), as on
-``/score``, so a stateful route never mixes two agents' state. The judge router
-(``hpcagent_bench/cluster/judge_service.py``) relays every request it does not answer itself, so a new route needs
-no router code; the agent-side half is a ``@tool``.
-"""
+"""The judge's tool routes: ``GET`` / ``POST /<name>/...`` answered by a ``@route("<name>")`` handler, one module per
+tool (plugins' included), so a judge-side tool never edits :mod:`service` or the router. A ``POST`` reaches its
+handler only from an episode the run started, so stateful routes keep per-episode state (:class:`EpisodeStore`)."""
 
 import contextlib
 import dataclasses
@@ -96,8 +81,7 @@ def first_param(qs: Mapping[str, list[str]], name: str) -> str | None:
 
 
 def route(name: str, *, methods: Iterable[HTTPMethod] = (HTTPMethod.GET,)) -> Callable[[Handler], Handler]:
-    """Register the decorated handler for ``methods`` on ``/<name>/...``. A name the judge answers itself or another
-    module registered is refused; a reload of the same module registers it again."""
+    """Register the decorated handler for ``methods`` on ``/<name>/...``; a reserved or taken name is refused."""
     answered = frozenset(methods)
     if not answered <= {HTTPMethod.GET, HTTPMethod.POST}:
         raise ValueError(
@@ -126,9 +110,8 @@ def load() -> dict[str, Route]:
 
 
 class EpisodeStore[State]:
-    """State a stateful route keeps per episode: built by ``build(episode_id)`` on the episode's first call and
-    dropped once it has gone ``idle_seconds`` without one (an episode never announces its end). Thread-safe: the
-    judge serves each request on its own thread."""
+    """Per-episode state of a stateful route, built on first call and dropped after ``idle_seconds`` unused.
+    Thread-safe."""
 
     __slots__ = ("build", "idle_seconds", "lock", "states")
 
@@ -151,7 +134,7 @@ class EpisodeStore[State]:
                 state = self.states[episode_id][0]
                 self.states[episode_id] = (state, now)
                 return state
-        # Built outside the lock: a slow build (minutes, for a whole program) must not hold up other episodes.
+        # Built outside the lock: a slow build must not hold up other episodes.
         built = self.build(episode_id)
         with self.lock:
             state = self.states[episode_id][0] if episode_id in self.states else built

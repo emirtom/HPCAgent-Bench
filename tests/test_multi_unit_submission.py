@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A submission delivered as TWO translation units still builds, links and runs.
-
-``languages.build_shared_lib_commands(extra_sources=...)`` is the multi-unit build line: it
-compiles every unit with the same block and links the objects together. Only a GPU submission
-delivers two units today (``languages.source_units``: host entry + device kernels), and CI has no
-GPU runner, so until this file nothing exercised that argv shape at all -- a builder that wrote or
-compiled only ONE unit produced a ``.so`` that LINKED, because a shared library may carry undefined
-symbols, and then failed at call time on a runner nobody was watching.
-
-The shape is language-agnostic, so the host languages can stand in for it on a CPU runner. What is
-asserted here is exactly what breaks: one compile argv per unit, distinct object names, a link that
-names every object, a library that resolves its helper, and -- as the witness -- the same entry
-built WITHOUT its second unit, which still links and still has the helper undefined.
-"""
+"""A submission delivered as TWO translation units builds, links and runs: one compile per unit, distinct
+objects, a link naming every object; the same entry without its second unit still links with the helper
+undefined (the witness)."""
 
 import ctypes
 import os

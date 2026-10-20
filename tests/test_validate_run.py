@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""validate_run.py: the post-run PASS/FAIL checks over a synthetic cluster run directory.
-
-Builds the same tree run_cluster.sh + agent_driver.py + node_monitor.sh leave behind (judge shard
-DBs, shared/agent-*/ write folders, per-worker claude.log files, monitor CSVs) and checks that an
-intact run reports all-PASS while a run missing a log and a submission reports exactly those two
-FAILs, gracefully, with no traceback.
-"""
+"""validate_run.py's post-run checks over a synthetic cluster run directory: an intact run is all-PASS, a run
+missing a log and a submission reports exactly those FAILs, without a traceback."""
 
 import contextlib
 import pathlib

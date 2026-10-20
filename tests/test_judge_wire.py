@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge's answers are pydantic models (:mod:`hpcagent_bench.harness.judge_wire`), and typing them did not move
-the JSON an agent reads.
-
-The agent containers parse every answer with stdlib ``json``, so a model's dump has to be the object the judge
-sent before the answers were typed: the ``dataclasses.asdict`` of the grade with the ``/score`` redactions, or
-each route's own dict. The pre-model builders are restated here as the reference, and a representative grade
-(several references, timed cells, a null stamp) must dump to the same JSON text.
-"""
+"""The judge's answers are pydantic models (:mod:`hpcagent_bench.harness.judge_wire`) whose dumps equal the
+pre-model JSON (restated here as the reference) for a representative grade."""
 
 import dataclasses
 import json

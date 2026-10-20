@@ -50,17 +50,13 @@ PROPOSER_PREAMBLE = (
 
 
 class Keyed(Protocol):
-    """What :func:`best_reward` reads off one prediction: optimas' ``Prediction`` (an ``Example``) is a
-    mapping of the component's output fields with ``get``."""
+    """What :func:`best_reward` reads off one prediction (a mapping of output fields with ``get``)."""
 
     def get(self, key: str, default: object = None) -> object: ...
 
 
 def tool_text(result: object) -> str | None:
-    """The text of one tool answer as ``on_tool_end`` hands it over. For an MCP tool the Agents SDK 0.24
-    (``MCPUtil.invoke_mcp_tool``) passes its one content block, ``{"type": "text", "text": <json>}``, a list
-    of such blocks when the answer has several, or ``json.dumps`` of the structured content when the
-    server is asked for that; a failed call arrives as the error message string."""
+    """The text of one tool answer in any shape ``on_tool_end`` hands over (content blocks, JSON, or an error)."""
     if isinstance(result, str):
         return result
     blocks = cast("list[object]", result) if isinstance(result, list) else [result]
@@ -73,9 +69,7 @@ def tool_text(result: object) -> str | None:
 
 
 def score_reward(result: object) -> float | None:
-    """The reward one ``score`` answer credits: its ``speedup`` when the judge found the version correct,
-    0.0 when it did not; ``None`` for an answer that is not a judge verdict (a refusal, a tool error).
-    ``result`` is any shape :func:`tool_text` reads."""
+    """The reward one ``score`` answer credits: its speedup when correct, 0.0 when not; ``None`` for a non-verdict."""
     text = tool_text(result)
     try:
         answer = json.loads(text) if text is not None else None
@@ -96,9 +90,7 @@ def best_reward(_trainset: Sequence[Any], predictions: Sequence[Keyed]) -> float
 
 
 def proposer_usage(usage_log: runner_common.UsageLog) -> Callable[..., None]:
-    """A litellm success callback appending each proposer call's usage to ``usage_log``. litellm's
-    ``ModelResponse`` is a pydantic model carrying ``usage`` (an extra field) as the OpenAI usage object;
-    only that field is dumped, as the choices' dump warns."""
+    """A litellm success callback appending each proposer call's usage (only that field dumped) to ``usage_log``."""
 
     def record(_kwargs: object, response: object, _start: object, _end: object) -> None:
         dumped = response.model_dump(include={"usage"}) if isinstance(response, pydantic.BaseModel) else {}
@@ -126,8 +118,7 @@ def run_episode(
         """One round of the agent on the task, under the instructions Optimas sets as its variable."""
 
         def __init__(self) -> None:
-            # One attempt per round: BaseComponent retries a failed forward 100 times by default, and a
-            # retry here is a whole agent run.
+            # One attempt per round: a retry here is a whole agent run.
             super().__init__(
                 description="the system instruction of a kernel-optimizing agent",
                 input_fields=["task"],
@@ -159,7 +150,7 @@ def run_episode(
                 )
             except MaxTurnsExceeded:
                 pass
-            except Exception as exc:  # noqa: BLE001 -- a failed round scores what it had; the end record names it
+            except Exception as exc:  # noqa: BLE001 -- a failed round scores what it had
                 traceback.print_exc()
                 failures.append(exc)
             reward = max(rewards, default=0.0)

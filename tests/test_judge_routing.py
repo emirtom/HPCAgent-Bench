@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Judge routing: two agents on two judges must not cross-talk.
-
-Agents are round-robined onto judge nodes, so every request has to reach the judge its
-worker was bound to -- and only that one. These tests are written to FAIL if the judge URL
-were ever global, cached on the class, inherited from the environment, or shared between
-concurrent workers; a mock at the ``urlopen`` boundary means the real URL-building and the
-real request path are exercised, not stubbed over.
-
-The URL alone cannot prove any of that ON THE WIRE: a wrong URL reaches a wrong but LIVE
-judge, which grades the submission and answers plausibly. So every request also carries the
-``rank`` its client believes it is addressing, and the judge refuses a mismatch. The second
-half of this file covers that: the rank rides on every request, the round-robin index IS the
-rank, and :func:`~hpcagent_bench.harness.service.rank_error` rejects anything else.
-"""
+"""Judge routing: each worker's requests reach only its own judge, and every request carries the ``rank`` its
+client addresses, which the judge checks (:func:`~hpcagent_bench.harness.service.rank_error`)."""
 
 import io
 import json

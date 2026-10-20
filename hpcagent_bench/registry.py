@@ -1,14 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""One ordered registry per kind of thing the repository names: models, packets, framework columns, anti-cheat
-gates, ... Each is a :class:`Kind` of typed entries, added by key::
-
-    MODELS.add("qwen38", ModelEntry("Qwen3.8-27B", "Qwen/Qwen3.8-27B-FP8"))
-
-An entry's SLOT (its colour, marker and listing position) is its registration position within its kind, so a new
-entry, a plugin's included, is added last and never repaints another. ``slotted=False`` registers an entry with no
-slot (the no-packet control). The registry refuses a key or alias taken twice. ``docs/extending/registry.md``.
-"""
+"""One ordered registry (:class:`Kind`) per kind of thing the repository names: models, packets, columns, gates.
+An entry's SLOT (colour, marker, listing position) is its registration position, so a new entry is added last and
+never repaints another; a key or alias taken twice is refused. See ``docs/extending/registry.md``."""
 
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
@@ -30,8 +24,7 @@ class Kind[Entry]:
     aliases: dict[str, str] = dataclasses.field(default_factory=dict[str, str])
 
     def add(self, key: str, entry: Entry, *, slotted: bool = True, aliases: Iterable[str] = ()) -> Entry:
-        """Register ``entry`` under ``key`` at the next slot (none unless ``slotted``) and return it; raises when the
-        key or an alias is taken."""
+        """Register ``entry`` under ``key`` at the next slot (none unless ``slotted``); a taken key or alias raises."""
         if key in self.entries or key in self.aliases:
             raise RegistryError(f"{self.name}: {key!r} is registered twice")
         names = tuple(aliases)

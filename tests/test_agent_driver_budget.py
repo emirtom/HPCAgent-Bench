@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""agent_driver.py: the agent budget regimes -- wall clock, total tokens, or neither.
-
-The prompt states neither budget; the driver enforces both. The token watcher has two details its
-correctness rests on. First, ``claude --output-format stream-json`` repeats a turn's
-``message.usage`` once per content block, so summing the events instead of keeping the last usage
-per ``message.id`` multiplies a turn's cost by its block count and kills every agent early. Second,
-the metric is TOTAL consumed tokens -- input, both cache fields, output -- because output alone
-never binds: sweep-1 agents produced ~50-80k output tokens while consuming ~1-2M in total.
-"""
+"""agent_driver.py's budget regimes (wall clock, total tokens, or neither): the token watcher keeps the last usage
+per ``message.id`` and counts TOTAL consumed tokens."""
 
 import json
 import pathlib

@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""bicgstab's ``conditioning_atol`` admits a solve that stops one iteration later and still fails wrong answers.
-
-The solve stops on ``||r|| < ATOL + RTOL ||b||``; an implementation whose reductions round differently can stop one
-iteration later where ``||r||`` lands at the threshold, which moves ``x`` by ~1e-7 against the fp64 band's 1e-9. On
-this strongly diagonally dominant system wrong answers land close too (three Jacobi sweeps ~4e-4, a solve of
-``A^T``), so the floor (1e-5, see the manifest) must sit between the two.
-"""
+"""bicgstab's ``conditioning_atol`` admits a solve that stops one iteration later yet still fails wrong
+answers."""
 
 import numpy as np
 import scipy.sparse as sp

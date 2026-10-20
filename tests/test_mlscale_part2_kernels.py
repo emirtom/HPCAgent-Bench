@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The second ten distributed bf16 ML kernels of ``@mlscale20``: manifests, counter-based shards, the
-torch.distributed references on a gloo CPU group, the XL / weak-P=16 sizes, and the grading
-sensitivity of their planted inputs (a kernel that skips its collective must fail the bf16 band).
-
-The same contract as ``tests/test_mlscale_kernels.py`` holds for the first ten; these kernels are
-new math (no KernelBench source), so the 8x-source-XL check has no counterpart here.
-"""
+"""The second ten distributed bf16 ML kernels of ``@mlscale20``: manifests, counter-based shards, torch.distributed
+references on gloo, XL / weak-P=16 sizes, and grading sensitivity to a skipped collective."""
 
 import importlib
 import inspect

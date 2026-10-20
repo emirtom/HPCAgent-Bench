@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The POPULATION every published aggregate is over, as properties.
-
-Three defects in the shipped llr40 tables were one shape: a correct statistic applied to a
-population the claim was not about. Each test below states one of the contracts that makes that
-shape unexpressible, so a later simplification cannot quietly restore it.
-"""
+"""The POPULATION every published aggregate is over, as properties: each test states one contract that keeps a
+statistic from being applied to the wrong population."""
 
 import math
 

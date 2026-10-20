@@ -1,22 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The ``POST /profile`` answer, typed per tool: one model per report, :class:`ProfileAnswer` their union.
-
-Each model is the envelope its producer builds (:mod:`~hpcagent_bench.harness.profiling`,
-:mod:`~hpcagent_bench.harness.gpu_profiling`, :mod:`~hpcagent_bench.harness.compute_profiling`); its rows are
-the producer's own row types (``papi.MetricRow``, ``papi.PerThreadReport``, ``gpu_profiling.KernelStat``, ...),
-which the envelope's ``extra="forbid"`` reaches too. The wire names no tool on every report, so the union is
-told apart by the key only that report carries (:func:`report_kind`).
-
-A report is validated against its model and sent as the producer built it (:func:`profile_reply`): its rows
-are written in more than one key order (a counted ``MetricRow`` puts ``count`` after ``derived``, a missing one
-right after ``metric``; a ``ThreadRow`` ends with its placement), and a dump from the model would reorder the
-keys of the text an agent reads.
-
-Kept apart from :mod:`hpcagent_bench.harness.judge_wire` because it imports the profilers, which the router
-and the lazy importers of :mod:`hpcagent_bench.harness.tools` must not load.
-"""
+"""The ``POST /profile`` answer, typed per tool (:class:`ProfileAnswer` is their union, told apart by
+:func:`report_kind`). Reports are sent as the producer built them (a model dump would reorder keys); kept apart from
+:mod:`judge_wire` because it imports the profilers."""
 
 import dataclasses
 import json
@@ -49,8 +36,7 @@ __all__ = [
 
 
 class CallGraphNode(TypedDict):
-    """One node of ``perf``'s call graph as :meth:`hpcagent_bench.perf_reports.CallNode.to_json` writes it;
-    ``truncated`` is on the root only."""
+    """One node of ``perf``'s call graph; ``truncated`` is on the root only."""
 
     symbol: str
     dso: str
@@ -75,8 +61,7 @@ class ConfigReport(TypedDict):
 
 
 class LinuxperfReport(JudgeAnswer):
-    """``tool="linuxperf"`` (``profiling.ProfilePayload``): the thread sweep, the call graph per thread count,
-    and PAPI counts when ``counters`` asked for them."""
+    """``tool="linuxperf"``: the thread sweep, the call graph per thread count, and PAPI counts when asked."""
 
     build_ok: bool
     kernel: str
@@ -111,8 +96,7 @@ class CountReport(JudgeAnswer):
 
 
 class ThreadCountReport(JudgeAnswer):
-    """``tool="papi"`` with ``per_thread`` (``profiling.ThreadPayload``): the per-thread report or why there is
-    none."""
+    """``tool="papi"`` with ``per_thread``: the per-thread report or why there is none."""
 
     build_ok: bool
     kernel: str
@@ -177,8 +161,7 @@ class DeviceTraceReport(JudgeAnswer):
 
 
 class DeviceCountReport(JudgeAnswer):
-    """``tool`` ``ncu`` or ``rocprof-compute`` (``compute_profiling.ComputePayload``): replayed device counts,
-    never a time."""
+    """``tool`` ``ncu`` or ``rocprof-compute``: replayed device counts, never a time."""
 
     build_ok: bool
     kernel: str
@@ -208,7 +191,7 @@ class BuildFailureReport(JudgeAnswer):
     detail: str
 
 
-#: Each report's tag, and the key only that report carries, checked in this order (a build failure has none).
+#: Each report's tag and the key only it carries, checked in this order (a build failure has none).
 REPORT_KEYS: tuple[tuple[str, str], ...] = (
     ("opt-report", "report_flags"),
     ("device-count", "metrics_missing"),
@@ -272,7 +255,6 @@ class ProfileReply:
 
 
 def profile_reply(report: object) -> ProfileReply:
-    """An instrument's report as the ``/profile`` answer, read through its JSON form as the agent reads it: a
-    report that is not one of :data:`ProfileReport` raises ``pydantic.ValidationError`` (a ValueError)."""
+    """An instrument's report as the ``/profile`` answer; one that is not a :data:`ProfileReport` raises."""
     sent = json.dumps(report)
     return ProfileReply(ProfileAnswer.model_validate_json(sent), json.loads(sent))

@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The numba desugar gaps QE cegterg exposed, one property per test.
-
-Each kernel is emitted through :func:`numpyto_numba.emit.emit_numba` with a hand-built
-:class:`numpyto_common.ir.KernelIR`, imported from a real file (numba's cache locator needs one) and run
-under the ``parallel=True`` njit the emitter writes. Every result is compared elementwise against the
-same statement run by numpy.
-"""
+"""The numba desugar gaps QE cegterg exposed, one property per test, each emitted from a hand-built ``KernelIR``
+and compared against numpy."""
 
 import ast
 import importlib.util

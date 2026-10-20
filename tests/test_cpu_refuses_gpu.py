@@ -1,23 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A CPU-track grade must REFUSE device work, not quietly fall back to the CPU when it fails.
-
-Measured on recorded data: a C submission on a CPU setup whose constructor ``dlopen``ed a prebuilt
-HIP object off shared scratch and routed the reduction through it, reporting 277x that the graded
-translation unit cannot produce -- and falling back to its own ``cpu_sum`` wherever the object was
-missing, which is why nobody noticed.
-
-Three layers, tested apart because they fail apart:
-
-* the child cannot REACH a GPU -- the seal covers the device nodes (the half a submission cannot
-  undo) and the visibility variables are emptied (the floor);
-* loading a GPU runtime anyway is DETECTED and SCORED -- the grade is a refusal worth exactly 1,
-  the row is suspect, and it names the runtime;
-* the REQUEST cannot ASK for device residency in the first place on a setup that never declared
-  one -- ``grading_residency`` derives device-vs-host purely from the request's own ``language``,
-  so nothing above this stopped a CPU-setup agent from POSTing ``language=hip`` and being handed a
-  device-timed grade under the CPU setup's own rows. ``gpu_language_refusal`` is that check.
-"""
+"""A CPU-track grade REFUSES device work: the child cannot reach a GPU, a loaded GPU runtime is detected and
+scored as a refusal, and a CPU setup cannot request a GPU language (``gpu_language_refusal``)."""
 
 import json
 import os

@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every solver kernel's ``initialize()`` must survive the sizes the FUZZ sweep draws.
-
-A sweep does not run the S/M/L/XL rungs. It resolves a fuzz spec from the manifest and draws sizes
-from it, so a constraint that only ``initialize()`` knows about -- a grid edge divisible by 8, an
-edge that is a power of two, an even N, a Krylov dimension below the matrix dimension -- is not
-enforced anywhere the draw can see. The default spec is a continuous XL-anchored interval, so such
-a draw is not merely possible but typical: before the ``fuzzed:`` presets went in, the first
-``sgs_pcg`` draw was (164, 130, 174) and ``initialize`` raised on it, which fails the whole fuzz
-cell rather than the one kernel.
-
-This gate draws exactly the way ``frameworks.benchmark`` does and calls the real initializer, so a
-manifest whose ``fuzzed:`` block drifts away from its kernel's constraint is caught here rather
-than in a sweep.
-"""
+"""Every solver kernel's ``initialize()`` survives the sizes the fuzz sweep draws (drawn exactly as
+``frameworks.benchmark`` does), so a ``fuzzed:`` block that drifts from its kernel's constraints fails here."""
 
 import importlib
 

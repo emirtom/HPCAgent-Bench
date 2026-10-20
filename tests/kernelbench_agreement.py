@@ -1,32 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Run one machine_learning port beside the PyTorch model it was ported from, and compare.
-
-The numpy port is the task program every compiled reference is emitted from, which makes it the one
-thing in the corpus nothing else checks: the ``kernelbench_map`` table names each port's upstream
-model, and the collected original is never imported. A port that quietly computes a different
-function than its upstream model asks every agent for the wrong answer, and nothing goes red.
-
-Four things stand between a port and its upstream model, and each is a place to be wrong silently:
-
-1. **Sizes.** Upstream hardcodes its own (``batch_size = 128``); the manifest's ``S`` preset is what
-   the harness runs. Setting the module globals is not enough -- upstream also carries DERIVED
-   constants (``bias_shape = (out_channels, 1, 1)``) evaluated at import, so every other
-   module-level assignment is re-executed in source order afterwards.
-2. **Hyperparameters.** ``get_init_inputs()`` returns only what upstream chose to vary, so a
-   manifest ``padding: 1`` never reaches a model whose ``__init__`` defaults it to 0. Init
-   arguments are therefore resolved BY NAME, manifest first -- and the manifest spells a knob in
-   ``config:`` or in ``init.scalars`` depending on whether a declared shape reads it, so both are
-   one view here (:func:`manifest_knobs`).
-3. **Learned parameters.** The model owns them; the port takes them as arguments. The mapping is
-   ``state_dict()``'s ``a.b.weight`` -> the argument ``a_b_weight``, with a shape-verified
-   positional fallback for renamed submodules and a zero-fill for an argument whose module was
-   built with ``bias=False`` (feeding random values there compares against a bias the model does
-   not have).
-4. **The comparison itself.** torch is float32 and the reference float64, so the tolerance is a
-   round-off tolerance, and it needs an ABSOLUTE floor: a GroupNorm output has analytically zero
-   mean, so a relative-only check reports a spurious 100% error on a difference of 3e-8.
-"""
+"""Run one machine_learning port beside its upstream PyTorch model and compare: manifest sizes (derived module
+constants re-executed), init arguments by name, ``state_dict`` parameters by name/shape, and a round-off tolerance
+with an absolute floor."""
 
 import ast
 import inspect

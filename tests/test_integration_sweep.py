@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""End-to-end integration sweep: the real CLI, the real DB -- ``run-benchmark`` twice into one
-``hpcagent_bench.db``, through a genuine subprocess of the shipped CLI, so a bug that only appears when
-the layers are composed is caught. Two legs share one cwd/db so a speedup exists: numpy (``scientific_computing@lvl1``,
-the baseline) and native+autopar (``scientific_computing/unstructured_grids@lvl1`` under ``polly``, the only framework
-reachable from ``run-benchmark`` that actually requests auto-parallelization -- see
-:func:`test_native_leg_requests_autopar`)."""
+"""End-to-end sweep through the shipped CLI into one ``hpcagent_bench.db``: a numpy leg and a native+autopar
+(``polly``) leg, so a speedup exists."""
 
 import contextlib
 import os

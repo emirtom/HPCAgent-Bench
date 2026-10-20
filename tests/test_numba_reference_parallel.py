@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every scientific_computing numba reference runs in parallel.
-
-The numba reference is half of the scientific_computing denominator (best-of(numba, c)). The NumpyToNumba emit
-drops ``parallel=True`` on a body numba's parfor pass would answer differently from numpy (a ``max`` / ``min`` /
-``eye`` call, an in-place slice update that reads what it writes) and runs a 1-D FFT in ``objmode``; such a
-kernel's reference ran on one core while the submission it grades used all of them. Each of those kernels ships a
-hand-written ``<module>_numba.py`` that is parallel (``docs/kernel_extraction.md``), and so does every other hand
-override. A new kernel whose emit is serial fails here until it has one.
-"""
+"""Every scientific_computing numba reference runs in parallel: a kernel whose emit is serial needs a parallel
+hand override (``docs/kernel_extraction.md``)."""
 
 import pathlib
 

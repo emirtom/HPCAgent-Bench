@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A fused owed wave's AGENT side: each worker runs exactly as a single-setup job of its setup would.
-
-The fused driver hands every problem to a child driver whose environment is the job's with the
-problem's setup overlay applied (agent_driver.fused_child_env), and whose staged material is its
-setup's own root under the shared mount (``<shared>/setups/<setup>``, presented at the shared mount
-by the seal). Pinned here:
-
-* GOLDEN: the argv, the environment, the rendered prompt, the MCP config and the cost record of a
-  fused worker are those of the same kernel in a single-setup job -- up to the three fused-only
-  variables and the material path the seal maps back onto the shared mount.
-* BUDGET: each worker is told, and held to, its OWN setup's token and wall-clock budget.
-* ISOLATION: a control worker's view holds none of another setup's staged skills or CPF material,
-  and its MCP server lists no tool its setup does not declare -- even when the job env carries one.
-"""
+"""A fused owed wave's AGENT side: each worker runs exactly as in a single-setup job of its setup (golden argv,
+env, prompt, MCP config, cost record), held to its own budget and isolated from other setups' material."""
 
 import fcntl
 import json

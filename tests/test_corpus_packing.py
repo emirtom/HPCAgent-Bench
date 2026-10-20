@@ -1,22 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The cost-aware corpus split: :func:`hpcagent_bench.sizing.pack_lpt` and the seam it reaches the
-sweep through (:func:`hpcagent_bench.support.collect.sweep.shard_names`).
-
-Four properties, in the order they matter. First, the partition is a PARTITION -- every kernel on
-exactly one rank, no overlap, no gap, at every rank count -- because a sweep that silently drops a
-kernel reports a corpus it never ran. Second, it is a pure function: two independent computations
-must produce byte-identical shards, since the results DB is keyed by shard and a job re-run has to
-land on the same split. Third, the packer has to EARN its place: max-rank predicted load under LPT
-is measured against the historic stride on the REAL corpus, and if the stride wins the assertion
-fails, because then the right answer is to keep the stride and delete the packer. Fourth, an
-over-budget packing is refused rather than launched.
-
-The unknowns are tested separately from the knowns. A kernel with no resolvable cost (``opaque``
-init, an unevaluable shape, a footprint that resolves to zero) is packed LAST and round-robin, so
-the one thing it cannot do is skew a packing built out of real numbers -- and when NOTHING
-resolves there is no packing to build and the stride comes back untouched.
-"""
+"""The cost-aware corpus split (:func:`hpcagent_bench.sizing.pack_lpt` via ``shard_names``): a true partition,
+deterministic, better than the stride on the real corpus, refusing over-budget packings, with unresolved kernels
+packed last."""
 
 import json
 from collections.abc import Mapping, Sequence

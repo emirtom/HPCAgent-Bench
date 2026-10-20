@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The multi-core grading contract's CPU carving: ``native_call.grading_cpus``.
-
-Every timed child runs multi-core on its slot's share of the PHYSICAL cores. These pin the
-three properties the measurement depends on: no SMT sibling pair is ever handed out together,
-concurrent slots get disjoint core sets, and every handed-out cpu really belongs to this
-process's affinity.
-"""
+"""``native_call.grading_cpus``: no SMT sibling pair handed out together, disjoint cores for concurrent slots,
+and every cpu within this process's affinity."""
 
 import os
 import pathlib

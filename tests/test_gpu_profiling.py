@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The GPU profiler (:mod:`hpcagent_bench.harness.gpu_profiling`) and its ``/profile`` route, on
-both vendors.
-
-Every test here runs on a host with NO GPU, no ``nsys`` and no ROCm: the readers are exercised
-against fixtures of real ``nsys stats --format csv`` and ``rocprofv3`` CSV output, and the
-availability layer against a monkeypatched host. That is the point -- the code path that matters
-most is the one taken when the profiler is absent, and it must be provable exactly there.
-
-The AMD half additionally pins the two ways a vendor port goes wrong quietly: a row schema that
-drifts from the NVIDIA one (so ``/profile`` stops being one contract), and a field the tool never
-measured coming back as ``0`` instead of ``null``.
-"""
+"""The GPU profiler and its ``/profile`` route on both vendors, on a host with no GPU: readers against real
+``nsys``/``rocprofv3`` CSV fixtures, availability monkeypatched, one row schema, and unmeasured fields ``null``."""
 
 import ast
 import json

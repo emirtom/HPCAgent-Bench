@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The canonical parallel form reaches the agent through its tool and route, and an absence never reads
-as a fact.
-
-Every answer carries the tool's reminder. A kernel nothing was rendered for must answer 200
-``unavailable`` and say the absence means nothing about the kernel: answered as a 404 it reads as
-"the judge refused because this kernel is not parallelizable", which is exactly the wrong inference and
-the one no other route is in a position to correct. What the prose says is the pages' business, not a
-test's.
-"""
+"""The canonical parallel form reaches the agent through its tool and route; every answer carries the reminder,
+and a missing render answers 200 ``unavailable`` (never a 404)."""
 
 import json
 import pathlib

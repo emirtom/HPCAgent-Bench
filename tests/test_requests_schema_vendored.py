@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The agent tool's ``requests`` schema is the one the judge validates with, regenerated whenever relayout's
-pin moves.
-
-The agent runtime does not depend on relayout, whose pydantic models define a request, so it ships the schema as
-JSON; this is the check that the committed copy is byte for byte what those models generate.
-"""
+"""The agent tool's vendored ``requests`` JSON schema is byte for byte what relayout's pinned models generate."""
 
 import json
 

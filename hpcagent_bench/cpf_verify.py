@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Grade every form a CPF view serves once, as ``POST /submit`` would, and file the verdict in the view.
-
-A form is rendered, never built or run, so a cpf-src setup would hand agents a file nobody checked.
-First its entry must be the judge's own C ABI: the unit compiles with the prompt stub's prototype declared
-after it (:func:`abi_refusal`), since the judge calls through ctypes, which checks no parameter type. Then this grades each one with the judge's own ``score`` at the run's configured preset (hidden cases
-included) plus the hardened re-verify, and records ``ok`` or ``unverified`` per pointer
-(:func:`hpcagent_bench.cpf_cache.record_verification`). ``cpf_cache check --verified`` then refuses
-any setup whose tag holds a form that did not grade correct. Runs inside the judge image:
+"""Grade every form a CPF view serves once, as ``POST /submit`` would (C ABI check, ``score`` with hidden cases,
+re-verify), and file ``ok``/``unverified`` per pointer for ``cpf_cache check --verified``. Runs in the judge image:
 
     python3 -m hpcagent_bench.cpf_verify --view V --kernels a,b --language c [--rank R --ranks N]
 """
@@ -56,9 +50,8 @@ def stub_prototype(key: str, language: Language) -> tuple[str, str]:
 
 
 def abi_refusal(form: cpf_cache.Form, key: str, language: Language) -> str:
-    """Why ``form``'s entry is not the judge's C ABI for ``key``, or "": it must define the stub's symbol, and its
-    host unit must compile with the stub's prototype declared after the definition, so a parameter of another
-    type, count or linkage is a compile error. The device unit of a GPU form holds no entry."""
+    """Why ``form``'s entry is not the judge's C ABI for ``key``, or "": the host unit must define the stub's symbol
+    and compile with the stub's prototype declared after it (ctypes checks no parameter types)."""
     from dace.codegen.cpf import compile_check, dialect_for  # the image's dace; heavy, so only where a form is checked
 
     symbol, prototype = stub_prototype(key, language)
@@ -93,8 +86,7 @@ def grade(
     )
     if refused := abi_refusal(form, key, language):
         return cpf_cache.Verification(verdict=cpf_cache.Verified.UNVERIFIED, reason=refused, preset=cfg.preset.text)
-    # A gpu form is the two units a GPU submission is: the host entry and the device kernels.
-    # A form calling a vendor library is submitted with the load request the agent's would name.
+    # A gpu form is submitted as its host and device units, with the load request an agent's would name.
     submission = Submission(
         language=language,
         source=form.source.read_text(encoding="utf-8"),

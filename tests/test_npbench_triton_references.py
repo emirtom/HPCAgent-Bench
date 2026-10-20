@@ -1,23 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Regression tests for the Triton references of the ``npbench`` tag.
-
-Three bug classes broke most of them on a GPU, and the first two are checkable on a CPU runner:
-
-* An autotuned kernel that updates a buffer in place (accumulates with ``atomic_add``, or reads and overwrites it) is
-  run once per config while tuning, so the buffer is updated once per trial unless ``restore_value`` names it. The
-  AST check below finds every such kernel; the few that rewrite the buffer from scratch on each launch are listed with
-  the reason.
-* An entry whose parameter names are not the manifest's falls off the by-name binding onto the positional ABI, which
-  fails for any reference that dropped or reordered an argument (``go_fast(A)`` against ``a``, ``mandelbrot(xn, yn)``
-  against ``XN, YN``, ``contour_integral(_)`` against ``slab_per_bc``).
-* The numbers themselves: a scalar argument reaches a kernel as fp32, so an fp64 run needs it through a pointer; the
-  compiler fuses ``a * b + c`` where NumPy rounds the product and the sum separately, which a chaotic iteration
-  (``mandelbrot1``, ``mandelbrot2``) or a recurrence that cancels at its end (``vadv``) amplifies past the tolerance, so
-  those launch with ``enable_fp_fusion=False``; and the device test runs every reference through the harness against
-  the compiled reference at the S preset, and those three also at M, where the amplified differences show (every kernel at M
-  takes 39 minutes on an MI300A).
-"""
+"""The ``npbench`` Triton references: in-place autotuned kernels name ``restore_value``, entries take the
+manifest's parameter names, and (on a GPU) the numbers match the compiled reference at S, and at M for the
+fusion-sensitive ones."""
 
 import ast
 

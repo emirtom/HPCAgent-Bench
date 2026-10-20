@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every grade keeps the requests it was asked under, not only the verified winners.
-
-A grade stores the agent's ``requests`` block and ``workspace_bytes`` so a winner can be replayed at
-other rank counts. Which layouts and precisions agents REQUEST, and which the judge refuses before
-building, is an analysis over every request: every ``/score`` / ``/submit`` grade carries the same two
-columns, a refused request keeps the judge's reason as its ``detail``, and a request with no
-envelope leaves them ''.
-"""
+"""Every ``/score`` and ``/submit`` grade keeps its ``requests`` and ``workspace_bytes`` (a refused request keeps
+the judge's reason as ``detail``; no envelope leaves them '')."""
 
 import json
 import pathlib
