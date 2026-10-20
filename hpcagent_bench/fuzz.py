@@ -52,8 +52,11 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Final, TypeGuard
 
 import numpy as np
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, protocols
+from hpcagent_bench.categories import Preset
+from hpcagent_bench.config import PerfMode, SizeDistribution
 
 __all__ = [
     "BINOPS",
@@ -61,7 +64,6 @@ __all__ = [
     "CMPOPS",
     "DIVISIBILITY",
     "EVAL_ERRORS",
-    "FUZZED_PRESET",
     "MAX_RESAMPLE",
     "NO_CONFIG_NAMES",
     "PRESET_SEED_KEY",
@@ -118,14 +120,12 @@ __all__ = [
     "snap_to_class",
 ]
 
-FUZZED_PRESET = "fuzzed"
 
-
-def initializer_seed(preset: str, input_seed: int, fuzz_iteration: int | None) -> int:
+def initializer_seed(preset: Preset, input_seed: int, fuzz_iteration: int | None) -> int:
     """The seed a draw hands its initializer (and :meth:`Perturbation.for_seed
     <hpcagent_bench.support.distributions.perturbation.Perturbation.for_seed>`, which picks its
     scenario): the input seed, offset by the fuzz iteration on the fuzzed preset."""
-    return int(input_seed) + (int(fuzz_iteration or 0) if preset == FUZZED_PRESET else 0)
+    return int(input_seed) + (int(fuzz_iteration or 0) if preset is Preset.FUZZED else 0)
 
 
 #: Sentinel default for every ``config_names`` parameter below: no symbol is a declared
@@ -251,12 +251,12 @@ def sample_set(choices: Sequence[FuzzValue], rng: np.random.Generator) -> FuzzVa
     return choices[int(rng.integers(len(choices)))]
 
 
-def sample_one(lo: float, hi: float, rng: np.random.Generator, distribution: str) -> int:
+def sample_one(lo: float, hi: float, rng: np.random.Generator, distribution: SizeDistribution) -> int:
     lo_i, hi_i = int(lo), int(hi)
     if hi_i <= lo_i:
         return lo_i
     # log_uniform needs lo > 0 (log(0)/log(<0) = -inf/nan); fall back to uniform otherwise.
-    if distribution == "log_uniform" and lo_i > 0:
+    if distribution is SizeDistribution.LOG_UNIFORM and lo_i > 0:
         val = float(np.exp(rng.uniform(np.log(lo_i), np.log(hi_i))))
     else:  # uniform (or non-positive interval)
         val = float(rng.uniform(lo_i, hi_i))
@@ -302,8 +302,8 @@ def resolve_ranges(
     :func:`_apply_size_cap`) -- the correctness fuzz path passes its own, smaller
     ceiling so a correct-but-slow reference still validates.
     """
-    if FUZZED_PRESET in parameters:
-        return _apply_size_cap(dict(parameters[FUZZED_PRESET]), size_cap, config_names)
+    if Preset.FUZZED.text in parameters:
+        return _apply_size_cap(dict(parameters[Preset.FUZZED.text]), size_cap, config_names)
     # Anchored on XL, not spanning [L, XL]. A range that wide is drawn log-uniform, so most draws
     # land far below XL and the timed problem is too small for the thing being measured to show:
     # at preset S this corpus times 512-element kernels, where an OpenMP fork/join costs more than
@@ -315,7 +315,12 @@ def resolve_ranges(
     # fuzz.anchor for every token, so this never reads a stale rung from an earlier call.
     fuzz_cfg = config.current().fuzz
     anchor = fuzz_cfg.anchor
-    base = parameters.get(anchor) or parameters.get("XL") or parameters.get("L") or next(iter(parameters.values()))
+    base = (
+        parameters.get(anchor.text)
+        or parameters.get(Preset.XL.text)
+        or parameters.get(Preset.L.text)
+        or next(iter(parameters.values()))
+    )
     lo_m, hi_m = fuzz_cfg.xl_lo_mult, fuzz_cfg.xl_hi_mult
     out: dict[str, FuzzValue] = {}
     for name, value in base.items():
@@ -389,7 +394,7 @@ def pick_data_distribution(fuzz_spec: Mapping[str, FuzzValue], iteration: int = 
     return str(fuzz_spec.get("data_distribution", "") or "")
 
 
-class Sentinel(enum.Enum):
+class Sentinel(Coded):
     """The one marker a resolved value can never be: ``UNRESOLVED`` says a param's dependency is
     not bound yet, which the topo loop retries (:func:`_try_resolve`)."""
 
@@ -569,7 +574,7 @@ def eval_call(node: ast.Call, names: Mapping[str, FuzzValue], expr: str) -> Fuzz
     return apply_func(node.func.id, [eval_node(a, names, expr) for a in node.args], expr)
 
 
-def sample_leaf(spec: FuzzValue, rng: np.random.Generator, distribution: str) -> FuzzValue:
+def sample_leaf(spec: FuzzValue, rng: np.random.Generator, distribution: SizeDistribution) -> FuzzValue:
     """A leaf form: discrete set, interval, smooth interval, or a fixed scalar passed through."""
     if is_set(spec):
         return sample_set(as_sequence(spec["set"], "set"), rng)
@@ -584,7 +589,7 @@ def sample_leaf(spec: FuzzValue, rng: np.random.Generator, distribution: str) ->
 
 
 def _try_resolve(
-    spec: FuzzValue, resolved: dict[str, FuzzValue], rng: np.random.Generator, distribution: str
+    spec: FuzzValue, resolved: dict[str, FuzzValue], rng: np.random.Generator, distribution: SizeDistribution
 ) -> "FuzzValue | Sentinel":
     """Resolve one param against the already-resolved namespace, or
     ``_UNRESOLVED`` when a dependency isn't available yet (topo retry)."""
@@ -603,7 +608,10 @@ def _try_resolve(
 
 
 def resolve_sizes(
-    fuzzed: Mapping[str, FuzzValue], initial: Mapping[str, FuzzValue], rng: np.random.Generator, distribution: str
+    fuzzed: Mapping[str, FuzzValue],
+    initial: Mapping[str, FuzzValue],
+    rng: np.random.Generator,
+    distribution: SizeDistribution,
 ) -> dict[str, FuzzValue]:
     """Topologically resolve size params: sample leaves, then evaluate
     derive/construct to a fixpoint (a cyclic reference raises)."""
@@ -754,7 +762,7 @@ def _resolve_against(
     parameters: ParameterTable,
     fixed: Mapping[str, FuzzValue],
     seed: int,
-    distribution: str,
+    distribution: SizeDistribution,
     constraints: Sequence[str] | None,
     size_cap: int | None = None,
     config_names: frozenset[str] = NO_CONFIG_NAMES,
@@ -786,15 +794,15 @@ def _resolve_against(
     raise ValueError(f"could not satisfy constraints {constraints} for config {fixed}")
 
 
-class SizeClass(enum.Enum):
+class SizeClass(Coded):
     """The structural class every free size dimension of one timed input is drawn in. Input ``i`` of
     the timed set takes :data:`SIZE_CLASSES` ``[i % 4]``, so every submit times and checks all four:
     a submission that assumes aligned, even or power-of-two extents fails one of them."""
 
-    ALIGNED = "aligned"  # a multiple of 64
-    ODD = "odd"
-    NONPOW2 = "nonpow2"  # 8 x an odd number above 1: a multiple of 8, never of 64, never a power of two
-    NONALIGNED = "nonaligned"  # even, not a multiple of 8
+    ALIGNED = enum.auto()  # a multiple of 64
+    ODD = enum.auto()
+    NONPOW2 = enum.auto()  # 8 x an odd number above 1: a multiple of 8, never of 64, never a power of two
+    NONALIGNED = enum.auto()  # even, not a multiple of 8
 
 
 SIZE_CLASSES: Final = tuple(SizeClass)
@@ -848,14 +856,14 @@ def apply_size_class(
         smooth = spec["smooth"] if is_smooth(spec) else None
         snapped = snap_to_class(value, size_class, lo, hi, smooth if isinstance(smooth, int) else None)
         if snapped is None:
-            log.info("size class %s: no member of %s in [%d, %d]; keeps %d", size_class.value, name, lo, hi, value)
+            log.info("size class %s: no member of %s in [%d, %d]; keeps %d", size_class.text, name, lo, hi, value)
             continue
         trial = {k: v for k, v in out.items() if k not in derived} | {name: snapped}
-        trial.update(resolve_sizes(derived, trial, np.random.default_rng(0), "uniform"))
+        trial.update(resolve_sizes(derived, trial, np.random.default_rng(0), SizeDistribution.UNIFORM))
         if all(safe_eval(c, trial) for c in constraints):
             out = trial
         else:
-            log.info("size class %s: %s=%d breaks %s; keeps %d", size_class.value, name, snapped, constraints, value)
+            log.info("size class %s: %s=%d breaks %s; keeps %d", size_class.text, name, snapped, constraints, value)
     return out
 
 
@@ -868,7 +876,7 @@ def respec_ranges(
     non-range params pass through unchanged -- the shared maximum/large interval rewrite. A smooth
     interval keeps its bound around the rewritten range, so its draws stay smooth."""
     rewritten: dict[str, FuzzValue] = {nm: respec_one(v, interval) for nm, v in fuzzed.items()}
-    return {**parameters, FUZZED_PRESET: rewritten}
+    return {**parameters, Preset.FUZZED.text: rewritten}
 
 
 def respec_one(value: FuzzValue, interval: Callable[[int | float, int | float], Sequence[FuzzValue]]) -> FuzzValue:
@@ -901,14 +909,14 @@ def max_shape(
     fixed = dict(config or {})
     fuzzed = resolve_ranges(parameters, config_names=config_names)
     spec = respec_ranges(parameters, fuzzed, lambda lo, hi: [hi, hi])
-    return _resolve_against(spec, fixed, 0, "uniform", constraints, config_names=config_names)
+    return _resolve_against(spec, fixed, 0, SizeDistribution.UNIFORM, constraints, config_names=config_names)
 
 
 def large_shapes(
     parameters: ParameterTable,
     config: Mapping[str, FuzzValue] | None = None,
     *,
-    mode: str | None = None,
+    mode: PerfMode | None = None,
     n: int | None = None,
     secret_seed: int | None = None,
     constraints: Sequence[str] | None = None,
@@ -935,7 +943,7 @@ def large_shapes(
     repeats neither an earlier input nor one in ``exclude`` (another protocol's inputs) while a
     distinct one exists: first in its class, else unclassed (logged), else the repeat stands.
     """
-    draw_mode = str(mode if mode is not None else perf_mode())
+    draw_mode = mode if mode is not None else perf_mode()
     fixed = dict(config or {})
     fuzzed = resolve_ranges(parameters, config_names=config_names)
     # Bias each interval to its upper half so sampled shapes are genuinely large.
@@ -944,7 +952,7 @@ def large_shapes(
     # NB: the ``config`` parameter shadows the config module, so the seeds +
     # default n are read via module-scope helpers.
     count = max(1, int(n) if n is not None else default_n_large_shapes())
-    if draw_mode.startswith("secret"):
+    if draw_mode is PerfMode.SECRET_3SHAPES:
         # n large shapes from the JUDGE-ONLY secret seed, hidden from the agent.
         base = int(secret_seed if secret_seed is not None else secret_shape_seed())
         seeds = [base + i for i in range(count)]
@@ -963,7 +971,7 @@ def large_shapes(
         taken = [*exclude, *(sample for _, sample in out)]
         size_class = SIZE_CLASSES[index % len(SIZE_CLASSES)]
         resolve = functools.partial(
-            _resolve_against, big_spec, fixed, sd, "uniform", constraints, config_names=config_names
+            _resolve_against, big_spec, fixed, sd, SizeDistribution.UNIFORM, constraints, config_names=config_names
         )
         try:
             try:
@@ -972,7 +980,7 @@ def large_shapes(
                 try:
                     sample = resolve(exclude=taken)
                     logging.getLogger(__name__).info(
-                        "large_shapes: %s has no distinct %s draw; timed unclassed", label, size_class.value
+                        "large_shapes: %s has no distinct %s draw; timed unclassed", label, size_class.text
                     )
                 except ValueError:
                     sample = resolve(size_class=size_class)
@@ -1042,7 +1050,7 @@ def correctness_size_cap() -> int:
     return min(caps) if caps else 0
 
 
-def perf_mode() -> str:
+def perf_mode() -> PerfMode:
     """The configured performance mode (``perf.mode``)."""
     return config.current().perf.mode
 

@@ -37,6 +37,7 @@ import pytest
 from scipy.integrate import solve_ivp
 
 from hpcagent_bench import fuzz
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.counter_generator import CounterGenerator
 from tests.fresh_module import module_at
@@ -203,7 +204,7 @@ def test_manifest_fuzz_ceiling_stays_tractable_for_the_numpy_oracle(
     oracle at XL=80 clears the 600s budget (243.4s, njev=15). A sane absolute cap guards against
     either preset creeping back up unnoticed."""
     spec = BenchSpec.load(_KEY)
-    n_max = spec.parameters[fuzz.FUZZED_PRESET]["N"][1]
+    n_max = spec.parameters[Preset.FUZZED.text]["N"][1]
     xl_n = spec.parameters["XL"]["N"]
     assert n_max == xl_n, f"fuzzed.N ceiling ({n_max}) must track XL ({xl_n}) exactly"
     assert n_max <= 200, f"fuzzed.N ceiling grew to {n_max} -- re-measure the numpy oracle's max-cell time"

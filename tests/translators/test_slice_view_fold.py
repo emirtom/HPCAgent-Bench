@@ -17,6 +17,7 @@ import ast
 
 import numpy as np
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.translators.numpyto_common.lowering import fold_slice_view_aliases
 from hpcagent_bench.translators.numpyto_common.ordered import OrderedSet
 from tests.translators.op_oracle import run_op
@@ -154,7 +155,7 @@ def test_conv2d_batch_norm_scaling_c_matches_numpy() -> None:
     # compiled and run.
     from hpcagent_bench import numerical_oracle as no
 
-    status = no.run_kernel("conv2d_batch_norm_scaling", preset="S", precision="fp64", seed=0, only_backends={"c"})
+    status = no.run_kernel("conv2d_batch_norm_scaling", preset=Preset.S, precision="fp64", seed=0, only_backends={"c"})
     assert status.get("c") == "ok", status
 
 

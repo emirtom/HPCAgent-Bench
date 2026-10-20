@@ -15,6 +15,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import polygeist_transform
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.translators.numpyto_c.bindings import BindingArg
@@ -108,7 +109,7 @@ def run_and_validate(framework: str, kernel: str) -> None:
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
     test = Test(Benchmark(kernel), generate_framework(framework))
-    results = test.run(preset="S", validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
+    results = test.run(preset=Preset.S, validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
     assert results, f"{framework}/{kernel}: no implementation ran"
     for impl, result in results.items():
         assert not result.get("failure"), f"{framework}/{kernel}/{impl}: {result.get('failure')}"

@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [hip]}
 packet:
   # `cpf-tool-gpu` with one ``// par``, ``// seq`` or ``// unknown`` per loop and kernel. ``cpf-tool-kinds``
   # names it on a GPU setup.
-  order: 29
   name: "Canonical Parallel Form Tool, GPU, Kinds Only"
   tools: [canonical_parallel_form]
   env:

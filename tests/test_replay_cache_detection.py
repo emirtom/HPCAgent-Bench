@@ -34,6 +34,7 @@ import pytest
 
 import hpcagent_bench
 from hpcagent_bench import spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
@@ -80,7 +81,7 @@ def call(kernel: str, data: dict, followups: list[dict], reps: int = 3, warmup: 
         kernel,
         BINDING,
         data,
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=PY_META,
@@ -247,7 +248,7 @@ def test_only_one_held_out_input_set_is_resident_at_a_time() -> None:
         kernel,
         BINDING,
         PUBLIC,
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=PY_META,

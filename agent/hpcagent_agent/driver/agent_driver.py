@@ -4,6 +4,7 @@
 
 import concurrent.futures
 import contextlib
+import enum
 import fcntl
 import functools
 import hashlib
@@ -29,11 +30,12 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from http import HTTPStatus
 from typing import Any, NamedTuple, NotRequired, TextIO, TypedDict, cast
 
-from hpcagent_agent import submission_mode
+from hpcagent_agent import plugins, submission_mode
+from hpcagent_agent.coded import Coded
 from hpcagent_agent.driver import harnesses, promote_unsubmitted, seal_worker, stream_idle_timeout, token_cost
 from hpcagent_agent.driver.harnesses import Closing, Context, Harness
 from hpcagent_agent.driver.token_cost import ATTEMPTS_NAME, as_block
-from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools import http_json, mcp_server
 
 __all__ = [
     "AGENT_CRASH_ATTEMPTS",
@@ -112,6 +114,7 @@ __all__ = [
     "UNREMINDED_PAGES",
     "AgentState",
     "AggregateState",
+    "LlmMode",
     "McpUnavailable",
     "Problem",
     "ProblemValue",
@@ -181,12 +184,14 @@ __all__ = [
     "judge_urls",
     "kept_interpreter",
     "kernel_stem",
+    "llm_mode",
     "load_problem_file",
     "load_problems",
     "main",
     "mark_cancelled",
     "material_dir",
     "mcp_failed",
+    "method_text",
     "metrics_url",
     "mode_sections",
     "node_exit_status",
@@ -197,7 +202,6 @@ __all__ = [
     "open_tool_use_index",
     "open_tool_use_stall_seconds",
     "own_page",
-    "packet_dir",
     "parse_prometheus",
     "parse_resolved",
     "pin",
@@ -1067,14 +1071,9 @@ def agent_runtime() -> pathlib.Path:
 
 @functools.lru_cache(maxsize=1, typed=True)
 def tool_registry() -> dict[str, Any]:
-    """What ``hpcagent_agent.tools.mcp_server`` offers this setup (``--describe``, under this process's
-    environment): ``allowed_tools``, ``prompt`` and ``prompt_cli``. A child process, because the server
-    builds its registry from the environment at import."""
-    command = [sys.executable, "-m", "hpcagent_agent.tools.mcp_server", "--describe"]
-    done = subprocess.run(command, capture_output=True, text=True, check=False)
-    if done.returncode != 0:
-        raise SystemExit(f"agent_driver: mcp_server --describe failed: {done.stderr.strip()[-500:]}")
-    return cast("dict[str, Any]", json.loads(done.stdout))
+    """What ``hpcagent_agent.tools.mcp_server`` offers this setup, under this process's environment:
+    ``allowed_tools``, ``prompt`` and ``prompt_cli``."""
+    return mcp_server.describe(os.environ)
 
 
 def agent_tools() -> tuple[str, ...]:
@@ -1082,22 +1081,23 @@ def agent_tools() -> tuple[str, ...]:
     return tuple(str(name) for name in tool_registry()["allowed_tools"])
 
 
-def packet_dir() -> pathlib.Path | None:
-    """``hpcagent_agent/packets/<AGENT_PACKET>``, or None for a setup without a method packet."""
-    name = os.environ.get("AGENT_PACKET", "").strip()
+def method_text(environ: Mapping[str, str] = os.environ) -> pathlib.Path | None:
+    """The prompt text of the method the setup runs (:data:`plugins.METHOD_ENV`, which its packet exports), from the
+    plugin that ships it; None for a setup without a method."""
+    name = environ.get(plugins.METHOD_ENV, "").strip()
     if not name:
         return None
-    path = pathlib.Path(__file__).resolve().parents[1] / "packets" / name
-    if not (path / "packet.md").is_file():
-        raise SystemExit(f"AGENT_PACKET={name}: {path / 'packet.md'} does not exist")
-    return path
+    for plugin in plugins.find(plugins.plugin_dirs(environ)):
+        if (text := plugin.method(name)) is not None:
+            return text
+    raise SystemExit(f"{plugins.METHOD_ENV}={name}: no plugin ships methods/{name}/method.md")
 
 
 def hints_text() -> str:
-    """The {{HINTS}} slot: the method packet's ``packet.md``, or nothing without a packet. Skill pages never
-    ride here; they reach the agent as trigger lines and files."""
-    packet = packet_dir()
-    return "" if packet is None else (packet / "packet.md").read_text(encoding="utf-8").strip()
+    """The {{HINTS}} slot: the method's ``method.md``, or nothing without a method. Skill pages never ride here; they
+    reach the agent as trigger lines and files."""
+    text = method_text()
+    return "" if text is None else text.read_text(encoding="utf-8").strip()
 
 
 def build_command_text(problem: Problem) -> str:
@@ -2618,7 +2618,7 @@ def claude_command(context: Context) -> list[str]:
         "Read,Edit,Bash" if bare else CLAUDE_NATIVE_TOOLS,
         "--allowedTools",
         "Bash",
-        # The method packet's tools are among them: the server registers and serves them (AGENT_PACKET).
+        # A plugin's tools are among them when the setup's packet carries them.
         *[f"mcp__{MCP_SERVER_NAME}__{name}" for name in agent_tools()],
         "--disallowedTools",
         "WebFetch",
@@ -2679,13 +2679,26 @@ def claude_context_env(environment: Mapping[str, str]) -> dict[str, str]:
 CLAUDE_BACKGROUND_TASKS_OFF = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 
 
+class LlmMode(Coded):
+    """How claude reaches the model (``AGENT_LLM_MODE``): DIRECT to the engine's own /v1/messages (the default),
+    or through the LITELLM proxy, which the launcher points it at."""
+
+    DIRECT = enum.auto()
+    LITELLM = enum.auto()
+
+
+def llm_mode() -> LlmMode:
+    """``$AGENT_LLM_MODE``, :attr:`LlmMode.DIRECT` when unset; an unknown mode is refused."""
+    return LlmMode.parse(os.environ.get("AGENT_LLM_MODE", "").strip() or LlmMode.DIRECT.text)
+
+
 def claude_env(context: Context, base: dict[str, str]) -> dict[str, str]:
     """The shared environment plus the variables only claude reads."""
     environment = dict(base)
     # Direct mode (default): claude speaks vLLM's native /v1/messages; agents stripe over the
     # replicas the same way problems stripe over judges. ANTHROPIC_BASE_URL must be the server
     # root -- the client appends /v1/messages itself.
-    if os.environ.get("AGENT_LLM_MODE", "direct") != "litellm":
+    if llm_mode() is LlmMode.DIRECT:
         environment["ANTHROPIC_BASE_URL"] = context.replica_root
     # The MCP tool process reports the agent's running spend to the judge with every grade, and it
     # finds the transcript through this variable. It inherits our cwd today, so a relative default
@@ -3407,8 +3420,9 @@ def fused_problem_main(argv: Sequence[str]) -> int:
 
 def main() -> int:
     # First, so a misspelled harness ends the step before it waits on any service.
-    harnesses.selected_harness()
-    replicas = vllm_urls()
+    tuning = harnesses.selected_harness() == harnesses.TUNER
+    # A tuner talks to no model: it has no inference node to wait on.
+    replicas = [] if tuning else vllm_urls()
     judges = judge_urls()
     vllm_headers: dict[str, str] = {}
     api_key = os.environ.get("VLLM_API_KEY", "").strip()
@@ -3422,7 +3436,7 @@ def main() -> int:
     # have to speak the service's own auth to learn anything -- GET /v1/models takes x-api-key on
     # an Anthropic-format endpoint, which the bearer header above is not. Waiting anyway turns a
     # working setup into an aborted one on the strength of a probe that never had a chance.
-    if os.environ.get("INFERENCE_SOURCE", "").strip() == "service":
+    if tuning or os.environ.get("INFERENCE_SOURCE", "").strip() == "service":
         ready_replicas = replicas
     else:
         ready_replicas = wait_for_ready_replicas(replicas, vllm_timeout, vllm_headers)
@@ -3432,7 +3446,7 @@ def main() -> int:
     # saturated and a single-stream number is no longer available. Node 0 only -- concurrent probes
     # from several agent nodes would measure each other. 0/unset = off.
     probe_requests = int(os.environ.get("THROUGHPUT_PROBE_REQUESTS", "0") or 0)
-    if probe_requests > 0 and node_rank() == 0:
+    if probe_requests > 0 and node_rank() == 0 and ready_replicas:
         report_throughput(throughput_probe(ready_replicas[0], vllm_headers, probe_requests))
 
     judge_timeout = float(os.environ.get("JUDGE_READY_TIMEOUT_SECONDS", "300"))
@@ -3477,7 +3491,7 @@ def main() -> int:
     aggregate_state: AggregateState = {"samples": [], "missed": 0}
     stop_sampling = threading.Event()
     sampler: threading.Thread | None = None
-    if aggregate_seconds > 0 and node == 0:
+    if aggregate_seconds > 0 and node == 0 and ready_replicas:
         sampler = threading.Thread(
             target=sample_aggregate_throughput,
             args=(ready_replicas, vllm_headers, aggregate_seconds, stop_sampling, aggregate_state),

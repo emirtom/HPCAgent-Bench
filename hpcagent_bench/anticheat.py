@@ -35,11 +35,12 @@ from typing import NamedTuple
 from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, VerifyResult
 from hpcagent_bench.harness.task import Task, device_plausibility_row
-from hpcagent_bench.registry import Kind, RegistryError, Slot
+from hpcagent_bench.registry import Kind, RegistryError
 
 __all__ = [
     "ANTICHEAT",
@@ -124,7 +125,7 @@ class Context:
     submission: Submission
     task: Task
     score: Score
-    preset: str
+    preset: Preset
     datatype: str
     verifier: Callable[..., VerifyResult] | None = None
     rtol: float | None = None
@@ -232,7 +233,6 @@ ANTICHEAT: Kind[Gate] = Kind("anticheat")
 def post_run_gate(
     key: str,
     *,
-    order: int | Slot = Slot.NEXT,
     title: str,
     catches: str,
     verdict: Verdict,
@@ -244,7 +244,7 @@ def post_run_gate(
     finished grade, in slot order."""
 
     def register(check: Check) -> Check:
-        ANTICHEAT.add(key, Gate(title, catches, verdict, where, symbol, reruns, check), order=order)
+        ANTICHEAT.add(key, Gate(title, catches, verdict, where, symbol, reruns, check))
         return check
 
     return register
@@ -292,7 +292,6 @@ ANTICHEAT.add(
             "hpcagent_bench/harness/service.py",
         ),
     ),
-    order=0,
 )
 
 
@@ -305,7 +304,6 @@ ANTICHEAT.add(
         where=("hpcagent_bench/harness/sandbox.py",),
         symbol="hpcagent_bench.harness.sandbox:build_link_refusal",
     ),
-    order=1,
 )
 
 
@@ -319,7 +317,6 @@ ANTICHEAT.add(
         where=("hpcagent_bench/languages.py", "hpcagent_bench/harness/sandbox.py"),
         symbol="hpcagent_bench.languages:offload_device_refusal",
     ),
-    order=2,
 )
 
 
@@ -332,7 +329,6 @@ ANTICHEAT.add(
         where=("hpcagent_bench/seal.py",),
         symbol="hpcagent_bench.seal:enter",
     ),
-    order=3,
 )
 
 
@@ -345,13 +341,11 @@ ANTICHEAT.add(
         where=("hpcagent_bench/harness/native_call.py", "hpcagent_bench/harness/mpi_shard_driver.py"),
         symbol="hpcagent_bench.harness.native_call",
     ),
-    order=4,
 )
 
 
 @post_run_gate(
     "rep_variation",
-    order=5,
     title="Per-repeat input variation",
     catches="caching results across timed calls, a run that went wrong once",
     verdict=Verdict.REJECT,
@@ -368,7 +362,6 @@ def rep_variation(context: Context) -> tuple[Found, ...]:
 
 @post_run_gate(
     "size_class_sweep",
-    order=6,
     title="Config x size-class timed inputs, held-out cases",
     catches="no-ops, size special-casing, memorized values",
     verdict=Verdict.REJECT,
@@ -385,7 +378,6 @@ def size_class_sweep(context: Context) -> tuple[Found, ...]:
 
 @post_run_gate(
     "device_runtime",
-    order=7,
     title="GPU runtime in a host grade",
     catches="offloading a CPU-track kernel to the GPU",
     verdict=Verdict.FLAG,
@@ -400,7 +392,6 @@ def device_runtime(context: Context) -> tuple[Found, ...]:
 
 @post_run_gate(
     "quiescence",
-    order=8,
     title="Device quiescence",
     catches="work left running on the GPU after the clock stops",
     verdict=Verdict.FLAG,
@@ -422,7 +413,6 @@ def quiescence(context: Context) -> tuple[Found, ...]:
 
 @post_run_gate(
     "plausibility",
-    order=9,
     title="Plausibility",
     catches="a speedup too large to be real",
     verdict=Verdict.FLAG,
@@ -443,7 +433,6 @@ def plausibility(context: Context) -> tuple[Found, ...]:
 
 @post_run_gate(
     "independent_verify",
-    order=10,
     title="Independent re-verify",
     catches="nondeterminism, overfitting the public values, disagreeing with a second oracle",
     verdict=Verdict.REJECT,
@@ -470,7 +459,6 @@ def independent_verify(context: Context) -> tuple[Found, ...]:
 
 @post_run_gate(
     "sanitizers",
-    order=11,
     title="Sanitizers",
     catches="out-of-bounds and use-after-free that happen to pass, undefined behaviour",
     verdict=Verdict.REJECT_OR_FLAG,
@@ -499,5 +487,4 @@ ANTICHEAT.add(
         where=("hpcagent_bench/harness/grade_under.py",),
         symbol="hpcagent_bench.harness.grade_under:submit_grade",
     ),
-    order=12,
 )

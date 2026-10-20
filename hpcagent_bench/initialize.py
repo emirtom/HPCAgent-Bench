@@ -34,14 +34,15 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
+from hpcagent_bench.categories import Preset, Track
 from hpcagent_bench.dtypes import compute_view, is_float_dtype, storage_dtype
 from hpcagent_bench.fuzz import EVAL_ERRORS, FuzzValue, safe_eval
 from hpcagent_bench.precision import Precision, numpy_dtype
 from hpcagent_bench.spec import as_block
 from hpcagent_bench.support import distributions
-from hpcagent_bench.support.distributions import domain as domain_mod
 from hpcagent_bench.support.array_module import is_array, module_of
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support.distributions import domain as domain_mod
 from hpcagent_bench.support.distributions import hidden, streams
 from hpcagent_bench.support.helpers.sparse.abi import SPARSE_BUFFERS_KEY
 
@@ -198,7 +199,7 @@ def generate_scaled(
 
 
 #: The track whose inputs without a declared domain take :func:`ml_default_domain`.
-ML_TRACK = "machine_learning"
+ML_TRACK = Track.MACHINE_LEARNING
 #: The half-range of an ML activation (a normalized image or embedding) and of a vector parameter.
 UNIT_HALF_RANGE = 1.0
 
@@ -217,7 +218,7 @@ def ml_default_domain(activation: bool, shape: tuple[int, ...]) -> tuple[float, 
 
 def auto_initialize(
     spec: "BenchSpec",
-    preset: str,
+    preset: Preset,
     precision: Precision,
     distribution: str = "uniform",
     variant_spec: "SpecBlock | None" = None,
@@ -258,7 +259,7 @@ def auto_initialize(
     # may hold unsampled [lo, hi] ranges for the ``fuzzed`` preset). A shape resolves against
     # concrete sizes only, so a range is not a symbol a shape can name; fuzzing always supplies
     # params_override, so none reaches one.
-    declared = params_override if params_override is not None else spec.parameters[preset]
+    declared = params_override if params_override is not None else spec.parameters[preset.text]
     symbols = {name: size for name, size in declared.items() if isinstance(size, int) and not isinstance(size, bool)}
     dtype = np.dtype(numpy_dtype(precision))
     base_spec: SpecBlock = dict(variant_spec or {})
@@ -309,7 +310,7 @@ def auto_initialize(
             # base_spec so an array's own declaration wins over a variant-wide default.
             if name in spec.init.domains:
                 array_spec["domain"] = spec.init.domains[name]
-            elif spec.track == ML_TRACK:
+            elif spec.track is ML_TRACK:
                 array_spec["domain"] = ml_default_domain(not activation_drawn, shape)
             activation_drawn = True
             array_spec.setdefault("array", name)

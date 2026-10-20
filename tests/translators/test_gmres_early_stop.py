@@ -20,6 +20,7 @@ import pytest
 import scipy.sparse as sp
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.translators.numpyto_common.dtypes import SCALAR_KINDS, ctype_for_scalar_kind
 from hpcagent_bench.translators.numpyto_common.naming import native_base, short_for
@@ -82,7 +83,16 @@ def test_c_lowering_matches_numpy_at_s(name: str, tmp_path: pathlib.Path) -> Non
     binding = json.loads((tmp_path / f"{base}_binding.json").read_text())
     lib_path = tmp_path / f"lib{base}.so"
     subprocess.run(
-        ["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC", str(tmp_path / f"{base}.c"), "-o", str(lib_path)],
+        [
+            "gcc",
+            "-O2",
+            languages.std_flag(Language.C),
+            "-shared",
+            "-fPIC",
+            str(tmp_path / f"{base}.c"),
+            "-o",
+            str(lib_path),
+        ],
         check=True,
         capture_output=True,
     )

@@ -33,6 +33,13 @@ AGENT = paths.ROOT / "agent"
 MODE_SECTIONS = {"tool", "feedback", "routes", "example", "closing", "grading"}
 
 
+def test_a_mode_is_spelled_as_its_setup_value_and_template_name() -> None:
+    """``AGENT_SUBMISSION_MODE`` and the template file names read these spellings."""
+    assert submission_mode.SubmissionMode.texts() == ("multi", "single", "blind")
+    for mode in submission_mode.SubmissionMode:
+        assert (AGENT / mode.template).is_file(), mode
+
+
 @pytest.mark.parametrize("mode", list(submission_mode.SubmissionMode))
 def test_every_mode_template_fills_exactly_the_prompts_mode_slots(mode: submission_mode.SubmissionMode) -> None:
     """The tool bullet rides in the {{TOOLS}} list, as submit.PROMPT; the routes in http-api.md (the shell-only
@@ -56,7 +63,7 @@ def test_the_mcp_server_instructions_carry_the_modes_submit_bullet_and_no_raw_sl
     """Claude Code injects the server's ``initialize`` instructions into the system prompt verbatim.
     They were ``prompt_tool_list()`` unfilled, so every agent read a literal ``{{MODE:tool}}`` line and
     a tool list with no ``submit`` bullet."""
-    monkeypatch.setenv(submission_mode.KEY, mode.value)
+    monkeypatch.setenv(submission_mode.KEY, mode.text)
     server = fresh("mcp_server")
     try:
         instructions = server.build_server().instructions or ""
@@ -141,10 +148,10 @@ def test_single_submission_keeps_the_score_tool(monkeypatch) -> None:
     importlib.reload(submit_mod)
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
-    assert "score" in mcp_server.TOOLS, "the last correct score is what a non-submitting agent is graded on"
-    assert "submit" in mcp_server.TOOLS
-    assert {tool.name for tool in mcp_server.tool_definitions()} >= {"score", "submit"}
+    served = mcp_server.tools()
+    assert "score" in served, "the last correct score is what a non-submitting agent is graded on"
+    assert "submit" in served
+    assert {tool.name for tool in mcp_server.tool_definitions(served)} >= {"score", "submit"}
 
 
 def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:
@@ -158,25 +165,22 @@ def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:
     assert submit_mod.SINGLE_SUBMISSION is False
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
-    assert "score" in mcp_server.TOOLS
+    assert "score" in mcp_server.tools()
 
 
 def test_blind_withdraws_score_and_profile_from_every_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """A tool the mode does not serve is in no list: not served, not allowed, not in the prompt. A prompt that
     listed ``score`` beside a template saying there is none told the agent two things."""
-    import importlib
-
     monkeypatch.setenv("AGENT_SUBMISSION_MODE", "blind")
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
+    served = mcp_server.tools()
     for name in ("score", "profile"):
-        assert name not in mcp_server.TOOLS
-        assert name not in mcp_server.ALLOWED_TOOLS
-        assert f"`{name}`" not in mcp_server.prompt_tool_list()
-    assert "submit" in mcp_server.TOOLS
-    assert "syntax_check" in mcp_server.TOOLS
+        assert name not in served
+        assert name not in mcp_server.allowed_tools(served)
+        assert f"`{name}`" not in mcp_server.prompt_tool_list(served)
+    assert "submit" in served
+    assert "syntax_check" in served
 
 
 def test_a_submission_ends_the_episode(monkeypatch, tmp_path) -> None:

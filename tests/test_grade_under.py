@@ -30,6 +30,7 @@ import pytest
 import yaml
 
 from hpcagent_bench import languages, paths, protocols, recorded_rows
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import (
     denominator,
     grade_under,
@@ -45,6 +46,7 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, TimedCell, VerifyResult, score
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.stats import score_rule
+from hpcagent_bench.config import Statistic
 from tests.fresh_module import module_at
 from tests.results_rows import cells, grades
 from tests.sqlite_closing import connect
@@ -159,7 +161,7 @@ def test_every_timed_submission_is_listed_and_each_episodes_final_comes_first(
 def test_a_gpu_row_is_listed_with_both_stored_halves_of_its_own_grade(tmp_path: pathlib.Path) -> None:
     items = grade_under.build_worklist([shard_db(tmp_path)], [])[0]
     earlier = next(item for item in items if item.ts_ms == 10)
-    assert earlier.language == "hip"
+    assert earlier.language is Language.HIP
     submission = grade_under.submission_of(earlier)
     assert (submission.source, submission.device_source) == (HOST, DEVICE)
     later = next(item for item in items if item.ts_ms == 20)
@@ -572,7 +574,7 @@ def test_regrade_grades_a_real_kernel_end_to_end(tmp_path: pathlib.Path) -> None
         pytest.skip("gcc absent")
 
     kernel = "scaled_add"  # smallest fast C kernel: one FMA per element
-    submission = NoOpOptimizer().solve(Task(kernel=kernel, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=kernel, language=Language.C))
 
     db = judge_shard(tmp_path)
     add_grade(db, kernel, 10, units=(submission.source,), language="c", **credited(2.0))
@@ -605,7 +607,7 @@ def test_the_final_env_stamps_mwd_v3_on_a_real_kernel(tmp_path: pathlib.Path) ->
         pytest.skip("gcc absent")
 
     kernel = "scaled_add"
-    submission = NoOpOptimizer().solve(Task(kernel=kernel, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=kernel, language=Language.C))
     db = judge_shard(tmp_path)
     add_grade(db, kernel, 10, units=(submission.source,), language="c", **credited(2.0))
     items, _problems = grade_under.build_worklist([db], [])
@@ -616,7 +618,7 @@ def test_the_final_env_stamps_mwd_v3_on_a_real_kernel(tmp_path: pathlib.Path) ->
     # through grade(); test_finalize_grades_mw4x5_on_a_real_kernel covers the final rule end to end.
     with (
         config.overridden("service.preset", "S"),
-        config.overridden("measurement.timing_backend", "mannwhitney_delta"),
+        config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
         config.overridden("measurement.repeat", 20),
         grade_under.environment_scope(),
     ):
@@ -641,7 +643,7 @@ def cell_result(ratio: float, **changes: object) -> Score:
         baseline_ns=80.0,
         native_ns=80.0 / ratio,
         ratio=ratio,
-        timing_reduction=timing.REDUCTIONS_VARIED["mannwhitney_delta"],
+        timing_reduction=timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY],
     )
     return score_result(speedup=ratio, cells=(cell,), **changes)
 
@@ -777,7 +779,7 @@ def test_the_final_grade_draws_fresh_inputs_whatever_the_row_recorded(recorded: 
     """The final grade ignores what the row was recorded under -- an unstamped row and a promotion
     included -- and always times varied draws with the base seed untimed."""
     item = grade_under.Item(
-        "db", 1, "r", "k", 1, "setup", "c", "restricted", True, {}, reduction=recorded, promoted=promoted
+        "db", 1, "r", "k", 1, "setup", "c", SourceMode.RESTRICTED, True, {}, reduction=recorded, promoted=promoted
     )
     env = grade_under.final_env(item)
     assert env[grade_under.VARY_INPUTS_ENV] == "1"
@@ -811,7 +813,7 @@ def test_host_only_splits_cpu_from_gpu_episodes() -> None:
     """The recorded device decides; with none, a host language on a non-offload, non-Triton setup is a CPU one."""
 
     def item(language: str, setup: str, **env: str) -> grade_under.Item:
-        return grade_under.Item("db", 1, "r", "k", 1, setup, language, "restricted", True, env)
+        return grade_under.Item("db", 1, "r", "k", 1, setup, language, SourceMode.RESTRICTED, True, env)
 
     assert grade_under.host_only(item("c", "llr40-c-skills"))
     assert grade_under.host_only(item("fortran", "scicomp40-fortran"))
@@ -1123,7 +1125,9 @@ def test_hide_experiment_data_hides_every_item_directory_when_scratch_is_unset(
     real_experiment_dir.mkdir(parents=True)
     db = real_experiment_dir / "hpcagent_bench0.db"
     db.write_text("")
-    item = grade_under.Item(str(db), 1, "r0", "numpy_translators/foo", 1, "some-setup", "c", "restricted", True, {})
+    item = grade_under.Item(
+        str(db), 1, "r0", "numpy_translators/foo", 1, "some-setup", "c", SourceMode.RESTRICTED, True, {}
+    )
     grade_under.hide_experiment_data(tmp_path / "out", [item])
     # RUN_ROOT itself is the wrong (SCRATCH-less) fallback -- this is the bug this test guards
     # against fixing the wrong way (making RUN_ROOT itself "correct" is not the contract; the
@@ -1227,7 +1231,7 @@ def final_scorer(ratios: list[float], cells: list[dict[str, object]] | None = No
 def test_the_final_env_sets_the_protocols_parameters() -> None:
     """m, n and alpha are the protocol's (mw4x5 by default, ``--protocol`` another), reaching the scorer
     through the env."""
-    item = grade_under.Item("db", 1, "r", "k", 1, "setup", "c", "restricted", True, {}, reduction="mwd-v3")
+    item = grade_under.Item("db", 1, "r", "k", 1, "setup", "c", SourceMode.RESTRICTED, True, {}, reduction="mwd-v3")
     env = grade_under.final_env(item)
     assert (env[grade_under.TIMING_BACKEND_ENV], env[grade_under.N_INPUTS_ENV]) == ("mannwhitney_delta", "4")
     assert (env[grade_under.REPEAT_ENV], env[grade_under.REPEAT_FLOOR_ENV], env[grade_under.ALPHA_ENV]) == (
@@ -1394,7 +1398,7 @@ def test_a_min_of_k_fallback_input_is_not_stamped_final(
 
 
 def test_the_final_env_pins_one_warmup() -> None:
-    item = grade_under.Item("db", 1, "r", "k", 1, "setup", "c", "restricted", True, {}, reduction="mwd-v3")
+    item = grade_under.Item("db", 1, "r", "k", 1, "setup", "c", SourceMode.RESTRICTED, True, {}, reduction="mwd-v3")
     assert grade_under.final_env(item)[grade_under.WARMUP_ENV] == "1"
 
 
@@ -1466,7 +1470,7 @@ def real_kernel_item(tmp_path: pathlib.Path, wrong: bool = False) -> grade_under
     if not shutil.which("gcc"):
         pytest.skip("gcc absent")
     kernel = "scaled_add"
-    source = NoOpOptimizer().solve(Task(kernel=kernel, language="c")).source
+    source = NoOpOptimizer().solve(Task(kernel=kernel, language=Language.C)).source
     if wrong:
         body = "y[i] = (y[i] + (alpha * x[i]));"
         assert body in source
@@ -1542,12 +1546,12 @@ def assert_pool_draws(calls: dict[tuple[int, ...], list[int]]) -> None:
     the measurement), then the public base seed, built only for the untimed canonical call; both sides call
     draws 0..5."""
     assert calls
-    for seeds, indices in calls.items():
-        timed, base = seeds[:6], seeds[6]
-        assert len(seeds) == 7, seeds
-        assert len(set(timed)) == 6, seeds
-        assert base not in timed, seeds
-        assert all(a != b for a, b in itertools.pairwise(timed)), seeds
+    for drawn, indices in calls.items():
+        timed, base = drawn[:6], drawn[6]
+        assert len(drawn) == 7, drawn
+        assert len(set(timed)) == 6, drawn
+        assert base not in timed, drawn
+        assert all(a != b for a, b in itertools.pairwise(timed)), drawn
         assert {i for i in indices if i < 6} == set(range(6)), indices
         assert 6 in indices, indices
 

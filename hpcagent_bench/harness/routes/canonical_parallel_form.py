@@ -10,8 +10,8 @@ from http import HTTPStatus
 
 from hpcagent_bench import config, cpf_cache
 from hpcagent_bench.api import RunConfig
-from hpcagent_bench.harness.judge_wire import CanonicalFormAnswer, CanonicalFormQuery, JudgeError
-from hpcagent_bench.harness.routes import Judge, first_param, route
+from hpcagent_bench.harness.judge_wire import CanonicalFormAnswer, CanonicalFormQuery, FormVerdict, JudgeError
+from hpcagent_bench.harness.routes import Judge, RouteRequest, route
 from hpcagent_bench.harness.task import GPU_LANGUAGES, setup_declared_host_only
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
@@ -44,44 +44,42 @@ def canonical_parallel_form_cache(view: pathlib.Path) -> pathlib.Path | None:
         return None
 
 
-def canonical_parallel_form_target() -> str:
+def canonical_parallel_form_target() -> cpf_cache.Target:
     """The device this setup's forms are rendered for, as hpcagent_bench/cluster/prepare_job.sh decides it: the
     setup's LANGUAGE (hip/cuda -> gpu), else its declared record device, else cpu."""
     language = config.env_value("LANGUAGE") or ""
     if language:
-        return "gpu" if language in GPU_LANGUAGES else "cpu"
-    return "gpu" if setup_declared_host_only() is False else "cpu"
+        return cpf_cache.Target.GPU if language in [lang.text for lang in GPU_LANGUAGES] else cpf_cache.Target.CPU
+    return cpf_cache.Target.GPU if setup_declared_host_only() is False else cpf_cache.Target.CPU
 
 
 @route("canonical_parallel_form")
-def serve(judge: Judge, parts: list[str], qs: dict[str, list[str]]) -> None:
+def serve(judge: Judge, request: RouteRequest) -> None:
     """Serve the canonical parallel form for one kernel from the cache view
     (:func:`hpcagent_bench.cpf_cache.resolve`). A kernel the view does not hold yet is rendered on
     this request (:func:`hpcagent_bench.cpf_prerender.render_on_demand`, minutes) and cached for
     every later one, under a device slot so it never overlaps a timed grade. A form that cannot be
     served is ``unavailable`` with 200, not 404, so its absence does not read as a verdict on the
-    kernel. Rank-checked like every other agent route.
+    kernel. The judge checks the rank before the handler runs.
 
     The hint detail is the setup's (:data:`cpf_cache.HINTS_CONFIG_KEY`, scoped per setup on a fused
     judge): the query (:class:`CanonicalFormQuery`) may name it, and a request naming another detail is
     refused (400), so no agent reads the hints of the arm it is not in."""
-    if judge.misrouted(first_param(qs, "rank")):
-        return None
     try:
-        query = CanonicalFormQuery.model_validate({name: values[0] for name, values in qs.items() if values})
+        query = CanonicalFormQuery.model_validate({name: values[0] for name, values in request.query.items() if values})
     except ValueError as exc:  # a pydantic ValidationError
         return judge.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid canonical_parallel_form query: {exc}"))
-    kernel = "/".join(parts[1:]) or query.kernel or ""
+    kernel = "/".join(request.parts[1:]) or query.kernel or ""
     if not kernel:
         return judge.reply(
             HTTPStatus.BAD_REQUEST,
             JudgeError(error="usage: GET /canonical_parallel_form/<kernel>?language=c%2B%2B&rank=<judge rank>"),
         )
     hints = config.current().cpf.hints
-    if query.hints is not None and query.hints != hints:
+    if query.hints is not None and query.hints is not hints:
         return judge.reply(
             HTTPStatus.BAD_REQUEST,
-            JudgeError(error=f"this setup serves the {hints!r} hint detail, not {query.hints!r}"),
+            JudgeError(error=f"this setup serves the {hints.text!r} hint detail, not {query.hints.text!r}"),
         )
     language = query.language
     if language not in cpf_cache.LANGUAGE_EXT:
@@ -95,7 +93,7 @@ def serve(judge: Judge, parts: list[str], qs: dict[str, list[str]]) -> None:
             HTTPStatus.OK,
             CanonicalFormAnswer(
                 kernel=kernel,
-                verdict="unavailable",
+                verdict=FormVerdict.UNAVAILABLE,
                 note="this run pre-rendered no canonical parallel forms; this says nothing "
                 "about whether the kernel can be parallelized",
             ),
@@ -120,7 +118,7 @@ def serve(judge: Judge, parts: list[str], qs: dict[str, list[str]]) -> None:
                 HTTPStatus.OK,
                 CanonicalFormAnswer(
                     kernel=kernel,
-                    verdict="unavailable",
+                    verdict=FormVerdict.UNAVAILABLE,
                     error=reason,
                     note=f"no {language} form could be rendered for this kernel; this says "
                     "nothing about whether the kernel can be parallelized",
@@ -134,7 +132,7 @@ def serve(judge: Judge, parts: list[str], qs: dict[str, list[str]]) -> None:
     )
     answer = CanonicalFormAnswer(
         kernel=kernel,
-        verdict="ok",
+        verdict=FormVerdict.OK,
         dialect=dialect,
         entry=form.entry,
         source=form.source.read_text(),

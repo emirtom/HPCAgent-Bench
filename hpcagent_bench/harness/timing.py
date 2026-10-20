@@ -25,6 +25,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 
 from hpcagent_bench import config, protocols
+from hpcagent_bench.categories import Baseline, Language, Residency
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.stats import significance
 
 __all__ = [
@@ -66,15 +68,19 @@ __all__ = [
 
 #: Backend -> the version stamp of its reduction (``timing_reduction``). Changed arithmetic means a
 #: new stamp; an unstamped row reads NULL.
-REDUCTIONS: dict[str, str] = {"min_of_k": "mok-v1", "mannwhitney_delta": "mwd-v2", "median_of_k": "medk-v1"}
+REDUCTIONS: dict[Statistic, str] = {
+    Statistic.MIN: "mok-v1",
+    Statistic.MANNWHITNEY: "mwd-v2",
+    Statistic.MEDIAN: "medk-v1",
+}
 
 #: The same backends when every timed repeat ran on varied inputs
 #: (:mod:`hpcagent_bench.harness.rep_variation`); never pooled with the identical-input stamps
 #: (``population.one_reduction``).
-REDUCTIONS_VARIED: dict[str, str] = {
-    "min_of_k": "mok-v1-varied",
-    "mannwhitney_delta": "mwd-v3",
-    "median_of_k": "medk-v1-varied",
+REDUCTIONS_VARIED: dict[Statistic, str] = {
+    Statistic.MIN: "mok-v1-varied",
+    Statistic.MANNWHITNEY: "mwd-v3",
+    Statistic.MEDIAN: "medk-v1-varied",
 }
 
 #: The credited grade (mw4x5): the protocol ``measurement.credited_protocol`` names
@@ -121,19 +127,19 @@ AA_REDUCTION: str = protocols.credited().aa
 #: ``host-monotonic``    ``perf_counter_ns`` around the whole call, transfers included (every CPU
 #:                       setup and the host-resident python setup).
 #: ``mpi-wtime-max``     ``MPI_Wtime`` reduced with ``MPI_MAX`` over the ranks, in the driver.
-TIMING_BRACKETS: dict[str, str] = {
-    "device": "gpu-event-nocopy",
-    "host": "host-monotonic",
-    "distributed": "mpi-wtime-max",
+TIMING_BRACKETS: dict[Residency, str] = {
+    Residency.DEVICE: "gpu-event-nocopy",
+    Residency.HOST: "host-monotonic",
+    Residency.DISTRIBUTED: "mpi-wtime-max",
 }
 
 
-def timing_bracket(residency: str, language: str) -> str:
+def timing_bracket(residency: Residency, language: Language) -> str:
     """The :data:`TIMING_BRACKETS` stamp for a grade at ``residency``. Residency alone decides which child
     runs the call and so which clock reads it (``triton`` grades host, ``triton-device`` device).
     ``language`` is accepted but unused."""
     del language  # residency decides; see above
-    return TIMING_BRACKETS.get(residency, TIMING_BRACKETS["host"])
+    return TIMING_BRACKETS[residency]
 
 
 def quiescence_residual_limit(sample_ns: float) -> float:
@@ -216,7 +222,7 @@ class ReducedTiming:
     native_ns: float  # candidate statistic: the minimum (min_of_k) or the median (mannwhitney_delta)
     baseline_ns: float  # the same statistic of the baseline samples
     speedup: float  # the CREDITED r(i,j)
-    backend: str
+    backend: Statistic
     significant: bool = True  # mannwhitney: the difference cleared the p gate (min_of_k: always True)
     varied: bool = False  # every timed repeat ran on DIFFERENT content (see REDUCTIONS_VARIED)
     #: mannwhitney_delta only: the one-sided timing test's p; None when no test ran.
@@ -255,9 +261,9 @@ def local_repeat() -> int:
     return config.current().measurement.local_repeat
 
 
-def measurement_baseline() -> str:
-    """The speedup denominator (``measurement.baseline``; ``"auto"`` = the per-track resolver), read by every
-    scoring path; callers forcing another baseline pass it explicitly."""
+def measurement_baseline() -> Baseline | None:
+    """The speedup denominator (``measurement.baseline``; None, spelled ``auto`` = the per-track resolver),
+    read by every scoring path; callers forcing another baseline pass it explicitly."""
     return config.current().measurement.baseline
 
 
@@ -288,7 +294,7 @@ def reduce_min_of_k(candidate_ns: Sequence[float], baseline_ns: Sequence[float])
     a_ns = min(a) if a else 0.0
     b_ns = min(b) if b else 0.0
     speedup = (b_ns / a_ns) if a_ns > 0 else 0.0
-    return ReducedTiming(native_ns=a_ns, baseline_ns=b_ns, speedup=speedup, backend="min_of_k")
+    return ReducedTiming(native_ns=a_ns, baseline_ns=b_ns, speedup=speedup, backend=Statistic.MIN)
 
 
 def reduce_mannwhitney_delta(
@@ -305,18 +311,18 @@ def reduce_mannwhitney_delta(
     a_ns = statistics.median(a) if a else 0.0
     b_ns = statistics.median(b) if b else 0.0
     if len(a) < 2 or len(b) < 2 or a_ns == b_ns:
-        return ReducedTiming(a_ns, b_ns, 1.0, "mannwhitney_delta", significant=False)
+        return ReducedTiming(a_ns, b_ns, 1.0, Statistic.MANNWHITNEY, significant=False)
     ratio = b_ns / a_ns
     # LESS: candidate times stochastically smaller (= faster); no rank information is p = 1.
     side = significance.Side.LESS if ratio > 1.0 else significance.Side.GREATER
     pvalue = significance.timing(a, b, side, test=TIMING_TEST).pvalue
     if not pvalue < p:
-        return ReducedTiming(a_ns, b_ns, 1.0, "mannwhitney_delta", significant=False, p_value=pvalue)
-    return ReducedTiming(a_ns, b_ns, ratio, "mannwhitney_delta", significant=True, p_value=pvalue)
+        return ReducedTiming(a_ns, b_ns, 1.0, Statistic.MANNWHITNEY, significant=False, p_value=pvalue)
+    return ReducedTiming(a_ns, b_ns, ratio, Statistic.MANNWHITNEY, significant=True, p_value=pvalue)
 
 
 def reduce_stopped(
-    cap_ns: float, baseline_ns: Sequence[float], *, backend: str | None = None, varied: bool = False
+    cap_ns: float, baseline_ns: Sequence[float], *, backend: Statistic | None = None, varied: bool = False
 ) -> ReducedTiming:
     """A correct candidate the guillotine stopped at ``cap_ns`` per run: credited the baseline statistic over
     the cap, an UPPER BOUND on its true ratio (it ran at least that long), so at most
@@ -325,7 +331,7 @@ def reduce_stopped(
     with the input's other cells; no test runs, there being no second sample to rank."""
     chosen = active_backend(backend)
     b = _positive(baseline_ns)
-    b_ns = (min(b) if chosen == "min_of_k" else statistics.median(b)) if b else 0.0
+    b_ns = (min(b) if chosen is Statistic.MIN else statistics.median(b)) if b else 0.0
     speedup = b_ns / cap_ns if cap_ns > 0 else 0.0
     return ReducedTiming(cap_ns, b_ns, speedup, chosen, significant=True, varied=varied)
 
@@ -337,7 +343,7 @@ def reduce_median_of_k(candidate_ns: Sequence[float], baseline_ns: Sequence[floa
     a_ns = statistics.median(a) if a else 0.0
     b_ns = statistics.median(b) if b else 0.0
     speedup = (b_ns / a_ns) if a_ns > 0 else 0.0
-    return ReducedTiming(native_ns=a_ns, baseline_ns=b_ns, speedup=speedup, backend="median_of_k")
+    return ReducedTiming(native_ns=a_ns, baseline_ns=b_ns, speedup=speedup, backend=Statistic.MEDIAN)
 
 
 def central_ns(samples: Sequence[float]) -> float:
@@ -347,33 +353,29 @@ def central_ns(samples: Sequence[float]) -> float:
     positive = _positive(samples)
     if not positive:
         return 0.0
-    return min(positive) if active_backend() == "min_of_k" else statistics.median(positive)
+    return min(positive) if active_backend() is Statistic.MIN else statistics.median(positive)
 
 
 #: The backend of the unrecorded /score route of a distributed task: the median of few repeats.
-LOCAL_BACKEND = "median_of_k"
+LOCAL_BACKEND = Statistic.MEDIAN
 
 
 def reduce(
     candidate_ns: Sequence[float],
     baseline_ns: Sequence[float],
     *,
-    backend: str | None = None,
+    backend: Statistic | None = None,
     varied: bool = False,
 ) -> ReducedTiming:
     """Reduce paired samples to a credited speedup via ``measurement.timing_backend`` (or ``backend``).
     ``varied=True`` stamps :data:`REDUCTIONS_VARIED` (varied-input repeats, :mod:`rep_variation`);"""
-    chosen = active_backend(backend)
-    if chosen == "mannwhitney_delta":
-        reduced = reduce_mannwhitney_delta(
-            candidate_ns,
-            baseline_ns,
-            p=mannwhitney_alpha(),
-        )
-    elif chosen == "median_of_k":
-        reduced = reduce_median_of_k(candidate_ns, baseline_ns)
-    else:
-        reduced = reduce_min_of_k(candidate_ns, baseline_ns)
+    match active_backend(backend):
+        case Statistic.MANNWHITNEY:
+            reduced = reduce_mannwhitney_delta(candidate_ns, baseline_ns, p=mannwhitney_alpha())
+        case Statistic.MEDIAN:
+            reduced = reduce_median_of_k(candidate_ns, baseline_ns)
+        case Statistic.MIN:
+            reduced = reduce_min_of_k(candidate_ns, baseline_ns)
     if varied:
         reduced = replace(reduced, varied=True)
     return reduced
@@ -388,13 +390,9 @@ def physical_floor_ns(bytes_touched: int, bandwidth_gbps: float) -> float:
     return bytes_touched / bandwidth_gbps
 
 
-def active_backend(backend: str | None = None) -> str:
-    """``backend``, else ``measurement.timing_backend``. Raises ``ValueError`` when ``backend`` is no key of
-    :data:`REDUCTIONS`."""
-    chosen = backend if backend is not None else config.current().measurement.timing_backend
-    if chosen not in REDUCTIONS:
-        raise ValueError(f"timing backend {chosen!r} is unknown; known: {', '.join(REDUCTIONS)}")
-    return chosen
+def active_backend(backend: Statistic | None = None) -> Statistic:
+    """``backend``, else ``measurement.timing_backend``."""
+    return backend if backend is not None else config.current().measurement.timing_backend
 
 
 def mannwhitney_alpha() -> float:
@@ -404,21 +402,21 @@ def mannwhitney_alpha() -> float:
     return configured if configured is not None else protocols.credited().alpha
 
 
-def required_repeat(backend: str | None = None) -> int:
+def required_repeat(backend: Statistic | None = None) -> int:
     """Minimum ``repeat`` a backend needs: the protocol's runs a side for ``mannwhitney_delta`` (a grading
     scope sets ``measurement.mannwhitney.repeats``; else the credited protocol's), one for ``min_of_k``."""
-    if active_backend(backend) == "mannwhitney_delta":
+    if active_backend(backend) is Statistic.MANNWHITNEY:
         configured = config.current().measurement.mannwhitney.repeats
         return configured if configured is not None else protocols.credited().repeat or 1
     return 1
 
 
-def validate_repeat(repeat: int, backend: str | None = None) -> None:
+def validate_repeat(repeat: int, backend: Statistic | None = None) -> None:
     """Raise if ``repeat`` is too small for the active backend, instead of crediting every cell 1.0."""
     chosen = active_backend(backend)
     need = required_repeat(chosen)
     if int(repeat) < need:
         raise ValueError(
-            f"timing_backend={chosen!r} needs repeat>={need} for a valid distributional test; "
+            f"timing_backend={chosen.text} needs repeat>={need} for a valid distributional test; "
             f"got repeat={repeat}. Raise measurement.repeat / the scorer's repeat, or use min_of_k."
         )

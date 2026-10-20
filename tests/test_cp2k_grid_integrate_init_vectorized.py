@@ -10,13 +10,12 @@ copy of those loops, at both precisions, including the RNG state it leaves behin
 import numpy as np
 import pytest
 
-from hpcagent_bench.support.counter_generator import CounterGenerator
-from tests.counter_stream import CounterStream, cos, sin
-
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cp2k_grid_integrate import cp2k_grid_integrate
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cp2k_grid_integrate.cp2k_grid_integrate import (
     MAX_COSET,
 )
+from hpcagent_bench.support.counter_generator import CounterGenerator
+from tests.counter_stream import CounterStream, cos, sin
 
 
 def scalar_initialize(

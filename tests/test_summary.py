@@ -56,7 +56,7 @@ def test_geomean_refuses_what_is_not_a_set_of_ratios(bad: list[float]) -> None:
 
 
 def test_geomean_asked_to_drop_skips_missing_measurements_and_has_none_for_an_empty_set() -> None:
-    """``unusable="drop"`` is the caller saying a zero, a negative or a non-finite entry is a missing
+    """``Unusable.DROP`` is the caller saying a zero, a negative or a non-finite entry is a missing
     measurement. What is left is averaged; nothing left has no geometric mean, which is NaN rather
     than the 0.0 of a collapse or the 1.0 of no change."""
     assert summary.geomean([2.0, 0.0, -1.0, math.nan, 8.0], unusable=summary.Unusable.DROP) == pytest.approx(4.0)

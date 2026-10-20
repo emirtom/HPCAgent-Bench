@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [hip]}
 packet:
   # `cpf-gpu-src` with one ``// par``, ``// seq`` or ``// unknown`` per loop and kernel. ``cpf-src-kinds``
   # names it on a GPU setup.
-  order: 28
   name: "Canonical Parallel Form as Source, GPU, Kinds Only"
   env:
     CPF_DROPIN_DIR: "${CPF_VIEW}"

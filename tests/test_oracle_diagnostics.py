@@ -18,6 +18,7 @@ import pydantic
 import pytest
 
 from hpcagent_bench import numerical_oracle as no
+from hpcagent_bench.categories import Preset
 
 
 def _proc(returncode: int = 1, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -98,7 +99,7 @@ def test_compile_failure_status_carries_the_compiler_error(monkeypatch: pytest.M
         return real(cmd, *a, **k)
 
     monkeypatch.setattr(no.subprocess, "run", fake)
-    res = no.run_kernel("cond_reduce_sum", "S", only_backends={"c"})
+    res = no.run_kernel("cond_reduce_sum", Preset.S, only_backends={"c"})
     assert res["c"].startswith("FAIL:compile"), res["c"]
     assert "unknown type name" in res["c"], res["c"]
 
@@ -133,7 +134,7 @@ def test_dace_probe_verdict_carries_the_decisive_compiler_lines() -> None:
         raise RuntimeError(_NINJA_LOG)
     except RuntimeError as exc:
         with contextlib.redirect_stdout(io.StringIO()) as printed:
-            dace_numeric_probe.report(rec, "compile_fail", exc)
+            dace_numeric_probe.report(rec, no.ProbeVerdict.COMPILE_FAIL, exc)
     assert no.ProbeRecord.model_validate_json(printed.getvalue()) == rec
 
     assert rec.detail.startswith("RuntimeError: "), rec.detail
@@ -143,7 +144,9 @@ def test_dace_probe_verdict_carries_the_decisive_compiler_lines() -> None:
     assert "'real' was not declared" in rec.detail, rec.detail
     assert "Building CXX object" not in rec.detail, rec.detail
     # The ratchet keys on the class in FAIL:<verdict>:<detail>, so the verdict holds no separator.
-    assert rec.verdict == "compile_fail"
+    assert rec.verdict is no.ProbeVerdict.COMPILE_FAIL
+    assert "-" not in rec.verdict.text
+    assert ":" not in rec.verdict.text
 
 
 def test_dace_probe_detail_is_bounded_and_falls_back() -> None:
@@ -162,14 +165,14 @@ def test_dace_probe_detail_is_bounded_and_falls_back() -> None:
     try:
         raise KeyError("KE")
     except KeyError as exc:
-        dace_numeric_probe.report(rec, "run_fail", exc)
+        dace_numeric_probe.report(rec, no.ProbeVerdict.RUN_FAIL, exc)
     assert rec.detail == "KeyError: 'KE'", rec.detail
 
 
 def test_a_probe_line_prints_only_what_the_child_set_and_reads_back_equal() -> None:
     """The child's line round-trips through the oracle's reader, without the fields it never set."""
     rec = no.ProbeRecord(kernel="gemm", timing={"to_sdfg": 0.5})
-    rec.verdict, rec.outputs = "ok", {"C": "ok"}
+    rec.verdict, rec.outputs = no.ProbeVerdict.OK, {"C": "ok"}
     assert json.loads(rec.line()) == {
         "kernel": "gemm",
         "timing": {"to_sdfg": 0.5},
@@ -177,6 +180,18 @@ def test_a_probe_line_prints_only_what_the_child_set_and_reads_back_equal() -> N
         "outputs": {"C": "ok"},
     }
     assert no.ProbeRecord.model_validate_json(rec.line()) == rec
+
+
+def test_a_probe_verdict_keeps_the_spelling_the_ratchet_keys_on() -> None:
+    assert no.ProbeVerdict.texts() == (
+        "ok",
+        "mismatch",
+        "parse_fail",
+        "noprogram",
+        "compile_fail",
+        "run_fail",
+        "unbound_symbols",
+    )
 
 
 def test_a_probe_line_with_an_unknown_verdict_or_field_is_refused() -> None:
@@ -200,4 +215,5 @@ if __name__ == "__main__":
     test_dace_probe_verdict_carries_the_decisive_compiler_lines()
     test_dace_probe_detail_is_bounded_and_falls_back()
     test_a_probe_line_prints_only_what_the_child_set_and_reads_back_equal()
+    test_a_probe_verdict_keeps_the_spelling_the_ratchet_keys_on()
     test_a_probe_line_with_an_unknown_verdict_or_field_is_refused()

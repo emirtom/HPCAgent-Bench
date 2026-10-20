@@ -8,7 +8,6 @@ packet:
   # hand-written reference (``CPF_DROPIN_DIR``, staged by materialize_shared.sh and announced by
   # ``make_problems.packet_note``). ``cpf-src`` names it on a CPU setup and ``cpf-gpu-src`` on a GPU one
   # (:func:`hpcagent_bench.packets.by_device`).
-  order: 0
   aliases: [cpf-src]
   name: "Canonical Parallel Form as Source, CPU"
   env:

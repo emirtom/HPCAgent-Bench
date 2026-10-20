@@ -31,8 +31,9 @@ import subprocess
 import tempfile
 from collections.abc import Callable, Sequence
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework, ToolMissing
-from hpcagent_bench.languages import LANG_EXT, gpu_backend
+from hpcagent_bench.languages import GPU_HOST_LANG, LANG_EXT, gpu_backend
 from hpcagent_bench.pluto_normalize import normalize_ppcg_input
 from hpcagent_bench.pluto_transform import OVERRIDE_INPUT_SUFFIX, assert_affine, scop_inputs
 from hpcagent_bench.translators.numpyto_c.emit import NPB_HD_GUARD
@@ -203,7 +204,7 @@ def hipify_exe() -> str | None:
     return exe_under_prefix(os.environ.get("ROCM_PATH"), HIPIFY)
 
 
-def missing_tool(backend: str | None = None) -> str:
+def missing_tool(backend: Language | None = None) -> str:
     """``""`` when this host can build the ppcg column for ``backend``, else why not.
 
     The ONE answer to "is this column's compiler here", asked per kernel by
@@ -214,12 +215,12 @@ def missing_tool(backend: str | None = None) -> str:
     problem = ppcg_problem()
     if problem:
         return problem
-    if resolve_backend(backend) == "hip" and hipify_exe() is None:
+    if resolve_backend(backend) is Language.HIP and hipify_exe() is None:
         return f"ppcg emits CUDA and this column builds HIP, but {HIPIFY} is not installed"
     return ""
 
 
-def resolve_backend(backend: str | None) -> str:
+def resolve_backend(backend: Language | None) -> Language:
     """The GPU vendor a ppcg column builds for: the one it NAMES, or the local toolchain's.
 
     The ``ppcg_cuda`` / ``ppcg_hip`` columns name theirs, so they measure the vendor they are
@@ -228,12 +229,12 @@ def resolve_backend(backend: str | None) -> str:
     """
     if backend is None:
         return gpu_backend()
-    if backend not in LANG_EXT:
-        raise KeyError(f"unknown GPU backend {backend!r}; expected one of {sorted(LANG_EXT)}")
+    if backend not in GPU_HOST_LANG:
+        raise KeyError(f"unknown GPU backend {backend.text!r}; expected one of {[lang.text for lang in GPU_HOST_LANG]}")
     return backend
 
 
-def transformed_paths(scop: pathlib.Path, backend: str | None = None) -> list[pathlib.Path]:
+def transformed_paths(scop: pathlib.Path, backend: Language | None = None) -> list[pathlib.Path]:
     """The two GPU sources ppcg's transform of ``scop`` compiles to, in compile order.
 
     ``.hip`` for a ROCm build rather than the ``.cu`` ppcg wrote: the extension is what makes hipcc
@@ -255,7 +256,7 @@ def hipify(scratch: pathlib.Path, stem: str) -> None:
     for half in ("host", "kernel"):
         cu = scratch / f"{stem}_{half}.cu"
         translated = subprocess.run([exe, str(cu)], capture_output=True, text=True, check=True)
-        (scratch / f"{stem}_{half}.{LANG_EXT['hip']}").write_text(translated.stdout)
+        (scratch / f"{stem}_{half}.{LANG_EXT[Language.HIP]}").write_text(translated.stdout)
     subprocess.run([exe, "-inplace", str(scratch / f"{stem}_kernel.hu")], capture_output=True, check=True)
 
 
@@ -471,7 +472,7 @@ def offloaded(kernel_src: str) -> bool:
 
 
 def run_ppcg(
-    scop: pathlib.Path, backend: str | None = None, args: Sequence[str] = PPCG_ARGS, timeout: float | None = None
+    scop: pathlib.Path, backend: Language | None = None, args: Sequence[str] = PPCG_ARGS, timeout: float | None = None
 ) -> tuple[list[str], subprocess.CompletedProcess]:
     """Transform one scop with ``ppcg``. Returns ``(argv, result)``.
 
@@ -518,7 +519,7 @@ def run_ppcg(
             kernel_cu = pathlib.Path(scratch) / f"{scop.stem}_kernel.cu"
             if kernel_cu.is_file():
                 kernel_cu.write_text(with_device_helpers(readable.read_text(), kernel_cu.read_text()))
-            if vendor == "hip":
+            if vendor is Language.HIP:
                 hipify(pathlib.Path(scratch), scop.stem)
                 host_hip = pathlib.Path(scratch) / f"{scop.stem}_host.hip"
                 kernel_hip = pathlib.Path(scratch) / f"{scop.stem}_kernel.hip"
@@ -536,7 +537,7 @@ def run_ppcg(
     return argv, proc
 
 
-def transformed_sources(cpp_backend: pathlib.Path, base: str, backend: str | None = None) -> list[pathlib.Path]:
+def transformed_sources(cpp_backend: pathlib.Path, base: str, backend: Language | None = None) -> list[pathlib.Path]:
     """The ppcg-transformed CUDA the ``ppcg`` column compiles, generated on demand.
 
     Mirrors :func:`pluto_transform.transformed_sources`: regenerate when stale, reuse when fresh,

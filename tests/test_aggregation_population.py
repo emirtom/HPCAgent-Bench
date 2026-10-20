@@ -47,6 +47,11 @@ def submissions(rows: list[dict[str, object]]) -> pd.DataFrame:
 
 
 # Defect 1: an aggregate refuses a mixed-denominator slice.
+def test_the_kernel_policy_keeps_the_spellings_its_tables_and_flags_carry() -> None:
+    """``--policy`` / ``--speedup-over`` and a family CSV's ``kernel_policy`` column read these spellings."""
+    assert population.KernelPolicy.texts() == ("solved", "served")
+
+
 def test_a_blank_or_adhoc_setup_is_not_a_condition() -> None:
     """A DB-shaped frame keeps a blank setup as a string, where pandas grouping would not drop it."""
     frame = pd.DataFrame({"setup": ["llr40v9-m-c", "adhoc", "", " ", None], "kernel": ["k1"] * 5})

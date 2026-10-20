@@ -14,6 +14,7 @@ import tempfile
 
 import numpy as np
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.support.bindings.contract import index_base
 from tests.translators import native_tu as tu
 
@@ -94,7 +95,7 @@ program test_hmm_forward
     emit  = reshape([{tu.fortran_real_list(EMIT.ravel("C"))}], [M, K])
     init  = [{tu.fortran_real_list(INIT)}]
     trans = reshape([{tu.fortran_real_list(TRANS.ravel("C"))}], [K, K])
-    obs   = [{tu.fortran_int_list(OBS + index_base("fortran"))}]
+    obs   = [{tu.fortran_int_list(OBS + index_base(Language.FORTRAN))}]
     loglik = 0.0_c_double
     call hmm_forward_fp64(emit, init, loglik, obs, trans, K, M, T)
     if (abs(loglik(1) - ({WANT!r}_c_double)) > 1e-9_c_double + 1e-9_c_double * abs({WANT!r}_c_double)) then

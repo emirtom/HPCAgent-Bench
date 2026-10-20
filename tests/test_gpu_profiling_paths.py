@@ -20,6 +20,7 @@ from typing import Self
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import gpu_profiling, profiling
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.sandbox import BuildResult
@@ -130,7 +131,7 @@ def test_an_nsys_trace_is_read_into_every_kernel_transfer_and_launch_geometry(
         gpu_profiling.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, NSYS_STATS, "")
     )
     run = gpu_profiling.profile_nvidia_once(
-        tmp_path, tmp_path / "request.json", language="cuda", timeout=60.0, min_percent=0.0
+        tmp_path, tmp_path / "request.json", language=Language.CUDA, timeout=60.0, min_percent=0.0
     )
     assert (run.tool, run.elapsed_ns, run.reps) == ("nsys", 600_000, 3), run
     assert [stem(k["name"]) for k in run.kernels] == ["gemm_fp64_kernel", "scale_kernel", "zero_kernel"]
@@ -236,9 +237,9 @@ def test_the_device_share_is_traced_time_per_traced_rep_over_the_best_measured_r
     """The trace covers the warmup launches and elapsed_ns is one measured rep, so the share divides
     by every traced rep; a measured time of zero is no share rather than a division by zero."""
     payload = gpu_profiling.gpu_payload(
-        Task("gemm", "restricted", "cuda"),
+        Task("gemm", SourceMode.RESTRICTED, Language.CUDA),
         traced_run(device_ns=device_ns, reps=reps, elapsed_ns=elapsed_ns),
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         symbol="gemm_fp64",
         warmup=warmup,
@@ -294,7 +295,11 @@ def test_a_traced_submission_answers_with_the_payload_of_the_run_it_asked_for(
 
     monkeypatch.setattr(gpu_profiling, "profile_gpu_once", trace)
     payload = gpu_profiling.profile_gpu_submission(
-        gpu_submission("cuda"), Task("gemm", "restricted", "cuda"), preset="M", reps=3, min_percent=2.5
+        gpu_submission("cuda"),
+        Task("gemm", SourceMode.RESTRICTED, Language.CUDA),
+        preset=Preset.M,
+        reps=3,
+        min_percent=2.5,
     )
     assert (payload["build_ok"], payload["kernel"], payload["preset"], payload["reps"]) == (True, "gemm", "M", 3)
     assert (traced["language"], traced["min_percent"]) == ("cuda", 2.5), traced
@@ -316,7 +321,9 @@ def test_a_submission_that_does_not_build_answers_with_the_compiler_log_and_trac
     monkeypatch.setattr(gpu_profiling, "gpu_check", lambda language: ("rocprofv3", "/fake/bin/rocprofv3"))
     monkeypatch.setattr(profiling, "Sandbox", FakeSandbox(tmp_path, BuildResult(ok=False, lib=None, log=log)))
     monkeypatch.setattr(gpu_profiling, "profile_gpu_once", trace)
-    payload = gpu_profiling.profile_gpu_submission(gpu_submission("hip"), Task("gemm", "restricted", "hip"), preset="S")
+    payload = gpu_profiling.profile_gpu_submission(
+        gpu_submission("hip"), Task("gemm", SourceMode.RESTRICTED, Language.HIP), preset=Preset.S
+    )
     assert payload == {"build_ok": False, "kernel": "gemm", "language": "hip", "detail": log}, payload
 
 
@@ -337,7 +344,7 @@ def test_a_hung_rocminfo_is_a_timed_out_refusal_not_a_raw_timeout(
     rocm_host(tmp_path, monkeypatch)
     monkeypatch.setattr(gpu_profiling.subprocess, "run", wedge)
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as caught:
-        gpu_profiling.gpu_check("hip")
+        gpu_profiling.gpu_check(Language.HIP)
     assert caught.value.cause == "timed_out", caught.value.cause
     assert gpu_profiling.ROCM_INFO in str(caught.value), str(caught.value)
 
@@ -369,7 +376,7 @@ def test_each_amd_profile_request_probes_the_device_once_and_the_next_request_pr
     def probes_in_one_request() -> int:
         probes.clear()
         payload = gpu_profiling.profile_gpu_submission(
-            gpu_submission("hip"), Task("gemm", "restricted", "hip"), preset="M", reps=3
+            gpu_submission("hip"), Task("gemm", SourceMode.RESTRICTED, Language.HIP), preset=Preset.M, reps=3
         )
         assert payload["tool"] == "rocprofv3", payload
         return len(probes)
@@ -413,9 +420,9 @@ def test_an_offload_c_submission_is_traced_by_rocprofv3_on_the_offload_legs_buil
     monkeypatch.setattr(gpu_profiling, "rocprof_check", lambda: ("rocprofv3", "/fake/rocm/bin/rocprofv3"))
     monkeypatch.setattr(gpu_profiling, "run_command", record)
     payload = gpu_profiling.profile_gpu_submission(
-        Submission(language="c", source="void gemm_fp64(void) {}"),
-        Task("gemm", "restricted", "c"),
-        preset="M",
+        Submission(language=Language.C, source="void gemm_fp64(void) {}"),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        preset=Preset.M,
         reps=3,
         min_percent=0.0,
     )

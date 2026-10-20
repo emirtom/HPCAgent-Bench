@@ -160,7 +160,7 @@ def load_generated(cache_dir: pathlib.Path, canonical: pathlib.Path, fingerprint
     payload = cached.read_bytes()
     if not canonical.exists() or canonical.read_bytes() != payload:
         write_atomic(canonical, payload)
-    credit_production(cached, "codegen")
+    credit_production(cached, phase_clock.Phase.CODEGEN)
     return True
 
 
@@ -198,7 +198,7 @@ def load_sdfg(cache_dir: pathlib.Path, module_name: str, device_tag: str, finger
         sdfg = dace.SDFG.from_file(str(path))
     except Exception:  # noqa: BLE001 -- a corrupt/incompatible cache entry must fall back to a rebuild
         return None
-    credit_production(path, "transform")
+    credit_production(path, phase_clock.Phase.TRANSFORM)
     return sdfg
 
 

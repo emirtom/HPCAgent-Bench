@@ -20,8 +20,8 @@ from typing import NoReturn
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, paths
+from hpcagent_bench import config, modules, paths
+from hpcagent_bench.categories import Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness import grading, hidden_seeds, native_call, scoring
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -47,8 +47,8 @@ def fresh_caches() -> Iterator[None]:
 
 def reference_grade(kernel: str = SCICOMP, *, hidden: bool = True) -> scoring.Score:
     """The judge's own C reference as the submission, graded at S against the track's oracle."""
-    task = Task(kernel, "restricted", "c")
-    return scoring.score(grading.reference_submission(task, "c"), task, preset="S", repeat=3, hidden=hidden)
+    task = Task(kernel, SourceMode.RESTRICTED, Language.C)
+    return scoring.score(grading.reference_submission(task, Language.C), task, preset=Preset.S, repeat=3, hidden=hidden)
 
 
 def lost(reason: str) -> Callable[..., NoReturn]:
@@ -78,7 +78,7 @@ def test_no_oracle_kind_or_option_is_numpy() -> None:
         with pytest.raises(ValueError, match="oracle must be one of"):
             grading.resolve_oracle("numpy", spec)
         for oracle in grading.ORACLE_OPTIONS:
-            kinds = grading.oracle_kinds(grading.resolve_oracle(oracle, spec), spec, "S")
+            kinds = grading.oracle_kinds(grading.resolve_oracle(oracle, spec), spec, Preset.S)
             assert "numpy" not in kinds, (kernel, oracle, kinds)
 
 
@@ -111,10 +111,10 @@ def test_no_numpy_oracle_runner_exists() -> None:
 
 def test_each_track_resolves_to_its_compiled_oracle() -> None:
     sci, loop, ml = (BenchSpec.load(k) for k in (SCICOMP, LOOP, ML))
-    assert [grading.resolve_oracle("auto", spec) for spec in (sci, loop, ml)] == ["compiled", "compiled", "torch"]
-    assert grading.oracle_kinds("compiled", sci, "S") == ("numba", "c")  # no measured leader: numba
-    assert grading.oracle_kinds("compiled", loop, "S") == ("c", "numba")  # its verdicts were recorded on C
-    assert grading.oracle_kinds("torch", ml, "S") == ("torch",)
+    assert [grading.resolve_oracle(Oracle.AUTO, spec) for spec in (sci, loop, ml)] == ["compiled", "compiled", "torch"]
+    assert grading.oracle_kinds(Oracle.COMPILED, sci, Preset.S) == ("numba", "c")  # no measured leader: numba
+    assert grading.oracle_kinds(Oracle.COMPILED, loop, Preset.S) == ("c", "numba")  # its verdicts were recorded on C
+    assert grading.oracle_kinds(Oracle.TORCH, ml, Preset.S) == ("torch",)
 
 
 def test_the_measured_race_leader_heads_the_oracle() -> None:
@@ -122,12 +122,12 @@ def test_the_measured_race_leader_heads_the_oracle() -> None:
     for preset in ("XL", "S", None):  # the table measured XL; its leader stands at the presets it does not name
         assert grading.compiled_order(led_by_c, preset) == ("c", "numba")
     led_by_numba = BenchSpec.load("warpx_field_gather")
-    assert grading.compiled_order(led_by_numba, "XL") == ("numba", "c")
+    assert grading.compiled_order(led_by_numba, Preset.XL) == ("numba", "c")
 
 
 def test_the_dual_leg_is_the_compiled_reference_that_did_not_grade() -> None:
-    assert (grading.other_compiled("numba"), grading.other_compiled("c")) == ("c", "numba")
-    assert grading.other_compiled("torch") is None
+    assert (grading.other_compiled(Oracle.NUMBA), grading.other_compiled("c")) == ("c", "numba")
+    assert grading.other_compiled(Oracle.TORCH) is None
 
 
 # real grades, compiled references only
@@ -175,23 +175,23 @@ def test_a_scicomp_grade_with_no_compiled_oracle_is_a_judge_fault(monkeypatch: p
 def test_the_reverify_leg_pairs_the_grading_reference_with_the_other_compiled_one() -> None:
     """A numba-graded kernel is re-verified against numba and C, a C-graded one against C and numba."""
     for kernel, oracle in ((SCICOMP, "numba"), (LOOP, "c")):
-        task = Task(kernel, "restricted", "c")
-        submission = grading.reference_submission(task, "c")
-        graded = scoring.score(submission, task, preset="S", repeat=1, hidden=False)
+        task = Task(kernel, SourceMode.RESTRICTED, Language.C)
+        submission = grading.reference_submission(task, Language.C)
+        graded = scoring.score(submission, task, preset=Preset.S, repeat=1, hidden=False)
         assert graded.oracle == oracle
-        verdict = scoring.independent_verify(submission, task, graded, preset="S", repeat=1)
+        verdict = scoring.independent_verify(submission, task, graded, preset=Preset.S, repeat=1)
         assert verdict.ok, verdict.reason
         assert verdict.dual_oracle_applied, f"{kernel}: the second compiled reference did not run"
 
 
 @needs_gcc
 def test_the_reverify_leg_names_a_fault_when_no_compiled_reference_answers(monkeypatch: pytest.MonkeyPatch) -> None:
-    task = Task(SCICOMP, "restricted", "c")
-    submission = grading.reference_submission(task, "c")
-    graded = scoring.score(submission, task, preset="S", repeat=1, hidden=False)
+    task = Task(SCICOMP, SourceMode.RESTRICTED, Language.C)
+    submission = grading.reference_submission(task, Language.C)
+    graded = scoring.score(submission, task, preset=Preset.S, repeat=1, hidden=False)
     monkeypatch.setattr(scoring, "numba_reference_outputs", lost("numba reference: cannot type"))
     monkeypatch.setattr(scoring, "_run_c_reference", lost("C reference: no build"))
-    verdict = scoring.independent_verify(submission, task, graded, preset="S", repeat=1)
+    verdict = scoring.independent_verify(submission, task, graded, preset=Preset.S, repeat=1)
     assert not verdict.ok, verdict
     assert verdict.harness_fault, verdict
     assert "numba reference" in verdict.reason
@@ -199,7 +199,9 @@ def test_the_reverify_leg_names_a_fault_when_no_compiled_reference_answers(monke
 
 
 def test_the_advisory_baseline_never_offers_numpy() -> None:
-    got = scoring.measure_baselines(Task(SCICOMP, "restricted", "c"), preset="S", repeat=1, baseline="auto")
+    got = scoring.measure_baselines(
+        Task(SCICOMP, SourceMode.RESTRICTED, Language.C), preset=Preset.S, repeat=1, baseline=None
+    )
     assert got, got
     assert "numpy" not in got, got
 
@@ -208,7 +210,7 @@ def test_a_distributed_grade_takes_its_denominator_from_the_compiled_references(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The one-node denominator of an MPI grade is numba or C, timed; numpy is a forbidden timer here."""
-    task = Task(SCICOMP, "restricted", "c")
+    task = Task(SCICOMP, SourceMode.RESTRICTED, Language.C)
     spec, binding = BenchSpec.load(SCICOMP), scoring.binding_from_spec(BenchSpec.load(SCICOMP))
     data: dict = {}
     monkeypatch.setattr(scoring, "time_numba_isolated", lambda *a, **k: [5, 6, 7])
@@ -237,11 +239,11 @@ def test_a_machine_learning_grade_takes_its_oracle_from_the_compiled_torch_refer
     spec = BenchSpec.load(ML)
     datatype = scoring.graded_datatype(spec, "float64")
     seed = hidden_seeds.secret_seed_first()  # /score's public draw
-    task = Task(ML, "restricted", "c")
+    task = Task(ML, SourceMode.RESTRICTED, Language.C)
     c_reference = scoring.oracle_function(
-        "c", spec, task, scoring.binding_from_spec(spec), timeout=600.0, memory_gb=0.0
+        Oracle.C, spec, task, scoring.binding_from_spec(spec), timeout=600.0, memory_gb=0.0
     )
-    want = c_reference(grading._data_seeded(ML, "S", datatype, seed))  # the stub's answer
+    want = c_reference(grading._data_seeded(ML, Preset.S, datatype, seed))  # the stub's answer
     asked: list[str] = []
 
     def torch_outputs(_spec: BenchSpec, data: dict, kind: str) -> dict[str, np.ndarray]:
@@ -252,7 +254,7 @@ def test_a_machine_learning_grade_takes_its_oracle_from_the_compiled_torch_refer
     monkeypatch.setattr(scoring, "torch_time_samples", lambda _s, _b, _d, repeat, **_k: [1000] * repeat)
     with config.overridden("measurement.vary_inputs", False):
         result = scoring.score(
-            grading.reference_submission(task, "c"), task, preset="S", repeat=3, hidden=False, baseline="auto"
+            grading.reference_submission(task, Language.C), task, preset=Preset.S, repeat=3, hidden=False, baseline=None
         )
     assert asked, asked
     assert set(asked) == {"torch-autotune-cpu"}, asked
@@ -267,9 +269,9 @@ def test_a_torch_reference_that_cannot_compile_is_a_judge_fault(
 
     monkeypatch.setattr(scoring.torch_baseline, "reference_outputs", refused)
     spec = BenchSpec.load(ML)
-    task = Task(ML, "restricted", "c")
+    task = Task(ML, SourceMode.RESTRICTED, Language.C)
     reference = scoring.oracle_function(
-        "torch", spec, task, scoring.binding_from_spec(spec), timeout=1.0, memory_gb=1.0
+        Oracle.TORCH, spec, task, scoring.binding_from_spec(spec), timeout=1.0, memory_gb=1.0
     )
     with pytest.raises(grading.ReferenceUnavailable, match=re.escape("torch.compile refused")):
         reference({})

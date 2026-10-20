@@ -29,7 +29,9 @@ import tempfile
 from collections.abc import Sequence
 
 from hpcagent_bench import omp_context, seal
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import native_call
+from hpcagent_bench.languages import LANG_EXT
 from hpcagent_bench.support.bindings.contract import Binding
 
 __all__ = [
@@ -52,7 +54,7 @@ __all__ = [
 ]
 
 #: The delivery languages the leg applies to.
-SANITIZED_LANGUAGES: frozenset[str] = frozenset({"c", "cpp", "fortran", "hip", "cuda"})
+SANITIZED_LANGUAGES: frozenset[Language] = frozenset(LANG_EXT)
 
 #: The exit status a sanitizer reports a memory error with (ASan ``exitcode``, compute-sanitizer
 #: ``--error-exitcode``), distinct from a crash's signal status.
@@ -102,14 +104,14 @@ def clang_family(driver: str) -> bool:
     return any(token in name for token in ("clang", "flang", "hipcc"))
 
 
-def build_flags(lang: str, driver: str, gpu_arch: str = "") -> tuple[tuple[str, ...], tuple[str, ...]]:
+def build_flags(lang: Language, driver: str, gpu_arch: str = "") -> tuple[tuple[str, ...], tuple[str, ...]]:
     """``(compile, link)`` tokens of the sanitized rebuild of a ``lang`` submission built by
     ``driver``; empty for CUDA (it runs as graded under compute-sanitizer)."""
-    if lang == "cuda":
+    if lang is Language.CUDA:
         return (), ()
     common = ("-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-g")
     shared = ("-shared-libsan",) if clang_family(driver) else ()
-    device = (f"--offload-arch={gpu_arch}:xnack+",) if lang == "hip" and gpu_arch else ()
+    device = (f"--offload-arch={gpu_arch}:xnack+",) if lang is Language.HIP and gpu_arch else ()
     return (*common, *shared, *device), (*common, *shared)
 
 
@@ -142,7 +144,7 @@ def run(
     lib: pathlib.Path,
     binding: Binding,
     data: native_call.KernelData,
-    lang: str,
+    lang: Language,
     *,
     driver: str,
     device: bool,
@@ -155,7 +157,7 @@ def run(
     like every other grading child of that toolchain family."""
     env: dict[str, str] = omp_context.context_env(omp_context_name) if omp_context_name else {}
     prefix: list[str] = []
-    if lang == "cuda":
+    if lang is Language.CUDA:
         tool = shutil.which("compute-sanitizer")
         if not tool:
             return SanitizerVerdict(False, note="no compute-sanitizer on this judge")
@@ -165,7 +167,7 @@ def run(
         if not runtime:
             return SanitizerVerdict(False, note=f"{driver} ships no sanitizer runtime")
         env = {**env, "LD_PRELOAD": runtime, "ASAN_OPTIONS": ASAN_OPTIONS, "UBSAN_OPTIONS": UBSAN_OPTIONS}
-        if lang == "hip":
+        if lang is Language.HIP:
             env["HSA_XNACK"] = "1"
     with tempfile.TemporaryDirectory(prefix=f"sanitize_{binding.kernel}_") as work:
         request = pathlib.Path(work, "request.pkl")

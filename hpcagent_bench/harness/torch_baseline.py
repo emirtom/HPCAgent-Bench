@@ -57,9 +57,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, problem_file
 from hpcagent_bench.cache_files import replacing
+from hpcagent_bench.categories import Baseline, Preset, Track
 from hpcagent_bench.frameworks.forked import run_forked
 from hpcagent_bench.harness import kernelbench_adapter, torch_reference
 from hpcagent_bench.harness.grading import TORCH_BASELINES
@@ -143,13 +145,13 @@ NS_PER_MS = 1_000_000
 WARM_PUBLISH_EVERY = 16
 
 
-class Source(enum.Enum):
+class Source(Coded):
     """Where a kernel's PyTorch reference comes from."""
 
     #: ``<module>_torch.py`` beside the manifest: ``reference(*inputs)`` on ``make_inputs(...)``.
-    SHIPPED = "shipped"
+    SHIPPED = enum.auto()
     #: The upstream KernelBench model named in ``kernelbench_map.yaml``, bound to the flat ABI.
-    KERNELBENCH = "kernelbench"
+    KERNELBENCH = enum.auto()
 
 
 def reference_source(spec: BenchSpec) -> Source:
@@ -178,12 +180,12 @@ def coverage(specs: Sequence[BenchSpec]) -> tuple[tuple[str, ...], dict[str, str
     return tuple(covered), refused
 
 
-def baseline_device(baseline: str) -> str:
+def baseline_device(baseline: Baseline) -> str:
     """``"cpu"`` / ``"cuda"`` for a torch baseline kind."""
     try:
         return TORCH_BASELINES[baseline]
     except KeyError:
-        raise ValueError(f"not a torch baseline kind: {baseline!r}") from None
+        raise ValueError(f"not a torch baseline kind: {baseline.text!r}") from None
 
 
 # the cache
@@ -201,7 +203,7 @@ def archive_root() -> pathlib.Path:
     return pathlib.Path(raw) if raw else torch_reference.cache_root() / ARCHIVE_DIRNAME
 
 
-def cache_key(kind: str, torch_mod: ModuleType) -> str:
+def cache_key(kind: Baseline, torch_mod: ModuleType) -> str:
     """``<kind>-<image>-<arch>``: a tuned choice is valid only for this build of torch on this hardware.
     The image is the judge image's digest when the launcher exported one, else torch and its runtime."""
     version = torch_mod.version
@@ -212,7 +214,7 @@ def cache_key(kind: str, torch_mod: ModuleType) -> str:
         arch = platform.machine()
     runtime = f"hip-{version.hip}" if version.hip else f"cuda-{version.cuda}" if version.cuda else "cpu"
     image = torch_reference.image_key(torch_mod.__version__, runtime)
-    return "-".join(part.replace("/", "_").replace(":", "_") for part in (kind, image, arch))
+    return "-".join(part.replace("/", "_").replace(":", "_") for part in (kind.text, image, arch))
 
 
 @contextmanager
@@ -285,7 +287,7 @@ class Job:
     ``params`` / ``seed`` a shipped one. ``repeat`` 0 compiles and autotunes only (:func:`warm`)."""
 
     kernel: str
-    kind: str
+    kind: Baseline
     repeat: int
     warmup: int
     data: Mapping[str, Any] | None = None
@@ -447,7 +449,7 @@ def measure(job: Job, torch_mod: ModuleType) -> Measured:
     spec = BenchSpec.load(job.kernel)
     device = baseline_device(job.kind)
     if device == "cuda" and not torch_mod.cuda.is_available():
-        raise TorchBaselineUnavailable(f"{spec.short_name}: {job.kind} needs a GPU and torch sees none")
+        raise TorchBaselineUnavailable(f"{spec.short_name}: {job.kind.text} needs a GPU and torch sees none")
     if device == "cpu" and job.cpus:  # no slot: torch's own default, never a one-thread pool
         torch_mod.set_num_threads(len(job.cpus))
     workload = workload_builder(job, spec)(job, spec, torch_mod, device)
@@ -478,7 +480,7 @@ def run_job(job: Job) -> Measured:
     return measured
 
 
-def publish_layer(kind: str) -> None:
+def publish_layer(kind: Baseline) -> None:
     """Child entry point: archive the node's working cache of ``kind`` (the key needs torch's device)."""
     CacheLayer.for_key(cache_key(kind, import_torch())).publish()
 
@@ -494,15 +496,15 @@ def child_timeout() -> float:
 def child_result(job: Job) -> Measured:
     """:func:`run_job` in a spawned child; a refusal or a failed child raises :class:`TorchBaselineUnavailable`
     (the grade then has no denominator: a judge-side gap, never the submission's fault)."""
-    run = run_forked(run_job, job, label=f"{job.kind} {job.kernel}", timeout=child_timeout(), mp_context="spawn")
+    run = run_forked(run_job, job, label=f"{job.kind.text} {job.kernel}", timeout=child_timeout(), mp_context="spawn")
     if not run.ok or run.result is None:
-        raise TorchBaselineUnavailable(f"{job.kernel}: the {job.kind} child failed: {run.error or run.signal}")
+        raise TorchBaselineUnavailable(f"{job.kernel}: the {job.kind.text} child failed: {run.error or run.signal}")
     if run.result.refused:
         raise TorchBaselineUnavailable(run.result.refused)
     return run.result
 
 
-def slot_job(spec: BenchSpec, baseline: str, **fields: Any) -> Job:
+def slot_job(spec: BenchSpec, baseline: Baseline, **fields: Any) -> Job:
     """A :class:`Job` for the calling grade's device slot and its cores (checked against the resolver first,
     so a kernel with no reference is refused without starting a child)."""
     from hpcagent_bench.harness.native_call import assigned_device, grading_cpus
@@ -520,7 +522,7 @@ def slot_job(spec: BenchSpec, baseline: str, **fields: Any) -> Job:
 
 def time_samples(
     spec: BenchSpec,
-    baseline: str,
+    baseline: Baseline,
     data: dict[str, Any],
     repeat: int,
     warmup: int = 0,
@@ -533,7 +535,7 @@ def time_samples(
 
 
 def shipped_samples(
-    spec: BenchSpec, baseline: str, params: Mapping[str, object], seed: int, repeat: int, warmup: int = 0
+    spec: BenchSpec, baseline: Baseline, params: Mapping[str, object], seed: int, repeat: int, warmup: int = 0
 ) -> list[int]:
     """Per-repeat ns of the kernel's own torch ``reference`` on ONE device at ``params``: the denominator
     of a distributed ML grade, timed per grade through the same child as every other torch baseline."""
@@ -565,7 +567,7 @@ def eager_outputs(spec: BenchSpec, data: Mapping[str, Any], device: str = "cpu")
     }
 
 
-def reference_outputs(spec: BenchSpec, data: Mapping[str, Any], baseline: str) -> dict[str, np.ndarray]:
+def reference_outputs(spec: BenchSpec, data: Mapping[str, Any], baseline: Baseline) -> dict[str, np.ndarray]:
     """The compiled reference's outputs through the SAME child and callable the timing runs -- the
     machine_learning oracle, which the equivalence tests hold to the kernel's numba / C reference."""
     job = slot_job(spec, baseline, repeat=1, warmup=0, data=dict(data), want_outputs=True)
@@ -597,7 +599,7 @@ def conform(value: np.ndarray, declared: object) -> np.ndarray:
 # warm
 
 
-def warm_job(kernel: str, kind: str, preset: str, datatype: str, params: Mapping[str, object] | None) -> Job:
+def warm_job(kernel: str, kind: Baseline, preset: Preset, datatype: str, params: Mapping[str, object] | None) -> Job:
     """The compile-only job of one timed cell: the grade's data path at ``params`` (the cell's; ``None`` =
     the seeded draw ``/profile`` and ``/baseline`` hand back), no timing, no publish."""
     from hpcagent_bench.harness.grading import _data_seeded
@@ -606,7 +608,7 @@ def warm_job(kernel: str, kind: str, preset: str, datatype: str, params: Mapping
     spec = BenchSpec.load(kernel)
     seed = secret_seed_first()
     if reference_source(spec) is Source.SHIPPED:
-        shape = dict(params or spec.parameters[preset])
+        shape = dict(params or spec.parameters[preset.text])
         return slot_job(spec, kind, repeat=0, warmup=0, params=shape, seed=seed, publish=False)
     data = _data_seeded(kernel, preset, datatype, seed, params_override=dict(params) if params else None)
     return slot_job(spec, kind, repeat=0, warmup=0, data=data, publish=False)
@@ -628,7 +630,7 @@ def warm_cells(kernel: str) -> list[dict[str, object] | None]:
     return cells
 
 
-def warm_cell(kernel: str, kind: str, preset: str, datatype: str, params: Mapping[str, object] | None) -> str:
+def warm_cell(kernel: str, kind: Baseline, preset: Preset, datatype: str, params: Mapping[str, object] | None) -> str:
     """Compile and autotune one cell of ``kernel`` in a child; ``""``, or why it has no denominator."""
     from hpcagent_bench.support.bindings.contract import graded_datatype
 
@@ -639,7 +641,7 @@ def warm_cell(kernel: str, kind: str, preset: str, datatype: str, params: Mappin
     return ""
 
 
-def warm_kernel(kernel: str, kind: str, preset: str, datatype: str) -> str:
+def warm_kernel(kernel: str, kind: Baseline, preset: Preset, datatype: str) -> str:
     """Compile and autotune every cell of ``kernel`` (:func:`warm_cells`); ``""``, or why the kernel has
     no denominator (its first refused cell)."""
     for params in warm_cells(kernel):
@@ -649,31 +651,34 @@ def warm_kernel(kernel: str, kind: str, preset: str, datatype: str) -> str:
     return ""
 
 
-def tag_kinds(problems: pathlib.Path, language: str) -> dict[str, list[str]]:
+def tag_kinds(problems: pathlib.Path, language: str) -> dict[Baseline, list[str]]:
     """The machine_learning kernels of a problems file (one JSON object per line), sorted, by the torch
     kind their grades time on ``language`` (:func:`hpcagent_bench.harness.grading.torch_autotune_kind`)."""
     from hpcagent_bench.harness import grading
+    from hpcagent_bench.harness.service import graded_language
     from hpcagent_bench.harness.task import Task, grading_residency
-    from hpcagent_bench.spec import Track
 
+    graded = graded_language(language)
     kernels = sorted({problem.kernel for problem in problem_file.read_lines(problems)})
-    by_kind: dict[str, list[str]] = {}
+    by_kind: dict[Baseline, list[str]] = {}
     for kernel in kernels:
-        if BenchSpec.load(kernel).track != Track.MACHINE_LEARNING.value:
+        if BenchSpec.load(kernel).track is not Track.MACHINE_LEARNING:
             continue
-        task = Task(kernel, language=language, residency=grading_residency(kernel, language))
+        task = Task(kernel, language=graded, residency=grading_residency(kernel, graded))
         by_kind.setdefault(grading.torch_autotune_kind(task.on_gpu), []).append(kernel)
     return by_kind
 
 
-def publish_warm(kind: str) -> None:
+def publish_warm(kind: Baseline) -> None:
     """Archive what the warm compiled so far (a later job seeds from it even if this one is killed)."""
-    published = run_forked(publish_layer, kind, label=f"{kind} publish", timeout=child_timeout(), mp_context="spawn")
+    published = run_forked(
+        publish_layer, kind, label=f"{kind.text} publish", timeout=child_timeout(), mp_context="spawn"
+    )
     if not published.ok:
-        raise RuntimeError(f"{kind}: publishing the warm cache failed: {published.error or published.signal}")
+        raise RuntimeError(f"{kind.text}: publishing the warm cache failed: {published.error or published.signal}")
 
 
-def warm(kernels: Sequence[str], kind: str, preset: str, datatype: str) -> dict[str, str]:
+def warm(kernels: Sequence[str], kind: Baseline, preset: Preset, datatype: str) -> dict[str, str]:
     """Compile and autotune every kernel into the key's archive, publishing every
     :data:`WARM_PUBLISH_EVERY` kernels and at the end; prints each refusal as a JSON line when it happens
     and returns ``{kernel: why it has no denominator}``."""
@@ -682,7 +687,7 @@ def warm(kernels: Sequence[str], kind: str, preset: str, datatype: str) -> dict[
         reason = warm_kernel(kernel, kind, preset, datatype)
         if reason:
             refused[kernel] = reason
-            print(json.dumps({"kernel": kernel, "kind": kind, "refused": reason}), flush=True)
+            print(json.dumps({"kernel": kernel, "kind": kind.text, "refused": reason}), flush=True)
         if index % WARM_PUBLISH_EVERY == 0:
             publish_warm(kind)
     publish_warm(kind)
@@ -706,10 +711,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     verb.add_argument("--shards", type=int, default=1, help="how many processes split the kernels")
     args = parser.parse_args(argv)
     preset = resolve_preset(args.preset)
-    for kind, members in sorted(tag_kinds(pathlib.Path(args.problems), args.language).items()):
+    tagged = tag_kinds(pathlib.Path(args.problems), args.language)
+    for kind, members in sorted(tagged.items(), key=lambda item: item[0].text):
         mine = members[args.shard :: args.shards]
         refused = warm(mine, kind, preset, args.datatype)
-        print(f"torch warm {kind}: {len(mine) - len(refused)} compiled, {len(refused)} refused", file=sys.stderr)
+        print(f"torch warm {kind.text}: {len(mine) - len(refused)} compiled, {len(refused)} refused", file=sys.stderr)
     return 0
 
 

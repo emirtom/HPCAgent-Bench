@@ -27,8 +27,10 @@ from collections.abc import Mapping, Sequence
 from hpcagent_agent.driver import harnesses
 
 from hpcagent_bench import config, cpf_cache, external_skills, flags, packets, paths
+from hpcagent_bench.categories import InputMode, Residency, SourceMode, Track
 from hpcagent_bench.harness.prompts import Skill, cluster_facts, distributed_contract, load_skills, request_actions
-from hpcagent_bench.harness.task import Residency, Task, grading_residency
+from hpcagent_bench.harness.service import delivered, graded_language
+from hpcagent_bench.harness.task import Task, grading_residency
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
 from hpcagent_bench.skill_frontmatter import without_packet_block
@@ -234,7 +236,7 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
     if "CPF_DROPIN_DIR" not in env:
         return ""
     hints = packet_hints(env)
-    template = CPFSRC_KINDS_NOTE if hints == "kinds" else CPFSRC_NOTE
+    template = CPFSRC_KINDS_NOTE if hints is cpf_cache.HintDetail.KINDS else CPFSRC_NOTE
     dialect = cpf_cache.DIALECT.get(language or DROPIN_DEFAULT_LANGUAGE)
     if dialect is None:
         raise ValueError(
@@ -256,11 +258,13 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
 def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
     """The hint detail a packet's resolved ``env`` serves its form at: the one its
     :data:`~hpcagent_bench.cpf_cache.HINTS_ENV` names, else the default (``proofs``)."""
-    named = env.get(cpf_cache.HINTS_ENV, cpf_cache.DEFAULT_HINTS)
-    for detail in cpf_cache.HINT_DETAILS:
-        if named == detail:
-            return detail
-    raise ValueError(f"{cpf_cache.HINTS_ENV}={named!r} is not one of {cpf_cache.HINT_DETAILS}")
+    named = env.get(cpf_cache.HINTS_ENV)
+    if named is None:
+        return cpf_cache.DEFAULT_HINTS
+    try:
+        return cpf_cache.HintDetail.parse(named)
+    except ValueError as exc:
+        raise ValueError(f"{cpf_cache.HINTS_ENV}: {exc}") from exc
 
 
 def setup_form(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> cpf_cache.Form | None:
@@ -429,8 +433,8 @@ def selection(args: argparse.Namespace) -> tuple[list[str], set[str]]:
 
 def task_text(args: argparse.Namespace, name: str, spec: BenchSpec, skills_text: str) -> str:
     """One problem's task text."""
-    language = args.language or "any"
-    task = f"Optimize {kernel_stem(name)}. Target language: {language}."
+    task = f"Optimize {kernel_stem(name)}. Target language: {args.language or 'any'}."
+    language = graded_language(args.language)
     if args.note:
         task = f"{task} {args.note}"
     # A kernel the judge grades DISTRIBUTED (mpi.grade_distributed, read from the environment the
@@ -438,8 +442,8 @@ def task_text(args: argparse.Namespace, name: str, spec: BenchSpec, skills_text:
     # single-node one, and only this text can tell the agent so: the experiment never renders
     # build_prompt, where that contract otherwise lives.
     residency = grading_residency(name, language)
-    if residency == Residency.DISTRIBUTED.value:
-        task = f"{task}\n\n{distributed_contract(Task(name, 'restricted', language, residency=residency))}"
+    if residency is Residency.DISTRIBUTED:
+        task = f"{task}\n\n{distributed_contract(Task(name, SourceMode.RESTRICTED, language, residency=residency))}"
     # Before the triggers: what the packet PUT THERE is a fact about the task, and the
     # triggers are the manual for reading it.
     if args.packet and (note := packet_note(args.packet, args.language, spec.short_name, spec.module_name)):
@@ -453,7 +457,7 @@ def task_text(args: argparse.Namespace, name: str, spec: BenchSpec, skills_text:
 
 def in_scope(args: argparse.Namespace, name: str, spec: BenchSpec, tagged: set[str]) -> bool:
     """Whether ``--track`` / ``--tag`` / ``--kernel`` keep kernel ``name``."""
-    if args.track and spec.track != args.track:
+    if args.track and spec.track is not Track.parse(args.track):
         return False
     if args.tag and name not in tagged:
         return False
@@ -476,13 +480,14 @@ def problem_entry(
     repeat (``--repeat`` above 1): the driver puts it in the episode label, and an owed rerun replays the
     line, so a rerun keeps its slot. ``packet`` (the ``--packet`` spec) decides the libraries it loads by default
     (:func:`default_load`)."""
-    graded = Task(name, "restricted", language or "any", residency=grading_residency(name, language))
+    graded_as = graded_language(language)
+    graded = Task(name, SourceMode.RESTRICTED, graded_as, residency=grading_residency(name, graded_as))
     return ProblemLine(
         id=problem_id,
         kernel=name,
         language=language,
         task=task,
-        prompt_facts=cluster_facts(graded),
+        prompt_facts=cluster_facts(graded, free_choice=delivered(language, InputMode.PY_BINDING) is None),
         request_actions=request_actions(graded).wire(),
         slot=slot,
         level=spec.level,
@@ -498,6 +503,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--track",
         default="",
+        choices=("", *Track.texts()),
         help="e.g. loop_level_reasoning; required unless --select or --kernels-file is given, which it then filters",
     )
     parser.add_argument(
@@ -604,7 +610,7 @@ def main() -> int:
             continue
         # A kernel that does not support the requested language would be a guaranteed refusal, so
         # it is dropped here rather than burning an agent's whole turn budget on 400s.
-        if args.language and spec.languages and args.language not in spec.languages:
+        if args.language and spec.languages and graded_language(args.language) not in spec.languages:
             if wanted:
                 dropped.append(f"{name} (does not support {args.language})")
             continue

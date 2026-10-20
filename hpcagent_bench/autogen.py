@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable, Iterable
 
 from hpcagent_bench import framework_cache, paths, phase_clock
+from hpcagent_bench.categories import Language, Track
 from hpcagent_bench.emit_bridge import BenchInfoDocument, bench_info_tempfile
 from hpcagent_bench.frameworks.framework import native_column_languages
 from hpcagent_bench.languages import LANG_TARGET
@@ -128,12 +129,12 @@ EMITTERS: dict[str, Emitter] = {
 
 
 #: Tracks no numba sibling is generated for: a machine_learning kernel's only reference is PyTorch.
-NO_NUMBA_TRACKS: frozenset[str] = frozenset({"machine_learning"})
+NO_NUMBA_TRACKS: frozenset[Track] = frozenset({Track.MACHINE_LEARNING})
 
 
 def has_numba(spec: BenchSpec) -> bool:
     """Whether ``spec`` has a numba reference at all (its track is not in :data:`NO_NUMBA_TRACKS`)."""
-    return (spec.track or "") not in NO_NUMBA_TRACKS
+    return spec.track not in NO_NUMBA_TRACKS
 
 
 def emittable(spec: BenchSpec, targets: Iterable[str]) -> list[str]:
@@ -229,7 +230,7 @@ def ensure_locked(spec: BenchSpec, kdir: pathlib.Path, targets: list[str]) -> No
     for t in to_emit:
         # One target per emit, so each cached file records the seconds its own emit took (phase_clock).
         started = time.perf_counter()
-        with phase_clock.phase("codegen"):
+        with phase_clock.phase(phase_clock.Phase.CODEGEN):
             status = emit_targets(spec, [t]).get(t, "")
         seconds = time.perf_counter() - started
         # Cache only a freshly generated file (status "ok"): an "override" is a hand file and a
@@ -252,7 +253,9 @@ def ensure_locked(spec: BenchSpec, kdir: pathlib.Path, targets: list[str]) -> No
 #: native framework -> the language its sources are emitted in: the column's ``emit_language``
 #: (:mod:`hpcagent_bench.columns`), else ``language``. Pluto and the PPCG columns transform the C target's ``_pluto_input.c``, so they add a
 #: wrapper entry and no new emitted source; this dict is what puts ``kernel_<fw>`` in the generated wrapper.
-NATIVE_FRAMEWORKS = {name: languages[0] for name, languages in native_column_languages().items()}
+NATIVE_FRAMEWORKS: dict[str, Language] = {
+    name: Language.parse(languages[0]) for name, languages in native_column_languages().items()
+}
 #: language -> the numpyto ``--target`` that emits it (the C target writes BOTH
 #: ``.c`` and ``.cpp`` in one run; fortran has its own target).
 #: precisions to materialise per native source (numpy dtype name -> empty = fp64).
@@ -308,7 +311,7 @@ def _wrapper_src(spec: BenchSpec) -> str:
     return "\n".join(lines) + "\n"
 
 
-def emit_native(spec: BenchSpec, langs: Iterable[str]) -> dict[str, str]:
+def emit_native(spec: BenchSpec, langs: Iterable[Language]) -> dict[str, str]:
     """Emit the native sources for ``langs`` (both precisions, every layout) +
     the ``_cpp.py`` wrapper for one spec. Returns ``{tag: status}`` (best-effort).
 
@@ -337,7 +340,7 @@ def emit_native(spec: BenchSpec, langs: Iterable[str]) -> dict[str, str]:
     return out
 
 
-def ensure_native(key: str, lang: str | None = None) -> None:
+def ensure_native(key: str, lang: Language | None = None) -> None:
     """Generate the native sources (+ wrapper) for the kernel registered under
     ``key``. ``lang`` restricts to one language (else all of NATIVE_FRAMEWORKS).
 
@@ -358,7 +361,7 @@ def ensure_native(key: str, lang: str | None = None) -> None:
     builds under ``-f cc``.
     """
     spec = BenchSpec.load(key)
-    langs = [lang] if lang else sorted(set(NATIVE_FRAMEWORKS.values()))
+    langs = [lang] if lang else sorted(set(NATIVE_FRAMEWORKS.values()), key=lambda one: one.text)
     failed = {t: s for t, s in emit_native(spec, langs).items() if s.startswith("fail")}
     if failed:
         detail = "; ".join(f"{t}: {s}" for t, s in sorted(failed.items()))

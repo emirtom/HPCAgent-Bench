@@ -16,8 +16,7 @@ from types import ModuleType
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, fuzz, sizing
+from hpcagent_bench import config, fuzz, modules, sizing
 from hpcagent_bench.spec import BenchSpec
 
 PACKAGE = "hpcagent_bench.benchmarks.loop_level_reasoning"

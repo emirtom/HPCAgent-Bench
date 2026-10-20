@@ -34,6 +34,8 @@ import sys
 import tarfile
 from collections.abc import Iterable, Iterator, Sequence
 
+from hpcagent_agent.coded import Coded
+
 from hpcagent_bench import data_guard, experiments, paths
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.harness import results_db
@@ -68,11 +70,11 @@ __all__ = [
 ]
 
 
-class DataSource(enum.Enum):
-    """Which kind of source a collected root is; the value is its directory under ``<out>``."""
+class DataSource(Coded):
+    """Which kind of source a collected root is; its spelling is its directory under ``<out>``."""
 
-    RUNS = "runs"
-    DB = "db"
+    RUNS = enum.auto()
+    DB = enum.auto()
 
 
 #: Directory names never descended into: agent homes, model and build caches.
@@ -98,7 +100,7 @@ class Root:
 
     @property
     def dest(self) -> pathlib.PurePosixPath:
-        return pathlib.PurePosixPath(self.kind.value, self.path.name)
+        return pathlib.PurePosixPath(self.kind.text, self.path.name)
 
 
 def is_db(rel: pathlib.PurePath) -> bool:
@@ -171,7 +173,7 @@ def check_roots(roots: Sequence[Root], out: pathlib.Path) -> None:
     seen: dict[pathlib.PurePosixPath, pathlib.Path] = {}
     for root in roots:
         if not root.path.is_dir():
-            raise SystemExit(f"{root.kind.value} root {root.path} is not a directory")
+            raise SystemExit(f"{root.kind.text} root {root.path} is not a directory")
         if root.dest in seen:
             raise SystemExit(f"{root.path} and {seen[root.dest]} both land on {root.dest}; collect them separately")
         seen[root.dest] = root.path
@@ -199,7 +201,7 @@ def copy(roots: Sequence[Root], out: pathlib.Path, *, threads: int = 8) -> int:
     jobs = [(r.path.absolute() / rel, out / r.dest / rel) for r in roots for rel in walk(r)]
     with concurrent.futures.ThreadPoolExecutor(threads) as pool:
         list(pool.map(lambda job: copy_file(*job), jobs))
-    (out / SOURCES).write_text("".join(f"{r.kind.value}\t{r.dest}\t{r.path.resolve()}\n" for r in roots))
+    (out / SOURCES).write_text("".join(f"{r.kind.text}\t{r.dest}\t{r.path.resolve()}\n" for r in roots))
     (out / "env.sh").write_text(env_script(roots))
     commit = paths.git_head(paths.repo_root())
     (out / "COMMIT").write_text(f"{commit or 'unknown'}\n")

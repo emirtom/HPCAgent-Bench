@@ -2,14 +2,15 @@
 that this setup is offered, served with the official MCP SDK over stdio.
 
 One tool per judge route the agent needs, plus ``syntax_check`` (the one tool that talks to no service: THIS
-process runs inside the agent's container next to the compilers) and the tools a packet brings. ``score`` and
+process runs inside the agent's container next to the compilers) and the tools plugins bring. ``score`` and
 ``submit`` are deliberately separate tools because they are separate grades: the public iteration signal and the
 terminal, hidden-seed, recorded one. Whether the agent also has a shell is the launcher's decision, not this
 server's, so no tool may assume the absence of a shell.
 
 Every MCP client consumes this one server: Claude Code, Codex and OpenHands, and the native Anthropic and OpenAI
 harnesses (``hpcagent_agent.harness``). mini-SWE has only a shell and reaches the same tools through the
-``hpcagent-bench-tool`` CLI.
+``hpcagent-bench-tool`` CLI. What a setup is served is a function of its environment (:func:`tools`), so the
+launcher asks this module in-process (:func:`describe`).
 """
 
 import importlib
@@ -20,91 +21,80 @@ import pathlib
 import pkgutil
 import re
 import sys
+from collections.abc import Mapping
 from typing import Any
 
 import anyio
 import anyio.to_thread
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
-from hpcagent_agent import submission_mode, tools
-from hpcagent_agent.tools.registry import REGISTRY, Tool, offered
+from hpcagent_agent import plugins, submission_mode
+from hpcagent_agent import tools as tool_package
+from hpcagent_agent.tools.registry import Served, Setup, served
 
 __all__ = [
     "AGENT_PAYLOAD_DIR",
     "ALLOWED_ORDER",
-    "ALLOWED_TOOLS",
     "BULLET_HEAD",
     "LIST_ORDER",
     "MCP_HEAD",
     "NOT_TOOLS",
-    "PACKET",
     "PROMPT_ORDER",
     "SERVER_NAME",
-    "TOOLS",
+    "allowed_tools",
     "answer",
     "build_server",
     "call",
     "describe",
     "in_order",
+    "load_tools",
     "main",
     "prompt_tool_list",
     "server_instructions",
     "tool_definitions",
+    "tools",
 ]
 
 #: The server's name: Claude Code shows a tool as ``mcp__hpcagent_bench__<name>``.
 SERVER_NAME = "hpcagent_bench"
 
-#: The orders recorded setups saw in ``--allowedTools`` and in the prompt. A tool missing from one follows
-#: the listed tools in registration order.
+#: The orders recorded setups saw in ``tools/list``, ``--allowedTools`` and the prompt. A tool missing from one
+#: follows the listed tools in registration order.
+LIST_ORDER = ("score", "submit", "profile", "canonical_parallel_form", "search", "syntax_check")
 ALLOWED_ORDER = ("search", "score", "profile", "submit", "syntax_check", "canonical_parallel_form")
 PROMPT_ORDER = ("profile", "score", "submit", "search", "syntax_check")
 
 #: The modules of ``hpcagent_agent.tools`` that are not tools: this server, its CLI front end and their libraries.
 NOT_TOOLS = frozenset({"mcp_server", "hpcagent_bench_tool", "registry", "http_json"})
 
-# Every other module of the package is a tool: importing it registers its @tool, so a new tool is one file.
-for tool_module in pkgutil.iter_modules(tools.__path__):
-    if tool_module.name not in NOT_TOOLS:
-        importlib.import_module(f"{tools.__name__}.{tool_module.name}")
 
-#: ``AGENT_PACKET=<name>`` imports the tool modules of ``hpcagent_agent.packets.<name>``; each registers itself.
-PACKET: str = os.environ.get("AGENT_PACKET", "").strip()
-if PACKET:
-    PACKET_DIR = pathlib.Path(__file__).resolve().parents[1] / "packets" / PACKET
-    if not (PACKET_DIR / "packet.md").is_file():
-        raise SystemExit(f"AGENT_PACKET={PACKET}: {PACKET_DIR / 'packet.md'} does not exist")
-    for packet_module in sorted(PACKET_DIR.glob("*.py")):
-        if packet_module.stem == "__init__":
-            continue
-        if packet_module.stem in REGISTRY:
-            raise SystemExit(f"packet {PACKET} tool {packet_module.stem} collides with a core tool")
-        importlib.import_module(f"hpcagent_agent.packets.{PACKET}.{packet_module.stem}")
-
-#: The ``tools/list`` order recorded setups saw; a tool not named here (a packet's) follows in registration order.
-LIST_ORDER = ("score", "submit", "profile", "canonical_parallel_form", "search", "syntax_check")
-
-#: The tools this process serves: every tool this setup is offered, in :data:`LIST_ORDER`.
-TOOLS: dict[str, Tool] = {
-    name: REGISTRY[name]
-    for name in (
-        *(name for name in LIST_ORDER if name in REGISTRY),
-        *(name for name in REGISTRY if name not in LIST_ORDER),
-    )
-    if offered(REGISTRY[name])
-}
+def load_tools(environ: Mapping[str, str] = os.environ) -> None:
+    """Import every core tool module and every plugin's tool modules; each registers itself. A plugin's tool is
+    served only to the setups whose packet carries it."""
+    for module in pkgutil.iter_modules(tool_package.__path__):
+        if module.name not in NOT_TOOLS:
+            importlib.import_module(f"{tool_package.__name__}.{module.name}")
+    plugins.import_tools(environ)
 
 
-def in_order(first: tuple[str, ...]) -> tuple[str, ...]:
-    """Every tool this setup is served, those in ``first`` leading in its order."""
-    return (*(name for name in first if name in TOOLS), *(name for name in TOOLS if name not in first))
+def tools(environ: Mapping[str, str] = os.environ) -> dict[str, Served]:
+    """Every tool the setup ``environ`` describes is served, in :data:`LIST_ORDER`."""
+    load_tools(environ)
+    return served(Setup.read(environ), LIST_ORDER)
 
 
-#: Claude Code's ``--allowedTools``, without the ``mcp__hpcagent_bench__`` prefix: exactly the served tools, so
-#: the model is never offered a tool whose only answer is a refusal.
-ALLOWED_TOOLS: tuple[str, ...] = in_order(ALLOWED_ORDER)
+def in_order(offered: Mapping[str, Served], first: tuple[str, ...]) -> tuple[str, ...]:
+    """Every tool in ``offered``, those in ``first`` leading in its order."""
+    return (*(name for name in first if name in offered), *(name for name in offered if name not in first))
+
+
+def allowed_tools(offered: Mapping[str, Served]) -> tuple[str, ...]:
+    """Claude Code's ``--allowedTools``, without the ``mcp__hpcagent_bench__`` prefix: exactly the served tools, so
+    the model is never offered a tool whose only answer is a refusal."""
+    return in_order(offered, ALLOWED_ORDER)
+
 
 #: A prompt bullet's head, ``- `<tool>` --``.
 BULLET_HEAD = re.compile(r"^- `([a-z_]+)` --", re.MULTILINE)
@@ -116,10 +106,10 @@ MCP_HEAD = (
 )
 
 
-def prompt_tool_list(cli: bool = False) -> str:
+def prompt_tool_list(offered: Mapping[str, Served], cli: bool = False) -> str:
     """The prompt's tool list: every served tool's non-empty bullet, in PROMPT_ORDER, under :data:`MCP_HEAD`.
     ``cli`` names each tool as its ``hpcagent-bench-tool`` shell command instead."""
-    text = "\n".join(TOOLS[name].prompt for name in in_order(PROMPT_ORDER) if TOOLS[name].prompt)
+    text = "\n".join(offered[name].prompt for name in in_order(offered, PROMPT_ORDER) if offered[name].prompt)
     if cli:
         return BULLET_HEAD.sub(r"- `hpcagent-bench-tool \1 '<json>'` --", text)
     return f"{MCP_HEAD}\n\n{text}"
@@ -129,26 +119,26 @@ def prompt_tool_list(cli: bool = False) -> str:
 AGENT_PAYLOAD_DIR = pathlib.Path(__file__).resolve().parents[2]
 
 
-def server_instructions() -> str:
+def server_instructions(offered: Mapping[str, Served], environ: Mapping[str, str] = os.environ) -> str:
     """The ``initialize`` instructions: the prompt's tool list with the submission mode's slot filled.
 
     The raw list carries ``{{MODE:tool}}`` (the ``submit`` bullet, which the mode decides), and Claude Code
     injects these instructions into the system prompt verbatim, so the slot is filled from the payload's
     template, the copy the launcher stages the shared one from."""
-    template = submission_mode.current().template
+    template = submission_mode.current(dict(environ)).template
     sections = submission_mode.template_sections(AGENT_PAYLOAD_DIR / template)
-    return submission_mode.fill_slots(prompt_tool_list(), sections, template)
+    return submission_mode.fill_slots(prompt_tool_list(offered), sections, template)
 
 
-def tool_definitions() -> list[types.Tool]:
+def tool_definitions(offered: Mapping[str, Served]) -> list[types.Tool]:
     """What ``tools/list`` answers."""
     return [
         types.Tool(name=name, description=entry.description, inputSchema=entry.input_schema)
-        for name, entry in TOOLS.items()
+        for name, entry in offered.items()
     ]
 
 
-def call(entry: Tool, arguments: dict[str, Any]) -> dict[str, Any]:
+def call(entry: Served, arguments: dict[str, Any]) -> dict[str, Any]:
     """Run one tool. A tool fault is content the model must READ (a bad ``$JUDGE_RANK``, an unreachable judge),
     so it comes back as ``ok: false`` rather than killing the request."""
     try:
@@ -157,9 +147,9 @@ def call(entry: Tool, arguments: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def answer(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+def answer(offered: Mapping[str, Served], name: str, arguments: dict[str, Any]) -> types.CallToolResult:
     """The ``tools/call`` result: the tool's JSON answer as text, an error exactly when it says ``ok: false``."""
-    entry = TOOLS.get(name)
+    entry = offered.get(name)
     response = {"ok": False, "error": f"unknown tool: {name}"} if entry is None else call(entry, arguments)
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(response, indent=2, sort_keys=True))],
@@ -167,19 +157,21 @@ def answer(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
     )
 
 
-def build_server() -> Server:
-    """The SDK server. Inputs are validated by each tool (its pydantic model), not by the SDK, so a malformed
-    call answers with the tool's own reason. A tool blocks on the judge, so it runs in a worker thread."""
+def build_server(environ: Mapping[str, str] = os.environ) -> Server:
+    """The SDK server for the setup ``environ`` describes. Inputs are validated by each tool (its pydantic model),
+    not by the SDK, so a malformed call answers with the tool's own reason. A tool blocks on the judge, so it runs
+    in a worker thread."""
+    offered = tools(environ)
     version = importlib.metadata.version("hpcagent-agent")
-    server: Server = Server(SERVER_NAME, version=version, instructions=server_instructions())
+    server: Server = Server(SERVER_NAME, version=version, instructions=server_instructions(offered, environ))
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
-        return tool_definitions()
+        return tool_definitions(offered)
 
     @server.call_tool(validate_input=False)
     async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-        return await anyio.to_thread.run_sync(answer, name, arguments)
+        return await anyio.to_thread.run_sync(answer, offered, name, arguments)
 
     return server
 
@@ -189,14 +181,15 @@ async def serve_stdio(server: Server) -> None:
         await server.run(read, write, server.create_initialization_options())
 
 
-def describe() -> dict[str, Any]:
-    """What this setup is offered, for the launcher: ``--allowedTools``, the tools this process serves and the
-    prompt's tool lists."""
+def describe(environ: Mapping[str, str] = os.environ) -> dict[str, Any]:
+    """What the setup ``environ`` describes is offered, for the launcher: ``--allowedTools``, the tools served and
+    the prompt's tool lists."""
+    offered = tools(environ)
     return {
-        "allowed_tools": list(ALLOWED_TOOLS),
-        "served_tools": list(TOOLS),
-        "prompt": prompt_tool_list(),
-        "prompt_cli": prompt_tool_list(cli=True),
+        "allowed_tools": list(allowed_tools(offered)),
+        "served_tools": list(offered),
+        "prompt": prompt_tool_list(offered),
+        "prompt_cli": prompt_tool_list(offered, cli=True),
     }
 
 

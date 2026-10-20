@@ -13,6 +13,7 @@ import os
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.support.collect.sweep import MPI_LAUNCHER_VARS, drop_mpi_launcher_vars
 
 
@@ -82,8 +83,8 @@ def test_the_distributed_residency_keeps_its_launcher_variables(
     monkeypatch.setattr(sweep, "Benchmark", lambda *a, **k: None)
     monkeypatch.setattr(sweep, "Test", lambda *a, **k: type("T", (), {"run": lambda *_, **__: {}})())
 
-    sweep.run_one("k", [], "S", False, 1, 1.0, True, None, distributed=True)
+    sweep.run_one("k", [], Preset.S, False, 1, 1.0, True, None, distributed=True)
     assert called == [], "an MPI rank had its launcher variables stripped"
 
-    sweep.run_one("k", [], "S", False, 1, 1.0, True, None)
+    sweep.run_one("k", [], Preset.S, False, 1, 1.0, True, None)
     assert called == [True], "the single-node default did not strip"

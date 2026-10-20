@@ -46,7 +46,7 @@ import traceback
 import types
 import uuid
 from collections.abc import Generator, Sequence
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
@@ -55,18 +55,27 @@ import numpy as np
 from hpcagent_agent.tools import submit
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
-from hpcagent_bench import anticheat, config, core_dumps, fused, languages, seal
-from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
-from hpcagent_bench.config import GridChooser
+from hpcagent_bench import anticheat, config, core_dumps, fused, languages, plugins, seal
+from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import (
+    InputMode,
+    Language,
+    Preset,
+    Residency,
+    SourceMode,
+    baseline_text,
+)
+from hpcagent_bench.config import GridChooser, MpContext, SubmitFeedback
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import hidden_seeds, metric, mpi_shard_driver, native_call, sandbox, torch_reference
-from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
+from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_capacity_bytes
 from hpcagent_bench.harness.judge_wire import (
     BaselineAnswer,
     BuildAnswer,
+    Correct,
     GradeAnswer,
     HealthAnswer,
     JudgeAnswer,
@@ -88,6 +97,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
     replication_refusal,
 )
 from hpcagent_bench.harness.native_call import reclaim_memory
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.profiling import as_float, as_int
 from hpcagent_bench.harness.requests_api import (
     CheckedArray,
@@ -102,7 +112,7 @@ from hpcagent_bench.harness.requests_api import (
     precision_problem_dtypes,
     precision_refusal,
 )
-from hpcagent_bench.harness.routes import first_param, load
+from hpcagent_bench.harness.routes import Route, RouteRequest, first_param, load
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
@@ -117,7 +127,7 @@ from hpcagent_bench.harness.task import GPU_LANGUAGES, Task, grading_residency, 
 from hpcagent_bench.harness.timing import local_repeat, measurement_baseline, measurement_repeat
 from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 from hpcagent_bench.kernel_key import kernel_stem
-from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
+from hpcagent_bench.spec import KERNELS, RUNGS, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
 from hpcagent_bench.support.helpers.sparse.request import resolve_layout
@@ -131,7 +141,6 @@ __all__ = [
     "EXPLORATION_PRIORITY",
     "FALLBACK_REQUEST_LANGUAGE",
     "FORKSERVER_PRELOAD",
-    "INPUT_MODES",
     "JUDGE_FAULT_CAUSE",
     "JUDGE_PRELOAD",
     "MISDIRECTED_REQUEST",
@@ -141,7 +150,6 @@ __all__ = [
     "PROFILE_TOOLS",
     "PYTHON_DELIVERED_LANGUAGES",
     "SCALING_FIELDS",
-    "SCORE_ERROR_STATUS",
     "SCORE_ROUTE_REDACTED_CELL_FIELDS",
     "SCORE_ROUTE_REDACTED_FIELDS",
     "SERVICE_TEMPLATE",
@@ -164,6 +172,7 @@ __all__ = [
     "build_device_pool",
     "client_closed",
     "default_request_language",
+    "delivered",
     "delivery_language",
     "distribution_refusal",
     "enable_crash_traces",
@@ -173,6 +182,7 @@ __all__ = [
     "grade_answer",
     "grade_request",
     "graded_kind",
+    "graded_language",
     "jit_decorated",
     "launched_name",
     "layout_refusal",
@@ -182,6 +192,7 @@ __all__ = [
     "module_names",
     "precision_scope_refusal",
     "preload_lazy_imports",
+    "profile_size",
     "python_entry",
     "python_entry_refusal",
     "python_residency_refusal",
@@ -358,17 +369,17 @@ class SlotPool:
 
 
 #: The one tool that can see a device submission, by language -- and that language's default.
-DEVICE_TOOLS = {"cuda": "nsys", "hip": "rocprofv3"}
+DEVICE_TOOLS: dict[Language, str] = {Language.CUDA: "nsys", Language.HIP: "rocprofv3"}
 
 #: The default tracer of a host-language submission built for the AMD GPU
 #: (:func:`~hpcagent_bench.harness.gpu_profiling.offload_traced`).
-OFFLOAD_DEVICE_TOOL = DEVICE_TOOLS["hip"]
+OFFLOAD_DEVICE_TOOL = DEVICE_TOOLS[Language.HIP]
 
 #: The compute profiler per device language: a second, replayed run that counts what the trace cannot.
-COMPUTE_DEVICE_TOOLS = {"cuda": "ncu", "hip": "rocprof-compute"}
+COMPUTE_DEVICE_TOOLS: dict[Language, str] = {Language.CUDA: "ncu", Language.HIP: "rocprof-compute"}
 
 #: An OpenMP-offload build is counted as AMD dispatches, like its trace.
-OFFLOAD_COMPUTE_TOOL = COMPUTE_DEVICE_TOOLS["hip"]
+OFFLOAD_COMPUTE_TOOL = COMPUTE_DEVICE_TOOLS[Language.HIP]
 
 
 def request_label() -> str:
@@ -468,10 +479,6 @@ def refused_requests(raw: object) -> str | None:
         return None
 
 
-#: The call status of a graded request that produced no verdict (``runner.RunStatus.SCORE_ERROR``).
-SCORE_ERROR_STATUS = "score_error"
-
-
 def graded_kind(route: str) -> str:
     """The grade kind a graded route records: ``score``, else ``submit``."""
     return "score" if route == "score" else "submit"
@@ -541,15 +548,12 @@ def rank_error(judge_rank: int, requested: object) -> Refusal | None:
 #: Its own rank is :func:`make_server`'s ``rank``, not a config field.
 ServiceConfig = RunConfig
 
-#: The ``POST /submit`` input policies (from :class:`~hpcagent_bench.api.InputMode`).
-INPUT_MODES = tuple(m.value for m in InputMode)
-
 #: Delivery language -> the canonical extension of a ``source_file``
 #: (:data:`hpcagent_bench.languages.LANG_EXT`, plus ``python``).
-SOURCE_EXT: dict[str, str] = {**languages.LANG_EXT, PYTHON_LANG: "py"}
+SOURCE_EXT: dict[Language, str] = {**languages.LANG_EXT, Language.PYTHON: "py"}
 #: Further extensions a ``source_file`` may carry, the ones its compiler takes as the same language. ``.F90``
 #: (preprocessed Fortran) keeps its meaning: the sandbox writes a Fortran unit with directives as ``.F90``.
-SOURCE_EXT_ALIASES: dict[str, tuple[str, ...]] = {"cpp": ("cc", "cxx"), "fortran": ("F90",)}
+SOURCE_EXT_ALIASES: dict[Language, tuple[str, ...]] = {Language.CPP: ("cc", "cxx"), Language.FORTRAN: ("F90",)}
 
 #: The mode every submission is built at (single-core: autopar is the baseline's knob). Shared
 #: with ``GET /build`` and ``helpers/scripts/gen_build_fragments.py``.
@@ -560,48 +564,66 @@ SUBMISSION_BUILD_MODE: Mode = Mode.SINGLE_CORE
 JUDGE_FAULT_CAUSE = submit.JUDGE_FAULT
 
 
-def task_source_mode(input_mode: InputMode, *, library: bool) -> str:
+def task_source_mode(input_mode: InputMode, *, library: bool) -> SourceMode:
     """The task's ``source_mode`` a submission grades in: ``any`` for a prebuilt library, and for every delivery of an
     ``any`` setup, whose source is then built with the agent's own compiler flags (:func:`sandbox.agent_build`);
     ``restricted`` otherwise."""
-    return "any" if library or input_mode is InputMode.ANY else "restricted"
+    return SourceMode.ANY if library or input_mode is InputMode.ANY else SourceMode.RESTRICTED
 
 
 #: Delivery languages each enforced ``input_mode`` accepts: ``source`` compiles, ``py-binding``
 #: calls Python. ``any`` and ``library`` are absent (not enforced).
-ENFORCED_LANGUAGES: dict[InputMode, tuple[str, ...]] = {
+ENFORCED_LANGUAGES: dict[InputMode, tuple[Language, ...]] = {
     InputMode.SOURCE: tuple(languages.LANG_EXT),
-    InputMode.PY_BINDING: (PYTHON_LANG,),
+    InputMode.PY_BINDING: (Language.PYTHON,),
 }
 
-#: Setup languages whose answer is a Python module; a py-binding judge grades them as ``python``.
+#: Setup languages (an open vocabulary, :mod:`hpcagent_bench.vocabulary`) whose answer is a Python module; a
+#: py-binding judge grades them as ``python``.
 #: ``triton-device`` (:data:`hpcagent_bench.languages.PYTHON_DEVICE_LANGUAGE`) is a separate setup
 #: declared by its setup, not a variant of ``triton``.
 PYTHON_DELIVERED_LANGUAGES: frozenset[str] = frozenset({"triton", languages.PYTHON_DEVICE_LANGUAGE})
 
 
 #: The language a body that names none is graded in when its setup declares no delivery language.
-FALLBACK_REQUEST_LANGUAGE = "c"
+FALLBACK_REQUEST_LANGUAGE = Language.C
 
 
 def default_request_language() -> str:
-    """The language a request that names none is graded in: the setup's own (``record.language``) when it
-    is a delivery language, else C (a hand-rolled body on a HIP setup omits it)."""
+    """The language a request that names none asks for, as a body spells it: the setup's own
+    (``record.language``) when it is a compiled delivery language, else C (a hand-rolled body on a HIP setup
+    omits it)."""
     from hpcagent_bench.harness import recording
 
     language = recording.language_tag()
-    return language if language in languages.LANG_EXT else FALLBACK_REQUEST_LANGUAGE
+    compiled = [lang.text for lang in languages.LANG_EXT]
+    return language if language in compiled else FALLBACK_REQUEST_LANGUAGE.text
 
 
-def delivery_language(language: str, mode: InputMode) -> str:
-    """The language a request is graded in: ``python`` for a python DSL on a py-binding judge, else the
-    request's own."""
+def delivered(language: str, mode: InputMode) -> Language | None:
+    """The language a request asking for ``language`` (a setup's or a delivery language's spelling) is
+    graded in: ``python`` for a python DSL on a py-binding judge, else the delivery language it spells; None
+    for a setup language no submission is delivered in (``omp``, ``triton`` on a source judge)."""
     if mode is InputMode.PY_BINDING and language in PYTHON_DELIVERED_LANGUAGES:
-        return PYTHON_LANG
-    return language
+        return Language.PYTHON
+    return Language.parse(language) if language in Language.texts() else None
 
 
-def setup_language_refusal(language: str, mode: InputMode) -> str | None:
+def delivery_language(language: str, mode: InputMode) -> Language:
+    """:func:`delivered`, a ValueError (-> 400) naming the choices when ``language`` is no delivery language."""
+    found = delivered(language, mode)
+    if found is None:
+        raise ValueError(f"unknown language {language!r}; choose from {', '.join(Language.texts())}")
+    return found
+
+
+def graded_language(language: str) -> Language:
+    """What a setup asking for ``language`` (``""`` = a free choice) is graded in on a py-binding judge; C for a
+    free choice or a setup language no submission is delivered in."""
+    return delivered(language, InputMode.PY_BINDING) or Language.C
+
+
+def setup_language_refusal(language: Language, mode: InputMode) -> str | None:
     """A 400 message when an enforced ``mode`` (:data:`ENFORCED_LANGUAGES`) receives a delivery ``language``
     other than the setup's own (``record.language`` through :func:`delivery_language`); else ``None``.
 
@@ -612,16 +634,16 @@ def setup_language_refusal(language: str, mode: InputMode) -> str | None:
 
     allowed = ENFORCED_LANGUAGES.get(mode, ())
     declared = recording.language_tag()
-    pinned = delivery_language(declared, mode) if declared else None
-    if pinned not in allowed or language == pinned:
+    pinned = delivered(declared, mode) if declared else None
+    if pinned is None or pinned not in allowed or language is pinned:
         return None
     return (
-        f"this judge's setup delivers {pinned!r} (input_mode {mode.value!r}); got language {language!r} -- "
-        "refused rather than grading another language under this setup's rows"
+        f"this judge's setup delivers {pinned.text!r} (input_mode {mode.text!r}); got language "
+        f"{language.text!r} -- refused rather than grading another language under this setup's rows"
     )
 
 
-def gpu_language_refusal(language: str) -> str | None:
+def gpu_language_refusal(language: Language) -> str | None:
     """A 400 message when ``language`` is a GPU-residency language and this judge's setup declared itself
     host-only; else ``None``.
 
@@ -633,7 +655,7 @@ def gpu_language_refusal(language: str) -> str | None:
     if setup_declared_host_only() is not True:
         return None
     return (
-        f"language {language!r} is a GPU-residency language and this judge's setup is declared "
+        f"language {language.text!r} is a GPU-residency language and this judge's setup is declared "
         "host-only (HPCAGENT_BENCH_RECORD_DEVICE); refused rather than grading a GPU submission "
         "under a host-only setup's rows"
     )
@@ -684,7 +706,7 @@ def module_names(source: str) -> list[str] | None:
 def python_entry(task: Task) -> str:
     """The function a Python submission of ``task`` must define: ``kernel_mpi`` on a distributed grade, scaling
     sweeps included (:data:`mpi_shard_driver.PY_KERNEL`), else the manifest's ``func_name``."""
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return mpi_shard_driver.PY_KERNEL
     return BenchSpec.load(task.kernel).func_name
 
@@ -708,11 +730,26 @@ def python_entry_refusal(submission: Submission, task: Task) -> str | None:
     )
 
 
+def profile_size(asked: str | None, preset: Preset) -> Preset:
+    """The size rung a ``/profile`` measures at: ``asked`` (wire spelling) when it is a rung no larger than the run's
+    ``preset``, else the run's own; a larger or unknown rung is a ValueError (400)."""
+    if asked is None:
+        return preset
+    rung = Preset.parse(asked)
+    if rung not in RUNGS or preset not in RUNGS:
+        raise ValueError(f"size {asked!r} is not one of {', '.join(r.text for r in RUNGS)}")
+    if RUNGS.index(rung) > RUNGS.index(preset):
+        raise ValueError(
+            f"size {asked!r} is larger than this run's {preset.text!r}; a profile measures at most the graded size"
+        )
+    return rung
+
+
 def submit_verdict(result: Score, request_id: str) -> SubmitVerdict:
     """What ``/submit`` tells the agent: correct or not, and the recorded row id. Nothing derived from the
     references or held-out inputs (each would be an oracle); only the compiler log of a failed build
     and a judge-fault flag."""
-    verdict = SubmitVerdict(correct="yes" if result.correct else "no", request_id=request_id)
+    verdict = SubmitVerdict(correct=Correct.of(result.correct), request_id=request_id)
     if not result.build_ok:
         verdict.build_log = result.detail
     if result.harness_fault:
@@ -720,7 +757,7 @@ def submit_verdict(result: Score, request_id: str) -> SubmitVerdict:
     return verdict
 
 
-def score_answer(result: Score, kernel: str, language: str, preset: str, residency: str) -> ScoreAnswer:
+def score_answer(result: Score, kernel: str, language: Language, preset: Preset, residency: Residency) -> ScoreAnswer:
     """What ``/score`` answers: ``result`` without :data:`SCORE_ROUTE_REDACTED_FIELDS` (and its cells without
     :data:`SCORE_ROUTE_REDACTED_CELL_FIELDS`), ``detail`` as :func:`public_detail` reads it, and what was
     graded: the size actually graded and how (a distributed run looks single-node-shaped otherwise)."""
@@ -736,7 +773,13 @@ def score_answer(result: Score, kernel: str, language: str, preset: str, residen
 
 
 def grade_answer(
-    result: Score, kernel: str, language: str, preset: str, residency: str, recorded: RecordedAnswer, request_id: str
+    result: Score,
+    kernel: str,
+    language: Language,
+    preset: Preset,
+    residency: Residency,
+    recorded: RecordedAnswer,
+    request_id: str,
 ) -> GradeAnswer:
     """What ``/submit`` answers under ``service.submit_feedback=full``: the whole grade, what was graded, how it
     was recorded and the request id."""
@@ -805,13 +848,11 @@ def triton_launch_problem(source: str) -> str | None:
 def from_config() -> RunConfig:
     """Build the judge :class:`~hpcagent_bench.api.RunConfig` from the ``service:`` block;
     ``baseline`` is ``measurement.baseline`` (shared with the Harbor grader). CLI-overridable."""
-    token = measurement_baseline()
     service = config.current().service
     return RunConfig(
-        oracle=Oracle(service.oracle),
-        # "auto" is the boundary token for "resolve per kernel track", which RunConfig holds as None.
-        baseline=None if token == "auto" else Baseline(token),
-        input_mode=InputMode(service.input_mode),
+        oracle=service.oracle,
+        baseline=measurement_baseline(),
+        input_mode=service.input_mode,
         # resolve_preset: ``service.preset`` may carry modifiers (``XL+fuzz``). Resolving once at startup
         # also applies the token's process-global overrides exactly once (the server is threaded).
         preset=resolve_preset(service.preset),
@@ -822,7 +863,7 @@ def from_config() -> RunConfig:
 
 def service_prompt(
     kernel: str,
-    language: str,
+    language: Language,
     judge_url: str,
     cfg: RunConfig | None = None,
     prompt_config: "PromptConfig | None" = None,
@@ -839,32 +880,29 @@ def service_prompt(
     prompt_config = dataclasses.replace(prompt_config or PromptConfig.from_config(), template=SERVICE_TEMPLATE)
     ctx = as_json_object(
         build_context(
-            Task(kernel, "restricted", language),
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            Task(kernel, SourceMode.RESTRICTED, language),
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             prompt_config=prompt_config,
         )
     )
     ctx["judge_url"] = judge_url.rstrip("/")
     ctx["judge_rank"] = judge_rank
-    ctx["input_mode"] = cfg.input_mode.value
+    ctx["input_mode"] = cfg.input_mode.text
     body = prompt_env(prompt_config).get_template(prompt_config.template).render(**ctx)
     # The same finishing step as the in-process prompt: strip host paths, apply debug markers.
     return finish_prompt(body, prompt_config)
 
 
-def source_file_ext(language: str, device: bool) -> str:
+def source_file_ext(language: Language, device: bool) -> str:
     """The extension a submitted source file must carry: the language's own (:data:`SOURCE_EXT`); for a
     two-unit GPU language, ``device=True`` is the kernels (``.hip``, ``.cu``) and ``device=False`` the
     host entry, always the C++ extension (``<kernel>.cpp``)."""
     lookup = language if device else languages.GPU_HOST_LANG.get(language, language)
-    ext = SOURCE_EXT.get(lookup)
-    if ext is None:
-        raise ValueError(f"unknown submission language {language!r}: one of {', '.join(sorted(SOURCE_EXT))}")
-    return ext
+    return SOURCE_EXT[lookup]
 
 
-def _source_from_file(path: str, kernel: str, language: str, episode_id: str | None, device: bool = False) -> str:
+def _source_from_file(path: str, kernel: str, language: Language, episode_id: str | None, device: bool = False) -> str:
     """The text of a submitted source file, ``<kernel>.<ext>`` in the shared mount (:func:`sandbox.resolve_shared`),
     ``<ext>`` the language's own or one of :data:`SOURCE_EXT_ALIASES`, inside ``episode_id``'s own folder where
     it has one. ``device`` picks the half of a GPU submission (:func:`source_file_ext`)."""
@@ -878,7 +916,7 @@ def _source_from_file(path: str, kernel: str, language: str, episode_id: str | N
     allowed = [f"{kernel_stem(kernel)}.{e}" for e in (ext, *SOURCE_EXT_ALIASES.get(ext_owner, ()))]
     if resolved.name not in allowed:
         raise ValueError(
-            f"'{field}' must be named {' or '.join(map(repr, allowed))} -- the kernel plus a {ext_owner} "
+            f"'{field}' must be named {' or '.join(map(repr, allowed))} -- the kernel plus a {ext_owner.text} "
             f"extension; got {resolved.name!r}"
         )
     try:
@@ -888,7 +926,7 @@ def _source_from_file(path: str, kernel: str, language: str, episode_id: str | N
 
 
 def _submission_from_body(
-    body: RequestBody, kernel: str, language: str, cfg: RunConfig, episode_id: str | None = None
+    body: RequestBody, kernel: str, language: Language, cfg: RunConfig, episode_id: str | None = None
 ) -> Submission:
     """Build and policy-check a :class:`Submission` from a ``/submit`` request body.
 
@@ -911,8 +949,8 @@ def _submission_from_body(
     allowed = ENFORCED_LANGUAGES.get(cfg.input_mode)
     if allowed is not None and language not in allowed:
         raise ValueError(
-            f"this judge's input_mode is {cfg.input_mode.value!r}, which accepts only "
-            f"language {' / '.join(allowed)}; got {language!r}"
+            f"this judge's input_mode is {cfg.input_mode.text!r}, which accepts only "
+            f"language {' / '.join(lang.text for lang in allowed)}; got {language.text!r}"
         )
     pinned = setup_language_refusal(language, cfg.input_mode)
     if pinned is not None:
@@ -920,7 +958,7 @@ def _submission_from_body(
     source = (
         _source_from_file(source_file, kernel, language, episode_id) if source_file else body.text_or_none("source")
     )
-    if body.text("language", language) in PYTHON_DELIVERED_LANGUAGES:
+    if body.text("language", language.text) in PYTHON_DELIVERED_LANGUAGES:
         problem = triton_launch_problem(source or "")
         if problem is not None:
             raise ValueError(problem)
@@ -978,7 +1016,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     problem = precision_problem_dtypes(spec, binding, datatype)
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.
         declared = {arg.name: arg.dtype for arg in binding.pointers}
         problem = {name: declared[name] for name in problem}
@@ -993,7 +1031,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
             f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "
             "no startup.grid; nothing was graded"
         )
-    if requests.distributed and task.residency != "distributed":
+    if requests.distributed and task.residency is not Residency.DISTRIBUTED:
         # A single-node grade runs the problem's arrays as they are; the grid would be accepted and never used.
         return (
             f"{task.kernel} is graded on one node; it takes no startup.grid and no distribute, replicate or place "
@@ -1020,13 +1058,13 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     return None
 
 
-def requests_check(kernel: str, language: str, raw: object, datatype: str) -> RequestsCheck:
+def requests_check(kernel: str, language: Language, raw: object, datatype: str) -> RequestsCheck:
     """What ``requests`` (JSON ``raw``) resolves to for ``kernel`` in ``language`` at ``datatype``, built and
     graded nothing: the refusal a submission would get, or the C signature the kernel is called with, each
     pointer's element type and, laid out on one node, the extents of its packed buffer over the logical
     extents ``d0``, ``d1``, ...; with a grid, the distribution plan at ``mpi.ranks``. A malformed request
     raises ValueError."""
-    task = Task(kernel, "restricted", language, residency=grading_residency(kernel, language))
+    task = Task(kernel, SourceMode.RESTRICTED, language, residency=grading_residency(kernel, language))
     sent = Submission(language=language, source="/* checked, not built */", requests=Requests.validate(raw))
     probe = with_task_grid(sent, task)
     if isinstance(probe, str):
@@ -1069,7 +1107,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> Re
             for part, dtype in zip(group.parts, regroup.part_dtypes, strict=True):
                 arrays[part.name] = CheckedArray(dtype=dtype, extents=part.layout.extents(), unzips=group.name)
     signature = None
-    if language != PYTHON_LANG:
+    if language is not Language.PYTHON:
         call = native_call.kernel_binding(binding, regroups)
         template: native_call.KernelData = {name: np.empty(0, dtype) for name, dtype in templates.items()}
         marshal = native_call.CallMarshal.of(call, template, language, regroups)
@@ -1083,7 +1121,7 @@ def with_task_grid(submission: Submission, task: Task) -> Submission | str:
     distributed grade, or why not: the submission named a grid of its own. Its operations then lay the arrays
     out over that grid (:func:`mpi_descriptor.default_requests`'s). Elsewhere ``submission`` as it is."""
     requests = submission.requests
-    if task.residency != "distributed" or RequestAllowances.from_config().grid is not GridChooser.TASK:
+    if task.residency is not Residency.DISTRIBUTED or RequestAllowances.from_config().grid is not GridChooser.TASK:
         return submission
     if requests.distributed:
         return (
@@ -1128,7 +1166,7 @@ def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSp
     actions = ", ".join(sorted({op.action.value for op in handled}))
     if submission.is_python:
         return f"{actions} is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return f"{actions} without startup.grid on a distributed kernel: lay its arrays out per rank with a grid"
     binding = binding_from_spec(spec)
     sparse = {group.logical for group in binding.packed}
@@ -1162,7 +1200,7 @@ def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec)
     delivery, the ML track's rank-generated shards and device-resident MPI tiles are not covered yet."""
     if submission.is_python:
         return "cast is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         return None
     if torch_reference.has_torch_reference(spec):
         return "cast is not implemented on the ML track yet (its ranks generate their own inputs)"
@@ -1217,7 +1255,7 @@ def workspace_refusal(submission: Submission, task: Task) -> str | None:
     return None
 
 
-def distribution_refusal(submission: Submission, task: Task, preset: str) -> str | None:
+def distribution_refusal(submission: Submission, task: Task, preset: Preset) -> str | None:
     """The distribution rules enforced before anything is built, or ``None``.
 
     1. ``mpi.replicatable``: only the named arrays (and single-element ones) may be replicated;
@@ -1230,7 +1268,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
     non-distributed tasks and for legacy MPI kernels whose distribution cannot be resolved here
     (those stay scored failures)."""
     spec = BenchSpec.load(task.kernel)
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         return None
     ml_track = torch_reference.has_torch_reference(spec)
     binding = binding_from_spec(spec)
@@ -1251,7 +1289,9 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         descriptor = lead or Descriptor.from_submission(
             submission, binding, ranks, ndims=kernel_ndims(spec.mpi, binding)
         )
-        shapes = mpi_shard_driver.global_shapes(spec, spec.parameters[preset], [ptr.name for ptr in binding.pointers])
+        shapes = mpi_shard_driver.global_shapes(
+            spec, spec.parameters[preset.text], [ptr.name for ptr in binding.pointers]
+        )
     except (KeyError, ValueError, TypeError):  # TypeError: a range-valued preset (fuzzed) has no shapes
         return None
     refused = replication_refusal(descriptor, shapes, allowed)
@@ -1294,7 +1334,7 @@ def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: 
 def scales(task: Task) -> bool:
     """True when this task is graded over a scaling sweep: distributed residency on a dense kernel
     with a torch reference (:func:`torch_reference.has_torch_reference`). Sparse kernels never scale."""
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         return False
     spec = BenchSpec.load(task.kernel)
     return not spec.sparse_layouts and torch_reference.has_torch_reference(spec)
@@ -1309,7 +1349,7 @@ class GradedRequest(NamedTuple):
     final: "FinalRecord | None" = None
 
 
-def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: str, hidden: bool) -> GradedRequest:
+def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: Preset, hidden: bool) -> GradedRequest:
     """Grade one /score (``hidden`` False) or /submit request. A single-node /submit IS the final grade
     (mw4x5, :func:`grade_under.submit_grade`) and a single-node /score its preview (mw2x5,
     :func:`grade_under.score_grade`). The ML track grades the same protocols' inputs in one sharded launch
@@ -1322,7 +1362,7 @@ def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: st
         protocol = grade_under.FINAL if hidden else grade_under.SCORE
         result, curves, final = grade_under.scaling_protocol_grade(submission, task, cfg, protocol)
         return GradedRequest(result, curves, final)
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         if hidden:
             result, final = grade_under.submit_grade(submission, task, cfg, scorer=score)
             return GradedRequest(result, final=final)
@@ -1334,8 +1374,8 @@ def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: st
             preset=preset,
             datatype=cfg.datatype,
             repeat=cfg.repeat if hidden else local_repeat(),
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             hidden=hidden,
         )
     )
@@ -1348,7 +1388,7 @@ def record_result(
     task: Task,
     episode_id: str,
     optimizer: str | None,
-    preset: str,
+    preset: Preset,
     tokens: int = 0,
     curves: Sequence[metric.LawCurve] = (),
     final: "FinalRecord | None" = None,
@@ -1401,7 +1441,9 @@ def record_result(
     return answer
 
 
-#: The tool routes (:mod:`hpcagent_bench.harness.routes`), each a ``@route`` handler in its own module.
+#: The tool routes (:mod:`hpcagent_bench.harness.routes`), each a ``@route`` handler in its own module, the
+#: plugins' included (:func:`hpcagent_bench.plugins.load`).
+plugins.load()
 ROUTES = load()
 
 
@@ -1544,11 +1586,12 @@ class JudgeHandler(BaseHTTPRequestHandler):
 
         try:
             source_mode = task_source_mode(self.cfg.input_mode, library=bool(body.raw("library")))
-            task = Task(kernel, source_mode, body.text("language", default_request_language()))
+            language = delivery_language(body.text("language", default_request_language()), self.cfg.input_mode)
+            task = Task(kernel, source_mode, language)
             recording.record_call(
                 None,
                 task,
-                status=SCORE_ERROR_STATUS,
+                status=RunStatus.SCORE_ERROR,
                 route=graded_kind(self.route),
                 episode_id=body.text("episode_id", recording.ADHOC_EPISODE_ID),
                 optimizer=body.optional_text("optimizer"),
@@ -1625,21 +1668,24 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 HealthAnswer(
                     status="ok",
                     rank=self.judge_rank,
-                    oracle=self.cfg.oracle.value,
-                    baseline=self.cfg.baseline_token,
-                    input_mode=self.cfg.input_mode.value,
+                    oracle=self.cfg.oracle,
+                    baseline=self.cfg.baseline,
+                    input_mode=self.cfg.input_mode,
                     submits_in_flight=SUBMITS_IN_FLIGHT.count,
                 ),
             )
-        if (tool_route := ROUTES.get(route)) is not None:
-            return tool_route(self, parts, qs)
+        tool_route = ROUTES.get(route)
+        if tool_route is not None and HTTPMethod.GET in tool_route.methods:
+            if self.misrouted(first_param(qs, "rank")):
+                return None
+            return tool_route.handler(self, RouteRequest(HTTPMethod.GET, parts, qs, {}, ""))
         if route == "build":
             return self._build(parts, qs)
         if route != "baseline":
             return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         if self.misrouted(first_param(qs, "rank")):
             return None
-        kernel, language = self._task(parts, qs)
+        kernel, requested = self._task(parts, qs)
         # The run's size, never the query's (see serve_post); a preset in the query is ignored.
         preset = self.cfg.preset
         if not kernel:
@@ -1647,8 +1693,12 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 HTTPStatus.BAD_REQUEST, JudgeError(error="usage: GET /baseline/<kernel>?language=c&rank=<judge rank>")
             )
         try:
+            language = delivery_language(requested, self.cfg.input_mode)
+        except ValueError as exc:
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+        try:
             # score()/measure_baselines use the datatype string; baseline timing holds a device slot too.
-            t = Task(kernel, "restricted", language)
+            t = Task(kernel, SourceMode.RESTRICTED, language)
             with self.device_slot() as slot:
                 if slot is None:
                     return None
@@ -1658,7 +1708,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     preset=preset,
                     datatype=graded_datatype(BenchSpec.load(kernel), self.cfg.datatype),
                     repeat=self.cfg.repeat,
-                    baseline=self.cfg.baseline_token,
+                    baseline=self.cfg.baseline,
                 )
             return self.reply(HTTPStatus.OK, BaselineAnswer(kernel=kernel, preset=preset, baselines=bl))
         except Exception as exc:  # noqa: BLE001 -- infra failure (e.g. C emit) -> 500
@@ -1671,12 +1721,14 @@ class JudgeHandler(BaseHTTPRequestHandler):
         arrays, never a shell string."""
         if self.misrouted(first_param(qs, "rank")):
             return None
-        language = (parts[1] if len(parts) > 1 else "") or (qs.get("language") or [""])[0]
-        if language not in languages.LANG_EXT:
+        requested = (parts[1] if len(parts) > 1 else "") or (qs.get("language") or [""])[0]
+        compiled = {lang.text: lang for lang in languages.LANG_EXT}
+        if requested not in compiled:
             return self.reply(
                 HTTPStatus.BAD_REQUEST,
-                JudgeError(error=f"unknown language {language!r}; choose from {', '.join(sorted(languages.LANG_EXT))}"),
+                JudgeError(error=f"unknown language {requested!r}; choose from {', '.join(sorted(compiled))}"),
             )
+        language = compiled[requested]
         source = pathlib.Path(f"kernel.{languages.LANG_EXT[language]}")
         library = pathlib.Path("libkernel.so")
         # Sandbox.build's resolver: the requested or pinned family, and an offload leg's own driver.
@@ -1701,13 +1753,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 -- no compiler block wired for it here -> 500
             return self.reply(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                JudgeError(error=f"no build command for {language!r} on this judge: {exc}"),
+                JudgeError(error=f"no build command for {language.text!r} on this judge: {exc}"),
             )
         return self.reply(
             HTTPStatus.OK,
             BuildAnswer(
                 language=language,
-                mode=SUBMISSION_BUILD_MODE.value,
+                mode=SUBMISSION_BUILD_MODE,
                 source=source.name,
                 library=library.name,
                 commands=commands,
@@ -1728,19 +1780,42 @@ class JudgeHandler(BaseHTTPRequestHandler):
         kernel = body.raw("kernel")
         if not isinstance(kernel, str) or kernel not in KERNELS:
             return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"no task for {kernel!r}: unknown kernel"))
-        language = delivery_language(body.text("language", default_request_language()), self.cfg.input_mode)
         try:
+            language = delivery_language(body.text("language", default_request_language()), self.cfg.input_mode)
             datatype = graded_datatype(BenchSpec.load(kernel), self.cfg.datatype)
             answer = requests_check(kernel, language, body.raw("requests"), datatype)
         except ValueError as exc:
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         return self.reply(HTTPStatus.OK, answer)
 
+    def serve_tool_post(self, tool_route: Route, parts: list[str]) -> None:
+        """A ``POST`` to a tool route: from an episode this run started (:func:`unrecordable`) and this judge's rank,
+        else refused before the handler runs; the handler reads and validates its own body."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, TypeError) as exc:
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
+        if not isinstance(body, dict):
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error="the body must be a JSON object"))
+        fields = {str(key): value for key, value in cast("dict[object, object]", body).items()}
+        episode_id = fields.get("episode_id")
+        untrusted = unrecordable(episode_id if isinstance(episode_id, str) else None)
+        if untrusted is not None:
+            return self.reply(*untrusted)
+        if self.misrouted(fields.get("rank")):
+            return None
+        query = parse_qs(urlparse(self.path).query)
+        return tool_route.handler(self, RouteRequest(HTTPMethod.POST, parts, query, fields, str(episode_id)))
+
     def serve_post(self) -> None:
         parts = urlparse(self.path).path.strip("/").split("/")
         route = parts[0]  # str.split("/") is never empty, so parts[0] is always safe
         if route == "requests" and parts[1:] == ["check"]:
             return self.serve_requests_check()
+        tool_route = ROUTES.get(route)
+        if tool_route is not None and HTTPMethod.POST in tool_route.methods:
+            return self.serve_tool_post(tool_route, parts)
         if route not in ("submit", "score", "profile"):
             return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         try:
@@ -1757,22 +1832,15 @@ class JudgeHandler(BaseHTTPRequestHandler):
             return None
         kernel = body.raw("kernel")
         requested = body.text("language", default_request_language())
-        language = delivery_language(requested, self.cfg.input_mode)
+        try:
+            language = delivery_language(requested, self.cfg.input_mode)
+        except ValueError as exc:
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         refusal = gpu_language_refusal(language) or python_residency_refusal(requested)
         if refusal is not None:
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=refusal))
         # The run's configured size on every route; a body cannot name one (RequestFields has no preset).
         preset = self.cfg.preset
-        # A client preset naming nothing is a request fault (400, not a 500 from score()). Only bare
-        # presets: ``+fuzz`` modifiers set process-global overrides.
-        if preset not in PRESET_CHOICES:
-            return self.reply(
-                HTTPStatus.BAD_REQUEST,
-                JudgeError(
-                    error=f"unknown preset {preset!r}; choose from {', '.join(PRESET_CHOICES)}. "
-                    "Size modifiers such as '+fuzz' are set by the run, not per request."
-                ),
-            )
         # A non-str kernel is a body-shape fault: the registry lookup below would raise TypeError on it.
         if not isinstance(kernel, str) or not kernel:
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error="body must include 'kernel' (a kernel name)"))
@@ -1819,7 +1887,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if refused is not None:
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=refused))
         if route == "profile":
-            return self._profile(submission, task, body, preset)
+            try:
+                sized = profile_size(body.optional_text("size"), preset)
+            except ValueError as exc:
+                return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+            return self._profile(submission, task, body, sized)
         # The grade's datatype is the kernel's when it crosses the ABI in one storage-only precision
         # (bf16 ML operators).
         cfg = dataclasses.replace(self.cfg, datatype=graded_datatype(BenchSpec.load(kernel), self.cfg.datatype))
@@ -1863,9 +1935,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
         submission: Submission,
         task: Task,
         body: RequestBody,
-        preset: str,
+        preset: Preset,
         kernel: str,
-        language: str,
+        language: Language,
         cfg: RunConfig,
         curves: Sequence[metric.LawCurve] = (),
         final: "FinalRecord | None" = None,
@@ -1892,13 +1964,13 @@ class JudgeHandler(BaseHTTPRequestHandler):
         print(f"judge: /submit {request_id} {kernel} recorded={recorded.to_json()}", file=sys.stderr, flush=True)
         if recorded.judge_fault:
             result = dataclasses.replace(result, harness_fault=True)
-        if config.current().service.submit_feedback != "full":
+        if config.current().service.submit_feedback is not SubmitFeedback.FULL:
             return self.reply(HTTPStatus.OK, submit_verdict(result, request_id))
         return self.reply(
             HTTPStatus.OK, grade_answer(result, kernel, language, preset, task.residency, recorded, request_id)
         )
 
-    def _profile(self, submission: Submission, task: Task, body: RequestBody, preset: str) -> None:
+    def _profile(self, submission: Submission, task: Task, body: RequestBody, preset: Preset) -> None:
         """``POST /profile``: the diagnostic route; ``tool`` picks the instrument. Nothing is graded or
         recorded; every branch holds a device slot.
 
@@ -1948,7 +2020,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             return self.reply(
                 HTTPStatus.BAD_REQUEST,
                 JudgeError(
-                    error=f"tool {tool!r} does not serve {task.language!r}: "
+                    error=f"tool {tool!r} does not serve {task.language.text!r}: "
                     f"trace a device submission with {device_tool!r}, or count it with {compute_tool!r}"
                 ),
             )
@@ -1962,10 +2034,14 @@ class JudgeHandler(BaseHTTPRequestHandler):
             verb = "counts" if tool in COMPUTE_DEVICE_TOOLS.values() else "traces"
             return self.reply(
                 HTTPStatus.BAD_REQUEST,
-                JudgeError(error=f"tool {tool!r} {verb} a device submission: profile {task.language!r} with {served}"),
+                JudgeError(
+                    error=f"tool {tool!r} {verb} a device submission: profile {task.language.text!r} with {served}"
+                ),
             )
         try:
-            task = dataclasses.replace(task, residency=body.text("residency", task.residency))
+            requested_residency = body.optional_text("residency")
+            if requested_residency is not None:
+                task = dataclasses.replace(task, residency=Residency.parse(requested_residency))
             min_percent = body.number("min_percent", 1.0)
             if not 0.0 <= min_percent <= 100.0:  # NaN fails this too
                 return self.reply(
@@ -2194,7 +2270,7 @@ def serve(
     """Run the judge service until interrupted (``hpcagent-bench serve``)."""
     enable_crash_traces()
     # Threaded server: fork isolated calls through forkserver (fork from a thread can deadlock).
-    config.set_override("runtime.mp_context", "forkserver")
+    config.set_override("runtime.mp_context", MpContext.FORKSERVER)
     # Preload heavy modules into the forkserver so each timed fork skips the import.
     multiprocessing.set_forkserver_preload(FORKSERVER_PRELOAD)
     cfg = cfg or from_config()
@@ -2207,8 +2283,8 @@ def serve(
     srv = make_server(host, port, cfg, rank=rank)
     print(
         f"hpcagent_bench judge service on http://{host}:{port}  "
-        f"(rank={rank}, oracle={cfg.oracle.value}, baseline={cfg.baseline_token}, "
-        f"input_mode={cfg.input_mode.value}, preset={cfg.preset})"
+        f"(rank={rank}, oracle={cfg.oracle.text}, baseline={baseline_text(cfg.baseline)}, "
+        f"input_mode={cfg.input_mode.text}, preset={cfg.preset.text})"
     )
 
     # Re-raise SIGTERM as KeyboardInterrupt so serve_forever unwinds cleanly.

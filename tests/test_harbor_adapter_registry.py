@@ -12,8 +12,8 @@ import types
 import pytest
 
 from hpcagent_bench import harbor, paths
+from hpcagent_bench.categories import Track
 from hpcagent_bench.languages import LANG_EXT
-from hpcagent_bench.spec import Track
 from hpcagent_bench.stats import score_rule
 from tests.fresh_module import module_at
 
@@ -33,8 +33,8 @@ def test_the_committed_metadata_is_what_the_module_derives() -> None:
 
 def test_the_metadata_speaks_the_release_vocabulary() -> None:
     meta = harbor.adapter_metadata()
-    assert meta["tracks"] == [track.value for track in Track]
-    assert meta["languages"] == sorted(LANG_EXT)
+    assert meta["tracks"] == list(Track.texts())
+    assert meta["languages"] == sorted(language.text for language in LANG_EXT)
     scoring = meta["scoring"]
     assert isinstance(scoring, dict)
     assert scoring["score_rule"] == score_rule.SCORE_RULE
@@ -55,7 +55,7 @@ def test_run_adapter_generates_what_harbor_generate_does(tmp_path: pathlib.Path)
     assert harbor.validate_task(dirs[0]) == []
     meta = tomllib.loads((dirs[0] / "task.toml").read_text())["metadata"]
     assert meta["language"] == "c"
-    assert meta["track"] in {track.value for track in Track}
+    assert meta["track"] in set(Track.texts())
     assert meta["score_rule"] == score_rule.SCORE_RULE
 
 

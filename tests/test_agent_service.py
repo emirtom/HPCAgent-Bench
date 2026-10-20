@@ -16,11 +16,13 @@ import urllib.request
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness import grading
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.service import ServiceConfig, make_server
 from hpcagent_bench.harness.tools import error_with_body
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import SubmitFeedback
 from tests.conftest import RANK_ENV_VARS
 from tests.rerun_stubs import pass_reruns
 
@@ -105,8 +107,8 @@ def test_submit_scores_the_reference() -> None:
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
-    src = reference_source(Task("gemm", "restricted", "c"))
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     try:
         code, body = _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "source": src})
         # /submit answers the verdict alone.
@@ -148,7 +150,7 @@ def test_profile_tool_none_returns_what_the_agents_own_source_printed() -> None:
     from hpcagent_bench.harness.task import Task
 
     marker = "AGENT-INSTRUMENT-MARKER"
-    src = reference_source(Task("gemm", "restricted", "c")) + (
+    src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C)) + (
         f"\n#include <stdio.h>\n__attribute__((constructor)) static void hpcagent_marker(void)\n"
         f'{{ printf("{marker}\\n"); fflush(stdout); }}\n'
     )
@@ -209,8 +211,8 @@ def test_profile_opt_report_answers_the_graded_toolchain_and_its_report() -> Non
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
-    src = reference_source(Task(LOOP_KERNEL, "restricted", "c"))
-    want = languages.submission_toolchain("c")
+    src = reference_source(Task(LOOP_KERNEL, SourceMode.RESTRICTED, Language.C))
+    want = languages.submission_toolchain(Language.C)
     srv, port = _server(ServiceConfig())
     try:
         body = {"kernel": LOOP_KERNEL, "language": "c", "rank": RANK, "tool": "opt-report", "source": src}
@@ -275,8 +277,8 @@ def test_score_is_public_only_and_submit_grades_the_hidden_seed() -> None:
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
-    src = reference_source(Task("gemm", "restricted", "c"))
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source": src}
         code, scored = _post(port, "/score", body)
@@ -286,7 +288,7 @@ def test_score_is_public_only_and_submit_grades_the_hidden_seed() -> None:
         assert scored["correct"] is True
         assert scored["hidden_total"] == 0, "/score must never touch the hidden seed"
         assert "recorded" not in scored, "/score must never record"
-        with config.overridden("service.submit_feedback", "full"):  # the grade, as the router sees it
+        with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # the grade, as the router sees it
             code, submitted = _post(port, "/submit", body)
         assert code == 200
         assert submitted["correct"] is True
@@ -324,8 +326,8 @@ def test_submit_records_the_episode_id_and_optimizer_the_body_carried(tmp_path, 
     }
     pass_reruns(monkeypatch)
     episode_id = "llr-cpp.n1.p7.w3"
-    src = reference_source(Task("gemm", "restricted", "c"))
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
             stack.enter_context(config.overridden(key, value))
@@ -413,13 +415,13 @@ def test_an_ml_submit_records_both_scaling_curves_and_holes_beside_the_row(
         "service.submit_feedback": "full",
     }
     pass_reruns(monkeypatch)
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
             stack.enter_context(config.overridden(key, value))
         try:
             body = {"kernel": "gemm", "language": "c", "rank": RANK, "episode_id": "mlscale-x.n0.p0.w0"}
-            body["source"] = reference_source(Task("gemm", "restricted", "c"))
+            body["source"] = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
             code, submitted = _post(port, "/submit", body)
             assert code == 200, submitted["recorded"]
             assert submitted["recorded"]["table"] == "submission", submitted["recorded"]
@@ -477,14 +479,14 @@ def test_an_ml_score_measures_both_laws_without_the_fuzz_gate_and_records_nothin
     monkeypatch.setattr(
         service.metric, "score_ml_distributed", lambda *a, **k: asked.append(k) or (graded, ml_law_curves())
     )
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     with contextlib.ExitStack() as stack:
         stack.enter_context(config.overridden("record.db_path", str(tmp_path / "hpcagent_bench.db")))
         stack.enter_context(config.overridden("record.allow_memory_db", True))
         stack.enter_context(config.overridden("record.enabled", True))
         try:
             body = {"kernel": "gemm", "language": "c", "rank": RANK, "episode_id": "mlscale-x.n0.p0.w0"}
-            body["source"] = reference_source(Task("gemm", "restricted", "c"))
+            body["source"] = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
             code, scored = _post(port, "/score", body)
             assert code == 200
             assert scored["correct"] is True
@@ -533,7 +535,7 @@ def test_a_bf16_ml_kernel_is_graded_scored_and_verified_in_bf16(
         "record.enabled": True,
         "service.submit_feedback": "full",
     }
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
             stack.enter_context(config.overridden(key, value))
@@ -559,8 +561,8 @@ def test_a_body_naming_a_preset_is_refused_on_every_graded_route() -> None:
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
-    src = reference_source(Task("gemm", "restricted", "c"))
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2, preset="S"))
+    src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2, preset=Preset.S))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source": src, "preset": "M"}
         for route in ("/submit", "/score"):
@@ -615,8 +617,8 @@ def test_a_source_file_in_the_shared_folder_is_read_compiled_and_scored(tmp_path
     from hpcagent_bench.harness.task import Task
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    (tmp_path / "gemm.c").write_text(reference_source(Task("gemm", "restricted", "c")))
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    (tmp_path / "gemm.c").write_text(reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C)))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source_file": "gemm.c"}
         code, scored = _post(port, "/score", body)
@@ -694,7 +696,7 @@ def test_a_triton_setup_is_graded_as_python_on_a_py_binding_judge() -> None:
 
 def test_a_plain_numpy_module_is_not_a_triton_submission() -> None:
     """The setup measures Triton: numpy delivered under its name is refused before it is built."""
-    srv, port = _server(ServiceConfig(input_mode="py-binding", oracle="auto", baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(input_mode="py-binding", oracle=Oracle.AUTO, baseline="auto", repeat=2))
     source = "def kernel(alpha, beta, C, A, B):\n    return alpha * A @ B + beta * C\n"
     try:
         code, err = _refusal(port, {"kernel": "gemm", "language": "triton", "rank": RANK, "source": source})
@@ -732,5 +734,5 @@ def test_record_enabled_false_stops_every_persistence_path_not_just_submit() -> 
         raise AssertionError("record_result persisted with record.enabled false")
 
     with config.overridden("record.enabled", False):
-        out = record_result(boom, boom, boom, boom, "run-1", "offline-regrade", "M")
+        out = record_result(boom, boom, boom, boom, "run-1", "offline-regrade", Preset.M)
     assert out.to_json() == {"skipped": "record.enabled is false"}

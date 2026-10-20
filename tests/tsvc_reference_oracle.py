@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from hpcagent_bench import languages, modules, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision
@@ -73,7 +74,7 @@ def build(source: pathlib.Path, out_so: pathlib.Path) -> str | None:
     to look at even when it links.
     """
     for argv in languages.build_shared_lib_commands(
-        "c",
+        Language.C,
         source,
         out_so,
         mode=Mode.SINGLE_CORE,

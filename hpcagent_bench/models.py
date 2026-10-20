@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The LLMs, standalone optimizers, agent harnesses, languages and devices a figure names.
 
-``order`` is the slot each entry's colour and marker are read from (:mod:`hpcagent_bench.vocabulary`,
-``docs/extending/registry.md``). Never renumber one: a new entry takes the next free slot, so no entry already
-drawn changes colour or shape.
+Registration order is each entry's slot (colour and marker): add a new entry last.
 """
 
 from hpcagent_bench.columns import FRAMEWORKS
@@ -19,16 +17,16 @@ __all__ = ["dace_flavors"]
 # precision IS the variable, the caption says so once.
 
 
-MODELS.add("qwen38", ModelEntry("Qwen3.8-27B", "Qwen/Qwen3.8-27B-FP8"), order=0)
+MODELS.add("qwen38", ModelEntry("Qwen3.8-27B", "Qwen/Qwen3.8-27B-FP8"))
 
 
-MODELS.add("oss120b", ModelEntry("OSS-120B", "openai/gpt-oss-120b"), order=1)
+MODELS.add("oss120b", ModelEntry("OSS-120B", "openai/gpt-oss-120b"))
 
 
-MODELS.add("kimi27sglang", ModelEntry("Kimi-K2.7", "moonshotai/Kimi-K2.7-Code"), order=2)
+MODELS.add("kimi27sglang", ModelEntry("Kimi-K2.7", "moonshotai/Kimi-K2.7-Code"))
 
 
-MODELS.add("glm53", ModelEntry("GLM-5.3", "zai-org/GLM-5.3"), order=3)
+MODELS.add("glm53", ModelEntry("GLM-5.3", "zai-org/GLM-5.3"))
 
 
 def dace_flavors(stage: DaceStage) -> tuple[str, ...]:
@@ -43,16 +41,16 @@ def dace_flavors(stage: DaceStage) -> tuple[str, ...]:
 # device variants are aliases, since the optimizer is the same one on either device.
 
 
-OPTIMIZERS.add("dace", "DaCe+AOpt", order=0, aliases=(*dace_flavors(DaceStage.PARALLEL), "dace_cpu", "dace_gpu"))
+OPTIMIZERS.add("dace", "DaCe+AOpt", aliases=(*dace_flavors(DaceStage.PARALLEL), "dace_cpu", "dace_gpu"))
 
 
-OPTIMIZERS.add("cpf", "DaCe+CPF", order=1, aliases=dace_flavors(DaceStage.CANON))
+OPTIMIZERS.add("cpf", "DaCe+CPF", aliases=dace_flavors(DaceStage.CANON))
 
 
-OPTIMIZERS.add("pluto", "Pluto", order=2)
+OPTIMIZERS.add("pluto", "Pluto")
 
 
-OPTIMIZERS.add("ppcg_hip", "PPCG (CUDA via hipify)", order=3)
+OPTIMIZERS.add("ppcg_hip", "PPCG (CUDA via hipify)")
 
 
 # Agent harnesses
@@ -60,23 +58,25 @@ OPTIMIZERS.add("ppcg_hip", "PPCG (CUDA via hipify)", order=3)
 # its model.
 
 
-HARNESSES.add("claude", "Claude Code", order=0)
+HARNESSES.add("claude", "Claude Code")
 
 
-HARNESSES.add("miniswe", "mini-SWE-agent", order=1)
+HARNESSES.add("miniswe", "mini-SWE-agent")
 
 
-HARNESSES.add("openhands", "OpenHands", order=2)
+HARNESSES.add("openhands", "OpenHands")
 
 
-# Slot 3 is Optimas', which it held before it was dropped (fe5373d2c) and holds again.
-HARNESSES.add("optimas", "Optimas", order=3)
+HARNESSES.add("optimas", "Optimas")
 
 
-HARNESSES.add("anthropic", "Anthropic Messages API", order=4)
+HARNESSES.add("anthropic", "Anthropic Messages API")
 
 
-HARNESSES.add("openai", "OpenAI Agents SDK", order=5)
+HARNESSES.add("openai", "OpenAI Agents SDK")
+
+# A non-LLM tuner run like an agent (harness tuner, layers/tuner.env).
+HARNESSES.add("tuner", "Tuner")
 
 
 # Languages
@@ -85,41 +85,41 @@ HARNESSES.add("openai", "OpenAI Agents SDK", order=5)
 # write.
 
 
-LANGUAGES.add("c", "C", order=0)
+LANGUAGES.add("c", "C")
 
 
-LANGUAGES.add("cpp", "C++", order=1)
+LANGUAGES.add("cpp", "C++")
 
 
-LANGUAGES.add("fortran", "Fortran", order=2)
+LANGUAGES.add("fortran", "Fortran")
 
 
-LANGUAGES.add("python", "Python", order=3)
+LANGUAGES.add("python", "Python")
 
 
-LANGUAGES.add("cuda", "CUDA", order=4)
+LANGUAGES.add("cuda", "CUDA")
 
 
-LANGUAGES.add("hip", "HIP", order=5)
+LANGUAGES.add("hip", "HIP")
 
 
-LANGUAGES.add("triton", "Triton", order=6)
+LANGUAGES.add("triton", "Triton")
 
 
-LANGUAGES.add("omp", "OpenMP", order=7)
+LANGUAGES.add("omp", "OpenMP")
 
 
 # Devices
 # Where the kernel was TIMED. `cpu` is the default a launcher stamps when it says nothing.
 
 
-DEVICES.add("cpu", "CPU", order=0)
+DEVICES.add("cpu", "CPU")
 
 
-DEVICES.add("gpu", "GPU", order=1)
+DEVICES.add("gpu", "GPU")
 
 
-DEVICES.add("cpu-multinode", "CPU, Multi-Node", order=2)
+DEVICES.add("cpu-multinode", "CPU, Multi-Node")
 
 
-DEVICES.add("gpu-multinode", "GPU, Multi-Node", order=3)
+DEVICES.add("gpu-multinode", "GPU, Multi-Node")

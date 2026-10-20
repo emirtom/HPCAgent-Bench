@@ -13,6 +13,7 @@ from typing import NamedTuple
 
 import numpy as np
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type, canonical, is_storage_only, storage_typedef
 from hpcagent_bench.harness import precision_casts
 from hpcagent_bench.harness.mpi_wire import TYPE_CODES, VERSION
@@ -44,7 +45,7 @@ __all__ = [
 
 def mpi_symbol(binding: Binding) -> str:
     """The distinct MPI entry symbol ``<base>_mpi``, never colliding with the single-node ``<base>_fp64``."""
-    c = binding.symbols["c"]
+    c = binding.symbols[Language.C]
     base = c.removesuffix("_fp64")
     return f"{base}_mpi"
 
@@ -60,28 +61,28 @@ def kernel_library_path(exe: Path) -> Path:
 #: same-width unsigned typedef instead (it only moves bytes). Both are 2-byte types passed by address
 #: and extern "C" does not mangle parameter types, so the agent's definition links against the
 #: driver's declaration although the two spell the element differently.
-GPU_ELEMENT_TYPE: dict[tuple[str, str], str] = {
-    ("hip", "bfloat16"): "__hip_bfloat16",
-    ("cuda", "bfloat16"): "__nv_bfloat16",
+GPU_ELEMENT_TYPE: dict[tuple[Language, str], str] = {
+    (Language.HIP, "bfloat16"): "__hip_bfloat16",
+    (Language.CUDA, "bfloat16"): "__nv_bfloat16",
 }
 
 #: The header that declares each :data:`GPU_ELEMENT_TYPE` spelling.
-GPU_ELEMENT_HEADER: dict[tuple[str, str], str] = {
-    ("hip", "bfloat16"): "<hip/hip_bf16.h>",
-    ("cuda", "bfloat16"): "<cuda_bf16.h>",
+GPU_ELEMENT_HEADER: dict[tuple[Language, str], str] = {
+    (Language.HIP, "bfloat16"): "<hip/hip_bf16.h>",
+    (Language.CUDA, "bfloat16"): "<cuda_bf16.h>",
 }
 
 #: Languages a C++ front end parses: their definition must be extern "C" to link to the driver.
-CXX_PARSED_LANGS = frozenset({"cpp", "hip", "cuda"})
+CXX_PARSED_LANGS: frozenset[Language] = frozenset({Language.CPP, Language.HIP, Language.CUDA})
 
 
-def element_type(dtype: str, lang: str = "c") -> str:
+def element_type(dtype: str, lang: Language = Language.C) -> str:
     """The element type a ``lang`` source spells ``dtype`` with: the vendor bf16 type on a GPU
     language, else :func:`~hpcagent_bench.support.bindings.contract.lang_type`."""
     return GPU_ELEMENT_TYPE.get((lang, canonical(dtype)), lang_type(dtype, lang))
 
 
-def kernel_signature(binding: Binding, sym: str, lang: str = "c") -> str:
+def kernel_signature(binding: Binding, sym: str, lang: Language = Language.C) -> str:
     """The Sec. 12 signature: local pointer tiles -> local scalars -> the Cartesian comm -> the workspace
     pair. Shared by the stub and the driver's extern so agent and harness agree on the linkage-level
     ABI. ``lang`` picks the ``restrict`` spelling (Sec. 5) and, for a storage-only element on a GPU
@@ -93,7 +94,7 @@ def kernel_signature(binding: Binding, sym: str, lang: str = "c") -> str:
     return f"void {sym}(\n    {sig})"
 
 
-def gen_kernel_mpi_stub(binding: Binding, lang: str = "c") -> str:
+def gen_kernel_mpi_stub(binding: Binding, lang: Language = Language.C) -> str:
     """The agent-facing ``kernel_mpi`` stub (Sec. 12): an empty body marked :data:`STUB_BODY`, never a reference solution.
     Each pointer is this rank's owned interior tile; each symbol is its LOCAL extent. A C++ submission gets
     the C++ spellings -- ``__restrict__`` (bare ``restrict`` is C99, g++ rejects it) behind ``extern "C"``

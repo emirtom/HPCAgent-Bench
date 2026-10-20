@@ -1,27 +1,10 @@
 # The optional anthropic package is installed only in its agent image.
 # pyright: reportMissingImports=false
-"""Anthropic Messages API (anthropic 1.15.0) runner for one HPCAgent-Bench episode.
+"""Anthropic Messages API runner for one episode: a tool-use loop over the benchmark MCP server's tools and the
+shell tool, ending at the first reply that calls no tool.
 
-A minimal tool-use loop over ``AsyncAnthropic.messages.stream``: the rendered prompt is the first user
-turn, and the episode ends at the first reply that calls no tool. The tools are the benchmark MCP
-server's, listed and called over stdio through the mcp SDK's ``ClientSession`` from the driver's
-``mcp.json`` (``runner_common.mcp_servers``), plus ``runner_common.SHELL_TOOL``. Every tool is the SDK's
-own runnable form (``anthropic.lib.tools.mcp.async_mcp_tool``, ``beta_async_tool``), which converts the
-MCP result into tool-result blocks and an error result into ``is_error``.
-
-The request is the one the claude CLI sends the same server (``/v1/messages`` at the server root):
-``thinking: {"type": "adaptive"}``, and ``output_config.effort`` when the driver resolved a rung. The
-driver owns wall clock and tokens; it also owns the reply cap (``max_tokens``), the request timeout and
-the compaction trigger, past which ``runner_common.HistoryWindow`` sends the task and the newest steps
-only. A reply cut off at ``max_tokens`` before it called a tool is answered with :data:`CONTINUE_NOTE`
-instead of ending the episode, as the claude CLI recovers from one. A reply cut off inside a tool call
-carries that call's input as far as it streamed (the SDK parses partial JSON), so the call is not run:
-it is answered with an error result, :data:`CUT_OFF_NOTE`, and the model resends it -- a truncated
-``submit`` must never spend the single submission.
-
-Writes ``usage.jsonl`` (one line per model call), ``anthropic.messages.jsonl`` (every message of the
-history, one per line) and ``harness-end.json``; see ``runner_common``. Prints ``harness: tools ready:
-...`` once the MCP servers have listed their tools.
+A reply cut off at ``max_tokens`` is continued (:data:`CONTINUE_NOTE`); a cut-off tool call is never run
+(:data:`CUT_OFF_NOTE`). Writes ``usage.jsonl``, ``anthropic.messages.jsonl`` and ``harness-end.json``.
 """
 
 import asyncio
@@ -84,15 +67,15 @@ def request_params(
     return params
 
 
-def stop_outcome(stop_reason: str | None) -> tuple[str, str] | None:
+def stop_outcome(stop_reason: str | None) -> tuple[runner_common.EndReason, str] | None:
     """How a reply that called no tool ends the episode; ``None`` when the loop continues past it."""
     if stop_reason in CONTINUED_STOPS:
         return None
     if stop_reason in FINISHED_STOPS:
-        return runner_common.FINISHED, ""
+        return runner_common.EndReason.FINISHED, ""
     if stop_reason == "model_context_window_exceeded":
-        return runner_common.CONTEXT_OVERFLOW, f"stop_reason={stop_reason}"
-    return runner_common.ERROR, f"stop_reason={stop_reason}"
+        return runner_common.EndReason.CONTEXT_OVERFLOW, f"stop_reason={stop_reason}"
+    return runner_common.EndReason.ERROR, f"stop_reason={stop_reason}"
 
 
 class Transcript:
@@ -172,7 +155,9 @@ async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, A
     return results
 
 
-async def run_episode_async(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+async def run_episode_async(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the tool-use loop to its end; return (end reason, detail)."""
     import anthropic
 
@@ -219,7 +204,9 @@ async def run_episode_async(args: runner_common.RunnerArgs, usage_log: runner_co
                 transcript.append(messages, {"role": "user", "content": CONTINUE_NOTE})
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     return asyncio.run(run_episode_async(args, usage_log))
 
 

@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A method packet (``AGENT_PACKET``) reaches the agent through the MCP server and the driver, and an
+"""A method packet (``AGENT_METHOD`` and its tools) reaches the agent through the MCP server and the driver, and an
 setup without one sees exactly the core tools and its own hints.
 
 Also the other direction: a tool a PACKET brings must be absent from every setup that packet did not
@@ -9,7 +9,6 @@ build. ``canonical_parallel_form`` was served in all of them -- 24 of 40 bare ag
 holds, which is a turn spent and a treatment leaked into the control."""
 
 import json
-import os
 import subprocess
 import sys
 from types import ModuleType
@@ -18,10 +17,12 @@ import pytest
 
 from hpcagent_bench import paths
 from tests.fresh_module import fresh
-from tests.mcp_stdio import server_env, served_tools, tool_names
+from tests.mcp_stdio import served_tools, server_env, tool_names
 
 REPO = paths.ROOT
-PACKET = REPO / "agent" / "hpcagent_agent" / "packets" / "autokernel"
+METHOD = REPO / "plugins" / "autokernel" / "methods" / "autokernel" / "method.md"
+#: What the autokernel packet exports: its method and its tool.
+AUTOKERNEL = {"AGENT_METHOD": "autokernel", "HPCAGENT_BENCH_PACKET_TOOLS": "experiment"}
 #: ``search`` is excluded: it is not a core tool (only the ``web-search`` packet carries it).
 CORE_TOOLS = {"score", "submit", "profile", "syntax_check"}
 
@@ -64,8 +65,8 @@ def test_without_a_packet_the_server_serves_the_core_tools_only() -> None:
 
 
 def test_the_autokernel_packet_adds_the_study_tool_to_the_core_tools() -> None:
-    """Every packet module becomes a tool named by its stem, next to the unchanged core set."""
-    result = served_tools(AGENT_PACKET="autokernel")
+    """The plugin's tool is served next to the unchanged core set."""
+    result = served_tools(**AUTOKERNEL)
     assert result.returncode == 0, result.stderr
     assert tool_names(result) == CORE_TOOLS | {"experiment"}
 
@@ -128,8 +129,10 @@ def test_every_tool_a_packet_declares_is_a_gated_tool_of_the_server() -> None:
     from hpcagent_bench import study_tags
 
     declared = {tool for definition in study_tags.registry().packet_defs.values() for tool in definition.tools}
-    module = fresh("mcp_server")
-    gated = {name for name, entry in module.REGISTRY.items() if not entry.core}
+    from hpcagent_agent.tools import registry
+
+    fresh("mcp_server").load_tools()
+    gated = {name for name, entry in registry.REGISTRY.items() if not entry.core}
     assert declared == gated
 
 
@@ -143,9 +146,9 @@ def test_the_http_loop_prompt_documents_the_packet_tool_only_where_the_run_serve
     from hpcagent_bench.harness import prompts
 
     monkeypatch.setenv(TOOLS_ENV, "")
-    assert "tools/canonical-parallel-form.md" not in prompts.tool_fragments()
+    assert "tools/canonical_parallel_form.md" not in prompts.tool_fragments()
     monkeypatch.setenv(TOOLS_ENV, "canonical_parallel_form")
-    assert "tools/canonical-parallel-form.md" in prompts.tool_fragments()
+    assert "tools/canonical_parallel_form.md" in prompts.tool_fragments()
 
 
 def test_a_packet_tool_page_is_staged_by_that_packet_and_by_no_other() -> None:
@@ -161,18 +164,17 @@ def test_a_packet_tool_page_is_staged_by_that_packet_and_by_no_other() -> None:
     assert set(packets.resolve("cpf-tool", "c", environ={"CPF_VIEW": "/views/cpf"}).pages) == {"cpf-tool-cpu"}
 
 
-def test_an_unknown_packet_stops_the_server() -> None:
-    """A misnamed packet must fail the MCP start, which the driver retries and reports, instead of
-    serving a core-only setup that records itself as the packet setup."""
-    result = served_tools(AGENT_PACKET="nosuchpacket")
+def test_an_unknown_packet_tool_stops_the_server() -> None:
+    """A misnamed packet tool must fail the MCP start instead of serving a setup that lacks it."""
+    result = served_tools(HPCAGENT_BENCH_PACKET_TOOLS="nosuchtool")
     assert result.returncode != 0
-    assert "nosuchpacket" in result.stderr
-    assert "packet.md" in result.stderr
+    assert "nosuchtool" in result.stderr
 
 
 def test_without_a_packet_the_driver_adds_no_tools_and_no_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unset AGENT_PACKET: no packet tool is allowed, and the hints slot is empty."""
-    monkeypatch.delenv("AGENT_PACKET", raising=False)
+    """No method: no packet tool is allowed, and the hints slot is empty."""
+    monkeypatch.delenv("AGENT_METHOD", raising=False)
+    monkeypatch.delenv(TOOLS_ENV, raising=False)
     driver = load_driver()
     assert "experiment" not in driver.agent_tools()
     assert driver.hints_text() == ""
@@ -181,16 +183,17 @@ def test_without_a_packet_the_driver_adds_no_tools_and_no_text(monkeypatch: pyte
 def test_the_driver_fills_the_hints_slot_with_the_packet_text_and_allows_its_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AGENT_PACKET=autokernel: the hints slot holds packet.md, and claude's allow-list gains the packet's tools."""
-    monkeypatch.setenv("AGENT_PACKET", "autokernel")
+    """The autokernel packet: the hints slot holds its method.md, and claude's allow-list gains its tool."""
+    for name, value in AUTOKERNEL.items():
+        monkeypatch.setenv(name, value)
     driver = load_driver()
     assert driver.agent_tools().count("experiment") == 1, "allowed once, as the server serves it"
-    assert driver.hints_text() == (PACKET / "packet.md").read_text(encoding="utf-8").strip()
+    assert driver.hints_text() == METHOD.read_text(encoding="utf-8").strip()
 
 
 def test_an_unknown_packet_stops_the_driver(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The driver refuses a packet with no packet.md rather than launching agents without the method."""
-    monkeypatch.setenv("AGENT_PACKET", "nosuchpacket")
+    """The driver refuses a method no plugin ships rather than launching agents without it."""
+    monkeypatch.setenv("AGENT_METHOD", "nosuchpacket")
     driver = load_driver()
     with pytest.raises(SystemExit, match="nosuchpacket"):
         driver.hints_text()

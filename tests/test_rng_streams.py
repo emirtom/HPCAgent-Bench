@@ -11,6 +11,7 @@ on threads all change the data.
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision, numpy_dtype, safe_max
 from hpcagent_bench.spec import KERNELS, BenchSpec
@@ -106,6 +107,6 @@ def test_standard_distributions_follow_their_stream(name: str) -> None:
 @pytest.mark.parametrize("stem_spec", auto_init_specs(), ids=lambda s: s[0])
 def test_auto_initialize_is_reproducible(stem_spec: tuple[str, BenchSpec]) -> None:
     _, spec = stem_spec
-    a = auto_initialize(spec, "S", Precision.FP64, seed=42)
-    b = auto_initialize(spec, "S", Precision.FP64, seed=42)
+    a = auto_initialize(spec, Preset.S, Precision.FP64, seed=42)
+    b = auto_initialize(spec, Preset.S, Precision.FP64, seed=42)
     assert all(np.array_equal(x, y) for x, y in zip(a, b, strict=False))

@@ -7,7 +7,6 @@ packet:
   # Terse-output style (adapted from JuliusBrussee/caveman, MIT, agent/caveman-LICENSE.txt) as a skill
   # page with its own trigger, like every other treatment: no skill text rides in the main prompt. The
   # page is ``applies: {explicit: true}``, so ``*`` never stages it.
-  order: 20
   name: "Terse"
   marker: "v"
   short: "Terse"

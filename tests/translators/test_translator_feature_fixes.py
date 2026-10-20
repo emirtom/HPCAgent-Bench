@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.translators.numpyto_common.frontend import shape_from_constructor
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_arange, expand_fromfunction
@@ -651,7 +652,7 @@ E2E_BACKENDS = {"conv2d": {"c", "cpp", "fortran", "numba", "pythran", "jax"}}
 @pytest.mark.parametrize(("kernel", "feature"), E2E, ids=[k for k, unused in E2E])
 def test_feature_kernels_e2e(kernel: str, feature: str) -> None:
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", seed=0, only_backends=E2E_BACKENDS[kernel])
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", seed=0, only_backends=E2E_BACKENDS[kernel])
     fails = {b: s for b, s in status.items() if s.startswith("FAIL")}
     assert not fails, f"{kernel} ({feature}): {fails}"
 
@@ -1159,7 +1160,7 @@ def test_fft_numba_pythran_e2e(kernel: str) -> None:
     (fftn lowered + export in signature order); fft_3d also exercises the
     multi-array fancy gather ``u2[q, r, s]``."""
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", seed=0)
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", seed=0)
     for b in ("numba", "pythran"):
         s = status.get(b)
         if s == "skip:not-installed":
@@ -1905,7 +1906,7 @@ def test_cholesky2_contour_pythran_e2e(kernel: str) -> None:
     (masked-mean loop + 'res' param rename), crc16 (uint8-vs-int64 export marshal),
     compute (int64-scalar-vs-float64 export marshal). All bit-close to numpy."""
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", seed=0)
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", seed=0)
     s = status.get("pythran")
     if s == "skip:not-installed":
         pytest.skip("pythran not installed")
@@ -1981,7 +1982,7 @@ def test_fortran_wraps_a_preset_symbol_used_as_a_condition() -> None:
     from hpcagent_bench import paths
     from hpcagent_bench.autogen import ensure_native
 
-    ensure_native("crc16", "fortran")
+    ensure_native("crc16", Language.FORTRAN)
     src = (paths.BENCHMARKS / "scientific_computing/combinational_logic/crc16/cpp_backend/crc16_fp64.f90").read_text()
     assert "if ((reflect_out) /= 0) then" in src, f"integer preset symbol emitted as a bare LOGICAL condition:\n{src}"
 

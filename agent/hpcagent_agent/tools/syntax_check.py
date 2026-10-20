@@ -23,13 +23,12 @@ from typing import Any
 import pydantic
 
 from hpcagent_agent.tools import http_json
-from hpcagent_agent.tools.registry import schema_of, tool
+from hpcagent_agent.tools.registry import Spec, tool
 
 __all__ = [
     "DESCRIPTION",
     "EXTENSION_LANGUAGES",
     "GPU_HOST_LANGUAGE",
-    "INPUT_SCHEMA",
     "LANGUAGE_COMMANDS",
     "LANGUAGE_DIALECT",
     "PROMPT",
@@ -116,9 +115,6 @@ class SyntaxCheckInput(pydantic.BaseModel):
     )
 
 
-INPUT_SCHEMA: dict[str, Any] = schema_of(SyntaxCheckInput)
-
-
 #: GPU language -> the language its HOST half is written in (the judge's ``languages.GPU_HOST_LANG``,
 #: restated: this image has no hpcagent_bench). A hip/cuda submission's host entry is ``<kernel>.cpp``,
 #: and the judge compiles it with the GPU driver, whose include path holds ``hip/hip_runtime.h``;
@@ -150,7 +146,7 @@ def compiler_for(language: str) -> tuple[str, ...] | None:
 PROMPT = "- `syntax_check` -- parse a file with the local compiler. Free, instant, never graded."
 
 
-@tool(description=DESCRIPTION, input=SyntaxCheckInput, prompt=PROMPT)
+@tool(spec=Spec(DESCRIPTION, SyntaxCheckInput, PROMPT))
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     """Parse one file and answer ``ok`` plus the compiler's own output.
 

@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.test import tolerances_for
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.numerical_oracle import outputs_match
@@ -41,7 +42,7 @@ def reference(name: str) -> Callable[..., None]:
 def run_reference(name: str, precision: Precision, variant: str | None = None) -> dict[str, np.ndarray]:
     """The kernel's own S-preset inputs (domain folding included) and its reference output."""
     spec = BenchSpec.load(name)
-    values = auto_initialize(spec, "S", precision, seed=0, hidden_variant=variant)
+    values = auto_initialize(spec, Preset.S, precision, seed=0, hidden_variant=variant)
     data = dict(zip(spec.init.output_args, values, strict=True))
     data["LEN_1D"] = spec.parameters["S"]["LEN_1D"]
     reference(name)(*(data[arg] for arg in spec.input_args))

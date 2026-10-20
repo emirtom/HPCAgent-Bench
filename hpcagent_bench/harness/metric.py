@@ -8,13 +8,11 @@ from dataclasses import dataclass, field, replace
 from typing import cast
 
 from hpcagent_bench import anticheat, config, fuzz
+from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency
+from hpcagent_bench.config import PerfMode, Statistic
 from hpcagent_bench.harness import mpi_sizing, timing, torch_reference
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.grading import (
-    AUTO_BASELINE,
-    AUTO_ORACLE,
-    resolve_baseline,
-)
+from hpcagent_bench.harness.grading import resolve_baseline
 from hpcagent_bench.harness.scoring import (
     CellScore,
     ScalingRuns,
@@ -221,8 +219,9 @@ class TaskScore:
     suspect_count: int
     baseline: str = "c"  # which reference s_i is a speedup over
     tokens: int = 0  # cumulative tokens the agent spent producing this submission
-    timing_backend: str = "min_of_k"  # backend that reduced each cell (provenance; not cross-comparable)
-    perf_mode: str = "all_configs_3shapes"  # which timed-shape mode produced s_i (provenance)
+    timing_backend: Statistic = Statistic.MIN  # backend that reduced each cell (provenance; not cross-comparable)
+    # Which timed-shape mode produced s_i, or the scaling law of a distributed task (provenance).
+    perf_mode: PerfMode | mpi_sizing.ScalingLaw = PerfMode.ALL_CONFIGS_3SHAPES
     raw_speedup: float = 1.0  # g_i: UNCLAMPED geomean over timed cells (fast_p input; 0.0 = unmeasured)
     peak_bytes: int = 0  # kernel-attributable peak RSS increment over the task's cells (bytes; the MU input)
     baseline_peak_bytes: int = 0  # baseline peak RSS increment (bytes; the NMU denominator, 0 if no C baseline)
@@ -404,7 +403,7 @@ def _timed_cells(
     params: PresetTable,
     configs: Sequence[ConfigRow],
     constraints: Sequence[str],
-    mode: str,
+    mode: PerfMode,
     config_names: frozenset[str],
     secret_seed: int | None = None,
     exclude: Sequence[Mapping[str, fuzz.FuzzValue]] = (),
@@ -450,7 +449,7 @@ def size_presets(spec: BenchSpec, anchored: bool) -> PresetTable:
     preset is its small correctness range; its timed inputs are near XL."""
     if not anchored:
         return spec.parameters
-    return {name: values for name, values in spec.parameters.items() if name != fuzz.FUZZED_PRESET}
+    return {name: values for name, values in spec.parameters.items() if name != Preset.FUZZED.text}
 
 
 def timed_cells_for(kernel: str, anchored: bool = False) -> list[ScoreCell]:
@@ -482,7 +481,7 @@ def score_cells_for(kernel: str, anchored: bool = False) -> list[ScoreCell]:
         presets,
         spec.config_space,
         constraints,
-        "secret",
+        PerfMode.SECRET_3SHAPES,
         spec.config_names,
         secret_seed=secret_seed_first(),
         exclude=submits,
@@ -518,7 +517,7 @@ def shape_symbols(spec: BenchSpec) -> frozenset[str]:
     """Every size symbol that sizes an array axis in the manifest's ``init.arrays`` shapes."""
     shapes = spec.init.shapes if spec.init else {}
     tokens = {str(dim).strip() for expr in shapes.values() for dim in shape_dims(expr)}
-    return frozenset(tokens & set(spec.parameters.get(fuzz.FUZZED_PRESET, {})))
+    return frozenset(tokens & set(spec.parameters.get(Preset.FUZZED.text, {})))
 
 
 def ml_aligned(spec: BenchSpec, cells: Iterable[ScoreCell], floor: int) -> list[ScoreCell]:
@@ -527,7 +526,7 @@ def ml_aligned(spec: BenchSpec, cells: Iterable[ScoreCell], floor: int) -> list[
     to a multiple of ``QUANTUM * floor``, so every rank's block at up to ``floor`` ranks is a whole
     multiple of the quantum. Cells that collapse onto one point run once; set-valued symbols keep their
     draw (tests/test_mlscale_kernels.py holds them to the grid)."""
-    fuzzed = spec.parameters.get(fuzz.FUZZED_PRESET, {})
+    fuzzed = spec.parameters.get(Preset.FUZZED.text, {})
     drawn = {s for s in shape_symbols(spec) if not fuzz.is_set(fuzzed.get(s, 0))}
     quantum = mpi_sizing.RANK_BLOCK_QUANTUM
     split = mpi_sizing.aligned_symbols(spec.mpi)
@@ -563,7 +562,7 @@ def curve_disclosure(runs: ScalingRuns, notes: Sequence[str]) -> dict[str, objec
     """The disclosure behind one law's recorded curve: mode, T_1, every measured ``{P: T_i(P)}`` with its
     realized work ratio, and the reason each dropped P was dropped."""
     return {
-        "mode": runs.mode.value,
+        "mode": runs.mode.text,
         "single_rank_ns": int(runs.single_rank_ns),
         "measured_ns": {str(p): int(ns) for p, ns in sorted(runs.measured_ns.items())},
         "work_ratio": {str(p): float(r) for p, r in sorted(runs.work_ratio.items())},
@@ -588,7 +587,7 @@ class LawCurve:
     @property
     def key(self) -> str:
         """The law and its input, as a grade's detail and disclosure name them: ``strong cfg0:large1``."""
-        return f"{self.mode.value} {self.label}" if self.label else self.mode.value
+        return f"{self.mode.text} {self.label}" if self.label else self.mode.text
 
 
 def law_curve(kernel: str, runs: ScalingRuns, requested: Sequence[int]) -> LawCurve:
@@ -613,7 +612,7 @@ def law_curve(kernel: str, runs: ScalingRuns, requested: Sequence[int]) -> LawCu
     )
     if curve is not None and (1 not in runs.measured_ns or len(runs.measured_ns) < MIN_CURVE_POINTS):
         reason = (
-            f"{runs.mode.value} curve invalid: measured P={sorted(runs.measured_ns)} of requested {list(requested)}; "
+            f"{runs.mode.text} curve invalid: measured P={sorted(runs.measured_ns)} of requested {list(requested)}; "
             f"a curve needs P=1 and at least {MIN_CURVE_POINTS - 1} further points"
         )
         notes.append(reason)
@@ -670,12 +669,12 @@ def score_ml_distributed(
         return ml_stamped(graded.score, task), ()
     curves = tuple(law_curve(task.kernel, runs, rank_counts) for runs in graded.laws)
     # Each note names its law and input: every sweep reports the same P.
-    notes = [note if note.startswith(law.mode.value) else f"{law.key} {note}" for law in curves for note in law.notes]
+    notes = [note if note.startswith(law.mode.text) else f"{law.key} {note}" for law in curves for note in law.notes]
     widest = max((p.ranks for law in curves if law.curve is not None for p in law.curve.points), default=0)
     scored = replace(
         graded.score,
         detail="; ".join(x for x in (graded.score.detail, curve_summary(curves), *notes) if x),
-        scaling_mode=",".join(dict.fromkeys(law.mode.value for law in curves)),
+        scaling_mode=",".join(dict.fromkeys(law.mode.text for law in curves)),
         scaling_ranks=widest,
         scaling_curve=json.dumps({law.key: law.disclosure for law in curves}, sort_keys=True),
     )
@@ -781,7 +780,7 @@ def score_task_distributed(
         native_ns=int(score.native_ns),
         baseline_ns=int(score.baseline_ns),
         detail=detail,
-        label=f"mpi:{mode}:R{ranks}",
+        label=f"mpi:{mode.text}:R{ranks}",
         timed=True,
         timing_reduction=score.timing_reduction,
     )
@@ -795,7 +794,7 @@ def score_task_distributed(
         baseline=score.baseline,
         tokens=int(submission.tokens or 0),
         timing_backend=timing.active_backend(),
-        perf_mode=f"mpi:{mode}",
+        perf_mode=mode,
         raw_speedup=(speedup if solved else 1.0),
         scaling=scaling,
         scaling_notes=scaling_notes,
@@ -811,7 +810,7 @@ def score_task_fuzzed(
     verify: bool = True,
     datatype: str = "float64",
     repeat: int = 5,
-    baseline: str = AUTO_BASELINE,
+    baseline: Baseline | None = None,
     rtol: float | None = None,
     atol: float | None = None,
     single_rank_anchor: Submission | None = None,
@@ -821,7 +820,7 @@ def score_task_fuzzed(
     ``rtol``/``atol`` stay ``None`` so :func:`hpcagent_bench.harness.scoring._resolve_tolerances`
     fills them from the datatype's precision band; a number is an explicit override of the band. The
     gate grades against the track's auto oracle; the timed-shape rule is ``fuzz.perf_mode()``."""
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return score_task_distributed(
             submission,
             task,
@@ -852,7 +851,7 @@ def score_task_fuzzed(
         _correctness_cells(params, configs, constraints, k, config_names),
         datatype=datatype,
         repeat=1,
-        oracle=AUTO_ORACLE,
+        oracle=Oracle.AUTO,
         baseline=baseline,
         verify=verify,
         rtol=rtol,
@@ -871,7 +870,7 @@ def score_task_fuzzed(
             _timed_cells(params, configs, constraints, mode, config_names),
             datatype=datatype,
             repeat=repeat,
-            oracle=AUTO_ORACLE,
+            oracle=Oracle.AUTO,
             baseline=baseline,
             verify=False,
             rtol=rtol,
@@ -891,7 +890,7 @@ def score_task_fuzzed(
     # S_i, g_i and gsd_i over the same cells, by the rule the Harbor reward and efficacy use.
     credit = score_rule.credit(valid_speedups, solved=solved)
     # the baseline a cell actually raced to (a best-of set names its winner per cell)
-    eff_baseline = cells[0].baseline if cells else baseline
+    eff_baseline = cells[0].baseline if cells else baseline.text
     return TaskScore(
         kernel=task.kernel,
         dwarf=dwarf,

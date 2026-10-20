@@ -7,8 +7,10 @@ import sys
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, Preset, Residency, SourceMode, Track
 from hpcagent_bench.harness.agent import Agent, ClaudeAgent, StubAgent, reference_source
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, score
 from hpcagent_bench.harness.task import Task, expand_tasks
@@ -20,29 +22,29 @@ from tests.port_toolchain import gcc_available
 def test_task_expand_filtered_by_language() -> None:
     tasks = expand_tasks(kernels=["gemm"], languages=["c", "cpp"])
     assert {t.language for t in tasks} == {"c", "cpp"}
-    assert all(t.kernel == "gemm" and t.source_mode == "restricted" for t in tasks)
+    assert all(t.kernel == "gemm" and t.source_mode is SourceMode.RESTRICTED for t in tasks)
     assert tasks[0].id.startswith("gemm::restricted::")
 
 
 def test_task_rejects_bad_source_mode() -> None:
     with pytest.raises(ValueError):
-        Task("gemm", source_mode="nonsense")
+        SourceMode.parse("nonsense")
 
 
 def test_submission_validate() -> None:
-    s = Submission(language="c", source="void k(){}")
+    s = Submission(language=Language.C, source="void k(){}")
     assert s.mode == "restricted"
-    assert Submission(language="c", library="/tmp/libk.so").mode == "any"
+    assert Submission(language=Language.C, library="/tmp/libk.so").mode == "any"
     with pytest.raises(ValueError):
-        Submission(language="c")  # neither source nor library
+        Submission(language=Language.C)  # neither source nor library
     with pytest.raises(ValueError):
-        Submission(language="c", source="x", library="y")  # both
+        Submission(language=Language.C, source="x", library="y")  # both
     with pytest.raises(ValueError):
         Submission(language="brainfuck", source="x")  # unknown language
 
 
 def test_submission_roundtrip() -> None:
-    s = Submission(language="c", source="x", build=["{FLAGS}"])
+    s = Submission(language=Language.C, source="x", build=["{FLAGS}"])
     assert Submission.from_obj(s.to_json()).source == "x"
 
 
@@ -51,32 +53,32 @@ def test_a_source_file_survives_the_json_round_trip_as_the_other_spelling_of_sou
     over the wire -- verbatim, since only the judge can resolve a path in the shared mount. It is the
     OTHER spelling of ``source``: restricted delivery, and never emitted next to an inline ``source``
     (the judge refuses that request rather than merging it, so the envelope cannot build one)."""
-    s = Submission(language="fortran", source_file="argmax_value.f90", build=["{FLAGS}"])
+    s = Submission(language=Language.FORTRAN, source_file="argmax_value.f90", build=["{FLAGS}"])
     assert s.mode == "restricted"
     body = s.to_json()
     assert body["source_file"] == "argmax_value.f90"
     assert "source" not in body
     assert "library" not in body
     assert Submission.from_obj(body).source_file == "argmax_value.f90"
-    assert "source_file" not in Submission(language="c", source="x").to_json()  # absent stays absent
+    assert "source_file" not in Submission(language=Language.C, source="x").to_json()  # absent stays absent
     with pytest.raises(ValueError):
-        Submission(language="c", source="x", source_file="gemm.c")  # ambiguous: refused, never merged
+        Submission(language=Language.C, source="x", source_file="gemm.c")  # ambiguous: refused, never merged
     with pytest.raises(ValueError):
-        Submission(language="c", source_file="gemm.c", library="/tmp/libk.so")
+        Submission(language=Language.C, source_file="gemm.c", library="/tmp/libk.so")
 
 
 def test_stub_agent_echoes_injected_source() -> None:
     agent = StubAgent(source_fn=lambda t: f"/* {t.kernel} {t.language} */")
-    sub = agent.solve(Task("gemm", "restricted", "c"))
+    sub = agent.solve(Task("gemm", SourceMode.RESTRICTED, Language.C))
     assert isinstance(agent, Agent)
-    assert sub.language == "c"
+    assert sub.language is Language.C
     assert "gemm" in sub.source
     assert sub.mode == "restricted"
 
 
 def test_stub_agent_rejects_any_mode() -> None:
     with pytest.raises(NotImplementedError):
-        StubAgent(source_fn=lambda t: "x").solve(Task("gemm", "any", "c"))
+        StubAgent(source_fn=lambda t: "x").solve(Task("gemm", SourceMode.ANY, Language.C))
 
 
 def test_claude_agent_requires_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,21 +108,21 @@ def test_claude_agent_injected_complete() -> None:
     """ClaudeAgent parses an injected model reply -> Submission (no SDK needed)."""
     reply = '{"language": "c", "source": "void gemm_fp64(){}", "build": []}'
     agent = ClaudeAgent(complete_fn=lambda prompt: reply)
-    sub = agent.solve(Task("gemm", "restricted", "c"), prompt="(ignored)")
+    sub = agent.solve(Task("gemm", SourceMode.RESTRICTED, Language.C), prompt="(ignored)")
     assert isinstance(agent, Agent)
-    assert sub.language == "c"
+    assert sub.language is Language.C
     assert "gemm_fp64" in sub.source
 
 
 def test_claude_agent_defaults_language_from_task() -> None:
     """A reply omitting 'language' inherits the task's language."""
     agent = ClaudeAgent(complete_fn=lambda prompt: '{"source": "void k(){}"}')
-    sub = agent.solve(Task("gemm", "restricted", "cpp"), prompt="x")
-    assert sub.language == "cpp"
+    sub = agent.solve(Task("gemm", SourceMode.RESTRICTED, Language.CPP), prompt="x")
+    assert sub.language is Language.CPP
 
 
 def test_reference_source_emits_c_for_gemm() -> None:
-    src = reference_source(Task("gemm", "restricted", "c"))
+    src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
     assert "gemm" in src.lower()
     assert len(src) > 50
 
@@ -128,7 +130,7 @@ def test_reference_source_emits_c_for_gemm() -> None:
 def test_prompt_renders_public_and_leakfree() -> None:
     from hpcagent_bench.harness.prompts import build_prompt
 
-    p = build_prompt(Task("gemm", "restricted", "c"))
+    p = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.C))
     assert "gemm" in p  # kernel name
     assert "NumPy reference" in p  # the public problem statement
     assert "_fp64" in p  # the required C-ABI symbol (from the stub)
@@ -188,14 +190,14 @@ def test_score_stub_agent_gemm_correct() -> None:
     from hpcagent_bench.harness import grading
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
     submission = StubAgent().solve(task)
-    result = score(submission, task, preset="S", repeat=2)
+    result = score(submission, task, preset=Preset.S, repeat=2)
     assert result.build_ok, result.detail
     assert result.correct, f"max_rel_error={result.max_rel_error}"
     assert result.native_ns > 0  # the harness-owned timer ran
     # perf-vs-baseline: the fastest of the track's compiled candidates, speedup = baseline / native.
-    candidates = set(grading.track_baseline_set("scientific_computing"))
+    candidates = set(grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING))
     assert result.baseline_ns > 0, result.baseline
     assert result.baseline in candidates, result.baseline
     assert result.speedup > 0
@@ -211,7 +213,7 @@ def test_python_submission_validates_and_roundtrips() -> None:
     """A `python` delivery is source-carrying (like restricted) but language-agnostic."""
     from hpcagent_bench.harness.envelope import Submission
 
-    s = Submission(language="python", source="def kernel(a):\n    return a\n")
+    s = Submission(language=Language.PYTHON, source="def kernel(a):\n    return a\n")
     assert s.is_python
     assert s.mode == "restricted"
     assert Submission.from_obj(s.to_json()).is_python
@@ -222,11 +224,11 @@ def test_python_delivery_both_abis_score_correct() -> None:
     from hpcagent_bench.harness.envelope import Submission
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")  # submission.language=python drives execution
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)  # submission.language=python drives execution
     inplace = "def kernel(alpha, beta, C, A, B):\n    C[:] = alpha * A @ B + beta * C\n"
     functional = "def kernel(alpha, beta, C, A, B):\n    return alpha * A @ B + beta * C\n"
     for src in (inplace, functional):
-        r = score(Submission(language="python", source=src), task, preset="S", repeat=2)
+        r = score(Submission(language=Language.PYTHON, source=src), task, preset=Preset.S, repeat=2)
         assert r.build_ok, r.detail
         assert r.correct, r.detail
         assert r.native_ns > 0  # the harness-owned host timer ran
@@ -239,9 +241,9 @@ def test_python_delivery_wrong_is_scored_not_raised() -> None:
     from hpcagent_bench.harness.envelope import Submission
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
     wrong = "def kernel(alpha, beta, C, A, B):\n    C[:] = A @ B\n"  # ignores alpha/beta
-    r = score(Submission(language="python", source=wrong), task, preset="S", repeat=1)
+    r = score(Submission(language=Language.PYTHON, source=wrong), task, preset=Preset.S, repeat=1)
     assert r.build_ok
     assert not r.correct
 
@@ -281,10 +283,10 @@ def test_submission_requests_grid_selects_the_distributed_track() -> None:
             "b": {"replicated": True},
         },
     }
-    s = Submission(language="c", source="void k(){}", requests=Requests.from_plan(ok))
+    s = Submission(language=Language.C, source="void k(){}", requests=Requests.from_plan(ok))
     assert s.requests.distributed
     assert Submission.from_obj(s.to_json()).requests == s.requests
-    assert not Submission(language="c", source="void k(){}").requests.distributed  # default single-node
+    assert not Submission(language=Language.C, source="void k(){}").requests.distributed  # default single-node
     with pytest.raises(ValueError, match="grid"):
         Submission.from_obj({"language": "c", "source": "x", "requests": {"startup": {"grid": []}}})
     with pytest.raises(ValueError, match="action must be one of"):
@@ -296,7 +298,7 @@ def test_submission_requests_grid_selects_the_distributed_track() -> None:
 def test_reference_source_multitarget_renames_symbol() -> None:
     """The auto path emits via the unified driver for c/cpp/fortran and renames to the canonical symbol."""
     for lang, sym in (("c", "gemm_fp64"), ("cpp", "gemm_fp64"), ("fortran", "gemm_fp64")):
-        src = reference_source(Task("gemm", "restricted", lang))
+        src = reference_source(Task("gemm", SourceMode.RESTRICTED, lang))
         assert sym in src, f"{lang}: canonical symbol {sym} missing"
 
 
@@ -307,8 +309,8 @@ def test_score_stub_agent_gemm_fortran() -> None:
         pytest.skip("gfortran absent")
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "fortran")
-    result = score(StubAgent().solve(task), task, preset="S", repeat=1)
+    task = Task("gemm", SourceMode.RESTRICTED, Language.FORTRAN)
+    result = score(StubAgent().solve(task), task, preset=Preset.S, repeat=1)
     # fortran scalars marshalled by-reference (native ABI) -> no segfault, correct
     assert result.build_ok, result.detail
     assert result.correct
@@ -324,12 +326,12 @@ def test_claude_agent_e2e_scores_via_injected_reply() -> None:
 
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
     # The "model" returns the canonical reference wrapped in the envelope, with surrounding prose.
     impl = reference_source(task)
     reply = "Here you go:\n" + json.dumps({"language": "c", "source": impl, "build": []})
     agent = ClaudeAgent(complete_fn=lambda prompt: reply)
-    result = score(agent.solve(task, prompt="(prompt)"), task, preset="S", repeat=1)
+    result = score(agent.solve(task, prompt="(prompt)"), task, preset=Preset.S, repeat=1)
     assert result.build_ok
     assert result.correct
     assert result.public_correct
@@ -365,8 +367,10 @@ def test_score_segfaulting_kernel_is_scored_not_fatal() -> None:
         pytest.skip("gcc absent")
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
-    result = score(Submission(language="c", source=_SEGFAULT_GEMM_C), task, preset="S", repeat=1, hidden=False)
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
+    result = score(
+        Submission(language=Language.C, source=_SEGFAULT_GEMM_C), task, preset=Preset.S, repeat=1, hidden=False
+    )
     assert result.build_ok
     assert not result.correct
     assert "native call" in result.detail.lower()
@@ -380,11 +384,13 @@ def test_score_hanging_kernel_times_out() -> None:
         pytest.skip("gcc absent")
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
     prev = os.environ.get("HPCAGENT_BENCH_TIMEOUTS_KERNEL_S")
     os.environ["HPCAGENT_BENCH_TIMEOUTS_KERNEL_S"] = "2"  # don't wait the 180s default
     try:
-        result = score(Submission(language="c", source=_HANG_GEMM_C), task, preset="S", repeat=1, hidden=False)
+        result = score(
+            Submission(language=Language.C, source=_HANG_GEMM_C), task, preset=Preset.S, repeat=1, hidden=False
+        )
     finally:
         if prev is None:
             os.environ.pop("HPCAGENT_BENCH_TIMEOUTS_KERNEL_S", None)
@@ -413,8 +419,8 @@ void gemm_fp64(const double *restrict A, const double *restrict B, double *restr
 
 def score_memhog_gemm() -> Score:
     """:data:`_MEMHOG_GEMM_C` scored through the real judge path, for :func:`fresh_interpreter`."""
-    task = Task("gemm", "restricted", "c")
-    return score(Submission(language="c", source=_MEMHOG_GEMM_C), task, preset="S", repeat=1, hidden=False)
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
+    return score(Submission(language=Language.C, source=_MEMHOG_GEMM_C), task, preset=Preset.S, repeat=1, hidden=False)
 
 
 def test_score_memory_cap_enforced() -> None:
@@ -457,16 +463,16 @@ def test_score_any_mode_prebuilt_library() -> None:
     from hpcagent_bench import languages
     from hpcagent_bench.harness.scoring import score
 
-    impl = reference_source(Task("gemm", "restricted", "c"))  # exports gemm_fp64
+    impl = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))  # exports gemm_fp64
     with tempfile.TemporaryDirectory() as d:
         src = pathlib.Path(d) / "gemm_fp64.c"
         src.write_text(impl)
         lib = pathlib.Path(d) / "libgemm.so"
-        for cmd in languages.build_shared_lib_commands("c", src, lib):
+        for cmd in languages.build_shared_lib_commands(Language.C, src, lib):
             subprocess.run(cmd, check=True, cwd=d)
-        submission = Submission(language="c", library=str(lib))
+        submission = Submission(language=Language.C, library=str(lib))
         assert submission.mode == "any"
-        result = score(submission, Task("gemm", "any", "c"), preset="S", repeat=1)
+        result = score(submission, Task("gemm", SourceMode.ANY, Language.C), preset=Preset.S, repeat=1)
     assert result.build_ok
     assert result.correct
     assert result.public_correct
@@ -479,9 +485,9 @@ def test_score_build_failure_is_scored_not_raised() -> None:
         pytest.skip("gcc absent")
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
-    broken = Submission(language="c", source="void gemm_fp64(void) { this is not C }")
-    result = score(broken, task, preset="S")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
+    broken = Submission(language=Language.C, source="void gemm_fp64(void) { this is not C }")
+    result = score(broken, task, preset=Preset.S)
     assert result.build_ok is False
     assert result.correct is False
     assert result.detail  # the compiler log is captured, not lost
@@ -495,7 +501,7 @@ def test_hidden_cases_use_held_out_seed() -> None:
     from hpcagent_bench.harness.hidden_tests.seeds import secret_seed_first, secret_seed_second
     from hpcagent_bench.spec import BenchSpec
 
-    cases = hidden_cases(BenchSpec.load("gemm"), "S")
+    cases = hidden_cases(BenchSpec.load("gemm"), Preset.S)
     assert len(cases) >= 1
     # Held out from what the agent can probe: the cases run on the RECORDED seed, never on the
     # one /score, /profile and /baseline all feed back. That gap is the overfit gate.
@@ -534,11 +540,11 @@ def test_score_catches_overfit() -> None:
     from hpcagent_bench.harness.hidden_tests import HiddenCase
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "c")
-    overfit = Submission(language="c", source=_OVERFIT_GEMM_C)
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
+    overfit = Submission(language=Language.C, source=_OVERFIT_GEMM_C)
     # held-out case at a DIFFERENT shape (L preset) -> the hard-coded dims fail.
-    hidden = [HiddenCase("L", 9001, "L@hidden")]
-    result = score(overfit, task, preset="S", repeat=1, hidden_cases=hidden)
+    hidden = [HiddenCase(Preset.L, 9001, "L@hidden")]
+    result = score(overfit, task, preset=Preset.S, repeat=1, hidden_cases=hidden)
     assert result.public_correct  # correct on the visible S inputs
     assert not result.hidden_correct  # but wrong on the held-out shape
     assert not result.correct  # overall verdict fails: overfit caught
@@ -553,9 +559,9 @@ def test_status_overfit_mapping() -> None:
     overfit = Score(False, 0.0, 1, True, "", public_correct=True, hidden_correct=False, hidden_passed=0, hidden_total=1)
     wrong = Score(False, 1.0, 1, True, "", public_correct=False, hidden_correct=False)
     good = Score(True, 0.0, 1, True, "", public_correct=True, hidden_correct=True)
-    assert status_of(overfit) == "overfit"
-    assert status_of(wrong) == "incorrect"
-    assert status_of(good) == "ok"
+    assert status_of(overfit) is RunStatus.OVERFIT
+    assert status_of(wrong) is RunStatus.INCORRECT
+    assert status_of(good) is RunStatus.OK
 
 
 def test_status_timeout_and_harness_fault_mapping() -> None:
@@ -568,9 +574,9 @@ def test_status_timeout_and_harness_fault_mapping() -> None:
     timed = Score(False, float("inf"), 0, True, "native call failed: budget", timed_out=True)
     oracle_dead = Score(False, float("inf"), 0, False, "kernel: child exited 0 with no result", harness_fault=True)
     judge_oom = Score(False, float("inf"), 0, True, "MemoryError", harness_fault=True)
-    assert status_of(timed) == "timeout"
-    assert status_of(oracle_dead) == "score_error"  # harness_fault beats build_ok=False
-    assert status_of(judge_oom) == "score_error"
+    assert status_of(timed) is RunStatus.TIMEOUT
+    assert status_of(oracle_dead) is RunStatus.SCORE_ERROR  # harness_fault beats build_ok=False
+    assert status_of(judge_oom) is RunStatus.SCORE_ERROR
 
 
 def test_the_guillotine_kill_is_its_own_status() -> None:
@@ -584,8 +590,8 @@ def test_the_guillotine_kill_is_its_own_status() -> None:
     # too_slow is a NARROWING of timed_out, so both flags are set on a real guillotine kill.
     guillotined = Score(False, float("inf"), 0, True, "too slow", timed_out=True, too_slow=True)
     plain = Score(False, float("inf"), 0, True, "budget", timed_out=True)
-    assert status_of(guillotined) == "too_slow"
-    assert status_of(plain) == "timeout"
+    assert status_of(guillotined) is RunStatus.TOO_SLOW
+    assert status_of(plain) is RunStatus.TIMEOUT
 
 
 # runner + CLI
@@ -595,8 +601,8 @@ def test_runner_agent_error_is_scored_not_raised() -> None:
     """A task the StubAgent can't solve ('any' mode) becomes a scored row."""
     from hpcagent_bench.harness.runner import solve_task
 
-    row, _ = solve_task(StubAgent(), Task("gemm", "any", "c"))
-    assert row.status == "agent_error"
+    row, _ = solve_task(StubAgent(), Task("gemm", SourceMode.ANY, Language.C))
+    assert row.status is RunStatus.AGENT_ERROR
     assert row.correct is False
     assert row.agent == "stub"
     assert row.detail
@@ -607,8 +613,8 @@ def test_runner_stub_gemm_ok() -> None:
         pytest.skip("gcc absent")
     from hpcagent_bench.harness.runner import solve_task
 
-    row, _ = solve_task(StubAgent(), Task("gemm", "restricted", "c"), preset="S", repeat=2)
-    assert row.status == "ok", row
+    row, _ = solve_task(StubAgent(), Task("gemm", SourceMode.RESTRICTED, Language.C), preset=Preset.S, repeat=2)
+    assert row.status is RunStatus.OK, row
     assert row.correct, row
     assert row.native_ns > 0, row
     assert row.baseline_ns > 0
@@ -656,12 +662,12 @@ def test_cli_prompt_renders(capsys) -> None:
 
 
 def test_device_residency_requires_gpu_language() -> None:
-    Task("gemm", "restricted", "cuda", residency="device")  # ok
-    Task("gemm", "restricted", "hip", residency="device")  # ok
+    Task("gemm", SourceMode.RESTRICTED, Language.CUDA, residency=Residency.DEVICE)  # ok
+    Task("gemm", SourceMode.RESTRICTED, Language.HIP, residency=Residency.DEVICE)  # ok
     with pytest.raises(ValueError):
-        Task("gemm", "restricted", "c", residency="device")  # CPU lang -> reject
+        Task("gemm", SourceMode.RESTRICTED, Language.C, residency=Residency.DEVICE)  # CPU lang -> reject
     with pytest.raises(ValueError):
-        Task("gemm", "restricted", "cuda", residency="nonsense")
+        Residency.parse("nonsense")
 
 
 def test_expand_device_only_for_gpu_langs() -> None:
@@ -686,8 +692,8 @@ def test_gen_stub_device_vs_host_body() -> None:
     from hpcagent_bench.support.bindings import binding_from_spec, gen_call_stub
 
     b = binding_from_spec(BenchSpec.load("gemm"))
-    dev = gen_call_stub(b, "cuda", "device")
-    host = gen_call_stub(b, "cuda", "host")
+    dev = gen_call_stub(b, Language.CUDA, Residency.DEVICE)
+    host = gen_call_stub(b, Language.CUDA, Residency.HOST)
     assert "DEVICE-resident" in dev
     assert "NO host copies" in dev
     assert "H2D" in host
@@ -700,7 +706,7 @@ def test_gen_stub_device_vs_host_body() -> None:
 def test_prompt_device_residency_section() -> None:
     from hpcagent_bench.harness.prompts import build_prompt
 
-    dev = build_prompt(Task("gemm", "restricted", "cuda", residency="device"))
+    dev = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.CUDA, residency=Residency.DEVICE))
     # A GPU task cannot be host-resident any more (Task derives it), so there is no host prompt
     # to compare against -- the section states the device contract or the agent copies buffers
     # that are already on the GPU.
@@ -733,8 +739,8 @@ def test_score_device_residency_gated() -> None:
     """Device scoring needs cupy + a GPU; absent, it's a clear scored error (exercised unconditionally)."""
     from hpcagent_bench.harness.runner import solve_task
 
-    row, _ = solve_task(StubAgent(), Task("gemm", "restricted", "cuda", residency="device"))
-    assert row.status in ("agent_error", "score_error")
+    row, _ = solve_task(StubAgent(), Task("gemm", SourceMode.RESTRICTED, Language.CUDA, residency=Residency.DEVICE))
+    assert row.status in (RunStatus.AGENT_ERROR, RunStatus.SCORE_ERROR)
     assert row.correct is False
 
 
@@ -795,9 +801,11 @@ def test_score_device_residency_cuda_e2e() -> None:
         pytest.skip("no CUDA device / nvcc / cupy")
     from hpcagent_bench.harness.scoring import score
 
-    task = Task("gemm", "restricted", "cuda", residency="device")
-    submission = Submission(language="cuda", source=_DEVICE_CUDA_GEMM_HOST, device_source=_DEVICE_CUDA_GEMM_KERNELS)
-    result = score(submission, task, preset="S", repeat=2, hidden=False)
+    task = Task("gemm", SourceMode.RESTRICTED, Language.CUDA, residency=Residency.DEVICE)
+    submission = Submission(
+        language=Language.CUDA, source=_DEVICE_CUDA_GEMM_HOST, device_source=_DEVICE_CUDA_GEMM_KERNELS
+    )
+    result = score(submission, task, preset=Preset.S, repeat=2, hidden=False)
     assert result.build_ok, result.detail
     assert result.correct
     assert result.public_correct

@@ -20,19 +20,21 @@ This path needs no container and no model. It grades in-process with the pip too
 
 ```python
 import hpcagent_bench
+from hpcagent_bench.api import Baseline, RunMode
+from hpcagent_bench.categories import Language, Preset
 
-k = hpcagent_bench.init("gemm", language="c")  # native: grades in-process
+k = hpcagent_bench.init("gemm", language=Language.C)  # native: grades in-process
 print(k.reference, k.signature, k.symbol, k.baseline())
 s = k.score(my_optimizer(k))  # or k.score(library="/path/lib.so")
 print(s.correct, s.speedup, s.max_rel_error)
 
-remote = hpcagent_bench.init("gemm", mode="container", judge_url="http://judge:8800", judge_rank=0)
+remote = hpcagent_bench.init("gemm", mode=RunMode.CONTAINER, judge_url="http://judge:8800", judge_rank=0)
 ```
 
-- **Configuration.** Pass any `RunConfig` field as a keyword to `init()` (`init("gemm", preset="M", baseline="c")`),
-  or a full `hpcagent_bench.RunConfig`. `RunConfig` is a frozen dataclass. `mode`, `oracle`, `baseline` and
-  `input_mode` are enums (`RunMode`, `Oracle`, `Baseline`, `InputMode`), and a string is converted at
-  construction.
+- **Configuration.** Pass any `RunConfig` field as a keyword to `init()` (`init("gemm", preset=Preset.M, baseline=Baseline.C)`),
+  or a full `hpcagent_bench.RunConfig`. `RunConfig` is a frozen dataclass whose `mode`, `oracle`, `baseline`,
+  `input_mode` and `preset` are enum members (`RunMode`, `Oracle`, `Baseline`, `InputMode`, `Preset`); a spelling
+  becomes a member with `Cls.parse(text)` and `member.text` gives it back.
 - **Native mode.** `verify`, `score` and `submit` all call the same `grade()`, and each returns the full `Score`
   (`harness/scoring.py`).
 - **Container mode.** All three go through `JudgeClient.submit`, so each call is a terminal `/submit` and returns
@@ -179,7 +181,7 @@ A setup whose MCP server does not connect is never run without its tools: the dr
 | `score`, `profile` | every setup except blind (`preview=True`) | `AGENT_SUBMISSION_MODE=blind` removes them, and the router answers their routes with 403 |
 | `search` | the `web-search` packet only (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
 | `canonical_parallel_form` | the `cpf-tool-cpu` and `cpf-tool-gpu` packets and their `-kinds` counterparts (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
-| `agent/hpcagent_agent/packets/<name>/*.py` | `AGENT_PACKET=<name>` | -- |
+| a plugin's `tools/*.py` | the packets that list them (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
 
 A packet-gated tool is declared once, under `tools` in its packet; the launcher exports the resolved packet's tools
 as `HPCAGENT_BENCH_PACKET_TOOLS` (`hpcagent_bench/cluster/packet_env.py`). Without its packet, a tool is absent from

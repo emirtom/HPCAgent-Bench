@@ -19,13 +19,13 @@ import urllib.parse
 from collections.abc import Mapping, Sequence
 from importlib import metadata
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import modules
-from hpcagent_bench import cpf_cache, paths, phase_clock
+from hpcagent_bench import cpf_cache, modules, paths, phase_clock
 from hpcagent_bench.cache_files import file_sha256
+from hpcagent_bench.cpf_cache import RenderVerdict, Target
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
@@ -35,6 +35,7 @@ __all__ = [
     "IMPL_POSTFIXES",
     "DirInfo",
     "DirectUrl",
+    "RenderFailure",
     "VcsInfo",
     "bind_precision",
     "canonical_key",
@@ -105,11 +106,18 @@ def entry_program_name(names: Sequence[str], path: pathlib.Path, entry: str = ""
     return names[0] if len(names) == 1 else None
 
 
-def failure(exc: BaseException) -> dict[str, str]:
+class RenderFailure(NamedTuple):
+    """A step that produced nothing: its verdict and why."""
+
+    verdict: RenderVerdict
+    error: str = ""
+
+
+def failure(exc: BaseException) -> RenderFailure:
     """A step that produced nothing, as a verdict: CPF refuses by NotImplementedError and names the construct."""
     if isinstance(exc, NotImplementedError):
-        return {"verdict": "refused", "error": str(exc)[:400]}
-    return {"verdict": "fail", "error": f"{type(exc).__name__}: {exc}"[:400]}
+        return RenderFailure(RenderVerdict.REFUSED, str(exc)[:400])
+    return RenderFailure(RenderVerdict.FAIL, f"{type(exc).__name__}: {exc}"[:400])
 
 
 class VcsInfo(pydantic.BaseModel):
@@ -195,7 +203,7 @@ def canonical_key(
     program: pathlib.Path,
     commit: str,
     precision: str,
-    target: str,
+    target: Target,
     small: frozenset[str] = frozenset(),
     nonnegative: frozenset[str] = frozenset(),
 ) -> str:
@@ -204,7 +212,7 @@ def canonical_key(
     are any, so other entries keep their key)."""
     options: dict[str, object] = {
         "precision": fptype_tag(precision),
-        "target": target,
+        "target": target.text,
         "dace_env": dace_environment(),
         "producer": producer_digest(),
     }
@@ -215,13 +223,13 @@ def canonical_key(
     return cpf_cache.canonical_key(file_sha256(program), commit, options)
 
 
-def emit_program(spec: BenchSpec) -> "pathlib.Path | dict[str, str]":
+def emit_program(spec: BenchSpec) -> pathlib.Path | RenderFailure:
     """Step 1: the generated ``<module>_dace.py``, or the ``noemit`` verdict that stopped it."""
     from hpcagent_bench import autogen
 
     status = autogen.emit_targets(spec, ["dace"]).get("dace", "")
     if status.startswith("fail"):
-        return {"verdict": "noemit", "error": status}
+        return RenderFailure(RenderVerdict.NOEMIT, status)
     return paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_dace.py"
 
 
@@ -243,13 +251,13 @@ def bind_precision(precision: str) -> None:
     dace_framework.dc_complex_float = dace.complex128 if prec is Precision.FP64 else dace.complex64
 
 
-def parse_program(spec: BenchSpec, impl: pathlib.Path, precision: str) -> "SDFG | dict[str, str]":
+def parse_program(spec: BenchSpec, impl: pathlib.Path, precision: str) -> "SDFG | RenderFailure":
     """Step 2: the entry program's parsed SDFG, or the ``noprogram`` verdict."""
     bind_precision(precision)
     module = importlib.import_module(".".join(impl.relative_to(paths.ROOT).with_suffix("").parts))
     prog = resolve_program(module, impl, spec.func_name)
     if prog is None:
-        return {"verdict": "noprogram"}
+        return RenderFailure(RenderVerdict.NOPROGRAM)
     sdfg = prog.to_sdfg(simplify=True)
     fold_closure_arrays(prog, sdfg)
     return sdfg
@@ -278,11 +286,11 @@ def fold_closure_arrays(prog: "DaceProgram", sdfg: "SDFG") -> tuple[str, ...]:
     return tuple(folded)
 
 
-def parse_kernel(spec: BenchSpec, numpy_py: pathlib.Path, precision: str) -> "SDFG | dict[str, str]":
+def parse_kernel(spec: BenchSpec, numpy_py: pathlib.Path, precision: str) -> "SDFG | RenderFailure":
     """Steps 1-2 for an uncached caller: the parsed SDFG, or the verdict (``noemit`` / ``noprogram``)."""
     del numpy_py  # the program is generated from the spec's own reference
     impl = emit_program(spec)
-    return impl if isinstance(impl, dict) else parse_program(spec, impl, precision)
+    return impl if isinstance(impl, RenderFailure) else parse_program(spec, impl, precision)
 
 
 def declare_small(sdfg: "SDFG", small: frozenset[str]) -> None:
@@ -296,7 +304,7 @@ def declare_small(sdfg: "SDFG", small: frozenset[str]) -> None:
 
 
 def canonicalize_for(
-    sdfg: "SDFG", target: str, small: frozenset[str] = frozenset(), nonnegative: frozenset[str] = frozenset()
+    sdfg: "SDFG", target: Target, small: frozenset[str] = frozenset(), nonnegative: frozenset[str] = frozenset()
 ) -> None:
     """Step 3, in place. The ``small`` size symbols are declared small first, so no parallel or GPU axis is
     chosen along them, and the ``nonnegative`` ones non-negative (:func:`nonnegative_symbols`); every other
@@ -310,14 +318,14 @@ def canonicalize_for(
     from dace.transformation.passes.canonicalize.pipeline import canonicalize
 
     declare_small(sdfg, small)
-    canonicalize(sdfg, validate=True, validate_all=False, target=target, nonnegative_symbols=sorted(nonnegative))
-    if target == "gpu":
+    canonicalize(sdfg, validate=True, validate_all=False, target=target.text, nonnegative_symbols=sorted(nonnegative))
+    if target is Target.GPU:
         offload_to_gpu(sdfg)
-    finalize_for_target(sdfg, target, validate=True)
+    finalize_for_target(sdfg, target.text, validate=True)
 
 
 def produce(
-    spec: BenchSpec, impl: pathlib.Path, key: str, cache_root: pathlib.Path, precision: str, target: str
+    spec: BenchSpec, impl: pathlib.Path, key: str, cache_root: pathlib.Path, precision: str, target: Target
 ) -> None:
     """Parse and canonicalize ``impl`` and publish the SDFG, or the error it raised, under ``key``.
 
@@ -333,12 +341,12 @@ def produce(
     started = time.perf_counter()
     try:
         parsed = parse_program(spec, impl, precision)
-        if isinstance(parsed, dict):
-            cpf_cache.publish_canonical(cache_root, key, {**manifest, **parsed}, None)
+        if isinstance(parsed, RenderFailure):
+            cpf_cache.publish_canonical(cache_root, key, {**manifest, **parsed._asdict()}, None)
             return
         canonicalize_for(parsed, target, small_symbols(spec), nonnegative_symbols(spec))
     except Exception as exc:  # noqa: BLE001 -- a raised error is a verdict worth remembering
-        cpf_cache.publish_canonical(cache_root, key, {**manifest, **failure(exc)}, None)
+        cpf_cache.publish_canonical(cache_root, key, {**manifest, **failure(exc)._asdict()}, None)
         return
     manifest["seconds"] = time.perf_counter() - started
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -346,7 +354,7 @@ def produce(
     try:
         stored = staging / cpf_cache.CANONICAL_SDFG_NAME
         parsed.save(str(stored), compress=True)
-        cpf_cache.publish_canonical(cache_root, key, {**manifest, "verdict": "ok"}, stored)
+        cpf_cache.publish_canonical(cache_root, key, {**manifest, "verdict": RenderVerdict.OK}, stored)
     finally:
         for leftover in staging.glob("*"):
             leftover.unlink()
@@ -354,8 +362,8 @@ def produce(
 
 
 def canonical_sdfg(
-    spec: BenchSpec, impl: pathlib.Path, key: str, cache_root: pathlib.Path, precision: str, target: str
-) -> "tuple[SDFG | dict[str, str], bool]":
+    spec: BenchSpec, impl: pathlib.Path, key: str, cache_root: pathlib.Path, precision: str, target: Target
+) -> "tuple[SDFG | RenderFailure, bool]":
     """The canonical SDFG under ``key``, always loaded from the cache, and whether it was already there.
 
     A cached failure comes back as its verdict. A fresh entry is produced first and then read back
@@ -372,8 +380,8 @@ def canonical_sdfg(
         raise RuntimeError(f"canonical entry {key} was not published")
     manifest, stored = entry
     if stored is None:
-        return {"verdict": manifest.verdict, "error": manifest.error}, cached
+        return RenderFailure(manifest.verdict, manifest.error), cached
     # Produced by the prerender (or an earlier run), the canonicalize is still this run's work: its time counts.
     if cached:
-        phase_clock.credit(manifest.seconds, "transform")
+        phase_clock.credit(manifest.seconds, phase_clock.Phase.TRANSFORM)
     return SDFG.from_file(str(stored)), cached

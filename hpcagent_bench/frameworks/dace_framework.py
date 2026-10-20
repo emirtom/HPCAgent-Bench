@@ -33,7 +33,9 @@ from dace.transformation.dataflow import MapCollapse
 
 from hpcagent_bench import cpf_canonical, languages, modules, paths, phase_clock
 from hpcagent_bench import flags as bench_flags
+from hpcagent_bench.categories import Language
 from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
+from hpcagent_bench.cpf_cache import Target
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import utilities as util
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -188,7 +190,7 @@ def pin_host_compiler(family: str | None = None) -> str | None:
     :returns: the ``compilers.yaml`` block pinned, or ``None`` when the image has no C++ block for the
         family (dace's own resolution is kept)."""
     family = family or os.environ.get(DACE_FAMILY_ENV) or languages.default_family()
-    block = languages.compiler_for_family("cpp", family)
+    block = languages.compiler_for_family(Language.CPP, family)
     if block is None:
         return None
     driver = languages.resolve_compiler(languages.compiler_driver(block))
@@ -206,7 +208,7 @@ def pin_host_compiler(family: str | None = None) -> str | None:
 def pin_cpp_standard(arch: str = "cpu") -> None:
     """Build dace's C++ to the standard compilers.yaml names, overriding ``~/.dace.conf``. The value is
     also passed as ``CMAKE_CUDA_STANDARD``; host and device both use c++20."""
-    std = languages.std_flag("cuda" if arch == "gpu" else "cpp").removeprefix("-std=c++")
+    std = languages.std_flag(Language.CUDA if arch == "gpu" else Language.CPP).removeprefix("-std=c++")
     if std and dace.Config.get("compiler", "cpp_standard") != std:
         dace.Config.set("compiler", "cpp_standard", value=std)
 
@@ -374,9 +376,9 @@ def pin_build_caching() -> None:
 def timed_compile(sdfg: dace.SDFG) -> CompiledSDFG:
     """``sdfg.compile()`` timed as ``compile``, less the seconds DaCe reports generating its code (``codegen``)."""
     stats: dict[str, float | bool] = {}
-    with phase_clock.phase("compile"):
+    with phase_clock.phase(phase_clock.Phase.COMPILE):
         program = sdfg.compile(stats=stats)
-    phase_clock.shift(float(stats["codegen_seconds"]), "compile", "codegen")
+    phase_clock.shift(float(stats["codegen_seconds"]), phase_clock.Phase.COMPILE, phase_clock.Phase.CODEGEN)
     return program
 
 
@@ -795,10 +797,10 @@ class DaceFramework(Framework):
         from), canonicalized and published there on a miss. A cached canonicalize failure raises its error."""
         spec = bench.spec
         precision = self.datatype or ""
-        target = self._device_tag()
+        target = Target.GPU if self.column.arch is Arch.GPU else Target.CPU
         impl = cpf_canonical.emit_program(spec)
-        if isinstance(impl, dict):
-            raise RuntimeError(f"cached canonicalize: {impl['verdict']}: {impl.get('error', '')}")
+        if isinstance(impl, cpf_canonical.RenderFailure):
+            raise RuntimeError(f"cached canonicalize: {impl.verdict.text}: {impl.error}")
         key = cpf_canonical.canonical_key(
             impl,
             cpf_canonical.dace_commit(),
@@ -808,8 +810,8 @@ class DaceFramework(Framework):
             cpf_canonical.nonnegative_symbols(spec),
         )
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, key, cache_root, precision, target)
-        if isinstance(sdfg, dict):
-            raise RuntimeError(f"cached canonicalize {key}: {sdfg['verdict']}: {sdfg.get('error', '')}")
+        if isinstance(sdfg, cpf_canonical.RenderFailure):
+            raise RuntimeError(f"cached canonicalize {key}: {sdfg.verdict.text}: {sdfg.error}")
         print(f"DaCe optimize: canonical SDFG {'loaded from' if cached else 'published to'} the CPF cache ({key})")
         return sdfg
 

@@ -20,6 +20,7 @@ dtype identity is asserted, not just "some 8-bit thing".
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.precision import DATATYPE_CHOICES, DTYPES, Precision, numpy_dtype, precision_from_datatype
 from tests.optional_imports import import_or_skip
 
@@ -75,7 +76,7 @@ def test_fp8_kernel_executes_via_jax(kernel: str, datatype: str) -> None:
 
     try:
         res = Test(Benchmark(kernel), generate_framework("jax")).run(
-            preset="S", validate=True, repeat=1, timeout=180.0, datatype=datatype, ignore_errors=True
+            preset=Preset.S, validate=True, repeat=1, timeout=180.0, datatype=datatype, ignore_errors=True
         )
     except ModuleNotFoundError as e:
         pytest.skip(f"{kernel}: no jax implementation ({e})")

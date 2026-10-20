@@ -26,9 +26,11 @@ import pytest
 from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import fused
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import grade_under, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.tools import JudgeClient
+from hpcagent_bench.harness.judge_wire import Correct
 from tests import test_grade_under, test_scaling_grade
 from tests.fresh_module import fresh
 from tests.judge_router_stub import GRADE, REPORT, SCORE, StubJudge, load_router, stub_judge, through_router
@@ -122,7 +124,7 @@ def test_a_setup_whose_name_merely_starts_with_this_one_is_another_setup(router:
 
 
 def test_a_profile_without_a_episode_id_is_still_relayed(router: "TestClient") -> None:
-    """``tools/counters.md`` shows agents a curl ``/profile`` without one; a missing id is no other setup's."""
+    """``tools/profile.md`` shows agents a curl ``/profile`` without one; a missing id is no other setup's."""
     reply = router.post("/profile", json={"kernel": "dist_softmax", "language": "c", "source": "x", "rank": 0})
     assert reply.status_code == 200
     assert upstream_routes() == ["/profile"]
@@ -192,10 +194,10 @@ def test_the_harness_judge_client_is_accepted(router: "TestClient", monkeypatch:
     monkeypatch.setattr(urllib.request, "urlopen", through_router(router))
     monkeypatch.setenv("HPCAGENT_BENCH_EPISODE_ID", f"{SETUP}.n0.p2.w1")
     client = JudgeClient("http://judge.test:8800", rank=0)
-    submission = Submission(language="c", source="void k(void){}")
+    submission = Submission(language=Language.C, source="void k(void){}")
     StubJudge.replies.extend([(200, SCORE), (200, GRADE), (200, REPORT)])  # what each route answers
     assert client.score(submission, "dist_softmax").correct is True
-    assert client.submit(submission, "dist_softmax").correct == "yes"
+    assert client.submit(submission, "dist_softmax").correct is Correct.YES
     assert client.profile(submission, "dist_softmax").root.build_ok is True
     assert upstream_routes() == ["/score", "/submit", "/profile"]
 

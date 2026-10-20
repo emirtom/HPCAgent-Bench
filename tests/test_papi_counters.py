@@ -29,6 +29,7 @@ from collections.abc import Callable, Sequence
 import pytest
 
 from hpcagent_bench import flags, osinfo
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import papi, profiling
 from tests.papi_probe import CAN_COUNT, PAPI_LIBRARY, armable
@@ -307,7 +308,7 @@ def test_a_segfaulting_counted_run_costs_one_metric_not_the_process(monkeypatch:
     """The isolation contract: metric k's child dying is metric k's number lost, the parent alive,
     and the signal NAMED -- not an exception the caller has to guess the meaning of."""
     monkeypatch.setattr(papi, "counting_worker", segfaulting_worker)
-    row = papi.count_metric("/nonexistent.so", None, {}, "c", "instructions", rep_timeout=5.0)
+    row = papi.count_metric("/nonexistent.so", None, {}, Language.C, "instructions", rep_timeout=5.0)
     assert row["count"] is None
     assert "SIGSEGV" in row["missing"]
     assert os.getpid()  # the parent is still here to run metric k+1
@@ -315,7 +316,7 @@ def test_a_segfaulting_counted_run_costs_one_metric_not_the_process(monkeypatch:
 
 def test_a_papi_failure_inside_the_child_is_reported_as_that_metric_s_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(papi, "counting_worker", raising_worker)
-    row = papi.count_metric("/nonexistent.so", None, {}, "c", "fp_ops", rep_timeout=5.0)
+    row = papi.count_metric("/nonexistent.so", None, {}, Language.C, "fp_ops", rep_timeout=5.0)
     assert row["metric"] == "fp_ops"
     assert row["count"] is None
     assert "PAPI_start failed" in row["missing"]
@@ -579,17 +580,17 @@ def test_the_count_covers_the_timed_call_and_nothing_else(monkeypatch: pytest.Mo
     sizes = spec.parameters["S"]
     expected = 2 * sizes["NI"] * sizes["NJ"] * sizes["NK"]
     binding = binding_from_spec(spec)
-    task = Task("gemm", "restricted", "c")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
     # Read off the REAL machine, before the patch below empties its event set.
     have_fp_ops, absent = armable("fp_ops"), unarmable_events("fp_ops")
     with Sandbox(binding) as sandbox:
-        built = sandbox.build(Submission(language="c", source=reference_source(task)), debug=True)
+        built = sandbox.build(Submission(language=Language.C, source=reference_source(task)), debug=True)
         assert built.ok, built.log[-2000:]
-        data = _data_seeded("gemm", "S", "float64", 42)
-        row = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=2, rep_timeout=300.0)
+        data = _data_seeded("gemm", Preset.S, "float64", 42)
+        row = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=2, rep_timeout=300.0)
         # A machine with no countable event at all, forced. The patch crosses count_metric's fork.
         monkeypatch.setattr(papi, "available_events", lambda: ())
-        starved = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=1, rep_timeout=300.0)
+        starved = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=1, rep_timeout=300.0)
     assert starved["count"] is None
     assert "PAPI_FP_OPS" in starved["missing"]
 
@@ -685,14 +686,14 @@ def test_a_threaded_kernel_is_counted_on_every_thread_and_degrades_out_loud(monk
     sizes = spec.parameters["S"]
     expected = 2 * sizes["NI"] * sizes["NJ"] * sizes["NK"]
     binding = binding_from_spec(spec)
-    data = _data_seeded("gemm", "S", "float64", 42)
+    data = _data_seeded("gemm", Preset.S, "float64", 42)
     with Sandbox(binding) as sandbox:
-        built = sandbox.build(Submission(language="c", source=OPENMP_GEMM), debug=True)
+        built = sandbox.build(Submission(language=Language.C, source=OPENMP_GEMM), debug=True)
         assert built.ok, built.log[-2000:]
-        counted = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
+        counted = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
         # The patch is inherited across the fork count_metric does, so it reaches the worker.
         monkeypatch.setattr(papi, "open_counter", refusing_open_counter(papi.open_counter))
-        refused = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
+        refused = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
 
     absent = unarmable_events("fp_ops")
     if not armable("fp_ops"):
@@ -930,7 +931,7 @@ def test_an_open_gate_with_no_countable_event_is_still_refused_by_name(
 
 def test_a_python_submission_is_refused_by_cause_before_anything_runs() -> None:
     """No native call to bracket, and its threads are not the parallelism to measure."""
-    report = papi.count_per_thread("/nonexistent.so", None, {}, "python")
+    report = papi.count_per_thread("/nonexistent.so", None, {}, Language.PYTHON)
     assert report["cause"] == "not_native"
     assert report["aggregate"] is None
     assert report["threads"] == []
@@ -942,7 +943,7 @@ def test_a_dead_per_thread_child_is_decoded_into_a_cause(monkeypatch: pytest.Mon
     """The isolation contract, per-thread edition: the child dying is a named cause, not an
     exception the caller has to guess the meaning of, and not an empty table."""
     monkeypatch.setattr(papi, "per_thread_worker", segfaulting_worker)
-    report = papi.count_per_thread("/nonexistent.so", None, {}, "c", rep_timeout=5.0)
+    report = papi.count_per_thread("/nonexistent.so", None, {}, Language.C, rep_timeout=5.0)
     assert report["cause"] == "run_failed"
     assert "SIGSEGV" in report["missing"]
     assert report["imbalance"] is None
@@ -1052,13 +1053,15 @@ def test_the_per_thread_report_recovers_a_KNOWN_work_distribution(monkeypatch: p
     if threads < 4:
         pytest.skip(f"only {flags.ncores()} physical core(s); the 1:2:3:4 schedule needs 4 threads")
     binding = binding_from_spec(BenchSpec.load("gemm"))
-    data = _data_seeded("gemm", "S", "float64", 42)
+    data = _data_seeded("gemm", Preset.S, "float64", 42)
     reports = {}
     for name, source in (("balanced", OPENMP_GEMM), ("skewed", SKEWED_GEMM)):
         with Sandbox(binding) as sandbox:
-            built = sandbox.build(Submission(language="c", source=source), debug=True)
+            built = sandbox.build(Submission(language=Language.C, source=source), debug=True)
             assert built.ok, built.log[-2000:]
-            reports[name] = papi.count_per_thread(built.lib, binding, data, "c", reps=1, warmup=1, rep_timeout=300.0)
+            reports[name] = papi.count_per_thread(
+                built.lib, binding, data, Language.C, reps=1, warmup=1, rep_timeout=300.0
+            )
 
     for name, report in reports.items():
         assert report.get("missing") is None, f"{name}: {report.get('missing')}"
@@ -1118,13 +1121,15 @@ def test_a_serial_kernel_is_refused_as_not_openmp_rather_than_reported_balanced(
     have_cpi = armable(*papi.PER_THREAD_METRICS)  # before the patch below empties the event set
     binding = binding_from_spec(BenchSpec.load("gemm"))
     with Sandbox(binding) as sandbox:
-        built = sandbox.build(Submission(language="c", source=SERIAL_GEMM), debug=True)
+        built = sandbox.build(Submission(language=Language.C, source=SERIAL_GEMM), debug=True)
         assert built.ok, built.log[-2000:]
-        data = _data_seeded("gemm", "S", "float64", 42)
-        report = papi.count_per_thread(built.lib, binding, data=data, lang="c", reps=1, warmup=1, rep_timeout=300.0)
+        data = _data_seeded("gemm", Preset.S, "float64", 42)
+        report = papi.count_per_thread(
+            built.lib, binding, data=data, lang=Language.C, reps=1, warmup=1, rep_timeout=300.0
+        )
         # A machine with no countable event at all, forced. The patch crosses the fork.
         monkeypatch.setattr(papi, "available_events", lambda: ())
-        starved = papi.count_per_thread(built.lib, binding, data=data, lang="c", reps=1, rep_timeout=300.0)
+        starved = papi.count_per_thread(built.lib, binding, data=data, lang=Language.C, reps=1, rep_timeout=300.0)
     assert starved["cause"] == "events_unsupported"
     assert starved["imbalance"] is None
     assert "[events_unsupported]" in starved["text"]

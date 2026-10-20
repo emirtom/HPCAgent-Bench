@@ -24,9 +24,12 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
+from hpcagent_bench.config import MpContext
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import SubmitAnswer
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.runner import RunRow, solve_task, status_of
 from hpcagent_bench.harness.scoring import Score, score_from_answer
 from hpcagent_bench.harness.task import Task
@@ -74,7 +77,8 @@ def merge_graded_row(think_row: RunRow, result: Score) -> RunRow:
         hidden_total=result.hidden_total,
         baselines=dict(result.baselines),
         speedups=dict(result.speedups),
-        oracle=result.oracle,
+        # The reference that graded, as the judge's grade records it ("" when none did).
+        oracle=Oracle.parse(result.oracle) if result.oracle else think_row.oracle,
         detail=result.detail,
         timing_reduction=result.timing_reduction,
     )
@@ -82,7 +86,18 @@ def merge_graded_row(think_row: RunRow, result: Score) -> RunRow:
 
 def error_row(exc: BaseException) -> RunRow:
     """A scored agent_error row for a task that raised without producing a row."""
-    return RunRow("?", "?", "c", "restricted", "?", "agent_error", False, float("inf"), 0, detail=repr(exc))
+    return RunRow(
+        "?",
+        "?",
+        Language.C,
+        SourceMode.RESTRICTED,
+        "?",
+        RunStatus.AGENT_ERROR,
+        False,
+        float("inf"),
+        0,
+        detail=repr(exc),
+    )
 
 
 # static endpoint assignment (round-robin, no dynamic load balancing)
@@ -158,11 +173,11 @@ def run_static(
     vllm_urls: list[str | None],
     judge_urls: list[str],
     workers: int,
-    preset: str,
+    preset: Preset,
     datatype: str,
     repeat: int,
-    oracle: str,
-    baseline: str,
+    oracle: Oracle,
+    baseline: Baseline | None,
     max_rounds: int | None = None,
     prompt_variants: list[str | None] | None = None,
     log: Callable[[str], None] | None = None,
@@ -230,7 +245,7 @@ def run_static(
     # forkserver forks from a clean single-threaded helper (as the threaded judge service does).
     # Scoped to the sweep: the pin is right for THESE threads, not for whatever the process
     # does next (an in-process run afterwards would then fork its kernels under forkserver too).
-    with config.overridden("runtime.mp_context", "forkserver"):
+    with config.overridden("runtime.mp_context", MpContext.FORKSERVER):
         threads = [threading.Thread(target=worker, args=(w,), name=f"agent-{w}", daemon=True) for w in range(workers)]
         for thread in threads:
             thread.start()

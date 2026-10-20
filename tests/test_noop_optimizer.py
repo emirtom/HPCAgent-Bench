@@ -11,27 +11,29 @@ source options (language + ABI) -- on a plain kernel.
 import pathlib
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, SourceMode
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import SubmitFeedback
 
 KERNEL = "gemm"
 
 
 def _cfg():
-    return ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2)
+    return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2)
 
 
 def test_language_option(make_judge) -> None:
     """restricted mode: the reference source, compiled by the judge."""
-    sub = NoOpOptimizer().solve(Task(KERNEL, "restricted", "c"))
+    sub = NoOpOptimizer().solve(Task(KERNEL, SourceMode.RESTRICTED, Language.C))
     assert sub.source is not None
     assert sub.library is None
 
     _srv, url = make_judge(_cfg())
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer)
     assert r.build_ok is True, r.detail
@@ -47,12 +49,12 @@ def test_abi_option(make_judge, tmp_path, monkeypatch) -> None:
     one filesystem both containers see and the judge refuses any other path.
     """
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    sub = NoOpOptimizer(workdir=tmp_path).solve(Task(KERNEL, "any", "c"))
+    sub = NoOpOptimizer(workdir=tmp_path).solve(Task(KERNEL, SourceMode.ANY, Language.C))
     assert sub.library is not None
     assert sub.source is None
 
     _srv, url = make_judge(_cfg())
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer)
     assert r.build_ok is True, r.detail
@@ -68,7 +70,7 @@ def test_abi_so_outlives_dropped_optimizer() -> None:
     temp-dir-tied-to-optimizer-GC footgun."""
     import gc
 
-    sub = NoOpOptimizer().solve(Task(KERNEL, "any", "c"))  # optimizer dropped here
+    sub = NoOpOptimizer().solve(Task(KERNEL, SourceMode.ANY, Language.C))  # optimizer dropped here
     gc.collect()  # force-collect the unreferenced optimizer
     assert sub.library, "the .so vanished with the optimizer"
     assert pathlib.Path(sub.library).exists(), "the .so vanished with the optimizer"

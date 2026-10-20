@@ -133,16 +133,26 @@ def requests_env(lineage: list[Experiment]) -> dict[str, str]:
     return assignments(LAYERS / f"requests-{presets[-1] if presets else DEFAULT_REQUESTS}.env")
 
 
+def tuner_names() -> frozenset[str]:
+    """Every non-LLM tuner a setup can name in place of a model (``hpcagent-bench agent <name>``)."""
+    # Deferred: the optimizers import the judge's machinery, which rendering a model setup never needs.
+    from hpcagent_bench.harness.optimizers import optimizer_registry
+
+    return frozenset(optimizer_registry())
+
+
 def render_experiment(name: str, model: str, spec: dict[str, Experiment]) -> dict[str, str]:
-    """Experiment ``name`` for ``model`` flattened (precedence in the module docstring)."""
-    try:
-        member = Model(model)
-    except ValueError:
-        raise SystemExit(f"env_spec: no model {model}: no layers/model-{model}.env") from None
+    """Experiment ``name`` for ``model`` flattened (precedence in the module docstring); a tuner named as the model
+    renders ``layers/tuner.env`` with ``TUNER`` set to it."""
+    member = next((candidate for candidate in Model if candidate.value == model), None)
+    tuner = member is None and model in tuner_names()
+    if member is None and not tuner:
+        raise SystemExit(f"env_spec: no model {model}: no layers/model-{model}.env and no tuner of that name")
     lineage = experiment_chain(name, spec)
-    chain = layer_chain(LAYERS / f"model-{member.value}.env")
+    layer = LAYERS / ("tuner.env" if member is None else f"model-{member.value}.env")
+    chain = layer_chain(layer)
     if COMMON.resolve() not in chain:
-        raise SystemExit(f"env_spec: layers/model-{member.value}.env does not extend common.env")
+        raise SystemExit(f"env_spec: layers/{layer.name} does not extend common.env")
     env: dict[str, str] = {}
     for layer in chain:
         env.update(assignments(layer))
@@ -150,6 +160,9 @@ def render_experiment(name: str, model: str, spec: dict[str, Experiment]) -> dic
             env.update(requests_env(lineage))
             for experiment in lineage:
                 env.update((key, str(value)) for key, value in experiment.env.items())
+    if member is None:
+        env["TUNER"] = model
+        return env
     for experiment in lineage:
         env.update((key, str(value)) for key, value in experiment.models.get(member, {}).items())
     return env

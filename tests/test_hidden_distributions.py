@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness.hidden_tests import hidden_cases
 from hpcagent_bench.initialize import auto_initialize, fill_index_array, generate_scaled
 from hpcagent_bench.precision import Precision, numpy_dtype
@@ -189,7 +190,7 @@ def hidden_wiring_spec() -> BenchSpec:
 
 def test_hidden_cases_returns_one_case_per_variant() -> None:
     """Not a literal 5 and not a config value -- the count must track VARIANTS."""
-    cases = hidden_cases(BenchSpec.load("gemm"), "S")
+    cases = hidden_cases(BenchSpec.load("gemm"), Preset.S)
     assert len(cases) == len(hidden.VARIANTS)
     assert len({c.label for c in cases}) == len(cases)
     assert {c.variant for c in cases} == {v.name for v in hidden.VARIANTS}
@@ -207,8 +208,8 @@ def test_hidden_variant_none_matches_the_omitted_parameter_bit_for_bit() -> None
     """Adding the ``hidden_variant`` parameter must not perturb the un-rotated path at all --
     not even an extra RNG draw that would shift every array after it."""
     spec = hidden_wiring_spec()
-    omitted = auto_initialize(spec, "S", Precision.FP64, seed=42)
-    explicit_none = auto_initialize(spec, "S", Precision.FP64, seed=42, hidden_variant=None)
+    omitted = auto_initialize(spec, Preset.S, Precision.FP64, seed=42)
+    explicit_none = auto_initialize(spec, Preset.S, Precision.FP64, seed=42, hidden_variant=None)
     for a, b in zip(omitted, explicit_none, strict=False):
         assert a.tobytes() == b.tobytes()
 
@@ -216,15 +217,15 @@ def test_hidden_variant_none_matches_the_omitted_parameter_bit_for_bit() -> None
 @pytest.mark.parametrize("variant_name", POSITIVE_VARIANTS)
 def test_positive_variants_keep_an_undeclared_array_all_positive(variant_name: str) -> None:
     spec = hidden_wiring_spec()
-    u, _spd = auto_initialize(spec, "S", Precision.FP64, seed=7, hidden_variant=variant_name)
+    u, _spd = auto_initialize(spec, Preset.S, Precision.FP64, seed=7, hidden_variant=variant_name)
     assert u.min() > 0
 
 
 def test_h4_widens_and_h5_narrows_the_spread_relative_to_h1() -> None:
     spec = hidden_wiring_spec()
-    u1, _ = auto_initialize(spec, "S", Precision.FP64, seed=99, hidden_variant=hidden.TIMED_VARIANT)
-    u4, _ = auto_initialize(spec, "S", Precision.FP64, seed=99, hidden_variant=LARGE_VARIANT)
-    u5, _ = auto_initialize(spec, "S", Precision.FP64, seed=99, hidden_variant=SMALL_VARIANT)
+    u1, _ = auto_initialize(spec, Preset.S, Precision.FP64, seed=99, hidden_variant=hidden.TIMED_VARIANT)
+    u4, _ = auto_initialize(spec, Preset.S, Precision.FP64, seed=99, hidden_variant=LARGE_VARIANT)
+    u5, _ = auto_initialize(spec, Preset.S, Precision.FP64, seed=99, hidden_variant=SMALL_VARIANT)
     assert np.ptp(u4) > np.ptp(u1)
     assert np.ptp(u5) < np.ptp(u1)
 
@@ -235,7 +236,7 @@ def test_a_structural_array_keeps_its_generator_through_the_wiring(variant: hidd
     that ``auto_initialize`` actually reads ``spec.init.dists`` and threads it through
     unmangled, for every variant including the two positive-only bases (h2, h5)."""
     spec = hidden_wiring_spec()
-    _u, spd = auto_initialize(spec, "S", Precision.FP64, seed=11, hidden_variant=variant.name)
+    _u, spd = auto_initialize(spec, Preset.S, Precision.FP64, seed=11, hidden_variant=variant.name)
     assert spd.min() < 0 < spd.max(), "well_conditioned mixes sign; a swap to a positive base would lose that"
 
 

@@ -38,8 +38,8 @@ from cffi import FFI
 from relayout.convert import Conversion
 from relayout.layout import IndexMap
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages, omp_context, openmp_runtimes, osinfo, seal
+from hpcagent_bench import flags, languages, modules, omp_context, openmp_runtimes, osinfo, seal
+from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
@@ -1437,7 +1437,7 @@ class CallMarshal:
     typedefs: str = ""
 
     @classmethod
-    def of(cls, binding: Binding, data: KernelData, lang: str, regroups: Sequence[Regroup] = ()) -> "CallMarshal":
+    def of(cls, binding: Binding, data: KernelData, lang: Language, regroups: Sequence[Regroup] = ()) -> "CallMarshal":
         """The marshal for ``binding`` called from ``lang`` on ``data``; the whole of a struct zip of
         ``regroups`` is passed as a pointer to its C struct (``hb_zip_<into>``)."""
         structs = {r.group.name: r.group for r in regroups if r.zipped and r.group.struct}
@@ -1478,7 +1478,7 @@ def _call_native_impl(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None,
     *,
     xp: types.ModuleType,
@@ -1677,7 +1677,7 @@ def _call_native(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None = None,
     reps: int = 1,
     warmup: int = 0,
@@ -1958,7 +1958,7 @@ def _call_native_device(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None = None,
     device_id: int | None = None,
     reps: int = 1,
@@ -2306,7 +2306,7 @@ def _native_call_worker(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     memory_bytes: int,
     workspace_bytes: str | None,
     spill_root: str,
@@ -2402,7 +2402,7 @@ def _native_call_worker(
     # from /proc, so Linux-only.
     if memory_bytes > 0 and osinfo.IS_LINUX:
         arm_kernel_cap(memory_bytes)
-    if lang == "python":
+    if lang is Language.PYTHON:
         if py_meta is None:  # _call_isolated resolves it before the fork
             raise RuntimeError("a python delivery needs its (func_name, inputs, outputs) meta")
         timed_outputs, samples, extras, rep_timings = _call_python(
@@ -2707,14 +2707,16 @@ class RepCheckServer:
 
 
 def rep_check_server(
-    checks: RepChecks | None, binding: Binding, data: KernelData, py_meta: PythonMeta | None, lang: str, reps: int
+    checks: RepChecks | None, binding: Binding, data: KernelData, py_meta: PythonMeta | None, lang: Language, reps: int
 ) -> RepCheckServer | None:
     """The server of a measurement checked rep by rep, or None to spill every rep (no ``checks``, or no
     anonymous shared file on this host)."""
     if checks is None:
         return None
     names = (
-        py_meta[2] if lang == "python" and py_meta is not None else [a.name for a in binding.args if a.role == "output"]
+        py_meta[2]
+        if lang is Language.PYTHON and py_meta is not None
+        else [a.name for a in binding.args if a.role == "output"]
     )
     return RepCheckServer(checks, output_regions(names, data), max(1, reps))
 
@@ -2784,7 +2786,7 @@ def _call_isolated(
     lib_path: "pathlib.Path | str",
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     *,
     device: bool,
     timeout: float,
@@ -2850,7 +2852,7 @@ def _call_isolated(
     on the child's own inputs instead of a fresh copy of them (:data:`INPUTS_OWNED`)."""
     # Residency picks the child for every delivery, python included.
     use_device = device
-    if lang == "python" and py_meta is None:
+    if lang is Language.PYTHON and py_meta is None:
         py_meta = python_meta(binding.kernel)
     # Memory cap is host-only: the device path makes reservations no host budget should bound.
     memory_bytes = int(memory_gb * BYTES_PER_GIB) if (memory_gb and not use_device) else 0

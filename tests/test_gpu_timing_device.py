@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import native_call, timing
 from hpcagent_bench.harness.envelope import Submission
@@ -81,7 +82,7 @@ def python_call(
     """
     path.write_text(source)
     return native_call._call_isolated(
-        path, BINDING, data, "python", device=device, timeout=300, reps=reps, warmup=warmup
+        path, BINDING, data, Language.PYTHON, device=device, timeout=300, reps=reps, warmup=warmup
     )
 
 
@@ -296,7 +297,7 @@ def offload_sample(source: str, data: dict) -> tuple[np.ndarray, list[int], nati
     built ``.so`` lives in, exactly as a real grade's does. It runs in the submission's OpenMP context,
     as scoring's does: the offload toolchain's libomp, never beside the image default's libgomp.
     """
-    submission = Submission(language="c", source=source)
+    submission = Submission(language=Language.C, source=source)
     with Sandbox(BINDING) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
         assert built.ok, built.log
@@ -304,7 +305,7 @@ def offload_sample(source: str, data: dict) -> tuple[np.ndarray, list[int], nati
             built.lib,
             BINDING,
             data,
-            "c",
+            Language.C,
             device=True,
             timeout=300,
             reps=3,
@@ -356,7 +357,7 @@ def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup
     build.
     """
     with Sandbox(BINDING) as sb:
-        built = sb.build(Submission(language="c", source=MAPPING_SOURCE), mode=Mode.SINGLE_CORE)
+        built = sb.build(Submission(language=Language.C, source=MAPPING_SOURCE), mode=Mode.SINGLE_CORE)
         assert not built.ok, "a transferring map over an ABI array built on an offload setup"
         assert built.lib is None
         assert "is_device_ptr" in built.log, built.log
@@ -426,7 +427,7 @@ def test_a_hip_grade_is_unchanged() -> None:
     tests/test_gpu_timing_contract.py.
     """
     data = strided_data(BIG // 4)
-    submission = Submission(language="hip", source=HIP_HOST_TU, device_source=HIP_DEVICE_TU)
+    submission = Submission(language=Language.HIP, source=HIP_HOST_TU, device_source=HIP_DEVICE_TU)
     with Sandbox(BINDING) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
         assert built.ok, built.log
@@ -434,7 +435,7 @@ def test_a_hip_grade_is_unchanged() -> None:
             built.lib,
             BINDING,
             data,
-            "hip",
+            Language.HIP,
             device=True,
             timeout=300,
             reps=3,

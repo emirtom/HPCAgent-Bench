@@ -5,6 +5,7 @@
 exposes the canonical symbol, documents the packed-sparse unpack (Sec. 3), and forwards to the agent's pure
 ``<kernel>_pure(...)``; timing is owned externally by the harness bracket (Sec. 6), no timer argument here."""
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.support.bindings.contract import (
     WORKSPACE_NAME,
     WORKSPACE_SIZE_NAME,
@@ -18,7 +19,7 @@ __all__ = ["gen_host_glue"]
 
 def gen_host_glue(binding: Binding) -> str:
     """Render the C host glue / forwarding wrapper for ``binding`` (Sec. 3, Sec. 7)."""
-    sym = binding.symbols["c"]
+    sym = binding.symbols[Language.C]
     pure = f"{binding.kernel}_pure"
 
     # Both functions take the same params, the reserved scratch pair (Sec. 11) trailing.

@@ -21,6 +21,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from hpcagent_bench import flags, modules, perf_reports
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import gpu_profiling, native_call, papi, profiling, sandbox, tools
 from hpcagent_bench.harness.envelope import Submission
@@ -35,7 +36,7 @@ FAKE_PERF = "/fake/bin/perf"
 
 #: A C delivery that defines the submitted symbol and needs no BLAS headers, so it builds on any
 #: host with a C compiler; nothing here measures it.
-TRIVIAL_GEMM = Submission(language="c", source="void gemm_fp64(void) {}")
+TRIVIAL_GEMM = Submission(language=Language.C, source="void gemm_fp64(void) {}")
 
 
 def test_a_wedged_perf_record_is_a_timed_out_refusal_not_a_raw_timeout(
@@ -99,7 +100,9 @@ def stub_builds(monkeypatch: pytest.MonkeyPatch) -> list[list[list[str]]]:
 def test_the_none_route_builds_with_the_range_header_and_papi(monkeypatch: pytest.MonkeyPatch) -> None:
     """``papi_ranges.h`` compiles only where its directory and PAPI are on the argv: the tool:"none" build."""
     spawned = stub_builds(monkeypatch)
-    answer = profiling.run_agent_build(TRIVIAL_GEMM, Task("gemm", "restricted", "c"), preset="XL", threads=4)
+    answer = profiling.run_agent_build(
+        TRIVIAL_GEMM, Task("gemm", SourceMode.RESTRICTED, Language.C), preset=Preset.XL, threads=4
+    )
     assert answer["build_ok"] is False, answer
     *compiles, link = spawned[0]
     include = f"-I{flags.PAPI_RANGES_H.parent}"
@@ -182,7 +185,9 @@ def test_the_none_route_runs_the_requested_pool_clamped_to_the_slot(
         return subprocess.CompletedProcess([], 0, "", "")
 
     monkeypatch.setattr(profiling, "run_plain", plain)
-    answer = profiling.run_agent_build(TRIVIAL_GEMM, Task("gemm", "restricted", "c"), preset="XL", threads=requested)
+    answer = profiling.run_agent_build(
+        TRIVIAL_GEMM, Task("gemm", SourceMode.RESTRICTED, Language.C), preset=Preset.XL, threads=requested
+    )
     assert (seen["env"], seen["request"], answer["threads"]) == (want, want, want), (seen, answer)
 
 
@@ -205,7 +210,9 @@ def test_the_papi_routes_count_at_the_requested_pool_clamped_to_the_slot(
     monkeypatch.setattr(profiling, "count_metrics", counted)
     monkeypatch.setattr(profiling, "count_threads", counted)
     with pytest.raises(Measured):
-        modules.member(profiling, entry)(TRIVIAL_GEMM, Task("gemm", "restricted", "c"), preset="XL", reps=1, threads=64)
+        modules.member(profiling, entry)(
+            TRIVIAL_GEMM, Task("gemm", SourceMode.RESTRICTED, Language.C), preset=Preset.XL, reps=1, threads=64
+        )
     assert seen == [12], seen
 
 
@@ -386,7 +393,7 @@ def test_a_linuxperf_sweep_runs_each_configuration_at_its_own_thread_count(monke
     monkeypatch.setattr(profiling, "run_workload", workload)
     monkeypatch.setattr(perf_reports, "run_command", record)
     payload = profiling.profile_submission(
-        TRIVIAL_GEMM, Task("gemm", "restricted", "c"), preset="XL", threads=[1, 2, 4], reps=1
+        TRIVIAL_GEMM, Task("gemm", SourceMode.RESTRICTED, Language.C), preset=Preset.XL, threads=[1, 2, 4], reps=1
     )
     assert [config["threads"] for config in payload["configs"]] == [1, 2, 4], payload
     assert [row["threads"] for row in payload["scalability"]] == [1, 2, 4], payload

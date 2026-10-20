@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [c, cpp]}
 packet:
   # `cpf-tool-cpu` with one ``// par``, ``// seq`` or ``// unknown`` per loop. ``cpf-tool-kinds`` names it
   # on a CPU setup.
-  order: 27
   aliases: [cpf-tool-kinds]
   name: "Canonical Parallel Form Tool, CPU, Kinds Only"
   tools: [canonical_parallel_form]

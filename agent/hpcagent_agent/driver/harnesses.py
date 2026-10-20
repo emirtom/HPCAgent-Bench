@@ -27,10 +27,12 @@ import json
 import os
 import pathlib
 import re
+import sys
 from collections.abc import Callable, Mapping
 from typing import NamedTuple, cast
 
 from hpcagent_agent.driver import effort
+from hpcagent_agent.harness.runner_common import EndReason
 
 __all__ = [
     "ANTHROPIC_RUNGS",
@@ -86,6 +88,8 @@ __all__ = [
 ]
 
 CLAUDE = "claude"
+#: The harness that runs a non-LLM tuner like an agent: no model, its measurements only through the judge.
+TUNER = "tuner"
 
 #: The tool each harness opens a staged skill page with, by name. Only claude has a tool called Read;
 #: mini-SWE's and the SDK runners' file tool is the shell and OpenHands has its own editor, so a
@@ -225,10 +229,10 @@ def end_closing(workdir: pathlib.Path) -> Closing:
     reason = str(record.get("reason") or "")
     return Closing(
         recorded=True,
-        subtype="success" if reason == "finished" else reason,
+        subtype="success" if reason == EndReason.FINISHED.text else reason,
         turns=count(record.get("turns")) or 0,
-        context_overflow=reason == "context_overflow",
-        api_timeout=reason == "api_timeout",
+        context_overflow=reason == EndReason.CONTEXT_OVERFLOW.text,
+        api_timeout=reason == EndReason.API_TIMEOUT.text,
     )
 
 
@@ -478,6 +482,22 @@ def optimas_command(context: Context) -> list[str]:
     return openai_command(context, "optimas")
 
 
+def tuner_command(context: Context) -> list[str]:
+    """A non-LLM tuner (``$TUNER``) on the problem's kernel, in the judge image this setup's agent node runs
+    (:mod:`hpcagent_bench.harness.run_tuner`)."""
+    return [
+        sys.executable,
+        "-m",
+        "hpcagent_bench.harness.run_tuner",
+        "--workdir",
+        str(context.workdir),
+        "--kernel",
+        context.kernel,
+        "--language",
+        context.language,
+    ]
+
+
 def runner_env(context: Context, base: dict[str, str]) -> dict[str, str]:
     """The shared environment minus claude's own, plus the key, usage path and harness name.
 
@@ -539,6 +559,7 @@ RUNNERS: dict[str, Harness] = {
     "optimas": runner("optimas", optimas_command, runner_env),
     "anthropic": runner("anthropic", anthropic_command, runner_env),
     "openai": runner("openai", openai_command, runner_env),
+    TUNER: runner(TUNER, tuner_command, runner_env),
 }
 
 #: Every harness the driver can launch: claude (built in ``agent_driver.py``) and the runners above.

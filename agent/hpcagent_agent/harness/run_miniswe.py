@@ -1,20 +1,10 @@
 # The optional minisweagent package is installed only in its agent image.
 # pyright: reportMissingImports=false
-"""mini-SWE-agent 2.4.6 runner for one HPCAgent-Bench episode.
+"""mini-SWE-agent runner for one episode: ``DefaultAgent`` with the one ``bash`` tool (``miniswe.yaml``).
 
-``DefaultAgent`` + ``LocalEnvironment(cwd=<agent folder>)`` + ``LitellmModel`` with native tool calls (the one
-``bash`` tool), configured by ``miniswe.yaml``; the task is the rendered prompt. Every command inherits
-this process's environment, so the benchmark variables and ``hpcagent-bench-tool`` on PATH reach the shell.
-The driver owns wall clock and tokens: step_limit and cost_limit are 0 and cost errors are ignored.
-It also owns the reply cap, the effort rung and the request timeout, all forwarded to litellm, and the
-compaction trigger.
-2.4.6 neither counts the prompt nor condenses history: its transcript grows until the server refuses
-it with "maximum context length". ``runner_common.HistoryWindow`` is the runner's own compaction: past
-``--compaction-trigger`` prompt tokens the request carries the task and the newest steps only. The
-agent's own history, and so ``miniswe.traj.json``, stays whole.
-
-Writes ``usage.jsonl`` (one line per call), ``miniswe.traj.json`` (after every step) and
-``harness-end.json``; see ``runner_common``.
+The driver owns wall clock, tokens, reply cap, effort and timeout; :class:`runner_common.HistoryWindow` compacts
+the request, while ``miniswe.traj.json`` keeps the whole history. Writes ``usage.jsonl``, ``miniswe.traj.json``
+and ``harness-end.json``.
 """
 
 import os
@@ -50,7 +40,9 @@ def bash_command(command: str) -> str:
     return shlex.join([*runner_common.BASH, command])
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the agent to its end; return (end reason, detail)."""
     import yaml
     from minisweagent.agents.default import DefaultAgent
@@ -118,8 +110,8 @@ def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLo
     result = agent.run(args.prompt.read_text(encoding="utf-8"))
     status = str(result.get("exit_status", ""))
     if status == SUBMITTED:
-        return runner_common.FINISHED, ""
-    return runner_common.ERROR, f"exit_status={status}"
+        return runner_common.EndReason.FINISHED, ""
+    return runner_common.EndReason.ERROR, f"exit_status={status}"
 
 
 def main(argv: Sequence[str]) -> int:

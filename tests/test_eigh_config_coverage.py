@@ -19,6 +19,7 @@ import pytest
 
 from hpcagent_bench import fuzz
 from hpcagent_bench import numerical_oracle as no
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
 from tests.optional_imports import import_or_skip
 
@@ -79,5 +80,5 @@ def test_eigh_config_validates_under_jax(cfg: dict[str, Any]) -> None:
     at the S size, crossing size with config (eigh_test has no separate fuzzed size
     preset to cross against, so S is the only size)."""
     import_or_skip("jax")
-    res = no.run_kernel("eigh_test", "S", config=cfg, only_backends={"jax"})
+    res = no.run_kernel("eigh_test", Preset.S, config=cfg, only_backends={"jax"})
     assert res["jax"] == "ok", f"{cfg} -> {res}"

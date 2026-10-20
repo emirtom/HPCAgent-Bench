@@ -11,6 +11,7 @@ knobs gate their sections leak-free. All pure: no compile, no hidden tests.
 import pytest
 
 from hpcagent_bench import config, languages
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness.prompts import (
     PROMPT_VARIANTS,
     STRATEGIES,
@@ -20,8 +21,9 @@ from hpcagent_bench.harness.prompts import (
     build_prompt,
 )
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import PromptStrategy
 
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 def section_of(prompt: str, heading: str) -> str:
@@ -43,22 +45,22 @@ def test_from_config_returns_defaults_and_overrides_win() -> None:
     """from_config() mirrors the dataclass defaults (config.yaml matches them); a
     non-None override wins, a None override is ignored."""
     assert PromptConfig.from_config() == PromptConfig()
-    over = PromptConfig.from_config(strategy="loopnest", inline_kernel=False)
-    assert over.strategy == "loopnest"
+    over = PromptConfig.from_config(strategy=PromptStrategy.LOOPNEST, inline_kernel=False)
+    assert over.strategy is PromptStrategy.LOOPNEST
     assert over.inline_kernel is False
     # None override leaves the config default alone (how the CLI passes ad-hoc kwargs).
-    assert PromptConfig.from_config(strategy=None).strategy == "default"
+    assert PromptConfig.from_config(strategy=None).strategy is PromptStrategy.DEFAULT
 
 
 def test_strategies_registry_has_the_named_strategies() -> None:
-    assert {"default", "loopnest", "profile_first", "language_native"} <= set(STRATEGIES)
+    assert set(PromptStrategy) <= set(STRATEGIES)
 
 
 def test_strategy_changes_the_how_to_text_and_both_profile() -> None:
     """profile_first vs loopnest render DIFFERENT guidance, and both still point at a
     real perf tool (measure, do not guess)."""
-    prof = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy="profile_first"))
-    loop = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy="loopnest"))
+    prof = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy=PromptStrategy.PROFILE_FIRST))
+    loop = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy=PromptStrategy.LOOPNEST))
     assert prof != loop
     assert "Start by profiling" in prof
     assert "Start loop nest by loop nest" in loop
@@ -107,9 +109,9 @@ def test_reference_paragraph_gated_on_the_sidecar_and_the_knob() -> None:
 def test_variant_applies_the_preset_overrides() -> None:
     """A named variant maps to a PromptConfig with the preset's fields applied
     (profile_first sets the strategy; language_native also flips language_track)."""
-    assert PromptConfig.variant("profile_first").strategy == "profile_first"
+    assert PromptConfig.variant("profile_first").strategy is PromptStrategy.PROFILE_FIRST
     ln = PromptConfig.variant("language_native")
-    assert ln.strategy == "language_native"
+    assert ln.strategy is PromptStrategy.LANGUAGE_NATIVE
     assert ln.language_track is True
     # "default" is the empty preset -- identical to the plain config default.
     assert PromptConfig.variant("default") == PromptConfig.from_config()
@@ -139,7 +141,7 @@ def test_config_declared_variant_resolves_and_overrides_builtin() -> None:
     try:
         assert "my_exp" in available_variants()
         cfg = PromptConfig.variant("my_exp")
-        assert cfg.strategy == "profile_first"
+        assert cfg.strategy is PromptStrategy.PROFILE_FIRST
         assert cfg.include_reference is True
         # The config entry shadows the built-in "minimal" (built-in also flips
         # optimization_guidance off; the override only sets inline_kernel True).
@@ -150,10 +152,10 @@ def test_config_declared_variant_resolves_and_overrides_builtin() -> None:
 
 def test_explicit_kwarg_beats_the_variant() -> None:
     """Explicit kwargs win over the variant's fields (variant is the coarse preset)."""
-    cfg = PromptConfig.variant("loopnest", strategy="profile_first")
-    assert cfg.strategy == "profile_first"
+    cfg = PromptConfig.variant("loopnest", strategy=PromptStrategy.PROFILE_FIRST)
+    assert cfg.strategy is PromptStrategy.PROFILE_FIRST
     # A None kwarg is ignored, leaving the variant's field intact.
-    assert PromptConfig.variant("loopnest", strategy=None).strategy == "loopnest"
+    assert PromptConfig.variant("loopnest", strategy=None).strategy is PromptStrategy.LOOPNEST
 
 
 def test_available_variants_includes_builtins() -> None:
@@ -191,7 +193,7 @@ def test_cpp_task_text_carries_the_cpp_signature_spellings_and_tbb_autolink() ->
     language-gated -- the C prompt says nothing about either."""
     from hpcagent_bench.harness.service import service_prompt
 
-    cpp = build_prompt(Task("gemm", "restricted", "cpp"))
+    cpp = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.CPP))
     assert "__restrict__" in cpp
     assert "oneTBB" in cpp
     assert "std::execution::par" in cpp
@@ -201,11 +203,11 @@ def test_cpp_task_text_carries_the_cpp_signature_spellings_and_tbb_autolink() ->
 
     # The judge-service prompt renders a different top-level template and is the path the
     # experiment setups actually read -- it must carry the same note.
-    svc = service_prompt("gemm", "cpp", "http://judge:8000")
+    svc = service_prompt("gemm", Language.CPP, "http://judge:8000")
     assert "__restrict__" in svc
     assert "oneTBB" in svc
     assert "std::execution::par" in svc
-    assert "oneTBB" not in service_prompt("gemm", "c", "http://judge:8000")
+    assert "oneTBB" not in service_prompt("gemm", Language.C, "http://judge:8000")
 
 
 def test_task_text_documents_the_compiler_request_and_its_default() -> None:
@@ -215,13 +217,13 @@ def test_task_text_documents_the_compiler_request_and_its_default() -> None:
     from hpcagent_bench.harness.service import service_prompt
 
     for language in ("c", "cpp", "fortran"):
-        text = build_prompt(Task("gemm", "restricted", language))
+        text = build_prompt(Task("gemm", SourceMode.RESTRICTED, language))
         assert '`"compiler"`' in text, language
         for family in languages.COMPILER_FAMILIES:
             assert f'`"{family}"`' in text, (language, family)  # every allowed value is documented
         assert "omit it" in text, language  # the default is stated, not implied
 
-    svc = service_prompt("gemm", "c", "http://judge:8000")
+    svc = service_prompt("gemm", Language.C, "http://judge:8000")
     assert '`"compiler"`' in svc
     assert "omit it" in svc
 
@@ -232,7 +234,7 @@ def test_build_flags_are_shown_per_compiler_family_from_the_matrix() -> None:
     sentence is scoped to C++ -- gcc / llvm auto-link it, nvhpc uses ``-stdpar``."""
     tbb = "dispatch into oneTBB"
 
-    cpp = build_prompt(Task("gemm", "restricted", "cpp"))
+    cpp = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.CPP))
     for family in languages.COMPILER_FAMILIES:
         assert f"**{family}**" in cpp, family
     assert "`g++`" in cpp
@@ -241,16 +243,16 @@ def test_build_flags_are_shown_per_compiler_family_from_the_matrix() -> None:
     assert tbb in cpp
     assert "-stdpar" in cpp
     # The flag lines are the harness's own, not a copy: the C++ standard the matrix compiles with.
-    assert languages.std_flag("cpp") in cpp
+    assert languages.std_flag(Language.CPP) in cpp
 
-    c = build_prompt(Task("gemm", "restricted", "c"))
+    c = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.C))
     for family in languages.COMPILER_FAMILIES:
         assert f"**{family}**" in c, family
     assert tbb not in c
     assert "std::execution" not in c
-    assert languages.std_flag("c") in c
+    assert languages.std_flag(Language.C) in c
 
-    fortran = build_prompt(Task("gemm", "restricted", "fortran"))
+    fortran = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.FORTRAN))
     assert "`gfortran`" in fortran
     assert "`flang`" in fortran
     # nvfortran belongs to the nvhpc entry and to no other family's row. Scoped to the section, not
@@ -266,7 +268,7 @@ def test_build_flags_are_shown_per_compiler_family_from_the_matrix() -> None:
     assert tbb not in fortran
 
 
-@pytest.mark.parametrize("language", ["c", "cpp"])
+@pytest.mark.parametrize("language", [Language.C, Language.CPP])
 def test_the_allocator_sentence_follows_the_link_probe(language, monkeypatch) -> None:
     """mimalloc is named in the prompt only when the graded link line really carries it. The
     probe is a real link, so a host without the library must produce NO sentence -- a prompt that
@@ -277,11 +279,11 @@ def test_the_allocator_sentence_follows_the_link_probe(language, monkeypatch) ->
     # the prompt quotes (build_shared_lib_commands, through _mimalloc_link_for_block).
     monkeypatch.setattr(languages, "mimalloc_link_flags", lambda lang: ("-lmimalloc",))
     monkeypatch.setattr(languages, "_mimalloc_link_for_block", lambda block, cc=None: ("-lmimalloc",))
-    linked = build_prompt(Task("gemm", "restricted", language))
+    linked = build_prompt(Task("gemm", SourceMode.RESTRICTED, language))
     assert "mimalloc" in linked, language
     assert "mimalloc" in service_prompt("gemm", language, "http://judge:8000"), language
 
     monkeypatch.setattr(languages, "mimalloc_link_flags", lambda lang: ())
     monkeypatch.setattr(languages, "_mimalloc_link_for_block", lambda block, cc=None: ())
-    assert "mimalloc" not in build_prompt(Task("gemm", "restricted", language)), language
+    assert "mimalloc" not in build_prompt(Task("gemm", SourceMode.RESTRICTED, language)), language
     assert "mimalloc" not in service_prompt("gemm", language, "http://judge:8000"), language

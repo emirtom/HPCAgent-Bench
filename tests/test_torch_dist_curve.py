@@ -19,6 +19,7 @@ from collections.abc import Callable
 import pytest
 
 from hpcagent_bench import observations_extract
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import (
     grade_under,
     mpi_sizing,
@@ -73,8 +74,8 @@ def rows(out: pathlib.Path) -> dict[tuple[str, int], dict[str, object]]:
 def test_the_planned_points_are_the_sized_problems_the_agent_sweep_launches() -> None:
     """A baseline point at another size than the agent's point at that P compares two problems."""
     spec = BenchSpec.load(KERNEL)
-    base, axis, work_exp, aligned = scoring.ml_sweep_sizing(spec, "XL")
-    points = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")
+    base, axis, work_exp, aligned = scoring.ml_sweep_sizing(spec, Preset.XL)
+    points = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)
     for point in points:
         want = mpi_sizing.sized_params(base, point.law, axis, point.ranks, work_exp, aligned)
         assert dict(point.params) == want, (point.law, point.ranks)
@@ -90,7 +91,7 @@ def test_each_point_is_timed_once_and_a_problem_both_laws_share_is_launched_once
 ) -> None:
     out = tmp_path / "out"
     db = out / "scaling-grade-1-0.db"
-    points = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")
+    points = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)
     for point in points:
         torch_dist_curve.fill_point(point, CPU, db, out, ("1", "n", "c"))
     shared = {(p.ranks, p.params_json) for p in points if p.law is ScalingLaw.STRONG} & {
@@ -98,7 +99,7 @@ def test_each_point_is_timed_once_and_a_problem_both_laws_share_is_launched_once
     }
     assert len(fake.calls) == len(points) - len(shared), fake.calls
     stored = rows(out)
-    assert set(stored) == {(p.law.value, p.ranks) for p in points}
+    assert set(stored) == {(p.law.text, p.ranks) for p in points}
     assert stored[("weak", 1)]["ranked_ns"] == stored[("strong", 1)]["ranked_ns"]
     assert all(row["compile_mode"] == COMPILE_MODE and row["source"] == "torch_dist" for row in stored.values())
     for point in points:  # a second grade (any submission) reads every point back
@@ -109,7 +110,7 @@ def test_each_point_is_timed_once_and_a_problem_both_laws_share_is_launched_once
 def test_a_point_on_another_image_is_timed_again(tmp_path: pathlib.Path, fake: FakeLaunches) -> None:
     """The cache key holds the image: a tuned choice of one compiler stack says nothing of another."""
     out = tmp_path / "out"
-    point = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")[0]
+    point = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)[0]
     torch_dist_curve.fill_point(point, CPU, out / "scaling-grade-a.db", out, ("1", "n", "c"))
     torch_dist_curve.fill_point(
         point, torch_dist_curve.Stack("cpu", "new"), out / "scaling-grade-a.db", out, ("1", "n", "c")
@@ -128,7 +129,7 @@ def failing_launch(fails: set[str | None]) -> Callable[..., list[int]]:
 
 def test_a_failed_compile_falls_back_to_eager_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(torch_dist_curve, "launch_once", failing_launch({COMPILE_MODE}))
-    point = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")[0]
+    point = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)[0]
     got = torch_dist_curve.time_point(point, CPU, 3, scoring._mpi_launch_cfg())  # pylint: disable=protected-access
     assert (got.samples, got.compile_mode) == ((300, 100, 200), "eager")
     assert "boom in max-autotune-no-cudagraphs" in got.note
@@ -139,7 +140,7 @@ def test_a_point_neither_launch_timed_is_a_recorded_hole_never_a_time(
 ) -> None:
     monkeypatch.setattr(torch_dist_curve, "launch_once", failing_launch({COMPILE_MODE, None}))
     out = tmp_path / "out"
-    point = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")[0]
+    point = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)[0]
     row = torch_dist_curve.fill_point(point, CPU, out / "scaling-grade-a.db", out, ("1", "n", "c"))
     assert (row["ranked_ns"], row["compile_mode"], row["samples"]) == (None, None, "[]")
     assert "boom in max-autotune-no-cudagraphs" in str(row["note"])
@@ -152,7 +153,7 @@ def test_the_curve_point_is_the_median_of_the_repeats(tmp_path: pathlib.Path, mo
     would compare two statistics."""
     monkeypatch.setattr(torch_dist_curve, "launch_once", failing_launch(set()))
     out = tmp_path / "out"
-    point = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")[0]
+    point = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)[0]
     assert torch_dist_curve.fill_point(point, CPU, out / "g.db", out, ("1", "n", "c")) is not None
     assert rows(out) == {}, "only scaling-grade-*.db files are grade DBs"
     row = torch_dist_curve.fill_point(point, CPU, out / "scaling-grade-a.db", out, ("1", "n", "c"))
@@ -167,8 +168,8 @@ def test_a_scaling_shard_fills_the_baseline_curve_of_what_it_graded_once(
     out = tmp_path / "out"
     items = shard_items(tmp_path)
     assert scaling_grade.run_shard(items, 0, 1, out, lambda item: fake_graded(), None) == 1
-    planned = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")
-    assert set(rows(out)) == {(p.law.value, p.ranks) for p in planned}
+    planned = torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL)
+    assert set(rows(out)) == {(p.law.text, p.ranks) for p in planned}
     launched = len(fake.calls)
     assert scaling_grade.run_shard(items, 0, 1, out, lambda item: fake_graded(), None) == 0
     assert len(fake.calls) == launched
@@ -198,7 +199,7 @@ def test_the_extractor_and_the_figure_draw_one_curve_from_points_spread_over_chu
     from hpcagent_bench.stats.figures import scaling
 
     out = tmp_path / "out"
-    strong = [p for p in torch_dist_curve.planned_points(KERNEL, RANKS, "XL") if p.law is ScalingLaw.STRONG]
+    strong = [p for p in torch_dist_curve.planned_points(KERNEL, RANKS, Preset.XL) if p.law is ScalingLaw.STRONG]
     for index, point in enumerate(strong):
         torch_dist_curve.fill_point(point, CPU, out / f"scaling-grade-{index % 2}.db", out, ("1", "n", "c"))
     extracted: list[dict[str, object]] = []

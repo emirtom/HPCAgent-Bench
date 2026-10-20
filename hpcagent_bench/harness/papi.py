@@ -47,6 +47,7 @@ from typing import NotRequired, TypedDict
 import numpy as np
 
 from hpcagent_bench import flags, osinfo
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks.forked import forked_failure_reason, run_forked
 from hpcagent_bench.harness.native_call import (
     CArgument,
@@ -834,7 +835,7 @@ def counted_run(
     lib_path: str,
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None,
     terms: Sequence[str],
     *,
@@ -951,7 +952,7 @@ def counting_worker(
     lib_path: str,
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None,
     metric: str,
     reps: int,
@@ -1011,7 +1012,7 @@ def count_metric(
     lib_path: str,
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     metric: str,
     *,
     workspace_bytes: str | None = None,
@@ -1261,7 +1262,7 @@ def per_thread_report(
     lib_path: str,
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None,
     reps: int,
     warmup: int,
@@ -1367,7 +1368,7 @@ def per_thread_worker(
     lib_path: str,
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     workspace_bytes: str | None,
     reps: int,
     warmup: int,
@@ -1391,7 +1392,7 @@ def count_per_thread(
     lib_path: str,
     binding: Binding,
     data: KernelData,
-    lang: str,
+    lang: Language,
     *,
     workspace_bytes: str | None = None,
     reps: int = 1,
@@ -1413,7 +1414,7 @@ def count_per_thread(
     ``no_perf_events``, ``not_native``, ``not_openmp``, ``attach_refused``); a segfault or timeout is
     ``run_failed``. Never raises for a measurement failure."""
     report: PerThreadReport
-    if lang == "python":
+    if lang is Language.PYTHON:
         report = missing_report(
             "not_native",
             "per-thread counters bracket the native call the judge times; a python submission "

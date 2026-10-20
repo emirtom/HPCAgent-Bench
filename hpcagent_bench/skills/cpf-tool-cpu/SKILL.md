@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [c, cpp]}
 packet:
   # The CPU canonical parallel form on request: the ``canonical_parallel_form`` tool answers with it, and the
   # source the agent starts from stays the hand-written reference. ``cpf-tool`` names it on a CPU setup.
-  order: 1
   aliases: [cpf-tool]
   name: "Canonical Parallel Form Tool, CPU"
   tools: [canonical_parallel_form]

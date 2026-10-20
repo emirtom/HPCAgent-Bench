@@ -1,27 +1,10 @@
 # The optional optimas (optimas-ai) and agents (openai-agents) packages are installed only in the agent image.
 # pyright: reportMissingImports=false
-"""Optimas (optimas-ai 0.0.4) runner for one HPCAgent-Bench episode: ``run_openai``'s agent under Optimas'
-reward-driven prompt search (Wu et al., arXiv:2507.03041).
+"""Optimas runner for one episode: ``run_openai``'s agent under OPRO search over its instructions (arXiv:2507.03041).
 
-Optimas wraps the agent as a ``BaseComponent`` whose optimizable variable is the agent's instructions (its
-system prompt), and drives it with its own OPRO (``optimas.optim.opro.OPRO``): one ROUND with no
-instructions (the control), then :data:`CANDIDATES` rounds under instructions OPRO proposes from the
-rounds so far. A round is one ``run_openai.run_agent`` on the rendered prompt: the Agents SDK on
-``/v1/chat/completions``, the benchmark MCP server's tools through ``MCPServerStdio`` from the driver's
-``mcp.json`` and the shell, the driver's reply cap, effort rung, request timeout and compaction trigger.
-A round's reward (OPRO's metric, Optimas' global reward) is the best speedup its ``score`` calls were
-credited: a version the judge found incorrect earns 0. A round ends at the first reply that calls no tool,
-or after :data:`ROUND_TURNS` model calls, so a round that never stops cannot starve the search. The
-proposer is the same served model, called through litellm at OPRO's own temperature, with no effort rung.
-
-The agent submits through the MCP ``submit`` tool like every other harness, so in the single-submission
-mode the first round that submits ends the episode (the driver's marker). The driver owns wall clock and
-tokens; the search finishes earlier only once every round has run.
-
-Writes ``usage.jsonl`` (one line per model call: every round's calls as they return, and every proposer
-call), ``optimas.items.jsonl`` (each reply's output items and each tool result, every round, one per line)
-and ``harness-end.json``; see ``runner_common``. Prints ``harness: tools ready: ...`` once per round and
-``harness: optimas round <n> reward <r>`` after each.
+One control round, then :data:`CANDIDATES` rounds under proposed instructions; a round's reward is the best
+correct ``score`` speedup and it ends at a reply with no tool call or after :data:`ROUND_TURNS` calls. Writes
+``usage.jsonl``, ``optimas.items.jsonl`` and ``harness-end.json``.
 """
 
 import asyncio
@@ -38,11 +21,11 @@ from hpcagent_agent.harness import run_openai, runner_common
 
 __all__ = [
     "CANDIDATES",
-    "Keyed",
     "PROPOSER_PREAMBLE",
     "ROUND_TURNS",
     "SCORE_TOOL",
     "TRANSCRIPT",
+    "Keyed",
     "best_reward",
     "main",
     "proposer_usage",
@@ -126,7 +109,9 @@ def proposer_usage(usage_log: runner_common.UsageLog) -> Callable[..., None]:
     return record
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the prompt search to its end; return (end reason, detail)."""
     import litellm
     from agents.exceptions import MaxTurnsExceeded
@@ -198,7 +183,7 @@ def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLo
     if failures and len(failures) == component.rounds:
         raise failures[-1]
     rewards = ", ".join(f"{score:g}" for _prompt, score in history)
-    return runner_common.FINISHED, f"rounds={component.rounds} rewards=[{rewards}]"
+    return runner_common.EndReason.FINISHED, f"rounds={component.rounds} rewards=[{rewards}]"
 
 
 def main(argv: Sequence[str]) -> int:

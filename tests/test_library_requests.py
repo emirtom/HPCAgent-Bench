@@ -10,6 +10,7 @@ import pytest
 
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 
 
 def test_every_entry_declares_what_the_tool_needs() -> None:
@@ -45,18 +46,18 @@ def test_link_tokens_are_only_paths_names_and_rpath() -> None:
 def test_language_gate_withholds_a_cpp_only_library() -> None:
     """tbb is C++ only; offering it to a C agent is a build error scored against the agent."""
     assert languages.library_tokens("tbb", "c") == ((), ())
-    assert "tbb" not in languages.available_libraries("c")
-    assert "tbb" not in languages.available_libraries("fortran")
+    assert "tbb" not in languages.available_libraries(Language.C)
+    assert "tbb" not in languages.available_libraries(Language.FORTRAN)
 
 
 def test_unknown_library_resolves_to_nothing() -> None:
     assert languages.library_tokens("definitely-not-a-library", "c") == ((), ())
-    assert languages.library_build_flags("c", ["definitely-not-a-library"]) == ((), ())
+    assert languages.library_build_flags(Language.C, ["definitely-not-a-library"]) == ((), ())
 
 
 def test_two_names_on_one_shared_object_do_not_duplicate_the_link() -> None:
     """blas and lapack are both openblas here; requesting both must not repeat -lopenblas."""
-    _compile, link = languages.library_build_flags("c", ["blas", "lapack"])
+    unused_compile, link = languages.library_build_flags(Language.C, ["blas", "lapack"])
     assert len(link) == len(set(link))
     assert sum(1 for t in link if t == "-lopenblas") <= 1
 
@@ -81,8 +82,8 @@ def test_python_delivery_is_never_given_library_flags() -> None:
     import system is the library mechanism, so a request there resolves to nothing."""
     for name in languages.load_libraries():
         assert languages.library_tokens(name, "python") == ((), ())
-    assert languages.library_build_flags("python", ["blas", "lapack", "fftw"]) == ((), ())
-    assert languages.available_libraries("python") == ()
+    assert languages.library_build_flags(Language.PYTHON, ["blas", "lapack", "fftw"]) == ((), ())
+    assert languages.available_libraries(Language.PYTHON) == ()
 
 
 def test_requests_are_gated_to_languages_the_harness_compiles() -> None:
@@ -157,15 +158,17 @@ def test_a_requested_library_actually_builds_links_and_loads(name: str, tmp_path
     library through the built object, which is the step that would catch it.
     """
     _header, decl, body, expected = LIBRARY_PROBES[name]
-    compile_tokens, link_tokens = languages.library_build_flags("c", [name])
+    compile_tokens, link_tokens = languages.library_build_flags(Language.C, [name])
     if not link_tokens:
         # Not offered here -- then it must be offered NOWHERE, or the task text could promise it.
-        assert name not in languages.available_libraries("c")
+        assert name not in languages.available_libraries(Language.C)
         return
     src = tmp_path / "probe.c"
     src.write_text(f"#include <stddef.h>\n{decl}\nint probe(void) {{ {body} }}\n")
     out = tmp_path / "libprobe.so"
-    commands = languages.build_shared_lib_commands("c", src, out, extra_compile=compile_tokens, extra_link=link_tokens)
+    commands = languages.build_shared_lib_commands(
+        Language.C, src, out, extra_compile=compile_tokens, extra_link=link_tokens
+    )
     failed, log = languages.run_build_commands(commands, tmp_path)
     assert not failed, f"{name} was offered but its build failed:\n{log}"
     assert out.exists(), f"{name} built without producing {out}"
@@ -218,9 +221,9 @@ def test_a_header_only_library_is_offered_without_link_tokens() -> None:
     compile_tokens, link_tokens = languages.library_tokens("eigen", "cpp")
     assert link_tokens == ()
     assert all(t.startswith("-I") for t in compile_tokens), compile_tokens
-    if languages.library_offered("eigen", "cpp"):
+    if languages.library_offered("eigen", Language.CPP):
         assert languages.library_compiles("cpp", compile_tokens, "Eigen/Dense")
-        assert "eigen" in languages.available_libraries("cpp")
+        assert "eigen" in languages.available_libraries(Language.CPP)
 
 
 def test_header_only_availability_is_not_token_emptiness() -> None:
@@ -234,7 +237,7 @@ def test_header_only_availability_is_not_token_emptiness() -> None:
             if offered and languages.library_tokens(name, lang) == ((), ()):
                 return  # a header-only library offered with no tokens is reachable here
     # Nothing on this host exercises it; the language gate must still hold.
-    assert not languages.library_offered("eigen", "fortran")
+    assert not languages.library_offered("eigen", Language.FORTRAN)
 
 
 def test_one_catalog_name_may_resolve_several_pkg_config_modules() -> None:
@@ -252,7 +255,7 @@ def test_one_catalog_name_may_resolve_several_pkg_config_modules() -> None:
     assert languages.load_libraries()["blas"].pkg == ("openblas",)
     link_tokens = languages.library_tokens("fftw", "c")[1]
     if not link_tokens:
-        assert "fftw" not in languages.available_libraries("c")
+        assert "fftw" not in languages.available_libraries(Language.C)
         return
     linked = " ".join(link_tokens)
     assert "-lfftw3" in linked, (

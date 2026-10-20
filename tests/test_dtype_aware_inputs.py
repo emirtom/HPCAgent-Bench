@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import dtypes
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.utilities import compare_arrays
 from hpcagent_bench.initialize import UNIT_HALF_RANGE, ml_default_domain
@@ -42,7 +43,7 @@ def test_every_float_format_is_a_float(dtype: type) -> None:
 
 def test_a_bf16_array_keeps_its_declared_domain() -> None:
     """vgg16's image is declared in [-1, 1] and its first filter in +-0.1925: at bf16 as at fp64."""
-    data = Benchmark(DOMAINED_KERNEL).get_data(preset="S", datatype="bf16", input_seed=SEED)
+    data = Benchmark(DOMAINED_KERNEL).get_data(preset=Preset.S, datatype="bf16", input_seed=SEED)
     image = data["x"].astype(np.float64)
     weight = data["features_0_weight"].astype(np.float64)
     assert data["x"].dtype == np.dtype(ml_dtypes.bfloat16)
@@ -93,7 +94,7 @@ def test_the_ml_default_is_a_unit_activation_and_fan_in_weights() -> None:
 
 def test_an_undomained_ml_kernel_is_fed_as_a_network() -> None:
     """Its first array (the activation) spans [-1, 1]; its filter stays within the fan-in bound."""
-    data = Benchmark(UNDOMAINED_KERNEL).get_data(preset="S", datatype="float64", input_seed=SEED)
+    data = Benchmark(UNDOMAINED_KERNEL).get_data(preset=Preset.S, datatype="float64", input_seed=SEED)
     activation, weight = data["x"], data["conv_weight"]
     assert np.abs(activation).max() <= UNIT_HALF_RANGE
     assert np.abs(weight).max() <= 1.0 / math.sqrt(math.prod(weight.shape[1:])) + 1e-12

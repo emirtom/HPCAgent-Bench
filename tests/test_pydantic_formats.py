@@ -60,7 +60,7 @@ def test_an_entry_manifest_without_its_source_and_binding_is_refused() -> None:
     artefact = {"name": "k.c", "sha256": "0" * 64}
     base = {"key": "k", "layout": cpf_cache.LAYOUT, "kernel": "k", "entry": "k_fp64"}
     whole = {**base, "artefacts": {"source": artefact, "binding": artefact}}
-    assert cpf_cache.EntryManifest.model_validate(whole).artefacts["binding"].name == "k.c"
+    assert cpf_cache.EntryManifest.model_validate(whole).artefacts[cpf_cache.Role.BINDING].name == "k.c"
     for artefacts in ({"source": artefact}, {"source": artefact, "binding": artefact, "object": artefact}):
         with pytest.raises(pydantic.ValidationError):
             cpf_cache.EntryManifest.model_validate({**base, "artefacts": artefacts})
@@ -183,7 +183,7 @@ def test_the_binding_document_round_trips_and_writes_shape_for_pointers_only() -
 
 def test_a_render_childs_lines_are_its_plan_and_its_verdict_and_a_foreign_line_is_skipped() -> None:
     """The parent reads the plan and the last verdict a child printed; a library's own ``{`` line is not one."""
-    outcome = cpf_bridge.RenderOutcome(key="k1", verdict="ok", cached=True)
+    outcome = cpf_bridge.RenderOutcome(key="k1", verdict=cpf_cache.RenderVerdict.OK, cached=True)
     record = cpf_bridge.RenderRecord(kernel="gemm", target="cpu", results={"c": outcome})
     stdout = "\n".join(
         [

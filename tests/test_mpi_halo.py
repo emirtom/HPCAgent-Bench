@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from relayout.ops import Scheme
 
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import mpi_call
 from hpcagent_bench.harness.agent import reference_mpi_source
 from hpcagent_bench.harness.envelope import Submission
@@ -120,9 +121,9 @@ def test_reference_sources_resolve_and_match_generated_signature(kernel: str, sy
     assert mpi_symbol(binding) == sym
     stub = gen_kernel_mpi_stub(binding)
     signature = stub[stub.index("void ") : stub.index(") {") + 1]
-    src_c = reference_mpi_source(Task(kernel=kernel, language="c", residency="distributed"))
+    src_c = reference_mpi_source(Task(kernel=kernel, language=Language.C, residency=Residency.DISTRIBUTED))
     assert signature in src_c
-    src_py = reference_mpi_source(Task(kernel=kernel, language="python", residency="distributed"))
+    src_py = reference_mpi_source(Task(kernel=kernel, language=Language.PYTHON, residency=Residency.DISTRIBUTED))
     assert "def kernel_mpi(" in src_py
 
 
@@ -142,7 +143,7 @@ def run_halo(
     binding = binding_from_spec(BenchSpec.load(kernel))
     desc = row_band_descriptor(ndim, R)
     A0, B0 = init(N, ndim)
-    task = Task(kernel=kernel, language=language, residency="distributed")
+    task = Task(kernel=kernel, language=language, residency=Residency.DISTRIBUTED)
     sub = Submission(language=language, source=reference_mpi_source(task))
     # alpha is heat_3d-only (jacobi_2d's binding has no such scalar, so mpi_call.run's
     # {a.name: data[a.name] for a in binding.scalars} comprehension never looks it up there);
@@ -188,7 +189,14 @@ def test_jacobi_2d_c_halo_matches_sequential() -> None:
         pytest.skip(f"no working MPI C compiler + launcher in this environment: {c_toolchain_diagnosis()}")
     cc, launch = tc
     assert_matches_sequential(
-        "jacobi_2d", 2, seq_jacobi, language="c", launcher=launch, cc_override=cc_override_for(cc), N=12, TSTEPS=6
+        "jacobi_2d",
+        2,
+        seq_jacobi,
+        language=Language.C,
+        launcher=launch,
+        cc_override=cc_override_for(cc),
+        N=12,
+        TSTEPS=6,
     )
 
 
@@ -197,7 +205,7 @@ def test_jacobi_2d_python_halo_matches_sequential() -> None:
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
     assert_matches_sequential(
-        "jacobi_2d", 2, seq_jacobi, language="python", launcher=launch, cc_override=None, N=12, TSTEPS=6
+        "jacobi_2d", 2, seq_jacobi, language=Language.PYTHON, launcher=launch, cc_override=None, N=12, TSTEPS=6
     )
 
 
@@ -207,7 +215,7 @@ def test_heat_3d_c_halo_matches_sequential() -> None:
         pytest.skip(f"no working MPI C compiler + launcher in this environment: {c_toolchain_diagnosis()}")
     cc, launch = tc
     assert_matches_sequential(
-        "heat_3d", 3, seq_heat, language="c", launcher=launch, cc_override=cc_override_for(cc), N=10, TSTEPS=5
+        "heat_3d", 3, seq_heat, language=Language.C, launcher=launch, cc_override=cc_override_for(cc), N=10, TSTEPS=5
     )
 
 
@@ -216,7 +224,7 @@ def test_heat_3d_python_halo_matches_sequential() -> None:
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
     assert_matches_sequential(
-        "heat_3d", 3, seq_heat, language="python", launcher=launch, cc_override=None, N=10, TSTEPS=5
+        "heat_3d", 3, seq_heat, language=Language.PYTHON, launcher=launch, cc_override=None, N=10, TSTEPS=5
     )
 
 
@@ -226,7 +234,7 @@ def test_jacobi_2d_decomposition_matches_single_rank() -> None:
     if tc is None:
         pytest.skip(f"no working MPI C compiler + launcher in this environment: {c_toolchain_diagnosis()}")
     cc, launch = tc
-    kw = dict(language="c", launcher=launch, cc_override=cc_override_for(cc), N=12, TSTEPS=6)
+    kw = dict(language=Language.C, launcher=launch, cc_override=cc_override_for(cc), N=12, TSTEPS=6)
     one = run_halo("jacobi_2d", 2, R=1, **kw)
     four = run_halo("jacobi_2d", 2, R=4, **kw)
     assert np.array_equal(four["A"], one["A"])

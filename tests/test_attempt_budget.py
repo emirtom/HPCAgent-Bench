@@ -8,6 +8,7 @@ Pure: no agent, no compile, no LLM.
 """
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import runner
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
@@ -15,8 +16,10 @@ from hpcagent_bench.harness.runner import AttemptBudget, CallPoint
 from hpcagent_bench.harness.scoring import Score, resolve_token_budget
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import KERNELS, BenchSpec
+from hpcagent_bench.config import MpContext
+from hpcagent_bench.harness.outcomes import RunStatus
 
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 def test_round_cap_stops_after_that_many_attempts() -> None:
@@ -64,8 +67,8 @@ def test_explicit_override_beats_config() -> None:
 
 def test_call_point_carries_the_attempt_wall_clock() -> None:
     """The budget's unit is seconds, so every attempt records its own."""
-    assert CallPoint(1, 0, 0.0, False, "ok").seconds == 0.0
-    assert CallPoint(1, 0, 1.5, True, "ok", 12.5).seconds == 12.5
+    assert CallPoint(1, 0, 0.0, False, RunStatus.OK).seconds == 0.0
+    assert CallPoint(1, 0, 1.5, True, RunStatus.OK, 12.5).seconds == 12.5
 
 
 # the loop, with a fake agent
@@ -135,12 +138,12 @@ def test_an_explicit_argument_still_beats_the_config(monkeypatch) -> None:
 def test_overridden_restores_what_was_there() -> None:
     """`config.overridden` is what keeps run_static's forkserver pin from outliving the sweep."""
     config.clear_override("runtime.mp_context")
-    with config.overridden("runtime.mp_context", "forkserver"):
+    with config.overridden("runtime.mp_context", MpContext.FORKSERVER):
         assert config.get("runtime.mp_context") == "forkserver"
     assert "runtime.mp_context" not in config.override_snapshot()
-    config.set_override("runtime.mp_context", "fork")
+    config.set_override("runtime.mp_context", MpContext.FORK)
     try:
-        with config.overridden("runtime.mp_context", "forkserver"):
+        with config.overridden("runtime.mp_context", MpContext.FORKSERVER):
             pass
         assert config.get("runtime.mp_context") == "fork"  # the caller's value, not cleared
     finally:

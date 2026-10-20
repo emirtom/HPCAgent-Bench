@@ -26,8 +26,9 @@ import pydantic
 from hpcagent_agent.driver.promote_unsubmitted import AGENT_FOLDERS_LOG
 
 from hpcagent_bench import config, flags, languages, omp_context, seal
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.flags import Mode
-from hpcagent_bench.harness.envelope import PYTHON_LANG, Submission
+from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_mpi_driver, kernel_library_path, mpi_symbol
 
@@ -150,10 +151,10 @@ def read_resolved(resolved: pathlib.Path) -> str:
         return handle.read()
 
 
-def preprocessed_name(language: str, name: str, text: str | None) -> str:
+def preprocessed_name(language: Language, name: str, text: str | None) -> str:
     """``name`` for a source unit, as ``.F90`` for a Fortran unit with preprocessor lines: gfortran and flang
     preprocess by that extension, inside the same build, so a ``<kernel>.F90`` submission keeps its meaning."""
-    if language == "fortran" and any(line.startswith("#") for line in (text or "").splitlines()):
+    if language is Language.FORTRAN and any(line.startswith("#") for line in (text or "").splitlines()):
         return f"{name.rsplit('.', 1)[0]}.F90"
     return name
 
@@ -178,7 +179,7 @@ def requested_libraries(build: Sequence[str]) -> list[str]:
 TOOLCHAIN_RUNTIME_LIBRARIES: frozenset[str] = frozenset({"m", "pthread", "stdc++", "gomp", "dl", "rt"})
 
 
-def catalog_linkable_names(lang: str) -> frozenset[str]:
+def catalog_linkable_names(lang: Language) -> frozenset[str]:
     """The bare ``-l`` names at least one advertised catalog entry resolves to for ``lang`` (so
     ``-lopenblas`` works for the ``blas`` entry); same probe gate as ``languages.library_offered``."""
     names: set[str] = set()
@@ -188,7 +189,7 @@ def catalog_linkable_names(lang: str) -> frozenset[str]:
     return frozenset(names)
 
 
-def unresolvable_libraries(build: Sequence[str], lang: str) -> list[str]:
+def unresolvable_libraries(build: Sequence[str], lang: Language) -> list[str]:
     """Requested ``-l`` names that resolve to neither the shared folder, the advertised catalog, nor a
     toolchain runtime library (:data:`TOOLCHAIN_RUNTIME_LIBRARIES`). A closed list: probing the
     system linker would accept unadvertised names."""
@@ -199,7 +200,7 @@ def unresolvable_libraries(build: Sequence[str], lang: str) -> list[str]:
     return [name for name in wanted if name not in allowed]
 
 
-def build_link_refusal(build: Sequence[str], lang: str) -> str | None:
+def build_link_refusal(build: Sequence[str], lang: Language) -> str | None:
     """Why ``build``'s ``-l<name>`` tokens must be refused, or ``None``; checked before any compile, like
     :func:`catalog_refusal`, so it is a request fault rather than a linker failure. Always ``None``
     when ``grading.allow_agent_build_tokens`` is off (the tokens are dropped anyway)."""
@@ -211,12 +212,12 @@ def build_link_refusal(build: Sequence[str], lang: str) -> str | None:
     offered = ", ".join(sorted(catalog_linkable_names(lang) | TOOLCHAIN_RUNTIME_LIBRARIES)) or "(toolchain names only)"
     return (
         f"'build' names {', '.join('-l' + name for name in missing)}, not installed in the shared "
-        f"folder and not on the advertised catalog for {lang!r}; on offer here: {offered}. Install "
+        f"folder and not on the advertised catalog for {lang.text!r}; on offer here: {offered}. Install "
         "it into the shared folder yourself, or request it by name via 'startup.load'."
     )
 
 
-def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str | None:
+def catalog_refusal(names: Sequence[str], lang: Language, context: str = "") -> str | None:
     """Why ``names`` (a ``startup.load`` catalog request) must be refused, or ``None``.
 
     Each must be one ``languages.library_offered`` offers for ``lang`` on this host (the table the
@@ -233,7 +234,10 @@ def catalog_refusal(names: Sequence[str], lang: str, context: str = "") -> str |
     if unserved:
         return "'startup.load' refused: " + "; ".join(unserved)
     offered = ", ".join(languages.available_libraries(lang, context)) or "(none for this language)"
-    return f"'startup.load' names {', '.join(unoffered)}, not on the advertised catalog for {lang!r}; on offer here: {offered}"
+    return (
+        f"'startup.load' names {', '.join(unoffered)}, not on the advertised catalog for {lang.text!r}; "
+        f"on offer here: {offered}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,14 +270,14 @@ class BuildResult:
         return artifact
 
 
-#: The module a python (JIT) delivery's framework is imported as, per JIT language. ``python`` is
-#: the plain NumPy delivery, recorded when the source imports none of the others.
+#: The module a python (JIT) delivery's framework is imported as, per JIT framework. ``python`` (the
+#: language's spelling) is the plain NumPy delivery, recorded when the source imports none of the others.
 JIT_FRAMEWORKS: dict[str, str] = {
     "triton": "triton",
     "numba": "numba",
     "jax": "jax",
     "cupy": "cupy",
-    PYTHON_LANG: "numpy",
+    Language.PYTHON.text: "numpy",
 }
 
 
@@ -313,8 +317,8 @@ def jit_commands(source: str) -> tuple[str, ...]:
     """A python delivery's :attr:`BuildResult.commands`: the version of every JIT framework
     (:data:`JIT_FRAMEWORKS`) ``source`` imports, NumPy's when it imports none."""
     imported = imported_modules(source)
-    modules = [m for lang, m in JIT_FRAMEWORKS.items() if lang != PYTHON_LANG and m in imported]
-    return tuple(framework_version(module) for module in modules or [JIT_FRAMEWORKS[PYTHON_LANG]])
+    modules = [m for name, m in JIT_FRAMEWORKS.items() if name != Language.PYTHON.text and m in imported]
+    return tuple(framework_version(module) for module in modules or [JIT_FRAMEWORKS[Language.PYTHON.text]])
 
 
 #: Token prefixes a ``build`` list may carry, by build step: include dirs, defines and libraries,
@@ -396,14 +400,14 @@ def split_build(tokens: list[str], *, allow_flags: bool = False) -> tuple[list[s
     return compile_tokens, link_tokens
 
 
-def agent_build(tokens: list[str], source_mode: str) -> tuple[list[str], list[str]]:
+def agent_build(tokens: list[str], source_mode: SourceMode) -> tuple[list[str], list[str]]:
     """A submission's ``build`` list as ``(compile, link)`` tokens for a task in ``source_mode``.
 
     ``restricted``: :func:`split_build`, the flag filter. ``any``: every compile token as given, ``-ffast-math`` and
     ``-std=`` included, since an ``any`` task already accepts a prebuilt ``.so`` built with them; the link argv keeps
     :func:`safe_link`'s rule and takes no compile flag, so no FP startup object (``crtfastmath.o``) changes the
     whole process."""
-    if source_mode != "any" or not config.current().grading.allow_agent_build_tokens:
+    if source_mode is not SourceMode.ANY or not config.current().grading.allow_agent_build_tokens:
         return split_build(tokens, allow_flags=agent_flags_allowed())
     link_tokens = [t for t in tokens if t.startswith(LINK_PREFIXES) and safe_link(t)]
     return [t for t in tokens if not t.startswith(LINK_PREFIXES)], link_tokens
@@ -479,7 +483,7 @@ def submission_omp_context(submission: Submission) -> str:
     return compiled_omp_context(submission.language, submission.compiler)
 
 
-def compiled_omp_context(language: str, compiler: str | None) -> str:
+def compiled_omp_context(language: Language, compiler: str | None) -> str:
     """The OpenMP context of ``language`` built with the requested toolchain family ``compiler`` (``None``
     = the setup's pin or the default): the family of :func:`languages.submission_toolchain`. The default
     context for a request the build will reject (an unknown family, a block this image lacks)."""
@@ -496,7 +500,7 @@ class Sandbox:
 
     __slots__ = ("_tmp", "binding", "root", "source_mode")
 
-    def __init__(self, binding: Binding, source_mode: str = "restricted") -> None:
+    def __init__(self, binding: Binding, source_mode: SourceMode = SourceMode.RESTRICTED) -> None:
         self.binding = binding
         #: The task's ``source_mode``: in ``any`` a source is built with the agent's own flags (:func:`agent_build`).
         self.source_mode = source_mode
@@ -564,7 +568,7 @@ class Sandbox:
         try:
             units = languages.source_units(submission.language, self.binding.symbol)
         except KeyError:
-            return BuildResult(False, None, f"unknown language {submission.language!r}")
+            return BuildResult(False, None, f"unknown language {submission.language.text!r}")
         # A GPU submission is two translation units; languages.source_units names them and
         # Submission.source_texts orders the texts to match.
         paths = [
@@ -631,7 +635,7 @@ class Sandbox:
                 extra_sources=extra_sources,
             )
         except (KeyError, FileNotFoundError) as e:
-            return BuildResult(False, None, f"no compiler for {submission.language}: {e}")
+            return BuildResult(False, None, f"no compiler for {submission.language.text}: {e}")
 
         # An offload setup does not require a device kernel: a host-only answer is graded against the same
         # CPU baseline. A device-language or offload build is sealed with /dev/kfd visible, like the graded run.
@@ -643,7 +647,7 @@ class Sandbox:
         submission: Submission,
         descriptor: "Descriptor",
         *,
-        cc_override: dict[str, str] | None = None,
+        cc_override: dict[Language, str] | None = None,
     ) -> BuildResult:
         """Build the distributed track's runnable artifact for one submission.
 
@@ -669,26 +673,26 @@ class Sandbox:
 
         ext = languages.LANG_EXT.get(submission.language)
         if ext is None:
-            return BuildResult(False, None, f"unknown language {submission.language!r}")
+            return BuildResult(False, None, f"unknown language {submission.language.text!r}")
 
         # Any device tile means device pointers, so only a cuda/hip kernel_mpi is valid, built with
         # nvcc/hipcc plus the wrapper's MPI flags.
         device_idx = descriptor.device_pointer_indices(self.binding)
-        driver_lang, driver_ext = "c", "c"
+        driver_lang, driver_ext = Language.C, languages.LANG_EXT[Language.C]
         gpu_compile: list[str] = []
         gpu_link: list[str] = []
         if device_idx:
-            if submission.language not in ("cuda", "hip"):
+            if submission.language not in languages.GPU_HOST_LANG:
                 return BuildResult(
                     False,
                     None,
                     "distributed device residency needs a cuda/hip kernel_mpi (the driver "
-                    f"delivers GPU-pointer tiles); got language {submission.language!r}",
+                    f"delivers GPU-pointer tiles); got language {submission.language.text!r}",
                 )
             driver_lang, driver_ext = submission.language, ext
             # The ``mpi`` catalog library: the MPICH wrapper's include/link line plus an rpath (empty where the
             # GPU compiler rejects raw -Wl, then the bare -I/-L/-l line). An overridden wrapper is taken as is.
-            override = (cc_override or {}).get("c")
+            override = (cc_override or {}).get(Language.C)
             if override:
                 gpu_compile, gpu_link = languages.mpi_wrapper_flags(override)
             else:
@@ -739,7 +743,7 @@ class Sandbox:
                 kernel_lib=kernel_library_path(exe) if device_idx else None,
             )
         except (KeyError, FileNotFoundError, ValueError) as e:
-            return BuildResult(False, None, f"no MPI compiler for {submission.language}: {e}")
+            return BuildResult(False, None, f"no MPI compiler for {submission.language.text}: {e}")
 
         # driver_lang is cuda/hip exactly for a device-resident distributed build.
         return finalize_build(cmds, self.root, exe, as_exe=True, devices=driver_lang in languages.GPU_HOST_LANG)

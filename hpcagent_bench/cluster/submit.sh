@@ -228,8 +228,11 @@ stage_setup() {
     for kv in "${kvs[@]}" ${EXTRA_ENV_KV:-}; do pin_env_kv "${staged}" "${kv}" || return 2; done
     local record_lang="${lang}${residency:+-${OFFLOAD}-device}" record_device
     record_device=$(base_value "${flat}" SUBMIT_DEVICE)
+    # A tuner setup's harness is its layer's (tuner), whatever --harnesses named.
+    local record_harness="${NAMED_HARNESS:+${harness}}"
+    [[ "$(base_value "${flat}" HARNESS)" != tuner ]] || record_harness=tuner
     record_identity "${staged}" "${RECORD_STUDY}" "${model}" "${record_lang}" "${record_device:-${device}}" \
-        "${packet}" "${SETUP}" "${NAMED_HARNESS:+${harness}}" "${temperature}" || { rm -f "${staged}"; return 2; }
+        "${packet}" "${SETUP}" "${record_harness}" "${temperature}" || { rm -f "${staged}"; return 2; }
     [[ -z "${TAG}" ]] || record_tag_version "${staged}" "${TAG}" || { rm -f "${staged}"; return 2; }
     printf 'HPCAGENT_BENCH_RECORD_AGENT_TIMEOUT_SECONDS=%s\nHPCAGENT_BENCH_RECORD_AGENT_MAX_TOKENS=%s\n' \
         "${agent}" "${tokens}" >>"${staged}"

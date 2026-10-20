@@ -13,14 +13,14 @@ import os
 import time
 import traceback
 from dataclasses import dataclass, field, replace
-from enum import Enum
 from typing import Protocol
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.frameworks.forked import run_forked
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.grading import AUTO_ORACLE
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.prompts import PromptConfig, RunPrompt, build_run_prompt
 from hpcagent_bench.harness.scoring import Score, resolve_kernel_timeout, resolve_token_budget, score
 from hpcagent_bench.harness.task import Task
@@ -33,7 +33,6 @@ __all__ = [
     "Feedback",
     "ProgressSink",
     "RunRow",
-    "RunStatus",
     "Scorer",
     "fail_row",
     "feedback_source",
@@ -62,22 +61,16 @@ class Scorer(Protocol):
     :func:`run_forked`."""
 
     def __call__(
-        self, submission: Submission, task: Task, *, preset: str, datatype: str, repeat: int, oracle: str, baseline: str
+        self,
+        submission: Submission,
+        task: Task,
+        *,
+        preset: Preset,
+        datatype: str,
+        repeat: int,
+        oracle: Oracle,
+        baseline: Baseline | None,
     ) -> Score: ...
-
-
-class RunStatus(Enum):
-    """The outcome recorded on a :class:`RunRow`.``status``."""
-
-    OK = "ok"  # a correct, verified attempt
-    INCORRECT = "incorrect"  # ran + graded, but wrong vs the reference
-    OVERFIT = "overfit"  # correct on public inputs, wrong on held-out (the overfit gate)
-    UNVERIFIED = "unverified"  # correct but failed the judge's independent re-verify
-    AGENT_ERROR = "agent_error"  # the agent produced nothing gradeable
-    BUILD_ERROR = "build_error"  # the submission did not compile
-    SCORE_ERROR = "score_error"  # the run ended without a score
-    TIMEOUT = "timeout"  # the per-kernel budget elapsed
-    ERROR = "error"  # any other failure
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +81,7 @@ class CallPoint:
     tokens: int  # cumulative tokens spent through this call
     speedup: float  # speedup at this call (0.0 if not correct/scored)
     correct: bool
-    status: str  # ok | build_error | incorrect | overfit | timeout | agent_error | score_error
+    status: RunStatus
     seconds: float = 0.0  # wall-clock for this attempt (agent call + grade), the budget's unit
     timing_reduction: str | None = None  # timing.REDUCTIONS stamp of the speedup; None when nothing was timed
 
@@ -99,10 +92,10 @@ class RunRow:
 
     task_id: str
     kernel: str
-    language: str
-    source_mode: str
+    language: Language
+    source_mode: SourceMode
     agent: str
-    status: str
+    status: RunStatus
     correct: bool
     max_rel_error: float
     native_ns: int
@@ -110,15 +103,15 @@ class RunRow:
     # The language the agent actually shipped (the task's ``language`` is what it asked for); "" = none.
     baseline_ns: int = 0
     speedup: float = 0.0
-    residency: str = "host"
+    residency: Residency = Residency.HOST
     public_correct: bool = False
     hidden_correct: bool = False
     hidden_passed: int = 0
     hidden_total: int = 0
     # Repair rounds spent (1 = single shot); ``baselines``/``speedups`` carry per-reference numbers.
     rounds: int = 1
-    oracle: str = ""
-    baseline: str = ""
+    oracle: Oracle = Oracle.AUTO
+    baseline: Baseline | None = None
     baselines: dict[str, int] = field(default_factory=dict[str, int])
     speedups: dict[str, float] = field(default_factory=dict[str, float])
     # The reduction stamp behind ``speedup`` (Score.timing_reduction); None when nothing was timed.
@@ -133,29 +126,31 @@ class RunRow:
     prompt: str = ""
 
 
-def status_of(result: Score) -> str:
+def status_of(result: Score) -> RunStatus:
     """The JSONL ``status`` for a graded result, shared with the pipeline's judge re-grade
     (:mod:`hpcagent_bench.harness.pipeline`)."""
     # Harness faults first: a judge that could not grade says nothing about the submission.
     if result.harness_fault:
-        return "score_error"
+        return RunStatus.SCORE_ERROR
     if not result.build_ok:
-        return "build_error"
+        return RunStatus.BUILD_ERROR
     # Killed by the time budget: a performance outcome. The guillotine kill is its own status (graded and
     # lost on speed), which completion waves must not re-issue; a bare timeout they re-issue.
     if result.too_slow:
-        return "too_slow"
+        return RunStatus.TOO_SLOW
     if result.timed_out:
-        return "timeout"
+        return RunStatus.TIMEOUT
     if result.correct:
-        return "ok"
+        return RunStatus.OK
     # public-correct but held-out-failing = overfit (the visible oracle was gamed)
     if result.public_correct and not result.hidden_correct:
-        return "overfit"
-    return "incorrect"
+        return RunStatus.OVERFIT
+    return RunStatus.INCORRECT
 
 
-def scored_row(task: Task, agent: Agent, result: Score, rounds: int, oracle: str, baseline: str) -> RunRow:
+def scored_row(
+    task: Task, agent: Agent, result: Score, rounds: int, oracle: Oracle, baseline: Baseline | None
+) -> RunRow:
     return RunRow(
         task.id,
         task.kernel,
@@ -184,7 +179,15 @@ def scored_row(task: Task, agent: Agent, result: Score, rounds: int, oracle: str
 
 
 def fail_row(
-    task: Task, agent: Agent, status: str, detail: str, *, rounds: int, oracle: str, baseline: str, tokens: int = 0
+    task: Task,
+    agent: Agent,
+    status: RunStatus,
+    detail: str,
+    *,
+    rounds: int,
+    oracle: Oracle,
+    baseline: Baseline | None,
+    tokens: int = 0,
 ) -> RunRow:
     """A scored failure row (not correct, inf error, 0 speedup) with the task and agent provenance."""
     return RunRow(
@@ -280,12 +283,12 @@ def _solve_rounds(
     agent: Agent,
     task: Task,
     *,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 5,
     with_prompt: bool = True,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = "c",
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = Baseline.C,
     max_rounds: int | None = None,
     time_budget_s: float | None = None,
     token_budget: int | None = None,
@@ -305,7 +308,7 @@ def _solve_rounds(
     replaces :func:`score`. Returns the best correct attempt (else the last); never raises. Runs in
     :func:`solve_task`'s forked child. The agent protocol has no finalize signal."""
 
-    def err(status: str, detail: str, rnd: int) -> RunRow:
+    def err(status: RunStatus, detail: str, rnd: int) -> RunRow:
         return fail_row(task, agent, status, detail, rounds=rnd, oracle=oracle, baseline=baseline)
 
     # The (tokens, score) trajectory: one CallPoint per agent call, stamped onto every returned row.
@@ -317,7 +320,7 @@ def _solve_rounds(
         return replace(row, tokens=agent.usage.total, trajectory=tuple(trajectory), prompt=last_prompt), sub
 
     feedback: Feedback | None = None
-    last: Attempt = (err("agent_error", "no attempt", 0), None)
+    last: Attempt = (err(RunStatus.AGENT_ERROR, "no attempt", 0), None)
     best: Attempt | None = None  # best CORRECT attempt so far
     # One prompt per run: the body is rendered once (one prompt identity) and RunPrompt.attempt appends
     # each attempt's feedback. The prompt config (a named variant or the defaults) is resolved once.
@@ -343,11 +346,11 @@ def _solve_rounds(
             submission = agent.solve(task, prompt=prompt, budget=budget)
         except Exception as exc:  # noqa: BLE001 -- an agent failure is a scored datum
             trajectory.append(
-                CallPoint(rnd, agent.usage.total, 0.0, False, "agent_error", time.monotonic() - attempt_started)
+                CallPoint(rnd, agent.usage.total, 0.0, False, RunStatus.AGENT_ERROR, time.monotonic() - attempt_started)
             )
             # The traceback says WHERE; episode.py's write_end carries this detail to the driver.
             detail = f"{exc!r}\n{traceback.format_exc()}"
-            return finish(best if best is not None else (err("agent_error", detail, rnd), None))
+            return finish(best if best is not None else (err(RunStatus.AGENT_ERROR, detail, rnd), None))
         submission.tokens = agent.usage.total  # snapshot tokens-so-far at the score call
         try:
             grade = score if scorer is None else scorer
@@ -356,9 +359,9 @@ def _solve_rounds(
             )
         except Exception as exc:  # noqa: BLE001 -- a harness/score failure is too
             trajectory.append(
-                CallPoint(rnd, agent.usage.total, 0.0, False, "score_error", time.monotonic() - attempt_started)
+                CallPoint(rnd, agent.usage.total, 0.0, False, RunStatus.SCORE_ERROR, time.monotonic() - attempt_started)
             )
-            last = (err("score_error", repr(exc), rnd), submission)
+            last = (err(RunStatus.SCORE_ERROR, repr(exc), rnd), submission)
             continue
         row = scored_row(task, agent, result, rnd, oracle, baseline)
         trajectory.append(
@@ -390,12 +393,12 @@ def solve_task(
     agent: Agent,
     task: Task,
     *,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 5,
     with_prompt: bool = True,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = "c",
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = Baseline.C,
     max_rounds: int | None = None,
     time_budget_s: float | None = None,
     token_budget: int | None = None,
@@ -453,9 +456,9 @@ def solve_task(
         best_so_far: Attempt = run.result
         row, sub = best_so_far
         note = f"per-kernel timeout after {timeout}s; best-so-far kept"
-        return replace(row, status="timeout", detail=(row.detail or note)), sub
+        return replace(row, status=RunStatus.TIMEOUT, detail=(row.detail or note)), sub
     # Nothing survived: record the kernel as not solved.
-    status = "timeout" if run.signal == "TIMEOUT" else "score_error"
+    status = RunStatus.TIMEOUT if run.signal == "TIMEOUT" else RunStatus.SCORE_ERROR
     detail = run.error or f"per-kernel run ended without a result ({run.signal or 'no result'})"
     row = fail_row(task, agent, status, detail, rounds=0, oracle=oracle, baseline=baseline, tokens=agent.usage.total)
     return (row, None)

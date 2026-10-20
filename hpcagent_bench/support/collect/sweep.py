@@ -24,6 +24,7 @@ from typing import Any
 from relayout.sparse import SparseFormat
 
 from hpcagent_bench import config, osinfo, sizing
+from hpcagent_bench.categories import Baseline, Language, Preset
 from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 from hpcagent_bench.frameworks.forked import RunResult, forked_failure_reason, run_forked
 from hpcagent_bench.frameworks.utilities import MPI_LAUNCHER_VARS
@@ -79,7 +80,7 @@ def drop_mpi_launcher_vars() -> list[str]:
 def run_one(
     benchname: str,
     framework_names: Sequence[str],
-    preset: str,
+    preset: Preset,
     validate: bool,
     repeat: int,
     timeout: float,
@@ -111,7 +112,7 @@ def run_one(
 def run_benchmark_sweep(
     kernel: str,
     framework: str,
-    preset: str,
+    preset: Preset,
     validate: bool,
     repeat: int,
     timeout: float,
@@ -149,14 +150,14 @@ def run_benchmark_sweep(
 
 
 def filter_out_completed_benchmarks(
-    canon: "CanonTarget", framework_name: str, preset: str, datatype: str, all_benchmarks: list[str]
+    canon: "CanonTarget", framework_name: str, preset: Preset, datatype: str, all_benchmarks: list[str]
 ) -> list[str]:
     """Drop the kernels ``canon`` already holds a validated row of ``framework_name`` for, at ``preset`` and
     ``datatype``, in its run; a kernel with no such row (absent, crashed, unvalidated) runs again."""
     done = {
         str(row["kernel"])
         for row in canon_db.read(canon.db, run=canon.run, column=framework_name)
-        if row["preset"] == preset and row["datatype"] == datatype and row["validated"] == 1
+        if row["preset"] == preset.text and row["datatype"] == datatype and row["validated"] == 1
     }
     remaining = [name for name in all_benchmarks if name not in done]
     print(
@@ -168,7 +169,7 @@ def filter_out_completed_benchmarks(
 def shard_names(
     names: list[str],
     shard: tuple[int, int],
-    preset: str | None = None,
+    preset: Preset | None = None,
     ranks_per_node: int | None = None,
     node_ram_bytes: int | None = None,
 ) -> list[str]:
@@ -191,7 +192,7 @@ def shard_names(
 def run_framework_sweep(
     kernel: str,
     framework: str,
-    preset: str,
+    preset: Preset,
     validate: bool,
     repeat: int,
     timeout: float,
@@ -287,7 +288,7 @@ class CanonTarget:
                     "run": self.run,
                     "build": self.build,
                     "node": node,
-                    "execution": execution,
+                    "execution": execution.text,
                     "cpu": cpu,
                     "gpu": gpu if FRAMEWORKS.entries[str(row["column"])].arch is Arch.GPU else "",
                 }
@@ -309,11 +310,18 @@ def best_ms(native: Sequence[float] | None, python: Sequence[float] | None) -> f
 
 
 def sweep_rows(
-    benchname: str, framework_names: Sequence[str], preset: str, datatype: str, result: RunResult
+    benchname: str, framework_names: Sequence[str], preset: Preset, datatype: str, result: RunResult
 ) -> list[dict[str, object]]:
     """Canon rows for one ``run_forked(run_one, ...)`` outcome: one ``status=crash`` row per framework when
     the child died, else one row per reported (framework, impl) with its validation and timing."""
-    base = {"preset": preset, "datatype": datatype, "kernel": benchname, "validated": None, "failure": "", "error": ""}
+    base = {
+        "preset": preset.text,
+        "datatype": datatype,
+        "kernel": benchname,
+        "validated": None,
+        "failure": "",
+        "error": "",
+    }
     if not result.ok:
         why = forked_failure_reason(result)
         return [{**base, "column": name, "impl": "", "status": "crash", "error": why} for name in framework_names]
@@ -439,14 +447,14 @@ def layout_reference_source(spec: BenchSpec, fmt: str) -> str | None:
     from hpcagent_bench.emit_bridge import emit_kernel  # the translators: import on use
 
     kernel_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    symbol = binding_from_spec(spec, config=fmt).symbols["c"]
+    symbol = binding_from_spec(spec, config=fmt).symbols[Language.C]
     with tempfile.TemporaryDirectory() as tmp:
         rc = emit_kernel(spec, kernel_py, pathlib.Path(tmp), target="c", config=fmt)
         emitted = pathlib.Path(tmp) / f"{symbol}.c"
         return emitted.read_text() if rc == 0 and emitted.is_file() else None
 
 
-def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat: int, block_size: int) -> SparseCase:
+def grade_sparse_case(kernel: str, fmt: str, preset: Preset, datatype: str, repeat: int, block_size: int) -> SparseCase:
     """Grade ``kernel``'s ``fmt`` reference translation as a submission requesting ``fmt``, through
     :func:`hpcagent_bench.harness.scoring.score` (conversion, binding, build, run, grade)."""
     from hpcagent_bench.harness.envelope import Submission
@@ -461,14 +469,14 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
     source = layout_reference_source(spec, fmt)
     if source is None:
         return SparseCase(kernel, label, "untranslated", "no reference translation for this layout")
-    submission = Submission(language="c", source=source, requests=Requests.of(sparse=formats))
-    task = Task(kernel, language="c")
+    submission = Submission(language=Language.C, source=source, requests=Requests.of(sparse=formats))
+    task = Task(kernel, language=Language.C)
     try:
         # A correctness sweep: the translation is sequential and naive, so no speed guillotine, and
         # one compiled denominator.
         with config.overridden("timeouts.guillotine_factor", 0):
             result = score(
-                submission, task, preset=preset, datatype=datatype, repeat=repeat, hidden=False, baseline="c"
+                submission, task, preset=preset, datatype=datatype, repeat=repeat, hidden=False, baseline=Baseline.C
             )
     except LayoutRefused as exc:
         return SparseCase(kernel, label, "refused", str(exc), time.monotonic() - started)
@@ -491,7 +499,7 @@ def print_sparse_summary(cases: Sequence[SparseCase], total_elapsed: float) -> N
 
 
 def run_sparse_sweep(
-    preset: str,
+    preset: Preset,
     datatype: str,
     repeat: int,
     benchmark_filter: Sequence[str] | None,

@@ -26,6 +26,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
 from hpcagent_bench.harness import gpu_profiling, native_call, profiling, sandbox, tools
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.profile_wire import DeviceTraceReport
@@ -292,31 +293,31 @@ def test_nsys_check_names_every_cause_it_can_refuse_for(
     """Each reason the GPU cannot be profiled is a distinct machine-readable cause, and each
     message names the fix -- an unnamed refusal is what an empty profile already looks like."""
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        gpu_profiling.nsys_check("hip")
+        gpu_profiling.nsys_check(Language.HIP)
     assert ei.value.cause == "rocprof_unsupported"
     assert "rocprof" in str(ei.value)
 
     monkeypatch.setattr(gpu_profiling.osinfo, "IS_LINUX", False)
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        gpu_profiling.nsys_check("cuda")
+        gpu_profiling.nsys_check(Language.CUDA)
     assert ei.value.cause == "not_linux"
 
     monkeypatch.setattr(gpu_profiling.osinfo, "IS_LINUX", True)
     monkeypatch.setattr(gpu_profiling.shutil, "which", lambda _name: None)
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        gpu_profiling.nsys_check("cuda")
+        gpu_profiling.nsys_check(Language.CUDA)
     assert ei.value.cause == "nsys_missing"
     assert "nsight-systems" in str(ei.value)
 
     monkeypatch.setattr(gpu_profiling.shutil, "which", lambda _name: "/usr/bin/nsys")
     monkeypatch.setattr(gpu_profiling, "NVIDIA_DEVICE", tmp_path / "nvidiactl")
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        gpu_profiling.nsys_check("cuda")
+        gpu_profiling.nsys_check(Language.CUDA)
     assert ei.value.cause == "no_gpu"
     assert "--gpus all" in str(ei.value)
 
     (tmp_path / "nvidiactl").write_text("")
-    assert gpu_profiling.nsys_check("cuda") == "/usr/bin/nsys"
+    assert gpu_profiling.nsys_check(Language.CUDA) == "/usr/bin/nsys"
 
 
 def test_record_failure_separates_a_permission_refusal_from_a_broken_install() -> None:
@@ -343,7 +344,7 @@ def test_nsys_stats_names_the_upgrade_when_no_known_report_came_back(
         gpu_profiling.subprocess, "run", lambda *a, **k: completed(1, stderr="Unknown report name cuda_gpu_kern_sum")
     )
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        gpu_profiling.nsys_stats(tmp_path / "gpu-profile.nsys-rep", language="cuda", timeout=5.0)
+        gpu_profiling.nsys_stats(tmp_path / "gpu-profile.nsys-rep", language=Language.CUDA, timeout=5.0)
     assert ei.value.cause == "nsys_report_missing"
     assert "2022.1" in str(ei.value)
 
@@ -355,7 +356,7 @@ def test_nsys_stats_asks_for_the_documented_reports(tmp_path: pathlib.Path, monk
     monkeypatch.setattr(
         gpu_profiling.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd, kw=k) or completed(0, stdout=NSYS_STATS)
     )
-    parsed = gpu_profiling.nsys_stats(tmp_path / "gpu-profile.nsys-rep", language="cuda", timeout=5.0)
+    parsed = gpu_profiling.nsys_stats(tmp_path / "gpu-profile.nsys-rep", language=Language.CUDA, timeout=5.0)
     cmd = seen["cmd"]
     assert cmd[:2] == ["/usr/bin/nsys", "stats"]
     assert "--format" in cmd
@@ -373,7 +374,7 @@ def test_nsys_record_traces_cuda_without_turning_on_cpu_sampling(
     seen = {}
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda _lang: "/usr/bin/nsys")
     monkeypatch.setattr(gpu_profiling, "run_command", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
-    gpu_profiling.nsys_record(["./app"], tmp_path / "gpu-profile", cwd=tmp_path, timeout=9.0, language="cuda")
+    gpu_profiling.nsys_record(["./app"], tmp_path / "gpu-profile", cwd=tmp_path, timeout=9.0, language=Language.CUDA)
     cmd = seen["cmd"]
     assert cmd[:2] == ["/usr/bin/nsys", "profile"]
     assert f"--trace={gpu_profiling.NSYS_TRACE}" in cmd
@@ -471,13 +472,13 @@ def test_measurement_request_takes_the_residency_from_the_task(monkeypatch: pyte
     monkeypatch.setattr(profiling, "assigned_device", lambda: 3)
     spec = BenchSpec.load("gemm")
     binding_from_spec(spec)  # the spec must be loadable for the request to describe a real kernel
-    assert Task("gemm", "restricted", "cuda").residency == "device"
+    assert Task("gemm", SourceMode.RESTRICTED, Language.CUDA).residency is Residency.DEVICE
     host = profiling.measurement_request(
-        Submission(language="c", source="void gemm_fp64(void) {}"),
-        Task("gemm", "restricted", "c"),
+        Submission(language=Language.C, source="void gemm_fp64(void) {}"),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
         spec,
         pathlib.Path("/tmp/libgemm.so"),
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         reps=3,
         warmup=1,
@@ -488,10 +489,10 @@ def test_measurement_request_takes_the_residency_from_the_task(monkeypatch: pyte
     assert host["reps"] == 3
     device = profiling.measurement_request(
         gpu_submission("cuda"),
-        Task("gemm", "restricted", "cuda", residency="device"),
+        Task("gemm", SourceMode.RESTRICTED, Language.CUDA, residency=Residency.DEVICE),
         spec,
         pathlib.Path("/tmp/libgemm.so"),
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         reps=3,
         warmup=1,
@@ -601,7 +602,9 @@ def test_profile_endpoint_rejects_an_impossible_residency(
     """device residency needs a GPU language; the request is at fault, so it is a 400, not a 503."""
     _srv, url = make_judge(ServiceConfig())
     with pytest.raises(urllib.error.HTTPError) as ei:
-        tools.JudgeClient(url).profile(Submission(language="c", source="void f(void){}"), "gemm", residency="device")
+        tools.JudgeClient(url).profile(
+            Submission(language=Language.C, source="void f(void){}"), "gemm", residency=Residency.DEVICE
+        )
     assert ei.value.code == 400
 
 
@@ -888,8 +891,8 @@ def test_gpu_check_picks_the_profiler_by_language_and_reports_which(monkeypatch:
     """One probe, before anything is built, and the vendor is the only branch in it."""
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda _lang: "/usr/bin/nsys")
     monkeypatch.setattr(gpu_profiling, "rocprof_check", lambda: ("rocprofv3", "/opt/rocm/bin/rocprofv3"))
-    assert gpu_profiling.gpu_check("cuda") == ("nsys", "/usr/bin/nsys")
-    assert gpu_profiling.gpu_check("hip") == ("rocprofv3", "/opt/rocm/bin/rocprofv3")
+    assert gpu_profiling.gpu_check(Language.CUDA) == ("nsys", "/usr/bin/nsys")
+    assert gpu_profiling.gpu_check(Language.HIP) == ("rocprofv3", "/opt/rocm/bin/rocprofv3")
 
 
 def test_render_report_marks_the_amd_fields_that_have_no_counterpart() -> None:
@@ -1036,7 +1039,7 @@ def test_only_the_rocprofv3_profile_build_is_handed_roctx(
     monkeypatch.setattr(gpu_profiling, "gpu_check", lambda requested_language: (tool, exe))
     monkeypatch.setattr(sandbox.Sandbox, "build", build)
     answer = gpu_profiling.profile_gpu_submission(
-        gpu_submission(language), Task("gemm", "restricted", language), preset="S"
+        gpu_submission(language), Task("gemm", SourceMode.RESTRICTED, language), preset=Preset.S
     )
     assert answer["build_ok"] is False
     assert handed == [gpu_profiling.roctx_build_flags((tool, exe))]
@@ -1077,10 +1080,10 @@ def test_rocprofv3_traces_a_hip_submission_through_the_judge_on_a_real_amd_node(
     from tests.test_compute_profiling import HIP_GEMM_KERNELS
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    submission = Submission(language="hip", source=_DEVICE_CUDA_GEMM_HOST, device_source=HIP_GEMM_KERNELS)
+    submission = Submission(language=Language.HIP, source=_DEVICE_CUDA_GEMM_HOST, device_source=HIP_GEMM_KERNELS)
     body = (
         tools.JudgeClient(make_judge(ServiceConfig())[1])
-        .profile(submission, "gemm", preset="S", tool="rocprofv3", reps=1)
+        .profile(submission, "gemm", preset=Preset.S, tool="rocprofv3", reps=1)
         .root
     )
     assert isinstance(body, DeviceTraceReport), body

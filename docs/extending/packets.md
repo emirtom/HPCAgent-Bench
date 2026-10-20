@@ -11,7 +11,7 @@ The mechanism every registered kind shares is in [registry.md](registry.md).
 |---|---|
 | skill bundle | one class in `skill_packets.py` |
 | env or tool switch | the class (or the page's `packet:` block) with `env` and `tools`; a listed tool is a `@tool(core=False)`, served only where `HPCAGENT_BENCH_PACKET_TOOLS` names it |
-| method | the class with `method`, plus `agent/hpcagent_agent/packets/<name>/packet.md`, optional `<stem>.py` MCP tools (each a `run` registered with `@tool`, which may take a pydantic input model), `SOURCE` and `LICENSE` when adapted from upstream |
+| method | a plugin ([plugins.md](plugins.md)): `methods/<name>/method.md`, its tools under `tools/`, and the packet in `plugin.toml` naming both |
 
 ## Examples (from `skill_packets.py`)
 
@@ -23,12 +23,10 @@ PACKETS.add(  # skill bundle, CPU languages only
         skills=("divide-and-conquer", "profiling", "opt-reports"),
         device=PacketDevice.CPU,
     ),
-    order=13,
 )
 PACKETS.add(  # composition
     "all-in-cpu",
     PacketDef(name="All-in (CPU)", packets=("cpf-cpu-src", "perf-playbook-cpu", "lang")),
-    order=16,
 )
 ```
 
@@ -46,7 +44,7 @@ packet:
 
 ## What a packet holds
 
-`PACKETS.add(key, PacketDef(...), order=<slot>, aliases=(...))`. The fields are:
+`PACKETS.add(key, PacketDef(...), aliases=(...))`. The fields are:
 
 | Field | Meaning |
 |---|---|
@@ -61,9 +59,8 @@ packet:
 | `marker` | the shape the packet wears instead of the shape pool's next free one |
 | `short` | a figure's short spelling |
 
-Anything else is refused at import, and so is a wrong type, a missing `name`, a taken key, alias or
-`order`, a composed key that is not registered and a `device` that is not one of the three. The key `""`
-is the no-packet control: it takes `order=None`.
+Anything else is refused at import, and so is a wrong type, a missing `name`, a taken key or alias, a composed key that is not registered and a `device` that is not one of the three. The key `""`
+is the no-packet control: it takes `slotted=False`.
 
 A packet that stages a file rather than a page announces it in the task text through `packet_note`
 in `hpcagent_bench/cluster/make_problems.py`.
@@ -86,10 +83,9 @@ setup does not serve.
 
 ## Rules
 
-- `order` is the slot. It sets the packet's hue and, unless it names a `marker`, its shape, and the packet
-  with the lowest slot is a composition's lead. Give a new packet the next free order
-  (`vocabulary.PACKETS.next_order()`) and never renumber one: that repaints existing figures.
-  `tests/test_vocabulary.py` pins every slot; add yours there.
+- The registration position is the slot. It sets the packet's hue and, unless it names a `marker`, its shape,
+  and the packet with the lowest slot is a composition's lead. Add a new packet last; `tests/test_vocabulary.py`
+  pins the order, so append yours there.
 - A recorded key is immutable: changing its skills, env or method needs a new key. A rename with the
   same meaning is an alias (`aliases=("old-name",)`).
 - `packets.canonical` names a registered composite only when the staged pages and switches match it

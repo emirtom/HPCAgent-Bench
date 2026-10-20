@@ -145,7 +145,7 @@ def test_a_scalar_args_value_keeps_its_int_type() -> None:
                 "conditioning_rtol", "conditioning_atol", "mismatch_fraction", "scale_axes", "public",
             },
         ),
-        (spec.ARG_ENTRY_KEYS, spec.ARRAY_ENTRY_KEYS | {"value"} | {flag.value for flag in spec.ArgFlag}),
+        (spec.ARG_ENTRY_KEYS, spec.ARRAY_ENTRY_KEYS | {"value"} | set(spec.ArgFlag.texts())),
         (spec.MANIFEST_INIT_KEYS, {"scenarios", "revalue", "constants", "workspace"}),
         (spec.LAYOUT_KEYS, {"logical_shape", "nnz", "offered", "default", "dtype", "pattern"}),
         (spec.SCENARIO_KEYS, {"description", "layouts"}),

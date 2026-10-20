@@ -38,7 +38,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, languages, paths
-from hpcagent_bench.api import Baseline
+from hpcagent_bench.categories import Baseline, Language, Preset, Residency, SourceMode
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.forked import RunResult
 from hpcagent_bench.frameworks.test import tolerances_for
@@ -47,6 +47,7 @@ from hpcagent_bench.harness import grading, kernelbench_adapter, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import Statistic
 from tests.reference_outputs import torch_eager_outputs
 
 #: A covered kernel with no parameters at all, one with many, and one whose upstream model the
@@ -65,10 +66,10 @@ FLAG_REPAIR_KERNEL = "machine_learning/conv_depthwise_2d_square_input_square_ker
 SHAPE_REPAIR_KERNEL = "machine_learning/conv2d_relu_bias_add"
 POSITIONAL_KERNEL = "machine_learning/densenet121_transition_layer"
 
-PRESET = "S"
+PRESET = Preset.S
 DATATYPE = "fp64"
-CPU_KIND = "torch-autotune-cpu"
-GPU_KIND = "torch-autotune-gpu"
+CPU_KIND = Baseline.TORCH_AUTOTUNE_CPU
+GPU_KIND = Baseline.TORCH_AUTOTUNE_GPU
 
 
 def load_torch() -> ModuleType:
@@ -128,7 +129,7 @@ def test_every_knob_surface_offers_the_token_and_both_kinds() -> None:
     for kind in torch_baseline.TORCH_BASELINES:
         assert kind in grading.BASELINE_CHOICES
         assert kind in grading.BASELINE_OPTIONS
-        assert kind in {member.value for member in Baseline}
+        assert kind in set(Baseline.texts())
         assert grading.baseline_uses_torch(kind)
     assert grading.TORCH_AUTOTUNE in grading.BASELINE_OPTIONS
     assert grading.TORCH_AUTOTUNE not in grading.BASELINE_CHOICES
@@ -151,12 +152,15 @@ def test_the_machine_learning_default_is_torch_autotune_on_the_grades_device() -
     default names a torch kind."""
     for kernel in (PLAIN_KERNEL, WEIGHTED_KERNEL, UNCOVERED_KERNEL):
         spec = BenchSpec.load(kernel)
-        host, device = Task(kernel, "restricted", "c"), Task(kernel, "restricted", "hip")
+        host, device = (
+            Task(kernel, SourceMode.RESTRICTED, Language.C),
+            Task(kernel, SourceMode.RESTRICTED, Language.HIP),
+        )
         assert not host.on_gpu
         assert device.on_gpu
-        assert grading.resolve_baseline("auto", spec, on_gpu=host.on_gpu) == CPU_KIND
+        assert grading.resolve_baseline(None, spec, on_gpu=host.on_gpu) == CPU_KIND
         assert grading.resolve_baseline(None, spec, on_gpu=device.on_gpu) == GPU_KIND
-        assert grading.resolve_baseline_set("auto", spec, on_gpu=device.on_gpu) == (GPU_KIND,)
+        assert grading.resolve_baseline_set(None, spec, on_gpu=device.on_gpu) == (GPU_KIND,)
     for track in ("loop_level_reasoning", "scientific_computing", "machine_learning", None):
         named = set(grading.track_baseline_set(track)) & {grading.TORCH_AUTOTUNE, *grading.TORCH_BASELINES}
         assert named == ({grading.TORCH_AUTOTUNE} if track == "machine_learning" else set()), track
@@ -165,8 +169,8 @@ def test_the_machine_learning_default_is_torch_autotune_on_the_grades_device() -
 def test_a_distributed_grade_takes_the_device_of_its_language() -> None:
     """A distributed HIP grade is timed against the ONE-GPU kind; a distributed C grade (gloo, CPU
     ranks) against the CPU kind."""
-    assert Task(SHIPPED_KERNEL, "restricted", "hip", residency="distributed").on_gpu
-    assert not Task(SHIPPED_KERNEL, "restricted", "c", residency="distributed").on_gpu
+    assert Task(SHIPPED_KERNEL, SourceMode.RESTRICTED, Language.HIP, residency=Residency.DISTRIBUTED).on_gpu
+    assert not Task(SHIPPED_KERNEL, SourceMode.RESTRICTED, Language.C, residency=Residency.DISTRIBUTED).on_gpu
 
 
 def test_an_explicit_torch_kind_is_one_kind() -> None:
@@ -544,7 +548,9 @@ def numpy_submission(kernel: str) -> Submission:
     """The kernel's own numpy reference, delivered as a ``python`` submission."""
     spec = BenchSpec.load(kernel)
     source = (paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py").read_text(encoding="utf-8")
-    return Submission(language="python", source=f"{source}\n\ndef kernel(*args):\n    return {spec.func_name}(*args)\n")
+    return Submission(
+        language=Language.PYTHON, source=f"{source}\n\ndef kernel(*args):\n    return {spec.func_name}(*args)\n"
+    )
 
 
 @pytest.mark.usefixtures("fp64_track")
@@ -552,8 +558,8 @@ def test_a_default_grade_on_the_machine_learning_track_credits_the_cpu_kind() ->
     """End to end through ``score`` under ``auto`` (what the judge passes when the setup names no
     baseline): a host grade of an ML kernel is timed against ``torch-autotune-cpu``, the row names
     it, and the speedup is a real ratio over it."""
-    task = Task(PLAIN_KERNEL, "restricted", "c")
-    result = scoring.score(numpy_submission(PLAIN_KERNEL), task, preset=PRESET, repeat=2, baseline="auto")
+    task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
+    result = scoring.score(numpy_submission(PLAIN_KERNEL), task, preset=PRESET, repeat=2, baseline=None)
     assert result.correct, result.detail
     assert result.baseline == CPU_KIND
     assert result.baselines.keys() == {CPU_KIND}
@@ -564,9 +570,9 @@ def test_a_default_grade_on_the_machine_learning_track_credits_the_cpu_kind() ->
 def test_a_kernel_without_a_reference_is_a_judge_fault_on_the_row_it_asked_for() -> None:
     """No denominator is the JUDGE's gap: ``harness_fault``, never ``incorrect``, and the row names
     the torch kind rather than numpy -- the kind a ``one_denominator`` guard reads."""
-    task = Task(UNCOVERED_KERNEL, "restricted", "c")
+    task = Task(UNCOVERED_KERNEL, SourceMode.RESTRICTED, Language.C)
     result = scoring.score(
-        numpy_submission(UNCOVERED_KERNEL), task, preset=PRESET, repeat=2, hidden=False, baseline="auto"
+        numpy_submission(UNCOVERED_KERNEL), task, preset=PRESET, repeat=2, hidden=False, baseline=None
     )
     assert result.harness_fault
     assert not result.correct
@@ -579,12 +585,15 @@ def test_the_advisory_baseline_route_reports_the_torch_kind_or_nothing() -> None
     """``GET /baseline`` (``measure_baselines``) shows the agent the torch time it will be graded
     against, and a kernel with no reference simply has no entry -- as its grade scores it."""
     covered = scoring.measure_baselines(
-        Task(PLAIN_KERNEL, "restricted", "c"), preset=PRESET, repeat=2, baseline=grading.TORCH_AUTOTUNE
+        Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C), preset=PRESET, repeat=2, baseline=grading.TORCH_AUTOTUNE
     )
     assert covered.keys() == {CPU_KIND}
     assert covered[CPU_KIND] > 0
     uncovered = scoring.measure_baselines(
-        Task(UNCOVERED_KERNEL, "restricted", "c"), preset=PRESET, repeat=2, baseline=grading.TORCH_AUTOTUNE
+        Task(UNCOVERED_KERNEL, SourceMode.RESTRICTED, Language.C),
+        preset=PRESET,
+        repeat=2,
+        baseline=grading.TORCH_AUTOTUNE,
     )
     assert uncovered == {}
 
@@ -593,7 +602,7 @@ def test_the_aa_calibration_times_the_torch_denominator_twice() -> None:
     """``grade-under run --aa`` re-times the chosen denominator in the candidate's place; a torch kind
     has a second timer instead of refusing the calibration."""
     spec = BenchSpec.load(PLAIN_KERNEL)
-    task = Task(PLAIN_KERNEL, "restricted", "c")
+    task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
     samples = scoring.retime_baseline(
         CPU_KIND,
         {},
@@ -621,20 +630,20 @@ def test_a_final_grade_input_of_an_ml_kernel_is_reduced_against_torch_autotune()
     the denominator and the input reduces under the pooled rule mw4x5 is stamped from."""
     from hpcagent_bench.harness import grade_under
 
-    task = Task(PLAIN_KERNEL, "restricted", "c")
+    task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
     with config.scoped_environment(grade_under.final_settings({})):
         result = scoring.score(
             numpy_submission(PLAIN_KERNEL),
             task,
             preset=PRESET,
             repeat=grade_under.FINAL.repeat or 1,
-            baseline="auto",
+            baseline=None,
             hidden=True,
             hidden_cases=[],
         )
     assert result.correct, result.detail
     assert result.baseline == CPU_KIND
-    assert [cell.timing_reduction for cell in result.cells] == [timing.REDUCTIONS_VARIED["mannwhitney_delta"]]
+    assert [cell.timing_reduction for cell in result.cells] == [timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY]]
 
 
 def test_the_cpu_reference_at_the_track_datatype_matches_the_oracle() -> None:

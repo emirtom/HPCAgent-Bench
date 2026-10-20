@@ -21,6 +21,7 @@ import stat
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from tests.own_process import isolated
 
 #: A translation unit that references the OpenMP runtime and nothing else, so a load failure can
@@ -104,7 +105,7 @@ def test_an_openmp_shared_library_loads_after_it_links(tmp_path: pathlib.Path, b
     src = tmp_path / "omp_probe.c"
     src.write_text(OMP_TU)
     lib = tmp_path / "libomp_probe.so"
-    cmds = languages.build_shared_lib_commands("c", src, lib, compiler=block)
+    cmds = languages.build_shared_lib_commands(Language.C, src, lib, compiler=block)
     failed, log = languages.run_build_commands(cmds, tmp_path)
     assert not failed, log
     assert lib.exists(), log
@@ -119,7 +120,9 @@ def test_the_link_line_carries_the_flag_and_its_runtime() -> None:
     cc = languages.compiler_driver("clang")
     if languages.resolve_compiler(cc) is None:
         pytest.skip(f"{cc} is not installed on this host")
-    cmds = languages.build_shared_lib_commands("c", pathlib.Path("k.c"), pathlib.Path("libk.so"), compiler="clang")
+    cmds = languages.build_shared_lib_commands(
+        Language.C, pathlib.Path("k.c"), pathlib.Path("libk.so"), compiler="clang"
+    )
     link = cmds[-1]
     flag = next((t for t in link if t in languages.OPENMP_BASELINE_FLAGS), None)
     assert flag is not None, link

@@ -215,9 +215,9 @@ def test_the_shared_files_every_agent_reads_stay_in_the_view(
     assert not {"tasks", "skills"} & set(entries)
     assert not [name for name in entries if name.startswith("agent-")]
     plan = seal.seal_plan(layout_of(seal, got)._replace(skills=seal.SKILLS_MOUNT), entries)
-    binds = {(op.source, op.target) for op in plan if op.kind == "bind"}
+    binds = {(op.source, op.target) for op in plan if op.kind is seal.MountKind.BIND}
     assert (str(got.shared / "skills"), seal.SKILLS_MOUNT) in binds
-    assert ("", seal.SKILLS_MOUNT) in {(op.source, op.target) for op in plan if op.kind == "ro"}
+    assert ("", seal.SKILLS_MOUNT) in {(op.source, op.target) for op in plan if op.kind is seal.MountKind.RO}
     assert str(got.shared / "prompt.md") in {source for source, _ in binds}
 
 
@@ -241,7 +241,7 @@ def test_the_view_binds_nothing_of_the_judge_the_launch_directory_or_a_neighbour
     the reference implementation of a problem someone else is being graded on."""
     got = launch(monkeypatch, tmp_path, [])
     plan = seal.seal_plan(layout_of(seal, got), seal.shared_root_entries(got.shared))
-    exposed = [op.source for op in plan if op.kind == "bind"]
+    exposed = [op.source for op in plan if op.kind is seal.MountKind.BIND]
     forbidden = (
         str(got.run_dir / "judge"),
         str(got.run_dir / "edf"),
@@ -253,11 +253,11 @@ def test_the_view_binds_nothing_of_the_judge_the_launch_directory_or_a_neighbour
     )
     for path in forbidden:
         assert not [source for source in exposed if source == path or source.startswith(f"{path}/")], path
-    covered = {op.target for op in plan if op.kind == "tmpfs"}
+    covered = {op.target for op in plan if op.kind is seal.MountKind.TMPFS}
     assert str(got.launch_dir) in covered, "the launch directory must be covered, not merely unbound"
     assert "/users" in covered, "the host home must be covered"
     assert str(got.run_dir) in covered
-    assert [op for op in plan if op.kind == "bind" and op.target == str(got.workdir)], (
+    assert [op for op in plan if op.kind is seal.MountKind.BIND and op.target == str(got.workdir)], (
         "the workdir must come back at its own path: $CLAUDE_LOG_PATH is absolute"
     )
 
@@ -272,7 +272,7 @@ def test_the_view_never_hides_an_opt_mount(
     got = launch(monkeypatch, tmp_path, [])
     layout = layout_of(seal, got)._replace(private=seal.PRIVATE_DIRS)
     plan = seal.seal_plan(layout, seal.shared_root_entries(got.shared))
-    covered = {op.target for op in plan if op.kind == "tmpfs"}
+    covered = {op.target for op in plan if op.kind is seal.MountKind.TMPFS}
     assert {path for path in covered if path.startswith("/opt/")} == {"/opt/node-shm"}
 
 
@@ -287,11 +287,11 @@ def test_the_nodes_shared_memory_is_private_and_only_the_drivers_venv_comes_back
     got = launch(monkeypatch, tmp_path, [])
     layout = layout_of(seal, got)._replace(private=seal.PRIVATE_DIRS, keep=(venv,))
     steps = [(op.kind, op.target) for op in seal.seal_plan(layout, seal.shared_root_entries(got.shared))]
-    first_bind = next(index for index, (kind, _) in enumerate(steps) if kind == "bind")
+    first_bind = next(index for index, (kind, _) in enumerate(steps) if kind is seal.MountKind.BIND)
     for private in seal.PRIVATE_DIRS:
-        assert steps.index(("tmpfs", private)) < first_bind
-    assert steps.index(("hold", venv)) < steps.index(("tmpfs", "/opt/node-shm"))
-    assert steps.index(("restore", venv)) < steps.index(("ro", venv))
+        assert steps.index((seal.MountKind.TMPFS, private)) < first_bind
+    assert steps.index((seal.MountKind.HOLD, venv)) < steps.index((seal.MountKind.TMPFS, "/opt/node-shm"))
+    assert steps.index((seal.MountKind.RESTORE, venv)) < steps.index((seal.MountKind.RO, venv))
 
 
 def test_the_worker_runs_in_its_folder_and_keeps_its_identity_and_its_judge(
@@ -423,7 +423,7 @@ def test_a_read_only_remount_carries_the_flags_the_mount_has_locked(tmp_path: pa
         umount=lambda target: None,
         locked=lambda target: seal.locked_flags(MOUNTINFO, "/scratchfs/runs/638025"),
     )
-    seal.apply_plan([op for op in seal.seal_plan(layout, ()) if op.kind == "ro"], fake)
+    seal.apply_plan([op for op in seal.seal_plan(layout, ()) if op.kind is seal.MountKind.RO], fake)
     expected = seal.MS_REMOUNT | seal.MS_BIND | seal.MS_RDONLY | seal.MS_NOSUID | seal.MS_NODEV
     assert [call[3] for call in calls] == [expected | seal.MS_NOEXEC | seal.MS_RELATIME] * len(calls)
 
@@ -486,8 +486,12 @@ def test_the_launch_venv_comes_back_read_only_inside_the_private_tmp(tmp_path: p
     )
     plan = seal.seal_plan(layout, ())
     steps = [(op.kind, op.target) for op in plan]
-    assert steps.index(("hold", venv)) < steps.index(("tmpfs", seal.PRIVATE_TMP))
-    assert steps.index(("detach", seal.STASH_DIR)) < steps.index(("restore", venv)) < steps.index(("ro", venv))
+    assert steps.index((seal.MountKind.HOLD, venv)) < steps.index((seal.MountKind.TMPFS, seal.PRIVATE_TMP))
+    assert (
+        steps.index((seal.MountKind.DETACH, seal.STASH_DIR))
+        < steps.index((seal.MountKind.RESTORE, venv))
+        < steps.index((seal.MountKind.RO, venv))
+    )
 
     # Run the two steps on a target the test may create: the held handle is what gets bound back.
     target = str(tmp_path / "venv")
@@ -498,7 +502,9 @@ def test_the_launch_venv_comes_back_read_only_inside_the_private_tmp(tmp_path: p
         locked=lambda target: 0,
         hold=lambda path: 7,
     )
-    seal.apply_plan([seal.MountOp("hold", "", target), seal.MountOp("restore", "", target)], fake)
+    seal.apply_plan(
+        [seal.MountOp(seal.MountKind.HOLD, "", target), seal.MountOp(seal.MountKind.RESTORE, "", target)], fake
+    )
     assert calls == [("/proc/self/fd/7", target, None, seal.MS_BIND | seal.MS_REC)]
 
 
@@ -583,7 +589,7 @@ def test_the_seal_covers_a_hidden_file_only_after_the_workdir_is_back(tmp_path: 
     )
     plan = seal.seal_plan(layout, ())
     targets = [op.target for op in plan]
-    assert seal.MountOp("bind", os.devnull, str(crashed)) in plan
+    assert seal.MountOp(seal.MountKind.BIND, os.devnull, str(crashed)) in plan
     assert targets.index(str(crashed)) > targets.index(str(workdir)), "covered after the workdir returns"
     outside = layout._replace(hide_files=(str(tmp_path / "shared" / "prompt.md"),))
     with pytest.raises(SystemExit, match="not inside workdir"):

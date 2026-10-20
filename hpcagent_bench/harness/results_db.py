@@ -21,6 +21,7 @@ import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
+from hpcagent_agent.coded import Coded
 from relayout.ops import Action
 from relayout.requests import expr_json, operation_json
 
@@ -99,11 +100,17 @@ __all__ = [
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
 #: The schema's name, and its ``PRAGMA user_version``.
 SCHEMA_NAME = "hb-results-v1.0"
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
+#: The columns each version added, by the version that added them.
+ADDED: dict[int, tuple[str, ...]] = {
+    14: tuple(f"ALTER TABLE canon ADD COLUMN {phase}_time REAL" for phase in ("transform", "codegen", "compile")),
+    15: ("ALTER TABLE setups ADD COLUMN plugins TEXT DEFAULT NULL",),
+}
 #: Additive steps from an earlier ``user_version`` to :data:`SCHEMA_VERSION`, applied when such a file is opened for
 #: writing; a read or a merge takes it as it is (the added columns read as absent, i.e. ``NULL``).
 ADDITIVE_UPGRADES: dict[int, tuple[str, ...]] = {
-    13: tuple(f"ALTER TABLE canon ADD COLUMN {phase}_time REAL" for phase in ("transform", "codegen", "compile")),
+    version: tuple(statement for added in range(version + 1, SCHEMA_VERSION + 1) for statement in ADDED[added])
+    for version in (13, 14)
 }
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
@@ -365,6 +372,8 @@ class Setup:
     packet: str = ""
     temperature: float = 1.0
     tag_version: str = ""
+    #: The plugins the judge loaded (:func:`hpcagent_bench.plugins.recorded`); None = not recorded.
+    plugins: str | None = None
 
 
 def ensure_setup(conn: sqlite3.Connection, setup: Setup) -> None:
@@ -693,13 +702,15 @@ GRADE_CHILDREN: tuple[str, ...] = (
 )
 
 
-class ProtocolChange(enum.Enum):
+class ProtocolChange(Coded):
     """What a regrade under protocol B does to a submission's final grade recorded under protocol A != B."""
 
+    SEPARATOR = enum.nonmember("-")
+
     #: Keep the old row and write a new one: rows under two stamps are never pooled; a reader picks the credited one.
-    NEW_ROW = "new-row"
+    NEW_ROW = enum.auto()
     #: Delete the old row: the regrade rewrites it.
-    REPLACE = "replace"
+    REPLACE = enum.auto()
 
 
 def final_row_groups(rows: Sequence[tuple[int, str, int]], on_change: ProtocolChange) -> list[list[int]]:

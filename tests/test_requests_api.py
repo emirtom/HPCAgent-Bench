@@ -11,6 +11,7 @@ import pydantic
 import pytest
 from relayout.requests import requests_schema
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import default_requests, kernel_ndims
 from hpcagent_bench.harness.requests_api import (
@@ -124,7 +125,7 @@ def test_the_submission_declares_requests_as_the_pydantic_field() -> None:
     assert submission.model_dump(mode="json")["requests"] == raw
     assert Submission.model_validate(submission.model_dump()) == submission
     assert submission.to_json() == {"language": "c", "source": "x", "build": [], "requests": raw}
-    empty = Submission(language="c", source="x", requests=None)
+    empty = Submission(language=Language.C, source="x", requests=None)
     assert empty.requests == Requests()
     assert "requests" not in empty.model_dump(mode="json")
     assert empty.to_json() == {"language": "c", "source": "x", "build": []}

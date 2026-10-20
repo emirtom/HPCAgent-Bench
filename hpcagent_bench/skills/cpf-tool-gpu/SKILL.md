@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [hip]}
 packet:
   # The GPU canonical parallel form (HIP) on request through the ``canonical_parallel_form`` tool; the source
   # stays the hand-written reference. ``cpf-tool`` names it on a GPU setup.
-  order: 25
   name: "Canonical Parallel Form Tool, GPU"
   tools: [canonical_parallel_form]
   env:

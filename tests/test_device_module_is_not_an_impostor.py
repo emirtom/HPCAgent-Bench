@@ -16,7 +16,6 @@ import types
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
 from hpcagent_bench.harness import native_call
 
 

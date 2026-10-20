@@ -26,7 +26,6 @@ This module owns the second edit plus the runtime helpers:
 """
 
 import dataclasses
-import enum
 import functools
 import logging
 import os
@@ -39,13 +38,14 @@ import tempfile
 import textwrap
 import types
 from collections.abc import Mapping, Sequence
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 import pydantic
 import yaml
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, flags, omp_context, osinfo, paths, seal
+from hpcagent_bench import config, flags, modules, omp_context, osinfo, paths, seal
+from hpcagent_bench.categories import Language
+from hpcagent_bench.config import VectCostModel
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import discover_tools
 from hpcagent_bench.spec import BenchSpec
@@ -107,7 +107,6 @@ __all__ = [
     "CompilerBlock",
     "CompilerChoice",
     "CompilerInstall",
-    "Language",
     "LibraryEntry",
     "StrPath",
     "Toolchain",
@@ -211,30 +210,19 @@ LIBRARIES_YAML: pathlib.Path = paths.ROOT / "hpcagent_bench" / "envs" / "librari
 #: Language token -> source-file extension (no leading dot): THE list of submission languages. Adding a
 #: language is an entry here plus its ``compilers.yaml`` block; the stub generator, the binding symbols,
 #: the delivery check and :class:`Language` all read this table. Mirrors ``abi_contract.md`` Sec. 7.
-LANG_EXT: dict[str, str] = {
-    "c": "c",
-    "cpp": "cpp",
-    "fortran": "f90",
+LANG_EXT: dict[Language, str] = {
+    Language.C: "c",
+    Language.CPP: "cpp",
+    Language.FORTRAN: "f90",
     # GPU implementation targets (host-pointer C-ABI entry; agent owns device
     # transfers + launch). nvcc/hipcc already in compilers.yaml.
-    "cuda": "cu",
-    "hip": "hip",
+    Language.CUDA: "cu",
+    Language.HIP: "hip",
 }
 
 
-#: A submission language, one member per :data:`LANG_EXT` entry (``Language.CUDA.value == "cuda"``).
-class Language(enum.Enum):
-    """A submission language: the :data:`LANG_EXT` keys, as members."""
-
-    C = "c"
-    CPP = "cpp"
-    FORTRAN = "fortran"
-    CUDA = "cuda"
-    HIP = "hip"
-
-
-if {member.value for member in Language} != set(LANG_EXT):
-    raise RuntimeError("languages.Language and languages.LANG_EXT list different languages")
+if set(Language) - set(LANG_EXT) != {Language.PYTHON}:
+    raise RuntimeError("LANG_EXT must name every compiled Language (all but python)")
 
 #: GPU language -> the host language its C-ABI entry is written in. A GPU submission is TWO
 #: translation units: the host half holds the entry point the harness dlopens and the launch
@@ -242,15 +230,15 @@ if {member.value for member in Language} != set(LANG_EXT):
 #: drive a C++ host TU perfectly well), so this map is about which FILE the agent writes what in,
 #: not about which compiler runs. Membership also answers "is this a GPU language" -- the one
 #: place that is stated, so adding a GPU target is still the two edits this module documents.
-GPU_HOST_LANG: dict[str, str] = {"cuda": "cpp", "hip": "cpp"}
+GPU_HOST_LANG: dict[Language, Language] = {Language.CUDA: Language.CPP, Language.HIP: Language.CPP}
 
 
-def unknown_language(language: str) -> KeyError:
+def unknown_language(language: Language) -> KeyError:
     """The error for a language outside :data:`LANG_EXT`."""
-    return KeyError(f"unknown language {language!r}; expected one of {sorted(map(str, LANG_EXT))}")
+    return KeyError(f"unknown language {language.text!r}; expected one of {sorted(lang.text for lang in LANG_EXT)}")
 
 
-def source_units(language: str, stem: str) -> tuple[tuple[str, str], ...]:
+def source_units(language: Language, stem: str) -> tuple[tuple[Language, str], ...]:
     """The ``(language, filename)`` translation units a ``language`` submission is delivered as.
 
     One for a host language; TWO for a GPU language -- ``<stem>.cpp`` (host entry) and
@@ -266,7 +254,7 @@ def source_units(language: str, stem: str) -> tuple[tuple[str, str], ...]:
 
 #: Language -> the translator target that emits its reference. C and C++ share one emitter (the C
 #: ABI is the contract, not the dialect), so this is not derivable from :data:`LANG_EXT`.
-LANG_TARGET: dict[str, str] = {Language.C.value: "c", Language.CPP.value: "c", Language.FORTRAN.value: "fortran"}
+LANG_TARGET: dict[Language, str] = {Language.C: "c", Language.CPP: "c", Language.FORTRAN: "fortran"}
 
 
 class CompilerInstall(pydantic.BaseModel):
@@ -285,7 +273,7 @@ class CompilerBlock(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    lang: str
+    lang: Language
     install: CompilerInstall
     #: The driver command (``gcc``, ``hipcc``, ``mpicc``, ...).
     cc: str
@@ -338,7 +326,7 @@ def flag_constant(ref: str) -> str:
     return modules.member(flags, ref, str)
 
 
-def family_pin(lang: str) -> str | None:
+def family_pin(lang: Language) -> str | None:
     """``build.compiler.<lang>``; None when unset or when ``lang`` has no pin key."""
     return config.current().build.compiler.pin(lang)
 
@@ -353,21 +341,21 @@ def default_family() -> str:
     return family_names()[0]
 
 
-def resolve_family(lang: str, requested: str | None = None) -> str:
+def resolve_family(lang: Language, requested: str | None = None) -> str:
     """The toolchain family for ``lang``: setup pin (``build.compiler.<lang>``) beats submission's
     ``requested``, which beats :func:`default_family`."""
     pin = family_pin(lang)
-    for value, origin in ((pin, FAMILY_PIN_KEY.format(lang=lang)), (requested or "", "submission 'compiler'")):
+    for value, origin in ((pin, FAMILY_PIN_KEY.format(lang=lang.text)), (requested or "", "submission 'compiler'")):
         if value and value not in COMPILER_FAMILIES:
             raise KeyError(f"unknown compiler {value!r} from {origin}; expected one of {family_names()}")
     if pin and requested and pin != requested:
         logging.getLogger(__name__).info(
-            "compiler pin %s=%s overrides the submitted %r", FAMILY_PIN_KEY.format(lang=lang), pin, requested
+            "compiler pin %s=%s overrides the submitted %r", FAMILY_PIN_KEY.format(lang=lang.text), pin, requested
         )
     return pin or requested or default_family()
 
 
-def compiler_for_family(lang: str, family: str) -> str | None:
+def compiler_for_family(lang: Language, family: str) -> str | None:
     """The ``compilers.yaml`` block name that builds ``lang`` with toolchain ``family``, or ``None``
     when this image wires no such block.
 
@@ -406,7 +394,7 @@ class CompilerChoice(NamedTuple):
     block: CompilerBlock
 
 
-def resolved_compiler_for(lang: str, compiler: str | None = None) -> CompilerChoice:
+def resolved_compiler_for(lang: Language, compiler: str | None = None) -> CompilerChoice:
     """The :func:`compiler_block` a compile of ``lang`` will use -- ``compiler``
     when given (validated the same way :func:`build_kernel_lib_commands` validates it), else
     whatever :func:`_compiler_for_lang`'s default resolution (the setup's family pin, else the first
@@ -454,16 +442,16 @@ OFFLOAD_REFS: dict[tuple[str, str], dict[str, str]] = {
 #: clang carries the nvptx device runtime, amdclang the amdgpu one). Explicit rather than derived
 #: from the C name (``amdclang`` -> ``amdflang`` is not a suffix), and not a PATH symlink:
 #: amdclang++ refuses to run under another name.
-OFFLOAD_BUILD_DRIVER: dict[tuple[str, str, str], str] = {
-    ("llvm", "amd", "c"): "amdclang",
-    ("llvm", "amd", "cpp"): "amdclang++",
-    ("llvm", "amd", "fortran"): "amdflang",
-    ("llvm", "nvidia", "c"): "clang",
-    ("llvm", "nvidia", "cpp"): "clang++",
-    ("llvm", "nvidia", "fortran"): "flang",
-    ("nvhpc", "nvidia", "c"): "nvc",
-    ("nvhpc", "nvidia", "cpp"): "nvc++",
-    ("nvhpc", "nvidia", "fortran"): "nvfortran",
+OFFLOAD_BUILD_DRIVER: dict[tuple[str, str, Language], str] = {
+    ("llvm", "amd", Language.C): "amdclang",
+    ("llvm", "amd", Language.CPP): "amdclang++",
+    ("llvm", "amd", Language.FORTRAN): "amdflang",
+    ("llvm", "nvidia", Language.C): "clang",
+    ("llvm", "nvidia", Language.CPP): "clang++",
+    ("llvm", "nvidia", Language.FORTRAN): "flang",
+    ("nvhpc", "nvidia", Language.C): "nvc",
+    ("nvhpc", "nvidia", Language.CPP): "nvc++",
+    ("nvhpc", "nvidia", Language.FORTRAN): "nvfortran",
 }
 
 #: Env pin for one leg's driver, e.g. ``HPCAGENT_BENCH_OFFLOAD_CC_LLVM_AMD``. An absolute path, so a
@@ -577,7 +565,7 @@ def agent_offload_flags(vendor: str = "amd") -> list[str]:
     return shlex.split(offload_flags(model, vendor, arch=target))
 
 
-def offload_setup_language(language: str, vendor: str = "amd") -> bool:
+def offload_setup_language(language: Language, vendor: str = "amd") -> bool:
     """Whether THIS setup offloads ``language`` to the ``vendor`` GPU.
 
     An offload setup's task LANGUAGE is ``c`` (or cpp/fortran) -- the directives reach the device,
@@ -866,10 +854,10 @@ def offload_arch_spelling(family: str, arch: str) -> str:
 
 def offload_driver(model: str, vendor: str) -> str:
     """Absolute path to this leg's C driver, the one :func:`offload_probe` runs; ``""`` when absent."""
-    return offload_build_driver(model, vendor, Language.C.value)
+    return offload_build_driver(model, vendor, Language.C)
 
 
-def offload_build_driver(model: str, vendor: str, lang: str) -> str:
+def offload_build_driver(model: str, vendor: str, lang: Language) -> str:
     """Absolute path to the driver that must COMPILE ``lang`` on this offload leg; ``""`` if absent.
 
     The leg's env pin (the C driver) first, then ``PATH``, then the ROCm tree: pinning by path keeps
@@ -877,7 +865,7 @@ def offload_build_driver(model: str, vendor: str, lang: str) -> str:
     """
     family = offload_family(model)
     pinned = os.environ.get(OFFLOAD_CC_ENV.format(family=family.upper(), vendor=vendor.upper()))
-    if pinned and lang == Language.C.value:
+    if pinned and lang == Language.C:
         return pinned if os.access(pinned, os.X_OK) else ""
     name = OFFLOAD_BUILD_DRIVER.get((family, vendor, lang))
     if not name:
@@ -907,15 +895,15 @@ def rocm_driver(name: str) -> str:
 
 
 @functools.lru_cache(maxsize=1, typed=True)
-def gpu_backend() -> str:
-    """``"hip"`` when this host's GPU toolchain is ROCm's, else ``"cuda"``.
+def gpu_backend() -> Language:
+    """``hip`` when this host's GPU toolchain is ROCm's, else ``cuda``.
 
     Probed from the DRIVER that would have to compile, not from a device query: what the callers
     need is which ``compilers.yaml`` block exists on this box, and a machine can carry an AMD card
     with no hipcc (or hipcc with no card). ``cuda`` is the answer when neither is found, because a
     column that names a language nothing installed still has to name one.
     """
-    return Language.HIP.value if shutil.which("hipcc") else Language.CUDA.value
+    return Language.HIP if shutil.which("hipcc") else Language.CUDA
 
 
 def offload_probe(model: str, vendor: str, arch: str, *, run: bool) -> bool:
@@ -1032,7 +1020,7 @@ def backend_dir(spec: BenchSpec) -> pathlib.Path:
     return paths.BENCHMARKS / spec.relative_path / "cpp_backend"
 
 
-def discover_variants(spec: BenchSpec) -> list[tuple[str, pathlib.Path]]:
+def discover_variants(spec: BenchSpec) -> list[tuple[Language, pathlib.Path]]:
     """Return ``[(lang, source_path)]`` for the kernel's emitted variants.
 
     Globs ``cpp_backend/<short>_*_auto.<ext>`` for every extension in
@@ -1043,14 +1031,14 @@ def discover_variants(spec: BenchSpec) -> list[tuple[str, pathlib.Path]]:
     """
     backend = backend_dir(spec)
     allowed = set(spec.languages) if spec.languages else None
-    found: list[tuple[str, pathlib.Path]] = []
+    found: list[tuple[Language, pathlib.Path]] = []
     if not backend.exists():
         return found
     for lang, ext in LANG_EXT.items():
         if allowed is not None and lang not in allowed:
             continue
         found.extend((lang, src) for src in sorted(backend.glob(f"{spec.short_name}_*_auto.{ext}")))
-    found.sort(key=lambda t: (t[0], t[1].name))
+    found.sort(key=lambda t: (t[0].text, t[1].name))
     return found
 
 
@@ -1125,7 +1113,7 @@ def _resolve_baseline(block: CompilerBlock, mode: Mode) -> str:
     return f"{composed} {flag_constant(warnings_ref)}"
 
 
-def _compiler_for_lang(compilers: Mapping[str, CompilerBlock], lang: str, *, mpi: bool = False) -> CompilerChoice:
+def _compiler_for_lang(compilers: Mapping[str, CompilerBlock], lang: Language, *, mpi: bool = False) -> CompilerChoice:
     """Pick the compiler block for ``lang``: :func:`resolve_family`'s family, else the first matching
     block; ``mpi=True`` picks the ``mpi: true`` wrapper block instead of the single-node one."""
     if not mpi:
@@ -1134,18 +1122,18 @@ def _compiler_for_lang(compilers: Mapping[str, CompilerBlock], lang: str, *, mpi
         if name is not None:
             return CompilerChoice(name, compilers[name])
         if family_pin(lang):
-            raise KeyError(f"compiler family {family!r} builds no {lang!r} in this image")
+            raise KeyError(f"compiler family {family!r} builds no {lang.text!r} in this image")
     for cname, block in compilers.items():
         if block.lang == lang and bool(block.mpi) == mpi:
             return CompilerChoice(cname, block)
-    raise KeyError(f"no {'MPI ' if mpi else ''}compiler in compilers.yaml for lang {lang!r}")
+    raise KeyError(f"no {'MPI ' if mpi else ''}compiler in compilers.yaml for lang {lang.text!r}")
 
 
 #: ``compilers.yaml`` languages whose compile step may go through ``ccache``. Deliberately
 #: narrow: ccache does not officially support Fortran (a cache hit skips the ``.mod``
 #: side-effect) and the CUDA/HIP drivers need their own configuration, so those keep
 #: compiling directly. C and C++ are where the harness spends its build time anyway.
-CACHEABLE_LANGS = (Language.C.value, Language.CPP.value)
+CACHEABLE_LANGS = (Language.C, Language.CPP)
 
 
 @functools.lru_cache(maxsize=1, typed=True)
@@ -1171,7 +1159,7 @@ def compiler_launcher() -> tuple[str, ...]:
     return (exe,)
 
 
-def _render_argv(tokens: Sequence[str], subst: dict[str, str], *, cacheable_lang: str | None = None) -> list[str]:
+def _render_argv(tokens: Sequence[str], subst: dict[str, str], *, cacheable_lang: Language | None = None) -> list[str]:
     """Substitute a compile/link template into an argv. ``{baseline}`` and ``{objs}`` each
     expand to a space-joined string that must become several argv items (shell-split, keeping
     quoted groups); every other token stays a single item.
@@ -1369,23 +1357,23 @@ def subst_map(
 #: pulls in the runtime the others do not (nvcc/hipcc their device runtime, gfortran libgfortran,
 #: g++ libstdc++). A C driver links none of them, so it is the fallback.
 LINK_LANG_ORDER = (
-    Language.CUDA.value,
-    Language.HIP.value,
-    Language.FORTRAN.value,
-    Language.CPP.value,
-    Language.C.value,
+    Language.CUDA,
+    Language.HIP,
+    Language.FORTRAN,
+    Language.CPP,
+    Language.C,
 )
 
 
-def link_lang_for(langs: set[str]) -> str:
+def link_lang_for(langs: set[Language]) -> Language:
     """The link driver for a set of compiled languages (see :data:`LINK_LANG_ORDER`)."""
     for lang in LINK_LANG_ORDER:
         if lang in langs:
             return lang
-    return Language.C.value
+    return Language.C
 
 
-def baseline_flags(lang: str) -> str:
+def baseline_flags(lang: Language) -> str:
     """The resolved single-core baseline compile-flag string for ``lang`` -- the value
     the ``{baseline}`` token expands to (e.g. ``-O3 -march=native -fopenmp
     -fno-math-errno -fno-trapping-math -fno-signed-zeros -fstrict-aliasing -fPIC``).
@@ -1411,7 +1399,7 @@ def baseline_flags_for_block(name: str) -> str:
     return _resolve_baseline(_load_compilers()[name], Mode.SINGLE_CORE)
 
 
-def std_flag(lang: str) -> str:
+def std_flag(lang: Language) -> str:
     """The ``-std=`` flag ``lang`` compiles with, read off its ``compilers.yaml`` block.
 
     Test oracles and hand-rolled probe compilations call this instead of literalling a
@@ -1572,15 +1560,15 @@ def probe_succeeds(argv: Sequence[str], source: str | None = None, env: dict[str
 
 
 #: Probe sources per compiler-block language: the smallest translation unit each front end accepts.
-VECLIB_PROBE: dict[str, tuple[str, str]] = {
-    Language.FORTRAN.value: (".f90", "end\n"),
-    Language.C.value: (".c", "int main(void){return 0;}\n"),
-    Language.CPP.value: (".cpp", "int main(){return 0;}\n"),
+VECLIB_PROBE: dict[Language, tuple[str, str]] = {
+    Language.FORTRAN: (".f90", "end\n"),
+    Language.C: (".c", "int main(void){return 0;}\n"),
+    Language.CPP: (".cpp", "int main(){return 0;}\n"),
 }
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def _veclib_accepted(cc: str, flag: str, lang: str) -> bool:
+def _veclib_accepted(cc: str, flag: str, lang: Language) -> bool:
     """Does ``cc`` accept ``flag``? Asked by COMPILING, because a driver that does not know a
     ``-fveclib=`` spelling rejects it at the command line rather than at link time.
 
@@ -1637,7 +1625,7 @@ def _mimalloc_link_for_block(block: CompilerBlock, cc: str | None = None) -> tup
     return tokens if _mimalloc_links(driver, tokens, bool(offload_model())) else ()
 
 
-def mimalloc_link_flags(lang: str) -> tuple[str, ...]:
+def mimalloc_link_flags(lang: Language) -> tuple[str, ...]:
     """Allocator LINK arguments for ``lang`` on this host, or ``()``.
 
     mimalloc is preloaded container-wide, so a graded binary gets it either way; linking it makes
@@ -1649,7 +1637,7 @@ def mimalloc_link_flags(lang: str) -> tuple[str, ...]:
     return _mimalloc_link_for_block(block)
 
 
-def stdpar_link_flags(lang: str) -> tuple[str, ...]:
+def stdpar_link_flags(lang: Language) -> tuple[str, ...]:
     """Extra LINK arguments a source using ``<execution>`` policies needs on this host.
 
     ``()`` unless the block declares a ``stdpar_link_ref`` AND this toolchain's parallel-algorithm
@@ -1677,7 +1665,7 @@ LIBRARY_LINK_PREFIXES = ("-L", "-l")
 
 #: What ``-x`` to hand the block's compiler when trial-linking a library. The gcc drivers
 #: (gfortran included) all accept ``c``; nvcc names its input language ``cu``, and rejects ``c``.
-PROBE_INPUT_LANG: dict[str, str] = {Language.CPP.value: "c++", Language.HIP.value: "c++", Language.CUDA.value: "cu"}
+PROBE_INPUT_LANG: dict[Language, str] = {Language.CPP: "c++", Language.HIP: "c++", Language.CUDA: "cu"}
 
 
 #: Where the GPU math libraries are already described (soname + header): the discovery table.
@@ -1707,7 +1695,7 @@ class LibraryEntry(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
     summary: str
-    langs: tuple[str, ...]
+    langs: tuple[Language, ...]
     headers: tuple[str, ...] = ()
     header_only: pydantic.StrictBool = False
     pkg: discover_tools.NameList = ()
@@ -1729,7 +1717,7 @@ def load_libraries() -> dict[str, LibraryEntry]:
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def library_tokens(name: str, lang: str, context: str = "") -> tuple[tuple[str, ...], tuple[str, ...]]:
+def library_tokens(name: str, lang: Language, context: str = "") -> tuple[tuple[str, ...], tuple[str, ...]]:
     """``(compile_tokens, link_tokens)`` for one requestable library, or ``((), ())``.
 
     ``context`` (:mod:`hpcagent_bench.omp_context`, ``""`` = the image default) is the OpenMP context
@@ -1852,7 +1840,7 @@ def pkg_config_answer(pkgs: tuple[str, ...], what: str, context: str = "") -> tu
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def library_links(lang: str, link_tokens: tuple[str, ...]) -> bool:
+def library_links(lang: Language, link_tokens: tuple[str, ...]) -> bool:
     """Does ``lang``'s compiler actually resolve ``link_tokens`` here? Asked by LINKING.
 
     Same reason as :func:`mimalloc_link_flags`: a ``.pc`` file can name a library whose ``.so`` is
@@ -1870,7 +1858,7 @@ def library_links(lang: str, link_tokens: tuple[str, ...]) -> bool:
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def library_compiles(lang: str, compile_tokens: tuple[str, ...], header: str) -> bool:
+def library_compiles(lang: Language, compile_tokens: tuple[str, ...], header: str) -> bool:
     """Does ``header`` resolve for ``lang`` with these tokens? Asked by PREPROCESSING.
 
     The header-only counterpart of :func:`library_links`. A library with no ``.so`` cannot be
@@ -1932,10 +1920,10 @@ def declared_runtime(name: str) -> str:
 def offload_vendor() -> str:
     """The GPU vendor of this host's toolchain (:data:`OFFLOAD_VENDORS`): ``amd`` with ROCm's, else ``nvidia``
     (:func:`gpu_backend`)."""
-    return "amd" if gpu_backend() == Language.HIP.value else "nvidia"
+    return "amd" if gpu_backend() == Language.HIP else "nvidia"
 
 
-def submission_context(lang: str) -> str:
+def submission_context(lang: Language) -> str:
     """The OpenMP context a submission in ``lang`` builds and runs in: its toolchain family's, the default for a
     language without one (python)."""
     try:
@@ -1944,7 +1932,7 @@ def submission_context(lang: str) -> str:
         return omp_context.DEFAULT_CONTEXT
 
 
-def library_offered(name: str, lang: str, context: str = "") -> bool:
+def library_offered(name: str, lang: Language, context: str = "") -> bool:
     """Is ``name`` on offer for ``lang`` here (in ``context``, ``""`` = the image default)?
 
     NOT ``any(library_tokens(...))``. A header-only library whose headers sit on the compiler's
@@ -1964,12 +1952,14 @@ def library_offered(name: str, lang: str, context: str = "") -> bool:
     return bool(entry.headers) and library_compiles(lang, compile_tokens, entry.headers[0])
 
 
-def available_libraries(lang: str, context: str = "") -> tuple[str, ...]:
+def available_libraries(lang: Language, context: str = "") -> tuple[str, ...]:
     """The library names ``lang`` can really build against here (in ``context``), in table order."""
     return tuple(name for name in load_libraries() if library_offered(name, lang, context))
 
 
-def library_build_flags(lang: str, names: Sequence[str], context: str = "") -> tuple[tuple[str, ...], tuple[str, ...]]:
+def library_build_flags(
+    lang: Language, names: Sequence[str], context: str = ""
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """``(compile, link)`` tokens for every requested library, de-duplicated, order preserved.
 
     blas and lapack are one ``.so`` here, so requesting both must not put ``-lopenblas`` on the
@@ -2000,8 +1990,8 @@ def isopar_capability() -> flags.AutoparProbe:
     this module rather than beside :func:`flags.polly_capability` because the cpp block's compiler
     is nameable only here, and :func:`stdpar_link_flags` (which must AGREE with it) is right above.
     """
-    block = _compiler_for_lang(_load_compilers(), Language.CPP.value).block
-    composed = f"{baseline_flags('cpp')} {std_flag('cpp')}"
+    block = _compiler_for_lang(_load_compilers(), Language.CPP).block
+    composed = f"{baseline_flags(Language.CPP)} {std_flag(Language.CPP)}"
     return flags.probe_autopar(
         block.cc,
         composed,
@@ -2051,7 +2041,7 @@ VECT_UNLIMITED_REFS: Mapping[str, str] = types.MappingProxyType(
 )
 
 
-def vect_cost_model() -> str:
+def vect_cost_model() -> VectCostModel:
     """``perf_reports.vect_cost_model``, read on every call."""
     return config.current().perf_reports.vect_cost_model
 
@@ -2072,11 +2062,11 @@ def family_report_flags(family: str) -> str:
 
     Not cached: the knob is config and may change per run, while :func:`base_report_flags` cannot."""
     report = base_report_flags(family)
-    unlimited = VECT_UNLIMITED_REFS.get(family) if report and vect_cost_model() == "unlimited" else None
+    unlimited = VECT_UNLIMITED_REFS.get(family) if report and vect_cost_model() is VectCostModel.UNLIMITED else None
     return f"{report} {flag_constant(unlimited)}" if unlimited else report
 
 
-def report_flags(lang: str, *, compiler: str | None = None) -> str:
+def report_flags(lang: Language, *, compiler: str | None = None) -> str:
     """The optimization-report flags for ``lang`` (or an explicit ``compiler`` block).
 
     The block's family (:func:`block_family`) looked up in :data:`REPORT_REFS`. Returns ``""`` for a
@@ -2097,7 +2087,7 @@ def report_flags(lang: str, *, compiler: str | None = None) -> str:
 class Toolchain:
     """What builds one submission on THIS setup: the block's compile line, run by ``driver``."""
 
-    language: str
+    language: Language
     #: The ``compilers.yaml`` block whose compile/link templates and baseline flags the build uses.
     compiler: str
     #: The program that compiles: the block's ``cc``, or an offload leg's own driver.
@@ -2107,7 +2097,7 @@ class Toolchain:
     report_flags: str
 
 
-def submission_toolchain(lang: str, requested: str | None = None, *, vendor: str = "amd") -> Toolchain:
+def submission_toolchain(lang: Language, requested: str | None = None, *, vendor: str = "amd") -> Toolchain:
     """The toolchain :meth:`~hpcagent_bench.harness.sandbox.Sandbox.build` compiles ``lang`` with.
 
     Family: setup pin, else ``requested``, else the default (:func:`resolve_family`); a family this
@@ -2156,7 +2146,7 @@ def executable_version(path: str) -> str:
 
 def compile_variant(
     spec: BenchSpec,
-    lang: str,
+    lang: Language,
     mode: Mode = Mode.SINGLE_CORE,
     *,
     src: pathlib.Path | None = None,
@@ -2189,7 +2179,7 @@ def compile_variant(
     if src is None:
         variants = [p for (vl, p) in discover_variants(spec) if vl == lang]
         if not variants:
-            raise FileNotFoundError(f"{spec.short_name}: no {lang} variant under {backend_dir(spec)}")
+            raise FileNotFoundError(f"{spec.short_name}: no {lang.text} variant under {backend_dir(spec)}")
         src = variants[0]
 
     baseline = _resolve_baseline(block, mode)
@@ -2202,7 +2192,7 @@ def compile_variant(
 
 
 def build_kernel_lib_commands(
-    sources: list[tuple[str, pathlib.Path]],
+    sources: list[tuple[Language, pathlib.Path]],
     out_so: pathlib.Path,
     *,
     build_dir: pathlib.Path | None = None,
@@ -2298,15 +2288,15 @@ def build_kernel_lib_commands(
     # default --as-needed drops a -l that precedes the object needing it, which linked a clean
     # .so that then failed dlopen with ``undefined symbol: cblas_sgemm``.
     if langs_present & set(ALWAYS_LINKED_LANGS):
-        lang = Language.CPP.value if Language.CPP.value in langs_present else Language.C.value
+        lang = Language.CPP if Language.CPP in langs_present else Language.C
         link_argv.extend(f for f in library_build_flags(lang, ALWAYS_LINKED_LIBRARIES)[1] if f not in link_argv)
     if langs_present & set(FFT_LINKED_LANGS):
         lang = (
-            Language.CPP.value
-            if Language.CPP.value in langs_present
-            else Language.C.value
-            if Language.C.value in langs_present
-            else Language.FORTRAN.value
+            Language.CPP
+            if Language.CPP in langs_present
+            else Language.C
+            if Language.C in langs_present
+            else Language.FORTRAN
         )
         link_argv.extend(f for f in library_build_flags(lang, FFT_LINKED_LIBRARIES)[1] if f not in link_argv)
     cmds.append(link_argv)
@@ -2361,15 +2351,15 @@ def mpich_wrapper_flags(wrappers: Sequence[str]) -> tuple[list[str], list[str]]:
 
 
 def build_mpi_executable_commands(
-    kernel_sources: list[tuple[str, pathlib.Path]],
+    kernel_sources: list[tuple[Language, pathlib.Path]],
     driver_src: pathlib.Path,
     out_exe: pathlib.Path,
     *,
     mode: Mode = Mode.SINGLE_CORE,
-    cc_override: dict[str, str] | None = None,
+    cc_override: dict[Language, str] | None = None,
     extra_compile: Sequence[str] = (),
     extra_link: Sequence[str] = (),
-    driver_lang: str = "c",
+    driver_lang: Language = Language.C,
     kernel_lib: pathlib.Path | None = None,
 ) -> list[list[str]]:
     """Compile the agent ``kernel_mpi`` source(s) + the harness driver and LINK AN EXECUTABLE.
@@ -2403,7 +2393,7 @@ def build_mpi_executable_commands(
     cc_override = dict(cc_override or {})
     # Compile the driver as `driver_lang` (C on the host path, the GPU family for device
     # residency) alongside the agent kernel source(s).
-    sources: list[tuple[str, pathlib.Path]] = [*list(kernel_sources), (driver_lang, pathlib.Path(driver_src))]
+    sources: list[tuple[Language, pathlib.Path]] = [*list(kernel_sources), (driver_lang, pathlib.Path(driver_src))]
 
     cmds: list[list[str]] = []
     objs: list[str] = []
@@ -2456,7 +2446,7 @@ PIC_FLAG_CUDA = "-Xcompiler=-fPIC"
 
 #: Languages whose emitted reference source can contain a BLAS call, so the tokens are linked
 #: whether or not anyone asked. C++ shares the C translator target, hence both.
-ALWAYS_LINKED_LANGS = (Language.C.value, Language.CPP.value)
+ALWAYS_LINKED_LANGS = (Language.C, Language.CPP)
 
 #: Libraries every C/C++ build links. ``blas`` resolves to openblas via envs/libraries.yaml.
 ALWAYS_LINKED_LIBRARIES = ("blas",)
@@ -2466,14 +2456,14 @@ ALWAYS_LINKED_LIBRARIES = ("blas",)
 #: ``_emit_blas_gemm`` equivalent, see numpyto_common.lowering.lower's docstring). The FFT_LIBRARY_
 #: MARKER lowering (numpyto_common/lib_nodes/fft.py) renders an ``fftw_plan_dft_1d``/``fftwf_...`` call
 #: on all three, so ``<fftw3.h>``/``-lfftw3`` has to resolve on all three.
-FFT_LINKED_LANGS = (Language.C.value, Language.CPP.value, Language.FORTRAN.value)
+FFT_LINKED_LANGS = (Language.C, Language.CPP, Language.FORTRAN)
 
 #: Libraries every C/C++/Fortran build links. ``fftw`` resolves to fftw3 via envs/libraries.yaml.
 FFT_LINKED_LIBRARIES = ("fftw",)
 
 
 def build_shared_lib_commands(
-    lang: str,
+    lang: Language,
     src: pathlib.Path,
     out_so: pathlib.Path,
     *,

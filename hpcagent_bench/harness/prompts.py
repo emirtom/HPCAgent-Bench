@@ -21,8 +21,9 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 
 import jinja2
 import numpy as np
+from hpcagent_agent.tools import mcp_server
+from hpcagent_agent.tools import registry as tool_registry
 
-from hpcagent_bench import modules
 from hpcagent_bench import (
     config,
     cpf_cache,
@@ -30,14 +31,16 @@ from hpcagent_bench import (
     fuzz,
     languages,
     manifest_schema,
+    modules,
     packets,
     paths,
+    plugins,
     protocols,
 )
-from hpcagent_bench.config import GridChooser, RequestCapability
+from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, Track
+from hpcagent_bench.config import GridChooser, PromptStrategy, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
-from hpcagent_bench.harness.envelope import PYTHON_LANG
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     default_requests,
@@ -59,7 +62,7 @@ from hpcagent_bench.harness.requests_api import (
 )
 from hpcagent_bench.harness.resources import available_resources
 from hpcagent_bench.harness.sandbox import shared_dir
-from hpcagent_bench.harness.task import Residency, Task
+from hpcagent_bench.harness.task import Task
 from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.spec import BenchSpec, as_block, as_list, bsr_block_sizes
 from hpcagent_bench.support.bindings import binding_from_spec, gen_call_stub
@@ -71,15 +74,17 @@ from hpcagent_bench.support.helpers.sparse.request import served_by
 from hpcagent_bench.support.sanitize import strip_comments
 
 __all__ = [
+    "BASELINE_PHRASE",
+    "C_PHRASE",
     "DISTRIBUTED_GRADING",
     "FAMILY_NOTE",
     "JSON_TO_PYTHON",
     "LANGUAGE_TOOL_FRAGMENTS",
     "MPI_SECTION",
-    "PACKET_TOOL_FRAGMENTS",
+    "NUMBA_PHRASE",
+    "ORACLE_PHRASE",
     "PROMPT_FACTS_KEY",
     "PROMPT_VARIANTS",
-    "REF_PHRASE",
     "SIZE_CLASS_PHRASE",
     "SOURCE_MARKER",
     "STRATEGIES",
@@ -110,7 +115,6 @@ __all__ = [
     "call_stub",
     "cluster_context",
     "cluster_facts",
-    "concrete_language",
     "debug_markers",
     "delivered_files",
     "discover",
@@ -149,11 +153,11 @@ PRECISION_CTYPES = tuple({"precision": p.value, "ctype": c_type(np.dtype(numpy_d
 SectionOverrides = dict[str, str | bool]
 
 #: One value a ``prompt.*`` knob can hold -- the union of every :class:`PromptConfig` field type.
-PromptField = str | bool | tuple[str, ...] | SectionOverrides | None
+PromptField = str | bool | tuple[str, ...] | SectionOverrides | PromptStrategy | None
 
 #: One prompt variant: :class:`PromptConfig` field name -> override value (a string, a flag or, for
 #: ``sections``, a map of section overrides).
-VariantFields = dict[str, str | bool | SectionOverrides]
+VariantFields = dict[str, str | bool | SectionOverrides | PromptStrategy]
 
 #: The previous round's outcome rendered by ``feedback.j2`` (``round``, ``correct``, ``error`` or
 #: ``speedup``, ``source``), as :data:`hpcagent_bench.harness.runner.Feedback` builds it.
@@ -255,7 +259,9 @@ class PublicInfo(TypedDict):
 class PromptGenerator(Protocol):
     """A ``prompt.generator`` that REPLACES the built-in render, called once per attempt."""
 
-    def __call__(self, task: Task, *, oracle: str, baseline: str, feedback: "Feedback | None") -> str: ...
+    def __call__(
+        self, task: Task, *, oracle: Oracle, baseline: Baseline | None, feedback: "Feedback | None"
+    ) -> str: ...
 
 
 #: The leak-free template context :func:`build_context` assembles (values are ``object``; jinja
@@ -310,7 +316,7 @@ class PromptConfig:
     container_workdir: str = "/app"  # where the per-kernel folder is mounted in the agent container
     include_translation: bool = False
     include_reference: bool = False  # offer the original ported source when one is present
-    strategy: str = "default"  # named optimization strategy (see STRATEGIES)
+    strategy: PromptStrategy = PromptStrategy.DEFAULT  # named optimization strategy (see STRATEGIES)
     optimization_guidance: bool = True  # include the how-to-optimize section
     # Emphasize profiling in the how-to-optimize section (skill pages follow record.packet, packet_skills).
     profiling_guidance: bool = False
@@ -345,7 +351,7 @@ class PromptConfig:
             container_workdir=pick_str(given, "container_workdir", configured.container_workdir),
             include_translation=pick_bool(given, "include_translation", configured.include_translation),
             include_reference=pick_bool(given, "include_reference", configured.include_reference),
-            strategy=pick_str(given, "strategy", configured.strategy),
+            strategy=PromptStrategy.validate(given.get("strategy", configured.strategy)),
             optimization_guidance=pick_bool(given, "optimization_guidance", configured.optimization_guidance),
             profiling_guidance=pick_bool(given, "profiling_guidance", configured.profiling_guidance),
             language_track=pick_bool(given, "language_track", configured.language_track),
@@ -381,9 +387,9 @@ class PromptConfig:
 #: (:func:`available_variants`).
 PROMPT_VARIANTS: dict[str, VariantFields] = {
     "default": {},
-    "loopnest": {"strategy": "loopnest"},
-    "profile_first": {"strategy": "profile_first"},
-    "language_native": {"strategy": "language_native", "language_track": True},
+    "loopnest": {"strategy": PromptStrategy.LOOPNEST},
+    "profile_first": {"strategy": PromptStrategy.PROFILE_FIRST},
+    "language_native": {"strategy": PromptStrategy.LANGUAGE_NATIVE, "language_track": True},
     "with_reference": {"include_reference": True},
     "with_translation": {"include_translation": True},
     "minimal": {"optimization_guidance": False, "inline_kernel": False},
@@ -440,23 +446,23 @@ def available_variants() -> dict[str, VariantFields]:
 
 
 #: Named optimization strategies -> the knobs ``optimizations.j2`` branches on: ``emphasis`` (a
-#: one-line framing) and ``lead`` (loopnest | profile | language). Unknown -> "default".
-STRATEGIES: dict[str, dict[str, str]] = {
-    "default": {
+#: one-line framing) and ``lead`` (loopnest | profile | language).
+STRATEGIES: dict[PromptStrategy, dict[str, str]] = {
+    PromptStrategy.DEFAULT: {
         "emphasis": "Balance per-loop-nest locality and vectorization work with fusion across nests, "
         "and profile to confirm every change.",
         "lead": "loopnest",
     },
-    "loopnest": {
+    PromptStrategy.LOOPNEST: {
         "emphasis": "Optimize one loop nest at a time to completion, then fuse adjacent nests.",
         "lead": "loopnest",
     },
-    "profile_first": {
+    PromptStrategy.PROFILE_FIRST: {
         "emphasis": "Profile with the container performance tools BEFORE editing, and let the measured "
         "hotspots choose what to optimize.",
         "lead": "profile",
     },
-    "language_native": {
+    PromptStrategy.LANGUAGE_NATIVE: {
         "emphasis": "Reach first for idiomatic features of the target language, then apply the "
         "mechanical loop-nest transforms.",
         "lead": "language",
@@ -545,6 +551,7 @@ def prompt_env(prompt_config: "PromptConfig | None" = None) -> jinja2.Environmen
     loaders = [jinja2.FileSystemLoader(d) for d in prompt_config.search_dirs()]
     loaders.append(jinja2.FileSystemLoader(str(paths.PROMPTS_DIR)))
     loaders.append(jinja2.FileSystemLoader(str(paths.PACKAGE)))
+    loaders += [jinja2.FileSystemLoader(str(root)) for root in plugins.roots()]
     loader = RecordingLoader(loaders, annotate=prompt_config.debug, aliases=prompt_config.aliases())
     env = jinja2.Environment(
         loader=loader,
@@ -631,47 +638,53 @@ def packet_skills(search_dirs: Sequence[str], language: str, *, multinode: bool 
 
 #: Lead order of the per-tool prompt fragments (``hpcagent_bench/tools/<tool>.md``); others follow
 #: alphabetically.
-_TOOL_ORDER = ("baseline", "score", "submit", "web-search")
-
-#: Fragment stem -> the non-core MCP tool it documents: a setup whose packet does not carry the tool
-#: (:data:`hpcagent_bench.packets.PACKET_TOOLS_ENV`, as the agent's MCP server reads it) is not told about it. Web
-#: search is one of them: runs have no internet unless a packet (``web-search``) brings it.
-PACKET_TOOL_FRAGMENTS = {"canonical-parallel-form": "canonical_parallel_form", "web-search": "search"}
+#: The order the curl prompt documents the judge's routes in; the rest follow alphabetically.
+_TOOL_ORDER = ("baseline", "score", "submit", "search")
 
 #: Fragment stem -> the config key that makes this judge serve the tool's route without a packet: a judge pointed at a
 #: CPF view (``hpcagent-bench serve``) answers the route, so its own prompt documents it.
-SERVED_BY_CONFIG = {"canonical-parallel-form": cpf_cache.CONFIG_KEY}
+SERVED_BY_CONFIG = {"canonical_parallel_form": cpf_cache.CONFIG_KEY}
 
 #: Fragment stem -> the languages its route serves: PAPI counts a host process, never a device kernel or
 #: a Python call (``POST /profile`` refuses those).
-LANGUAGE_TOOL_FRAGMENTS = {"counters": frozenset({"c", "cpp", "fortran"})}
+LANGUAGE_TOOL_FRAGMENTS: dict[str, frozenset[Language]] = {
+    "profile": frozenset({Language.C, Language.CPP, Language.FORTRAN})
+}
 
 
-def tool_fragment_offered(stem: str, language: str = "c") -> bool:
-    """Whether this run's judge can actually serve the tool ``stem`` documents for ``language``."""
-    tool = PACKET_TOOL_FRAGMENTS.get(stem)
-    carried = tool in (config.env_value(packets.PACKET_TOOLS_ENV) or "").split(",")
+def tool_fragment_offered(stem: str, language: Language = Language.C) -> bool:
+    """Whether this run documents ``tools/<stem>.md``: the fragment of a registered tool is offered exactly where the
+    agent's MCP server serves that tool (:mod:`hpcagent_agent.tools.registry`, the one source of who is served
+    what), or where this judge's config serves its route; a route no tool wraps (``baseline``) always."""
+    mcp_server.load_tools()
+    entry = tool_registry.REGISTRY.get(stem)
+    environ = {**os.environ, tool_registry.PACKET_TOOLS_ENV: config.env_value(packets.PACKET_TOOLS_ENV) or ""}
+    served = entry is None or tool_registry.offered(entry, tool_registry.Setup.read(environ))
     key = SERVED_BY_CONFIG.get(stem)
     configured = key is not None and bool(str(config.get(key) or "").strip())
-    served = LANGUAGE_TOOL_FRAGMENTS.get(stem)
-    return (tool is None or carried or configured) and (served is None or language in served)
+    languages = LANGUAGE_TOOL_FRAGMENTS.get(stem)
+    return (served or configured) and (languages is None or language in languages)
 
 
-def tool_fragments(search_dirs: Sequence[str] = (), off: Collection[str] = (), language: str = "c") -> list[str]:
-    """Template names of the per-tool prompt fragments: :data:`_TOOL_ORDER` first, then other ``*.md``
-    alphabetically, resolved along the search path. Fragments for tools this run's packet lacks or
-    ``language`` cannot use (:func:`tool_fragment_offered`) and those named in ``off`` (turned off by
-    ``prompt.sections``) are dropped."""
+def tool_fragments(
+    search_dirs: Sequence[str] = (), off: Collection[str] = (), language: Language = Language.C
+) -> list[str]:
+    """Template names of the per-tool prompt fragments (``tools/<tool>.md``, shipped or a plugin's beside its tool
+    modules): :data:`_TOOL_ORDER` first, then the rest alphabetically. Fragments :func:`tool_fragment_offered`
+    declines and those named in ``off`` (turned off by ``prompt.sections``) are dropped."""
+    roots = (*search_dirs, *(str(root) for root in plugins.roots()))
     by_stem = {
         name: f"tools/{path.name}"
-        for name, path in discover(search_dirs, "tools/*.md", lambda p: p.stem, builtin_root=paths.PACKAGE).items()
+        for name, path in discover(roots, "tools/*.md", lambda p: p.stem, builtin_root=paths.PACKAGE).items()
         if tool_fragment_offered(name, language) and f"tools/{path.name}" not in off
     }
     ordered = [by_stem.pop(t) for t in _TOOL_ORDER if t in by_stem]
     return ordered + [by_stem[k] for k in sorted(by_stem)]
 
 
-def _compile_commands(language: str, source_filename: str, lib_name: str, compiler: str | None = None) -> list[str]:
+def _compile_commands(
+    language: Language, source_filename: str, lib_name: str, compiler: str | None = None
+) -> list[str]:
     """The exact compile+link commands the harness runs for a restricted submission (from
     ``compilers.yaml`` -> :mod:`hpcagent_bench.flags`), as shell lines. ``compiler`` names a block
     (``None`` = the language default). A language without a block yields no commands."""
@@ -686,14 +699,16 @@ def _compile_commands(language: str, source_filename: str, lib_name: str, compil
 
 
 #: Where a family's parallelism comes from when it is not OpenMP + TBB-backed <execution> (nvhpc).
-FAMILY_NOTE = {
-    ("nvhpc", "c"): "host threading is OpenMP (`-mp`); OpenACC needs an offload build, which this is not.",
-    ("nvhpc", "cpp"): "parallel algorithms come from `-stdpar` here, NOT from TBB.",
-    ("nvhpc", "fortran"): "`do concurrent` threads via `-stdpar`; OpenACC needs an offload build, which this is not.",
+FAMILY_NOTE: dict[tuple[str, Language], str] = {
+    ("nvhpc", Language.C): "host threading is OpenMP (`-mp`); OpenACC needs an offload build, which this is not.",
+    ("nvhpc", Language.CPP): "parallel algorithms come from `-stdpar` here, NOT from TBB.",
+    ("nvhpc", Language.FORTRAN): (
+        "`do concurrent` threads via `-stdpar`; OpenACC needs an offload build, which this is not."
+    ),
 }
 
 
-def _build_families(language: str, source_filename: str, lib_name: str) -> list[BuildFamily]:
+def _build_families(language: Language, source_filename: str, lib_name: str) -> list[BuildFamily]:
     """One row per requestable toolchain family (:data:`languages.COMPILER_FAMILIES`) for this language:
     driver name and compile+link commands. An unwired family keeps its row, without commands."""
     rows: list[BuildFamily] = []
@@ -711,6 +726,10 @@ def _build_families(language: str, source_filename: str, lib_name: str) -> list[
     return rows
 
 
+#: A GPU language's host<->device copy call, for the device-residency section; ``memcpy`` elsewhere.
+TRANSFER_CALLS: dict[Language, str] = {Language.CUDA: "cudaMemcpy", Language.HIP: "hipMemcpy"}
+
+
 class DeliveredFiles(NamedTuple):
     """The basenames the judge reads a submission's files under (``service._source_from_file``)."""
 
@@ -720,23 +739,18 @@ class DeliveredFiles(NamedTuple):
     device: str
 
 
-def delivered_files(language: str, stem: str) -> DeliveredFiles:
-    """The file names a ``language`` submission of kernel ``stem`` is read under: a GPU language's host
-    half is C++, its device half carries the language's own extension, and a Python setup delivers ``.py``."""
-    from hpcagent_bench.harness.service import (
-        PYTHON_DELIVERED_LANGUAGES,
-        SOURCE_EXT_ALIASES,
-        source_file_ext,
-    )
+def delivered_files(delivered: Language, stem: str) -> DeliveredFiles:
+    """The file names a ``delivered`` submission of kernel ``stem`` is read under: a GPU language's host
+    half is C++, its device half carries the language's own extension, and a Python delivery is ``.py``."""
+    from hpcagent_bench.harness.service import SOURCE_EXT_ALIASES, source_file_ext
 
-    delivered = PYTHON_LANG if language in PYTHON_DELIVERED_LANGUAGES else language
     host = languages.GPU_HOST_LANG.get(delivered, delivered)
     exts = (source_file_ext(delivered, device=False), *SOURCE_EXT_ALIASES.get(host, ()))
     device = f"{stem}.{source_file_ext(delivered, device=True)}" if delivered in languages.GPU_HOST_LANG else ""
     return DeliveredFiles(tuple(f"{stem}.{ext}" for ext in exts), device)
 
 
-def call_stub(binding: Binding, language: str, residency: str) -> str:
+def call_stub(binding: Binding, language: Language, residency: Residency) -> str:
     """The single-node call stub (Sec. 7), or ``""`` for a language ``gen_call_stub`` does not emit
     (python, distributed tasks, which show ``mpi_stub``)."""
     try:
@@ -745,7 +759,7 @@ def call_stub(binding: Binding, language: str, residency: str) -> str:
         return ""
 
 
-def _baseline_flags(language: str) -> str:
+def _baseline_flags(language: Language) -> str:
     """The baseline compile-flag string shown to the agent; ``""`` for an unknown language."""
     try:
         return languages.baseline_flags(language)
@@ -753,7 +767,7 @@ def _baseline_flags(language: str) -> str:
         return ""
 
 
-def _mimalloc_linked(language: str) -> bool:
+def _mimalloc_linked(language: Language) -> bool:
     """Whether the graded link line for ``language`` carries ``-lmimalloc`` on this host."""
     try:
         return bool(languages.mimalloc_link_flags(language))
@@ -764,7 +778,7 @@ def _mimalloc_linked(language: str) -> bool:
 def _translation(task: Task) -> str:
     """Best-effort NumpyToX translation of the reference into the task's native language, embedded
     when ``prompt.include_translation`` is on; empty on any failure."""
-    if task.language not in ("c", "cpp", "fortran"):
+    if task.language not in languages.LANG_TARGET:
         return ""
     try:
         from hpcagent_bench.harness.agent import reference_source
@@ -777,17 +791,17 @@ def _translation(task: Task) -> str:
 def _category(spec: BenchSpec) -> str:
     """A one-line label for the benchmark's category (``Scientific computing / <dwarf> / <scale>``,
     vectorization puzzle, or deep learning)."""
-    if spec.track == "scientific_computing":
-        parts = ["Scientific computing"]
-        if spec.dwarf:
-            parts.append(spec.dwarf)
-        parts.append(spec.scale_class or "micro")
-        return " / ".join(parts)
-    if spec.track == "loop_level_reasoning":
-        return "Loop-level reasoning (vectorization puzzle)"
-    if spec.track == "machine_learning":
-        return "Machine learning (deep-learning kernel)"
-    return spec.track.capitalize()
+    match spec.track:
+        case Track.SCIENTIFIC_COMPUTING:
+            parts = ["Scientific computing"]
+            if spec.dwarf:
+                parts.append(spec.dwarf)
+            parts.append(spec.scale_class or "micro")
+            return " / ".join(parts)
+        case Track.LOOP_LEVEL_REASONING:
+            return "Loop-level reasoning (vectorization puzzle)"
+        case Track.MACHINE_LEARNING:
+            return "Machine learning (deep-learning kernel)"
 
 
 def score_sampling() -> ScoreSampling:
@@ -836,14 +850,15 @@ def perf_sampling(spec: BenchSpec) -> PerfSampling:
 def public_scale_items(scales: Mapping[str, manifest_schema.PublicScale]) -> list[PublicScaleItem]:
     """The sizes of one ``scales`` mapping, by name, each with its scale alone."""
     return [
-        {"name": name, "scale": entry.scale, "description": entry.description} for name, entry in sorted(scales.items())
+        {"name": name, "scale": entry.scale.text, "description": entry.description}
+        for name, entry in sorted(scales.items())
     ]
 
 
 def public_values(variable: manifest_schema.PublicVariable) -> str:
     """A variable's values as the prompt states them: ``one of a, b`` or, shown as a range, ``between lo and
     hi`` (its numeric bounds, never the exact values)."""
-    if variable.shown_as == "range":
+    if variable.shown_as is manifest_schema.ShownAs.RANGE:
         numbers = [value for value in variable.values if isinstance(value, (int, float))]
         return f"between {min(numbers)} and {max(numbers)}"
     return "one of " + ", ".join(str(value) for value in variable.values)
@@ -885,42 +900,48 @@ SIZE_CLASS_PHRASE = {
 
 #: Human phrasing of the oracle/baseline kinds. ``*-autopar`` is the compiled reference built
 #: multi-core with auto-parallelization (Polly for c/cpp, gfortran's for fortran).
-REF_PHRASE = {
-    "compiled": "the NumPy reference as its compiled Numba and C versions compute it",
-    "torch": "the kernel's PyTorch model",
-    "numba": "the parallel Numba reference (the NumPy reference compiled by @numba.njit(parallel=True))",
-    "c": "the compiled C reference (NumpyToX-generated from the NumPy reference)",
-    "torch-autotune-cpu": "the compiled PyTorch reference (this kernel's PyTorch model run through "
+NUMBA_PHRASE = "the parallel Numba reference (the NumPy reference compiled by @numba.njit(parallel=True))"
+C_PHRASE = "the compiled C reference (NumpyToX-generated from the NumPy reference)"
+ORACLE_PHRASE: dict[Oracle, str] = {
+    Oracle.COMPILED: "the NumPy reference as its compiled Numba and C versions compute it",
+    Oracle.TORCH: "the kernel's PyTorch model",
+    Oracle.NUMBA: NUMBA_PHRASE,
+    Oracle.C: C_PHRASE,
+}
+BASELINE_PHRASE: dict[Baseline, str] = {
+    Baseline.NUMBA: NUMBA_PHRASE,
+    Baseline.C: C_PHRASE,
+    Baseline.TORCH_AUTOTUNE_CPU: "the compiled PyTorch reference (this kernel's PyTorch model run through "
     "torch.compile with max-autotune and frozen weights, on the CPU)",
-    "torch-autotune-gpu": "the compiled PyTorch reference (this kernel's PyTorch model run through "
+    Baseline.TORCH_AUTOTUNE_GPU: "the compiled PyTorch reference (this kernel's PyTorch model run through "
     "torch.compile with max-autotune, on the GPU)",
-    "c-autopar": "the auto-parallelized compiled C reference (NumpyToX-generated, built multi-core "
+    Baseline.C_AUTOPAR: "the auto-parallelized compiled C reference (NumpyToX-generated, built multi-core "
     "with clang + LLVM Polly)",
-    "cpp-autopar": "the auto-parallelized compiled C++ reference (NumpyToX-generated, built multi-core "
+    Baseline.CPP_AUTOPAR: "the auto-parallelized compiled C++ reference (NumpyToX-generated, built multi-core "
     "with clang++ + LLVM Polly)",
-    "fortran-autopar": "the auto-parallelized compiled Fortran reference (NumpyToX-generated, built "
+    Baseline.FORTRAN_AUTOPAR: "the auto-parallelized compiled Fortran reference (NumpyToX-generated, built "
     "multi-core with gfortran auto-parallelization)",
 }
 
 
-def reference_phrase(kinds: Sequence[str]) -> str:
-    """One resolved reference kind in words, or "the faster of" several (a best-of denominator)."""
-    phrases = [REF_PHRASE.get(kind, kind) for kind in kinds]
+def reference_phrase(phrases: Sequence[str]) -> str:
+    """One resolved reference in words, or "the faster of" several (a best-of denominator)."""
     return phrases[0] if len(phrases) == 1 else f"the faster of {' and '.join(phrases)}"
 
 
-def oracle_phrase(oracle: str, spec: BenchSpec) -> str:
+def oracle_phrase(oracle: Oracle, spec: BenchSpec) -> str:
     """The reference ``oracle`` (``auto`` resolved per track, :func:`grading.resolve_oracle`) grades ``spec`` with."""
     from hpcagent_bench.harness.grading import resolve_oracle
 
-    return reference_phrase((resolve_oracle(oracle, spec),))
+    return reference_phrase((ORACLE_PHRASE[resolve_oracle(oracle, spec)],))
 
 
-def baseline_phrase(baseline: str, spec: BenchSpec, *, on_gpu: bool) -> str:
+def baseline_phrase(baseline: Baseline | None, spec: BenchSpec, *, on_gpu: bool) -> str:
     """Every denominator a grade of ``spec`` races (:func:`grading.resolve_baseline_set`), in words."""
     from hpcagent_bench.harness.grading import resolve_baseline_set
 
-    return reference_phrase(resolve_baseline_set(baseline, spec, on_gpu=on_gpu))
+    kinds = resolve_baseline_set(baseline, spec, on_gpu=on_gpu)
+    return reference_phrase([BASELINE_PHRASE.get(kind, kind.text) for kind in kinds])
 
 
 def ml_layout(spec: BenchSpec, binding: Binding, ranks: int) -> dict[str, object]:
@@ -963,7 +984,7 @@ def ml_layout(spec: BenchSpec, binding: Binding, ranks: int) -> dict[str, object
     }
 
 
-def sparse_layout_context(spec: BenchSpec, language: str) -> dict[str, object]:
+def sparse_layout_context(spec: BenchSpec, language: Language) -> dict[str, object]:
     """What sections/sparse.j2 shows: every sparse array with the formats it is offered in, and per
     format the symbol, the argument list that replaces the array, and each buffer's meaning --
     the same :data:`~hpcagent_bench.support.helpers.sparse.abi.FORMAT_SPECS` table the binding and the
@@ -1013,14 +1034,14 @@ def layout_arrays(spec: BenchSpec, binding: Binding) -> list[dict[str, str | int
 def build_context(
     task: Task,
     *,
-    oracle: str = "auto",
-    baseline: str = "auto",
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
     prompt_config: "PromptConfig | None" = None,
 ) -> PromptContext:
     """Public, leak-free context for the prompt template.
 
     ``oracle`` / ``baseline`` name the correctness reference and the speedup denominator (``baseline``
-    defaults to ``auto``, the kernel's real per-track denominator). ``prompt_config`` (default
+    defaults to None, the kernel's real per-track denominator). ``prompt_config`` (default
     :meth:`PromptConfig.from_config`) supplies the knobs. Repair feedback is not part of the context:
     :meth:`RunPrompt.attempt` appends it."""
     if prompt_config is None:
@@ -1033,7 +1054,7 @@ def build_context(
 
     graded_oracle = oracle_phrase(oracle, spec)
     graded_baseline = baseline_phrase(baseline, spec, on_gpu=task.on_gpu)
-    baseline = resolve_baseline(baseline, spec, on_gpu=task.on_gpu)
+    resolved_baseline = resolve_baseline(baseline, spec, on_gpu=task.on_gpu)
     binding = binding_from_spec(spec)
     # The band the scorer uses (TOLERANCE_MATRIX via kernel_tolerances), off this task's precision.
     from hpcagent_bench.frameworks.test import kernel_tolerances
@@ -1051,8 +1072,7 @@ def build_context(
     # All of them (TSVC ships _reference.c and _reference.cpp), so the agent picks a language.
     original_paths = [f"hpcagent_bench/benchmarks/{spec.relative_path}/{m.name}" for m in original_matches]
     original_path = original_paths[0] if original_paths else ""
-    # Unknown strategy falls back to "default".
-    strategy = STRATEGIES.get(prompt_config.strategy, STRATEGIES["default"])
+    strategy = STRATEGIES[prompt_config.strategy]
     # In a container the harbor adapter uploads the reference to <workdir>/<slug>/reference.py
     # (same slug function); a native run points at the file in the repo.
     from hpcagent_bench.harbor import slug
@@ -1061,16 +1081,16 @@ def build_context(
         kernel_path = local_path(ref_py)  # the file this very function already read
     else:
         kernel_path = f"{prompt_config.container_workdir.rstrip('/')}/{slug(spec.short_name)}/reference.py"
-    symbol = binding.symbols.get(task.language, f"{spec.short_name}_{task.language}_auto")
+    symbol = binding.symbols.get(task.language, f"{spec.short_name}_{task.language.text}_auto")
     from hpcagent_bench.harness.service import SOURCE_EXT
 
-    ext = SOURCE_EXT.get(task.language, task.language)
+    ext = SOURCE_EXT[task.language]
     resources = as_block(available_resources())
 
     # node_mode selects the single- vs multi-node contract from the residency.
-    is_mpi = task.residency == "distributed"
+    is_mpi = task.residency is Residency.DISTRIBUTED
     node_mode = "multi" if is_mpi else "single"
-    other_skills = packet_skills(prompt_config.search_dirs(), task.language, multinode=is_mpi)
+    other_skills = packet_skills(prompt_config.search_dirs(), task.language.text, multinode=is_mpi)
 
     def _fmt(items: list[object]) -> str:
         rows = [as_block(i) for i in items]
@@ -1095,30 +1115,30 @@ def build_context(
     sparse_layout = sparse_layout_context(spec, task.language)
     # The C-ABI deliveries; a python delivery takes no cast and no layout (service.precision_scope_refusal,
     # service.single_node_layout_refusal).
-    abi_delivery = task.language != PYTHON_LANG
+    abi_delivery = task.language is not Language.PYTHON
     context: PromptContext = {
         "kernel": spec.short_name,
-        "language": task.language,
+        "language": task.language.text,
         # The device half of a GPU delivery; "" for a host language, which the templates gate on.
         "device_source_filename": device_source_filename,
         # The basenames the judge reads a source_file / device_source_file under.
         "source_file_names": list(files.source),
         "device_source_file_name": files.device,
-        "device_language": task.language if device_source_filename else "",
+        "device_language": task.language.text if device_source_filename else "",
         # The vendor's transfer call, for the device-residency section.
-        "transfer_call": {"cuda": "cudaMemcpy", "hip": "hipMemcpy"}.get(task.language, "memcpy"),
+        "transfer_call": TRANSFER_CALLS.get(task.language, "memcpy"),
         "precision": precision,
-        "source_mode": task.source_mode,
+        "source_mode": task.source_mode.text,
         # service.input_mode: under source / py-binding the judge refuses other languages, so the prompt
         # offers none. service.service_prompt overwrites this with its live config.
-        "input_mode": cfg.service.input_mode,
-        "residency": task.residency,
+        "input_mode": cfg.service.input_mode.text,
+        "residency": task.residency.text,
         # An offload setup's contract (is_device_ptr on target regions) differs from hip's; read from
         # languages.offload_setup_language.
         "offload": languages.offload_setup_language(task.language),
         # Distributed (MPI) knobs for sections/mpi.j2; inert on the single-node path.
         "node_mode": node_mode,
-        "scaling": (cfg.mpi.mode if is_mpi else ""),
+        "scaling": (cfg.mpi.mode.text if is_mpi else ""),
         "ranks": cfg.mpi.ranks,
         "k_repeats": cfg.mpi.k_repeats,
         # host | device: the pointer residency of each rank's tiles.
@@ -1154,7 +1174,7 @@ def build_context(
         # The rank counts the grader sweeps; empty = the scalar ``ranks`` only.
         "rank_counts": (list(torch_reference.graded_rank_counts(spec)) if is_mpi else []),
         # Optional per-context fragments; Foundation kernels ship no optimization hint.
-        "track": spec.track,
+        "track": spec.track.text,
         "dwarf": spec.dwarf,
         "scale": spec.scale_class,
         "category": _category(spec),
@@ -1188,7 +1208,7 @@ def build_context(
         "native": prompt_config.native,
         "native_run_dir": display_run_dir(spec.short_name),
         "ext": ext,
-        "strategy": prompt_config.strategy,
+        "strategy": prompt_config.strategy.text,
         "strategy_emphasis": strategy["emphasis"],
         "strategy_lead": strategy["lead"],
         # restricted delivery: expected file name + the real compile/link commands.
@@ -1234,8 +1254,8 @@ def build_context(
         # What /score times (a preview of the final grade on fewer inputs); see score_sampling.
         "score_sampling": score_sampling(),
         # The correctness reference and the speedup denominator.
-        "oracle": oracle,
-        "baseline": baseline,
+        "oracle": oracle.text,
+        "baseline": resolved_baseline.text,
         "oracle_phrase": graded_oracle,
         "baseline_phrase": graded_baseline,
         # The shared library folder mounted in agent and judge; its include/lib dirs join every build.
@@ -1248,9 +1268,9 @@ def build_context(
             {name for name, target in prompt_config.aliases().items() if target is None},
             task.language,
         ),
-        "cpf_dialect": cpf_cache.DIALECT.get(task.language, "c++"),
+        "cpf_dialect": cpf_cache.DIALECT.get(task.language.text, "c++"),
         # How much of each loop hint the setup's form spells out (a -kinds packet: one par, seq or unknown).
-        "cpf_hints": config.current().cpf.hints,
+        "cpf_hints": config.current().cpf.hints.text,
         # Skills (hpcagent_bench/skills/<name>/SKILL.md), indexed by name and trigger.
         "other_skills": other_skills,
         # Inline provenance for the skills (they bypass the loader).
@@ -1291,8 +1311,8 @@ class RunPrompt:
     called per attempt and returned verbatim."""
 
     task: Task
-    oracle: str
-    baseline: str
+    oracle: Oracle
+    baseline: Baseline | None
     prompt_config: "PromptConfig"
     body: str = ""
     generator: PromptGenerator | None = None
@@ -1310,7 +1330,11 @@ class RunPrompt:
 
 
 def build_run_prompt(
-    task: Task, *, oracle: str = "auto", baseline: str = "auto", prompt_config: "PromptConfig | None" = None
+    task: Task,
+    *,
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
+    prompt_config: "PromptConfig | None" = None,
 ) -> RunPrompt:
     """Render one run's static prompt body -- call ``.attempt(feedback)`` for each attempt."""
     if prompt_config is None:
@@ -1341,8 +1365,8 @@ def distributed_contract(task: Task) -> str:
     """The distributed contract of a ``residency="distributed"`` task alone (``kernel_mpi`` signature and
     symbol, distribution rule, delivery, timing, sizing), as :func:`build_prompt` renders it.
     ``hpcagent_bench/cluster/make_problems.py`` appends it to such a task's text. Host paths are stripped."""
-    if task.residency != Residency.DISTRIBUTED.value:
-        raise ValueError(f"{task.kernel}: residency {task.residency!r} has no distributed contract")
+    if task.residency is not Residency.DISTRIBUTED:
+        raise ValueError(f"{task.kernel}: residency {task.residency.text!r} has no distributed contract")
     prompt_config = PromptConfig.from_config()
     ctx = build_context(task, prompt_config=prompt_config)
     body = prompt_env(prompt_config).get_template(MPI_SECTION).render(**ctx).strip() + "\n"
@@ -1371,18 +1395,9 @@ def agent_requests(requests: Requests, allowances: RequestAllowances) -> dict[st
     return Requests(dataclasses.replace(requests.startup, grid=None), requests.operations).to_json()
 
 
-def concrete_language(task: Task) -> bool:
-    """Whether ``task`` names a delivery language; a free-choice task (none) is rendered as C."""
-    from hpcagent_bench.harness.service import PYTHON_DELIVERED_LANGUAGES, SOURCE_EXT
-
-    return task.language in SOURCE_EXT or task.language in PYTHON_DELIVERED_LANGUAGES
-
-
 def cluster_context(task: Task, prompt_config: "PromptConfig") -> PromptContext:
-    """:func:`build_context` of a cluster problem: a free-choice task's as a C one (:func:`concrete_language`)."""
-    return build_context(
-        task if concrete_language(task) else dataclasses.replace(task, language="c"), prompt_config=prompt_config
-    )
+    """:func:`build_context` of a cluster problem (a free-choice one is rendered in C)."""
+    return build_context(task, prompt_config=prompt_config)
 
 
 def request_actions(task: Task) -> RequestActions:
@@ -1391,7 +1406,7 @@ def request_actions(task: Task) -> RequestActions:
     return cast("RequestActions", cluster_context(task, PromptConfig.from_config())["request_actions"])
 
 
-def cluster_facts(task: Task) -> dict[str, str]:
+def cluster_facts(task: Task, *, free_choice: bool = False) -> dict[str, str]:
     """The facts the cluster prompt (``agent/prompt.md``) states about ``task`` that only the harness knows,
     one per ``{{<NAME>}}`` slot, rendered from :func:`build_context` and the partials the in-process and the
     service prompt use, so all three state the same grade:
@@ -1399,12 +1414,12 @@ def cluster_facts(task: Task) -> dict[str, str]:
     ``GRADING`` (the submission mode's section, the correctness band, the final grade and the timed sizes;
     a distributed task's contract replaces it), ``SCORE_INPUTS``, ``SCORE_REPEAT`` and ``FINAL_INPUTS`` (for the mode's
     section), and the file names the judge reads: ``SOURCE_FILES`` (prose), ``SOURCE_BODY`` (a tool
-    call's JSON) and ``SOURCE_FIELDS`` (the body fields of the stdlib fallback call). A free-choice task
-    (no language) names ``<kernel>.<ext>``."""
+    call's JSON) and ``SOURCE_FIELDS`` (the body fields of the stdlib fallback call). A ``free_choice`` task
+    (the setup names no language; ``task`` is its C rendering) names ``<kernel>.<ext>``."""
     from hpcagent_bench.harness.service import SOURCE_EXT
 
     prompt_config = PromptConfig.from_config()
-    concrete = concrete_language(task)
+    concrete = not free_choice
     ctx = cluster_context(task, prompt_config)
     env = prompt_env(prompt_config)
 
@@ -1413,7 +1428,7 @@ def cluster_facts(task: Task) -> dict[str, str]:
 
     grading = (
         DISTRIBUTED_GRADING
-        if task.residency == Residency.DISTRIBUTED.value
+        if task.residency is Residency.DISTRIBUTED
         else "\n\n".join(("{{MODE:grading}}", partial("correctness"), partial("final-grade"), partial("sizes")))
     )
     stem = str(ctx["kernel"])
@@ -1428,12 +1443,12 @@ def cluster_facts(task: Task) -> dict[str, str]:
             body["device_source_file"] = files.device
             fields.append(f'"device_source_file":os.path.abspath("{files.device}")')
     else:
-        table = ", ".join(f"{lang} `.{ext}`" for lang, ext in SOURCE_EXT.items())
+        table = ", ".join(f"{lang.text} `.{ext}`" for lang, ext in SOURCE_EXT.items())
         source_files = f"`source_file` named `{stem}.<ext>` with your language's extension ({table})"
         body = {"source_file": f"{stem}.<ext>"}
         fields = [f'"source_file":os.path.abspath("{stem}.<ext>")']
     body_text = json.dumps(body)
-    if task.residency == Residency.DISTRIBUTED.value:
+    if task.residency is Residency.DISTRIBUTED:
         # Every distributed grade refuses a body without its layout: the ML track's one accepted layout,
         # else the one the agent declares (a file it writes beside its source).
         layout = str(ctx["mpi_fixed_layout"])

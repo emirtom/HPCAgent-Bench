@@ -9,7 +9,6 @@ from pathlib import Path
 
 from tests.check_yaml_style import violations as yaml_style_violations
 
-
 # hpcagent_bench-yaml-style (tests/check_yaml_style.py)
 
 

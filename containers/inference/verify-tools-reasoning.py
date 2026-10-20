@@ -22,16 +22,19 @@ import sys
 import urllib.error
 import urllib.request
 
+import pydantic
+
+
+class WeatherInput(pydantic.BaseModel):
+    city: str = pydantic.Field(description="City name")
+
+
 WEATHER_TOOL = {
     "type": "function",
     "function": {
         "name": "get_weather",
         "description": "Get the current weather for a city.",
-        "parameters": {
-            "type": "object",
-            "properties": {"city": {"type": "string", "description": "City name"}},
-            "required": ["city"],
-        },
+        "parameters": WeatherInput.model_json_schema(),
     },
 }
 

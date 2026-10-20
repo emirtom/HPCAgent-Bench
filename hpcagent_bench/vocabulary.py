@@ -8,11 +8,8 @@ The entries are added in :mod:`hpcagent_bench.models`, :mod:`hpcagent_bench.colu
 :mod:`hpcagent_bench.skill_packets` (and by plugins, :mod:`hpcagent_bench.plugins`). ``docs/extending/registry.md``
 is the author's guide.
 
-THE SLOTS. ``order`` is the slot of an entry. The colour ramp and the marker pool are indexed by it
-(:mod:`hpcagent_bench.stats.palette`): a model takes marker ``order`` of the pool, an optimizer ``order`` counted
-from its end, a harness and a packet the next free shape of the treatment pool in slot order, and every kind takes
-hue ``order`` of the ramp. A shipped entry states its slot, so its colour and marker never change when another
-entry is added; a plugin's entry takes the next free one. ``tests/test_vocabulary.py`` pins every shipped slot.
+An entry's slot is its registration position (:class:`~hpcagent_bench.registry.Kind`); :mod:`hpcagent_bench.stats.palette`
+derives its colour and marker from it.
 """
 
 import dataclasses
@@ -35,14 +32,15 @@ __all__ = [
     "OPTIMIZERS",
     "OPTIMIZER_ADAPTER_MODULE",
     "PACKETS",
+    "TUNERS",
     "Arch",
     "Column",
     "DaceStage",
-    "DaceTuner",
     "ModelEntry",
     "PacketDef",
     "PacketDevice",
     "Transform",
+    "TunerEntry",
     "check_vocabulary",
     "is_optimizer_adapter",
 ]
@@ -61,13 +59,6 @@ class DaceStage(Coded):
     CANON = enum.auto()
     PARALLEL = enum.auto()
     AUTOOPT = enum.auto()
-
-
-class DaceTuner(Coded):
-    """The autotuner a DaCe flavor runs after its stage."""
-
-    ALLOY_PROFILE = enum.auto()
-    ALLOY_HEURISTIC = enum.auto()
 
 
 class Transform(Coded):
@@ -161,10 +152,12 @@ class Column:
     sweep_deterministic: bool
     #: The precisions it can execute; ``run-framework`` does not enforce it.
     precisions: frozenset[Precision]
-    #: The SDFG pipelines a DaCe flavor compiles and scores.
+    #: The pipelines the adapter compiles and scores for this column (a DaCe flavor's SDFG pipeline).
     pipelines: tuple[str, ...] = ()
-    stage: DaceStage | None = None
-    tuner: DaceTuner | None = None
+    #: The framework's own pipeline stage this flavor stops at (:class:`DaceStage` for DaCe).
+    stage: Coded | None = None
+    #: The :data:`TUNERS` key of the autotuner run after the stage; the column's ``adapter`` is that tuner's.
+    tuner: str | None = None
     #: With ``flavor``: the DB column this name groups under; the name must be ``<column>_<flavor>``.
     column: str | None = None
     flavor: str | None = None
@@ -196,6 +189,22 @@ class Column:
         return is_optimizer_adapter(self.adapter)
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class TunerEntry:
+    """An autotuner a column can run after its framework's stage: how a figure names it and the
+    :class:`~hpcagent_bench.harness.agent.Agent` that runs it (``package.module:Class``)."""
+
+    display: str
+    full_name: str
+    adapter: str
+
+    def __post_init__(self) -> None:
+        if not is_optimizer_adapter(self.adapter):
+            raise RegistryError(
+                f"tuners {self.display!r}: adapter {self.adapter!r} must name a class of {OPTIMIZER_ADAPTER_MODULE}"
+            )
+
+
 MODELS: Kind[ModelEntry] = Kind("models")
 #: Standalone optimizers by display name: a compiler or pipeline that stands where an LLM stands on a figure.
 OPTIMIZERS: Kind[str] = Kind("optimizers")
@@ -203,6 +212,8 @@ OPTIMIZERS: Kind[str] = Kind("optimizers")
 HARNESSES: Kind[str] = Kind("harnesses")
 #: The language a setup asked for, by display name.
 LANGUAGES: Kind[str] = Kind("languages")
+#: Autotuners a framework column runs after its stage (Alloy, ...), by key.
+TUNERS: Kind[TunerEntry] = Kind("tuners")
 #: Where a kernel was timed, by display name.
 DEVICES: Kind[str] = Kind("devices")
 PACKETS: Kind[PacketDef] = Kind("packets")
@@ -220,7 +231,10 @@ def check_vocabulary() -> None:
     for kind in KINDS.values():
         slotless = sorted(key for key, order in kind.orders.items() if order is None and (kind is not PACKETS or key))
         if slotless:
-            raise RegistryError(f"{kind.name}: {slotless} have no order, so no colour or marker slot")
+            raise RegistryError(f"{kind.name}: {slotless} have no slot, so no colour or marker")
+    for key, column in FRAMEWORKS.entries.items():
+        if column.tuner is not None and (column.tuner not in TUNERS or TUNERS[column.tuner].adapter != column.adapter):
+            raise RegistryError(f"frameworks {key!r}: tuner {column.tuner!r} is not registered with its adapter")
     for base in {column.base for column in FRAMEWORKS.entries.values()}:
         adapters = {
             column.adapter for column in FRAMEWORKS.entries.values() if column.base == base and not column.optimizer
@@ -230,7 +244,7 @@ def check_vocabulary() -> None:
                 f"frameworks: base {base!r} names Framework adapters {sorted(adapters)}; it needs exactly one"
             )
     if PACKETS.orders.get("", 0) is not None or "" not in PACKETS.entries:
-        raise RegistryError("packets: the no-packet control (key '') must be registered with order=None")
+        raise RegistryError("packets: the no-packet control (key '') must be registered with slotted=False")
     for key, definition in PACKETS.entries.items():
         for part in definition.packets:
             if PACKETS.canonical(part) not in PACKETS.entries:

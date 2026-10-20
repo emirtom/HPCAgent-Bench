@@ -16,7 +16,7 @@ from hpcagent_bench.spec import BenchSpec
 
 
 def raw_manifest(**init_overrides: object) -> dict[str, Any]:
-    """A minimal, hermetic manifest dict (mirrors test_spec_dimensions_config.py's ``_raw``):
+    """A minimal, hermetic manifest dict (mirrors test_spec_dimensions_config.py's ``raw_manifest``):
     every field ``from_dict`` needs is given explicitly so it never touches the filesystem."""
     return {
         "short_name": "wstest",

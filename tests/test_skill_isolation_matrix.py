@@ -28,6 +28,8 @@ import pytest
 
 from hpcagent_bench import packets, paths
 from hpcagent_bench import study_tags as tags
+from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.config import RequestCapability
 from hpcagent_bench.vocabulary import PacketDevice
 from tests.fresh_module import fresh
 from tests.mcp_stdio import served_tools, tool_names
@@ -132,24 +134,15 @@ def served(env: dict[str, str]) -> set[str]:
     return tool_names(result)
 
 
-def method_tool_stems(agent_packet: str) -> set[str]:
-    """The extra tool stems ``AGENT_PACKET=<agent_packet>`` adds: every ``*.py`` under its
-    ``agent/hpcagent_agent/packets/<name>/`` directory, the same glob ``mcp_server.py`` runs."""
-    directory = REPO / "agent" / "hpcagent_agent" / "packets" / agent_packet
-    return {p.stem for p in directory.glob("*.py") if p.stem != "__init__"} if directory.is_dir() else set()
-
-
 @pytest.mark.parametrize("key", REGISTERED_KEYS)
 def test_the_mcp_tool_list_matches_exactly_what_this_key_declares(key: str) -> None:
     """One setup, one packet: the served ``tools/list`` must be the core set (minus ``score`` and ``profile``
-    in blind mode), plus a declared MCP tool, plus a method packet's own modules -- never
-    a tool belonging to a DIFFERENT registered key."""
+    in blind mode), plus its declared tools -- never a tool belonging to a DIFFERENT registered key."""
     env = launch_env(key)
     listed = served(env)
     expected_core = CORE_TOOLS - {"score", "profile"} if env.get("AGENT_SUBMISSION_MODE") == "blind" else CORE_TOOLS
     declared = {tool for sub in packets.reached_keys(key, DEFINITIONS) for tool in DEFINITIONS[sub].tools}
-    method_tools = method_tool_stems(env["AGENT_PACKET"]) if "AGENT_PACKET" in env else set()
-    assert listed == expected_core | declared | method_tools, (key, listed)
+    assert listed == expected_core | declared, (key, listed)
 
 
 def test_no_registered_key_other_than_cpf_ever_serves_the_canonical_parallel_form_tool() -> None:
@@ -328,8 +321,8 @@ def test_the_in_process_prompt_shows_the_library_text_exactly_when_the_grading_s
     from tests.request_allowances import allowing
 
     enabled = packets.libraries_enabled(key)
-    with config.overridden("grading.allow_agent_build_tokens", enabled), allowing(*["load"] * enabled):
-        text = build_prompt(Task("gemm", "restricted", "c"))
+    with config.overridden("grading.allow_agent_build_tokens", enabled), allowing(*[RequestCapability.LOAD] * enabled):
+        text = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.C))
     assert ("You may link a library" in text) == enabled, (key, enabled)
     assert ("list the catalog name in the response's `requests.startup.load`" in text) == enabled, (key, enabled)
 

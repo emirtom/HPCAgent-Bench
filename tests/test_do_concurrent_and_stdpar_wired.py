@@ -13,8 +13,7 @@ before this was wired, so an MPI kernel using either construct was timed single-
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages
+from hpcagent_bench import flags, languages, modules
 
 #: Blocks exempt from a `doconcurrent_ref`, each with the reason it needs no second flag. An
 #: exemption is a claim about the compiler, so it is spelled out here rather than inferred from

@@ -6,7 +6,6 @@ import enum
 
 import pydantic
 import pytest
-
 from hpcagent_agent.coded import Coded
 
 

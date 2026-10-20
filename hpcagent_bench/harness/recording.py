@@ -27,14 +27,16 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple, Protocol
 
-from hpcagent_bench import config, osinfo, paths
+from hpcagent_bench import config, osinfo, paths, plugins
 from hpcagent_bench.anticheat import Context, Judgement, judge
+from hpcagent_bench.categories import Baseline, Denominator, Language, Preset, RecordDevice, SourceMode, baseline_text
 from hpcagent_bench.harness import db_json, denominator, grading, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.outcomes import GradeStatus, RunStatus
 from hpcagent_bench.harness.scoring import Score, TimedCell
-from hpcagent_bench.harness.task import RecordDevice, Task
+from hpcagent_bench.harness.task import Task
 from hpcagent_bench.run_layout import DB_FILENAME
 from hpcagent_bench.spec import BenchSpec, task_fingerprint
 from hpcagent_bench.support.bindings.contract import graded_datatype
@@ -53,7 +55,6 @@ __all__ = [
     "MEMORY_FSTYPES",
     "MS_PER_S",
     "ORIGIN_KINDS",
-    "PASSING_STATUS",
     "SHARD_ENV",
     "SNAPSHOT_COMMIT_ENV",
     "STOPPED_REASON",
@@ -107,6 +108,7 @@ __all__ = [
     "snapshot_commit",
     "stamp_values",
     "store_delivery",
+    "stored_denominator",
     "study_tag",
     "submission_envelope",
     "tag_version_tag",
@@ -120,13 +122,17 @@ def realized_candidates(cell: TimedCell) -> str:
     return cell.baseline_candidates or cell.baseline
 
 
-def grade_denominator(score: Score) -> str | None:
+def grade_denominator(score: Score) -> Denominator | None:
     """``grades.denominator`` of ``score``: the value its policy stamp and the references its inputs
     raced denote (:func:`denominator.of_grade`), or None when they show none."""
-    found = denominator.of_grade(
+    return denominator.of_grade(
         score.baseline_policy, [realized_candidates(cell) for cell in score.cells], score.baseline
     )
-    return None if found is None else found.value
+
+
+def stored_denominator(found: Denominator | None) -> str | None:
+    """``grades.denominator``'s value for ``found``: its spelling, NULL for none."""
+    return None if found is None else found.text
 
 
 def credited_ratios(cells: Sequence[TimedCell]) -> list[float]:
@@ -273,7 +279,7 @@ def study_tag() -> str | None:
 def device_tag() -> RecordDevice:
     """``record.device``; ``cpu`` when null."""
     device = config.current().record.device
-    return RecordDevice.CPU if device is None else RecordDevice(device)
+    return RecordDevice.CPU if device is None else device
 
 
 def packet_tag() -> str:
@@ -405,7 +411,7 @@ class TrajectoryPoint(Protocol):
     def correct(self) -> bool: ...
 
     @property
-    def status(self) -> str: ...
+    def status(self) -> RunStatus: ...
 
     @property
     def timing_reduction(self) -> str | None: ...
@@ -518,13 +524,14 @@ def open_episode_in_job(
         results_db.Setup(
             setup=setup,
             language=who.language or setup_language or "",
-            device=who.device.value,
+            device=who.device.text,
             harness=who.harness or results_db.DEFAULT_HARNESS,
             study=who.study,
             model=who.model,
             packet=who.packet,
             temperature=who.temperature,
             tag_version=who.tag_version,
+            plugins=plugins.recorded(),
         ),
     )
     return results_db.ensure_episode(conn, setup, episode_id, job, slot_of(episode_id))
@@ -558,16 +565,16 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def stamp_values(task: Task, preset: str, datatype: str, score: Score | None) -> dict[str, results_db.Value]:
+def stamp_values(task: Task, preset: Preset, datatype: str, score: Score | None) -> dict[str, results_db.Value]:
     """How a grade was graded: size, datatype, source mode, protocol stamps, machine, code and task
     (:func:`~hpcagent_bench.spec.task_fingerprint`). The datatype is the one the kernel ran in (a
     storage-only precision the manifest declares, else the configured one): it is part of the grade's
     identity."""
     spec = BenchSpec.load(task.kernel)
     values: dict[str, results_db.Value] = {
-        "preset": preset,
+        "preset": preset.text,
         "datatype": graded_datatype(spec, datatype),
-        "source_mode": task.source_mode,
+        "source_mode": task.source_mode.text,
         "cpu": osinfo.cpu_model(),
         "commit_sha": commit_sha(),
         "task_hash": task_fingerprint(spec.short_name),
@@ -579,7 +586,7 @@ def stamp_values(task: Task, preset: str, datatype: str, score: Score | None) ->
             "timing_reduction": score.timing_reduction,
             # The grade's own policy stamp; a grade under no declared policy ran the single reference.
             "baseline_policy": score.baseline_policy or grading.SINGLE_BASELINE_POLICY,
-            "denominator": grade_denominator(score),
+            "denominator": stored_denominator(grade_denominator(score)),
             "build_commands": build_commands_json(score),
         } | layout_values(score)
     return values
@@ -624,7 +631,7 @@ def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submissi
     """The source ``grade_id`` built: the host unit and, for a two-unit delivery, the device unit."""
     for part, body in (("host", submission.source), ("device", submission.device_source)):
         if body:
-            results_db.store_source(conn, grade_id, part, submission.language, body)
+            results_db.store_source(conn, grade_id, part, submission.language.text, body)
 
 
 #: ``grade_cells.reason`` of a cell the guillotine stopped (:attr:`scoring.TimedCell.stopped`): measured, credited
@@ -729,12 +736,12 @@ def record(
     judgement: Judgement | None = None,
     episode_id: str = ADHOC_EPISODE_ID,
     optimizer: str | None = None,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     path: str | None = None,
     curves: Sequence[LawCurve] = (),
     tokens: int = 0,
-    status: str | None = None,
+    status: RunStatus | None = None,
     final: FinalRecord | None = None,
 ) -> Recorded:
     """Persist one /submit grade, credited on the judge's OWN verdict.
@@ -746,7 +753,7 @@ def record(
     come only from ``score`` and the gates.
 
     ``tokens`` is the agent's cumulative spend when it asked (the request body's claim), ``status``
-    the request's :class:`runner.RunStatus`. ``optimizer`` names a replayed request's origin
+    the request's :class:`~hpcagent_bench.harness.outcomes.RunStatus`. ``optimizer`` names a replayed request's origin
     (:data:`ORIGIN_KINDS`), the grade's kind. The delivered source is stored whatever the verdict,
     the timed inputs of a credited grade, and ``curves`` -- the per-law scaling curves the same grade
     measured -- under the grade (:func:`record_scaling`). ``final``: the grade is timed under mw4x5, so
@@ -757,7 +764,11 @@ def record(
     if outcome != "submission" and not config.current().record.log_attempts:
         return Recorded("skipped", "log_attempts disabled", None)
     values |= stamp_values(task, preset, datatype, score) | measured_values(score) | submission_envelope(submission)
-    values |= {"status": status, "tokens_so_far": int(tokens), "detail": graded_detail(score, judgement) or None}
+    values |= {
+        "status": status.text if status is not None else None,
+        "tokens_so_far": int(tokens),
+        "detail": graded_detail(score, judgement) or None,
+    }
     kind = ORIGIN_KINDS.get(optimizer or "", "submit")
     kernel = BenchSpec.load(task.kernel).short_name
     credited_final = final if outcome == "submission" else None
@@ -788,7 +799,7 @@ def record_final(
     of_grade: int,
     final: FinalRecord,
     task: Task,
-    preset: str,
+    preset: Preset,
     datatype: str,
 ) -> int:
     """The ``final`` grade of submit grade ``of_grade`` (``grade-under run`` writes the same row for a
@@ -806,11 +817,11 @@ def record_call(
     score: Score | None,
     task: Task,
     *,
-    status: str,
+    status: RunStatus,
     route: str,
     episode_id: str = ADHOC_EPISODE_ID,
     optimizer: str | None = None,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     tokens: int = 0,
     detail: str = "",
@@ -836,7 +847,7 @@ def record_call(
     values = stamp_values(task, preset, datatype, score) | measured_values(score)
     values |= envelope_values(build, requests, workspace_bytes)
     reason = detail or (score.detail if score is not None else "")
-    values |= {"status": status, "tokens_so_far": int(tokens), "detail": cap_detail(reason) or None}
+    values |= {"status": status.text, "tokens_so_far": int(tokens), "detail": cap_detail(reason) or None}
     kind = ORIGIN_KINDS.get(optimizer or "", route) if route == "submit" else route
     kernel = BenchSpec.load(task.kernel).short_name
     with contextlib.closing(connect(path)) as conn:
@@ -845,14 +856,10 @@ def record_call(
         grade_id, _ts = results_db.add_grade(
             conn, run, kernel, kind, ts_ms=now_ms(), values=values | {"call_index": index}
         )
-        if submission is not None and status == PASSING_STATUS:
+        if submission is not None and status is RunStatus.OK:
             store_delivery(conn, grade_id, submission)
         conn.commit()
     return index
-
-
-#: ``runner.RunStatus.OK``: a grade that built and was correct (restated: runner imports this module).
-PASSING_STATUS = "ok"
 
 
 def record_trajectory(
@@ -860,11 +867,11 @@ def record_trajectory(
     trajectory: Sequence[TrajectoryPoint],
     *,
     episode_id: str = ADHOC_EPISODE_ID,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
-    language: str = "c",
-    source_mode: str = "restricted",
-    baseline: str = "c",
+    language: str = Language.C.text,
+    source_mode: SourceMode = SourceMode.RESTRICTED,
+    baseline: Baseline | None = Baseline.C,
     path: str | None = None,
 ) -> int:
     """Persist an in-process run's per-call (tokens, score) trajectory: one ``score`` grade per
@@ -879,10 +886,10 @@ def record_trajectory(
         return 0
     kernel = BenchSpec.load(task.kernel).short_name
     stamp: dict[str, str | None] = {
-        "preset": preset,
+        "preset": preset.text,
         "datatype": graded_datatype(BenchSpec.load(task.kernel), datatype),
     }
-    stamp |= {"source_mode": source_mode, "baseline": baseline}
+    stamp |= {"source_mode": source_mode.text, "baseline": baseline_text(baseline)}
     stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha(), "task_hash": task_fingerprint(kernel)}
     stamps = trajectory_stamps(points, now_ms())
     with contextlib.closing(connect(path)) as conn:
@@ -893,7 +900,7 @@ def record_trajectory(
                 "tokens_so_far": int(point.tokens),
                 "speedup": float(point.speedup),
                 "correct": int(point.correct),
-                "status": point.status,
+                "status": point.status.text,
                 "timing_reduction": point.timing_reduction,
             }
             results_db.add_grade(conn, run, kernel, "score", ts_ms=ts, values=values)
@@ -926,7 +933,7 @@ def record_scaling(
     mode: ScalingLaw,
     *,
     dropped: Sequence[ScalingDrop] | None = None,
-    status: str | None = None,
+    status: GradeStatus | None = None,
     disclosure: str | None = None,
     notes: str | None = None,
     label: str = "",
@@ -941,7 +948,7 @@ def record_scaling(
     hole is still on record. ``status`` defaults to ``graded`` for a curve, ``no-curve`` for none;
     ``disclosure`` and ``notes`` (JSON) are what the law's grade disclosed beside it."""
     if scaling is not None and scaling.mode is not mode:
-        raise ValueError(f"record_scaling: the curve was graded {scaling.mode.value!r}, the caller says {mode.value!r}")
+        raise ValueError(f"record_scaling: the curve was graded {scaling.mode.text!r}, the caller says {mode.text!r}")
     holes = tuple(scaling.dropped if dropped is None and scaling is not None else dropped or ())
     points = scaling.points if scaling is not None else ()
     ranks = [p.ranks for p in points] + [h.ranks for h in holes]
@@ -960,9 +967,9 @@ def record_scaling(
     ]
     rows += [{"ranks": h.ranks, "nodes": h.nodes, "note": h.note} for h in holes]
     law: dict[str, results_db.Value] = {
-        "mode": mode.value,
+        "mode": mode.text,
         "input": label,
-        "status": status or ("graded" if scaling is not None else "no-curve"),
+        "status": (status or (GradeStatus.GRADED if scaling is not None else GradeStatus.NO_CURVE)).text,
         "single_rank_ns": scaling.single_rank_ns if scaling is not None else None,
         "disclosure": disclosure,
         "notes": notes,

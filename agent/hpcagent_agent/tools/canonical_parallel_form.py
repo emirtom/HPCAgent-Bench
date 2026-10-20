@@ -13,35 +13,33 @@ serve).
 """
 
 import os
+from collections.abc import Mapping
 from typing import Any, Literal
 
 import pydantic
 
 from hpcagent_agent.tools import http_json
-from hpcagent_agent.tools.registry import schema_of, tool
+from hpcagent_agent.tools.registry import Setup, Spec, tool
 
 __all__ = [
-    "CanonicalParallelFormInput",
     "DEFAULT_RENDER_LANGUAGE",
-    "DESCRIPTION",
     "HINTS_ENV",
-    "INPUT_SCHEMA",
     "KINDS",
     "KINDS_DESCRIPTION",
     "KINDS_REMINDER",
     "PROMPT",
     "PROOFS_DESCRIPTION",
     "PROOFS_REMINDER",
-    "REMINDER",
     "RENDER_LANGUAGES",
     "TASK_DIALECT",
-    "description",
+    "CanonicalParallelFormInput",
     "dialect_name",
     "hint_detail",
     "judge_query",
     "reminder",
     "render_language",
     "run",
+    "spec",
 ]
 
 #: The setup's hint detail, the env name of ``hpcagent_bench.cpf_cache.HINTS_CONFIG_KEY`` (this package imports no
@@ -51,9 +49,9 @@ HINTS_ENV = "HPCAGENT_BENCH_CPF_HINTS"
 KINDS = "kinds"
 
 
-def hint_detail() -> str:
+def hint_detail(environ: Mapping[str, str] = os.environ) -> str:
     """The hint detail this setup serves, as its packet set it; "" when it sets none."""
-    return os.environ.get(HINTS_ENV, "").strip()
+    return environ.get(HINTS_ENV, "").strip()
 
 
 PROOFS_DESCRIPTION = (
@@ -80,15 +78,6 @@ KINDS_DESCRIPTION = (
     "and its signature is your task's required signature, argument for argument. verdict 'unavailable' "
     "means no form is served for this kernel and says nothing about whether it can be parallelized."
 )
-
-
-def description() -> str:
-    """The tool description for this setup's hint detail."""
-    return KINDS_DESCRIPTION if hint_detail() == KINDS else PROOFS_DESCRIPTION
-
-
-#: What ``tools/list`` shows: fixed for the server's life, as the setup's detail is.
-DESCRIPTION = description()
 
 
 #: Dialects the renderer emits. The run's language picks one (cuda gets the hip device form: there is no
@@ -124,9 +113,6 @@ class CanonicalParallelFormInput(pydantic.BaseModel):
         return dialect_name(dialect) if isinstance(dialect, str) else dialect
 
 
-INPUT_SCHEMA: dict[str, Any] = schema_of(CanonicalParallelFormInput)
-
-
 def render_language(payload: dict[str, Any]) -> str:
     """The dialect to ask for: the caller's, else the run's, else C++."""
     asked = dialect_name(str(payload.get("dialect") or ""))
@@ -160,9 +146,6 @@ def reminder() -> str:
     return KINDS_REMINDER if hint_detail() == KINDS else PROOFS_REMINDER
 
 
-REMINDER = reminder()
-
-
 def judge_query(payload: dict[str, Any]) -> dict[str, str]:
     """The route's query: the dialect, and the setup's hint detail when its packet names one."""
     query = {"language": render_language(payload)}
@@ -171,7 +154,13 @@ def judge_query(payload: dict[str, Any]) -> dict[str, str]:
     return query
 
 
-@tool(description=DESCRIPTION, input=CanonicalParallelFormInput, prompt=PROMPT, core=False)
+def spec(setup: Setup) -> Spec:
+    """The tool on ``setup``: described for the hint detail its packet set."""
+    detail = hint_detail(setup.environ)
+    return Spec(KINDS_DESCRIPTION if detail == KINDS else PROOFS_DESCRIPTION, CanonicalParallelFormInput, PROMPT)
+
+
+@tool(spec=spec, core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     """Ask the judge for the form, and never let a miss read as a fact.
 
@@ -195,4 +184,4 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    raise SystemExit(http_json.run_cli(DESCRIPTION, run))
+    raise SystemExit(http_json.run_cli(PROOFS_DESCRIPTION, run))

@@ -13,8 +13,7 @@ entry carries its reason and must still name a tracked file:
 * ``no-requeue``: every submittable batch script carries ``#SBATCH --no-requeue``: a NODE_FAIL
   requeue reruns the job id into the same run directory and stacks duplicate rows.
 * ``scratch``: ``.scratch/`` tracks only its ``.gitkeep``.
-* ``gitignore``: no tracked file matches an ignore rule (a hand override at a generated name gets a
-  ``!`` line), and every such ``!`` line names a tracked file.
+* ``gitignore``: no tracked file matches an ignore rule, except a hand override at a generated benchmark name.
 * ``gfx-literal``: AMD archs come from containers/images/gpu_arch.env, never spelled in builds,
   launchers, scripts or the harness.
 * ``opt-flags``: ``-O3`` / ``-march=native`` / ``-ffast-math`` come from hpcagent_bench/flags.py.
@@ -34,6 +33,7 @@ Python files are read as live text: string literals that are not docstrings, nev
 """
 
 import ast
+import enum
 import functools
 import getpass
 import pathlib
@@ -186,18 +186,20 @@ def scratch(files: list[str]) -> list[str]:
     return extra + ([] if ".scratch/.gitkeep" in tracked() else [".scratch/.gitkeep: untracked"])
 
 
+#: Where a committed hand override may sit at a gitignored generated name.
+BENCHMARKS = "hpcagent_bench/benchmarks/"
+
+
 def git_lines(*args: str) -> list[str]:
     return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, check=True).stdout.split()
 
 
 def gitignore(files: list[str]) -> list[str]:
-    out = [
-        f"{rel}: tracked but matches an ignore rule" for rel in git_lines("ls-files", "-i", "-c", "--exclude-standard")
+    return [
+        f"{rel}: tracked but matches an ignore rule"
+        for rel in git_lines("ls-files", "-i", "-c", "--exclude-standard")
+        if not rel.startswith(BENCHMARKS)
     ]
-    lines = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
-    overrides = [line.removeprefix("!/") for line in lines if line.startswith("!/hpcagent_bench/benchmarks/")]
-    tracked_set = set(tracked())
-    return out + [f".gitignore: `!/{rel}` re-admits an untracked name" for rel in overrides if rel not in tracked_set]
 
 
 # gfx-literal
@@ -408,15 +410,24 @@ SITE_ALLOW = {
 }
 
 
-def comment_style(rel: str, text: str) -> str:
-    """``py``, ``hash`` or ``verbatim``: how ``rel``'s comments are told from its live text."""
+class CommentStyle(enum.Enum):
+    """How a file's comments are told from its live text: PY (python strings and comments), HASH (``#`` to the
+    end of a line), or VERBATIM (no comments: every line is live)."""
+
+    PY = enum.auto()
+    HASH = enum.auto()
+    VERBATIM = enum.auto()
+
+
+def comment_style(rel: str, text: str) -> CommentStyle:
+    """How ``rel``'s comments are told from its live text."""
     name = rel.rsplit("/", 1)[-1]
     first = text.split("\n", 1)[0]
     if name.endswith(".py") or (first.startswith("#!") and "python" in first):
-        return "py"
+        return CommentStyle.PY
     if name.endswith(HASH_COMMENT_EXTS) or name.startswith(HASH_COMMENT_NAMES) or first.startswith("#!"):
-        return "hash"
-    return "verbatim"
+        return CommentStyle.HASH
+    return CommentStyle.VERBATIM
 
 
 def matches(text: str, rel: str, patterns: Patterns, line_of: int | None = None) -> list[tuple[str, str]]:
@@ -436,13 +447,13 @@ def site_hits(rel: str, text: str) -> list[tuple[str, str]]:
     lockfile = rel.endswith(".lock")  # resolver output: dotted version strings read as addresses
     patterns = SITE_PATTERNS | ({} if test or lockfile else NON_TEST_PATTERNS)
     if not test:
-        patterns |= PROSE_PATTERNS if style == "verbatim" else CODE_PATTERNS
+        patterns |= PROSE_PATTERNS if style is CommentStyle.VERBATIM else CODE_PATTERNS
     hits = matches(text, rel, RAW_PATTERNS)
-    if style == "py":
+    if style is CommentStyle.PY:
         strings = live_strings(text)
         if strings is not None:
             return hits + [hit for node in strings for hit in matches(node.value, rel, patterns, node.lineno)]
-    if style != "verbatim":
+    if style is not CommentStyle.VERBATIM:
         text = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
     return hits + matches(text, rel, patterns)
 
@@ -546,14 +557,14 @@ def hardcoded_paths(files: list[str]) -> list[str]:
         if text is None:
             continue
         style = comment_style(rel, text)
-        if style == "py" and rel not in FILE_ROOT_ALLOW and not rel.startswith(FILE_ROOT_EXEMPT_PREFIXES):
+        if style is CommentStyle.PY and rel not in FILE_ROOT_ALLOW and not rel.startswith(FILE_ROOT_EXEMPT_PREFIXES):
             out += [
                 f"{hit}: repo root from __file__ (hpcagent_bench.paths)"
                 for hit in line_hits(rel, text, FILE_ROOT_CLIMB)
             ]
         if in_package(rel) and rel not in PACKAGE_LITERAL_ALLOW:
             out += package_literals(rel, text)
-        if style == "hash" and not rel.endswith((".md", ".yaml", ".yml", ".toml")):
+        if style is CommentStyle.HASH and not rel.endswith((".md", ".yaml", ".yml", ".toml")):
             live = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
             climbs = line_hits(rel, live, SHELL_ROOT_CLIMB)
             if len(climbs) > 1:

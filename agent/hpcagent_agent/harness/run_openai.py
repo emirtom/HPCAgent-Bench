@@ -1,22 +1,10 @@
 # The optional agents (openai-agents) package is installed only in its agent image.
 # pyright: reportMissingImports=false
-"""OpenAI Agents SDK (openai-agents 0.24.0) runner for one HPCAgent-Bench episode.
+"""OpenAI Agents SDK runner for one episode: one ``Agent`` on ``/v1/chat/completions`` with the MCP server's
+tools and the shell, ending at the first reply that calls no tool.
 
-One ``Agent`` run by ``Runner.run`` on ``OpenAIChatCompletionsModel``: ``/v1/chat/completions`` is the
-surface every OpenAI-compatible server (our SGLang/vLLM endpoints) and api.openai.com share. The rendered
-prompt is the input and the run ends at the first reply that calls no tool. The tools are the benchmark
-MCP server's, through the SDK's own ``MCPServerStdio`` started from the driver's ``mcp.json``
-(``runner_common.mcp_servers``), plus ``runner_common.SHELL_TOOL`` as a ``FunctionTool``.
-
-The driver owns wall clock and tokens, so ``max_turns`` never binds; it also owns the reply cap
-(``max_tokens``), the effort rung (``reasoning_effort``), the request timeout and the compaction
-trigger, past which ``runner_common.HistoryWindow`` (``RunConfig.call_model_input_filter``) sends the
-task and the newest steps only. Each MCP call is waited on for ``runner_common.judge_call_timeout``
-instead of the SDK's 5 s session timeout. Tracing is off: it would upload every request to OpenAI.
-
-Writes ``usage.jsonl`` (one line per model call), ``openai.items.jsonl`` (each reply's output items and
-each tool result, one per line) and ``harness-end.json``; see ``runner_common``. Prints ``harness: tools
-ready: ...`` once the MCP servers have listed their tools.
+MCP calls wait :func:`runner_common.judge_call_timeout`; tracing is off. Writes ``usage.jsonl``,
+``openai.items.jsonl`` and ``harness-end.json``.
 """
 
 import asyncio
@@ -117,12 +105,10 @@ async def run_agent(
         return ModelInputData(input=window.view(data.model_data.input), instructions=data.model_data.instructions)
 
     async def shell(_context: Any, arguments: str) -> str:
-        # A raw FunctionTool has no failure handler: an exception here would end the episode, so a malformed
-        # call is answered like any other bad command and the model resends it.
         try:
             parsed = json.loads(arguments or "{}")
         except json.JSONDecodeError:
-            parsed = None
+            parsed = {}
         call = cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
         return await asyncio.to_thread(runner_common.run_shell, call, args.command_dir, wait)
 
@@ -167,10 +153,12 @@ async def run_agent(
         )
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the agent to its end; return (end reason, detail)."""
     asyncio.run(run_agent(args, usage_log, args.workdir / TRANSCRIPT))
-    return runner_common.FINISHED, ""
+    return runner_common.EndReason.FINISHED, ""
 
 
 def main(argv: Sequence[str]) -> int:

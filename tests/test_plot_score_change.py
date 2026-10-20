@@ -31,7 +31,8 @@ from hpcagent_bench.stats import cost, palette, population, score_rule, summary
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.commands import efficacy as efficacy_command
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
-from hpcagent_bench.stats.significance import Finding
+from hpcagent_bench.stats.figures.efficacy import Measure
+from hpcagent_bench.stats.significance import Finding, Leg
 
 REPO = paths.ROOT
 
@@ -148,8 +149,8 @@ def one_setup_raw(
 def one_setup_stats(
     model: str = "qwen38",
     language: str = "c",
-    score_verdict: str = Finding.NOT_SIGNIFICANT.value,
-    cost_verdict: str = Finding.NOT_SIGNIFICANT.value,
+    score_verdict: str = Finding.NOT_SIGNIFICANT.text,
+    cost_verdict: str = Finding.NOT_SIGNIFICANT.text,
     family_size: int = 2,
 ) -> pd.DataFrame:  # fmt: skip
     return pd.DataFrame([{
@@ -171,8 +172,8 @@ def test_a_raw_threshold_that_would_have_starred_a_point_does_not_survive_the_co
     winner = frame[(frame.model == "qwen38") & (frame.language == "c")].iloc[0]
     assert winner.score_p == pytest.approx(2 / 64), "the fixture has to cross a raw 5% threshold"
     assert winner.score_p_adjusted > 0.05
-    assert winner.score_verdict == Finding.NOT_SIGNIFICANT.value
-    assert not (frame.score_verdict == Finding.SIGNIFICANT.value).any()
+    assert winner.score_verdict == Finding.NOT_SIGNIFICANT.text
+    assert not (frame.score_verdict == Finding.SIGNIFICANT.text).any()
 
 
 def test_an_effect_every_setup_shows_still_survives_the_correction() -> None:
@@ -180,7 +181,7 @@ def test_an_effect_every_setup_shows_still_survives_the_correction() -> None:
     agrees on, which is what separates it from simply refusing to mark anything."""
     before, after = observations(DECISIVE, winner=None)
     frame = plot.points(before, after)
-    assert (frame.score_verdict == Finding.SIGNIFICANT.value).all()
+    assert (frame.score_verdict == Finding.SIGNIFICANT.text).all()
     assert (frame.score_p_adjusted < 0.05).all()
 
 
@@ -399,11 +400,11 @@ def test_a_marks_significance_superscript_reads_off_the_corrected_verdict_per_ax
     the speedup row, ``+`` on the cost row."""
     import matplotlib.pyplot as plt
 
-    def symbols_of(stats: pd.DataFrame) -> dict[str, list[str]]:
+    def symbols_of(stats: pd.DataFrame) -> dict[Measure, list[str]]:
         significance = efficacy_figures.axis_significance(stats)
         row = dataclasses.replace(arrow_row(), leg="C")
-        drawn: dict[str, list[str]] = {}
-        for measure in ("speedup", "cost"):
+        drawn: dict[Measure, list[str]] = {}
+        for measure in (Measure.SPEEDUP, Measure.COST):
             fig, ax = plt.subplots()
             try:
                 efficacy_figures.draw_measure_row(ax, [row], measure, "^", significance)
@@ -413,11 +414,11 @@ def test_a_marks_significance_superscript_reads_off_the_corrected_verdict_per_ax
         return drawn
 
     neither = symbols_of(one_setup_stats())
-    both = symbols_of(one_setup_stats(score_verdict=Finding.SIGNIFICANT.value, cost_verdict=Finding.SIGNIFICANT.value))
-    assert neither == {"speedup": [], "cost": []}, neither
+    both = symbols_of(one_setup_stats(score_verdict=Finding.SIGNIFICANT.text, cost_verdict=Finding.SIGNIFICANT.text))
+    assert neither == {Measure.SPEEDUP: [], Measure.COST: []}, neither
     assert both == {
-        "speedup": [efficacy_figures.SCORE_SIG_MARK],
-        "cost": [efficacy_figures.COST_SIG_MARK],
+        Measure.SPEEDUP: [efficacy_figures.SCORE_SIG_MARK],
+        Measure.COST: [efficacy_figures.COST_SIG_MARK],
     }, both
 
 
@@ -569,20 +570,20 @@ def family_csv(pairs: list[tuple[str, str]], score_verdict: str, cost_verdict: s
                 "family": "demo",
                 "score_rule": score_rule.SCORE_RULE,
                 "cost_model": cost.DEFAULT_COST_MODEL,
-                "kernel_policy": efficacy_figures.SPEEDUP_OVER.value,
+                "kernel_policy": efficacy_figures.SPEEDUP_OVER.text,
                 "setup_a": treated,
                 "setup_b": control,
-                "leg": leg,
+                "leg": leg.text,
                 "n_pairs": n,
                 "n_tested": n,
                 "estimate_a_over_b": 0.8,
                 "ci_low": 0.7,
                 "ci_high": 0.9,
                 "p_adjusted": 0.01,
-                "verdict": score_verdict if leg == plot.SPEEDUP_LEG else cost_verdict,
+                "verdict": score_verdict if leg is Leg.SPEEDUP else cost_verdict,
             }
             for treated, control in pairs
-            for leg in (plot.SPEEDUP_LEG, plot.TOKENS_LEG)
+            for leg in Leg
         ]
     )
 
@@ -607,20 +608,20 @@ def test_a_pairs_leg_never_names_the_intervention_the_two_sides_differ_in() -> N
 def test_the_stars_come_off_the_family_csv_and_are_never_recomputed_here() -> None:
     """``statistics/paired_setups.py`` already ran the paired test and the Benjamini-Hochberg
     correction over exactly this family, and the paper's table is printed from the same CSV."""
-    table = family_csv([BLIND_PAIR], Finding.SIGNIFICANT.value, Finding.NOT_SIGNIFICANT.value)
+    table = family_csv([BLIND_PAIR], Finding.SIGNIFICANT.text, Finding.NOT_SIGNIFICANT.text)
     stats = plot.family_stats(table, "no-score-tool")
 
     assert list(stats.leg) == ["C +lang-skills"]
     assert list(stats.model) == ["qwen38"]
-    assert list(stats.score_verdict) == [Finding.SIGNIFICANT.value]
-    assert list(stats.cost_verdict) == [Finding.NOT_SIGNIFICANT.value]
+    assert list(stats.score_verdict) == [Finding.SIGNIFICANT.text]
+    assert list(stats.cost_verdict) == [Finding.NOT_SIGNIFICANT.text]
     assert list(stats.kernels) == [40]
     assert plot.efficacy_figures.family_size(stats) == 2
 
 
 def test_the_family_csv_declares_the_pairs_in_the_order_it_wrote_them() -> None:
     """The family's own declared order, not a re-sort."""
-    table = family_csv([BLIND_PAIR, SCICOMP_PAIR], Finding.NOT_SIGNIFICANT.value, Finding.NOT_SIGNIFICANT.value)
+    table = family_csv([BLIND_PAIR, SCICOMP_PAIR], Finding.NOT_SIGNIFICANT.text, Finding.NOT_SIGNIFICANT.text)
     assert plot.family_pairs(table) == [BLIND_PAIR, SCICOMP_PAIR]
 
 
@@ -703,8 +704,8 @@ def arrow_row() -> efficacy_figures.SetupRow:
     return efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", control, treated)
 
 
-@pytest.mark.parametrize("measure", ["speedup", "cost"])
-def test_only_a_named_comparison_gets_an_arrow_and_it_carries_the_factor(measure: str) -> None:
+@pytest.mark.parametrize("measure", [Measure.SPEEDUP, Measure.COST])
+def test_only_a_named_comparison_gets_an_arrow_and_it_carries_the_factor(measure: Measure) -> None:
     """An arrow on every column is a second grid, so they are asked for by name. Its label is the
     factor BETWEEN the two marks -- on the speedup row the axis holds log2, so the factor is a
     power of two and not the difference the axis shows."""
@@ -723,8 +724,8 @@ def test_only_a_named_comparison_gets_an_arrow_and_it_carries_the_factor(measure
     assert plotstyle.ratio_label(4.0) not in texts(frozenset())
 
 
-@pytest.mark.parametrize("measure", ["speedup", "cost"])
-def test_a_measure_row_border_never_opens_an_empty_tick_step(measure: str) -> None:
+@pytest.mark.parametrize("measure", [Measure.SPEEDUP, Measure.COST])
+def test_a_measure_row_border_never_opens_an_empty_tick_step(measure: Measure) -> None:
     """A border snaps to the next tick only when the data reaches within half a step of it; a 0.94x
     interval end opened the speedup axis down to 0.5x, a whole empty step.
     Earlier every border snapped to a tick."""
@@ -920,7 +921,7 @@ def test_the_dot_row_stacks_the_success_row_between_speedup_and_cost(tmp_path: p
     assert (tmp_path / "dots.pdf").exists()
 
 
-def drawn_dot_row(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, measures: tuple[str, ...]) -> Figure:
+def drawn_dot_row(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, measures: tuple[Measure, ...]) -> Figure:
     """The figure :func:`figure_dot_row` hands to ``style.save``, kept open to be measured."""
     kept: list[Figure] = []
     monkeypatch.setattr(plotstyle, "save", lambda fig, stem, fixed=False, **options: kept.append(fig) or stem)
@@ -945,7 +946,7 @@ def test_dropping_the_success_row_keeps_the_width_and_every_other_box(
     so the success row is its MEASURE_HEIGHT share of a speedup row (0.45/0.875 since the speedup
     row grew 25%, user)."""
     full = drawn_dot_row(tmp_path, monkeypatch, efficacy_figures.MEASURES)
-    short = drawn_dot_row(tmp_path, monkeypatch, ("speedup", "cost"))
+    short = drawn_dot_row(tmp_path, monkeypatch, (Measure.SPEEDUP, Measure.COST))
     assert full.get_size_inches()[0] == pytest.approx(short.get_size_inches()[0])
     assert full.get_size_inches()[1] > short.get_size_inches()[1]
     speedup, success, cost = full.axes[:3]
@@ -956,7 +957,7 @@ def test_dropping_the_success_row_keeps_the_width_and_every_other_box(
         assert full_box[1] == pytest.approx(short_box[1], abs=1e-3)
         assert full_box[0] == pytest.approx(short_box[0], abs=0.12)
     width, height = box_inches(full, speedup)
-    share = efficacy_figures.MEASURE_HEIGHT["success"] / efficacy_figures.MEASURE_HEIGHT["speedup"]
+    share = efficacy_figures.MEASURE_HEIGHT[Measure.SUCCESS] / efficacy_figures.MEASURE_HEIGHT[Measure.SPEEDUP]
     assert box_inches(full, success) == pytest.approx((width, height * share), abs=1e-3), "the success row's share"
 
 
@@ -1068,7 +1069,7 @@ def test_a_difference_label_under_the_top_tick_settles_inside_the_frame_and_off_
 
     fig, ax = plt.subplots(figsize=(1.2, 1.0))
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", setup(1.0, 2.0), setup(3.5, 4.0))
-    efficacy_figures.draw_measure_row(ax, [row], "speedup", "^", {}, differences=frozenset({("qwen38", "HIP")}))
+    efficacy_figures.draw_measure_row(ax, [row], Measure.SPEEDUP, "^", {}, differences=frozenset({("qwen38", "HIP")}))
     plotstyle.settle_clear_labels(fig)
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
@@ -1083,10 +1084,12 @@ def test_a_difference_label_under_the_top_tick_settles_inside_the_frame_and_off_
 
 
 @pytest.mark.parametrize(("success_row", "want"), [
-    (True, ("speedup", "success", "cost")),
-    (False, ("speedup", "cost")),
+    (True, (Measure.SPEEDUP, Measure.SUCCESS, Measure.COST)),
+    (False, (Measure.SPEEDUP, Measure.COST)),
 ])  # fmt: skip
-def test_without_the_success_row_speedup_and_cost_keep_their_order(success_row: bool, want: tuple[str, ...]) -> None:
+def test_without_the_success_row_speedup_and_cost_keep_their_order(
+    success_row: bool, want: tuple[Measure, ...]
+) -> None:
     assert plot.dot_measures(argparse.Namespace(success_row=success_row)) == want
 
 
@@ -1117,7 +1120,7 @@ def test_a_difference_label_sits_above_both_intervals_not_on_the_treated_mark() 
 
     fig, ax = plt.subplots()
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", setup(4.0, 5.0), setup(4.5, 6.0))
-    efficacy_figures.draw_measure_row(ax, [row], "speedup", "^", {}, differences=frozenset({("qwen38", "HIP")}))
+    efficacy_figures.draw_measure_row(ax, [row], Measure.SPEEDUP, "^", {}, differences=frozenset({("qwen38", "HIP")}))
     (label,) = [text for text in ax.texts if text.get_text().endswith("x")]
     assert label.xy == (0, 6.0), label.xy
     assert (label.get_ha(), label.get_va()) == ("center", "bottom")
@@ -1303,7 +1306,7 @@ def test_an_interval_past_the_reach_is_cut_at_it_with_an_arrowhead() -> None:
     fig, ax = plt.subplots()
     wide = efficacy_figures.SetupPoint(0.0, -9.0, 12.0, 1e5, 5e4, 2e5, 6, 6, 6, 6)
     row = efficacy_figures.SetupRow("qwen38", "HIP", "#1f77b4", setup(1.0, 2.0), wide)
-    efficacy_figures.draw_measure_row(ax, [row], "speedup", "^", {})
+    efficacy_figures.draw_measure_row(ax, [row], Measure.SPEEDUP, "^", {})
     low, high = ax.get_ylim()
     assert high < 12.0, (low, high)
     assert low > -9.0, (low, high)
@@ -1327,7 +1330,7 @@ def test_a_mark_from_fewer_than_six_kernels_draws_no_interval_and_does_not_stret
         fig, ax = plt.subplots()
         point = few_kernel_setup(2.0, kernels)
         row = efficacy_figures.SetupRow("qwen38", "OpenMP Offload", "#1f77b4", point, point)
-        efficacy_figures.draw_measure_row(ax, [row], "speedup", "^", {}, config=efficacy_figures.PAPER_CONFIG)
+        efficacy_figures.draw_measure_row(ax, [row], Measure.SPEEDUP, "^", {}, config=efficacy_figures.PAPER_CONFIG)
         lines[kernels] = len(ax.lines)
         limits[kernels] = ax.get_ylim()
         plt.close(fig)
@@ -1436,18 +1439,18 @@ def test_the_paper_key_sets_five_columns(tmp_path: pathlib.Path, monkeypatch: py
 def test_the_solved_row_is_never_starred_because_the_solved_rate_is_not_tested() -> None:
     """Only the speedup and cost legs are in the family: a speedup verdict must not leak onto the
     solved row as if the solved rate had been tested."""
-    stats = pd.DataFrame([{"model": "qwen38", "leg": "C", "score_verdict": Finding.SIGNIFICANT.value,
-                           "cost_verdict": Finding.SIGNIFICANT.value}])  # fmt: skip
+    stats = pd.DataFrame([{"model": "qwen38", "leg": "C", "score_verdict": Finding.SIGNIFICANT.text,
+                           "cost_verdict": Finding.SIGNIFICANT.text}])  # fmt: skip
     significance = efficacy_figures.axis_significance(stats)
     row = efficacy_figures.SetupRow("qwen38", "C", "#000000", setup(1.0, 1.5), setup(2.0, 2.5))
     texts = {}
-    for measure in ("speedup", "success"):
+    for measure in (Measure.SPEEDUP, Measure.SUCCESS):
         fig, ax = plt.subplots()
         efficacy_figures.draw_measure_row(ax, [row], measure, "D", significance)
         texts[measure] = [text.get_text() for text in ax.texts]
         plt.close(fig)
-    assert efficacy_figures.SCORE_SIG_MARK in texts["speedup"]
-    assert texts["success"] == [], texts["success"]
+    assert efficacy_figures.SCORE_SIG_MARK in texts[Measure.SPEEDUP]
+    assert texts[Measure.SUCCESS] == [], texts[Measure.SUCCESS]
 
 
 def test_the_cost_row_is_priced_with_the_billed_card_unless_told_otherwise() -> None:

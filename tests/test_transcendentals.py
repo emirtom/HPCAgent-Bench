@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.translators.numpyto_c.bindings import emit_binding
 from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_cpp
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
@@ -69,8 +70,8 @@ BINARY = ["arctan2", "hypot", "copysign", "fmod", "fmax", "fmin"]
 # _auto / per-compiler suffix). emit_binding(base_name="k") records "k" for every
 # language, so each backend emits its source with fn_name "k".
 _BACKENDS = {
-    "c": (emit_c, "c", "k", ["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC"], "gcc"),
-    "cpp": (emit_cpp, "cpp", "k", ["g++", "-O2", languages.std_flag("cpp"), "-shared", "-fPIC"], "g++"),
+    "c": (emit_c, "c", "k", ["gcc", "-O2", languages.std_flag(Language.C), "-shared", "-fPIC"], "gcc"),
+    "cpp": (emit_cpp, "cpp", "k", ["g++", "-O2", languages.std_flag(Language.CPP), "-shared", "-fPIC"], "g++"),
     "fortran": (
         emit_fortran,
         "fortran",
@@ -80,7 +81,7 @@ _BACKENDS = {
             "-O2",
             "-ffree-form",
             "-ffree-line-length-none",
-            languages.std_flag("fortran"),
+            languages.std_flag(Language.FORTRAN),
             "-shared",
             "-fPIC",
         ],

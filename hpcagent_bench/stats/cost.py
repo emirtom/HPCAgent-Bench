@@ -19,7 +19,7 @@ import pydantic
 import yaml
 
 from hpcagent_bench import paths
-from hpcagent_bench.stats.population import EPISODE_RECORD
+from hpcagent_bench.observation_columns import RowKind
 
 __all__ = [
     "COMPONENT_COLUMNS",
@@ -159,7 +159,9 @@ def priced(frame: pd.DataFrame, model: CostModel) -> pd.DataFrame:
     if (model.fresh_input, model.cached_input, model.output) == (1.0, 0.0, 1.0) or "tokens" not in frame.columns:
         return frame
     task = (
-        frame["row_kind"].astype(str) == EPISODE_RECORD if "row_kind" in frame.columns else pd.Series(True, frame.index)
+        frame["row_kind"].astype(str) == RowKind.EPISODE.text
+        if "row_kind" in frame.columns
+        else pd.Series(True, frame.index)
     )
     if not task.any():  # no task row to price (a frame of judge calls only)
         return frame

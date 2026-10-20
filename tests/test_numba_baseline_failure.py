@@ -9,6 +9,7 @@ import types
 
 import pytest
 
+from hpcagent_bench.categories import Baseline, Language, Preset, SourceMode
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.task import Task
 
@@ -40,17 +41,17 @@ def unlowerable_numba(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -
         return module
 
     monkeypatch.setattr(grading, "numba_impl_module", unlowerable)
-    return Task("tsvc_2_s1112", "restricted", "c")
+    return Task("tsvc_2_s1112", SourceMode.RESTRICTED, Language.C)
 
 
 def test_a_numba_only_baseline_that_does_not_compile_is_a_harness_fault(unlowerable_numba: Task) -> None:
     result = scoring.score(
-        grading.reference_submission(unlowerable_numba, "c"),
+        grading.reference_submission(unlowerable_numba, Language.C),
         unlowerable_numba,
-        preset="S",
+        preset=Preset.S,
         repeat=1,
         hidden=False,
-        baseline="numba",
+        baseline=Baseline.NUMBA,
     )
     assert result.harness_fault, result.detail
     assert not result.correct, result.detail
@@ -61,7 +62,11 @@ def test_the_default_policy_falls_back_to_the_c_baseline_when_numba_does_not_com
     """The default race is numba against C: a reference that will not lower loses the race to the C one
     instead of failing the grade."""
     result = scoring.score(
-        grading.reference_submission(unlowerable_numba, "c"), unlowerable_numba, preset="S", repeat=1, hidden=False
+        grading.reference_submission(unlowerable_numba, Language.C),
+        unlowerable_numba,
+        preset=Preset.S,
+        repeat=1,
+        hidden=False,
     )
     assert result.correct, result.detail
     assert not result.harness_fault, result.detail

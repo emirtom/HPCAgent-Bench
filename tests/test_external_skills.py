@@ -76,7 +76,7 @@ def test_an_external_packet_resolves_to_its_pages_in_folder_order(tmp_path: path
 
 
 def test_an_external_packet_takes_a_slot_after_the_shipped_ones(tmp_path: pathlib.Path) -> None:
-    shipped_last = PACKETS.next_order()
+    shipped_last = sum(slot is not None for slot in PACKETS.orders.values())
     folder = write_folder(tmp_path / "ext", SPLIT, SPLIT_PAGES)
     with config.overridden("skills.external", (str(folder),)):
         registry = tags.registry()

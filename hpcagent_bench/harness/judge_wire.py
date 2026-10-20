@@ -17,11 +17,14 @@ an instrument report of :mod:`hpcagent_bench.harness.profile_wire` (or :class:`O
 does not repeat.
 """
 
-from typing import Literal
+import enum
 
 import pydantic
+from hpcagent_agent.coded import Coded
 
+from hpcagent_bench.categories import BaselineChoice, InputMode, Language, Oracle, Preset, Residency
 from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.flags import Mode
 
 __all__ = [
     "SUBMIT_ANSWER",
@@ -29,7 +32,9 @@ __all__ = [
     "BuildAnswer",
     "CanonicalFormAnswer",
     "CanonicalFormQuery",
+    "Correct",
     "CrawledPageAnswer",
+    "FormVerdict",
     "GradeAnswer",
     "HealthAnswer",
     "InFlightAnswer",
@@ -51,6 +56,25 @@ __all__ = [
     "SubmitVerdict",
     "TimedCellAnswer",
 ]
+
+
+class FormVerdict(Coded):
+    """Whether ``GET /canonical_parallel_form`` served a form (:class:`CanonicalFormAnswer`)."""
+
+    OK = enum.auto()
+    UNAVAILABLE = enum.auto()
+
+
+class Correct(Coded):
+    """``POST /submit``'s verdict as an agent reads it (:class:`SubmitVerdict`)."""
+
+    YES = enum.auto()
+    NO = enum.auto()
+
+    @classmethod
+    def of(cls, correct: bool) -> "Correct":
+        """The verdict of a grade that was ``correct`` or not."""
+        return cls.YES if correct else cls.NO
 
 
 class RequestFields(pydantic.BaseModel):
@@ -78,7 +102,7 @@ class RequestFields(pydantic.BaseModel):
     requests: dict[str, object] | None = None
     #: ``/profile`` only.
     tool: str | None = None
-    residency: str | None = None
+    residency: Residency | None = None
     reps: int | None = None
     threads: int | list[int] | None = None
     device_kernel: str | None = None
@@ -86,6 +110,8 @@ class RequestFields(pydantic.BaseModel):
     counter_group: str | None = None
     per_thread: bool | None = None
     min_percent: float | None = None
+    #: ``/profile`` only: a smaller size rung than the run's to measure at (fast profile; :func:`profile_size`).
+    size: str | None = None
 
 
 class CanonicalFormQuery(pydantic.BaseModel):
@@ -130,9 +156,9 @@ class HealthAnswer(JudgeAnswer):
 
     status: str
     rank: int
-    oracle: str
-    baseline: str
-    input_mode: str
+    oracle: Oracle
+    baseline: BaselineChoice
+    input_mode: InputMode
     submits_in_flight: int
 
 
@@ -157,15 +183,15 @@ class BaselineAnswer(JudgeAnswer):
     """``GET /baseline/<kernel>``: each reference's best time in ns, at the run's size."""
 
     kernel: str
-    preset: str
+    preset: Preset
     baselines: dict[str, int]
 
 
 class BuildAnswer(JudgeAnswer):
     """``GET /build/<language>``: the compile and link argv this judge runs for a submission."""
 
-    language: str
-    mode: str
+    language: Language
+    mode: Mode
     source: str
     library: str
     commands: list[list[str]]
@@ -179,7 +205,7 @@ class CanonicalFormAnswer(JudgeAnswer):
     (``unavailable``, with a ``note`` and possibly the ``error``)."""
 
     kernel: str
-    verdict: Literal["ok", "unavailable"]
+    verdict: FormVerdict
     dialect: str | None = None
     entry: str | None = None
     source: str | None = None
@@ -250,9 +276,9 @@ class ScoreFields[CellT: ScoreCellAnswer](JudgeAnswer):
     baseline_policy: str | None
     cells: tuple[CellT, ...]
     kernel: str
-    language: str
-    preset: str
-    residency: str
+    language: Language
+    preset: Preset
+    residency: Residency
 
 
 class ScoreAnswer(ScoreFields[ScoreCellAnswer]):
@@ -310,7 +336,7 @@ class SubmitVerdict(JudgeAnswer):
     """``POST /submit`` as an agent gets it: correct or not and the recorded row id; the compiler log of a
     failed build (``build_log``) and ``judge_fault`` only when they apply."""
 
-    correct: Literal["yes", "no"]
+    correct: Correct
     request_id: str
     build_log: str | None = None
     judge_fault: bool | None = None
@@ -339,7 +365,7 @@ class OptReportAnswer(JudgeAnswer):
 
     tool: str
     kernel: str
-    language: str
+    language: Language
     build_ok: bool
     family: str
     compiler: str

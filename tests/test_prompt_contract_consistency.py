@@ -367,7 +367,7 @@ def test_the_grade_tool_descriptions_hold_under_every_submission_mode(
     when to submit is the task text's (submission-*.md)."""
     from tests.test_container_agent_tools import load_tools
 
-    description = getattr(load_tools(monkeypatch, "source", "c"), module).DESCRIPTION.lower()
+    description = load_tools(monkeypatch, "source", "c").served[module].description.lower()
     assert not re.search(r"\bonce\b", description), description
     assert not any(promise in description for promise in ("submit again", "resubmit", "something better")), description
 
@@ -399,11 +399,13 @@ def test_single_submission_says_scoring_is_unlimited_and_the_submission_is_one()
     assert "You may `score` as many times as you want, but you get exactly ONE submission." in text
 
 
-def test_the_profile_bullet_explains_every_counter_group() -> None:
+def test_the_profile_bullet_explains_every_counter_group(monkeypatch: pytest.MonkeyPatch) -> None:
     """``counter_group`` is a question, not a label: the agent picks one from what each answers."""
-    from hpcagent_agent.tools import profile_tool
+    from tests.test_container_agent_tools import load_tools
 
+    tools = load_tools(monkeypatch, "source", "c")
+    profile_tool, profile = tools.profile_tool, tools.served["profile"]
     for name, question in profile_tool.COUNTER_GROUP_QUESTIONS.items():
-        assert f"'{name}' {question}" in profile_tool.PROMPT
-        assert f"'{name}' {question}" in profile_tool.PROFILE_PROPERTIES["counter_group"]["description"]
+        assert f"'{name}' {question}" in profile.prompt
+        assert f"'{name}' {question}" in profile.input_schema["properties"]["counter_group"]["description"]
     assert set(profile_tool.COUNTER_GROUP_QUESTIONS) == set(papi.GROUPS)

@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, languages, omp_catalog, omp_context, spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.harness import native_call, sandbox
 from hpcagent_bench.harness.envelope import Submission
@@ -86,12 +87,12 @@ def test_a_compiled_submission_runs_in_its_toolchain_familys_context(
 
 
 def test_an_unknown_family_request_falls_to_the_default_and_the_build_reports_it() -> None:
-    assert sandbox.compiled_omp_context("c", "tcc") == "gnu"
+    assert sandbox.compiled_omp_context(Language.C, "tcc") == "gnu"
 
 
 def test_a_setup_pin_beats_the_submissions_request() -> None:
     config.set_override("build.compiler.c", "llvm")
-    assert sandbox.compiled_omp_context("c", "gcc") == "llvm"
+    assert sandbox.compiled_omp_context(Language.C, "gcc") == "llvm"
 
 
 @pytest.mark.parametrize(
@@ -112,7 +113,7 @@ def test_an_offload_setup_takes_its_legs_family_whatever_the_submission_asked(
     # The leg's driver is looked up on PATH and in the ROCm tree; the map, not this host's install, is under test.
     legs = {("openmp", "amd"), ("openmp", "nvidia"), ("openacc", "nvidia")}
     monkeypatch.setattr(languages, "offload_build_driver", lambda m, v, _lang: "/leg/driver" if (m, v) in legs else "")
-    assert sandbox.compiled_omp_context("c", "gcc") == expected
+    assert sandbox.compiled_omp_context(Language.C, "gcc") == expected
 
 
 @pytest.mark.parametrize(
@@ -127,7 +128,7 @@ def test_an_offload_setup_takes_its_legs_family_whatever_the_submission_asked(
     ],
 )
 def test_a_python_delivery_is_llvm_exactly_when_it_imports_numba(source: str, expected: str) -> None:
-    submission = Submission(language="python", source=source)
+    submission = Submission(language=Language.PYTHON, source=source)
     assert sandbox.submission_omp_context(submission) == expected
 
 
@@ -234,7 +235,7 @@ def test_an_isolated_call_runs_in_the_submissions_context(root: pathlib.Path, tm
             kernel,
             binding,
             {"x": np.zeros(1)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=60,
             py_meta=("kern", ("x",), ("y",)),
@@ -248,7 +249,7 @@ def test_an_isolated_call_runs_in_the_submissions_context(root: pathlib.Path, tm
         kernel,
         binding,
         {"x": np.zeros(1)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60,
         py_meta=("kern", ("x",), ("y",)),
@@ -386,13 +387,13 @@ def test_a_library_no_build_of_which_links_in_the_context_is_refused(root: pathl
 def test_a_catalog_request_the_family_cannot_serve_is_refused_before_any_build(root: pathlib.Path) -> None:
     runtimes = runtime_links(root)
     write_record(root, {"nvhpc": {"blas": [runtimes["gnu"]], "gsl": []}})
-    refusal = sandbox.catalog_refusal(["blas", "gsl"], "c", "nvhpc")
+    refusal = sandbox.catalog_refusal(["blas", "gsl"], Language.C, "nvhpc")
     assert refusal is not None
     assert "blas" in refusal
     assert "nvhpc" in refusal
     assert "libgomp.so.1.0.0" in refusal
     assert "gsl" not in refusal
-    assert not languages.library_offered("blas", "c", "nvhpc")
+    assert not languages.library_offered("blas", Language.C, "nvhpc")
     assert languages.library_served("blas", "gnu") == "", "the record has no gnu entry: nothing refused there"
 
 
@@ -494,9 +495,11 @@ def test_the_declaration_refuses_before_the_catalog_is_read(monkeypatch: pytest.
     monkeypatch.setattr(languages, "offload_vendor", lambda: "amd")
     monkeypatch.setattr(omp_context, "library_refusal", lambda *_args: pytest.fail("catalog read"))
     assert "llvm OpenMP context only" in languages.library_served("magma", omp_context.GNU)
-    assert not languages.library_offered("magma", "hip", omp_context.GNU)
+    assert not languages.library_offered("magma", Language.HIP, omp_context.GNU)
 
 
 def test_a_submission_builds_in_its_toolchain_familys_context() -> None:
-    assert languages.submission_context("c") == omp_context.context_for_toolchain(languages.submission_toolchain("c"))
-    assert languages.submission_context("python") == omp_context.DEFAULT_CONTEXT
+    assert languages.submission_context(Language.C) == omp_context.context_for_toolchain(
+        languages.submission_toolchain(Language.C)
+    )
+    assert languages.submission_context(Language.PYTHON) == omp_context.DEFAULT_CONTEXT

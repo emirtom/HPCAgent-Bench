@@ -35,6 +35,7 @@ Standard library only: this runs inside the agent image, which has no hpcagent_b
 
 import argparse
 import ctypes
+import enum
 import os
 import pathlib
 import sys
@@ -70,6 +71,7 @@ __all__ = [
     "Layout",
     "LockedCall",
     "MountCall",
+    "MountKind",
     "MountOp",
     "SealError",
     "Syscalls",
@@ -152,17 +154,27 @@ class SealError(RuntimeError):
     """The kernel refused a step of a seal: the process cannot be isolated, not a fault of what runs in it."""
 
 
+class MountKind(enum.Enum):
+    """What one step of the view does to its ``target``."""
+
+    #: A fresh empty filesystem over ``target``.
+    TMPFS = enum.auto()
+    #: ``source`` appears at ``target``, recursively, still writable.
+    BIND = enum.auto()
+    #: Remount ``target`` read-only, keeping the flags its mount has locked.
+    RO = enum.auto()
+    #: Drop ``target`` from the tree.
+    DETACH = enum.auto()
+    #: Open a handle on ``target`` while it is still reachable.
+    HOLD = enum.auto()
+    #: Bind the held ``target`` back at its own path, once a mount over a parent has hidden it.
+    RESTORE = enum.auto()
+
+
 class MountOp(NamedTuple):
-    """One step of the view, as an operation on a path.
+    """One step of the view, as an operation (:class:`MountKind`) on a path."""
 
-    ``kind`` is ``tmpfs`` (a fresh empty filesystem over ``target``), ``bind`` (``source`` appears
-    at ``target``, recursively, still writable), ``ro`` (remount ``target`` read-only, keeping the
-    flags its mount has locked), ``detach`` (drop ``target`` from the tree), ``hold`` (open a handle on
-    ``target`` while it is still reachable) or ``restore`` (bind the held ``target`` back at its own
-    path, once a mount over a parent has hidden it).
-    """
-
-    kind: str
+    kind: "MountKind"
     source: str
     target: str
 
@@ -348,30 +360,33 @@ def seal_plan(layout: Layout, shared_entries: Sequence[str]) -> list[MountOp]:
             f"seal_worker: shared dir {layout.shared!r} is inside run dir {layout.run_dir!r}, which the "
             "seal covers with a tmpfs -- mount the shared folder outside the run directory"
         )
-    ops = [MountOp("hold", "", path) for path in layout.keep]
-    ops += [MountOp("tmpfs", "tmpfs", path) for path in layout.private]
+    ops = [MountOp(MountKind.HOLD, "", path) for path in layout.keep]
+    ops += [MountOp(MountKind.TMPFS, "tmpfs", path) for path in layout.private]
     ops += [
-        MountOp("bind", layout.workdir, STASH_DIR),
-        MountOp("tmpfs", "tmpfs", VIEW_DIR),
+        MountOp(MountKind.BIND, layout.workdir, STASH_DIR),
+        MountOp(MountKind.TMPFS, "tmpfs", VIEW_DIR),
     ]
     if under(layout.run_dir, material):
         raise SystemExit(f"seal_worker: material dir {material!r} is inside run dir {layout.run_dir!r}")
     for name in shared_entries:
         target = f"{VIEW_DIR}/{name}"
-        ops.append(MountOp("bind", f"{material}/{name}", target))
-        ops.append(MountOp("ro", "", target))
+        ops.append(MountOp(MountKind.BIND, f"{material}/{name}", target))
+        ops.append(MountOp(MountKind.RO, "", target))
     if layout.skills:
-        ops += [MountOp("bind", f"{material}/{SKILLS_ENTRY}", layout.skills), MountOp("ro", "", layout.skills)]
-    ops.append(MountOp("bind", layout.agent_dir, f"{VIEW_DIR}/{layout.agent_dir.rsplit('/', 1)[-1]}"))
-    ops.append(MountOp("ro", "", VIEW_DIR))
-    ops.append(MountOp("bind", VIEW_DIR, layout.shared))
-    ops.append(MountOp("tmpfs", "tmpfs", layout.run_dir))
-    ops.append(MountOp("bind", STASH_DIR, layout.workdir))
-    ops.append(MountOp("detach", "", STASH_DIR))
+        ops += [
+            MountOp(MountKind.BIND, f"{material}/{SKILLS_ENTRY}", layout.skills),
+            MountOp(MountKind.RO, "", layout.skills),
+        ]
+    ops.append(MountOp(MountKind.BIND, layout.agent_dir, f"{VIEW_DIR}/{layout.agent_dir.rsplit('/', 1)[-1]}"))
+    ops.append(MountOp(MountKind.RO, "", VIEW_DIR))
+    ops.append(MountOp(MountKind.BIND, VIEW_DIR, layout.shared))
+    ops.append(MountOp(MountKind.TMPFS, "tmpfs", layout.run_dir))
+    ops.append(MountOp(MountKind.BIND, STASH_DIR, layout.workdir))
+    ops.append(MountOp(MountKind.DETACH, "", STASH_DIR))
     for path in layout.keep:
-        ops += [MountOp("restore", "", path), MountOp("ro", "", path)]
-    ops.extend(MountOp("tmpfs", "tmpfs", path) for path in layout.hide)
-    ops.extend(MountOp("bind", os.devnull, path) for path in layout.hide_files)
+        ops += [MountOp(MountKind.RESTORE, "", path), MountOp(MountKind.RO, "", path)]
+    ops.extend(MountOp(MountKind.TMPFS, "tmpfs", path) for path in layout.hide)
+    ops.extend(MountOp(MountKind.BIND, os.devnull, path) for path in layout.hide_files)
     return ops
 
 
@@ -389,19 +404,19 @@ def apply_plan(ops: Sequence[MountOp], calls: Syscalls = REAL) -> None:
     """Run the plan, failing on the first operation the kernel refuses."""
     held: dict[str, int] = {}
     for op in ops:
-        if op.kind == "tmpfs":
+        if op.kind is MountKind.TMPFS:
             make_target("", op.target)
             calls.mount("tmpfs", op.target, "tmpfs", 0)
-        elif op.kind == "bind":
+        elif op.kind is MountKind.BIND:
             make_target(op.source, op.target)
             calls.mount(op.source, op.target, None, MS_BIND | MS_REC)
-        elif op.kind == "ro":
+        elif op.kind is MountKind.RO:
             calls.mount(None, op.target, None, MS_REMOUNT | MS_BIND | MS_RDONLY | calls.locked(op.target))
-        elif op.kind == "detach":
+        elif op.kind is MountKind.DETACH:
             calls.umount(op.target)
-        elif op.kind == "hold":
+        elif op.kind is MountKind.HOLD:
             held[op.target] = calls.hold(op.target)
-        elif op.kind == "restore":
+        elif op.kind is MountKind.RESTORE:
             make_target("", op.target)
             calls.mount(f"/proc/self/fd/{held[op.target]}", op.target, None, MS_BIND | MS_REC)
         else:

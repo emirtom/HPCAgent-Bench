@@ -12,6 +12,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import disk_cache, grading, torch_reference
 from hpcagent_bench.spec import BenchSpec
 
@@ -100,7 +101,7 @@ def test_shard_lengths_match_the_materialized_contracted_extents() -> None:
     """Zero-stride stand-ins give the same per-output l as real arrays: K for split-K matmul."""
     spec = BenchSpec.load(KERNEL)
     params = int_params("S")
-    data = grading._data_seeded(KERNEL, "S", "float64", 3)
+    data = grading._data_seeded(KERNEL, Preset.S, "float64", 3)
     assert torch_reference.shard_lengths(spec, params) == grading.contracted_extents(spec, data)
     assert torch_reference.shard_lengths(spec, params) == {"out": params["K"]}
     big = dict(int_params("XL"), K=8 * int_params("XL")["K"])  # 8x: no allocation happens

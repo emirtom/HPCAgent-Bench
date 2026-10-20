@@ -13,7 +13,7 @@ without a running judge::
     s = k.score("void gemm_fp64(...) { ... }")     # grade it -> a typed Score (correctness + speedup)
     print(s.correct, s.speedup)
 
-Two run modes, chosen by the config dataclass (never a bare string):
+Two run modes, chosen by the config dataclass (an enum member, never a string):
 
 * :attr:`RunMode.NATIVE` (default) -- grade **in this process**, using the compilers
   and numeric libraries the environment provides. Zero setup; the whole harness runs here.
@@ -27,10 +27,13 @@ typed :class:`~hpcagent_bench.harness.scoring.Score`, so a mode swap changes not
 caller reads.
 """
 
+import enum
 from dataclasses import dataclass, field, fields, replace
-from enum import Enum
 from typing import TYPE_CHECKING
 
+from hpcagent_agent.coded import Coded
+
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.timing import measurement_repeat
@@ -54,76 +57,19 @@ if TYPE_CHECKING:  # the grading stack is imported lazily at call time (native o
     from hpcagent_bench.harness.scoring import Score  # return-type forward-ref resolves for tooling only
 
 
-class RunMode(Enum):
+class RunMode(Coded):
     """Where a grade runs: in this process, or against a judge service."""
 
-    NATIVE = "native"
-    CONTAINER = "container"
-
-
-class Oracle(Enum):
-    """Which reference grades correctness. ``auto`` resolves per kernel track: ``compiled`` (the
-    best-of(numba, c) references, the race leader first) on scientific_computing and
-    loop_level_reasoning, ``torch`` (the torch.compile max-autotune reference) on machine_learning.
-    ``numba`` / ``c`` name one compiled reference."""
-
-    AUTO = "auto"
-    COMPILED = "compiled"
-    NUMBA = "numba"
-    C = "c"
-    TORCH = "torch"
-
-
-class Baseline(Enum):
-    """The speedup denominator (what the submission is timed against).
-
-    ``numba`` (the generated ``parallel=True`` njit build), ``c``, the
-    compiled-PyTorch reference (``torch-autotune``: the kernel's PyTorch model under
-    ``torch.compile(mode="max-autotune-no-cudagraphs")``, see
-    :mod:`hpcagent_bench.harness.torch_baseline`; resolved per grade to ``torch-autotune-cpu`` or
-    ``torch-autotune-gpu`` by the device the grade runs on, and only the resolved kind is recorded),
-    and the three per-language auto-parallelizing compiled references
-    (``*-autopar``: the reference built ``Mode.MULTI_CORE`` with the STRONGEST available
-    autopar compiler -- Polly or GCC autopar for c/cpp, GCC autopar for fortran). A
-    denominator is ONE reference -- there is no "both".
-
-    The per-kernel-track auto-default (loop_level_reasoning / scientific_computing -> the faster of
-    ``c`` and ``numba``, machine_learning -> ``torch-autotune``) is NOT a member here: pass
-    ``baseline=None`` (or the ``"auto"`` boundary token on the CLI / config / wire) and
-    :func:`hpcagent_bench.harness.grading.resolve_baseline` picks the concrete kind per kernel.
-    """
-
-    NUMBA = "numba"
-    C = "c"
-    C_AUTOPAR = "c-autopar"
-    CPP_AUTOPAR = "cpp-autopar"
-    FORTRAN_AUTOPAR = "fortran-autopar"
-    TORCH_AUTOTUNE = "torch-autotune"
-    TORCH_AUTOTUNE_CPU = "torch-autotune-cpu"
-    TORCH_AUTOTUNE_GPU = "torch-autotune-gpu"
-
-
-class InputMode(Enum):
-    """What a judge submission may carry (server-side policy).
-
-    ``py-binding`` = an interpreted Python submission called directly (no compile);
-    ``source`` = the agent submits code the judge compiles ("llvm as a port");
-    ``library`` = a prebuilt ``.so``; ``any`` = any of the above. Inert on the client path.
-    """
-
-    PY_BINDING = "py-binding"
-    SOURCE = "source"
-    LIBRARY = "library"
-    ANY = "any"
+    NATIVE = enum.auto()
+    CONTAINER = enum.auto()
 
 
 @dataclass(frozen=True, slots=True)
 class RunConfig:
     """How to grade -- the ONE config for BOTH the client bindings and the judge service.
 
-    ``mode`` / ``oracle`` / ``baseline`` / ``input_mode`` are enums; a plain string
-    (``"native"``, ``"c"``, ``"source"``) is converted (validated) at construction, so the
-    config is typed everywhere downstream. Its fields:
+    ``mode`` / ``oracle`` / ``baseline`` / ``input_mode`` / ``preset`` are enum members (their spellings
+    exist only on the CLI, the wire and in ``config.yaml``). Its fields:
 
     * grading policy shared by both -- ``oracle`` / ``baseline`` / ``preset`` /
       ``datatype`` / ``repeat``;
@@ -144,9 +90,9 @@ class RunConfig:
 
     mode: RunMode = RunMode.NATIVE  # client-only: grade in-process vs against a judge
     oracle: Oracle = Oracle.AUTO  # resolved per kernel track at grade time
-    baseline: Baseline | None = None  # None = auto-resolve per kernel track; "auto" on the wire/CLI/config
+    baseline: Baseline | None = None  # None = auto-resolve per kernel track; spelled "auto" at a boundary
     input_mode: InputMode = InputMode.SOURCE  # server-only: what a submission may carry
-    preset: str = "S"
+    preset: Preset = Preset.S
     datatype: str = "float64"
     repeat: int = field(default_factory=measurement_repeat)  # timed reps; the shared measurement.repeat
     judge_url: str | None = None  # client-only: container mode target; None -> $JUDGE_URL / localhost
@@ -156,24 +102,9 @@ class RunConfig:
     hidden: bool = True  # client-only: also grade held-out inputs (the overfit gate)
 
     def __post_init__(self) -> None:
-        # Coerce strings -> enums (raises ValueError on an unknown value) so the
-        # config is dataclass-typed everywhere downstream, never a loose string.
-        object.__setattr__(self, "mode", RunMode(self.mode))
-        object.__setattr__(self, "oracle", Oracle(self.oracle))
-        # baseline: None / the "auto" boundary token = resolve per kernel track (kept as
-        # None here); any concrete kind is coerced + validated against the Baseline enum.
-        b = self.baseline
-        object.__setattr__(self, "baseline", None if (b is None or b == "auto") else Baseline(b))
-        object.__setattr__(self, "input_mode", InputMode(self.input_mode))
         if int(self.repeat) < 1:
             raise ValueError(f"repeat must be >= 1, got {self.repeat!r}")
         object.__setattr__(self, "repeat", int(self.repeat))
-
-    @property
-    def baseline_token(self) -> str:
-        """The wire / CLI / config string for ``baseline``: the concrete enum value, or
-        ``"auto"`` when it resolves per kernel track (``baseline is None``)."""
-        return self.baseline.value if self.baseline is not None else "auto"
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,8 +134,8 @@ class Kernel:
         # Explicit PromptConfig: the context is never assembled from ambient defaults.
         ctx = build_context(
             self.task,
-            oracle=self.config.oracle.value,
-            baseline=self.config.baseline_token,
+            oracle=self.config.oracle,
+            baseline=self.config.baseline,
             prompt_config=PromptConfig.from_config(),
         )
         return {
@@ -245,9 +176,9 @@ class Kernel:
             preset=self.config.preset,
             datatype=self.config.datatype,
             repeat=self.config.repeat,
-            baseline=self.config.baseline_token,
+            baseline=self.config.baseline,
         )
-        return {"kernel": self.task.kernel, "preset": self.config.preset, "baselines": bl}
+        return {"kernel": self.task.kernel, "preset": self.config.preset.text, "baselines": bl}
 
     def score(
         self,
@@ -291,8 +222,8 @@ class Kernel:
             preset=c.preset,
             datatype=c.datatype,
             repeat=c.repeat,
-            oracle=c.oracle.value,
-            baseline=c.baseline_token,
+            oracle=c.oracle,
+            baseline=c.baseline,
             rtol=c.rtol,
             atol=c.atol,
             hidden=c.hidden,
@@ -315,9 +246,9 @@ def score_from_payload(payload: "SubmitAnswer") -> "Score":
 def init(
     kernel: str,
     *,
-    language: str = "c",
-    source_mode: str = "restricted",
-    residency: str = "host",
+    language: Language = Language.C,
+    source_mode: SourceMode = SourceMode.RESTRICTED,
+    residency: Residency = Residency.HOST,
     config: RunConfig | None = None,
     **overrides,
 ) -> Kernel:
@@ -325,7 +256,7 @@ def init(
 
     ``config`` is a full :class:`RunConfig`; any ``**overrides`` (``mode``,
     ``oracle``, ``baseline``, ``preset``, ``judge_url``, ...) are applied on top,
-    so ``init("gemm", mode="container", judge_url=url)`` reads naturally without
+    so ``init("gemm", mode=RunMode.CONTAINER, judge_url=url)`` reads naturally without
     building the dataclass by hand.
     """
     task = Task(kernel, source_mode=source_mode, language=language, residency=residency)
@@ -336,7 +267,7 @@ def init(
     if unknown:
         raise TypeError(f"init() got unexpected config override(s): {sorted(unknown)} (known: {sorted(known)})")
     if changes:
-        cfg = replace(cfg, **changes)  # re-runs __post_init__ -> coercion + validation
+        cfg = replace(cfg, **changes)  # re-runs __post_init__ -> validation
     return Kernel(task=task, config=cfg)
 
 

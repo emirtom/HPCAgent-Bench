@@ -27,7 +27,10 @@ run count, another statistic or another alpha is a NEW stamp, and a regrade.
 import dataclasses
 import enum
 
+from hpcagent_agent.coded import Coded
+
 from hpcagent_bench import config
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.registry import RegistryError
 from hpcagent_bench.stats import significance
 
@@ -62,23 +65,11 @@ AA_SUFFIX = "-aa"
 WARMUP: int = 1
 
 
-class Role(enum.Enum):
-    GRADE = "grade"
-    PREVIEW = "preview"
-    CALIBRATION = "calibration"
-    LIVE = "live"
-
-
-class Statistic(enum.Enum):
-    """How one input's runs reduce to its credited ratio; the value is the ``timing.REDUCTIONS`` backend."""
-
-    #: Ratio of the medians, credited only when the one-sided Mann-Whitney U test at ``alpha`` agrees with
-    #: its direction; else exactly 1.0.
-    MANNWHITNEY = "mannwhitney_delta"
-    #: Ratio of the medians, no test.
-    MEDIAN = "median_of_k"
-    #: Ratio of the minima, no test.
-    MIN = "min_of_k"
+class Role(Coded):
+    GRADE = enum.auto()
+    PREVIEW = enum.auto()
+    CALIBRATION = enum.auto()
+    LIVE = enum.auto()
 
 
 #: The registered timing test that gates a statistic's credit (:mod:`hpcagent_bench.stats.significance`); a
@@ -98,11 +89,6 @@ class Protocol:
     repeat: int | None = None
     alpha: float = 0.1
     calibrates: str = ""
-
-    @property
-    def backend(self) -> str:
-        """The ``timing.REDUCTIONS`` backend each input is reduced by."""
-        return self.statistic.value
 
     @property
     def timing_test(self) -> str | None:
@@ -133,9 +119,9 @@ def protocol(
     live reduction neither, and the statistic's timing test is registered."""
     timed = role in (Role.GRADE, Role.PREVIEW)
     if timed and not (inputs and inputs > 0 and repeat and repeat > 0):
-        raise RegistryError(f"grading protocols {stamp!r}: a {role.value} protocol needs inputs > 0 and repeat > 0")
+        raise RegistryError(f"grading protocols {stamp!r}: a {role.text} protocol needs inputs > 0 and repeat > 0")
     if not timed and (inputs is not None or repeat is not None):
-        raise RegistryError(f"grading protocols {stamp!r}: a {role.value} reduction has no inputs or repeat")
+        raise RegistryError(f"grading protocols {stamp!r}: a {role.text} reduction has no inputs or repeat")
     if not 0 < alpha < 1:
         raise RegistryError(f"grading protocols {stamp!r}: alpha must lie in (0, 1), got {alpha}")
     if (test := TIMING_TESTS.get(statistic)) is not None:

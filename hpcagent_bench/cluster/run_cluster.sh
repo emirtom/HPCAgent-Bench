@@ -174,6 +174,8 @@ AMD_CE_ENV="${AMD_CE_ENV:-}"
 JUDGE_CE_ENV="${JUDGE_CE_ENV:-}"
 # The agent step's EDF. AMD_CE_ENV unless a setup names another.
 AGENT_CE_ENV="${AGENT_CE_ENV:-${AMD_CE_ENV}}"
+# A tuner (HARNESS=tuner) runs the benchmark's own optimizers, which the judge image carries.
+[[ "${HARNESS:-}" != tuner ]] || AGENT_CE_ENV="${JUDGE_CE_ENV}"
 if [[ "${CONTAINER_RUNTIME:-ce}" == ce ]]; then
     for edf_variable in AMD_CE_ENV JUDGE_CE_ENV; do
         [[ -n "${!edf_variable}" ]] || {
@@ -181,7 +183,7 @@ if [[ "${CONTAINER_RUNTIME:-ce}" == ce ]]; then
             exit 2
         }
     done
-    [[ "${INFERENCE_SOURCE:-node}" == service || -n "${INFERENCE_CE_ENV}" ]] || {
+    [[ "${INFERENCE_SOURCE:-node}" != node || -n "${INFERENCE_CE_ENV}" ]] || {
         echo "INFERENCE_CE_ENV is unset: name the serving image's EDF, or serve from a hosted model (INFERENCE_SOURCE=service)" >&2
         exit 2
     }
@@ -759,6 +761,14 @@ run_agent_node() {
     local replica
     local -a replicas
     mkdir -p "${node_dir}"
+    if [[ "${HARNESS:-}" == tuner ]]; then
+        # No model, no proxy: the driver deals the problems to tuners, each measuring through its judge.
+        export JUDGE_URL="${JUDGE_BASE_URL}" AGENT_NODE_RANK="${agent_rank}" HPCAGENT_BENCH_AGENT_DIR="${AGENT_PAYLOAD_MOUNT}"
+        printf 'agent node=%s host=%s judges=%s tuner=%s\n' "${agent_rank}" "$(hostname)" \
+            "${JUDGE_NODELIST:-${JUDGE_BASE_URL}}" "${TUNER:?a tuner setup names its TUNER}"
+        "${HPCAGENT_BENCH_IMAGE_PYTHON}" -m hpcagent_agent.driver.agent_driver
+        return
+    fi
 
     # One model_list entry per replica, all under the SAME model_name: LiteLLM treats duplicate
     # names as a deployment group and round-robins over them, so the proxy is the load balancer and
@@ -884,6 +894,9 @@ esac
 
 # The batch shell alone launches steps: the container-runtime seam (container_wrap) is not needed by a role step.
 . "${SCRIPT_DIR}/container_runtime.sh"
+# The plugins every role sees, at their container paths (plugin_binds): the steps inherit this.
+HPCAGENT_BENCH_PLUGIN_DIRS="$(plugin_dirs)" || exit 2
+export HPCAGENT_BENCH_PLUGIN_DIRS
 
 : "${SLURM_JOB_ID:?run through services.sbatch or inside a Slurm allocation}"
 : "${SLURM_JOB_NODELIST:?missing Slurm node list}"
@@ -1016,8 +1029,11 @@ export JUDGE_GANG_NODES
 JUDGE_MASTER_HOST="${judge_nodes[0]}"
 JUDGE_BASE_URL="http://${JUDGE_MASTER_HOST}:${JUDGE_PORT}"
 
+# node: this job serves the model; service: a hosted model; none: no model (a tuner setup).
 INFERENCE_SOURCE="${INFERENCE_SOURCE:-node}"
-if [[ "${INFERENCE_SOURCE}" == "service" ]]; then
+if [[ "${INFERENCE_SOURCE}" == "none" ]]; then
+    VLLM_BASE_URL=""
+elif [[ "${INFERENCE_SOURCE}" == "service" ]]; then
     # Inference over the network, from a service nobody here starts. The block resolves into the
     # SAME endpoint names a server setup composes below, so the agent driver, the runners and the
     # claude CLI all keep reading one set of variables. The key is copied by INDIRECTION from the
@@ -1340,14 +1356,14 @@ check_gpu_arch() {
     [[ "${DRY_RUN:-0}" != 1 ]] || return 0
     local checker="${HPCAGENT_BENCH_REPO}/containers/images/gpu_arch_check.sh"
     # A service setup runs no inference EDF, so there is no inference image to check the arch of.
-    [[ "${INFERENCE_SOURCE}" == "service" ]] || bash "${checker}" "${INFERENCE_CE_ENV}"
+    [[ "${INFERENCE_SOURCE}" != "node" ]] || bash "${checker}" "${INFERENCE_CE_ENV}"
     [[ "${COLOCATE:-0}" == 1 ]] || bash "${checker}" "${JUDGE_CE_ENV}"
 }
 check_gpu_arch
 
 # A service setup starts no engine, so there is no inference step to supervise -- and none to wait
 # for either: the endpoint is up before the job is.
-if [[ "${INFERENCE_SOURCE}" != "service" ]]; then
+if [[ "${INFERENCE_SOURCE}" == "node" ]]; then
     role_srun "${INFERENCE_NODES}" "${INFERENCE_NODELIST}" "${INFERENCE_CE_ENV}" \
         "${INFERENCE_IMAGE}" --vllm-node
     step_pids+=("${ROLE_PID}")

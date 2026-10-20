@@ -4,6 +4,7 @@
 
 from collections.abc import Iterator
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import (
     PackedGroup,
@@ -73,7 +74,7 @@ def test_gemm_stub_has_signature_and_todo_not_reference() -> None:
         assert "A[i]" not in stub
         assert "C[i * NJ" not in stub
 
-    c_stub = gen_call_stub(b, "c")
+    c_stub = gen_call_stub(b, Language.C)
     # The canonical C signature shape (Sec. 7 / Sec. 9).
     assert "const double *restrict A" in c_stub
     assert "double *restrict C" in c_stub  # output, non-const
@@ -89,7 +90,7 @@ def test_a_complex_array_is_std_complex_in_every_cxx_parsed_stub() -> None:
     """C++ has no standard spelling of C's ``double _Complex``; CPF renders ``std::complex<double>``, which is
     layout-compatible, so the C++/CUDA/HIP stubs spell it that way and C keeps ``_Complex``."""
     b = binding_from_spec(BenchSpec.load("contour_integral"))
-    assert "double _Complex" in gen_call_stub(b, "c")
+    assert "double _Complex" in gen_call_stub(b, Language.C)
     for lang in ("cpp", "cuda", "hip"):
         stub = gen_call_stub(b, lang)
         assert "std::complex<double>" in stub, lang
@@ -104,7 +105,7 @@ def test_stub_restrict_spelling_is_per_language() -> None:
     it was told not to change."""
     b = binding_from_spec(BenchSpec.load("gemm"))
 
-    c_stub = gen_call_stub(b, "c")
+    c_stub = gen_call_stub(b, Language.C)
     assert "*restrict " in c_stub  # C keeps the C99 keyword
     assert "__restrict__" not in c_stub
 

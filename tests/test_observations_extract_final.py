@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import observations_extract as extract
+from hpcagent_bench.categories import SourceMode
 from hpcagent_bench.harness import grade_under, recording, results_db, timing
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.stats import score_rule
@@ -67,7 +68,7 @@ def item(tmp_path: pathlib.Path, ts: int, kind: str = "submit") -> grade_under.I
             values["call_index"] = 1
         grade_id = results_seed.grade(db, RUN, "k1", kind, ts, job=JOB, source="void k(void) {}\n", **values)
     return grade_under.Item(
-        str(db), grade_id, RUN, "k1", ts, SETUP, "c", "restricted", True, {}, job=str(JOB), speedup=9.0,
+        str(db), grade_id, RUN, "k1", ts, SETUP, "c", SourceMode.RESTRICTED, True, {}, job=str(JOB), speedup=9.0,
         reduction="mwd-v3",
     )  # fmt: skip
 

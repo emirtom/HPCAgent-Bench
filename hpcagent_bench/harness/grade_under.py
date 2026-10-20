@@ -65,7 +65,8 @@ import pydantic.dataclasses
 import yaml
 
 from hpcagent_bench import anticheat, config, experiments, owed, paths, protocols, recorded_rows
-from hpcagent_bench.api import InputMode, RunConfig
+from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Denominator, InputMode, Language, Residency, SourceMode, Track
 from hpcagent_bench.harness import (
     db_json,
     denominator,
@@ -91,6 +92,7 @@ from hpcagent_bench.harness.recording import (
     now_ms,
     record_scaling,
     snapshot_commit,
+    stored_denominator,
 )
 from hpcagent_bench.harness.requests_api import Requests, RequestsField
 from hpcagent_bench.harness.scoring import ML_LAWS, Score, TimedCell, VerifyResult, geomean_ns, score
@@ -286,7 +288,7 @@ class Item:
     ts_ms: int
     setup: str
     language: str
-    source_mode: str
+    source_mode: SourceMode
     final: bool
     env: dict[str, str]
     job: str = ""  # the Slurm job of the run that produced the grade
@@ -383,14 +385,15 @@ class Launch:
     model: str
     language: str
     offload: str = ""
-    residency: str = "host"
+    residency: Residency = Residency.HOST
     harness: str = ""
     suffix: str = ""
 
     @property
     def setup(self) -> str:
         """The name ``submit.sh`` stages these knobs under."""
-        offload = f"-{self.offload}" + ("-device" if self.residency == "device" else "") if self.offload else ""
+        device = f"-{Residency.DEVICE.text}" if self.residency is Residency.DEVICE else ""
+        offload = f"-{self.offload}{device}" if self.offload else ""
         harness = f"-{self.harness}" if self.harness else ""
         return f"{self.experiment}-{self.model}-{self.language}{offload}{harness}{self.suffix}"
 
@@ -404,7 +407,7 @@ class Launch:
             "LANGUAGES": self.language,
             "PACKETS": "none",
             "OFFLOAD": self.offload,
-            "OFFLOAD_RESIDENCY": self.residency,
+            "OFFLOAD_RESIDENCY": self.residency.text,
             "SETUP_SUFFIX": self.suffix,
             **({"HARNESSES": self.harness} if self.harness else {}),
         }
@@ -430,11 +433,11 @@ def launch_of(setup: str) -> Launch | None:
     if not language:
         return None
     rest = tokens[1 + language.count("-") + 1 :]
-    offload, residency = "", "host"
+    offload, residency = "", Residency.HOST
     if rest[:1] and rest[0] in LAUNCH_OFFLOADS:
         offload = rest.pop(0)
-        if rest[:1] == ["device"]:
-            residency = rest.pop(0)
+        if rest[:1] == [Residency.DEVICE.text]:
+            residency = Residency.parse(rest.pop(0))
     harness = rest.pop() if rest and rest[-1] in LAUNCH_HARNESSES else ""
     tag = entry.tag or entry.prefix
     return Launch(entry.base, entry.prefix, tag, model, language, offload, residency, harness, suffix)
@@ -525,10 +528,10 @@ def as_float(value: Any) -> float:
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def on_track(kernel: str, track: str) -> bool:
+def on_track(kernel: str, track: Track) -> bool:
     """Whether ``kernel`` is on ``track``; an unloadable kernel is on none. Cached."""
     try:
-        return BenchSpec.load(kernel).track == track
+        return BenchSpec.load(kernel).track is track
     except Exception:  # noqa: BLE001 -- a retired / renamed kernel simply is not on the track
         return False
 
@@ -608,7 +611,7 @@ def item_of(row: Mapping[str, Any], env: dict[str, str], final: bool) -> Item:
         int(row["ts_ms"]),
         str(row["setup"]),
         str(row["language"] or ""),
-        str(row["source_mode"] or "restricted"),
+        SourceMode.parse(str(row["source_mode"] or SourceMode.RESTRICTED.text)),
         final,
         env,
         job="" if row.get("job") in (None, results_db.LOCAL_JOB) else str(row["job"]),
@@ -787,7 +790,7 @@ def final_graded(db: pathlib.Path, protocol: Protocol | None = None) -> frozense
             int(row["of_grade_id"])
             for row in conn.execute(FINAL_GRADES)
             if str(row["timing_reduction"] or "").strip() == stamp
-            and str(row["denominator"] or "").strip() == denominator.for_kernel(row["kernel"]).value
+            and denominator.of_stored(row["denominator"]) is denominator.for_kernel(row["kernel"])
             and row["status"] != ERROR_STATUS
             and not stale_final(row["kernel"], int(row["ts_ms"]))
         )
@@ -863,7 +866,7 @@ def environment_scope() -> Iterator[dict[str, str]]:
         os.environ.update(before)
 
 
-def delivered_language(language: str) -> str:
+def delivered_language(language: str) -> Language:
     """The language ``POST /submit`` graded a recorded ``language`` in: a python DSL (``triton``,
     ``triton-device``) is graded as ``python`` on the py-binding judge it must have come from."""
     return delivery_language(language, InputMode.PY_BINDING)
@@ -905,8 +908,8 @@ def grade(item: Item, scorer: Scorer = score, verifier: Verifier | None = None) 
         preset=cfg.preset,
         datatype=cfg.datatype,
         repeat=cfg.repeat,
-        oracle=cfg.oracle.value,
-        baseline=cfg.baseline_token,
+        oracle=cfg.oracle,
+        baseline=cfg.baseline,
         hidden=True,
     )
     judgement = anticheat.judge(anticheat.Context(submission, task, result, cfg.preset, cfg.datatype, verifier))
@@ -967,7 +970,7 @@ def final_settings(base: Mapping[str, str], protocol: Protocol | None = None) ->
     env = dict(base)
     env[VARY_INPUTS_ENV] = "1"
     env[WARMUP_ENV] = str(protocols.WARMUP)
-    env[TIMING_BACKEND_ENV] = protocol.backend
+    env[TIMING_BACKEND_ENV] = protocol.statistic.text
     env[N_INPUTS_ENV] = str(protocol.inputs)
     env[REPEAT_ENV] = str(protocol.repeat)
     env[REPEAT_FLOOR_ENV] = str(protocol.repeat)
@@ -985,7 +988,7 @@ def device_disclosure(result: Score) -> dict[str, Any]:
     bracket = (result.grading_protocol or "").partition("+")[2]
     return {
         "timer": bracket or None,
-        "copies_excluded": int(bracket == timing.TIMING_BRACKETS["device"]),
+        "copies_excluded": int(bracket == timing.TIMING_BRACKETS[Residency.DEVICE]),
         "residual_ns": result.timing_residual_ns,
         "host_event_delta_ns": result.timing_host_ns - result.timing_event_ns,
         "device_index": result.device_index,
@@ -1060,8 +1063,8 @@ def final_grade(
             preset=cfg.preset,
             datatype=cfg.datatype,
             repeat=cfg.repeat,
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             hidden=protocol.hidden,
             hidden_cases=None if held_out and position == 0 else [],
             params_override=cell["params"],
@@ -1070,7 +1073,7 @@ def final_grade(
         timed = dataclasses.replace(result.cells[0], label=label) if result.cells else None
         refused = ""
         if timed is not None and not timed.uncovered:  # an uncovered input timed nothing to stamp
-            if timed.timing_reduction == timing.REDUCTIONS_VARIED[protocol.backend]:
+            if timed.timing_reduction == timing.REDUCTIONS_VARIED[protocol.statistic]:
                 timed = dataclasses.replace(timed, timing_reduction=stamp)
             else:
                 refused = f"not the {stamp} reduction: reduced as {timed.timing_reduction}"
@@ -1116,7 +1119,7 @@ def input_fault(one: FinalInput) -> str:
     return unmeasured_right(one)
 
 
-def cell_row(index: int, label: str, cell: TimedCell | None, result: Score, residency: str) -> dict[str, Any]:
+def cell_row(index: int, label: str, cell: TimedCell | None, result: Score, residency: Residency) -> dict[str, Any]:
     """One ``grade_cells`` row of a final grade: the cell's own measurement, or why there is none."""
     measured = cell is not None
     # The tolerance floor's refusal reads as "ungradeable", as in grade()/recording.py.
@@ -1131,7 +1134,7 @@ def cell_row(index: int, label: str, cell: TimedCell | None, result: Score, resi
     if cell is not None:
         row |= cell_values(cell) | {"label": label, "p_value": result.p_value}
     return row | {
-        "residency": residency,
+        "residency": residency.text,
         **device_disclosure(result),
         "status": status,
         "reason": reason or None,
@@ -1228,7 +1231,7 @@ def final_rows(
         "baseline_policy": "+".join(sorted(p for p in policies if p)) or grading.SINGLE_BASELINE_POLICY,
         # One denominator over every measured input (none: not credited); a grade no input of which
         # measured ran under the kernel's configured one, which its unsolved or faulted verdict answers.
-        "denominator": final_denominator(denominators, kernel),
+        "denominator": stored_denominator(final_denominator(denominators, kernel)),
         "status": ERROR_STATUS if faulted else "graded",
         # No input measured and none faulted: the submission failed every input, which names why.
         "reason": "; ".join(faults)[:REASON_CAP] if faults else None if measured else failure_reason(graded),
@@ -1334,7 +1337,7 @@ def scaling_protocol_grade(
         )
     if not result.correct or len(result.cells) != len(inputs):
         return result, curves, None
-    expected = timing.REDUCTIONS[protocol.backend]
+    expected = timing.REDUCTIONS[protocol.statistic]
     finals = []
     for cell in result.cells:
         if cell.timing_reduction == expected:
@@ -1376,11 +1379,11 @@ def unsolved_final(task: Task, result: Score, protocol: Protocol | None = None) 
     return FinalRecord(values, rows)
 
 
-def final_denominator(measured: set[str | None], kernel: str) -> str | None:
+def final_denominator(measured: set[Denominator | None], kernel: str) -> Denominator | None:
     """``grades.denominator`` of a final grade whose measured inputs ran under ``measured``: the one
     they agree on, none when they disagree, and the kernel's configured one when none measured."""
     if not measured:
-        return denominator.for_kernel(kernel).value
+        return denominator.for_kernel(kernel)
     return next(iter(measured)) if len(measured) == 1 else None
 
 
@@ -1470,7 +1473,11 @@ def run_cells_shard(
                 reason = f"{type(exc).__name__}: {exc}"[:400]
                 cells, values = (
                     [],
-                    {"status": "error", "reason": reason, "denominator": final_denominator(set(), item.kernel)},
+                    {
+                        "status": "error",
+                        "reason": reason,
+                        "denominator": stored_denominator(final_denominator(set(), item.kernel)),
+                    },
                 )
             write_regrade(path, item, FINAL_KIND, values, cells)
             graded += 1
@@ -1584,6 +1591,7 @@ def main(argv: list[str] | None = None) -> int:
     listing.add_argument(
         "--track",
         default="",
+        choices=("", *Track.texts()),
         help="keep only kernels on this track (e.g. scientific_computing) -- how a policy change "
         "that touches ONE track builds its own wave instead of re-timing the whole corpus",
     )
@@ -1631,9 +1639,9 @@ def main(argv: list[str] | None = None) -> int:
     applying.add_argument("outputs", nargs="*", type=pathlib.Path, help="shard DBs or their --out-dir")
     applying.add_argument(
         "--on-protocol-change",
-        type=results_db.ProtocolChange,
+        type=results_db.ProtocolChange.parse,
         choices=list(results_db.ProtocolChange),
-        metavar="{" + ",".join(change.value for change in results_db.ProtocolChange) + "}",
+        metavar="{" + ",".join(results_db.ProtocolChange.texts()) + "}",
         default=results_db.ProtocolChange.NEW_ROW,
         help="a regrade under another protocol than the final row it re-timed: new-row (default) keeps both "
         "rows, replace deletes the old one. Same protocol, or an old row with no protocol name: always the same row",
@@ -1741,7 +1749,7 @@ def write_worklist(args: argparse.Namespace) -> int:
         os.environ["HPCAGENT_BENCH_SYSTEM"] = args.system
     items, problems = build_grade_under_worklist(args.db, args.env_dir, args.protocol)
     if args.track:
-        items = [item for item in items if on_track(item.kernel, args.track)]
+        items = [item for item in items if on_track(item.kernel, Track.parse(args.track))]
     if args.device:
         items = [item for item in items if host_only(item) == (args.device == "cpu")]
     counts = tuple(args.rank_counts) or grade_rank_counts()

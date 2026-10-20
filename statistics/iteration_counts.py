@@ -39,11 +39,12 @@ import re
 import sys
 from collections.abc import Iterable
 
-from hpcagent_agent.tools import mcp_server
+from hpcagent_agent.tools import mcp_server, registry
 
 #: The judge's MCP tools, in CSV column order. Anything else the agent calls (Read, Bash, Edit)
 #: lands only in the ``tool_uses`` total -- the per-tool breakdown is about the benchmark protocol.
-TOOL_NAMES = tuple(str(name) for name in mcp_server.REGISTRY)
+mcp_server.load_tools()
+TOOL_NAMES = tuple(registry.REGISTRY)
 
 
 def mcp_tool(name: object, servers: frozenset[str]) -> str:

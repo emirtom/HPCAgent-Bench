@@ -2,46 +2,23 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The framework columns: every way a kernel is built and run, one :class:`~hpcagent_bench.vocabulary.Column` each.
 
-Naming scheme, checked at import (:func:`hpcagent_bench.frameworks.framework.check_flavor_registry`): a name is
-``<column>[_<flavor>]``. The column is ``<backend>`` for a backend that runs on one device (``numba``, ``cc``,
-``triton``) and ``<backend>_<arch>`` for one that runs on both (``dace_cpu``/``dace_gpu``, ``tvm_cpu``/``tvm_gpu``);
-every column declares its device as ``arch``, which picks the device anti-cheats a grade meets. A flavor is the
-optimizer, never the device: it declares ``column`` and ``flavor``, inherits the column's ``arch``, and is stored as
-two DB values (``framework`` = column, ``flavor``). A column has one name: no aliases.
-
-``base`` groups columns that share a backend; ``adapter`` names what runs a column, imported on first use, so
-importing this module never imports dace, jax or torch. A deterministic column (``sweep_deterministic``) runs through
-a :class:`~hpcagent_bench.frameworks.framework.Framework` subclass in an unjudged sweep
-(:func:`hpcagent_bench.harness.preflight.check_deterministic` derives its column list from it). An autotuning flavor
-names an :class:`~hpcagent_bench.harness.agent.Agent` in :mod:`hpcagent_bench.harness.optimizers` instead and runs as
-``hpcagent-bench agent <name>``, timing locally and ranking on the judge's ``/score``. Declaration order here is the
-order columns are listed in (``framework_flavors``, the CLI); ``order`` is the column's hue slot on a figure:
-append-only, a new column takes :meth:`~hpcagent_bench.registry.Kind.next_order`. ``precisions`` is what the column
-can execute; ``run-framework`` does not enforce it, so a sweep passes a supported ``--datatype`` itself.
-
-Native and pluto columns carry ``language`` (what the column compiles), ``emit_language`` when its sources
-start from another translator output, ``compiler`` (the ``compilers.yaml`` block the build forces; absent =
-the language's default block), ``flags`` (the :mod:`hpcagent_bench.flags` preset appended to the baseline),
-``autopar_gate`` (the ``flags.<probe>()`` that must read OK before the column builds) and ``transform``
-(``pluto``/``ppcg``: the source-to-source tool whose output it compiles). A DaCe flavor names the one SDFG pipeline
-it runs in ``pipelines``.
-
-The authoring guide is ``docs/extending/registry.md``; ``tests/test_vocabulary.py`` pins every slot.
+A name is ``<column>[_<flavor>]``: the column is ``<backend>`` or ``<backend>_<arch>``, a flavor (``column`` and
+``flavor`` set) is the optimizer run on it. ``adapter`` names what runs a column, imported on first use. Registration
+order is the listing order and each column's slot (colour and marker): a new column is added last.
+``docs/extending/registry.md`` is the authoring guide.
 """
 
 from hpcagent_bench.languages import gpu_backend
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.vocabulary import FRAMEWORKS, Arch, Column, DaceStage, DaceTuner, Transform
+from hpcagent_bench.vocabulary import FRAMEWORKS, TUNERS, Arch, Column, DaceStage, Transform, TunerEntry
 
 __all__ = [
     "ALL_PRECISIONS",
     "DACE_PRECISIONS",
-    "DACE_SLOTS",
     "DACE_STAGES",
-    "DACE_TUNERS",
-    "DACE_TUNER_ADAPTERS",
     "FRAMEWORKS",
     "IEEE_PRECISIONS",
+    "add_dace",
     "dace_column",
 ]
 
@@ -61,107 +38,24 @@ ALL_PRECISIONS = frozenset(
 )
 
 
-FRAMEWORKS.add(
-    "numpy",
-    Column(
-        display="NumPy",
-        adapter="hpcagent_bench.frameworks.framework:Framework",
-        base="numpy",
-        full_name="NumPy",
-        postfix="numpy",
-        arch=Arch.CPU,
-        sweep_deterministic=True,
-        precisions=ALL_PRECISIONS,
-    ),
-    order=0,
-)
-
-
-FRAMEWORKS.add(
-    "numba",
-    Column(
-        display="Numba",
-        adapter="hpcagent_bench.frameworks.numba_framework:NumbaFramework",
-        base="numba",
-        full_name="Numba",
-        postfix="numba",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-    ),
-    order=1,
-)
-
-
-FRAMEWORKS.add(
-    "cupy",
-    Column(
-        display="CuPy",
-        adapter="hpcagent_bench.frameworks.cupy_framework:CupyFramework",
-        base="cupy",
-        full_name="CuPy",
-        postfix="cupy",
-        arch=Arch.GPU,
-        sweep_deterministic=False,
-        precisions=frozenset({Precision.FP64, Precision.FP32, Precision.FP16, Precision.BF16}),
-    ),
-    order=25,
-)
-
-
-FRAMEWORKS.add(
-    "jax",
-    Column(
-        display="JAX",
-        adapter="hpcagent_bench.frameworks.jax_framework:JaxFramework",
-        base="jax",
-        full_name="Jax",
-        postfix="jax",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=ALL_PRECISIONS,
-    ),
-    order=13,
-    aliases=("jax_cpu", "jax_gpu"),
-)
-
-
-FRAMEWORKS.add(
-    "pythran",
-    Column(
-        display="Pythran",
-        adapter="hpcagent_bench.frameworks.pythran_framework:PythranFramework",
-        base="pythran",
-        full_name="Pythran",
-        postfix="pythran",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-    ),
-    order=6,
-)
-
-
 #: A DaCe stage -> its label alone, its label beside a tuner, and its full-name word.
 DACE_STAGES: dict[DaceStage, tuple[str, str, str]] = {
     DaceStage.CANON: ("canonicalized", "canon", "canonicalize"),
     DaceStage.PARALLEL: ("parallel", "parallel", "parallel"),
     DaceStage.AUTOOPT: ("auto-opt", "auto-opt", "auto_optimize"),
 }
-#: A DaCe tuner -> its display suffix and its full-name suffix.
-DACE_TUNERS: dict[DaceTuner, tuple[str, str]] = {
-    DaceTuner.ALLOY_PROFILE: ("Alloy profile", "Alloy (profiled)"),
-    DaceTuner.ALLOY_HEURISTIC: ("Alloy heuristic", "Alloy (heuristic)"),
-}
-#: A DaCe tuner -> the autotuning Agent that runs it (Alloy, github.com/ThrudPrimrose/alloy, after the stage).
-DACE_TUNER_ADAPTERS: dict[DaceTuner, str] = {
-    DaceTuner.ALLOY_PROFILE: "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer",
-    DaceTuner.ALLOY_HEURISTIC: "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer",
-}
+TUNERS.add(
+    "alloy_profile",
+    TunerEntry("Alloy profile", "Alloy (profiled)", "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"),
+)
+TUNERS.add(
+    "alloy_heuristic",
+    TunerEntry("Alloy heuristic", "Alloy (heuristic)", "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"),
+)
 DACE_PRECISIONS = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
 
 
-def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | None = None) -> Column:
+def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: str | None = None) -> Column:
     """The DaCe family's entry on ``arch``: the DB column every flavor groups under (no ``stage``; it runs nothing
     itself), a pipeline ``stage`` (``auto_optimize`` also runs on stock DaCe), or a stage followed by an
     autotuning ``tuner``, which runs as an Agent rather than in a sweep."""
@@ -180,15 +74,13 @@ def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | N
     alone, beside, word = DACE_STAGES[stage]
     display, full_name, flavor = f"DaCe ({device}, {alone})", f"DaCe {device} {word}", stage.text
     if tuner is not None:
-        tuner_display, tuner_full_name = DACE_TUNERS[tuner]
-        display = f"DaCe ({device}, {beside}) + {tuner_display}"
-        full_name = f"DaCe {device} {beside} + {tuner_full_name}"
-        flavor = f"{stage.text}_{tuner.text}"
+        tuned = TUNERS[tuner]
+        display = f"DaCe ({device}, {beside}) + {tuned.display}"
+        full_name = f"DaCe {device} {beside} + {tuned.full_name}"
+        flavor = f"{stage.text}_{tuner}"
     return Column(
         display=display,
-        adapter="hpcagent_bench.frameworks.dace_framework:DaceFramework"
-        if tuner is None
-        else DACE_TUNER_ADAPTERS[tuner],
+        adapter="hpcagent_bench.frameworks.dace_framework:DaceFramework" if tuner is None else TUNERS[tuner].adapter,
         base="dace",
         full_name=full_name,
         postfix="dace",
@@ -203,32 +95,43 @@ def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | N
     )
 
 
-#: Every DaCe entry's slot: the two columns, then (arch, stage) and (arch, stage, tuner) flavors.
-DACE_SLOTS: dict[tuple[Arch, DaceStage | None, DaceTuner | None], int] = {
-    (Arch.CPU, None, None): 3,
-    (Arch.GPU, None, None): 22,
-    (Arch.CPU, DaceStage.CANON, None): 8,
-    (Arch.CPU, DaceStage.PARALLEL, None): 35,
-    (Arch.CPU, DaceStage.AUTOOPT, None): 9,
-    (Arch.GPU, DaceStage.CANON, None): 24,
-    (Arch.GPU, DaceStage.PARALLEL, None): 36,
-    (Arch.GPU, DaceStage.AUTOOPT, None): 23,
-    (Arch.CPU, DaceStage.CANON, DaceTuner.ALLOY_PROFILE): 37,
-    (Arch.CPU, DaceStage.CANON, DaceTuner.ALLOY_HEURISTIC): 38,
-    (Arch.CPU, DaceStage.PARALLEL, DaceTuner.ALLOY_PROFILE): 39,
-    (Arch.CPU, DaceStage.PARALLEL, DaceTuner.ALLOY_HEURISTIC): 40,
-    (Arch.CPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_PROFILE): 47,
-    (Arch.CPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_HEURISTIC): 48,
-    (Arch.GPU, DaceStage.CANON, DaceTuner.ALLOY_PROFILE): 41,
-    (Arch.GPU, DaceStage.CANON, DaceTuner.ALLOY_HEURISTIC): 42,
-    (Arch.GPU, DaceStage.PARALLEL, DaceTuner.ALLOY_PROFILE): 43,
-    (Arch.GPU, DaceStage.PARALLEL, DaceTuner.ALLOY_HEURISTIC): 44,
-    (Arch.GPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_PROFILE): 49,
-    (Arch.GPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_HEURISTIC): 50,
-}
-for (dace_arch, dace_stage, dace_tuner), dace_slot in DACE_SLOTS.items():
-    dace_key = "_".join(part.text for part in (dace_arch, dace_stage, dace_tuner) if part is not None)
-    FRAMEWORKS.add(f"dace_{dace_key}", dace_column(dace_arch, dace_stage, dace_tuner), order=dace_slot)
+def add_dace(arch: Arch, stage: DaceStage | None = None, tuner: str | None = None) -> None:
+    """Register the DaCe entry :func:`dace_column` builds, under ``dace_<arch>[_<stage>[_<tuner>]]``."""
+    key = "_".join(part for part in (arch.text, stage.text if stage else None, tuner) if part is not None)
+    FRAMEWORKS.add(f"dace_{key}", dace_column(arch, stage, tuner))
+
+
+# Registration order is each column's slot (its colour and marker): a new column goes last.
+
+FRAMEWORKS.add(
+    "numpy",
+    Column(
+        display="NumPy",
+        adapter="hpcagent_bench.frameworks.framework:Framework",
+        base="numpy",
+        full_name="NumPy",
+        postfix="numpy",
+        arch=Arch.CPU,
+        sweep_deterministic=True,
+        precisions=ALL_PRECISIONS,
+    ),
+)
+
+
+FRAMEWORKS.add(
+    "numba",
+    Column(
+        display="Numba",
+        adapter="hpcagent_bench.frameworks.numba_framework:NumbaFramework",
+        base="numba",
+        full_name="Numba",
+        postfix="numba",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+    ),
+)
+
 
 # Native backend: one flavor per (language, compiler), each building its own .so. ``polly`` is the C++
 # flavor with a polyhedral flags preset; ``pluto`` is a separate source-to-source base.
@@ -245,124 +148,26 @@ FRAMEWORKS.add(
         precisions=IEEE_PRECISIONS,
         language="c",
     ),
-    order=2,
     aliases=("c",),
 )
 
 
-# gcc's auto-parallelizer, the GCC half of the autopar axis clang already had via polly.
+add_dace(Arch.CPU)
+
+
 FRAMEWORKS.add(
-    "cc_autopar",
+    "fortran",
     Column(
-        display="GCC (autopar)",
+        display="gfortran",
         adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
         base="native",
-        full_name="C autopar (gcc)",
+        full_name="Fortran (gfortran)",
         postfix="cpp",
         arch=Arch.CPU,
         sweep_deterministic=True,
         precisions=IEEE_PRECISIONS,
-        language="c",
-        flags="GCC_AUTOPAR",
+        language="fortran",
     ),
-    order=7,
-    aliases=("c-autopar",),
-)
-
-
-# The C family across the graded vendors, named ``cc_<vendor>`` (``llvm`` and ``polly`` already name the
-# clang C++ columns).
-FRAMEWORKS.add(
-    "cc_llvm",
-    Column(
-        display="Clang",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="C (clang)",
-        postfix="cpp",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-        language="c",
-        compiler="clang",
-    ),
-    order=15,
-)
-
-
-FRAMEWORKS.add(
-    "cc_llvm_autopar",
-    Column(
-        display="Clang (autopar)",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="C Polly (clang)",
-        postfix="cpp",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-        language="c",
-        compiler="clang",
-        flags="POLLY_PAR",
-        autopar_gate="polly_capability",
-    ),
-    order=16,
-)
-
-
-FRAMEWORKS.add(
-    "cc_nvhpc",
-    Column(
-        display="NVHPC",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="C (nvc)",
-        postfix="cpp",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-        language="c",
-        compiler="nvc",
-    ),
-    order=17,
-)
-
-
-FRAMEWORKS.add(
-    "cc_nvhpc_autopar",
-    Column(
-        display="NVHPC (autopar)",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="C autopar (nvc)",
-        postfix="cpp",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-        language="c",
-        compiler="nvc",
-        flags="NVHPC_CONCUR",
-        autopar_gate="nvhpc_autopar_capability",
-    ),
-    order=18,
-)
-
-
-FRAMEWORKS.add(
-    "llvm",
-    Column(
-        display="Clang",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="C++ (clang)",
-        postfix="cpp",
-        arch=Arch.CPU,
-        sweep_deterministic=True,
-        precisions=IEEE_PRECISIONS,
-        language="cpp",
-        compiler="clangpp",
-    ),
-    order=10,
 )
 
 
@@ -381,82 +186,61 @@ FRAMEWORKS.add(
         language="cpp",
         compiler="gpp",
     ),
-    order=5,
 )
 
 
 FRAMEWORKS.add(
-    "fortran",
+    "pythran",
     Column(
-        display="gfortran",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="Fortran (gfortran)",
-        postfix="cpp",
+        display="Pythran",
+        adapter="hpcagent_bench.frameworks.pythran_framework:PythranFramework",
+        base="pythran",
+        full_name="Pythran",
+        postfix="pythran",
         arch=Arch.CPU,
-        sweep_deterministic=True,
+        sweep_deterministic=False,
         precisions=IEEE_PRECISIONS,
-        language="fortran",
     ),
-    order=4,
 )
 
 
-# The Fortran half of the autopar axis (same emitted Fortran as ``fortran``, autopar flags differ).
+# gcc's auto-parallelizer, the GCC half of the autopar axis clang already had via polly.
 FRAMEWORKS.add(
-    "fortran_autopar",
+    "cc_autopar",
     Column(
-        display="gfortran (autopar)",
+        display="GCC (autopar)",
         adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
         base="native",
-        full_name="Fortran autopar (gfortran)",
+        full_name="C autopar (gcc)",
         postfix="cpp",
         arch=Arch.CPU,
         sweep_deterministic=True,
         precisions=IEEE_PRECISIONS,
-        language="fortran",
+        language="c",
         flags="GCC_AUTOPAR",
     ),
-    order=21,
+    aliases=("c-autopar",),
 )
 
 
-# LLVM Fortran, the flang half of the gfortran/flang pair (declines cleanly if the driver is absent).
-FRAMEWORKS.add(
-    "flang",
-    Column(
-        display="Flang",
-        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
-        base="native",
-        full_name="Fortran (flang)",
-        postfix="cpp",
-        arch=Arch.CPU,
-        sweep_deterministic=True,
-        precisions=IEEE_PRECISIONS,
-        language="fortran",
-        compiler="flang",
-    ),
-    order=20,
-)
+add_dace(Arch.CPU, DaceStage.CANON)
+add_dace(Arch.CPU, DaceStage.AUTOOPT)
 
 
 FRAMEWORKS.add(
-    "polly",
+    "llvm",
     Column(
-        display="Polly",
+        display="Clang",
         adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
         base="native",
-        full_name="C++ Polly (clang)",
+        full_name="C++ (clang)",
         postfix="cpp",
         arch=Arch.CPU,
         sweep_deterministic=True,
         precisions=IEEE_PRECISIONS,
         language="cpp",
         compiler="clangpp",
-        flags="POLLY_PAR",
-        autopar_gate="polly_capability",
     ),
-    order=12,
 )
 
 
@@ -479,50 +263,204 @@ FRAMEWORKS.add(
         autopar_gate="pluto_capability",
         transform=Transform.PLUTO,
     ),
-    order=11,
 )
 
 
-# Polygeist's cgeist lowers the C target's ``_pluto_input.c`` to affine MLIR, Polymer reschedules it with
-# Pluto, MLIR parallelizes it to OpenMP, and clang compiles the LLVM IR (``hpcagent_bench.polygeist_transform``).
 FRAMEWORKS.add(
-    "polygeist_cpu",
+    "polly",
     Column(
-        display="Polygeist",
-        adapter="hpcagent_bench.frameworks.pluto_framework:PlutoFramework",
-        base="pluto",
-        full_name="Polyhedral CPU (Polygeist)",
+        display="Polly",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="C++ Polly (clang)",
         postfix="cpp",
         arch=Arch.CPU,
         sweep_deterministic=True,
         precisions=IEEE_PRECISIONS,
-        language="c",
-        compiler="clang-polygeist",
-        flags="POLYGEIST_PAR",
-        transform=Transform.POLYGEIST,
+        language="cpp",
+        compiler="clangpp",
+        flags="POLLY_PAR",
+        autopar_gate="polly_capability",
     ),
-    order=45,
 )
 
 
-# The same affine MLIR mapped to GPU blocks and threads and lowered through ROCDL; the arrays stay where the
-# caller allocated them (``xnack+`` under ``HSA_XNACK=1``), so the pipeline has no data-movement step.
 FRAMEWORKS.add(
-    "polygeist_gpu",
+    "jax",
     Column(
-        display="Polygeist (GPU)",
-        adapter="hpcagent_bench.frameworks.pluto_framework:PlutoFramework",
-        base="pluto",
-        full_name="Polyhedral GPU (Polygeist)",
-        postfix="cpp",
+        display="JAX",
+        adapter="hpcagent_bench.frameworks.jax_framework:JaxFramework",
+        base="jax",
+        full_name="Jax",
+        postfix="jax",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=ALL_PRECISIONS,
+    ),
+    aliases=("jax_cpu", "jax_gpu"),
+)
+
+
+# One base, two hardware flavors sharing the unified ``<kernel>_tvm.py`` (``tvm_build.active_kernel``).
+FRAMEWORKS.add(
+    "tvm_gpu",
+    Column(
+        display="TVM (GPU)",
+        adapter="hpcagent_bench.frameworks.tvm_framework:TVMFramework",
+        base="tvm",
+        full_name="TVM (GPU)",
+        postfix="tvm",
         arch=Arch.GPU,
+        sweep_deterministic=False,
+        precisions=ALL_PRECISIONS,
+    ),
+    aliases=("tvm",),
+)
+
+
+# The C family across the graded vendors, named ``cc_<vendor>`` (``llvm`` and ``polly`` already name the
+# clang C++ columns).
+FRAMEWORKS.add(
+    "cc_llvm",
+    Column(
+        display="Clang",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="C (clang)",
+        postfix="cpp",
+        arch=Arch.CPU,
         sweep_deterministic=False,
         precisions=IEEE_PRECISIONS,
         language="c",
-        compiler="clang-polygeist-gpu",
-        transform=Transform.POLYGEIST,
+        compiler="clang",
     ),
-    order=46,
+)
+
+
+FRAMEWORKS.add(
+    "cc_llvm_autopar",
+    Column(
+        display="Clang (autopar)",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="C Polly (clang)",
+        postfix="cpp",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+        language="c",
+        compiler="clang",
+        flags="POLLY_PAR",
+        autopar_gate="polly_capability",
+    ),
+)
+
+
+FRAMEWORKS.add(
+    "cc_nvhpc",
+    Column(
+        display="NVHPC",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="C (nvc)",
+        postfix="cpp",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+        language="c",
+        compiler="nvc",
+    ),
+)
+
+
+FRAMEWORKS.add(
+    "cc_nvhpc_autopar",
+    Column(
+        display="NVHPC (autopar)",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="C autopar (nvc)",
+        postfix="cpp",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+        language="c",
+        compiler="nvc",
+        flags="NVHPC_CONCUR",
+        autopar_gate="nvhpc_autopar_capability",
+    ),
+)
+
+
+# LLVM Fortran, the flang half of the gfortran/flang pair (declines cleanly if the driver is absent).
+FRAMEWORKS.add(
+    "flang",
+    Column(
+        display="Flang",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="Fortran (flang)",
+        postfix="cpp",
+        arch=Arch.CPU,
+        sweep_deterministic=True,
+        precisions=IEEE_PRECISIONS,
+        language="fortran",
+        compiler="flang",
+    ),
+)
+
+
+# The Fortran half of the autopar axis (same emitted Fortran as ``fortran``, autopar flags differ).
+FRAMEWORKS.add(
+    "fortran_autopar",
+    Column(
+        display="gfortran (autopar)",
+        adapter="hpcagent_bench.frameworks.native_framework:NativeFramework",
+        base="native",
+        full_name="Fortran autopar (gfortran)",
+        postfix="cpp",
+        arch=Arch.CPU,
+        sweep_deterministic=True,
+        precisions=IEEE_PRECISIONS,
+        language="fortran",
+        flags="GCC_AUTOPAR",
+    ),
+)
+
+
+add_dace(Arch.GPU)
+add_dace(Arch.GPU, DaceStage.AUTOOPT)
+add_dace(Arch.GPU, DaceStage.CANON)
+
+
+FRAMEWORKS.add(
+    "cupy",
+    Column(
+        display="CuPy",
+        adapter="hpcagent_bench.frameworks.cupy_framework:CupyFramework",
+        base="cupy",
+        full_name="CuPy",
+        postfix="cupy",
+        arch=Arch.GPU,
+        sweep_deterministic=False,
+        precisions=frozenset({Precision.FP64, Precision.FP32, Precision.FP16, Precision.BF16}),
+    ),
+)
+
+
+# No fp64 path; runs the low-precision matrix instead.
+FRAMEWORKS.add(
+    "triton",
+    Column(
+        display="Triton",
+        adapter="hpcagent_bench.frameworks.triton_framework:TritonFramework",
+        base="triton",
+        full_name="Triton",
+        postfix="triton",
+        arch=Arch.GPU,
+        sweep_deterministic=False,
+        precisions=frozenset({Precision.FP8_E5M2, Precision.FP8_E4M3, Precision.FP32, Precision.FP16, Precision.BF16}),
+    ),
 )
 
 
@@ -539,11 +477,10 @@ FRAMEWORKS.add(
         arch=Arch.GPU,
         sweep_deterministic=False,
         precisions=IEEE_PRECISIONS,
-        language=gpu_backend(),
+        language=gpu_backend().text,
         emit_language="c",
         transform=Transform.PPCG,
     ),
-    order=27,
 )
 
 
@@ -565,7 +502,6 @@ FRAMEWORKS.add(
         emit_language="c",
         transform=Transform.PPCG,
     ),
-    order=28,
 )
 
 
@@ -589,42 +525,6 @@ FRAMEWORKS.add(
         emit_language="c",
         transform=Transform.PPCG,
     ),
-    order=29,
-)
-
-
-# No fp64 path; runs the low-precision matrix instead.
-FRAMEWORKS.add(
-    "triton",
-    Column(
-        display="Triton",
-        adapter="hpcagent_bench.frameworks.triton_framework:TritonFramework",
-        base="triton",
-        full_name="Triton",
-        postfix="triton",
-        arch=Arch.GPU,
-        sweep_deterministic=False,
-        precisions=frozenset({Precision.FP8_E5M2, Precision.FP8_E4M3, Precision.FP32, Precision.FP16, Precision.BF16}),
-    ),
-    order=26,
-)
-
-
-# One base, two hardware flavors sharing the unified ``<kernel>_tvm.py`` (``tvm_build.active_kernel``).
-FRAMEWORKS.add(
-    "tvm_gpu",
-    Column(
-        display="TVM (GPU)",
-        adapter="hpcagent_bench.frameworks.tvm_framework:TVMFramework",
-        base="tvm",
-        full_name="TVM (GPU)",
-        postfix="tvm",
-        arch=Arch.GPU,
-        sweep_deterministic=False,
-        precisions=ALL_PRECISIONS,
-    ),
-    order=14,
-    aliases=("tvm",),
 )
 
 
@@ -640,5 +540,63 @@ FRAMEWORKS.add(
         sweep_deterministic=False,
         precisions=ALL_PRECISIONS,
     ),
-    order=30,
 )
+
+
+add_dace(Arch.CPU, DaceStage.PARALLEL)
+add_dace(Arch.GPU, DaceStage.PARALLEL)
+add_dace(Arch.CPU, DaceStage.CANON, "alloy_profile")
+add_dace(Arch.CPU, DaceStage.CANON, "alloy_heuristic")
+add_dace(Arch.CPU, DaceStage.PARALLEL, "alloy_profile")
+add_dace(Arch.CPU, DaceStage.PARALLEL, "alloy_heuristic")
+add_dace(Arch.GPU, DaceStage.CANON, "alloy_profile")
+add_dace(Arch.GPU, DaceStage.CANON, "alloy_heuristic")
+add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_profile")
+add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_heuristic")
+
+
+# Polygeist's cgeist lowers the C target's ``_pluto_input.c`` to affine MLIR, Polymer reschedules it with
+# Pluto, MLIR parallelizes it to OpenMP, and clang compiles the LLVM IR (``hpcagent_bench.polygeist_transform``).
+FRAMEWORKS.add(
+    "polygeist_cpu",
+    Column(
+        display="Polygeist",
+        adapter="hpcagent_bench.frameworks.pluto_framework:PlutoFramework",
+        base="pluto",
+        full_name="Polyhedral CPU (Polygeist)",
+        postfix="cpp",
+        arch=Arch.CPU,
+        sweep_deterministic=True,
+        precisions=IEEE_PRECISIONS,
+        language="c",
+        compiler="clang-polygeist",
+        flags="POLYGEIST_PAR",
+        transform=Transform.POLYGEIST,
+    ),
+)
+
+
+# The same affine MLIR mapped to GPU blocks and threads and lowered through ROCDL; the arrays stay where the
+# caller allocated them (``xnack+`` under ``HSA_XNACK=1``), so the pipeline has no data-movement step.
+FRAMEWORKS.add(
+    "polygeist_gpu",
+    Column(
+        display="Polygeist (GPU)",
+        adapter="hpcagent_bench.frameworks.pluto_framework:PlutoFramework",
+        base="pluto",
+        full_name="Polyhedral GPU (Polygeist)",
+        postfix="cpp",
+        arch=Arch.GPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+        language="c",
+        compiler="clang-polygeist-gpu",
+        transform=Transform.POLYGEIST,
+    ),
+)
+
+
+add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_profile")
+add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_heuristic")
+add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_profile")
+add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_heuristic")

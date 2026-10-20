@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [c, cpp]}
 packet:
   # `cpf-cpu-src` with one ``// par``, ``// seq`` or ``// unknown`` per loop. ``cpf-src-kinds`` names it on
   # a CPU setup and ``cpf-gpu-src-kinds`` on a GPU one.
-  order: 26
   aliases: [cpf-src-kinds]
   name: "Canonical Parallel Form as Source, CPU, Kinds Only"
   env:

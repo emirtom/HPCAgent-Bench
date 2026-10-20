@@ -22,9 +22,9 @@ import pytest
 import yaml
 
 from hpcagent_bench import flags, languages, modules, paths, perf_reports
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import gpu_profiling, papi, profiling, service
 from hpcagent_bench.harness.prompts import load_skills, parse_skill
-from hpcagent_bench.languages import Language
 
 # The rocprofv3 CSVs live with the readers they exercise; a second copy here would drift, and the
 # whole point of these checks is that the skill describes rows the code really produces.
@@ -797,7 +797,7 @@ def test_the_fortran_page_teaches_the_index_base_the_seam_delivers() -> None:
     from hpcagent_bench import paths
     from hpcagent_bench.support.bindings.contract import index_base
 
-    assert index_base("fortran") == 1, "the page below is written for a 1-based delivery"
+    assert index_base(Language.FORTRAN) == 1, "the page below is written for a 1-based delivery"
     text = (paths.ROOT / "hpcagent_bench" / "skills" / "lang-fortran" / "SKILL.md").read_text()
     assert "a(ip(j))" in text, "the page never shows the bare gather the seam delivers"
     assert "a(ip(j) + 1)" not in text, (

@@ -24,6 +24,7 @@ had never been asked to do, one kernel per case here:
 
 import pytest
 
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.task import Task
 
@@ -40,9 +41,15 @@ KERNELS = (
 
 @pytest.mark.parametrize("kernel", KERNELS)
 def test_the_c_reference_matches_numpy_at_bf16(kernel: str) -> None:
-    task = Task(f"machine_learning/{kernel}", "restricted", "c")
+    task = Task(f"machine_learning/{kernel}", SourceMode.RESTRICTED, Language.C)
     result = scoring.score(
-        grading.reference_submission(task), task, preset="S", repeat=1, hidden=False, oracle="auto", baseline="c"
+        grading.reference_submission(task),
+        task,
+        preset=Preset.S,
+        repeat=1,
+        hidden=False,
+        oracle=Oracle.AUTO,
+        baseline=Baseline.C,
     )
     assert result.build_ok, result.detail
     assert result.correct, result.detail

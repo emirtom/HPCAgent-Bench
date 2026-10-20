@@ -23,6 +23,7 @@ from types import ModuleType
 import numpy as np
 
 from hpcagent_bench import config, protocols
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness.native_call import KernelData
 from hpcagent_bench.support.bindings.contract import Arg, Binding
 
@@ -130,12 +131,14 @@ POOL_SIZE: int = rep_total(
 )
 
 
-def pool_seeds(base_seed: int, kernel: str, preset: str, datatype: str) -> list[int]:
+def pool_seeds(base_seed: int, kernel: str, preset: Preset, datatype: str) -> list[int]:
     """The cell's fixed pool of :data:`POOL_SIZE` timed-input seeds, derived from the route's unsalted secret
     ``base_seed`` alone, so every grade of the cell draws from the same inputs and their expected outputs
     are computed once. Never ``base_seed`` (the public, canonical input)."""
     base = int(base_seed)
-    tag = int.from_bytes(hashlib.blake2b(f"{kernel}|{preset}|{datatype}".encode(), digest_size=4).digest(), "little")
+    tag = int.from_bytes(
+        hashlib.blake2b(f"{kernel}|{preset.text}|{datatype}".encode(), digest_size=4).digest(), "little"
+    )
     rng = np.random.default_rng((base & 0xFFFFFFFF, tag, POOL_SIZE, 0xC4EC))
     pool: list[int] = []
     while len(pool) < POOL_SIZE:
@@ -155,7 +158,7 @@ def timed_seeds(pool: Sequence[int], total_reps: int, nonce: int, canonical: int
 
 def variant_for(
     kernel: str,
-    preset: str,
+    preset: Preset,
     datatype: str,
     base_data: KernelData,
     classification: Mapping[str, bool],
@@ -217,7 +220,7 @@ class InputRecipe:
     device-to-device. Small and picklable: it crosses into the spawned child in place of the arrays."""
 
     kernel: str
-    preset: str
+    preset: Preset
     datatype: str
     seed: int
     fuzz_iteration: int | None = None

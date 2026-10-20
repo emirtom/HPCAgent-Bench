@@ -36,6 +36,7 @@ from hpcagent_agent.tools.http_json import (
     judge_headers,
 )
 
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import (
     SUBMIT_ANSWER,
@@ -138,10 +139,10 @@ class JudgeClient:
         """Liveness and the judge's own ``rank`` (answers any rank, so a mismatch can be diagnosed)."""
         return HealthAnswer.model_validate_json(self.get("/health"))
 
-    def baseline(self, kernel: str, language: str = "c", preset: str = "S") -> BaselineAnswer:
+    def baseline(self, kernel: str, language: Language = Language.C, preset: Preset = Preset.S) -> BaselineAnswer:
         """Reference times (``baselines``, e.g. ``{"numba": ns, "c": ns}``) timed in the judge."""
         return BaselineAnswer.model_validate_json(
-            self.get(f"/baseline/{kernel}", {"language": language, "preset": preset})
+            self.get(f"/baseline/{kernel}", {"language": language.text, "preset": preset.text})
         )
 
     # submission endpoints
@@ -176,8 +177,9 @@ class JudgeClient:
         counters: bool = False,
         counter_group: str = "overview",
         per_thread: bool = False,
-        residency: str | None = None,
+        residency: Residency | None = None,
         device_kernel: str | None = None,
+        size: Preset | None = None,
     ) -> "ProfileAnswer":
         """The diagnostic route; ``tool`` picks the instrument. Never scored.
 
@@ -207,6 +209,8 @@ class JudgeClient:
           ``compiler``, ``driver``, ``version``, ``report_flags``, ``report``). Python or ``library``
           deliveries are a 400; a toolchain without report flags is a 503.
 
+        ``size`` measures at a rung no larger than the run's preset (a fast profile); a larger one is a 400.
+
         The answer's ``root`` is the report of the tool that ran, as its model
         (:mod:`hpcagent_bench.harness.profile_wire`, or :class:`~hpcagent_bench.harness.judge_wire.OptReportAnswer`)."""
         body: dict[str, JsonValue] = {"kernel": kernel, "min_percent": min_percent, **submission.to_json()}
@@ -223,9 +227,11 @@ class JudgeClient:
         if reps is not None:
             body["reps"] = reps
         if residency is not None:
-            body["residency"] = residency
+            body["residency"] = residency.text
         if device_kernel is not None:
             body["device_kernel"] = device_kernel
+        if size is not None:
+            body["size"] = size.text
         # Imported here: the report models load the profilers, which this module's importers do not need.
         from hpcagent_bench.harness.profile_wire import ProfileAnswer
 
@@ -234,7 +240,7 @@ class JudgeClient:
 
 def score(
     kernel: str,
-    language: str,
+    language: Language,
     *,
     source: str | None = None,
     source_file: str | None = None,

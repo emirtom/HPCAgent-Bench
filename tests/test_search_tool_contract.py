@@ -7,20 +7,18 @@ Two things drift together and this file pins each one:
 * ``agent/hpcagent_agent/tools/search.py``'s ``DESCRIPTION`` -- what the model reads at tool-selection
   time -- must carry a trigger and a way to act on a refusal, not one flat sentence. It also
   reaches the real internet, so a run that must not have one needs it off by default.
-* ``hpcagent_bench/tools/web-search.md`` must not tell a DIFFERENT set of agents (the HTTP-loop
+* ``hpcagent_bench/tools/search.md`` must not tell a DIFFERENT set of agents (the HTTP-loop
   harnesses, via ``service_task.j2``) to use "your own web-search capability", which does not exist
   on that surface any more than Claude Code's own browsing does on the MCP one.
 """
 
 from types import ModuleType
 
-import pytest
-
 from hpcagent_bench import paths
 from tests.fresh_module import fresh
 
 ROOT = paths.ROOT
-WEB_SEARCH_MD = ROOT / "hpcagent_bench" / "tools" / "web-search.md"
+WEB_SEARCH_MD = ROOT / "hpcagent_bench" / "tools" / "search.md"
 
 
 def load_search() -> ModuleType:

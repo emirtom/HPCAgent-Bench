@@ -10,6 +10,7 @@ import pytest
 
 from hpcagent_bench import harbor as A
 from hpcagent_bench import hf_export
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import repo_pr
 from hpcagent_bench.spec import BenchSpec
 
@@ -23,7 +24,7 @@ def _has_translation() -> bool:
             A.KernelTask.of(
                 hf_export.resolved_row(BenchSpec.load(_KERNEL), A.default_rb(BenchSpec.load(_KERNEL))), _KERNEL
             ),
-            "c",
+            Language.C,
         )
         is not None
     )
@@ -36,7 +37,7 @@ def test_repo_layout_ships_a_mock_repo_with_seed_issue_and_makefile(tmp_path) ->
         pytest.skip("git unavailable -- repo layout ships a real .git")
     spec = BenchSpec.load(_KERNEL)
     row = hf_export.resolved_row(spec, A.default_rb(spec), commit="abc123")
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout="repo", commit="abc123")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO, commit="abc123")
     assert [d.name for d in dirs] == [f"hpcagent_bench-{_KERNEL}"]
     td = dirs[0]
 
@@ -84,7 +85,7 @@ def test_repo_task_toml_ships_the_whole_repo_dir_including_git(tmp_path) -> None
         pytest.skip("NumpyToX C translator unavailable")
     if not repo_pr.git_available():
         pytest.skip("git unavailable -- repo layout ships a real .git")
-    td = A.generate(str(tmp_path), selector=_KERNEL, layout="repo")[0]
+    td = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO)[0]
     toml_text = (td / "task.toml").read_text()
     # The artifact is the whole repo DIR (so .git crosses to the verifier -> the PR can be reconstructed).
     assert f'source = "/app/{_KERNEL}/repo"' in toml_text
@@ -112,7 +113,7 @@ def test_repo_test_sh_grades_in_repo_source_and_gates_the_pr(tmp_path) -> None:
         pytest.skip("NumpyToX C translator unavailable")
     if not repo_pr.git_available():
         pytest.skip("git unavailable -- repo layout ships a real .git")
-    td = A.generate(str(tmp_path), selector=_KERNEL, layout="repo")[0]
+    td = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO)[0]
     sh = (td / "tests" / "test.sh").read_text()
     # No grade-time git init any more -- the repo ships .git, the grader reconstructs the PR.
     assert "git init" not in sh
@@ -135,7 +136,7 @@ def test_repo_test_sh_grades_in_repo_source_and_gates_the_pr(tmp_path) -> None:
 
 def test_kernel_layout_is_unchanged_by_the_repo_feature(tmp_path) -> None:
     """The default (kernel) layout is byte-identical to before: an empty stub and no repo/ directory."""
-    td = A.generate(str(tmp_path), selector=_KERNEL, layout="kernel")[0]
+    td = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.KERNEL)[0]
     env = td / "environment" / _KERNEL
     assert (env / "submission.c").is_file()  # the empty stub the agent fills
     assert (env / "reference.py").is_file()
@@ -145,7 +146,7 @@ def test_kernel_layout_is_unchanged_by_the_repo_feature(tmp_path) -> None:
     assert f"/app/{_KERNEL}/submission.c" in instr  # the kernel-layout prompt, not the issue
     assert "too slow" not in instr
 
-    # The default arg produces the same output as an explicit layout="kernel".
+    # The default arg produces the same output as an explicit layout=A.Layout.KERNEL.
     td_default = A.generate(str(tmp_path / "d"), selector=_KERNEL)[0]
     assert (td_default / "task.toml").read_text() == (td / "task.toml").read_text()
     assert (td_default / "instruction.md").read_text() == instr
@@ -155,7 +156,7 @@ def test_kernel_layout_is_unchanged_by_the_repo_feature(tmp_path) -> None:
 
 def test_repo_layout_skips_kernels_without_a_translation(tmp_path, capsys) -> None:
     """A kernel/language with no NumpyToX translation is skipped cleanly (logged + counted), not shipped broken."""
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, language="python", layout="repo")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, language=Language.PYTHON, layout=A.Layout.REPO)
     assert dirs == []
     assert json.loads((tmp_path / "tasks.json").read_text()) == []
     err = capsys.readouterr().err
@@ -166,9 +167,9 @@ def test_repo_layout_skips_kernels_without_a_translation(tmp_path, capsys) -> No
 def test_repo_layout_rejects_group_dir_and_distributed(tmp_path) -> None:
     """Repo layout is one kernel per task on the single-node track."""
     with pytest.raises(ValueError, match="one kernel each"):
-        A.generate(str(tmp_path), selector="dense_linear_algebra", layout="repo", group="dir")
+        A.generate(str(tmp_path), selector="dense_linear_algebra", layout=A.Layout.REPO, group=A.Group.DIR)
     with pytest.raises(ValueError, match="single-node"):
-        A.generate(str(tmp_path), selector=_KERNEL, layout="repo", residency="distributed")
+        A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO, residency=Residency.DISTRIBUTED)
 
 
 #: Filenames that would hand the agent an OPTIMIZED implementation rather than the naive seed. The
@@ -192,7 +193,7 @@ def test_the_shipped_repo_carries_no_optimized_implementation(tmp_path) -> None:
         pytest.skip("NumpyToX C translator unavailable -- repo seed cannot be sourced")
     if not repo_pr.git_available():
         pytest.skip("git unavailable -- repo layout ships a real .git")
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout="repo", commit="abc123")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO, commit="abc123")
     repo = dirs[0] / "environment" / _KERNEL / "repo"
 
     for pattern in _SOLUTION_GLOBS:
@@ -223,7 +224,7 @@ def test_the_shipped_history_is_a_single_commit(tmp_path) -> None:
         pytest.skip("NumpyToX C translator unavailable -- repo seed cannot be sourced")
     if not repo_pr.git_available():
         pytest.skip("git unavailable -- repo layout ships a real .git")
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout="repo", commit="abc123")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO, commit="abc123")
     repo = dirs[0] / "environment" / _KERNEL / "repo"
     count = subprocess.run(
         ["git", "rev-list", "--all", "--count"], cwd=repo, capture_output=True, text=True, check=True
@@ -246,7 +247,7 @@ def test_every_path_the_issue_names_exists_in_the_repo(tmp_path) -> None:
         pytest.skip("NumpyToX C translator unavailable -- repo seed cannot be sourced")
     if not repo_pr.git_available():
         pytest.skip("git unavailable -- repo layout ships a real .git")
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout="repo", commit="abc123")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO, commit="abc123")
     repo = dirs[0] / "environment" / _KERNEL / "repo"
     issue = (repo / "ISSUE.md").read_text()
 

@@ -22,6 +22,7 @@ from hpcagent_bench.harness.episodes import EpisodeRecord, RecordIdentity
 from hpcagent_bench.harness.judge_wire import JudgeError, RouterError, RouterFault, SubmitVerdict
 from hpcagent_bench.harness.sandbox import AgentFolderLine
 from hpcagent_bench.problem_file import ProblemLine, dump_line
+from hpcagent_bench.harness.judge_wire import Correct
 from tests.fresh_module import fresh
 
 IDENTITY = {
@@ -136,7 +137,7 @@ def test_the_spent_marker_is_always_valid_json_the_driver_reads_as_a_grade(
 ) -> None:
     """A failed build's long compiler log used to cut the marker mid-string and hide its ``correct``."""
     submit = load_submit(monkeypatch, tmp_path)
-    verdict = SubmitVerdict(correct="no", request_id="r1", build_log="error: " + "x" * 5000).to_json()
+    verdict = SubmitVerdict(correct=Correct.NO, request_id="r1", build_log="error: " + "x" * 5000).to_json()
     monkeypatch.setattr(submit.http_json, "post_judge", lambda _route, _body: verdict)
     submit.run({"kernel": "k", "source": "x"})
     text = submit.SPENT_MARKER.read_text(encoding="utf-8")
