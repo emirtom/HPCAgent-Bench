@@ -63,10 +63,19 @@ parallel.
 - A CPF form gets the workspace and libraries it requests in the ABI check; DaCe integer helpers (`ipow`, ...) in a
   workspace size are translated to Python.
 - CI sizes OpenMP from the physical cores of the runner.
-- **Members are static.** Production code reads a model, dataclass, module or AST node by its declared field
-  (`vars(obj)[name]`, `isinstance`), never `getattr` / `hasattr` by name; only C-extension objects without a
-  `__dict__` (a cffi `Lib`, a tree-sitter node) are read by name. `tests/test_static_members.py` holds the line.
-  The tuple desugar's per-node marker attribute became a per-run registry.
+- **Members are static.** Production code reads and writes attributes by their declared names (`obj.field`,
+  `isinstance`); `getattr` / `hasattr` / `setattr` / `delattr` / `vars` remain only in the audited functions
+  `tests/test_static_members.py` lists. A name that is data (a manifest's `func_name`, a flags constant
+  `languages.yaml` names) is read through `hpcagent_bench.modules`, which checks the member's type. Config
+  lookups by name became typed methods (`Images.pair`, `BuildCompiler.pin`, `Denominator.of`, the `Oracle`
+  timeouts); optimizers register with `@optimizer` and post-run anti-cheat gates subclass `PostRunGate`; numba,
+  cupy, forkserver and cffi internals are read through typed Protocols. Every corpus kernel's emitted source is
+  byte-identical to before.
+- **numba translator (PR #113).** An outer product peels every split axis (and a view of one); a `None`
+  placeholder that only stands in until the real array binds is dropped (exact liveness: a branch, loop or
+  `finally` that may reset it keeps it); `np.cumsum` / `np.cumprod` with a constant `axis` lower to a slice scan
+  in numpy's order and dtype; `functools` memo decorators are dropped. force_lj, gem, warpx_field_gather and
+  fragment_patch_density now emit numba that runs.
 - The Anthropic harness answers a tool call cut off at `max_tokens` as an error instead of running it with
   truncated input; Optimas reads its reward and usage from the Agents SDK's actual result shapes.
 - The phase clock is per context, so a judge thread rendering a CPF form does not bill another thread's span.

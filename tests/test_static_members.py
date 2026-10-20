@@ -13,7 +13,8 @@ an AST field ``ast.iter_fields`` found, ``registry.fields_of`` reads a registry 
 import ast
 import pathlib
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+from hpcagent_bench.paths import ROOT as REPO
+
 SOURCES = ("hpcagent_bench", "agent/hpcagent_agent", "helpers")
 BUILTINS = frozenset({"getattr", "hasattr", "setattr", "delattr", "vars"})
 
