@@ -1032,7 +1032,7 @@ JUDGE_BASE_URL="http://${JUDGE_MASTER_HOST}:${JUDGE_PORT}"
 # node: this job serves the model; service: a hosted model; none: no model (a tuner setup).
 INFERENCE_SOURCE="${INFERENCE_SOURCE:-node}"
 if [[ "${INFERENCE_SOURCE}" == "none" ]]; then
-    VLLM_BASE_URL=""
+    VLLM_BASE_URL="" VLLM_MASTER_HOST="" VLLM_REPLICA_URLS=""
 elif [[ "${INFERENCE_SOURCE}" == "service" ]]; then
     # Inference over the network, from a service nobody here starts. The block resolves into the
     # SAME endpoint names a server setup composes below, so the agent driver, the runners and the
