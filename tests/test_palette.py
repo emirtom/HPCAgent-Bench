@@ -112,41 +112,34 @@ def test_two_entities_sharing_a_colour_in_one_figure_warn(caplog):
     assert "both draw" in caplog.text
 
 
-#: THE PUBLISHED COLOURS. Every entity that has appeared in a figure, pinned by VALUE.
-#:
-#: The registry decides a colour from the explicit ``order`` of a registered class, so an order is never
-#: renumbered: a new entry takes the next free slot and no entry already in a paper changes colour. An
-#: order test cannot catch a renumbering -- the vocabulary is still internally consistent. This can, and
-#: it fails naming the exact entity whose colour moved.
-#:
-#: A NEW entity is added here in the same commit that registers it. A CHANGED value is a decision
-#: to repaint, so it is made deliberately, with the figures regenerated.
-#:
-#: Repainted wholesale once: one global palette, matplotlib's tab20, is the user's decision.
+#: The published colours, pinned by value. A colour is the entry's registration slot, so registering a new entry
+#: anywhere but last repaints figures already drawn; this table fails naming the entity whose colour moved. A new
+#: entity is added here in the commit that registers it; a changed value is a deliberate repaint (regenerate the
+#: figures). Repainted in v0.2.1 when slots became registration order (pages first).
 PUBLISHED_PACKET_COLORS = {
     "": "#4d4d4d",
-    "cpf-src": "#1f77b4",
-    "cpf-tool": "#ff7f0e",
-    "cpf-cpu-src": "#1f77b4",
-    "cpf-tool-cpu": "#ff7f0e",
-    "cpf-gpu-src": "#7b4173",
-    "cpf-tool-gpu": "#6b6ecf",
-    "cpf-src-kinds": "#b5cf6b",
-    "cpf-tool-kinds": "#e7ba52",
-    "cpf-cpu-src-kinds": "#b5cf6b",
-    "cpf-tool-cpu-kinds": "#e7ba52",
-    "cpf-gpu-src-kinds": "#d6616b",
-    "cpf-tool-gpu-kinds": "#ce6dbd",
-    "lang-skills": "#2ca02c",
-    "divide-and-conquer": "#d62728",
-    "profiling": "#9467bd",
-    "repo": "#8c564b",
-    "no-score-tool": "#e377c2",
-    "perf-playbook-cpu": "#ff9896",
-    "kernel": "#9edae5",
-    "cpf-src+lang-skills": "#389add",
-    "divide-and-conquer+profiling": "#e25e5e",
-    "caveman": "#393b79",
+    "cpf-src": "#ff7f0e",
+    "cpf-tool": "#8c564b",
+    "cpf-cpu-src": "#ff7f0e",
+    "cpf-tool-cpu": "#8c564b",
+    "cpf-gpu-src": "#d62728",
+    "cpf-tool-gpu": "#7f7f7f",
+    "cpf-src-kinds": "#2ca02c",
+    "cpf-tool-kinds": "#e377c2",
+    "cpf-cpu-src-kinds": "#2ca02c",
+    "cpf-tool-cpu-kinds": "#e377c2",
+    "cpf-gpu-src-kinds": "#9467bd",
+    "cpf-tool-gpu-kinds": "#bcbd22",
+    "lang-skills": "#c5b0d5",
+    "divide-and-conquer": "#17becf",
+    "profiling": "#98df8a",
+    "repo": "#c49c94",
+    "no-score-tool": "#f7b6d2",
+    "perf-playbook-cpu": "#9edae5",
+    "kernel": "#6b6ecf",
+    "cpf-src+lang-skills": "#ffa250",
+    "divide-and-conquer+profiling": "#3fdaea",
+    "caveman": "#1f77b4",
 }
 
 #: Models are assigned from the front of `markers`, standalone optimizers from the back, so a new
@@ -173,9 +166,9 @@ PUBLISHED_FRAMEWORK_COLORS = {
 @pytest.mark.parametrize(("packet", "expected"), sorted(PUBLISHED_PACKET_COLORS.items()))
 def test_a_published_packet_colour_did_not_move(packet, expected):
     assert palette.color(packet) == expected, (
-        f"{packet!r} was {expected} and is now {palette.color(packet)}. An order was changed "
-        "or reused, which repaints every figure already drawn with it. Give the entry the next free "
-        "order instead, or change this table deliberately and regenerate the figures."
+        f"{packet!r} was {expected} and is now {palette.color(packet)}: the registration order changed, "
+        "which repaints every figure already drawn. Register the entry last, or change this table "
+        "deliberately and regenerate the figures."
     )
 
 
