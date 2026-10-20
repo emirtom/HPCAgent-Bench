@@ -19,16 +19,28 @@ spcl/dace #2714 and #2715 merged.
 - **Tools.** The tool server runs on the `mcp` SDK; a tool is one `@tool` function with a pydantic input model
   (schemas are generated, never written by hand), served per setup. A packet gates tools by name; `AGENT_METHOD`
   replaces `AGENT_PACKET`. Judge routes take `POST` with per-episode state (`EpisodeStore`).
-- **Registries.** Every named kind (models, frameworks, packets, harnesses, anti-cheat gates, ...) is one typed
-  `registry.Kind`; closed categories are `enum.auto()` enums spelled only at the DB/wire edge.
+- **Registries.** Every named kind (models, frameworks, packets, harnesses, tuners, anti-cheat gates, ...) is one
+  typed `registry.Kind`; an entry's slot (colour, marker, position) is its registration order, so a new entry never
+  repaints another and no entry states a number. Closed categories are `enum.auto()` enums spelled only at the
+  DB/wire/CLI edge. A framework column names its own stage enum and a `TUNERS` key.
+- **Tool docs.** The curl harnesses' tool sections (`tools/<tool>.md`) are offered exactly where the MCP server serves
+  the tool; a plugin ships its own beside its tool modules.
 - **Harnesses** `anthropic` and `openai` (native SDKs) and `optimas` again; each harness has its own venv.
+- **Tuners run like agents.** A setup whose model is an optimizer (`hpcagent-bench agent <name>`, e.g. an Alloy flavor)
+  gets no inference node; the agent driver deals its problems to 40 tuner workers on the agent node (judge image),
+  each measuring only through its judge (harness `tuner`, `layers/tuner.env`).
 
 ### Changed
 - `/profile` may measure at a smaller size than the run's preset (fast profile).
+- Alloy times nothing locally: each verified region candidate is a `/profile` stub on the judge (one input, 5
+  repetitions, size M on larger runs), and the chosen library is scored once.
+- Speedup figures draw a bar with its 95% interval as an alternative to the marker (`plot efficacy --mark bar`).
 - Numba references are `njit(parallel=True)` with no `prange` in generated code; the machine_learning track's
   oracle is torch only.
 - Narrow formats (fp16/bf16) are graded against the fp64 reference; `cloudsc` is fp64 only.
-- Canon rows record build time by phase (`transform_time`, `codegen_time`, `compile_time`; schema 14), and `setups.plugins` the digest of every plugin the judge loaded (schema 15); older files gain both when opened for writing.
+- Canon rows record build time by phase (`transform_time`, `codegen_time`, `compile_time`; schema 14) and
+  `setups.plugins` the digest of every plugin the judge loaded (schema 15); older files gain both when opened for
+  writing.
 - `any`-mode tasks accept one C or Fortran source built with the agent's own flags.
 
 ### Fixed
