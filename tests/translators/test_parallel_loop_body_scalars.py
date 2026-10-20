@@ -11,6 +11,7 @@ Two defects of the same parallel-loop decision:
   read it too, so numba's ``prange`` handed back an arbitrary iteration's value instead of the last.
 """
 
+import ast
 import ctypes
 import importlib.util
 import pathlib
@@ -23,6 +24,7 @@ import pytest
 from hpcagent_bench import numerical_oracle
 from hpcagent_bench.translators.numpyto_c.emit import emit_c_omp
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
+from hpcagent_bench.translators.numpyto_common.parallelism import loop_is_parallel_safe
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from hpcagent_bench.translators.numpyto_fortran.emit import emit_fortran_omp
 from hpcagent_bench.translators.numpyto_numba.emit import emit_numba
@@ -106,12 +108,21 @@ REBOUND_AFTER = (
 
 
 def test_a_loop_whose_body_scalar_is_read_after_it_stays_serial() -> None:
+    tree = ast.parse(LIVE_AFTER)
+    assert not loop_is_parallel_safe(first_loop(tree), tree)
     assert "nb.prange" not in emit_numba(LIVE_AFTER)
 
 
-def test_a_body_scalar_rebound_before_any_later_read_keeps_prange() -> None:
+def test_a_body_scalar_rebound_before_any_later_read_keeps_the_loop_parallel() -> None:
     """The check is liveness, not "the name appears again": a later rebinding kills the value."""
-    assert "nb.prange" in emit_numba(REBOUND_AFTER)
+    tree = ast.parse(REBOUND_AFTER)
+    assert loop_is_parallel_safe(first_loop(tree), tree)
+    assert "nb.prange" not in emit_numba(REBOUND_AFTER)
+
+
+def first_loop(tree: ast.Module) -> ast.For:
+    """The first ``for`` loop of ``tree``."""
+    return next(n for n in ast.walk(tree) if isinstance(n, ast.For))
 
 
 def test_numba_returns_the_last_iterations_scalar(tmp_path: pathlib.Path) -> None:

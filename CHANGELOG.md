@@ -48,7 +48,9 @@ spcl/dace #2714 and #2715 merged.
 - Claude Code stream stalls are relaunched like timeouts; output-cap and malformed-tool-call ends are recorded as such.
 - The anthropic harness never runs a tool call cut off at `max_tokens`; the shell tool kills a timed-out command's
   whole process group.
-- Numba translator (PR #113): outer-product peeling, `None` placeholders, axis scans; four more kernels run.
+- Numba translator (PR #113): outer-product peeling, `None` placeholders, axis scans. Generated numba is one
+  `njit(parallel=True)` build without `prange` and lowers in-place broadcasts and literal-axis `np.roll`;
+  covariance, correlation, gaussian, kmeans and poisson_cg_3d now match C.
 - Correctness sweep, CPF workspace/library requests, the phase clock, image registry push and RTX 30/40 builds.
 ## 0.2.0 (2026-10)
 

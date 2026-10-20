@@ -1,7 +1,8 @@
 # NumpyToNumba
 
 Python (numpy) -> Python (numba) emitter. A dense kernel keeps its body; every top-level `def`
-gains `@nb.njit(parallel=True, cache=True)` (`fastmath=True` with `--fastmath`).
+gains `@nb.njit(parallel=True, cache=True)` (`fastmath=True` with `--fastmath`), except the serial
+helpers the parfor fixes add, which gain `@nb.njit(cache=True)`.
 
 ```bash
 numpyto --target numba --kernel k_numpy.py --bench-info k.json --out DIR   # writes DIR/k_numba.py
@@ -10,7 +11,7 @@ numpyto --target numba --kernel k_numpy.py --bench-info k.json --out DIR   # wri
 | module | does |
 |---|---|
 | `emit.py` | `emit_numba`: decorator, imports, header; drops `functools.lru_cache` / `cache` decorators, which nopython code cannot call through |
-| `parfor.py` | drops `parallel=True` for a body numba's parfor pass answers differently from numpy, spells out an augmented store of a reshaped operand (`out += b.reshape(1, -1, 1)`, which the parfor pass misbroadcasts), and turns at most one provably independent unit-step `range` loop into `nb.prange` (never a loop that writes an array through a helper, directly or not) |
+| `parfor.py` | keeps `parallel=True` where numba's parfor pass answers differently from numpy by fixing the body: a `max` / `min` / `eye` call runs through a serial module function (`serial_max`, ...), a slice store over cells its right-hand side reads stores a copy (`materialized(...)`), an augmented store of a reshaped operand is spelled out (`out += b.reshape(1, -1, 1)`, which the parfor pass misbroadcasts). `parallel=True` is dropped only for a form no fix takes (an overlapping `@=`, a starred unsafe call). Every loop stays a `range`: the emit never writes `nb.prange` (a hand-written reference may) |
 | `objmode_fft.py` | runs a 1-D `np.fft.fft`/`ifft` in `objmode` (nopython mode cannot type `np.fft`) |
 | `lstsq.py` | spells numpy's default `rcond=None` cutoff (`eps * max(M, N)`) as a float, the only `rcond` numba types |
 | `sparse.py` | lowers a sparse `A @ x` onto the unpacked CSR/CSC buffer ABI the manifest declares. The dense operand must be a name proven rank 1 or a subscript the rank table proves rank 1 (`Q[:, k]`: an integer index drops its axis); the view is bound to a temp first |

@@ -15,7 +15,6 @@ __all__ = [
     "SparseMatmulRewriter",
     "call_leaf",
     "dense_operands_are_vectors",
-    "prange_row_loop",
     "rewrite_sparse_matmuls",
     "sparse_operand",
     "symbol_readbacks",
@@ -102,18 +101,6 @@ def dense_operands_are_vectors(fn: ast.FunctionDef, kir: KernelIR, buffers: set[
         if leaf in SHAPED_CTOR_CALLS and node.args and isinstance(node.args[0], (ast.Tuple, ast.List)):
             return False
     return True
-
-
-def prange_row_loop(loop: ast.For) -> None:
-    """Hand a ROW-PARTITIONED loop to numba's parfor.
-
-    Iteration ``i`` writes only row ``i`` of a freshly allocated temp, so independence holds by
-    construction. Done here because :func:`parallelize_one_range_loop` picks ONE loop in source
-    order, and the sparse matvec -- which is where these kernels spend their time -- is not it.
-    """
-    call = loop.iter
-    if isinstance(call, ast.Call):
-        call.func = ast.Attribute(value=name_("nb"), attr="prange", ctx=ast.Load())
 
 
 class SparseMatmulRewriter(ast.NodeTransformer):
@@ -217,8 +204,6 @@ class SparseMatmulRewriter(ast.NodeTransformer):
                 raise SparseLoweringRefused(f"no sparse x sparse lowering for {desc.format}/{rhs_desc.format}")
             out_cols = self.bound(rhs_desc.logical_shape[1])
             stmts = expand(temp, desc.buffers, rhs_desc.buffers, rows, out_cols)
-            for loop in stmts:
-                prange_row_loop(loop)
             return [self.alloc(temp, desc.buffers["data"], (rows, out_cols)), *stmts]
         # An integer-indexed axis of a matrix (``Q[:, k]``) is a rank-1 VIEW: numpy drops the axis an
         # integer index selects and keeps the one a slice spans. The rank table proves it; the view is
@@ -239,9 +224,7 @@ class SparseMatmulRewriter(ast.NodeTransformer):
         target = name_(temp)
         if desc.format == "csr":
             stmts = SPARSE_MATMUL_DISPATCH[("csr", "dense", "matmul_vec")](target, desc.buffers, rhs_name, rows)
-            prange_row_loop(stmts[0])
         elif desc.format == "csc":
-            # CSC scatter-adds into y[indices[k]], a data-dependent row, so this one stays serial.
             cols = self.bound(desc.logical_shape[1])
             stmts = SPARSE_MATMUL_DISPATCH[("csc", "dense", "matmul_vec")](target, desc.buffers, rhs_name, rows, cols)
         else:
