@@ -236,11 +236,12 @@ jobs:
           coverage: perf-cloudsc
 
   # The numerical sweep @ S on the Python backends, one leg per backend (numba in two), each carrying riders that fill
-  # its runner to about 35-38 minutes: Alloy and perf[kernels] on the numba halves, a quarter of the pythran stems on jax, the second
+  # its runner to about 35-38 minutes: Alloy and perf[kernels] on the numba halves, a quarter of the pythran stems on a jax half, the second
   # quarter and perf[cloudsc_monolith] on the pythran leg (the last quarter rides on integration[0]). One pythran
   # compile peaks at ~7 GB, so pythran runs one worker: 46 min for the whole sweep, in quarters
   # (HPCAGENT_BENCH_E2E_SHARD; test_ci_coverage.py::test_every_sliced_sweep_runs_each_slice_exactly_once).
   # A leg's `minutes` caps its own sweep so a hang still leaves the finish step its time.
+  # Coverage artifacts are named by matrix position (e2e-<job-index>), unique per leg.
   e2e:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
     name: e2e[${{ matrix.leg.backend }}${{ matrix.leg.shard && format(' {0}', matrix.leg.shard) || '' }}]${{ matrix.leg.alloy && ' + alloy' || '' }}${{ matrix.leg.pythran && format(' + pythran {0}', matrix.leg.pythran) || '' }}${{ matrix.leg.perf && format(' + perf[{0}]', matrix.leg.perf) || '' }} (numerical sweep @ S)
@@ -253,8 +254,9 @@ jobs:
           # minutes and sort next to each other, so each half takes one): half + Alloy 5 / half + perf[kernels] 12.5
           - { backend: numba, workers: auto, minutes: 25, shard: "0/2", alloy: true }
           - { backend: numba, workers: auto, minutes: 25, shard: "1/2", perf: kernels }
-          # jax 25 min + pythran 3/4 (about 10)
-          - { backend: jax, workers: auto, minutes: 30, pythran: "3/4" }
+          # jax in halves (the whole sweep took 22-38 min): half + pythran 3/4 (about 10) / half
+          - { backend: jax, workers: auto, minutes: 25, shard: "0/2", pythran: "3/4" }
+          - { backend: jax, workers: auto, minutes: 25, shard: "1/2" }
           # pythran 0/4 + 1/4 (the old 0/2 half took 27 min, 1/2 19) + perf[cloudsc_monolith] 11.5
           - { backend: pythran, workers: 1, minutes: 17, shard: "0/4", pythran: "1/4", perf: cloudsc_monolith }
     timeout-minutes: 45
@@ -315,7 +317,7 @@ jobs:
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: e2e-${{ matrix.leg.backend }}${{ matrix.leg.alloy && '-alloy' || '' }}${{ matrix.leg.perf && format('-{0}', matrix.leg.perf) || '' }}
+          coverage: e2e-${{ strategy.job-index }}
 
   # The @pytest.mark.integration tests under tests/ (build and run real artifacts). The translator
   # tree's half of the marker runs in `translators`. Two shards: the one Phase 6 step measured
