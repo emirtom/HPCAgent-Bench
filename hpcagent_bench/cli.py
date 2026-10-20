@@ -30,6 +30,18 @@ from typing import IO, TYPE_CHECKING, Any
 
 import hpcagent_bench
 from hpcagent_bench import osinfo
+from hpcagent_bench.categories import (
+    AUTO_BASELINE,
+    BASELINE_OPTIONS,
+    InputMode,
+    Language,
+    Oracle,
+    Residency,
+    SourceMode,
+    Track,
+    parse_baseline,
+    spelled,
+)
 from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS
 from hpcagent_bench.paths import RESULTS_DIR
 from hpcagent_bench.precision import DATATYPE_CHOICES
@@ -127,19 +139,30 @@ def resolve_prompt_variants(value: str | None) -> list[str | None]:
     return list(names)
 
 
-def residencies_arg(value: str) -> tuple[str, ...]:
+def languages_arg(value: str) -> list[Language] | None:
+    """Parse ``--languages`` ('c,cuda' / 'all' = each kernel's own set)."""
+    tokens = csv_or_none(value)
+    if tokens is None:
+        return None
+    try:
+        return [Language.parse(token) for token in tokens]
+    except ValueError as exc:
+        raise SystemExit(f"--languages: {exc}") from None
+
+
+def residencies_arg(value: str) -> tuple[Residency, ...]:
     """Parse + validate ``--residency`` (host / device / 'host,device').
 
     The only two options are all-host and all-device (abi_contract Sec. 10); reject
     anything else so a typo is a hard error rather than a silently-empty sweep.
     """
-    from hpcagent_bench.harness.task import RESIDENCIES
-
     tokens = tuple(v for v in value.split(",") if v)
-    bad = [t for t in tokens if t not in RESIDENCIES]
-    if bad or not tokens:
-        raise SystemExit(f"--residency must be from {RESIDENCIES}; got {value!r}")
-    return tokens
+    try:
+        if tokens:
+            return tuple(Residency.parse(token) for token in tokens)
+    except ValueError:
+        pass
+    raise SystemExit(f"--residency must be from {Residency.texts()}; got {value!r}")
 
 
 def kernel_selection(value: str) -> list[str] | None:
@@ -170,8 +193,8 @@ def expand_cli_tasks(args: argparse.Namespace) -> "list[Task]":
 
     return expand_tasks(
         kernels=kernel_selection(args.kernels),
-        source_modes=(args.source_mode,),
-        languages=csv_or_none(args.languages),
+        source_modes=(SourceMode.parse(args.source_mode),),
+        languages=languages_arg(args.languages),
         residencies=residencies_arg(args.residency),
     )
 
@@ -182,8 +205,8 @@ def grade_params_of(args: argparse.Namespace) -> dict[str, Any]:
         "preset": args.preset,
         "datatype": args.datatype,
         "repeat": args.repeat,
-        "oracle": args.oracle,
-        "baseline": args.baseline,
+        "oracle": Oracle.parse(args.oracle),
+        "baseline": parse_baseline(args.baseline),
         "max_rounds": args.repair_rounds,
     }
 
@@ -213,7 +236,7 @@ def write_agent_row(f: IO[str], row: "RunRow") -> None:
     so the on-disk row shape is single-sourced."""
     dumped = dataclasses.asdict(row)
     dumped.pop("prompt", None)
-    f.write(json.dumps(dumped) + "\n")
+    f.write(json.dumps(dumped, default=spelled) + "\n")
 
 
 def make_agent_builder(registry: dict[str, Any], agent_name: str) -> Callable[[str | None], Any]:
@@ -309,7 +332,7 @@ def agent_under_harbor(args: argparse.Namespace) -> int:
 
     out = pathlib.Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    language = args.languages.split(",")[0]
+    language = Language.parse(args.languages.split(",")[0])
     rc, grades = harbor.run_agent(args.agent, args.kernels, out.parent / f"harbor-{args.episode_id}", language=language)
     run = {"agent": args.agent, "episode_id": args.episode_id, "execution": "harbor"}
     with out.open("a") as f:
@@ -446,21 +469,26 @@ def record_calls(args: argparse.Namespace, task: "Task", row: "RunRow") -> None:
         episode_id=args.episode_id,
         preset=args.preset,
         datatype=args.datatype,
-        language=task.language,
+        language=task.language.text,
         source_mode=task.source_mode,
         baseline=row.baseline,
     )
 
 
 def save_submission_file(
-    save_dir: pathlib.Path, task: "Task", row: "RunRow", language: str, source: str, prompt_variant: str | None
+    save_dir: pathlib.Path,
+    task: "Task",
+    row: "RunRow",
+    language: Language,
+    source: str | None,
+    prompt_variant: str | None,
 ) -> None:
     """``--save-submissions``: write the returned optimization (winning, else last attempt)."""
     from hpcagent_bench.languages import LANG_EXT
 
-    ext = LANG_EXT.get(language, language)
+    ext = LANG_EXT.get(language, language.text)
     tag = f"__{prompt_variant}" if prompt_variant else ""
-    (save_dir / f"{task.kernel}__{task.language}{tag}__{row.status}.{ext}").write_text(source)
+    (save_dir / f"{task.kernel}__{task.language.text}{tag}__{row.status}.{ext}").write_text(source or "")
 
 
 def cmd_tasks(args: argparse.Namespace) -> int:
@@ -525,10 +553,10 @@ def cmd_prompt(args: argparse.Namespace) -> int:
     if args.service:
         from hpcagent_bench.harness.service import service_prompt
 
-        print(service_prompt(args.kernel, args.language, args.judge_url, judge_rank=args.judge_rank))
+        print(service_prompt(args.kernel, Language.parse(args.language), args.judge_url, judge_rank=args.judge_rank))
         return 0
 
-    task = Task(args.kernel, "restricted", args.language)
+    task = Task(args.kernel, SourceMode.RESTRICTED, Language.parse(args.language))
 
     def config_for(variant_name: str) -> PromptConfig:
         # Explicit CLI kwargs win over the variant, which wins over config defaults;
@@ -574,9 +602,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     timing.pin_threads()  # the judge service times submissions -> pin like every other measurement session
     base = from_config()
     cfg = ServiceConfig(
-        oracle=args.oracle or base.oracle,
-        baseline=args.baseline or base.baseline,
-        input_mode=args.input_mode or base.input_mode,
+        oracle=base.oracle if args.oracle is None else Oracle.parse(args.oracle),
+        baseline=base.baseline if args.baseline is None else parse_baseline(args.baseline),
+        input_mode=base.input_mode if args.input_mode is None else InputMode.parse(args.input_mode),
         # resolve_preset maps 'fuzzed:seed' -> base 'fuzzed' AND applies the token's seed;
         # passing args.preset raw (as before) dropped the pinned seed silently.
         preset=resolve_preset(args.preset) if args.preset else base.preset,
@@ -841,7 +869,7 @@ def cmd_cpf(args: argparse.Namespace) -> int:
 
     if args.track:
         records = cpf_bridge.render_track(
-            args.track,
+            Track.parse(args.track),
             args.out,
             language=args.language,
             precision=args.precision,
@@ -868,8 +896,6 @@ def cmd_cpf(args: argparse.Namespace) -> int:
 
 def add_task_selection(p: argparse.ArgumentParser) -> None:
     """The task-selection arguments ``agent``, ``launch`` and ``tasks`` share (:func:`expand_cli_tasks`)."""
-    from hpcagent_bench.harness.task import SOURCE_MODES  # the vocabulary is Task's own, not a CLI copy
-
     p.add_argument(
         "--kernels",
         default="all",
@@ -881,13 +907,13 @@ def add_task_selection(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--residency",
-        default="host",
+        default=Residency.HOST.text,
         help="buffer residency: host (default) or device (GPU-resident, cuda/hip only); comma-separated to sweep both",
     )
     p.add_argument(
         "--source-mode",
-        default="restricted",
-        choices=list(SOURCE_MODES),
+        default=SourceMode.RESTRICTED.text,
+        choices=SourceMode.texts(),
         help="delivery: restricted (default; a source file in the task's language, the "
         "harness compiles it) or any (a prebuilt C-ABI .so, written in any language)",
     )
@@ -895,8 +921,6 @@ def add_task_selection(p: argparse.ArgumentParser) -> None:
 
 def add_grade_options(p: argparse.ArgumentParser) -> None:
     """The grading arguments ``agent`` and ``launch`` share (:func:`grade_params_of`)."""
-    from hpcagent_bench.harness.grading import BASELINE_OPTIONS, ORACLE_OPTIONS
-
     p.add_argument(
         "--preset",
         default="fuzzed",
@@ -914,16 +938,16 @@ def add_grade_options(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--oracle",
-        default="auto",
-        choices=list(ORACLE_OPTIONS),
+        default=Oracle.AUTO.text,
+        choices=Oracle.texts(),
         help="correctness reference (default auto = the per-track default: loop_level_reasoning and "
         "scientific_computing -> compiled, the best-of(numba, c) references; machine_learning -> torch, the "
         "torch.compile max-autotune reference; numba | c = that one compiled reference)",
     )
     p.add_argument(
         "--baseline",
-        default="auto",
-        choices=list(BASELINE_OPTIONS),
+        default=AUTO_BASELINE,
+        choices=BASELINE_OPTIONS,
         help="speedup denominator (default auto = the per-track default: loop_level_reasoning and "
         "scientific_computing -> the faster of c and numba, machine_learning -> torch-autotune; "
         "c = sequential C; *-autopar = the multi-core auto-parallelized reference; "
@@ -963,9 +987,7 @@ def add_sweep_options(p: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argparse parser."""
-    from hpcagent_bench.harness.grading import BASELINE_OPTIONS, ORACLE_OPTIONS
     from hpcagent_bench.harness.prompts import STRATEGIES
-    from hpcagent_bench.harness.service import INPUT_MODES
     from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 
     p = argparse.ArgumentParser(prog="hpcagent-bench")
@@ -1041,7 +1063,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("prompt", help="print the leak-free prompt for one task")
     pr.add_argument("kernel", nargs="?", default=None, help="kernel key (e.g. gemm); optional with --list-variants")
-    pr.add_argument("--language", default="c", help="implementation language (default c)")
+    pr.add_argument("--language", default=Language.C.text, choices=Language.texts(), help="implementation language")
     pr.add_argument(
         "--variant",
         default=None,
@@ -1123,19 +1145,19 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument(
         "--oracle",
         default=None,
-        choices=list(ORACLE_OPTIONS),
+        choices=Oracle.texts(),
         help="correctness reference (default from config service.oracle)",
     )
     sv.add_argument(
         "--baseline",
         default=None,
-        choices=list(BASELINE_OPTIONS),
+        choices=BASELINE_OPTIONS,
         help="speedup denominator (default from config measurement.baseline)",
     )
     sv.add_argument(
         "--input-mode",
         default=None,
-        choices=list(INPUT_MODES),
+        choices=InputMode.texts(),
         help="what a submission may carry (default from config service.input_mode)",
     )
     sv.add_argument(
@@ -1305,7 +1327,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     target = mp.add_mutually_exclusive_group(required=True)
     target.add_argument("--kernel", help="registry key / manifest stem of ONE kernel")
-    target.add_argument("--track", help="render every kernel on this track instead")
+    target.add_argument("--track", choices=Track.texts(), help="render every kernel on this track instead")
     mp.add_argument("--out", required=True, help="directory the translation units and bindings are written to")
     mp.add_argument("--language", default="c++", choices=("c++", "c"))
     mp.add_argument("--precision", default="", help="fp64 (default) / fp32 / fp16")

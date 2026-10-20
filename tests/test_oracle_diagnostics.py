@@ -18,6 +18,7 @@ import pydantic
 import pytest
 
 from hpcagent_bench import numerical_oracle as no
+from hpcagent_bench.categories import Preset
 
 
 def _proc(returncode: int = 1, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -98,7 +99,7 @@ def test_compile_failure_status_carries_the_compiler_error(monkeypatch: pytest.M
         return real(cmd, *a, **k)
 
     monkeypatch.setattr(no.subprocess, "run", fake)
-    res = no.run_kernel("cond_reduce_sum", "S", only_backends={"c"})
+    res = no.run_kernel("cond_reduce_sum", Preset.S, only_backends={"c"})
     assert res["c"].startswith("FAIL:compile"), res["c"]
     assert "unknown type name" in res["c"], res["c"]
 

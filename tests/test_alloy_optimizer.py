@@ -10,6 +10,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, SourceMode
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import optimizer_registry
@@ -43,10 +44,10 @@ def test_the_profile_flavor_submits_a_library_the_judge_grades_correct(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=3))[1]
+    url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=3))[1]
     monkeypatch.setenv("JUDGE_URL", url)  # the optimizer scores its variants on this judge
 
-    sub = optimizer_registry()[flavor](workdir=tmp_path).solve(Task(KERNEL, "any", "c"))
+    sub = optimizer_registry()[flavor](workdir=tmp_path).solve(Task(KERNEL, SourceMode.ANY, Language.C))
 
     assert sub.library is not None
     with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict

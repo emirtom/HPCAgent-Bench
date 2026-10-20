@@ -33,7 +33,7 @@ checker, which resolves ``Self`` on an enum class method to the base.
 import enum
 import functools
 from collections.abc import Mapping
-from typing import Any, Self, cast
+from typing import Any, cast
 
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
@@ -71,12 +71,12 @@ class Coded(enum.Enum):
         return overrides.get(self.name) or self.name.lower().replace("_", separator)
 
     @classmethod
-    def parse(cls, text: str) -> Self:
+    def parse[CodedT: Coded](cls: type[CodedT], text: str) -> CodedT:
         """The member spelled ``text``; ValueError naming the spellings when none is."""
         member = spellings(cls).get(text)
         if member is None:
             raise ValueError(f"{text!r} is not a {cls.__name__}; one of {', '.join(spellings(cls))}")
-        return cast("Self", member)  # spellings(cls) holds cls's members only
+        return cast("CodedT", member)  # spellings(cls) holds cls's members only
 
     @classmethod
     def texts(cls) -> tuple[str, ...]:
@@ -84,7 +84,7 @@ class Coded(enum.Enum):
         return tuple(spellings(cls))
 
     @classmethod
-    def validate(cls, value: object) -> Self:
+    def validate[CodedT: Coded](cls: type[CodedT], value: object) -> CodedT:
         """A member, or the member a spelling names: what a boundary model accepts."""
         if isinstance(value, cls):
             return value

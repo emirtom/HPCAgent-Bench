@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The speedup DENOMINATOR: which reference a grade's speedup divides by, one enum value per rule.
+"""The speedup DENOMINATOR: which reference a grade's speedup divides by, one :class:`Denominator` member per rule.
 
 The value is configured per track in one place (``measurement.denominator.<track>``), recorded on
 every grade (``grades.denominator``), and a grade is credited only when its denominator is the one
@@ -9,14 +9,15 @@ never pooled.
 
 Earlier builds stamped ``baseline_policy`` with versioned names (``single-v1:<kind>``,
 ``best-of-v1/v2/v3:<kinds>``); :func:`of_grade` reads one of those, with the references a grade raced,
-as the enum value it denotes, or None when the grade cannot show which it was.
+as the member it denotes, or None when the grade cannot show which it was. The references a denominator
+races (:data:`KINDS`) are named as ``grade_cells.baseline`` stores them.
 """
 
-import enum
 import functools
 from collections.abc import Iterable
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Denominator, Track
 from hpcagent_bench.harness import timing
 from hpcagent_bench.spec import BenchSpec
 
@@ -34,22 +35,8 @@ __all__ = [
     "for_kernel",
     "of_grade",
     "of_kinds",
+    "of_stored",
 ]
-
-
-class Denominator(enum.Enum):
-    """A speedup denominator: one reference, or the fastest of several timed in the same grade."""
-
-    NUMBA = "numba"
-    C = "c"
-    C_AUTOPAR = "c-autopar"
-    #: What grades of the three kernels that once shipped their own native reference recorded; no kernel is
-    #: credited under it, so those grades are owed a regrade under their track's denominator.
-    VENDORED = "vendored"
-    BEST_OF_NUMBA_C = "best-of(numba,c)"
-    BEST_OF_NUMBA_C_AUTOPAR = "best-of(numba,c,c-autopar)"
-    #: ``torch.compile(mode="max-autotune")`` of the kernel's reference on its device.
-    TORCH_AUTOTUNE = "torch-autotune"
 
 
 #: Each denominator's references in tie-break order (the head wins a tie). ``torch-autotune`` is the
@@ -79,11 +66,10 @@ AUTOPAR = "c-autopar"
 TORCH_KINDS = ("torch-autotune-cpu", "torch-autotune-gpu")
 
 
-def configured(track: str | None) -> Denominator:
-    """The denominator configured for ``track`` (``measurement.denominator.<track>``); :data:`FALLBACK` for a
-    track with no key, or None."""
-    kind = config.current().measurement.denominator.of(track)
-    return FALLBACK if kind is None else Denominator(kind)
+def configured(track: Track | None) -> Denominator:
+    """The denominator configured for ``track`` (``measurement.denominator.<track>``); :data:`FALLBACK` for
+    None (a kernel on no track)."""
+    return FALLBACK if track is None else config.current().measurement.denominator.of(track)
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -100,13 +86,19 @@ def credited(stamp: object, recorded: object, kernel: str) -> bool:
     """Whether a grade of ``kernel`` stamped ``stamp`` with denominator ``recorded`` is credited: the
     final grade (:func:`timing.credited_protocol`) under the denominator configured for the kernel
     (:func:`for_kernel`). Nothing else is -- two denominators are never pooled."""
-    return timing.credited_protocol(stamp) and str(recorded or "").strip() == for_kernel(kernel).value
+    return timing.credited_protocol(stamp) and of_stored(recorded) is for_kernel(kernel)
+
+
+def of_stored(recorded: object) -> Denominator | None:
+    """The denominator a ``grades.denominator`` value spells; None for NULL, ``''`` or a spelling no member has."""
+    text = str(recorded or "").strip()
+    return Denominator.parse(text) if text in Denominator.texts() else None
 
 
 def of_kinds(kinds: Iterable[str]) -> Denominator | None:
     """The denominator racing exactly ``kinds`` (in any order; a device's torch kind names
     ``torch-autotune``), or None for a set no value names."""
-    wanted = frozenset(Denominator.TORCH_AUTOTUNE.value if kind in TORCH_KINDS else kind for kind in kinds)
+    wanted = frozenset(Denominator.TORCH_AUTOTUNE.text if kind in TORCH_KINDS else kind for kind in kinds)
     return next((d for d, raced in KINDS.items() if frozenset(raced) == wanted), None)
 
 

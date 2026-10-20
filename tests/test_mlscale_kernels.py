@@ -19,8 +19,8 @@ torch = pytest.importorskip("torch")
 dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 
-from hpcagent_bench import modules
-from hpcagent_bench import sizing
+from hpcagent_bench import modules, sizing
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks.utilities import compare_arrays
 from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import mpi_shard_driver, mpi_sizing, torch_reference
@@ -370,7 +370,7 @@ def test_the_harness_tile_is_the_generated_tile(stem: str, ranks: int) -> None:
     spec, module = spec_of(stem), torch_module(stem)
     binding = binding_from_spec(spec)
     submission = Submission(
-        language="c",
+        language=Language.C,
         source="reference_dist",
         requests=Requests.from_plan(distribution_for_kernel(spec.mpi, binding, ranks)),
     )
@@ -425,7 +425,7 @@ def test_the_rendered_kernel_stub_declares_the_bf16_c_type(stem: str) -> None:
     tiles must reach it as ``__hip_bfloat16 *`` with the header that declares that type."""
     spec = spec_of(stem)
     binding = binding_from_spec(spec)
-    stub = gen_kernel_mpi_stub(binding, "hip")
+    stub = gen_kernel_mpi_stub(binding, Language.HIP)
     assert "#include <hip/hip_bf16.h>" in stub
     assert "double *" not in stub, stub
     for arg in binding.pointers:

@@ -59,6 +59,7 @@ from hpcagent_agent.driver.promote_unsubmitted import PROMOTED_TAG
 
 from hpcagent_bench import config, data_guard, recorded_rows
 from hpcagent_bench.cache_files import sha256_hex
+from hpcagent_bench.categories import Residency
 from hpcagent_bench.harness import db_json, denominator, recording, results_db, scoring, timing
 from hpcagent_bench.harness.native_call import TimingProbe
 from hpcagent_bench.observation_columns import CANON_FIELDS, NUMERIC_COLUMNS, OBSERVATION_FIELDS, SOURCE_FIELDS
@@ -547,7 +548,8 @@ def rederived_cell_suspect(cell: dict[str, Any]) -> int:
     elif ratio == 1.0:
         return stored
     shape = db_json.SHAPE.loads(cell.get("shape"))
-    device = cell.get("residency") == "device"
+    stored_residency = cell.get("residency")
+    device = bool(stored_residency) and Residency.parse(str(stored_residency)) is Residency.DEVICE
     return int(scoring.floor_suspect(spec, shape, ratio, float(cell.get("baseline_ns") or 0), native, device=device))
 
 
@@ -1018,7 +1020,7 @@ def distinct(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 def final_key(row: Mapping[str, Any]) -> FinalKey:
     """The :data:`FinalKey` a row's credited final grade has: its :data:`RegradeKey` under the
     denominator configured for its kernel (:func:`denominator.for_kernel`)."""
-    return (*row_key(row), denominator.for_kernel(str(row["kernel"])).value)
+    return (*row_key(row), denominator.for_kernel(str(row["kernel"])).text)
 
 
 def row_key(row: Mapping[str, Any]) -> RegradeKey:

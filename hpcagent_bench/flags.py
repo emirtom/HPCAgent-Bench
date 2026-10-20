@@ -34,6 +34,8 @@ import tempfile
 from functools import lru_cache
 from typing import NamedTuple
 
+from hpcagent_agent.coded import Coded
+
 from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.units import BYTES_PER_MIB
 
@@ -116,13 +118,13 @@ __all__ = [
 ]
 
 
-class Mode(enum.Enum):
+class Mode(Coded):
     """The four evaluation modes per kernel."""
 
-    SINGLE_CORE = "single_core"
-    MULTI_CORE = "multi_core"
-    GPU_CUDA = "gpu_cuda"
-    GPU_HIP = "gpu_hip"
+    SINGLE_CORE = enum.auto()
+    MULTI_CORE = enum.auto()
+    GPU_CUDA = enum.auto()
+    GPU_HIP = enum.auto()
 
 
 # CPU compiler baselines (single source of truth for ``-O3``, ``-march=...``,
@@ -339,13 +341,14 @@ NVHPC_CONCUR = "-Mconcur"
 # outline-body naming (Polly's ``*_polly_subfn``, GCC Graphite's ``*_loopfn``/``*._omp_fn``).
 
 
-class AutoparVerdict(enum.Enum):
+class AutoparVerdict(Coded):
     """Three states, not a bool -- "accepted but useless" needs its own name, since that is
-    exactly the failure mode this probe exists to catch (a bool cannot say it)."""
+    exactly the failure mode this probe exists to catch (a bool cannot say it). Spelled
+    ``rejected`` / ``vacuous`` / ``ok`` in a preflight report."""
 
-    REJECTED = "rejected"  #: the compiler/toolchain does not accept these flags at all.
-    VACUOUS = "vacuous"  #: flags accepted, object built, but nothing was outlined.
-    OK = "ok"  #: a parallel loop body was genuinely outlined.
+    REJECTED = enum.auto()  #: the compiler/toolchain does not accept these flags at all.
+    VACUOUS = enum.auto()  #: flags accepted, object built, but nothing was outlined.
+    OK = enum.auto()  #: a parallel loop body was genuinely outlined.
 
 
 class AutoparProbe(NamedTuple):

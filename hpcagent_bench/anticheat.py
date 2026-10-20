@@ -35,6 +35,7 @@ from typing import NamedTuple
 from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, VerifyResult
@@ -124,7 +125,7 @@ class Context:
     submission: Submission
     task: Task
     score: Score
-    preset: str
+    preset: Preset
     datatype: str
     verifier: Callable[..., VerifyResult] | None = None
     rtol: float | None = None

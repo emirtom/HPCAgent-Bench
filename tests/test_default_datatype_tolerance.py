@@ -10,6 +10,7 @@ import shutil
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.test import TOLERANCES, tolerance_datatype, tolerances_for
 from hpcagent_bench.precision import (
@@ -56,7 +57,7 @@ def test_tolerance_datatype_tracks_detected_dtype() -> None:
 def test_gemm_default_datatype_is_fp32_so_its_band_is_fp32() -> None:
     """gemm's legacy ``initialize()`` defaults to float32 -- the premise of the bug -- so the resolved
     band must be fp32, not the fp64 floor raw ``datatype=None`` would take."""
-    data = Benchmark("gemm").get_data("S", None)  # no --datatype == the CLI default
+    data = Benchmark("gemm").get_data(Preset.S, None)  # no --datatype == the CLI default
     arrays = [v for v in data.values() if isinstance(v, np.ndarray)]
     assert arrays, "gemm default data is not fp32"
     assert all(a.dtype == np.float32 for a in arrays), "gemm default data is not fp32"
@@ -73,7 +74,7 @@ def _validated_at_default(framework: str) -> bool:
 
     test = Test(Benchmark("gemm"), generate_framework(framework))
     # datatype=None is the CLI default: gemm then materializes fp32 data.
-    res = test.run(preset="S", validate=True, repeat=1, timeout=300.0, datatype=None, ignore_errors=True)
+    res = test.run(preset=Preset.S, validate=True, repeat=1, timeout=300.0, datatype=None, ignore_errors=True)
     assert res, f"{framework}: no implementations ran"
     return all(d.get("validated") for d in res.values()) and not any(d.get("failure") for d in res.values())
 

@@ -9,6 +9,7 @@ import pydantic
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.config import RequestCapability
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
@@ -39,7 +40,7 @@ def requests(*operations: dict, **startup: object) -> Requests:
 def rendered(kernel: str, *capabilities: str, precisions: Sequence[str] = ()) -> str:
     """The C prompt of ``kernel`` under a setup allowing ``capabilities``."""
     with allowing(*capabilities, precisions=precisions):
-        return build_prompt(Task(kernel, "restricted", "c"))
+        return build_prompt(Task(kernel, SourceMode.RESTRICTED, Language.C))
 
 
 def test_the_default_setup_allows_library_loads_only() -> None:
@@ -90,8 +91,8 @@ def test_the_distributed_layout_is_the_distribute_capability() -> None:
 
 
 def test_the_judge_refuses_a_disallowed_request_before_the_kernel_checks() -> None:
-    task = Task(DENSE_KERNEL, "restricted", "c")
-    submission = Submission(language="c", source="void k(void) {}", requests=requests(CAST, PERMUTE))
+    task = Task(DENSE_KERNEL, SourceMode.RESTRICTED, Language.C)
+    submission = Submission(language=Language.C, source="void k(void) {}", requests=requests(CAST, PERMUTE))
     refused = requests_refusal(submission, task, "float64")
     assert refused is not None and refused.startswith("this setup does not allow precision requests"), refused
     with allowing("cast", "layout", precisions=["fp32"]):

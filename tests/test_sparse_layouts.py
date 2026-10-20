@@ -19,6 +19,7 @@ import scipy.sparse as sp
 from relayout.sparse import SparseFormat
 
 from hpcagent_bench import fuzz, paths
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness.envelope import Submission
@@ -207,7 +208,7 @@ def test_a_malformed_format_is_a_request_fault(label: object, match: str) -> Non
 
 
 def test_the_format_operations_ride_the_envelope_both_ways() -> None:
-    sub = Submission(language="c", source="x", requests=Requests.of(sparse={"A": "bsr:4"}))
+    sub = Submission(language=Language.C, source="x", requests=Requests.of(sparse={"A": "bsr:4"}))
     assert Submission.from_obj(sub.to_json()).requests.formats() == sub.requests.formats()
     assert sub.requests.formats() == {"A": "bsr:4"}
 
@@ -400,7 +401,7 @@ def test_the_binding_names_the_arguments_the_emitted_c_takes(kernel: str, fmt: s
 
 
 def sparse_data(kernel: str, seed: int) -> dict:
-    return Benchmark(kernel).get_data(preset="S", datatype="float64", input_seed=seed)
+    return Benchmark(kernel).get_data(preset=Preset.S, datatype="float64", input_seed=seed)
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
@@ -489,7 +490,7 @@ def test_a_layout_draws_every_scenario_and_runs_only_the_inputs_it_covers(seed: 
     ``uncovered``: not run, the kernel fails, with a reason naming its scenario and the layout."""
     spec = BenchSpec.load("bicgstab")
     choice = resolve_layout(spec, {"A": "dia"})
-    data = Benchmark("bicgstab").get_data(preset="S", datatype="float64", input_seed=seed)
+    data = Benchmark("bicgstab").get_data(preset=Preset.S, datatype="float64", input_seed=seed)
     scenario = scenario_of(spec, seed)
     assert scenario == tuple(spec.init.scenarios)[seed % len(spec.init.scenarios)]
     reason = uncovered(spec, choice, seed)
@@ -517,9 +518,9 @@ def test_a_layout_no_scenario_serves_is_refused_at_request_time(monkeypatch: pyt
 def test_a_timed_repeat_keeps_the_pattern_and_redraws_the_values(kernel: str) -> None:
     """Same pattern, nnz and buffer sizes -- the very same index arrays -- with new values."""
     spec = BenchSpec.load(kernel)
-    base = Benchmark(kernel).get_data(preset="S", datatype="float64", input_seed=1)
+    base = Benchmark(kernel).get_data(preset=Preset.S, datatype="float64", input_seed=1)
     classes = classify_args(binding_from_spec(spec))
-    repeat = variant_for(kernel, "S", "float64", base, classes, [11, 22, 1], None, None, None, 0)
+    repeat = variant_for(kernel, Preset.S, "float64", base, classes, [11, 22, 1], None, None, None, 0)
     for name in spec.sparse_layouts:
         assert repeat[f"{name}_indptr"] is base[f"{name}_indptr"]
         assert repeat[f"{name}_indices"] is base[f"{name}_indices"]
@@ -532,9 +533,9 @@ def test_a_pattern_kernels_timed_repeat_keeps_its_operands() -> None:
     """A boolean matrix has no values to redraw: every repeat multiplies the same graph (its
     dense operands, here none, would still vary)."""
     spec = BenchSpec.load("spgemm_hash")
-    base = Benchmark("spgemm_hash").get_data(preset="S", datatype="float64", input_seed=1)
+    base = Benchmark("spgemm_hash").get_data(preset=Preset.S, datatype="float64", input_seed=1)
     classes = classify_args(binding_from_spec(spec))
-    repeat = variant_for("spgemm_hash", "S", "float64", base, classes, [11, 22, 1], None, None, None, 0)
+    repeat = variant_for("spgemm_hash", Preset.S, "float64", base, classes, [11, 22, 1], None, None, None, 0)
     for name in spec.sparse_layouts:
         for buf in (f"{name}_indptr", f"{name}_indices"):
             assert np.array_equal(repeat[buf], base[buf]), buf
@@ -545,9 +546,9 @@ def test_a_pattern_kernels_timed_repeat_keeps_its_operands() -> None:
 )
 def test_a_redrawn_system_stays_diagonally_dominant(kernel: str, symmetric: bool) -> None:
     spec = BenchSpec.load(kernel)
-    base = Benchmark(kernel).get_data(preset="S", datatype="float64", input_seed=2)
+    base = Benchmark(kernel).get_data(preset=Preset.S, datatype="float64", input_seed=2)
     classes = classify_args(binding_from_spec(spec))
-    matrix = variant_for(kernel, "S", "float64", base, classes, [33, 2], None, None, None, 0)["A"]
+    matrix = variant_for(kernel, Preset.S, "float64", base, classes, [33, 2], None, None, None, 0)["A"]
     diagonal = np.abs(matrix.diagonal())
     off_diagonal = np.abs(matrix).sum(axis=1).A1 - diagonal
     assert np.all(diagonal > off_diagonal)

@@ -8,6 +8,7 @@ import shutil
 
 import pytest
 
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.frameworks.forked import run_forked
 from hpcagent_bench.harness import recording
@@ -26,9 +27,9 @@ def _skip_unless_compile_toolchain() -> None:
 def _noop_solve_and_score(kernel):
     """Solve the no-op optimizer for ``kernel`` and grade it, inside a forked child so a crash is
     surfaced as a failed run. Returns the picklable ``(Score, Submission)`` pair."""
-    task = Task(kernel, "restricted", "c")
+    task = Task(kernel, SourceMode.RESTRICTED, Language.C)
     submission = NoOpOptimizer().solve(task)
-    result = score(submission, task, preset="S", repeat=1)
+    result = score(submission, task, preset=Preset.S, repeat=1)
     return result, submission
 
 
@@ -64,7 +65,7 @@ def test_noop_pipeline_grades_and_records(tmp_path, request) -> None:
 
     # record leg: the graded no-op submission lands on the leaderboard table.
     rec_db = str(tmp_path / "rec.db")
-    task = Task(KERNEL, "restricted", "c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     table, detail, graded = recording.record(
         result, submission, task, episode_id="smoke", optimizer="noop", path=rec_db
     )

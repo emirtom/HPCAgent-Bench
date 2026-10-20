@@ -27,6 +27,7 @@ from typing import TypeGuard, cast
 import numpy as np
 
 from hpcagent_bench import config, flags
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.dtypes import storage_dtype
 from hpcagent_bench.fuzz import EVAL_ERRORS, FuzzValue, eval_int, safe_eval
 from hpcagent_bench.precision import numpy_dtype, precision_from_datatype
@@ -84,7 +85,7 @@ __all__ = [
 ]
 
 #: The ladder, small to large. The ends are authored; the middle is derived.
-PRESETS: tuple[str, ...] = ("S", "M", "L", "XL")
+PRESETS: tuple[Preset, ...] = (Preset.S, Preset.M, Preset.L, Preset.XL)
 #: Largest working set the single-core timed rung (``M``) may touch: it must fit, and finish, on
 #: one core of an ordinary machine.
 S_BYTE_CEILING = 2 << 30
@@ -317,7 +318,7 @@ BYTES_PER_GB: int = 1 << 30
 
 def kernel_memory_gb(
     spec: BenchSpec,
-    preset: str,
+    preset: Preset,
     datatype: str = DEFAULT_DTYPE,
     workspace: str | None = None,
     params: Mapping[str, object] | None = None,
@@ -345,7 +346,7 @@ def kernel_memory_gb(
     if spec.memory_cap_gb is not None:
         return spec.memory_cap_gb
     floor = config.current().limits.kernel_memory_gb
-    values = params if params is not None else spec.parameters.get(preset)
+    values = params if params is not None else spec.parameters.get(preset.text)
     if values is None or spec.init is None:
         return floor
     arrays = working_bytes(spec, values, datatype, layout=layout)
@@ -397,7 +398,7 @@ def reference_memory_gb(kernel_gb: float) -> float:
     return max(kernel_gb, fraction * rank_memory_share_bytes() / BYTES_PER_GB)
 
 
-def constraint_violations(spec: BenchSpec, preset: str, values: Mapping[str, FuzzValue]) -> list[str]:
+def constraint_violations(spec: BenchSpec, preset: Preset, values: Mapping[str, FuzzValue]) -> list[str]:
     """Every ``constraints:`` expression ``values`` fails at ``preset``.
 
     An expression that cannot be evaluated counts as a failure. A constraint the checker cannot
@@ -409,9 +410,9 @@ def constraint_violations(spec: BenchSpec, preset: str, values: Mapping[str, Fuz
     for expr in spec.constraints:
         try:
             if not safe_eval(expr, names):
-                out.append(f"{preset}: constraint {expr!r} does not hold")
+                out.append(f"{preset.text}: constraint {expr!r} does not hold")
         except EVAL_ERRORS as exc:  # an unevaluable constraint is itself a failure
-            out.append(f"{preset}: constraint {expr!r} could not be evaluated: {exc}")
+            out.append(f"{preset.text}: constraint {expr!r} could not be evaluated: {exc}")
     return out
 
 
@@ -433,7 +434,7 @@ class KernelCost:
     """
 
     kernel: str
-    preset: str
+    preset: Preset
     working_bytes: int
     predicted_time: float
     #: Why there is no prediction, empty when there is one. Never a silent zero: a kernel with no
@@ -446,16 +447,16 @@ class KernelCost:
         return not self.reason
 
 
-def preset_cost(spec: BenchSpec, kernel: str, preset: str) -> KernelCost:
+def preset_cost(spec: BenchSpec, kernel: str, preset: Preset) -> KernelCost:
     """``kernel``'s predicted cost at ``preset``, or a :class:`KernelCost` saying why there is none.
 
     Named in ``reason``: no such preset (``absent``); a hand-written ``init`` with no declarative
     shapes (``opaque``); a shape that does not evaluate here, or evaluates to zero bytes
     (``unresolved`` -- ``lulesh``'s placeholder-zero extents are an unknown, not a cheap kernel).
     """
-    params = spec.parameters.get(preset)
+    params = spec.parameters.get(preset.text)
     if params is None:
-        return KernelCost(kernel, preset, 0, 0.0, f"absent: no {preset} preset declared")
+        return KernelCost(kernel, preset, 0, 0.0, f"absent: no {preset.text} preset declared")
     if spec.init is None or not spec.init.shapes:
         return KernelCost(kernel, preset, 0, 0.0, "opaque: the manifest declares no array shapes")
     nbytes = working_bytes(spec, params)
@@ -466,7 +467,7 @@ def preset_cost(spec: BenchSpec, kernel: str, preset: str) -> KernelCost:
     return KernelCost(kernel, preset, nbytes, nbytes / TIME_UNIT_BYTES)
 
 
-def cost_vector(specs: Mapping[str, BenchSpec], preset: str) -> dict[str, KernelCost]:
+def cost_vector(specs: Mapping[str, BenchSpec], preset: Preset) -> dict[str, KernelCost]:
     """``{kernel: cost}`` at ``preset`` for every kernel in ``specs``, in sorted kernel order."""
     return {kernel: preset_cost(specs[kernel], kernel, preset) for kernel in sorted(specs)}
 
@@ -584,7 +585,7 @@ def pack_lpt(
 #: Bytes per element of the datatype every manifest's XL rung is authored at.
 AUTHORED_ELEMENT_BYTES: int = int(np.dtype(DEFAULT_DTYPE).itemsize)
 #: The authored rung the constant-bytes rule grows.
-GROWN_RUNG: str = "XL"
+GROWN_RUNG: Preset = Preset.XL
 
 
 def element_bytes(datatype: str) -> int:
@@ -604,7 +605,7 @@ def size_scale(spec: BenchSpec, datatype: str) -> float:
 def leading_axis(spec: BenchSpec) -> tuple[str, ...]:
     """The kernel's batch dimension: the leading axis of its first input array, when that axis is a
     size symbol of the XL rung (an integer the preset ladder moves, not a ``config:`` knob); else none."""
-    xl = spec.parameters.get(GROWN_RUNG, {})
+    xl = spec.parameters.get(GROWN_RUNG.text, {})
     for name in spec.array_args:
         expr = spec.init.shapes.get(name) if spec.init else None
         if name in spec.output_args or not expr:
@@ -661,7 +662,7 @@ def datatype_rung(spec: BenchSpec, datatype: str) -> tuple[dict[str, FuzzValue],
     manifest's constraints or the XL byte ceiling refuse the full growth, the largest admissible
     fraction of it is taken (bisection); the authored rung when none is. The factor returned is what the
     axes' product actually grew by, so a grade records the size it ran at, not the one intended."""
-    authored: dict[str, FuzzValue] = dict(spec.parameters.get(GROWN_RUNG) or {})
+    authored: dict[str, FuzzValue] = dict(spec.parameters.get(GROWN_RUNG.text) or {})
     factor = size_scale(spec, datatype)
     axes = spec.scale_axes or leading_axis(spec)
     if factor == 1.0 or not authored or not axes:
@@ -689,4 +690,4 @@ def datatype_sized(spec: BenchSpec) -> BenchSpec:
     rung, growth = datatype_rung(spec, datatype)
     if growth == 1.0:
         return spec
-    return spec.replace(parameters={**spec.parameters, GROWN_RUNG: rung})
+    return spec.replace(parameters={**spec.parameters, GROWN_RUNG.text: rung})

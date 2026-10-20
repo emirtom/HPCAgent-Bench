@@ -12,6 +12,7 @@ import yaml
 from _pytest.mark.structures import ParameterSet
 
 from hpcagent_bench import autogen, paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.numerical_oracle import (
     CHAOTIC_FLOAT_TOLERANCE,
     COMPILE,
@@ -216,10 +217,12 @@ def _result(stem: str) -> dict:
             _CACHE[stem] = dict.fromkeys(E2E_BACKENDS, skip)
             return _CACHE[stem]
         # pluto is opt-in in run_kernel; runs only when named in E2E_BACKENDS.
-        res = run_kernel(stem, "S", precision=E2E_PRECISION, only_backends=frozenset(E2E_BACKENDS))
+        res = run_kernel(stem, Preset.S, precision=E2E_PRECISION, only_backends=frozenset(E2E_BACKENDS))
         # jax fork-timeout -> skip:too-long; retry alone at a capped size to still validate correctness.
         if res.get("jax", "") == "skip:too-long":
-            jres = run_kernel(stem, "S", precision=E2E_PRECISION, max_size=_JAX_E2E_MAX_SIZE, only_backends={"jax"})
+            jres = run_kernel(
+                stem, Preset.S, precision=E2E_PRECISION, max_size=_JAX_E2E_MAX_SIZE, only_backends={"jax"}
+            )
             if jres.get("jax"):
                 res["jax"] = jres["jax"]
         _CACHE[stem] = res

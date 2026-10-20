@@ -25,8 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import autogen
+from hpcagent_bench import autogen, modules
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cloudsc_monolith.test_cloudsc_monolith_reference import (
     FIELDS,
     OUTPUTS,

@@ -11,6 +11,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import recording, service
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
@@ -74,8 +75,10 @@ def test_a_refusal_after_the_task_grid_records_the_granted_request(monkeypatch: 
         config.overridden("record.enabled", True),
     ):
         handler.serve_post()
-        bare = Submission(language="c", source="x", requests=Requests.validate({"operations": operations}))
-        graded = Task(MPI_KERNEL, "restricted", "c", residency=service.grading_residency(MPI_KERNEL, "c"))
+        bare = Submission(language=Language.C, source="x", requests=Requests.validate({"operations": operations}))
+        graded = Task(
+            MPI_KERNEL, SourceMode.RESTRICTED, Language.C, residency=service.grading_residency(MPI_KERNEL, Language.C)
+        )
         granted = service.with_task_grid(bare, graded)
     assert sent == [400]
     assert isinstance(granted, Submission)

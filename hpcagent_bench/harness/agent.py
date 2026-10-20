@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 import pydantic
 
 from hpcagent_bench import config, framework_cache, paths
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.usage import TokenUsage
@@ -99,10 +100,10 @@ def post_request(url: str, body: dict[str, JsonValue], headers: dict[str, str]) 
 
 
 #: language -> glob for the NumpyToX fp64 reference source.
-REF_GLOB = {"c": "*_fp64.c", "cpp": "*_fp64.cpp", "fortran": "*_fp64.f90"}
+REF_GLOB: dict[Language, str] = {Language.C: "*_fp64.c", Language.CPP: "*_fp64.cpp", Language.FORTRAN: "*_fp64.f90"}
 
 #: agent language -> shipped reference kernel_mpi filename suffix (hand-authored, abi_contract.md Sec. 12).
-MPI_REF_SUFFIX = {"c": "_mpi.c", "cpp": "_mpi.c", "python": "_mpi.py"}
+MPI_REF_SUFFIX: dict[Language, str] = {Language.C: "_mpi.c", Language.CPP: "_mpi.c", Language.PYTHON: "_mpi.py"}
 
 
 class Agent(ABC):  # noqa: B024 -- the shared base every agent extends; it declares no abstract method
@@ -163,7 +164,7 @@ def budget_tokens(budget: object, default: int) -> int:
 
 #: agent language -> the extension of a COMMITTED ``<module>_reference.*`` sidecar beside the
 #: numpy reference. The spelling ``tests/test_tree_structure.py`` enforces.
-REF_SUFFIX = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
+REF_SUFFIX: dict[Language, str] = {Language.C: ".c", Language.CPP: ".cpp", Language.FORTRAN: ".f90"}
 
 
 def prefer_committed_reference() -> bool:
@@ -171,7 +172,7 @@ def prefer_committed_reference() -> bool:
     return config.current().references.prefer_committed
 
 
-def committed_reference_override(kernel: str, language: str) -> pathlib.Path | None:
+def committed_reference_override(kernel: str, language: Language) -> pathlib.Path | None:
     """The kernel's committed ``<module>_reference.<ext>``, when it is a hand-written OVERRIDE.
 
     ``emit_io`` owns the override rule and is asked for it rather than re-implemented: a file that
@@ -202,16 +203,16 @@ def generated_cache_root() -> pathlib.Path | None:
     return root if root.is_dir() else None
 
 
-def _generated_cache_key(kernel: str, language: str, kernel_py: pathlib.Path, bench_info: bytes = b"") -> str:
+def _generated_cache_key(kernel: str, language: Language, kernel_py: pathlib.Path, bench_info: bytes = b"") -> str:
     """Cache key ``<kernel>.<language>.<digest>``, digest = the first 16 hex digits of
     ``framework_cache.source_fingerprint`` over: the ``<module>_numpy.py`` bytes, ``language`` and its
     target backend, ``bench_info`` (:func:`emit_bridge.emitter_bench_info`: manifest shapes and the ABI
     dtype of every array) and the translator sources. A change to any of them is a miss. The framework
     siblings (``*_numba.py``) use the same fingerprint.
     """
-    extra = f"{language}\x00{LANG_TARGET.get(language, '')}\x00".encode() + bench_info
+    extra = f"{language.text}\x00{LANG_TARGET.get(language, '')}\x00".encode() + bench_info
     digest = framework_cache.source_fingerprint(kernel_py, extra)[:16]
-    return f"{kernel.replace('/', '_')}.{language}.{digest}"
+    return f"{kernel.replace('/', '_')}.{language.text}.{digest}"
 
 
 def emitted_bench_info(spec: BenchSpec) -> bytes:
@@ -222,7 +223,7 @@ def emitted_bench_info(spec: BenchSpec) -> bytes:
 
 
 @functools.lru_cache(maxsize=None, typed=True)
-def _reference_source(kernel: str, language: str, prefer_committed: bool) -> str:
+def _reference_source(kernel: str, language: Language, prefer_committed: bool) -> str:
     """The reference source for ``(kernel, language)``, memoized per resolution of the knob.
 
     ``prefer_committed`` is a PARAMETER, not a lookup, precisely so it is part of the cache key:
@@ -238,7 +239,7 @@ def _reference_source(kernel: str, language: str, prefer_committed: bool) -> str
     glob = REF_GLOB.get(language)
     target = LANG_TARGET.get(language)
     if glob is None or target is None:
-        raise NotImplementedError(f"no reference for language {language!r}")
+        raise NotImplementedError(f"no reference for language {language.text!r}")
     spec = BenchSpec.load(kernel)
     kernel_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
 
@@ -257,7 +258,7 @@ def _reference_source(kernel: str, language: str, prefer_committed: bool) -> str
         rc = emit_kernel(spec, kernel_py, pathlib.Path(tmp), target=target, abi=True)
         hits = sorted(pathlib.Path(tmp).glob(glob))
         if rc != 0 or not hits:
-            raise RuntimeError(f"emit failed for {kernel} ({language}); rc={rc}")
+            raise RuntimeError(f"emit failed for {kernel} ({language.text}); rc={rc}")
         text = hits[0].read_text()
 
     if cached is not None:
@@ -273,7 +274,7 @@ def _reference_source(kernel: str, language: str, prefer_committed: bool) -> str
     return text
 
 
-def emit_reference_source(kernel: str, language: str) -> str:
+def emit_reference_source(kernel: str, language: Language) -> str:
     """The reference source for ``(kernel, language)``: NumpyToX output, or the kernel's committed
     hand-written override when ``references.prefer_committed`` is on.
 
@@ -301,11 +302,11 @@ def reference_mpi_source(task: Task) -> str:
     """Read the shipped hand-authored reference kernel_mpi for task's kernel + language (abi_contract.md Sec. 12)."""
     suffix = MPI_REF_SUFFIX.get(task.language)
     if suffix is None:
-        raise NotImplementedError(f"no MPI reference for language {task.language!r}")
+        raise NotImplementedError(f"no MPI reference for language {task.language.text!r}")
     spec = BenchSpec.load(task.kernel)
     path = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}{suffix}"
     if not path.exists():
-        raise RuntimeError(f"no reference kernel_mpi shipped for {task.kernel} ({task.language}) at {path}")
+        raise RuntimeError(f"no reference kernel_mpi shipped for {task.kernel} ({task.language.text}) at {path}")
     return path.read_text()
 
 
@@ -320,7 +321,7 @@ class StubAgent(Agent):
         self._source_fn = source_fn or reference_source
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        if task.source_mode != "restricted":
+        if task.source_mode is not SourceMode.RESTRICTED:
             raise NotImplementedError("StubAgent supports restricted (source) mode only")
         return Submission(language=task.language, source=self._source_fn(task))
 

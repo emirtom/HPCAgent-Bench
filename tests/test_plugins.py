@@ -18,6 +18,7 @@ from hpcagent_agent.tools import registry
 
 from hpcagent_bench import plugins
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import routes, service
 from hpcagent_bench.harness.judge_wire import JudgeError
 from hpcagent_bench.registry import Kind
@@ -197,17 +198,25 @@ def test_a_route_may_not_take_a_name_the_judge_answers() -> None:
         routes.route("score", methods=(HTTPMethod.POST,))(lambda judge, request: None)
 
 
-@pytest.mark.parametrize(
-    ("asked", "preset", "size"), [(None, "L", "L"), ("M", "L", "M"), ("S", "XL", "S"), ("L", "L", "L")]
-)
-def test_a_fast_profile_measures_at_a_rung_no_larger_than_the_run(asked: str | None, preset: str, size: str) -> None:
-    assert service.profile_size(asked, preset) == size
+FAST_PROFILES = [
+    (None, Preset.L, Preset.L),
+    ("M", Preset.L, Preset.M),
+    ("S", Preset.XL, Preset.S),
+    ("L", Preset.L, Preset.L),
+]
+
+
+@pytest.mark.parametrize(("asked", "preset", "size"), FAST_PROFILES)
+def test_a_fast_profile_measures_at_a_rung_no_larger_than_the_run(
+    asked: str | None, preset: Preset, size: Preset
+) -> None:
+    assert service.profile_size(asked, preset) is size
 
 
 @pytest.mark.parametrize(("asked", "message"), [("XL", "larger than this run's 'L'"), ("huge", "not one of")])
 def test_a_profile_larger_than_the_run_or_unknown_is_refused(asked: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        service.profile_size(asked, "L")
+        service.profile_size(asked, Preset.L)
 
 
 if __name__ == "__main__":
@@ -215,7 +224,7 @@ if __name__ == "__main__":
 
     from tests.conftest import judge_factory
 
-    for asked, preset, size in ((None, "L", "L"), ("M", "L", "M"), ("S", "XL", "S"), ("L", "L", "L")):
+    for asked, preset, size in FAST_PROFILES:
         test_a_fast_profile_measures_at_a_rung_no_larger_than_the_run(asked, preset, size)
     for asked, message in (("XL", "larger than this run's 'L'"), ("huge", "not one of")):
         test_a_profile_larger_than_the_run_or_unknown_is_refused(asked, message)

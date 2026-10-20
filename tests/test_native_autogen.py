@@ -13,8 +13,8 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages, paths
+from hpcagent_bench import flags, languages, modules, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 
 KERNEL = "tsvc_2_s212"  # 1-D: a,b outputs; c,d inputs; LEN_1D symbol
@@ -159,7 +159,7 @@ def test_wrap_kernel_matches_numpy(framework, dtype, fptype) -> None:
     if not _emitter_present() or not shutil.which(_COMPILER[framework]):
         pytest.skip(f"translators or {_COMPILER[framework]} absent")
     if framework == "polly" and _POLLY.verdict is not flags.AutoparVerdict.OK:
-        pytest.skip(f"this host's polly is {_POLLY.verdict.value}: {_POLLY.detail}")
+        pytest.skip(f"this host's polly is {_POLLY.verdict.text}: {_POLLY.detail}")
     from hpcagent_bench.emit_bridge import emit_kernel
     from hpcagent_bench.frameworks import native_runtime
 
@@ -439,7 +439,7 @@ def test_int32_array_promoted_on_read(framework, target, compiler, ext) -> None:
                 "-O2",
                 "-ffree-form",
                 "-ffree-line-length-none",
-                languages.std_flag("fortran"),
+                languages.std_flag(Language.FORTRAN),
                 "-fPIC",
                 "-shared",
                 str(src),

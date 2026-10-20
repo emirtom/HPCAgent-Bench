@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
 from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
@@ -62,12 +63,12 @@ def stub_oracle(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _noop_submission(language: str = "c") -> Submission:
     """The reference distributed scaled_add submission (kernel_mpi + a 1-D block distribution)."""
-    return NoOpMPIOptimizer().solve(Task(kernel="scaled_add", language=language, residency="distributed"))
+    return NoOpMPIOptimizer().solve(Task(kernel="scaled_add", language=language, residency=Residency.DISTRIBUTED))
 
 
 def test_distributed_scaled_add_scores_solved(mpi_c) -> None:
-    task = Task(kernel="scaled_add", language="c", residency="distributed")
-    result = scoring.score(_noop_submission(), task, preset="S")
+    task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+    result = scoring.score(_noop_submission(), task, preset=Preset.S)
 
     assert result.correct, result.detail
     assert result.build_ok
@@ -80,10 +81,10 @@ def test_distributed_scaled_add_python_delivery_scores_solved() -> None:
     launch = mpi_launch_helpers.mpi4py_launcher()
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
-    task = Task(kernel="scaled_add", language="python", residency="distributed")
+    task = Task(kernel="scaled_add", language=Language.PYTHON, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.launcher", list(launch))
     try:
-        result = scoring.score(_noop_submission("python"), task, preset="S")
+        result = scoring.score(_noop_submission("python"), task, preset=Preset.S)
     finally:
         config.clear_override("mpi.launcher")
     assert result.correct, result.detail
@@ -94,11 +95,11 @@ def test_distributed_scaled_add_python_delivery_scores_solved() -> None:
 
 def test_distributed_independent_verify_passes_for_reference(mpi_c) -> None:
     sub = _noop_submission()
-    task = Task(kernel="scaled_add", language="c", residency="distributed")
-    result = scoring.score(sub, task, preset="S")
+    task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+    result = scoring.score(sub, task, preset=Preset.S)
     assert result.correct, result.detail
     # The persistence gate: a fresh build_mpi + re-runs (determinism via allclose, fresh seed).
-    verdict = scoring.independent_verify(sub, task, result, preset="S")
+    verdict = scoring.independent_verify(sub, task, result, preset=Preset.S)
     assert verdict.ok, verdict.reason
     assert verdict.determinism_ok
     assert verdict.reverify_ok
@@ -136,7 +137,7 @@ def test_verify_distributed_ungradeable_tolerance_is_flagged_not_a_crash(monkeyp
     stub_oracle(monkeypatch)
     monkeypatch.setattr(scoring.mpi_call, "run", refuse)
 
-    task = Task(kernel="scaled_add", language="c", residency="distributed")
+    task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     verdict = scoring._verify_distributed(
@@ -146,7 +147,7 @@ def test_verify_distributed_ungradeable_tolerance_is_flagged_not_a_crash(monkeyp
         binding,
         1e-6,
         1e-9,
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         reverify_seed=123,
     )
@@ -159,7 +160,7 @@ def test_distributed_leaderboard_routing_scores_solved(mpi_c) -> None:
     # single-node sweep. One measured, verified iteration; s_i is S_i of its one ratio.
     from hpcagent_bench.harness.metric import score_task_fuzzed
 
-    task = Task(kernel="scaled_add", language="c", residency="distributed")
+    task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
     # The leaderboard base is XL (268M elems); pin S so the test's build + 4 MPI launches stay fast.
     config.set_override("mpi.leaderboard_preset", "S")
     try:
@@ -180,9 +181,13 @@ def test_distributed_bad_kernel_is_a_scored_failure_not_a_crash(mpi_c) -> None:
     stub = gen_kernel_mpi_stub(binding)
     broken = stub[: stub.index("{")] + "{\n    this is not C;\n}\n"
     sub = Submission(
-        language="c", source=broken, requests=Requests.from_plan({"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}})
+        language=Language.C,
+        source=broken,
+        requests=Requests.from_plan({"grid": [4], "arrays": {"x": _BLOCK0, "y": _BLOCK0}}),
     )
-    result = scoring.score(sub, Task(kernel="scaled_add", language="c", residency="distributed"), preset="S")
+    result = scoring.score(
+        sub, Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED), preset=Preset.S
+    )
     assert not result.correct
 
 
@@ -193,8 +198,8 @@ _STENCILS = ["jacobi_2d", "heat_3d"]
 @pytest.mark.parametrize("kernel", _STENCILS)
 def test_distributed_stencil_scores_solved(kernel, mpi_c) -> None:
     # C kernel disables FMA contraction, so the gathered field is bit-exact.
-    task = Task(kernel=kernel, language="c", residency="distributed")
-    result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset="S")
+    task = Task(kernel=kernel, language=Language.C, residency=Residency.DISTRIBUTED)
+    result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
     assert result.correct, result.detail
     assert result.build_ok
     assert result.native_ns >= 0
@@ -207,10 +212,10 @@ def test_distributed_stencil_python_delivery_scores_solved(kernel) -> None:
     launch = mpi_launch_helpers.mpi4py_launcher()
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
-    task = Task(kernel=kernel, language="python", residency="distributed")
+    task = Task(kernel=kernel, language=Language.PYTHON, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.launcher", list(launch))
     try:
-        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset="S")
+        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
     finally:
         config.clear_override("mpi.launcher")
     assert result.correct, result.detail
@@ -223,7 +228,7 @@ def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
     # jacobi_2d through the ranked-leaderboard path; `solved` folds in the independent re-verify.
     from hpcagent_bench.harness.metric import score_task_fuzzed
 
-    task = Task(kernel="jacobi_2d", language="c", residency="distributed")
+    task = Task(kernel="jacobi_2d", language=Language.C, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.leaderboard_preset", "S")  # XL (16383^2) would be multi-GB; S keeps it fast
     try:
         ts = score_task_fuzzed(NoOpMPIOptimizer().solve(task), task)
@@ -241,10 +246,10 @@ def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
 
 
 def test_distributed_block_cyclic_2d_scores_solved(mpi_c) -> None:
-    task = Task(kernel="mat_scaled_add", language="c", residency="distributed")
+    task = Task(kernel="mat_scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
     sub = NoOpMPIOptimizer().solve(task)
     assert sub.requests.grid_at(4) == (2, 2)  # the equal-edge 2-D grid for R=4
-    result = scoring.score(sub, task, preset="S")
+    result = scoring.score(sub, task, preset=Preset.S)
     assert result.correct, result.detail
     assert result.build_ok
     assert result.native_ns >= 0
@@ -256,10 +261,10 @@ def test_distributed_block_cyclic_2d_python_delivery_scores_solved() -> None:
     launch = mpi_launch_helpers.mpi4py_launcher()
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
-    task = Task(kernel="mat_scaled_add", language="python", residency="distributed")
+    task = Task(kernel="mat_scaled_add", language=Language.PYTHON, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.launcher", list(launch))
     try:
-        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset="S")
+        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
     finally:
         config.clear_override("mpi.launcher")
     assert result.correct, result.detail
@@ -275,8 +280,8 @@ def test_distributed_device_c_delivery_is_scored_failure() -> None:
     """A plain C/source delivery under device residency is a clean scored failure, never a silent host run."""
     config.set_override("mpi.residency", "device")
     try:
-        task = Task(kernel="scaled_add", language="c", residency="distributed")
-        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset="S")
+        task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
     finally:
         config.clear_override("mpi.residency")
     assert not result.correct
@@ -329,15 +334,15 @@ def test_distributed_scaled_add_device_cuda_source_scores_solved(mpi_c) -> None:
     if not _nvcc_available():
         pytest.skip("no nvcc")
     sub = Submission(
-        language="cuda",
+        language=Language.CUDA,
         source=_CUDA_SCALED_ADD_HOST,
         device_source=_CUDA_SCALED_ADD_KERNELS,
         requests=_noop_submission("c").requests,
     )
-    task = Task(kernel="scaled_add", language="cuda", residency="distributed")
+    task = Task(kernel="scaled_add", language=Language.CUDA, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.residency", "device")
     try:
-        result = scoring.score(sub, task, preset="S")
+        result = scoring.score(sub, task, preset=Preset.S)
     finally:
         config.clear_override("mpi.residency")
     assert result.correct, result.detail
@@ -398,13 +403,13 @@ def test_distributed_scaled_add_mixed_host_device_scores_solved(mpi_c) -> None:
         },
     }
     sub = Submission(
-        language="cuda",
+        language=Language.CUDA,
         source=_CUDA_SCALED_ADD_MIXED_HOST,
         device_source=_CUDA_SCALED_ADD_MIXED_KERNELS,
         requests=Requests.from_plan(distribution),
     )
-    task = Task(kernel="scaled_add", language="cuda", residency="distributed")
-    result = scoring.score(sub, task, preset="S")
+    task = Task(kernel="scaled_add", language=Language.CUDA, residency=Residency.DISTRIBUTED)
+    result = scoring.score(sub, task, preset=Preset.S)
     assert result.correct, result.detail
     assert result.build_ok
     assert result.native_ns >= 0
@@ -418,11 +423,11 @@ def test_distributed_scaled_add_device_python_scores_solved() -> None:
     launch = mpi_launch_helpers.mpi4py_launcher()
     if launch is None:
         pytest.skip(f"mpi4py has no working launcher in this environment: {mpi4py_launcher_diagnosis()}")
-    task = Task(kernel="scaled_add", language="python", residency="distributed")
+    task = Task(kernel="scaled_add", language=Language.PYTHON, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.launcher", list(launch))
     config.set_override("mpi.residency", "device")
     try:
-        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset="S")
+        result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
     finally:
         config.clear_override("mpi.residency")
         config.clear_override("mpi.launcher")
@@ -492,14 +497,16 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    sub = Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}}))
-    anchor = Submission(language="c", source="serial")
+    sub = Submission(
+        language=Language.C, source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}})
+    )
+    anchor = Submission(language=Language.C, source="serial")
     runs = S.score_scaling(
         sub,
-        Task("scaled_add", "restricted", "c", residency="distributed"),
+        Task("scaled_add", SourceMode.RESTRICTED, Language.C, residency=Residency.DISTRIBUTED),
         anchor,
         rank_counts=(1, 2, 4),
-        preset="S",
+        preset=Preset.S,
         repeat=1,
     )
 
@@ -572,11 +579,13 @@ def gang_strong_sweep(
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
     block = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
     return S.score_scaling(
-        Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}})),
-        Task("scaled_add", "restricted", "c", residency="distributed"),
-        Submission(language="c", source="serial"),
+        Submission(
+            language=Language.C, source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"x": block}})
+        ),
+        Task("scaled_add", SourceMode.RESTRICTED, Language.C, residency=Residency.DISTRIBUTED),
+        Submission(language=Language.C, source="serial"),
         rank_counts=(1, 2, 4, 8),
-        preset="S",
+        preset=Preset.S,
         repeat=1,
     )
 
@@ -681,14 +690,16 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     grid1 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
-    sub = Submission(language="c", source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"A": grid1}}))
-    anchor = Submission(language="c", source="serial")
+    sub = Submission(
+        language=Language.C, source="mpi", requests=Requests.from_plan({"grid": [1], "arrays": {"A": grid1}})
+    )
+    anchor = Submission(language=Language.C, source="serial")
     return S.score_scaling(
         sub,
-        Task("jacobi_2d", "restricted", "c", residency="distributed"),
+        Task("jacobi_2d", SourceMode.RESTRICTED, Language.C, residency=Residency.DISTRIBUTED),
         anchor,
         rank_counts=rank_counts,
-        preset="S",
+        preset=Preset.S,
         repeat=1,
     )
 
@@ -754,14 +765,14 @@ def test_distributed_scaling_curve_e2e(mpi_c) -> None:
     from hpcagent_bench.harness.metric import score_task_fuzzed
     from hpcagent_bench.harness.optimizers import NoOpOptimizer
 
-    anchor = NoOpOptimizer().solve(Task(kernel="scaled_add", language="c"))  # single-node reference == anchor
+    anchor = NoOpOptimizer().solve(Task(kernel="scaled_add", language=Language.C))  # single-node reference == anchor
     config.set_override("mpi.leaderboard_preset", "S")  # keep the build + launches fast
     config.set_override("mpi.mode", "strong")
     config.set_override("mpi.rank_counts", [1, 2, 4])
     try:
         ts = score_task_fuzzed(
             _noop_submission(),
-            Task(kernel="scaled_add", language="c", residency="distributed"),
+            Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED),
             single_rank_anchor=anchor,
         )
     finally:
@@ -787,8 +798,8 @@ def test_grading_residency_is_single_node_unless_the_run_opts_in() -> None:
     """The default is untouched: no config, no distributed grading, whatever the kernel declares."""
     from hpcagent_bench.harness.task import grading_residency
 
-    assert grading_residency("scaled_add", "c") == "host"  # declares an mpi: block, still host
-    assert grading_residency("gemm", "hip") == "device"
+    assert grading_residency("scaled_add", Language.C) == "host"  # declares an mpi: block, still host
+    assert grading_residency("gemm", Language.HIP) == "device"
 
 
 def test_grading_residency_routes_mpi_kernels_when_enabled() -> None:
@@ -801,12 +812,12 @@ def test_grading_residency_routes_mpi_kernels_when_enabled() -> None:
 
     config.set_override("mpi.grade_distributed", True)
     try:
-        assert grading_residency("scaled_add", "c") == "distributed"
-        assert grading_residency("heat_3d", "hip") == "distributed"
+        assert grading_residency("scaled_add", Language.C) == "distributed"
+        assert grading_residency("heat_3d", Language.HIP) == "distributed"
         # No mpi: block -> single-node, so a mixed problem list grades rather than fails.
-        assert grading_residency("argmax_value", "c") == "host"
+        assert grading_residency("argmax_value", Language.C) == "host"
         # An unknown kernel is the caller's error to report, not this function's to raise.
-        assert grading_residency("no_such_kernel_anywhere", "c") == "host"
+        assert grading_residency("no_such_kernel_anywhere", Language.C) == "host"
     finally:
         config.clear_override("mpi.grade_distributed")
 
@@ -859,8 +870,8 @@ def test_score_distributed_credits_via_timing_reduce(monkeypatch: pytest.MonkeyP
     config.set_override("mpi.mode", "strong")
     config.set_override("measurement.timing_backend", "mannwhitney_delta")
     try:
-        task = Task(kernel="scaled_add", language="c", residency="distributed")
-        result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
+        task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+        result = S.score_distributed(_noop_submission(), task, preset=Preset.S, repeat=20)
     finally:
         config.clear_override("mpi.mode")
         config.clear_override("measurement.timing_backend")
@@ -884,8 +895,8 @@ def test_score_distributed_weak_mode_credits_the_reduced_ratio_directly(monkeypa
     config.set_override("mpi.ranks", 4)
     config.set_override("measurement.timing_backend", "mannwhitney_delta")
     try:
-        task = Task(kernel="scaled_add", language="c", residency="distributed")
-        result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
+        task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+        result = S.score_distributed(_noop_submission(), task, preset=Preset.S, repeat=20)
     finally:
         config.clear_override("mpi.mode")
         config.clear_override("mpi.ranks")
@@ -908,8 +919,8 @@ def test_score_distributed_weak_mode_speedup_is_rank_count_independent(monkeypat
         config.set_override("mpi.ranks", ranks)
         config.set_override("measurement.timing_backend", "mannwhitney_delta")
         try:
-            task = Task(kernel="scaled_add", language="c", residency="distributed")
-            return S.score_distributed(_noop_submission(), task, preset="S", repeat=20).speedup
+            task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+            return S.score_distributed(_noop_submission(), task, preset=Preset.S, repeat=20).speedup
         finally:
             config.clear_override("mpi.mode")
             config.clear_override("mpi.ranks")
@@ -932,8 +943,8 @@ def test_score_distributed_weak_non_power_ranks_are_rounded_graded_and_corrected
     config.set_override("mpi.ranks", 8)
     config.set_override("measurement.timing_backend", "mannwhitney_delta")
     try:
-        task = Task(kernel="scaled_add", language="c", residency="distributed")
-        result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
+        task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+        result = S.score_distributed(_noop_submission(), task, preset=Preset.S, repeat=20)
     finally:
         config.clear_override("mpi.mode")
         config.clear_override("mpi.ranks")
@@ -960,8 +971,8 @@ def test_score_distributed_weak_refuses_a_manifest_without_work_exponent(monkeyp
         config.set_override("mpi.ranks", 4)
         config.set_override("measurement.timing_backend", "mannwhitney_delta")
         try:
-            task = Task(kernel="scaled_add", language="c", residency="distributed")
-            results[mode] = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
+            task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+            results[mode] = S.score_distributed(_noop_submission(), task, preset=Preset.S, repeat=20)
         finally:
             config.clear_override("mpi.mode")
             config.clear_override("mpi.ranks")
@@ -982,8 +993,8 @@ def test_score_distributed_no_samples_credits_nothing(monkeypatch: pytest.Monkey
     mock_mpi_runners(monkeypatch, native=[], baseline=[20])
     config.set_override("mpi.mode", "strong")
     try:
-        task = Task(kernel="scaled_add", language="c", residency="distributed")
-        result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
+        task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
+        result = S.score_distributed(_noop_submission(), task, preset=Preset.S, repeat=20)
     finally:
         config.clear_override("mpi.mode")
 

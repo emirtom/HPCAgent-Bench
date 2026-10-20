@@ -26,6 +26,7 @@ from collections.abc import Iterator, Mapping, Sequence
 import pytest
 
 from hpcagent_bench import config, languages
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import (
     grade_under,
     metric,
@@ -286,7 +287,7 @@ def test_a_correct_ml_submit_at_the_setups_config_records_its_row_and_both_curve
     the leaderboard preset (XL), never at a fuzzed range, and every launch and the row are bf16, the
     kernels' one storage precision (never the judge's float64 default)."""
     with setup_judge(tmp_path, monkeypatch) as (url, launches, baselines):
-        assert service.from_config().preset == "fuzzed"
+        assert service.from_config().preset is Preset.FUZZED
         body = agent_body(kernel)
         code, graded = post(f"{url}/submit", body)
     assert code == 200, graded

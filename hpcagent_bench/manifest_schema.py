@@ -20,6 +20,7 @@ from typing import Annotated, Literal, cast
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, PlainValidator, Tag, ValidationError, model_validator
 from pydantic_core import ErrorDetails, PydanticCustomError
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.fuzz import FuzzValue
 
 __all__ = [
@@ -380,7 +381,7 @@ class Manifest(ManifestBlock):
     output_extent: dict[str, str] | None = None
     chain_length: dict[str, str | int] | None = None
     init: InitBlock | None = None
-    languages: list[str] | None = None
+    languages: list[Language] | None = None
     allowed_precisions: list[str] | None = None
     fuzz: dict[str, list[str]] | None = None
     layouts: dict[str, LayoutEntry] | None = None

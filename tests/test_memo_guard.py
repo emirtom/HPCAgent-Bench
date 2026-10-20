@@ -12,6 +12,7 @@ import shutil
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
@@ -78,7 +79,7 @@ void tsvc_2_s311_fp64(double *a, double *sum_out, int64_t LEN_1D, void *workspac
 
 
 def _score(source: str, *, vary_inputs: bool, repeat: int = 20):
-    task = Task(KERNEL, "restricted", "c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     # baseline="auto" is what this call PASSES; loop_level_reasoning kernels resolve it to the
     # numba reference regardless (see test_track_oracle.py) -- fine, the assertions below read the
     # CANDIDATE's own native_ns, never the baseline, so which reference times the denominator does
@@ -93,13 +94,13 @@ def _score(source: str, *, vary_inputs: bool, repeat: int = 20):
         config.overridden("measurement.timing_backend", "mannwhitney_delta"),
     ):
         return scoring.score(
-            Submission(language="c", source=source),
+            Submission(language=Language.C, source=source),
             task,
-            preset="S",
+            preset=Preset.S,
             datatype="float64",
             repeat=repeat,
             hidden=True,
-            baseline="auto",
+            baseline=None,
         )
 
 

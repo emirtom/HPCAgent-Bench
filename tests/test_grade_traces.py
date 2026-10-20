@@ -11,6 +11,7 @@ import sqlite3
 
 import pytest
 
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import recording
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, TimedCell
@@ -55,8 +56,8 @@ def record(tmp_path: pathlib.Path, score: Score, monkeypatch: pytest.MonkeyPatch
     db.parent.mkdir(parents=True)
     recording.record(
         score,
-        Submission(language="c", source="void spmv(void) {}"),
-        Task("gemm", "restricted", "c"),
+        Submission(language=Language.C, source="void spmv(void) {}"),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
         episode_id=f"{SETUP}.n0.p0.w0",
         path=str(db),
     )

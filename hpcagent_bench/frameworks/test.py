@@ -7,6 +7,7 @@ from typing import NotRequired, TypedDict
 import numpy as np
 
 from hpcagent_bench import phase_clock
+from hpcagent_bench.categories import Oracle, Preset
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import timeout_decorator as tout
 from hpcagent_bench.frameworks import utilities as util
@@ -115,7 +116,7 @@ def failed_timing(failure: str) -> ImplTiming:
     return {"python": None, "native": None, "validated": False, "failure": failure}
 
 
-def reference_outputs(bench: Benchmark, bdata: BenchData, preset: str | None = None) -> list[OutputValue]:
+def reference_outputs(bench: Benchmark, bdata: BenchData, preset: Preset | None = None) -> list[OutputValue]:
     """``bench``'s expected outputs on ``bdata``, in ``output_args`` order, from the compiled reference a
     grade of it takes its answer from: the track's oracle
     (:func:`~hpcagent_bench.harness.grading.resolve_oracle`), its references tried in the grade's order
@@ -129,12 +130,12 @@ def reference_outputs(bench: Benchmark, bdata: BenchData, preset: str | None = N
     program, never an oracle."""
     # Deferred: the judge's machinery is only needed by a validating run.
     from hpcagent_bench.harness import scoring, timing
-    from hpcagent_bench.harness.grading import AUTO_ORACLE, ReferenceUnavailable, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness.grading import ReferenceUnavailable, oracle_kinds, resolve_oracle
     from hpcagent_bench.harness.task import Task
     from hpcagent_bench.support.bindings import binding_from_spec
 
     spec = bench.spec
-    kinds = oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset)
+    kinds = oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset)
     try:
         _kind, outputs = scoring.first_oracle(
             kinds,
@@ -260,7 +261,7 @@ class Test:
 
     def run(
         self,
-        preset: str,
+        preset: Preset,
         validate: bool,
         repeat: int,
         timeout: float = DEFAULT_TIMEOUT_S,
@@ -272,7 +273,7 @@ class Test:
         persists as JSONL, and records every timed sample in the results DB."""
         full_name = self.frmwrk.column.full_name
         shown = datatype if datatype is not None else "default"
-        print(f"***** Testing {full_name} with {self.bench.bname} on the {preset} dataset, datatype {shown} *****")
+        print(f"***** Testing {full_name} with {self.bench.bname} on the {preset.text} dataset, datatype {shown} *****")
 
         self.frmwrk.set_datatype(datatype)
         bdata: BenchData = self.bench.get_data(preset, datatype, fuzz_iteration=fuzz_iteration)
@@ -342,7 +343,7 @@ class Test:
                 }
         return per_impl_timings
 
-    def oracle_output(self, bdata: BenchData, preset: str, ignore_errors: bool) -> list[OutputValue] | None:
+    def oracle_output(self, bdata: BenchData, preset: Preset, ignore_errors: bool) -> list[OutputValue] | None:
         """The compiled reference's outputs for ``bdata`` (:func:`reference_outputs`). When none answers the
         run fails validation loudly: the failure names the kernel, and it raises unless ``ignore_errors``,
         where it is ``None`` and no implementation validates."""

@@ -12,14 +12,13 @@ the number of draws.
 import numpy as np
 import pytest
 
-from tests.counter_stream import CounterStream, cos, sin
-
 from hpcagent_bench.benchmarks.scientific_computing.sparse_linear_algebra.cp2k_density_matrix_trs4 import (
     cp2k_density_matrix_trs4 as trs4,
 )
 from hpcagent_bench.benchmarks.scientific_computing.sparse_linear_algebra.cp2k_density_matrix_trs4.cp2k_density_matrix_trs4 import (
     HOMO_LUMO_GAP,
 )
+from tests.counter_stream import CounterStream, cos, sin
 
 
 def scalar_blocks(

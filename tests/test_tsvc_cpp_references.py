@@ -31,6 +31,7 @@ session with it.
 import re
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.spec import KERNELS, load_spec
 from hpcagent_bench.support.bindings.contract import binding_from_spec, c_param
@@ -190,18 +191,18 @@ def test_the_committed_references_are_reachable_from_the_harness_but_only_on_req
     from hpcagent_bench.harness.agent import committed_reference_override, emit_reference_source
 
     key, path = committed()[0]
-    assert committed_reference_override(key, "c") == path, (
+    assert committed_reference_override(key, Language.C) == path, (
         "the harness does not recognise the committed reference as an override; emit_io's rule and "
         "the path this looks under have drifted apart"
     )
 
-    default = emit_reference_source(key, "c")
+    default = emit_reference_source(key, Language.C)
     assert AUTOGEN_MARKER in default.splitlines()[0], (
         "the DEFAULT reference is no longer the NumpyToX emit -- grading changed for every run that did not ask for it"
     )
 
     with config.overridden("references.prefer_committed", True):
-        chosen = emit_reference_source(key, "c")
+        chosen = emit_reference_source(key, Language.C)
     assert chosen == path.read_text(), f"{key}: the knob is on and the harness still did not use {path}"
 
 
@@ -218,12 +219,12 @@ def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(tmp_path, monkeyp
     monkeypatch.setattr(paths, "BENCHMARKS", tmp_path)
 
     staged.write_text(path.read_text())
-    assert committed_reference_override(key, "c") == staged, (
+    assert committed_reference_override(key, Language.C) == staged, (
         "the staged copy was not found at all; the negative half below would pass for the wrong reason"
     )
 
     staged.write_text(f"// {AUTOGEN_MARKER} -- generated\n{path.read_text()}")
-    assert committed_reference_override(key, "c") is None, (
+    assert committed_reference_override(key, Language.C) is None, (
         "a sidecar carrying the autogen marker was taken for a hand-written override"
     )
 

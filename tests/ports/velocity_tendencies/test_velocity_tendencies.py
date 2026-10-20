@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import index_base
 from tests.fresh_module import module_at
@@ -125,7 +126,7 @@ _OUTPUT_NAMES = (
 # The names come from the manifest rather than being restated, so tagging or untagging a table
 # cannot leave the test disagreeing with the contract it is meant to pin.
 _INDEX_TABLES = tuple(sorted(BenchSpec.load("velocity_tendencies").init.index_arrays))
-_FORTRAN_BASE = index_base("fortran")
+_FORTRAN_BASE = index_base(Language.FORTRAN)
 
 
 def _rebase(bufs: dict[str, np.ndarray], delta: int) -> None:

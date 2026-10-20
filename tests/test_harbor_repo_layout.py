@@ -10,6 +10,7 @@ import pytest
 
 from hpcagent_bench import harbor as A
 from hpcagent_bench import hf_export
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import repo_pr
 from hpcagent_bench.spec import BenchSpec
 
@@ -23,7 +24,7 @@ def _has_translation() -> bool:
             A.KernelTask.of(
                 hf_export.resolved_row(BenchSpec.load(_KERNEL), A.default_rb(BenchSpec.load(_KERNEL))), _KERNEL
             ),
-            "c",
+            Language.C,
         )
         is not None
     )
@@ -155,7 +156,7 @@ def test_kernel_layout_is_unchanged_by_the_repo_feature(tmp_path) -> None:
 
 def test_repo_layout_skips_kernels_without_a_translation(tmp_path, capsys) -> None:
     """A kernel/language with no NumpyToX translation is skipped cleanly (logged + counted), not shipped broken."""
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, language="python", layout="repo")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, language=Language.PYTHON, layout="repo")
     assert dirs == []
     assert json.loads((tmp_path / "tasks.json").read_text()) == []
     err = capsys.readouterr().err
@@ -168,7 +169,7 @@ def test_repo_layout_rejects_group_dir_and_distributed(tmp_path) -> None:
     with pytest.raises(ValueError, match="one kernel each"):
         A.generate(str(tmp_path), selector="dense_linear_algebra", layout="repo", group="dir")
     with pytest.raises(ValueError, match="single-node"):
-        A.generate(str(tmp_path), selector=_KERNEL, layout="repo", residency="distributed")
+        A.generate(str(tmp_path), selector=_KERNEL, layout="repo", residency=Residency.DISTRIBUTED)
 
 
 #: Filenames that would hand the agent an OPTIMIZED implementation rather than the naive seed. The

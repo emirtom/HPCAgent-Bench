@@ -19,8 +19,8 @@ import time
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import languages, osinfo, spec
+from hpcagent_bench import languages, modules, osinfo, spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import native_call, timing
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -120,7 +120,7 @@ def test_a_whole_measurement_runs_in_one_child(monkeypatch) -> None:
         kernel,
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=("kern", ("x",), ("y",)),
@@ -160,7 +160,7 @@ def test_the_warmup_reps_are_discarded_not_returned(monkeypatch) -> None:
             kernel,
             _BINDING,
             {"x": np.zeros(4)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=30,
             py_meta=("kern", ("x",), ("y",)),
@@ -180,7 +180,7 @@ def test_every_rep_sees_the_reference_inputs(tmp_path) -> None:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=("kern", ("x",), ("y",)),
@@ -191,7 +191,7 @@ def test_every_rep_sees_the_reference_inputs(tmp_path) -> None:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=("kern", ("x",), ("y",)),
@@ -219,7 +219,7 @@ def test_the_timeout_reaches_the_child_as_a_per_rep_bound(monkeypatch) -> None:
         kernel,
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=2.0,
         py_meta=("kern", ("x",), ("y",)),
@@ -242,7 +242,7 @@ def test_one_hung_rep_dies_at_the_per_rep_bound_not_the_batch_budget(tmp_path) -
             str(kernel),
             _BINDING,
             {"x": np.zeros(4)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=2.0,
             py_meta=("kern", ("x",), ("y",)),
@@ -263,7 +263,7 @@ def test_a_slow_but_finite_run_is_not_killed_by_the_per_rep_guard(tmp_path) -> N
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=1.0,
         py_meta=("kern", ("x",), ("y",)),
@@ -285,7 +285,7 @@ def test_the_guillotine_bounds_the_kernel_not_its_argument_copies(tmp_path: path
         str(kernel),
         _BINDING,
         {"x": np.zeros(40_000_000)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60.0,
         py_meta=("kern", ("x",), ("y",)),
@@ -351,7 +351,7 @@ def cold_call(tmp_path: pathlib.Path, cold_rep_s: float) -> list[int]:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=REP_S,
         py_meta=("kern", ("x",), ("y",)),
@@ -389,7 +389,7 @@ def test_a_slow_input_draw_is_not_charged_to_the_rep_it_feeds(tmp_path: pathlib.
             str(kernel),
             _BINDING,
             {"x": np.zeros(4)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=0.5,
             py_meta=("kern", ("x",), ("y",)),
@@ -422,7 +422,7 @@ def test_the_reference_emit_is_memoized_per_kernel_and_language() -> None:
     to five times."""
     from hpcagent_bench.harness.agent import emit_reference_source
 
-    assert emit_reference_source("gemm", "c") is emit_reference_source("gemm", "c")
+    assert emit_reference_source("gemm", Language.C) is emit_reference_source("gemm", "c")
 
 
 def test_flipping_the_committed_reference_knob_is_not_served_from_the_stale_cache() -> None:
@@ -434,11 +434,11 @@ def test_flipping_the_committed_reference_knob_is_not_served_from_the_stale_cach
     from hpcagent_bench.harness.agent import emit_reference_source
 
     kernel = "loop_level_reasoning/wf_north_west/wf_north_west"
-    emitted = emit_reference_source(kernel, "c")
+    emitted = emit_reference_source(kernel, Language.C)
     with config.overridden("references.prefer_committed", True):
-        committed = emit_reference_source(kernel, "c")
+        committed = emit_reference_source(kernel, Language.C)
     assert committed != emitted, "the knob served the emitted text after being turned on"
-    assert emit_reference_source(kernel, "c") == emitted, "the knob leaked into the default path"
+    assert emit_reference_source(kernel, Language.C) == emitted, "the knob leaked into the default path"
 
 
 def test_refreshing_the_registry_drops_the_reference_emit_too() -> None:
@@ -446,9 +446,9 @@ def test_refreshing_the_registry_drops_the_reference_emit_too() -> None:
     built from the OLD spec, with nothing about it looking stale."""
     from hpcagent_bench.harness.agent import emit_reference_source
 
-    first = emit_reference_source("gemm", "c")
+    first = emit_reference_source("gemm", Language.C)
     spec.KERNELS.refresh()
-    assert emit_reference_source("gemm", "c") is not first
+    assert emit_reference_source("gemm", Language.C) is not first
 
 
 # ccache
@@ -475,7 +475,7 @@ def pretend_ccache(monkeypatch):
 def test_ccache_prefixes_the_compile_step_but_not_the_link(tmp_path, pretend_ccache) -> None:
     """A link is not cacheable; prefixing it would only add a process to every build."""
     compile_argv, link_argv = languages.build_shared_lib_commands(
-        "c", tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
+        Language.C, tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
     )
     launcher = languages.compiler_launcher()
     assert launcher == (FAKE_CCACHE,), "the fixture must make ccache detectable, or this asserts nothing"
@@ -496,7 +496,9 @@ def test_the_config_gate_turns_ccache_off(tmp_path, pretend_ccache, monkeypatch)
     languages.config.set_override("build.ccache", False)
     languages.compiler_launcher.cache_clear()
     assert languages.compiler_launcher() == ()
-    argv = languages.build_shared_lib_commands("c", tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE)[0]
+    argv = languages.build_shared_lib_commands(
+        Language.C, tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
+    )[0]
     assert FAKE_CCACHE not in argv
 
 
@@ -504,7 +506,7 @@ def test_a_language_ccache_does_not_support_compiles_directly(tmp_path) -> None:
     """Fortran cache hits skip the .mod side-effect, so gfortran must stay unwrapped even when
     ccache is available."""
     argv = languages.build_shared_lib_commands(
-        "fortran", tmp_path / "k.f90", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
+        Language.FORTRAN, tmp_path / "k.f90", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
     )[0]
     assert FAKE_CCACHE not in argv
 

@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import pydantic
 
+from hpcagent_bench.categories import Language, Oracle, Preset, Track
+
 if TYPE_CHECKING:
     from hpcagent_bench import config
 
@@ -205,7 +207,6 @@ os.environ.setdefault("BLIS_NUM_THREADS", "1")
 # each preallocate a slice of it. setdefault so a caller can still force JAX_PLATFORMS=cuda.
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-from hpcagent_bench import modules  # noqa: E402
 from hpcagent_bench import dtypes as _dtypes  # noqa: E402
 
 # The polycc invocation the TIMED pluto column builds from -- flags, pet-parse env and process-group
@@ -213,6 +214,7 @@ from hpcagent_bench import dtypes as _dtypes  # noqa: E402
 from hpcagent_bench import (  # noqa: E402 -- after the thread-count environment above
     flags,
     languages,
+    modules,  # noqa: E402
     omp_context,
     paths,
     pluto_transform,
@@ -222,7 +224,7 @@ from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
-from hpcagent_bench.spec import BenchSpec, Track  # noqa: E402
+from hpcagent_bench.spec import BenchSpec  # noqa: E402
 from hpcagent_bench.support.bindings.contract import index_base  # noqa: E402
 from hpcagent_bench.translators.numpyto_c.bindings import read_binding  # noqa: E402
 from hpcagent_bench.translators.numpyto_common.dtypes import canonical, compute_dtype  # noqa: E402
@@ -249,7 +251,7 @@ def _np_dtype_for_kind(kind: str, np_float):
 
 # -std= comes from compilers.yaml via languages.std_flag: the oracle must accept
 # exactly the language standard the harness builds submissions with.
-_blas = {lang: languages.library_build_flags(lang, ["blas"]) for lang in ("c", "cpp")}
+_blas = {lang.text: languages.library_build_flags(lang, ["blas"]) for lang in (Language.C, Language.CPP)}
 
 #: BLAS tokens per native C-family backend: the emitted C/C++ lowers a dense 2-D float GEMM to
 #: ``cblas_dgemm`` and includes <cblas.h>, so every oracle compile needs the include path, and the
@@ -267,7 +269,9 @@ _BLAS_CFLAGS, _BLAS_LDFLAGS = (
 #: build, resolved here too: the emitted C/C++/Fortran lowers a whole-array 1-D np.fft.fft/ifft to
 #: FFT_LIBRARY_MARKER, an fftw_plan_dft_1d/fftwf_... call, so every oracle compile needs <fftw3.h>
 #: on the include path and the .so needs -lfftw3 on its DT_NEEDED to be loadable by ctypes.
-_fftw = {lang: languages.library_build_flags(lang, ["fftw"]) for lang in ("c", "cpp", "fortran")}
+_fftw = {
+    lang.text: languages.library_build_flags(lang, ["fftw"]) for lang in (Language.C, Language.CPP, Language.FORTRAN)
+}
 _FFTW_CFLAGS, _FFTW_LDFLAGS = (
     {lang: list(groups[0]) for lang, groups in _fftw.items()},
     {lang: [t for group in groups[1:] for t in group] for lang, groups in _fftw.items()},
@@ -307,14 +311,22 @@ LINK = {
 }
 
 COMPILE = {
-    "c": ["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC", *_BLAS_CFLAGS["c"], *_FFTW_CFLAGS["c"]],
-    "cpp": ["g++", "-O2", languages.std_flag("cpp"), "-shared", "-fPIC", *_BLAS_CFLAGS["cpp"], *_FFTW_CFLAGS["cpp"]],
+    "c": ["gcc", "-O2", languages.std_flag(Language.C), "-shared", "-fPIC", *_BLAS_CFLAGS["c"], *_FFTW_CFLAGS["c"]],
+    "cpp": [
+        "g++",
+        "-O2",
+        languages.std_flag(Language.CPP),
+        "-shared",
+        "-fPIC",
+        *_BLAS_CFLAGS["cpp"],
+        *_FFTW_CFLAGS["cpp"],
+    ],
     "fortran": [
         "gfortran",
         "-O2",
         "-ffree-form",
         "-ffree-line-length-none",
-        languages.std_flag("fortran"),
+        languages.std_flag(Language.FORTRAN),
         "-shared",
         "-fPIC",
         *_FFTW_CFLAGS["fortran"],
@@ -369,7 +381,7 @@ PLUTO_EXTRA_FLAGS = ["-D_POSIX_C_SOURCE=199309L", "-fopenmp"]
 #: :data:`PLUTO`. Built with the plain ``cpp`` line plus whatever the host's parallel-algorithm
 #: backend needs to LINK -- which is nothing at all when that backend is the serial one.
 ISOPAR = "cpp_isopar"
-_ISOPAR_LINK = list(languages.stdpar_link_flags("cpp"))
+_ISOPAR_LINK = list(languages.stdpar_link_flags(Language.CPP))
 
 #: DaCe backend: the generated ``*_dace.py`` lowered with ``to_sdfg(simplify=True)``, compiled and
 #: run against the same numpy reference every other backend is graded on. Opt-in via
@@ -586,12 +598,12 @@ def compiled_reference(spec: BenchSpec, values: dict[str, Any]) -> dict[str, np.
     through the grade's own road to them (:func:`~hpcagent_bench.harness.scoring.first_oracle`). Raises
     :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` when none answers."""
     from hpcagent_bench.harness import scoring, timing, torch_baseline  # deferred: the judge's machinery
-    from hpcagent_bench.harness.grading import AUTO_ORACLE, ReferenceUnavailable, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness.grading import ReferenceUnavailable, oracle_kinds, resolve_oracle
     from hpcagent_bench.harness.task import Task
     from hpcagent_bench.support.bindings import binding_from_spec
 
-    oracle = resolve_oracle(AUTO_ORACLE, spec)
-    if oracle == "torch":
+    oracle = resolve_oracle(Oracle.AUTO, spec)
+    if oracle is Oracle.TORCH:
         # The ML oracle is the kernel's torch model; a correctness sweep runs it eagerly, on the CPU, on
         # ieee copies of narrow formats -- the same model torch-autotune compiles, without a compile per kernel.
         try:
@@ -694,7 +706,7 @@ def _emit(
 
 def run_kernel(
     short: str,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     precision: str = "fp64",
     seed: int = 0,
     max_size: int | None = None,
@@ -732,7 +744,7 @@ def run_kernel(
     chaotic = CHAOTIC_FLOAT_TOLERANCE.get(short)
     if chaotic is not None:
         rtol, atol = max(rtol, chaotic[0]), max(atol, chaotic[1])
-    torch_oracle = spec.track == Track.MACHINE_LEARNING.value
+    torch_oracle = spec.track is Track.MACHINE_LEARNING
     if torch_oracle and max_size is not None:
         # The torch model is built from the manifest's hyperparameters, so a torch-oracle kernel only runs at its
         # graded sizes, which the capped small-size pass exists to avoid.
@@ -740,7 +752,7 @@ def run_kernel(
     if torch_oracle:
         rtol, atol = max(rtol, TORCH_PORT_TOLERANCE[0]), max(atol, TORCH_PORT_TOLERANCE[1])
     out_args = list(spec.output_args)
-    syms = dict(spec.parameters[preset])
+    syms = dict(spec.parameters[preset.text])
     # Polybench presets are huge (NI=1000+); scale every size symbol down proportionally to ~48
     # (keeping ratios, floor 10) since correctness is size-independent and hand-written initializers
     # are slow in Python. Foundation kernels and NO_SCALE kernels (reference only valid at declared

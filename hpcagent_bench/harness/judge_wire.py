@@ -21,7 +21,9 @@ from typing import Literal
 
 import pydantic
 
+from hpcagent_bench.categories import BaselineChoice, InputMode, Language, Oracle, Preset, Residency
 from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.flags import Mode
 
 __all__ = [
     "SUBMIT_ANSWER",
@@ -78,7 +80,7 @@ class RequestFields(pydantic.BaseModel):
     requests: dict[str, object] | None = None
     #: ``/profile`` only.
     tool: str | None = None
-    residency: str | None = None
+    residency: Residency | None = None
     reps: int | None = None
     threads: int | list[int] | None = None
     device_kernel: str | None = None
@@ -132,9 +134,9 @@ class HealthAnswer(JudgeAnswer):
 
     status: str
     rank: int
-    oracle: str
-    baseline: str
-    input_mode: str
+    oracle: Oracle
+    baseline: BaselineChoice
+    input_mode: InputMode
     submits_in_flight: int
 
 
@@ -159,15 +161,15 @@ class BaselineAnswer(JudgeAnswer):
     """``GET /baseline/<kernel>``: each reference's best time in ns, at the run's size."""
 
     kernel: str
-    preset: str
+    preset: Preset
     baselines: dict[str, int]
 
 
 class BuildAnswer(JudgeAnswer):
     """``GET /build/<language>``: the compile and link argv this judge runs for a submission."""
 
-    language: str
-    mode: str
+    language: Language
+    mode: Mode
     source: str
     library: str
     commands: list[list[str]]
@@ -252,9 +254,9 @@ class ScoreFields[CellT: ScoreCellAnswer](JudgeAnswer):
     baseline_policy: str | None
     cells: tuple[CellT, ...]
     kernel: str
-    language: str
-    preset: str
-    residency: str
+    language: Language
+    preset: Preset
+    residency: Residency
 
 
 class ScoreAnswer(ScoreFields[ScoreCellAnswer]):
@@ -341,7 +343,7 @@ class OptReportAnswer(JudgeAnswer):
 
     tool: str
     kernel: str
-    language: str
+    language: Language
     build_ok: bool
     family: str
     compiler: str

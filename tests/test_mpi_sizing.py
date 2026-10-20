@@ -6,6 +6,7 @@ import collections
 
 import pytest
 
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import mpi_sizing
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.task import Task
@@ -242,8 +243,8 @@ def test_an_mpi_mode_that_is_not_a_scaling_law_is_refused(spelling: str) -> None
 
 # Task: the distributed residency (opt-in, not GPU-gated)
 def test_task_accepts_distributed_residency_for_a_cpu_language() -> None:
-    t = Task(kernel="jacobi_2d", language="c", residency="distributed")
-    assert t.residency == "distributed"
+    t = Task(kernel="jacobi_2d", language=Language.C, residency=Residency.DISTRIBUTED)
+    assert t.residency is Residency.DISTRIBUTED
     assert "distributed" in t.id
 
 
@@ -255,7 +256,7 @@ def test_task_rejects_unknown_residency() -> None:
 def test_task_device_residency_still_gpu_gated() -> None:
     # The distributed relaxation must not loosen the device -> GPU-language guard.
     with pytest.raises(ValueError, match="device residency"):
-        Task(kernel="jacobi_2d", language="c", residency="device")
+        Task(kernel="jacobi_2d", language=Language.C, residency=Residency.DEVICE)
 
 
 # BenchSpec: the optional mpi: manifest block loads and defaults empty

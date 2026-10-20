@@ -54,6 +54,7 @@ from typing import Final, TypeGuard
 import numpy as np
 
 from hpcagent_bench import config, protocols
+from hpcagent_bench.categories import Preset
 
 __all__ = [
     "BINOPS",
@@ -61,7 +62,6 @@ __all__ = [
     "CMPOPS",
     "DIVISIBILITY",
     "EVAL_ERRORS",
-    "FUZZED_PRESET",
     "MAX_RESAMPLE",
     "NO_CONFIG_NAMES",
     "PRESET_SEED_KEY",
@@ -118,14 +118,12 @@ __all__ = [
     "snap_to_class",
 ]
 
-FUZZED_PRESET = "fuzzed"
 
-
-def initializer_seed(preset: str, input_seed: int, fuzz_iteration: int | None) -> int:
+def initializer_seed(preset: Preset, input_seed: int, fuzz_iteration: int | None) -> int:
     """The seed a draw hands its initializer (and :meth:`Perturbation.for_seed
     <hpcagent_bench.support.distributions.perturbation.Perturbation.for_seed>`, which picks its
     scenario): the input seed, offset by the fuzz iteration on the fuzzed preset."""
-    return int(input_seed) + (int(fuzz_iteration or 0) if preset == FUZZED_PRESET else 0)
+    return int(input_seed) + (int(fuzz_iteration or 0) if preset is Preset.FUZZED else 0)
 
 
 #: Sentinel default for every ``config_names`` parameter below: no symbol is a declared
@@ -302,8 +300,8 @@ def resolve_ranges(
     :func:`_apply_size_cap`) -- the correctness fuzz path passes its own, smaller
     ceiling so a correct-but-slow reference still validates.
     """
-    if FUZZED_PRESET in parameters:
-        return _apply_size_cap(dict(parameters[FUZZED_PRESET]), size_cap, config_names)
+    if Preset.FUZZED.text in parameters:
+        return _apply_size_cap(dict(parameters[Preset.FUZZED.text]), size_cap, config_names)
     # Anchored on XL, not spanning [L, XL]. A range that wide is drawn log-uniform, so most draws
     # land far below XL and the timed problem is too small for the thing being measured to show:
     # at preset S this corpus times 512-element kernels, where an OpenMP fork/join costs more than
@@ -315,7 +313,12 @@ def resolve_ranges(
     # fuzz.anchor for every token, so this never reads a stale rung from an earlier call.
     fuzz_cfg = config.current().fuzz
     anchor = fuzz_cfg.anchor
-    base = parameters.get(anchor) or parameters.get("XL") or parameters.get("L") or next(iter(parameters.values()))
+    base = (
+        parameters.get(anchor.text)
+        or parameters.get(Preset.XL.text)
+        or parameters.get(Preset.L.text)
+        or next(iter(parameters.values()))
+    )
     lo_m, hi_m = fuzz_cfg.xl_lo_mult, fuzz_cfg.xl_hi_mult
     out: dict[str, FuzzValue] = {}
     for name, value in base.items():
@@ -868,7 +871,7 @@ def respec_ranges(
     non-range params pass through unchanged -- the shared maximum/large interval rewrite. A smooth
     interval keeps its bound around the rewritten range, so its draws stay smooth."""
     rewritten: dict[str, FuzzValue] = {nm: respec_one(v, interval) for nm, v in fuzzed.items()}
-    return {**parameters, FUZZED_PRESET: rewritten}
+    return {**parameters, Preset.FUZZED.text: rewritten}
 
 
 def respec_one(value: FuzzValue, interval: Callable[[int | float, int | float], Sequence[FuzzValue]]) -> FuzzValue:

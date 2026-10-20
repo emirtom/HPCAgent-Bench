@@ -28,6 +28,7 @@ import pathlib
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.spec import KERNELS
 
@@ -226,8 +227,8 @@ def test_device_inputs_equal_host_inputs(kernel: str) -> None:
     if cupy.cuda.runtime.getDeviceCount() == 0:
         pytest.skip("no GPU")
     bench = Benchmark(kernel)
-    host = bench.get_data("S", datatype="float64", input_seed=3)
-    device = Benchmark(kernel).get_data("S", datatype="float64", input_seed=3, xp=cupy)
+    host = bench.get_data(Preset.S, datatype="float64", input_seed=3)
+    device = Benchmark(kernel).get_data(Preset.S, datatype="float64", input_seed=3, xp=cupy)
     assert host.keys() == device.keys()
     # An output the kernel only writes is an uninitialized buffer on both sides: its bytes say nothing.
     written_only = set(bench.spec.output_args) - set(bench.spec.input_args)

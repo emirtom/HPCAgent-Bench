@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import cpf_bridge, cpf_canonical
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -122,6 +123,6 @@ def test_a_bf16_form_takes_the_stub_signature_and_reproduces_numpy(tmp_path: pat
     expected = np.maximum(wide["x"] @ wide["gemm_weight"].T + wide["gemm_bias"] + wide["bias"], 0)
     # The form carves its transients from the workspace it requests; without it they are written through a null base.
     workspace = record.workspace_bytes or "0"
-    outputs_per_call = _call_native(str(library), native, data, "cpp", workspace_bytes=workspace)[0]
+    outputs_per_call = _call_native(str(library), native, data, Language.CPP, workspace_bytes=workspace)[0]
     (outs,) = outputs_per_call
     np.testing.assert_allclose(outs["out"].astype(np.float32), expected, rtol=5e-2, atol=5e-2 * np.abs(expected).max())

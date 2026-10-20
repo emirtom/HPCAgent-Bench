@@ -14,19 +14,16 @@ paper.
 
 import logging
 import pathlib
-from types import ModuleType
 
 import matplotlib as mpl
 
 mpl.use("Agg")
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from hpcagent_bench import paths, studies, study_tags
+from hpcagent_bench import studies, study_tags
 from hpcagent_bench.stats import palette
-from tests.fresh_module import module_at
 
 
 def test_every_packet_the_palette_hues_is_named() -> None:

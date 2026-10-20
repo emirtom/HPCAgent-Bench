@@ -36,8 +36,7 @@ from typing import Any
 
 import numpy as np
 
-from hpcagent_bench import modules
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 from hpcagent_bench.harness import kernelbench_adapter
 from tests.fresh_module import module_at
 

@@ -22,6 +22,7 @@ import pytest
 from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import fused
+from hpcagent_bench.categories import Baseline, Oracle
 from tests.judge_router_stub import StubJudge, closed_port_url, load_router, stub_judge
 from tests.optional_imports import import_or_skip
 
@@ -142,7 +143,9 @@ def test_the_judge_names_a_grade_that_raised_as_its_own_fault(
         raise MemoryError("device OOM")
 
     monkeypatch.setattr(service, "grade_request", raising)
-    _srv, url = make_judge(service.ServiceConfig(baseline="c", oracle="auto", input_mode="source", repeat=2))
+    _srv, url = make_judge(
+        service.ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="source", repeat=2)
+    )
     graded = {"kernel": "tsvc_2_s311", "language": "c", "source": "void k(void){}", "build": [], "rank": 0}
     request = Request(f"{url}/submit", data=json.dumps(graded).encode(), method="POST")
     with pytest.raises(urllib.error.HTTPError) as failed:

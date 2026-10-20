@@ -9,6 +9,7 @@ into ``RunRow.trajectory`` (the performance-vs-tokens history).
 
 import pydantic
 
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness.agent import StubAgent, anthropic_usage
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.runner import solve_task
@@ -44,7 +45,9 @@ class _MeteredStub(StubAgent):
 
 
 def test_runner_snapshots_tokens_and_records_trajectory() -> None:
-    row, sub = solve_task(_MeteredStub(), Task("tsvc_2_s212", "restricted", "c"), preset="S", repeat=1)
+    row, sub = solve_task(
+        _MeteredStub(), Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C), preset=Preset.S, repeat=1
+    )
     assert row.status == "ok"
     assert row.tokens == 15  # cumulative tokens snapshotted onto the row
     assert sub is not None
@@ -59,7 +62,7 @@ def test_runner_snapshots_tokens_and_records_trajectory() -> None:
 
 
 def test_non_llm_agent_costs_zero_tokens() -> None:
-    row, _ = solve_task(StubAgent(), Task("tsvc_2_s212", "restricted", "c"), preset="S", repeat=1)
+    row, _ = solve_task(StubAgent(), Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C), preset=Preset.S, repeat=1)
     assert row.tokens == 0
     assert row.trajectory[0].tokens == 0
 
@@ -114,11 +117,11 @@ def test_anthropic_usage_parse_tolerates_missing_cache_field() -> None:
 
 
 def test_submission_tokens_roundtrips_through_json() -> None:
-    sub = Submission(language="c", source="x", tokens=777)
+    sub = Submission(language=Language.C, source="x", tokens=777)
     assert sub.to_json()["tokens"] == 777
     assert Submission.from_obj(sub.to_json()).tokens == 777
     # a submission with no token snapshot omits the key (stays None on parse)
-    assert "tokens" not in Submission(language="c", source="x").to_json()
+    assert "tokens" not in Submission(language=Language.C, source="x").to_json()
 
 
 class _RepairStub(StubAgent):
@@ -140,7 +143,9 @@ class _RepairStub(StubAgent):
 
 
 def test_multi_round_trajectory_has_ascending_cumulative_tokens() -> None:
-    row, _ = solve_task(_RepairStub(), Task("tsvc_2_s212", "restricted", "c"), preset="S", repeat=1, max_rounds=2)
+    row, _ = solve_task(
+        _RepairStub(), Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C), preset=Preset.S, repeat=1, max_rounds=2
+    )
     assert row.status == "ok"  # passed on the second round
     assert [p.round for p in row.trajectory] == [1, 2]
     assert row.trajectory[0].status == "build_error"

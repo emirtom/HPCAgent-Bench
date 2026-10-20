@@ -10,8 +10,8 @@ from unittest import mock
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, flags, languages
+from hpcagent_bench import config, flags, languages, modules
+from hpcagent_bench.categories import Baseline, Language, Preset, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import grading, sandbox, scoring
 from hpcagent_bench.harness.envelope import Submission
@@ -34,28 +34,28 @@ def reset_pin():
 
 
 def test_no_pin_and_no_request_is_the_default_family() -> None:
-    assert languages.resolve_family("c") == languages.default_family() == "gcc"
+    assert languages.resolve_family(Language.C) == languages.default_family() == "gcc"
 
 
 def test_a_submission_request_beats_the_default() -> None:
-    assert languages.resolve_family("cpp", "llvm") == "llvm"
+    assert languages.resolve_family(Language.CPP, "llvm") == "llvm"
 
 
 def test_a_setup_pin_beats_a_submission_request(reset_pin) -> None:
     config.set_override("build.compiler.cpp", "llvm")
-    assert languages.resolve_family("cpp", "nvhpc") == "llvm"
+    assert languages.resolve_family(Language.CPP, "nvhpc") == "llvm"
 
 
 def test_the_pin_is_per_language(reset_pin) -> None:
     config.set_override("build.compiler.cpp", "llvm")
-    assert languages.resolve_family("cpp") == "llvm"
-    assert languages.resolve_family("c") == "gcc"
+    assert languages.resolve_family(Language.CPP) == "llvm"
+    assert languages.resolve_family(Language.C) == "gcc"
 
 
 def test_an_overriding_pin_is_logged(reset_pin, caplog) -> None:
     config.set_override("build.compiler.c", "gcc")
     with caplog.at_level("INFO", logger="hpcagent_bench.languages"):
-        assert languages.resolve_family("c", "nvhpc") == "gcc"
+        assert languages.resolve_family(Language.C, "nvhpc") == "gcc"
     assert "nvhpc" in caplog.text
     assert "build.compiler.c" in caplog.text
 
@@ -63,14 +63,14 @@ def test_an_overriding_pin_is_logged(reset_pin, caplog) -> None:
 def test_a_pin_equal_to_the_request_is_not_logged(reset_pin, caplog) -> None:
     config.set_override("build.compiler.c", "gcc")
     with caplog.at_level("INFO", logger="hpcagent_bench.languages"):
-        assert languages.resolve_family("c", "gcc") == "gcc"
+        assert languages.resolve_family(Language.C, "gcc") == "gcc"
     assert caplog.text == ""
 
 
 @pytest.mark.parametrize("bad", ["clang", "GCC", "intel", "g++"])
 def test_an_unknown_requested_compiler_names_the_allowed_set(bad) -> None:
     with pytest.raises(KeyError) as excinfo:
-        languages.resolve_family("cpp", bad)
+        languages.resolve_family(Language.CPP, bad)
     message = str(excinfo.value)
     assert bad in message
     assert "submission 'compiler'" in message
@@ -81,7 +81,7 @@ def test_an_unknown_requested_compiler_names_the_allowed_set(bad) -> None:
 def test_an_unknown_pin_names_the_allowed_set_and_its_key(reset_pin) -> None:
     config.set_override("build.compiler.c", "intel")
     with pytest.raises(KeyError) as excinfo:
-        languages.resolve_family("c")
+        languages.resolve_family(Language.C)
     assert "build.compiler.c" in str(excinfo.value)
     for family in languages.family_names():
         assert family in str(excinfo.value)
@@ -130,30 +130,30 @@ def drivers_in(argv: list[str]) -> set[str]:
 @pytest.mark.parametrize("family", ["gcc", "llvm"])
 def test_a_submitted_compiler_field_builds_with_that_family(monkeypatch, family) -> None:
     """The wire the prompt promises: `"compiler": "llvm"` must put llvm's driver on the argv."""
-    submission = Submission(language="cpp", source=CPP_SOURCE, compiler=family)
+    submission = Submission(language=Language.CPP, source=CPP_SOURCE, compiler=family)
     _result, cmds = sandbox_build(monkeypatch, submission)
-    driver = languages.compiler_driver(languages.compiler_for_family("cpp", family))
+    driver = languages.compiler_driver(languages.compiler_for_family(Language.CPP, family))
     assert driver in drivers_in(cmds[0])
 
 
 def test_a_submitted_compiler_field_moves_the_argv_off_the_default(monkeypatch) -> None:
     """Not merely present: the requested family must produce a DIFFERENT build than the default,
     which is what a silently ignored field could never do."""
-    _default_result, default = sandbox_build(monkeypatch, Submission(language="cpp", source=CPP_SOURCE))
+    _default_result, default = sandbox_build(monkeypatch, Submission(language=Language.CPP, source=CPP_SOURCE))
     _asked_result, requested = sandbox_build(
-        monkeypatch, Submission(language="cpp", source=CPP_SOURCE, compiler="llvm")
+        monkeypatch, Submission(language=Language.CPP, source=CPP_SOURCE, compiler="llvm")
     )
     assert drivers_in(requested[0]) != drivers_in(default[0])
 
 
 def test_a_setup_pin_still_beats_the_submitted_compiler_in_the_build(monkeypatch, reset_pin) -> None:
     config.set_override("build.compiler.cpp", "gcc")
-    _result, cmds = sandbox_build(monkeypatch, Submission(language="cpp", source=CPP_SOURCE, compiler="llvm"))
-    assert languages.compiler_driver(languages.compiler_for_family("cpp", "gcc")) in drivers_in(cmds[0])
+    _result, cmds = sandbox_build(monkeypatch, Submission(language=Language.CPP, source=CPP_SOURCE, compiler="llvm"))
+    assert languages.compiler_driver(languages.compiler_for_family(Language.CPP, "gcc")) in drivers_in(cmds[0])
 
 
 def test_an_unknown_submitted_compiler_fails_the_build_naming_the_allowed_set(monkeypatch) -> None:
-    result, cmds = sandbox_build(monkeypatch, Submission(language="cpp", source=CPP_SOURCE, compiler="clang"))
+    result, cmds = sandbox_build(monkeypatch, Submission(language=Language.CPP, source=CPP_SOURCE, compiler="clang"))
     assert not result.ok
     assert cmds == []
     for family in languages.family_names():
@@ -163,15 +163,15 @@ def test_an_unknown_submitted_compiler_fails_the_build_naming_the_allowed_set(mo
 def test_the_compiler_field_survives_the_json_round_trip() -> None:
     """``JudgeClient`` posts ``Submission.to_json()`` and the judge parses it back, so a field that
     does not round-trip is dropped between the agent and the build."""
-    sub = Submission(language="c", source="void gemm() {}", compiler="nvhpc")
+    sub = Submission(language=Language.C, source="void gemm() {}", compiler="nvhpc")
     assert sub.to_json()["compiler"] == "nvhpc"
     assert Submission.from_obj(sub.to_json()).compiler == "nvhpc"
-    assert "compiler" not in Submission(language="c", source="x").to_json()
+    assert "compiler" not in Submission(language=Language.C, source="x").to_json()
 
 
 # Task F: the BASELINE is built with the candidate's family
 
-C_TASK = Task("gemm", "restricted", "c")
+C_TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 def recorded_reference_blocks(monkeypatch) -> list[str | None]:
@@ -194,7 +194,12 @@ def recorded_reference_blocks(monkeypatch) -> list[str | None]:
 def grade_against_c(family: str | None) -> None:
     """Grade gemm's own C reference as a submission requesting ``family``, against the C baseline."""
     scoring.score(
-        grading.reference_submission(C_TASK, "c", family), C_TASK, preset="S", repeat=1, hidden=False, baseline="c"
+        grading.reference_submission(C_TASK, Language.C, family),
+        C_TASK,
+        preset=Preset.S,
+        repeat=1,
+        hidden=False,
+        baseline=Baseline.C,
     )
 
 
@@ -204,8 +209,8 @@ def test_a_submitted_compiler_field_moves_the_baseline_build_too(monkeypatch, fr
     the default family while the candidate is built by another measures the two compilers."""
     seen = recorded_reference_blocks(monkeypatch)
     grade_against_c("llvm")
-    assert seen == [languages.compiler_for_family("c", "llvm")]
-    assert seen != [languages.compiler_for_family("c", languages.default_family())]
+    assert seen == [languages.compiler_for_family(Language.C, "llvm")]
+    assert seen != [languages.compiler_for_family(Language.C, languages.default_family())]
 
 
 @pytest.mark.integration
@@ -216,8 +221,8 @@ def test_two_families_in_one_setup_do_not_share_a_cached_baseline(monkeypatch, f
     grade_against_c(None)
     grade_against_c("llvm")
     assert seen == [
-        languages.compiler_for_family("c", languages.default_family()),
-        languages.compiler_for_family("c", "llvm"),
+        languages.compiler_for_family(Language.C, languages.default_family()),
+        languages.compiler_for_family(Language.C, "llvm"),
     ]
 
 
@@ -226,34 +231,34 @@ def test_two_families_in_one_setup_do_not_share_a_cached_baseline(monkeypatch, f
 
 def test_the_pin_moves_the_resolved_compiler_block(reset_pin) -> None:
     compilers = languages._load_compilers()
-    default_name, _ = languages._compiler_for_lang(compilers, "c")
-    assert default_name == languages.compiler_for_family("c", "gcc")
+    default_name, _ = languages._compiler_for_lang(compilers, Language.C)
+    assert default_name == languages.compiler_for_family(Language.C, "gcc")
 
     config.set_override("build.compiler.c", "llvm")
-    pinned_name, _ = languages._compiler_for_lang(compilers, "c")
-    assert pinned_name == languages.compiler_for_family("c", "llvm")
+    pinned_name, _ = languages._compiler_for_lang(compilers, Language.C)
+    assert pinned_name == languages.compiler_for_family(Language.C, "llvm")
     assert pinned_name != default_name
 
 
 def test_the_pin_moves_the_baseline_flags_the_agent_is_shown(reset_pin) -> None:
-    assert flags.CPU_BASELINE_GCC in languages.baseline_flags("cpp")
+    assert flags.CPU_BASELINE_GCC in languages.baseline_flags(Language.CPP)
     config.set_override("build.compiler.cpp", "llvm")
-    assert flags.CPU_BASELINE_CLANG in languages.baseline_flags("cpp")
+    assert flags.CPU_BASELINE_CLANG in languages.baseline_flags(Language.CPP)
 
 
 def test_a_pin_naming_a_family_this_image_lacks_is_an_error(reset_pin, monkeypatch) -> None:
     """Named against a SYNTHETIC family rather than whichever real one happens to be unwired: a
     real one stops testing anything the day it gets its blocks."""
     monkeypatch.setitem(languages.COMPILER_FAMILIES, "unbuilt", "no-such-spack-package")
-    assert languages.compiler_for_family("fortran", "unbuilt") is None
+    assert languages.compiler_for_family(Language.FORTRAN, "unbuilt") is None
     config.set_override("build.compiler.fortran", "unbuilt")
     with pytest.raises(KeyError, match="unbuilt"):
-        languages._compiler_for_lang(languages._load_compilers(), "fortran")
+        languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
 
 
 def test_the_mpi_lookup_ignores_the_pin(reset_pin) -> None:
     config.set_override("build.compiler.c", "llvm")
-    name, block = languages._compiler_for_lang(languages._load_compilers(), "c", mpi=True)
+    name, block = languages._compiler_for_lang(languages._load_compilers(), Language.C, mpi=True)
     assert block.mpi
     assert name
 
@@ -272,7 +277,7 @@ def test_dace_builds_with_the_compiler_the_cpp_column_resolves() -> None:
     silent zeros -- a wrong baseline that reports as a passing one.
     """
     compiler_family = pytest.importorskip("dace.codegen.compiler_family")
-    block = languages.compiler_for_family("cpp", languages.resolve_family("cpp"))
+    block = languages.compiler_for_family(Language.CPP, languages.resolve_family(Language.CPP))
     assert block, "compilers.yaml wires no cpp block for the default family"
     expected = languages.resolve_compiler(languages.compiler_driver(block))
     assert expected, f"the cpp column's driver for {block!r} is not on PATH"
@@ -538,14 +543,14 @@ def tbb_backend(monkeypatch) -> None:
 def test_the_multi_source_kernel_link_carries_the_stdpar_runtime(tbb_backend, tmp_path) -> None:
     src = tmp_path / "k.cpp"
     src.write_text("int main() { return 0; }")
-    link = languages.build_kernel_lib_commands([("cpp", src)], tmp_path / "libk.so")[-1]
+    link = languages.build_kernel_lib_commands([(Language.CPP, src)], tmp_path / "libk.so")[-1]
     assert flags.STDPAR_LINK_TBB in link
 
 
 def test_the_stdpar_runtime_is_never_linked_twice(tbb_backend, tmp_path) -> None:
     src = tmp_path / "k.cpp"
     src.write_text("int main() { return 0; }")
-    link = languages.build_kernel_lib_commands([("cpp", src)], tmp_path / "libk.so")[-1]
+    link = languages.build_kernel_lib_commands([(Language.CPP, src)], tmp_path / "libk.so")[-1]
     assert link.count(flags.STDPAR_LINK_TBB) == 1
 
 
@@ -668,7 +673,7 @@ def test_the_licensed_copy_leaves_the_shared_flags_module_alone(licensed_flags) 
     """
     assert licensed_flags is not flags, "the licensed copy must not be the shared module"
     assert flags.Mode is Mode, "reloading flags rebinds Mode and breaks every `is` comparison on it"
-    _cname, block = languages._compiler_for_lang(languages._load_compilers(), "c")
+    _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.C)
     assert "-ftree-parallelize-loops" in languages._resolve_baseline(block, Mode.MULTI_CORE)
 
 
@@ -730,8 +735,8 @@ def test_the_baseline_link_carries_the_allocator_the_submission_links(mimalloc_l
     makes it worth pinning rather than leaving to the environment."""
     src = tmp_path / "k.cpp"
     src.write_text("int main() { return 0; }")
-    baseline = languages.build_kernel_lib_commands([("cpp", src)], tmp_path / "libk.so")[-1]
-    submission = languages.build_shared_lib_commands("cpp", src, tmp_path / "libs.so")[-1]
+    baseline = languages.build_kernel_lib_commands([(Language.CPP, src)], tmp_path / "libk.so")[-1]
+    submission = languages.build_shared_lib_commands(Language.CPP, src, tmp_path / "libs.so")[-1]
     assert flags.LINK_MIMALLOC in baseline
     assert flags.LINK_MIMALLOC in submission
 
@@ -739,7 +744,7 @@ def test_the_baseline_link_carries_the_allocator_the_submission_links(mimalloc_l
 def test_the_allocator_is_never_linked_twice_on_the_baseline(mimalloc_links, tmp_path) -> None:
     src = tmp_path / "k.cpp"
     src.write_text("int main() { return 0; }")
-    link = languages.build_kernel_lib_commands([("cpp", src)], tmp_path / "libk.so")[-1]
+    link = languages.build_kernel_lib_commands([(Language.CPP, src)], tmp_path / "libk.so")[-1]
     assert link.count(flags.LINK_MIMALLOC) == 1
 
 
@@ -749,8 +754,8 @@ def test_a_host_without_the_library_links_it_on_neither_side(monkeypatch, tmp_pa
     monkeypatch.setattr(languages, "_mimalloc_links", lambda cc, tokens, offload: False)
     src = tmp_path / "k.cpp"
     src.write_text("int main() { return 0; }")
-    baseline = languages.build_kernel_lib_commands([("cpp", src)], tmp_path / "libk.so")[-1]
-    submission = languages.build_shared_lib_commands("cpp", src, tmp_path / "libs.so")[-1]
+    baseline = languages.build_kernel_lib_commands([(Language.CPP, src)], tmp_path / "libk.so")[-1]
+    submission = languages.build_shared_lib_commands(Language.CPP, src, tmp_path / "libs.so")[-1]
     assert flags.LINK_MIMALLOC not in baseline
     assert flags.LINK_MIMALLOC not in submission
 
@@ -810,10 +815,10 @@ def test_no_fortran_compiler_declares_the_allocator(mimalloc_links) -> None:
     paragraph about an unusable knob into every Fortran prompt.
     """
     blocks = languages._load_compilers()
-    fortran = {name: b for name, b in blocks.items() if b.lang == "fortran"}
+    fortran = {name: b for name, b in blocks.items() if b.lang is Language.FORTRAN}
     assert fortran, "fixture guard: no fortran blocks found, the assertion below would be vacuous"
     assert [n for n, b in fortran.items() if b.mimalloc_link_ref] == []
-    assert languages.mimalloc_link_flags("fortran") == ()
+    assert languages.mimalloc_link_flags(Language.FORTRAN) == ()
 
 
 def test_the_fortran_prompt_says_nothing_about_the_allocator(mimalloc_links) -> None:
@@ -822,8 +827,8 @@ def test_the_fortran_prompt_says_nothing_about_the_allocator(mimalloc_links) -> 
     from hpcagent_bench.harness.prompts import build_prompt
     from hpcagent_bench.harness.task import Task
 
-    assert "mimalloc" not in build_prompt(Task("gemm", "restricted", "fortran"))
-    assert "mimalloc" in build_prompt(Task("gemm", "restricted", "c"))
+    assert "mimalloc" not in build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.FORTRAN))
+    assert "mimalloc" in build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.C))
 
 
 # An offload setup grades a host-only answer

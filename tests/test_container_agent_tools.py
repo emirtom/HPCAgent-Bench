@@ -25,6 +25,7 @@ import pytest
 from hpcagent_agent.tools import http_json, registry
 
 from hpcagent_bench import languages, paths
+from hpcagent_bench.categories import Language, Oracle
 from hpcagent_bench.harness import gpu_profiling
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
@@ -120,7 +121,7 @@ def judge(
     tmp_path: pathlib.Path,
 ) -> str:
     """A language-enforcing judge, with the environment the tools read pointed at it."""
-    _srv, url = make_judge(ServiceConfig(input_mode="source", oracle="auto", repeat=2))
+    _srv, url = make_judge(ServiceConfig(input_mode="source", oracle=Oracle.AUTO, repeat=2))
     monkeypatch.setenv("JUDGE_URL", url)
     in_agent_folder(monkeypatch, tmp_path)
     monkeypatch.delenv("JUDGE_RANK", raising=False)
@@ -134,7 +135,7 @@ def free_choice_judge(
     tmp_path: pathlib.Path,
 ) -> str:
     """A judge that pins nothing (``input_mode=any``) -- the one the free-choice variant runs."""
-    _srv, url = make_judge(ServiceConfig(input_mode="any", oracle="auto", repeat=2))
+    _srv, url = make_judge(ServiceConfig(input_mode="any", oracle=Oracle.AUTO, repeat=2))
     monkeypatch.setenv("JUDGE_URL", url)
     in_agent_folder(monkeypatch, tmp_path)
     monkeypatch.delenv("JUDGE_RANK", raising=False)
@@ -144,18 +145,21 @@ def free_choice_judge(
 @pytest.mark.parametrize(
     ("submission", "payload"),
     [
-        (dict(language="c", source="void k(void) {}"), {"source": "void k(void) {}"}),
-        (dict(language="c", source="void k(void) {}", build=["-lm"]), {"source": "void k(void) {}", "build": ["-lm"]}),
+        (dict(language=Language.C, source="void k(void) {}"), {"source": "void k(void) {}"}),
         (
-            dict(language="c", library="/shared/libk.so", workspace_bytes="8*NI*NJ"),
+            dict(language=Language.C, source="void k(void) {}", build=["-lm"]),
+            {"source": "void k(void) {}", "build": ["-lm"]},
+        ),
+        (
+            dict(language=Language.C, library="/shared/libk.so", workspace_bytes="8*NI*NJ"),
             {"library": "/shared/libk.so", "workspace_bytes": "8*NI*NJ"},
         ),
         (
-            dict(language="c", source="void k(void) {}", compiler="llvm"),
+            dict(language=Language.C, source="void k(void) {}", compiler="llvm"),
             {"source": "void k(void) {}", "compiler": "llvm"},
         ),
         (
-            dict(language="c", source="void k(void) {}", requests=Requests.validate(ROW_SPLIT)),
+            dict(language=Language.C, source="void k(void) {}", requests=Requests.validate(ROW_SPLIT)),
             {"source": "void k(void) {}", "requests": ROW_SPLIT},
         ),
     ],
@@ -181,7 +185,11 @@ def test_profile_adds_exactly_the_diagnostic_fields(agent_tools, monkeypatch) ->
     default, and inventing one here would silently change what was measured."""
     monkeypatch.setenv("LANGUAGE", "c")
     base = {"kernel": KERNEL, "source": "void k(void) {}"}
-    reference = {"kernel": KERNEL, "min_percent": 1.0, **Submission(language="c", source=base["source"]).to_json()}
+    reference = {
+        "kernel": KERNEL,
+        "min_percent": 1.0,
+        **Submission(language=Language.C, source=base["source"]).to_json(),
+    }
     assert agent_tools.profile_tool.profile_body(base) == reference
 
     asked = agent_tools.profile_tool.profile_body({**base, "tool": "papi", "threads": 4, "reps": 20, "counters": True})

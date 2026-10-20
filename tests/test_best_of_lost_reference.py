@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode, Track
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.native_call import NativeCallTimeout
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -89,7 +90,7 @@ def grade(
     monkeypatch.setattr(scoring, "_run_c_reference", c_reference or seq_c("c" in lost, timed))
     monkeypatch.setattr(scoring, "run_compiled_reference", autopar("c-autopar" in lost, timed))
     monkeypatch.setattr(scoring, "time_numba_isolated", numba("numba" in lost, timed))
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
         config.overridden(f"measurement.denominator.{BenchSpec.load(KERNEL).track}", DENOMINATORS[policy]),
         config.overridden("measurement.baseline_race", grading.COMPLETE_RACE),  # the policy's own order
@@ -99,11 +100,11 @@ def grade(
     ):
         result = scoring.score(
             submission,
-            Task(KERNEL, "restricted", "c"),
-            preset="S",
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             repeat=5,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             hidden=hidden,
             hidden_cases=[],
         )
@@ -221,13 +222,13 @@ def test_a_lost_numba_under_best_of_numba_c_is_disclosed_and_the_grade_stands_on
 
 
 def test_the_configured_denominator_sets_what_a_track_races() -> None:
-    assert grading.track_baseline_set("machine_learning") == (grading.TORCH_AUTOTUNE,)
-    assert grading.track_baseline_set("scientific_computing") == ("c", "numba")  # the default
-    assert grading.track_baseline_set("loop_level_reasoning") == ("c", "numba")
-    assert grading.resolve_baseline_set("auto", BenchSpec.load(KERNEL)) == ("c", "numba")
-    assert grading.resolve_baseline_set("c", BenchSpec.load(KERNEL)) == ("c",)
+    assert grading.track_baseline_set(Track.MACHINE_LEARNING) == (grading.TORCH_AUTOTUNE,)
+    assert grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING) == ("c", "numba")  # the default
+    assert grading.track_baseline_set(Track.LOOP_LEVEL_REASONING) == ("c", "numba")
+    assert grading.resolve_baseline_set(None, BenchSpec.load(KERNEL)) == ("c", "numba")
+    assert grading.resolve_baseline_set(Baseline.C, BenchSpec.load(KERNEL)) == ("c",)
     with config.overridden("measurement.denominator.scientific_computing", "best-of(numba,c,c-autopar)"):
-        assert grading.track_baseline_set("scientific_computing") == ("c-autopar", "c", "numba")
+        assert grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING) == ("c-autopar", "c", "numba")
 
 
 def test_the_best_of_rules_have_distinct_stamps() -> None:
@@ -244,7 +245,7 @@ def test_an_unknown_denominator_is_refused() -> None:
         pytest.raises(ValueError, match="best-of-v9"),
         config.overridden("measurement.denominator.scientific_computing", "best-of-v9"),
     ):
-        grading.track_baseline_set("scientific_computing")
+        grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING)
 
 
 @pytest.mark.parametrize(
@@ -269,14 +270,19 @@ def test_a_c_oracle_that_fails_hands_the_grade_to_numba(monkeypatch: pytest.Monk
     monkeypatch.setattr(scoring, "oracle_kinds", lambda *_a, **_k: ("c", "numba"))
     monkeypatch.setattr(scoring, "_run_c_reference", seq_c(True, timed))
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(False, timed))
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
         config.overridden(f"measurement.denominator.{BenchSpec.load(KERNEL).track}", "numba"),
         config.overridden("measurement.timing_backend", "mannwhitney_delta"),
         config.overridden("measurement.mannwhitney.repeats", 5),
     ):
         result = scoring.score(
-            submission, Task(KERNEL, "restricted", "c"), preset="S", repeat=5, oracle="auto", baseline="auto"
+            submission,
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
+            repeat=5,
+            oracle=Oracle.AUTO,
+            baseline=None,
         )
     assert result.correct, result.detail
     assert not result.harness_fault, result.detail

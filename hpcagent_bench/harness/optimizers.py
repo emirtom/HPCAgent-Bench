@@ -27,6 +27,7 @@ from collections.abc import Callable, Sequence
 from typing import ClassVar
 
 from hpcagent_bench import config, languages, paths, pluto_transform, ppcg_transform
+from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.emit_bridge import emit_kernel
 from hpcagent_bench.harness.agent import Agent, reference_mpi_source, reference_source
@@ -138,7 +139,7 @@ class LibraryOptimizer(Agent):
             src = root / f"{binding.symbol}.{ext}"
             src.write_text(source)
             # Key the artifact on language too, so one workdir can hold a kernel's C and Fortran builds.
-            lib = root / f"lib{task.kernel}_{task.language}.so"
+            lib = root / f"lib{task.kernel}_{task.language.text}.so"
             cmds = languages.build_shared_lib_commands(
                 task.language, src, lib, extra_compile=extra_compile, extra_link=extra_link
             )
@@ -172,7 +173,7 @@ class LibraryOptimizer(Agent):
 
     def _deliver(self, task: Task, source: str) -> Submission:
         """Return ``source`` as a source submission, or (``any`` mode) build and submit the ``.so``."""
-        if task.source_mode == "restricted":
+        if task.source_mode is SourceMode.RESTRICTED:
             return Submission(language=task.language, source=source)
         return self._library_submission(task, source)
 
@@ -203,10 +204,10 @@ class NoOpMPIOptimizer(Agent):
     name = "noop-mpi"
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        if task.residency != "distributed":
+        if task.residency is not Residency.DISTRIBUTED:
             raise NotImplementedError(
                 f"{self.name} is the distributed-track optimizer; "
-                f"got residency {task.residency!r} (use 'noop' for single-node)"
+                f"got residency {task.residency.text!r} (use 'noop' for single-node)"
             )
         spec = BenchSpec.load(task.kernel)
         if not spec.mpi:
@@ -243,19 +244,19 @@ class BlasReductionOptimizer(LibraryOptimizer):
     def _emit_source(self, task: Task) -> str:
         """Render the C-ABI signature from the binding, fill in the BLAS body."""
         binding = binding_from_spec(BenchSpec.load(task.kernel))
-        header = gen_call_stub(binding, "c").split(") {", 1)[0] + ") {"
+        header = gen_call_stub(binding, Language.C).split(") {", 1)[0] + ") {"
         return f"#include <stdint.h>\n#include <cblas.h>\n{header}\n{self._BODIES[task.kernel]}\n}}\n"
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
         if task.kernel not in self._BODIES:
             raise NotImplementedError(f"{self.name} only optimizes {sorted(self._BODIES)}; got {task.kernel!r}")
-        if task.language != "c":
-            raise NotImplementedError(f"{self.name} emits C only; got language {task.language!r}")
+        if task.language is not Language.C:
+            raise NotImplementedError(f"{self.name} emits C only; got language {task.language.text!r}")
         source = self._emit_source(task)
         cflags, libs = openblas_flags()
-        if task.source_mode == "restricted":
+        if task.source_mode is SourceMode.RESTRICTED:
             # Language option: the judge compiles; OpenBLAS goes on ``build``.
-            return Submission(language="c", source=source, build=cflags + libs)
+            return Submission(language=Language.C, source=source, build=cflags + libs)
         # ABI option: build the .so here and submit the library.
         return self._library_submission(task, source, extra_compile=cflags, extra_link=libs)
 
@@ -317,7 +318,7 @@ def pluto_source(task: Task) -> str:
         body = transformed[0].read_text()
         order = [arg.name for arg in read_binding(backend / f"{symbol}_pluto_binding.json").args]
     renamed = re.sub(rf"\b{re.escape(symbol)}\s*\(", f"{symbol}_pluto(", body)
-    header = gen_call_stub(binding, "c").split(") {", 1)[0] + ") {"
+    header = gen_call_stub(binding, Language.C).split(") {", 1)[0] + ") {"
     call = ", ".join(call_argument(name, binding) for name in order)
     return f"{renamed}\n{header}\n    {symbol}_pluto({call});\n}}\n"
 
@@ -336,7 +337,7 @@ def ppcg_hip_sources(task: Task) -> tuple[str, str]:
     symbol = binding.symbol
     with tempfile.TemporaryDirectory(prefix=f"ppcg_{spec.module_name}_") as work:
         backend = emit_scops(spec, pathlib.Path(work))
-        transformed = own_sources(ppcg_transform.transformed_sources(backend, spec.module_name, "hip"), symbol)
+        transformed = own_sources(ppcg_transform.transformed_sources(backend, spec.module_name, Language.HIP), symbol)
         if len(transformed) != 2:
             raise NotImplementedError(f"{task.kernel}: expected ppcg's host and kernel for {symbol}, got {transformed}")
         host_path, kernel_path = transformed
@@ -344,7 +345,7 @@ def ppcg_hip_sources(task: Task) -> tuple[str, str]:
         host, device = inline_header(host_path.read_text(), header), inline_header(kernel_path.read_text(), header)
     for name in ppcg_transform.entry_params(host, symbol):
         call_argument(name, binding)  # declines a parameter the canonical entry does not carry
-    stub = gen_call_stub(binding, "hip", "device")
+    stub = gen_call_stub(binding, Language.HIP, Residency.DEVICE)
     params = stub.split(f"void {symbol}(", 1)[1].split(") {", 1)[0]
     entry = re.search(rf"\b{re.escape(symbol)}\s*\(([^)]*)\)\s*{{", host)
     if entry is None:
@@ -366,9 +367,11 @@ class PlutoOptimizer(Agent):
     name = "pluto"
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        if task.language != "c" or task.source_mode != "restricted":
-            raise NotImplementedError(f"{self.name} submits restricted C; got {task.language}/{task.source_mode}")
-        return Submission(language="c", source=pluto_source(task))
+        if task.language is not Language.C or task.source_mode is not SourceMode.RESTRICTED:
+            raise NotImplementedError(
+                f"{self.name} submits restricted C; got {task.language.text}/{task.source_mode.text}"
+            )
+        return Submission(language=Language.C, source=pluto_source(task))
 
 
 @optimizer
@@ -381,10 +384,12 @@ class PpcgHipOptimizer(Agent):
     name = "ppcg-hip"
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        if task.language != "hip" or task.source_mode != "restricted":
-            raise NotImplementedError(f"{self.name} submits restricted HIP; got {task.language}/{task.source_mode}")
+        if task.language is not Language.HIP or task.source_mode is not SourceMode.RESTRICTED:
+            raise NotImplementedError(
+                f"{self.name} submits restricted HIP; got {task.language.text}/{task.source_mode.text}"
+            )
         host, device = ppcg_hip_sources(task)
-        return Submission(language="hip", source=host, device_source=device)
+        return Submission(language=Language.HIP, source=host, device_source=device)
 
 
 class AlloyOptimizer(LibraryOptimizer):

@@ -39,6 +39,7 @@ import pytest
 
 from hpcagent_bench import ppcg_transform
 from hpcagent_bench.columns import FRAMEWORKS
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks import native_runtime, pluto_framework
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.ppcg_transform import device_resident_host
@@ -256,11 +257,11 @@ def test_a_passthrough_is_published_and_declined_not_crashed_on(
     monkeypatch.setattr(ppcg_transform, "assert_affine", lambda *a, **k: None)
     monkeypatch.setattr(ppcg_transform, "scop_inputs", lambda *a, **k: [scop])
 
-    proc = ppcg_transform.run_ppcg(scop, "hip")[1]
+    proc = ppcg_transform.run_ppcg(scop, Language.HIP)[1]
     assert proc.returncode == 0, proc.stderr
-    assert all(p.is_file() for p in ppcg_transform.transformed_paths(scop, "hip"))
+    assert all(p.is_file() for p in ppcg_transform.transformed_paths(scop, Language.HIP))
     with pytest.raises(NotSupportedByFramework, match="offloaded nothing"):
-        ppcg_transform.transformed_sources(cpp_backend, "red", "hip")
+        ppcg_transform.transformed_sources(cpp_backend, "red", Language.HIP)
 
 
 # ctypes device pointers

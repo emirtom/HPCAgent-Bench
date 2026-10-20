@@ -14,6 +14,7 @@ import re
 import pytest
 
 from hpcagent_bench import config, paths
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness.prompts import (
     PromptConfig,
     build_prompt,
@@ -23,7 +24,7 @@ from hpcagent_bench.harness.prompts import (
 )
 from hpcagent_bench.harness.task import Task
 
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 def write_skill(root: pathlib.Path, name: str, description: str, body: str) -> pathlib.Path:
@@ -199,7 +200,7 @@ def test_tolerance_follows_the_task_precision() -> None:
     from hpcagent_bench.harness.prompts import build_context
     from hpcagent_bench.harness.task import Precision
 
-    fp32 = Task("gemm", "restricted", "c", precision=Precision.FP32)
+    fp32 = Task("gemm", SourceMode.RESTRICTED, Language.C, precision=Precision.FP32)
     assert build_context(fp32)["rtol"] != build_context(TASK)["rtol"]
 
 
@@ -270,7 +271,7 @@ def test_the_host_repo_path_never_reaches_the_prompt() -> None:
     repo-absolute path: valid for the judge, absent in the agent's container, and a
     disclosure of the host layout either way."""
     for language in ("c", "cpp", "fortran"):
-        prompt = build_prompt(Task("gemm", "restricted", language))
+        prompt = build_prompt(Task("gemm", SourceMode.RESTRICTED, language))
         assert str(paths.ROOT) not in prompt, f"{language} prompt leaks the host repo path"
 
 
@@ -370,7 +371,7 @@ def test_service_prompt_honours_inline_kernel() -> None:
     per-language baseline as well as the numpy semantics."""
     from hpcagent_bench.harness.service import service_prompt
 
-    prompt = service_prompt("gemm", "c", "http://judge:8000")
+    prompt = service_prompt("gemm", Language.C, "http://judge:8000")
     assert "/tasks/gemm/" in prompt
     assert "_numpy.py" in prompt
     assert reference_body() not in prompt
@@ -381,7 +382,7 @@ def test_service_prompt_can_still_inline() -> None:
     from hpcagent_bench.harness.service import service_prompt
 
     cfg = PromptConfig.from_config(inline_kernel=True)
-    assert reference_body() in service_prompt("gemm", "c", "http://j:1", prompt_config=cfg)
+    assert reference_body() in service_prompt("gemm", Language.C, "http://j:1", prompt_config=cfg)
 
 
 def test_service_prompt_takes_the_template_search_path(tmp_path) -> None:
@@ -391,7 +392,7 @@ def test_service_prompt_takes_the_template_search_path(tmp_path) -> None:
 
     (tmp_path / "service_task.j2").write_text("SERVICE OVERRIDE {{ kernel }}\n")
     cfg = PromptConfig.from_config(template_dirs=(str(tmp_path),))
-    assert "SERVICE OVERRIDE gemm" in service_prompt("gemm", "c", "http://j:1", prompt_config=cfg)
+    assert "SERVICE OVERRIDE gemm" in service_prompt("gemm", Language.C, "http://j:1", prompt_config=cfg)
 
 
 def test_no_template_inlines_the_reference_unconditionally() -> None:
@@ -410,7 +411,7 @@ def test_no_template_inlines_the_reference_unconditionally() -> None:
 def test_service_prompt_never_leaks_the_host_path() -> None:
     from hpcagent_bench.harness.service import service_prompt
 
-    assert str(paths.ROOT) not in service_prompt("gemm", "c", "http://judge:8000")
+    assert str(paths.ROOT) not in service_prompt("gemm", Language.C, "http://judge:8000")
 
 
 # judge access, multi-task
@@ -420,7 +421,7 @@ def test_the_prompt_points_at_this_kernels_own_material() -> None:
     reference -- and no route serves this, so the folder is the only copy."""
     from hpcagent_bench.harness.service import service_prompt
 
-    prompt = service_prompt("gemm", "c", "http://judge:8000")
+    prompt = service_prompt("gemm", Language.C, "http://judge:8000")
     assert "/tasks/gemm/" in prompt
     assert "/task/gemm" not in prompt, "the removed /task route came back into the prompt"
 
@@ -429,7 +430,7 @@ def test_both_a_curl_and_a_python_call_are_offered() -> None:
     """The agent should need only the endpoint or the wrapper -- both are documented."""
     from hpcagent_bench.harness.service import service_prompt
 
-    prompt = service_prompt("gemm", "c", "http://judge:8000")
+    prompt = service_prompt("gemm", Language.C, "http://judge:8000")
     assert "curl -s" in prompt
     assert "from hpcagent_bench.harness.tools import JudgeClient" in prompt
     # The documented Python call names the judge's rank too -- the judge refuses a request that
@@ -456,8 +457,8 @@ def test_the_judge_url_is_per_prompt_not_global() -> None:
     different judges."""
     from hpcagent_bench.harness.service import service_prompt
 
-    a = service_prompt("gemm", "c", "http://judge-a:8000")
-    b = service_prompt("gemm", "c", "http://judge-b:8000")
+    a = service_prompt("gemm", Language.C, "http://judge-a:8000")
+    b = service_prompt("gemm", Language.C, "http://judge-b:8000")
     assert "judge-a" in a
     assert "judge-b" not in a
     assert "judge-b" in b
@@ -468,7 +469,7 @@ def test_one_judge_serves_many_kernels() -> None:
     from hpcagent_bench.harness.service import service_prompt
 
     for kernel in ("gemm", "gesummv"):
-        assert f"/tasks/{kernel}/" in service_prompt(kernel, "c", "http://j:1")
+        assert f"/tasks/{kernel}/" in service_prompt(kernel, Language.C, "http://j:1")
 
 
 # timed shapes are never disclosed
@@ -511,7 +512,7 @@ def test_the_service_prompt_says_what_score_times(monkeypatch) -> None:
     from hpcagent_bench.harness.service import service_prompt
 
     monkeypatch.setenv("HPCAGENT_BENCH_MEASUREMENT_CREDITED_PROTOCOL", "mw4x20")
-    prompt = service_prompt("gemm", "c", "http://judge:8000")
+    prompt = service_prompt("gemm", Language.C, "http://judge:8000")
     assert "`score` times 2 input(s) of its own" in prompt
     assert "5 runs a side after a warmup" in prompt
 
@@ -523,7 +524,7 @@ def test_the_service_prompt_gets_the_same_finishing_as_the_in_process_one(tmp_pa
 
     (tmp_path / "scoring.j2").write_text(f"LEAK {paths.ROOT}/hpcagent_bench/envs/vecmath.h\n")
     cfg = PromptConfig.from_config(template_dirs=(str(tmp_path),), debug=True)
-    prompt = service_prompt("gemm", "c", "http://judge:8000", prompt_config=cfg)
+    prompt = service_prompt("gemm", Language.C, "http://judge:8000", prompt_config=cfg)
     assert "LEAK vecmath.h" in prompt
     assert str(paths.ROOT) not in prompt
     assert f"# Generated by: hpcagent_bench prompts ({SERVICE_TEMPLATE})" in prompt
@@ -546,7 +547,7 @@ def test_an_enforced_track_never_offers_the_python_escape_hatch(input_mode) -> N
     that still said "instead of fortran, you may deliver Python" would be routing the agent into a
     refusal. The section is GATED on the judge's policy, not deleted: where python is still legal
     (``any`` / ``py-binding``) it must still be offered."""
-    task = Task("gemm", "restricted", "fortran")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.FORTRAN)
     cfg = PromptConfig.from_config(profiling_guidance=False)
 
     input_mode("source")
@@ -561,7 +562,7 @@ def test_an_enforced_track_never_offers_the_python_escape_hatch(input_mode) -> N
     from hpcagent_bench.support.bindings import binding_from_spec
 
     symbol = binding_from_spec(spec_mod.load_spec("gemm")).symbols["fortran"]
-    expected = languages.source_units("fortran", symbol)[0][1]
+    expected = languages.source_units(Language.FORTRAN, symbol)[0][1]
     assert f"`{expected}`" in enforced, f"the enforced prompt must name the source file the sandbox writes ({expected})"
 
     for mode in ("any", "py-binding"):
@@ -578,7 +579,7 @@ def test_the_service_prompt_states_the_source_file_contract(input_mode) -> None:
     from hpcagent_bench.harness.service import service_prompt
 
     input_mode("source")
-    prompt = service_prompt("argmax_value", "fortran", "http://judge:8000")
+    prompt = service_prompt("argmax_value", Language.FORTRAN, "http://judge:8000")
     assert "`source_file`" in prompt
     assert "`argmax_value.f90`" in prompt, "the source_file basename contract is not stated"
     assert '"language": "python"' in prompt, "the enforced prompt must say another language is refused"
@@ -664,10 +665,10 @@ def test_the_skill_index_is_exactly_the_setups_packet_for_every_task_and_every_k
     without a skill packet gets no Skills section at all. Selection inside the packet stays with the
     reader through each page's ``when:`` trigger."""
     for task in (
-        Task("gemm", "restricted", "c"),
-        Task("gemm", "restricted", "fortran"),
-        Task("gemm", "any", "c"),
-        Task("gemm", "restricted", "hip", image="amd"),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        Task("gemm", SourceMode.RESTRICTED, Language.FORTRAN),
+        Task("gemm", SourceMode.ANY, Language.C),
+        Task("gemm", SourceMode.RESTRICTED, Language.HIP, image="amd"),
     ):
         for cfg in (
             PromptConfig.from_config(),
@@ -689,6 +690,6 @@ def test_every_indexed_page_states_a_trigger_not_just_a_name() -> None:
     name is a page the reader has no reason to open."""
     import re
 
-    prompt = build_prompt(Task("gemm", "restricted", "c"), prompt_config=PromptConfig.from_config())
+    prompt = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.C), prompt_config=PromptConfig.from_config())
     for name, trigger in re.findall(r"^- \*\*(\S+?)\*\* \(\S+?\) -- (.*)$", prompt, re.MULTILINE):
         assert len(trigger.strip()) > 20, f"{name}: trigger is too thin to act on: {trigger!r}"

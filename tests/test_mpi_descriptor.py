@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from relayout.ops import Scheme, Startup
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import mpi_sizing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import (
@@ -129,13 +130,15 @@ def plan_of(raw: dict | DistributionPlan) -> DistributionPlan:
 def submitted(plan: dict | DistributionPlan) -> Submission:
     """A submission whose requests lower to ``plan``, or the plan of that JSON (:meth:`Requests.from_plan`
     writes the op lists)."""
-    return Submission(language="c", source="x", requests=Requests.from_plan(plan_of(plan)))
+    return Submission(language=Language.C, source="x", requests=Requests.from_plan(plan_of(plan)))
 
 
 def requested(grid: list[int], operations: list[dict]) -> Submission:
     """A submission carrying ``operations`` over ``grid`` as an agent would send them."""
     return Submission(
-        language="c", source="x", requests=Requests.validate({"startup": {"grid": grid}, "operations": operations})
+        language=Language.C,
+        source="x",
+        requests=Requests.validate({"startup": {"grid": grid}, "operations": operations}),
     )
 
 

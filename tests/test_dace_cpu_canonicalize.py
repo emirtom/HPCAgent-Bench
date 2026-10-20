@@ -23,11 +23,10 @@ from typing import cast
 import dace
 import pytest
 
-from hpcagent_bench.spec import BenchSpec
-
 from hpcagent_bench import cpf_canonical
 from hpcagent_bench.frameworks import Benchmark
 from hpcagent_bench.frameworks.dace_framework import DaceFramework, pipeline_canonicalize
+from hpcagent_bench.spec import BenchSpec
 
 
 @dace.program

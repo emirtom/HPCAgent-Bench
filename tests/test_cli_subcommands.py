@@ -26,6 +26,7 @@ import types
 import pytest
 
 from hpcagent_bench import config, osinfo
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.cli import agent_registry, build_parser, main, make_agent_builder
 from hpcagent_bench.harness import runner
 from hpcagent_bench.harness.runner import RunRow
@@ -229,7 +230,7 @@ def noop_abi_submission(monkeypatch, shared):
     the ``.so`` up underneath the assertions."""
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(shared))
     builder = make_agent_builder(agent_registry(), "noop")
-    sub = builder(None).solve(Task("gemm", "any", "c"))
+    sub = builder(None).solve(Task("gemm", SourceMode.ANY, Language.C))
     assert sub.library is not None
     assert sub.source is None
     return builder, sub

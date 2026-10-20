@@ -4,6 +4,7 @@
 authoritative HTTP score folds onto the agent's think row, provenance survives, and endpoint
 assignment is static. Every test fakes the agent + the judge -- no LLM, no compile, no GPU."""
 
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness import pipeline
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import GradeAnswer, RecordedAnswer
@@ -19,8 +20,8 @@ def make_think_row(**over) -> RunRow:
     base = dict(
         task_id="gemm::c",
         kernel="gemm",
-        language="c",
-        source_mode="restricted",
+        language=Language.C,
+        source_mode=SourceMode.RESTRICTED,
         agent="stub",
         status="ok",
         correct=True,
@@ -46,21 +47,21 @@ def make_oracle_response(kernel: str = "gemm", **over: object) -> GradeAnswer:
         detail="",
         baseline_ns=400,
         speedup=2.0,  # authoritative judge speedup (differs from the 9.9 proxy)
-        baseline="numba",
+        baseline=Baseline.NUMBA,
         public_correct=True,
         hidden_correct=True,
         hidden_passed=3,
         hidden_total=3,
         baselines={"numba": 400},
         speedups={"numba": 2.0},
-        oracle="auto",
+        oracle=Oracle.AUTO,
     )
     base.update(over)
-    return grade_answer(Score(**base), kernel, "c", "S", "host", RecordedAnswer(skipped="off"), "r")
+    return grade_answer(Score(**base), kernel, Language.C, Preset.S, Residency.HOST, RecordedAnswer(skipped="off"), "r")
 
 
 def a_submission() -> Submission:
-    return Submission(language="c", source="void kernel_gemm(){}")
+    return Submission(language=Language.C, source="void kernel_gemm(){}")
 
 
 class FakeJudge:
@@ -100,7 +101,7 @@ def test_merge_overwrites_proxy_with_authoritative() -> None:
 
 def test_gradable() -> None:
     assert pipeline.gradable(a_submission())  # has source
-    assert pipeline.gradable(Submission(language="c", library="/tmp/k.so"))  # has library
+    assert pipeline.gradable(Submission(language=Language.C, library="/tmp/k.so"))  # has library
     assert not pipeline.gradable(None)  # agent produced nothing to time
 
 
@@ -149,18 +150,18 @@ def test_run_static_orders_regrades_and_assigns_endpoints(monkeypatch) -> None:
         seen_vllm.append(base_url)
         return object()
 
-    tasks = [Task(k, "restricted", "c") for k in ("gemm", "gesummv", "atax")]
+    tasks = [Task(k, SourceMode.RESTRICTED, Language.C) for k in ("gemm", "gesummv", "atax")]
     rows = pipeline.run_static(
         builder,
         tasks,
         vllm_urls=["v0", "v1"],
         judge_urls=["j0"],
         workers=2,
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         repeat=1,
-        oracle="auto",
-        baseline="numba",
+        oracle=Oracle.AUTO,
+        baseline=Baseline.NUMBA,
     )
     assert [r.kernel for r in rows] == ["gemm", "gesummv", "atax"]  # input order preserved
     assert all(r.speedup == 2.0 and r.correct for r in rows)  # authoritative judge score folded in
@@ -177,15 +178,15 @@ def test_run_static_task_error_becomes_scored_row(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "JudgeClient", FakeJudge)
     rows = pipeline.run_static(
         lambda u: object(),
-        [Task("gemm", "restricted", "c")],
+        [Task("gemm", SourceMode.RESTRICTED, Language.C)],
         vllm_urls=[None],
         judge_urls=["j0"],
         workers=1,
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         repeat=1,
-        oracle="auto",
-        baseline="numba",
+        oracle=Oracle.AUTO,
+        baseline=Baseline.NUMBA,
     )
     assert len(rows) == 1
     assert rows[0].status == "agent_error"
@@ -207,14 +208,14 @@ def test_run_static_passthrough_when_no_submission(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "JudgeClient", NoGrade)
     rows = pipeline.run_static(
         lambda u: object(),
-        [Task("gemm", "restricted", "c")],
+        [Task("gemm", SourceMode.RESTRICTED, Language.C)],
         vllm_urls=[None],
         judge_urls=["j0"],
         workers=1,
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         repeat=1,
-        oracle="auto",
-        baseline="numba",
+        oracle=Oracle.AUTO,
+        baseline=Baseline.NUMBA,
     )
     assert rows[0] is think_row

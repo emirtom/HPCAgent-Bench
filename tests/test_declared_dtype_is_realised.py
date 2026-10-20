@@ -21,6 +21,7 @@ to weigh the buffer.
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.dtypes import storage_dtype
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.spec import KERNELS
@@ -69,7 +70,7 @@ def disagreements(key: str) -> list[tuple[str, str, str]]:
     declared = declared_dtypes(spec)
     if not declared:
         return []
-    data = Benchmark(key).get_data("S", datatype=check_precision(spec))
+    data = Benchmark(key).get_data(Preset.S, datatype=check_precision(spec))
     bad = []
     for name, want in declared.items():
         value = data.get(name)
@@ -96,7 +97,7 @@ def undeclared_integer_arrays(key: str) -> list[tuple[str, str]]:
     if spec.init is None:
         return []
     declared = declared_dtypes(spec)
-    data = Benchmark(key).get_data("S", datatype=PRECISION)
+    data = Benchmark(key).get_data(Preset.S, datatype=PRECISION)
     bad = []
     for name in spec.array_args:
         value = data.get(name)

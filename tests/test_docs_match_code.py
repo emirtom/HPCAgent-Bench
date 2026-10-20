@@ -15,8 +15,7 @@ import subprocess
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import cli, config, paths
+from hpcagent_bench import cli, config, modules, paths
 from hpcagent_bench.harness.prompts import PROMPT_VARIANTS, PromptConfig
 
 PROMPTS_DIR = pathlib.Path("hpcagent_bench/harness/prompts")

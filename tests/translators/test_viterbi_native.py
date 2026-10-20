@@ -17,6 +17,7 @@ import importlib.util
 import sys
 import tempfile
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.support.bindings.contract import index_base
 from tests.translators import native_tu as tu
 
@@ -107,8 +108,8 @@ program test_viterbi
     log_emit  = reshape([{tu.fortran_real_list(LOG_EMIT.ravel("C"))}], [M, K])
     log_init  = [{tu.fortran_real_list(LOG_INIT.ravel("C"))}]
     log_trans = reshape([{tu.fortran_real_list(LOG_TRANS.ravel("C"))}], [K, K])
-    obs  = [{tu.fortran_int_list(OBS + index_base("fortran"))}]
-    want = [{tu.fortran_int_list(PATH + index_base("fortran"))}]
+    obs  = [{tu.fortran_int_list(OBS + index_base(Language.FORTRAN))}]
+    want = [{tu.fortran_int_list(PATH + index_base(Language.FORTRAN))}]
     path = 0
     call viterbi_fp64(log_emit, log_init, log_trans, obs, path, K, M, T)
     do i = 1, T

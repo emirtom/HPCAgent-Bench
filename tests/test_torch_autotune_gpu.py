@@ -11,6 +11,7 @@ import pathlib
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Baseline, Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.test import tolerances_for
 from hpcagent_bench.frameworks.utilities import compare_arrays
@@ -19,12 +20,12 @@ from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import graded_datatype
 from tests.reference_outputs import torch_eager_outputs
 
-GPU_KIND = "torch-autotune-gpu"
+GPU_KIND = Baseline.TORCH_AUTOTUNE_GPU
 #: A parameter-free op, a GEMM with weights, and a distributed operator's own ``_torch.py``.
 PLAIN_KERNEL = "machine_learning/average_pooling_1d"
 GEMM_KERNEL = "machine_learning/gemm_sigmoid_scaling_residual_add"
 SHIPPED_KERNEL = "machine_learning/dist_rmsnorm"
-PRESET = "S"
+PRESET = Preset.S
 REPEAT = 3
 SEED = 7
 

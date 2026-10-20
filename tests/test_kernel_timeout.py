@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import native_call, runner, scoring
 from hpcagent_bench.harness.agent import StubAgent
 from hpcagent_bench.harness.envelope import Submission
@@ -95,7 +96,7 @@ class _HangAgent(StubAgent):
 
 def test_solve_task_times_out_to_a_scored_row() -> None:
     """A hanging agent is bounded by the per-kernel budget and recorded as a scored `timeout` row."""
-    row, sub = solve_task(_HangAgent(), Task("gemm", "restricted", "c"), timeout=1.0)
+    row, sub = solve_task(_HangAgent(), Task("gemm", SourceMode.RESTRICTED, Language.C), timeout=1.0)
     assert row.status == "timeout"
     assert row.correct is False
     assert sub is None
@@ -164,14 +165,18 @@ def test_iterate_past_correct_keeps_the_faster_attempt(monkeypatch: pytest.Monke
     """The loop does not stop on the first correct attempt; it returns the fastest correct one."""
     monkeypatch.setattr(runner, "score", _fake_score_from_tag)
     # slow-correct first, then fast-correct -> the fast one wins (no early stop)
-    row, sub = solve_task(_SpeedTaggedAgent([2.0, 5.0]), Task("gemm", "restricted", "c"), max_rounds=2, timeout=30.0)
+    row, sub = solve_task(
+        _SpeedTaggedAgent([2.0, 5.0]), Task("gemm", SourceMode.RESTRICTED, Language.C), max_rounds=2, timeout=30.0
+    )
     assert row.status == "ok"
     assert row.correct is True
     assert row.speedup == 5.0
     assert sub is not None
     assert "speedup=5.0" in sub.source
     # fast-correct first, then a SLOWER correct attempt -> the fast one is still kept
-    row2, sub2 = solve_task(_SpeedTaggedAgent([5.0, 2.0]), Task("gemm", "restricted", "c"), max_rounds=2, timeout=30.0)
+    row2, sub2 = solve_task(
+        _SpeedTaggedAgent([5.0, 2.0]), Task("gemm", SourceMode.RESTRICTED, Language.C), max_rounds=2, timeout=30.0
+    )
     assert row2.speedup == 5.0
     assert "speedup=5.0" in sub2.source
 
@@ -182,7 +187,11 @@ def test_timeout_mid_improvement_returns_best_so_far(monkeypatch: pytest.MonkeyP
     # A fixed prompt: the run is about the budget, and a cold prompt build (library probes, the
     # kernel scan) alone can outlast 1.5 s when no earlier test in this worker warmed its caches.
     row, sub = solve_task(
-        _CorrectThenHangAgent(), Task("gemm", "restricted", "c"), max_rounds=3, timeout=1.5, fixed_prompt="solve"
+        _CorrectThenHangAgent(),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        max_rounds=3,
+        timeout=1.5,
+        fixed_prompt="solve",
     )
     assert row.status == "timeout"  # the run ended by the budget ...
     assert row.correct is True
@@ -238,7 +247,7 @@ def _captured_batch_timeout(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -
 
     monkeypatch.setattr(native_call, "run_forked", fake_run_forked)
     with pytest.raises(AssertionError):
-        native_call._call_isolated(None, STUB_BINDING, {}, "c", device=False, timeout=300.0, **kwargs)
+        native_call._call_isolated(None, STUB_BINDING, {}, Language.C, device=False, timeout=300.0, **kwargs)
     return seen["timeout"]
 
 
@@ -261,7 +270,7 @@ def _timeout_kill(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -> native_c
 
     monkeypatch.setattr(native_call, "run_forked", fake_run_forked)
     with pytest.raises(native_call.NativeCallTimeout) as caught:
-        native_call._call_isolated(None, STUB_BINDING, {}, "c", device=False, timeout=300.0, **kwargs)
+        native_call._call_isolated(None, STUB_BINDING, {}, Language.C, device=False, timeout=300.0, **kwargs)
     return caught.value
 
 
@@ -290,7 +299,9 @@ def test_a_batch_timeout_after_the_timed_section_is_not_a_guillotine(monkeypatch
 
     monkeypatch.setattr(native_call, "run_forked", fake_run_forked)
     with pytest.raises(native_call.NativeCallTimeout) as caught:
-        native_call._call_isolated(None, STUB_BINDING, {}, "c", device=False, timeout=300.0, reps=20, guillotine_s=10.0)
+        native_call._call_isolated(
+            None, STUB_BINDING, {}, Language.C, device=False, timeout=300.0, reps=20, guillotine_s=10.0
+        )
     assert not isinstance(caught.value, native_call.NativeCallTooSlow)
 
 
@@ -332,7 +343,7 @@ def _slow_call(tmp_path: pathlib.Path, source: str, *, timeout: float, guillotin
         str(kernel),
         STUB_BINDING,
         {"x": np.full(4, 1.0)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=timeout,
         py_meta=SLOW_META,
@@ -370,7 +381,7 @@ def test_a_slow_first_call_is_absorbed_by_the_warmup_rep(tmp_path: pathlib.Path)
         str(kernel),
         STUB_BINDING,
         {"x": np.full(4, 1.0)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60.0,
         py_meta=SLOW_META,
@@ -406,13 +417,13 @@ def test_a_correct_submission_stopped_by_the_guillotine_is_solved_at_its_bound()
     kernel 4x slower through and stops a 10 s kernel 2.5x slower)."""
     with config.overridden("timeouts.guillotine_floor_s", 0.1):
         result = scoring.score(
-            Submission(language="c", source=SLOW_CORRECT_C),
-            Task("tsvc_2_s311", "restricted", "c"),
-            preset="S",
+            Submission(language=Language.C, source=SLOW_CORRECT_C),
+            Task("tsvc_2_s311", SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             datatype="float64",
             repeat=5,
             hidden=True,
-            baseline="auto",
+            baseline=None,
         )
     assert result.correct, result.detail
     assert not result.too_slow, result.detail

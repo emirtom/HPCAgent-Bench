@@ -406,10 +406,8 @@ PANEL_HEIGHT_IN: float = 1.5
 def baseline_references(baseline: str) -> tuple[str, ...]:
     """The references a speedup denominator races: one framework, or every reference of a best-of
     denominator (:data:`~hpcagent_bench.harness.denominator.KINDS`, ``best-of(numba,c)``)."""
-    try:
-        return denominator.KINDS[denominator.Denominator(baseline)]
-    except ValueError:
-        return (baseline,)
+    named = denominator.of_stored(baseline)
+    return (baseline,) if named is None else denominator.KINDS[named]
 
 
 def baseline_label(baseline: str) -> str:

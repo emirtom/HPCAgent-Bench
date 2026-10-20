@@ -15,8 +15,7 @@ import yaml
 from hpcagent_agent.driver import agent_driver, harnesses
 from hpcagent_agent.tools import http_json
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, containers, paths, run_layout
+from hpcagent_bench import config, containers, modules, paths, run_layout
 from hpcagent_bench.cluster import judge_service
 from hpcagent_bench.harness import recording
 

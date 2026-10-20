@@ -24,6 +24,7 @@ import pytest
 
 from hpcagent_bench import config, dataset, paths, protocols, vocabulary
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Baseline, InputMode, Language, SourceMode
 from hpcagent_bench.cluster import env_spec, systems
 from hpcagent_bench.harness import grade_under, timing, tools
 from hpcagent_bench.harness.envelope import Submission
@@ -108,15 +109,15 @@ def assert_accepted(scored: ScorePreview, submitted: GradeAnswer) -> None:
 
 
 def test_a_source_judge_accepts_the_c_reference(make_judge: Judge) -> None:
-    submission = NoOpOptimizer().solve(Task(C_KERNEL, "restricted", "c"))
-    _server, url = make_judge(RunConfig(baseline="c", input_mode="source", repeat=SMOKE_REPEAT))
+    submission = NoOpOptimizer().solve(Task(C_KERNEL, SourceMode.RESTRICTED, Language.C))
+    _server, url = make_judge(RunConfig(baseline=Baseline.C, input_mode=InputMode.SOURCE, repeat=SMOKE_REPEAT))
     assert_accepted(*grade_both(url, submission, C_KERNEL))
 
 
 @isolated  # the numba baseline launches numba's thread pool in this process
 def test_a_py_binding_judge_accepts_the_njit_reference_against_the_numba_baseline(make_judge: Judge) -> None:
-    submission = Submission(language="python", source=numba_reference(NUMBA_KERNEL))
-    _server, url = make_judge(RunConfig(baseline="numba", input_mode="py-binding", repeat=SMOKE_REPEAT))
+    submission = Submission(language=Language.PYTHON, source=numba_reference(NUMBA_KERNEL))
+    _server, url = make_judge(RunConfig(baseline=Baseline.NUMBA, input_mode=InputMode.PY_BINDING, repeat=SMOKE_REPEAT))
     scored, submitted = grade_both(url, submission, NUMBA_KERNEL)
     assert_accepted(scored, submitted)
     assert submitted.baseline == "numba", submitted
@@ -124,8 +125,8 @@ def test_a_py_binding_judge_accepts_the_njit_reference_against_the_numba_baselin
 
 @pytest.mark.skipif(shutil.which("gfortran") is None, reason="skip:no-gfortran: no Fortran compiler on PATH")
 def test_a_source_judge_accepts_the_fortran_reference(make_judge: Judge) -> None:
-    submission = NoOpOptimizer().solve(Task(FORTRAN_KERNEL, "restricted", "fortran"))
-    _server, url = make_judge(RunConfig(baseline="c", input_mode="source", repeat=SMOKE_REPEAT))
+    submission = NoOpOptimizer().solve(Task(FORTRAN_KERNEL, SourceMode.RESTRICTED, Language.FORTRAN))
+    _server, url = make_judge(RunConfig(baseline=Baseline.C, input_mode=InputMode.SOURCE, repeat=SMOKE_REPEAT))
     assert_accepted(*grade_both(url, submission, FORTRAN_KERNEL))
 
 
@@ -144,7 +145,7 @@ def regraded_db(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> path
     ``grade-under worklist``, ``run`` (one shard) and ``apply``. The setup's env comes from an ``--env-dir`` file,
     not from staging it through ``submit.sh``. The C baseline only: the final protocol then compiles no numba."""
     db = tmp_path / "results.db"
-    source = NoOpOptimizer().solve(Task(REGRADE_KERNEL, "restricted", "c")).source
+    source = NoOpOptimizer().solve(Task(REGRADE_KERNEL, SourceMode.RESTRICTED, Language.C)).source
     results_seed.submission(db, EPISODE, REGRADE_KERNEL, SUBMIT_TS_MS, source=source, timing_reduction="mw4x5")
     env_dir = tmp_path / "envs"
     env_dir.mkdir()

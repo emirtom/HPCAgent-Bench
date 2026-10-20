@@ -20,6 +20,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 from urllib.parse import urlparse
 
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.harness.judge_wire import RecordedAnswer
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.service import grade_answer, score_answer
@@ -42,11 +43,11 @@ GRADED = Score(
 
 #: What the upstream judge answers a graded request (submit_feedback=full), a superset of the verdict.
 GRADE: dict[str, Any] = grade_answer(
-    GRADED, "gemm", "c", "S", "host", RecordedAnswer(skipped="record.enabled is false"), "rid"
+    GRADED, "gemm", Language.C, Preset.S, Residency.HOST, RecordedAnswer(skipped="record.enabled is false"), "rid"
 ).to_json()
 
 #: What the upstream judge answers ``/score``: the grade without the redacted fields.
-SCORE: dict[str, Any] = score_answer(GRADED, "gemm", "c", "S", "host").to_json()
+SCORE: dict[str, Any] = score_answer(GRADED, "gemm", Language.C, Preset.S, Residency.HOST).to_json()
 
 #: A ``/profile`` report as the upstream judge answers ``tool="none"`` (``profiling.InstrumentPayload``).
 REPORT: dict[str, Any] = {

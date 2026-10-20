@@ -10,6 +10,7 @@ import urllib.request
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import service
 from hpcagent_bench.harness.judge_wire import SubmitVerdict
 from hpcagent_bench.harness.service import JudgeHandler, ServiceConfig, make_server
@@ -27,7 +28,7 @@ def test_baseline_times_the_runs_preset_whatever_the_query_asks(monkeypatch: pyt
         return {"numpy": 1}
 
     monkeypatch.setattr(service, "measure_baselines", measure)
-    srv = make_server("127.0.0.1", 0, ServiceConfig(preset="S"))
+    srv = make_server("127.0.0.1", 0, ServiceConfig(preset=Preset.S))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         url = f"http://127.0.0.1:{srv.server_address[1]}/baseline/gemm?language=c&preset=XL&rank={RANK}"

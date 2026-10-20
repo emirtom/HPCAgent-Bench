@@ -24,6 +24,7 @@ import pydantic
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.cluster import env_spec, make_problems
 from hpcagent_bench.config import RequestCapability
 from hpcagent_bench.harness.envelope import Submission
@@ -141,7 +142,7 @@ def preset_config(preset: str) -> Iterator[None]:
 
 def task(kernel: str) -> Task:
     """``kernel`` in C at the residency the current config grades it at."""
-    return Task(kernel, "restricted", "c", residency=grading_residency(kernel, "c"))
+    return Task(kernel, SourceMode.RESTRICTED, Language.C, residency=grading_residency(kernel, Language.C))
 
 
 @pytest.fixture
@@ -257,7 +258,7 @@ def test_a_grid_lets_the_digit_operations_through_under_distribute_alone() -> No
 
 @pytest.mark.parametrize("item", ["load", "place", "distribute"])
 def test_the_judge_refuses_a_disallowed_item_before_the_kernel_checks(item: str) -> None:
-    submission = Submission(language="c", source="void k(void) {}", requests=item_request(item))
+    submission = Submission(language=Language.C, source="void k(void) {}", requests=item_request(item))
     with offer_config("cast", precisions=("fp32",)):
         refused = requests_refusal(submission, task(DENSE_KERNEL), "float64")
     assert refused is not None and refused.startswith("this setup"), refused
@@ -272,10 +273,10 @@ def test_a_task_grid_is_set_by_the_judge_and_hidden_from_the_agent() -> None:
         offer = request_actions(graded).wire()
         prompt = build_prompt(graded)
         operations = [SAMPLE_OPERATIONS["distribute"]]
-        bare = Submission(language="c", source="x", requests=Requests.validate({"operations": operations}))
+        bare = Submission(language=Language.C, source="x", requests=Requests.validate({"operations": operations}))
         gridded = with_task_grid(bare, graded)
         sent = Requests.validate({"startup": {"grid": ["P"]}, "operations": operations})
-        refused = with_task_grid(Submission(language="c", source="x", requests=sent), graded)
+        refused = with_task_grid(Submission(language=Language.C, source="x", requests=sent), graded)
     assert offer["startup"] == ["load"]
     assert "distribute" in offer["operations"]
     assert "which the harness sets (send no `startup.grid`" in prompt
@@ -289,7 +290,7 @@ def test_an_agent_grid_is_the_submissions_own() -> None:
     with offer_config("load", "distribute", mpi__grade_distributed=True):
         graded = task(MPI_KERNEL)
         assert "grid" in request_actions(graded).wire()["startup"]
-        sent = Submission(language="c", source="x", requests=item_request("grid"))
+        sent = Submission(language=Language.C, source="x", requests=item_request("grid"))
         assert with_task_grid(sent, graded) is sent
 
 
@@ -299,8 +300,8 @@ def test_a_single_node_task_refuses_a_grid() -> None:
     sent = Requests.validate({"startup": {"grid": ["P"]}, "operations": [SAMPLE_OPERATIONS["distribute"]]})
     with offer_config("load", "distribute", mpi__grade_distributed=True):
         graded = task(SINGLE_NODE_KERNEL)
-        refused = requests_refusal(Submission(language="c", source="x", requests=sent), graded, "float64")
-    assert graded.residency == "host"
+        refused = requests_refusal(Submission(language=Language.C, source="x", requests=sent), graded, "float64")
+    assert graded.residency is Residency.HOST
     assert refused is not None and "graded on one node" in refused, refused
 
 

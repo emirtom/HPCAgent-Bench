@@ -18,6 +18,7 @@ import pytest
 
 from hpcagent_bench import protocols
 from hpcagent_bench.anticheat import Judgement
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import grade_under, metric, recording, scaling_grade, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
@@ -55,7 +56,7 @@ def verified_score() -> Score:
 
 def hip_submission(host: str = "// host", distribution: dict | None = None) -> Submission:
     return Submission(
-        language="hip",
+        language=Language.HIP,
         source=host,
         device_source="// device",
         requests=Requests.from_plan(DISTRIBUTION if distribution is None else distribution, libraries=("rccl",)),
@@ -79,7 +80,7 @@ def record(db: pathlib.Path, submission: Submission, episode_id: str = "r0") -> 
     recording.record(
         verified_score(),
         submission,
-        Task(KERNEL, "restricted", "hip"),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.HIP),
         judgement=Judgement(),
         episode_id=episode_id,
         path=str(db),
@@ -132,14 +133,14 @@ def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib
 
 def test_a_scaling_item_survives_the_worklist_file(tmp_path: pathlib.Path) -> None:
     """The laws are enums: the worklist line spells them by value and reads them back as the same sweep."""
-    item = grade_under.Item("db", 1, "r", KERNEL, 0, SETUP, "hip", "restricted", True, {}, scaling=SWEEP)
+    item = grade_under.Item("db", 1, "r", KERNEL, 0, SETUP, "hip", SourceMode.RESTRICTED, True, {}, scaling=SWEEP)
     path = tmp_path / "worklist.jsonl"
     grade_under.write_items(path, [item])
     assert grade_under.read_worklist(path) == [item]
 
 
 def test_a_single_node_kernel_gets_no_sweep() -> None:
-    item = grade_under.Item("db", 1, "r", "tsvc_2_s212", 0, "llr40-qwen38-c", "c", "restricted", True, {})
+    item = grade_under.Item("db", 1, "r", "tsvc_2_s212", 0, "llr40-qwen38-c", "c", SourceMode.RESTRICTED, True, {})
     assert grade_under.scaled(item, SWEEP.rank_counts).scaling is None
 
 
@@ -164,7 +165,7 @@ def test_the_replayed_envelope_is_the_recorded_one(judge_db: pathlib.Path) -> No
 def test_the_setups_launch_shape_never_reaches_the_sweep() -> None:
     """The setup's one-node rank counts would silently cap the curve at P=4."""
     item = grade_under.Item(
-        "db", 1, "r", KERNEL, 0, SETUP, "hip", "restricted", True,
+        "db", 1, "r", KERNEL, 0, SETUP, "hip", SourceMode.RESTRICTED, True,
         {"HPCAGENT_BENCH_MPI_RANK_COUNTS": "[1,2,4]", "HPCAGENT_BENCH_MPI_MODE": "strong", "HPCAGENT_BENCH_X": "1"},
     )  # fmt: skip
     assert scaling_grade.grading_env(item) == {"HPCAGENT_BENCH_X": "1"}
@@ -382,7 +383,13 @@ def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol
         asked.append((len(inputs), repeat))
         cells = tuple(
             scoring.TimedCell(
-                str(cell["label"]), "{}", 2000.0, 1000.0, 2.0, baseline="torch-autotune", timing_reduction="mwd-v2"
+                str(cell["label"]),
+                "{}",
+                2000.0,
+                1000.0,
+                2.0,
+                baseline="torch-autotune",
+                timing_reduction="mwd-v2",
             )
             for cell in inputs
         )

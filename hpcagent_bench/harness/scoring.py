@@ -18,16 +18,17 @@ import sys
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import Any, NamedTuple, Optional, cast, overload
 
 import numpy as np
 
 from hpcagent_bench import config, flags, languages, sizing
 from hpcagent_bench import dtypes as dtype_registry
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import reassociation_agrees
-from hpcagent_bench.fuzz import FUZZED_PRESET, FuzzValue, initializer_seed
+from hpcagent_bench.fuzz import FuzzValue, initializer_seed
 from hpcagent_bench.harness import (
     db_json,
     disk_cache,
@@ -45,15 +46,15 @@ from hpcagent_bench.harness import (
 )
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.grading import (
-    AUTO_BASELINE,
-    AUTO_ORACLE,
     EARLY_STOP_BASELINE_POLICY,
     EARLY_STOP_POLICIES,
     LEADER_BY_DEFAULT,
     LEADER_FIRST_BASELINE_POLICY,
     TORCH_BASELINES,
+    Cut,
     ReferencePlan,
     ReferenceUnavailable,
+    Samples,
     _data_seeded,
     _grade,
     _grade_against,
@@ -72,6 +73,7 @@ from hpcagent_bench.harness.grading import (
     early_stop_seconds,
     fastest_baseline,
     is_best_of,
+    joined,
     lost_compiled_references,
     numba_reference_outputs,
     oracle_kinds,
@@ -89,6 +91,8 @@ from hpcagent_bench.harness.grading import (
     resolve_oracle,
     run_compiled_reference,
     runs_write_probe,
+    sample_key,
+    sample_name,
     time_numba_isolated,
     torch_autotune_kind,
     typed_contracted_extents,
@@ -259,14 +263,38 @@ __all__ = [
 #: Per-process memo of measured BASELINE times (never reference outputs, which are gigabytes at
 #: XL shapes), keyed by :func:`baseline_timing_key`. The :mod:`disk_cache` tier under it shares
 #: entries across ranks and jobs. A race just measures twice.
-BASELINE_TIMING_CACHE: dict[tuple, tuple[dict[str, int], dict[str, list[int]]]] = {}
+BASELINE_TIMING_CACHE: dict[tuple, "MeasuredTiming"] = {}
 
 #: Entry ceiling, above one experiment; overflow drops the whole memo (entries are small).
 BASELINE_TIMING_CACHE_MAX = 8192
 
 #: (kernel, preset, datatype) -> the reference that last won its best-of race in this process, at any
 #: draw: the leader a ``best-of-v4`` race times first (:func:`hpcagent_bench.harness.grading.race_order`).
-BASELINE_LEADERS: dict[tuple[str, str, str], str] = {}
+BASELINE_LEADERS: dict[tuple[str, Preset, str], Baseline] = {}
+
+#: One measured baseline timing: each candidate's best ns, and the samples (and cuts) the race measured.
+type MeasuredTiming = tuple[dict[Baseline, int], dict[Baseline | Cut, list[int]]]
+
+
+def timing_names(measured: MeasuredTiming) -> disk_cache.Timing:
+    """``measured`` as the disk store keeps it: every key by its name (:func:`grading.sample_name`)."""
+    best, samples = measured
+    return {kind.text: ns for kind, ns in best.items()}, {sample_name(key): list(ns) for key, ns in samples.items()}
+
+
+def timing_of_names(stored: disk_cache.Timing | None) -> MeasuredTiming | None:
+    """A stored timing back as members; None for none, or for a name no kind has (a miss, recomputed)."""
+    if stored is None:
+        return None
+    best, samples = stored
+    try:
+        return (
+            {Baseline.parse(name): ns for name, ns in best.items()},
+            {sample_key(name): list(ns) for name, ns in samples.items()},
+        )
+    except ValueError:
+        return None
+
 
 #: Per-process LRU of reference OUTPUTS, keyed like the timing memo minus the timing axes, plus
 #: the reference name.
@@ -327,11 +355,11 @@ def timed_structure_digest(binding: Binding, data: Mapping[str, Any], classifica
 
 def baseline_timing_key(
     kernel: str,
-    preset: str,
+    preset: Preset,
     datatype: str,
     fuzz_iteration: int | None,
     drawn_repr: str,
-    kinds: tuple[str, ...],
+    kinds: tuple[Baseline, ...],
     budget: tuple[int, int],
     ref_compiler: str | None,
     draw: tuple[Any, ...],
@@ -344,10 +372,12 @@ def baseline_timing_key(
     ``("varied", rule, digest)`` -- not the nonce or value seed, so /score and /submit share an
     entry); and, on disk, the judge image, harness content and node type."""
     threads = len(grading_cpus(assigned_device()))
-    return (kernel, preset, datatype, fuzz_iteration, drawn_repr, kinds, budget, ref_compiler, threads, draw)
+    # Spelled, not members: the key is also the disk store's (its repr is hashed).
+    names = tuple(kind.text for kind in kinds)
+    return (kernel, preset.text, datatype, fuzz_iteration, drawn_repr, names, budget, ref_compiler, threads, draw)
 
 
-def remember_baseline_timing(key: tuple[Any, ...], timing_value: disk_cache.Timing) -> None:
+def remember_baseline_timing(key: tuple[Any, ...], timing_value: MeasuredTiming) -> None:
     """Memoize one measured baseline timing under ``key``, dropping the whole memo at the ceiling."""
     if len(BASELINE_TIMING_CACHE) >= BASELINE_TIMING_CACHE_MAX:
         BASELINE_TIMING_CACHE.clear()
@@ -374,21 +404,21 @@ def cached_reference(
 
 #: The references whose expected outputs a python-level call computes (a numba child, a compiled-PyTorch
 #: child); ``c`` is the compiled C reference, built and run by :func:`_run_c_reference`.
-PYTHON_ORACLES = ("numba", "torch")
+PYTHON_ORACLES: tuple[Oracle, ...] = (Oracle.NUMBA, Oracle.TORCH)
 
 #: ``reference(data)``: the expected outputs on ``data``; ``reference(data, draw=d)``: on the inputs ``d(0)`` draws
 #: from ``data`` in the reference's own child (:func:`rep_variation.offset_draw`), which the judge never holds.
 Reference = Callable[..., dict[str, np.ndarray]]
 
 
-def python_oracle(kind: str) -> bool:
+def python_oracle(kind: Oracle) -> bool:
     """Whether oracle ``kind`` computes its outputs in a python-level child (numba, torch) rather than in a
     built C library."""
     return kind in PYTHON_ORACLES
 
 
 def oracle_function(
-    kind: str, spec: BenchSpec, task: Task, binding: Binding, *, timeout: float, memory_gb: float
+    kind: Oracle, spec: BenchSpec, task: Task, binding: Binding, *, timeout: float, memory_gb: float
 ) -> Reference:
     """The expected outputs of ONE input set under reference ``kind``: the kernel's numba reference in a
     sealed child, its sequential C reference built and run, or its compiled-PyTorch reference
@@ -421,23 +451,28 @@ def oracle_function(
         except RuntimeError as exc:
             raise ReferenceUnavailable(f"torch-autotune reference of {spec.short_name}: {one_line(exc)}") from exc
 
-    return {"numba": numba_reference, "c": c_reference, "torch": torch_reference}[kind]
+    references: dict[Oracle, Reference] = {
+        Oracle.NUMBA: numba_reference,
+        Oracle.C: c_reference,
+        Oracle.TORCH: torch_reference,
+    }
+    return references[kind]
 
 
 def fallback_oracle(
-    order: Sequence[str],
+    order: Sequence[Oracle],
     spec: BenchSpec,
     task: Task,
     binding: Binding,
     data: dict[str, Any],
     hidden_data: Sequence[tuple[str, Callable[[], dict[str, Any]]]],
-    expected_public: dict[str, dict[str, np.ndarray]],
-    expected_hidden: dict[str, dict[str, dict[str, np.ndarray]]],
+    expected_public: dict[Oracle, dict[str, np.ndarray]],
+    expected_hidden: dict[str, dict[Oracle, dict[str, np.ndarray]]],
     *,
     timeout: float,
     memory_gb: float,
     cause: str,
-) -> tuple[str, Reference]:
+) -> tuple[Oracle, Reference]:
     """``(kind, reference)`` of the first python-level oracle of ``order`` that answers once the C oracle
     could not, with its outputs filled in for the public input and every held-out case. Raises
     :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` naming ``cause`` and every failure."""
@@ -495,7 +530,7 @@ def ieee_draw(
 
 
 def first_oracle(
-    kinds: Sequence[str],
+    kinds: Sequence[Oracle],
     spec: BenchSpec,
     task: Task,
     binding: Binding,
@@ -503,7 +538,7 @@ def first_oracle(
     *,
     timeout: float,
     memory_gb: float,
-) -> tuple[str, dict[str, np.ndarray]]:
+) -> tuple[Oracle, dict[str, np.ndarray]]:
     """``(kind, outputs)`` from the first of ``kinds`` that can answer for ``data``; every failure
     is named when none can (:class:`~hpcagent_bench.harness.grading.ReferenceUnavailable`)."""
     failures: list[str] = []
@@ -867,8 +902,8 @@ def verify_references(
     redata_factory: Callable[[], dict],
     timeout: float,
     memory_gb: float,
-    preset: str | None = None,
-) -> tuple[dict, Callable[[], tuple[dict, dict]], str]:
+    preset: Preset | None = None,
+) -> tuple[dict, Callable[[], tuple[dict, dict]], Oracle]:
     """Expected outputs for the verify pair, the fresh-values half deferred, and the reference that gave them.
 
     Returns ``(public, fresh, kind)``, ``fresh()`` yielding ``(redata, expected_fresh)``, so the first
@@ -877,9 +912,9 @@ def verify_references(
     halves, so ``fresh()`` returns precomputed arrays. ``redata_factory`` is called once per attempt.
     Raises :class:`ReferenceUnavailable` when no reference of the track can answer."""
     failures: list[str] = []
-    for kind in oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset):
+    for kind in oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset):
         try:
-            if kind == "c":
+            if kind is Oracle.C:
                 redata = redata_factory()
                 public, _ns, others, _samples = _run_c_reference(
                     spec,
@@ -896,7 +931,7 @@ def verify_references(
             reference = oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)
             public = reference(data)
         except RuntimeError as exc:  # a reference that cannot answer: the next kind, else the judge's fault
-            failures.append(str(exc) if isinstance(exc, ReferenceUnavailable) else f"{kind}: {one_line(exc)}")
+            failures.append(str(exc) if isinstance(exc, ReferenceUnavailable) else f"{kind.text}: {one_line(exc)}")
             continue
 
         def fresh(reference: Reference = reference) -> tuple[dict, dict]:
@@ -1040,7 +1075,7 @@ def independent_verify(
     task: Task,
     score_result: "Score",
     *,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 3,
     reverify_seed: int | None = None,
@@ -1065,13 +1100,13 @@ def independent_verify(
     # every scenario, a leg whose input the layout does not cover failing (request.uncovered).
     choice = requested_layout(spec, submission)
     cand_binding = binding if choice is None else binding_from_spec(spec, config=choice.format)
-    device = task.residency == "device"
+    device = task.residency is Residency.DEVICE
     timeout = timing.kernel_timeout_s()
     memory_gb = sizing.kernel_memory_gb(
         spec, preset, datatype, submission.workspace_bytes, params_override, layout=choice or default_choice(spec)
     )
     # Distributed submissions re-verify through their own MPI path at the scored base preset.
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return _verify_distributed(
             submission,
             task,
@@ -1155,7 +1190,7 @@ def independent_verify(
             del o2  # graded; the second run exists only to compare against the first
 
             # The compiled reference that did NOT grade (numba <-> C; C for a torch oracle).
-            other = other_compiled(oracle_kind) or "c"
+            other = other_compiled(oracle_kind) or Oracle.C
             try:
                 other_pub = oracle_function(other, spec, task, binding, timeout=timeout, memory_gb=memory_gb)(data)
             except RuntimeError:
@@ -1197,12 +1232,12 @@ def sanitizer_check(
     """The sanitizer leg on the public input of the grade (the second seed, salted with its nonce), at
     preset S, in the layout it was graded in; None when it does not apply: a language without
     sanitizers, a distributed grade, or an input the layout cannot hold."""
-    if submission.language not in sanitizers.SANITIZED_LANGUAGES or task.residency == "distributed":
+    if submission.language not in sanitizers.SANITIZED_LANGUAGES or task.residency is Residency.DISTRIBUTED:
         return None
     spec = BenchSpec.load(task.kernel)
     choice = requested_layout(spec, submission)
     public_seed = salted(secret_seed_second(), score_result.seed_nonce)
-    if uncovered(spec, choice, initializer_seed("S", public_seed, None)):
+    if uncovered(spec, choice, initializer_seed(Preset.S, public_seed, None)):
         return None
     binding = binding_from_spec(spec) if choice is None else binding_from_spec(spec, config=choice.format)
     timeout = timing.kernel_timeout_s()
@@ -1225,11 +1260,11 @@ def sanitized_run(
     name = languages.compiler_for_family(lang, family) or languages.resolved_compiler_for(lang).name
     driver = languages.compiler_driver(name)
     try:
-        gpu_arch = flags.detect_gfx() if lang == "hip" else ""
+        gpu_arch = flags.detect_gfx() if lang is Language.HIP else ""
     except RuntimeError as exc:  # no AMD GPU to build the device half for: the leg cannot start
         return sanitizers.SanitizerVerdict(False, note=f"not applied: {exc}")
     compile_flags, link_flags = sanitizers.build_flags(lang, driver, gpu_arch)
-    data = _data_seeded(task.kernel, "S", datatype, seed)
+    data = _data_seeded(task.kernel, Preset.S, datatype, seed)
     if choice is not None:
         data = laid_out(BenchSpec.load(task.kernel), choice, data)
     with Sandbox(binding, source_mode=task.source_mode) as sb:
@@ -1242,7 +1277,7 @@ def sanitized_run(
             data,
             lang,
             driver=driver,
-            device=task.residency == "device",
+            device=task.residency is Residency.DEVICE,
             timeout=timeout,
             workspace_bytes=submission.workspace_bytes,
             omp_context_name=submission_omp_context(submission),
@@ -1250,13 +1285,18 @@ def sanitized_run(
 
 
 def measure_baselines(
-    task: Task, *, preset: str = "S", datatype: str = "float64", repeat: int = 5, baseline: str = AUTO_BASELINE
+    task: Task,
+    *,
+    preset: Preset = Preset.S,
+    datatype: str = "float64",
+    repeat: int = 5,
+    baseline: Baseline | None = None,
 ) -> dict[str, int]:
     """Best reference time(s) for ``task``, measured in this process (the services container, so on
     the submissions' toolchain and CPU). Serves the judge's ``/baseline`` endpoint.
 
-    ``baseline`` resolves against the kernel's track (``track`` / None -> the candidate set; a
-    concrete kind stays one kind). Returns ``{name: ns}`` for every candidate that ran: each is that
+    ``baseline`` resolves against the kernel's track (None -> the candidate set; a concrete kind stays
+    one kind). Returns ``{name: ns}`` for every candidate that ran: each is that
     reference's FASTEST rep (best-of-k minimum), not the reduced time ``/submit`` divides
     (:func:`timing.central_ns`, the median under ``mannwhitney_delta``), so the advertised target is
     optimistic. The smallest is the target; a reference that fails is absent."""
@@ -1267,14 +1307,14 @@ def measure_baselines(
     data = _data_seeded(task.kernel, preset, datatype, secret_seed_first())  # advisory route: the iteration seed
     # Warm the references the same way score() does, so the advisory number matches the graded regime.
     warmup = timing.warmup_count()
-    out: dict[str, int] = {}
+    out: dict[Baseline, int] = {}
     best_of = is_best_of(kinds)
     timeout = timing.kernel_timeout_s()
 
     def cut_s() -> float:
         """The grade's best-of-v3/v4 early stop from what already ran (0 under any other policy); only each
         candidate's best time is kept, so the leader's slowest rep reads as its best."""
-        return early_stop_seconds({kind: [ns] for kind, ns in out.items()}, kinds, timeout)
+        return early_stop_seconds({name: [ns] for name, ns in out.items()}, kinds, timeout)
 
     remembered = BASELINE_LEADERS.get((spec.short_name, preset, datatype))
     order = race_order(kinds, spec.short_name, preset, remembered) if best_of else kinds
@@ -1282,17 +1322,17 @@ def measure_baselines(
         measure_one_baseline(
             out, spec, task, binding, data, kind, preset, datatype, repeat, warmup, best_of, cut_s=cut_s()
         )
-    return out
+    return recorded_times(out)
 
 
 def measure_one_baseline(
-    out: dict[str, int],
+    out: dict[Baseline, int],
     spec: BenchSpec,
     task: Task,
     binding: Binding,
     data: dict,
-    baseline: str,
-    preset: str,
+    baseline: Baseline,
+    preset: Preset,
     datatype: str,
     repeat: int,
     warmup: int,
@@ -1302,7 +1342,7 @@ def measure_one_baseline(
 ) -> None:
     """Time one candidate for :func:`measure_baselines` into ``out``; one that will not emit, build or
     type, or that ``cut_s`` (the best-of-v3/v4 per-rep budget, 0 = off) cuts, is absent, as in the grade."""
-    if best_of and baseline == "numba":
+    if best_of and baseline is Baseline.NUMBA:
         # The same child bracket and guillotine as the grade, so a hopeless numba cannot hold the call for
         # the whole budget. The advertised number is the fastest rep, not the grade's reduction.
         timeout = timing.kernel_timeout_s()
@@ -1320,7 +1360,7 @@ def measure_one_baseline(
         except Exception:  # noqa: BLE001 -- no emittable form, a TypingError, a blown bracket
             return
         if samples:
-            out["numba"] = min(samples)
+            out[Baseline.NUMBA] = min(samples)
         return
     try:
         python_bl = python_baseline_samples(spec, baseline, data, repeat, warmup)
@@ -1368,26 +1408,37 @@ def measure_one_baseline(
 
 
 #: Python-level baseline kinds, in the order :func:`primary_baseline` credits them.
-PYTHON_BASELINES = (*TORCH_BASELINES, "numba")
+PYTHON_BASELINES: tuple[Baseline, ...] = (*TORCH_BASELINES, Baseline.NUMBA)
 
 
-def primary_baseline(names: Mapping[str, object]) -> str:
-    """The primary baseline for the scalar speedup: the python-level reference if one was timed, else
-    the compiled reference (``c`` or ``*-autopar``), else none. Shared by score() and score_cells()."""
-    for name in PYTHON_BASELINES:
-        if name in names:
-            return name
-    return next(iter(names), "")
+def primary_baseline(timed: Mapping[Baseline, object]) -> Baseline | None:
+    """The primary baseline for the scalar speedup among the ``timed`` references: the python-level reference if
+    one was timed, else the compiled reference (``c`` or ``*-autopar``), else None. Shared by score() and
+    score_cells()."""
+    for kind in PYTHON_BASELINES:
+        if kind in timed:
+            return kind
+    return next(iter(timed), None)
+
+
+def recorded_name(kind: Baseline | None) -> str:
+    """How a grade records the reference its speedup divides by: the kind's spelling, ``""`` for none."""
+    return "" if kind is None else kind.text
+
+
+def recorded_times[T](per_kind: Mapping[Baseline, T]) -> dict[str, T]:
+    """A per-reference map (``Score.baselines`` / ``speedups``) keyed as a grade records it, by spelling."""
+    return {kind.text: value for kind, value in per_kind.items()}
 
 
 def python_baseline_samples(
     spec: BenchSpec,
-    baseline: str,
+    baseline: Baseline,
     data: dict[str, Any],
     repeat: int,
     warmup: int,
     rep_data: Callable[[int], dict] | None = None,
-) -> tuple[str, list[int]] | None:
+) -> tuple[Baseline, list[int]] | None:
     """``(name, per-rep ns)`` for a python-level baseline kind, or ``None`` for a compiled one.
 
     A ``torch-*`` baseline raises :class:`~hpcagent_bench.harness.torch_baseline.TorchBaselineUnavailable`
@@ -1397,7 +1448,7 @@ def python_baseline_samples(
     if baseline_uses_torch(baseline):
         return baseline, torch_time_samples(spec, baseline, data, repeat, warmup=warmup, rep_data=rep_data)
     if baseline_uses_numba(baseline):
-        return "numba", _time_numba_samples(spec, data, repeat, warmup=warmup, rep_data=rep_data)
+        return Baseline.NUMBA, _time_numba_samples(spec, data, repeat, warmup=warmup, rep_data=rep_data)
     return None
 
 
@@ -1422,26 +1473,24 @@ def one_line(exc: BaseException) -> str:
     return f"{text[:LOST_REASON_HEAD_CHARS]} ... {text[-tail:]}"
 
 
-def lost_candidates_line(kernel: str, kinds: Sequence[str], errors: Sequence[str]) -> str:
+def lost_candidates_line(kernel: str, kinds: Sequence[Baseline], errors: Sequence[str]) -> str:
     """The judge-log line for a best-of grade that timed fewer candidates than ``kinds``: which set
     was asked for and why each lost candidate produced no denominator."""
-    return f"baseline {kernel}: best-of {'+'.join(kinds)} lost {len(errors)} candidate(s): {' || '.join(errors)}\n"
+    return f"baseline {kernel}: best-of {joined(kinds)} lost {len(errors)} candidate(s): {' || '.join(errors)}\n"
 
 
-def race_record(
-    leader: str, source: str, samples: Mapping[str, Sequence[int]], kinds: Sequence[str]
-) -> tuple[str, str, str]:
+def race_record(leader: Baseline, source: str, samples: Samples, kinds: Sequence[Baseline]) -> tuple[str, str, str]:
     """``TimedCell.race_*`` of an early-stop race: its leader, where the leader came from, and the
     references it cut as JSON ``{reference: per-rep budget ns}`` (:data:`db_json.RACE_CUTS`)."""
-    cuts = {kind: int(samples[cut_key(kind)][0]) for kind in kinds if was_cut(samples, kind)}
-    return leader, source, db_json.RACE_CUTS.dumps(cuts)
+    cuts = {kind.text: int(samples[cut_key(kind)][0]) for kind in kinds if was_cut(samples, kind)}
+    return leader.text, source, db_json.RACE_CUTS.dumps(cuts)
 
 
-def early_stop_line(kernel: str, kind: str, budget_s: float, leader: str) -> str:
+def early_stop_line(kernel: str, kind: Baseline, budget_s: float, leader: Baseline | None) -> str:
     """The judge-log line for a best-of-v3/v4 candidate the race CUT: not fastest, not lost."""
     return (
-        f"baseline {kernel}: best-of early stop cut {kind} (a rep outlasted {budget_s:.3g}s, the "
-        f"budget off {leader or 'the leader'}); recorded not fastest\n"
+        f"baseline {kernel}: best-of early stop cut {kind.text} (a rep outlasted {budget_s:.3g}s, the "
+        f"budget off {'the leader' if leader is None else leader.text}); recorded not fastest\n"
     )
 
 
@@ -1456,8 +1505,8 @@ def guillotine_seconds(baseline_ns: int, timeout: float) -> float:
 
 
 def retime_baseline(
-    primary: str,
-    own_builds: Mapping[str, tuple[str, str | None, Mode]],
+    primary: Baseline | None,
+    own_builds: Mapping[Baseline, tuple[Language, str | None, Mode]],
     *,
     isolated_numba: bool,
     spec: BenchSpec,
@@ -1476,6 +1525,8 @@ def retime_baseline(
     calibration's stand-in for the candidate (:func:`graded_score`). ``own_builds`` names the compiler
     that won an own-build race; ``isolated_numba`` is the best-of bracket. Raises for a kind that
     cannot be timed twice: an A/A cell is refused, never faked."""
+    if primary is None:
+        raise RuntimeError("no second timer: no baseline was timed")
     if primary in own_builds:
         language, compiler, mode = own_builds[primary]
         return run_compiled_reference(
@@ -1493,7 +1544,7 @@ def retime_baseline(
             warmup=warmup,
             rep_data=rep_data,
         )[3]
-    if primary == "c":
+    if primary is Baseline.C:
         return _run_c_reference(
             spec,
             task,
@@ -1507,15 +1558,15 @@ def retime_baseline(
             warmup=warmup,
             rep_data=rep_data,
         )[3]
-    if primary == "numba" and isolated_numba:
+    if primary is Baseline.NUMBA and isolated_numba:
         return time_numba_isolated(
             spec, binding, data, repeat, timeout, memory_gb, warmup=warmup, rep_data=rep_data, guillotine_s=guillotine_s
         )
-    if primary == "numba":
+    if primary is Baseline.NUMBA:
         return _time_numba_samples(spec, data, repeat, warmup=warmup, rep_data=rep_data)
     if baseline_uses_torch(primary):
         return torch_time_samples(spec, primary, data, repeat, warmup=warmup, rep_data=rep_data)
-    raise RuntimeError(f"no second timer for baseline {primary!r}")
+    raise RuntimeError(f"no second timer for baseline {primary.text!r}")
 
 
 def resolve_kernel_timeout(spec: BenchSpec | None) -> float:
@@ -1585,14 +1636,14 @@ def score(
     *,
     rtol: float | None = None,
     atol: float | None = None,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 5,
     hidden: bool = True,
     hidden_cases: list | None = None,
     mode: Mode = Mode.SINGLE_CORE,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = AUTO_BASELINE,
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
     fuzz_iteration: int | None = None,
     params_override: dict | None = None,
     seed_nonce: int | None = None,
@@ -1605,7 +1656,7 @@ def score(
     unsalted. ``aa``: see :func:`graded_score`. ``datatype`` yields to the kernel's own where it has one
     (:func:`graded_datatype`: a storage precision, its track's), so every route grades what the judge does."""
     datatype = graded_datatype(BenchSpec.load(task.kernel), datatype)
-    salt = hidden and task.residency != "distributed"
+    salt = hidden and task.residency is not Residency.DISTRIBUTED
     nonce = (seed_nonce if seed_nonce is not None else fresh_nonce()) if salt else 0
     with native_call.rep_draw_scope():
         result = graded_score(
@@ -1714,7 +1765,9 @@ def candidate_builder(
     return functools.partial(in_layout, kernel, choice, build)
 
 
-def uncovered_grade(built: BuildResult, oracle: str, baseline: str, policy_stamp: str | None, cell: TimedCell) -> Score:
+def uncovered_grade(
+    built: BuildResult, oracle: Oracle, baseline: Baseline, policy_stamp: str | None, cell: TimedCell
+) -> Score:
     """The grade of a submission with an input its layout cannot hold (``cell.uncovered``,
     :func:`hpcagent_bench.support.helpers.sparse.request.uncovered`): the kernel fails. Nothing is
     timed or run, and the grade is not correct, at :data:`UNCOVERED_RATIO` like every failure."""
@@ -1725,9 +1778,9 @@ def uncovered_grade(built: BuildResult, oracle: str, baseline: str, policy_stamp
         True,
         cell.uncovered,
         speedup=UNCOVERED_RATIO,
-        baseline=baseline,
+        baseline=baseline.text,
         baseline_policy=policy_stamp,
-        oracle=oracle,
+        oracle=oracle.text,
         cells=(cell,),
         build_commands=built.commands,
     )
@@ -1739,14 +1792,14 @@ def graded_score(
     *,
     rtol: float | None = None,
     atol: float | None = None,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 5,
     hidden: bool = True,
     hidden_cases: list | None = None,
     mode: Mode = Mode.SINGLE_CORE,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = AUTO_BASELINE,
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
     fuzz_iteration: int | None = None,
     params_override: dict | None = None,
     nonce: int = 0,
@@ -1760,9 +1813,9 @@ def graded_score(
 
     ``oracle`` selects the correctness reference (:func:`~hpcagent_bench.harness.grading.resolve_oracle`):
     ``auto`` is the track's, the compiled numba and C references (the race leader first, the other when it
-    cannot answer) or, on machine_learning, the compiled torch one; ``numba`` / ``c`` / ``torch`` name one;
-    any other name raises ``ValueError``. ``baseline`` selects the denominator
-    (``c``, ``numba``, a ``*-autopar`` kind, ``torch-autotune``). The C reference is built once and reused;
+    cannot answer) or, on machine_learning, the compiled torch one; ``numba`` / ``c`` / ``torch`` name one.
+    ``baseline`` selects the denominator (``c``, ``numba``, a ``*-autopar`` kind, ``torch-autotune``; None,
+    the track's). The C reference is built once and reused;
     a reference that cannot answer is a scored judge fault, never a silent numpy fallback. ``repeat`` timed runs
     per side on the public inputs; hidden cases are correctness-only.
 
@@ -1776,20 +1829,20 @@ def graded_score(
 
     # Distributed submissions take the multi-node path (harness-owned scatter/gather); the
     # single-node machinery below does not apply.
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return score_distributed(
             submission, task, preset=preset, datatype=datatype, rtol=rtol, atol=atol, repeat=repeat, hidden=hidden
         )
 
     spec = BenchSpec.load(task.kernel)
-    oracle_choice = resolve_oracle(oracle, spec)  # track sentinel / None -> the reference name (+ validation)
+    oracle_choice = resolve_oracle(oracle, spec)  # auto -> the track's reference
     # The references the oracle tries, first choice first (numba then C, or C then numba, on the compiled
     # tracks): the leader answers, the other stands in when the leader cannot.
     oracle_order = oracle_kinds(oracle_choice, spec, preset)
     oracle = oracle_order[0]
     # Every denominator candidate in tie-break order: one kind is the fixed policy, more is best-of.
     # All are timed in the one Sandbox below on the one ``data`` and rep budget.
-    kinds = resolve_baseline_set(baseline, spec, on_gpu=task.on_gpu)  # track sentinel / None -> concrete kinds
+    kinds = resolve_baseline_set(baseline, spec, on_gpu=task.on_gpu)  # None -> the track's concrete kinds
     baseline = kinds[0]
     policy_stamp = baseline_policy_stamp(kinds)
     binding = binding_from_spec(spec)
@@ -1835,7 +1888,7 @@ def graded_score(
     # Builders, not data: materialising every case at once peaked at 7x the declared arrays against
     # an RLIMIT_AS of 2x. Each case is drawn when used.
     case_params = [
-        {**spec.parameters[case.preset], **dict(case.config)} if case.config else params_override for case in cases
+        {**spec.parameters[case.preset.text], **dict(case.config)} if case.config else params_override for case in cases
     ]
     hidden_data: list[tuple[str, Callable[[], KernelData]]] = [
         (
@@ -1853,7 +1906,7 @@ def graded_score(
         for case, params in zip(cases, case_params, strict=True)
     ]
 
-    device = task.residency == "device"
+    device = task.residency is Residency.DEVICE
     timeout = timing.kernel_timeout_s()
     # Hidden cases run under this call's cap. Sizes are read back from ``data``: under
     # preset="fuzzed" kernel_memory_gb has no preset to derive from and would fall back to the floor.
@@ -1956,8 +2009,8 @@ def graded_score(
                 0,
                 False,
                 built.log[-2000:],
-                baseline=baseline,
-                oracle=oracle,
+                baseline=baseline.text,
+                oracle=oracle.text,
                 build_commands=built.commands,
             )
         cand_casts = candidate_casts(submission, built.require_lib(), device, spec, cand_binding, datatype)
@@ -1968,27 +2021,28 @@ def graded_score(
                 baseline,
                 policy_stamp,
                 TimedCell(
-                    label=f"{preset}:{'submit' if hidden else 'score'}",
+                    label=f"{preset.text}:{'submit' if hidden else 'score'}",
                     shape=cell_shape(drawn, params_override),
                     baseline_ns=0.0,
                     native_ns=0.0,
                     ratio=UNCOVERED_RATIO,
                     graded=False,
                     significant=False,
-                    baseline=baseline,
+                    baseline=baseline.text,
                     uncovered=skipped,
                 ),
             )
 
         # References (oracle) and baselines: expected_public / expected_hidden map a reference name to its
         # outputs; baselines map a reference name to its best time.
-        expected_public: dict[str, dict] = {}
-        expected_hidden: dict[str, dict[str, dict]] = {}  # label -> {ref_name: outputs}
-        baselines: dict[str, int] = {}
-        baseline_samples: dict[str, list[int]] = {}  # ref name -> per-repeat ns (for the timing backend)
+        expected_public: dict[Oracle, dict] = {}
+        expected_hidden: dict[str, dict[Oracle, dict]] = {}  # label -> {reference: outputs}
+        baselines: dict[Baseline, int] = {}
+        baseline_samples: dict[Baseline | Cut, list[int]] = {}  # reference -> per-repeat ns (the timing backend's)
         # The override is in the key: ``drawn`` holds size symbols only, and a config knob moves outputs.
         drawn_repr = repr(sorted((drawn or {}).items()) + sorted((params_override or {}).items()))
-        oracle_key = (task.kernel, preset, datatype, public_seed, fuzz_iteration, drawn_repr)
+        # Spelled, not members: the key is also the disk store's (its repr is hashed).
+        oracle_key = (task.kernel, preset.text, datatype, public_seed, fuzz_iteration, drawn_repr)
         # The python-level oracles (numba, torch) answer here; a C oracle runs with the race below, where
         # its build also serves as the C denominator. ``reference`` computes any input set's expected
         # outputs under the oracle that answered, for the held-out cases, every timed run's input and the
@@ -2002,7 +2056,7 @@ def graded_score(
             candidate = oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=memory_gb)
             try:
                 expected_public[kind] = cached_reference(
-                    (*oracle_key, kind),
+                    (*oracle_key, kind.text),
                     functools.partial(candidate, data),
                     disk=disk_cache.harness_key(spec) if disk else "",
                 )
@@ -2018,8 +2072,8 @@ def graded_score(
                 0,
                 False,
                 f"{spec.short_name}: no oracle reference -- {'; '.join(oracle_failures)}",
-                baseline=baseline,
-                oracle=oracle,
+                baseline=baseline.text,
+                oracle=oracle.text,
                 harness_fault=True,
                 build_commands=built.commands,
             )
@@ -2035,9 +2089,9 @@ def graded_score(
         # Why each candidate produced no denominator, so an all-failed set can say which and how.
         bl_errors: list[str] = []
         # The reference follows the candidate's compiler family, so a speedup measures the optimisation.
-        ref_compiler = reference_compiler(submission, "c")
+        ref_compiler = reference_compiler(submission, Language.C)
         # The family is in the output key too: gcc and clang may contract FMAs differently.
-        c_oracle_key = (*oracle_key, "c", ref_compiler)
+        c_oracle_key = (*oracle_key, Oracle.C.text, ref_compiler)
         # A baseline time depends on the cell, the denominator and the machine, never the submission
         # (see baseline_timing_key), so repeated /score rounds reuse it. ``ref_compiler`` is in the key.
         # Outputs are cached separately (ORACLE_OUTPUT_CACHE), bounded by bytes. The draw rule is in the
@@ -2050,14 +2104,14 @@ def graded_score(
         # A fixed-input key carries the route's seed, and a salted /submit seed never repeats.
         disk_timing = not aa and (disk if rep_data is None else disk_scope)
         if cached is None and disk_timing:
-            cached = disk_cache.load_timing(disk_cache.harness_key(spec), bl_key)
+            cached = timing_of_names(disk_cache.load_timing(disk_cache.harness_key(spec), bl_key))
             if cached is not None and not lost_compiled_references(kinds, cached[1]):
                 remember_baseline_timing(bl_key, cached)
         # A memo that lost a compiled reference is never replayed: the loss can be transient.
         if cached is not None and lost_compiled_references(kinds, cached[1]):
             cached = None
-        # label -> (language, compiler, mode) of each own-build candidate's fastest build.
-        own_builds: dict[str, tuple[str, str | None, Mode]] = {}
+        # kind -> (language, compiler, mode) of each own-build candidate's fastest build.
+        own_builds: dict[Baseline, tuple[Language, str | None, Mode]] = {}
         if cached is not None:
             baselines.update(cached[0])
             baseline_samples.update(cached[1])
@@ -2075,22 +2129,24 @@ def graded_score(
                     0,
                     False,
                     str(exc),
-                    baseline=baseline,
-                    oracle=oracle,
+                    baseline=baseline.text,
+                    oracle=oracle.text,
                     harness_fault=True,
                     build_commands=built.commands,
                 )
             except Exception as exc:  # noqa: BLE001 -- a reference numba will not compile or type
                 # Same judge-side failure (e.g. a prange numba cannot lower); escaping, it was an HTTP 500.
-                detail = f"{baseline} baseline: {type(exc).__name__}: {str(exc).splitlines()[0] if str(exc) else ''}"
+                detail = (
+                    f"{baseline.text} baseline: {type(exc).__name__}: {str(exc).splitlines()[0] if str(exc) else ''}"
+                )
                 return Score(
                     False,
                     float("inf"),
                     0,
                     False,
                     detail,
-                    baseline=baseline,
-                    oracle=oracle,
+                    baseline=baseline.text,
+                    oracle=oracle.text,
                     harness_fault=True,
                     build_commands=built.commands,
                 )
@@ -2110,8 +2166,8 @@ def graded_score(
                         0,
                         False,
                         f"{spec.short_name}: held-out case {label}: {exc}",
-                        baseline=baseline,
-                        oracle=oracle,
+                        baseline=baseline.text,
+                        oracle=oracle.text,
                         harness_fault=True,
                         build_commands=built.commands,
                     )
@@ -2142,33 +2198,37 @@ def graded_score(
                 )
             except NativeCallTimeout as exc:
                 if numba_cut_s:
-                    record_cut("numba", numba_cut_s)  # slower than the leader: not fastest, not lost
+                    record_cut(Baseline.NUMBA, numba_cut_s)  # slower than the leader: not fastest, not lost
                     return
-                bl_errors.append(f"numba: {one_line(exc)}")
+                bl_errors.append(f"{Baseline.NUMBA.text}: {one_line(exc)}")
                 numba_samples = []
             except Exception as exc:  # noqa: BLE001 -- no emittable form, a TypingError, a blown bracket
-                bl_errors.append(f"numba: {one_line(exc)}")
+                bl_errors.append(f"{Baseline.NUMBA.text}: {one_line(exc)}")
                 numba_samples = []
-            baseline_samples["numba"] = numba_samples
+            baseline_samples[Baseline.NUMBA] = numba_samples
             if numba_samples:
-                baselines["numba"] = min(numba_samples)
+                baselines[Baseline.NUMBA] = min(numba_samples)
 
         #: Compiled candidates killed at the flat ``timeout`` (not an early stop), with their bl_errors line:
         #: settled once the race is over (:func:`settle_timeouts`).
-        timed_out: dict[str, str] = {}
+        timed_out: dict[Baseline, str] = {}
 
         def settle_timeouts() -> None:
             """A candidate killed at ``timeout`` is cut, not lost, once another finished every rep inside it: a
             rep over ``timeout`` cannot be the fastest, so the best-of minimum stands. Whatever order the race
             ran in (C first under the complete race, or behind a leader whose early-stop budget came out at or
             above ``timeout`` and so was never armed)."""
-            inside = any(v and max(v) < timeout * NS_PER_S for k, v in baseline_samples.items() if k in kinds)
+            inside = any(
+                v and max(v) < timeout * NS_PER_S
+                for k, v in baseline_samples.items()
+                if not isinstance(k, Cut) and k in kinds
+            )
             for kind, error in list(timed_out.items()) if inside else []:
                 bl_errors.remove(error)
                 record_cut(kind, timeout)
                 del timed_out[kind]
 
-        def record_cut(kind: str, budget_s: float) -> None:
+        def record_cut(kind: Baseline, budget_s: float) -> None:
             """A best-of-v3 candidate cut by the early stop: no time, and not lost either."""
             baseline_samples[kind] = []
             baseline_samples[cut_key(kind)] = [int(budget_s * NS_PER_S)]
@@ -2182,11 +2242,11 @@ def graded_score(
         leader_key = (spec.short_name, preset, datatype)
         leader, leader_source = race_leader(kinds, spec.short_name, preset, BASELINE_LEADERS.get(leader_key))
         if policy == EARLY_STOP_BASELINE_POLICY:
-            leader, leader_source = "numba", LEADER_BY_DEFAULT
+            leader, leader_source = Baseline.NUMBA, LEADER_BY_DEFAULT
         numba_first = policy == EARLY_STOP_BASELINE_POLICY or (
-            policy == LEADER_FIRST_BASELINE_POLICY and leader == "numba"
+            policy == LEADER_FIRST_BASELINE_POLICY and leader is Baseline.NUMBA
         )
-        if numba_first and "numba" not in baseline_samples:
+        if numba_first and Baseline.NUMBA not in baseline_samples:
             time_isolated_numba()
 
         # Cached OUTPUTS stand in for the whole C run only when no held-out case needs one too.
@@ -2194,11 +2254,11 @@ def graded_score(
         if c_cached is None and disk and plan.oracle_wants_c:
             c_cached = disk_cache.load_outputs(disk_cache.harness_key(spec), c_oracle_key)
         if c_cached is not None:
-            expected_public["c"] = c_cached
+            expected_public[Oracle.C] = c_cached
         # The C run is still needed when the oracle wants its outputs; a cached time only lets the
         # baseline-only case skip it.
         if (plan.oracle_wants_c and (c_cached is None or hidden_data)) or (
-            wants_seq_c_baseline and "c" not in baseline_samples
+            wants_seq_c_baseline and Baseline.C not in baseline_samples
         ):
             # best-of-v3's early stop, never where the oracle needs this run's outputs; the canonical call is
             # then skipped too, since only that oracle reads it.
@@ -2229,7 +2289,7 @@ def graded_score(
                 # The C reference could not be emitted/built/run: the next python-level oracle of the order
                 # grades instead, and only when none answers is it a judge failure (harness_fault).
                 if c_cut_s and isinstance(exc, NativeCallTimeout):
-                    record_cut("c", c_cut_s)  # slower than the leader: not fastest, not lost
+                    record_cut(Baseline.C, c_cut_s)  # slower than the leader: not fastest, not lost
                 elif plan.oracle_wants_c:
                     try:
                         oracle, reference = fallback_oracle(
@@ -2252,32 +2312,32 @@ def graded_score(
                             0,
                             False,
                             f"{spec.short_name}: {unavailable}",
-                            oracle=oracle,
+                            oracle=oracle.text,
                             harness_fault=True,
                             build_commands=built.commands,
                         )
-                    bl_errors.append(f"c: {one_line(exc)}")
+                    bl_errors.append(f"{Baseline.C.text}: {one_line(exc)}")
                     if wants_seq_c_baseline:
-                        baseline_samples["c"] = []
+                        baseline_samples[Baseline.C] = []
                 else:
                     # Baseline-only C request: the candidate did not run. Under best-of the others stand; under a
                     # single kind the numpy degradation below takes over.
-                    bl_errors.append(f"c: {one_line(exc)}")
+                    bl_errors.append(f"{Baseline.C.text}: {one_line(exc)}")
                     if isinstance(exc, NativeCallTimeout):
-                        timed_out["c"] = bl_errors[-1]
+                        timed_out[Baseline.C] = bl_errors[-1]
                     if wants_seq_c_baseline:
-                        baseline_samples["c"] = []  # attempted and lost: see the memo note below
+                        baseline_samples[Baseline.C] = []  # attempted and lost: see the memo note below
             else:
                 if plan.oracle_wants_c:
-                    expected_public["c"] = c_public
+                    expected_public[Oracle.C] = c_public
                     oracle_cache_put(c_oracle_key, c_public)
                     if disk:
                         disk_cache.store_outputs(disk_cache.harness_key(spec), c_oracle_key, c_public)
                     for label, _ in hidden_data:
-                        expected_hidden.setdefault(label, {})["c"] = c_hidden[label]
+                        expected_hidden.setdefault(label, {})[Oracle.C] = c_hidden[label]
                 if wants_seq_c_baseline:
-                    baselines["c"] = c_ns
-                    baseline_samples["c"] = c_samples
+                    baselines[Baseline.C] = c_ns
+                    baseline_samples[Baseline.C] = c_samples
 
         # Own-build baselines (``*-autopar``), timing only: time every
         # available compiler and keep the fastest; skip failures, fall back to numpy if none build.
@@ -2327,7 +2387,7 @@ def graded_score(
             elif cut:
                 record_cut(label, cut_s)
             else:
-                bl_errors.append(f"no {label} denominator built ({'; '.join(build_errors) or 'no compiler'})")
+                bl_errors.append(f"no {label.text} denominator built ({'; '.join(build_errors) or 'no compiler'})")
                 if timeout_hit:
                     timed_out[label] = bl_errors[-1]
                 baseline_samples[label] = []  # attempted and lost: see the memo note below
@@ -2337,7 +2397,7 @@ def graded_score(
                 time_own_build(one)
 
         # The best-of python candidate, LAST under best-of-v1/v2 (see time_isolated_numba).
-        if best_of and "numba" in kinds and "numba" not in baseline_samples:
+        if best_of and Baseline.NUMBA in kinds and Baseline.NUMBA not in baseline_samples:
             time_isolated_numba()
 
         raced = kinds
@@ -2347,7 +2407,7 @@ def graded_score(
         # logged with its reason (a memo hit replays the loss). A cut candidate is not lost.
         lost = [kind for kind in raced if not baseline_samples.get(kind) and not was_cut(baseline_samples, kind)]
         if best_of and lost:
-            reasons = bl_errors or [f"{kind}: no time (memo of an earlier timing)" for kind in lost]
+            reasons = bl_errors or [f"{kind.text}: no time (memo of an earlier timing)" for kind in lost]
             sys.stderr.write(lost_candidates_line(spec.short_name, raced, reasons))
             sys.stderr.flush()
 
@@ -2360,14 +2420,14 @@ def graded_score(
                 0,
                 False,
                 f"{spec.short_name}: no denominator -- {'; '.join(bl_errors) or 'nothing timed'}",
-                oracle=oracle,
+                oracle=oracle.text,
                 harness_fault=True,
                 build_commands=built.commands,
             )
 
         # The winner leads this kernel's next best-of-v4 race, at any draw (a memo or disk hit included).
-        winner = fastest_baseline(baseline_samples, kinds) if best_of else ""
-        if winner:
+        winner = fastest_baseline(baseline_samples, kinds) if best_of else None
+        if winner is not None:
             BASELINE_LEADERS[leader_key] = winner
         if cached is None and policy in EARLY_STOP_POLICIES:
             race = race_record(leader, leader_source, baseline_samples, kinds)
@@ -2378,7 +2438,9 @@ def graded_score(
             remember_baseline_timing(bl_key, (dict(baselines), {k: list(v) for k, v in baseline_samples.items()}))
             # A cut is one rep over its early-stop budget, a lower bound; it is not kept across jobs.
             if disk_timing and not any(was_cut(baseline_samples, kind) for kind in kinds):
-                disk_cache.store_timing(disk_cache.harness_key(spec), bl_key, BASELINE_TIMING_CACHE[bl_key])
+                disk_cache.store_timing(
+                    disk_cache.harness_key(spec), bl_key, timing_names(BASELINE_TIMING_CACHE[bl_key])
+                )
 
         # A compiled reference the race needed and lost is a judge failure: the ratio over the survivors
         # is not the stamped measurement, so nothing is credited. A lost numba stays allowed (disclosed,
@@ -2389,10 +2451,10 @@ def graded_score(
                 float("inf"),
                 0,
                 False,
-                f"{spec.short_name}: best-of baseline lost its compiled reference(s) {'+'.join(lost_compiled)} "
+                f"{spec.short_name}: best-of baseline lost its compiled reference(s) {joined(lost_compiled)} "
                 f"({'; '.join(bl_errors) or 'no time'}); judge-side fault, the grade is not credited",
-                baseline=baseline,
-                oracle=oracle,
+                baseline=baseline.text,
+                oracle=oracle.text,
                 harness_fault=True,
                 build_commands=built.commands,
             )
@@ -2400,9 +2462,9 @@ def graded_score(
         # The denominator: under best-of the candidate with the smallest reduced time (losers disclosed in
         # ``baselines``); under the fixed policy the track's one kind (or numpy if it degraded).
         primary = fastest_baseline(baseline_samples, raced) if best_of else primary_baseline(baselines)
-        if not primary:  # every candidate lost its bracket; the numpy degradation is what is left
+        if primary is None:  # every candidate lost its bracket; the numpy degradation is what is left
             primary = primary_baseline(baselines)
-        baseline_ns = baselines.get(primary, 0)
+        baseline_ns = 0 if primary is None else baselines.get(primary, 0)
         aa_samples: list[int] = []
         if aa:
             try:
@@ -2428,8 +2490,8 @@ def graded_score(
                     float("inf"),
                     0,
                     False,
-                    f"aa: re-timing {primary or 'nothing'} failed: {exc}",
-                    oracle=oracle,
+                    f"aa: re-timing {'nothing' if primary is None else primary.text} failed: {exc}",
+                    oracle=oracle.text,
                     harness_fault=True,
                     build_commands=built.commands,
                 )
@@ -2487,14 +2549,24 @@ def graded_score(
                 raise RuntimeError("no per-rep draw to compute expected outputs on")
             return reference(data, draw=functools.partial(rep_variation.offset_draw, rep_data, index))
 
-        def run_expected(seed: int) -> dict[str, dict]:
+        def run_expected(seed: int) -> dict[Oracle, dict]:
             """The expected outputs of the timed call drawn at ``seed``: one pool input's, keyed by its seed and
             the structure it keeps from ``data``, so a later grade of the cell reuses them."""
             if rep_data is None:
                 return expected_public
             return {
                 oracle: cached_reference(
-                    (task.kernel, preset, datatype, fuzz_iteration, drawn_repr, oracle, "run", seed, structure),
+                    (
+                        task.kernel,
+                        preset.text,
+                        datatype,
+                        fuzz_iteration,
+                        drawn_repr,
+                        oracle.text,
+                        "run",
+                        seed,
+                        structure,
+                    ),
                     functools.partial(expected_at, rep_seeds.index(seed)),
                     disk=disk_cache.harness_key(spec) if disk_scope else "",
                     room=sum(int(np.asarray(value).nbytes) for value in expected_public.get(oracle, {}).values()),
@@ -2612,7 +2684,17 @@ def graded_score(
                 for seed in dict.fromkeys(rep_seeds[:run_warmup]):
                     if seed not in run_seeds:
                         cached_reference(
-                            (task.kernel, preset, datatype, fuzz_iteration, drawn_repr, oracle, "run", seed, structure),
+                            (
+                                task.kernel,
+                                preset.text,
+                                datatype,
+                                fuzz_iteration,
+                                drawn_repr,
+                                oracle.text,
+                                "run",
+                                seed,
+                                structure,
+                            ),
                             functools.partial(reference, rep_data(rep_seeds.index(seed))),
                             disk=disk_cache.harness_key(spec),
                         )
@@ -2626,10 +2708,10 @@ def graded_score(
                 True,
                 detail,
                 baseline_ns=baseline_ns,
-                baseline=primary,
-                baselines=baselines,
+                baseline=recorded_name(primary),
+                baselines=recorded_times(baselines),
                 baseline_policy=policy_stamp,
-                oracle=oracle,
+                oracle=oracle.text,
                 public_correct=False,
                 timed_out=isinstance(exc, NativeCallTimeout),
                 too_slow=isinstance(exc, NativeCallTooSlow),
@@ -2641,7 +2723,7 @@ def graded_score(
     hidden_total = len(cases)
     hidden_correct = hidden_passed == hidden_total
     # Per-baseline disclosure speedups stay min-based (native min / baseline min).
-    speedups = {name: (ns / native_ns) for name, ns in baselines.items() if native_ns and ns}
+    speedups = {kind: (ns / native_ns) for kind, ns in baselines.items() if native_ns and ns}
     # The primary speedup is reduced by the timing backend over the raw samples (min_of_k: min/min;
     # mannwhitney_delta: a significance-gated pessimistic gain), failing loudly when underpowered.
     # One backend for every single-node route: the configured one. /score and /submit both time the
@@ -2649,7 +2731,7 @@ def graded_score(
     # distributed grades below keep best-of-k on /score.
     backend = None
     timing.validate_repeat(repeat, backend)
-    primary_samples = baseline_samples.get(primary, [])
+    primary_samples = [] if primary is None else baseline_samples.get(primary, [])
     reduction: str | None = None
     significant = True  # nothing to gate when the fallback below divides two minima
     p_value: float | None = None
@@ -2677,7 +2759,7 @@ def graded_score(
         # agree exactly. A non-significant reduction still credits 1.0.
         speedup = (baseline_ns / native_ns) if significant and native_ns > 0 else reduced.speedup
     else:
-        speedup = speedups.get(primary, 0.0)
+        speedup = 0.0 if primary is None else speedups.get(primary, 0.0)
         table = timing.REDUCTIONS_VARIED if rep_data is not None else timing.REDUCTIONS
         reduction = table["min_of_k"] if speedup > 0 else None
     # ANTI-CHEAT REFUSAL: a CPU-track grade whose child had a GPU runtime mapped is not a host
@@ -2695,7 +2777,7 @@ def graded_score(
     if speedup > 0 and native_ns > 0 and baseline_ns > 0:
         cells = (
             TimedCell(
-                label=f"{preset}:{'submit' if hidden else 'score'}",
+                label=f"{preset.text}:{'submit' if hidden else 'score'}",
                 shape=cell_shape(drawn, params_override),
                 baseline_ns=float(baseline_ns),
                 native_ns=float(native_ns),
@@ -2713,10 +2795,10 @@ def graded_score(
                 )
                 or probe_unsynchronized(probe, native_ns),
                 significant=significant,
-                baseline=primary,
+                baseline=recorded_name(primary),
                 timing_reduction=reduction,
                 # WHICH references were timed here; `baseline` is the one the credit divides.
-                baseline_candidates="+".join(sorted(baselines)),
+                baseline_candidates="+".join(sorted(recorded_times(baselines))),
                 race_leader=race[0],
                 race_leader_source=race[1],
                 race_cuts=race[2],
@@ -2730,11 +2812,11 @@ def graded_score(
         detail,
         baseline_ns=baseline_ns,
         speedup=speedup,
-        baseline=primary,
-        baselines=baselines,
+        baseline=recorded_name(primary),
+        baselines=recorded_times(baselines),
         baseline_policy=policy_stamp,
-        speedups=speedups,
-        oracle=oracle,
+        speedups=recorded_times(speedups),
+        oracle=oracle.text,
         floor_ns=floor_ns,
         public_correct=public_correct,
         hidden_correct=hidden_correct,
@@ -2767,7 +2849,7 @@ def _verify_distributed(
     rtol: float,
     atol: float,
     *,
-    preset: str,
+    preset: Preset,
     datatype: str,
     reverify_seed: int,
 ) -> VerifyResult:
@@ -2796,7 +2878,7 @@ def _verify_distributed(
         )
         decomp = spec.mpi_decomposition
         cand_params = mpi_sizing.sized_params(
-            spec.parameters[preset],
+            spec.parameters[preset.text],
             mode,
             decomp.axis,
             ranks,
@@ -2835,7 +2917,7 @@ def _verify_distributed(
     memory_gb = sizing.kernel_memory_gb(spec, preset, datatype, submission.workspace_bytes, cand_params)
     try:
         oracle_kind, np_public = first_oracle(
-            oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset),
+            oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset),
             spec,
             task,
             binding,
@@ -2941,7 +3023,7 @@ class MpiLaunch:
     default_location: Location
 
 
-def mpi_cc_override() -> dict[str, str] | None:
+def mpi_cc_override() -> dict[Language, str] | None:
     """The ``{language: MPI wrapper}`` for the distributed build (``mpi.compilers``), or ``None`` for
     the ``compilers.yaml`` default. Must match ``mpi.launcher``'s MPI."""
     return dict(config.current().mpi.compilers) or None
@@ -3104,7 +3186,7 @@ TORCH_NOTE_CHARS = 300
 
 
 def distributed_torch_baseline(
-    task: Task, kind: str, params: Mapping[str, object], seed: int, repeat: int
+    task: Task, kind: Baseline, params: Mapping[str, object], seed: int, repeat: int
 ) -> tuple[list[int], str]:
     """``(samples, note)`` of a distributed ML grade's denominator: the kernel's own torch ``reference`` on
     ONE device of the grade's kind at ``params``, timed now (:func:`torch_baseline.shipped_samples`). No
@@ -3115,12 +3197,12 @@ def distributed_torch_baseline(
             BenchSpec.load(task.kernel), kind, params, seed, repeat, warmup=timing.warmup_count()
         )
     except TorchBaselineUnavailable as exc:
-        return [], f"{kind} unavailable ({str(exc)[:TORCH_NOTE_CHARS]})"
-    return samples, f"{kind} timed"
+        return [], f"{kind.text} unavailable ({str(exc)[:TORCH_NOTE_CHARS]})"
+    return samples, f"{kind.text} timed"
 
 
 def single_node_samples(
-    kinds: Sequence[str],
+    kinds: Sequence[Oracle],
     spec: BenchSpec,
     task: Task,
     binding: Binding,
@@ -3129,7 +3211,7 @@ def single_node_samples(
     *,
     timeout: float,
     memory_gb: float,
-) -> tuple[str, list[int]]:
+) -> tuple[Baseline, list[int]]:
     """``(kind, per-repeat ns)`` of a distributed grade's one-node denominator: the first compiled
     reference of ``kinds`` (numba or C) that runs, timed warmed on ``data`` in a child. Interpreted NumPy
     never divides a numpy track's speedup. Raises :class:`ReferenceUnavailable` when none runs."""
@@ -3137,14 +3219,16 @@ def single_node_samples(
     warmup = timing.warmup_count()
     for kind in kinds:
         try:
-            if kind == "numba":
-                return kind, time_numba_isolated(spec, binding, data, repeat, timeout, memory_gb, warmup=warmup)
-            if kind == "c":
-                return kind, _run_c_reference(spec, task, binding, data, [], repeat, timeout, memory_gb, warmup=warmup)[
-                    3
-                ]
+            if kind is Oracle.NUMBA:
+                return Baseline.NUMBA, time_numba_isolated(
+                    spec, binding, data, repeat, timeout, memory_gb, warmup=warmup
+                )
+            if kind is Oracle.C:
+                return Baseline.C, _run_c_reference(
+                    spec, task, binding, data, [], repeat, timeout, memory_gb, warmup=warmup
+                )[3]
         except (RuntimeError, ImportError, TypeError) as exc:  # no emittable form, a build or typing error
-            failures.append(f"{kind}: {one_line(exc)}")
+            failures.append(f"{kind.text}: {one_line(exc)}")
     raise ReferenceUnavailable("; ".join(failures) or f"no compiled reference of {spec.short_name}")
 
 
@@ -3152,7 +3236,7 @@ def score_distributed(
     submission: Submission,
     task: Task,
     *,
-    preset: str = "XL",
+    preset: Preset = Preset.XL,
     datatype: str = "float64",
     rtol: float | None = None,
     atol: float | None = None,
@@ -3192,7 +3276,7 @@ def score_distributed(
         decomp = spec.mpi_decomposition
         axis_syms = decomp.axis
         work_exp = decomp.work_exponent  # None = strong-only: weak refuses it
-        base_params = dict(spec.parameters[preset])
+        base_params = dict(spec.parameters[preset.text])
         cand_params = mpi_sizing.sized_params(base_params, cfg.mode, axis_syms, ranks, work_exp)
     except ValueError as exc:
         return Score(False, float("inf"), 0, False, f"invalid MPI layout or sizing: {exc}")
@@ -3207,14 +3291,14 @@ def score_distributed(
     # A GPU-resident array is delivered as a device pointer (python -> mpi4py+cupy, source -> the
     # device driver); a plain c/cpp/fortran kernel cannot use one, so it is a scored config error.
     device = descriptor.any_device(binding)
-    if device and not submission.is_python and submission.language not in ("cuda", "hip"):
+    if device and not submission.is_python and submission.language not in (Language.CUDA, Language.HIP):
         return Score(
             False,
             float("inf"),
             0,
             False,
             "distributed device residency needs a python, cuda, or hip kernel_mpi (each "
-            f"rank's device tiles are GPU pointers); got a {submission.language} source",
+            f"rank's device tiles are GPU pointers); got a {submission.language.text} source",
         )
 
     if torch_reference.has_torch_reference(spec):
@@ -3224,9 +3308,9 @@ def score_distributed(
         try:
             mismatch = realized_tiles_refusal(spec, binding, descriptor, cand_params)
         except ValueError as exc:
-            return Score(False, float("inf"), 0, False, f"invalid MPI layout or sizing: {exc}", baseline=kind)
+            return Score(False, float("inf"), 0, False, f"invalid MPI layout or sizing: {exc}", baseline=kind.text)
         if mismatch is not None:
-            return Score(False, float("inf"), 0, False, mismatch, baseline=kind)
+            return Score(False, float("inf"), 0, False, mismatch, baseline=kind.text)
         baseline_samples, baseline_note = distributed_torch_baseline(task, kind, base_params, cfg.seed, repeat)
         fallback_baseline_ns = min(baseline_samples) if baseline_samples else 0
         try:
@@ -3243,7 +3327,7 @@ def score_distributed(
                 k_repeats=repeat,
             )
         except MpiBuildError as exc:
-            return Score(False, float("inf"), 0, False, str(exc), baseline_ns=fallback_baseline_ns, baseline=kind)
+            return Score(False, float("inf"), 0, False, str(exc), baseline_ns=fallback_baseline_ns, baseline=kind.text)
         except (RuntimeError, ValueError) as exc:
             return Score(
                 False,
@@ -3252,7 +3336,7 @@ def score_distributed(
                 True,
                 f"mpi run failed: {exc}",
                 baseline_ns=fallback_baseline_ns,
-                baseline=kind,
+                baseline=kind.text,
                 harness_fault=isinstance(exc, mpi_call.LaunchInfraFault),
             )
         return distributed_score(
@@ -3275,7 +3359,7 @@ def score_distributed(
     base_data = cand_data if not is_weak else _data_seeded(task.kernel, preset, datatype, cfg.seed)
     timeout = timing.kernel_timeout_s()
     memory_gb = sizing.kernel_memory_gb(spec, preset, datatype, submission.workspace_bytes, cand_params)
-    kinds = oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset)
+    kinds = oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset)
     try:
         oracle_kind, oracle = first_oracle(kinds, spec, task, binding, cand_data, timeout=timeout, memory_gb=memory_gb)
         baseline, baseline_samples = single_node_samples(
@@ -3296,10 +3380,16 @@ def score_distributed(
         launched = _build_run_mpi(task, binding, submission, descriptor, cand_data, cfg, k_repeats=repeat)
         outputs, native_samples = launched.outputs, launched.samples_ns
     except MpiBuildError as exc:
-        return Score(False, float("inf"), 0, False, str(exc), baseline_ns=fallback_baseline_ns, baseline=baseline)
+        return Score(False, float("inf"), 0, False, str(exc), baseline_ns=fallback_baseline_ns, baseline=baseline.text)
     except (RuntimeError, ValueError) as exc:  # launch/timeout crash, or a pack_infile dtype error
         return Score(
-            False, float("inf"), 0, True, f"mpi run failed: {exc}", baseline_ns=fallback_baseline_ns, baseline=baseline
+            False,
+            float("inf"),
+            0,
+            True,
+            f"mpi run failed: {exc}",
+            baseline_ns=fallback_baseline_ns,
+            baseline=baseline.text,
         )
 
     # _grade can raise UngradeableTolerance; it lands as a scored refusal.
@@ -3335,7 +3425,7 @@ def score_distributed(
             True,
             detail,
             baseline_ns=fallback_baseline_ns,
-            baseline=baseline,
+            baseline=baseline.text,
             ungradeable=is_ungradeable,
         )
     graded = distributed_score(
@@ -3370,7 +3460,7 @@ def distributed_score(
     ranks: int,
     *,
     backend: str | None,
-    baseline: str,
+    baseline: Baseline,
 ) -> Score:
     """:func:`score_distributed`'s credit from graded, timed samples on both sides; ``baseline`` names
     the reference and ``notes`` are appended to the detail."""
@@ -3384,7 +3474,7 @@ def distributed_score(
             True,
             "; ".join(x for x in (detail or "no_timing_samples", notes) if x),
             baseline_ns=fallback_baseline_ns,
-            baseline=baseline,
+            baseline=baseline.text,
             public_correct=correct,
             hidden_correct=correct,
             timing_reduction=None,
@@ -3402,7 +3492,7 @@ def distributed_score(
         "; ".join(x for x in (detail, notes) if x),
         baseline_ns=round(reduced.baseline_ns),
         speedup=speedup,
-        baseline=baseline,
+        baseline=baseline.text,
         public_correct=correct,
         hidden_correct=correct,
         timing_reduction=reduced.reduction,
@@ -3437,7 +3527,7 @@ def time_scaling_anchor(
     task: Task,
     spec: BenchSpec,
     binding: Binding,
-    preset: str,
+    preset: Preset,
     datatype: str,
     seed: int,
     base_params: dict[str, Any],
@@ -3451,7 +3541,7 @@ def time_scaling_anchor(
     for cuda/hip."""
     a_timeout = timing.kernel_timeout_s()
     a_memory = config.current().limits.kernel_memory_gb
-    device = single_rank_anchor.language in ("cuda", "hip")
+    device = single_rank_anchor.language in (Language.CUDA, Language.HIP)
     # T_1(N_1): built and timed once on the base problem, shared by every P.
     with Sandbox(binding, source_mode=task.source_mode) as asb:
         abuilt = asb.build(single_rank_anchor, mode=Mode.SINGLE_CORE)
@@ -3460,7 +3550,7 @@ def time_scaling_anchor(
         base_data = _data_seeded(task.kernel, preset, datatype, seed, params_override=base_params)
         try:
             base_kind, base_oracle = first_oracle(
-                oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset),
+                oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset),
                 spec,
                 task,
                 binding,
@@ -3525,7 +3615,7 @@ def score_scaling(
     single_rank_anchor: Submission | None,
     *,
     rank_counts: tuple[int, ...],
-    preset: str = "XL",
+    preset: Preset = Preset.XL,
     datatype: str = "float64",
     rtol: float | None = None,
     atol: float | None = None,
@@ -3551,7 +3641,7 @@ def score_scaling(
     decomp = spec.mpi_decomposition
     axis_syms = decomp.axis
     work_exp = decomp.work_exponent  # None = strong-only: every weak P is refused with a note
-    base_params = dict(spec.parameters[preset])
+    base_params = dict(spec.parameters[preset.text])
     empty = ScalingRuns({}, 0, (), mode=cfg.mode, work_exponent=work_exp)
     if single_rank_anchor is None:
         return replace(empty, notes=("no single-node anchor submission; scaling curve undefined",))
@@ -3582,7 +3672,7 @@ def score_scaling(
     # One record per distinct sized problem (input, oracle, probed lengths), reused across P. The oracle
     # is the track's compiled reference, one that can run on the sized inputs (:func:`first_oracle`).
     size_cache: dict[tuple, tuple] = {}  # sig -> (cand_data, oracle, lengths)
-    scaling_kinds = oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset)
+    scaling_kinds = oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset)
     scaling_timeout = timing.kernel_timeout_s()
     scaling_memory_gb = config.current().limits.kernel_memory_gb
 
@@ -3654,8 +3744,12 @@ def score_scaling(
         except ValueError as exc:
             note(p, f"invalid MPI layout ({exc})")
             continue
-        if descriptor.any_device(binding) and not submission.is_python and submission.language not in ("cuda", "hip"):
-            note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {submission.language}")
+        if (
+            descriptor.any_device(binding)
+            and not submission.is_python
+            and submission.language not in (Language.CUDA, Language.HIP)
+        ):
+            note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {submission.language.text}")
             continue
         try:
             # The placement from this launch's own launcher and environment.
@@ -3790,12 +3884,17 @@ def ml_descriptors(
     return out
 
 
-def ml_sweep_sizing(spec: BenchSpec, preset: str) -> tuple[dict[str, Any], list[str], int | None, frozenset[str]]:
+def ml_sweep_sizing(spec: BenchSpec, preset: Preset) -> tuple[dict[str, Any], list[str], int | None, frozenset[str]]:
     """What every ML-track sweep sizes its P from: preset parameters, decomposition axis symbols,
     ``work_exponent`` (None = strong-only) and the 64-aligned split symbols. Shared with
     :mod:`hpcagent_bench.harness.torch_dist_curve` so both time the same problems."""
     decomp = spec.mpi_decomposition
-    return dict(spec.parameters[preset]), list(decomp.axis), decomp.work_exponent, mpi_sizing.aligned_symbols(spec.mpi)
+    return (
+        dict(spec.parameters[preset.text]),
+        list(decomp.axis),
+        decomp.work_exponent,
+        mpi_sizing.aligned_symbols(spec.mpi),
+    )
 
 
 def score_ml(
@@ -3803,7 +3902,7 @@ def score_ml(
     task: Task,
     *,
     rank_counts: Sequence[int],
-    preset: str = "XL",
+    preset: Preset = Preset.XL,
     datatype: str = "bf16",
     rtol: float | None = None,
     atol: float | None = None,
@@ -3836,7 +3935,7 @@ def score_ml(
     ranks = config.current().mpi.ranks
     timing.validate_repeat(repeat)
     base_params, axis_syms, work_exp, aligned = ml_sweep_sizing(spec, preset)
-    graded_inputs = list(inputs) or [{"label": f"{preset}:submit", "params": base_params}]
+    graded_inputs = list(inputs) or [{"label": f"{preset.text}:submit", "params": base_params}]
     requested = sorted({int(p) for p in rank_counts if int(p) >= 1})
     fuzz_ranks = max(requested, default=ranks)
     descriptors = ml_descriptors(
@@ -3846,14 +3945,18 @@ def score_ml(
     kind = torch_autotune_kind(task.on_gpu)
 
     def refused(detail: str, *, build_ok: bool = False) -> MlGrade:
-        return MlGrade(Score(False, float("inf"), 0, build_ok, detail, baseline=kind))
+        return MlGrade(Score(False, float("inf"), 0, build_ok, detail, baseline=kind.text))
 
     lead = descriptors[ranks]
     if isinstance(lead, str):
         return refused(f"invalid MPI layout or sizing: {lead}")
-    if lead.any_device(binding) and not submission.is_python and submission.language not in ("cuda", "hip"):
+    if (
+        lead.any_device(binding)
+        and not submission.is_python
+        and submission.language not in (Language.CUDA, Language.HIP)
+    ):
         return refused(
-            f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language}"
+            f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language.text}"
         )
     with Sandbox(binding, source_mode=task.source_mode) as sb:
         # The rank driver's kernel library is grid-independent, so one build serves every P and law.
@@ -3891,7 +3994,9 @@ def score_ml(
         for cell, run in zip(fuzz_cells, checked, strict=False):
             if not run.ok:
                 fuzz_detail = f"fuzz {cell['label']}: {run.detail}"
-                return MlGrade(Score(False, float("inf"), 0, True, fuzz_detail, baseline=kind, harness_fault=run.infra))
+                return MlGrade(
+                    Score(False, float("inf"), 0, True, fuzz_detail, baseline=kind.text, harness_fault=run.infra)
+                )
 
         boards = launch_all(ranks, [cast("Mapping[str, object]", cell["params"]) for cell in graded_inputs], repeat)
         per_input: list[Score] = []
@@ -3902,7 +4007,9 @@ def score_ml(
             if not board.ok:
                 # A launch the judge's infrastructure failed is a harness fault, never incorrect.
                 detail = f"input {label}: {board.detail}"
-                return MlGrade(Score(False, board.max_err, 0, True, detail, baseline=kind, harness_fault=board.infra))
+                return MlGrade(
+                    Score(False, board.max_err, 0, True, detail, baseline=kind.text, harness_fault=board.infra)
+                )
             baseline, baseline_note = distributed_torch_baseline(task, kind, params, cfg.seed, repeat)
             one = distributed_score(
                 True,
@@ -3925,7 +4032,7 @@ def score_ml(
                     float(one.native_ns),
                     float(one.speedup),
                     timed=bool(one.timing_reduction),
-                    baseline=kind,
+                    baseline=kind.text,
                     timing_reduction=one.timing_reduction,
                 )
             )
@@ -4174,8 +4281,8 @@ def score_cells(
     *,
     datatype: str = "float64",
     repeat: int = 5,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = AUTO_BASELINE,
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
     mode: Mode = Mode.SINGLE_CORE,
     verify: bool = True,
     reverify_seed: int | None = None,
@@ -4198,22 +4305,22 @@ def score_cells(
     # The references the oracle tries at each cell, first choice first; a C oracle keeps the reference
     # library open below, which is also the C denominator.
     oracle_order = oracle_kinds(resolve_oracle(oracle, spec), spec)
-    oracle = "c" if "c" in oracle_order else oracle_order[0]
-    baseline = resolve_baseline(baseline, spec, on_gpu=task.on_gpu)  # track sentinel / None -> concrete kind
+    oracle = Oracle.C if Oracle.C in oracle_order else oracle_order[0]
+    baseline = resolve_baseline(baseline, spec, on_gpu=task.on_gpu)  # None -> the track's concrete kind
     # One kind per sweep (references are built once outside the loop); the stamp says so.
     cell_policy = baseline_policy_stamp((baseline,))
     binding = binding_from_spec(spec)
     # The candidate's sparse layout (None: the default the references share), as score() does.
     choice = requested_layout(spec, submission)
     cand_binding = binding if choice is None else binding_from_spec(spec, config=choice.format)
-    device = task.residency == "device"
+    device = task.residency is Residency.DEVICE
     timeout = timing.kernel_timeout_s()
     # Grades on the recorded seed, so sweep and judge rows are the same measurement.
     public_seed = secret_seed_second()
     # Every cell draws at this seed from ALL scenarios; when the requested layout does not cover its
     # scenario (or the fresh-seed leg's), no cell runs and each fails (sparse.request.uncovered).
-    skipped = uncovered(spec, choice, initializer_seed(FUZZED_PRESET, public_seed, None)) or uncovered(
-        spec, choice, initializer_seed(FUZZED_PRESET, int(reverify_seed), None)
+    skipped = uncovered(spec, choice, initializer_seed(Preset.FUZZED, public_seed, None)) or uncovered(
+        spec, choice, initializer_seed(Preset.FUZZED, int(reverify_seed), None)
     )
     # The compiled baseline (label, language, compiler, mode). The single-core C reference is also
     # built whenever a compiled baseline is requested, for the dual-oracle and fast C grading.
@@ -4223,7 +4330,7 @@ def score_cells(
 
     def _run(
         lib: pathlib.Path,
-        lang: str,
+        lang: Language,
         data: dict[str, Any],
         reps: int,
         memory_gb: float,
@@ -4257,7 +4364,7 @@ def score_cells(
         if not built.ok:
             log = built.log[-2000:]
             return [
-                CellScore(c["label"], bool(c.get("timed")), False, False, False, 0.0, 0, 0, baseline, log)
+                CellScore(c["label"], bool(c.get("timed")), False, False, False, 0.0, 0, 0, baseline.text, log)
                 for c in cells
             ]
         cand_casts = candidate_casts(submission, built.require_lib(), device, spec, cand_binding, datatype)
@@ -4270,11 +4377,11 @@ def score_cells(
         c_unavailable = ""
         if plan.need_seq_c:
             try:
-                ctask = replace(task, language="c", source_mode="restricted", residency="host")
+                ctask = replace(task, language=Language.C, source_mode=SourceMode.RESTRICTED, residency=Residency.HOST)
                 c_ctx = Sandbox(binding, source_mode=ctask.source_mode)
                 csb = c_ctx.__enter__()
                 # Same family as the candidate, for the same reason score() does it.
-                c_submission = reference_submission(ctask, "c", submission.compiler)
+                c_submission = reference_submission(ctask, Language.C, submission.compiler)
                 c_context = submission_omp_context(c_submission)
                 cbuilt = csb.build(c_submission, mode=Mode.SINGLE_CORE)
                 c_lib = cbuilt.lib if cbuilt.ok else None
@@ -4313,6 +4420,14 @@ def score_cells(
                 else:
                     ctx.__exit__(None, None, None)
 
+        def reference_for(kind: Oracle, cap_gb: float, data_: dict[str, Any]) -> dict[str, np.ndarray]:
+            """Reference ``kind``'s outputs on ``data_`` (the open C library for a C oracle)."""
+            if kind is Oracle.C:
+                if c_lib is None:  # a C oracle grades only a cell the open library answered
+                    raise ReferenceUnavailable(f"C reference of {spec.short_name}: {c_unavailable or 'not built'}")
+                return _run(c_lib, Language.C, data_, 1, sizing.reference_memory_gb(cap_gb), context=c_context)[0]
+            return oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=cap_gb)(data_)
+
         determinism_ok = None  # computed once on the first correct cell
         try:
             for cell in cells:
@@ -4322,7 +4437,9 @@ def score_cells(
                 if skipped:
                     speedup = UNCOVERED_RATIO if timed else 0.0
                     results.append(
-                        CellScore(label, timed, False, False, False, speedup, 0, 0, baseline, skipped, graded=False)
+                        CellScore(
+                            label, timed, False, False, False, speedup, 0, 0, baseline.text, skipped, graded=False
+                        )
                     )
                     continue
                 reps = repeat if timed else 1
@@ -4331,14 +4448,14 @@ def score_cells(
                 # Per CELL: each cell is its own problem size, so each gets its own derived cap.
                 memory_gb = sizing.kernel_memory_gb(
                     spec,
-                    FUZZED_PRESET,
+                    Preset.FUZZED,
                     datatype,
                     submission.workspace_bytes,
                     params,
                     layout=choice or default_choice(spec),
                 )
                 try:
-                    data = _data_seeded(task.kernel, FUZZED_PRESET, datatype, public_seed, params_override=params)
+                    data = _data_seeded(task.kernel, Preset.FUZZED, datatype, public_seed, params_override=params)
                     cand_data = data if choice is None else laid_out(spec, choice, data)
                     actual, native_samples, cand_peak, cand_probes = _run(
                         built.require_lib(),
@@ -4364,7 +4481,7 @@ def score_cells(
                             0.0,
                             0,
                             0,
-                            baseline,
+                            baseline.text,
                             detail,
                             graded=False,
                             ungradeable=is_ungradeable,
@@ -4375,8 +4492,8 @@ def score_cells(
 
                 # References + baselines at THIS cell's size. The first python-level oracle (numba, torch) that
                 # answers grades the cell; a C oracle answers from the C run below.
-                expected: dict[str, dict] = {}
-                cell_kind = ""
+                expected: dict[Oracle, dict] = {}
+                cell_kind: Oracle | None = None
                 oracle_failures: list[str] = []
                 for kind in oracle_order:
                     if python_oracle(kind):
@@ -4389,14 +4506,14 @@ def score_cells(
                             continue
                     cell_kind = kind
                     break
-                baseline_samples: dict[str, list[int]] = {}
+                baseline_samples: dict[Baseline, list[int]] = {}
                 try:
                     python_bl = python_baseline_samples(spec, baseline, data, reps, warmup=warmup)
                 except TorchBaselineUnavailable as exc:
                     # No denominator is the JUDGE's gap, not a mismatch: inconclusive (graded=False).
                     results.append(
                         CellScore(
-                            label, timed, False, False, False, 0.0, native_ns, 0, baseline, str(exc), graded=False
+                            label, timed, False, False, False, 0.0, native_ns, 0, baseline.text, str(exc), graded=False
                         )
                     )
                     continue
@@ -4411,23 +4528,23 @@ def score_cells(
                     try:
                         c_outputs, c_samples, c_peak, _ = _run(
                             c_lib,
-                            "c",
+                            Language.C,
                             data,
                             c_reps,
                             sizing.reference_memory_gb(memory_gb),
                             warmup=(warmup if plan.bl_is_seq_c else 0),
                             context=c_context,
                         )
-                        if cell_kind == "c":
-                            expected["c"] = c_outputs
+                        if cell_kind is Oracle.C:
+                            expected[Oracle.C] = c_outputs
                         if plan.bl_is_seq_c:
-                            baseline_samples["c"] = c_samples
+                            baseline_samples[Baseline.C] = c_samples
                     except RuntimeError as exc:
                         c_outputs = None
                         oracle_failures.append(f"C reference of {spec.short_name}: {one_line(exc)}")
-                if cell_kind == "c" and "c" not in expected:
+                if cell_kind is Oracle.C and Oracle.C not in expected:
                     # The C oracle did not answer at this cell: the next python-level oracle of the order grades.
-                    for kind in oracle_order[oracle_order.index("c") + 1 :]:
+                    for kind in oracle_order[oracle_order.index(Oracle.C) + 1 :]:
                         if not python_oracle(kind):
                             continue
                         try:
@@ -4456,11 +4573,11 @@ def score_cells(
                             continue
                         if best is None or min(a_samples) < best[0]:
                             best = (min(a_samples), a_samples, a_peak)
-                    if best is not None:
+                    if best is not None and plan.bl_label is not None:
                         baseline_samples[plan.bl_label] = best[1]
                         bl_peak = best[2]
                 # No reference to grade against: a fail, never a vacuous pass.
-                if not expected:
+                if not expected or cell_kind is None:
                     # No oracle at this shape: inconclusive (graded=False), and the solved-fold skips it.
                     results.append(
                         CellScore(
@@ -4472,7 +4589,7 @@ def score_cells(
                             0.0,
                             native_ns,
                             0,
-                            baseline,
+                            baseline.text,
                             (
                                 "no oracle reference available -- "
                                 + (
@@ -4486,14 +4603,8 @@ def score_cells(
                     )
                     continue
 
-                def cell_reference(
-                    data_: dict[str, Any], kind: str = cell_kind, cap_gb: float = memory_gb
-                ) -> dict[str, np.ndarray]:
-                    """This cell's oracle on other inputs: the reference that graded it (the open C library
-                    for a C oracle)."""
-                    if kind == "c":
-                        return _run(c_lib, "c", data_, 1, sizing.reference_memory_gb(cap_gb), context=c_context)[0]  # type: ignore[arg-type]
-                    return oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=cap_gb)(data_)
+                # This cell's oracle on other inputs: the reference that graded it.
+                cell_reference = functools.partial(reference_for, cell_kind, memory_gb)
 
                 # Write-probed on the outputs of the reference that graded, on every track with the full checks.
                 lengths = contracted_extents(
@@ -4538,7 +4649,7 @@ def score_cells(
                         reverify_ok = True
                         redata = _data_seeded(
                             task.kernel,
-                            FUZZED_PRESET,
+                            Preset.FUZZED,
                             datatype,
                             int(reverify_seed),
                             params_override=params,
@@ -4561,7 +4672,7 @@ def score_cells(
                         # The dual leg: the compiled reference that did NOT grade this cell (numba <-> C; C beside
                         # a torch oracle), when it ran; not applied otherwise.
                         other_outputs = c_outputs
-                        if other_compiled(cell_kind) == "numba":
+                        if other_compiled(cell_kind) is Oracle.NUMBA:
                             try:
                                 other_outputs = numba_reference_outputs(spec, data, memory_gb)
                             except ReferenceUnavailable:
@@ -4585,7 +4696,7 @@ def score_cells(
                             0.0,
                             native_ns,
                             0,
-                            baseline,
+                            baseline.text,
                             detail,
                             graded=False,
                             ungradeable=is_ungradeable,
@@ -4595,12 +4706,12 @@ def score_cells(
 
                 # Primary baseline + credited speedup (timed cells only).
                 primary = primary_baseline(baseline_samples)
-                base_samples = baseline_samples.get(primary, [])
+                base_samples = [] if primary is None else baseline_samples.get(primary, [])
                 baseline_ns = min(base_samples) if base_samples else 0
                 # The baseline peak exists only for a compiled primary baseline (numpy runs in-process).
-                if primary == "c":
+                if primary is Baseline.C:
                     baseline_peak = c_peak
-                elif plan.compiled is not None and primary == plan.bl_label:
+                elif plan.compiled is not None and primary is plan.bl_label:
                     baseline_peak = bl_peak
                 else:
                     baseline_peak = 0
@@ -4635,7 +4746,7 @@ def score_cells(
                         speedup,
                         native_ns,
                         baseline_ns,
-                        primary or baseline,
+                        (baseline if primary is None else primary).text,
                         detail,
                         peak_bytes=cand_peak,
                         baseline_peak_bytes=baseline_peak,

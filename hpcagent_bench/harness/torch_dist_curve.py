@@ -49,6 +49,7 @@ from typing import Any
 import pydantic
 
 from hpcagent_bench import config, flags
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import (
     db_json,
     disk_cache,
@@ -162,7 +163,7 @@ def problem_key(point: Point, where: Stack) -> tuple[object, ...]:
     return (point.kernel, point.ranks, point.params_json, where.arch, where.image)
 
 
-def planned_points(kernel: str, counts: Sequence[int], preset: str) -> list[Point]:
+def planned_points(kernel: str, counts: Sequence[int], preset: Preset) -> list[Point]:
     """Every (law, P) point the ML grade launches for ``kernel`` over ``counts`` at ``preset``: the
     SAME sizing walk (:func:`scoring.ml_law_runs`, P=1 always, the weak skip when rounding leaves a
     size unchanged), run with a measure that only records what it was asked to launch."""

@@ -7,13 +7,14 @@ import subprocess
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.languages import std_flag
 from hpcagent_bench.support.bindings.contract import Arg, Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub, gen_mpi_driver, mpi_symbol
 from hpcagent_bench.support.bindings.stubs import LANGS, STUB_BODY
 
 #: The C standard the harness builds with (compilers.yaml), not a literal restated here.
-C_STD = std_flag("c")
+C_STD = std_flag(Language.C)
 
 #: Prefer the MPICH wrapper (the track's default toolchain); fall back to a generic ``mpicc``.
 _MPICC = shutil.which("mpicc.mpich") or shutil.which("mpicc")
@@ -63,7 +64,7 @@ def test_kernel_stub_has_section12_signature() -> None:
 def test_kernel_stub_is_cpp_compilable_for_a_cpp_submission() -> None:
     """A C++ submission compiles with ``g++ -std=c++20``: bare C99 ``restrict`` is a parse error
     there, and a plain (mangled) definition never resolves the driver's C-linkage extern."""
-    stub = gen_kernel_mpi_stub(_yax(), "cpp")
+    stub = gen_kernel_mpi_stub(_yax(), Language.CPP)
     assert 'extern "C" void jac2d_mpi' in stub
     assert "const double *__restrict__ x" in stub
     assert "double *__restrict__ y" in stub

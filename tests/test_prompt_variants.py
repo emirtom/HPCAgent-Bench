@@ -10,11 +10,12 @@ a sweep runs each kernel once per variant with one prompt each.
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Oracle, Preset, SourceMode
 from hpcagent_bench.cli import resolve_prompt_variants
 from hpcagent_bench.harness.prompts import PromptConfig, available_variants, build_prompt, discovered_variants
 from hpcagent_bench.harness.task import Task
 
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 @pytest.fixture(autouse=True)
@@ -121,10 +122,10 @@ def test_static_pipeline_rejects_a_mismatched_variant_list() -> None:
             vllm_urls=[None],
             judge_urls=["http://j:1"],
             workers=1,
-            preset="S",
+            preset=Preset.S,
             datatype="float64",
             repeat=1,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             prompt_variants=["var1"],
         )

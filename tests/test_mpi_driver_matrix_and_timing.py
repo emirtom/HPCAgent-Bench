@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 from relayout.ops import Scheme
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
 from hpcagent_bench.harness.mpi_wire import pack_infile, unpack_outfile
 from hpcagent_bench.languages import std_flag
@@ -39,7 +40,7 @@ from tests.mpi_launch_helpers import (
     skip_or_fail,
 )
 
-C_STD = std_flag("c")
+C_STD = std_flag(Language.C)
 RANKS_MATRIX = [1, 2, 4]
 
 

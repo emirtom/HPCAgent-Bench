@@ -41,6 +41,7 @@ from relayout.ops import (
     Zip,
 )
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import recording, results_db, service
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
@@ -80,7 +81,7 @@ EVERY_KIND = Requests(Startup(load=("blas", "fftw"), grid=("root(P, 2)", "root(P
 
 def recorded_grade(path: pathlib.Path, requests: Requests, ts_ms: int = 1) -> int:
     """The id of a ``submit`` grade of ``requests`` written into ``path`` by the judge's own envelope writer."""
-    submission = Submission(language="c", source="void gemm(void) {}", requests=requests)
+    submission = Submission(language=Language.C, source="void gemm(void) {}", requests=requests)
     with contextlib.closing(results_db.open_db(path)) as conn:
         results_db.ensure_setup(conn, results_db.Setup(SETUP, "c", "cpu"))
         episode = results_db.ensure_episode(conn, SETUP, "L", results_db.LOCAL_JOB)

@@ -15,6 +15,7 @@ import urllib.request
 import pytest
 
 from hpcagent_bench import config, languages
+from hpcagent_bench.categories import Language, Oracle
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import RequestAllowances, Requests
@@ -50,7 +51,7 @@ def _post(port: int, path: str, body: dict) -> tuple[int, dict]:
 
 
 def test_catalog_refusal_is_none_for_an_empty_request() -> None:
-    assert catalog_refusal([], "c") is None
+    assert catalog_refusal([], Language.C) is None
 
 
 def test_the_build_token_switch_does_not_gate_a_catalog_load() -> None:
@@ -58,7 +59,7 @@ def test_the_build_token_switch_does_not_gate_a_catalog_load() -> None:
     tokens only, so the switch off leaves a load to the catalog check."""
     with config.overridden("grading.allow_agent_build_tokens", False):
         assert RequestAllowances.from_config().refusal(Requests.of(libraries=["blas"])) is None
-        refusal = catalog_refusal(["definitely-not-a-real-library"], "c")
+        refusal = catalog_refusal(["definitely-not-a-real-library"], Language.C)
     assert refusal is not None
     assert "not on the advertised catalog" in refusal
 
@@ -73,7 +74,7 @@ def test_a_setup_without_load_refuses_every_catalog_name(names: list[str]) -> No
 
 
 def test_catalog_refusal_names_an_unoffered_library() -> None:
-    refusal = catalog_refusal(["definitely-not-a-real-library"], "c")
+    refusal = catalog_refusal(["definitely-not-a-real-library"], Language.C)
     assert refusal is not None
     assert "definitely-not-a-real-library" in refusal
 
@@ -85,12 +86,12 @@ def test_sandbox_build_resolves_an_offered_catalog_request(tmp_path) -> None:
     # must not decide this one. The build checks the catalog in the submission's OpenMP context; pick from it.
     languages.pkg_config_answer.cache_clear()
     languages.library_links.cache_clear()
-    context = compiled_omp_context("c", None)
-    offered = languages.available_libraries("c", context)
+    context = compiled_omp_context(Language.C, None)
+    offered = languages.available_libraries(Language.C, context)
     if not offered:
         pytest.skip("no catalog library offered for c on this host")
     name = offered[0]
-    compile_tokens, link_tokens = languages.library_build_flags("c", [name], context)
+    compile_tokens, link_tokens = languages.library_build_flags(Language.C, [name], context)
     assert compile_tokens or link_tokens, f"{name} is offered but resolves no tokens"
 
     spec = BenchSpec.load("gemm")
@@ -107,7 +108,7 @@ def test_sandbox_build_resolves_an_offered_catalog_request(tmp_path) -> None:
         "  (void)workspace; (void)workspace_size; C[0] = 0.0;\n"
         "}\n"
     )
-    submission = Submission(language="c", source=source, requests=Requests.of(libraries=tuple([name])))
+    submission = Submission(language=Language.C, source=source, requests=Requests.of(libraries=tuple([name])))
     with Sandbox(binding) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
     assert built.ok, built.log
@@ -117,7 +118,7 @@ def test_sandbox_build_refuses_an_unoffered_catalog_request_before_compiling(tmp
     spec = BenchSpec.load("gemm")
     binding = binding_from_spec(spec)
     submission = Submission(
-        language="c", source="void gemm_fp64(void) {}\n", requests=Requests.of(libraries=("not-a-real-library",))
+        language=Language.C, source="void gemm_fp64(void) {}\n", requests=Requests.of(libraries=("not-a-real-library",))
     )
     with Sandbox(binding) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
@@ -130,7 +131,7 @@ def test_an_unoffered_catalog_request_is_a_400_and_does_not_spend_the_submission
     single-submission-spending) attempt. submit.py's own SINGLE_SUBMISSION marker keys off exactly
     this status range (request_refused), so proving the refusal IS a 4xx here is what makes that
     contract hold for 'requests.startup.load' the same way it already does for every other malformed body."""
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
     try:
         status, body = _post(
             port,

@@ -19,8 +19,8 @@ import importlib
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import fuzz
+from hpcagent_bench import fuzz, modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
 from tests.bench_specs import fuzz_constraints
 from tests.corpus_counts import SOLVER_KERNELS
@@ -114,7 +114,7 @@ def test_fuzz_spec_is_declared_not_inherited(short) -> None:
     non-power-of-two N in front of a power-of-two-only kernel.
     """
     spec = BenchSpec.load(short)
-    assert fuzz.FUZZED_PRESET in spec.parameters, (
+    assert Preset.FUZZED.text in spec.parameters, (
         f"{short}: no 'fuzzed:' preset, so sizes are drawn from an XL-anchored continuous range "
         f"that ignores this kernel's input constraint"
     )

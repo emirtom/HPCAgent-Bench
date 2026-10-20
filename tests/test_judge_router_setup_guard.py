@@ -26,6 +26,7 @@ import pytest
 from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import fused
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import grade_under, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.tools import JudgeClient
@@ -192,7 +193,7 @@ def test_the_harness_judge_client_is_accepted(router: "TestClient", monkeypatch:
     monkeypatch.setattr(urllib.request, "urlopen", through_router(router))
     monkeypatch.setenv("HPCAGENT_BENCH_EPISODE_ID", f"{SETUP}.n0.p2.w1")
     client = JudgeClient("http://judge.test:8800", rank=0)
-    submission = Submission(language="c", source="void k(void){}")
+    submission = Submission(language=Language.C, source="void k(void){}")
     StubJudge.replies.extend([(200, SCORE), (200, GRADE), (200, REPORT)])  # what each route answers
     assert client.score(submission, "dist_softmax").correct is True
     assert client.submit(submission, "dist_softmax").correct == "yes"

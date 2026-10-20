@@ -21,7 +21,6 @@ import os
 import pathlib
 import shutil
 import subprocess
-import sys
 from types import ModuleType, SimpleNamespace
 from typing import NamedTuple
 
