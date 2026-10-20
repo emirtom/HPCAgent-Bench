@@ -22,6 +22,7 @@ from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import Binding
+from hpcagent_bench.config import Statistic
 
 KERNEL = "scaled_add"
 FIRST = [1000, 1010, 1020, 1030, 1040]
@@ -73,7 +74,7 @@ def graded(aa: bool, monkeypatch: pytest.MonkeyPatch) -> tuple[scoring.Score, li
     monkeypatch.setattr(scoring, "_run_c_reference", c_timer(calls))
     submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
-        config.overridden("measurement.timing_backend", "mannwhitney_delta"),
+        config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
         config.overridden("measurement.mannwhitney.repeats", 5),
     ):
         result = scoring.score(

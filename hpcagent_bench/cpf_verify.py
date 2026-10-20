@@ -81,7 +81,9 @@ def abi_refusal(form: cpf_cache.Form, key: str, language: Language) -> str:
     return ""
 
 
-def grade(view: str, kernel: str, language: Language, fptype: str, hints: cpf_cache.HintDetail) -> dict[str, object]:
+def grade(
+    view: str, kernel: str, language: Language, fptype: str, hints: cpf_cache.HintDetail
+) -> cpf_cache.Verification:
     """The verdict on one form: ``ok`` only when its entry is the stub's (:func:`abi_refusal`), it builds,
     grades correct and survives re-verify."""
     cfg = from_config()
@@ -90,13 +92,7 @@ def grade(view: str, kernel: str, language: Language, fptype: str, hints: cpf_ca
         cpf_cache.pathlib.Path(view), kernel, language.text, cpf_bridge.form_fptype(key, fptype), hints
     )
     if refused := abi_refusal(form, key, language):
-        return {
-            "verdict": "unverified",
-            "reason": refused,
-            "preset": cfg.preset.text,
-            "build_ok": False,
-            "correct": False,
-        }
+        return cpf_cache.Verification(verdict=cpf_cache.Verified.UNVERIFIED, reason=refused, preset=cfg.preset)
     # A gpu form is the two units a GPU submission is: the host entry and the device kernels.
     # A form calling a vendor library is submitted with the load request the agent's would name.
     submission = Submission(
@@ -120,14 +116,14 @@ def grade(view: str, kernel: str, language: Language, fptype: str, hints: cpf_ca
     judgement = anticheat.judge(anticheat.Context(submission, task, result, cfg.preset, cfg.datatype))
     ok = bool(result.build_ok and result.correct and judgement.ok)
     reason = "" if ok else attempt_reason(result, judgement)
-    return {
-        "verdict": "ok" if ok else "unverified",
-        "reason": f"{reason}: {result.detail}"[:400] if reason else "",
-        "preset": cfg.preset.text,
-        "build_ok": bool(result.build_ok),
-        "correct": bool(result.correct),
-        "speedup": float(result.speedup),
-    }
+    return cpf_cache.Verification(
+        verdict=cpf_cache.Verified.OK if ok else cpf_cache.Verified.UNVERIFIED,
+        reason=f"{reason}: {result.detail}"[:400] if reason else "",
+        preset=cfg.preset,
+        build_ok=bool(result.build_ok),
+        correct=bool(result.correct),
+        speedup=float(result.speedup),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -137,29 +133,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--language", required=True, choices=sorted(cpf_cache.DIALECT))
     parser.add_argument("--precision", default="fp64", help="fptype tag: fp64 / fp32 / fp16")
     parser.add_argument(
-        "--hints", default=cpf_cache.DEFAULT_HINTS, choices=cpf_cache.HINT_DETAILS, help="the hint detail to grade"
+        "--hints",
+        default=cpf_cache.DEFAULT_HINTS.text,
+        choices=cpf_cache.HintDetail.texts(),
+        help="the hint detail to grade",
     )
     parser.add_argument("--rank", type=int, default=int(os.environ.get("SLURM_PROCID", "0")))
     parser.add_argument("--ranks", type=int, default=int(os.environ.get("SLURM_NTASKS", "1")))
     args = parser.parse_args(argv)
+    hints = cpf_cache.HintDetail.parse(args.hints)
     native_call.set_assigned_device(0)
     failed = 0
     for kernel in shard([k.strip() for k in args.kernels.split(",") if k.strip()], args.rank, args.ranks):
         try:
-            verdict = grade(args.view, kernel, args.language, args.precision, args.hints)
+            verdict = grade(args.view, kernel, args.language, args.precision, hints)
         except Exception as exc:  # noqa: BLE001 -- a crash is this kernel's verdict, not the shard's end
-            verdict = {"verdict": "unverified", "reason": f"{type(exc).__name__}: {exc}"[:400]}
+            verdict = cpf_cache.Verification(
+                verdict=cpf_cache.Verified.UNVERIFIED, reason=f"{type(exc).__name__}: {exc}"[:400]
+            )
         try:
             cpf_cache.record_verification(
-                cpf_cache.pathlib.Path(args.view), kernel, args.language, args.precision, args.hints, verdict
+                cpf_cache.pathlib.Path(args.view), kernel, args.language, args.precision, hints, verdict
             )
         except cpf_cache.CacheMiss as exc:
-            verdict = {"verdict": "unverified", "reason": str(exc)}
-        failed += verdict["verdict"] != "ok"
-        print(
-            f"rank {args.rank}: {kernel_stem(kernel)}: {verdict['verdict']} {verdict.get('reason', '')}",
-            flush=True,
-        )
+            verdict = cpf_cache.Verification(verdict=cpf_cache.Verified.UNVERIFIED, reason=str(exc))
+        failed += verdict.verdict is not cpf_cache.Verified.OK
+        print(f"rank {args.rank}: {kernel_stem(kernel)}: {verdict.verdict.text} {verdict.reason}", flush=True)
     return 1 if failed else 0
 
 

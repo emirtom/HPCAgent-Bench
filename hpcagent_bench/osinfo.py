@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from functools import lru_cache
 
 from hpcagent_bench import config
+from hpcagent_bench.config import MpContext
 
 __all__ = [
     "IS_LINUX",
@@ -143,12 +144,9 @@ def default_mp_context() -> str:
 
 
 def mp_context() -> str:
-    """The multiprocessing start method to use, resolving the ``auto`` default to
-    :func:`default_mp_context`. A concrete ``runtime.mp_context`` (``fork`` / ``spawn``
-    / ``forkserver``, or ``HPCAGENT_BENCH_RUNTIME_MP_CONTEXT``) wins -- e.g. the threaded judge
-    service pins ``forkserver`` (fork-from-a-thread is unsafe)."""
+    """``runtime.mp_context`` as :mod:`multiprocessing` spells it, ``auto`` resolved by :func:`default_mp_context`."""
     value = config.current().runtime.mp_context
-    return default_mp_context() if value == "auto" else value
+    return default_mp_context() if value is MpContext.AUTO else value.text
 
 
 def unblock_sigchld() -> None:

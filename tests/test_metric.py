@@ -266,7 +266,7 @@ def _run_distributed(
 
     from hpcagent_bench.harness.scoring import ScalingRuns, Score
 
-    overrides = {"mpi.mode": mode.value, "mpi.ranks": 4, "mpi.leaderboard_preset": "M", "mpi.rank_counts": rank_counts}
+    overrides = {"mpi.mode": mode, "mpi.ranks": 4, "mpi.leaderboard_preset": "M", "mpi.rank_counts": rank_counts}
     if suspect_above is not None:
         overrides["record.speedup_suspect_above_host"] = suspect_above
     for key, value in overrides.items():
@@ -491,7 +491,7 @@ def test_grade_surfaces_scaling_dict(monkeypatch) -> None:
     )
     assert isinstance(out, DistributedGrade)
     assert out.scaling is not None
-    assert out.scaling.mode == "strong"
+    assert out.scaling.mode is ScalingLaw.STRONG
     assert out.scaling.mean_efficiency == 1.0
     assert [p.ranks for p in out.scaling.points] == [1, 2, 4]
     assert out.reward == 4.0  # reward is still the scalar S_i

@@ -48,6 +48,7 @@ from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import JudgeClient, JudgeRefusal
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
+from hpcagent_bench.harness.judge_wire import Correct
 from tests.mpi_launch_helpers import c_toolchain, cc_override_for, skip_or_fail
 
 RANKS = 4
@@ -98,7 +99,7 @@ def test_default_block_layout_real_request_scores_and_submits_solved(mpi_judge: 
     assert r.correct is True, r  # /score answers the grade (native bool correct)
     r2 = mpi_judge.submit(sub, "scaled_add")
     assert isinstance(r2, SubmitVerdict), r2  # /submit answers only the minimal verdict ("yes"/"no")
-    assert r2.correct == "yes", r2
+    assert r2.correct is Correct.YES, r2
 
 
 def test_cyclic_layout_real_request_scores_solved(mpi_judge: JudgeClient) -> None:

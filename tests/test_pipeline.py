@@ -12,6 +12,7 @@ from hpcagent_bench.harness.runner import CallPoint, RunRow
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.service import grade_answer
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.harness.outcomes import RunStatus
 
 
 def make_think_row(**over) -> RunRow:
@@ -23,13 +24,13 @@ def make_think_row(**over) -> RunRow:
         language=Language.C,
         source_mode=SourceMode.RESTRICTED,
         agent="stub",
-        status="ok",
+        status=RunStatus.OK,
         correct=True,
         max_rel_error=0.0,
         native_ns=100,
         speedup=9.9,
         tokens=1234,
-        trajectory=(CallPoint(1, 1234, 9.9, True, "ok"),),
+        trajectory=(CallPoint(1, 1234, 9.9, True, RunStatus.OK),),
         prompt="the-prompt",
         rounds=1,
     )
@@ -96,7 +97,7 @@ def test_merge_overwrites_proxy_with_authoritative() -> None:
     assert row.trajectory
     assert row.trajectory[0].speedup == 9.9
     assert row.correct
-    assert row.status == "ok"
+    assert row.status is RunStatus.OK
 
 
 def test_gradable() -> None:
@@ -189,13 +190,13 @@ def test_run_static_task_error_becomes_scored_row(monkeypatch) -> None:
         baseline=Baseline.NUMBA,
     )
     assert len(rows) == 1
-    assert rows[0].status == "agent_error"
+    assert rows[0].status is RunStatus.AGENT_ERROR
     assert rows[0].correct is False
 
 
 def test_run_static_passthrough_when_no_submission(monkeypatch) -> None:
     # A think that returns no submission -> the think row is returned ungraded (judge not called).
-    think_row = make_think_row(status="agent_error", correct=False, speedup=0.0)
+    think_row = make_think_row(status=RunStatus.AGENT_ERROR, correct=False, speedup=0.0)
     monkeypatch.setattr(pipeline, "solve_task", lambda agent, task, **k: (think_row, None))
 
     class NoGrade:

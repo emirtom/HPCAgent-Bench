@@ -26,6 +26,7 @@ from hpcagent_bench.harness.scoring import Score, score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
+from hpcagent_bench.harness.outcomes import RunStatus
 from tests.optional_imports import import_or_skip
 from tests.results_rows import calls
 
@@ -54,7 +55,7 @@ def s311(a, sum_out, LEN_1D):
 def recorded_commands(tmp_path: pathlib.Path, result: Score, task: Task = C_TASK) -> str:
     """Record ``result`` as a /score call in a fresh DB and return its ``build_commands`` cell."""
     db = str(tmp_path / "r.db")
-    assert recording.record_call(result, task, status="ok", route="score", path=db) == 1
+    assert recording.record_call(result, task, status=RunStatus.OK, route="score", path=db) == 1
     (row,) = calls(db)
     return row["build_commands"]
 

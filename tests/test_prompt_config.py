@@ -21,6 +21,7 @@ from hpcagent_bench.harness.prompts import (
     build_prompt,
 )
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import PromptStrategy
 
 TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
@@ -44,22 +45,22 @@ def test_from_config_returns_defaults_and_overrides_win() -> None:
     """from_config() mirrors the dataclass defaults (config.yaml matches them); a
     non-None override wins, a None override is ignored."""
     assert PromptConfig.from_config() == PromptConfig()
-    over = PromptConfig.from_config(strategy="loopnest", inline_kernel=False)
-    assert over.strategy == "loopnest"
+    over = PromptConfig.from_config(strategy=PromptStrategy.LOOPNEST, inline_kernel=False)
+    assert over.strategy is PromptStrategy.LOOPNEST
     assert over.inline_kernel is False
     # None override leaves the config default alone (how the CLI passes ad-hoc kwargs).
-    assert PromptConfig.from_config(strategy=None).strategy == "default"
+    assert PromptConfig.from_config(strategy=None).strategy is PromptStrategy.DEFAULT
 
 
 def test_strategies_registry_has_the_named_strategies() -> None:
-    assert {"default", "loopnest", "profile_first", "language_native"} <= set(STRATEGIES)
+    assert set(PromptStrategy) <= set(STRATEGIES)
 
 
 def test_strategy_changes_the_how_to_text_and_both_profile() -> None:
     """profile_first vs loopnest render DIFFERENT guidance, and both still point at a
     real perf tool (measure, do not guess)."""
-    prof = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy="profile_first"))
-    loop = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy="loopnest"))
+    prof = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy=PromptStrategy.PROFILE_FIRST))
+    loop = build_prompt(TASK, prompt_config=PromptConfig.from_config(strategy=PromptStrategy.LOOPNEST))
     assert prof != loop
     assert "Start by profiling" in prof
     assert "Start loop nest by loop nest" in loop
@@ -108,9 +109,9 @@ def test_reference_paragraph_gated_on_the_sidecar_and_the_knob() -> None:
 def test_variant_applies_the_preset_overrides() -> None:
     """A named variant maps to a PromptConfig with the preset's fields applied
     (profile_first sets the strategy; language_native also flips language_track)."""
-    assert PromptConfig.variant("profile_first").strategy == "profile_first"
+    assert PromptConfig.variant("profile_first").strategy is PromptStrategy.PROFILE_FIRST
     ln = PromptConfig.variant("language_native")
-    assert ln.strategy == "language_native"
+    assert ln.strategy is PromptStrategy.LANGUAGE_NATIVE
     assert ln.language_track is True
     # "default" is the empty preset -- identical to the plain config default.
     assert PromptConfig.variant("default") == PromptConfig.from_config()
@@ -140,7 +141,7 @@ def test_config_declared_variant_resolves_and_overrides_builtin() -> None:
     try:
         assert "my_exp" in available_variants()
         cfg = PromptConfig.variant("my_exp")
-        assert cfg.strategy == "profile_first"
+        assert cfg.strategy is PromptStrategy.PROFILE_FIRST
         assert cfg.include_reference is True
         # The config entry shadows the built-in "minimal" (built-in also flips
         # optimization_guidance off; the override only sets inline_kernel True).
@@ -151,10 +152,10 @@ def test_config_declared_variant_resolves_and_overrides_builtin() -> None:
 
 def test_explicit_kwarg_beats_the_variant() -> None:
     """Explicit kwargs win over the variant's fields (variant is the coarse preset)."""
-    cfg = PromptConfig.variant("loopnest", strategy="profile_first")
-    assert cfg.strategy == "profile_first"
+    cfg = PromptConfig.variant("loopnest", strategy=PromptStrategy.PROFILE_FIRST)
+    assert cfg.strategy is PromptStrategy.PROFILE_FIRST
     # A None kwarg is ignored, leaving the variant's field intact.
-    assert PromptConfig.variant("loopnest", strategy=None).strategy == "loopnest"
+    assert PromptConfig.variant("loopnest", strategy=None).strategy is PromptStrategy.LOOPNEST
 
 
 def test_available_variants_includes_builtins() -> None:

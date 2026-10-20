@@ -39,7 +39,7 @@ from collections.abc import Callable, Sequence
 
 from hpcagent_bench import config, problem_file
 from hpcagent_bench.categories import BASELINE_OPTIONS, Baseline, Language, Preset, Residency, Track, parse_baseline
-from hpcagent_bench.cpf_cache import CACHE_ENV, DEFAULT_HINTS, HINT_DETAILS, HINTS_ENV
+from hpcagent_bench.cpf_cache import CACHE_ENV, DEFAULT_HINTS, HINTS_ENV, HintDetail, Target
 from hpcagent_bench.spec import BenchSpec
 
 __all__ = [
@@ -105,7 +105,7 @@ def prepare_cpf(args: argparse.Namespace, kernels: Sequence[str]) -> int:
     from hpcagent_bench.harness.task import GPU_LANGUAGES
     from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
-    target = "gpu" if Language.parse(args.language) in GPU_LANGUAGES else "cpu"
+    target = Target.GPU if Language.parse(args.language) in GPU_LANGUAGES else Target.CPU
     precision = fptype_tag(args.datatype)
     ranks = ["--rank", str(args.rank), "--ranks", str(args.ranks)]
     shared = ["--view", str(args.cpf_view), "--kernels", ",".join(kernels), "--hints", args.cpf_hints, *ranks]
@@ -115,7 +115,7 @@ def prepare_cpf(args: argparse.Namespace, kernels: Sequence[str]) -> int:
             "--cache",
             str(args.cpf_cache),
             "--target",
-            target,
+            target.text,
             "--precision",
             "" if precision == "fp64" else precision,
         ]
@@ -240,8 +240,8 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--cpf-view", type=pathlib.Path, default=None, help="the CPF view a setup's CPF_VIEW names")
     parser.add_argument(
         "--cpf-hints",
-        default=DEFAULT_HINTS,
-        choices=HINT_DETAILS,
+        default=DEFAULT_HINTS.text,
+        choices=HintDetail.texts(),
         help=f"the hint detail the setup's CPF packet serves (its ${HINTS_ENV})",
     )
     parser.add_argument(

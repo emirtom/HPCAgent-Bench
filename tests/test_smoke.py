@@ -31,6 +31,8 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import GradeAnswer, ScorePreview
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import SubmitFeedback
+from hpcagent_bench.config import Statistic
 from tests import results_seed
 from tests.own_process import isolated
 from tests.test_prompt_render_matrix import VARIANTS, empty_sections, materialize, render
@@ -92,7 +94,7 @@ def grade_both(url: str, submission: Submission, kernel: str) -> tuple[ScorePrev
     """``/score``, then ``/submit`` with the whole grade in the answer (``service.submit_feedback=full``)."""
     client = tools.JudgeClient(url)
     scored = client.score(submission, kernel)
-    with config.overridden("service.submit_feedback", "full"):
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):
         submitted = client.submit(submission, kernel)
     assert isinstance(submitted, GradeAnswer), submitted
     return scored, submitted
@@ -219,7 +221,7 @@ def test_the_shipped_config_loads_and_validates() -> None:
     with pytest.raises(ValueError, match="nonsense"):
         RunConfig(baseline="nonsense")
     with pytest.raises(ValueError, match="repeat"):
-        timing.validate_repeat(1, "mannwhitney_delta")
+        timing.validate_repeat(1, Statistic.MANNWHITNEY)
 
 
 # --- submit.sh dry run ---------------------------------------------------------------------------------------

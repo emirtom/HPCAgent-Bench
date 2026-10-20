@@ -41,6 +41,8 @@ from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.stats import score_rule
+from hpcagent_bench.config import Statistic
+from hpcagent_bench.config import MpContext
 from tests.conftest import RANK_ENV_VARS
 from tests.rerun_stubs import pass_reruns
 
@@ -67,7 +69,7 @@ class Seen:
     repeat: int
     inputs: int
     warmup: int
-    backend: str
+    backend: Statistic
     kwargs: dict[str, Any]
 
 
@@ -79,7 +81,7 @@ def fake_result(ratio: float, **changes: object) -> Score:
         baseline_ns=80.0,
         native_ns=80.0 / ratio,
         ratio=ratio,
-        timing_reduction=timing.REDUCTIONS_VARIED["mannwhitney_delta"],
+        timing_reduction=timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY],
         baseline="c",
         baseline_candidates="c+numba",
     )
@@ -95,7 +97,7 @@ def fake_result(ratio: float, **changes: object) -> Score:
         "public_correct": True,
         "hidden_correct": True,
         "cells": (cell,),
-        "timing_reduction": timing.REDUCTIONS_VARIED["mannwhitney_delta"],
+        "timing_reduction": timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY],
         "seed_nonce": 7,
         "grading_protocol": "sealed-nonce-v1+host-monotonic",
     }
@@ -163,7 +165,7 @@ def test_a_submit_is_timed_under_the_final_grades_own_settings(cells: list[dict[
             grade_under.FINAL.repeat,
             grade_under.FINAL.inputs,
             1,
-            "mannwhitney_delta",
+            Statistic.MANNWHITNEY,
         )
         assert seen.kwargs["repeat"] == seen.repeat
         assert seen.kwargs["hidden"] is True
@@ -436,7 +438,7 @@ def judge_fixture(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Judge]:
         )
         return scoring.score(*args, **kwargs)
 
-    with pytest.MonkeyPatch.context() as env, config.overridden("runtime.mp_context", "forkserver"):
+    with pytest.MonkeyPatch.context() as env, config.overridden("runtime.mp_context", MpContext.FORKSERVER):
         for name in RANK_ENV_VARS:
             env.delenv(name, raising=False)
         env.setenv(recording.JOB_ENV, JOB)
@@ -486,7 +488,7 @@ def test_the_judge_times_a_submit_on_mw4x5s_inputs_and_repeats(graded: Graded) -
     ran = graded.ran
     assert len(ran) == grade_under.FINAL.inputs
     assert {(one["repeat"], one["inputs"], one["backend"]) for one in ran} == {
-        (grade_under.FINAL.repeat, grade_under.FINAL.inputs, "mannwhitney_delta")
+        (grade_under.FINAL.repeat, grade_under.FINAL.inputs, Statistic.MANNWHITNEY)
     }
     assert [one["hidden_cases"] is None for one in ran] == [True, False, False, False]
 
@@ -504,7 +506,7 @@ def test_the_judges_score_route_times_the_mw2x5_preview_of_the_final_grade(judge
     inputs = grade_under.SCORE.inputs
     assert len(ran) == inputs == 2
     assert {(one["repeat"], one["hidden"], one["inputs"], one["backend"]) for one in ran} == {
-        (grade_under.SCORE.repeat, False, inputs, "mannwhitney_delta")
+        (grade_under.SCORE.repeat, False, inputs, Statistic.MANNWHITNEY)
     }
     submit_cells = [cell["params"] for cell in grade_under.protocol_cells(KERNEL, grade_under.FINAL)]
     assert not [one["params"] for one in ran if one["params"] in submit_cells], "/score times /submit's sizes"
@@ -616,7 +618,7 @@ def test_regrade_finalize_grades_a_submission_the_older_protocol_recorded(
     task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     db = tmp_path / "old" / "judge" / "rank-0" / "hpcagent_bench.db"
     cfg = service.from_config()
-    with config.overridden("measurement.timing_backend", "mannwhitney_delta"):
+    with config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY):
         old = scoring.score(
             real_submission(),
             task,

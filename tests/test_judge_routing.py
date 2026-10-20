@@ -39,6 +39,7 @@ from hpcagent_bench.harness.service import (
 )
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import JudgeClient
+from hpcagent_bench.harness.outcomes import RunStatus
 
 TASK_A = Task("gemm", SourceMode.RESTRICTED, Language.C)
 TASK_B = Task("gesummv", SourceMode.RESTRICTED, Language.C)
@@ -257,7 +258,7 @@ def test_one_judge_down_does_not_reroute_the_other_worker(monkeypatch) -> None:
     assert len(rec.calls) == 2
     # One task graded, one recorded as an error row -- the sweep survives either way.
     assert len(rows) == 2
-    assert any(r.status == "ok" for r in rows)
+    assert any(r.status is RunStatus.OK for r in rows)
 
 
 def test_more_workers_than_judges_still_bind_deterministically(monkeypatch, recorder) -> None:

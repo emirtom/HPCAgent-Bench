@@ -15,6 +15,7 @@ from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness import prompts
 from hpcagent_bench.spec import KERNELS, SMALL_LIMIT, BenchSpec
+from hpcagent_bench.cpf_cache import Target
 
 SMALL_NLEV = {"scale": "small", "description": "vertical levels"}
 BIG_N = {"scale": "big", "description": "the columns"}
@@ -225,9 +226,9 @@ def test_no_block_renders_nothing() -> None:
 def test_small_symbols_key_the_canonical_entry_only_when_declared(tmp_path: pathlib.Path) -> None:
     program = tmp_path / "kernel_dace.py"
     program.write_text("pass\n")
-    plain = cpf_canonical.canonical_key(program, "commit", "fp64", "cpu")
-    assert cpf_canonical.canonical_key(program, "commit", "fp64", "cpu", frozenset()) == plain
-    assert cpf_canonical.canonical_key(program, "commit", "fp64", "cpu", frozenset({"nlev"})) != plain
+    plain = cpf_canonical.canonical_key(program, "commit", "fp64", Target.CPU)
+    assert cpf_canonical.canonical_key(program, "commit", "fp64", Target.CPU, frozenset()) == plain
+    assert cpf_canonical.canonical_key(program, "commit", "fp64", Target.CPU, frozenset({"nlev"})) != plain
 
 
 #: Every registry kernel that declares a negative symbol.

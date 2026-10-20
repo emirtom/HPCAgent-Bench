@@ -12,7 +12,8 @@ import pytest
 
 from hpcagent_bench import config, harbor
 from hpcagent_bench.categories import RecordDevice
-from hpcagent_bench.cli import Execution, build_parser
+from hpcagent_bench.cli import build_parser
+from hpcagent_bench.config import Execution
 from hpcagent_bench.harness import recording
 
 
@@ -47,8 +48,8 @@ def test_the_execution_argument_is_the_member_text(execution: Execution) -> None
 
 
 @pytest.mark.parametrize(("flag", "kind"), [("--group", harbor.Group), ("--layout", harbor.Layout)])
-def test_harbor_generate_parses_group_and_layout_values(flag: str, kind: type[harbor.Group | harbor.Layout]) -> None:
-    """Each member's value is accepted and converts back to the member."""
+def test_harbor_generate_parses_group_and_layout_spellings(flag: str, kind: type[harbor.Group | harbor.Layout]) -> None:
+    """Each member's spelling is accepted and parses back to the member."""
     for member in kind:
-        args = harbor.build_parser().parse_args(["generate", "--out", "x", flag, member.value])
-        assert kind(vars(args)[flag.removeprefix("--")]) is member
+        args = harbor.build_parser().parse_args(["generate", "--out", "x", flag, member.text])
+        assert kind.parse(vars(args)[flag.removeprefix("--")]) is member

@@ -3,6 +3,7 @@
 
 """Agents for the benchmark loop, modeled as auto-tuners: solve(task, budget) -> Submission."""
 
+import enum
 import functools
 import json
 import os
@@ -13,9 +14,10 @@ import urllib.request
 from abc import ABC
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast
 
 import pydantic
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, framework_cache, paths
 from hpcagent_bench.categories import Language, SourceMode
@@ -56,6 +58,7 @@ __all__ = [
     "Sampling",
     "ScriptedAgent",
     "StubAgent",
+    "Thinking",
     "anthropic_usage",
     "budget_tokens",
     "clear_reference_cache",
@@ -471,10 +474,17 @@ def http_chat_json(
         raise RuntimeError(unreachable_msg) from exc
 
 
+class Thinking(Coded):
+    """An Anthropic ``thinking`` control's ``type``; the harness sends only the adaptive one."""
+
+    ADAPTIVE = enum.auto()
+
+
 class AdaptiveThinking(TypedDict):
     """The adaptive-thinking control -- the current spelling of an Anthropic reasoning budget."""
 
-    type: Literal["adaptive"]
+    #: :attr:`Thinking.ADAPTIVE`'s spelling.
+    type: str
 
 
 class EffortConfig(TypedDict):
@@ -547,7 +557,7 @@ class Sampling:
         """
         out: AnthropicOptions = {}
         if self.reasoning_effort is not None:
-            out["thinking"] = {"type": "adaptive"}
+            out["thinking"] = {"type": Thinking.ADAPTIVE.text}
             out["output_config"] = {"effort": self.reasoning_effort}
         if not accepts_sampling:
             return out

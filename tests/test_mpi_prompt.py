@@ -31,6 +31,7 @@ from hpcagent_bench.harness.torch_reference import graded_rank_counts
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub, mpi_symbol
+from hpcagent_bench.config import ScalingLaw
 
 DIST = Task(kernel="jacobi_2d", language=Language.C, residency=Residency.DISTRIBUTED)
 HOST = Task(kernel="jacobi_2d", language=Language.C, residency=Residency.HOST)
@@ -110,7 +111,7 @@ def test_single_node_prompt_unchanged_no_mpi_leak() -> None:
 
 
 def test_weak_scaling_framing() -> None:
-    config.set_override("mpi.mode", "weak")
+    config.set_override("mpi.mode", ScalingLaw.WEAK)
     try:
         p = build_prompt(DIST)
     finally:

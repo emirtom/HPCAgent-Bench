@@ -30,11 +30,12 @@ import pytest
 from hpcagent_bench.harness import recording
 from hpcagent_bench.harness.judge_wire import RouterHealthAnswer, SubmitVerdict
 from hpcagent_bench.harness.service import RequestBody, rank_error
+from hpcagent_bench.harness.judge_wire import Correct
 from tests import results_seed
 from tests.fresh_module import fresh
 
 #: What the router answers a promotion it accepted (the verdict alone, ``judge_wire.SubmitVerdict``).
-GRADE = SubmitVerdict(correct="yes", request_id="r1")
+GRADE = SubmitVerdict(correct=Correct.YES, request_id="r1")
 
 #: The rank this judge answers to -- deliberately NOT the single-judge default, so a promoter that
 #: merely omits the field, or hardcodes 0, fails instead of passing by luck.

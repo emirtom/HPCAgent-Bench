@@ -418,7 +418,7 @@ def test_every_graded_rank_count_splits_into_nonempty_balanced_tiles(stem: str, 
 
 
 @pytest.mark.parametrize("stem", STEMS)
-@pytest.mark.parametrize("mode", list(ScalingLaw), ids=lambda law: law.value)
+@pytest.mark.parametrize("mode", list(ScalingLaw), ids=lambda law: law.text)
 def test_every_graded_size_passes_the_bf16_tolerance_guard(stem: str, mode: ScalingLaw) -> None:
     """No graded size is refused as ungradeable (:func:`precision.ungradeable`) at XL and at weak P=16."""
     spec = spec_of(stem)

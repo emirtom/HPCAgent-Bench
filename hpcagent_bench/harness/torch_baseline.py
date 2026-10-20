@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, problem_file
 from hpcagent_bench.cache_files import replacing
@@ -144,13 +145,13 @@ NS_PER_MS = 1_000_000
 WARM_PUBLISH_EVERY = 16
 
 
-class Source(enum.Enum):
+class Source(Coded):
     """Where a kernel's PyTorch reference comes from."""
 
     #: ``<module>_torch.py`` beside the manifest: ``reference(*inputs)`` on ``make_inputs(...)``.
-    SHIPPED = "shipped"
+    SHIPPED = enum.auto()
     #: The upstream KernelBench model named in ``kernelbench_map.yaml``, bound to the flat ABI.
-    KERNELBENCH = "kernelbench"
+    KERNELBENCH = enum.auto()
 
 
 def reference_source(spec: BenchSpec) -> Source:

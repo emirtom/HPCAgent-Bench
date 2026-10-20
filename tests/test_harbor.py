@@ -15,6 +15,7 @@ import pytest
 from hpcagent_bench import harbor as A
 from hpcagent_bench import hf_export
 from hpcagent_bench.categories import Language, Residency, SourceMode
+from hpcagent_bench.config import Hardware
 from hpcagent_bench.harbor_grade import (
     BundleGrade,
     DistributedGrade,
@@ -78,18 +79,17 @@ def test_images_come_from_config(tmp_path: pathlib.Path) -> None:
     """Image tags are derived from config images.<hw>, not hardcoded per task."""
     from hpcagent_bench import config
 
-    assert A.images_for("cpu") == (config.get("images.cpu.agent"), config.get("images.cpu.verifier"))
-    with pytest.raises(KeyError):
-        A.images_for("no_such_hw")
+    assert A.images_for(Hardware.CPU) == (config.get("images.cpu.agent"), config.get("images.cpu.verifier"))
 
 
 def test_mpi_track_resolves_to_mpich_capable_cpu_pair(tmp_path: pathlib.Path) -> None:
     """The distributed track resolves generically through images_for; reuses the cpu pair (MPICH baked in)."""
     from hpcagent_bench import config
 
-    assert A.images_for("mpi") == (config.get("images.mpi.agent"), config.get("images.mpi.verifier"))
+    mpi = A.images_for(Hardware.CPU, distributed=True)
+    assert mpi == (config.get("images.mpi.agent"), config.get("images.mpi.verifier"))
     # MPI reuses the (MPICH-capable) cpu images -- same pair, no separate MPI image.
-    assert A.images_for("mpi") == A.images_for("cpu")
+    assert mpi == A.images_for(Hardware.CPU)
 
 
 def test_instruction_references_files_not_inlined_benchmark(tmp_path: pathlib.Path) -> None:
@@ -143,7 +143,7 @@ def test_generate_all_is_one_task_per_kernel(tmp_path: pathlib.Path) -> None:
 def test_group_dir_bundles_microkernels_by_directory(tmp_path: pathlib.Path) -> None:
     harbor_cfg = pytest.importorskip("harbor.models.task.config")
     # Cap above the directory size, so this exercises the BUNDLE path regardless of corpus growth.
-    dirs = A.generate(str(tmp_path), selector="dense_linear_algebra", group="dir", max_bundle=64)
+    dirs = A.generate(str(tmp_path), selector="dense_linear_algebra", group=A.Group.DIR, max_bundle=64)
     bundles = [d for d in dirs if d.name == "hpcagent_bench-scientific_computing-dense_linear_algebra"]
     assert len(bundles) == 1
     td = bundles[0]
@@ -163,7 +163,7 @@ def test_group_dir_bundles_microkernels_by_directory(tmp_path: pathlib.Path) -> 
 
 def test_group_dir_caps_oversized_directories_to_per_kernel(tmp_path: pathlib.Path) -> None:
     """A directory with more than max_bundle microkernels is emitted per-kernel, not one unrunnable task."""
-    dirs = A.generate(str(tmp_path), selector="dense_linear_algebra", group="dir", max_bundle=2)
+    dirs = A.generate(str(tmp_path), selector="dense_linear_algebra", group=A.Group.DIR, max_bundle=2)
     names = {d.name for d in dirs}
     assert "hpcagent_bench-scientific_computing-dense_linear_algebra" not in names  # too big -> no bundle
     assert "hpcagent_bench-gemm" in names  # emitted as its own task instead
@@ -178,7 +178,7 @@ def test_group_dir_keeps_microapps_per_app(tmp_path: pathlib.Path) -> None:
     from hpcagent_bench.spec import KERNELS, BenchSpec
 
     app_key = next(k for k in KERNELS.select_keys("all") if BenchSpec.load(k).resolved_level == 3)
-    dirs = A.generate(str(tmp_path), selector=app_key, group="dir")
+    dirs = A.generate(str(tmp_path), selector=app_key, group=A.Group.DIR)
     assert len(dirs) == 1  # the app is its own task, not folded into a directory bundle
     cfg = harbor_cfg.TaskConfig.model_validate_toml((dirs[0] / "task.toml").read_text())
     assert "kernel" in cfg.metadata
@@ -189,7 +189,7 @@ def test_timeout_scales_with_kernel_count(tmp_path: pathlib.Path) -> None:
     harbor_cfg = pytest.importorskip("harbor.models.task.config")
     td = next(
         d
-        for d in A.generate(str(tmp_path), selector="dense_linear_algebra", group="dir", max_bundle=64)
+        for d in A.generate(str(tmp_path), selector="dense_linear_algebra", group=A.Group.DIR, max_bundle=64)
         if d.name == "hpcagent_bench-scientific_computing-dense_linear_algebra"
     )
     cfg = harbor_cfg.TaskConfig.model_validate_toml((td / "task.toml").read_text())
@@ -648,7 +648,7 @@ def test_distributed_generation_skips_non_mpi_kernels(
 def test_distributed_group_dir_rejected(tmp_path: pathlib.Path) -> None:
     """Distributed tasks are one kernel each (an MPI run is per-kernel); group='dir' is rejected."""
     with pytest.raises(ValueError, match="one kernel each"):
-        A.generate(str(tmp_path), selector="jacobi_2d", residency=Residency.DISTRIBUTED, group="dir")
+        A.generate(str(tmp_path), selector="jacobi_2d", residency=Residency.DISTRIBUTED, group=A.Group.DIR)
 
 
 @pytest.mark.parametrize("kernel", _MPI_STENCILS)
@@ -845,7 +845,7 @@ def test_oracle_ships_the_reference_translation_as_solution(tmp_path: pathlib.Pa
 
 def test_oracle_is_refused_for_repo_and_distributed(tmp_path: pathlib.Path) -> None:
     with pytest.raises(ValueError, match="oracle"):
-        A.generate(tmp_path, selector="tsvc_2_s212", layout="repo", oracle=True)
+        A.generate(tmp_path, selector="tsvc_2_s212", layout=A.Layout.REPO, oracle=True)
     with pytest.raises(ValueError, match="oracle"):
         A.generate(tmp_path, selector="jacobi_2d", residency=Residency.DISTRIBUTED, oracle=True)
 

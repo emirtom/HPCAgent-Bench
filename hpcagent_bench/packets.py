@@ -34,6 +34,7 @@ from hpcagent_agent.plugins import METHOD_ENV
 
 from hpcagent_bench import external_skills, plugins
 from hpcagent_bench import study_tags as tags
+from hpcagent_bench.config import RequestCapability
 from hpcagent_bench.skill_frontmatter import Applies, SkillFrontmatter, split_frontmatter
 from hpcagent_bench.vocabulary import PacketDevice
 
@@ -492,18 +493,18 @@ PACKET_TOOLS_ENV = "HPCAGENT_BENCH_PACKET_TOOLS"
 CPF_ENV_KEYS: frozenset[str] = frozenset({"CPF_DROPIN_DIR", "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR"})
 #: The ``requests.allow`` capability a CPF packet adds: CPF lowers BLAS, LAPACK and FFT nodes to the
 #: architecture's vendor libraries, and a form calling one builds only with it loaded.
-CPF_REQUEST_CAPABILITY = "load"
+CPF_REQUEST_CAPABILITY = RequestCapability.LOAD
 
 
 def request_allowance(spec: str, language: str, allow: str) -> str:
     """``allow`` (a setup's ``requests.allow``, the preset's comma list) with what ``spec`` needs: a packet serving a
     canonical parallel form (:data:`CPF_ENV_KEYS`) adds :data:`CPF_REQUEST_CAPABILITY`, so the form an agent starts
     from, or asks the tool for, can be submitted with the libraries it calls. Every other spec leaves it as is."""
-    allowed = [name for name in allow.split(",") if name.strip()]
+    allowed = [RequestCapability.parse(name.strip()) for name in allow.split(",") if name.strip()]
     env = dict(resolve(spec, language, fill=False).env) if spec else {}
     if CPF_ENV_KEYS & env.keys() and CPF_REQUEST_CAPABILITY not in allowed:
         allowed.append(CPF_REQUEST_CAPABILITY)
-    return ",".join(allowed)
+    return ",".join(capability.text for capability in allowed)
 
 
 #: Treatment packets that ARE skill pages. A comparison whose every treatment falls in here reads

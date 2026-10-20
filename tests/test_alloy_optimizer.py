@@ -18,6 +18,7 @@ from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import SubmitFeedback
 
 KERNEL = "tsvc_2_vpv"
 
@@ -54,7 +55,7 @@ def test_the_profile_flavor_submits_a_library_the_judge_grades_correct(
     sub = optimizer_registry()[flavor](workdir=tmp_path).solve(Task(KERNEL, SourceMode.ANY, Language.C))
 
     assert sub.library is not None
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer), r
     assert r.build_ok is True, r.detail

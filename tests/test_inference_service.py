@@ -120,8 +120,8 @@ def muse_setup(**overrides: str) -> dict[str, str]:
 
 def test_a_setup_that_names_no_source_still_starts_its_own_server(service: types.ModuleType) -> None:
     """Every setup written before this mode existed declares no source and must keep its server."""
-    assert service.source({}) == service.SOURCE_NODE
-    assert service.source({"INFERENCE_SOURCE": "node"}) == service.SOURCE_NODE
+    assert service.source({}) == service.Source.NODE
+    assert service.source({"INFERENCE_SOURCE": "node"}) == service.Source.NODE
 
 
 def test_an_unknown_source_is_refused_rather_than_read_as_a_server_setup(service: types.ModuleType) -> None:
@@ -184,9 +184,9 @@ def test_an_openai_shaped_service_refuses_the_claude_harness(service: types.Modu
 
 def test_meta_serves_both_shapes_so_the_setup_chooses(service: types.ModuleType) -> None:
     """Muse Spark answers on both surfaces; the setup's declared shape is what picks one."""
-    assert service.from_environ(muse_setup()).api == service.API_ANTHROPIC
+    assert service.from_environ(muse_setup()).api == service.Api.ANTHROPIC
     assert (
-        service.from_environ(muse_setup(INFERENCE_SERVICE_API="openai", HARNESS="openhands")).api == service.API_OPENAI
+        service.from_environ(muse_setup(INFERENCE_SERVICE_API="openai", HARNESS="openhands")).api == service.Api.OPENAI
     )
 
 
@@ -393,7 +393,7 @@ def test_an_anthropic_service_setup_sends_the_key_header_the_launcher_chose(
     body = http_chat_json(
         f"{messages_url(exported['VLLM_BASE_URL'])}",
         {"model": exported["VLLM_SERVED_MODEL"], "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]},
-        {AUTH_HEADERS[resolved.auth]: SECRET, "anthropic-version": ANTHROPIC_VERSION},
+        {AUTH_HEADERS[resolved.auth.text]: SECRET, "anthropic-version": ANTHROPIC_VERSION},
         10.0,
         "fake service unreachable",
     )
@@ -415,7 +415,7 @@ def test_the_muse_spark_setup_reaches_metas_messages_surface_with_a_bearer_key(
     x-api-key, which is why the auth spelling is per service and not per shape."""
     root, handler = fake_anthropic
     resolved = service.from_environ(muse_setup(INFERENCE_SERVICE_BASE_URL=f"{root}/v1"))
-    assert AUTH_HEADERS[resolved.auth] == "Authorization"
+    assert AUTH_HEADERS[resolved.auth.text] == "Authorization"
     exported = service.launcher_env(resolved)
     http_chat_json(
         messages_url(exported["VLLM_BASE_URL"]),

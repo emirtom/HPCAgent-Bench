@@ -19,6 +19,7 @@ from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import BlasReductionOptimizer, have_openblas
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import SubmitFeedback
 
 pytestmark = pytest.mark.skipif(not have_openblas(), reason="OpenBLAS not available")
 
@@ -39,7 +40,7 @@ def test_language_option(kernel, make_judge) -> None:
     assert any(t == "-lopenblas" for t in sub.build)
 
     _srv, url = make_judge(_cfg())
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, kernel)
     assert isinstance(r, GradeAnswer)
     assert r.build_ok is True, r.detail
@@ -59,7 +60,7 @@ def test_abi_option(kernel, make_judge, tmp_path, monkeypatch) -> None:
     assert sub.source is None
 
     _srv, url = make_judge(_cfg())
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, kernel)
     assert isinstance(r, GradeAnswer)
     assert r.build_ok is True, r.detail

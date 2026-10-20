@@ -35,6 +35,7 @@ from hpcagent_bench import cpf_canonical, languages, modules, paths, phase_clock
 from hpcagent_bench import flags as bench_flags
 from hpcagent_bench.categories import Language
 from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
+from hpcagent_bench.cpf_cache import Target
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import utilities as util
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -796,10 +797,10 @@ class DaceFramework(Framework):
         from), canonicalized and published there on a miss. A cached canonicalize failure raises its error."""
         spec = bench.spec
         precision = self.datatype or ""
-        target = self._device_tag()
+        target = Target.GPU if self.info["arch"] == "gpu" else Target.CPU
         impl = cpf_canonical.emit_program(spec)
-        if isinstance(impl, dict):
-            raise RuntimeError(f"cached canonicalize: {impl['verdict']}: {impl.get('error', '')}")
+        if isinstance(impl, cpf_canonical.RenderFailure):
+            raise RuntimeError(f"cached canonicalize: {impl.verdict.text}: {impl.error}")
         key = cpf_canonical.canonical_key(
             impl,
             cpf_canonical.dace_commit(),
@@ -809,8 +810,8 @@ class DaceFramework(Framework):
             cpf_canonical.nonnegative_symbols(spec),
         )
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, key, cache_root, precision, target)
-        if isinstance(sdfg, dict):
-            raise RuntimeError(f"cached canonicalize {key}: {sdfg['verdict']}: {sdfg.get('error', '')}")
+        if isinstance(sdfg, cpf_canonical.RenderFailure):
+            raise RuntimeError(f"cached canonicalize {key}: {sdfg.verdict.text}: {sdfg.error}")
         print(f"DaCe optimize: canonical SDFG {'loaded from' if cached else 'published to'} the CPF cache ({key})")
         return sdfg
 

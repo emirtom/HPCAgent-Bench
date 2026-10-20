@@ -39,6 +39,10 @@ from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec, ConfigKnob
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.bindings.stubs import gen_call_stub
+from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.cpf_cache import RenderVerdict
+from hpcagent_bench.cpf_cache import Role
+from hpcagent_bench.cpf_cache import Target
 from tests.reference_outputs import compiled_outputs
 
 if TYPE_CHECKING:
@@ -88,7 +92,7 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back the compiled
     reference's numbers through it."""
     record = cpf_bridge.render_kernel(spec, tmp_path, language=language)
-    assert record.verdict == "ok", f"{KERNEL} did not render: {record}"
+    assert record.verdict is RenderVerdict.OK, f"{KERNEL} did not render: {record}"
     native = binding_from_spec(spec)
     assert record.entry == native.symbol
 
@@ -144,9 +148,9 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     assert (second.key, second.cached) == (first.key, True)
 
     view = tmp_path / "view"
-    cpf_cache.open_view(view, cache, "cpu", "test-commit")
-    cpf_cache.record(view, spec.short_name, "c", "fp64", "proofs", second.model_dump())
-    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", "proofs")
+    cpf_cache.open_view(view, cache, Target.CPU, "test-commit")
+    cpf_cache.record(view, spec.short_name, "c", "fp64", HintDetail.PROOFS, second.model_dump())
+    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", HintDetail.PROOFS)
     native = binding_from_spec(spec)
     assert form.entry == native.symbol
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
@@ -179,7 +183,7 @@ def test_a_second_language_renders_from_the_cached_canonical_sdfg(spec: BenchSpe
     second = cpf_bridge.prerender_kernel(spec, cache, languages=["c++"], **prerender_kwargs())
     assert second.canonical == cpf_bridge.CanonicalOutcome(key=first.canonical.key, cached=True), second
     assert second.results is not None, second
-    assert second.results["c++"].verdict == "ok", second
+    assert second.results["c++"].verdict is RenderVerdict.OK, second
 
 
 @pytest.mark.integration
@@ -194,14 +198,14 @@ def test_a_form_rendered_again_from_the_stored_sdfg_is_the_first_render_byte_for
     first = rendered.results["c"]
     entry = cpf_cache.entry_path(cache, str(first.key))
     manifest = cpf_cache.EntryManifest.model_validate_json((entry / cpf_cache.MANIFEST_NAME).read_bytes())
-    text = (entry / manifest.artefacts["source"].name).read_text()
+    text = (entry / manifest.artefacts[Role.SOURCE].name).read_text()
     shutil.rmtree(entry)
     again = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
     assert again.canonical is not None, again
     assert again.results is not None, again
     assert again.canonical.cached is True, again
     assert again.results["c"].key == first.key
-    assert (entry / manifest.artefacts["source"].name).read_text() == text
+    assert (entry / manifest.artefacts[Role.SOURCE].name).read_text() == text
 
 
 def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
@@ -229,7 +233,7 @@ def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
     monkeypatch.setattr(cpf_bridge.subprocess, "run", fake_run)
     spec = types.SimpleNamespace(short_name="k")
 
-    cpf_bridge.render_kernel(spec, tmp_path, language="c++", target="gpu")
+    cpf_bridge.render_kernel(spec, tmp_path, language="c++", target=Target.GPU)
     assert "--target" in seen["cmd"]
     assert "gpu" in seen["cmd"]
     assert seen["env"].get("CUDA_VISIBLE_DEVICES", "unset") != ""
@@ -377,7 +381,7 @@ def parsed_program(source: str, entry: str, work: pathlib.Path) -> "SDFG":
 def canonical_program(source: str, entry: str, work: pathlib.Path) -> "SDFG":
     """``entry`` from ``source``, parsed and canonicalized for the cpu."""
     sdfg = parsed_program(source, entry, work)
-    cpf_canonical.canonicalize_for(sdfg, "cpu")
+    cpf_canonical.canonicalize_for(sdfg, Target.CPU)
     return sdfg
 
 
@@ -681,7 +685,7 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     canonical = canonical_program(PINNED_PROGRAM_SOURCE, entry, tmp_path)
     assert ("scalar" if "knob" in canonical.arrays else "symbol") == canonical_kind, "the fixture lost its case"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", Target.CPU, HintDetail.PROOFS)
     assert declared_parameters(form.code, form.entry) == abi
     assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
@@ -729,7 +733,7 @@ def test_a_dropin_takes_a_rebound_scalar_parameter_by_value(tmp_path: pathlib.Pa
     native = binding_from_spec(spec)
     canonical = canonical_program(REBINDING_PROGRAM_SOURCE, "doubles_its_factor", tmp_path)
     assert "k" in canonical.arrays, "the fixture lost its written scalar"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", Target.CPU, HintDetail.PROOFS)
     assert {arg["name"]: arg["kind"] for arg in json.loads(form.binding)["args"]}["k"] == "scalar"
 
     source = tmp_path / form.name
@@ -774,9 +778,9 @@ def test_a_dropin_of_a_renamed_argument_declares_the_manifest_name_in_abi_order(
     impl = cpf_canonical.emit_program(spec)
     assert cpf_bridge.generated_renames(impl) == {"field": "__field"}
     sdfg = cpf_canonical.parse_program(spec, impl, "")
-    cpf_canonical.canonicalize_for(sdfg, "cpu")
+    cpf_canonical.canonicalize_for(sdfg, Target.CPU)
 
-    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", "cpu", "proofs")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", Target.CPU, HintDetail.PROOFS)
 
     want = [arg.name for arg in binding_from_spec(spec).args] + [
         cpf_bridge.WORKSPACE_NAME,

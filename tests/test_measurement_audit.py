@@ -19,12 +19,13 @@ import pytest
 from hpcagent_bench import harbor
 from hpcagent_bench.harness import metric, timing
 from hpcagent_bench.support.collect import sweep
+from hpcagent_bench.config import Statistic
 from tests.grade_records import host_grade
 
 
 # 1. The disclosed timings must reproduce the credited speedup.
-@pytest.mark.parametrize("backend", ["min_of_k", "mannwhitney_delta"])
-def test_a_credited_speedup_is_reproducible_from_the_timings_it_discloses(backend: str) -> None:
+@pytest.mark.parametrize("backend", [Statistic.MIN, Statistic.MANNWHITNEY])
+def test_a_credited_speedup_is_reproducible_from_the_timings_it_discloses(backend: Statistic) -> None:
     """``ReducedTiming`` publishes ``native_ns``, ``baseline_ns`` and ``speedup`` side by side,
     and ``submissions`` stores all three in one row. A reader who divides the two nanosecond
     columns must land on the credited speedup, or the row carries two incompatible answers to
@@ -43,8 +44,8 @@ def test_a_credited_speedup_is_reproducible_from_the_timings_it_discloses(backen
 
 
 # 2. A measured slow-down must read as a slow-down.
-@pytest.mark.parametrize("backend", ["min_of_k", "mannwhitney_delta"])
-def test_a_timing_backend_reports_a_measured_slowdown_below_one(backend: str) -> None:
+@pytest.mark.parametrize("backend", [Statistic.MIN, Statistic.MANNWHITNEY])
+def test_a_timing_backend_reports_a_measured_slowdown_below_one(backend: Statistic) -> None:
     """A candidate that is unambiguously slower than its baseline on every repeat must reduce to
     a ratio below 1. A backend that floors it at 1.0 makes the published statistic one-sided:
     every setup's distribution is supported on [1, inf) whatever the code did, so "no setup regressed"

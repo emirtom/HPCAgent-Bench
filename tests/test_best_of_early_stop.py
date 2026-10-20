@@ -25,6 +25,8 @@ from hpcagent_bench.harness.native_call import NativeCallTimeout
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import BaselineRace
+from hpcagent_bench.config import Statistic
 
 #: A real scientific_computing kernel with a small S preset.
 KERNEL = "jacobi_2d"
@@ -132,7 +134,7 @@ def grade(
         config.overridden("measurement.early_stop_factor", factor),
         config.overridden("measurement.early_stop_floor_s", 1.0),
         config.overridden("timeouts.kernel_s", 300),
-        config.overridden("measurement.timing_backend", "mannwhitney_delta"),
+        config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
         config.overridden("measurement.mannwhitney.repeats", 5),
         config.overridden("measurement.vary_inputs", hidden),
     ):
@@ -329,7 +331,7 @@ def test_best_of_v3_is_its_own_identity(monkeypatch: pytest.MonkeyPatch) -> None
     assert grading.resolve_baseline_set(None, BenchSpec.load(KERNEL)) == ("numba", "c")
     assert grading.baseline_policy_stamp(("numba", "c")) == "best-of-v3:numba+c"
     assert grading.baseline_policy_stamp(("c", "numba")) == "best-of-v4:c+numba"
-    with config.overridden("measurement.baseline_race", grading.COMPLETE_RACE):
+    with config.overridden("measurement.baseline_race", BaselineRace.COMPLETE):
         assert grading.baseline_policy_stamp(("c", "numba")) == "best-of-v2:c+numba"
         assert grading.early_stop_seconds({"numba": [1_000_000_000]}, ("c", "numba"), 300.0) == 0.0
 

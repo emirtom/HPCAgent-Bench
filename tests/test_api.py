@@ -14,6 +14,7 @@ from hpcagent_bench.harness.judge_wire import RecordedAnswer
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.service import grade_answer
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import SubmitFeedback
 from tests.port_toolchain import gcc_available
 
 TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
@@ -172,7 +173,7 @@ def test_container_mode_scores_via_a_running_judge(make_judge) -> None:
     # and a grade returns the SAME typed Score the native path does -- container mode goes through
     # /submit, whose agent-facing answer is the verdict alone, so this trusted client needs the
     # judge's full-feedback deployment mode to get the measured Score back.
-    with config.overridden("service.submit_feedback", "full"):
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):
         s = k.score(reference_source(TASK))
     assert isinstance(s, Score)
     assert s.correct

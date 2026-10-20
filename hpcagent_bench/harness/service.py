@@ -57,8 +57,15 @@ from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, fused, languages, plugins, seal
 from hpcagent_bench.api import RunConfig
-from hpcagent_bench.categories import InputMode, Language, Preset, Residency, SourceMode, baseline_text
-from hpcagent_bench.config import GridChooser
+from hpcagent_bench.categories import (
+    InputMode,
+    Language,
+    Preset,
+    Residency,
+    SourceMode,
+    baseline_text,
+)
+from hpcagent_bench.config import GridChooser, MpContext, SubmitFeedback
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.fuzz import safe_eval
@@ -68,6 +75,7 @@ from hpcagent_bench.harness.judge_scheduler import DeviceSlot, JudgeConfig, gpu_
 from hpcagent_bench.harness.judge_wire import (
     BaselineAnswer,
     BuildAnswer,
+    Correct,
     GradeAnswer,
     HealthAnswer,
     JudgeAnswer,
@@ -89,6 +97,7 @@ from hpcagent_bench.harness.mpi_descriptor import (
     replication_refusal,
 )
 from hpcagent_bench.harness.native_call import reclaim_memory
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.profiling import as_float, as_int
 from hpcagent_bench.harness.requests_api import (
     CheckedArray,
@@ -141,7 +150,6 @@ __all__ = [
     "PROFILE_TOOLS",
     "PYTHON_DELIVERED_LANGUAGES",
     "SCALING_FIELDS",
-    "SCORE_ERROR_STATUS",
     "SCORE_ROUTE_REDACTED_CELL_FIELDS",
     "SCORE_ROUTE_REDACTED_FIELDS",
     "SERVICE_TEMPLATE",
@@ -471,10 +479,6 @@ def refused_requests(raw: object) -> str | None:
         return None
 
 
-#: The call status of a graded request that produced no verdict (``runner.RunStatus.SCORE_ERROR``).
-SCORE_ERROR_STATUS = "score_error"
-
-
 def graded_kind(route: str) -> str:
     """The grade kind a graded route records: ``score``, else ``submit``."""
     return "score" if route == "score" else "submit"
@@ -745,7 +749,7 @@ def submit_verdict(result: Score, request_id: str) -> SubmitVerdict:
     """What ``/submit`` tells the agent: correct or not, and the recorded row id. Nothing derived from the
     references or held-out inputs (each would be an oracle); only the compiler log of a failed build
     and a judge-fault flag."""
-    verdict = SubmitVerdict(correct="yes" if result.correct else "no", request_id=request_id)
+    verdict = SubmitVerdict(correct=Correct.of(result.correct), request_id=request_id)
     if not result.build_ok:
         verdict.build_log = result.detail
     if result.harness_fault:
@@ -1587,7 +1591,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             recording.record_call(
                 None,
                 task,
-                status=SCORE_ERROR_STATUS,
+                status=RunStatus.SCORE_ERROR,
                 route=graded_kind(self.route),
                 episode_id=body.text("episode_id", recording.ADHOC_EPISODE_ID),
                 optimizer=body.optional_text("optimizer"),
@@ -1960,7 +1964,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         print(f"judge: /submit {request_id} {kernel} recorded={recorded.to_json()}", file=sys.stderr, flush=True)
         if recorded.judge_fault:
             result = dataclasses.replace(result, harness_fault=True)
-        if config.current().service.submit_feedback != "full":
+        if config.current().service.submit_feedback is not SubmitFeedback.FULL:
             return self.reply(HTTPStatus.OK, submit_verdict(result, request_id))
         return self.reply(
             HTTPStatus.OK, grade_answer(result, kernel, language, preset, task.residency, recorded, request_id)
@@ -2266,7 +2270,7 @@ def serve(
     """Run the judge service until interrupted (``hpcagent-bench serve``)."""
     enable_crash_traces()
     # Threaded server: fork isolated calls through forkserver (fork from a thread can deadlock).
-    config.set_override("runtime.mp_context", "forkserver")
+    config.set_override("runtime.mp_context", MpContext.FORKSERVER)
     # Preload heavy modules into the forkserver so each timed fork skips the import.
     multiprocessing.set_forkserver_preload(FORKSERVER_PRELOAD)
     cfg = cfg or from_config()

@@ -31,6 +31,7 @@ from hpcagent_bench.cli import agent_registry, build_parser, main, make_agent_bu
 from hpcagent_bench.harness import runner
 from hpcagent_bench.harness.runner import RunRow
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.harness.outcomes import RunStatus
 
 NEW_SUBCOMMANDS = ("run-benchmark", "run-framework", "run-sparse")
 
@@ -184,7 +185,7 @@ def fake_solve_task(calls):
     def solve_task(agent, task, **_kwargs):
         calls.append(agent)
         return RunRow(
-            task.id, task.kernel, task.language, task.source_mode, agent.name, "ok", True, 0.0, 1, speedup=1.0
+            task.id, task.kernel, task.language, task.source_mode, agent.name, RunStatus.OK, True, 0.0, 1, speedup=1.0
         ), None
 
     return solve_task
@@ -211,7 +212,7 @@ def test_agent_exits_non_zero_on_zero_correct_only_when_asked(monkeypatch, tmp_p
     still expect exit 0."""
 
     def solve_task(agent, task, **_kwargs):
-        status, speedup = ("ok", 1.0) if correct else ("score_error", 0.0)
+        status, speedup = (RunStatus.OK, 1.0) if correct else (RunStatus.SCORE_ERROR, 0.0)
         return RunRow(
             task.id, task.kernel, task.language, task.source_mode, agent.name, status, correct, 0.0, 1, speedup=speedup
         ), None

@@ -106,7 +106,7 @@ class NoOpOptimizer(LibraryOptimizer):
 - `task` carries `kernel`, `language`, `source_mode` and `residency`. Symbol and argument order come from
   `binding_from_spec(BenchSpec.load(task.kernel))` and `gen_call_stub`.
 - An unsupported kernel or language raises `NotImplementedError` with the reason (`PlutoOptimizer.solve`); the
-  row becomes `status="agent_error"`.
+  row becomes `status=RunStatus.AGENT_ERROR` (`"agent_error"` in the JSONL row).
 - Extra `-I`/`-D`/`-L`/`-l` go in `Submission.build`; the judge owns `-O3` and the target flags.
 - `name` is the recorded identity (JSONL `agent`, DB `optimizer`). Choose it once.
 

@@ -155,7 +155,7 @@ def stack() -> Stack:
 
 def row_key(point: Point, where: Stack) -> tuple[object, ...]:
     """``point``'s :data:`KEY` value on ``where``."""
-    return (SOURCE, point.kernel, point.law.value, point.ranks, point.params_json, where.arch, where.image)
+    return (SOURCE, point.kernel, point.law.text, point.ranks, point.params_json, where.arch, where.image)
 
 
 def problem_key(point: Point, where: Stack) -> tuple[object, ...]:
@@ -306,7 +306,7 @@ def row_of(
     return {
         "source": SOURCE,
         "kernel": point.kernel,
-        "mode": point.law.value,
+        "mode": point.law.text,
         "ranks": point.ranks,
         "params": point.params_json,
         "arch": where.arch,
@@ -329,7 +329,7 @@ def row_of(
 def shared_timing(point: Point, where: Stack, stored: Mapping[tuple[object, ...], Mapping[str, Any]]) -> Timing | None:
     """The other law's stored timing of the SAME problem at the same P, or None."""
     for key, row in stored.items():
-        if key[2] != point.law.value and (key[1], key[3], key[4], key[5], key[6]) == problem_key(point, where):
+        if key[2] != point.law.text and (key[1], key[3], key[4], key[5], key[6]) == problem_key(point, where):
             samples = db_json.SAMPLES.loads(row["samples"])
             shared = f"the {key[2]} law's launch of the same problem"
             note = "; ".join(x for x in (str(row["note"] or ""), shared) if x)
@@ -357,7 +357,7 @@ def fill_point(
         conn.commit()
     shown = f"{row['ranked_ns'] / NS_PER_MS:.3f} ms ({row['compile_mode']})" if row["ranked_ns"] else "hole"
     print(
-        f"torch_dist {point.kernel} {point.law.value} P={point.ranks}: {shown} {row['note'] or ''}".rstrip(), flush=True
+        f"torch_dist {point.kernel} {point.law.text} P={point.ranks}: {shown} {row['note'] or ''}".rstrip(), flush=True
     )
     return row
 

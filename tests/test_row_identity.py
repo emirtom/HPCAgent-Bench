@@ -25,6 +25,7 @@ from hpcagent_bench.anticheat import Effect, Finding, Judgement
 from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import recording, results_db
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 from tests.results_rows import attempts, calls, episodes, grades, submissions
@@ -139,7 +140,7 @@ def test_a_rejected_attempt_is_tagged(tmp_path: pathlib.Path, tagged: tuple[str,
 def test_a_served_grade_is_tagged(tmp_path: pathlib.Path, tagged: tuple[str, ...]) -> None:
     db = str(tmp_path / "r.db")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="submit", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="submit", path=db
     )
     assert _joined(db, "calls") == [tagged]
 
@@ -160,7 +161,7 @@ def test_the_base_setup_records_an_empty_packet_not_null(tmp_path: pathlib.Path)
     against, so it has to group rather than drop out of a GROUP BY."""
     db = str(tmp_path / "r.db")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     assert _runs(db, ("packet",)) == [("",)]
 
@@ -168,7 +169,7 @@ def test_the_base_setup_records_an_empty_packet_not_null(tmp_path: pathlib.Path)
 def test_device_defaults_to_cpu(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     assert _runs(db, ("device",)) == [("cpu",)]
 
@@ -186,7 +187,7 @@ def test_an_untagged_run_stores_the_empty_default(tmp_path: pathlib.Path) -> Non
     config.set_override("record.study", "   ")
     try:
         recording.record_call(
-            _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+            _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
         )
     finally:
         config.clear_override("record.study")
@@ -206,7 +207,7 @@ def test_two_setups_in_one_db_stay_separable(tmp_path: pathlib.Path) -> None:
             recording.record_call(
                 _score(),
                 Task(KERNEL, SourceMode.RESTRICTED, Language.C),
-                status="ok",
+                status=RunStatus.OK,
                 route="submit",
                 episode_id=episode_id,
                 path=db,
@@ -232,7 +233,7 @@ def test_the_setup_language_is_the_identity_not_the_bodys_claim(
     recording.record_call(
         _score(),
         Task(KERNEL, SourceMode.RESTRICTED, "zzz"),
-        status="ok",
+        status=RunStatus.OK,
         route="submit",
         path=db,
     )
@@ -275,7 +276,7 @@ def test_every_graded_row_reads_its_language_from_its_run(
         judgement=Judgement((Finding("independent_verify", Effect.REJECT, "fresh-seed-mismatch"),)),
         path=db,
     )
-    recording.record_call(_score(), task, status="ok", route="score", path=db)
+    recording.record_call(_score(), task, status=RunStatus.OK, route="score", path=db)
     with results_db.reading(db) as conn:
         columns = {r[1] for r in conn.execute("PRAGMA table_info(grades)")}
     for table in MEASUREMENTS:
@@ -289,7 +290,9 @@ def test_a_setup_that_declares_no_language_records_none_rather_than_the_request(
     adopting a value no study chose -- which would put an agent-controlled string in the
     column figures group by."""
     db = str(tmp_path / "r.db")
-    recording.record_call(_score(), Task(KERNEL, SourceMode.RESTRICTED, "zzz"), status="ok", route="score", path=db)
+    recording.record_call(
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, "zzz"), status=RunStatus.OK, route="score", path=db
+    )
     assert _runs(db, ("language",)) == [("",)]
 
 
@@ -299,7 +302,7 @@ def test_a_local_episode_records_the_local_job(tmp_path: pathlib.Path, monkeypat
     monkeypatch.delenv(recording.JOB_ENV, raising=False)
     db = str(tmp_path / "r.db")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     assert _runs(db, ("job",)) == [(results_db.LOCAL_JOB,)]
     insert = "INSERT INTO episodes (setup, job, label) VALUES (?, ?, ?)"
@@ -319,7 +322,7 @@ def test_one_run_writing_many_rows_keeps_one_identity(tmp_path: pathlib.Path, ta
         recording.record_call(
             _score(),
             Task(KERNEL, SourceMode.RESTRICTED, Language.C),
-            status="ok",
+            status=RunStatus.OK,
             route="score",
             episode_id="one.n0.p0.w0",
             path=db,
@@ -340,7 +343,7 @@ def test_every_measurement_row_resolves_to_a_run(tmp_path: pathlib.Path, tagged:
         path=db,
     )
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     with results_db.reading(db) as conn:
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -357,7 +360,7 @@ def test_the_harness_comes_from_the_launcher_env(tmp_path: pathlib.Path, monkeyp
     db = str(tmp_path / "r.db")
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_HARNESS", "miniswe")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     assert _runs(db, ("harness",)) == [("miniswe",)]
 
@@ -371,7 +374,7 @@ def test_the_submitting_commit_comes_from_the_launcher_env(
     monkeypatch.delenv(recording.SNAPSHOT_COMMIT_ENV, raising=False)
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_COMMIT", "c4227a166")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     assert commits_of(db) == [("c4227a166",)]
 
@@ -383,7 +386,7 @@ def test_the_job_commit_wins_over_the_planned_one(tmp_path: pathlib.Path, monkey
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_COMMIT", "c4227a166")
     monkeypatch.setenv(recording.SNAPSHOT_COMMIT_ENV, "012345678")
     recording.record_call(
-        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status="ok", route="score", path=db
+        _score(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.OK, route="score", path=db
     )
     assert commits_of(db) == [("012345678",)]
 
@@ -401,7 +404,7 @@ def _harness_db(db: str, monkeypatch: pytest.MonkeyPatch) -> None:
     recording.record_call(
         _score(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
-        status="ok",
+        status=RunStatus.OK,
         route="score",
         episode_id="new.n0.p0.w0",
         path=db,
@@ -417,8 +420,8 @@ def test_the_observations_read_never_returns_an_adhoc_grade(
     db = tmp_path / "r.db"
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_SETUP", "llr40-qwen38-hip")
     task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
-    recording.record_call(_score(), task, status="ok", route="score", episode_id="gpu.n0.p4.w4", path=str(db))
-    recording.record_call(_score(), task, status="ok", route="score", path=str(db))
+    recording.record_call(_score(), task, status=RunStatus.OK, route="score", episode_id="gpu.n0.p4.w4", path=str(db))
+    recording.record_call(_score(), task, status=RunStatus.OK, route="score", path=str(db))
     assert ("adhoc", "llr40-qwen38-hip") in _runs(str(db), ("label", "setup"))
     extracted = extract.read_db(extract.Database(db, "root", db.parent, "job"), "", frozenset(), 0).observations
     with pytest.warns(UserWarning, match="adhoc"):

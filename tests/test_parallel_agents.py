@@ -15,6 +15,7 @@ from hpcagent_bench.harness import native
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import MpContext
 from tests.port_toolchain import gcc_available
 
 TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
@@ -96,7 +97,7 @@ def test_concurrent_judge_keeps_each_agents_result_separate(make_judge) -> None:
     from hpcagent_bench.harness import tools
     from hpcagent_bench.harness.service import ServiceConfig
 
-    config.set_override("runtime.mp_context", "forkserver")
+    config.set_override("runtime.mp_context", MpContext.FORKSERVER)
     try:
         _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=1))
         client = tools.JudgeClient(url)

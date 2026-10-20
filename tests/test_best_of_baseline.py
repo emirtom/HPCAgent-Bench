@@ -21,6 +21,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.categories import Baseline, Language, Preset, Residency, Track
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.harness import grading, native_call, scoring, timing
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.stats import population
@@ -140,10 +141,10 @@ def test_selection_uses_the_statistic_the_reduction_divides_by() -> None:
     lowest_min = [1, 1000, 1000]
     lowest_median = [2, 2, 900]
     samples = {Baseline.C_AUTOPAR: lowest_min, Baseline.C: lowest_median}
-    with config.overridden("measurement.timing_backend", "min_of_k"):
+    with config.overridden("measurement.timing_backend", Statistic.MIN):
         assert (timing.central_ns(lowest_min), timing.central_ns(lowest_median)) == (1, 2)
         assert grading.fastest_baseline(samples, (Baseline.C_AUTOPAR, Baseline.C)) == Baseline.C_AUTOPAR
-    with config.overridden("measurement.timing_backend", "mannwhitney_delta"):
+    with config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY):
         assert (timing.central_ns(lowest_min), timing.central_ns(lowest_median)) == (1000, 2)
         assert grading.fastest_baseline(samples, (Baseline.C_AUTOPAR, Baseline.C)) == Baseline.C
 

@@ -27,6 +27,7 @@ from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings.contract import graded_datatype
+from hpcagent_bench.harness.outcomes import GradeStatus
 
 KERNEL = "dist_softmax"
 SWEEP = grade_under.Scaling((ScalingLaw.STRONG, ScalingLaw.WEAK), (1, 2, 4, 8, 16))
@@ -202,7 +203,7 @@ def fake_graded() -> scaling_grade.Graded:
     strong = metric.LawCurve(ScalingLaw.STRONG, curve, ("P=16: mpi run failed (x)",), dropped, {"mode": "strong"})
     holes = tuple(metric.ScalingDrop(ranks=p, note="weak curve invalid") for p in (1, 2, 4, 8, 16))
     weak = metric.LawCurve(ScalingLaw.WEAK, None, ("weak curve invalid",), holes, {"mode": "weak"})
-    return scaling_grade.Graded(scaling_grade.GradeStatus.GRADED, "", (strong, weak))
+    return scaling_grade.Graded(GradeStatus.GRADED, "", (strong, weak))
 
 
 def shard_items(tmp_path: pathlib.Path) -> list[grade_under.Item]:
@@ -356,7 +357,7 @@ def test_a_layout_the_live_route_refuses_is_refused_on_replay_before_any_build(j
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "1")
     item = stored_item(judge_db, hip_submission(distribution={"grid": [4], "arrays": {"out": SPLIT}}))
     graded = scaling_grade.grade(item)
-    assert (graded.status, graded.curves) == (scaling_grade.GradeStatus.REFUSED, ())
+    assert (graded.status, graded.curves) == (GradeStatus.REFUSED, ())
     assert "replicate 'x'" in graded.detail, graded.detail
 
 
@@ -400,7 +401,7 @@ def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol
                 metric.scaling_score(KERNEL, law, 100_000, times, work_exponent=1),
                 (),
                 (),
-                {"mode": law.value},
+                {"mode": law.text},
                 str(inputs[0]["label"]),
             )
             for law, times in measured.items()

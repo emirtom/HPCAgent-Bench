@@ -16,6 +16,7 @@ from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import Statistic
 
 KERNEL = "tsvc_2_s311"  # sum reduction, LEN_1D=512 at preset S -- small and fast to build/time
 
@@ -91,7 +92,7 @@ def _score(source: str, *, vary_inputs: bool, repeat: int = 20):
     # opt back in, the same way tests/test_timing_backend.py does for its own backend tests.
     with (
         config.overridden("measurement.vary_inputs", vary_inputs),
-        config.overridden("measurement.timing_backend", "mannwhitney_delta"),
+        config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
     ):
         return scoring.score(
             Submission(language=Language.C, source=source),

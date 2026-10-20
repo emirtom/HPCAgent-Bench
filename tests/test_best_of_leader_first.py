@@ -17,6 +17,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode, Track
+from hpcagent_bench.config import BaselineRace, Statistic
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.native_call import NativeCallTimeout, NativeCallTooSlow
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -88,7 +89,7 @@ def numba(per_rep_ns: int, timed: list[str], budgets: list[float]) -> Callable[.
 
 
 def grade(
-    monkeypatch: pytest.MonkeyPatch, *, c_ns: int, numba_ns: int, race: str = grading.LEADER_FIRST_RACE
+    monkeypatch: pytest.MonkeyPatch, *, c_ns: int, numba_ns: int, race: BaselineRace = BaselineRace.LEADER_FIRST
 ) -> tuple[scoring.Score, list[str], list[float]]:
     """One real grade of the NoOp C submission under the default denominator; returns it, the
     references in the order they were timed, and the guillotine numba was handed."""
@@ -102,7 +103,7 @@ def grade(
         config.overridden("measurement.early_stop_factor", FACTOR),
         config.overridden("measurement.early_stop_floor_s", FLOOR_S),
         config.overridden("timeouts.kernel_s", 1000),
-        config.overridden("measurement.timing_backend", "mannwhitney_delta"),
+        config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
         config.overridden("measurement.mannwhitney.repeats", 5),
         config.overridden("measurement.vary_inputs", False),
     ):
@@ -123,7 +124,7 @@ def test_the_default_race_is_leader_first_with_its_own_stamp() -> None:
     kinds = grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING)
     assert grading.baseline_policy_stamp(kinds) == "best-of-v4:c+numba"
     assert grading.track_baseline_set(Track.LOOP_LEVEL_REASONING) == kinds
-    with config.overridden("measurement.baseline_race", grading.COMPLETE_RACE):
+    with config.overridden("measurement.baseline_race", BaselineRace.COMPLETE):
         assert grading.baseline_policy_stamp(kinds) == "best-of-v2:c+numba"
 
 
@@ -152,7 +153,7 @@ def test_the_cut_never_changes_the_winner_when_the_loser_is_more_than_2x_slower(
         scoring.BASELINE_TIMING_CACHE.clear()
         raced, _, _ = grade(monkeypatch, c_ns=C_LEADS_NS, numba_ns=numba_ns)
         scoring.BASELINE_TIMING_CACHE.clear()
-        full, _, _ = grade(monkeypatch, c_ns=C_LEADS_NS, numba_ns=numba_ns, race=grading.COMPLETE_RACE)
+        full, _, _ = grade(monkeypatch, c_ns=C_LEADS_NS, numba_ns=numba_ns, race=BaselineRace.COMPLETE)
         assert (raced.baseline, raced.baseline_ns) == (full.baseline, full.baseline_ns) == ("c", raced.baseline_ns)
 
 

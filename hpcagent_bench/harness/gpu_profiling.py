@@ -47,6 +47,7 @@ from typing import NotRequired, TypedDict
 
 from hpcagent_bench import config, languages, osinfo, seal
 from hpcagent_bench.categories import Language, Preset, Residency
+from hpcagent_bench.config import MpContext
 from hpcagent_bench.flags import ROCMINFO_TIMEOUT
 from hpcagent_bench.frameworks.forked import run_command
 from hpcagent_bench.harness import profiling
@@ -1250,7 +1251,7 @@ def main(argv: list[str] | None = None) -> int:
         # Under rocprofiler-sdk no seal can be entered (child_argv); this process is already in one.
         config.set_override("grading.seal", False)
     # CUPTI and rocprofv3's HSA tool library need a spawned (not forked) worker, or the trace is empty.
-    config.set_override("runtime.mp_context", "spawn")
+    config.set_override("runtime.mp_context", MpContext.SPAWN)
     request = profiling.child_request(pathlib.Path(args.request).read_text())
     print(profiling.RESULT_PREFIX + profiling.WORKLOAD_ADAPTER.dump_json(profiling.run_workload(request)).decode())
     return 0

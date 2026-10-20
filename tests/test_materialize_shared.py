@@ -18,6 +18,7 @@ import sys
 import pytest
 
 from hpcagent_bench import cpf_cache, paths
+from hpcagent_bench.cpf_cache import HintDetail, Target
 from tests.fresh_module import fresh
 from tests.problem_facts import problem as problem_line
 from tests.test_cpf_cache import view_with
@@ -322,10 +323,10 @@ SOURCE_SUFFIXES = frozenset({".c", ".cpp", ".cc", ".cxx", ".hip", ".cu", ".f90",
 
 @pytest.mark.parametrize(
     ("language", "dialect", "target"),
-    [("c", "c", "cpu"), ("cpp", "c++", "cpu"), ("hip", "hip", "gpu")],
+    [("c", "c", Target.CPU), ("cpp", "c++", Target.CPU), ("hip", "hip", Target.GPU)],
 )
 def test_a_cpf_src_setup_stages_the_dropin_as_the_only_kernel_source(
-    tmp_path: pathlib.Path, repo: pathlib.Path, language: str, dialect: str, target: str
+    tmp_path: pathlib.Path, repo: pathlib.Path, language: str, dialect: str, target: Target
 ) -> None:
     """The CPF REPLACES the hand-written source: the task folder holds the drop-in (on gpu its host
     ``.cpp`` and device ``.hip``, the two units a GPU submission is) and no other kernel source, under
@@ -335,7 +336,7 @@ def test_a_cpf_src_setup_stages_the_dropin_as_the_only_kernel_source(
     for ext in ("c", "hip", "f90"):
         (kernel_dir / f"argmax_value_reference.{ext}").write_text("// naive baseline\n")
     view = view_with(tmp_path, "argmax_value", dialect=dialect, target=target)
-    dropin = cpf_cache.resolve(view, "argmax_value", dialect, "fp64", "proofs")
+    dropin = cpf_cache.resolve(view, "argmax_value", dialect, "fp64", HintDetail.PROOFS)
     shared = tmp_path / "shared"
     materialize_setup(
         repo,
@@ -343,7 +344,7 @@ def test_a_cpf_src_setup_stages_the_dropin_as_the_only_kernel_source(
         problems_file(tmp_path / "problems.jsonl", [KERNEL]),
         CPF_DROPIN_DIR=str(view),
         AGENT_LANGUAGE=language,
-        CPF_TARGET=target,
+        CPF_TARGET=target.text,
     )
     task = shared / "tasks/argmax_value"
     staged = {path.name: path for path in task.iterdir() if path.suffix in SOURCE_SUFFIXES}

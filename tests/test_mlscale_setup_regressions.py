@@ -28,6 +28,7 @@ from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import mpi_call, mpi_shard_driver, prompts, recording, scaling_grade
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.harness.outcomes import GradeStatus
 from tests.test_ml_submit_records import JOB, SETUP, SETUP_ENV, agent_body, post, recorded_requests, rows, setup_judge
 from tests.test_promote_unsubmitted import load_example_module
 from tests.test_prompt_contract_consistency import driver_module
@@ -464,7 +465,7 @@ def test_the_grade_job_fails_a_submission_wrong_at_one_rank_count(
         monkeypatch.setenv(scaling_grade.RANK_COUNTS_ENV, "[1,2,4,8,16]")
         monkeypatch.setattr(mpi_call, "launch", launch_by_rank_count(launches, wrong_at=8))
         replayed = scaling_grade.grade(items[0])
-    assert replayed.status is scaling_grade.GradeStatus.INCORRECT, replayed
+    assert replayed.status is GradeStatus.INCORRECT, replayed
     assert replayed.detail.startswith("P=8 ("), replayed.detail
 
 

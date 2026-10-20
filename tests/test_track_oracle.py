@@ -20,6 +20,7 @@ from hpcagent_bench.harness import grading, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import Statistic
 
 LOOP_KERNEL = "tsvc_2_s212"
 HPC_KERNEL = "gemm"
@@ -155,8 +156,8 @@ def test_the_shipped_config_rotates_the_held_out_shape() -> None:
     # repeat is exactly required_repeat here, so lowering it turns every grade into a raise.
     from hpcagent_bench.harness import timing
 
-    assert config.default_value("measurement.timing_backend") == "mannwhitney_delta"
-    assert config.default_value("measurement.repeat") >= timing.required_repeat("mannwhitney_delta")
+    assert config.default_value("measurement.timing_backend") == Statistic.MANNWHITNEY
+    assert config.default_value("measurement.repeat") >= timing.required_repeat(Statistic.MANNWHITNEY)
 
 
 def test_the_held_out_cases_rotate_shape_across_the_ladder() -> None:

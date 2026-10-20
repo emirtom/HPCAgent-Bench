@@ -12,6 +12,7 @@ import multiprocessing
 import pytest
 
 from hpcagent_bench.harness import service
+from hpcagent_bench.config import MpContext
 
 
 def test_serve_pins_forkserver_and_registers_the_preload(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -30,7 +31,7 @@ def test_serve_pins_forkserver_and_registers_the_preload(monkeypatch: pytest.Mon
     monkeypatch.setattr(service, "make_server", lambda *a, **k: FakeServer())
 
     assert service.serve(host="127.0.0.1", port=0) == 0
-    assert overrides.get("runtime.mp_context") == "forkserver"
+    assert overrides.get("runtime.mp_context") is MpContext.FORKSERVER
     assert calls == [service.FORKSERVER_PRELOAD], "serve() must register the forkserver preload"
 
 

@@ -25,6 +25,7 @@ from typing import Annotated
 import pydantic
 
 from hpcagent_bench import fuzz
+from hpcagent_bench.config import ScalingLaw
 from hpcagent_bench.harness import repo_pr
 
 __all__ = [
@@ -161,8 +162,8 @@ class ScalingPointRecord(pydantic.BaseModel):
     ideal_speedup: Number
     #: eta_i(P) = sigma_i(P) / sigma*_i(P), uncapped.
     efficiency: Number
-    #: The scaling law (:class:`hpcagent_bench.harness.mpi_sizing.ScalingLaw` value) the ideal follows.
-    mode: str
+    #: The scaling law the ideal follows.
+    mode: ScalingLaw
     #: The weak-scaling work ratio r the ideal was corrected by; None when exact or strong.
     work_ratio: Number | None
     #: The nodes the launch was placed on; None when the launcher did not say.
@@ -194,8 +195,8 @@ class ScalingCurve(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    #: The scaling law (:class:`hpcagent_bench.harness.mpi_sizing.ScalingLaw` value).
-    mode: str
+    #: The scaling law.
+    mode: ScalingLaw
     #: The manifest's work exponent k_i; None for a strong-only kernel.
     work_exponent: Number | None
     #: T_i(1): the single-rank anchor, ns, shared by every point.

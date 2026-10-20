@@ -38,7 +38,7 @@ from hpcagent_bench import (
     protocols,
 )
 from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, Track
-from hpcagent_bench.config import GridChooser, RequestCapability
+from hpcagent_bench.config import GridChooser, PromptStrategy, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
 from hpcagent_bench.harness.mpi_descriptor import (
@@ -153,11 +153,11 @@ PRECISION_CTYPES = tuple({"precision": p.value, "ctype": c_type(np.dtype(numpy_d
 SectionOverrides = dict[str, str | bool]
 
 #: One value a ``prompt.*`` knob can hold -- the union of every :class:`PromptConfig` field type.
-PromptField = str | bool | tuple[str, ...] | SectionOverrides | None
+PromptField = str | bool | tuple[str, ...] | SectionOverrides | PromptStrategy | None
 
 #: One prompt variant: :class:`PromptConfig` field name -> override value (a string, a flag or, for
 #: ``sections``, a map of section overrides).
-VariantFields = dict[str, str | bool | SectionOverrides]
+VariantFields = dict[str, str | bool | SectionOverrides | PromptStrategy]
 
 #: The previous round's outcome rendered by ``feedback.j2`` (``round``, ``correct``, ``error`` or
 #: ``speedup``, ``source``), as :data:`hpcagent_bench.harness.runner.Feedback` builds it.
@@ -316,7 +316,7 @@ class PromptConfig:
     container_workdir: str = "/app"  # where the per-kernel folder is mounted in the agent container
     include_translation: bool = False
     include_reference: bool = False  # offer the original ported source when one is present
-    strategy: str = "default"  # named optimization strategy (see STRATEGIES)
+    strategy: PromptStrategy = PromptStrategy.DEFAULT  # named optimization strategy (see STRATEGIES)
     optimization_guidance: bool = True  # include the how-to-optimize section
     # Emphasize profiling in the how-to-optimize section (skill pages follow record.packet, packet_skills).
     profiling_guidance: bool = False
@@ -351,7 +351,7 @@ class PromptConfig:
             container_workdir=pick_str(given, "container_workdir", configured.container_workdir),
             include_translation=pick_bool(given, "include_translation", configured.include_translation),
             include_reference=pick_bool(given, "include_reference", configured.include_reference),
-            strategy=pick_str(given, "strategy", configured.strategy),
+            strategy=PromptStrategy.validate(given.get("strategy", configured.strategy)),
             optimization_guidance=pick_bool(given, "optimization_guidance", configured.optimization_guidance),
             profiling_guidance=pick_bool(given, "profiling_guidance", configured.profiling_guidance),
             language_track=pick_bool(given, "language_track", configured.language_track),
@@ -387,9 +387,9 @@ class PromptConfig:
 #: (:func:`available_variants`).
 PROMPT_VARIANTS: dict[str, VariantFields] = {
     "default": {},
-    "loopnest": {"strategy": "loopnest"},
-    "profile_first": {"strategy": "profile_first"},
-    "language_native": {"strategy": "language_native", "language_track": True},
+    "loopnest": {"strategy": PromptStrategy.LOOPNEST},
+    "profile_first": {"strategy": PromptStrategy.PROFILE_FIRST},
+    "language_native": {"strategy": PromptStrategy.LANGUAGE_NATIVE, "language_track": True},
     "with_reference": {"include_reference": True},
     "with_translation": {"include_translation": True},
     "minimal": {"optimization_guidance": False, "inline_kernel": False},
@@ -446,23 +446,23 @@ def available_variants() -> dict[str, VariantFields]:
 
 
 #: Named optimization strategies -> the knobs ``optimizations.j2`` branches on: ``emphasis`` (a
-#: one-line framing) and ``lead`` (loopnest | profile | language). Unknown -> "default".
-STRATEGIES: dict[str, dict[str, str]] = {
-    "default": {
+#: one-line framing) and ``lead`` (loopnest | profile | language).
+STRATEGIES: dict[PromptStrategy, dict[str, str]] = {
+    PromptStrategy.DEFAULT: {
         "emphasis": "Balance per-loop-nest locality and vectorization work with fusion across nests, "
         "and profile to confirm every change.",
         "lead": "loopnest",
     },
-    "loopnest": {
+    PromptStrategy.LOOPNEST: {
         "emphasis": "Optimize one loop nest at a time to completion, then fuse adjacent nests.",
         "lead": "loopnest",
     },
-    "profile_first": {
+    PromptStrategy.PROFILE_FIRST: {
         "emphasis": "Profile with the container performance tools BEFORE editing, and let the measured "
         "hotspots choose what to optimize.",
         "lead": "profile",
     },
-    "language_native": {
+    PromptStrategy.LANGUAGE_NATIVE: {
         "emphasis": "Reach first for idiomatic features of the target language, then apply the "
         "mechanical loop-nest transforms.",
         "lead": "language",
@@ -850,14 +850,15 @@ def perf_sampling(spec: BenchSpec) -> PerfSampling:
 def public_scale_items(scales: Mapping[str, manifest_schema.PublicScale]) -> list[PublicScaleItem]:
     """The sizes of one ``scales`` mapping, by name, each with its scale alone."""
     return [
-        {"name": name, "scale": entry.scale, "description": entry.description} for name, entry in sorted(scales.items())
+        {"name": name, "scale": entry.scale.text, "description": entry.description}
+        for name, entry in sorted(scales.items())
     ]
 
 
 def public_values(variable: manifest_schema.PublicVariable) -> str:
     """A variable's values as the prompt states them: ``one of a, b`` or, shown as a range, ``between lo and
     hi`` (its numeric bounds, never the exact values)."""
-    if variable.shown_as == "range":
+    if variable.shown_as is manifest_schema.ShownAs.RANGE:
         numbers = [value for value in variable.values if isinstance(value, (int, float))]
         return f"between {min(numbers)} and {max(numbers)}"
     return "one of " + ", ".join(str(value) for value in variable.values)
@@ -1071,8 +1072,7 @@ def build_context(
     # All of them (TSVC ships _reference.c and _reference.cpp), so the agent picks a language.
     original_paths = [f"hpcagent_bench/benchmarks/{spec.relative_path}/{m.name}" for m in original_matches]
     original_path = original_paths[0] if original_paths else ""
-    # Unknown strategy falls back to "default".
-    strategy = STRATEGIES.get(prompt_config.strategy, STRATEGIES["default"])
+    strategy = STRATEGIES[prompt_config.strategy]
     # In a container the harbor adapter uploads the reference to <workdir>/<slug>/reference.py
     # (same slug function); a native run points at the file in the repo.
     from hpcagent_bench.harbor import slug
@@ -1138,7 +1138,7 @@ def build_context(
         "offload": languages.offload_setup_language(task.language),
         # Distributed (MPI) knobs for sections/mpi.j2; inert on the single-node path.
         "node_mode": node_mode,
-        "scaling": (cfg.mpi.mode if is_mpi else ""),
+        "scaling": (cfg.mpi.mode.text if is_mpi else ""),
         "ranks": cfg.mpi.ranks,
         "k_repeats": cfg.mpi.k_repeats,
         # host | device: the pointer residency of each rank's tiles.
@@ -1208,7 +1208,7 @@ def build_context(
         "native": prompt_config.native,
         "native_run_dir": display_run_dir(spec.short_name),
         "ext": ext,
-        "strategy": prompt_config.strategy,
+        "strategy": prompt_config.strategy.text,
         "strategy_emphasis": strategy["emphasis"],
         "strategy_lead": strategy["lead"],
         # restricted delivery: expected file name + the real compile/link commands.
@@ -1270,7 +1270,7 @@ def build_context(
         ),
         "cpf_dialect": cpf_cache.DIALECT.get(task.language.text, "c++"),
         # How much of each loop hint the setup's form spells out (a -kinds packet: one par, seq or unknown).
-        "cpf_hints": config.current().cpf.hints,
+        "cpf_hints": config.current().cpf.hints.text,
         # Skills (hpcagent_bench/skills/<name>/SKILL.md), indexed by name and trigger.
         "other_skills": other_skills,
         # Inline provenance for the skills (they bypass the loader).

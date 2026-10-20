@@ -25,9 +25,9 @@ unit-test with no cluster. A size symbol that sizes several array axes at once (
 symbol to keep weak scaling proportional to ``R``.
 """
 
-import enum
 from collections.abc import Iterable, Mapping
 
+from hpcagent_bench.config import ScalingLaw
 from hpcagent_bench.fuzz import FuzzValue
 
 __all__ = [
@@ -188,16 +188,6 @@ def weak_rounding_note(
     ratio = work_ratio(base_params, grown_params, axis_symbols, k)
     why = "not a perfect k-th power; rounded" if m is None else f"aligned to {RANK_BLOCK_QUANTUM} per rank"
     return f"P={r}: k={k}, m={r ** (1.0 / k):.3f} -> sizes {sizes}, work ratio {ratio:.2f} ({why})"
-
-
-class ScalingLaw(enum.Enum):
-    """How a distributed problem is sized across P ranks; the value is the ``mpi.mode`` / DB spelling.
-
-    ``STRONG`` holds the total problem at the preset (Amdahl); ``WEAK`` holds the per-rank problem and
-    grows it along the manifest's ``work_exponent`` (Gustafson)."""
-
-    STRONG = "strong"
-    WEAK = "weak"
 
 
 def sized_params(
