@@ -35,7 +35,7 @@ SHAPES = {"a": "(N,)", "b": "(N,)", "out": "(N,)"}
 DTYPES = {"a": "int64", "b": "int64", "out": "int64"}
 
 
-def run_(body: str):
+def run_(body: str) -> dict[str, str]:
     src = f"import numpy as np\ndef f(a, b, out):\n{body}\n"
     return run_op(src, "f", {"a": A, "b": B}, {"out": (6,)}, SYMS, shapes=SHAPES, backends=NATIVE, dtypes=DTYPES)
 

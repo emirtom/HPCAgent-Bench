@@ -37,16 +37,16 @@ from tests.translators.op_oracle import all_ok, run_op
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
 
 
-def call_args(src):
+def call_args(src: str) -> tuple[list[ast.Name], list[ast.keyword]]:
     call = ast.parse(src, mode="eval").body
     return call.args, call.keywords
 
 
-def target(name: str = "out"):
+def target(name: str = "out") -> ast.Name:
     return ast.Name(id=name, ctx=ast.Store())
 
 
-def src_(stmts):
+def src_(stmts: list[ast.Assign | ast.For]) -> str:
     mod = ast.fix_missing_locations(ast.Module(body=list(stmts), type_ignores=[]))
     return ast.unparse(mod)
 
@@ -317,11 +317,11 @@ def test_concatenate_negative_axis_all_backends() -> None:
 # Fix 8/9: elementwise broadcasts BOTH operands (and symmetric size-1)         #
 
 
-def ext_(*toks):
+def ext_(*toks: str) -> tuple[ast.expr, ...]:
     return tuple(const_or_name(t) for t in toks)
 
 
-def unp(exts):
+def unp(exts: tuple[ast.expr, ...]) -> tuple[str, ...]:
     return tuple(ast.unparse(e) for e in exts)
 
 

@@ -31,6 +31,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from tests.translators import op_oracle as oo
 from tests.translators.source_module import run_source
 
@@ -106,7 +107,7 @@ def build(
 
 
 def call(
-    binding,
+    binding: dict[str, dict[str, str] | list[dict[str, list | str]] | str],
     so: pathlib.Path,
     backend: str,
     x: np.ndarray,
@@ -215,7 +216,7 @@ def parse_(
     shapes: dict[str, str],
     inputs: list[str],
     outputs: list[str],
-):
+) -> KernelIR:
     """Run the front end on ``src`` with a hand-built manifest (several presets, so a per-preset
     value is not a compile-time constant)."""
     npy = tdp / f"{func}_numpy.py"

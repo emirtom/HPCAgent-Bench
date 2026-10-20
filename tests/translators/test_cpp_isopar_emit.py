@@ -33,6 +33,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import types
 
 import numpy as np
 import pytest
@@ -58,7 +59,14 @@ A = np.array([-3.5, -1.0, 0.0, 2.5, 5.0, -7.25, 1.5, 4.0], dtype=np.float64)
 B = np.array([2.0, 3.0, 1.5, 2.0, 4.0, 3.0, 0.5, 1.25], dtype=np.float64)
 
 
-def emit_(body: str, args: str = "a, b, out", shapes=None, syms=None, dtypes=None, isopar: bool = True) -> str:
+def emit_(
+    body: str,
+    args: str = "a, b, out",
+    shapes: dict[str, str] | None = None,
+    syms: dict[str, int] | None = None,
+    dtypes: dict[str, str] | None = None,
+    isopar: bool = True,
+) -> str:
     """Emit ``def k(<args>, N): <body>`` through the C++ backend under test (or plain ``emit_cpp``).
 
     ``args`` is the numpy signature; the last name is declared the graded OUTPUT of the synthesized
@@ -111,7 +119,9 @@ def stayed_a_loop(text: str) -> bool:
     ],
     ids=["output-last", "output-first", "scalar-param"],
 )
-def test_signature_is_byte_identical_to_the_plain_cpp_backend(body, args, shapes) -> None:
+def test_signature_is_byte_identical_to_the_plain_cpp_backend(
+    body: str, args: str, shapes: dict[str, str] | None
+) -> None:
     """isopar changes the BODY, never the interface: same symbol, same canonical parameter order
     (pointers by name, then scalars/symbols by name), same types, same ``__restrict__``. Both
     backends read it from one ``emit_signature``, and this pins that they still do."""
@@ -146,7 +156,7 @@ PAR_UNSEQ_BODIES = [
 
 
 @pytest.mark.parametrize("body", PAR_UNSEQ_BODIES, ids=range(len(PAR_UNSEQ_BODIES)))
-def test_map_and_reduce_calls_carry_par_unseq(body) -> None:
+def test_map_and_reduce_calls_carry_par_unseq(body: str) -> None:
     """The policy is the point. Without one, ISO specifies the algorithm as sequential and the
     emitted source licenses nothing the loop did not already license; ``par_unseq`` is what permits
     both threading and vectorization, which is what makes this the analogue of an array intrinsic."""
@@ -536,7 +546,7 @@ def test_every_algorithm_emitted_is_one_we_claim() -> None:
 NUMERIC = ("cpp", "cpp_isopar")
 
 
-def run_(body: str):
+def run_(body: str) -> dict[str, str]:
     """Run one 1-D probe on both C++ backends. The trip count is the literal 8 because the oracle
     calls the numpy reference with the arrays alone; the emitted signature still carries ``N``, as
     the shapes declare it."""
@@ -544,7 +554,7 @@ def run_(body: str):
     return run_op(src, "k", {"a": A.copy(), "b": B.copy()}, {"out": (8,)}, SYMS, shapes=SHAPE_1D, backends=NUMERIC)
 
 
-def ok_(res):
+def ok_(res: dict[str, str]) -> tuple[bool, dict[str, str]]:
     return all(v == "ok" for v in res.values()), res
 
 
@@ -567,7 +577,7 @@ def ok_(res):
         ("strided_loop", "    for i in range(0, 8, 2):\n        out[i] = a[i] + b[i]\n"),
     ],
 )
-def test_shapes_match_numpy(name, body) -> None:
+def test_shapes_match_numpy(name: str, body: str) -> None:
     ok, res = ok_(run_(body))
     assert ok, (name, res)
 
@@ -603,7 +613,7 @@ CORPUS = [
 ]
 
 
-def oracle():
+def oracle() -> types.ModuleType:
     from hpcagent_bench import numerical_oracle as no
 
     if not shutil.which("g++"):
@@ -613,7 +623,7 @@ def oracle():
 
 @pytest.mark.integration
 @pytest.mark.parametrize(("kernel", "shape"), CORPUS, ids=[k for k, unused in CORPUS])
-def test_corpus_kernel_matches_numpy(kernel, shape) -> None:
+def test_corpus_kernel_matches_numpy(kernel: str, shape: str) -> None:
     no = oracle()
     status = no.run_kernel(kernel, preset="S", precision="fp64", only_backends={"cpp", no.ISOPAR})
     assert status.get(no.ISOPAR) == "ok", f"{kernel} ({shape}): {status}"
@@ -666,7 +676,7 @@ CONVERSION_CASES = [
 @pytest.mark.integration
 @pytest.mark.skipif(not shutil.which("g++"), reason="g++ needed to build the emitted C++")
 @pytest.mark.parametrize(("name", "body", "dtypes"), CONVERSION_CASES, ids=[c[0] for c in CONVERSION_CASES])
-def test_emitted_source_has_no_implicit_conversion(name, body, dtypes) -> None:
+def test_emitted_source_has_no_implicit_conversion(name: str, body: str, dtypes: dict[str, str] | None) -> None:
     """Every width or signedness change in the emitted C++ is written as an explicit
     ``static_cast``. Inside a lambda that is load-bearing: the callable's result is converted on the
     way into the output range, where a loop form's assignment would hide it."""

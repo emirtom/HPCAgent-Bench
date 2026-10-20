@@ -57,7 +57,7 @@ def helper_of(tree: ast.Module, name: str) -> ast.FunctionDef:
     return next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
 
 
-def flags(*names):
+def flags(*names: str) -> frozenset[str]:
     return frozenset(names)
 
 
@@ -77,7 +77,7 @@ def test_an_identity_test_against_a_literal_is_a_static_flag_test() -> None:
         ("weight is None is None", "a chained compare has no single decidable pair"),
     ],
 )
-def test_an_undecidable_identity_test_is_declined(expr, reason) -> None:
+def test_an_undecidable_identity_test_is_declined(expr: str, reason: str) -> None:
     """An undecidable guard fused into an ``IfExp`` over ARRAY branches has no target form: C's
     ``?:`` rejects the operand types and Fortran's ``merge`` evaluates BOTH setups."""
     assert not is_static_flag_test(ast.parse(expr, mode="eval").body, flags("weight")), reason

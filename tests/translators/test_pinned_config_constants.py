@@ -16,7 +16,6 @@ import pathlib
 import re
 import tempfile
 from collections.abc import Callable
-from typing import Any
 
 import pytest
 
@@ -38,7 +37,7 @@ SRC = (
 )
 
 
-def kir_(pinned: bool = True, src: str = SRC, **overrides: Any) -> KernelIR:
+def kir_(pinned: bool = True, src: str = SRC, **overrides: object) -> KernelIR:
     d = pathlib.Path(tempfile.mkdtemp())
     (d / "k_numpy.py").write_text(src)
     bench = {

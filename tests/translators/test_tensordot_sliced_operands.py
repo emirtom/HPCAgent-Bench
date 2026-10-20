@@ -38,7 +38,7 @@ SRC = (
 )
 
 
-def unparse_(stmts):
+def unparse_(stmts: list[ast.Assign | ast.For]) -> str:
     mod = ast.fix_missing_locations(ast.Module(body=list(stmts), type_ignores=[]))
     return ast.unparse(mod)
 
@@ -79,7 +79,7 @@ def test_expand_tensordot_materializes_non_name_operands() -> None:
     assert shape_table["__td_op2"] == ("Cin", "Cout")
 
 
-def emit_c_(src):
+def emit_c_(src: str) -> str:
     from hpcagent_bench.translators.numpyto_c.emit import emit_c
     from hpcagent_bench.translators.numpyto_common.lowering import lower
 

@@ -21,7 +21,7 @@ A = np.arange(6, dtype=np.float64).reshape(2, 3)
 B = np.arange(6, 12, dtype=np.float64).reshape(2, 3)
 
 
-def stack3d(axis, out_shape, out_sym, n_operands: int = 2):
+def stack3d(axis: int, out_shape: tuple[int, int, int], out_sym: str, n_operands: int = 2) -> dict[str, str]:
     seq = "(a, b)" if n_operands == 2 else "(a, b, a)"
     src = (
         "import numpy as np\n"
@@ -67,7 +67,7 @@ def test_stack_three_operands() -> None:
 # concatenate regression (join along an existing axis) -- already supported.   #
 
 
-def concat(axis, out_shape, out_sym, n_operands: int = 2):
+def concat(axis: int, out_shape: tuple[int, int], out_sym: str, n_operands: int = 2) -> dict[str, str]:
     seq = "(a, b)" if n_operands == 2 else "(a, b, a)"
     src = (
         "import numpy as np\n"

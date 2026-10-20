@@ -31,7 +31,7 @@ CONV = (
 )
 
 
-def emit_(src: str, func: str, extra_args=(), dtypes=None) -> str:
+def emit_(src: str, func: str, extra_args: tuple[str, ...] = (), dtypes: dict[str, str] | None = None) -> str:
     """Emit C for a throwaway kernel over ``w_box`` / ``padded`` / ``out_grid``."""
     shapes = {"w_box": "(K, K)", "padded": "(N + K, N + K)", "out_grid": "(N, N)"}
     shapes.update(dict.fromkeys(extra_args, "(N,)"))
@@ -39,7 +39,7 @@ def emit_(src: str, func: str, extra_args=(), dtypes=None) -> str:
     return emit_c(lower(kir), fn_name=func)
 
 
-def assigns_to(text: str, name: str):
+def assigns_to(text: str, name: str) -> list[str]:
     """Whole-statement ``<name> = ...;`` lines, the form the substitution deletes."""
     return re.findall(rf"^\s*{name} = .*;$", text, re.MULTILINE)
 

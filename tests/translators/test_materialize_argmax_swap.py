@@ -33,7 +33,15 @@ from tests.translators.op_oracle import assert_backends_ok, native, parse_source
 NATIVE = ("c", "cpp", "fortran")
 
 
-def lower_local_dtypes(src, func, shapes, syms, inputs, outputs, dtypes):
+def lower_local_dtypes(
+    src: str,
+    func: str,
+    shapes: dict[str, str],
+    syms: dict[str, int],
+    inputs: list[str],
+    outputs: list[str],
+    dtypes: dict[str, str],
+) -> dict[str, str]:
     """Lower ``src`` through the c-frontend pipeline and return the finalised
     ``local_dtypes`` table -- so a dtype-tagging fix is asserted directly on the
     lowered IR the emitters read (no compiler needed)."""

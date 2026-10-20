@@ -21,7 +21,7 @@ from hpcagent_bench.translators.numpyto_common import sparse_emit as se
 from tests.translators.source_module import run_source
 
 
-def run_(stmts, scope):
+def run_(stmts: list[ast.For], scope: dict[str, float | np.ndarray]) -> dict[str, float | np.ndarray]:
     """Wrap ``stmts`` in a module, exec it against ``scope`` (a dict of
     numpy arrays + size ints), return the mutated scope."""
     mod = ast.Module(body=list(stmts), type_ignores=[])
@@ -31,14 +31,14 @@ def run_(stmts, scope):
     return scope
 
 
-def dense(A):
+def dense(A: sp.csr_matrix) -> np.ndarray:
     return np.asarray(A.todense()) if sp.issparse(A) else np.asarray(A)
 
 
 # matvec: <format> @ dense vector -> dense vector
 
 
-def make_csr(M, N, density: float = 0.3, seed: int = 0):
+def make_csr(M: int, N: int, density: float = 0.3, seed: int = 0) -> sp.csr_matrix:
     A = sp.random(M, N, density=density, format="csr", random_state=seed, dtype=np.float64)
     A.sort_indices()
     return A
@@ -135,7 +135,7 @@ def test_bcoo_matvec() -> None:
     assert np.allclose(y, Acsr @ x)
 
 
-def to_ell(A):
+def to_ell(A: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray, int]:
     """Build ELLPACK (indices[M, maxnz], data[M, maxnz]) from a CSR A.
     Padding: index -1, data 0."""
     A = A.tocsr()
@@ -166,7 +166,7 @@ def test_ell_matvec() -> None:
     assert np.allclose(y, Acsr @ x)
 
 
-def to_jds(A):
+def to_jds(A: sp.csr_matrix) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Build JDS (perm, jd_ptr, col_ind, jdiag) from a CSR A.
 
     Rows sorted by DESCENDING length; jagged diagonals stored
@@ -228,7 +228,7 @@ def test_jds_matvec() -> None:
     assert np.allclose(y, Acsr @ x)
 
 
-def to_sell(A, C):
+def to_sell(A: sp.csr_matrix, C: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Build SELL-C-sigma (slice_ptr, col_idx, val, row_len, perm) with
     sigma = C (sort within each C-row slice). Column-major within slice."""
     A = A.tocsr()

@@ -25,11 +25,11 @@ from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_copy, exp
 from hpcagent_bench.translators.numpyto_common.lowering import ShapeMidExpressionRewriter, TupleLocalPropagator
 
 
-def expr_(src):
+def expr_(src: str) -> ast.Call:
     return ast.parse(src, mode="eval").body
 
 
-def unparse_(node):
+def unparse_(node: ast.AST) -> str:
     return ast.unparse(ast.fix_missing_locations(node))
 
 
@@ -156,7 +156,7 @@ def test_expand_copy_emits_allocation_marker() -> None:
 # per-call-unique linalg working buffer                                        #
 
 
-def inv_buffer_names(stmts):
+def inv_buffer_names(stmts: list[ast.Assign | ast.For]) -> set[str]:
     return {
         n.id
         for n in ast.walk(ast.Module(body=stmts, type_ignores=[]))

@@ -42,6 +42,7 @@ import pytest
 
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from tests.translators.bench_yaml import corpus_shard, kir_for
 
 #: What a symbol is bound at when the manifest declares nothing -- :class:`SymbolDesc`'s own
@@ -65,7 +66,7 @@ DEFAULT_SYMBOL_DTYPE_HERE = "int64"
 TOO_SLOW_TO_LOWER = frozenset({"googlenet_inception_v1"})
 
 
-def emitted_abi(kir) -> list[tuple[str, str]]:
+def emitted_abi(kir: KernelIR) -> list[tuple[str, str]]:
     """The emitted signature as ``(name, dtype)`` in ABI order -- references sorted, then
     scalars sorted (``abi_contract.md`` Sec. 4), which is what ``param_order`` encodes."""
     dtypes = {a.name: a.dtype for a in kir.arrays}
@@ -79,7 +80,7 @@ def binding_abi(spec: BenchSpec) -> list[tuple[str, str]]:
     return [(a.name, a.dtype) for a in binding_from_spec(spec).args]
 
 
-def classify(short: str, lowered) -> str | None:
+def classify(short: str, lowered: KernelIR | None) -> str | None:
     """``None`` when both sides agree exactly, else ``"NAMES"``, ``"DTYPE"`` or ``"NOLOWER"``.
 
     ``lowered`` is ``None`` for a kernel the translator refused to lower: no emitted ABI to compare,

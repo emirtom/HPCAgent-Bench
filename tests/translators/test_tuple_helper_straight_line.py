@@ -85,7 +85,7 @@ def test_a_statement_the_fold_cannot_express_declines() -> None:
 
 
 @pytest.mark.parametrize("stride", [1, 2, 3])
-def test_the_folded_expression_computes_what_the_helper_computes(stride) -> None:
+def test_the_folded_expression_computes_what_the_helper_computes(stride: int) -> None:
     """The whole point. Every path through ``_tap_span`` -- both bail-outs and the live one -- over
     the parameter space a transposed convolution actually reaches. A fold that is merely shorter,
     or that gets one bound off by one, emits a plausible kernel that quietly writes the wrong

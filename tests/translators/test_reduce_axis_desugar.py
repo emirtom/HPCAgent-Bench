@@ -13,6 +13,7 @@ confirm bit-exact agreement with numpy on numba + pythran.
 """
 
 import ast
+import types
 from types import SimpleNamespace
 
 import numpy as np
@@ -27,7 +28,7 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar import (
 from tests.translators.source_module import run_source
 
 
-def kir_(kernel_name, **arrays):
+def kir_(kernel_name: str, **arrays: tuple[str, ...]) -> types.SimpleNamespace:
     """Minimal KernelIR stand-in: name + (name -> shape-tuple) arrays."""
     arrs = [SimpleNamespace(name=n, shape=s, dtype=None) for n, s in arrays.items()]
     return SimpleNamespace(kernel_name=kernel_name, arrays=arrs, scalars=[])
@@ -46,7 +47,7 @@ def test_const_int_handles_negation() -> None:
 
 def test_axis_list_normalizes_negative_and_tuple() -> None:
 
-    def parse(s):
+    def parse(s: str) -> ast.Constant | ast.Tuple | ast.UnaryOp:
         return ast.parse(s, mode="eval").body
 
     assert axis_list(parse("-1"), 4) == [3]
@@ -177,7 +178,9 @@ def test_body_evidence_overrides_poisoned_callsite_rank() -> None:
 # desugar the real oracle uses, so ``ok`` here means genuinely-lowered-and-exact.
 
 
-def numba(src, ins, outs, syms, shapes):
+def numba(
+    src: str, ins: dict[str, np.ndarray], outs: dict[str, tuple[int, int]], syms: dict[str, int], shapes: dict[str, str]
+) -> str:
     from tests.translators.op_oracle import run_op
 
     res = run_op(src, "f", ins, outs, syms, shapes=shapes, backends=("numba",))
@@ -211,7 +214,12 @@ def test_tuple_axis_pool_matches_numpy_on_numba() -> None:
 # srad, ...). Lowering normalises every such method to np.<op>(X, ...).
 
 
-def lowered_c(src, func, arrays, shapes):
+def lowered_c(
+    src: str,
+    func: str,
+    arrays: dict[str, np.ndarray],
+    shapes: tuple[dict[str, tuple[int]], dict[str, int], dict[str, str]],
+) -> dict[str, str]:
     """The C source lowering emits for ``src``; raises the emitter's own error on a refusal."""
     from tests.translators.op_oracle import run_op
 

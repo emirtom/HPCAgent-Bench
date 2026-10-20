@@ -13,6 +13,7 @@ import ctypes
 import json
 import pathlib
 import subprocess
+from collections.abc import Callable
 
 import numpy as np
 import pytest
@@ -52,7 +53,7 @@ def reference_path(name: str) -> pathlib.Path:
     return pathlib.Path(so.discover_sparse_kernels()[0].numpy_py).parent.parent / "gmres" / name
 
 
-def load_reference(name: str):
+def load_reference(name: str) -> Callable[..., object]:
     return so.load_numpy_fn(reference_path(name), "hand_gmres")
 
 
