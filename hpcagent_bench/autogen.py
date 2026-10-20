@@ -87,7 +87,6 @@ def run_emit_cli(cmd: list[str]) -> str:
 #: target is one entry here plus a ``Framework.autogen_targets``.
 EMITTERS: dict[str, Emitter] = {
     "dace": _emit_dace,
-    "cupy": emit_cli("hpcagent_bench.translators.numpyto_cupy.cli", pass_bench_info=False),
     "numba": emit_cli("hpcagent_bench.translators.numpyto_numba.cli", pass_bench_info=True),
 }
 

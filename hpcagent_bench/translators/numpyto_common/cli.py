@@ -7,7 +7,6 @@ passed straight through to that backend's ``emit`` sub-command. So
     numpyto --target polly    --kernel ... --bench-info ... --out ...
     numpyto --target pluto    --kernel ... --bench-info ... --out ...
     numpyto --target fortran  --kernel ... --bench-info ... --out ...
-    numpyto --target cupy     --kernel ... --out ... [--sanitize]
     numpyto --target numba    --kernel ... --out ... [--fastmath] [--sanitize]
 
 are equivalent to invoking each per-package CLI directly (the regen scripts call
@@ -37,7 +36,6 @@ TARGETS = {
     "polly": "hpcagent_bench.translators.numpyto_c.cli",
     "pluto": "hpcagent_bench.translators.numpyto_c.cli",
     "fortran": "hpcagent_bench.translators.numpyto_fortran.cli",
-    "cupy": "hpcagent_bench.translators.numpyto_cupy.cli",
     "numba": "hpcagent_bench.translators.numpyto_numba.cli",
     # OpenMP parallel-scope variants: same backend, ``--parallel`` injected. One C
     # emit produces both the C and C++ OpenMP sources, so ``c_omp`` and ``cpp_omp``

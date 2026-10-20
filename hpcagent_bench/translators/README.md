@@ -18,7 +18,6 @@ lowering sits in `numpyto_common`:
 | DaCe            | `numpyto_c/dace_emit.py` |
 | Fortran         | `numpyto_fortran/`     |
 | Numba           | `numpyto_numba/`       |
-| CuPy            | `numpyto_cupy/`        |
 
 ## Frontend and Python-backend desugars
 

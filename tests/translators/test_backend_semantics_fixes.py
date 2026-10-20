@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Numpy-faithfulness regression tests for the numba / cupy emitters.
+"""Numpy-faithfulness regression tests for the numba emitter and the cupy column's numpy rebinding.
 
 Two semantic rules -- one per backend -- are pinned here:
 
@@ -24,7 +24,7 @@ import tempfile
 import numpy as np
 import pytest
 
-from hpcagent_bench.translators.numpyto_cupy.emit import emit_cupy
+from hpcagent_bench.frameworks.cupy_framework import cupy_source
 from hpcagent_bench.translators.numpyto_numba.emit import emit_numba
 from tests.translators import op_oracle
 from tests.translators.source_module import run_source
@@ -133,7 +133,7 @@ CUPY_SRC = "import numpy\ndef f(a, out):\n    out[:] = numpy.sqrt(a) + numpy.pi\
 
 
 def test_cupy_import_form_binds_cp_consistently() -> None:
-    out = emit_cupy(CUPY_SRC)
+    out = cupy_source(CUPY_SRC)
     assert "import cupy as cp" in out
     assert "import numpy" not in out
     # Every numpy ref rebound to ``cp`` -- no undefined ``cupy.`` / ``numpy.`` left.
@@ -150,7 +150,7 @@ def test_cupy_import_form_runs_on_gpu() -> None:
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"no cupy runtime: {type(exc).__name__}: {exc}")
     ns: dict = {}
-    run_source(emit_cupy(CUPY_SRC), ns, "<cupy>")
+    run_source(cupy_source(CUPY_SRC), ns, "<cupy>")
     a = np.arange(1.0, 6.0)
     a_dev = cp.asarray(a)
     out_dev = cp.zeros(5)
