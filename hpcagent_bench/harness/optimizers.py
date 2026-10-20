@@ -21,12 +21,13 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import weakref
 from collections.abc import Callable, Sequence
 from typing import ClassVar
 
-from hpcagent_bench import config, languages, paths, pluto_transform, ppcg_transform
+from hpcagent_bench import config, languages, modules, paths, pluto_transform, ppcg_transform
 from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.emit_bridge import emit_kernel
@@ -39,7 +40,7 @@ from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import Binding, binding_from_spec
 from hpcagent_bench.support.bindings.stubs import c_constants, gen_call_stub
 from hpcagent_bench.translators.numpyto_c.bindings import read_binding
-from hpcagent_bench.vocabulary import Arch, DaceTuner
+from hpcagent_bench.vocabulary import Arch
 
 __all__ = [
     "AlloyHeuristicOptimizer",
@@ -451,11 +452,12 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
     return target
 
 
-#: The Agent that runs each autotuning DaCe flavor's tuner.
-TUNERS: dict[DaceTuner, type[AlloyOptimizer]] = {
-    DaceTuner.ALLOY_PROFILE: AlloyProfileOptimizer,
-    DaceTuner.ALLOY_HEURISTIC: AlloyHeuristicOptimizer,
-}
+def tuner_agent(adapter: str) -> type[Agent]:
+    """The :class:`Agent` subclass of this module a tuner's ``adapter`` (``package.module:Class``) names."""
+    value = modules.optional(sys.modules[__name__], adapter.partition(":")[2], type)
+    if not (isinstance(value, type) and issubclass(value, Agent)):
+        raise TypeError(f"tuner adapter {adapter!r} names no Agent of {__name__}")
+    return value
 
 
 def optimizer_registry() -> dict[str, Callable[..., Agent]]:
@@ -464,7 +466,7 @@ def optimizer_registry() -> dict[str, Callable[..., Agent]]:
     optimizer is one class here or one flavor there."""
     classes: dict[str, Callable[..., Agent]] = dict(OPTIMIZERS)
     flavors: dict[str, Callable[..., Agent]] = {
-        name: functools.partial(TUNERS[column.tuner], name)
+        name: functools.partial(tuner_agent(column.adapter), name)
         for name, column in FRAMEWORKS.entries.items()
         if column.tuner is not None
     }

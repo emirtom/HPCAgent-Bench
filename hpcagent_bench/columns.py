@@ -10,14 +10,12 @@ order is the listing order and each column's slot (colour and marker): a new col
 
 from hpcagent_bench.languages import gpu_backend
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.vocabulary import FRAMEWORKS, Arch, Column, DaceStage, DaceTuner, Transform
+from hpcagent_bench.vocabulary import FRAMEWORKS, TUNERS, Arch, Column, DaceStage, Transform, TunerEntry
 
 __all__ = [
     "ALL_PRECISIONS",
     "DACE_PRECISIONS",
     "DACE_STAGES",
-    "DACE_TUNERS",
-    "DACE_TUNER_ADAPTERS",
     "FRAMEWORKS",
     "IEEE_PRECISIONS",
     "add_dace",
@@ -46,20 +44,18 @@ DACE_STAGES: dict[DaceStage, tuple[str, str, str]] = {
     DaceStage.PARALLEL: ("parallel", "parallel", "parallel"),
     DaceStage.AUTOOPT: ("auto-opt", "auto-opt", "auto_optimize"),
 }
-#: A DaCe tuner -> its display suffix and its full-name suffix.
-DACE_TUNERS: dict[DaceTuner, tuple[str, str]] = {
-    DaceTuner.ALLOY_PROFILE: ("Alloy profile", "Alloy (profiled)"),
-    DaceTuner.ALLOY_HEURISTIC: ("Alloy heuristic", "Alloy (heuristic)"),
-}
-#: A DaCe tuner -> the autotuning Agent that runs it (Alloy, github.com/ThrudPrimrose/alloy, after the stage).
-DACE_TUNER_ADAPTERS: dict[DaceTuner, str] = {
-    DaceTuner.ALLOY_PROFILE: "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer",
-    DaceTuner.ALLOY_HEURISTIC: "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer",
-}
+TUNERS.add(
+    "alloy_profile",
+    TunerEntry("Alloy profile", "Alloy (profiled)", "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"),
+)
+TUNERS.add(
+    "alloy_heuristic",
+    TunerEntry("Alloy heuristic", "Alloy (heuristic)", "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"),
+)
 DACE_PRECISIONS = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
 
 
-def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | None = None) -> Column:
+def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: str | None = None) -> Column:
     """The DaCe family's entry on ``arch``: the DB column every flavor groups under (no ``stage``; it runs nothing
     itself), a pipeline ``stage`` (``auto_optimize`` also runs on stock DaCe), or a stage followed by an
     autotuning ``tuner``, which runs as an Agent rather than in a sweep."""
@@ -78,15 +74,13 @@ def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | N
     alone, beside, word = DACE_STAGES[stage]
     display, full_name, flavor = f"DaCe ({device}, {alone})", f"DaCe {device} {word}", stage.text
     if tuner is not None:
-        tuner_display, tuner_full_name = DACE_TUNERS[tuner]
-        display = f"DaCe ({device}, {beside}) + {tuner_display}"
-        full_name = f"DaCe {device} {beside} + {tuner_full_name}"
-        flavor = f"{stage.text}_{tuner.text}"
+        tuned = TUNERS[tuner]
+        display = f"DaCe ({device}, {beside}) + {tuned.display}"
+        full_name = f"DaCe {device} {beside} + {tuned.full_name}"
+        flavor = f"{stage.text}_{tuner}"
     return Column(
         display=display,
-        adapter="hpcagent_bench.frameworks.dace_framework:DaceFramework"
-        if tuner is None
-        else DACE_TUNER_ADAPTERS[tuner],
+        adapter="hpcagent_bench.frameworks.dace_framework:DaceFramework" if tuner is None else TUNERS[tuner].adapter,
         base="dace",
         full_name=full_name,
         postfix="dace",
@@ -101,9 +95,9 @@ def dace_column(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | N
     )
 
 
-def add_dace(arch: Arch, stage: DaceStage | None = None, tuner: DaceTuner | None = None) -> None:
+def add_dace(arch: Arch, stage: DaceStage | None = None, tuner: str | None = None) -> None:
     """Register the DaCe entry :func:`dace_column` builds, under ``dace_<arch>[_<stage>[_<tuner>]]``."""
-    key = "_".join(part.text for part in (arch, stage, tuner) if part is not None)
+    key = "_".join(part for part in (arch.text, stage.text if stage else None, tuner) if part is not None)
     FRAMEWORKS.add(f"dace_{key}", dace_column(arch, stage, tuner))
 
 
@@ -551,14 +545,14 @@ FRAMEWORKS.add(
 
 add_dace(Arch.CPU, DaceStage.PARALLEL)
 add_dace(Arch.GPU, DaceStage.PARALLEL)
-add_dace(Arch.CPU, DaceStage.CANON, DaceTuner.ALLOY_PROFILE)
-add_dace(Arch.CPU, DaceStage.CANON, DaceTuner.ALLOY_HEURISTIC)
-add_dace(Arch.CPU, DaceStage.PARALLEL, DaceTuner.ALLOY_PROFILE)
-add_dace(Arch.CPU, DaceStage.PARALLEL, DaceTuner.ALLOY_HEURISTIC)
-add_dace(Arch.GPU, DaceStage.CANON, DaceTuner.ALLOY_PROFILE)
-add_dace(Arch.GPU, DaceStage.CANON, DaceTuner.ALLOY_HEURISTIC)
-add_dace(Arch.GPU, DaceStage.PARALLEL, DaceTuner.ALLOY_PROFILE)
-add_dace(Arch.GPU, DaceStage.PARALLEL, DaceTuner.ALLOY_HEURISTIC)
+add_dace(Arch.CPU, DaceStage.CANON, "alloy_profile")
+add_dace(Arch.CPU, DaceStage.CANON, "alloy_heuristic")
+add_dace(Arch.CPU, DaceStage.PARALLEL, "alloy_profile")
+add_dace(Arch.CPU, DaceStage.PARALLEL, "alloy_heuristic")
+add_dace(Arch.GPU, DaceStage.CANON, "alloy_profile")
+add_dace(Arch.GPU, DaceStage.CANON, "alloy_heuristic")
+add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_profile")
+add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_heuristic")
 
 
 # Polygeist's cgeist lowers the C target's ``_pluto_input.c`` to affine MLIR, Polymer reschedules it with
@@ -602,7 +596,7 @@ FRAMEWORKS.add(
 )
 
 
-add_dace(Arch.CPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_PROFILE)
-add_dace(Arch.CPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_HEURISTIC)
-add_dace(Arch.GPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_PROFILE)
-add_dace(Arch.GPU, DaceStage.AUTOOPT, DaceTuner.ALLOY_HEURISTIC)
+add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_profile")
+add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_heuristic")
+add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_profile")
+add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_heuristic")

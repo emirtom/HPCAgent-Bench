@@ -1545,12 +1545,12 @@ def assert_pool_draws(calls: dict[tuple[int, ...], list[int]]) -> None:
     the measurement), then the public base seed, built only for the untimed canonical call; both sides call
     draws 0..5."""
     assert calls
-    for seeds, indices in calls.items():
-        timed, base = seeds[:6], seeds[6]
-        assert len(seeds) == 7, seeds
-        assert len(set(timed)) == 6, seeds
-        assert base not in timed, seeds
-        assert all(a != b for a, b in itertools.pairwise(timed)), seeds
+    for drawn, indices in calls.items():
+        timed, base = drawn[:6], drawn[6]
+        assert len(drawn) == 7, drawn
+        assert len(set(timed)) == 6, drawn
+        assert base not in timed, drawn
+        assert all(a != b for a, b in itertools.pairwise(timed)), drawn
         assert {i for i in indices if i < 6} == set(range(6)), indices
         assert 6 in indices, indices
 

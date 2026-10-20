@@ -132,7 +132,7 @@ def test_the_oracle_vocabulary_carries_the_auto_sentinel() -> None:
 
 @pytest.mark.parametrize("kernel", [LOOP_KERNEL, HPC_KERNEL, ML_KERNEL])
 def test_numpy_is_neither_an_oracle_nor_a_denominator(kernel) -> None:
-    spec = BenchSpec.load(kernel)
+    BenchSpec.load(kernel)
     for name in ("numpy", "both"):
         with pytest.raises(ValueError):
             Oracle.parse(name)
