@@ -38,7 +38,7 @@ from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import Binding, binding_from_spec
 from hpcagent_bench.support.bindings.stubs import c_constants, gen_call_stub
 from hpcagent_bench.translators.numpyto_c.bindings import read_binding
-from hpcagent_bench.vocabulary import is_optimizer_adapter
+from hpcagent_bench.vocabulary import Arch, DaceTuner
 
 __all__ = [
     "AlloyHeuristicOptimizer",
@@ -400,11 +400,11 @@ class AlloyOptimizer(LibraryOptimizer):
         self.name = fname
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        meta = FRAMEWORKS.entries[self.fname]
-        device = "cpu" if task.image == "cpu" else "gpu"
-        if device != meta["arch"]:
-            raise NotImplementedError(f"{self.fname} runs on {meta['arch']}; got a {task.image} task")
-        pipelines = meta.get("pipelines", ())
+        column = FRAMEWORKS.entries[self.fname]
+        device = Arch.CPU if task.image == "cpu" else Arch.GPU
+        if device is not column.arch:
+            raise NotImplementedError(f"{self.fname} runs on {column.arch.text}; got a {task.image} task")
+        pipelines = column.pipelines
         if len(pipelines) != 1:
             raise ValueError(f"{self.fname} names pipelines {pipelines}; an Alloy flavor tunes exactly one")
         return self.tune(task, pipelines[0])
@@ -446,14 +446,21 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
     return target
 
 
+#: The Agent that runs each autotuning DaCe flavor's tuner.
+TUNERS: dict[DaceTuner, type[AlloyOptimizer]] = {
+    DaceTuner.ALLOY_PROFILE: AlloyProfileOptimizer,
+    DaceTuner.ALLOY_HEURISTIC: AlloyHeuristicOptimizer,
+}
+
+
 def optimizer_registry() -> dict[str, Callable[..., Agent]]:
     """Name -> non-AI optimizer factory: every :class:`Agent` subclass registered with :func:`optimizer`, and every autotuning framework flavor (``hpcagent_bench.columns``) bound to its adapter class. The
     harness runs each through the SAME procedure as an LLM agent (``hpcagent-bench agent <name>``), so a new
     optimizer is one class here or one flavor there."""
     classes: dict[str, Callable[..., Agent]] = dict(OPTIMIZERS)
     flavors: dict[str, Callable[..., Agent]] = {
-        name: functools.partial(globals()[meta["adapter"].partition(":")[2]], name)
-        for name, meta in FRAMEWORKS.entries.items()
-        if is_optimizer_adapter(meta["adapter"])
+        name: functools.partial(TUNERS[column.tuner], name)
+        for name, column in FRAMEWORKS.entries.items()
+        if column.tuner is not None
     }
     return {**classes, **flavors}

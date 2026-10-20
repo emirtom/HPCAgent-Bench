@@ -6,7 +6,7 @@
 
 Where a name is data the exception is one audited function, listed in :data:`AUDITED`:
 :mod:`hpcagent_bench.modules` reads a module member a manifest or a config names, ``ast_build.set_field`` writes
-an AST field ``ast.iter_fields`` found, ``registry.fields_of`` reads a registry entry's class declaration, and
+an AST field ``ast.iter_fields`` found, and
 :mod:`hpcagent_bench.cluster.systems` turns an argparse namespace into its option dict.
 """
 
@@ -28,8 +28,6 @@ AUDITED = frozenset(
         ("hpcagent_bench/translators/numpyto_common/ast_build.py", "set_field"),
         ("hpcagent_bench/translators/numpyto_common/ast_build.py", "attach"),
         ("hpcagent_bench/translators/numpyto_common/ast_build.py", "attached"),
-        ("hpcagent_bench/registry.py", "fields_of"),
-        ("hpcagent_bench/registry.py", "methods_of"),
         ("hpcagent_bench/cluster/systems.py", "script_header"),
         ("hpcagent_bench/cluster/systems.py", "main"),
         ("hpcagent_bench/cluster/systems.py", "options_main"),

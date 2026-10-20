@@ -31,6 +31,7 @@ from hpcagent_bench.vocabulary import (
     KINDS,
     MODELS,
     PACKETS,
+    Column,
     ModelEntry,
     PacketDef,
     check_vocabulary,
@@ -39,6 +40,7 @@ from hpcagent_bench.vocabulary import (
 __all__ = [
     "COMPACT_NAMES",
     "COMPACT_NAME_MAX",
+    "KEYED_FIELDS",
     "OFFLOAD_DELIVERY_NAME",
     "OFFLOAD_SETUP_TOKEN",
     "REGISTRY",
@@ -48,7 +50,6 @@ __all__ = [
     "VOCABULARY_MODULES",
     "BaselineSpec",
     "ExperimentEntry",
-    "KEYED_FIELDS",
     "Marker",
     "Names",
     "Registry",
@@ -58,6 +59,7 @@ __all__ = [
     "canonical",
     "dash_spellings",
     "display_name",
+    "entry_name",
     "framework_name",
     "harness_name",
     "kernel_compact_display_name",
@@ -215,14 +217,21 @@ class Registry:
     owed_run_roots: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict[str, tuple[str, ...]])
 
 
+def entry_name(entry: ModelEntry | PacketDef | Column | str) -> str:
+    """The name a figure prints for a vocabulary entry."""
+    match entry:
+        case str():
+            return entry
+        case Column():
+            return entry.display
+        case ModelEntry() | PacketDef():
+            return entry.name
+
+
 def registered(kind: str) -> Names:
     """``{key: display name}`` of a vocabulary kind, in slot order (the no-packet control first)."""
     block = KINDS[kind]
-    if kind == "frameworks":
-        return {key: block.entries[key]["display"] for key in block}
-    return {
-        key: block.entries[key] if isinstance(block.entries[key], str) else block.entries[key].name for key in block
-    }
+    return {key: entry_name(block.entries[key]) for key in block}
 
 
 @functools.lru_cache(maxsize=1, typed=True)

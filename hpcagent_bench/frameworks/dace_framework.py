@@ -31,8 +31,7 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
-from hpcagent_bench import modules
-from hpcagent_bench import cpf_canonical, languages, paths, phase_clock
+from hpcagent_bench import cpf_canonical, languages, modules, paths, phase_clock
 from hpcagent_bench import flags as bench_flags
 from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
 from hpcagent_bench.frameworks import Benchmark, Framework
@@ -57,6 +56,7 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.frameworks.test import reference_outputs, tolerance_datatype, tolerances_for
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
+from hpcagent_bench.vocabulary import Arch
 
 if TYPE_CHECKING:
     from dace.frontend.python.common import SDFGClosure
@@ -702,14 +702,14 @@ class DaceFramework(Framework):
     def scored_pipelines(self) -> tuple[str, ...]:
         """The one pipeline this FLAVOR compiles, verifies and times (a flavor is one optimizer, never a
         search over several)."""
-        scored = tuple(self.info.get("pipelines", ()))
+        scored = self.column.pipelines
         if len(scored) != 1:
             raise ValueError(f"{self.fname} names pipelines {scored}; a dace flavor scores exactly one")
         return scored
 
     def copy_func(self) -> CopyFunc:
         # Every GPU flavor needs the device copy, not just ``dace_gpu``.
-        if self.info["arch"] != "gpu":
+        if self.column.arch is not Arch.GPU:
             return row_major_copy
         cupy = device_staging_module()
 
@@ -721,7 +721,7 @@ class DaceFramework(Framework):
     def copy_back_func(self) -> CopyFunc:
         # cupy refuses an implicit device-to-host conversion, so a GPU flavor's device output comes back
         # through ``asnumpy``; a host array is already where it belongs.
-        if self.info["arch"] != "gpu":
+        if self.column.arch is not Arch.GPU:
             return super().copy_back_func()
         cupy = device_staging_module()
         return lambda arr: cupy.asnumpy(arr) if isinstance(arr, cupy.ndarray) else arr
@@ -733,7 +733,7 @@ class DaceFramework(Framework):
 
     def kernel_module(self, bench: Benchmark) -> ModuleType:
         """The generated kernel module; repeat calls are a ``sys.modules`` hit, not a re-import."""
-        return importlib.import_module(bench.impl_module(self.info["postfix"]))
+        return importlib.import_module(bench.impl_module(self.column.postfix))
 
     def _import_kernel(self, bench: Benchmark) -> DaceProgram:
         """Import the kernel module and return the ``@dace.program``."""
@@ -746,12 +746,12 @@ class DaceFramework(Framework):
     ) -> PipelineContext:
         """Bundle the module-level DaCe handles the pipelines refer to, and the kernel's ``small`` and
         ``nonnegative`` symbols, into one record."""
-        device = dace_dtypes.DeviceType.GPU if self.info["arch"] == "gpu" else dace_dtypes.DeviceType.CPU
+        device = dace_dtypes.DeviceType.GPU if self.column.arch is Arch.GPU else dace_dtypes.DeviceType.CPU
         return PipelineContext(device=device, small=small, nonnegative=nonnegative)
 
     def _device_tag(self) -> str:
         """The cache filename discriminator for the target device (``cpu`` / ``gpu``)."""
-        return "gpu" if self.info["arch"] == "gpu" else "cpu"
+        return self.column.arch.text
 
     def _sdfg_fingerprint(self, bench: Benchmark) -> str:
         """Freshness key for a kernel's cached base SDFG: the numpy reference, the generated
@@ -832,7 +832,7 @@ class DaceFramework(Framework):
                     sdfg.name = pipe.name  # pyright: ignore[reportAttributeAccessIssue]  # dace types Property, not its str
                     pipe.transform(sdfg, ctx)
                 # The residency contract, once, after every GPU pipeline.
-                if self.info["arch"] == "gpu":
+                if self.column.arch is Arch.GPU:
                     enforce_gpu_residency(sdfg)
                     pool_gpu_transients(sdfg)
                 produced[pipe.name] = sdfg
@@ -863,11 +863,11 @@ class DaceFramework(Framework):
         ctx = self._build_context(
             cpf_canonical.small_symbols(bench.spec), cpf_canonical.nonnegative_symbols(bench.spec)
         )
-        pin_cpp_standard(self.info["arch"])
+        pin_cpp_standard(self.column.arch.text)
         pin_host_compiler()
         pin_per_rank_build_dirs()
         pin_build_caching()
-        if self.info["arch"] == "gpu":
+        if self.column.arch is Arch.GPU:
             pin_gpu_toolchain()
             if dace.Config.get("library", "blas", "default_implementation") != "pure":
                 # The vendor BLAS per backend: a wrong name silently falls back to the serial 'pure' expansion.
@@ -908,7 +908,7 @@ class DaceFramework(Framework):
         # A new name is a new build: the build cache would otherwise hand back the contracted binary.
         strict.name = f"{sdfg.name}_strict_fp"  # pyright: ignore[reportAttributeAccessIssue]  # dace types Property, not its str
         keys = [("compiler", "cpu", "args")]
-        if self.info["arch"] == "gpu":
+        if self.column.arch is Arch.GPU:
             keys += [("compiler", "cuda", "args"), ("compiler", "cuda", "hip_args")]
         try:
             with contextlib.ExitStack() as stack:
@@ -939,7 +939,7 @@ class DaceFramework(Framework):
                 dc_exec = timed_compile(sdfg)
                 compiled[name] = TimedCompiledSDFG(dc_exec, sdfg, name)
             except Exception as exc:  # noqa: BLE001 -- a variant that does not compile is skipped
-                print(f"DaCe optimize: failed to compile {self.info['arch']} {name}: {exc}")
+                print(f"DaCe optimize: failed to compile {self.column.arch.text} {name}: {exc}")
                 traceback.print_exc()
         return compiled
 
@@ -957,7 +957,7 @@ class DaceFramework(Framework):
         present = {a.dtype.type for a in host if a.dtype.name in ("float32", "float64")}
         band = tolerance_datatype(self.datatype, present.pop() if len(present) == 1 else None)
         rtol, atol = tolerances_for(band)
-        label = f"{self.info['full_name']} - {variant.name}"
+        label = f"{self.column.full_name} - {variant.name}"
         spec = bench.spec
         return util.validate(
             reference, host, label, rtol=rtol, atol=atol, mismatch_fraction=spec.mismatch_fraction or 0.0
@@ -974,7 +974,7 @@ class DaceFramework(Framework):
         except Exception as exc:  # noqa: BLE001 -- no reference means no verification, not a failed run
             print(f"DaCe optimize: {bench.spec.short_name}: no compiled reference ({exc}); verification skipped")
             return None
-        if self.info["arch"] != "gpu":
+        if self.column.arch is not Arch.GPU:
             return reference
         cupy = device_staging_module()
         # Only dense ndarrays go to the device; compare_arrays moves the rest.
@@ -1063,7 +1063,7 @@ class DaceFramework(Framework):
         kwargs.update(self.shape_symbols(impl, bench, resolved, kwargs))
         if declared is not None:
             kwargs.update(bind_closure_arrays(self._import_kernel(bench), declared))
-        if isinstance(impl, TimedCompiledSDFG) and self.info["arch"] == "gpu":
+        if isinstance(impl, TimedCompiledSDFG) and self.column.arch is Arch.GPU:
             stage_device_arguments(impl.sdfg, kwargs, device_staging_module())
         return [], kwargs
 

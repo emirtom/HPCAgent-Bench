@@ -130,20 +130,24 @@ is correct (it is 0 otherwise).
 The registration of Pythran:
 
 ```python
-@framework("pythran", order=6)
-class Pythran:
-    display = "Pythran"
-    adapter = "hpcagent_bench.frameworks.pythran_framework:PythranFramework"
-    base = "pythran"
-    full_name = "Pythran"
-    postfix = "pythran"
-    arch = "cpu"
-    sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
+FRAMEWORKS.add(
+    "pythran",
+    Column(
+        display="Pythran",
+        adapter="hpcagent_bench.frameworks.pythran_framework:PythranFramework",
+        base="pythran",
+        full_name="Pythran",
+        postfix="pythran",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+    ),
+    order=6,
+)
 ```
 
-`@framework` validates the class when it is applied; the attributes are listed in [registry.md](registry.md). A
-new column takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on every figure, append only.
+A `Column` validates itself when it is built; its fields are listed in [registry.md](registry.md). A new column
+takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on every figure, append only.
 
 - `display` is the compiler or library a figure prints; `full_name` the long name a table prints.
 - `adapter` is `package.module:Class`, imported on first use, so registering a column never imports its backend.

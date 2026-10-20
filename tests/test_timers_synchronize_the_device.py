@@ -16,6 +16,7 @@ import types
 
 import pytest
 
+from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks import dace_framework
 
 
@@ -37,7 +38,7 @@ def fake_device_module(log: list[str]) -> types.SimpleNamespace:
 
 def make_framework(arch: str, log: list[str], monkeypatch: pytest.MonkeyPatch) -> dace_framework.DaceFramework:
     fw = dace_framework.DaceFramework.__new__(dace_framework.DaceFramework)
-    fw.info = {"arch": arch}
+    fw.column = FRAMEWORKS.entries[f"dace_{arch}"]
     monkeypatch.setattr(
         "hpcagent_bench.harness.native_call.import_device_array_module",
         lambda: fake_device_module(log),
@@ -123,7 +124,7 @@ def test_the_base_timer_synchronizes(monkeypatch: pytest.MonkeyPatch) -> None:
 
     log = []
     fw = Framework.__new__(Framework)
-    fw.info = {"arch": "gpu"}
+    fw.column = FRAMEWORKS.entries["dace_gpu"]
     monkeypatch.setattr(
         "hpcagent_bench.harness.native_call.import_device_array_module",
         lambda: fake_device_module(log),

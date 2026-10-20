@@ -183,7 +183,7 @@ class Test:
         """Run ``impl`` ``repeat`` times via :meth:`Framework.measure`; returns ``(outputs, python_time_list,
         native_time_list)``. ``repeat=0`` is one untimed run. ``optimized`` means ``impl`` already came from
         :meth:`Framework.optimize`."""
-        report_str = frmwrk.info["full_name"] + " - " + impl_name
+        report_str = frmwrk.column.full_name + " - " + impl_name
         self._last_failure = None
         self._measured_impl = impl
         try:
@@ -270,7 +270,7 @@ class Test:
     ) -> dict[str, ImplTiming]:
         """Tests the framework against the benchmark; returns the per-implementation timings the CLI
         persists as JSONL, and records every timed sample in the results DB."""
-        full_name = self.frmwrk.info["full_name"]
+        full_name = self.frmwrk.column.full_name
         shown = datatype if datatype is not None else "default"
         print(f"***** Testing {full_name} with {self.bench.bname} on the {preset} dataset, datatype {shown} *****")
 
@@ -379,7 +379,7 @@ class Test:
                 ref_out, later_out, impl_name, "later-call validation", band, ignore_errors
             )
             if not valid:
-                print(f"{self.frmwrk.info['full_name']} - {impl_name}: later call did not validate")
+                print(f"{self.frmwrk.column.full_name} - {impl_name}: later call did not validate")
         if not timelist:
             return None
         return {"python": timelist, "native": native_times, "validated": valid}
@@ -402,7 +402,7 @@ class Test:
                 if isinstance(frmwrk_out, (tuple, list))
                 else frmwrk_out
             )
-            frmwrk_name = self.frmwrk.info["full_name"] + " - " + impl_name
+            frmwrk_name = self.frmwrk.column.full_name + " - " + impl_name
             spec = self.bench.spec
             valid = util.validate(
                 ref_out, host, frmwrk_name, rtol=band[0], atol=band[1], mismatch_fraction=spec.mismatch_fraction or 0.0
@@ -412,7 +412,7 @@ class Test:
             elif not ignore_errors:
                 raise ValueError(f"{frmwrk_name} did not validate ({stage})!")
         except Exception as e:
-            print("Failed to run {} validation.".format(self.frmwrk.info["full_name"]))
+            print(f"Failed to run {self.frmwrk.column.full_name} validation.")
             traceback.print_exception(e)
             if not ignore_errors:
                 raise

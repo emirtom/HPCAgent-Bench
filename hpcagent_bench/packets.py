@@ -33,6 +33,7 @@ from types import MappingProxyType
 from hpcagent_bench import external_skills
 from hpcagent_bench import study_tags as tags
 from hpcagent_bench.skill_frontmatter import Applies, SkillFrontmatter, split_frontmatter
+from hpcagent_bench.vocabulary import PacketDevice
 
 __all__ = [
     "CPF_ENV_KEYS",
@@ -80,8 +81,8 @@ SKILLS_DIR = pathlib.Path(__file__).resolve().parent / "skills"
 PLACEHOLDER_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 #: A GPU vendor -> the languages its device kernels are written in.
-DEVICE_LANGUAGES: Mapping[str, frozenset[str]] = MappingProxyType(
-    {"amd": frozenset({"hip"}), "nvidia": frozenset({"cuda"})}
+DEVICE_LANGUAGES: Mapping[PacketDevice, frozenset[str]] = MappingProxyType(
+    {PacketDevice.AMD: frozenset({"hip"}), PacketDevice.NVIDIA: frozenset({"cuda"})}
 )
 
 #: Languages no CPU tool can see a kernel in: a ``cpu`` packet refuses them.
@@ -300,7 +301,7 @@ def expand_token(
             skills[page] = None
         return
     seen.add(token)
-    fault = device_fault(token, definition.device, language) if definition.device else ""
+    fault = device_fault(token, definition.device, language) if definition.device is not None else ""
     if fault:
         raise ValueError(fault)
     for skill_token in definition.skills:
@@ -317,16 +318,14 @@ def expand_token(
         methods[token] = definition.method
 
 
-def device_fault(key: str, device: str, language: str) -> str:
+def device_fault(key: str, device: PacketDevice, language: str) -> str:
     """Why ``key``, whose pages teach ``device``'s tools, cannot serve a run in ``language``; "" when it can."""
-    if device == "cpu":
+    if device is PacketDevice.CPU:
         if language in DEVICE_ONLY_LANGUAGES:
             return f"packet {key!r} teaches CPU tools, which never see a {language!r} kernel; use its device variant"
         return ""
-    if device not in DEVICE_LANGUAGES:
-        return f"packet {key!r} names device {device!r}; expected cpu or one of {sorted(DEVICE_LANGUAGES)}"
     if language not in DEVICE_LANGUAGES[device]:
-        return f"packet {key!r} is for {device} runs in {sorted(DEVICE_LANGUAGES[device])}, not {language!r}"
+        return f"packet {key!r} is for {device.text} runs in {sorted(DEVICE_LANGUAGES[device])}, not {language!r}"
     return ""
 
 

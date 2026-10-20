@@ -1,68 +1,97 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The vocabulary of a figure and a results database: LLMs, standalone optimizers, agent harnesses,
-languages, devices and skill packets, each registered by a class decorator.
+"""The vocabulary of a figure and a results database: LLMs, standalone optimizers, agent harnesses, languages,
+devices, skill packets and framework columns -- one :class:`~hpcagent_bench.registry.Kind` each, and the entry
+types they hold.
 
-The decorated classes live in :mod:`hpcagent_bench.models` (the first five) and
-:mod:`hpcagent_bench.skill_packets`. This module owns the decorators, what a decorated class must
-provide, and the registries they fill (:mod:`hpcagent_bench.registry` has the mechanism and the
-rules every kind shares). ``docs/extending/registry.md`` is the author's guide.
+The entries are added in :mod:`hpcagent_bench.models`, :mod:`hpcagent_bench.columns` and
+:mod:`hpcagent_bench.skill_packets` (and by plugins, :mod:`hpcagent_bench.plugins`). ``docs/extending/registry.md``
+is the author's guide.
 
-THE SLOTS. ``order`` is the explicit slot of an entry. The colour ramp and the marker pool are
-indexed by it (:mod:`hpcagent_bench.stats.palette`): a model takes marker ``order`` of the pool, an
-optimizer ``order`` counted from its end, a harness and a packet the next free shape of the treatment
-pool in slot order, and every kind takes hue ``order`` of the ramp. So an entry's colour and marker
-change if and only if its ``order`` does: never reuse or renumber one, and give a new entry
-:meth:`~hpcagent_bench.registry.Kind.next_order`. ``tests/test_vocabulary.py`` pins every slot.
+THE SLOTS. ``order`` is the slot of an entry. The colour ramp and the marker pool are indexed by it
+(:mod:`hpcagent_bench.stats.palette`): a model takes marker ``order`` of the pool, an optimizer ``order`` counted
+from its end, a harness and a packet the next free shape of the treatment pool in slot order, and every kind takes
+hue ``order`` of the ramp. A shipped entry states its slot, so its colour and marker never change when another
+entry is added; a plugin's entry takes the next free one. ``tests/test_vocabulary.py`` pins every shipped slot.
 """
 
 import dataclasses
+import enum
 import re
-from collections.abc import Callable, Iterable
-from typing import Any, NotRequired, TypedDict
+
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.registry import Field, Kind, RegistryError
+from hpcagent_bench.registry import Kind, RegistryError
 
 __all__ = [
     "ADAPTER_PATTERN",
     "DEVICES",
     "FRAMEWORKS",
-    "FRAMEWORK_ARCHS",
-    "FRAMEWORK_OPTIONAL",
     "HARNESSES",
     "KINDS",
     "LANGUAGES",
     "MODELS",
-    "NAME",
     "OPTIMIZERS",
     "OPTIMIZER_ADAPTER_MODULE",
     "PACKETS",
-    "PACKET_DEVICES",
-    "FrameworkMeta",
+    "Arch",
+    "Column",
+    "DaceStage",
+    "DaceTuner",
     "ModelEntry",
     "PacketDef",
+    "PacketDevice",
+    "Transform",
     "check_vocabulary",
-    "device",
-    "framework",
-    "framework_meta",
-    "harness",
     "is_optimizer_adapter",
-    "language",
-    "llm",
-    "named",
-    "optimizer",
-    "packet",
-    "packet_def",
 ]
+
+
+class Arch(Coded):
+    """The device a framework column runs on, so the device anti-cheats a grade meets."""
+
+    CPU = enum.auto()
+    GPU = enum.auto()
+
+
+class DaceStage(Coded):
+    """A DaCe flavor's pipeline stage."""
+
+    CANON = enum.auto()
+    PARALLEL = enum.auto()
+    AUTOOPT = enum.auto()
+
+
+class DaceTuner(Coded):
+    """The autotuner a DaCe flavor runs after its stage."""
+
+    ALLOY_PROFILE = enum.auto()
+    ALLOY_HEURISTIC = enum.auto()
+
+
+class Transform(Coded):
+    """The source-to-source tool whose output a pluto-family column compiles."""
+
+    PLUTO = enum.auto()
+    PPCG = enum.auto()
+    POLYGEIST = enum.auto()
+
+
+class PacketDevice(Coded):
+    """Whose tools a packet's pages teach."""
+
+    CPU = enum.auto()
+    AMD = enum.auto()
+    NVIDIA = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ModelEntry:
     """A model's display name and the checkpoint it is expected to serve.
 
-    The checkpoint is recorded so an experiment that swaps one cannot silently keep the old name on an
-    axis; ``tests/test_display_names.py`` checks it against what the setups really ran."""
+    The checkpoint is recorded so an experiment that swaps one cannot silently keep the old name on an axis;
+    ``tests/test_display_names.py`` checks it against what the setups really ran."""
 
     name: str
     serves: str
@@ -70,20 +99,28 @@ class ModelEntry:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PacketDef:
-    """One packet's definition, before ``${VAR}`` placeholders are filled or ``lang``/``*`` are expanded
-    into concrete skill pages -- see :mod:`hpcagent_bench.packets`, the resolver that reads this."""
+    """One packet's definition, before ``${VAR}`` placeholders are filled or ``lang``/``*`` are expanded into
+    concrete skill pages -- see :mod:`hpcagent_bench.packets`, the resolver that reads this.
 
+    A registered key's definition is immutable once a results database has recorded it (the ``packets`` table in
+    :mod:`hpcagent_bench.harness.recording`): a changed meaning goes under a NEW key."""
+
+    #: The display name.
     name: str
-    skills: tuple[str, ...]
-    packets: tuple[str, ...]
-    env: tuple[tuple[str, str], ...]
-    method: str
-    #: MCP tools this packet CARRIES -- served by agent/hpcagent_agent/tools/mcp_server.py only in its setups
-    #: (``HPCAGENT_BENCH_PACKET_TOOLS``). Its ``skills`` pages are then that tool's manual, which is why ``*`` does
-    #: not expand to them (:func:`hpcagent_bench.packets.tool_pages`).
+    #: Skill page directories to stage; ``lang`` and ``*`` expand at resolve time.
+    skills: tuple[str, ...] = ()
+    #: Other registered packet keys this one composes.
+    packets: tuple[str, ...] = ()
+    #: ``KEY=value`` switches, in order; a value may hold ``${VAR}``.
+    env: tuple[tuple[str, str], ...] = ()
+    #: The method this packet runs: a method directory a plugin ships (its ``method.md`` fills ``{{HINTS}}``);
+    #: resolving it exports ``AGENT_METHOD`` (:data:`hpcagent_bench.packets.METHOD_ENV`). At most one per packet.
+    method: str = ""
+    #: MCP tools this packet CARRIES, served only in its setups; its ``skills`` are then that tool's manual, which
+    #: ``*`` does not expand to (:func:`hpcagent_bench.packets.tool_pages`).
     tools: tuple[str, ...] = ()
-    #: Whose tools the pages teach (cpu, amd, nvidia); "" for a device-neutral packet.
-    device: str = ""
+    #: Whose tools the pages teach; None for a device-neutral packet.
+    device: PacketDevice | None = None
     #: Why a recorded key takes no new submissions; "" while it still does.
     frozen: str = ""
     #: The shape this packet wears instead of the next free one from the pool ("": the pool's).
@@ -92,225 +129,11 @@ class PacketDef:
     short: str = ""
 
 
-#: One framework column's descriptor. A TypedDict rather than a dataclass because these entries are read by
-#: SUBSCRIPT across the repo (the CLI, preflight, the flavor tests) and ``Framework.info`` is one of them
-#: with ``simple_name`` added. :func:`framework` builds it from a decorated class.
-class FrameworkMeta(TypedDict):
-    display: str
-    adapter: str
-    base: str
-    sweep_deterministic: bool
-    full_name: str
-    postfix: str
-    arch: str
-    precisions: frozenset[Precision]
-    pipelines: NotRequired[tuple[str, ...]]
-    stage: NotRequired[str]
-    tuner: NotRequired[str]
-    column: NotRequired[str]
-    flavor: NotRequired[str]
-    language: NotRequired[str]
-    emit_language: NotRequired[str]
-    compiler: NotRequired[str]
-    flags: NotRequired[str]
-    autopar_gate: NotRequired[str]
-    transform: NotRequired[str]
-    simple_name: NotRequired[str]
-
-
-NAME = Field(str, doc="the display name a figure prints")
+#: ``package.module:Class``.
 ADAPTER_PATTERN = re.compile(r"^[a-z_][a-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
-FRAMEWORK_ARCHS = frozenset({"cpu", "gpu"})
 #: The module whose :class:`~hpcagent_bench.harness.agent.Agent` classes an autotuning flavor's ``adapter`` names;
 #: every other adapter is a :class:`~hpcagent_bench.frameworks.framework.Framework` subclass.
 OPTIMIZER_ADAPTER_MODULE = "hpcagent_bench.harness.optimizers"
-#: The optional descriptor fields; one a class leaves out is absent from its entry, not ``None``.
-FRAMEWORK_OPTIONAL = (
-    "pipelines",
-    "stage",
-    "tuner",
-    "column",
-    "flavor",
-    "language",
-    "emit_language",
-    "compiler",
-    "flags",
-    "autopar_gate",
-    "transform",
-)
-
-
-def framework_meta(key: str, attrs: dict[str, Any]) -> FrameworkMeta:
-    """A framework column's :class:`FrameworkMeta`; refuses an ``arch`` that is not cpu/gpu, an ``adapter`` that
-    is not ``package.module:Class``, an empty precision set and a ``column`` without its ``flavor``."""
-    if attrs["arch"] not in FRAMEWORK_ARCHS:
-        raise RegistryError(f"frameworks {key!r}: arch must be one of {sorted(FRAMEWORK_ARCHS)}, got {attrs['arch']!r}")
-    if not ADAPTER_PATTERN.match(attrs["adapter"]):
-        raise RegistryError(f"frameworks {key!r}: adapter {attrs['adapter']!r} must read 'package.module:Class'")
-    if not attrs["precisions"]:
-        raise RegistryError(f"frameworks {key!r}: precisions is empty, so the column can execute nothing")
-    if (attrs["column"] is None) != (attrs["flavor"] is None):
-        raise RegistryError(f"frameworks {key!r}: a flavor entry declares both column and flavor, or neither")
-    required = list(FrameworkMeta.__required_keys__)
-    meta = {name: attrs[name] for name in required}
-    meta.update({name: attrs[name] for name in FRAMEWORK_OPTIONAL if attrs[name] is not None})
-    return meta  # type: ignore[return-value]
-
-
-def named(key: str, attrs: dict[str, Any]) -> str:
-    """The display name of an entry that is a name and nothing else."""
-    return str(attrs["name"])
-
-
-def packet_def(key: str, attrs: dict[str, Any]) -> PacketDef:
-    """A packet's :class:`PacketDef`; its env mapping becomes ordered ``(key, value)`` pairs."""
-    return PacketDef(
-        name=attrs["name"],
-        skills=attrs["skills"],
-        packets=attrs["packets"],
-        env=tuple((str(name), str(value)) for name, value in attrs["env"].items()),
-        method=attrs["method"],
-        tools=attrs["tools"],
-        device=attrs["device"],
-        frozen=attrs["frozen"],
-        marker=attrs["marker"],
-        short=attrs["short"],
-    )
-
-
-MODELS = Kind(
-    "models",
-    {
-        "name": NAME,
-        "serves": Field(str, doc="the checkpoint the tag is expected to serve"),
-    },
-    lambda key, attrs: ModelEntry(attrs["name"], attrs["serves"]),
-)
-FRAMEWORKS = Kind(
-    "frameworks",
-    {
-        "display": Field(str, doc="the name a figure prints: the compiler or library, not the flavor"),
-        "adapter": Field(
-            str, doc="'package.module:Class' of the Framework (or autotuning Agent), imported on first use"
-        ),
-        "base": Field(str, doc="the backend this column is a flavor of; columns sharing a base share an adapter"),
-        "full_name": Field(str, doc="the long name a table prints"),
-        "postfix": Field(str, doc="selects the kernel impl file, <module>_<postfix>.py"),
-        "arch": Field(str, doc="cpu or gpu: the device it runs on, so the device anti-cheats a grade meets"),
-        "sweep_deterministic": Field(bool, doc="a deterministic (unjudged, no-agent) sweep may select it"),
-        "precisions": Field(frozenset, doc="the Precision set it can execute; run-framework does not enforce it"),
-        "pipelines": Field(tuple, None, "the SDFG pipelines a DaCe flavor compiles and scores"),
-        "stage": Field(str, None, "a DaCe flavor's pipeline stage: canon, parallel or autoopt"),
-        "tuner": Field(str, None, "the autotuner a DaCe flavor runs after its stage: alloy_profile or alloy_heuristic"),
-        "column": Field(str, None, "with flavor: the DB column this name groups under"),
-        "flavor": Field(str, None, "with column: the optimizer; the name must be <column>_<flavor>"),
-        "language": Field(str, None, "what the native/pluto column compiles"),
-        "emit_language": Field(str, None, "the language of the translator output the sources start from"),
-        "compiler": Field(str, None, "the compilers.yaml block the build forces"),
-        "flags": Field(str, None, "the hpcagent_bench.flags preset appended to the baseline"),
-        "autopar_gate": Field(str, None, "the flags.<probe>() that must read OK before the column builds"),
-        "transform": Field(str, None, "pluto or ppcg: the source-to-source tool whose output it compiles"),
-    },
-    framework_meta,
-)
-OPTIMIZERS = Kind("optimizers", {"name": NAME}, named)
-HARNESSES = Kind("harnesses", {"name": NAME}, named)
-LANGUAGES = Kind("languages", {"name": NAME}, named)
-DEVICES = Kind("devices", {"name": NAME}, named)
-PACKETS = Kind(
-    "packets",
-    {
-        "name": NAME,
-        "skills": Field(tuple, (), "skill page directories to stage; `lang` and `*` expand at resolve time"),
-        "packets": Field(tuple, (), "other registered packet keys this one composes"),
-        "env": Field(dict, {}, "KEY -> value env switches; a value may hold ${VAR}"),
-        "method": Field(str, "", "a directory under agent/hpcagent_agent/packets/, at most one per resolved packet"),
-        "tools": Field(tuple, (), "MCP tools this packet carries"),
-        "device": Field(str, "", "cpu, amd or nvidia: whose tools the pages teach"),
-        "frozen": Field(str, "", "why the key takes no new submissions"),
-        "marker": Field(str, "", "the shape this packet wears instead of the pool's next free one"),
-        "short": Field(str, "", "a figure's short spelling"),
-    },
-    packet_def,
-)
-
-#: Every vocabulary kind by its plural name, the spelling a figure and the display-name lookups use.
-KINDS: dict[str, Kind[Any]] = {
-    kind.name: kind for kind in (MODELS, OPTIMIZERS, HARNESSES, LANGUAGES, DEVICES, PACKETS, FRAMEWORKS)
-}
-
-
-def llm(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register an LLM under ``key``, the tag its setups record (``qwen38``).
-
-    The class must provide ``name`` (str: the display name) and ``serves`` (str: the checkpoint the tag
-    is expected to serve). ``order`` is the slot of its marker (:func:`~hpcagent_bench.registry.Kind.next_order`
-    for a new one); ``aliases`` are other spellings that resolve to it and take no slot of their own."""
-    return MODELS.register(key, order=order, aliases=aliases)
-
-
-def optimizer(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register a standalone optimizer under ``key``: a compiler or pipeline that stands where an LLM
-    stands on a figure (``dace``, ``cpf``, ``pluto``).
-
-    The class must provide ``name`` (str). Its marker is slot ``order`` counted from the END of the pool,
-    so registering another LLM never repaints it; device variants are ``aliases``."""
-    return OPTIMIZERS.register(key, order=order, aliases=aliases)
-
-
-def harness(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register an agent harness under ``key``, the ``harness`` column value (``claude``).
-
-    The class must provide ``name`` (str). Harnesses take the clearest shapes of the treatment pool,
-    ahead of every packet, in slot order."""
-    return HARNESSES.register(key, order=order, aliases=aliases)
-
-
-def language(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register a language under ``key``, the language a setup asked for (``c``, ``hip``).
-
-    The class must provide ``name`` (str), the proper name (``C++``, not ``Cpp``). A GPU-only language
-    is a language here, not a framework: it is what the agent was asked to write."""
-    return LANGUAGES.register(key, order=order, aliases=aliases)
-
-
-def device(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register a device under ``key``, the ``device`` column value the schema constrains
-    (``cpu``, ``gpu``, ``cpu-multinode``, ``gpu-multinode``).
-
-    The class must provide ``name`` (str)."""
-    return DEVICES.register(key, order=order, aliases=aliases)
-
-
-def packet(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register a skill packet under ``key``, the canonical ``packet`` column value.
-
-    A packet names a set of skills, tools and env switches an agent is given, never a device and never
-    a programming model. The class must provide ``name`` (str) and may provide ``skills``, ``packets``,
-    ``tools`` (tuples of str), ``env`` (a dict of KEY -> value), ``method``, ``device``, ``frozen``,
-    ``marker`` and ``short`` (str); :mod:`hpcagent_bench.packets` resolves them. The key ``""`` is the
-    no-packet control: it takes ``order=None`` and a neutral colour of its own.
-
-    A registered key's definition is immutable once a results database has recorded it: a changed
-    meaning goes under a NEW key, and a rename without a change of meaning is an alias. ``order`` is
-    the slot of the packet's hue and of its shape; ``frozen`` keeps a retired key resolving for the
-    records that hold it."""
-    return PACKETS.register(key, order=order, aliases=aliases)
-
-
-def framework(key: str, *, order: int | None, aliases: Iterable[str] = ()) -> Callable[[type], type]:
-    """Register a framework column under ``key``, the ``framework`` column value and the CLI name (``cc``,
-    ``dace_cpu_autoopt``). The class must provide every field of :data:`FRAMEWORKS` that has no default
-    (see ``docs/extending/registry.md``): ``display``, ``adapter``, ``base``, ``full_name``, ``postfix``,
-    ``arch``, ``sweep_deterministic`` and ``precisions``; the rest describe a native, pluto or DaCe flavor.
-
-    ``adapter`` names the :class:`~hpcagent_bench.frameworks.framework.Framework` subclass (an autotuning
-    flavor: an Agent in :data:`OPTIMIZER_ADAPTER_MODULE`) as ``package.module:Class`` and is imported on first
-    use, so registering a column never imports its backend. ``order`` is the hue slot, append-only like every
-    kind; ``aliases`` are other spellings of the name (a rename keeps the old one). The naming scheme
-    (``<column>[_<flavor>]``, a two-device backend's column ``<base>_<arch>``, a flavor on its column's ``arch``)
-    is checked at import by :func:`hpcagent_bench.frameworks.framework.check_flavor_registry`."""
-    return FRAMEWORKS.register(key, order=order, aliases=aliases)
 
 
 def is_optimizer_adapter(adapter: str) -> bool:
@@ -318,23 +141,89 @@ def is_optimizer_adapter(adapter: str) -> bool:
     return adapter.partition(":")[0] == OPTIMIZER_ADAPTER_MODULE
 
 
-#: The devices a packet's ``device`` may name: whose tools its pages teach.
-PACKET_DEVICES = frozenset({"", "cpu", "amd", "nvidia"})
+@dataclasses.dataclass(frozen=True, slots=True)
+class Column:
+    """One framework column (or flavor of one): what runs it, where, and how a figure names it
+    (:mod:`hpcagent_bench.columns` has the naming scheme)."""
+
+    #: The name a figure prints: the compiler or library, not the flavor.
+    display: str
+    #: ``package.module:Class`` of the Framework (or autotuning Agent), imported on first use.
+    adapter: str
+    #: The backend this column is a flavor of; columns sharing a base share an adapter.
+    base: str
+    #: The long name a table prints.
+    full_name: str
+    #: Selects the kernel impl file, ``<module>_<postfix>.py``.
+    postfix: str
+    arch: Arch
+    #: Whether a deterministic (unjudged, no-agent) sweep may select it.
+    sweep_deterministic: bool
+    #: The precisions it can execute; ``run-framework`` does not enforce it.
+    precisions: frozenset[Precision]
+    #: The SDFG pipelines a DaCe flavor compiles and scores.
+    pipelines: tuple[str, ...] = ()
+    stage: DaceStage | None = None
+    tuner: DaceTuner | None = None
+    #: With ``flavor``: the DB column this name groups under; the name must be ``<column>_<flavor>``.
+    column: str | None = None
+    flavor: str | None = None
+    #: What the native/pluto column compiles.
+    language: str | None = None
+    #: The language of the translator output the sources start from.
+    emit_language: str | None = None
+    #: The ``compilers.yaml`` block the build forces.
+    compiler: str | None = None
+    #: The :mod:`hpcagent_bench.flags` preset appended to the baseline.
+    flags: str | None = None
+    #: The ``flags.<probe>()`` that must read OK before the column builds.
+    autopar_gate: str | None = None
+    transform: Transform | None = None
+
+    def __post_init__(self) -> None:
+        if not ADAPTER_PATTERN.match(self.adapter):
+            raise RegistryError(
+                f"frameworks {self.display!r}: adapter {self.adapter!r} must read 'package.module:Class'"
+            )
+        if not self.precisions:
+            raise RegistryError(f"frameworks {self.display!r}: precisions is empty, so the column can execute nothing")
+        if (self.column is None) != (self.flavor is None):
+            raise RegistryError(f"frameworks {self.display!r}: a flavor declares both column and flavor, or neither")
+
+    @property
+    def optimizer(self) -> bool:
+        """Whether an autotuning Agent runs this column, not a Framework."""
+        return is_optimizer_adapter(self.adapter)
+
+
+MODELS: Kind[ModelEntry] = Kind("models")
+#: Standalone optimizers by display name: a compiler or pipeline that stands where an LLM stands on a figure.
+OPTIMIZERS: Kind[str] = Kind("optimizers")
+#: Agent harnesses (the loop driving the model) by display name.
+HARNESSES: Kind[str] = Kind("harnesses")
+#: The language a setup asked for, by display name.
+LANGUAGES: Kind[str] = Kind("languages")
+#: Where a kernel was timed, by display name.
+DEVICES: Kind[str] = Kind("devices")
+PACKETS: Kind[PacketDef] = Kind("packets")
+FRAMEWORKS: Kind[Column] = Kind("frameworks")
+
+#: Every vocabulary kind by its plural name, the spelling a figure and the display-name lookups use.
+KINDS: dict[str, Kind[ModelEntry] | Kind[str] | Kind[PacketDef] | Kind[Column]] = {
+    kind.name: kind for kind in (MODELS, OPTIMIZERS, HARNESSES, LANGUAGES, DEVICES, PACKETS, FRAMEWORKS)
+}
 
 
 def check_vocabulary() -> None:
-    """The cross-entry rules no single decorator can check, run once the whole vocabulary is registered:
-    every kind but the packets gives every entry a slot, only the no-packet control has none, a composed
-    packet and a ``device`` name something that exists."""
+    """The rules that span entries, run once the whole vocabulary is registered: every entry but the no-packet
+    control has a slot, columns sharing a base share one Framework adapter, and a composed packet exists."""
     for kind in KINDS.values():
         slotless = sorted(key for key, order in kind.orders.items() if order is None and (kind is not PACKETS or key))
         if slotless:
             raise RegistryError(f"{kind.name}: {slotless} have no order, so no colour or marker slot")
-    for base in {meta["base"] for meta in FRAMEWORKS.entries.values()}:
+    for base in {column.base for column in FRAMEWORKS.entries.values()}:
         adapters = {
-            meta["adapter"]
-            for meta in FRAMEWORKS.entries.values()
-            if meta["base"] == base and not is_optimizer_adapter(meta["adapter"])
+            column.adapter for column in FRAMEWORKS.entries.values() if column.base == base and not column.optimizer
         }
         if len(adapters) != 1:
             raise RegistryError(
@@ -346,5 +235,3 @@ def check_vocabulary() -> None:
         for part in definition.packets:
             if PACKETS.canonical(part) not in PACKETS.entries:
                 raise RegistryError(f"packets {key!r}: composes {part!r}, which is not registered")
-        if definition.device not in PACKET_DEVICES:
-            raise RegistryError(f"packets {key!r}: device {definition.device!r} is not one of {sorted(PACKET_DEVICES)}")

@@ -38,6 +38,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import ppcg_transform
+from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks import native_runtime, pluto_framework
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.ppcg_transform import device_resident_host
@@ -371,7 +372,7 @@ def fake_cupy_module(log: list[str]) -> object:
 def make_pluto(fname: str) -> pluto_framework.PlutoFramework:
     fw = pluto_framework.PlutoFramework.__new__(pluto_framework.PlutoFramework)
     fw.fname = fname
-    fw.info = {"arch": "gpu" if fname != "pluto" else "cpu"}
+    fw.column = FRAMEWORKS.entries[fname]
     return fw
 
 

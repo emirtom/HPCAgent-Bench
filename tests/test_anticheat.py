@@ -9,14 +9,13 @@ import re
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import anticheat, paths
-from hpcagent_bench.anticheat import ANTICHEAT, Context, Found, Gate, Verdict, build, judge
+from hpcagent_bench import anticheat, modules, paths
+from hpcagent_bench.anticheat import ANTICHEAT, Context, Found, Gate, Verdict, judge
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, VerifyResult
 from hpcagent_bench.harness.task import Task
-from hpcagent_bench.registry import Kind, RegistryError
+from hpcagent_bench.registry import RegistryError
 
 REPO = paths.ROOT
 
@@ -60,59 +59,54 @@ def test_the_docs_table_lists_the_registered_gates_in_order() -> None:
     ]
 
 
+PROBE = Gate("Probe", "x", Verdict.REJECT, ("a.py",))
+
+
 def build_gate(**changes: object) -> Gate:
-    fields = {"title": "Probe", "catches": "x", "verdict": Verdict.REJECT, "where": ("a.py",), "symbol": ""}
-    return build("probe", {**fields, "reruns": False, **changes})
+    """:data:`PROBE` with ``changes``, validated as any gate is."""
+    return dataclasses.replace(PROBE, **changes)
 
 
-def test_a_gate_must_provide_what_it_catches_and_what_happens_to_the_submission() -> None:
+def test_a_gate_must_say_where_it_is_enforced_and_name_a_resolvable_symbol() -> None:
+    assert build_gate().verdict is Verdict.REJECT
     for changes, message in (
         ({"where": ()}, "at least one repo-relative path"),
         ({"symbol": "not a symbol"}, "package.module"),
     ):
         with pytest.raises(RegistryError, match=message):
             build_gate(**changes)
-    scratch = Kind("anticheat", ANTICHEAT.fields, build)
-    with pytest.raises(RegistryError, match="required attribute 'catches'"):
-        scratch.register("probe", order=0)(
-            type("Probe", (), {"title": "Probe", "verdict": Verdict.REJECT, "where": ("a.py",)})
-        )
-    with pytest.raises(RegistryError, match="verdict must be"):  # a spelling, not a Verdict
-        scratch.register("probe", order=0)(
-            type("Probe", (), {"title": "Probe", "catches": "x", "verdict": "reject", "where": ("a.py",)})
-        )
-
-
-def test_the_decorator_documents_its_contract() -> None:
-    assert anticheat.anticheat.__doc__
-    assert "must provide" in anticheat.anticheat.__doc__
 
 
 def test_a_rerun_label_needs_a_check_and_an_in_place_gate_takes_none() -> None:
-    fields = {"title": "Probe", "catches": "x", "where": ("a.py",)}
-    with pytest.raises(RegistryError, match="the gate has none"):
-        anticheat.anticheat("probe_rerun", order=ANTICHEAT.next_order())(
-            type("Probe", (), {**fields, "verdict": Verdict.REJECT, "reruns": True})
-        )
-
     def check(context: Context) -> tuple[Found, ...]:
         return ()
 
+    with pytest.raises(RegistryError, match="the gate has none"):
+        build_gate(reruns=True)
     with pytest.raises(RegistryError, match="takes no check"):
-        anticheat.anticheat("probe_check", order=ANTICHEAT.next_order())(
-            type(
-                "Probe",
-                (anticheat.PostRunGate,),
-                {**fields, "verdict": Verdict.CONSTRUCTION, "check": staticmethod(check)},
-            )
+        build_gate(verdict=Verdict.CONSTRUCTION, check=check)
+    with pytest.raises(RegistryError, match="takes no check"):
+        anticheat.post_run_gate("probe_check", title="Probe", catches="x", verdict=Verdict.FINAL, where=("a.py",))(
+            check
         )
-    with pytest.raises(RegistryError, match="subclasses PostRunGate"):
-        anticheat.anticheat("probe_unrun", order=ANTICHEAT.next_order())(
-            type("Probe", (), {**fields, "verdict": Verdict.REJECT, "check": staticmethod(check)})
-        )
-    assert "probe_rerun" not in ANTICHEAT.entries
     assert "probe_check" not in ANTICHEAT.entries
-    assert "probe_unrun" not in ANTICHEAT.entries
+
+
+def test_post_run_gate_registers_its_check_at_the_next_slot() -> None:
+    def check(context: Context) -> tuple[Found, ...]:
+        return ()
+
+    slot = ANTICHEAT.next_order()
+    try:
+        registered = anticheat.post_run_gate(
+            "probe_post_run", title="Probe", catches="x", verdict=Verdict.FLAG, where=("a.py",)
+        )(check)
+        assert registered is check
+        assert ANTICHEAT["probe_post_run"].check is check
+        assert ANTICHEAT.slot("probe_post_run") == slot
+    finally:
+        del ANTICHEAT.entries["probe_post_run"]
+        del ANTICHEAT.orders["probe_post_run"]
 
 
 def graded(**changes: object) -> Score:
@@ -242,9 +236,9 @@ if __name__ == "__main__":
         test_the_gates_are_the_pinned_ones_in_the_order_they_are_met,
         test_every_gate_names_enforcement_that_exists,
         test_the_docs_table_lists_the_registered_gates_in_order,
-        test_a_gate_must_provide_what_it_catches_and_what_happens_to_the_submission,
-        test_the_decorator_documents_its_contract,
+        test_a_gate_must_say_where_it_is_enforced_and_name_a_resolvable_symbol,
         test_a_rerun_label_needs_a_check_and_an_in_place_gate_takes_none,
+        test_post_run_gate_registers_its_check_at_the_next_slot,
     ):
         test()
         print("ok", test.__name__)

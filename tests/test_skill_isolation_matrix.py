@@ -28,6 +28,7 @@ import pytest
 
 from hpcagent_bench import packets, paths
 from hpcagent_bench import study_tags as tags
+from hpcagent_bench.vocabulary import PacketDevice
 from tests.fresh_module import fresh
 from tests.mcp_stdio import served_tools, tool_names
 
@@ -43,11 +44,12 @@ DEFINITIONS = tags.registry().packet_defs
 REGISTERED_KEYS = tuple(sorted(DEFINITIONS))
 
 
-def effective_device(key: str) -> str:
+def effective_device(key: str) -> PacketDevice | None:
     """``key``'s own ``device:``, or the one a packet it COMPOSES sets (``all-in-amd`` names no
     device of its own; ``perf-playbook-amd``, which it reaches through ``packets:``, does)."""
     return next(
-        (DEFINITIONS[sub].device for sub in packets.reached_keys(key, DEFINITIONS) if DEFINITIONS[sub].device), ""
+        (device for sub in packets.reached_keys(key, DEFINITIONS) if (device := DEFINITIONS[sub].device) is not None),
+        None,
     )
 
 
@@ -56,7 +58,9 @@ def effective_device(key: str) -> str:
 #: every device-neutral key. Read off the registry rather than hand-picked, so a new ``device:``
 #: packet fails loudly here instead of silently picking the wrong language below.
 SETUP_FOR_KEY: dict[str, tuple[str, str | None]] = {
-    key: {"amd": ("hip", "amd"), "nvidia": ("cuda", "nvidia")}.get(effective_device(key), ("c", None))
+    key: {PacketDevice.AMD: ("hip", "amd"), PacketDevice.NVIDIA: ("cuda", "nvidia")}.get(
+        effective_device(key), ("c", None)
+    )
     for key in DEFINITIONS
 } | {
     "cpf-gpu-src": ("hip", "amd"),
@@ -321,7 +325,6 @@ def test_the_in_process_prompt_shows_the_library_text_exactly_when_the_grading_s
     from hpcagent_bench import config
     from hpcagent_bench.harness.prompts import build_prompt
     from hpcagent_bench.harness.task import Task
-
     from tests.request_allowances import allowing
 
     enabled = packets.libraries_enabled(key)

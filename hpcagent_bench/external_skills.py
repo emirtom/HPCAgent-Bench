@@ -105,16 +105,7 @@ def read_folder(folder: pathlib.Path, shipped_pages: frozenset[str]) -> External
             pages[meta.name] = path
             names.append(meta.name)
         packets[key] = PacketDef(
-            name=packet.name,
-            skills=tuple(names),
-            packets=packet.packets,
-            env=(),
-            method="",
-            tools=(),
-            device="",
-            frozen="",
-            marker=packet.marker,
-            short=packet.short,
+            name=packet.name, skills=tuple(names), packets=packet.packets, marker=packet.marker, short=packet.short
         )
     return ExternalSkills(pages, packets)
 

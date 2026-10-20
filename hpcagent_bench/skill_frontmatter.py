@@ -6,6 +6,8 @@ external one, :mod:`hpcagent_bench.external_skills`) opens with."""
 import pydantic
 import yaml
 
+from hpcagent_bench.vocabulary import PacketDevice
+
 __all__ = ["Applies", "PacketBlock", "SkillFrontmatter", "split_frontmatter", "without_packet_block"]
 
 
@@ -34,14 +36,15 @@ class PacketBlock(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    order: int
+    #: The packet's slot; a plugin's page leaves it out and takes the next free one.
+    order: int | None = None
     name: str
     aliases: tuple[str, ...] = ()
     packets: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()
     env: dict[str, str] = pydantic.Field(default_factory=dict)
     method: str = ""
-    device: str = ""
+    device: PacketDevice | None = None
     frozen: str = ""
     marker: str = ""
     short: str = ""

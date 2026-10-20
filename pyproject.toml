@@ -412,5 +412,7 @@ exclude = ["hpcagent_bench/benchmarks", "third_party", "**/node_modules", "**/__
 [tool.mypy]
 python_version = "3.12"
 follow_imports = "silent"
+# The agent package (hpcagent_agent) is a source root of its own: the judge imports its wire types.
+mypy_path = "agent"
 ignore_missing_imports = true
 exclude = ["^hpcagent_bench/benchmarks/", "^third_party/", "_generated\\.py$"]

@@ -37,6 +37,7 @@ from hpcagent_bench.cluster import jobs
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.support.collect import canon_db
 from hpcagent_bench.units import BYTES_PER_KIB, BYTES_PER_MIB
+from hpcagent_bench.vocabulary import Arch
 
 __all__ = [
     "DEFAULT_KERNEL_MEM_KB",
@@ -110,8 +111,8 @@ class Sweep:
 def is_device_column(column: str) -> bool:
     """Whether ``column`` builds for a GPU, so its step needs one: the device it registers (``arch``). An
     unregistered name is no device column; :func:`check_column` refuses it before a sweep runs."""
-    meta = FRAMEWORKS.entries.get(FRAMEWORKS.canonical(column))
-    return meta is not None and meta["arch"] == "gpu"
+    entry = FRAMEWORKS.entries.get(FRAMEWORKS.canonical(column))
+    return entry is not None and entry.arch is Arch.GPU
 
 
 def shell_environment(script: pathlib.Path, base: Mapping[str, str]) -> dict[str, str]:

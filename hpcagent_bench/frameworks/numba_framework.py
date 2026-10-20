@@ -68,8 +68,8 @@ class NumbaFramework(Framework):
             return []
         self.ensure_impls(bench)
         try:
-            return [(load_impl(bench, self.info["postfix"]), IMPL_NAME)]
+            return [(load_impl(bench, self.column.postfix), IMPL_NAME)]
         except ModuleNotFoundError as exc:
-            if exc.name != bench.impl_module(self.info["postfix"]):
+            if exc.name != bench.impl_module(self.column.postfix):
                 raise
             return []

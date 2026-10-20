@@ -33,7 +33,7 @@ import enum
 import math
 import types
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from hpcagent_bench import config
 from hpcagent_bench.registry import Kind, RegistryError
@@ -144,16 +144,11 @@ class Registered[F]:
     run: F
 
 
-def refuse_class(key: str, attrs: dict[str, Any]) -> NoReturn:
-    """The tests register functions through their decorators, never classes."""
-    raise RegistryError(f"{key!r}: register a test with its decorator, not a class ({sorted(attrs)})")
-
-
-PAIRED_TESTS: Kind[Registered[PairedTest]] = Kind("paired test", {}, refuse_class)
-PROPORTION_TESTS: Kind[Registered[ProportionTest]] = Kind("proportion test", {}, refuse_class)
-PAIRED_PROPORTION_TESTS: Kind[Registered[PairedProportionTest]] = Kind("paired proportion test", {}, refuse_class)
-CORRECTIONS: Kind[Registered[Correction]] = Kind("correction", {}, refuse_class)
-TIMING_TESTS: Kind[Registered[TimingTest]] = Kind("timing test", {}, refuse_class)
+PAIRED_TESTS: Kind[Registered[PairedTest]] = Kind("paired test")
+PROPORTION_TESTS: Kind[Registered[ProportionTest]] = Kind("proportion test")
+PAIRED_PROPORTION_TESTS: Kind[Registered[PairedProportionTest]] = Kind("paired proportion test")
+CORRECTIONS: Kind[Registered[Correction]] = Kind("correction")
+TIMING_TESTS: Kind[Registered[TimingTest]] = Kind("timing test")
 
 
 def registrar[F](kind: Kind[Registered[F]]) -> Callable[..., Callable[[F], F]]:

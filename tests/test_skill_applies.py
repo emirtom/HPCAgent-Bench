@@ -36,7 +36,7 @@ KNOWN_KEYS: frozenset[str] = frozenset({"languages", "images", "multinode", "exp
 
 #: The image vocabulary, from the resolver rather than a second list: ``cpu`` plus every GPU vendor
 #: that owns a device language.
-IMAGES: tuple[str, ...] = ("cpu", *sorted(packets.DEVICE_LANGUAGES))
+IMAGES: tuple[str, ...] = ("cpu", *sorted(device.text for device in packets.DEVICE_LANGUAGES))
 
 #: Every setup shape a page can be selected for. ``omp`` is a registered language for a FRAMEWORK
 #: column and no page is written for it, so it is dropped rather than demanding a ``lang-omp``.

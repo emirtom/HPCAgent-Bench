@@ -33,7 +33,7 @@ from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.collect import canon_db
 from hpcagent_bench.support.helpers.sparse.abi import BLOCK_FORMAT, LayoutRefused
-from hpcagent_bench.vocabulary import FRAMEWORKS
+from hpcagent_bench.vocabulary import FRAMEWORKS, Arch
 
 __all__ = [
     "DETAIL_CHARS",
@@ -289,7 +289,7 @@ class CanonTarget:
                     "node": node,
                     "execution": execution,
                     "cpu": cpu,
-                    "gpu": gpu if FRAMEWORKS.entries[str(row["column"])]["arch"] == "gpu" else "",
+                    "gpu": gpu if FRAMEWORKS.entries[str(row["column"])].arch is Arch.GPU else "",
                 }
                 for row in rows
             ],

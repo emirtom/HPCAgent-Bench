@@ -38,7 +38,7 @@ from hpcagent_bench.frameworks.framework import (
 )
 from hpcagent_bench.frameworks.native_framework import NativeFramework
 from hpcagent_bench.translators.numpyto_c.bindings import read_binding
-
+from hpcagent_bench.vocabulary import Arch, Transform
 
 __all__ = ["DEVICE_RESIDENT_COLUMN", "PlutoFramework"]
 
@@ -58,8 +58,8 @@ class PlutoFramework(NativeFramework):
         #: Kernel :meth:`measure` gates on, stamped by :meth:`build_call` -- ``measure``'s signature
         #: carries no benchmark and the gate needs a name to ask the oracle about.
         self.gate_kernel: str = ""
-        meta = FRAMEWORKS.entries[fname]
-        if meta.get("transform") == "polygeist" and meta["arch"] == "gpu":
+        column = FRAMEWORKS.entries[fname]
+        if column.transform is Transform.POLYGEIST and column.arch is Arch.GPU:
             # Read once, when HSA initializes: set before anything in this process touches the GPU.
             os.environ.update(polygeist_transform.run_env())
 
@@ -132,7 +132,7 @@ class PlutoFramework(NativeFramework):
         PPCG and Polygeist columns share this class but not that toolchain; they keep the harness's own
         ``--validate`` against the NumPy reference.
         """
-        if FRAMEWORKS.entries[self.fname].get("transform") == "pluto":
+        if self.column.transform is Transform.PLUTO:
             pluto_transform.assert_numeric_agreement(self.gate_kernel)
         return super().measure(impl, runner, repeat, before_each=before_each, warmup=warmup)
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from hpcagent_bench.frameworks import Framework
 from hpcagent_bench.frameworks.framework import AnyArray, KernelResult, SparseArray, is_dense
+from hpcagent_bench.vocabulary import Arch
 
 __all__ = ["TVMFramework", "metaschedule_trials", "tvm_device", "tvm_dtype", "tvm_dtype_str"]
 
@@ -57,14 +58,14 @@ def metaschedule_trials() -> int:
 
 class TVMFramework(Framework):
     """Framework binding for Apache TVM; one class serves both GPU (cuda) and CPU (llvm) backends via
-    ``self.info["arch"]``. An Optimizer: tune_tir (MetaSchedule) searches within ``OptimizeBudget.from_env()``'s trials."""
+    ``self.column.arch.text``. An Optimizer: tune_tir (MetaSchedule) searches within ``OptimizeBudget.from_env()``'s trials."""
 
     __slots__ = ()
 
     is_optimizer = True
 
     def _gpu(self) -> bool:
-        return self.info["arch"] == "gpu"
+        return self.column.arch is Arch.GPU
 
     def imports(self) -> dict[str, ModuleType]:
         import tvm

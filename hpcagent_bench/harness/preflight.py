@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from hpcagent_bench import flags, languages, pluto_transform, ppcg_transform
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.flags import AutoparVerdict, Mode
+from hpcagent_bench.vocabulary import DaceStage, Transform
 
 __all__ = [
     "AUTOPAR_PROBES",
@@ -43,7 +44,7 @@ __all__ = [
 #: the registered columns' ``sweep_deterministic`` flag (:mod:`hpcagent_bench.columns`), the
 #: single source of truth, rather than a second hand-kept list that can silently drift from it.
 DETERMINISTIC_FRAMEWORKS: tuple[str, ...] = tuple(
-    name for name, meta in FRAMEWORKS.entries.items() if meta["sweep_deterministic"]
+    name for name, column in FRAMEWORKS.entries.items() if column.sweep_deterministic
 )
 
 #: Autopar column -> the capability probe that decides whether it is one in fact as well as name.
@@ -73,11 +74,10 @@ def needs_canonicalize(frameworks: Sequence[str]) -> list[str]:
     registered framework column, and whether it needs spcl/dace@extended follows from what it runs."""
     out: list[str] = []
     for name in frameworks:
-        meta = FRAMEWORKS.entries.get(name)
-        if meta is None or meta.get("base") != "dace":
+        column = FRAMEWORKS.entries.get(name)
+        if column is None or column.base != "dace":
             continue
-        # ``canon_cpu`` / ``canon_gpu``, by prefix: the pipelines are named per target.
-        if any(p.startswith("canon") for p in meta.get("pipelines", ())):
+        if column.stage is DaceStage.CANON:
             out.append(name)
     return out
 
@@ -94,7 +94,7 @@ def needs_polycc(frameworks: Sequence[str]) -> list[str]:
     return [
         name
         for name in frameworks
-        if (meta := FRAMEWORKS.entries.get(name)) is not None and meta.get("transform") == "pluto"
+        if (column := FRAMEWORKS.entries.get(name)) is not None and column.transform is Transform.PLUTO
     ]
 
 
@@ -121,7 +121,7 @@ def needs_ppcg(frameworks: Sequence[str]) -> list[str]:
     return [
         name
         for name in frameworks
-        if (meta := FRAMEWORKS.entries.get(name)) is not None and meta.get("transform") == "ppcg"
+        if (column := FRAMEWORKS.entries.get(name)) is not None and column.transform is Transform.PPCG
     ]
 
 
