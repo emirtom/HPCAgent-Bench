@@ -1070,7 +1070,10 @@ def test_a_regrade_hides_every_experiment_db_and_its_own_shards_from_the_replaye
     from hpcagent_bench import seal
 
     monkeypatch.delenv("RUN_ROOT", raising=False)
-    monkeypatch.delenv("RUN_DIR", raising=False)
+    # Set, then unset: hide_experiment_data sets RUN_DIR for the regrade, and monkeypatch restores only what it
+    # recorded. A bare delenv of an absent variable records nothing, so the regrade's RUN_DIR outlived the test.
+    monkeypatch.setenv("RUN_DIR", "")
+    monkeypatch.delenv("RUN_DIR")
     monkeypatch.setenv("SCRATCH", str(tmp_path))
     grade_under.hide_experiment_data(tmp_path / "out", [])
     plan = seal.grading_plan(["/work"])

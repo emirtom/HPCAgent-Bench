@@ -669,13 +669,15 @@ WORKFLOW = REPO / ".github" / "workflows" / "tests.yml"
 def ci_parse_shards(job_name: str = "dace-frontend", test_file: str | None = None) -> tuple[list[int], int]:
     """``(shard indices the named job runs, the count they are shards OF)``.
 
-    A job deals the corpus over matrix legs (``${{ matrix.shard }}/N``) or over sequential steps, one
-    ``I/N`` each. ``test_file`` keeps the steps whose command runs it, so a job that shards two files
-    is checked per file: a slice one file runs cannot stand in for a slice the other skips."""
+    A job deals the corpus over matrix legs (``include`` entries naming ``shard: I/N``, read as
+    ``${{ matrix.shard }}``) or over sequential steps, one ``I/N`` each. ``test_file`` keeps the steps whose
+    command runs it, so a job that shards two files is checked per file: a slice one file runs cannot stand in
+    for a slice the other skips."""
     import yaml
 
     job = yaml.safe_load(WORKFLOW.read_text())["jobs"][job_name]
-    matrix = [int(s) for s in ((job.get("strategy") or {}).get("matrix") or {}).get("shard", [])]
+    legs = ((job.get("strategy") or {}).get("matrix") or {}).get("include", [])
+    leg_slices = [str(leg["shard"]) for leg in legs if "shard" in leg]
     # Step-level env or the job's -- the variable sits on the step it belongs to here, but a later
     # edit hoisting it to the job must not turn this gate into a silent pass.
     scopes = [(job.get("env") or {}, None)]
@@ -686,9 +688,10 @@ def ci_parse_shards(job_name: str = "dace-frontend", test_file: str | None = Non
         spec = env.get(SHARD_ENV)
         if not spec or (test_file is not None and run is not None and test_file not in run):
             continue
-        index, _, count = str(spec).rpartition("/")
-        counts.add(int(count))
-        indices += matrix if "matrix.shard" in index else [int(index)]
+        for one in leg_slices if "matrix.shard" in str(spec) else [str(spec)]:
+            index, _, count = one.rpartition("/")
+            counts.add(int(count))
+            indices.append(int(index))
     assert len(counts) == 1, f"{job_name} names {counts or 'no'} shard counts; it has to name exactly one"
     return indices, counts.pop()
 

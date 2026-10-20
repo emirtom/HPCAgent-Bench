@@ -90,8 +90,9 @@ jobs:
           # The lint step diffs against the merge base.
           fetch-depth: 0
 
-      # Dealt before setup: nvc++ (a multi-minute install) goes only to the shard whose files include
-      # its one consumer, test_parallelism_dispatch.py, wherever the round-robin puts it this commit.
+      # Dealt before setup: nvc++ (a multi-minute install) goes only to the shards whose files include
+      # its consumers (test_parallelism_dispatch.py, test_autopar_probe.py's stdpar probe), wherever the
+      # round-robin puts them this commit.
       - name: Setup -- deal this shard's files (round-robin over the discovered sweep)
         id: sweep
         run: |
@@ -102,7 +103,8 @@ jobs:
           test -n "$files" || { echo 'unit sweep selected no files'; exit 1; }
           echo "files=$files" >> "$GITHUB_OUTPUT"
           case " $files " in
-            *" tests/test_parallelism_dispatch.py "*) echo "vendor-compilers=nvhpc" >> "$GITHUB_OUTPUT" ;;
+            *" tests/test_parallelism_dispatch.py "*|*" tests/test_autopar_probe.py "*)
+              echo "vendor-compilers=nvhpc" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - uses: ./.github/actions/setup
@@ -503,53 +505,37 @@ jobs:
   # slices run in sequence on one runner: 30 min together, 6-10 min each.
   dace-frontend:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: dace-frontend (parse + lower the generated DaCe corpus)
+    name: dace-frontend[${{ matrix.index }}] (parse + lower the generated DaCe corpus)
     runs-on: ubuntu-24.04
+    # One runner per half of the corpus: both halves on one runner ran past its 45 minutes.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { index: 0, shard: "0/2" }
+          - { index: 1, shard: "1/2" }
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
       - uses: ./.github/actions/setup
-      - name: Phase 8 -- the DaCe frontend still reads what the generator emits [shard 0/2]
+      - name: Phase 8 -- the DaCe frontend still reads what the generator emits
         if: ${{ !cancelled() }}
-        timeout-minutes: 16
+        timeout-minutes: 22
         env:
-          HPCAGENT_BENCH_DACE_PARSE_SHARD: "0/2"
+          HPCAGENT_BENCH_DACE_PARSE_SHARD: ${{ matrix.shard }}
         run: |
           lscpu | grep -E "^(Model name|CPU\(s\)|Thread|Core)" || true
           python -m pytest -q -p no:cacheprovider -rfsxX -m dace_frontend \
             --timeout=2700 tests/test_dace_frontend_validity.py
-      - name: Phase 8 -- the DaCe frontend still reads what the generator emits [shard 1/2]
-        if: ${{ !cancelled() }}
-        timeout-minutes: 16
-        env:
-          HPCAGENT_BENCH_DACE_PARSE_SHARD: "1/2"
-        run: |
-          lscpu | grep -E "^(Model name|CPU\(s\)|Thread|Core)" || true
-          python -m pytest -q -p no:cacheprovider -rfsxX -m dace_frontend \
-            --timeout=2700 tests/test_dace_frontend_validity.py
-      - name: Every level-3 DaCe port lowers, or fails the way LOWERING_REFUSED records [shard 0/2]
+      - name: Every level-3 DaCe port lowers, or fails the way LOWERING_REFUSED records
         if: ${{ !cancelled() }}
         # --timeout sits over LOWER_TIMEOUT_S (1500 s) so the child's own timeout reports first.
         # Emit once (prewarm) before xdist forks.
-        timeout-minutes: 16
+        timeout-minutes: 18
         env:
-          HPCAGENT_BENCH_DACE_PARSE_SHARD: "0/2"
-          # The work runs in spawned children that coverage does not measure.
-          PYTEST_ADDOPTS: ""
-        run: |
-          python -c "from tests.test_dace_port_lowering import prewarm; \
-            print(prewarm(), 'dace ports ready')"
-          python -m pytest -p no:cacheprovider -rfEsxX -n auto -v -m dace_lowering \
-            --maxfail=20 --timeout=1800 --timeout-method=thread tests/test_dace_port_lowering.py
-      - name: Every level-3 DaCe port lowers, or fails the way LOWERING_REFUSED records [shard 1/2]
-        if: ${{ !cancelled() }}
-        # --timeout sits over LOWER_TIMEOUT_S (1500 s) so the child's own timeout reports first.
-        # Emit once (prewarm) before xdist forks.
-        timeout-minutes: 16
-        env:
-          HPCAGENT_BENCH_DACE_PARSE_SHARD: "1/2"
+          HPCAGENT_BENCH_DACE_PARSE_SHARD: ${{ matrix.shard }}
           # The work runs in spawned children that coverage does not measure.
           PYTEST_ADDOPTS: ""
         run: |
@@ -562,14 +548,14 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: dace-corpus-frontend
+          name: dace-corpus-frontend-${{ matrix.index }}
           path: hpcagent_bench/benchmarks/**/*_dace.py
           retention-days: 7
           if-no-files-found: ignore
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: dace-frontend
+          coverage: dace-frontend-${{ matrix.index }}
 
   # Native codegen: the only runner that builds Pluto (codegen frameworks + fp16, the polycc-gated
   # tests, e2e[pluto], opt reports), then the two-unit build line, the CLI -> DB -> plot integration
@@ -841,13 +827,18 @@ jobs:
         with:
           coverage: mpi
 
-  # The generated DaCe corpus still computes what numpy computes: a C++ build and a run per kernel, about 40 minutes.
+  # The generated DaCe corpus still computes what numpy computes: a C++ build and a run per kernel. One runner per
+  # half of the corpus (about 20 minutes each): both halves on one runner ran past their caps.
   dace-numeric:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: dace-numeric (the generated DaCe corpus vs numpy)
+    name: dace-numeric[${{ matrix.index }}] (the generated DaCe corpus vs numpy)
     runs-on: ubuntu-24.04
-    # Two steps over halves of the corpus (12-16 min each): one step took 34-40 min, past its 38-minute
-    # cap on a slow runner. A step cap bounds each half.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { index: 0, shard: "0/2" }
+          - { index: 1, shard: "1/2" }
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -855,31 +846,16 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup
         with:
-          ccache: dace-numeric
-      - name: The generated DaCe corpus still computes what numpy computes @ S [shard 0/2]
+          ccache: dace-numeric-${{ matrix.index }}
+      - name: The generated DaCe corpus still computes what numpy computes @ S
         if: ${{ !cancelled() }}
         # -n 4: every worker runs a C++ build, so memory is the limit. Emit once (prewarm) before
         # xdist starts so the workers never race on the fingerprint cache.
-        timeout-minutes: 22
+        timeout-minutes: 35
         env:
           # Not /tmp (tmpfs): a full tmpfs fails builds in a way that reads as a kernel defect.
           JIT_CACHE_ROOT: ${{ runner.temp }}/jit
-          HPCAGENT_BENCH_DACE_PARSE_SHARD: "0/2"
-        run: |
-          rm -rf "$JIT_CACHE_ROOT/dace_numeric"
-          python -c "from tests.test_dace_numeric_agreement import prewarm; \
-            print(prewarm(), 'dace programs ready')"
-          python -m pytest -q -p no:cacheprovider -rfEs -n 4 -m dace_numeric \
-            --maxfail=20 --timeout=1500 tests/test_dace_numeric_agreement.py
-      - name: The generated DaCe corpus still computes what numpy computes @ S [shard 1/2]
-        if: ${{ !cancelled() }}
-        # -n 4: every worker runs a C++ build, so memory is the limit. Emit once (prewarm) before
-        # xdist starts so the workers never race on the fingerprint cache.
-        timeout-minutes: 22
-        env:
-          # Not /tmp (tmpfs): a full tmpfs fails builds in a way that reads as a kernel defect.
-          JIT_CACHE_ROOT: ${{ runner.temp }}/jit
-          HPCAGENT_BENCH_DACE_PARSE_SHARD: "1/2"
+          HPCAGENT_BENCH_DACE_PARSE_SHARD: ${{ matrix.shard }}
         run: |
           rm -rf "$JIT_CACHE_ROOT/dace_numeric"
           python -c "from tests.test_dace_numeric_agreement import prewarm; \
@@ -890,14 +866,14 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: dace-corpus-numeric
+          name: dace-corpus-numeric-${{ matrix.index }}
           path: hpcagent_bench/benchmarks/**/*_dace.py
           retention-days: 7
           if-no-files-found: ignore
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: dace-numeric
+          coverage: dace-numeric-${{ matrix.index }}
 
   # Hardware-marked tests and the GPU codegen columns on a real GPU. Manual only: a self-hosted
   # GPU runner is not always attached.
