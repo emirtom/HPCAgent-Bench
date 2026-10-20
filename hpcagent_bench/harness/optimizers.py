@@ -453,11 +453,12 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
     return target
 
 
-def tuner_agent(adapter: str) -> type[Agent]:
-    """The :class:`Agent` subclass of this module a tuner's ``adapter`` (``package.module:Class``) names."""
+def tuner_agent(adapter: str) -> type[AlloyOptimizer]:
+    """The autotuning :class:`Agent` of this module a tuner's ``adapter`` (``package.module:Class``) names; it is
+    constructed with the flavor's name."""
     value = modules.optional(sys.modules[__name__], adapter.partition(":")[2], type)
-    if not (isinstance(value, type) and issubclass(value, Agent)):
-        raise TypeError(f"tuner adapter {adapter!r} names no Agent of {__name__}")
+    if not (isinstance(value, type) and issubclass(value, AlloyOptimizer)):
+        raise TypeError(f"tuner adapter {adapter!r} names no autotuning Agent of {__name__}")
     return value
 
 

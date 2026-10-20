@@ -1105,7 +1105,7 @@ def figure_dot_row(
     )  # fmt: skip
     # A comparator (a compiler) has no no-packet control to be relative to: relative mode draws LLM pairs only.
     columns = with_comparators(columns, comparators) if config.mode is Mode.ABSOLUTE else columns
-    texts = {**MEASURE_LABELS, "speedup": speedup_row_label(over), **mode_labels(config), **(labels or {})}
+    texts = {**MEASURE_LABELS, Measure.SPEEDUP: speedup_row_label(over), **mode_labels(config), **(labels or {})}
     rows_config = measure_row_config(config, row_height_in)
     title_band = text_band(config.type_.title_pt, 2)
     category_band = text_band(config.type_.tick_pt, 2)

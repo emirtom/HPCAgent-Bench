@@ -38,7 +38,7 @@ from hpcagent_bench.stats.figures.efficacy.reduce import (
     solved_flags,
     speedup_mask,
 )
-from hpcagent_bench.stats.figures.marks import Mode
+from hpcagent_bench.stats.figures.marks import Mark, Mode
 from hpcagent_bench.study_tags import Marker
 
 __all__ = [
@@ -200,6 +200,11 @@ class FigureConfig:
     #: Where a mark sits (:class:`Mode`); relative mode prints the control's own level in a baseline band
     #: (:func:`draw_baseline_band`): speedup as a geomean of paired ratios, tokens as a ratio of arithmetic means.
     mode: Mode = Mode.ABSOLUTE
+    #: How a speedup or token estimate is drawn: a marker (:attr:`Mark.SCATTER`) or a bar from the row's reference
+    #: (:attr:`Mark.BAR`), either with the same 95% interval.
+    mark: Mark = Mark.SCATTER
+    #: A bar's width under :attr:`Mark.BAR`, in category units: at most ``2 * dodge`` so a pair never overlaps.
+    bar_width: float = 0.24
     #: A legend SWATCH's own size, points, and how far matplotlib scales it past that. At paper
     #: type a swatch drawn for authoring scale is taller than the row it sits in and the rows
     #: collide.

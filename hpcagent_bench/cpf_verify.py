@@ -92,7 +92,7 @@ def grade(
         cpf_cache.pathlib.Path(view), kernel, language.text, cpf_bridge.form_fptype(key, fptype), hints
     )
     if refused := abi_refusal(form, key, language):
-        return cpf_cache.Verification(verdict=cpf_cache.Verified.UNVERIFIED, reason=refused, preset=cfg.preset)
+        return cpf_cache.Verification(verdict=cpf_cache.Verified.UNVERIFIED, reason=refused, preset=cfg.preset.text)
     # A gpu form is the two units a GPU submission is: the host entry and the device kernels.
     # A form calling a vendor library is submitted with the load request the agent's would name.
     submission = Submission(
@@ -119,7 +119,7 @@ def grade(
     return cpf_cache.Verification(
         verdict=cpf_cache.Verified.OK if ok else cpf_cache.Verified.UNVERIFIED,
         reason=f"{reason}: {result.detail}"[:400] if reason else "",
-        preset=cfg.preset,
+        preset=cfg.preset.text,
         build_ok=bool(result.build_ok),
         correct=bool(result.correct),
         speedup=float(result.speedup),

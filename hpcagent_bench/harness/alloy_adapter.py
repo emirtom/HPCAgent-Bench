@@ -25,7 +25,7 @@ from dace.frontend.python.parser import DaceProgram
 from hpcagent_bench import config, paths
 from hpcagent_bench.categories import Preset, SourceMode
 from hpcagent_bench.cpf_bridge import render_canonical
-from hpcagent_bench.cpf_cache import DEFAULT_HINTS
+from hpcagent_bench.cpf_cache import DEFAULT_HINTS, Target
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.dace_framework import PIPELINES_BY_NAME, PipelineContext
 from hpcagent_bench.frameworks.framework import framework_class
@@ -131,7 +131,13 @@ def arch_of(task: Task) -> str:
 def rendered(task: Task, spec: BenchSpec, sdfg: dace.SDFG, deliver: Deliver) -> Submission:
     """``sdfg`` rendered by CPF in the bench C ABI as a library submission."""
     form = render_canonical(
-        spec, spec.short_name, sdfg, DIALECT[task.language.text], task.precision.value, arch_of(task), DEFAULT_HINTS
+        spec,
+        spec.short_name,
+        sdfg,
+        DIALECT[task.language.text],
+        task.precision.value,
+        Target.parse(arch_of(task)),
+        DEFAULT_HINTS,
     )
     return deliver(form.code, form.link)
 

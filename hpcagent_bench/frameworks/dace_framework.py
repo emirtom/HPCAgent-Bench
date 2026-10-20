@@ -797,7 +797,7 @@ class DaceFramework(Framework):
         from), canonicalized and published there on a miss. A cached canonicalize failure raises its error."""
         spec = bench.spec
         precision = self.datatype or ""
-        target = Target.GPU if self.info["arch"] == "gpu" else Target.CPU
+        target = Target.GPU if self.column.arch is Arch.GPU else Target.CPU
         impl = cpf_canonical.emit_program(spec)
         if isinstance(impl, cpf_canonical.RenderFailure):
             raise RuntimeError(f"cached canonicalize: {impl.verdict.text}: {impl.error}")
