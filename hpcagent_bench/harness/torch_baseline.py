@@ -654,14 +654,16 @@ def tag_kinds(problems: pathlib.Path, language: str) -> dict[Baseline, list[str]
     """The machine_learning kernels of a problems file (one JSON object per line), sorted, by the torch
     kind their grades time on ``language`` (:func:`hpcagent_bench.harness.grading.torch_autotune_kind`)."""
     from hpcagent_bench.harness import grading
+    from hpcagent_bench.harness.service import graded_language
     from hpcagent_bench.harness.task import Task, grading_residency
 
+    graded = graded_language(language)
     kernels = sorted({problem.kernel for problem in problem_file.read_lines(problems)})
     by_kind: dict[Baseline, list[str]] = {}
     for kernel in kernels:
         if BenchSpec.load(kernel).track is not Track.MACHINE_LEARNING:
             continue
-        task = Task(kernel, language=language, residency=grading_residency(kernel, language))
+        task = Task(kernel, language=graded, residency=grading_residency(kernel, graded))
         by_kind.setdefault(grading.torch_autotune_kind(task.on_gpu), []).append(kernel)
     return by_kind
 

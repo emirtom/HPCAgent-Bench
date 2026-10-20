@@ -52,7 +52,15 @@ from typing import Any
 import yaml
 
 from hpcagent_bench import config, containers, hf_export, languages, paths
-from hpcagent_bench.categories import BASELINE_OPTIONS, Residency, SourceMode, Track, baseline_text, parse_baseline
+from hpcagent_bench.categories import (
+    BASELINE_OPTIONS,
+    Language,
+    Residency,
+    SourceMode,
+    Track,
+    baseline_text,
+    parse_baseline,
+)
 from hpcagent_bench.harbor_grade import (
     BundleGrade,
     DistributedGrade,
@@ -300,8 +308,8 @@ def verifier_compose(hardware: str) -> str:
     return compose_text(header, {MAIN_SERVICE: service})
 
 
-def _ext(language: str) -> str:
-    return LANG_EXT.get(language, language)
+def _ext(language: Language) -> str:
+    return LANG_EXT.get(language, language.text)
 
 
 #: The ``requests`` block a task's submission is graded with (docs/requests_api.md), which the agent edits.
@@ -345,10 +353,10 @@ class KernelTask:
     def _path(self, name: str) -> str:
         return f"{WORKDIR}/{self.subdir}/{name}"
 
-    def submission_rel(self, language: str) -> str:
+    def submission_rel(self, language: Language) -> str:
         return f"{self.subdir}/submission.{_ext(language)}"
 
-    def submission_path(self, language: str) -> str:
+    def submission_path(self, language: Language) -> str:
         return self._path(f"submission.{_ext(language)}")
 
     def reference_path(self) -> str:
@@ -371,10 +379,10 @@ class KernelTask:
     def repo_dir_path(self) -> str:
         return self._path("repo")
 
-    def repo_source_path(self, language: str) -> str:
+    def repo_source_path(self, language: Language) -> str:
         return self._path(f"repo/src/{self.subdir}.{_ext(language)}")
 
-    def repo_source_rel(self, language: str) -> str:
+    def repo_source_rel(self, language: Language) -> str:
         """The seed relative to the repo root: true both in Harbor (/app/<k>/repo) and in an experiment clone."""
         return f"src/{self.subdir}.{_ext(language)}"
 
@@ -437,8 +445,8 @@ def _assert_unique_layout(tasks: list[tuple[str, list[KernelTask]]]) -> None:
             seen_sub[kt.subdir] = kt.key
 
 
-def _stub(row: hf_export.ExportRow, language: str) -> str:
-    lead = "!" if language == "fortran" else "//"
+def _stub(row: hf_export.ExportRow, language: Language) -> str:
+    lead = "!" if language is Language.FORTRAN else "//"
     return (
         f"{lead} Implement `{row.symbol or row.kernel}` here. The reference semantics are in\n"
         f"{lead} reference.py and the exact C-ABI in signature.json (same directory).\n"
@@ -452,7 +460,7 @@ def layout_lines(kt: KernelTask) -> str:
         return ""
     spec = BenchSpec.load(kt.key)
     signatures = "".join(
-        f"\n  - `{fmt}`: `{binding.symbols['c']}({', '.join(a.name for a in binding.args)})`"
+        f"\n  - `{fmt}`: `{binding.symbols[Language.C]}({', '.join(a.name for a in binding.args)})`"
         for fmt in spec.configurations
         for binding in (binding_from_spec(spec, config=fmt),)
     )
@@ -465,7 +473,7 @@ def layout_lines(kt: KernelTask) -> str:
     )
 
 
-def instruction_md(task_id: str, kts: list[KernelTask], language: str) -> str:
+def instruction_md(task_id: str, kts: list[KernelTask], language: Language) -> str:
     """The leak-free prompt: container paths of the reference, signature and submission, never inlined."""
     if len(kts) > 1:
         head = f"# Optimize the `{task_id}` kernels ({len(kts)} kernels)\n"
@@ -500,9 +508,9 @@ def instruction_md(task_id: str, kts: list[KernelTask], language: str) -> str:
     return head + "\n" + intro + "\n\n" + "\n\n".join(sections) + "\n" + grading
 
 
-def _translation_source(kt: KernelTask, language: str) -> str | None:
+def _translation_source(kt: KernelTask, language: Language) -> str | None:
     """The NumpyToX translation (correct, unoptimized) that seeds a repo task, or None if there is none."""
-    if language not in ("c", "cpp", "fortran"):
+    if language not in (Language.C, Language.CPP, Language.FORTRAN):
         return None
     from hpcagent_bench.harness.agent import reference_source
 
@@ -512,7 +520,7 @@ def _translation_source(kt: KernelTask, language: str) -> str | None:
         return None
 
 
-def issue_md(kt: KernelTask, language: str, speedup_min: float) -> str:
+def issue_md(kt: KernelTask, language: Language, speedup_min: float) -> str:
     """The 'too slow' issue framing a repo task (``ISSUE.md`` and the task's ``instruction.md``)."""
     row = kt.row
     sym = row.symbol or row.kernel
@@ -543,7 +551,7 @@ the in-repo source, checks correctness, and times it. Maximize speedup while sta
 """
 
 
-def repo_makefile(kt: KernelTask, language: str) -> str:
+def repo_makefile(kt: KernelTask, language: Language) -> str:
     """A Makefile building the seed with the grader's baseline compiler and flags."""
     src = f"src/{kt.subdir}.{_ext(language)}"
     lib = f"lib{kt.subdir}.so"
@@ -551,7 +559,7 @@ def repo_makefile(kt: KernelTask, language: str) -> str:
         cc = languages.compile_variant(BenchSpec.load(kt.key), language, src=pathlib.Path(src))[0]
         flags = languages.baseline_flags(language)
     except Exception:  # noqa: BLE001 -- no compiler table: a minimal shared-lib line
-        cc = {"c": "gcc", "cpp": "g++", "fortran": "gfortran"}.get(language, "gcc")
+        cc = {Language.C: "gcc", Language.CPP: "g++", Language.FORTRAN: "gfortran"}.get(language, "gcc")
         flags = "-O2 -fPIC"
     return (
         f"# Build the in-repo kernel into {lib} with the same baseline flags the grader compiles\n"
@@ -580,7 +588,7 @@ def mpi_binding(kt: KernelTask) -> tuple[BenchSpec, Binding]:
     return spec, binding_from_spec(spec)
 
 
-def mpi_instruction_md(kt: KernelTask, language: str, ranks: int, mode: ScalingLaw) -> str:
+def mpi_instruction_md(kt: KernelTask, language: Language, ranks: int, mode: ScalingLaw) -> str:
     """The distributed (MPI) prompt: the Sec. 12 ``kernel_mpi`` contract plus ``requests.json``."""
     row = kt.row
     spec, binding = mpi_binding(kt)
@@ -690,7 +698,7 @@ def mpi_instruction_md(kt: KernelTask, language: str, ranks: int, mode: ScalingL
 
 def test_sh(
     kts: list[KernelTask],
-    language: str,
+    language: Language,
     baseline: str,
     residency: Residency = Residency.HOST,
     layout: Layout = Layout.KERNEL,
@@ -746,7 +754,7 @@ def artifact_line(source: str, dest: str, exclude: tuple[str, ...]) -> str:
 def task_toml(
     task_id: str,
     kts: list[KernelTask],
-    language: str,
+    language: Language,
     hardware: str,
     judge_image: str,
     timeout_sec: float,
@@ -774,7 +782,7 @@ def task_toml(
             "kernels": ",".join(r.kernel for r in rows),
             "n_kernels": len(rows),
             "track": rows[0].track,
-            "language": language,
+            "language": language.text,
             "baseline": rows[0].baseline,
             "score_rule": score_rule.SCORE_RULE,
             "hardware": hardware,
@@ -790,7 +798,7 @@ def task_toml(
             "hpcagent_bench_id": row.id,
             "track": row.track,
             "dwarf": row.dwarf,
-            "language": language,
+            "language": language.text,
             "baseline": row.baseline,
             # A distributed task keeps the fuzzed sweep's rule; every single-node task, the final grade's.
             "score_rule": score_rule.SCORE_RULE,
@@ -853,7 +861,7 @@ def write_task(
     kts: list[KernelTask],
     out_dir: pathlib.Path,
     *,
-    language: str = "c",
+    language: Language = Language.C,
     baseline: str = "c",
     residency: Residency = Residency.HOST,
     layout: Layout = Layout.KERNEL,
@@ -938,7 +946,7 @@ def write_task(
     return task_dir
 
 
-def write_solution(task_dir: pathlib.Path, kts: list[KernelTask], language: str, sources: dict[str, str]) -> None:
+def write_solution(task_dir: pathlib.Path, kts: list[KernelTask], language: Language, sources: dict[str, str]) -> None:
     """``solution/solve.sh`` for Harbor's ``oracle`` agent: copy each kernel's reference translation
     into its submission path. Only the oracle agent ever sees ``solution/``."""
     sol = task_dir / "solution"
@@ -979,7 +987,7 @@ def check_modes(group: Group, residency: Residency, layout: Layout, *, oracle: b
 
 
 def _translations(
-    task_id: str, kts: list[KernelTask], language: str, layout: Layout, *, oracle: bool
+    task_id: str, kts: list[KernelTask], language: Language, layout: Layout, *, oracle: bool
 ) -> tuple[str | None, dict[str, str] | None] | None:
     """``(repo seed, oracle sources)`` a task needs, or None (logged) when a translation is missing."""
     solutions: dict[str, str] | None = None
@@ -1006,7 +1014,7 @@ def generate(
     out_dir: str | pathlib.Path,
     *,
     selector: str = "all",
-    language: str = "c",
+    language: Language = Language.C,
     group: Group | str = Group.KERNEL,
     residency: Residency = Residency.HOST,
     layout: Layout | str = Layout.KERNEL,
@@ -1075,7 +1083,7 @@ def generate(
     return dirs
 
 
-def stage_repo(kernel: str, dest: str | pathlib.Path, language: str = "c") -> pathlib.Path | None:
+def stage_repo(kernel: str, dest: str | pathlib.Path, language: Language = Language.C) -> pathlib.Path | None:
     """Build one kernel's repo-layout git repo and copy it to ``dest`` (the experiment's shared folder).
 
     Returns ``dest``, or None when the kernel has no translation to seed it. An existing ``dest``
@@ -1263,7 +1271,7 @@ def timing_lock() -> Iterator[None]:
 
 def grade(
     kernel: str,
-    language: str = "c",
+    language: Language = Language.C,
     *,
     source: str | None = None,
     library: str | None = None,
@@ -1444,7 +1452,7 @@ def harbor_reward(reward: Grade) -> dict[str, float | int]:
     return flat
 
 
-def _anchor_submission(source_path: str | None, library: str | None, language: str) -> Submission | None:
+def _anchor_submission(source_path: str | None, library: str | None, language: Language) -> Submission | None:
     """The single-node T_i(1) anchor for a distributed scaling sweep, or None."""
     if source_path and library:
         raise ValueError("anchor takes source OR library, not both")
@@ -1460,7 +1468,7 @@ def _grade_one(
     source_path: str | None,
     library: str | None,
     *,
-    language: str,
+    language: Language,
     baseline: str,
     k: int | None,
     verify: bool,
@@ -1471,7 +1479,7 @@ def _grade_one(
     seed_sha: str | None = None,
     anchor_source_path: str | None = None,
     anchor_library: str | None = None,
-    anchor_language: str | None = None,
+    anchor_language: Language | None = None,
 ) -> KernelGrade:
     """Grade one item, never raising: any failure is the neutral 1.0 reward."""
     try:
@@ -1505,7 +1513,7 @@ def grade_items(
     kernels: Sequence[str],
     sources: Sequence[str | None],
     *,
-    language: str = "c",
+    language: Language = Language.C,
     baseline: str = "c",
     libraries: Sequence[str | None] | None = None,
     k: int | None = None,
@@ -1517,7 +1525,7 @@ def grade_items(
     seed_shas: Sequence[str | None] | None = None,
     anchor_sources: Sequence[str | None] | None = None,
     anchor_libraries: Sequence[str | None] | None = None,
-    anchor_language: str | None = None,
+    anchor_language: Language | None = None,
 ) -> Grade:
     """Grade one or more items: one item's reward verbatim, several ``combine()``-d."""
 
@@ -1666,7 +1674,7 @@ def run_agent(
     selector: str,
     out_dir: str | pathlib.Path,
     *,
-    language: str = "c",
+    language: Language = Language.C,
     hardware: str | None = None,
     extra: Sequence[str] = (),
 ) -> tuple[int, list[Grade]]:
@@ -1706,7 +1714,7 @@ def adapter_metadata() -> dict[str, object]:
         "license": "GPL-3.0-or-later",
         "harness": "agent",
         "task_type": "code-optimization",
-        "languages": sorted(LANG_EXT),
+        "languages": sorted(lang.text for lang in LANG_EXT),
         "tracks": list(Track.texts()),
         "groups": [group.value for group in Group],
         "layouts": [layout.value for layout in Layout],

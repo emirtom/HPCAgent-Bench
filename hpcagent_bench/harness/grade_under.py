@@ -66,7 +66,7 @@ import yaml
 
 from hpcagent_bench import anticheat, config, experiments, owed, paths, protocols, recorded_rows
 from hpcagent_bench.api import RunConfig
-from hpcagent_bench.categories import Denominator, InputMode, Residency, SourceMode, Track
+from hpcagent_bench.categories import Denominator, InputMode, Language, Residency, SourceMode, Track
 from hpcagent_bench.harness import (
     db_json,
     denominator,
@@ -866,7 +866,7 @@ def environment_scope() -> Iterator[dict[str, str]]:
         os.environ.update(before)
 
 
-def delivered_language(language: str) -> str:
+def delivered_language(language: str) -> Language:
     """The language ``POST /submit`` graded a recorded ``language`` in: a python DSL (``triton``,
     ``triton-device``) is graded as ``python`` on the py-binding judge it must have come from."""
     return delivery_language(language, InputMode.PY_BINDING)

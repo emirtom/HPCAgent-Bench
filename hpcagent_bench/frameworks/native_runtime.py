@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from hpcagent_bench import modules, phase_clock
+from hpcagent_bench.categories import Language
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.frameworks.framework import native_column_languages
@@ -37,7 +38,9 @@ __all__ = [
 #: framework -> source language it compiles: each column's ``language``. Polly is a flag
 #: preset on the same cpp source as ``llvm``; Pluto compiles polycc's output, which is C (VLA parameters and
 #: ``restrict``, neither of which is C++); ``ppcg`` follows the local GPU toolchain (hpcagent_bench.ppcg_transform).
-FRAMEWORK_LANG: dict[str, str] = {name: languages[1] for name, languages in native_column_languages().items()}
+FRAMEWORK_LANG: dict[str, Language] = {
+    name: Language.parse(languages[1]) for name, languages in native_column_languages().items()
+}
 
 #: The columns that compile PPCG's output (``transform: ppcg``). Their FRAMEWORK_LANG entry doubles as
 #: the vendor handed to :func:`hpcagent_bench.ppcg_transform.transformed_sources`.
@@ -137,13 +140,13 @@ def _ensure_built(cpp_backend: pathlib.Path, short: str, framework: str) -> path
     so = bd / so_name
     from hpcagent_bench.languages import build_kernel_lib_commands
 
-    sources: list[tuple[str, pathlib.Path]] = [
+    sources: list[tuple[Language, pathlib.Path]] = [
         (lang, p) for p in native_sources(cpp_backend, short, framework) if p.exists()
     ]
     # Checked before mkdir, else a missing build dir masks the real "no sources" cause.
     if not sources:
         raise FileNotFoundError(
-            f"{short}: no {lang} sources under {cpp_backend} to build "
+            f"{short}: no {lang.text} sources under {cpp_backend} to build "
             f"{so_name} (generation from {short}_numpy.py did not run or failed)"
         )
     if so.exists() and so.stat().st_mtime >= max(p.stat().st_mtime for _, p in sources):

@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 
 from hpcagent_agent.coded import Coded
 
-from hpcagent_bench.categories import Baseline, InputMode, Oracle, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.timing import measurement_repeat
@@ -246,7 +246,7 @@ def score_from_payload(payload: "SubmitAnswer") -> "Score":
 def init(
     kernel: str,
     *,
-    language: str = "c",
+    language: Language = Language.C,
     source_mode: SourceMode = SourceMode.RESTRICTED,
     residency: Residency = Residency.HOST,
     config: RunConfig | None = None,

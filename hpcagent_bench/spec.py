@@ -48,7 +48,7 @@ except ImportError:  # PyYAML built without libyaml
 
 from hpcagent_bench import config, fuzz, manifest_schema, paths
 from hpcagent_bench import dtypes as dtype_registry
-from hpcagent_bench.categories import Preset, Track
+from hpcagent_bench.categories import Language, Preset, Track
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.manifest_schema import Number, Value
@@ -2119,7 +2119,7 @@ class BenchSpec(BaseModel):
     sparse_layouts: dict[str, InstanceOf[SparseLayout]] = Field(default_factory=dict[str, SparseLayout])
     configurations: dict[str, InstanceOf[SparseConfiguration]] = Field(default_factory=dict[str, SparseConfiguration])
 
-    languages: tuple[str, ...] = ()
+    languages: tuple[Language, ...] = ()
     fuzz: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
 
     #: The ``mpi:`` block; empty when the kernel is single-node only (multi-node, its arrays replicate).
@@ -2379,7 +2379,7 @@ class BenchSpec(BaseModel):
             allowed_precisions=allowed_precisions,
             sparse_layouts=sparse_layouts,
             configurations=configurations,
-            languages=tuple(str(lang) for lang in as_list(bench.get("languages"))),
+            languages=tuple(Language.validate(lang) for lang in as_list(bench.get("languages"))),
             fuzz=fuzz_blk,
             mpi=mpi_blk,
             config=config_knobs,

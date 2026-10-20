@@ -36,6 +36,7 @@ from relayout.convert import Conversion, Group, device_source, host_source
 from relayout.layout import IndexMap
 
 from hpcagent_bench import languages, omp_context
+from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import is_storage_only
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import disk_cache
@@ -182,14 +183,14 @@ def built_library(context: str, layouts: tuple[Conversion, ...] = (), groups: tu
     if cached.is_file():
         return cached
     family = CONTEXT_FAMILY.get(context or omp_context.DEFAULT_CONTEXT, "gcc")
-    compiler = languages.compiler_for_family("c", family)
+    compiler = languages.compiler_for_family(Language.C, family)
     cached.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="hb_casts_") as work:
         src = pathlib.Path(work, "hb_casts.c")
         src.write_text(source, encoding="utf-8")
         out = pathlib.Path(work, cached.name)
         env = {**os.environ, **omp_context.context_build_env(context)}
-        for argv in languages.build_shared_lib_commands("c", src, out, mode=Mode.MULTI_CORE, compiler=compiler):
+        for argv in languages.build_shared_lib_commands(Language.C, src, out, mode=Mode.MULTI_CORE, compiler=compiler):
             subprocess.run(argv, check=True, capture_output=True, env=env, cwd=work)
         publish(out, cached)
     return cached

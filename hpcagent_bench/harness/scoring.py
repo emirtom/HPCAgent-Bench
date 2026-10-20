@@ -25,7 +25,7 @@ import numpy as np
 
 from hpcagent_bench import config, flags, languages, sizing
 from hpcagent_bench import dtypes as dtype_registry
-from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import reassociation_agrees
 from hpcagent_bench.fuzz import FuzzValue, initializer_seed
@@ -1260,7 +1260,7 @@ def sanitized_run(
     name = languages.compiler_for_family(lang, family) or languages.resolved_compiler_for(lang).name
     driver = languages.compiler_driver(name)
     try:
-        gpu_arch = flags.detect_gfx() if lang == "hip" else ""
+        gpu_arch = flags.detect_gfx() if lang is Language.HIP else ""
     except RuntimeError as exc:  # no AMD GPU to build the device half for: the leg cannot start
         return sanitizers.SanitizerVerdict(False, note=f"not applied: {exc}")
     compile_flags, link_flags = sanitizers.build_flags(lang, driver, gpu_arch)
@@ -1506,7 +1506,7 @@ def guillotine_seconds(baseline_ns: int, timeout: float) -> float:
 
 def retime_baseline(
     primary: Baseline | None,
-    own_builds: Mapping[Baseline, tuple[str, str | None, Mode]],
+    own_builds: Mapping[Baseline, tuple[Language, str | None, Mode]],
     *,
     isolated_numba: bool,
     spec: BenchSpec,
@@ -2089,7 +2089,7 @@ def graded_score(
         # Why each candidate produced no denominator, so an all-failed set can say which and how.
         bl_errors: list[str] = []
         # The reference follows the candidate's compiler family, so a speedup measures the optimisation.
-        ref_compiler = reference_compiler(submission, "c")
+        ref_compiler = reference_compiler(submission, Language.C)
         # The family is in the output key too: gcc and clang may contract FMAs differently.
         c_oracle_key = (*oracle_key, Oracle.C.text, ref_compiler)
         # A baseline time depends on the cell, the denominator and the machine, never the submission
@@ -2111,7 +2111,7 @@ def graded_score(
         if cached is not None and lost_compiled_references(kinds, cached[1]):
             cached = None
         # kind -> (language, compiler, mode) of each own-build candidate's fastest build.
-        own_builds: dict[Baseline, tuple[str, str | None, Mode]] = {}
+        own_builds: dict[Baseline, tuple[Language, str | None, Mode]] = {}
         if cached is not None:
             baselines.update(cached[0])
             baseline_samples.update(cached[1])
@@ -3023,7 +3023,7 @@ class MpiLaunch:
     default_location: Location
 
 
-def mpi_cc_override() -> dict[str, str] | None:
+def mpi_cc_override() -> dict[Language, str] | None:
     """The ``{language: MPI wrapper}`` for the distributed build (``mpi.compilers``), or ``None`` for
     the ``compilers.yaml`` default. Must match ``mpi.launcher``'s MPI."""
     return dict(config.current().mpi.compilers) or None
@@ -3291,7 +3291,7 @@ def score_distributed(
     # A GPU-resident array is delivered as a device pointer (python -> mpi4py+cupy, source -> the
     # device driver); a plain c/cpp/fortran kernel cannot use one, so it is a scored config error.
     device = descriptor.any_device(binding)
-    if device and not submission.is_python and submission.language not in ("cuda", "hip"):
+    if device and not submission.is_python and submission.language not in (Language.CUDA, Language.HIP):
         return Score(
             False,
             float("inf"),
@@ -3541,7 +3541,7 @@ def time_scaling_anchor(
     for cuda/hip."""
     a_timeout = timing.kernel_timeout_s()
     a_memory = config.current().limits.kernel_memory_gb
-    device = single_rank_anchor.language in ("cuda", "hip")
+    device = single_rank_anchor.language in (Language.CUDA, Language.HIP)
     # T_1(N_1): built and timed once on the base problem, shared by every P.
     with Sandbox(binding, source_mode=task.source_mode) as asb:
         abuilt = asb.build(single_rank_anchor, mode=Mode.SINGLE_CORE)
@@ -3744,7 +3744,11 @@ def score_scaling(
         except ValueError as exc:
             note(p, f"invalid MPI layout ({exc})")
             continue
-        if descriptor.any_device(binding) and not submission.is_python and submission.language not in ("cuda", "hip"):
+        if (
+            descriptor.any_device(binding)
+            and not submission.is_python
+            and submission.language not in (Language.CUDA, Language.HIP)
+        ):
             note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {submission.language}")
             continue
         try:
@@ -3946,7 +3950,11 @@ def score_ml(
     lead = descriptors[ranks]
     if isinstance(lead, str):
         return refused(f"invalid MPI layout or sizing: {lead}")
-    if lead.any_device(binding) and not submission.is_python and submission.language not in ("cuda", "hip"):
+    if (
+        lead.any_device(binding)
+        and not submission.is_python
+        and submission.language not in (Language.CUDA, Language.HIP)
+    ):
         return refused(
             f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language}"
         )
@@ -4322,7 +4330,7 @@ def score_cells(
 
     def _run(
         lib: pathlib.Path,
-        lang: str,
+        lang: Language,
         data: dict[str, Any],
         reps: int,
         memory_gb: float,
@@ -4369,11 +4377,11 @@ def score_cells(
         c_unavailable = ""
         if plan.need_seq_c:
             try:
-                ctask = replace(task, language="c", source_mode=SourceMode.RESTRICTED, residency=Residency.HOST)
+                ctask = replace(task, language=Language.C, source_mode=SourceMode.RESTRICTED, residency=Residency.HOST)
                 c_ctx = Sandbox(binding, source_mode=ctask.source_mode)
                 csb = c_ctx.__enter__()
                 # Same family as the candidate, for the same reason score() does it.
-                c_submission = reference_submission(ctask, "c", submission.compiler)
+                c_submission = reference_submission(ctask, Language.C, submission.compiler)
                 c_context = submission_omp_context(c_submission)
                 cbuilt = csb.build(c_submission, mode=Mode.SINGLE_CORE)
                 c_lib = cbuilt.lib if cbuilt.ok else None
@@ -4417,7 +4425,7 @@ def score_cells(
             if kind is Oracle.C:
                 if c_lib is None:  # a C oracle grades only a cell the open library answered
                     raise ReferenceUnavailable(f"C reference of {spec.short_name}: {c_unavailable or 'not built'}")
-                return _run(c_lib, "c", data_, 1, sizing.reference_memory_gb(cap_gb), context=c_context)[0]
+                return _run(c_lib, Language.C, data_, 1, sizing.reference_memory_gb(cap_gb), context=c_context)[0]
             return oracle_function(kind, spec, task, binding, timeout=timeout, memory_gb=cap_gb)(data_)
 
         determinism_ok = None  # computed once on the first correct cell
@@ -4520,7 +4528,7 @@ def score_cells(
                     try:
                         c_outputs, c_samples, c_peak, _ = _run(
                             c_lib,
-                            "c",
+                            Language.C,
                             data,
                             c_reps,
                             sizing.reference_memory_gb(memory_gb),

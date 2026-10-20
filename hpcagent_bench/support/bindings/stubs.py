@@ -6,7 +6,7 @@ signature for one language plus an empty body marked :data:`STUB_BODY` -- never 
 
 import re
 
-from hpcagent_bench.categories import Residency
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.dtypes import fortran_kind
 from hpcagent_bench.languages import GPU_HOST_LANG, LANG_EXT
 from hpcagent_bench.support.bindings.contract import (
@@ -62,7 +62,7 @@ def sparse_notes(binding: Binding) -> dict[str, str]:
     return notes
 
 
-def c_params(binding: Binding, lang: str) -> list[str]:
+def c_params(binding: Binding, lang: Language) -> list[str]:
     """Every C parameter declaration, a sparse buffer's meaning appended as a comment."""
     notes = sparse_notes(binding)
     return [c_param(a, lang) + (f" /* {notes[a.name]} */" if a.name in notes else "") for a in binding.args]
@@ -112,7 +112,7 @@ def c_constants(binding: Binding) -> str:
 
 
 def gen_c(binding: Binding, *, cpp: bool) -> str:
-    lang = "cpp" if cpp else "c"
+    lang = Language.CPP if cpp else Language.C
     sym = binding.symbols[lang]
     parts: list[str] = c_params(binding, lang)
     parts.extend(workspace_c_params(lang))
@@ -152,7 +152,7 @@ def fortran_extents(arg: Arg, in_scope: frozenset) -> str:
 
 
 def gen_fortran(binding: Binding) -> str:
-    sym = binding.symbols["fortran"]
+    sym = binding.symbols[Language.FORTRAN]
     names = [a.name for a in binding.args] + [WORKSPACE_NAME, WORKSPACE_SIZE_NAME]
     arglist = ", ".join(names)
     # Declaration order is NOT argument order: an extent must be typed before the array that uses
@@ -203,7 +203,7 @@ def gen_fortran(binding: Binding) -> str:
     )
 
 
-def gen_gpu(binding: Binding, lang: str, residency: Residency = Residency.HOST) -> str:
+def gen_gpu(binding: Binding, lang: Language, residency: Residency = Residency.HOST) -> str:
     """CUDA/HIP host-entry stub (Sec. 7): always an ``extern "C"`` host function. ``residency="host"``
     means the agent copies host<->device itself (harness times the whole call); ``"device"`` means the
     pointers are already device-resident and the agent only launches kernels (harness uses GPU events)."""
@@ -211,7 +211,7 @@ def gen_gpu(binding: Binding, lang: str, residency: Residency = Residency.HOST) 
     parts: list[str] = c_params(binding, lang)
     parts.extend(workspace_c_params(lang))
     sig = ",\n    ".join(parts)
-    header = "#include <cuda_runtime.h>" if lang == "cuda" else "#include <hip/hip_runtime.h>"
+    header = "#include <cuda_runtime.h>" if lang is Language.CUDA else "#include <hip/hip_runtime.h>"
     if residency is Residency.DEVICE:
         note = (
             f"    /* {STUB_BODY}: pointers are DEVICE-resident -- launch "
@@ -223,13 +223,13 @@ def gen_gpu(binding: Binding, lang: str, residency: Residency = Residency.HOST) 
     return f'{header}\n#include <complex>\n#include <stdint.h>\n{c_constants(binding)}extern "C" void {sym}(\n    {sig}) {{\n{note}}}\n'
 
 
-def gen_call_stub(binding: Binding, lang: str, residency: Residency = Residency.HOST) -> str:
+def gen_call_stub(binding: Binding, lang: Language, residency: Residency = Residency.HOST) -> str:
     """Render the empty call stub for ``lang`` (Sec. 7); ``residency`` only affects the GPU languages."""
-    if lang == "c":
+    if lang is Language.C:
         return gen_c(binding, cpp=False)
-    if lang == "cpp":
+    if lang is Language.CPP:
         return gen_c(binding, cpp=True)
-    if lang == "fortran":
+    if lang is Language.FORTRAN:
         return gen_fortran(binding)
     if lang in GPU_HOST_LANG:
         return gen_gpu(binding, lang, residency)

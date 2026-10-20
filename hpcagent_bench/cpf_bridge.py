@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pydantic
 
 from hpcagent_bench import config, cpf_canonical, languages, paths, phase_clock
-from hpcagent_bench.categories import Track
+from hpcagent_bench.categories import Language, Track
 from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS, LANGUAGE_EXT, HintDetail
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
@@ -182,7 +182,7 @@ def returned_slots(path: pathlib.Path, entry: str) -> tuple[str | None, ...]:
 
 
 #: CPF dialect -> the stub language whose ``restrict`` spelling the entry takes: the gpu host unit is the hip stub's.
-ABI_LANGUAGE = {"c": "c", "c++": "cpp", DEVICE_LANGUAGE: "hip"}
+ABI_LANGUAGE: dict[str, Language] = {"c": Language.C, "c++": Language.CPP, DEVICE_LANGUAGE: Language.HIP}
 
 #: The type a CPF unit computes a storage-only element in, per dialect: the toolkit's or the compiler's own 16-bit
 #: float, which DaCe's CPF emits for ``dace::bfloat16``. Two bytes in the bit layout of the stub's storage

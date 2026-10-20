@@ -49,7 +49,7 @@ def canonical_parallel_form_target() -> str:
     setup's LANGUAGE (hip/cuda -> gpu), else its declared record device, else cpu."""
     language = config.env_value("LANGUAGE") or ""
     if language:
-        return "gpu" if language in GPU_LANGUAGES else "cpu"
+        return "gpu" if language in [lang.text for lang in GPU_LANGUAGES] else "cpu"
     return "gpu" if setup_declared_host_only() is False else "cpu"
 
 

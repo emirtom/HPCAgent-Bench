@@ -31,7 +31,7 @@ from typing import NotRequired, TypedDict, cast
 import pydantic
 
 from hpcagent_bench import flags, perf_reports, seal, sizing
-from hpcagent_bench.categories import Preset, Residency
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.forked import run_command
 from hpcagent_bench.harness import papi, timing
@@ -367,7 +367,7 @@ def measurement_request(
     from the task's residency; ``device_id`` carries the judge's GPU pin across the process boundary."""
     return {
         "kernel": task.kernel,
-        "language": task.language,
+        "language": task.language.text,
         "lib": str(lib),
         "preset": preset.text,
         "datatype": datatype,
@@ -401,7 +401,7 @@ def run_workload(request: MeasurementRequest) -> WorkloadResult:
         pathlib.Path(request["lib"]),
         binding,
         data,
-        request["language"],
+        Language.parse(request["language"]),
         device=bool(request["device"]),
         device_id=request["device_id"],
         timeout=request["timeout"],
@@ -425,7 +425,7 @@ def run_counted(request: MeasurementRequest, metric: str) -> papi.MetricRow:
         request["lib"],
         binding,
         data,
-        request["language"],
+        Language.parse(request["language"]),
         metric,
         workspace_bytes=request["workspace_bytes"],
         reps=request["reps"],
@@ -445,7 +445,7 @@ def run_per_thread(request: MeasurementRequest) -> papi.PerThreadReport:
         request["lib"],
         binding,
         data,
-        request["language"],
+        Language.parse(request["language"]),
         workspace_bytes=request["workspace_bytes"],
         reps=request["reps"],
         warmup=request["warmup"],
@@ -671,7 +671,7 @@ def run_plain(
 def build_failed(task: Task, built: BuildResult) -> BuildFailure:
     """The answer for a submission that did not compile: a normal 200 with the compiler's tail, the same
     shape on every measured route."""
-    return {"build_ok": False, "kernel": task.kernel, "language": task.language, "detail": built.log[-2000:]}
+    return {"build_ok": False, "kernel": task.kernel, "language": task.language.text, "detail": built.log[-2000:]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -888,7 +888,7 @@ def counter_gate(task: Task, group: str) -> None:
     PAPI, or a python submission, is ``PapiUnavailable`` (503)."""
     papi.group_metrics(group)
     papi.check()
-    if task.language == "python":
+    if task.language is Language.PYTHON:
         raise papi.PapiUnavailable(
             "not_native",
             "counters bracket the native call the judge times; a python "
@@ -921,7 +921,7 @@ def count_submission(
         payload: CountPayload = {
             "build_ok": True,
             "kernel": task.kernel,
-            "language": task.language,
+            "language": task.language.text,
             "preset": preset.text,
             "datatype": datatype,
             "symbol": measured.symbol,
@@ -954,7 +954,7 @@ def count_threads_submission(
         payload: ThreadPayload = {
             "build_ok": True,
             "kernel": task.kernel,
-            "language": task.language,
+            "language": task.language.text,
             "preset": preset.text,
             "datatype": datatype,
             "symbol": measured.symbol,
@@ -1046,7 +1046,7 @@ def profile_payload(
     payload: ProfilePayload = {
         "build_ok": True,
         "kernel": task.kernel,
-        "language": task.language,
+        "language": task.language.text,
         "preset": preset.text,
         "datatype": datatype,
         "symbol": symbol,
@@ -1148,7 +1148,7 @@ def run_agent_build(
         payload: InstrumentPayload = {
             "build_ok": True,
             "kernel": task.kernel,
-            "language": task.language,
+            "language": task.language.text,
             "preset": preset.text,
             "datatype": datatype,
             "symbol": measured.symbol,

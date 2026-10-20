@@ -24,7 +24,7 @@ from typing import Annotated, NotRequired, TypedDict
 
 import pydantic
 
-from hpcagent_bench.categories import Preset
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.harness.compute_profiling import ComputeKernel, ComputeMetric, OmittedFile
 from hpcagent_bench.harness.gpu_profiling import KernelStat, LaunchRow, MemoryStat, RangeStat
 from hpcagent_bench.harness.judge_wire import JudgeAnswer, OptReportAnswer
@@ -80,7 +80,7 @@ class LinuxperfReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     preset: Preset
     datatype: str
     symbol: str
@@ -100,7 +100,7 @@ class CountReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     preset: Preset
     datatype: str
     symbol: str
@@ -116,7 +116,7 @@ class ThreadCountReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     preset: Preset
     datatype: str
     symbol: str
@@ -131,7 +131,7 @@ class InstrumentReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     preset: Preset
     datatype: str
     symbol: str
@@ -151,7 +151,7 @@ class DeviceTraceReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     residency: str
     preset: Preset
     datatype: str
@@ -182,7 +182,7 @@ class DeviceCountReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     preset: Preset
     datatype: str
     symbol: str
@@ -204,7 +204,7 @@ class BuildFailureReport(JudgeAnswer):
 
     build_ok: bool
     kernel: str
-    language: str
+    language: Language
     detail: str
 
 

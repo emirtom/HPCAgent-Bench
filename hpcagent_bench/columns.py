@@ -704,7 +704,7 @@ class Ppcg:
     arch = "gpu"
     sweep_deterministic = False
     precisions = IEEE_PRECISIONS
-    language = gpu_backend()
+    language = gpu_backend().text
     emit_language = "c"
     transform = "ppcg"
 

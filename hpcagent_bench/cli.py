@@ -34,6 +34,7 @@ from hpcagent_bench.categories import (
     AUTO_BASELINE,
     BASELINE_OPTIONS,
     InputMode,
+    Language,
     Oracle,
     Residency,
     SourceMode,
@@ -138,6 +139,17 @@ def resolve_prompt_variants(value: str | None) -> list[str | None]:
     return list(names)
 
 
+def languages_arg(value: str) -> list[Language] | None:
+    """Parse ``--languages`` ('c,cuda' / 'all' = each kernel's own set)."""
+    tokens = csv_or_none(value)
+    if tokens is None:
+        return None
+    try:
+        return [Language.parse(token) for token in tokens]
+    except ValueError as exc:
+        raise SystemExit(f"--languages: {exc}") from None
+
+
 def residencies_arg(value: str) -> tuple[Residency, ...]:
     """Parse + validate ``--residency`` (host / device / 'host,device').
 
@@ -182,7 +194,7 @@ def expand_cli_tasks(args: argparse.Namespace) -> "list[Task]":
     return expand_tasks(
         kernels=kernel_selection(args.kernels),
         source_modes=(SourceMode.parse(args.source_mode),),
-        languages=csv_or_none(args.languages),
+        languages=languages_arg(args.languages),
         residencies=residencies_arg(args.residency),
     )
 
@@ -320,7 +332,7 @@ def agent_under_harbor(args: argparse.Namespace) -> int:
 
     out = pathlib.Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    language = args.languages.split(",")[0]
+    language = Language.parse(args.languages.split(",")[0])
     rc, grades = harbor.run_agent(args.agent, args.kernels, out.parent / f"harbor-{args.episode_id}", language=language)
     run = {"agent": args.agent, "episode_id": args.episode_id, "execution": "harbor"}
     with out.open("a") as f:
@@ -457,21 +469,26 @@ def record_calls(args: argparse.Namespace, task: "Task", row: "RunRow") -> None:
         episode_id=args.episode_id,
         preset=args.preset,
         datatype=args.datatype,
-        language=task.language,
+        language=task.language.text,
         source_mode=task.source_mode,
         baseline=row.baseline,
     )
 
 
 def save_submission_file(
-    save_dir: pathlib.Path, task: "Task", row: "RunRow", language: str, source: str, prompt_variant: str | None
+    save_dir: pathlib.Path,
+    task: "Task",
+    row: "RunRow",
+    language: Language,
+    source: str | None,
+    prompt_variant: str | None,
 ) -> None:
     """``--save-submissions``: write the returned optimization (winning, else last attempt)."""
     from hpcagent_bench.languages import LANG_EXT
 
-    ext = LANG_EXT.get(language, language)
+    ext = LANG_EXT.get(language, language.text)
     tag = f"__{prompt_variant}" if prompt_variant else ""
-    (save_dir / f"{task.kernel}__{task.language}{tag}__{row.status}.{ext}").write_text(source)
+    (save_dir / f"{task.kernel}__{task.language.text}{tag}__{row.status}.{ext}").write_text(source or "")
 
 
 def cmd_tasks(args: argparse.Namespace) -> int:
@@ -536,10 +553,10 @@ def cmd_prompt(args: argparse.Namespace) -> int:
     if args.service:
         from hpcagent_bench.harness.service import service_prompt
 
-        print(service_prompt(args.kernel, args.language, args.judge_url, judge_rank=args.judge_rank))
+        print(service_prompt(args.kernel, Language.parse(args.language), args.judge_url, judge_rank=args.judge_rank))
         return 0
 
-    task = Task(args.kernel, SourceMode.RESTRICTED, args.language)
+    task = Task(args.kernel, SourceMode.RESTRICTED, Language.parse(args.language))
 
     def config_for(variant_name: str) -> PromptConfig:
         # Explicit CLI kwargs win over the variant, which wins over config defaults;
@@ -1046,7 +1063,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("prompt", help="print the leak-free prompt for one task")
     pr.add_argument("kernel", nargs="?", default=None, help="kernel key (e.g. gemm); optional with --list-variants")
-    pr.add_argument("--language", default="c", help="implementation language (default c)")
+    pr.add_argument("--language", default=Language.C.text, choices=Language.texts(), help="implementation language")
     pr.add_argument(
         "--variant",
         default=None,

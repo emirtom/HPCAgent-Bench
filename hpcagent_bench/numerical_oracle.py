@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import pydantic
 
-from hpcagent_bench.categories import Oracle, Preset, Track
+from hpcagent_bench.categories import Language, Oracle, Preset, Track
 
 if TYPE_CHECKING:
     from hpcagent_bench import config
@@ -251,7 +251,7 @@ def _np_dtype_for_kind(kind: str, np_float):
 
 # -std= comes from compilers.yaml via languages.std_flag: the oracle must accept
 # exactly the language standard the harness builds submissions with.
-_blas = {lang: languages.library_build_flags(lang, ["blas"]) for lang in ("c", "cpp")}
+_blas = {lang.text: languages.library_build_flags(lang, ["blas"]) for lang in (Language.C, Language.CPP)}
 
 #: BLAS tokens per native C-family backend: the emitted C/C++ lowers a dense 2-D float GEMM to
 #: ``cblas_dgemm`` and includes <cblas.h>, so every oracle compile needs the include path, and the
@@ -269,7 +269,9 @@ _BLAS_CFLAGS, _BLAS_LDFLAGS = (
 #: build, resolved here too: the emitted C/C++/Fortran lowers a whole-array 1-D np.fft.fft/ifft to
 #: FFT_LIBRARY_MARKER, an fftw_plan_dft_1d/fftwf_... call, so every oracle compile needs <fftw3.h>
 #: on the include path and the .so needs -lfftw3 on its DT_NEEDED to be loadable by ctypes.
-_fftw = {lang: languages.library_build_flags(lang, ["fftw"]) for lang in ("c", "cpp", "fortran")}
+_fftw = {
+    lang.text: languages.library_build_flags(lang, ["fftw"]) for lang in (Language.C, Language.CPP, Language.FORTRAN)
+}
 _FFTW_CFLAGS, _FFTW_LDFLAGS = (
     {lang: list(groups[0]) for lang, groups in _fftw.items()},
     {lang: [t for group in groups[1:] for t in group] for lang, groups in _fftw.items()},
@@ -309,14 +311,22 @@ LINK = {
 }
 
 COMPILE = {
-    "c": ["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC", *_BLAS_CFLAGS["c"], *_FFTW_CFLAGS["c"]],
-    "cpp": ["g++", "-O2", languages.std_flag("cpp"), "-shared", "-fPIC", *_BLAS_CFLAGS["cpp"], *_FFTW_CFLAGS["cpp"]],
+    "c": ["gcc", "-O2", languages.std_flag(Language.C), "-shared", "-fPIC", *_BLAS_CFLAGS["c"], *_FFTW_CFLAGS["c"]],
+    "cpp": [
+        "g++",
+        "-O2",
+        languages.std_flag(Language.CPP),
+        "-shared",
+        "-fPIC",
+        *_BLAS_CFLAGS["cpp"],
+        *_FFTW_CFLAGS["cpp"],
+    ],
     "fortran": [
         "gfortran",
         "-O2",
         "-ffree-form",
         "-ffree-line-length-none",
-        languages.std_flag("fortran"),
+        languages.std_flag(Language.FORTRAN),
         "-shared",
         "-fPIC",
         *_FFTW_CFLAGS["fortran"],
@@ -371,7 +381,7 @@ PLUTO_EXTRA_FLAGS = ["-D_POSIX_C_SOURCE=199309L", "-fopenmp"]
 #: :data:`PLUTO`. Built with the plain ``cpp`` line plus whatever the host's parallel-algorithm
 #: backend needs to LINK -- which is nothing at all when that backend is the serial one.
 ISOPAR = "cpp_isopar"
-_ISOPAR_LINK = list(languages.stdpar_link_flags("cpp"))
+_ISOPAR_LINK = list(languages.stdpar_link_flags(Language.CPP))
 
 #: DaCe backend: the generated ``*_dace.py`` lowered with ``to_sdfg(simplify=True)``, compiled and
 #: run against the same numpy reference every other backend is graded on. Opt-in via

@@ -29,7 +29,7 @@ from typing import NamedTuple, Protocol
 
 from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.anticheat import Context, Judgement, judge
-from hpcagent_bench.categories import Baseline, Denominator, Preset, RecordDevice, SourceMode, baseline_text
+from hpcagent_bench.categories import Baseline, Denominator, Language, Preset, RecordDevice, SourceMode, baseline_text
 from hpcagent_bench.harness import db_json, denominator, grading, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
@@ -630,7 +630,7 @@ def store_delivery(conn: sqlite3.Connection, grade_id: int, submission: Submissi
     """The source ``grade_id`` built: the host unit and, for a two-unit delivery, the device unit."""
     for part, body in (("host", submission.source), ("device", submission.device_source)):
         if body:
-            results_db.store_source(conn, grade_id, part, submission.language, body)
+            results_db.store_source(conn, grade_id, part, submission.language.text, body)
 
 
 #: ``grade_cells.reason`` of a cell the guillotine stopped (:attr:`scoring.TimedCell.stopped`): measured, credited
@@ -868,7 +868,7 @@ def record_trajectory(
     episode_id: str = ADHOC_EPISODE_ID,
     preset: Preset = Preset.S,
     datatype: str = "float64",
-    language: str = "c",
+    language: str = Language.C.text,
     source_mode: SourceMode = SourceMode.RESTRICTED,
     baseline: Baseline | None = Baseline.C,
     path: str | None = None,

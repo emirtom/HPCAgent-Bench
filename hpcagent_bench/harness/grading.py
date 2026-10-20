@@ -19,7 +19,7 @@ import yaml
 
 from hpcagent_bench import config, languages, modules, omp_context, sizing
 from hpcagent_bench import dtypes as dtype_registry
-from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency, SourceMode, Track
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode, Track
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import ArrayVerdict, compare_arrays, resolve_outputs
 from hpcagent_bench.fuzz import safe_eval
@@ -836,7 +836,7 @@ def numba_reference_outputs(
             numba_reference_path(spec),
             binding_from_spec(spec),
             data,
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=NUMBA_ORACLE_TIMEOUT_S,
             memory_gb=sizing.reference_memory_gb(memory_gb) if memory_gb else 0.0,
@@ -945,10 +945,10 @@ def other_compiled(kind: Oracle) -> Oracle | None:
 
 
 #: Per-language autopar baseline: kind -> (language, candidate compiler blocks); denominator = fastest that builds.
-AUTOPAR_BASELINES: dict[Baseline, tuple[str, tuple[str, ...]]] = {
-    Baseline.C_AUTOPAR: ("c", ("clang", "gcc")),
-    Baseline.CPP_AUTOPAR: ("cpp", ("clangpp", "gpp")),
-    Baseline.FORTRAN_AUTOPAR: ("fortran", ("gfortran",)),
+AUTOPAR_BASELINES: dict[Baseline, tuple[Language, tuple[str, ...]]] = {
+    Baseline.C_AUTOPAR: (Language.C, ("clang", "gcc")),
+    Baseline.CPP_AUTOPAR: (Language.CPP, ("clangpp", "gpp")),
+    Baseline.FORTRAN_AUTOPAR: (Language.FORTRAN, ("gfortran",)),
 }
 
 #: The compiled-PyTorch denominators, recorded kind -> torch device: the kernel's PyTorch reference under
@@ -1236,7 +1236,7 @@ def time_numba_isolated(
         numba_reference_path(spec),
         binding,
         data,
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=timeout,
         memory_gb=sizing.reference_memory_gb(memory_gb),
@@ -1277,11 +1277,11 @@ def baseline_uses_numba(baseline: Baseline) -> bool:
     return baseline is Baseline.NUMBA
 
 
-def baseline_compiled(baseline: Baseline) -> tuple[Baseline, str, tuple[str, ...], Mode] | None:
+def baseline_compiled(baseline: Baseline) -> tuple[Baseline, Language, tuple[str, ...], Mode] | None:
     """The compiled reference a resolved baseline times: (kind, language, candidate blocks, mode) or
     None."""
     if baseline is Baseline.C:
-        return (Baseline.C, "c", ("",), Mode.SINGLE_CORE)
+        return (Baseline.C, Language.C, ("",), Mode.SINGLE_CORE)
     if baseline in AUTOPAR_BASELINES:
         lang, compilers = AUTOPAR_BASELINES[baseline]
         return (baseline, lang, compilers, Mode.MULTI_CORE)
@@ -1292,7 +1292,7 @@ def baseline_compiled(baseline: Baseline) -> tuple[Baseline, str, tuple[str, ...
 class ReferencePlan:
     """The pure which-reference decode shared by score() and score_cells(); no timing, build, or I/O."""
 
-    compiled: tuple[Baseline, str, tuple[str, ...], Mode] | None
+    compiled: tuple[Baseline, Language, tuple[str, ...], Mode] | None
     oracle_wants_c: bool
     #: The timed baseline IS the single-core C reference, so it reuses the oracle's build.
     bl_is_seq_c: bool
@@ -1300,7 +1300,7 @@ class ReferencePlan:
     bl_own_build: bool
     #: The compiled kind the baseline times; None when it times no compiled reference.
     bl_label: Baseline | None
-    bl_lang: str
+    bl_lang: Language
     need_seq_c: bool
 
 
@@ -1312,7 +1312,7 @@ def reference_plan(oracle: Oracle, baseline_resolved: Baseline) -> ReferencePlan
     bl_is_seq_c = compiled is not None and compiled[3] is Mode.SINGLE_CORE
     bl_own_build = compiled is not None and not bl_is_seq_c
     bl_label = compiled[0] if compiled is not None else None
-    bl_lang = compiled[1] if compiled is not None else "c"
+    bl_lang = compiled[1] if compiled is not None else Language.C
     need_seq_c = oracle_wants_c or (compiled is not None)
     return ReferencePlan(
         compiled=compiled,
@@ -1325,12 +1325,12 @@ def reference_plan(oracle: Oracle, baseline_resolved: Baseline) -> ReferencePlan
     )
 
 
-def reference_task(task: Task, language: str = "c") -> Task:
+def reference_task(task: Task, language: Language = Language.C) -> Task:
     """``task`` reshaped for the compiled reference in ``language`` (restricted, host)."""
     return replace(task, language=language, source_mode=SourceMode.RESTRICTED, residency=Residency.HOST)
 
 
-def reference_submission(task: Task, language: str = "c", compiler: str | None = None) -> Submission:
+def reference_submission(task: Task, language: Language = Language.C, compiler: str | None = None) -> Submission:
     """The NumpyToX compiled reference for this kernel in language, as a restricted submission built
     with the candidate's toolchain family (:func:`reference_compiler`)."""
     from hpcagent_bench.harness.agent import reference_source
@@ -1338,7 +1338,7 @@ def reference_submission(task: Task, language: str = "c", compiler: str | None =
     return Submission(language=language, source=reference_source(reference_task(task, language)), compiler=compiler)
 
 
-def reference_compiler(submission: Submission, language: str) -> str | None:
+def reference_compiler(submission: Submission, language: Language) -> str | None:
     """The ``compilers.yaml`` block that builds the reference in ``language`` with the candidate's
     toolchain family (so the speedup does not credit the compiler); ``None`` = the default block, also
     for an unknown family."""
@@ -1364,7 +1364,7 @@ def build_reference_lib(
     task: Task,
     binding: Binding,
     *,
-    language: str,
+    language: Language,
     mode: Mode,
     compiler: str | None,
 ) -> BuildResult:
@@ -1428,7 +1428,7 @@ def _grade_against(
     )
 
 
-def reference_omp_context(language: str, compiler: str | None) -> str:
+def reference_omp_context(language: Language, compiler: str | None) -> str:
     """The OpenMP context a compiled reference runs in: that of the ``compilers.yaml`` block that built it
     (``compiler``; ``None`` = the default block for ``language``), so a clang-built reference maps libomp
     and a gcc-built one libgomp, each in a child of its own family
@@ -1475,7 +1475,7 @@ def run_compiled_reference(
     timeout: float,
     memory_gb: float,
     *,
-    language: str = "c",
+    language: Language = Language.C,
     mode: Mode = Mode.SINGLE_CORE,
     compiler: str | None = None,
     warmup: int = 0,
@@ -1582,7 +1582,7 @@ def _run_c_reference(
         repeat,
         timeout,
         memory_gb,
-        language="c",
+        language=Language.C,
         mode=Mode.SINGLE_CORE,
         compiler=compiler,
         warmup=warmup,

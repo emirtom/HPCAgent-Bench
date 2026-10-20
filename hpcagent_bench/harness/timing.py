@@ -25,7 +25,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 
 from hpcagent_bench import config, protocols
-from hpcagent_bench.categories import Baseline, Residency
+from hpcagent_bench.categories import Baseline, Language, Residency
 from hpcagent_bench.stats import significance
 
 __all__ = [
@@ -129,7 +129,7 @@ TIMING_BRACKETS: dict[Residency, str] = {
 }
 
 
-def timing_bracket(residency: Residency, language: str) -> str:
+def timing_bracket(residency: Residency, language: Language) -> str:
     """The :data:`TIMING_BRACKETS` stamp for a grade at ``residency``. Residency alone decides which child
     runs the call and so which clock reads it (``triton`` grades host, ``triton-device`` device).
     ``language`` is accepted but unused."""

@@ -36,7 +36,7 @@ from hpcagent_agent.tools.http_json import (
     judge_headers,
 )
 
-from hpcagent_bench.categories import Preset, Residency
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import (
     SUBMIT_ANSWER,
@@ -139,10 +139,10 @@ class JudgeClient:
         """Liveness and the judge's own ``rank`` (answers any rank, so a mismatch can be diagnosed)."""
         return HealthAnswer.model_validate_json(self.get("/health"))
 
-    def baseline(self, kernel: str, language: str = "c", preset: Preset = Preset.S) -> BaselineAnswer:
+    def baseline(self, kernel: str, language: Language = Language.C, preset: Preset = Preset.S) -> BaselineAnswer:
         """Reference times (``baselines``, e.g. ``{"numba": ns, "c": ns}``) timed in the judge."""
         return BaselineAnswer.model_validate_json(
-            self.get(f"/baseline/{kernel}", {"language": language, "preset": preset.text})
+            self.get(f"/baseline/{kernel}", {"language": language.text, "preset": preset.text})
         )
 
     # submission endpoints
@@ -235,7 +235,7 @@ class JudgeClient:
 
 def score(
     kernel: str,
-    language: str,
+    language: Language,
     *,
     source: str | None = None,
     source_file: str | None = None,

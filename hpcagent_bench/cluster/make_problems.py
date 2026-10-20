@@ -27,8 +27,9 @@ from collections.abc import Mapping, Sequence
 from hpcagent_agent.driver import harnesses
 
 from hpcagent_bench import config, cpf_cache, external_skills, flags, packets, paths
-from hpcagent_bench.categories import Residency, SourceMode, Track
+from hpcagent_bench.categories import InputMode, Residency, SourceMode, Track
 from hpcagent_bench.harness.prompts import Skill, cluster_facts, distributed_contract, load_skills, request_actions
+from hpcagent_bench.harness.service import delivered, graded_language
 from hpcagent_bench.harness.task import Task, grading_residency
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.problem_file import ProblemLine, dump_line, read_lines
@@ -430,8 +431,8 @@ def selection(args: argparse.Namespace) -> tuple[list[str], set[str]]:
 
 def task_text(args: argparse.Namespace, name: str, spec: BenchSpec, skills_text: str) -> str:
     """One problem's task text."""
-    language = args.language or "any"
-    task = f"Optimize {kernel_stem(name)}. Target language: {language}."
+    task = f"Optimize {kernel_stem(name)}. Target language: {args.language or 'any'}."
+    language = graded_language(args.language)
     if args.note:
         task = f"{task} {args.note}"
     # A kernel the judge grades DISTRIBUTED (mpi.grade_distributed, read from the environment the
@@ -477,13 +478,14 @@ def problem_entry(
     repeat (``--repeat`` above 1): the driver puts it in the episode label, and an owed rerun replays the
     line, so a rerun keeps its slot. ``packet`` (the ``--packet`` spec) decides the libraries it loads by default
     (:func:`default_load`)."""
-    graded = Task(name, SourceMode.RESTRICTED, language or "any", residency=grading_residency(name, language))
+    graded_as = graded_language(language)
+    graded = Task(name, SourceMode.RESTRICTED, graded_as, residency=grading_residency(name, graded_as))
     return ProblemLine(
         id=problem_id,
         kernel=name,
         language=language,
         task=task,
-        prompt_facts=cluster_facts(graded),
+        prompt_facts=cluster_facts(graded, free_choice=delivered(language, InputMode.PY_BINDING) is None),
         request_actions=request_actions(graded).wire(),
         slot=slot,
         level=spec.level,
@@ -606,7 +608,7 @@ def main() -> int:
             continue
         # A kernel that does not support the requested language would be a guaranteed refusal, so
         # it is dropped here rather than burning an agent's whole turn budget on 400s.
-        if args.language and spec.languages and args.language not in spec.languages:
+        if args.language and spec.languages and graded_language(args.language) not in spec.languages:
             if wanted:
                 dropped.append(f"{name} (does not support {args.language})")
             continue

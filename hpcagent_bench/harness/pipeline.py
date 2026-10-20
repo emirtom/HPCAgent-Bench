@@ -24,7 +24,7 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Baseline, Oracle, Preset, SourceMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import SubmitAnswer
@@ -84,7 +84,9 @@ def merge_graded_row(think_row: RunRow, result: Score) -> RunRow:
 
 def error_row(exc: BaseException) -> RunRow:
     """A scored agent_error row for a task that raised without producing a row."""
-    return RunRow("?", "?", "c", SourceMode.RESTRICTED, "?", "agent_error", False, float("inf"), 0, detail=repr(exc))
+    return RunRow(
+        "?", "?", Language.C, SourceMode.RESTRICTED, "?", "agent_error", False, float("inf"), 0, detail=repr(exc)
+    )
 
 
 # static endpoint assignment (round-robin, no dynamic load balancing)

@@ -38,7 +38,7 @@ import traceback
 from collections.abc import Callable, Sequence
 
 from hpcagent_bench import config, problem_file
-from hpcagent_bench.categories import BASELINE_OPTIONS, Baseline, Preset, Residency, Track, parse_baseline
+from hpcagent_bench.categories import BASELINE_OPTIONS, Baseline, Language, Preset, Residency, Track, parse_baseline
 from hpcagent_bench.cpf_cache import CACHE_ENV, DEFAULT_HINTS, HINT_DETAILS, HINTS_ENV
 from hpcagent_bench.spec import BenchSpec
 
@@ -70,7 +70,7 @@ STEPS = (*KERNEL_STEPS, "cpf")
 class Plan:
     """What one task prepares its kernels for: the setup's language, and how the judge will grade them."""
 
-    language: str
+    language: Language
     preset: Preset
     datatype: str
     baseline: Baseline | None
@@ -105,7 +105,7 @@ def prepare_cpf(args: argparse.Namespace, kernels: Sequence[str]) -> int:
     from hpcagent_bench.harness.task import GPU_LANGUAGES
     from hpcagent_bench.translators.numpyto_common.naming import fptype_tag
 
-    target = "gpu" if args.language in GPU_LANGUAGES else "cpu"
+    target = "gpu" if Language.parse(args.language) in GPU_LANGUAGES else "cpu"
     precision = fptype_tag(args.datatype)
     ranks = ["--rank", str(args.rank), "--ranks", str(args.ranks)]
     shared = ["--view", str(args.cpf_view), "--kernels", ",".join(kernels), "--hints", args.cpf_hints, *ranks]
@@ -218,7 +218,9 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
     kernels.add_argument("--problems", type=pathlib.Path, help="the setup's problems file")
     kernels.add_argument("--tag", help="a tag's kernels instead")
     kernels.add_argument("--kernels-file", type=pathlib.Path, help="one kernel name per line instead (# comments)")
-    parser.add_argument("--language", required=True, help="the language the setup's kernels are graded in")
+    parser.add_argument(
+        "--language", required=True, choices=Language.texts(), help="the language the setup's kernels are graded in"
+    )
     parser.add_argument("--preset", default=config.current().service.preset)
     parser.add_argument("--datatype", default=config.current().service.datatype)
     parser.add_argument(
@@ -269,7 +271,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline = service.from_config().baseline if args.baseline is None else parse_baseline(args.baseline)
     frameworks = [name for name in args.frameworks.split(",") if name]
     kernel_steps = tuple(step for step in steps if step in KERNEL_STEPS)
-    plan = Plan(args.language, resolve_preset(args.preset), args.datatype, baseline, tuple(frameworks), kernel_steps)
+    language = Language.parse(args.language)
+    plan = Plan(language, resolve_preset(args.preset), args.datatype, baseline, tuple(frameworks), kernel_steps)
     kernels = selected_kernels(args)
     mine = rank_share(kernels, args.rank, args.ranks)
     failures = {kernel: failed for kernel in mine if (failed := run_kernel(kernel, plan))}

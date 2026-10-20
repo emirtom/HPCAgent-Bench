@@ -31,9 +31,9 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
-from hpcagent_bench import modules
-from hpcagent_bench import cpf_canonical, languages, paths, phase_clock
+from hpcagent_bench import cpf_canonical, languages, modules, paths, phase_clock
 from hpcagent_bench import flags as bench_flags
+from hpcagent_bench.categories import Language
 from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import utilities as util
@@ -188,7 +188,7 @@ def pin_host_compiler(family: str | None = None) -> str | None:
     :returns: the ``compilers.yaml`` block pinned, or ``None`` when the image has no C++ block for the
         family (dace's own resolution is kept)."""
     family = family or os.environ.get(DACE_FAMILY_ENV) or languages.default_family()
-    block = languages.compiler_for_family("cpp", family)
+    block = languages.compiler_for_family(Language.CPP, family)
     if block is None:
         return None
     driver = languages.resolve_compiler(languages.compiler_driver(block))
@@ -206,7 +206,7 @@ def pin_host_compiler(family: str | None = None) -> str | None:
 def pin_cpp_standard(arch: str = "cpu") -> None:
     """Build dace's C++ to the standard compilers.yaml names, overriding ``~/.dace.conf``. The value is
     also passed as ``CMAKE_CUDA_STANDARD``; host and device both use c++20."""
-    std = languages.std_flag("cuda" if arch == "gpu" else "cpp").removeprefix("-std=c++")
+    std = languages.std_flag(Language.CUDA if arch == "gpu" else Language.CPP).removeprefix("-std=c++")
     if std and dace.Config.get("compiler", "cpp_standard") != std:
         dace.Config.set("compiler", "cpp_standard", value=std)
 

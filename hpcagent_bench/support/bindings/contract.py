@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 import pydantic
 
-from hpcagent_bench.categories import Preset
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.dtypes import c_type, canonical, is_storage_only
 from hpcagent_bench.languages import LANG_EXT
 from hpcagent_bench.spec import (
@@ -85,10 +85,15 @@ RESERVED_ARG_NAMES = frozenset({WORKSPACE_NAME, WORKSPACE_SIZE_NAME})
 
 #: Per-language no-alias qualifier (Sec. 5): ``restrict`` is C only; every C++-parsed language
 #: (including nvcc/hipcc sources) uses ``__restrict__``; Fortran needs none.
-RESTRICT_KEYWORD = {"c": "restrict", "cpp": "__restrict__", "cuda": "__restrict__", "hip": "__restrict__"}
+RESTRICT_KEYWORD: dict[Language, str] = {
+    Language.C: "restrict",
+    Language.CPP: "__restrict__",
+    Language.CUDA: "__restrict__",
+    Language.HIP: "__restrict__",
+}
 
 
-def restrict_kw(lang: str) -> str:
+def restrict_kw(lang: Language) -> str:
     """The no-alias qualifier as ``lang`` spells it (Sec. 5); C99 ``restrict`` for anything not C++-parsed."""
     return RESTRICT_KEYWORD.get(lang, "restrict")
 
@@ -98,7 +103,7 @@ def restrict_kw(lang: str) -> str:
 CXX_COMPLEX_TYPE = {"complex64": "std::complex<float>", "complex128": "std::complex<double>"}
 
 
-def lang_type(dtype: str, lang: str) -> str:
+def lang_type(dtype: str, lang: Language) -> str:
     """``dtype``'s element type as ``lang`` spells it: ``std::complex<T>`` for a complex dtype in a C++-parsed
     language (:data:`RESTRICT_KEYWORD`'s ``__restrict__`` ones), the registry's C type otherwise."""
     if RESTRICT_KEYWORD.get(lang) == "__restrict__" and canonical(dtype) in CXX_COMPLEX_TYPE:
@@ -106,7 +111,7 @@ def lang_type(dtype: str, lang: str) -> str:
     return c_type(dtype)
 
 
-def c_param(arg: "Arg", lang: str = "c", element: str | None = None) -> str:
+def c_param(arg: "Arg", lang: Language = Language.C, element: str | None = None) -> str:
     """``arg`` as a C parameter declaration in ``lang``'s ``restrict`` spelling (Sec. 5): a pointer
     ``const``-qualified when read-only, a scalar always ``const``. ``element`` replaces a pointer's
     element type (a GPU language's vendor type for a storage-only dtype)."""
@@ -116,7 +121,7 @@ def c_param(arg: "Arg", lang: str = "c", element: str | None = None) -> str:
     return f"const {lang_type(arg.dtype, lang)} {arg.name}"
 
 
-def workspace_c_params(lang: str = "c") -> tuple[str, str]:
+def workspace_c_params(lang: Language = Language.C) -> tuple[str, str]:
     """The reserved scratch pair as C parameter declarations (Sec. 11), shared by the stub generator and
     host glue."""
     return (
@@ -130,10 +135,16 @@ def workspace_c_params(lang: str = "c") -> tuple[str, str]:
 LANG_SYMBOLS = tuple(LANG_EXT)
 
 #: Where each language starts counting ``index_array`` elements (Fortran 1, numpy's 0 is the truth).
-INDEX_BASE = {"c": 0, "cpp": 0, "fortran": 1, "cuda": 0, "hip": 0}
+INDEX_BASE: dict[Language, int] = {
+    Language.C: 0,
+    Language.CPP: 0,
+    Language.FORTRAN: 1,
+    Language.CUDA: 0,
+    Language.HIP: 0,
+}
 
 
-def index_base(lang: str) -> int:
+def index_base(lang: Language) -> int:
     """The first valid subscript in ``lang``: 1 for Fortran, else 0 (including unknown languages)."""
     return INDEX_BASE.get(lang, 0)
 
@@ -264,7 +275,7 @@ class Binding:
     config: str
     args: tuple[Arg, ...]
     packed: tuple[PackedGroup, ...] = ()
-    symbols: dict[str, str] = field(default_factory=dict)
+    symbols: dict[Language, str] = field(default_factory=dict)
     #: Compile-time extents the ABI does not pass; the stub declares them as constants.
     constants: dict[str, int] = field(default_factory=dict)
     abi: str = ABI_TAG
@@ -272,7 +283,7 @@ class Binding:
     #: The default symbol the harness binds against (the C leg).
     @property
     def symbol(self) -> str:
-        return self.symbols.get("c", f"{self.kernel}_fp64")
+        return self.symbols.get(Language.C, f"{self.kernel}_fp64")
 
     @property
     def pointers(self) -> tuple[Arg, ...]:
@@ -291,7 +302,7 @@ class Binding:
             args=[a.document() for a in self.args],
             packed={g.logical: PackedDocument(members=list(g.members), format=g.fmt) for g in self.packed},
             workspace=WORKSPACE_DOCUMENT,
-            symbols=dict(self.symbols),
+            symbols={lang.text: symbol for lang, symbol in self.symbols.items()},
         )
 
 
@@ -593,7 +604,7 @@ def binding_from_spec(spec: BenchSpec, config: str | None = None) -> Binding:
     # stem), both halves from the emitter (spec.native_base, keyed on module_name; entry_symbol,
     # lowercase and folded to Fortran's 63 chars). ``kernel`` stays short_name.
     symbols = {lang: entry_symbol(f"{spec.native_base(config)}_fp64") for lang in LANG_SYMBOLS}
-    sym = symbols["c"]
+    sym = symbols[Language.C]
     if not sym[0].isalpha():
         raise ValueError(
             f"{spec.short_name}: symbol {sym!r} must start with a letter -- Fortran "

@@ -52,7 +52,7 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 
 from hpcagent_bench import categories
-from hpcagent_bench.categories import BaselineChoice, Denominator, InputMode, RecordDevice, Residency, Track
+from hpcagent_bench.categories import BaselineChoice, Denominator, InputMode, Language, RecordDevice, Residency, Track
 from hpcagent_bench.cpf_cache import HintDetail
 
 __all__ = [
@@ -422,7 +422,7 @@ class Mpi(Section):
     compute_hint: bool
     grade_distributed: bool
     launcher: tuple[str, ...]
-    compilers: dict[str, str]
+    compilers: dict[Language, str]
     ranks: PositiveInt
     ranks_per_node: PositiveInt
     rank_counts: tuple[PositiveInt, ...]
@@ -463,14 +463,14 @@ class BuildCompiler(Section):
     cpp: str | None
     fortran: str | None
 
-    def pin(self, lang: str) -> str | None:
+    def pin(self, lang: Language) -> str | None:
         """The family ``lang`` is pinned to; None when unset or when ``lang`` has no pin."""
         match lang:
-            case "c":
+            case Language.C:
                 return self.c
-            case "cpp":
+            case Language.CPP:
                 return self.cpp
-            case "fortran":
+            case Language.FORTRAN:
                 return self.fortran
         return None
 

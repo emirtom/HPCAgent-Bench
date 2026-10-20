@@ -24,7 +24,7 @@ from typing import Any
 from relayout.sparse import SparseFormat
 
 from hpcagent_bench import config, osinfo, sizing
-from hpcagent_bench.categories import Baseline, Preset
+from hpcagent_bench.categories import Baseline, Language, Preset
 from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 from hpcagent_bench.frameworks.forked import RunResult, forked_failure_reason, run_forked
 from hpcagent_bench.frameworks.utilities import MPI_LAUNCHER_VARS
@@ -447,7 +447,7 @@ def layout_reference_source(spec: BenchSpec, fmt: str) -> str | None:
     from hpcagent_bench.emit_bridge import emit_kernel  # the translators: import on use
 
     kernel_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    symbol = binding_from_spec(spec, config=fmt).symbols["c"]
+    symbol = binding_from_spec(spec, config=fmt).symbols[Language.C]
     with tempfile.TemporaryDirectory() as tmp:
         rc = emit_kernel(spec, kernel_py, pathlib.Path(tmp), target="c", config=fmt)
         emitted = pathlib.Path(tmp) / f"{symbol}.c"
@@ -469,8 +469,8 @@ def grade_sparse_case(kernel: str, fmt: str, preset: Preset, datatype: str, repe
     source = layout_reference_source(spec, fmt)
     if source is None:
         return SparseCase(kernel, label, "untranslated", "no reference translation for this layout")
-    submission = Submission(language="c", source=source, requests=Requests.of(sparse=formats))
-    task = Task(kernel, language="c")
+    submission = Submission(language=Language.C, source=source, requests=Requests.of(sparse=formats))
+    task = Task(kernel, language=Language.C)
     try:
         # A correctness sweep: the translation is sequential and naive, so no speed guillotine, and
         # one compiled denominator.

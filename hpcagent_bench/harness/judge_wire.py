@@ -21,7 +21,7 @@ from typing import Literal
 
 import pydantic
 
-from hpcagent_bench.categories import BaselineChoice, InputMode, Oracle, Preset, Residency
+from hpcagent_bench.categories import BaselineChoice, InputMode, Language, Oracle, Preset, Residency
 from hpcagent_bench.cpf_cache import HintDetail
 from hpcagent_bench.flags import Mode
 
@@ -166,7 +166,7 @@ class BaselineAnswer(JudgeAnswer):
 class BuildAnswer(JudgeAnswer):
     """``GET /build/<language>``: the compile and link argv this judge runs for a submission."""
 
-    language: str
+    language: Language
     mode: Mode
     source: str
     library: str
@@ -252,7 +252,7 @@ class ScoreFields[CellT: ScoreCellAnswer](JudgeAnswer):
     baseline_policy: str | None
     cells: tuple[CellT, ...]
     kernel: str
-    language: str
+    language: Language
     preset: Preset
     residency: Residency
 
@@ -341,7 +341,7 @@ class OptReportAnswer(JudgeAnswer):
 
     tool: str
     kernel: str
-    language: str
+    language: Language
     build_ok: bool
     family: str
     compiler: str

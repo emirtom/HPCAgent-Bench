@@ -54,7 +54,7 @@ def submission_path(episode_id: str, task: Task, submission: Submission) -> path
     """Where ``submission`` for ``task`` is written in a native run (see :func:`run_dir`
     + :func:`_leaf`). The extension comes from the SUBMISSION's language (a ``python``
     delivery for a C task is ``submission.py``), inferred from the language registry."""
-    ext = LANG_EXT.get(submission.language, submission.language)
+    ext = LANG_EXT.get(submission.language, submission.language.text)
     return run_dir(episode_id, task.kernel) / _leaf(task, ext)
 
 

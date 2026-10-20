@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
 from hpcagent_bench import config, languages, osinfo, seal
-from hpcagent_bench.categories import Preset, Residency
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.flags import ROCMINFO_TIMEOUT
 from hpcagent_bench.frameworks.forked import run_command
 from hpcagent_bench.harness import profiling
@@ -403,10 +403,10 @@ class GpuRun:
     occupancy_note: str
 
 
-def nsys_check(language: str) -> str:
+def nsys_check(language: Language) -> str:
     """The ``nsys`` executable for ``language``, or :class:`GpuProfilerUnavailable`; checked before any
     build, cheapest checks first."""
-    if language == "hip":
+    if language is Language.HIP:
         raise GpuProfilerUnavailable(
             "rocprof_unsupported",
             "nsys traces CUDA only and cannot see an AMD queue; a hip submission is traced by "
@@ -435,18 +435,18 @@ def nsys_check(language: str) -> str:
     return exe
 
 
-def offload_traced(language: str) -> bool:
+def offload_traced(language: Language) -> bool:
     """Whether this setup builds a ``language`` submission for the AMD GPU with an offload leg; the same
     predicate as the graded residency (:func:`hpcagent_bench.harness.task.gpu_graded`)."""
     return languages.offload_setup_language(language, OFFLOAD_VENDOR)
 
 
-def traces_amd(language: str) -> bool:
+def traces_amd(language: Language) -> bool:
     """Whether a ``language`` submission's kernels are AMD dispatches: ``hip``, or an offload build."""
-    return language == "hip" or offload_traced(language)
+    return language is Language.HIP or offload_traced(language)
 
 
-def gpu_check(language: str) -> tuple[str, str]:
+def gpu_check(language: Language) -> tuple[str, str]:
     """``(tool, executable)`` for the profiler ``language`` needs, probed before anything is built, or
     :class:`GpuProfilerUnavailable`. The one place the vendor is chosen; not cached across requests."""
     if traces_amd(language):
@@ -455,7 +455,7 @@ def gpu_check(language: str) -> tuple[str, str]:
 
 
 def nsys_record(
-    argv: list[str], report: pathlib.Path, *, cwd: pathlib.Path, timeout: float, language: str
+    argv: list[str], report: pathlib.Path, *, cwd: pathlib.Path, timeout: float, language: Language
 ) -> subprocess.CompletedProcess[str]:
     """Trace ``argv`` under ``nsys profile``, writing ``report``; returns the completed process. The
     environment is inherited unchanged. The caller decides the verdict (the profiler or the workload
@@ -500,7 +500,7 @@ def record_failure(proc: subprocess.CompletedProcess[str]) -> GpuProfilerUnavail
     )
 
 
-def nsys_stats(report: pathlib.Path, *, language: str, timeout: float) -> dict[str, list[CsvRow]]:
+def nsys_stats(report: pathlib.Path, *, language: Language, timeout: float) -> dict[str, list[CsvRow]]:
     """Run :data:`REPORTS` over ``report`` in one ``nsys stats`` call (it exports to SQLite once) and
     return ``{report name: rows}``."""
     cmd = [nsys_check(language), "stats", "--format", "csv", "--force-export=true", "--output", "-"]
@@ -982,7 +982,7 @@ def profile_gpu_once(
     root: pathlib.Path,
     request_file: pathlib.Path,
     *,
-    language: str,
+    language: Language,
     profiler: tuple[str, str],
     timeout: float,
     min_percent: float,
@@ -1000,7 +1000,7 @@ def profile_gpu_once(
 
 
 def profile_nvidia_once(
-    root: pathlib.Path, request_file: pathlib.Path, *, language: str, timeout: float, min_percent: float
+    root: pathlib.Path, request_file: pathlib.Path, *, language: Language, timeout: float, min_percent: float
 ) -> GpuRun:
     """Trace ONE run under ``nsys`` and read the four reports off it."""
     proc = nsys_record(child_argv(request_file), root / REPORT_STEM, cwd=root, timeout=timeout, language=language)
@@ -1212,7 +1212,7 @@ def gpu_payload(
     payload: GpuPayload = {
         "build_ok": True,
         "kernel": task.kernel,
-        "language": task.language,
+        "language": task.language.text,
         "residency": task.residency.text,
         "preset": preset.text,
         "datatype": datatype,

@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Protocol
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.frameworks.forked import run_forked
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
@@ -107,7 +107,7 @@ class RunRow:
 
     task_id: str
     kernel: str
-    language: str
+    language: Language
     source_mode: SourceMode
     agent: str
     status: str

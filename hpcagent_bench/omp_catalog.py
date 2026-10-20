@@ -30,6 +30,7 @@ import tempfile
 from collections.abc import Sequence
 
 from hpcagent_bench import languages, omp_context, openmp_runtimes
+from hpcagent_bench.categories import Language
 
 __all__ = [
     "CONTEXT_FAMILY",
@@ -52,15 +53,15 @@ REQUIRED_EVERYWHERE = ("blas", "lapack")
 TOOL_TIMEOUT_S = 120
 
 #: The language a trial link uses, first supported wins (Fortran-only entries have no C program to link).
-TRIAL_LANGUAGES = ("c", "cpp")
+TRIAL_LANGUAGES: tuple[Language, ...] = (Language.C, Language.CPP)
 
 
 def scan_entry(name: str, context: str) -> list[str] | None:
     """The OpenMP runtime realpaths ``name``'s closure maps in ``context``: ``[]`` when it maps none or has
     nothing to link, ``None`` when this context cannot link it (no compiler for it, or the link fails)."""
     entry = languages.load_libraries()[name]
-    lang = next((lang for lang in TRIAL_LANGUAGES if lang in entry.langs), "")
-    if not lang:
+    lang = next((lang for lang in TRIAL_LANGUAGES if lang in entry.langs), None)
+    if lang is None:
         return []
     compile_tokens, link_tokens = languages.library_tokens(name, lang, context)
     if not link_tokens:

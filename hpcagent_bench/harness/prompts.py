@@ -33,11 +33,10 @@ from hpcagent_bench import (
     paths,
     protocols,
 )
-from hpcagent_bench.categories import Baseline, Oracle, Residency, Track
+from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, Track
 from hpcagent_bench.config import GridChooser, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
-from hpcagent_bench.harness.envelope import PYTHON_LANG
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     default_requests,
@@ -113,7 +112,6 @@ __all__ = [
     "call_stub",
     "cluster_context",
     "cluster_facts",
-    "concrete_language",
     "debug_markers",
     "delivered_files",
     "discover",
@@ -649,10 +647,12 @@ SERVED_BY_CONFIG = {"canonical-parallel-form": cpf_cache.CONFIG_KEY}
 
 #: Fragment stem -> the languages its route serves: PAPI counts a host process, never a device kernel or
 #: a Python call (``POST /profile`` refuses those).
-LANGUAGE_TOOL_FRAGMENTS = {"counters": frozenset({"c", "cpp", "fortran"})}
+LANGUAGE_TOOL_FRAGMENTS: dict[str, frozenset[Language]] = {
+    "counters": frozenset({Language.C, Language.CPP, Language.FORTRAN})
+}
 
 
-def tool_fragment_offered(stem: str, language: str = "c") -> bool:
+def tool_fragment_offered(stem: str, language: Language = Language.C) -> bool:
     """Whether this run's judge can actually serve the tool ``stem`` documents for ``language``."""
     tool = PACKET_TOOL_FRAGMENTS.get(stem)
     carried = tool in (config.env_value(packets.PACKET_TOOLS_ENV) or "").split(",")
@@ -662,7 +662,9 @@ def tool_fragment_offered(stem: str, language: str = "c") -> bool:
     return (tool is None or carried or configured) and (served is None or language in served)
 
 
-def tool_fragments(search_dirs: Sequence[str] = (), off: Collection[str] = (), language: str = "c") -> list[str]:
+def tool_fragments(
+    search_dirs: Sequence[str] = (), off: Collection[str] = (), language: Language = Language.C
+) -> list[str]:
     """Template names of the per-tool prompt fragments: :data:`_TOOL_ORDER` first, then other ``*.md``
     alphabetically, resolved along the search path. Fragments for tools this run's packet lacks or
     ``language`` cannot use (:func:`tool_fragment_offered`) and those named in ``off`` (turned off by
@@ -676,7 +678,9 @@ def tool_fragments(search_dirs: Sequence[str] = (), off: Collection[str] = (), l
     return ordered + [by_stem[k] for k in sorted(by_stem)]
 
 
-def _compile_commands(language: str, source_filename: str, lib_name: str, compiler: str | None = None) -> list[str]:
+def _compile_commands(
+    language: Language, source_filename: str, lib_name: str, compiler: str | None = None
+) -> list[str]:
     """The exact compile+link commands the harness runs for a restricted submission (from
     ``compilers.yaml`` -> :mod:`hpcagent_bench.flags`), as shell lines. ``compiler`` names a block
     (``None`` = the language default). A language without a block yields no commands."""
@@ -691,14 +695,16 @@ def _compile_commands(language: str, source_filename: str, lib_name: str, compil
 
 
 #: Where a family's parallelism comes from when it is not OpenMP + TBB-backed <execution> (nvhpc).
-FAMILY_NOTE = {
-    ("nvhpc", "c"): "host threading is OpenMP (`-mp`); OpenACC needs an offload build, which this is not.",
-    ("nvhpc", "cpp"): "parallel algorithms come from `-stdpar` here, NOT from TBB.",
-    ("nvhpc", "fortran"): "`do concurrent` threads via `-stdpar`; OpenACC needs an offload build, which this is not.",
+FAMILY_NOTE: dict[tuple[str, Language], str] = {
+    ("nvhpc", Language.C): "host threading is OpenMP (`-mp`); OpenACC needs an offload build, which this is not.",
+    ("nvhpc", Language.CPP): "parallel algorithms come from `-stdpar` here, NOT from TBB.",
+    ("nvhpc", Language.FORTRAN): (
+        "`do concurrent` threads via `-stdpar`; OpenACC needs an offload build, which this is not."
+    ),
 }
 
 
-def _build_families(language: str, source_filename: str, lib_name: str) -> list[BuildFamily]:
+def _build_families(language: Language, source_filename: str, lib_name: str) -> list[BuildFamily]:
     """One row per requestable toolchain family (:data:`languages.COMPILER_FAMILIES`) for this language:
     driver name and compile+link commands. An unwired family keeps its row, without commands."""
     rows: list[BuildFamily] = []
@@ -716,6 +722,10 @@ def _build_families(language: str, source_filename: str, lib_name: str) -> list[
     return rows
 
 
+#: A GPU language's host<->device copy call, for the device-residency section; ``memcpy`` elsewhere.
+TRANSFER_CALLS: dict[Language, str] = {Language.CUDA: "cudaMemcpy", Language.HIP: "hipMemcpy"}
+
+
 class DeliveredFiles(NamedTuple):
     """The basenames the judge reads a submission's files under (``service._source_from_file``)."""
 
@@ -725,23 +735,18 @@ class DeliveredFiles(NamedTuple):
     device: str
 
 
-def delivered_files(language: str, stem: str) -> DeliveredFiles:
-    """The file names a ``language`` submission of kernel ``stem`` is read under: a GPU language's host
-    half is C++, its device half carries the language's own extension, and a Python setup delivers ``.py``."""
-    from hpcagent_bench.harness.service import (
-        PYTHON_DELIVERED_LANGUAGES,
-        SOURCE_EXT_ALIASES,
-        source_file_ext,
-    )
+def delivered_files(delivered: Language, stem: str) -> DeliveredFiles:
+    """The file names a ``delivered`` submission of kernel ``stem`` is read under: a GPU language's host
+    half is C++, its device half carries the language's own extension, and a Python delivery is ``.py``."""
+    from hpcagent_bench.harness.service import SOURCE_EXT_ALIASES, source_file_ext
 
-    delivered = PYTHON_LANG if language in PYTHON_DELIVERED_LANGUAGES else language
     host = languages.GPU_HOST_LANG.get(delivered, delivered)
     exts = (source_file_ext(delivered, device=False), *SOURCE_EXT_ALIASES.get(host, ()))
     device = f"{stem}.{source_file_ext(delivered, device=True)}" if delivered in languages.GPU_HOST_LANG else ""
     return DeliveredFiles(tuple(f"{stem}.{ext}" for ext in exts), device)
 
 
-def call_stub(binding: Binding, language: str, residency: Residency) -> str:
+def call_stub(binding: Binding, language: Language, residency: Residency) -> str:
     """The single-node call stub (Sec. 7), or ``""`` for a language ``gen_call_stub`` does not emit
     (python, distributed tasks, which show ``mpi_stub``)."""
     try:
@@ -750,7 +755,7 @@ def call_stub(binding: Binding, language: str, residency: Residency) -> str:
         return ""
 
 
-def _baseline_flags(language: str) -> str:
+def _baseline_flags(language: Language) -> str:
     """The baseline compile-flag string shown to the agent; ``""`` for an unknown language."""
     try:
         return languages.baseline_flags(language)
@@ -758,7 +763,7 @@ def _baseline_flags(language: str) -> str:
         return ""
 
 
-def _mimalloc_linked(language: str) -> bool:
+def _mimalloc_linked(language: Language) -> bool:
     """Whether the graded link line for ``language`` carries ``-lmimalloc`` on this host."""
     try:
         return bool(languages.mimalloc_link_flags(language))
@@ -769,7 +774,7 @@ def _mimalloc_linked(language: str) -> bool:
 def _translation(task: Task) -> str:
     """Best-effort NumpyToX translation of the reference into the task's native language, embedded
     when ``prompt.include_translation`` is on; empty on any failure."""
-    if task.language not in ("c", "cpp", "fortran"):
+    if task.language not in languages.LANG_TARGET:
         return ""
     try:
         from hpcagent_bench.harness.agent import reference_source
@@ -974,7 +979,7 @@ def ml_layout(spec: BenchSpec, binding: Binding, ranks: int) -> dict[str, object
     }
 
 
-def sparse_layout_context(spec: BenchSpec, language: str) -> dict[str, object]:
+def sparse_layout_context(spec: BenchSpec, language: Language) -> dict[str, object]:
     """What sections/sparse.j2 shows: every sparse array with the formats it is offered in, and per
     format the symbol, the argument list that replaces the array, and each buffer's meaning --
     the same :data:`~hpcagent_bench.support.helpers.sparse.abi.FORMAT_SPECS` table the binding and the
@@ -1072,16 +1077,16 @@ def build_context(
         kernel_path = local_path(ref_py)  # the file this very function already read
     else:
         kernel_path = f"{prompt_config.container_workdir.rstrip('/')}/{slug(spec.short_name)}/reference.py"
-    symbol = binding.symbols.get(task.language, f"{spec.short_name}_{task.language}_auto")
+    symbol = binding.symbols.get(task.language, f"{spec.short_name}_{task.language.text}_auto")
     from hpcagent_bench.harness.service import SOURCE_EXT
 
-    ext = SOURCE_EXT.get(task.language, task.language)
+    ext = SOURCE_EXT[task.language]
     resources = as_block(available_resources())
 
     # node_mode selects the single- vs multi-node contract from the residency.
     is_mpi = task.residency is Residency.DISTRIBUTED
     node_mode = "multi" if is_mpi else "single"
-    other_skills = packet_skills(prompt_config.search_dirs(), task.language, multinode=is_mpi)
+    other_skills = packet_skills(prompt_config.search_dirs(), task.language.text, multinode=is_mpi)
 
     def _fmt(items: list[object]) -> str:
         rows = [as_block(i) for i in items]
@@ -1106,18 +1111,18 @@ def build_context(
     sparse_layout = sparse_layout_context(spec, task.language)
     # The C-ABI deliveries; a python delivery takes no cast and no layout (service.precision_scope_refusal,
     # service.single_node_layout_refusal).
-    abi_delivery = task.language != PYTHON_LANG
+    abi_delivery = task.language is not Language.PYTHON
     context: PromptContext = {
         "kernel": spec.short_name,
-        "language": task.language,
+        "language": task.language.text,
         # The device half of a GPU delivery; "" for a host language, which the templates gate on.
         "device_source_filename": device_source_filename,
         # The basenames the judge reads a source_file / device_source_file under.
         "source_file_names": list(files.source),
         "device_source_file_name": files.device,
-        "device_language": task.language if device_source_filename else "",
+        "device_language": task.language.text if device_source_filename else "",
         # The vendor's transfer call, for the device-residency section.
-        "transfer_call": {"cuda": "cudaMemcpy", "hip": "hipMemcpy"}.get(task.language, "memcpy"),
+        "transfer_call": TRANSFER_CALLS.get(task.language, "memcpy"),
         "precision": precision,
         "source_mode": task.source_mode.text,
         # service.input_mode: under source / py-binding the judge refuses other languages, so the prompt
@@ -1259,7 +1264,7 @@ def build_context(
             {name for name, target in prompt_config.aliases().items() if target is None},
             task.language,
         ),
-        "cpf_dialect": cpf_cache.DIALECT.get(task.language, "c++"),
+        "cpf_dialect": cpf_cache.DIALECT.get(task.language.text, "c++"),
         # How much of each loop hint the setup's form spells out (a -kinds packet: one par, seq or unknown).
         "cpf_hints": config.current().cpf.hints,
         # Skills (hpcagent_bench/skills/<name>/SKILL.md), indexed by name and trigger.
@@ -1386,18 +1391,9 @@ def agent_requests(requests: Requests, allowances: RequestAllowances) -> dict[st
     return Requests(dataclasses.replace(requests.startup, grid=None), requests.operations).to_json()
 
 
-def concrete_language(task: Task) -> bool:
-    """Whether ``task`` names a delivery language; a free-choice task (none) is rendered as C."""
-    from hpcagent_bench.harness.service import PYTHON_DELIVERED_LANGUAGES, SOURCE_EXT
-
-    return task.language in SOURCE_EXT or task.language in PYTHON_DELIVERED_LANGUAGES
-
-
 def cluster_context(task: Task, prompt_config: "PromptConfig") -> PromptContext:
-    """:func:`build_context` of a cluster problem: a free-choice task's as a C one (:func:`concrete_language`)."""
-    return build_context(
-        task if concrete_language(task) else dataclasses.replace(task, language="c"), prompt_config=prompt_config
-    )
+    """:func:`build_context` of a cluster problem (a free-choice one is rendered in C)."""
+    return build_context(task, prompt_config=prompt_config)
 
 
 def request_actions(task: Task) -> RequestActions:
@@ -1406,7 +1402,7 @@ def request_actions(task: Task) -> RequestActions:
     return cast("RequestActions", cluster_context(task, PromptConfig.from_config())["request_actions"])
 
 
-def cluster_facts(task: Task) -> dict[str, str]:
+def cluster_facts(task: Task, *, free_choice: bool = False) -> dict[str, str]:
     """The facts the cluster prompt (``agent/prompt.md``) states about ``task`` that only the harness knows,
     one per ``{{<NAME>}}`` slot, rendered from :func:`build_context` and the partials the in-process and the
     service prompt use, so all three state the same grade:
@@ -1414,12 +1410,12 @@ def cluster_facts(task: Task) -> dict[str, str]:
     ``GRADING`` (the submission mode's section, the correctness band, the final grade and the timed sizes;
     a distributed task's contract replaces it), ``SCORE_INPUTS``, ``SCORE_REPEAT`` and ``FINAL_INPUTS`` (for the mode's
     section), and the file names the judge reads: ``SOURCE_FILES`` (prose), ``SOURCE_BODY`` (a tool
-    call's JSON) and ``SOURCE_FIELDS`` (the body fields of the stdlib fallback call). A free-choice task
-    (no language) names ``<kernel>.<ext>``."""
+    call's JSON) and ``SOURCE_FIELDS`` (the body fields of the stdlib fallback call). A ``free_choice`` task
+    (the setup names no language; ``task`` is its C rendering) names ``<kernel>.<ext>``."""
     from hpcagent_bench.harness.service import SOURCE_EXT
 
     prompt_config = PromptConfig.from_config()
-    concrete = concrete_language(task)
+    concrete = not free_choice
     ctx = cluster_context(task, prompt_config)
     env = prompt_env(prompt_config)
 
@@ -1443,7 +1439,7 @@ def cluster_facts(task: Task) -> dict[str, str]:
             body["device_source_file"] = files.device
             fields.append(f'"device_source_file":os.path.abspath("{files.device}")')
     else:
-        table = ", ".join(f"{lang} `.{ext}`" for lang, ext in SOURCE_EXT.items())
+        table = ", ".join(f"{lang.text} `.{ext}`" for lang, ext in SOURCE_EXT.items())
         source_files = f"`source_file` named `{stem}.<ext>` with your language's extension ({table})"
         body = {"source_file": f"{stem}.<ext>"}
         fields = [f'"source_file":os.path.abspath("{stem}.<ext>")']
