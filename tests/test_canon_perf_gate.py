@@ -7,6 +7,7 @@ import pathlib
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.support.collect import canon_db
 from hpcagent_bench.support.collect.sweep import CanonTarget, run_framework_sweep
 
@@ -40,10 +41,10 @@ BASELINES = ("numba", "cc")
 #: kernel -> the baselines it is timed against, where not both. numba spends over 25 minutes compiling the
 #: monolith on one core (cold cache, preset S), more than a CI runner's whole budget for the job.
 KERNEL_BASELINES = {"cloudsc_monolith": ("cc",)}
-PRESET = "M"
+PRESET = Preset.M
 #: kernel -> its preset, where not PRESET. seidel_2d at M is 286-point rows: canon forks once per row and the fork
 #: costs more than the row, which is the runtime's per-region overhead, not the canonical form; at L it is 2507 points.
-KERNEL_PRESETS = {"seidel_2d": "L"}
+KERNEL_PRESETS = {"seidel_2d": Preset.L}
 REPEAT = 3
 MAX_SLOWDOWN = 2.0
 #: Per timed run: canon's first execution includes canonicalizing cloudsc on a cold cache.
