@@ -205,7 +205,7 @@ stage_setup() {
         export CPF_VIEW="${CPF_VIEW_GIVEN:-${HPCAGENT_BENCH_CPF_PRERENDER_DIR}/views/${TAG:-${EXPERIMENT}}-${device}}"
         # The preset's requests.allow, with what the packet needs added (a CPF packet adds load: a form may call
         # a vendor library).
-        packet_env=$("${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/packet_env.py" --packet "${packet}" --language "${lang}" \
+        packet_env=$("${HPCAGENT_BENCH_HOST_PYTHON}" -m hpcagent_bench.packets --packet "${packet}" --language "${lang}" \
             --requests-allow "$(base_value "${flat}" HPCAGENT_BENCH_REQUESTS_ALLOW)") || { rm -f "${staged}"; return 2; }
         # The hint detail a -kinds packet serves its form at; the view check below reads the forms at it.
         hints=$(base_value "${packet_env}" HPCAGENT_BENCH_CPF_HINTS)

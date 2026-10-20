@@ -33,7 +33,6 @@ INPUTS = (
             "submit.sh",
             "submit_common.sh",
             "make_problems.py",
-            "packet_env.py",
             "setup_nodes.sh",
             "pin_env_kv.sh",
             "record_identity.sh",

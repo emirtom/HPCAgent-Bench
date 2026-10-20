@@ -305,7 +305,7 @@ under `agents/` or `judge/` changed for `AGENT_STALL_ABORT_SECONDS` (default 360
 frozen agent container.
 
 After the agents exit, the job waits for every judge rank's in-flight `/submit` grades
-(`drain_judges.py`) before the merge, keeping `JUDGE_DRAIN_RESERVE_SECONDS` (default 900 s) of the
+(`merge_results.py --drain-url`) before the merge, keeping `JUDGE_DRAIN_RESERVE_SECONDS` (default 900 s) of the
 allocation for the merge and extraction.
 
 ## Troubleshooting

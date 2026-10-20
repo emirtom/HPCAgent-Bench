@@ -316,7 +316,7 @@ def test_no_packet_carries_a_key_a_final_grade_reads() -> None:
     from hpcagent_bench import packets
 
     listing = subprocess.run(
-        [sys.executable, str(REPO / "hpcagent_bench" / "cluster" / "packet_env.py"), "--list"],
+        [sys.executable, "-m", "hpcagent_bench.packets", "--list"],
         capture_output=True,
         text=True,
         check=True,

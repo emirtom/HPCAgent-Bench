@@ -57,11 +57,19 @@ def test_a_cpf_packet_adds_load_to_the_presets_allowance(spec: str, language: st
 
 
 def test_packet_env_prints_the_allowance_a_cpf_packet_needs(tmp_path: pathlib.Path) -> None:
-    script = paths.ROOT / "hpcagent_bench" / "cluster" / "packet_env.py"
-
     def lines(spec: str) -> list[str]:
         done = subprocess.run(
-            [sys.executable, str(script), "--packet", spec, "--language", "c", "--requests-allow", ""],
+            [
+                sys.executable,
+                "-m",
+                "hpcagent_bench.packets",
+                "--packet",
+                spec,
+                "--language",
+                "c",
+                "--requests-allow",
+                "",
+            ],
             capture_output=True,
             text=True,
             check=True,

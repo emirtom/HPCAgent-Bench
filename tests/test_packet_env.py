@@ -1,16 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""packet_env.py prints a setup's packet env as KEY=VALUE lines identical to ``packets.resolve`` for every
+"""``python -m hpcagent_bench.packets`` prints a setup's packet env as KEY=VALUE lines identical to ``packets.resolve`` for every
 predefined packet."""
 
 import os
 import subprocess
 import sys
-
-from hpcagent_bench import paths
-
-CLUSTER_DIR = paths.ROOT / "hpcagent_bench" / "cluster"
-SCRIPT = CLUSTER_DIR / "packet_env.py"
 
 
 def run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -18,7 +13,7 @@ def run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedPr
     if env is not None:
         full_env.update(env)
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, "-m", "hpcagent_bench.packets", *args],
         capture_output=True,
         text=True,
         check=False,
@@ -76,7 +71,7 @@ def test_a_missing_placeholder_exits_2_with_nothing_on_stdout() -> None:
     time, surfaced here instead of a half-written setup env."""
     env = {key: value for key, value in os.environ.items() if key != "CPF_VIEW"}
     result = subprocess.run(
-        [sys.executable, str(SCRIPT), "--packet", "cpf-tool", "--language", "c"],
+        [sys.executable, "-m", "hpcagent_bench.packets", "--packet", "cpf-tool", "--language", "c"],
         capture_output=True,
         text=True,
         check=False,

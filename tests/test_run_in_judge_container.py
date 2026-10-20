@@ -92,7 +92,7 @@ def run_in_judge_container(
 
 def test_the_merge_block_runs_merge_results_in_the_judge_container() -> None:
     """The results-DB merge goes through ``run_in_judge_container``, never a bare host ``python3``;
-    token_report.py/recoverable_report.py are pure stdlib and stay on the host."""
+    token_report.py is pure stdlib and stays on the host."""
     start = SCRIPT_TEXT.index('echo "===== folding the results DB')
     end = SCRIPT_TEXT.index('exit "${agent_status}"', start)
     merge_block = SCRIPT_TEXT[start:end]

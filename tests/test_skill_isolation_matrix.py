@@ -106,7 +106,7 @@ def test_a_tool_manual_page_is_staged_only_by_a_spec_that_reaches_a_packet_decla
 
 
 def launch_env(key: str) -> dict[str, str]:
-    """What the launcher exports for ``key`` (``hpcagent_bench/cluster/packet_env.py``): its env, plus the tools it
+    """What the launcher exports for ``key`` (``python -m hpcagent_bench.packets``): its env, plus the tools it
     carries."""
     packet = resolved(key)
     tools = {packets.PACKET_TOOLS_ENV: ",".join(packet.tools)} if packet.tools else {}
