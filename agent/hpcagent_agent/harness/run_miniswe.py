@@ -50,7 +50,9 @@ def bash_command(command: str) -> str:
     return shlex.join([*runner_common.BASH, command])
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the agent to its end; return (end reason, detail)."""
     import yaml
     from minisweagent.agents.default import DefaultAgent
@@ -118,8 +120,8 @@ def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLo
     result = agent.run(args.prompt.read_text(encoding="utf-8"))
     status = str(result.get("exit_status", ""))
     if status == SUBMITTED:
-        return runner_common.FINISHED, ""
-    return runner_common.ERROR, f"exit_status={status}"
+        return runner_common.EndReason.FINISHED, ""
+    return runner_common.EndReason.ERROR, f"exit_status={status}"
 
 
 def main(argv: Sequence[str]) -> int:

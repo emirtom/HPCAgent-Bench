@@ -31,6 +31,7 @@ from collections.abc import Callable, Mapping
 from typing import NamedTuple, cast
 
 from hpcagent_agent.driver import effort
+from hpcagent_agent.harness.runner_common import EndReason
 
 __all__ = [
     "ANTHROPIC_RUNGS",
@@ -225,10 +226,10 @@ def end_closing(workdir: pathlib.Path) -> Closing:
     reason = str(record.get("reason") or "")
     return Closing(
         recorded=True,
-        subtype="success" if reason == "finished" else reason,
+        subtype="success" if reason == EndReason.FINISHED.text else reason,
         turns=count(record.get("turns")) or 0,
-        context_overflow=reason == "context_overflow",
-        api_timeout=reason == "api_timeout",
+        context_overflow=reason == EndReason.CONTEXT_OVERFLOW.text,
+        api_timeout=reason == EndReason.API_TIMEOUT.text,
     )
 
 

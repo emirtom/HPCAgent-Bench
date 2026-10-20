@@ -135,6 +135,22 @@ def test_claude_env_carries_the_context_variables_over_whatever_the_submitter_ex
     assert {name: environment[name] for name in EXPECTED[131072]} == EXPECTED[131072]
 
 
+@pytest.mark.parametrize(("mode", "direct"), [("", True), ("direct", True), ("litellm", False)])
+def test_only_a_direct_llm_mode_points_claude_at_the_replica(
+    driver: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, mode: str, direct: bool
+) -> None:
+    """``AGENT_LLM_MODE`` (unset is direct) is read as an :class:`LlmMode`; through the proxy the launcher names
+    the endpoint, so the replica root must not override it, and a misspelled mode stops the launch."""
+    assert driver.LlmMode.texts() == ("direct", "litellm")
+    monkeypatch.setenv("AGENT_LLM_MODE", mode)
+    context = SimpleNamespace(replica_root="http://n0:8000", workdir=tmp_path)
+    environment = driver.claude_env(context, {})
+    assert (environment.get("ANTHROPIC_BASE_URL") == "http://n0:8000") is direct
+    monkeypatch.setenv("AGENT_LLM_MODE", "LiteLLM")
+    with pytest.raises(ValueError, match="one of direct, litellm"):
+        driver.claude_env(context, {})
+
+
 def test_the_argv_never_carries_autocompact_even_where_a_cli_would_accept_it(
     driver: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:

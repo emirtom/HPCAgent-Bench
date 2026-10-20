@@ -4,6 +4,7 @@
 
 import concurrent.futures
 import contextlib
+import enum
 import fcntl
 import functools
 import hashlib
@@ -30,6 +31,7 @@ from http import HTTPStatus
 from typing import Any, NamedTuple, NotRequired, TextIO, TypedDict, cast
 
 from hpcagent_agent import submission_mode
+from hpcagent_agent.coded import Coded
 from hpcagent_agent.driver import harnesses, promote_unsubmitted, seal_worker, stream_idle_timeout, token_cost
 from hpcagent_agent.driver.harnesses import Closing, Context, Harness
 from hpcagent_agent.driver.token_cost import ATTEMPTS_NAME, as_block
@@ -112,6 +114,7 @@ __all__ = [
     "UNREMINDED_PAGES",
     "AgentState",
     "AggregateState",
+    "LlmMode",
     "McpUnavailable",
     "Problem",
     "ProblemValue",
@@ -181,6 +184,7 @@ __all__ = [
     "judge_urls",
     "kept_interpreter",
     "kernel_stem",
+    "llm_mode",
     "load_problem_file",
     "load_problems",
     "main",
@@ -2679,13 +2683,26 @@ def claude_context_env(environment: Mapping[str, str]) -> dict[str, str]:
 CLAUDE_BACKGROUND_TASKS_OFF = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
 
 
+class LlmMode(Coded):
+    """How claude reaches the model (``AGENT_LLM_MODE``): DIRECT to the engine's own /v1/messages (the default),
+    or through the LITELLM proxy, which the launcher points it at."""
+
+    DIRECT = enum.auto()
+    LITELLM = enum.auto()
+
+
+def llm_mode() -> LlmMode:
+    """``$AGENT_LLM_MODE``, :attr:`LlmMode.DIRECT` when unset; an unknown mode is refused."""
+    return LlmMode.parse(os.environ.get("AGENT_LLM_MODE", "").strip() or LlmMode.DIRECT.text)
+
+
 def claude_env(context: Context, base: dict[str, str]) -> dict[str, str]:
     """The shared environment plus the variables only claude reads."""
     environment = dict(base)
     # Direct mode (default): claude speaks vLLM's native /v1/messages; agents stripe over the
     # replicas the same way problems stripe over judges. ANTHROPIC_BASE_URL must be the server
     # root -- the client appends /v1/messages itself.
-    if os.environ.get("AGENT_LLM_MODE", "direct") != "litellm":
+    if llm_mode() is LlmMode.DIRECT:
         environment["ANTHROPIC_BASE_URL"] = context.replica_root
     # The MCP tool process reports the agent's running spend to the judge with every grade, and it
     # finds the transcript through this variable. It inherits our cwd today, so a relative default

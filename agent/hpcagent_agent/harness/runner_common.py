@@ -1,14 +1,15 @@
 """What the non-Claude harness runners share: launch arguments, the usage line, the end record, the
 mcp.json conversion, the history window and the native runners' shell tool.
 
-Stdlib only. Each runner runs in its own venv inside the agent image, so nothing here may import
-hpcagent_bench or any harness package.
+The standard library and the agent package's own :mod:`hpcagent_agent.coded` only. Each runner runs in its own
+venv inside the agent image, so nothing here may import hpcagent_bench or any harness package.
 
 ``usage.jsonl`` gets ONE line per model call. Its four counts are DISJOINT and sum to the call's total:
 ``input`` is the uncached prompt, ``cached_input`` the prompt served from the prefix cache, ``output``
 the completion without its reasoning, ``reasoning`` the reasoning part of the completion.
 
-``harness-end.json`` is ``{"reason", "turns", "detail", "effort"}``; ``turns`` is the number of model
+``harness-end.json`` is ``{"reason", "turns", "detail", "effort"}``; ``reason`` is an :class:`EndReason`, ``turns`` is
+the number of model
 calls and ``effort`` the reasoning rung this client was actually sent ("" when it was sent no field).
 The rung is recorded because a client that accepts fewer rungs than the server is sent a LOWER one
 (see ``agent/hpcagent_agent/driver/effort.py``), and a difference between setups has to be visible in the data.
@@ -31,6 +32,7 @@ in the agent's folder, declared once here as a JSON schema both SDKs take as it 
 """
 
 import argparse
+import enum
 import json
 import pathlib
 import subprocess
@@ -38,6 +40,8 @@ import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from hpcagent_agent.coded import Coded
 
 __all__ = [
     "BASH",
@@ -57,18 +61,15 @@ __all__ = [
     "message_chars",
     "run_shell",
     "shell_observation",
-    "API_TIMEOUT",
     "API_TIMEOUT_TYPES",
-    "CONTEXT_OVERFLOW",
     "CONTEXT_OVERFLOW_MARKS",
     "CONTEXT_OVERFLOW_TYPES",
     "DEFAULT_JUDGE_TIMEOUT_SECONDS",
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "DETAIL_LIMIT",
     "END_RECORD",
-    "ERROR",
-    "FINISHED",
     "JUDGE_CALL_MARGIN_SECONDS",
+    "EndReason",
     "RunnerArgs",
     "UsageLog",
     "api_key",
@@ -86,11 +87,17 @@ __all__ = [
 ]
 
 END_RECORD = "harness-end.json"
-FINISHED = "finished"
-CONTEXT_OVERFLOW = "context_overflow"
-API_TIMEOUT = "api_timeout"
-ERROR = "error"
 DETAIL_LIMIT = 2000
+
+
+class EndReason(Coded):
+    """How an episode ended: the ``reason`` of ``harness-end.json``."""
+
+    FINISHED = enum.auto()
+    CONTEXT_OVERFLOW = enum.auto()
+    API_TIMEOUT = enum.auto()
+    ERROR = enum.auto()
+
 
 #: Exception class names (anywhere in the cause chain or MRO) that set the end reason.
 CONTEXT_OVERFLOW_TYPES = frozenset({"ContextWindowExceededError", "LLMContextWindowExceedError"})
@@ -410,35 +417,35 @@ def exception_chain(exc: BaseException) -> list[BaseException]:
     return chain
 
 
-def end_reason(exc: BaseException) -> str:
+def end_reason(exc: BaseException) -> EndReason:
     """The end reason an exception that stopped the agent stands for."""
     chain = exception_chain(exc)
     for link in chain:
         names = {cls.__name__ for cls in type(link).__mro__}
         text = str(link).lower()
         if names & CONTEXT_OVERFLOW_TYPES or any(mark in text for mark in CONTEXT_OVERFLOW_MARKS):
-            return CONTEXT_OVERFLOW
+            return EndReason.CONTEXT_OVERFLOW
     for link in chain:
         if {cls.__name__ for cls in type(link).__mro__} & API_TIMEOUT_TYPES:
-            return API_TIMEOUT
-    return ERROR
+            return EndReason.API_TIMEOUT
+    return EndReason.ERROR
 
 
 def exception_detail(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"[:DETAIL_LIMIT]
 
 
-def write_end(workdir: pathlib.Path, reason: str, turns: int, detail: str, effort: str = "") -> int:
+def write_end(workdir: pathlib.Path, reason: EndReason, turns: int, detail: str, effort: str = "") -> int:
     """Write ``harness-end.json`` atomically; return the runner's exit status (0 only for finished)."""
     target = workdir / END_RECORD
     partial = workdir / f"{END_RECORD}.partial"
-    record = {"reason": reason, "turns": turns, "detail": detail[:DETAIL_LIMIT], "effort": effort}
+    record = {"reason": reason.text, "turns": turns, "detail": detail[:DETAIL_LIMIT], "effort": effort}
     partial.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
     pathlib.Path(partial).replace(target)
-    return 0 if reason == FINISHED else 1
+    return 0 if reason is EndReason.FINISHED else 1
 
 
-def run_and_record(args: RunnerArgs, run_episode: Callable[[RunnerArgs, UsageLog], tuple[str, str]]) -> int:
+def run_and_record(args: RunnerArgs, run_episode: Callable[[RunnerArgs, UsageLog], tuple[EndReason, str]]) -> int:
     """Run one episode with a fresh usage log and write its end record, whatever stopped it; return
     the runner's exit status (:func:`write_end`)."""
     usage_log = UsageLog(args.usage)
@@ -448,7 +455,7 @@ def run_and_record(args: RunnerArgs, run_episode: Callable[[RunnerArgs, UsageLog
         traceback.print_exc()
         reason, detail = end_reason(exc), exception_detail(exc)
     print(
-        f"harness: end reason={reason} turns={usage_log.calls} effort={args.reasoning_effort or 'none'} {detail}",
+        f"harness: end reason={reason.text} turns={usage_log.calls} effort={args.reasoning_effort or 'none'} {detail}",
         flush=True,
     )
     return write_end(args.workdir, reason, usage_log.calls, detail, args.reasoning_effort)
