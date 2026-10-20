@@ -40,6 +40,8 @@ class PacketBlock(pydantic.BaseModel):
     order: int | None = None
     name: str
     aliases: tuple[str, ...] = ()
+    #: A plugin manifest's packet: the pages it stages (a page's own block always stages the page itself).
+    skills: tuple[str, ...] = ()
     packets: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()
     env: dict[str, str] = pydantic.Field(default_factory=dict)

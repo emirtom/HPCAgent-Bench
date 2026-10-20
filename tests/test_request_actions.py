@@ -158,7 +158,7 @@ def offered_schema(
         monkeypatch.delenv(tools.http_json.REQUEST_ACTIONS_ENV, raising=False)
     else:
         monkeypatch.setenv(tools.http_json.REQUEST_ACTIONS_ENV, json.dumps(wire))
-    return tools.http_json.schema_with_language(tools.http_json.SUBMISSION_PROPERTIES)
+    return tools.mcp_server.tools()["submit"].input_schema
 
 
 def operation_actions(requests: dict[str, Any]) -> list[str]:
@@ -397,9 +397,9 @@ def test_the_driver_exports_the_problem_offer_to_the_agent_and_its_mcp_server(
 
 def test_an_unset_offer_hides_requests_from_every_submission_tool(tools: types.SimpleNamespace) -> None:
     """No implicit fallback to the full schema: the agent cannot know the judge's defaults."""
-    for module in (tools.score, tools.submit, tools.profile_tool):
-        assert "requests" not in module.INPUT_SCHEMA["properties"], module.__name__
-    assert "requests.startup.load" not in tools.submit.INPUT_SCHEMA["properties"]["build"]["description"]
+    for name in ("score", "submit", "profile"):
+        assert "requests" not in tools.served[name].input_schema["properties"], name
+    assert "requests.startup.load" not in tools.served["submit"].input_schema["properties"]["build"]["description"]
 
 
 def test_an_empty_capability_set_hides_requests(tools: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -548,7 +548,9 @@ def test_the_requests_schema_ships_once_in_submit(monkeypatch: pytest.MonkeyPatc
     tools = load_tools(monkeypatch, "source", "c", request_actions=wire)
     full = tools.http_json.requests_property(tools.http_json.request_actions())
     assert (full is not None) is offered
-    assert tools.submit.INPUT_SCHEMA["properties"].get("requests") == full
-    for module in (tools.score, tools.profile_tool):
-        reference = module.INPUT_SCHEMA["properties"].get("requests")
-        assert reference == ({"type": "object", "description": "Same as submit's requests."} if offered else None)
+    assert tools.served["submit"].input_schema["properties"].get("requests") == full
+    for name in ("score", "profile"):
+        reference = tools.served[name].input_schema["properties"].get("requests")
+        assert (reference is not None) is offered
+        if offered:
+            assert (reference["type"], reference["description"]) == ("object", "Same as submit's requests.")

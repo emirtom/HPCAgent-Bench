@@ -884,6 +884,9 @@ esac
 
 # The batch shell alone launches steps: the container-runtime seam (container_wrap) is not needed by a role step.
 . "${SCRIPT_DIR}/container_runtime.sh"
+# The plugins every role sees, at their container paths (plugin_binds): the steps inherit this.
+HPCAGENT_BENCH_PLUGIN_DIRS="$(plugin_dirs)" || exit 2
+export HPCAGENT_BENCH_PLUGIN_DIRS
 
 : "${SLURM_JOB_ID:?run through services.sbatch or inside a Slurm allocation}"
 : "${SLURM_JOB_NODELIST:?missing Slurm node list}"

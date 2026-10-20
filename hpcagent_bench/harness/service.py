@@ -46,7 +46,7 @@ import traceback
 import types
 import uuid
 from collections.abc import Generator, Sequence
-from http import HTTPStatus
+from http import HTTPMethod, HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import parse_qs, urlparse
@@ -55,7 +55,7 @@ import numpy as np
 from hpcagent_agent.tools import submit
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
-from hpcagent_bench import anticheat, config, core_dumps, fused, languages, seal
+from hpcagent_bench import anticheat, config, core_dumps, fused, languages, plugins, seal
 from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
 from hpcagent_bench.config import GridChooser
 from hpcagent_bench.flags import Mode
@@ -102,7 +102,7 @@ from hpcagent_bench.harness.requests_api import (
     precision_problem_dtypes,
     precision_refusal,
 )
-from hpcagent_bench.harness.routes import first_param, load
+from hpcagent_bench.harness.routes import Route, RouteRequest, first_param, load
 from hpcagent_bench.harness.scoring import (
     Score,
     binding_from_spec,
@@ -117,7 +117,7 @@ from hpcagent_bench.harness.task import GPU_LANGUAGES, Task, grading_residency, 
 from hpcagent_bench.harness.timing import local_repeat, measurement_baseline, measurement_repeat
 from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 from hpcagent_bench.kernel_key import kernel_stem
-from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
+from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, RUNGS, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
 from hpcagent_bench.support.helpers.sparse.request import resolve_layout
@@ -182,6 +182,7 @@ __all__ = [
     "module_names",
     "precision_scope_refusal",
     "preload_lazy_imports",
+    "profile_size",
     "python_entry",
     "python_entry_refusal",
     "python_residency_refusal",
@@ -706,6 +707,22 @@ def python_entry_refusal(submission: Submission, task: Task) -> str | None:
         f"this task's entry point is a top-level function named {entry!r}, called with the kernel's arguments; "
         f"the submission defines {defined}. Rename the entry function (or bind {entry} = <your function>)"
     )
+
+
+def profile_size(asked: str | None, preset: str) -> str:
+    """The size rung a ``/profile`` measures at: ``asked`` when it is a rung no larger than the run's ``preset`` (a
+    fast profile, e.g. M on an L run: the hot spots show at a size that measures in a fraction of the time), else
+    the run's own. A larger or unknown rung is a ValueError (400): a profile never measures a size the grade does
+    not reach."""
+    if asked is None or asked == preset:
+        return preset
+    if asked not in RUNGS or preset not in RUNGS:
+        raise ValueError(f"size {asked!r} is not one of {', '.join(RUNGS)}")
+    if RUNGS.index(asked) > RUNGS.index(preset):
+        raise ValueError(
+            f"size {asked!r} is larger than this run's {preset!r}; a profile measures at most the graded size"
+        )
+    return asked
 
 
 def submit_verdict(result: Score, request_id: str) -> SubmitVerdict:
@@ -1401,7 +1418,9 @@ def record_result(
     return answer
 
 
-#: The tool routes (:mod:`hpcagent_bench.harness.routes`), each a ``@route`` handler in its own module.
+#: The tool routes (:mod:`hpcagent_bench.harness.routes`), each a ``@route`` handler in its own module, the
+#: plugins' included (:func:`hpcagent_bench.plugins.load`).
+plugins.load()
 ROUTES = load()
 
 
@@ -1631,8 +1650,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     submits_in_flight=SUBMITS_IN_FLIGHT.count,
                 ),
             )
-        if (tool_route := ROUTES.get(route)) is not None:
-            return tool_route(self, parts, qs)
+        tool_route = ROUTES.get(route)
+        if tool_route is not None and HTTPMethod.GET in tool_route.methods:
+            if self.misrouted(first_param(qs, "rank")):
+                return None
+            return tool_route.handler(self, RouteRequest(HTTPMethod.GET, parts, qs, {}, ""))
         if route == "build":
             return self._build(parts, qs)
         if route != "baseline":
@@ -1736,11 +1758,34 @@ class JudgeHandler(BaseHTTPRequestHandler):
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
         return self.reply(HTTPStatus.OK, answer)
 
+    def serve_tool_post(self, tool_route: Route, parts: list[str]) -> None:
+        """A ``POST`` to a tool route: from an episode this run started (:func:`unrecordable`) and this judge's rank,
+        else refused before the handler runs; the handler reads and validates its own body."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, TypeError) as exc:
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=f"invalid JSON body: {exc}"))
+        if not isinstance(body, dict):
+            return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error="the body must be a JSON object"))
+        fields = {str(key): value for key, value in cast("dict[object, object]", body).items()}
+        episode_id = fields.get("episode_id")
+        untrusted = unrecordable(episode_id if isinstance(episode_id, str) else None)
+        if untrusted is not None:
+            return self.reply(*untrusted)
+        if self.misrouted(fields.get("rank")):
+            return None
+        query = parse_qs(urlparse(self.path).query)
+        return tool_route.handler(self, RouteRequest(HTTPMethod.POST, parts, query, fields, str(episode_id)))
+
     def serve_post(self) -> None:
         parts = urlparse(self.path).path.strip("/").split("/")
         route = parts[0]  # str.split("/") is never empty, so parts[0] is always safe
         if route == "requests" and parts[1:] == ["check"]:
             return self.serve_requests_check()
+        tool_route = ROUTES.get(route)
+        if tool_route is not None and HTTPMethod.POST in tool_route.methods:
+            return self.serve_tool_post(tool_route, parts)
         if route not in ("submit", "score", "profile"):
             return self.reply(HTTPStatus.NOT_FOUND, JudgeError(error=f"unknown route {self.path!r}"))
         try:
@@ -1819,7 +1864,11 @@ class JudgeHandler(BaseHTTPRequestHandler):
         if refused is not None:
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=refused))
         if route == "profile":
-            return self._profile(submission, task, body, preset)
+            try:
+                sized = profile_size(body.optional_text("size"), preset)
+            except ValueError as exc:
+                return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=str(exc)))
+            return self._profile(submission, task, body, sized)
         # The grade's datatype is the kernel's when it crosses the ABI in one storage-only precision
         # (bf16 ML operators).
         cfg = dataclasses.replace(self.cfg, datatype=graded_datatype(BenchSpec.load(kernel), self.cfg.datatype))

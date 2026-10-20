@@ -77,9 +77,11 @@ def test_the_form_takes_the_required_signature_and_grades_correct(
 def test_no_caller_can_name_an_argument_order() -> None:
     """The ABI order is the kernel's, derived inside the bridge: neither the tool nor the route takes one."""
     from hpcagent_agent.tools import canonical_parallel_form as tool
+    from hpcagent_agent.tools.registry import schema_of
 
-    assert set(tool.INPUT_SCHEMA["properties"]) == {"dialect"}
-    assert not tool.INPUT_SCHEMA["required"]
+    schema = schema_of(tool.CanonicalParallelFormInput)
+    assert set(schema["properties"]) == {"dialect"}
+    assert not schema["required"]
 
 
 @pytest.mark.integration

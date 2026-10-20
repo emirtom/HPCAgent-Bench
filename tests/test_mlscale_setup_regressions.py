@@ -334,7 +334,10 @@ def test_the_requests_field_shows_the_grid_over_p(monkeypatch: pytest.MonkeyPatc
     from tests.test_ml_submit_records import load_http_json
 
     monkeypatch.setenv("HPCAGENT_BENCH_REQUEST_ACTIONS", json.dumps(RequestActions(distributed=True, grid=True).wire()))
-    schema = load_http_json().schema_with_language({})
+    from hpcagent_agent.tools.registry import schema_of
+
+    http_json = load_http_json()
+    schema = schema_of(http_json.submission_input(True, http_json.request_actions()))
     requests = schema["properties"]["requests"]
     described = str(requests["description"])
     assert "REQUIRED on this distributed run" in described, described

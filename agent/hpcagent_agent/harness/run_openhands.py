@@ -1,27 +1,11 @@
 # The optional openhands package is installed only in its agent image.
 # pyright: reportMissingImports=false
-"""OpenHands (openhands-sdk 1.55.1) runner for one HPCAgent-Bench episode.
+"""OpenHands runner for one episode: ``TerminalTool``, ``FileEditorTool`` and the MCP server's tools in a local
+``Conversation``.
 
-An ``Agent`` with ``TerminalTool`` + ``FileEditorTool`` and the benchmark MCP server from the driver's
-``mcp.json``, in a local ``Conversation`` on the workdir. No browser or delegate tools. As shipped
-otherwise: the default preset's condenser, stuck detection on. The iteration cap never binds: the driver
-owns wall clock and tokens. The driver also owns the LLM's windows: ``max_output_tokens`` is the common
-reply cap, ``max_input_tokens`` the window the agent may fill, and the condenser's ``max_tokens`` the
-compaction trigger every harness shares (``harnesses.context_policy``). Without it the preset condenses
-on event count (80 events) and on tokens only past ``max_input_tokens`` itself -- never, where no window
-was named -- which leaves no room for the reply the server reserves; SGLang's "maximum context length"
-refusal is not one the SDK recognises as a context error (openhands-sdk 1.55.1 ``LONG_PROMPT_PATTERNS``),
-so it never condenses reactively either -- the request fails and the episode ends.
-
-Two SDK waits are set from the driver's numbers instead of the SDK's 300 s. ``LLM.timeout`` =
-``API_TIMEOUT_MS``, the whole-request timeout every harness is handed. Each MCP tool's executor waits
-``runner_common.judge_call_timeout``, patched over openhands-sdk 1.55.1's fixed
-``MCP_TOOL_TIMEOUT_SECONDS`` = 300 (no config field); with 300 s a grade longer than 300 s returns an error to
-the agent while it continues on the judge, and later calls queue behind it on the stdio server.
-
-Writes ``usage.jsonl`` (one line per model call, condenser calls included), ``openhands.events.jsonl``
-(one event per line) and ``harness-end.json``; see ``runner_common``. Prints ``harness: tools ready: ...``
-once the agent, including its MCP tools, is initialized, followed by the condenser's configuration.
+The condenser triggers at the shared compaction threshold (the SDK does not recognise SGLang's context refusal).
+``LLM.timeout`` is ``API_TIMEOUT_MS`` and each MCP call waits :func:`runner_common.judge_call_timeout` instead of
+the SDK's fixed 300 s. Writes ``usage.jsonl``, ``openhands.events.jsonl`` and ``harness-end.json``.
 """
 
 import json

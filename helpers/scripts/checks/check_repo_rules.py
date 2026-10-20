@@ -13,8 +13,7 @@ entry carries its reason and must still name a tracked file:
 * ``no-requeue``: every submittable batch script carries ``#SBATCH --no-requeue``: a NODE_FAIL
   requeue reruns the job id into the same run directory and stacks duplicate rows.
 * ``scratch``: ``.scratch/`` tracks only its ``.gitkeep``.
-* ``gitignore``: no tracked file matches an ignore rule (a hand override at a generated name gets a
-  ``!`` line), and every such ``!`` line names a tracked file.
+* ``gitignore``: no tracked file matches an ignore rule, except a hand override at a generated benchmark name.
 * ``gfx-literal``: AMD archs come from containers/images/gpu_arch.env, never spelled in builds,
   launchers, scripts or the harness.
 * ``opt-flags``: ``-O3`` / ``-march=native`` / ``-ffast-math`` come from hpcagent_bench/flags.py.
@@ -186,18 +185,20 @@ def scratch(files: list[str]) -> list[str]:
     return extra + ([] if ".scratch/.gitkeep" in tracked() else [".scratch/.gitkeep: untracked"])
 
 
+#: Where a committed hand override may sit at a gitignored generated name.
+BENCHMARKS = "hpcagent_bench/benchmarks/"
+
+
 def git_lines(*args: str) -> list[str]:
     return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, check=True).stdout.split()
 
 
 def gitignore(files: list[str]) -> list[str]:
-    out = [
-        f"{rel}: tracked but matches an ignore rule" for rel in git_lines("ls-files", "-i", "-c", "--exclude-standard")
+    return [
+        f"{rel}: tracked but matches an ignore rule"
+        for rel in git_lines("ls-files", "-i", "-c", "--exclude-standard")
+        if not rel.startswith(BENCHMARKS)
     ]
-    lines = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
-    overrides = [line.removeprefix("!/") for line in lines if line.startswith("!/hpcagent_bench/benchmarks/")]
-    tracked_set = set(tracked())
-    return out + [f".gitignore: `!/{rel}` re-admits an untracked name" for rel in overrides if rel not in tracked_set]
 
 
 # gfx-literal

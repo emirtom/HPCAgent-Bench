@@ -179,7 +179,7 @@ A setup whose MCP server does not connect is never run without its tools: the dr
 | `score`, `profile` | every setup except blind (`preview=True`) | `AGENT_SUBMISSION_MODE=blind` removes them, and the router answers their routes with 403 |
 | `search` | the `web-search` packet only (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
 | `canonical_parallel_form` | the `cpf-tool-cpu` and `cpf-tool-gpu` packets and their `-kinds` counterparts (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
-| `agent/hpcagent_agent/packets/<name>/*.py` | `AGENT_PACKET=<name>` | -- |
+| a plugin's `tools/*.py` | the packets that list them (`core=False`) | `HPCAGENT_BENCH_PACKET_TOOLS` |
 
 A packet-gated tool is declared once, under `tools` in its packet; the launcher exports the resolved packet's tools
 as `HPCAGENT_BENCH_PACKET_TOOLS` (`hpcagent_bench/cluster/packet_env.py`). Without its packet, a tool is absent from

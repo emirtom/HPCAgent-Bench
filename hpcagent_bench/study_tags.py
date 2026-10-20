@@ -25,7 +25,7 @@ from typing import Annotated
 import pydantic
 import yaml
 
-from hpcagent_bench import columns, external_skills, models, paths, skill_packets, spec
+from hpcagent_bench import columns, external_skills, models, paths, plugins, skill_packets, spec
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.vocabulary import (
     KINDS,
@@ -240,6 +240,7 @@ def registry() -> Registry:
     every label and every colour on every figure goes through here. The external packets
     (``skills.external``) join the packet vocabulary first."""
     external_skills.register()
+    plugins.register()
     check_vocabulary()
     pools = RegistryFile.model_validate(yaml.safe_load(REGISTRY.read_text(encoding="utf-8")) or {})
     doc = StudiesFile.model_validate(yaml.safe_load(STUDIES.read_text(encoding="utf-8")) or {})

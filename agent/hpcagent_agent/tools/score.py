@@ -21,13 +21,13 @@ resend it unchanged. A build failure or a wrong answer is NOT a 400: it is a nor
 from typing import Any
 
 from hpcagent_agent.tools import http_json
-from hpcagent_agent.tools.registry import tool
+from hpcagent_agent.tools.registry import Setup, Spec, tool
 
 __all__ = [
     "DESCRIPTION",
-    "INPUT_SCHEMA",
     "PROMPT",
     "run",
+    "spec",
 ]
 
 DESCRIPTION = (
@@ -40,9 +40,7 @@ DESCRIPTION = (
     "failure or wrong answer comes back 200 with correct:false and a reason in 'detail'; a "
     "400 means the REQUEST was malformed and its message says how -- fix it rather than "
     "resending. "
-) + http_json.language_clause()
-
-INPUT_SCHEMA: dict[str, Any] = http_json.schema_with_language(http_json.SUBMISSION_PROPERTIES, full_requests=False)
+)
 
 PROMPT = (
     "- `score` -- a preview on a few fixed inputs, never recorded and UNLIMITED: call it on every version you"
@@ -50,7 +48,16 @@ PROMPT = (
 )
 
 
-@tool(description=DESCRIPTION, input=INPUT_SCHEMA, prompt=PROMPT, preview=True)
+def spec(setup: Setup) -> Spec:
+    """The score tool on ``setup``: the submission fields it offers, and the language regime it is in."""
+    return Spec(
+        DESCRIPTION + http_json.language_clause(setup.language_enforced, setup.language),
+        http_json.submission_input(setup.language_enforced, setup.request_actions, full_requests=False),
+        PROMPT,
+    )
+
+
+@tool(spec=spec, preview=True)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     return http_json.post_judge("/score", http_json.submission_body(payload))
 

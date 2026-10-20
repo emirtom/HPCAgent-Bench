@@ -22,6 +22,7 @@ from collections.abc import Callable
 from http.server import ThreadingHTTPServer
 
 import pytest
+from hpcagent_agent.tools import http_json, registry
 
 from hpcagent_bench import languages, paths
 from hpcagent_bench.harness import gpu_profiling
@@ -46,6 +47,14 @@ ROW_SPLIT = {
 
 #: The tool modules, in import order (each imports the one before it).
 TOOL_MODULES = ("http_json", "score", "submit", "profile_tool", "syntax_check", "mcp_server")
+#: The shared submission fields every submission tool shows (the model never sees ``kernel``).
+SUBMISSION_FIELDS = set(registry.schema_of(http_json.SubmissionInput)["properties"])
+
+
+def served_tool(name: str) -> registry.Served:
+    """``name`` as this process's environment serves it, its packet carrying it when it is not core."""
+    environ = {**os.environ, registry.PACKET_TOOLS_ENV: name}
+    return registry.served(registry.Setup.read(environ))[name]
 
 
 def load_tools(
@@ -75,7 +84,10 @@ def load_tools(
         monkeypatch.delenv("HPCAGENT_BENCH_REQUEST_ACTIONS", raising=False)
     else:
         monkeypatch.setenv("HPCAGENT_BENCH_REQUEST_ACTIONS", json.dumps(request_actions))
-    return types.SimpleNamespace(**{name: fresh(name) for name in TOOL_MODULES})
+    namespace = types.SimpleNamespace(**{name: fresh(name) for name in TOOL_MODULES})
+    namespace.setup = registry.Setup.read()
+    namespace.served = namespace.mcp_server.tools()
+    return namespace
 
 
 @pytest.fixture
@@ -201,19 +213,20 @@ def test_the_profile_tool_offers_the_judges_instruments_and_opt_report_only_besi
     tools = load_tools(monkeypatch, "source", "c", tmp_path)
     offered = "opt-reports" in pages
     expected = tuple(tool for tool in PROFILE_TOOLS if offered or tool != "opt-report")
-    assert expected == tools.profile_tool.PROFILE_TOOLS
-    assert tuple(tools.profile_tool.PROFILE_PROPERTIES["tool"]["enum"]) == expected
-    described = tools.profile_tool.DESCRIPTION + tools.profile_tool.PROFILE_PROPERTIES["tool"]["description"]
+    profile = tools.served["profile"]
+    assert expected == tools.profile_tool.profile_tools(tools.setup)
+    assert tuple(profile.input_schema["properties"]["tool"]["enum"]) == expected
+    described = profile.description + profile.input_schema["properties"]["tool"]["description"]
     assert ("opt-report" in described) == offered
-    assert "opt-report" not in tools.profile_tool.PROMPT
+    assert "opt-report" not in profile.prompt
 
 
 def test_the_profile_tool_looks_for_pages_where_the_launcher_stages_them(monkeypatch: pytest.MonkeyPatch) -> None:
     """A default that drifted from make_problems.py's SKILL_DIR would hide opt-report from every setup."""
     monkeypatch.delenv("AGENT_SKILL_DIR", raising=False)
-    profile_tool = fresh("profile_tool")
     make_problems = fresh("make_problems")
-    assert str(profile_tool.SKILL_DIR) == make_problems.SKILL_DIR
+    assert registry.Setup.read.__defaults__ is not None
+    assert make_problems.SKILL_DIR == "/skills"
 
 
 def test_the_profile_tool_names_the_offload_tracer_for_exactly_the_languages_the_judge_traces(
@@ -224,10 +237,11 @@ def test_the_profile_tool_names_the_offload_tracer_for_exactly_the_languages_the
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
     traced = tuple(language.value for language in Language if gpu_profiling.offload_traced(language.value))
     tool = agent_tools.profile_tool
+    profile = agent_tools.served["profile"]
     assert traced == tool.OFFLOAD_TRACED_LANGUAGES
-    assert OFFLOAD_DEVICE_TOOL in tool.PROFILE_TOOLS
+    assert OFFLOAD_DEVICE_TOOL in tool.profile_tools(agent_tools.setup)
     named = f"'{OFFLOAD_DEVICE_TOOL}' also traces " + "/".join(traced)
-    for text in (tool.DESCRIPTION, tool.PROFILE_PROPERTIES["tool"]["description"]):
+    for text in (profile.description, profile.input_schema["properties"]["tool"]["description"]):
         assert named in text, text
         assert "the default there" in text, "the judge defaults an offload setup to rocprofv3; the tool must say so"
 
@@ -317,12 +331,12 @@ def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_t
     assert instructions.startswith(agent_tools.mcp_server.MCP_HEAD), (
         "the server names its tools as the client lists them"
     )
-    assert instructions == agent_tools.mcp_server.server_instructions(), (
+    assert instructions == agent_tools.mcp_server.server_instructions(agent_tools.served), (
         "the server instructions are the prompt's tool list, mode slot filled"
     )
     assert "{{" not in instructions, "a raw template slot reaches the agent"
-    tools = {tool.name: tool for tool in agent_tools.mcp_server.tool_definitions()}
-    assert list(tools) == list(agent_tools.mcp_server.TOOLS)
+    tools = {tool.name: tool for tool in agent_tools.mcp_server.tool_definitions(agent_tools.served)}
+    assert list(tools) == list(agent_tools.served)
     assert "task" not in tools
     assert "canonical_parallel_form" not in tools
     for name in ("score", "submit", "profile"):
@@ -330,7 +344,9 @@ def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_t
         assert "language" not in tools[name].inputSchema["properties"], (
             f"{name} invites the model to choose a language the enforced track will refuse"
         )
-    called = agent_tools.mcp_server.answer("score", {"kernel": KERNEL, "source_file": "not_the_kernel.c"})
+    called = agent_tools.mcp_server.answer(
+        agent_tools.served, "score", {"kernel": KERNEL, "source_file": "not_the_kernel.c"}
+    )
     assert called.isError is True
     assert f"{KERNEL}.c" in called.content[0].text
 
@@ -338,7 +354,11 @@ def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_t
 def test_every_tool_module_in_the_directory_is_registered(agent_tools: types.SimpleNamespace) -> None:
     """A tool module written beside the others without ``@tool`` is served by nobody, and nothing fails."""
     modules = {path.stem for path in TOOLS_DIR.glob("*.py") if "\ndef run(" in path.read_text(encoding="utf-8")}
-    registered = {entry.run.__module__.rpartition(".")[2] for entry in agent_tools.mcp_server.REGISTRY.values()}
+    registered = {
+        entry.run.__module__.rpartition(".")[2]
+        for entry in registry.REGISTRY.values()
+        if entry.run.__module__.startswith("hpcagent_agent.")
+    }
     assert registered == modules, (
         f"not registered: {sorted(modules - registered)}; no run(): {sorted(registered - modules)}"
     )
@@ -354,7 +374,7 @@ def test_the_launcher_allows_every_tool_the_server_advertises(
     that never scored an iteration or never profiled, with no error anywhere to explain why. That is
     why this reads the tuple the launcher itself builds rather than trusting a second list kept in a doc.
     """
-    served = set(agent_tools.mcp_server.TOOLS)
+    served = set(agent_tools.served)
     # run_cluster.sh --agent-node runs agent_driver.py, which builds the claude invocation.
     driver = fresh("agent_driver")
     allowed = driver.agent_tools()
@@ -372,7 +392,8 @@ def test_the_language_enum_is_the_judges_whole_delivery_vocabulary(agent_tools) 
     from hpcagent_bench.harness.envelope import DELIVERY_LANGS
 
     assert agent_tools.http_json.DELIVERY_LANGUAGES == DELIVERY_LANGS
-    assert agent_tools.http_json.LANGUAGE_PROPERTY["enum"] == list(DELIVERY_LANGS)
+    free = http_json.submission_input(False, http_json.RequestActions())
+    assert registry.schema_of(free)["properties"]["language"]["enum"] == list(DELIVERY_LANGS)
 
 
 def test_the_enforced_input_modes_are_the_ones_the_judge_enforces(agent_tools) -> None:
@@ -394,18 +415,19 @@ def test_language_is_offered_only_where_the_track_pins_none(monkeypatch, mode, e
     so guessing the other way would offer a field that earns a 400 on the commonest configuration.
     """
     tools = load_tools(monkeypatch, mode, "c")
-    for module in (tools.score, tools.submit, tools.profile_tool):
-        properties = module.INPUT_SCHEMA["properties"]
-        assert ("language" in properties) is not enforced, module.__name__
-        assert module.INPUT_SCHEMA["required"] == []
+    for name in ("score", "submit", "profile"):
+        served = tools.served[name]
+        properties = served.input_schema["properties"]
+        assert ("language" in properties) is not enforced, name
+        assert served.input_schema["required"] == []
         assert "kernel" not in properties, "the driver's assignment names the kernel, never the model"
         if not enforced:
             assert properties["language"]["enum"] == list(tools.http_json.DELIVERY_LANGUAGES)
-            assert "pass 'language'" in module.DESCRIPTION
+            assert "pass 'language'" in served.description
         else:
-            assert "FIXED by the task" in module.DESCRIPTION
+            assert "FIXED by the task" in served.description
     # the rest of the schema is untouched by the regime
-    assert set(tools.score.INPUT_SCHEMA["properties"]) - {"language"} == set(tools.http_json.SUBMISSION_PROPERTIES)
+    assert set(tools.served["score"].input_schema["properties"]) - {"language"} == SUBMISSION_FIELDS
 
 
 def test_every_call_names_the_assigned_kernel_whatever_the_model_sends(
@@ -439,14 +461,12 @@ def test_the_requests_field_requires_a_layout_exactly_where_the_judge_grades_dis
     the judge refuses any submission without ``startup.grid`` and layout operations, so the tool schema
     describes ``requests`` as carrying them; a task that offers nothing shows no ``requests`` field."""
     tools = load_tools(monkeypatch, "source", "hip", request_actions=actions)
-    for module in (tools.score, tools.submit, tools.profile_tool):
-        assert ("requests" in module.INPUT_SCHEMA["properties"]) is offered, module.__name__
+    for name in ("score", "submit", "profile"):
+        assert ("requests" in tools.served[name].input_schema["properties"]) is offered, name
     if offered:
-        described = tools.submit.INPUT_SCHEMA["properties"]["requests"]["description"]
+        described = tools.served["submit"].input_schema["properties"]["requests"]["description"]
         assert described.startswith("REQUIRED on this distributed run"), described
-    assert set(tools.score.INPUT_SCHEMA["properties"]) - {"language", "requests"} == set(
-        tools.http_json.SUBMISSION_PROPERTIES
-    )
+    assert set(tools.served["score"].input_schema["properties"]) - {"language", "requests"} == SUBMISSION_FIELDS
 
 
 def test_a_distributed_submission_reaches_the_judge_with_its_layout(monkeypatch) -> None:
@@ -667,7 +687,7 @@ def test_the_mcp_server_serves_syntax_check_as_its_own_tool(agent_tools, tmp_pat
     parse comes back as ``isError`` content carrying the compiler's message."""
     if shutil.which("gcc") is None:
         pytest.skip("gcc absent: syntax_check has nothing to parse c with")
-    schema = {tool.name: tool for tool in agent_tools.mcp_server.tool_definitions()}["syntax_check"].inputSchema
+    schema = agent_tools.served["syntax_check"].input_schema
     assert schema["required"] == ["source_file"]
     assert "kernel" not in schema["properties"]
 

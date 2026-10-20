@@ -29,11 +29,11 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from http import HTTPStatus
 from typing import Any, NamedTuple, NotRequired, TextIO, TypedDict, cast
 
-from hpcagent_agent import submission_mode
+from hpcagent_agent import plugins, submission_mode
 from hpcagent_agent.driver import harnesses, promote_unsubmitted, seal_worker, stream_idle_timeout, token_cost
 from hpcagent_agent.driver.harnesses import Closing, Context, Harness
 from hpcagent_agent.driver.token_cost import ATTEMPTS_NAME, as_block
-from hpcagent_agent.tools import http_json
+from hpcagent_agent.tools import http_json, mcp_server
 
 __all__ = [
     "AGENT_CRASH_ATTEMPTS",
@@ -187,6 +187,7 @@ __all__ = [
     "mark_cancelled",
     "material_dir",
     "mcp_failed",
+    "method_text",
     "metrics_url",
     "mode_sections",
     "node_exit_status",
@@ -197,7 +198,6 @@ __all__ = [
     "open_tool_use_index",
     "open_tool_use_stall_seconds",
     "own_page",
-    "packet_dir",
     "parse_prometheus",
     "parse_resolved",
     "pin",
@@ -1067,14 +1067,9 @@ def agent_runtime() -> pathlib.Path:
 
 @functools.lru_cache(maxsize=1, typed=True)
 def tool_registry() -> dict[str, Any]:
-    """What ``hpcagent_agent.tools.mcp_server`` offers this setup (``--describe``, under this process's
-    environment): ``allowed_tools``, ``prompt`` and ``prompt_cli``. A child process, because the server
-    builds its registry from the environment at import."""
-    command = [sys.executable, "-m", "hpcagent_agent.tools.mcp_server", "--describe"]
-    done = subprocess.run(command, capture_output=True, text=True, check=False)
-    if done.returncode != 0:
-        raise SystemExit(f"agent_driver: mcp_server --describe failed: {done.stderr.strip()[-500:]}")
-    return cast("dict[str, Any]", json.loads(done.stdout))
+    """What ``hpcagent_agent.tools.mcp_server`` offers this setup, under this process's environment:
+    ``allowed_tools``, ``prompt`` and ``prompt_cli``."""
+    return mcp_server.describe(os.environ)
 
 
 def agent_tools() -> tuple[str, ...]:
@@ -1082,22 +1077,23 @@ def agent_tools() -> tuple[str, ...]:
     return tuple(str(name) for name in tool_registry()["allowed_tools"])
 
 
-def packet_dir() -> pathlib.Path | None:
-    """``hpcagent_agent/packets/<AGENT_PACKET>``, or None for a setup without a method packet."""
-    name = os.environ.get("AGENT_PACKET", "").strip()
+def method_text(environ: Mapping[str, str] = os.environ) -> pathlib.Path | None:
+    """The prompt text of the method the setup runs (:data:`plugins.METHOD_ENV`, which its packet exports), from the
+    plugin that ships it; None for a setup without a method."""
+    name = environ.get(plugins.METHOD_ENV, "").strip()
     if not name:
         return None
-    path = pathlib.Path(__file__).resolve().parents[1] / "packets" / name
-    if not (path / "packet.md").is_file():
-        raise SystemExit(f"AGENT_PACKET={name}: {path / 'packet.md'} does not exist")
-    return path
+    for plugin in plugins.find(plugins.plugin_dirs(environ)):
+        if (text := plugin.method(name)) is not None:
+            return text
+    raise SystemExit(f"{plugins.METHOD_ENV}={name}: no plugin ships methods/{name}/method.md")
 
 
 def hints_text() -> str:
-    """The {{HINTS}} slot: the method packet's ``packet.md``, or nothing without a packet. Skill pages never
-    ride here; they reach the agent as trigger lines and files."""
-    packet = packet_dir()
-    return "" if packet is None else (packet / "packet.md").read_text(encoding="utf-8").strip()
+    """The {{HINTS}} slot: the method's ``method.md``, or nothing without a method. Skill pages never ride here; they
+    reach the agent as trigger lines and files."""
+    text = method_text()
+    return "" if text is None else text.read_text(encoding="utf-8").strip()
 
 
 def build_command_text(problem: Problem) -> str:
@@ -2618,7 +2614,7 @@ def claude_command(context: Context) -> list[str]:
         "Read,Edit,Bash" if bare else CLAUDE_NATIVE_TOOLS,
         "--allowedTools",
         "Bash",
-        # The method packet's tools are among them: the server registers and serves them (AGENT_PACKET).
+        # A plugin's tools are among them when the setup's packet carries them.
         *[f"mcp__{MCP_SERVER_NAME}__{name}" for name in agent_tools()],
         "--disallowedTools",
         "WebFetch",

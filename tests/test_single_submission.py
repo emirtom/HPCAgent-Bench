@@ -141,10 +141,10 @@ def test_single_submission_keeps_the_score_tool(monkeypatch) -> None:
     importlib.reload(submit_mod)
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
-    assert "score" in mcp_server.TOOLS, "the last correct score is what a non-submitting agent is graded on"
-    assert "submit" in mcp_server.TOOLS
-    assert {tool.name for tool in mcp_server.tool_definitions()} >= {"score", "submit"}
+    served = mcp_server.tools()
+    assert "score" in served, "the last correct score is what a non-submitting agent is graded on"
+    assert "submit" in served
+    assert {tool.name for tool in mcp_server.tool_definitions(served)} >= {"score", "submit"}
 
 
 def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:
@@ -158,25 +158,22 @@ def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:
     assert submit_mod.SINGLE_SUBMISSION is False
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
-    assert "score" in mcp_server.TOOLS
+    assert "score" in mcp_server.tools()
 
 
 def test_blind_withdraws_score_and_profile_from_every_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """A tool the mode does not serve is in no list: not served, not allowed, not in the prompt. A prompt that
     listed ``score`` beside a template saying there is none told the agent two things."""
-    import importlib
-
     monkeypatch.setenv("AGENT_SUBMISSION_MODE", "blind")
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
+    served = mcp_server.tools()
     for name in ("score", "profile"):
-        assert name not in mcp_server.TOOLS
-        assert name not in mcp_server.ALLOWED_TOOLS
-        assert f"`{name}`" not in mcp_server.prompt_tool_list()
-    assert "submit" in mcp_server.TOOLS
-    assert "syntax_check" in mcp_server.TOOLS
+        assert name not in served
+        assert name not in mcp_server.allowed_tools(served)
+        assert f"`{name}`" not in mcp_server.prompt_tool_list(served)
+    assert "submit" in served
+    assert "syntax_check" in served
 
 
 def test_a_submission_ends_the_episode(monkeypatch, tmp_path) -> None:

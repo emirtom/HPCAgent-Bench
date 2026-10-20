@@ -1,48 +1,41 @@
-"""What the non-Claude harness runners share: launch arguments, the usage line, the end record, the
-mcp.json conversion, the history window and the native runners' shell tool.
+"""What the non-Claude runners share: launch arguments, the usage line, the end record, the mcp.json
+conversion, the history window and the shell tool. Stdlib and pydantic only: each runner has its own venv.
 
-Stdlib only. Each runner runs in its own venv inside the agent image, so nothing here may import
-hpcagent_bench or any harness package.
-
-``usage.jsonl`` gets ONE line per model call. Its four counts are DISJOINT and sum to the call's total:
-``input`` is the uncached prompt, ``cached_input`` the prompt served from the prefix cache, ``output``
-the completion without its reasoning, ``reasoning`` the reasoning part of the completion.
-
-``harness-end.json`` is ``{"reason", "turns", "detail", "effort"}``; ``turns`` is the number of model
-calls and ``effort`` the reasoning rung this client was actually sent ("" when it was sent no field).
-The rung is recorded because a client that accepts fewer rungs than the server is sent a LOWER one
-(see ``agent/hpcagent_agent/driver/effort.py``), and a difference between setups has to be visible in the data.
-
-The reply cap, the reasoning level, the context window, the compaction trigger and the request timeout
-are PASSED IN rather than read from the environment here: ``agent/hpcagent_agent/driver/harnesses.py`` derives them once
-(the launcher's ``CLAUDE_CODE_MAX_OUTPUT_TOKENS`` and ``API_TIMEOUT_MS``, the setup's ``AGENT_EFFORT`` and
-its served window, through ``harnesses.context_policy``) and hands every harness the same values, so one
-setup cannot answer at a longer length, compact later or give up on a queued request sooner than another
-because of which harness ran it.
-
-A judge call (``score``, ``submit``, ``profile``) is waited on for :func:`judge_call_timeout`: longer
-than the judge's own ``JUDGE_TIMEOUT_SECONDS``, because abandoning a call does not cancel its grade,
-which keeps holding a judge slot while the agent retries behind it.
-
-:class:`HistoryWindow` is the compaction of the runners whose client has none of its own (mini-SWE and
-the SDK runners anthropic, openai and optimas): past the driver's trigger the request carries the task and
-the newest steps only. :data:`SHELL_TOOL` is the one tool the SDK runners add to the MCP server's: a shell
-in the agent's folder, declared once here as a JSON schema both SDKs take as it is.
+``usage.jsonl``: one line per model call; ``input``, ``cached_input``, ``output`` and ``reasoning`` are disjoint
+and sum to the call's total. ``harness-end.json``: ``{"reason", "turns", "detail", "effort"}``, ``effort`` being
+the rung actually sent. Limits are passed in (``driver/harnesses.py``), never read here, so every harness runs a
+setup under the same ones.
 """
 
 import argparse
 import json
+import os
 import pathlib
+import signal
 import subprocess
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import pydantic
+
 __all__ = [
+    "API_TIMEOUT",
+    "API_TIMEOUT_TYPES",
     "BASH",
+    "CONTEXT_OVERFLOW",
+    "CONTEXT_OVERFLOW_MARKS",
+    "CONTEXT_OVERFLOW_TYPES",
     "CUT_FRACTION",
+    "DEFAULT_JUDGE_TIMEOUT_SECONDS",
+    "DEFAULT_MAX_OUTPUT_TOKENS",
+    "DETAIL_LIMIT",
     "ELIDED_NOTE",
+    "END_RECORD",
+    "ERROR",
+    "FINISHED",
+    "JUDGE_CALL_MARGIN_SECONDS",
     "MCP_SERVER_KEYS",
     "OBSERVATION_LIMIT",
     "REPLY_ITEM_TYPES",
@@ -50,36 +43,25 @@ __all__ = [
     "SHELL_SCHEMA",
     "SHELL_TOOL",
     "HistoryWindow",
-    "anthropic_usage",
-    "history_steps",
-    "is_reply",
-    "mcp_servers",
-    "message_chars",
-    "run_shell",
-    "shell_observation",
-    "API_TIMEOUT",
-    "API_TIMEOUT_TYPES",
-    "CONTEXT_OVERFLOW",
-    "CONTEXT_OVERFLOW_MARKS",
-    "CONTEXT_OVERFLOW_TYPES",
-    "DEFAULT_JUDGE_TIMEOUT_SECONDS",
-    "DEFAULT_MAX_OUTPUT_TOKENS",
-    "DETAIL_LIMIT",
-    "END_RECORD",
-    "ERROR",
-    "FINISHED",
-    "JUDGE_CALL_MARGIN_SECONDS",
     "RunnerArgs",
+    "ShellInput",
     "UsageLog",
+    "anthropic_usage",
     "api_key",
     "end_reason",
     "exception_chain",
     "exception_detail",
+    "history_steps",
+    "is_reply",
     "judge_call_timeout",
     "litellm_model",
+    "mcp_servers",
+    "message_chars",
     "openai_usage",
     "parse_args",
     "run_and_record",
+    "run_shell",
+    "shell_observation",
     "token_count",
     "usage_line",
     "write_end",
@@ -348,16 +330,23 @@ class HistoryWindow:
 #: and an rc file that changes directory would move the agent's commands out of its folder.
 BASH = ("bash", "--norc", "--noprofile", "-c")
 SHELL_TOOL = "bash"
+
+
 SHELL_DESCRIPTION = (
-    "Run a bash command in your working directory and return its exit code and output (stdout and "
-    "stderr together). Every call is a new shell: a cd or an exported variable does not carry over."
+    "Run a bash command in your working directory and return its exit code and output (stdout and stderr "
+    "together). Every call is a new shell: a cd or an exported variable does not carry over."
 )
-SHELL_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {"command": {"type": "string", "description": "The bash command to run."}},
-    "required": ["command"],
-    "additionalProperties": False,
-}
+
+
+class ShellInput(pydantic.BaseModel):
+    """A shell tool call."""
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    command: str = pydantic.Field(min_length=1, pattern=r"\S", description="The bash command to run.")
+
+
+SHELL_SCHEMA: dict[str, Any] = ShellInput.model_json_schema()
 #: Output past this many characters is returned as its head and tail, as mini-SWE's observation does.
 OBSERVATION_LIMIT = 10000
 
@@ -379,26 +368,28 @@ def shell_observation(returncode: int, output: str) -> str:
 
 
 def run_shell(arguments: Mapping[str, Any], cwd: pathlib.Path, timeout: float) -> str:
-    """Run one shell tool call in ``cwd`` with this process's environment; its observation. A command
-    may be a long build, so it is waited on for ``timeout`` (the judge call's wait), and a command that
-    outlives it answers with what it printed so far."""
-    command = arguments.get("command")
-    if not isinstance(command, str) or not command.strip():
-        return json.dumps({"returncode": 2, "output": "the bash tool takes one non-empty string, command"})
+    """Run one shell tool call in ``cwd``; its observation. A command still running after ``timeout`` is killed with
+    every process it started, and answers with what it printed so far."""
     try:
-        done = subprocess.run(
-            [*BASH, command],
-            cwd=cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        printed = exc.output.decode("utf-8", "replace") if isinstance(exc.output, bytes) else ""
-        return shell_observation(124, f"{printed}\n[the command ran past {timeout:.0f} s and was killed]")
-    return shell_observation(done.returncode, done.stdout.decode("utf-8", "replace"))
+        command = ShellInput.model_validate(arguments).command
+    except pydantic.ValidationError as exc:
+        return json.dumps({"returncode": 2, "output": f"the bash tool takes one non-empty string, command: {exc}"})
+    with subprocess.Popen(
+        [*BASH, command],
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    ) as proc:
+        try:
+            printed = proc.communicate(timeout=timeout)[0]
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            printed = proc.communicate()[0]
+            text = printed.decode("utf-8", "replace")
+            return shell_observation(124, f"{text}\n[the command ran past {timeout:.0f} s and was killed]")
+    return shell_observation(proc.returncode, printed.decode("utf-8", "replace"))
 
 
 def exception_chain(exc: BaseException) -> list[BaseException]:

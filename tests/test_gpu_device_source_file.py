@@ -171,7 +171,9 @@ def test_the_submission_schema_documents_both_device_spellings() -> None:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    props = module.SUBMISSION_PROPERTIES
+    from hpcagent_agent.tools.registry import schema_of
+
+    props = schema_of(module.SubmissionInput)["properties"]
     assert props["device_source"]["type"] == "string"
     assert props["device_source_file"]["type"] == "string"
     # A GPU 'source_file' is not named '.hip'/'.cu': the host half is always '.cpp' -- see

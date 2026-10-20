@@ -23,8 +23,8 @@ from typing import ClassVar
 import pydantic
 import pytest
 import yaml
-
 from hpcagent_agent.harness.runner_common import HistoryWindow
+
 from hpcagent_bench import paths
 
 AGENT_DIR = paths.ROOT / "agent"
@@ -1121,7 +1121,7 @@ def test_the_listed_tools_are_exactly_the_mcp_servers_tools(tool_env, tmp_path: 
         [
             sys.executable,
             "-c",
-            "import json; from hpcagent_agent.tools import mcp_server; print(json.dumps(list(mcp_server.TOOLS)))",
+            "import json; from hpcagent_agent.tools import mcp_server; print(json.dumps(list(mcp_server.tools())))",
         ],
         env=tool_env,
         capture_output=True,

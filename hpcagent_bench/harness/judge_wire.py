@@ -86,6 +86,8 @@ class RequestFields(pydantic.BaseModel):
     counter_group: str | None = None
     per_thread: bool | None = None
     min_percent: float | None = None
+    #: ``/profile`` only: a smaller size rung than the run's to measure at (fast profile; :func:`profile_size`).
+    size: str | None = None
 
 
 class CanonicalFormQuery(pydantic.BaseModel):

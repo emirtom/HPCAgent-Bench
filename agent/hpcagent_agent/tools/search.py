@@ -32,13 +32,12 @@ from typing import Any
 import pydantic
 
 from hpcagent_agent.tools import http_json
-from hpcagent_agent.tools.registry import schema_of, tool
+from hpcagent_agent.tools.registry import Spec, tool
 
 __all__ = [
     "DESCRIPTION",
-    "INPUT_SCHEMA",
-    "SearchInput",
     "PROMPT",
+    "SearchInput",
     "run",
 ]
 
@@ -60,8 +59,6 @@ class SearchInput(pydantic.BaseModel):
     limit: int | None = pydantic.Field(None, description="Optional requested number of results.")
 
 
-INPUT_SCHEMA: dict[str, Any] = schema_of(SearchInput)
-
 PROMPT = (
     "- `search` -- web and API research. Use it before guessing at an API, the spelling of a pragma or\n"
     "  flag, or a library signature. `status: 503` means this run has no search: stop calling it.\n"
@@ -70,7 +67,7 @@ PROMPT = (
 )
 
 
-@tool(description=DESCRIPTION, input=SearchInput, prompt=PROMPT, core=False)
+@tool(spec=Spec(DESCRIPTION, SearchInput, PROMPT), core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     return http_json.post_json(http_json.endpoint("search"), payload)
 

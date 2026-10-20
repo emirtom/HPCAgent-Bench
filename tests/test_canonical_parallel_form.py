@@ -23,6 +23,7 @@ from hpcagent_bench import cpf_cache
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.routes import canonical_parallel_form as cpf_route
 from tests.fresh_module import fresh
+from tests.test_container_agent_tools import served_tool
 
 JudgeFactory = Callable[..., tuple[ThreadingHTTPServer, str]]
 
@@ -48,7 +49,7 @@ def test_a_miss_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert answer["verdict"] == "unavailable"
     assert captured["query"] == {"language": "c"}, "get_judge appends the rank itself"
     assert captured["path"] == "/canonical_parallel_form/example_kernel"
-    assert answer["reminder"] == tool.REMINDER
+    assert answer["reminder"] == tool.reminder()
 
 
 def test_every_answer_carries_the_reminder(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +62,7 @@ def test_every_answer_carries_the_reminder(monkeypatch: pytest.MonkeyPatch) -> N
     )
     answer = tool.run({"kernel": "example_kernel"})
     assert answer["verdict"] == "ok"
-    assert answer["reminder"] == tool.REMINDER
+    assert answer["reminder"] == tool.reminder()
 
 
 def test_a_missing_kernel_is_content_not_an_exception(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,7 +91,9 @@ def test_a_gpu_task_asks_for_the_hip_form(monkeypatch: pytest.MonkeyPatch, langu
     tool = load_tool(monkeypatch)
     monkeypatch.setattr(tool.http_json, "task_language", lambda: language)
     assert tool.render_language({}) == "hip"
-    assert tool.INPUT_SCHEMA["properties"]["dialect"]["enum"] == list(tool.RENDER_LANGUAGES)
+    assert served_tool("canonical_parallel_form").input_schema["properties"]["dialect"]["enum"] == list(
+        tool.RENDER_LANGUAGES
+    )
 
 
 def test_the_server_lists_it_for_the_packet_that_renders_the_view(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,12 +102,12 @@ def test_the_server_lists_it_for_the_packet_that_renders_the_view(monkeypatch: p
     carries the tool (``HPCAGENT_BENCH_PACKET_TOOLS``), and that is the setup the tool belongs to."""
     monkeypatch.setenv("HPCAGENT_BENCH_PACKET_TOOLS", "canonical_parallel_form")
     server = fresh("mcp_server")
-    assert "canonical_parallel_form" in [tool.name for tool in server.tool_definitions()]
+    assert "canonical_parallel_form" in [tool.name for tool in server.tool_definitions(server.tools())]
     # Reloaded back into the control state LAST: the module stays in sys.modules after this test,
     # and a cached one built under the view would answer for a setup that has none.
     monkeypatch.delenv("HPCAGENT_BENCH_PACKET_TOOLS")
     server = fresh("mcp_server")
-    assert "canonical_parallel_form" not in [tool.name for tool in server.tool_definitions()]
+    assert "canonical_parallel_form" not in [tool.name for tool in server.tool_definitions(server.tools())]
 
 
 def publish_view(tmp_path: pathlib.Path, kernel: str, source: str) -> pathlib.Path:
@@ -137,7 +140,6 @@ def test_the_route_serves_the_cached_form(
     """A kernel the view holds is read from the cache, with no render."""
     from hpcagent_bench import config
     from hpcagent_bench.api import RunConfig
-    from hpcagent_bench.harness import service
 
     view = publish_view(tmp_path, "example_kernel", "// pre-rendered\n")
     config.set_override("service.canonical_parallel_form_dir", str(view))
@@ -234,7 +236,6 @@ def test_the_tool_receives_its_setups_form_from_a_live_judge_configured_by_env(
 def test_no_directory_means_no_root(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unset is a normal state: the ablation setup that withholds the form changes nothing else."""
     from hpcagent_bench import config
-    from hpcagent_bench.harness import service
 
     config.set_override("service.canonical_parallel_form_dir", "")
     assert cpf_route.canonical_parallel_form_root() is None

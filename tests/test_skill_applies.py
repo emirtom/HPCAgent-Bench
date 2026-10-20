@@ -120,14 +120,15 @@ def test_every_registered_packet_resolves_or_refuses_by_device(key: str) -> None
 
 
 @pytest.mark.parametrize("key", sorted(tags.registry().packet_defs))
-def test_a_method_packet_names_a_directory_that_ships(key: str) -> None:
-    """``method:`` is an AGENT_PACKET directory the container loads tool modules from by path. A
-    name with no directory behind it is a packet whose whole treatment is absent at runtime."""
+def test_a_method_packet_names_a_method_a_plugin_ships(key: str) -> None:
+    """A method no plugin ships is a packet whose whole treatment is absent at runtime."""
+    from hpcagent_agent import plugins as agent_plugins
+
     method = tags.registry().packet_defs[key].method
     if not method:
         return
-    directory = paths.ROOT / "agent" / "hpcagent_agent" / "packets" / method
-    assert directory.is_dir(), f"{key}: method {method!r} has no directory under agent/hpcagent_agent/packets/"
+    found = agent_plugins.find(agent_plugins.plugin_dirs())
+    assert any(plugin.method(method) for plugin in found), f"{key}: no plugin ships methods/{method}/method.md"
 
 
 def test_the_pages_a_packet_tool_owns_are_the_ones_kept_out_of_the_wildcard() -> None:

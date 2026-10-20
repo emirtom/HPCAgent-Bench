@@ -30,11 +30,10 @@ from typing import Any
 
 from hpcagent_agent import submission_mode
 from hpcagent_agent.tools import http_json
-from hpcagent_agent.tools.registry import tool
+from hpcagent_agent.tools.registry import Setup, Spec, tool
 
 __all__ = [
     "DESCRIPTION",
-    "INPUT_SCHEMA",
     "JUDGE_FAULT",
     "JUDGE_UNREACHABLE",
     "PROMPT",
@@ -45,6 +44,7 @@ __all__ = [
     "judge_never_reached",
     "request_refused",
     "run",
+    "spec",
     "spends_submission",
     "spent_at_judge",
 ]
@@ -60,9 +60,7 @@ DESCRIPTION = (
     "body as 'score': deliver code exactly one way (inline 'source', or 'source_file'/"
     "'library' as paths in the shared folder). A 400 means the request itself was malformed "
     "and its message says how. "
-) + http_json.language_clause()
-
-INPUT_SCHEMA: dict[str, Any] = http_json.schema_with_language(http_json.SUBMISSION_PROPERTIES)
+)
 
 #: The bullet depends on the submission mode, so the prompt takes it from the mode's template.
 PROMPT = "{{MODE:tool}}"
@@ -172,7 +170,16 @@ def marker_text(result: dict[str, Any]) -> str:
     return json.dumps(scalars, sort_keys=True)
 
 
-@tool(description=DESCRIPTION, input=INPUT_SCHEMA, prompt=PROMPT)
+def spec(setup: Setup) -> Spec:
+    """The submit tool on ``setup``: the full ``requests`` schema ships here, once."""
+    return Spec(
+        DESCRIPTION + http_json.language_clause(setup.language_enforced, setup.language),
+        http_json.submission_input(setup.language_enforced, setup.request_actions),
+        PROMPT,
+    )
+
+
+@tool(spec=spec)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     if SINGLE_SUBMISSION and SPENT_MARKER.exists():
         # "ok": False is the wire contract, not decoration: mcp_server sets isError from it and

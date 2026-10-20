@@ -81,15 +81,7 @@ PACKETS.add(
 )
 
 
-PACKETS.add(
-    "autokernel",
-    PacketDef(
-        name="AutoKernel",
-        env=(("AGENT_PACKET", "autokernel"),),
-        method="autokernel",
-    ),
-    order=10,
-)
+# Slot 10 is AutoKernel's, which the autokernel plugin registers (plugins/autokernel/plugin.toml).
 
 
 PACKETS.add("lang", PacketDef(name="Language Pages", skills=("lang",)), order=11)

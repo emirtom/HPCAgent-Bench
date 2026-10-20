@@ -20,6 +20,7 @@ client-side "fix" would hide the one measurement the judge exists to protect.
 """
 
 import argparse
+import functools
 import hashlib
 import hmac
 import json
@@ -30,7 +31,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
-from typing import Any, NamedTuple
+from typing import Annotated, Any, Literal, NamedTuple, Optional
+
+import pydantic
+from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
 from hpcagent_agent.driver import harnesses, token_cost
 
@@ -49,20 +53,21 @@ __all__ = [
     "EPISODE_SECRET_NAME",
     "EPISODE_TOKEN_ENV",
     "EPISODE_TOKEN_HEADER",
+    "GPU_LANGUAGES",
     "IDENTITY_ENV",
     "KERNEL_ENV",
-    "LANGUAGE_PROPERTY",
+    "LANGUAGE_TEXT",
     "PATH_FIELDS",
-    "REQUESTS_REFERENCE",
+    "REQUESTS_REFERENCE_TEXT",
     "REQUESTS_SCHEMA",
     "REQUEST_ACTIONS_ENV",
     "STARTUP_LOAD_TEXT",
-    "SUBMISSION_PROPERTIES",
     "TERMINAL_ROUTES",
     "TOKENS_READ_OK",
     "WORKER_TOKEN_ENV",
     "WORKER_TOKEN_HEADER",
     "RequestActions",
+    "SubmissionInput",
     "assigned_kernel",
     "call_json",
     "default_load",
@@ -79,6 +84,7 @@ __all__ = [
     "language_clause",
     "language_is_enforced",
     "offered_operation",
+    "optional_choice",
     "post_json",
     "post_judge",
     "request_actions",
@@ -86,8 +92,8 @@ __all__ = [
     "requests_property",
     "requests_text",
     "run_cli",
-    "schema_with_language",
     "submission_body",
+    "submission_input",
     "task_language",
     "timeout_error",
     "transcript_tokens",
@@ -200,9 +206,11 @@ ENFORCED_INPUT_MODES = ("source", "py-binding")
 
 #: Every language the judge accepts a delivery in (``hpcagent_bench.harness.envelope.DELIVERY_LANGS``).
 DELIVERY_LANGUAGES = ("c", "cpp", "fortran", "cuda", "hip", "python")
+#: The languages whose kernels run on the GPU (``hpcagent_bench.languages.GPU_HOST_LANG``).
+GPU_LANGUAGES = ("cuda", "hip")
 
 
-def language_is_enforced() -> bool:
+def language_is_enforced(environ: Mapping[str, str] = os.environ) -> bool:
     """True when the judge's ``input_mode`` pins the submission language.
 
     The tools cannot read the judge's config, so they read the same ``$JUDGE_INPUT_MODE`` the launcher
@@ -210,18 +218,18 @@ def language_is_enforced() -> bool:
     ``source`` is the judge's own default ``input_mode``, and guessing the other way would offer the
     model a field the track then refuses.
     """
-    mode = os.environ.get("JUDGE_INPUT_MODE", "").strip().lower()
+    mode = environ.get("JUDGE_INPUT_MODE", "").strip().lower()
     return not mode or mode in ENFORCED_INPUT_MODES
 
 
-def task_language() -> str:
+def task_language(environ: Mapping[str, str] = os.environ) -> str:
     """The run's configured language, from ``$LANGUAGE``.
 
     On an enforced track this IS the submission language. Where nothing is pinned it is only the
     fallback for a request that named none -- and on the free-choice variant ``$LANGUAGE`` is empty,
     so that fallback is ``c`` whatever the agent actually wrote.
     """
-    return os.environ.get("LANGUAGE", "").strip() or DEFAULT_LANGUAGE
+    return environ.get("LANGUAGE", "").strip() or DEFAULT_LANGUAGE
 
 
 def request_language(payload: dict[str, Any]) -> str:
@@ -437,10 +445,10 @@ class RequestActions(NamedTuple):
         return "distribute" in self.operations
 
 
-def request_actions() -> RequestActions:
+def request_actions(environ: Mapping[str, str] = os.environ) -> RequestActions:
     """:data:`REQUEST_ACTIONS_ENV`, parsed; nothing offered when it is unset. A malformed value raises
     ValueError: the driver writes it from a validated model, so it is a launch bug, never a guess."""
-    raw = os.environ.get(REQUEST_ACTIONS_ENV, "").strip()
+    raw = environ.get(REQUEST_ACTIONS_ENV, "").strip()
     if not raw:
         return RequestActions()
     data = json.loads(raw)
@@ -569,121 +577,116 @@ BUILD_TEXT = (
     "into the shared folder{load}. Your prompt says whether this track applies them."
 )
 BUILD_LOAD_CLAUSE = " -- for a pre-installed vendor library, name it in requests.startup.load instead"
-
-#: The submission fields ``/score``, ``/submit`` and ``/profile`` share, in the judge's spelling; ``requests``
-#: is added per task by :func:`schema_with_language` (:func:`requests_property`).
-#: ``source_file`` is wire-only: the judge reads it, ``Submission`` has no field for it, so
-#: ``JudgeClient`` cannot express it.
-SUBMISSION_PROPERTIES: dict[str, Any] = {
-    "source": {
-        "type": "string",
-        "description": "The FULL source text, inline. Deliver the code exactly ONE way: 'source', "
-        "'source_file' or 'library' -- two of them in one call is a 400.",
-    },
-    "source_file": {
-        "type": "string",
-        "description": "Path to a source file in your folder. Its basename MUST be '<kernel>.<ext>': the "
-        "kernel name plus the task language's extension (c -> .c, cpp -> .cpp/.cc/.cxx, fortran -> "
-        ".f90/.F90, python -> .py), e.g. 'example_kernel.f90'. A GPU language (cuda, hip) is TWO "
-        "translation units: this is the HOST entry and takes a C++ extension, never '.cu'/'.hip' -- pair "
-        "it with 'device_source' or 'device_source_file' for the kernels. Any other basename is a 400, "
-        "and so is a path outside your folder.",
-    },
-    "device_source": {
-        "type": "string",
-        "description": "GPU languages only (cuda, hip): the DEVICE half's FULL source text, inline -- the "
-        "kernels that 'source'/'source_file' (the host C-ABI entry) launches. Required "
-        "beside the host half for a GPU submission, refused for a host language. Deliver "
-        "it exactly ONE way, same as the host half: 'device_source' or "
-        "'device_source_file', not both.",
-    },
-    "device_source_file": {
-        "type": "string",
-        "description": "GPU languages only (cuda, hip): path in your folder to the device kernels file, the "
-        "file twin of 'device_source'. Basename MUST be '<kernel>.<ext>' with the language's own "
-        "extension (cuda -> .cu, hip -> .hip) -- unlike 'source_file', which for a GPU language takes "
-        "a C++ extension.",
-    },
-    "library": {
-        "type": "string",
-        "description": "Path in your folder to a prebuilt C-ABI .so. Accepted only when the judge's "
-        "input_mode is 'library' or 'any'; a source-mode judge refuses it with a 400.",
-    },
-    "build": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": BUILD_TEXT.format(load=""),
-    },
-    "workspace_bytes": {
-        "type": "string",
-        "description": "Optional untimed scratch (ABI Sec. 11): a byte count, or an expression over the "
-        "kernel's scalar arguments as its signature names them, plus ARRAY_BYTES (e.g. '8*N*N + 256' for an "
-        "argument N). Any other name is refused with a 400 listing the allowed names. Omit for none.",
-    },
-    "compiler": {
-        "type": "string",
-        "description": "Optional toolchain family your task's build-flags section lists (e.g. 'gcc', 'llvm'); "
-        "the baseline is built with the same one. Omit for the default family. A family this "
-        "image does not provision builds with the default instead.",
-    },
-}
-
-#: The ``language`` field, offered ONLY where the track pins nothing. The enum is the judge's whole
-#: delivery vocabulary, so listing it withholds no legal choice.
-LANGUAGE_PROPERTY: dict[str, Any] = {
-    "type": "string",
-    "enum": list(DELIVERY_LANGUAGES),
-    "description": "The language your code is written in. This judge does not pin one, so this field is "
-    "what decides how it is built -- send it whenever you write anything but C. Omitting it "
-    "falls back to the run's configured language, which on a free-choice run is 'c'.",
-}
+#: ``requests`` on ``score`` and ``profile``: the full schema ships once, in ``submit`` (which every setup serves).
+REQUESTS_REFERENCE_TEXT = "Same as submit's requests."
+LANGUAGE_TEXT = (
+    "The language your code is written in. This judge does not pin one, so this field is what decides how it is "
+    "built -- send it whenever you write anything but C. Omitting it falls back to the run's configured language, "
+    "which on a free-choice run is 'c'."
+)
 
 
-#: ``requests`` on ``score`` and ``profile``: the schema ships once, in ``submit`` (which every setup serves);
-#: the judge validates the field the same on every route.
-REQUESTS_REFERENCE: dict[str, Any] = {"type": "object", "description": "Same as submit's requests."}
+class SubmissionInput(pydantic.BaseModel):
+    """The submission fields ``/score``, ``/submit`` and ``/profile`` share, in the judge's spelling.
+    ``requests`` and ``language`` are added per setup (:func:`submission_input`). ``source_file`` is wire-only:
+    the judge reads it, ``Submission`` has no field for it, so ``JudgeClient`` cannot express it."""
+
+    #: The kernel a call outside the driver names (a test); the driver's assignment wins (:func:`assigned_kernel`).
+    kernel: SkipJsonSchema[str | None] = None
+    source: str | None = pydantic.Field(
+        None,
+        description="The FULL source text, inline. Deliver the code exactly ONE way: 'source', 'source_file' or "
+        "'library' -- two of them in one call is a 400.",
+    )
+    source_file: str | None = pydantic.Field(
+        None,
+        description="Path to a source file in your folder. Its basename MUST be '<kernel>.<ext>': the kernel name "
+        "plus the task language's extension (c -> .c, cpp -> .cpp/.cc/.cxx, fortran -> .f90/.F90, python -> .py), "
+        "e.g. 'example_kernel.f90'. A GPU language (cuda, hip) is TWO translation units: this is the HOST entry and "
+        "takes a C++ extension, never '.cu'/'.hip' -- pair it with 'device_source' or 'device_source_file' for the "
+        "kernels. Any other basename is a 400, and so is a path outside your folder.",
+    )
+    device_source: str | None = pydantic.Field(
+        None,
+        description="GPU languages only (cuda, hip): the DEVICE half's FULL source text, inline -- the kernels that "
+        "'source'/'source_file' (the host C-ABI entry) launches. Required beside the host half for a GPU "
+        "submission, refused for a host language. Deliver it exactly ONE way, same as the host half: "
+        "'device_source' or 'device_source_file', not both.",
+    )
+    device_source_file: str | None = pydantic.Field(
+        None,
+        description="GPU languages only (cuda, hip): path in your folder to the device kernels file, the file twin "
+        "of 'device_source'. Basename MUST be '<kernel>.<ext>' with the language's own extension (cuda -> .cu, "
+        "hip -> .hip) -- unlike 'source_file', which for a GPU language takes a C++ extension.",
+    )
+    library: str | None = pydantic.Field(
+        None,
+        description="Path in your folder to a prebuilt C-ABI .so. Accepted only when the judge's input_mode is "
+        "'library' or 'any'; a source-mode judge refuses it with a 400.",
+    )
+    build: list[str] | None = pydantic.Field(None, description=BUILD_TEXT.format(load=""))
+    workspace_bytes: str | None = pydantic.Field(
+        None,
+        description="Optional untimed scratch (ABI Sec. 11): a byte count, or an expression over the kernel's "
+        "scalar arguments as its signature names them, plus ARRAY_BYTES (e.g. '8*N*N + 256' for an argument N). "
+        "Any other name is refused with a 400 listing the allowed names. Omit for none.",
+    )
+    compiler: str | None = pydantic.Field(
+        None,
+        description="Optional toolchain family your task's build-flags section lists (e.g. 'gcc', 'llvm'); the "
+        "baseline is built with the same one. Omit for the default family. A family this image does not provision "
+        "builds with the default instead.",
+    )
 
 
-def schema_with_language(properties: dict[str, Any], *, full_requests: bool = True) -> dict[str, Any]:
-    """A route's INPUT_SCHEMA: ``properties``, plus ``language`` only where the track pins none, plus
-    ``requests`` (after ``build``) offering exactly this task's :func:`request_actions`, and no ``requests``
-    where it offers nothing (:func:`requests_property`). ``full_requests`` False names it
-    :data:`REQUESTS_REFERENCE` instead, so the schema ships once.
+def optional_choice(values: tuple[str, ...]) -> Any:
+    """The type of an optional field allowing exactly ``values``, built from data for ``pydantic.create_model``."""
+    one_of: Any = Literal
+    optional: Any = Optional
+    return optional[one_of[values]]
 
-    Both fields are ABSENT where they offer nothing on purpose -- a schema that invites a choice the judge
-    will refuse spends the model's attempts teaching it that the choice was never real.
-    """
-    actions = request_actions()
+
+@functools.lru_cache(maxsize=None, typed=True)
+def submission_input(
+    language_enforced: bool,
+    actions: RequestActions,
+    *,
+    full_requests: bool = True,
+    base: type[SubmissionInput] = SubmissionInput,
+) -> type[SubmissionInput]:
+    """``base`` as one setup offers it: ``requests`` offering exactly ``actions`` (:func:`requests_property`; the
+    reference on a route other than ``submit`` unless ``full_requests``), absent where it offers nothing, and
+    ``language`` only where the track pins none.
+
+    Both fields are ABSENT where they offer nothing on purpose -- a schema that invites a choice the judge will
+    refuse spends the model's attempts teaching it that the choice was never real."""
     requests = requests_property(actions)
+    fields: dict[str, Any] = {
+        "build": (
+            list[str] | None,
+            pydantic.Field(None, description=BUILD_TEXT.format(load=BUILD_LOAD_CLAUSE * ("load" in actions.startup))),
+        )
+    }
     if requests is not None and not full_requests:
-        requests = REQUESTS_REFERENCE
-    out: dict[str, Any] = {}
-    for name, schema in properties.items():
-        if name == "requests":
-            continue
-        if name == "build":
-            schema = {**schema, "description": BUILD_TEXT.format(load=BUILD_LOAD_CLAUSE * ("load" in actions.startup))}
-        out[name] = schema
-        if name == "build" and requests is not None:
-            out["requests"] = requests
-    if requests is not None:
-        out.setdefault("requests", requests)
-    if not language_is_enforced():
-        out["language"] = LANGUAGE_PROPERTY
-    return {"type": "object", "properties": out, "required": []}
+        fields["requests"] = (dict[str, Any] | None, pydantic.Field(None, description=REQUESTS_REFERENCE_TEXT))
+    elif requests is not None:
+        fields["requests"] = (Annotated[dict[str, Any] | None, WithJsonSchema(requests)], None)
+    if not language_enforced:
+        fields["language"] = (optional_choice(DELIVERY_LANGUAGES), pydantic.Field(None, description=LANGUAGE_TEXT))
+    return pydantic.create_model(base.__name__, __base__=base, __module__=base.__module__, **fields)
 
 
-def language_clause() -> str:
-    """The sentence every submission tool's description ends with, naming the regime it is in -- so
-    the model neither omits a field it must choose nor sends one that is ignored."""
-    if language_is_enforced():
+def language_clause(language_enforced: bool, language: str) -> str:
+    """The sentence every submission tool's description ends with, naming the regime it is in -- so the model
+    neither omits a field it must choose nor sends one that is ignored."""
+    if language_enforced:
         return (
             "The language is FIXED by the task (this judge's input_mode pins it), so it is not a "
             "field you send; a submission in any other language is a 400."
         )
     return (
         "This judge pins NO language (input_mode 'any'/'library'): pass 'language' with the one "
-        f"your code is written in, or it is built as '{task_language()}' whatever you wrote."
+        f"your code is written in, or it is built as '{language}' whatever you wrote."
     )
 
 

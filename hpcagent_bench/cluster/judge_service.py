@@ -679,12 +679,17 @@ async def router_error(request: Request, exc: StarletteHTTPException) -> Respons
 
 @app.exception_handler(HTTPStatus.NOT_FOUND)
 async def read_route(request: Request, exc: StarletteHTTPException) -> Response:
-    """A GET no route matched, relayed as it came, so a new judge read route needs no handler here.
+    """A GET or POST no route here matched, relayed as it came, so a new judge tool route
+    (:mod:`hpcagent_bench.harness.routes`, a plugin's included) needs no handler here. A POST must name its
+    episode and carry that episode's token (:func:`caller_setup`), as ``/score`` does: a stateful tool route
+    keeps one state per episode, and no agent may reach another's.
 
-    A handler rather than a ``/{path:path}`` route: a catch-all GET route would also match a GET on a
-    POST route, relaying it instead of answering 405. Any other unmatched request keeps the 404."""
-    if request.method != "GET":
+    A handler rather than a ``/{path:path}`` route: a catch-all route would also match a GET on a POST route,
+    relaying it instead of answering 405. Any other unmatched request keeps the 404."""
+    if request.method not in ("GET", "POST"):
         return await router_error(request, exc)
+    if request.method == "POST" and (refused := episode_id_refusal(await request.body())) is not None:
+        return refused
     try:
         return relay(await forward(request, request.url.path))
     except HTTPException as failed:

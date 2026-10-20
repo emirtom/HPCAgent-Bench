@@ -427,15 +427,33 @@ NO_OUTLINE_PATTERN = r"(?!)"
 GCC_AUTOPAR_OUTLINE_PATTERN = r"_loopfn|\._omp_fn"
 
 
-def _nm(nm_exe: str, args: list[str], obj: pathlib.Path) -> str | None:
-    """``nm``'s stdout, or ``None`` if the invocation itself failed (unsupported flag, exotic
-    object format, ...) -- distinguished from "ran and found nothing" so the caller can fail
-    closed rather than misread a broken invocation as a clean zero count."""
-    try:
-        proc = subprocess.run([nm_exe, *args, str(obj)], capture_output=True, text=True, timeout=20, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return proc.stdout if proc.returncode == 0 else None
+#: The symbol readers tried in order: a host whose binutils cannot read the compiler's objects may still have the
+#: LLVM or GCC one.
+NM_TOOLS = ("nm", "llvm-nm", "gcc-nm")
+
+
+def read_symbols(obj: pathlib.Path) -> tuple[str, str] | str:
+    """``(undefined, defined)`` symbol listings of ``obj`` from the first reader in :data:`NM_TOOLS` that reads it,
+    else the reason none could."""
+    reasons: list[str] = []
+    for tool in NM_TOOLS:
+        exe = shutil.which(tool)
+        if exe is None:
+            continue
+        listings: list[str] = []
+        for args in (["-u"], []):
+            try:
+                proc = subprocess.run([exe, *args, str(obj)], capture_output=True, text=True, timeout=20, check=False)
+            except (OSError, subprocess.SubprocessError) as exc:
+                reasons.append(f"{tool}: {exc}")
+                break
+            if proc.returncode != 0:
+                reasons.append(f"{tool}: {proc.stderr.strip()[-200:]}")
+                break
+            listings.append(proc.stdout)
+        else:
+            return listings[0], listings[1]
+    return "; ".join(reasons) or "no nm on this host"
 
 
 @lru_cache(typed=True)
@@ -478,13 +496,10 @@ def probe_autopar(
         if proc.returncode != 0 or not obj.is_file():
             return AutoparProbe(AutoparVerdict.REJECTED, f"compile rejected: {proc.stderr.strip()[-500:]}")
 
-        nm = shutil.which("nm")
-        if nm is None:
-            return AutoparProbe(AutoparVerdict.VACUOUS, "nm unavailable on this host -- cannot confirm outlining")
-        undefined = _nm(nm, ["-u"], obj)
-        defined = _nm(nm, [], obj)
-        if undefined is None or defined is None:
-            return AutoparProbe(AutoparVerdict.VACUOUS, "nm invocation failed on this host -- cannot confirm outlining")
+        symbols = read_symbols(obj)
+        if isinstance(symbols, str):
+            return AutoparProbe(AutoparVerdict.VACUOUS, f"cannot read the object's symbols ({symbols})")
+        undefined, defined = symbols
 
         runtime_calls = sum(1 for line in undefined.splitlines() if re.search(runtime_pattern, line))
         outlined = sum(1 for line in defined.splitlines() if re.search(outline_pattern, line))

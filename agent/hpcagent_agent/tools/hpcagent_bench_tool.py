@@ -9,10 +9,11 @@ usage error.
 
 import json
 import sys
+from collections.abc import Mapping
 from typing import Any
 
 from hpcagent_agent.tools import mcp_server
-from hpcagent_agent.tools.registry import Tool
+from hpcagent_agent.tools.registry import Served
 
 __all__ = [
     "USAGE",
@@ -31,18 +32,18 @@ USAGE = (
 )
 
 
-def summary(entry: Tool) -> str:
+def summary(entry: Served) -> str:
     """The first sentence of a tool's description."""
     text = entry.description.strip()
     head, sep, _ = text.partition(". ")
     return head + "." if sep else text
 
 
-def tool_list() -> str:
-    return "\n".join(f"{name}: {summary(entry)}" for name, entry in mcp_server.TOOLS.items())
+def tool_list(offered: Mapping[str, Served]) -> str:
+    return "\n".join(f"{name}: {summary(entry)}" for name, entry in offered.items())
 
 
-def describe(entry: Tool) -> str:
+def describe(entry: Served) -> str:
     return f"{entry.name}\n\n{entry.description}\n\ninput schema:\n{json.dumps(entry.input_schema, indent=2)}"
 
 
@@ -76,17 +77,18 @@ def main(argv: list[str]) -> int:
     if argv[0] in ("-h", "--help"):
         print(USAGE)
         return 0
+    offered = mcp_server.tools()
     if argv[0] == "--list":
-        print(tool_list())
+        print(tool_list(offered))
         return 0
     if argv[0] == "--describe":
-        if len(argv) != 2 or argv[1] not in mcp_server.TOOLS:
-            return usage_error(f"--describe takes one tool name: {', '.join(mcp_server.TOOLS)}")
-        print(describe(mcp_server.TOOLS[argv[1]]))
+        if len(argv) != 2 or argv[1] not in offered:
+            return usage_error(f"--describe takes one tool name: {', '.join(offered)}")
+        print(describe(offered[argv[1]]))
         return 0
-    entry = mcp_server.TOOLS.get(argv[0])
+    entry = offered.get(argv[0])
     if entry is None:
-        return usage_error(f"unknown tool {argv[0]!r}; available: {', '.join(mcp_server.TOOLS)}")
+        return usage_error(f"unknown tool {argv[0]!r}; available: {', '.join(offered)}")
     payload = parse_payload(argv[1:])
     if isinstance(payload, str):
         return usage_error(payload)

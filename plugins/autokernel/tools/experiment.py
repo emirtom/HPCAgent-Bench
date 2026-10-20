@@ -5,25 +5,27 @@ workflow. This tool NEVER calls the judge -- the caller passes in the JSON its o
 already returned. All state lives under the ledger root as plain files, re-derived from
 ``results.tsv`` on every call, so a relaunched agent picks up exactly where the last one left off.
 
-``AGENT_PACKET=autokernel`` makes the MCP server import this module; ``@tool`` registers it under its stem,
-``experiment``.
+The MCP server imports every plugin's tool modules; ``@tool`` registers this one under its stem, ``experiment``, and
+it is served to the setups whose packet carries it (``autokernel``).
 """
 
 import hashlib
 import os
 import pathlib
 import shutil
-from typing import Any
+from typing import Any, Literal
 
-from hpcagent_agent.tools.registry import tool
+import pydantic
+from hpcagent_agent.tools.registry import Spec, tool
 
 __all__ = [
     "ACTIONS",
     "DESCRIPTION",
     "HEADER",
-    "INPUT_SCHEMA",
     "KEEP_SPEEDUP_FACTOR",
     "SIMPLER_SPEEDUP_FACTOR",
+    "ExperimentInput",
+    "ScoreReport",
     "action_best",
     "action_list",
     "action_record",
@@ -61,51 +63,39 @@ DESCRIPTION = (
     "an agent relaunch."
 )
 
-INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": list(ACTIONS),
-            "description": "record: log a hypothesis's outcome and decide keep/revert. best: report "
-            "the current best kept source. restore: copy the best kept source back over 'dest'. "
-            "list: return the last 'limit' ledger rows.",
-        },
-        "hypothesis": {
-            "type": "string",
-            "description": "record only: what this change was trying to do. Tabs/newlines become spaces.",
-        },
-        "source_file": {
-            "type": "string",
-            "description": "record only: path to the candidate source this hypothesis produced.",
-        },
-        "score": {
-            "type": "object",
-            "description": "record only: the JSON your own 'score' tool returned for source_file -- "
-            "needs 'correct' (bool) and, when correct is true, a numeric 'speedup'.",
-            "properties": {
-                "correct": {"type": "boolean"},
-                "speedup": {"type": "number"},
-            },
-        },
-        "simpler": {
-            "type": "boolean",
-            "default": False,
-            "description": "record only: this version is simpler than the current best, so keep it "
-            "at equal speed (speedup >= 0.99x best) instead of requiring it to be faster.",
-        },
-        "dest": {
-            "type": "string",
-            "description": "restore only: path to overwrite with the best kept source.",
-        },
-        "limit": {
-            "type": "integer",
-            "default": 10,
-            "description": "list only: how many of the most recent rows to return (clamped to 1..200).",
-        },
-    },
-    "required": ["action"],
-}
+
+class ScoreReport(pydantic.BaseModel):
+    """The part of a ``score`` answer the ledger reads."""
+
+    correct: bool | None = None
+    speedup: float | None = None
+
+
+class ExperimentInput(pydantic.BaseModel):
+    action: Literal["record", "best", "restore", "list"] = pydantic.Field(
+        description="record: log a hypothesis's outcome and decide keep/revert. best: report the current best kept "
+        "source. restore: copy the best kept source back over 'dest'. list: return the last 'limit' ledger rows."
+    )
+    hypothesis: str | None = pydantic.Field(
+        None, description="record only: what this change was trying to do. Tabs/newlines become spaces."
+    )
+    source_file: str | None = pydantic.Field(
+        None, description="record only: path to the candidate source this hypothesis produced."
+    )
+    score: ScoreReport | None = pydantic.Field(
+        None,
+        description="record only: the JSON your own 'score' tool returned for source_file -- needs 'correct' (bool) "
+        "and, when correct is true, a numeric 'speedup'.",
+    )
+    simpler: bool = pydantic.Field(
+        False,
+        description="record only: this version is simpler than the current best, so keep it at equal speed "
+        "(speedup >= 0.99x best) instead of requiring it to be faster.",
+    )
+    dest: str | None = pydantic.Field(None, description="restore only: path to overwrite with the best kept source.")
+    limit: int = pydantic.Field(
+        10, description="list only: how many of the most recent rows to return (clamped to 1..200)."
+    )
 
 
 def ledger_root() -> pathlib.Path:
@@ -322,7 +312,7 @@ def action_list(payload: dict[str, Any], root: pathlib.Path) -> dict[str, Any]:
     return {"ok": True, "rows": [parse_row(row) for row in tail]}
 
 
-@tool(description=DESCRIPTION, input=INPUT_SCHEMA)
+@tool(spec=Spec(DESCRIPTION, ExperimentInput), core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
     action = payload.get("action")
     if action not in ACTIONS:

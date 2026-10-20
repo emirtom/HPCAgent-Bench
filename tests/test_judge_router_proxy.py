@@ -378,13 +378,13 @@ def test_a_read_route_the_router_does_not_declare_is_relayed_to_the_judge(client
 
 @pytest.mark.parametrize(
     ("method", "path", "status"),
-    [("GET", "/submit", 405), ("GET", "/search", 405), ("POST", "/verify", 404), ("POST", "/nope", 404)],
+    [("GET", "/submit", 405), ("GET", "/search", 405), ("POST", "/verify", 400), ("POST", "/nope", 400)],
 )
 def test_the_read_relay_leaves_other_methods_answered_by_the_router(
     client: "TestClient", method: str, path: str, status: int
 ) -> None:
-    """A catch-all GET route relayed a GET on a POST route to the judge instead of answering 405, and
-    turned an unmatched POST into a 405. Only a GET no route matches may reach the judge."""
+    """A GET on a POST route is a 405; a POST no route matches is a plugin route's, relayed only with an episode
+    (here none: 400). Neither reaches the judge."""
     response = client.request(method, path)
     assert response.status_code == status
     assert StubJudge.calls == []

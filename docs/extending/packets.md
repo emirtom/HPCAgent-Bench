@@ -11,7 +11,7 @@ The mechanism every registered kind shares is in [registry.md](registry.md).
 |---|---|
 | skill bundle | one class in `skill_packets.py` |
 | env or tool switch | the class (or the page's `packet:` block) with `env` and `tools`; a listed tool is a `@tool(core=False)`, served only where `HPCAGENT_BENCH_PACKET_TOOLS` names it |
-| method | the class with `method`, plus `agent/hpcagent_agent/packets/<name>/packet.md`, optional `<stem>.py` MCP tools (each a `run` registered with `@tool`, which may take a pydantic input model), `SOURCE` and `LICENSE` when adapted from upstream |
+| method | a plugin ([plugins.md](plugins.md)): `methods/<name>/method.md`, its tools under `tools/`, and the packet in `plugin.toml` naming both |
 
 ## Examples (from `skill_packets.py`)
 

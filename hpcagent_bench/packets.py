@@ -30,7 +30,9 @@ import re
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
-from hpcagent_bench import external_skills
+from hpcagent_agent.plugins import METHOD_ENV
+
+from hpcagent_bench import external_skills, plugins
 from hpcagent_bench import study_tags as tags
 from hpcagent_bench.skill_frontmatter import Applies, SkillFrontmatter, split_frontmatter
 from hpcagent_bench.vocabulary import PacketDevice
@@ -148,9 +150,12 @@ def tool_pages() -> frozenset[str]:
 
 def page_file(page: str) -> pathlib.Path | None:
     """The file of skill page ``page``: the shipped ``skills/<page>/SKILL.md``, else an external page
-    (:mod:`hpcagent_bench.external_skills`); None when neither defines it."""
+    (:mod:`hpcagent_bench.external_skills`), else a plugin's (:mod:`hpcagent_bench.plugins`); None when none defines
+    it."""
     shipped = SKILLS_DIR / page / "SKILL.md"
-    return shipped if shipped.is_file() else external_skills.page_path(page)
+    if shipped.is_file():
+        return shipped
+    return external_skills.page_path(page) or plugins.page_path(page)
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -399,6 +404,9 @@ def resolve(
     distinct_methods = sorted(set(methods.values()))
     if len(distinct_methods) > 1:
         raise ValueError(f"packet spec {spec!r} combines methods {distinct_methods}; at most one is allowed")
+    if distinct_methods:
+        # The method a packet runs reaches the agent as the method switch (hpcagent_agent.plugins.METHOD_ENV).
+        env[METHOD_ENV] = distinct_methods[0]
     return Packet(
         key=canonical(spec),
         label=label(spec),

@@ -23,6 +23,11 @@ A member's spelling is its name in lower case with ``_`` as the separator, unles
 
 The spellings of one class are distinct (checked when a class is first spelled). This module lives in the agent
 package because both sides of the judge-agent wire use it; it imports only the standard library and pydantic-core.
+
+``Coded`` itself declares neither name: mypy reads every attribute an enum body assigns as final, so a subclass
+redefining a base's ``SEPARATOR`` would be refused. A class's own definitions are read from its namespace, with
+:data:`SEPARATOR` and no overrides as the defaults; the class methods are typed by a type parameter for the same
+checker, which resolves ``Self`` on an enum class method to the base.
 """
 
 import enum
@@ -34,7 +39,10 @@ from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
-__all__ = ["Coded", "spellings"]
+__all__ = ["SEPARATOR", "Coded", "spellings"]
+
+#: What joins the words of a member's name in its spelling when the class sets no ``SEPARATOR``.
+SEPARATOR = "_"
 
 
 @functools.lru_cache(maxsize=None, typed=True)
@@ -50,18 +58,17 @@ def spellings(cls: type["Coded"]) -> Mapping[str, "Coded"]:
 
 
 class Coded(enum.Enum):
-    """Base of a closed category (see the module docstring). Members are ``enum.auto()``."""
-
-    #: What joins the words of a member's name in its spelling.
-    SEPARATOR = enum.nonmember("_")
-    #: Member name -> a spelling that is not the name's (``"c++"``).
-    SPELLINGS = enum.nonmember(dict[str, str]())
+    """Base of a closed category (see the module docstring). Members are ``enum.auto()``; a subclass may set
+    ``SEPARATOR`` (what joins the words of a member's name in its spelling) and ``SPELLINGS`` (member name -> a
+    spelling that is not the name's, ``"c++"``), both ``enum.nonmember``."""
 
     @property
     def text(self) -> str:
         """This member's boundary spelling."""
-        cls = type(self)
-        return cls.SPELLINGS.get(self.name) or self.name.lower().replace("_", cls.SEPARATOR)
+        own = type(self).__dict__
+        separator = cast("str", own.get("SEPARATOR", SEPARATOR))
+        overrides = cast("Mapping[str, str]", own.get("SPELLINGS", {}))
+        return overrides.get(self.name) or self.name.lower().replace("_", separator)
 
     @classmethod
     def parse(cls, text: str) -> Self:

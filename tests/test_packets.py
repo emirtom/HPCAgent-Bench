@@ -218,7 +218,7 @@ def test_resolve_autokernel_is_a_method_packet() -> None:
     resolved = packets.resolve("autokernel", "c")
     assert resolved.key == "autokernel"
     assert resolved.method == "autokernel"
-    assert resolved.env == (("AGENT_PACKET", "autokernel"),)
+    assert resolved.env == (("AGENT_METHOD", "autokernel"),)
     assert resolved.skills == ()
 
 

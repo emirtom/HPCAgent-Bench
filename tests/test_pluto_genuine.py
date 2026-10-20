@@ -611,8 +611,8 @@ def test_the_column_refuses_to_time_a_kernel_the_oracle_calls_a_miscompile(monke
     """The failure mode being refused is a graded Pluto number computed from dropped statements: the
     transform is affine, polycc exits 0, the binary links and runs, and the answer is not the
     kernel's."""
-    framework = PlutoFramework.__new__(PlutoFramework)
-    framework.fname, framework.gate_kernel = "pluto", "pagerank"
+    framework = PlutoFramework("pluto")
+    framework.gate_kernel = "pagerank"
     monkeypatch.setattr(pluto_transform, "oracle_pluto_status", lambda kernel: MISCOMPILE_VERDICT)
     ran = []
 
@@ -626,8 +626,8 @@ def test_the_column_refuses_to_time_a_kernel_the_oracle_calls_a_miscompile(monke
 def test_the_gate_declines_every_verdict_that_is_not_ok(monkeypatch) -> None:
     """Not just the miscompile tag: a kernel the oracle could not grade is a kernel whose transform
     is UNVERIFIED, and timing an unverified polycc output is the state this gate exists to end."""
-    framework = PlutoFramework.__new__(PlutoFramework)
-    framework.fname, framework.gate_kernel = "pluto", "mm"
+    framework = PlutoFramework("pluto")
+    framework.gate_kernel = "mm"
     monkeypatch.setattr(pluto_transform, "oracle_pluto_status", lambda kernel: "FAIL:compile: undeclared")
 
     with pytest.raises(NotSupportedByFramework) as excinfo:
