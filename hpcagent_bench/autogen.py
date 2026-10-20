@@ -230,7 +230,7 @@ def ensure_locked(spec: BenchSpec, kdir: pathlib.Path, targets: list[str]) -> No
     for t in to_emit:
         # One target per emit, so each cached file records the seconds its own emit took (phase_clock).
         started = time.perf_counter()
-        with phase_clock.phase("codegen"):
+        with phase_clock.phase(phase_clock.Phase.CODEGEN):
             status = emit_targets(spec, [t]).get(t, "")
         seconds = time.perf_counter() - started
         # Cache only a freshly generated file (status "ok"): an "override" is a hand file and a

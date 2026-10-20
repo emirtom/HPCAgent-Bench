@@ -6,6 +6,7 @@
 import contextlib
 import contextvars
 import ctypes
+import enum
 import multiprocessing
 import multiprocessing.connection
 import multiprocessing.context
@@ -47,6 +48,7 @@ __all__ = [
     "ChildQueue",
     "ErrorReader",
     "ErrorWriter",
+    "Message",
     "ProcessContext",
     "ProgressQueue",
     "ResultMessage",
@@ -73,14 +75,26 @@ __all__ = [
     "take_result",
 ]
 
-#: One message on the result queue: the start stamp that arms the parent's deadline, the child's
-#: return value (``None`` when the queue could not take the real one), or its traceback text. ``R`` is
-#: whatever the callable returns; a progress snapshot stands in for that return value (the best-so-far a
-#: killed child would have returned), so it is the same type.
-type ChildMessage[R] = tuple[Literal["started"], None] | tuple[Literal["ok"], R | None] | tuple[Literal["error"], str]
 
-#: The subset of :data:`ChildMessage` that ENDS a run; ``started`` is a clock signal, not an outcome.
-type ResultMessage[R] = tuple[Literal["ok"], R | None] | tuple[Literal["error"], str]
+class Message(enum.Enum):
+    """What a message on the result queue says: the child STARTED (the stamp that arms the parent's
+    deadline), it returned OK, or it raised an ERROR."""
+
+    STARTED = enum.auto()
+    OK = enum.auto()
+    ERROR = enum.auto()
+
+
+#: One message on the result queue: the start stamp, the child's return value (``None`` when the queue
+#: could not take the real one), or its traceback text. ``R`` is whatever the callable returns; a progress
+#: snapshot stands in for that return value (the best-so-far a killed child would have returned), so it is
+#: the same type.
+type ChildMessage[R] = (
+    tuple[Literal[Message.STARTED], None] | tuple[Literal[Message.OK], R | None] | tuple[Literal[Message.ERROR], str]
+)
+
+#: The subset of :data:`ChildMessage` that ENDS a run; :attr:`Message.STARTED` is a clock signal, not an outcome.
+type ResultMessage[R] = tuple[Literal[Message.OK], R | None] | tuple[Literal[Message.ERROR], str]
 
 type ChildQueue[R] = multiprocessing.queues.Queue[ChildMessage[R]]
 type ProgressQueue[R] = multiprocessing.queues.Queue[R]
@@ -356,25 +370,25 @@ def child_main[ResultT](
         report_without_a_thread(err_w, traceback.format_exc())
         return
     # First act, before any work: this is what arms the parent's deadline (see run_forked).
-    q.put(("started", None))
+    q.put((Message.STARTED, None))
     try:
         out = fn(*args, **kwargs)
         try:
             # put() only enqueues; pickling runs in the feeder thread, so an unpicklable or oversized
             # payload surfaces in the parent as "child exited 0 with no result" (large payloads
             # spill to disk: native_call.spill_outputs). This except covers put() itself failing.
-            q.put(("ok", out))
+            q.put((Message.OK, out))
         except Exception:  # noqa: BLE001 -- queue unusable -> success without a payload
-            q.put(("ok", None))
+            q.put((Message.OK, None))
     except BaseException:  # noqa: BLE001 -- surface EVERY failure, never swallow it
         tb = traceback.format_exc()
         sys.stdout.write(tb)
         sys.stdout.flush()
-        q.put(("error", tb))
+        q.put((Message.ERROR, tb))
 
 
 def take_result[ResultT](q: ChildQueue[ResultT], timeout: float) -> ResultMessage[ResultT] | None:
-    """Next item from ``q`` that is a RESULT, or None within ``timeout``; steps past ``started``,
+    """Next item from ``q`` that is a RESULT, or None within ``timeout``; steps past :attr:`Message.STARTED`,
     which a child that starts and finishes inside one poll leaves queued."""
     end = time.monotonic() + timeout
     while True:
@@ -382,7 +396,7 @@ def take_result[ResultT](q: ChildQueue[ResultT], timeout: float) -> ResultMessag
             item = q.get(timeout=max(0.0, end - time.monotonic()))
         except queue.Empty:
             return None
-        if item[0] != "started":
+        if item[0] is not Message.STARTED:
             return item
 
 
@@ -467,7 +481,7 @@ def finished_result[ResultT](
             ),
             result=last_progress,
         )
-    if result_item[0] == "ok":
+    if result_item[0] is Message.OK:
         return RunResult(ok=True, exit_code=ec, result=result_item[1])
     return RunResult(ok=False, exit_code=ec, error=result_item[1], result=last_progress)
 
@@ -554,7 +568,7 @@ def run_forked[ResultT](
             p.join(poll)
             continue
         item = poll_queue(q, poll)
-        if item is not None and item[0] == "started":
+        if item is not None and item[0] is Message.STARTED:
             limit = None if timeout is None else time.monotonic() + timeout
         elif item is not None:
             result_item = item

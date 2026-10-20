@@ -375,3 +375,11 @@ def test_an_unknown_action_names_the_valid_ones(monkeypatch: pytest.MonkeyPatch,
     assert answer["ok"] is False
     for action in ("record", "best", "restore", "list"):
         assert action in answer["error"]
+
+
+def test_the_actions_and_decisions_keep_their_tool_and_ledger_spellings() -> None:
+    """The input schema's ``action`` enum and the ``decision`` column of results.tsv read these spellings."""
+    experiment = load_experiment_module()
+    assert experiment.Action.texts() == ("record", "best", "restore", "list")
+    assert experiment.INPUT_SCHEMA["properties"]["action"]["enum"] == ["record", "best", "restore", "list"]
+    assert experiment.Decision.texts() == ("keep", "revert")

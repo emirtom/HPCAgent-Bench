@@ -67,9 +67,9 @@ __all__ = [
 class LoopKind(enum.Enum):
     """How a jit-mode ``for`` loop lowers."""
 
-    VECTORIZE = "vectorize"  # independent elementwise -> whole-array op
-    FORI = "fori_loop"  # fixed trip count, loop-carried state
-    WHILE = "while_loop"  # data-dependent termination (break / while)
+    VECTORIZE = enum.auto()  # independent elementwise -> whole-array op
+    FORI = enum.auto()  # fixed trip count, loop-carried state (``lax.fori_loop``)
+    WHILE = enum.auto()  # data-dependent termination: break / while (``lax.while_loop``)
 
 
 def index_in_shape(node: ast.For, i: str) -> bool:

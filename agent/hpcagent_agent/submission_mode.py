@@ -21,6 +21,8 @@ import pathlib
 import re
 from collections.abc import Mapping
 
+from hpcagent_agent.coded import Coded
+
 __all__ = ["KEY", "SECTION", "SLOT", "SubmissionMode", "current", "fill_slots", "template_sections"]
 
 #: The setup key that names the mode (``experiments/layers/common.env`` sets single).
@@ -32,10 +34,12 @@ SLOT = re.compile(r"\{\{MODE:([a-z_]+)\}\}")
 SECTION = re.compile(r"^@@section ([a-z_]+)@@\n", re.MULTILINE)
 
 
-class SubmissionMode(enum.Enum):
-    MULTI = "multi"
-    SINGLE = "single"
-    BLIND = "blind"
+class SubmissionMode(Coded):
+    """A setup's submission mode; spelled as the ``AGENT_SUBMISSION_MODE`` value and in its template's file name."""
+
+    MULTI = enum.auto()
+    SINGLE = enum.auto()
+    BLIND = enum.auto()
 
     @property
     def single_submission(self) -> bool:
@@ -55,16 +59,16 @@ class SubmissionMode(enum.Enum):
     @property
     def template(self) -> str:
         """The prompt template of this mode, under the agent payload directory."""
-        return f"submission-{self.value}.md"
+        return f"submission-{self.text}.md"
 
 
 def current(environ: dict[str, str] | None = None) -> SubmissionMode:
     """The mode ``AGENT_SUBMISSION_MODE`` names (multi when unset); an unknown name is refused."""
-    name = (os.environ if environ is None else environ).get(KEY, "").strip() or SubmissionMode.MULTI.value
+    name = (os.environ if environ is None else environ).get(KEY, "").strip() or SubmissionMode.MULTI.text
     try:
-        return SubmissionMode(name)
+        return SubmissionMode.parse(name)
     except ValueError:
-        known = ", ".join(mode.value for mode in SubmissionMode)
+        known = ", ".join(SubmissionMode.texts())
         raise SystemExit(f"{KEY}={name!r} is not a submission mode; the modes are {known}") from None
 
 

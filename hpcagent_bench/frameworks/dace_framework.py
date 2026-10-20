@@ -375,9 +375,9 @@ def pin_build_caching() -> None:
 def timed_compile(sdfg: dace.SDFG) -> CompiledSDFG:
     """``sdfg.compile()`` timed as ``compile``, less the seconds DaCe reports generating its code (``codegen``)."""
     stats: dict[str, float | bool] = {}
-    with phase_clock.phase("compile"):
+    with phase_clock.phase(phase_clock.Phase.COMPILE):
         program = sdfg.compile(stats=stats)
-    phase_clock.shift(float(stats["codegen_seconds"]), "compile", "codegen")
+    phase_clock.shift(float(stats["codegen_seconds"]), phase_clock.Phase.COMPILE, phase_clock.Phase.CODEGEN)
     return program
 
 

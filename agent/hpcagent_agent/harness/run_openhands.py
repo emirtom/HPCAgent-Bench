@@ -139,7 +139,9 @@ def usage_recorder(telemetry: Any, usage_log: runner_common.UsageLog) -> Callabl
     return record
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the conversation to its end; return (end reason, detail)."""
     from openhands.sdk import (
         Conversation,
@@ -179,10 +181,10 @@ def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLo
             conversation.run()
             status = conversation.state.execution_status
             if status == ConversationExecutionStatus.FINISHED:
-                return runner_common.FINISHED, ""
+                return runner_common.EndReason.FINISHED, ""
             errors = [event for event in conversation.state.events if isinstance(event, ConversationErrorEvent)]
             detail = f" {errors[-1].code}: {errors[-1].detail}" if errors else ""
-            return runner_common.ERROR, f"execution_status={status.value}{detail}"
+            return runner_common.EndReason.ERROR, f"execution_status={status.value}{detail}"
         finally:
             conversation.close()
 

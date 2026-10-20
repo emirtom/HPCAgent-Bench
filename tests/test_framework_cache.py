@@ -84,7 +84,7 @@ def test_generated_source_cache_hit_restore_and_invalidation(tmp_path) -> None:
     fc.save_generated(cache, canonical, fp1, 2.5)
     with phase_clock.measuring() as clock:
         assert fc.load_generated(cache, canonical, fp1) is True, "unchanged source must HIT"
-    assert clock.seconds["codegen"] == 2.5, "a hit credits the seconds the emit took to codegen"
+    assert clock.seconds[phase_clock.Phase.CODEGEN] == 2.5, "a hit credits the seconds the emit took to codegen"
 
     canonical.unlink()  # a hit RESTORES the sibling from the cache without re-emitting
     assert fc.load_generated(cache, canonical, fp1) is True

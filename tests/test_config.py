@@ -285,7 +285,7 @@ def test_the_seal_hides_the_configured_generated_reference_cache(tmp_path: pathl
         ("prompt.strategy", set(prompts.STRATEGIES)),
         ("record.device", set(RecordDevice.texts())),
         ("cache.disk_results_tracks", set(Track.texts())),
-        ("agent.execution", {member.value for member in Execution}),
+        ("agent.execution", set(Execution.texts())),
         ("mpi.mode", {member.value for member in ScalingLaw}),
         ("mpi.residency", {member.value for member in Location}),
         ("runtime.backend", set(containers.SELECTABLE)),

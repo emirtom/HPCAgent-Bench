@@ -13,7 +13,7 @@ from matplotlib.collections import LineCollection, PathCollection
 from matplotlib.patches import Rectangle
 
 from hpcagent_bench import vocabulary
-from hpcagent_bench.stats import choices, palette
+from hpcagent_bench.stats import palette
 from hpcagent_bench.stats.figures import efficacy, kernel_speedups, marks
 from tests import test_plot_score_change as fixtures
 
@@ -95,10 +95,10 @@ def test_the_bar_form_draws_one_bar_per_estimate_and_its_ci_as_the_error_bar() -
 
 
 def test_a_mark_is_spelled_only_at_the_cli_edge() -> None:
-    assert [choices.spelling(mark) for mark in marks.Mark] == ["scatter", "bar"]
-    assert choices.parse(marks.Mark, "bar") is marks.Mark.BAR
+    assert marks.Mark.texts() == ("scatter", "bar")
+    assert marks.Mark.parse("bar") is marks.Mark.BAR
     with pytest.raises(ValueError, match="scatter"):
-        choices.parse(marks.Mark, "line")
+        marks.Mark.parse("line")
 
 
 def test_a_framework_column_registered_at_runtime_gets_its_own_look_and_plots() -> None:

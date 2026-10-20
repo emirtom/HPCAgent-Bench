@@ -67,15 +67,15 @@ def request_params(
     return params
 
 
-def stop_outcome(stop_reason: str | None) -> tuple[str, str] | None:
+def stop_outcome(stop_reason: str | None) -> tuple[runner_common.EndReason, str] | None:
     """How a reply that called no tool ends the episode; ``None`` when the loop continues past it."""
     if stop_reason in CONTINUED_STOPS:
         return None
     if stop_reason in FINISHED_STOPS:
-        return runner_common.FINISHED, ""
+        return runner_common.EndReason.FINISHED, ""
     if stop_reason == "model_context_window_exceeded":
-        return runner_common.CONTEXT_OVERFLOW, f"stop_reason={stop_reason}"
-    return runner_common.ERROR, f"stop_reason={stop_reason}"
+        return runner_common.EndReason.CONTEXT_OVERFLOW, f"stop_reason={stop_reason}"
+    return runner_common.EndReason.ERROR, f"stop_reason={stop_reason}"
 
 
 class Transcript:
@@ -155,7 +155,9 @@ async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, A
     return results
 
 
-async def run_episode_async(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+async def run_episode_async(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the tool-use loop to its end; return (end reason, detail)."""
     import anthropic
 
@@ -202,7 +204,9 @@ async def run_episode_async(args: runner_common.RunnerArgs, usage_log: runner_co
                 transcript.append(messages, {"role": "user", "content": CONTINUE_NOTE})
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     return asyncio.run(run_episode_async(args, usage_log))
 
 

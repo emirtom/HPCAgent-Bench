@@ -336,7 +336,7 @@ def test_a_control_workers_view_holds_nothing_of_another_setup(tmp_path: pathlib
     entries = seal.shared_root_entries(material)
     assert "setups" not in seal.shared_root_entries(shared), "the whole setups tree is never passed through"
     plan = seal.seal_plan(layout, entries)
-    bound = [op.source for op in plan if op.kind == "bind"]
+    bound = [op.source for op in plan if op.kind is seal.MountKind.BIND]
     other = str(shared / "setups" / "cpf-setup")
     assert not [source for source in bound if source == other or source.startswith(f"{other}/")]
     assert str(material / "skills") in bound, "its own setup's skill pages, at /skills"

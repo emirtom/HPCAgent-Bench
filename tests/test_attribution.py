@@ -100,6 +100,10 @@ def test_a_prose_comment_starting_with_provenance_is_not_the_provenance_line(tmp
     assert ra.read_manifest(manifest).kind is ra.Kind.ORIGINAL
 
 
+def test_a_kind_is_spelled_as_the_provenance_lines_write_it() -> None:
+    assert ra.Kind.texts() == ("derived", "algorithm", "original")
+
+
 if __name__ == "__main__":
     test_every_manifest_carries_a_provenance_line_the_registry_resolves()
     for rendered in (ra.CONTRIBUTORS, ra.NOTICE):
@@ -117,3 +121,4 @@ if __name__ == "__main__":
     test_one_upstream_and_a_list_of_them_parse_alike()
     test_a_registry_with_an_unknown_field_or_a_missing_license_is_refused()
     test_a_prose_comment_starting_with_provenance_is_not_the_provenance_line(pathlib.Path(tempfile.mkdtemp()))
+    test_a_kind_is_spelled_as_the_provenance_lines_write_it()

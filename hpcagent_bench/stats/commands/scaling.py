@@ -8,10 +8,14 @@ PDF, a PNG, and the CSV behind the marks plus one listing points the sweep never
 """
 
 import argparse
+import enum
 import pathlib
 import sys
+from collections.abc import Callable
 
+import matplotlib.figure
 import pandas as pd
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import paths, studies
 from hpcagent_bench.stats import choices, population
@@ -19,7 +23,8 @@ from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import scaling
 
 __all__ = [
-    "FIGURES",
+    "BUILDERS",
+    "Figure",
     "build_parser",
     "draw",
     "load",
@@ -28,15 +33,27 @@ __all__ = [
     "write_tables",
 ]
 
-#: ``--figure`` choices; ``all`` draws every one in a single pass.
-FIGURES: tuple[str, ...] = (
-    "all",
-    "efficiency",
-    "speedup",
-    "per-kernel",
-    "summary",
-    "mode-grid",
-)
+
+class Figure(Coded):
+    """``--figure``: which figure to draw; ``ALL`` draws every other one in a single pass. The spelling is
+    also the figure's file-name suffix."""
+
+    SEPARATOR = enum.nonmember("-")
+
+    ALL = enum.auto()
+    EFFICIENCY = enum.auto()
+    SPEEDUP = enum.auto()
+    PER_KERNEL = enum.auto()
+    SUMMARY = enum.auto()
+    MODE_GRID = enum.auto()
+
+
+#: The figures drawn from the curves alone, by ``--figure``; the per-kernel and mode-grid ones take arguments.
+BUILDERS: dict[Figure, Callable[..., matplotlib.figure.Figure | None]] = {
+    Figure.EFFICIENCY: scaling.figure_efficiency,
+    Figure.SPEEDUP: scaling.figure_speedup,
+    Figure.SUMMARY: scaling.figure_summary,
+}
 
 
 def load(path: pathlib.Path, prefix: str, setups: str, torch_dist: bool = True) -> pd.DataFrame:
@@ -53,7 +70,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("observations", type=pathlib.Path, help="observations CSV or extracted .db")
     population.add_selection_arguments(parser)
-    parser.add_argument("--figure", choices=FIGURES, default="all", help="which figure to draw (default: all)")
+    parser.add_argument(
+        "--figure",
+        type=Figure.parse,
+        metavar="|".join(Figure.texts()),
+        default=Figure.ALL,
+        help="which figure to draw (default: all)",
+    )
     parser.add_argument(
         "--mode",
         choices=scaling.MODES,
@@ -126,21 +149,21 @@ def draw(curves: list[scaling.Curve], args: argparse.Namespace) -> list[pathlib.
     type_ = plotstyle.PRINT_SCALE if args.print_width else plotstyle.AUTHOR_SCALE
     width = args.print_width or args.width or plotstyle.DOUBLE_COLUMN_WIDTH
     written: list[pathlib.Path] = []
-    wanted = FIGURES[1:] if args.figure == "all" else (args.figure,)
-    for name in wanted:
-        if name == "per-kernel":
+    wanted = tuple(Figure)[1:] if args.figure is Figure.ALL else (args.figure,)
+    for figure in wanted:
+        if figure is Figure.PER_KERNEL:
             fig = scaling.figure_per_kernel(
                 curves, args.mode, args.quantity, width=width, type_=type_, kernels=args.kernels
             )  # fmt: skip
-            stem = args.out.with_name(f"{args.out.name}-per-kernel-{args.mode}")
-        elif name == "mode-grid":
+            stem = args.out.with_name(f"{args.out.name}-{figure.text}-{args.mode}")
+        elif figure is Figure.MODE_GRID:
             fig = scaling.figure_mode_grid(curves, args.kernels, args.quantity, width=width, type_=type_)
-            stem = args.out.with_name(f"{args.out.name}-{name}")
+            stem = args.out.with_name(f"{args.out.name}-{figure.text}")
         else:
-            fig = scaling.BUILDERS[name](curves, width=width, type_=type_)
-            stem = args.out.with_name(f"{args.out.name}-{name}")
+            fig = BUILDERS[figure](curves, width=width, type_=type_)
+            stem = args.out.with_name(f"{args.out.name}-{figure.text}")
         if fig is None:
-            print(f"nothing drawable for --figure {name}", file=sys.stderr)
+            print(f"nothing drawable for --figure {figure.text}", file=sys.stderr)
             continue
         written.append(scaling.save(fig, stem, width_in=args.print_width))
     return written

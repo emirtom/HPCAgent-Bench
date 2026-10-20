@@ -25,8 +25,10 @@ import sys
 import tempfile
 import weakref
 from collections.abc import Callable
-from enum import Enum
+from enum import auto
 from typing import IO, TYPE_CHECKING, Any
+
+from hpcagent_agent.coded import Coded
 
 import hpcagent_bench
 from hpcagent_bench import osinfo
@@ -308,19 +310,19 @@ def run_static_and_write(
     return rows
 
 
-class Execution(Enum):
-    """Where ``hpcagent-bench agent`` runs the agent (config ``agent.execution``)."""
+class Execution(Coded):
+    """Where ``hpcagent-bench agent`` runs the agent (``--execution``, config ``agent.execution``)."""
 
-    NATIVE = "native"
-    CONTAINER = "container"
-    HARBOR = "harbor"
+    NATIVE = auto()
+    CONTAINER = auto()
+    HARBOR = auto()
 
 
 def execution_mode(args: argparse.Namespace) -> Execution:
     """The run mode: ``--native``, else ``--execution``, else config ``agent.execution``. Sets ``args.native``."""
     from hpcagent_bench import config
 
-    execution = Execution.NATIVE if args.native else Execution(args.execution or config.current().agent.execution)
+    execution = Execution.NATIVE if args.native else args.execution or Execution.parse(config.current().agent.execution)
     args.native = execution is Execution.NATIVE
     return execution
 
@@ -1028,7 +1030,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "--execution",
         default=None,
-        choices=[e.value for e in Execution],
+        type=Execution.parse,
+        metavar="|".join(Execution.texts()),
         help="where the agent runs: native (in-process, = --native), container (default; the "
         "container launcher / judge endpoints), or harbor (Harbor runs the matching Harbor agent "
         "in one container per trial, graded by the same judge). Default: config agent.execution",

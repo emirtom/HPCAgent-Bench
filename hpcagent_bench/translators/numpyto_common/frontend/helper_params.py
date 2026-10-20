@@ -4,7 +4,6 @@ import ast
 import dataclasses
 import types
 from collections.abc import Sequence
-from typing import Literal
 
 from hpcagent_bench.translators.numpyto_common import dtypes
 from hpcagent_bench.translators.numpyto_common.frontend.shapes import resolve_array_ref
@@ -16,7 +15,6 @@ __all__ = [
     "ConstArg",
     "DescEntry",
     "DescKey",
-    "ParamKind",
     "boolean_valued_argument",
     "bound_names",
     "constant_param",
@@ -50,17 +48,14 @@ DescEntry = ArrayDesc | ScalarDesc | SymbolDesc
 DescKey = tuple[tuple[str, str], ...]
 
 
-ParamKind = Literal["array", "scalar", "symbol"]
-
-
 def resolved_array_param(
     fn: ast.FunctionDef | None, arg: ast.expr, pname: str, arr_by: dict[str, ArrayDesc]
-) -> tuple[ParamKind, DescEntry] | None:
+) -> DescEntry | None:
     res = resolve_array_ref(fn, arg, arr_by) if fn is not None else None
     if res is None:
         return None
     shape, dtype = res
-    return ("array", ArrayDesc(name=pname, dtype=dtype, shape=shape, is_output=False))
+    return ArrayDesc(name=pname, dtype=dtype, shape=shape, is_output=False)
 
 
 def name_param(
@@ -70,35 +65,35 @@ def name_param(
     sca_by: dict[str, ScalarDesc],
     sym_by: dict[str, SymbolDesc],
     fn: ast.FunctionDef | None,
-) -> tuple[ParamKind, DescEntry] | None:
+) -> DescEntry | None:
     if arg.id in arr_by:
         a = arr_by[arg.id]
-        return ("array", ArrayDesc(name=pname, dtype=a.dtype, shape=a.shape, is_output=False, is_index=a.is_index))
+        return ArrayDesc(name=pname, dtype=a.dtype, shape=a.shape, is_output=False, is_index=a.is_index)
     if arg.id in sca_by:
-        return ("scalar", ScalarDesc(name=pname, dtype=sca_by[arg.id].dtype))
+        return ScalarDesc(name=pname, dtype=sca_by[arg.id].dtype)
     if arg.id in sym_by:
-        return ("symbol", SymbolDesc(name=pname))
+        return SymbolDesc(name=pname)
     return resolved_array_param(fn, arg, pname, arr_by)
 
 
 def subscript_param(
     arg: ast.Subscript, base: str, pname: str, arr_by: dict[str, ArrayDesc], fn: ast.FunctionDef | None
-) -> tuple[ParamKind, DescEntry] | None:
+) -> DescEntry | None:
     resolved = resolved_array_param(fn, arg, pname, arr_by)
     if resolved is not None:
         return resolved
     if base in arr_by:
         # Every axis indexed: a scalar element of the array.
-        return ("scalar", ScalarDesc(name=pname, dtype=arr_by[base].dtype))
+        return ScalarDesc(name=pname, dtype=arr_by[base].dtype)
     return None
 
 
-def constant_param(arg: ast.Constant, pname: str) -> tuple[ParamKind, DescEntry]:
+def constant_param(arg: ast.Constant, pname: str) -> DescEntry:
     if isinstance(arg.value, bool):
-        return ("scalar", ScalarDesc(name=pname, dtype="bool"))
+        return ScalarDesc(name=pname, dtype="bool")
     if isinstance(arg.value, int):
-        return ("scalar", ScalarDesc(name=pname, dtype="int"))
-    return ("scalar", ScalarDesc(name=pname, dtype="float64"))
+        return ScalarDesc(name=pname, dtype="int")
+    return ScalarDesc(name=pname, dtype="float64")
 
 
 def infer_param_desc(
@@ -108,9 +103,9 @@ def infer_param_desc(
     sca_by: dict[str, ScalarDesc],
     sym_by: dict[str, SymbolDesc],
     fn: ast.FunctionDef | None = None,
-) -> tuple[ParamKind, DescEntry]:
-    """A helper parameter's descriptor, read off the call-site argument: ``(kind, desc)``."""
-    found: tuple[ParamKind, DescEntry] | None = None
+) -> DescEntry:
+    """A helper parameter's descriptor, read off the call-site argument; its class says what kind it is."""
+    found: DescEntry | None = None
     if isinstance(arg, ast.Name):
         found = name_param(arg, pname, arr_by, sca_by, sym_by, fn)
     elif isinstance(arg, ast.Subscript) and isinstance(arg.value, ast.Name):
@@ -124,10 +119,10 @@ def infer_param_desc(
     if found is not None:
         return found
     if boolean_valued_argument(arg, fn, sca_by):
-        return ("scalar", ScalarDesc(name=pname, dtype="bool"))
+        return ScalarDesc(name=pname, dtype="bool")
     if integer_valued_argument(arg, fn, sca_by, sym_by):
-        return ("scalar", ScalarDesc(name=pname, dtype="int"))
-    return ("scalar", ScalarDesc(name=pname, dtype="float64"))
+        return ScalarDesc(name=pname, dtype="int")
+    return ScalarDesc(name=pname, dtype="float64")
 
 
 def boolean_valued_argument(
@@ -241,7 +236,7 @@ def infer_helper_params(
     scalars: list[ScalarDesc] = []
     symbols: list[SymbolDesc] = []
     for pname, arg in zip(pnames, args, strict=False):
-        unused, desc = infer_param_desc(arg, pname, arr_by, sca_by, sym_by, fn)
+        desc = infer_param_desc(arg, pname, arr_by, sca_by, sym_by, fn)
         if isinstance(desc, ArrayDesc):
             if is_temporary(arg, formal) and desc.dtype:
                 desc = dataclasses.replace(desc, dtype=dtypes.compute_dtype(desc.dtype))

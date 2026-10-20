@@ -153,10 +153,12 @@ async def run_agent(
         )
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the agent to its end; return (end reason, detail)."""
     asyncio.run(run_agent(args, usage_log, args.workdir / TRANSCRIPT))
-    return runner_common.FINISHED, ""
+    return runner_common.EndReason.FINISHED, ""
 
 
 def main(argv: Sequence[str]) -> int:

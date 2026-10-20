@@ -10,13 +10,15 @@ import enum
 import importlib
 import sys
 
-from hpcagent_bench.stats.choices import spelling
+from hpcagent_agent.coded import Coded
 
 __all__ = ["Figure", "command", "main"]
 
 
-class Figure(enum.Enum):
+class Figure(Coded):
     """The figures ``hpcagent-bench plot`` draws, each by the command module of its name."""
+
+    SEPARATOR = enum.nonmember("-")
 
     EFFICACY = enum.auto()
     KERNEL_SPEEDUPS = enum.auto()
@@ -32,7 +34,7 @@ def command(figure: Figure) -> str:
 def main(argv: list[str] | None = None) -> int:
     """Draw the figure ``argv[0]`` spells with the rest of ``argv`` as its arguments."""
     args = sys.argv[1:] if argv is None else list(argv)
-    named = {spelling(figure): figure for figure in Figure}
+    named = {figure.text: figure for figure in Figure}
     if not args or args[0] in ("-h", "--help") or args[0] not in named:
         print("usage: hpcagent-bench plot {" + ",".join(named) + "} ...", file=sys.stderr if args else sys.stdout)
         return 0 if args and args[0] in ("-h", "--help") else 2

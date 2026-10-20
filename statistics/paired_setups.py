@@ -48,6 +48,7 @@ from typing import NamedTuple
 import pandas as pd
 
 from hpcagent_bench import studies, study_tags
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.stats import cost, population, score_rule, significance, summary
 
 #: Order every episode's graded rows are read in; ``attempt_index`` breaks a same-millisecond tie in
@@ -225,7 +226,7 @@ IMPACT_SETUP_COLUMNS = {
 }
 
 #: Pairs-table leg -> impact-table column prefix, and the pairs-table column behind each suffix.
-IMPACT_LEGS = {"speedup": "speedup", "tokens": "token"}
+IMPACT_LEGS: dict[significance.Leg, str] = {significance.Leg.SPEEDUP: "speedup", significance.Leg.TOKENS: "token"}
 IMPACT_LEG_COLUMNS = {
     "ratio": "rho",
     "ci_low": "ci_low",
@@ -295,7 +296,7 @@ def impact_rows(pairs: list[tuple[str, str]], setup_frame: pd.DataFrame, pair_fr
             row[column] = setups.loc[setup, source] if setup in setups.index else math.nan
         for leg, prefix in IMPACT_LEGS.items():
             match = pair_frame[
-                (pair_frame.setup_a == setup) & (pair_frame.setup_b == control) & (pair_frame.leg == leg)
+                (pair_frame.setup_a == setup) & (pair_frame.setup_b == control) & (pair_frame.leg == leg.text)
             ]
             found = match.iloc[0] if control and not match.empty else None
             for suffix, source in IMPACT_LEG_COLUMNS.items():
@@ -338,7 +339,7 @@ def graded_rows(observations: pd.DataFrame, setups: list[str]) -> pd.DataFrame:
     ``one_denominator`` raises rather than picking a majority: a speedup divided by two different
     references is not one quantity, and the setups of two experiments are exactly where that happens.
     """
-    rows = observations[(observations.row_kind == "submission") & observations.setup.isin(setups)]
+    rows = observations[(observations.row_kind == RowKind.SUBMISSION.text) & observations.setup.isin(setups)]
     population.rows_denominator(rows, label="graded rows")
     return rows
 
@@ -481,15 +482,15 @@ def pair_rows(
             "coverage_test": coverage.label,
             "coverage_p": coverage.pvalue,
         }
-        legs = [("speedup", score_leg(left, right))]
+        legs = [(significance.Leg.SPEEDUP, score_leg(left, right))]
         cost = cost_leg(setup_a, setup_b, tokens)
         if cost is not None:
-            legs.append(("tokens", cost))
-        for name, (change, n_pairs, signs) in legs:
+            legs.append((significance.Leg.TOKENS, cost))
+        for leg, (change, n_pairs, signs) in legs:
             rows.append(
                 {
                     **head,
-                    "leg": name,
+                    "leg": leg.text,
                     "n_pairs": n_pairs,
                     "n_tested": change.n,
                     "rho": math.exp(change.estimate),
@@ -507,7 +508,7 @@ def pair_rows(
     for row, verdict in zip(rows, family, strict=True):
         row["correction"] = verdict.correction
         row["p_adjusted"] = verdict.adjusted
-        row["verdict"] = verdict.finding.value
+        row["verdict"] = verdict.finding.text
     return rows
 
 
@@ -586,7 +587,7 @@ def episode_usage(observations: pd.DataFrame) -> pd.DataFrame:
     key = ["setup", *population.EPISODE_KEY]
     selected = population.latest_episodes(observations)
     route = selected["route"].astype(str) if "route" in selected.columns else pd.Series("", index=selected.index)
-    is_episode = selected.row_kind == population.EPISODE_RECORD
+    is_episode = selected.row_kind == RowKind.EPISODE.text
     recorded = (
         selected["episode_attempts"]
         if "episode_attempts" in selected.columns
@@ -598,9 +599,9 @@ def episode_usage(observations: pd.DataFrame) -> pd.DataFrame:
         else pd.Series(math.nan, index=selected.index)
     )
     flags = selected[key].assign(
-        score_calls=((selected.row_kind == "call") & (route == "score")).astype(int),
-        submit_calls=((selected.row_kind == "call") & (route == "submit")).astype(int),
-        accepted_submissions=(selected.row_kind == "submission").astype(int),
+        score_calls=((selected.row_kind == RowKind.CALL.text) & (route == "score")).astype(int),
+        submit_calls=((selected.row_kind == RowKind.CALL.text) & (route == "submit")).astype(int),
+        accepted_submissions=(selected.row_kind == RowKind.SUBMISSION.text).astype(int),
         # 1 + crash relaunches, off the task row only (spec section 9); NaN when a task has none
         attempts=pd.to_numeric(recorded, errors="coerce").where(is_episode),
         # what the attempts BEFORE the final one spent (T2): reported beside the cost, never in it
@@ -821,8 +822,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument(
         "--policy",
         default=POLICY,
-        type=population.KernelPolicy,
-        choices=population.POLICIES,
+        type=population.KernelPolicy.parse,
+        metavar="|".join(population.KernelPolicy.texts()),
         help="the speedup leg's kernels: solved (both setups answered correctly; the default) or served "
         "(every kernel, a failure at 1.0)",
     )
@@ -909,7 +910,7 @@ def main(argv: list[str]) -> int:
     )
     pair_frame = (
         pd.DataFrame(pair_rows(pairs, table, tokens, tag_kernels, args.family, served))
-        .assign(cost_model=card.key, score_rule=score_rule.SCORE_RULE, kernel_policy=args.policy.value)
+        .assign(cost_model=card.key, score_rule=score_rule.SCORE_RULE, kernel_policy=args.policy.text)
         .reindex(columns=list(PAIR_COLUMNS))
     )
     # spec N1: the tables keep full float64; only the printed copy is rounded

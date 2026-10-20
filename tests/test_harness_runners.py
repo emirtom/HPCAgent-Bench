@@ -607,7 +607,7 @@ def test_a_miniswe_episode_sends_its_window_and_keeps_its_whole_history(
 
     reason = harness.miniswe.run_episode(args, harness.common.UsageLog(args.usage))
 
-    assert reason == (harness.common.FINISHED, "")
+    assert reason == (harness.common.EndReason.FINISHED, "")
     served = [sum(harness.common.message_chars(message) for message in sent) // 3 for sent in seen["sent"]]
     assert max(served) <= 30_000 + 3_000, served
     assert seen["sent"][-1][2]["content"].startswith("[")
@@ -853,7 +853,7 @@ def test_the_usage_log_appends_one_complete_line_per_call(harness, tmp_path: pat
 def test_the_end_record_is_written_and_only_a_finish_exits_zero(
     harness, tmp_path: pathlib.Path, reason: str, status: int
 ) -> None:
-    assert harness.common.write_end(tmp_path, reason, 7, "why", "high") == status
+    assert harness.common.write_end(tmp_path, harness.common.EndReason.parse(reason), 7, "why", "high") == status
     assert json.loads((tmp_path / "harness-end.json").read_text(encoding="utf-8")) == {
         "effort": "high",
         "reason": reason,
@@ -863,8 +863,12 @@ def test_the_end_record_is_written_and_only_a_finish_exits_zero(
     assert sorted(path.name for path in tmp_path.iterdir()) == ["harness-end.json"]
 
 
+def test_the_end_reasons_keep_the_spellings_the_driver_reads(harness: types.SimpleNamespace) -> None:
+    assert harness.common.EndReason.texts() == ("finished", "context_overflow", "api_timeout", "error")
+
+
 def test_an_oversized_detail_is_truncated_in_the_end_record(harness, tmp_path: pathlib.Path) -> None:
-    harness.common.write_end(tmp_path, "error", 0, "x" * 100_000)
+    harness.common.write_end(tmp_path, harness.common.EndReason.ERROR, 0, "x" * 100_000)
     record = json.loads((tmp_path / "harness-end.json").read_text(encoding="utf-8"))
     assert record["detail"] == "x" * harness.common.DETAIL_LIMIT
 
@@ -911,13 +915,13 @@ def wrapped(inner: Exception) -> Exception:
 def test_an_exception_maps_to_the_end_reason_it_stands_for(harness, exc: Exception, reason: str) -> None:
     """Served servers refuse an over-long prompt with a plain 400, and an MCP start-up timeout is not
     an API timeout; either mislabel sends the episode to the wrong bucket."""
-    assert harness.common.end_reason(exc) == reason
+    assert harness.common.end_reason(exc) is harness.common.EndReason.parse(reason)
 
 
 def test_a_subclass_of_a_context_window_error_is_still_a_context_overflow(harness) -> None:
     parent = type("ContextWindowExceededError", (Exception,), {})
     child = type("ProviderContextError", (parent,), {})
-    assert harness.common.end_reason(child("x")) == "context_overflow"
+    assert harness.common.end_reason(child("x")) is harness.common.EndReason.CONTEXT_OVERFLOW
 
 
 # mcp.json -> stdio launch parameters (OpenHands, mcp's StdioServerParameters, the Agents SDK)
@@ -1269,7 +1273,8 @@ def test_a_reply_without_a_tool_call_ends_the_episode_by_its_stop_reason(
     harness: types.SimpleNamespace, stop_reason: str, outcome: tuple[str, str] | None
 ) -> None:
     """A reply cut off at max_tokens is continued, as the claude CLI does, rather than recorded as a finish."""
-    assert harness.anthropic.stop_outcome(stop_reason) == outcome
+    got = harness.anthropic.stop_outcome(stop_reason)
+    assert (got if got is None else (got[0].text, got[1])) == outcome
 
 
 FAKE_MCP_SERVER = """

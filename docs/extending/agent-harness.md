@@ -32,7 +32,8 @@ workdir `W`, logs to `W/<name>.log` and writes two records.
 - **`W/usage.jsonl`**: one line per model call, `{"input", "cached_input", "output", "reasoning"}`,
   disjoint counts that sum to the call (`runner_common.openai_usage` builds it from an OpenAI usage).
 - **`W/harness-end.json`**: `{"reason", "turns", "detail"}`, reason `finished`, `context_overflow`,
-  `api_timeout` or `error`. `runner_common.write_end` writes it and returns 0 for `finished`, else 1.
+  `api_timeout` or `error` (a `runner_common.EndReason`'s text). `runner_common.write_end` writes it and returns 0
+  for `EndReason.FINISHED`, else 1.
 
 Recorded rc, first match wins:
 
@@ -57,7 +58,9 @@ are not relaunched.
 import runner_common  # the driver starts runners without PYTHONSAFEPATH: their own directory heads sys.path
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     from minisweagent.agents.default import DefaultAgent
     from minisweagent.environments.local import LocalEnvironment
     from minisweagent.models.litellm_model import LitellmModel
@@ -73,8 +76,8 @@ def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLo
     agent = DefaultAgent(model, LocalEnvironment(cwd=str(args.workdir)), output_path=args.workdir / TRAJECTORY)
     status = str(agent.run(args.prompt.read_text(encoding="utf-8")).get("exit_status", ""))
     if status == SUBMITTED:
-        return runner_common.FINISHED, ""
-    return runner_common.ERROR, f"exit_status={status}"
+        return runner_common.EndReason.FINISHED, ""
+    return runner_common.EndReason.ERROR, f"exit_status={status}"
 
 
 def main(argv: Sequence[str]) -> int:

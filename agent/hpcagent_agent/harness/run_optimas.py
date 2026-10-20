@@ -109,7 +109,9 @@ def proposer_usage(usage_log: runner_common.UsageLog) -> Callable[..., None]:
     return record
 
 
-def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog) -> tuple[str, str]:
+def run_episode(
+    args: runner_common.RunnerArgs, usage_log: runner_common.UsageLog
+) -> tuple[runner_common.EndReason, str]:
     """Run the prompt search to its end; return (end reason, detail)."""
     import litellm
     from agents.exceptions import MaxTurnsExceeded
@@ -181,7 +183,7 @@ def run_episode(args: runner_common.RunnerArgs, usage_log: runner_common.UsageLo
     if failures and len(failures) == component.rounds:
         raise failures[-1]
     rewards = ", ".join(f"{score:g}" for _prompt, score in history)
-    return runner_common.FINISHED, f"rounds={component.rounds} rewards=[{rewards}]"
+    return runner_common.EndReason.FINISHED, f"rounds={component.rounds} rewards=[{rewards}]"
 
 
 def main(argv: Sequence[str]) -> int:

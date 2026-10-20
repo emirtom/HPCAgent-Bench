@@ -36,11 +36,12 @@ def test_the_recorded_device_reads_back_to_its_member(
     assert RecordDevice.parse(stored) is device
 
 
-@pytest.mark.parametrize("execution", list(Execution), ids=lambda execution: execution.value)
-def test_the_execution_argument_is_the_member_value(execution: Execution) -> None:
-    """``hpcagent-bench agent --execution <value>`` accepts every member's value and nothing else."""
-    args = build_parser().parse_args(["agent", "stub", "--execution", execution.value])
-    assert Execution(args.execution) is execution
+@pytest.mark.parametrize("execution", list(Execution), ids=lambda execution: execution.text)
+def test_the_execution_argument_is_the_member_text(execution: Execution) -> None:
+    """``hpcagent-bench agent --execution <text>`` accepts every member's spelling and nothing else."""
+    assert Execution.texts() == ("native", "container", "harbor")
+    args = build_parser().parse_args(["agent", "stub", "--execution", execution.text])
+    assert args.execution is execution
     with pytest.raises(SystemExit):
         build_parser().parse_args(["agent", "stub", "--execution", repr(execution)])
 

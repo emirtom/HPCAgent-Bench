@@ -33,6 +33,13 @@ AGENT = paths.ROOT / "agent"
 MODE_SECTIONS = {"tool", "feedback", "routes", "example", "closing", "grading"}
 
 
+def test_a_mode_is_spelled_as_its_setup_value_and_template_name() -> None:
+    """``AGENT_SUBMISSION_MODE`` and the template file names read these spellings."""
+    assert submission_mode.SubmissionMode.texts() == ("multi", "single", "blind")
+    for mode in submission_mode.SubmissionMode:
+        assert (AGENT / mode.template).is_file(), mode
+
+
 @pytest.mark.parametrize("mode", list(submission_mode.SubmissionMode))
 def test_every_mode_template_fills_exactly_the_prompts_mode_slots(mode: submission_mode.SubmissionMode) -> None:
     """The tool bullet rides in the {{TOOLS}} list, as submit.PROMPT; the routes in http-api.md (the shell-only
@@ -56,7 +63,7 @@ def test_the_mcp_server_instructions_carry_the_modes_submit_bullet_and_no_raw_sl
     """Claude Code injects the server's ``initialize`` instructions into the system prompt verbatim.
     They were ``prompt_tool_list()`` unfilled, so every agent read a literal ``{{MODE:tool}}`` line and
     a tool list with no ``submit`` bullet."""
-    monkeypatch.setenv(submission_mode.KEY, mode.value)
+    monkeypatch.setenv(submission_mode.KEY, mode.text)
     server = fresh("mcp_server")
     try:
         instructions = server.build_server().instructions or ""

@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from hpcagent_bench import packets, paths, studies, study_tags
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.stats import choices, cost, population, score_rule, significance
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
@@ -40,8 +41,6 @@ __all__ = [
     "PACKETS_INTERVENTION",
     "POINT_COLUMNS",
     "ROW_WIDTHS",
-    "SPEEDUP_LEG",
-    "TOKENS_LEG",
     "build_comparison",
     "build_multi_comparison",
     "build_parser",
@@ -109,7 +108,7 @@ def compare_slice(
     """One comparison's two geomean ratios (treated over control) and their raw significance p
     values, over the kernels :func:`~hpcagent_bench.stats.figures.efficacy.paired_kernels` covers."""
     graded = pd.concat([control, treated])
-    graded = graded.loc[graded.row_kind == "submission"]
+    graded = graded.loc[graded.row_kind == RowKind.SUBMISSION.text]
     population.rows_denominator(graded, label=f"{model}/{leg}")
     paired = efficacy_figures.paired_kernels(control, treated, card)
     if paired.empty:
@@ -141,8 +140,8 @@ def points(
     """One row per (model, language) present in both sides, with the flags corrected. A setup that ran
     but never had a graded submission is absent rather than entered at zero."""
     graded_control, graded_treated = (
-        control.loc[control.row_kind == "submission"],
-        treated.loc[treated.row_kind == "submission"],
+        control.loc[control.row_kind == RowKind.SUBMISSION.text],
+        treated.loc[treated.row_kind == RowKind.SUBMISSION.text],
     )
     keys = sorted(
         set(map(tuple, graded_control[["model", "language"]].drop_duplicates().to_numpy()))
@@ -174,8 +173,8 @@ def corrected(rows: Sequence[dict[str, float | str | int]]) -> pd.DataFrame:
     return frame.assign(
         score_p_adjusted=[v.adjusted for v in verdicts[0::2]],
         cost_p_adjusted=[v.adjusted for v in verdicts[1::2]],
-        score_verdict=[v.finding.value for v in verdicts[0::2]],
-        cost_verdict=[v.finding.value for v in verdicts[1::2]],
+        score_verdict=[v.finding.text for v in verdicts[0::2]],
+        cost_verdict=[v.finding.text for v in verdicts[1::2]],
         correction=[v.correction for v in verdicts[0::2]],
         family_size=sum(1 for v in verdicts if math.isfinite(v.adjusted)),
     )
@@ -344,11 +343,12 @@ def same_policy(table: pd.DataFrame, source: pathlib.Path, over: population.Kern
     """Refuse a family CSV whose speedup leg was taken over another kernel population: its stars
     would test failures-at-1x while the marks leave failures out, or the reverse. A CSV written
     before the column existed was taken over every served kernel."""
-    recorded = set(table[KERNEL_POLICY_COLUMN].dropna().astype(str)) if KERNEL_POLICY_COLUMN in table else set()
-    if (recorded or {"served"}) != {over.value}:
+    texts = set(table[KERNEL_POLICY_COLUMN].dropna().astype(str)) if KERNEL_POLICY_COLUMN in table else set()
+    recorded = {population.KernelPolicy.parse(text) for text in texts} or {population.KernelPolicy.SERVED}
+    if recorded != {over}:
         raise SystemExit(
-            f"{source} took its speedup over {sorted(recorded or {'served'})}, the figure over {over.value!r}; "
-            f"rebuild it with statistics/paired_setups.py --policy {over.value}"
+            f"{source} took its speedup over {sorted(policy.text for policy in recorded)}, the figure over "
+            f"{over.text!r}; rebuild it with statistics/paired_setups.py --policy {over.text}"
         )
 
 
@@ -360,11 +360,6 @@ def family_pairs(table: pd.DataFrame) -> list[tuple[str, str]]:
     return list(seen)
 
 
-#: What ``statistics/paired_setups.py`` calls each leg of a pair in the family CSV it writes.
-SPEEDUP_LEG: str = "speedup"
-TOKENS_LEG: str = "tokens"
-
-
 def family_stats(table: pd.DataFrame, intervention: str, languages: dict[str, str] | None = None) -> pd.DataFrame:
     """The family CSV's OWN corrected verdicts, as the stats table the figure stars from -- NEVER
     recomputed here (see module docstring)."""
@@ -372,7 +367,8 @@ def family_stats(table: pd.DataFrame, intervention: str, languages: dict[str, st
     known = languages or {}
     rows: list[dict[str, float | str | int]] = []
     for pair in family_pairs(table):
-        score, cost = verdicts.get((*pair, SPEEDUP_LEG)), verdicts.get((*pair, TOKENS_LEG))
+        score = verdicts.get((*pair, significance.Leg.SPEEDUP.text))
+        cost = verdicts.get((*pair, significance.Leg.TOKENS.text))
         recorded = known.get(pair[0], "") or known.get(pair[1], "")
         rows.append(
             {
@@ -413,9 +409,13 @@ def pair_frame(frame_all: pd.DataFrame, pairs: Sequence[tuple[str, str]], interv
     return pd.concat(parts, ignore_index=True) if parts else frame_all.iloc[0:0].assign(leg="", skills=False)
 
 
-def dot_measures(args: argparse.Namespace) -> tuple[str, ...]:
+def dot_measures(args: argparse.Namespace) -> tuple[efficacy_figures.Measure, ...]:
     """The stacked rows ``--success-row`` asks for, in :data:`efficacy_figures.MEASURES` order."""
-    return tuple(measure for measure in efficacy_figures.MEASURES if args.success_row or measure != "success")
+    return tuple(
+        measure
+        for measure in efficacy_figures.MEASURES
+        if args.success_row or measure is not efficacy_figures.Measure.SUCCESS
+    )
 
 
 def write_dot_rows(
@@ -434,8 +434,8 @@ def write_dot_rows(
         config=config, differences=args.difference, over=args.speedup_over, measures=dot_measures(args), card=card,
         row_height_in=args.dots_row_height or efficacy_figures.SETUP_DOTS_ROW_HEIGHT_IN,
         labels={
-            "speedup": efficacy_figures.speedup_row_label(args.speedup_over),
-            "cost": efficacy_figures.cost_row_label(card.key),
+            efficacy_figures.Measure.SPEEDUP: efficacy_figures.speedup_row_label(args.speedup_over),
+            efficacy_figures.Measure.COST: efficacy_figures.cost_row_label(card.key),
         },
     )  # fmt: skip
 
@@ -457,8 +457,8 @@ def write_row(
         row_height_in=args.dots_row_height or efficacy_figures.DOT_ROW_HEIGHT_IN,
         over=args.speedup_over, measures=dot_measures(args), card=card, comparators=comparators,
         labels={
-            "speedup": efficacy_figures.speedup_row_label(args.speedup_over),
-            "cost": efficacy_figures.cost_row_label(card.key),
+            efficacy_figures.Measure.SPEEDUP: efficacy_figures.speedup_row_label(args.speedup_over),
+            efficacy_figures.Measure.COST: efficacy_figures.cost_row_label(card.key),
         },
         **columns,
     )  # fmt: skip
@@ -552,9 +552,9 @@ def report(treatment: str, stats: pd.DataFrame) -> None:
     if stats.empty or "score_verdict" not in stats.columns:
         print(f"{treatment or '(stub)'}: placeholder panel, nothing drawn")
         return
-    score_hits = int((stats.score_verdict == significance.Finding.SIGNIFICANT.value).sum())
-    cost_hits = int((stats.cost_verdict == significance.Finding.SIGNIFICANT.value).sum())
-    withheld = int((stats.score_verdict == significance.Finding.UNDERPOWERED.value).sum())
+    score_hits = int((stats.score_verdict == significance.Finding.SIGNIFICANT.text).sum())
+    cost_hits = int((stats.cost_verdict == significance.Finding.SIGNIFICANT.text).sum())
+    withheld = int((stats.score_verdict == significance.Finding.UNDERPOWERED.text).sum())
     correction = str(stats.correction.iloc[0]) if "correction" in stats else "corrected"
     of_test = f" ({stats.test.iloc[0]})" if "test" in stats else ""
     print(
@@ -746,8 +746,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--speedup-over",
         default=efficacy_figures.SPEEDUP_OVER,
-        type=population.KernelPolicy,
-        choices=population.POLICIES,
+        type=population.KernelPolicy.parse,
+        metavar="|".join(population.KernelPolicy.texts()),
         help="solved (default): speedup over the kernels both setups answered correctly, failures shown as "
         "the success-rate row; served: every kernel, a failure at 1x (the fallback reading)",
     )

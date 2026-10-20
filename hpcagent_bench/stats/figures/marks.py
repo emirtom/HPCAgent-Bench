@@ -8,6 +8,7 @@ import enum
 import math
 from typing import NamedTuple
 
+from hpcagent_agent.coded import Coded
 from matplotlib.axes import Axes
 from matplotlib.typing import LineStyleType
 
@@ -25,7 +26,7 @@ __all__ = [
 ]
 
 
-class Mode(enum.Enum):
+class Mode(Coded):
     """What a speedup figure measures a setup against."""
 
     #: Each setup against the experiment baseline; the control drawn beside its treated setup.
@@ -34,7 +35,7 @@ class Mode(enum.Enum):
     RELATIVE = enum.auto()
 
 
-class Mark(enum.Enum):
+class Mark(Coded):
     """How a point estimate is drawn; its interval is drawn the same way under every mark."""
 
     #: A marker at the estimate.

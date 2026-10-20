@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from hpcagent_bench import packets, recorded_rows, study_tags
 from hpcagent_bench.harness import recording, results_db
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.run_layout import JUDGE_DIRNAME, MERGE_FAILED_NAME, MERGED_DB_NAME
 from hpcagent_bench.stats import population
 
@@ -186,7 +187,7 @@ def episode_rows(frame: "pd.DataFrame", column: str) -> "pd.DataFrame | None":
         return None
     if not set(JOB_EPISODE_KEY) <= set(frame.columns):
         return None
-    tasks = frame.loc[frame["row_kind"] == "episode"]
+    tasks = frame.loc[frame["row_kind"] == RowKind.EPISODE.text]
     return None if tasks.empty else tasks
 
 
@@ -232,7 +233,7 @@ def drop_foreign_kernel_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
         )
     kernel_of = {task: names[0] for task, names in kernels.items()}
     owner = episode_labels(frame).map(kernel_of)
-    foreign = (frame["row_kind"] != "episode") & owner.notna() & (owner != frame["kernel"].astype(str))
+    foreign = (frame["row_kind"] != RowKind.EPISODE.text) & owner.notna() & (owner != frame["kernel"].astype(str))
     count = int(foreign.sum())
     if count:
         warnings.warn(f"dropped {count} judge row(s) naming a kernel other than their task's (spec X6)", stacklevel=2)
@@ -241,7 +242,7 @@ def drop_foreign_kernel_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
 
 #: The records a graded ``/submit`` leaves: a verified submission, or an attempt the judge rejected. A
 #: relaunched task's two attempt groups compete on these.
-GRADED_RECORDS: tuple[str, str] = ("submission", "attempt")
+GRADED_RECORDS: tuple[RowKind, RowKind] = (RowKind.SUBMISSION, RowKind.ATTEMPT)
 
 
 def group_answer(rows: "pd.DataFrame") -> float:
@@ -251,7 +252,7 @@ def group_answer(rows: "pd.DataFrame") -> float:
         return 0.0
     speedup = numeric(rows, "speedup").fillna(0.0)
     suspect = numeric(rows, "timing_suspect").fillna(0.0) if "timing_suspect" in rows.columns else 0.0
-    answers = rows.loc[(rows["row_kind"] == "submission") & (speedup > 0) & (suspect == 0)]
+    answers = rows.loc[(rows["row_kind"] == RowKind.SUBMISSION.text) & (speedup > 0) & (suspect == 0)]
     if answers.empty:
         return 0.0
     last = answers.loc[numeric(answers, "ts_ms").idxmax()]
@@ -285,7 +286,7 @@ def drop_pre_relaunch_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
     labels = episode_labels(frame)
     owner = labels.map(cut)
     stamps = numeric(frame, "ts_ms")
-    relaunched = (frame["row_kind"] != "episode") & owner.notna() & (owner > 0) & stamps.notna()
+    relaunched = (frame["row_kind"] != RowKind.EPISODE.text) & owner.notna() & (owner > 0) & stamps.notna()
     early = relaunched & (stamps < owner)
     late = relaunched & (stamps >= owner)
     drop = early.copy()
@@ -293,7 +294,7 @@ def drop_pre_relaunch_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
         mine = labels == task
         if group_answer(frame.loc[early & mine]) > group_answer(frame.loc[late & mine]):
             # The earlier attempt answered better: its rows stand and the final attempt's answers go.
-            drop[mine] = late[mine] & frame["row_kind"].isin(GRADED_RECORDS)
+            drop[mine] = late[mine] & frame["row_kind"].isin([kind.text for kind in GRADED_RECORDS])
     count = int(drop.sum())
     if count:
         warnings.warn(f"dropped {count} judge row(s) of a relaunched task's weaker attempt (spec X7)", stacklevel=2)

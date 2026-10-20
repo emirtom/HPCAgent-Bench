@@ -337,9 +337,9 @@ class Test:
                 seconds = {name: listing.seconds[name] + self.prepared.seconds[name] for name in phase_clock.PHASES}
                 per_impl_timings[impl_name] = {
                     **timing,
-                    "transform_time": seconds["transform"],
-                    "codegen_time": seconds["codegen"],
-                    "compile_time": seconds["compile"],
+                    "transform_time": seconds[phase_clock.Phase.TRANSFORM],
+                    "codegen_time": seconds[phase_clock.Phase.CODEGEN],
+                    "compile_time": seconds[phase_clock.Phase.COMPILE],
                 }
         return per_impl_timings
 

@@ -35,6 +35,8 @@ import types
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from hpcagent_agent.coded import Coded
+
 from hpcagent_bench import config
 from hpcagent_bench.registry import Kind, RegistryError
 
@@ -51,6 +53,7 @@ __all__ = [
     "Correction",
     "Discordant",
     "Finding",
+    "Leg",
     "PairedProportionTest",
     "PairedTest",
     "ProportionTest",
@@ -115,12 +118,15 @@ class Discordant(NamedTuple):
     only_right: int
 
 
-class Side(enum.Enum):
-    """The alternative a two-sample test looks at; the value is scipy's ``alternative``."""
+class Side(Coded):
+    """The alternative a two-sample test looks at; :attr:`~hpcagent_agent.coded.Coded.text` is scipy's
+    ``alternative``."""
 
-    LESS = "less"  # the first sample (the candidate) faster
-    GREATER = "greater"  # the first sample slower
-    TWO_SIDED = "two-sided"
+    SEPARATOR = enum.nonmember("-")
+
+    LESS = enum.auto()  # the first sample (the candidate) faster
+    GREATER = enum.auto()  # the first sample slower
+    TWO_SIDED = enum.auto()
 
 
 #: ``(log_ratios, alpha) -> Result``: finite log ratios, one per kernel.
@@ -244,14 +250,24 @@ def correct(pvalues: Sequence[float], *, test: str | None = None) -> list[float]
     return out
 
 
-class Finding(enum.Enum):
-    """What a verdict column says; the value is what a table prints. No test is not "no effect", so this is
-    not a boolean."""
+class Finding(Coded):
+    """What a verdict column says; :attr:`~hpcagent_agent.coded.Coded.text` is what a table prints. No test is
+    not "no effect", so this is not a boolean."""
 
-    SIGNIFICANT = "significant"
-    NOT_SIGNIFICANT = "not-significant"
+    SEPARATOR = enum.nonmember("-")
+
+    SIGNIFICANT = enum.auto()
+    NOT_SIGNIFICANT = enum.auto()
     #: Too few pairs for any test: no p, and no member of the family.
-    UNDERPOWERED = "underpowered"
+    UNDERPOWERED = enum.auto()
+
+
+class Leg(Coded):
+    """Which measure one row of a paired setup comparison tests; spelled in the family CSV's ``leg`` column
+    (``statistics/paired_setups.py``)."""
+
+    SPEEDUP = enum.auto()
+    TOKENS = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -420,7 +436,7 @@ def mannwhitney(candidate: Sequence[float], baseline: Sequence[float], side: Sid
     n = len(candidate) + len(baseline)
     try:
         result: Any = scipy_stats().mannwhitneyu(
-            np.asarray(candidate, dtype=np.float64), np.asarray(baseline, dtype=np.float64), alternative=side.value
+            np.asarray(candidate, dtype=np.float64), np.asarray(baseline, dtype=np.float64), alternative=side.text
         )
     except ValueError:
         return Result(math.nan, math.nan, 1.0, math.nan, math.nan, n, "mann-whitney")
