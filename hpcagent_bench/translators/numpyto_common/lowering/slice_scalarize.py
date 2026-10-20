@@ -3,7 +3,6 @@
 import ast
 import copy
 from collections.abc import Sequence
-from typing import Any
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import extent_is_scalar, iter_extent_of
@@ -757,7 +756,7 @@ class SliceToScalarRewriter(ast.NodeTransformer):
         return bound
 
 
-def is_unit_extent(start: ast.expr, stop: ast.expr | None, axis_len: Any = None) -> bool:
+def is_unit_extent(start: ast.expr, stop: ast.expr | None, axis_len: object = None) -> bool:
     """Is this slice exactly one element long -- ``[0:1]``, the symbolic ``[k:k+1]``, or a full
     ``[:]`` over an axis the array itself declares as 1?
 

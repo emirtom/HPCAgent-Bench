@@ -44,7 +44,7 @@ __all__ = [
 ]
 
 
-def strided_trip_count(start: ast.expr, stop: ast.expr, step) -> ast.expr:
+def strided_trip_count(start: ast.expr, stop: ast.expr, step: ast.expr | int) -> ast.expr:
     """Element count of ``start:stop:step`` for a POSITIVE step: ``ceil((stop - start) / step)``.
 
     Folded to a literal when both bounds AND the step are constants, so the common ``a[0:2 * n:2]``
@@ -483,7 +483,7 @@ class LiftFreshArrayFromSlices(ast.NodeTransformer):
         slice_assign = ast.Assign(targets=[slice_lhs], value=node.value)
         return [marker, slice_assign]
 
-    def is_array_binop(self, expr):
+    def is_array_binop(self, expr: ast.expr) -> bool:
         """``True`` for a BinOp / UnaryOp whose tree contains at least
         one bare-Name reference to an array of rank >= 1 in
         ``self.shapes``. Recognises forms like ``__cb1 = mass * vel``

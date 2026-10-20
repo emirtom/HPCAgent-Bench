@@ -11,7 +11,9 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.kinds import KIND_R
 __all__ = ["EINSUM_HOIST", "einsum_inline_stmts", "hoist_einsum"]
 
 
-def einsum_inline_stmts(subs: str, operands: list[str], ctr: int, dtype_of: str):
+def einsum_inline_stmts(
+    subs: str, operands: list[str], ctr: int, dtype_of: str
+) -> tuple[list[ast.stmt], str] | tuple[None, None]:
     """``(stmts, temp)`` computing ``np.einsum(subs, *operands)`` as a contraction loop nest.
 
     ``(None, None)`` for ellipsis or scalar output. The temp takes ``dtype_of``'s dtype."""

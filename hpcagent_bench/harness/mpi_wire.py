@@ -46,10 +46,11 @@ import struct
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import numpy as np
 
+from hpcagent_bench.harness.mpi_descriptor import Descriptor
 from hpcagent_bench.harness.native_call import KernelValue, workspace_bytes_of
 from hpcagent_bench.support.bindings.contract import Binding
 
@@ -88,7 +89,7 @@ def i64(values: Sequence[int]) -> bytes:
     return np.asarray(list(values), dtype="<i8").tobytes()
 
 
-def _scalar8(value, type_code: int) -> bytes:
+def scalar8(value: float, type_code: int) -> bytes:
     """One scalar as its fixed 8-byte slot: little-endian int64 for an integer code, else
     little-endian float64 (the two register classes the ABI passes scalars in)."""
     if type_code in INT_CODES:
@@ -96,7 +97,7 @@ def _scalar8(value, type_code: int) -> bytes:
     return struct.pack("<d", float(value))
 
 
-def read_scalar8(raw: bytes, type_code: int):
+def read_scalar8(raw: bytes, type_code: int) -> int | float:
     if type_code in INT_CODES:
         return int(struct.unpack_from("<q", raw)[0])
     return float(struct.unpack_from("<d", raw)[0])
@@ -127,7 +128,7 @@ class ParsedInfile:
 
 def pack_infile(
     binding: Binding,
-    descriptor,
+    descriptor: Descriptor,
     data: Mapping[str, np.ndarray],
     scalars: Mapping[str, KernelValue],
     k_repeats: int,
@@ -168,7 +169,9 @@ def pack_infile(
             max_ndim = max(max_ndim, t.ndim)
 
     # Per-rank localised scalars + workspace bytes (reuse the single-node resolver).
-    local_scalars: list[dict[str, float]] = [descriptor.local_size_scalars(scalars, r) for r in range(nranks)]
+    local_scalars: list[dict[str, float]] = [
+        descriptor.local_size_scalars(cast("Mapping[str, float]", scalars), r) for r in range(nranks)
+    ]
     ws_bytes = [workspace_bytes_of(workspace_expr, binding, local_scalars[r]) for r in range(nranks)]
 
     out = bytearray()
@@ -178,7 +181,7 @@ def pack_infile(
     out += i64([TYPE_CODES[a.dtype] for a in scalar_args])
     for r in range(nranks):
         for a in scalar_args:
-            out += _scalar8(local_scalars[r][a.name], TYPE_CODES[a.dtype])
+            out += scalar8(local_scalars[r][a.name], TYPE_CODES[a.dtype])
 
     out += i64(ws_bytes)
 

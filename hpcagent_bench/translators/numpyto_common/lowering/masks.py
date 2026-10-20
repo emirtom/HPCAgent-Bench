@@ -2,10 +2,11 @@
 
 import ast
 import copy
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import map_blocks, name_, range_for, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
+from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import iter_extent_of
 from hpcagent_bench.translators.numpyto_common.lib_nodes.helpers import const_, wrap_for_loops
 from hpcagent_bench.translators.numpyto_common.lowering.indexing import has_negative_step, is_scalar_index, view_offset
@@ -48,7 +49,7 @@ class BooleanMaskRewriter(ast.NodeTransformer):
 
     __slots__ = ("bool_names", "shape_table")
 
-    def __init__(self, shape_table, bool_names) -> None:
+    def __init__(self, shape_table: dict[str, tuple[str, ...]], bool_names: set[str]) -> None:
         self.shape_table = shape_table
         #: Names :func:`collect_bool_names` proved boolean. A bare ``Name`` index is a mask ONLY
         #: if it is in here: shape equality alone cannot tell ``arr[mask]`` from ``arr[int_idx]``,
@@ -129,7 +130,7 @@ class BooleanMaskRewriter(ast.NodeTransformer):
             return None
         return found, tup.elts[found]
 
-    def leading_mask_rank(self, expr, lhs_shape, lhs_name):
+    def leading_mask_rank(self, expr: ast.expr, lhs_shape: tuple[str, ...], lhs_name: str) -> int | None:
         """``A[m] = v`` where ``m`` ranks BELOW ``A`` -- numpy consumes the LEADING axes and leaves
         the rest whole, so ``A[m]`` on a rank-2 ``A`` means ``A[m, :]``.
 
@@ -143,18 +144,18 @@ class BooleanMaskRewriter(ast.NodeTransformer):
                 return rank
         return None
 
-    def is_mask_expr(self, expr, lhs_shape, lhs_name):
+    def is_mask_expr(self, expr: ast.expr, lhs_shape: tuple[str, ...], lhs_name: str) -> bool:
         """Return True when ``expr`` evaluates to a boolean array of
         ``lhs_shape``. Conservative: only the recognised shapes."""
 
-        def array_shaped(e):
+        def array_shaped(e: ast.expr) -> bool:
             # A bare Name fast-path, then any array-valued EXPRESSION whose
             # iteration extent has the LHS rank: ``abs(Z) < horizon`` (the
             # operand is a Call wrapping the array, not a bare Name) is a valid
             # mask, as is ``N_out == 0`` (mandelbrot2 ``&``-combined masks).
             if isinstance(e, ast.Name):
                 shape = self.shape_table.get(e.id)
-                return bool(shape) and tuple(shape) == tuple(lhs_shape)
+                return bool(shape) and tuple(shape or ()) == tuple(lhs_shape)
             ext = iter_extent_of(e, self.shape_table)
             return ext is not None and len(ext) == len(lhs_shape)
 
@@ -177,7 +178,7 @@ class BooleanMaskRewriter(ast.NodeTransformer):
             if expr.id not in self.bool_names:
                 return False
             shape = self.shape_table.get(expr.id)
-            return bool(shape) and tuple(shape) == tuple(lhs_shape)
+            return bool(shape) and tuple(shape or ()) == tuple(lhs_shape)
         return False
 
 
@@ -227,7 +228,7 @@ def strip_mask_subscripts(expr: ast.expr, mask_names: set[str], mask_expr: ast.e
     return out
 
 
-def collect_bool_names(tree: ast.AST, arrays) -> set[str]:
+def collect_bool_names(tree: ast.AST, arrays: list[ArrayDesc]) -> set[str]:
     """Names known to hold a boolean array.
 
     The conservative criterion that separates ``arr[bool_mask]`` (a masked
@@ -339,7 +340,9 @@ def reads_before_rebind(stmts: Sequence[ast.stmt], name: str) -> bool:
 class BooleanMaskReductionRewriter(ast.NodeTransformer):
     __slots__ = ("bool_names", "shape_table")
 
-    def __init__(self, shape_table=None, bool_names=None) -> None:
+    def __init__(
+        self, shape_table: dict[str, tuple[str, ...]] | None = None, bool_names: set[str] | None = None
+    ) -> None:
         self.shape_table = shape_table or {}
         self.bool_names = bool_names or set()
 
@@ -407,8 +410,8 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
                 run: list[ast.stmt] = []
                 j = i + 1
                 while j < len(stmts):
-                    op = self.consumer_op(stmts[j], tmp_name)
-                    emitted = None if op is None else self.emit_consumer(stmts[j], selected, mask, op, j)
+                    consumer = self.consumer_op(stmts[j], tmp_name)
+                    emitted = None if consumer is None else self.emit_consumer(stmts[j], selected, mask, consumer, j)
                     if emitted is None:
                         break
                     run.extend(emitted)
@@ -447,7 +450,7 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
         ast.fix_missing_locations(tail)
         return [*list(emitted), tail]
 
-    def masked_source(self, arr: str | ast.expr, mask: str):
+    def masked_source(self, arr: str | ast.expr, mask: str) -> tuple[Callable[[ast.expr], ast.expr], ast.expr] | None:
         """Element-load builder and iteration extent for a masked select's source.
 
         ``arr`` is either an array Name or a basic-indexed VIEW of one
@@ -483,7 +486,7 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
         upper = view.upper if view.upper is not None else self.tok_to_ast(shape[axis])
         n_expr = strided_trip_count(view.lower or const_(0), upper, view.step or 1)
 
-        def load(idx):
+        def load(idx: ast.expr) -> ast.expr:
             composed = [copy.deepcopy(e) for e in elts]
             composed[axis] = view_offset(view.lower, view.step, idx)
             return ast.Subscript(
@@ -539,7 +542,7 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
             return sel.value.id, sel.slice.id, op, tgt
         return None
 
-    def consumer_op(self, stmt, expected_name):
+    def consumer_op(self, stmt: ast.stmt, expected_name: str) -> str | None:
         """Detect a reduction consumer of ``expected_name`` in ``stmt``.
 
         Recognises three forms:
@@ -645,13 +648,13 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
             ast.fix_missing_locations(s)
         return out
 
-    def tok_to_ast(self, tok):
+    def tok_to_ast(self, tok: str) -> ast.expr:
         """Parse a shape token like ``'N'`` or ``'N - 1'`` to an AST."""
         try:
             return ast.parse(str(tok), mode="eval").body
         except SyntaxError:
             return name_(str(tok))
 
-    def visit_FunctionDef(self, node):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
         node.body = self.walk_body(node.body)
         return node

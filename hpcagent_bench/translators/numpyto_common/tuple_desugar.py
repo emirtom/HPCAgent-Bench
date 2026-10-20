@@ -30,7 +30,6 @@ import ast
 import copy
 import functools
 from collections.abc import Sequence
-from typing import Any
 
 from hpcagent_bench.translators.numpyto_common.ast_build import (
     SubstituteLoads,
@@ -165,7 +164,7 @@ class Env:
     def copy(self) -> "Env":
         return Env(self.tuples, self.bound, self.kinds)
 
-    def invalidate(self, names) -> None:
+    def invalidate(self, names: OrderedSet | list[str]) -> None:
         for name in names:
             self.tuples.pop(name, None)
             self.kinds.pop(name, None)
@@ -237,7 +236,7 @@ def own_targets(node: ast.stmt) -> OrderedSet[str]:
     return out
 
 
-def const_value(node: ast.expr) -> Any:
+def const_value(node: ast.expr) -> object:
     """The literal a node denotes, or :data:`NO_VALUE` when it is not a literal."""
     return node.value if isinstance(node, ast.Constant) else NO_VALUE
 

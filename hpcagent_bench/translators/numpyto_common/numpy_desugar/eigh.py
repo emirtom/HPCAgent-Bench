@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 
-def eigh_w_dtype(is_real: bool, names, array_dtypes: dict[str, str]) -> str | None:
+def eigh_w_dtype(is_real: bool, names: tuple[str, str | None], array_dtypes: dict[str, str]) -> str | None:
     """Eigenvalue dtype for an ``eigh`` lowering, or ``None`` to use the input's own ``.dtype``.
 
     Eigenvalues carry the real half of the operand dtype. A real operand spells that as
@@ -330,7 +330,7 @@ class EighLoopRewriter(ast.NodeTransformer):
         self.array_dtypes = array_dtypes or {}
         self._ctr = 0
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
         """Propagate the declared kinds across this function's own assignments, then rewrite it.
 
         An ``eigh`` operand is usually a local built from declared arrays, so the table must follow
@@ -349,7 +349,7 @@ class EighLoopRewriter(ast.NodeTransformer):
         self.dtypes = outer
         return node
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         if len(node.targets) != 1:
             return node
@@ -475,7 +475,7 @@ class EighInline(ast.NodeTransformer):
         self.changed = False
         self._ctr = 0
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         if len(node.targets) != 1:
             return node
         hit = eigh_call_kind(node.value, self.alias_names)

@@ -2,7 +2,7 @@
 
 import ast
 import copy
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from hpcagent_bench.translators.numpyto_common.lowering.mathfuncs import MATH_INTRINSIC_NAMES
 from hpcagent_bench.translators.numpyto_common.lowering.ssa import live_on_loop_reentry, read_in
@@ -88,7 +88,7 @@ FWD_SUBST_MAX_SUBSCRIPTS = 3
 FWD_SUBST_MAX_NODES = 20
 
 
-def stmt_exprs_by_depth(stmts: Sequence[ast.stmt], depth: int):
+def stmt_exprs_by_depth(stmts: Sequence[ast.stmt], depth: int) -> Iterator[tuple[ast.expr, int]]:
     """Yield ``(expr, loop_depth)`` per expression; a loop header sits OUTSIDE its own body."""
     for stmt in stmts:
         if isinstance(stmt, (ast.For, ast.While)):

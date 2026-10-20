@@ -1254,7 +1254,7 @@ def elementwise_store(node: ast.AST) -> tuple[str, ast.expr] | None:
 
 
 def tag_complex_locals(
-    kir, zeros_locals: dict[str, tuple[str, ...]], dtype_src: dict[str, str], dtype_literal: dict[str, str]
+    kir: KernelIR, zeros_locals: dict[str, tuple[str, ...]], dtype_src: dict[str, str], dtype_literal: dict[str, str]
 ) -> None:
     """Give every COMPLEX zeros-local its complex dtype, so the emitter does not default it to real.
 

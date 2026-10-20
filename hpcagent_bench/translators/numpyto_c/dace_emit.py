@@ -258,7 +258,7 @@ class ShapeToSymbol(ast.NodeTransformer):
     def __init__(self, arr_shapes: dict[str, list[str]]) -> None:
         self.arr_shapes = arr_shapes
 
-    def visit_Subscript(self, node: ast.Subscript):
+    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
         self.generic_visit(node)
         v = node.value
         if (
@@ -329,7 +329,7 @@ class DropSymbolAssign(ast.NodeTransformer):
     def __init__(self, symbols: Iterable[str]) -> None:
         self.symbols = set(symbols)
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | None:
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in self.symbols:
             return None
         return node
@@ -353,7 +353,7 @@ class ResolveZeros(ast.NodeTransformer):
         self.default_dtype = default_dtype
         self.allocated: dict[str, tuple[str, ...]] = {}  # name -> last-allocated shape
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | None:
         if not (
             len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
@@ -430,7 +430,7 @@ class AnnotateEmptyDtype(ast.NodeTransformer):
     def __init__(self, dtype_expr: str) -> None:
         self.dtype_expr = dtype_expr
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if not (
             isinstance(node.func, ast.Attribute) and node.func.attr == "empty" and is_numpy_module(node.func.value)
@@ -475,7 +475,7 @@ class FillOutputParamRealloc(ast.NodeTransformer):
     def __init__(self, shapes: dict[str, list[str]]) -> None:
         self.shapes = shapes
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | None:
         self.generic_visit(node)
         if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
             return node
@@ -541,7 +541,7 @@ class FloorDivToIntFloor(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def visit_BinOp(self, node: ast.BinOp):
+    def visit_BinOp(self, node: ast.BinOp) -> ast.expr:
         self.generic_visit(node)
         if not isinstance(node.op, ast.FloorDiv):
             return node
@@ -631,7 +631,7 @@ class RewriteFrameworkDtype(ast.NodeTransformer):
     def __init__(self) -> None:
         self.used_complex = False
 
-    def visit_Name(self, node: ast.Name):
+    def visit_Name(self, node: ast.Name) -> ast.expr:
         mapped = FRAMEWORK_DTYPE_TO_DACE.get(node.id)
         if mapped is None:
             return node
@@ -639,7 +639,7 @@ class RewriteFrameworkDtype(ast.NodeTransformer):
             self.used_complex = True
         return ast.copy_location(ast.Name(id=mapped, ctx=node.ctx), node)
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.AST | None:
         """Drop a reference's call-time rebinding of the precision globals.
 
         A reference reads them off the framework module (``np_float = framework.np_float``) rather
@@ -681,7 +681,7 @@ class RewriteBuiltinDtype(ast.NodeTransformer):
     def __init__(self, float_dtype: str) -> None:
         self.float_dtype = float_dtype
 
-    def visit_keyword(self, node: ast.keyword):
+    def visit_keyword(self, node: ast.keyword) -> ast.keyword:
         self.generic_visit(node)
         if node.arg != "dtype" or not isinstance(node.value, ast.Name):
             return node
@@ -701,7 +701,7 @@ class TernaryValueHoister(ast.NodeTransformer):
         self.owner = owner
         self.prelude = prelude
 
-    def visit_IfExp(self, node: ast.IfExp):
+    def visit_IfExp(self, node: ast.IfExp) -> ast.expr:
         self.generic_visit(node)  # hoist any nested ternary first
         tmp = f"__hpcagent_bench_ternary{self.owner.ctr}"
         self.owner.ctr += 1
@@ -756,11 +756,11 @@ class DesugarTernary(ast.NodeTransformer):
         ]
         return cast[0], cast[1]
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
         node.body = self.process_body_(node.body)
         return node
 
-    def visit_For(self, node: ast.For | ast.While | ast.If):
+    def visit_For(self, node: ast.For | ast.While | ast.If) -> ast.stmt:
         node.body = self.process_body_(node.body)
         node.orelse = self.process_body_(node.orelse)
         return node
@@ -800,7 +800,7 @@ class MethodReceiverHoister(ast.NodeTransformer):
         self.owner = owner
         self.prelude = prelude
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)  # innermost receiver first, so a chain unwinds bottom-up
         if not isinstance(node.func, ast.Attribute):
             return node
@@ -834,11 +834,11 @@ class BindMethodReceiver(ast.NodeTransformer):
     def __init__(self) -> None:
         self.ctr = 0
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
         node.body = self.process_body(node.body)
         return node
 
-    def visit_For(self, node: ast.For | ast.While | ast.If):
+    def visit_For(self, node: ast.For | ast.While | ast.If) -> ast.stmt:
         node.body = self.process_body(node.body)
         node.orelse = self.process_body(node.orelse)
         return node
@@ -887,7 +887,7 @@ class DropIdentityAsarray(ast.NodeTransformer):
     def __init__(self, ranks: dict[str, int]) -> None:
         self.ranks = ranks
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if not (
             isinstance(node.func, ast.Attribute)
@@ -914,7 +914,7 @@ class DesugarChainedCompare(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def visit_Compare(self, node: ast.Compare):
+    def visit_Compare(self, node: ast.Compare) -> ast.expr:
         self.generic_visit(node)
         if len(node.ops) < 2:
             return node
@@ -962,7 +962,7 @@ class ResolveInferredReshape(ast.NodeTransformer):
     def __init__(self, arr_shapes: dict[str, list[str]]) -> None:
         self.arr_shapes = arr_shapes
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         base, args = reshape_target(node)
         if base not in self.arr_shapes or not args:
@@ -998,7 +998,7 @@ class NormalizeReshape(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         base, args = reshape_target(node)
         # A resolved base already proves the callee is ``<receiver>.reshape``.
@@ -1121,7 +1121,7 @@ class DesugarUnreplacedCalls(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if not (isinstance(node.func, ast.Attribute) and is_numpy_module(node.func.value) and not node.keywords):
             return node
@@ -1161,7 +1161,7 @@ class DesugarContractionFreeEinsum(ast.NodeTransformer):
             return None
         return ", ".join(":" if ch in operand else "None" for ch in out)
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if not (
             isinstance(node.func, ast.Attribute)
@@ -1212,7 +1212,7 @@ class DesugarReverseSlice(ast.NodeTransformer):
             and node.operand.value == 1
         )
 
-    def visit_Subscript(self, node: ast.Subscript):
+    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
         self.generic_visit(node)
         sl = node.slice
         if isinstance(sl, ast.Slice) and sl.lower is None and sl.upper is None and self.is_neg_one(sl.step):
@@ -1348,7 +1348,7 @@ class FlipReplacer(ast.NodeTransformer):
         self.owner = owner
         self.prelude = prelude
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)  # innermost flips first (their copy loop precedes the outer's)
         spec = self.owner.match_dynamic_flip(node)
         if spec is None:
@@ -1368,7 +1368,7 @@ class MaterializeDynamicFlip(ast.NodeTransformer):
         self.ctr = 0
         self.workspaces: dict[str, tuple[str, str]] = {}  # ws name -> (extent token, dtype expr)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
         node.body = self.process_body_(node.body)
         if not self.workspaces:
             return node
@@ -1389,7 +1389,7 @@ class MaterializeDynamicFlip(ast.NodeTransformer):
         ast.fix_missing_locations(node)
         return node
 
-    def visit_For(self, node: ast.For | ast.While | ast.If):
+    def visit_For(self, node: ast.For | ast.While | ast.If) -> ast.stmt:
         node.body = self.process_body_(node.body)
         node.orelse = self.process_body_(node.orelse)
         return node
@@ -1587,13 +1587,13 @@ class PointwiseScatterToLoop(ast.NodeTransformer):
         lines.append(f"    {target.value.id}[{index}] {op} {rhs}")
         return [ast.copy_location(stmt, node) for stmt in ast.parse("\n".join(lines)).body]
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         if len(node.targets) != 1:
             return node
         return self.lower(node, node.targets[0], "=")
 
-    def visit_AugAssign(self, node: ast.AugAssign):
+    def visit_AugAssign(self, node: ast.AugAssign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         op = AUG_OP_SRC.get(type(node.op))
         return node if op is None else self.lower(node, node.target, op)
@@ -1773,7 +1773,7 @@ class DropRedundantSliceStore(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt:
         self.generic_visit(node)
         node.targets = [self.trim(target) for target in node.targets]
         return node
@@ -1802,7 +1802,7 @@ class DropAliasAssign(ast.NodeTransformer):
     def __init__(self, names: Iterable[str]) -> None:
         self.names = set(names)
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | None:
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in self.names:
             return None
         return node
@@ -2449,7 +2449,7 @@ class ResolveShapeReads(ast.NodeTransformer):
             return None
         return node.args[0], axis.value
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         """``np.swapaxes(x, i, j)`` -> ``np.transpose(x, perm)``, and an INNER-axis cumulative scan
         -> the same scan on the last axis between two transposes. Both need the operand RANK, and
         this table is the emitter's only flow-SENSITIVE one -- netvlad rebinds a name across ranks."""
@@ -2489,7 +2489,7 @@ class ResolveShapeReads(ast.NodeTransformer):
             return ast.copy_location(ast.parse(f"np.transpose({scan}, ({order}))", mode="eval").body, node)
         return node
 
-    def visit_Subscript(self, node: ast.Subscript):
+    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
         self.generic_visit(node)
         value = node.value
         # Inferred, not looked up by name: densenet reads a dimension off a SLICE (y[:, 0:64]).
@@ -2505,7 +2505,7 @@ class ResolveShapeReads(ast.NodeTransformer):
                 return ast.copy_location(ast.parse(token, mode="eval").body, node)
         return node
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
         node.value = self.visit(node.value)  # resolve reads against the shapes in effect BEFORE this
         inferred = self.infer(node.value)
         for target in node.targets:
@@ -2518,7 +2518,7 @@ class ResolveShapeReads(ast.NodeTransformer):
                     self.note_alias(target.id, node.value)
         return node
 
-    def visit_For(self, node: ast.For):
+    def visit_For(self, node: ast.For) -> ast.stmt:
         """A ``range`` loop target is a rank-0 integer: lstm indexes ``w_hh[l - 1]`` with one."""
         if (
             isinstance(node.target, ast.Name)
@@ -2769,7 +2769,7 @@ class BroadcastScalarWhere(ResolveShapeReads):
 
     __slots__ = ()
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)  # innermost first: a nested where is filled before it is measured
         if not (
             isinstance(node.func, ast.Attribute)
@@ -2903,7 +2903,7 @@ class CopyScalarAlias(ResolveShapeReads):
             return [] if ranks and all(r == [] for r in ranks) else None
         return super().infer(node)
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
         node = super().visit_Assign(node)
         value = node.value
         if (
@@ -2978,7 +2978,7 @@ def is_symbol_expr(node: ast.expr, allowed: set[str]) -> bool:
 SHAPE_ARG_INDEX = {"zeros": 0, "empty": 0, "ones": 0, "full": 0}
 
 
-def reshape_argument(node: ast.AST):
+def reshape_argument(node: ast.AST) -> ast.expr | None:
     """The shape argument of a ``reshape`` call only -- the one place hoisting is needed.
 
     An ALLOCATION takes a compound extent happily (``np.zeros((N, m + 1))`` always worked). It is
@@ -3002,7 +3002,7 @@ def reshape_argument(node: ast.AST):
     return None
 
 
-def shape_argument(node: ast.AST):
+def shape_argument(node: ast.AST) -> ast.expr | None:
     """The shape argument of an allocation or reshape call, or None."""
     if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
         return None
@@ -3052,7 +3052,7 @@ class HoistCompoundExtents(ast.NodeTransformer):
                 if isinstance(node, ast.Assign):
                     defined.update(t.id for t in node.targets if isinstance(t, ast.Name))
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         # Collected from reshape, but substituted in EVERY shape: the allocation and the reshape
         # must name the same symbol or DaCe cannot see they are the same extent -- measured, it
@@ -4109,7 +4109,7 @@ class SplitReassignedSize(ast.NodeTransformer):
         self.defined_: set[str] = set()  # first assignment per name = the (dropped) def
         self._droppable: set[int] = set()
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.stmt:
         """Record which assignments are droppable BEFORE rewriting anything.
 
         Only a statement of the function body itself is the symbol's definition. One inside an
@@ -4135,7 +4135,7 @@ class SplitReassignedSize(ast.NodeTransformer):
         self.generic_visit(node)
         return node
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | None:
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in self.names:
             nm = node.targets[0].id
             if nm not in self.defined_ and id(node) in self._droppable:
@@ -4144,7 +4144,7 @@ class SplitReassignedSize(ast.NodeTransformer):
         self.generic_visit(node)  # a reassignment: target + rhs uses rename to <name>_iter
         return node
 
-    def visit_Name(self, node: ast.Name):
+    def visit_Name(self, node: ast.Name) -> ast.expr:
         if node.id in self.names:
             node.id = f"{node.id}_iter"
         return node

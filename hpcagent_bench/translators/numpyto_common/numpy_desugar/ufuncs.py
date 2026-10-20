@@ -36,7 +36,7 @@ class CallFixups(RankedRewritePass):
 
     __slots__ = ()
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if (
             isinstance(node.func, ast.Name)
@@ -234,7 +234,7 @@ class UfuncOutInline(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def rewrite_(self, call: ast.expr):
+    def rewrite_(self, call: ast.expr) -> ast.stmt | None:
         if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and len(call.args) == 2):
             return None
         # ``np.<ufunc>.outer(a, b, out=c)``: an outer product has no BinOp spelling, so the call is
@@ -266,7 +266,7 @@ class UfuncOutInline(ast.NodeTransformer):
             value = ast.Call(func=copy.deepcopy(call.func), args=[call.args[0], call.args[1]], keywords=[])
         return ast.copy_location(ast.Assign(targets=[target], value=value), call)
 
-    def visit_Expr(self, node: ast.Expr):
+    def visit_Expr(self, node: ast.Expr) -> ast.stmt:
         rw = self.rewrite_(node.value)
         return rw if rw is not None else node
 

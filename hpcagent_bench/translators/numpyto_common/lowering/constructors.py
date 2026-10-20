@@ -255,7 +255,7 @@ class EyeToZerosDiagonal(ast.NodeTransformer):
         it = f"__diag{self._n}"
         self._n += 1
 
-        def shift(expr, off, op):
+        def shift(expr: ast.expr, off: ast.Call | int, op: ast.operator) -> ast.expr:
             if isinstance(off, int):
                 return (
                     copy.deepcopy(expr)
@@ -274,7 +274,8 @@ class EyeToZerosDiagonal(ast.NodeTransformer):
                 if rectangular
                 else copy.deepcopy(rows)
             )
-            row_idx, col_idx = name_(it), name_(it)
+            row_idx: ast.expr = name_(it)
+            col_idx: ast.expr = name_(it)
         else:
             off_r: int | ast.expr
             off_c: int | ast.expr
@@ -365,7 +366,7 @@ class ZerosRewriter(ast.NodeTransformer):
         self.aliases = set(NP_ZEROS_ALIASES)
         self.shape_table = shape_table or {}
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt:
         self.generic_visit(node)
         if (
             len(node.targets) == 1
@@ -427,7 +428,7 @@ def ctor_dtype_literal(call: ast.Call) -> str | None:
     return None
 
 
-def shape_from_ast(node, shape_table=None) -> tuple[str, ...]:
+def shape_from_ast(node: ast.expr | None, shape_table: dict[str, tuple[str, ...]] | None = None) -> tuple[str, ...]:
     """Return the source-level shape ``(N, K)`` from an AST tuple / list / int.
 
     ``np.empty([x.shape[0], x.shape[1] // 2, ...])`` resolves the per-axis

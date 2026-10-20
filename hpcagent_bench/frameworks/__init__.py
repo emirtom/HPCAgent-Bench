@@ -58,7 +58,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 _EAGER_NAMES: frozenset[str] = frozenset(name for name in globals() if not name.startswith("_"))
 
 
-def __getattr__(name: str, eager_names: frozenset[str] = _EAGER_NAMES) -> Any:
+def __getattr__(name: str, eager_names: frozenset[str] = _EAGER_NAMES) -> Any:  # noqa: ANN401 -- PEP 562: a lazily exported class, or __all__
     """Resolve a lazily-exported backend name (PEP 562), then cache it in the module.
 
     ``__all__`` resolves here as well: a backend class's exact spelling (``TVMFramework``) is known

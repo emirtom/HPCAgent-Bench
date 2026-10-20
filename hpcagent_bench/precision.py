@@ -120,7 +120,7 @@ def precision_from_datatype(datatype: str | None) -> Precision:
         raise ValueError(f"Unknown precision {name!r}; supported: {[p.value for p in Precision]}") from None
 
 
-def float_complex_for(datatype):
+def float_complex_for(datatype: str | None) -> tuple[type, type[np.complexfloating]]:
     """``(np_float, np_complex)`` numpy realizations for a datatype string.
 
     Low-precision formats have no complex counterpart, so complex defaults to

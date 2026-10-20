@@ -365,7 +365,7 @@ def numeric_const(node: ast.expr) -> int | float | None:
     return None
 
 
-def parse_array_literal(call: ast.Call):
+def parse_array_literal(call: ast.Call) -> tuple[tuple[int, ...], str, list[float]] | None:
     """``np.array(<nested list of numeric literals>, dtype=...)`` ->
     ``(shape_tuple, dtype_str, flat_values)`` or ``None``. Regular (rectangular)
     nested ``ast.List`` only; values are int/float constants."""

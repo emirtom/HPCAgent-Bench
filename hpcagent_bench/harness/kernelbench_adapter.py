@@ -41,8 +41,7 @@ import numpy as np
 import pydantic
 import yaml
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, paths
+from hpcagent_bench import config, modules, paths
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.spec import BenchSpec
 
@@ -652,7 +651,7 @@ class Reference:
                 tensor.fill_(float(value))
 
 
-def bound_value(value: Any, at: tuple[int, ...], shape: tuple[int, ...]) -> Any:
+def bound_value(value: np.ndarray | float, at: tuple[int, ...], shape: tuple[int, ...]) -> np.ndarray | float:
     """What of ``value`` a parameter of ``shape`` takes: its slice ``at`` of a stack, laid out in the
     parameter's shape when the element counts agree (:func:`bindable_value`); a one-element value
     broadcasts in the copy."""

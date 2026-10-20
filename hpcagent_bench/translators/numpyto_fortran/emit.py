@@ -590,7 +590,7 @@ def scalar_decl(name: str, dtype: str, is_output: bool, assigned: bool = False) 
     return f"{base}, value, intent(in) :: {name}"
 
 
-def pinned_const_decls(kir: KernelIR, safe) -> list[str]:
+def pinned_const_decls(kir: KernelIR, safe: Callable[[str], str]) -> list[str]:
     """``parameter`` declarations for the config knobs the manifest pinned to one value.
 
     A pinned knob has one value for every preset and every fuzz draw, so it is a compile-time
@@ -605,7 +605,7 @@ def pinned_const_decls(kir: KernelIR, safe) -> list[str]:
     ]
 
 
-def fortran_literal(value) -> str:
+def fortran_literal(value: float) -> str:
     """A pinned knob's value as a Fortran literal of its own kind."""
     if isinstance(value, bool):
         return ".true." if value else ".false."
@@ -1307,7 +1307,7 @@ class FortranBodyEmitter(BaseEmitter):
         # Heuristic: a bitwise BinOp, an int-intrinsic Call, or a Name in int_uses -- wrap with /= 0.
         int_uses = self.int_uses_()
 
-        def is_int_expr(n):
+        def is_int_expr(n: ast.expr) -> bool:
             # A LOGICAL subexpression is never integer, whatever its operator says: ``~m`` and
             # ``m1 ^ m2`` are .not./.neqv. on masks, not NOT/IEOR on bits.
             if self.is_logical_node(n):
@@ -2115,7 +2115,7 @@ class FortranBodyEmitter(BaseEmitter):
         self._used_sign = True
         return f"npb_sign({x})"
 
-    def operand_shape(self, node: ast.expr):
+    def operand_shape(self, node: ast.expr) -> tuple[str, ...] | None:
         """Declared shape of a bare array operand -- a signature array or an allocatable local."""
         if not isinstance(node, ast.Name):
             return None
@@ -2124,7 +2124,7 @@ class FortranBodyEmitter(BaseEmitter):
                 return arr.shape
         return self.kir.zeros_locals.get(node.id)
 
-    def reduction_dim(self, node: ast.Call):
+    def reduction_dim(self, node: ast.Call) -> int | None:
         """numpy ``axis`` -> Fortran ``dim`` for ``node``'s operand, or ``None`` when unmappable.
 
         The two count opposite ways. An array whose numpy shape is ``(d0, d1, d2)`` is DECLARED
@@ -2146,7 +2146,7 @@ class FortranBodyEmitter(BaseEmitter):
             return None
         return rank - axis
 
-    def dim_reduction(self, attr: str, operand: str, dim: int):
+    def dim_reduction(self, attr: str, operand: str, dim: int) -> str | None:
         """The per-axis intrinsic for ``attr``, or ``None`` when Fortran has none."""
         intrinsic = DIM_REDUCTION_INTRINSICS.get(attr)
         if intrinsic is not None:
@@ -2483,7 +2483,7 @@ class FortranBodyEmitter(BaseEmitter):
         l_kind = self.infer_int_kind(left)
         r_kind = self.infer_int_kind(right)
 
-        def emit_one(e, other_typed):
+        def emit_one(e: ast.expr, other_typed: str | None) -> str:
             base = self.emit_expr(e)
             # Add kind suffix to bare integer Constants when the OTHER side resolves to a typed kind.
             if (
@@ -3188,7 +3188,7 @@ def renamed_descriptors(kir: KernelIR, safe_with_case: Callable[[str], str]) -> 
     the case map moved would otherwise keep naming whatever won the fold (a window ``w`` that lost
     to the width symbol ``W`` would size every extent built from it by the image width)."""
 
-    def rename_shapes(shape) -> tuple[str, ...]:
+    def rename_shapes(shape: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(
             IDENT_RE.sub(lambda m: safe_with_case(m.group(0)), tok) if isinstance(tok, str) else tok for tok in shape
         )
@@ -3789,7 +3789,7 @@ class HoistHelperCallVisitor(ast.NodeTransformer):
 
     __slots__ = ("counter", "helper_names", "pre_stmts", "temps")
 
-    def __init__(self, helper_names, counter: list[int]) -> None:
+    def __init__(self, helper_names: set[str], counter: list[int]) -> None:
         self.helper_names = helper_names
         self.counter = counter
         self.pre_stmts: list[ast.stmt] = []
@@ -3810,7 +3810,7 @@ class HoistHelperCallVisitor(ast.NodeTransformer):
 
 
 def hoist_nested_helper_calls(
-    stmts: Sequence[ast.stmt], helper_names, counter: list[int], temps: dict[str, str]
+    stmts: Sequence[ast.stmt], helper_names: set[str], counter: list[int], temps: dict[str, str]
 ) -> list[ast.stmt]:
     """Lift every kept-helper call out of the expression it sits in, into its own assignment.
 
