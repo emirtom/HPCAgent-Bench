@@ -39,7 +39,7 @@ def test_apptainer_runs_unprivileged() -> None:
 
 
 # end-to-end (gated on a SIF)
-def _judge_sif():
+def judge_sif() -> str | None:
     """A SIF of a `judge-agent-cpu` target (`containers/README.md`); the test installs the checkout into it."""
     env = os.environ.get("HPCAGENT_BENCH_JUDGE_SIF")
     if env and pathlib.Path(env).exists():
@@ -48,7 +48,7 @@ def _judge_sif():
     return str(hits[0]) if hits else None
 
 
-def _free_port():
+def free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -67,12 +67,18 @@ _SIZE_PINS = (
 )
 
 
-def _size_env():
+def size_env() -> dict[str, str]:
     """The size pins that are actually set, as an ``apptainer --env`` mapping."""
     return {name: os.environ[name] for name in _SIZE_PINS if name in os.environ}
 
 
-def _exec(sif, *cmd, env=None, background: bool = False, log=None):
+def exec_in_sif(
+    sif: str,
+    *cmd: str | pathlib.Path,
+    env: dict[str, str] | None = None,
+    background: bool = False,
+    log: pathlib.Path | None = None,
+) -> subprocess.CompletedProcess[str] | subprocess.Popen[bytes]:
     """`apptainer exec` `cmd` in `sif`, with the repo bound + editable-installed into a tmpfs overlay."""
     argv = ["apptainer", "exec", "--writable-tmpfs", "--bind", f"{REPO}:{REPO}", "--pwd", str(REPO)]
     for k, v in (env or {}).items():
@@ -111,19 +117,19 @@ print(json.dumps({{"score": c.score(sub, "{KERNEL}").to_json(), "submit": c.subm
 """
 
 
-def test_two_containers_judge_and_agent_via_tools(tmp_path) -> None:
+def test_two_containers_judge_and_agent_via_tools(tmp_path: pathlib.Path) -> None:
     if shutil.which("apptainer") is None:
         pytest.skip("apptainer not installed")
-    sif = _judge_sif()
+    sif = judge_sif()
     if sif is None:
         pytest.skip("no judge SIF (set HPCAGENT_BENCH_JUDGE_SIF=...)")
 
-    port = _free_port()
+    port = free_port()
     url = f"http://127.0.0.1:{port}"
     judge_log = tmp_path / "judge.log"
     # Container #1 -- the judge. Apptainer shares the host network, so 127.0.0.1:port is reachable.
     # `python3`, not `python`: a distro Python need not put the bare name on PATH.
-    judge = _exec(
+    judge = exec_in_sif(
         sif,
         "python3",
         "-m",
@@ -139,7 +145,7 @@ def test_two_containers_judge_and_agent_via_tools(tmp_path) -> None:
         "numpy",
         "--input-mode",
         "any",
-        env=_size_env(),
+        env=size_env(),
         background=True,
         log=judge_log,
     )
@@ -162,7 +168,7 @@ def test_two_containers_judge_and_agent_via_tools(tmp_path) -> None:
             )
 
         # Container #2 -- the agent, driving score + submit through the tools client.
-        agent = _exec(sif, "python3", "-c", _AGENT_SNIPPET, env={"JUDGE_URL": url})
+        agent = exec_in_sif(sif, "python3", "-c", _AGENT_SNIPPET, env={"JUDGE_URL": url})
         assert agent.returncode == 0, agent.stderr
         lines = agent.stdout.strip().splitlines()
         assert lines, f"agent produced no stdout (rc=0); stderr:\n{agent.stderr}"
@@ -181,10 +187,10 @@ def test_two_containers_judge_and_agent_via_tools(tmp_path) -> None:
         assert out["score"]["correct"] is True
         assert out["score"]["speedup"] > 0.0
     finally:
-        _kill_tree(judge)
+        kill_tree(judge)
 
 
-def _kill_tree(proc) -> None:
+def kill_tree(proc: subprocess.Popen[bytes]) -> None:
     """Signal the whole process group (apptainer wrapper + in-container serve)."""
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)

@@ -37,7 +37,7 @@ def _lowered_tree(short: str) -> ast.AST:
     return kir.tree
 
 
-def _bare_marker_name(stmt):
+def bare_marker_name(stmt: ast.stmt) -> str | None:
     """The buffer a BARE ``X = __hpcagent_bench_zeros__()`` marker resets, or ``None``."""
     if not (
         isinstance(stmt, ast.Assign)
@@ -52,12 +52,12 @@ def _bare_marker_name(stmt):
     return stmt.targets[0].id
 
 
-def _source_order(tree):
+def source_order(tree: ast.AST) -> list[ast.stmt]:
     """Every Assign / AugAssign of the kernel body in SOURCE order -- ``ast.walk`` is breadth
     first, which cannot answer "was this buffer already filled when the marker ran"."""
     out = []
 
-    def walk(block) -> None:
+    def walk(block: list[ast.stmt]) -> None:
         for stmt in block:
             if isinstance(stmt, (ast.Assign, ast.AugAssign)):
                 out.append(stmt)
@@ -77,7 +77,7 @@ def test_a_rebound_conv_output_is_not_reset_before_the_loop_that_reads_it() -> N
     convolution came back as the bias alone.
     """
     tree = _lowered_tree(_REBIND_KERNEL)
-    ordered = _source_order(tree)
+    ordered = source_order(tree)
     written: set = set()
     offenders = []
     for index, stmt in enumerate(ordered):
@@ -88,7 +88,7 @@ def test_a_rebound_conv_output_is_not_reset_before_the_loop_that_reads_it() -> N
         )
         if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
             written.add(target.value.id)
-        name = _bare_marker_name(stmt)
+        name = bare_marker_name(stmt)
         # A marker on a name nothing has stored into yet is an ALLOCATION, and the zero it writes
         # is the identity a following ``+=`` accumulates from -- reading it is correct. A marker on
         # a buffer already filled is the reset this test exists to catch.

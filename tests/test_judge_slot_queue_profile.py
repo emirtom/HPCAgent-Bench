@@ -14,13 +14,17 @@ import sys
 import threading
 import time
 
+import pytest
+
 from hpcagent_bench.api import InputMode
 from hpcagent_bench.harness import profiling, service
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
 from tests.test_judge_slot_queue import AGENT, BODY, FREED_WITHIN_S, SETTLE_S, WAIT_S, Grades, kill, started
 
 
-def test_a_queued_profile_waits_for_the_slot_and_is_never_run_once_its_client_is_killed(monkeypatch) -> None:
+def test_a_queued_profile_waits_for_the_slot_and_is_never_run_once_its_client_is_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A killed agent's last /profile must not take the slot from the promotions queued behind it,
     and a live one must not run against a grade that holds the device."""
     grades = Grades()

@@ -135,11 +135,11 @@ TOTALS_ONLY_STATS = (
 )
 
 
-def sections():
+def sections() -> dict[str, list[dict[str, str]]]:
     return {name: gpu_profiling.parse_csv(text) for name, text in gpu_profiling.split_reports(NSYS_STATS).items()}
 
 
-def rocprof_sections():
+def rocprof_sections() -> dict[str, list[dict[str, str]]]:
     return {name: gpu_profiling.parse_csv(text) for name, text in ROCPROF_CSVS.items()}
 
 
@@ -286,7 +286,9 @@ def test_launch_configs_round_a_partial_warp_up() -> None:
     assert scale["warps_per_block"] == 4
 
 
-def test_nsys_check_names_every_cause_it_can_refuse_for(tmp_path, monkeypatch) -> None:
+def test_nsys_check_names_every_cause_it_can_refuse_for(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Each reason the GPU cannot be profiled is a distinct machine-readable cause, and each
     message names the fix -- an unnamed refusal is what an empty profile already looks like."""
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
@@ -321,22 +323,24 @@ def test_record_failure_separates_a_permission_refusal_from_a_broken_install() -
     """A container that merely lacks a capability otherwise looks identical to a missing tool, and
     only one of the two is the operator's to fix."""
     denied = gpu_profiling.record_failure(
-        _proc(1, stderr="Insufficient permissions to collect GPU metrics (ERR_NVGPUCTRPERM)")
+        completed(1, stderr="Insufficient permissions to collect GPU metrics (ERR_NVGPUCTRPERM)")
     )
     assert denied.cause == "insufficient_permissions"
     assert "CAP_SYS_ADMIN" in str(denied)
 
-    other = gpu_profiling.record_failure(_proc(2, stderr="Target application terminated"))
+    other = gpu_profiling.record_failure(completed(2, stderr="Target application terminated"))
     assert other.cause == "nsys_failed"
     assert "Target application terminated" in str(other)
 
 
-def test_nsys_stats_names_the_upgrade_when_no_known_report_came_back(tmp_path, monkeypatch) -> None:
+def test_nsys_stats_names_the_upgrade_when_no_known_report_came_back(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An nsys too old to know these report names returns nothing, which must not be read as a run
     that launched nothing."""
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda _lang: "/usr/bin/nsys")
     monkeypatch.setattr(
-        gpu_profiling.subprocess, "run", lambda *a, **k: _proc(1, stderr="Unknown report name cuda_gpu_kern_sum")
+        gpu_profiling.subprocess, "run", lambda *a, **k: completed(1, stderr="Unknown report name cuda_gpu_kern_sum")
     )
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
         gpu_profiling.nsys_stats(tmp_path / "gpu-profile.nsys-rep", language="cuda", timeout=5.0)
@@ -344,12 +348,12 @@ def test_nsys_stats_names_the_upgrade_when_no_known_report_came_back(tmp_path, m
     assert "2022.1" in str(ei.value)
 
 
-def test_nsys_stats_asks_for_the_documented_reports(tmp_path, monkeypatch) -> None:
+def test_nsys_stats_asks_for_the_documented_reports(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The report names ARE the contract this module and the service doc both quote."""
     seen = {}
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda _lang: "/usr/bin/nsys")
     monkeypatch.setattr(
-        gpu_profiling.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd, kw=k) or _proc(0, stdout=NSYS_STATS)
+        gpu_profiling.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd, kw=k) or completed(0, stdout=NSYS_STATS)
     )
     parsed = gpu_profiling.nsys_stats(tmp_path / "gpu-profile.nsys-rep", language="cuda", timeout=5.0)
     cmd = seen["cmd"]
@@ -361,7 +365,9 @@ def test_nsys_stats_asks_for_the_documented_reports(tmp_path, monkeypatch) -> No
     assert len(parsed[gpu_profiling.KERNEL_REPORT]) == 3
 
 
-def test_nsys_record_traces_cuda_without_turning_on_cpu_sampling(tmp_path, monkeypatch) -> None:
+def test_nsys_record_traces_cuda_without_turning_on_cpu_sampling(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """CPU sampling answers the host path's question and needs perf_event_paranoid <= 2; leaving it
     on would make a GPU profile fail for a host reason."""
     seen = {}
@@ -376,7 +382,7 @@ def test_nsys_record_traces_cuda_without_turning_on_cpu_sampling(tmp_path, monke
     assert seen["kw"]["timeout"] == 9.0
 
 
-def test_recording_prefers_the_modern_extension(tmp_path) -> None:
+def test_recording_prefers_the_modern_extension(tmp_path: pathlib.Path) -> None:
     assert gpu_profiling.recording(tmp_path) is None
     (tmp_path / (gpu_profiling.REPORT_STEM + ".qdrep")).write_text("")
     assert gpu_profiling.recording(tmp_path).name.endswith(".qdrep")
@@ -452,7 +458,7 @@ def test_render_report_shows_the_device_host_split_and_the_geometry() -> None:
     assert "ncu --" not in text, "the note must not hand back a runnable line; the measurement goes through /profile"
 
 
-def test_measurement_request_takes_the_residency_from_the_task(monkeypatch) -> None:
+def test_measurement_request_takes_the_residency_from_the_task(monkeypatch: pytest.MonkeyPatch) -> None:
     """One request schema for both profilers -- and ``device`` comes from the TASK's residency, so a
     device-resident submission is not silently measured down the host path.
 
@@ -494,7 +500,7 @@ def test_measurement_request_takes_the_residency_from_the_task(monkeypatch) -> N
     assert device["device"] is True
 
 
-def test_run_workload_honours_the_requested_residency(monkeypatch) -> None:
+def test_run_workload_honours_the_requested_residency(monkeypatch: pytest.MonkeyPatch) -> None:
     """The request also carries no ``threads`` key here -- the shape a request written before that
     field existed, or one built by hand, takes. A ``KeyError`` there would fail every graded run
     that predates the field; the grading contract reads its absence as "every core of the slot",
@@ -528,7 +534,9 @@ def test_run_workload_honours_the_requested_residency(monkeypatch) -> None:
     assert seen["threads"] is None, "a request with no threads key must run the slot's full core count"
 
 
-def test_profile_endpoint_routes_a_cuda_submission_to_nsys(make_judge, monkeypatch) -> None:
+def test_profile_endpoint_routes_a_cuda_submission_to_nsys(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A host without nsys answers 503 + cause -- never an empty (or host-path) profile. The
     dispatch is the LANGUAGE, so this is also the proof that a cuda submission does not fall
     through to perf."""
@@ -542,7 +550,9 @@ def test_profile_endpoint_routes_a_cuda_submission_to_nsys(make_judge, monkeypat
     assert "nsight-systems" in body["error"]
 
 
-def test_profile_endpoint_routes_a_hip_submission_to_rocprof(make_judge, monkeypatch) -> None:
+def test_profile_endpoint_routes_a_hip_submission_to_rocprof(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A hip submission goes to the AMD profiler, not to nsys and not to perf -- and a host without
     ROCm answers 503 naming the tool it wants, never an empty profile. The dispatch is the LANGUAGE,
     so this is the AMD half of the proof that /profile is one route for both vendors."""
@@ -556,7 +566,9 @@ def test_profile_endpoint_routes_a_hip_submission_to_rocprof(make_judge, monkeyp
     assert "rocprofv3" in body["error"]
 
 
-def test_profile_endpoint_refuses_amd_host_counters_by_the_amd_tool_name(make_judge, monkeypatch) -> None:
+def test_profile_endpoint_refuses_amd_host_counters_by_the_amd_tool_name(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The counters refusal must name the tool that WOULD answer on THIS vendor; sending an AMD
     user to ncu is a dead end dressed as a fix."""
     monkeypatch.setattr(gpu_profiling.shutil, "which", lambda name: f"/opt/rocm/bin/{name}")
@@ -569,7 +581,9 @@ def test_profile_endpoint_refuses_amd_host_counters_by_the_amd_tool_name(make_ju
     assert "ncu" not in body["error"]
 
 
-def test_profile_endpoint_refuses_host_counters_for_a_device_kernel(make_judge) -> None:
+def test_profile_endpoint_refuses_host_counters_for_a_device_kernel(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """PAPI counts host CPU events; returning them under a GPU profile would answer a question
     nobody asked with numbers that look like the ones they did."""
     _srv, url = make_judge(ServiceConfig())
@@ -581,7 +595,9 @@ def test_profile_endpoint_refuses_host_counters_for_a_device_kernel(make_judge) 
     assert "ncu --" not in body["error"], "the refusal names the tool that owns the question, not a line to run"
 
 
-def test_profile_endpoint_rejects_an_impossible_residency(make_judge) -> None:
+def test_profile_endpoint_rejects_an_impossible_residency(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """device residency needs a GPU language; the request is at fault, so it is a 400, not a 503."""
     _srv, url = make_judge(ServiceConfig())
     with pytest.raises(urllib.error.HTTPError) as ei:
@@ -613,13 +629,13 @@ ROCMINFO_CPU_ONLY = """Agent 1
 """
 
 
-def which_map(names):
+def which_map(names: tuple[str, ...]) -> Callable[[str], str | None]:
     """``shutil.which`` restricted to ``names`` -- these tests are about which binary is probed
     for, and in what order."""
     return lambda name: f"/opt/rocm/bin/{name}" if name in names else None
 
 
-def deny_kfd(monkeypatch, kfd, allowed: bool) -> None:
+def deny_kfd(monkeypatch: pytest.MonkeyPatch, kfd: pathlib.Path, allowed: bool) -> None:
     """Answer ``os.access`` for /dev/kfd only, so the rest of the process keeps the real one."""
     real = gpu_profiling.os.access
     monkeypatch.setattr(gpu_profiling.os, "access", lambda p, m: allowed if pathlib.Path(p) == kfd else real(p, m))
@@ -736,7 +752,9 @@ def test_wavefront_size_reads_the_gpu_agent_and_not_the_cpu_one() -> None:
     assert gpu_profiling.wavefront_size([]) is None, "no agent report, no width"
 
 
-def test_rocprof_check_names_every_cause_it_can_refuse_for(tmp_path, monkeypatch) -> None:
+def test_rocprof_check_names_every_cause_it_can_refuse_for(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Four things must hold and each has its own fix, so each has its own machine-readable cause:
     a profiler, a GPU, the right to open it, and a runtime to enumerate it with. Overloading
     rocprof_unsupported for all four would send every operator to the same wrong page."""
@@ -774,7 +792,9 @@ def test_rocprof_check_names_every_cause_it_can_refuse_for(tmp_path, monkeypatch
     assert gpu_profiling.rocprof_check() == ("rocprofv3", "/opt/rocm/bin/rocprofv3")
 
 
-def test_rocprof_check_prefers_v3_and_says_when_it_fell_back_to_the_deprecated_one(tmp_path, monkeypatch) -> None:
+def test_rocprof_check_prefers_v3_and_says_when_it_fell_back_to_the_deprecated_one(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The two tools answer with different schemas, so which one ran is not a detail -- it is the
     difference between a launch geometry and no launch geometry at all."""
     kfd = tmp_path / "kfd"
@@ -793,7 +813,7 @@ def test_rocprof_check_prefers_v3_and_says_when_it_fell_back_to_the_deprecated_o
     assert ei.value.cause == "rocprof_missing"
 
 
-def test_rocm_agents_separate_a_missing_runtime_from_a_missing_gpu(monkeypatch) -> None:
+def test_rocm_agents_separate_a_missing_runtime_from_a_missing_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
     """'ROCm is not installed here' and 'ROCm is installed and sees no GPU' need opposite actions."""
     monkeypatch.setattr(gpu_profiling.shutil, "which", lambda _name: None)
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
@@ -802,17 +822,17 @@ def test_rocm_agents_separate_a_missing_runtime_from_a_missing_gpu(monkeypatch) 
     assert "/opt/rocm/bin" in str(ei.value)
 
     monkeypatch.setattr(gpu_profiling.shutil, "which", which_map(("rocminfo",)))
-    monkeypatch.setattr(gpu_profiling.subprocess, "run", lambda *a, **k: _proc(0, stdout=ROCMINFO_CPU_ONLY))
+    monkeypatch.setattr(gpu_profiling.subprocess, "run", lambda *a, **k: completed(0, stdout=ROCMINFO_CPU_ONLY))
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
         gpu_profiling.rocm_agents()
     assert ei.value.cause == "no_amd_gpu"
     assert "CPU agent" in str(ei.value)
 
-    monkeypatch.setattr(gpu_profiling.subprocess, "run", lambda *a, **k: _proc(0, stdout=ROCMINFO_GPU))
+    monkeypatch.setattr(gpu_profiling.subprocess, "run", lambda *a, **k: completed(0, stdout=ROCMINFO_GPU))
     assert gpu_profiling.rocm_agents() == ["gfx942"], "the ISA line repeats the name; it is one agent"
 
 
-def test_rocprof_command_asks_rocprofv3_for_every_report_as_csv(tmp_path) -> None:
+def test_rocprof_command_asks_rocprofv3_for_every_report_as_csv(tmp_path: pathlib.Path) -> None:
     """rocprofv3 takes a flag per trace domain and writes one CSV per report into a directory."""
     v3 = gpu_profiling.rocprof_command("/opt/rocm/bin/rocprofv3", ["./app", "-n", "1"], tmp_path)
     assert v3[0] == "/opt/rocm/bin/rocprofv3"
@@ -824,7 +844,7 @@ def test_rocprof_command_asks_rocprofv3_for_every_report_as_csv(tmp_path) -> Non
     assert v3[v3.index("--") + 1 :] == ["./app", "-n", "1"], "-- separates rocprofv3's options from the workload"
 
 
-def test_rocprof_record_writes_where_the_reader_looks(tmp_path, monkeypatch) -> None:
+def test_rocprof_record_writes_where_the_reader_looks(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen = {}
     monkeypatch.setattr(gpu_profiling, "run_command", lambda cmd, **k: seen.update(cmd=cmd, kw=k))
     outdir = tmp_path / gpu_profiling.ROCPROF_OUTDIR
@@ -834,37 +854,37 @@ def test_rocprof_record_writes_where_the_reader_looks(tmp_path, monkeypatch) -> 
     assert seen["kw"]["cwd"] == str(tmp_path)
 
 
-def test_rocprof_reports_find_the_csvs_even_when_v3_nests_them(tmp_path) -> None:
+def test_rocprof_reports_find_the_csvs_even_when_v3_nests_them(tmp_path: pathlib.Path) -> None:
     """rocprofv3 writes flat in some releases and under <hostname>/<pid> in others. A glob that
     assumed one would report a successful trace as a run that launched nothing."""
     write_rocprof(tmp_path, ROCPROF_CSVS, nested=True)
-    reports = gpu_profiling.rocprof_reports(tmp_path, tool="rocprofv3", proc=_proc(0))
+    reports = gpu_profiling.rocprof_reports(tmp_path, tool="rocprofv3", proc=completed(0))
     assert list(reports) == list(gpu_profiling.ROCPROF_REPORTS)
     assert len(reports[gpu_profiling.KERNEL_STATS_CSV]) == 3
     assert len(reports[gpu_profiling.KERNEL_TRACE_CSV]) == 3
 
 
-def test_rocprof_reports_name_which_kind_of_nothing_came_back(tmp_path) -> None:
+def test_rocprof_reports_name_which_kind_of_nothing_came_back(tmp_path: pathlib.Path) -> None:
     """Three different silences: the device was refused, the tool died, or the tool ran and wrote
     no report. They have three different fixes, so they get three different causes."""
     denied = gpu_profiling.rocprof_reports
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        denied(tmp_path, tool="rocprofv3", proc=_proc(1, stderr="rocr: unable to open /dev/kfd: Permission denied"))
+        denied(tmp_path, tool="rocprofv3", proc=completed(1, stderr="rocr: unable to open /dev/kfd: Permission denied"))
     assert ei.value.cause == "kfd_permission_denied"
     assert "render" in str(ei.value)
 
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        denied(tmp_path, tool="rocprofv3", proc=_proc(134, stderr="terminate called after throwing an instance"))
+        denied(tmp_path, tool="rocprofv3", proc=completed(134, stderr="terminate called after throwing an instance"))
     assert ei.value.cause == "rocprof_failed"
     assert "134" in str(ei.value)
 
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as ei:
-        denied(tmp_path, tool="rocprofv3", proc=_proc(0, stdout="done"))
+        denied(tmp_path, tool="rocprofv3", proc=completed(0, stdout="done"))
     assert ei.value.cause == "rocprof_report_missing"
     assert gpu_profiling.KERNEL_STATS_CSV in str(ei.value)
 
 
-def test_gpu_check_picks_the_profiler_by_language_and_reports_which(monkeypatch) -> None:
+def test_gpu_check_picks_the_profiler_by_language_and_reports_which(monkeypatch: pytest.MonkeyPatch) -> None:
     """One probe, before anything is built, and the vendor is the only branch in it."""
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda _lang: "/usr/bin/nsys")
     monkeypatch.setattr(gpu_profiling, "rocprof_check", lambda: ("rocprofv3", "/opt/rocm/bin/rocprofv3"))
@@ -950,7 +970,7 @@ def test_range_stats_read_the_marker_summary_rocprofv3_writes() -> None:
 def test_a_trace_without_ranges_reads_as_an_empty_ranges_table(tmp_path: pathlib.Path) -> None:
     """rocprofv3 writes no marker summary when nothing was pushed; that is `ranges: []`, not a failure."""
     write_rocprof(tmp_path, ROCPROF_CSVS)
-    reports = gpu_profiling.rocprof_reports(tmp_path, tool="rocprofv3", proc=_proc(0))
+    reports = gpu_profiling.rocprof_reports(tmp_path, tool="rocprofv3", proc=completed(0))
     assert reports[gpu_profiling.MARKER_STATS_CSV] == []
     assert gpu_profiling.range_stats(reports[gpu_profiling.MARKER_STATS_CSV]) == []
 
@@ -958,7 +978,7 @@ def test_a_trace_without_ranges_reads_as_an_empty_ranges_table(tmp_path: pathlib
 def test_a_trace_with_ranges_reads_the_marker_summary_beside_the_kernels(tmp_path: pathlib.Path) -> None:
     """The marker summary is found with the other reports, flat or nested."""
     write_rocprof(tmp_path, {**ROCPROF_CSVS, gpu_profiling.MARKER_STATS_CSV: MARKER_STATS}, nested=True)
-    reports = gpu_profiling.rocprof_reports(tmp_path, tool="rocprofv3", proc=_proc(0))
+    reports = gpu_profiling.rocprof_reports(tmp_path, tool="rocprofv3", proc=completed(0))
     assert [r["name"] for r in gpu_profiling.range_stats(reports[gpu_profiling.MARKER_STATS_CSV])] == ["alpha", "beta"]
 
 
@@ -1070,7 +1090,7 @@ def test_rocprofv3_traces_a_hip_submission_through_the_judge_on_a_real_amd_node(
     assert body.device_ns > 0, body
 
 
-def _proc(returncode: int, *, stdout: str = "", stderr: str = ""):
+def completed(returncode: int, *, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
     """A CompletedProcess stand-in for the two subprocess calls this module makes."""
     import subprocess
 
@@ -1147,7 +1167,7 @@ def test_a_rocprofv3_trace_is_sealed_outside_the_tracer(
 
     def record(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         seen["cmd"] = cmd
-        return _proc(1)
+        return completed(1)
 
     monkeypatch.setattr(gpu_profiling, "run_command", record)
     request = tmp_path / "profile_request.json"

@@ -12,7 +12,9 @@ These pin the contract end to end: the declaration is well-formed, the binding c
 seam moves by the right amount, and the language page tells a reader the same story.
 """
 
+import pathlib
 import re
+from typing import Any
 
 import pytest
 
@@ -21,7 +23,7 @@ from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings.contract import INDEX_BASE, binding_from_spec, index_base
 
 
-def tagged():
+def tagged() -> list[tuple[BenchSpec, str]]:
     """Every ``(spec, array-name)`` the corpus declares as an index array."""
     out = []
     for key in sorted(KERNELS):
@@ -84,7 +86,7 @@ def test_no_argument_is_marked_an_index_without_being_declared_one() -> None:
     assert not invented, f"arguments marked is_index with no declaration behind them: {invented}"
 
 
-def manifest(ip_entry):
+def manifest(ip_entry: dict[str, str | bool]) -> dict[str, Any]:
     """A minimal loadable bench dict (func_name included: no reference to derive it from) whose only
     interesting part is ``ip``'s array entry."""
     return {
@@ -107,7 +109,7 @@ def manifest(ip_entry):
 
 
 @pytest.mark.parametrize("flag", ["true", "false"])
-def test_the_declaration_round_trips_through_the_manifest(flag) -> None:
+def test_the_declaration_round_trips_through_the_manifest(flag: str) -> None:
     """A manifest that declares the tag must load it, and one that declines must not gain it."""
     raw = manifest({"shape": "(n,)", "dtype": "int64", "index_array": flag == "true"})
     spec = BenchSpec.from_dict(raw, source="<test>")
@@ -128,7 +130,7 @@ def test_a_non_boolean_index_array_flag_is_refused() -> None:
         BenchSpec.from_dict(raw, source="<test>")
 
 
-def emitted_fortran(short: str, tmp_path) -> str:
+def emitted_fortran(short: str, tmp_path: pathlib.Path) -> str:
     """``short``'s generated Fortran, emitted through the same bridge the harness uses."""
     from hpcagent_bench.emit_bridge import emit_kernel
 
@@ -143,7 +145,7 @@ def emitted_fortran(short: str, tmp_path) -> str:
     return sources[0].read_text()
 
 
-def test_a_value_stored_into_an_index_array_is_rebased(tmp_path) -> None:
+def test_a_value_stored_into_an_index_array_is_rebased(tmp_path: pathlib.Path) -> None:
     """The write side of the seam, which fails SILENTLY when it is missing.
 
     ``viterbi`` is the shape that proves it: ``path`` is both an index array and an output, and the
@@ -159,7 +161,7 @@ def test_a_value_stored_into_an_index_array_is_rebased(tmp_path) -> None:
     )
 
 
-def test_an_index_array_is_subscripted_with_directly(tmp_path) -> None:
+def test_an_index_array_is_subscripted_with_directly(tmp_path: pathlib.Path) -> None:
     """The read side, stated as the contract rather than as an absence.
 
     ``obs`` and ``path`` are both tagged, so neither may carry the ``+ 1`` an untagged buffer gets:
@@ -171,7 +173,7 @@ def test_an_index_array_is_subscripted_with_directly(tmp_path) -> None:
     assert "back((path(" not in src, "path picked up an offset the tag exists to remove"
 
 
-def test_a_pure_index_output_is_rebased(tmp_path) -> None:
+def test_a_pure_index_output_is_rebased(tmp_path: pathlib.Path) -> None:
     """An index array that is written and never read -- the shape ``viterbi`` cannot cover.
 
     ``viterbi``'s ``path`` is gathered WITH as well as stored into, so a missing tag shifts its read

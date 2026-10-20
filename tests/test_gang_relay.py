@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,7 @@ GANG_ENV = {
 FAKE_SRUN = '#!/bin/sh\nfor a in "$@"; do echo "$a"; done\necho "stderr-line" >&2\nexit 3\n'
 
 
-def load_relay():
+def load_relay() -> types.ModuleType:
     return fresh("hpcagent_bench.cluster.gang_relay")
 
 
@@ -36,7 +37,9 @@ def host_python() -> str:
     return sys.executable
 
 
-def test_a_gang_launch_through_the_relay_returns_the_steps_status_and_output(monkeypatch, tmp_path, capsys) -> None:
+def test_a_gang_launch_through_the_relay_returns_the_steps_status_and_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     bindir, relay_dir = tmp_path / "bin", tmp_path / "relay"
     bindir.mkdir()
     (bindir / "srun").write_text(FAKE_SRUN)
@@ -71,7 +74,9 @@ def test_a_gang_launch_through_the_relay_returns_the_steps_status_and_output(mon
     assert sorted(p.name for p in relay_dir.iterdir()) == ["relay.alive"], "the judge cleans its request files"
 
 
-def test_the_relay_terminates_a_step_whose_judge_stopped_waiting(monkeypatch, tmp_path) -> None:
+def test_the_relay_terminates_a_step_whose_judge_stopped_waiting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """mpi_call's timeout kills the judge-side launcher; its step must not run on. SIGTERM first,
     so srun cancels its own step, and 143 = 128 + SIGTERM is what the judge would read back."""
     relay = load_relay()
@@ -86,7 +91,7 @@ def test_the_relay_terminates_a_step_whose_judge_stopped_waiting(monkeypatch, tm
     assert (tmp_path / "abc.rc").read_text().strip() == "143"
 
 
-def test_a_step_that_ignores_sigterm_is_killed_after_the_grace(monkeypatch, tmp_path) -> None:
+def test_a_step_that_ignores_sigterm_is_killed_after_the_grace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """srun can be wedged in a rank teardown; the grace is bounded, not a wait forever."""
     relay = load_relay()
     monkeypatch.setattr(relay, "HEARTBEAT_S", 0.2)
@@ -101,7 +106,7 @@ def test_a_step_that_ignores_sigterm_is_killed_after_the_grace(monkeypatch, tmp_
     assert (tmp_path / "abc.rc").read_text().strip() == "137"
 
 
-def test_an_abandoned_step_is_scancelled_by_its_slurm_step_id(monkeypatch, tmp_path) -> None:
+def test_an_abandoned_step_is_scancelled_by_its_slurm_step_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Killing the local srun client leaves the ranks it started on the OTHER nodes running: only
     `scancel <job>.<step>` reaps those, and the step id comes from the step's request name."""
     relay = load_relay()
@@ -122,7 +127,7 @@ def test_an_abandoned_step_is_scancelled_by_its_slurm_step_id(monkeypatch, tmp_p
     assert log.read_text().split() == ["4242.7"]
 
 
-def test_the_relay_publishes_its_own_heartbeat(tmp_path) -> None:
+def test_the_relay_publishes_its_own_heartbeat(tmp_path: Path) -> None:
     """A judge whose relay is gone must fail at once instead of waiting out its launch timeout."""
     relay = load_relay()
     assert not (tmp_path / relay.ALIVE).exists()
@@ -130,7 +135,7 @@ def test_the_relay_publishes_its_own_heartbeat(tmp_path) -> None:
     assert (tmp_path / relay.ALIVE).exists()
 
 
-def test_an_unstartable_request_gets_an_exit_status_not_silence(tmp_path) -> None:
+def test_an_unstartable_request_gets_an_exit_status_not_silence(tmp_path: Path) -> None:
     relay = load_relay()
     (tmp_path / "bad.req").write_text("{not json")
     relay.step(str(tmp_path), {})
@@ -161,7 +166,7 @@ def test_the_relay_env_prefix_keeps_the_judges_env_but_not_slurm_pmi_or_devices(
     assert prefix == ["/usr/bin/env", "A=1"]
 
 
-def test_the_relay_exits_with_its_parent(tmp_path) -> None:
+def test_the_relay_exits_with_its_parent(tmp_path: Path) -> None:
     """Started from the batch shell, it must die with the job rather than outlive it."""
     script = f'"{host_python()}" "{RELAY}" "{tmp_path}" >/dev/null 2>&1 & echo $!; sleep 1'
     with subprocess.Popen(["/bin/sh", "-c", script], stdout=subprocess.PIPE, text=True) as shell:
@@ -177,7 +182,9 @@ def test_the_relay_exits_with_its_parent(tmp_path) -> None:
     pytest.fail("relay outlived its parent")
 
 
-def test_a_launch_with_no_relay_running_fails_before_the_launch_timeout(monkeypatch, tmp_path) -> None:
+def test_a_launch_with_no_relay_running_fails_before_the_launch_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """No relay heartbeat: nothing will ever answer, so do not spend the whole launch timeout
     finding out. The window counts from the handover, so a relay mid-pass is not a false death."""
     monkeypatch.setattr(mpi_gang, "HEARTBEAT_S", 0.2)
@@ -185,7 +192,7 @@ def test_a_launch_with_no_relay_running_fails_before_the_launch_timeout(monkeypa
         mpi_gang.relay_call(tmp_path / "relay", "req-1", ["srun", "true"], timeout=600, poll_s=0.05)
 
 
-def test_a_relay_that_never_answers_ends_the_launch(monkeypatch, tmp_path) -> None:
+def test_a_relay_that_never_answers_ends_the_launch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The step's own --time already ended it; past that slack the judge stops waiting, and the
     heartbeat it stops touching is what makes the relay cancel the step."""
     relay_dir = tmp_path / "relay"

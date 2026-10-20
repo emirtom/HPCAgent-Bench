@@ -19,15 +19,15 @@ import json
 import pathlib
 import subprocess
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 
-from hpcagent_bench import modules
-from hpcagent_bench import languages, paths
+from hpcagent_bench import languages, modules, paths
+from hpcagent_bench.flags import Mode
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.flags import Mode
 from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.support.bindings.contract import Binding, binding_from_spec
 from tests.fresh_module import module_at
@@ -43,7 +43,7 @@ PRESET = "S"
 SEED = 7
 
 
-def numpy_entry(spec: BenchSpec):
+def numpy_entry(spec: BenchSpec) -> Callable[..., object]:
     """The kernel's numpy reference function, loaded from its co-located module."""
     path = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
     return modules.member(module_at(path, f"{spec.module_name}_numpy"), spec.func_name)

@@ -9,11 +9,11 @@ import dataclasses
 from relayout.sparse import SparseFormat
 
 from hpcagent_bench.sizing import PRESETS, S_BYTE_CEILING, XL_BYTE_CEILING, working_bytes
-from hpcagent_bench.spec import KERNELS
+from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.helpers.sparse.abi import ResolvedLayout
 
 
-def spec_for(short_name: str):
+def spec_for(short_name: str) -> BenchSpec:
     """The corpus spec whose ``short_name`` matches, so these tests bind to real manifests rather
     than to a fixture that could drift away from what ships."""
     specs = KERNELS.specs()
@@ -83,7 +83,7 @@ def test_sparse_buffers_no_dense_shape_declares_are_counted() -> None:
     assert doubled - nbytes == 16 * values["nnz"]  # csr: indices int64 + data fp64, per nonzero
 
 
-def requested(spec, fmt: str, block_size: int = 0) -> ResolvedLayout:
+def requested(spec: BenchSpec, fmt: str, block_size: int = 0) -> ResolvedLayout:
     return ResolvedLayout(tuple((name, SparseFormat(fmt, block_size)) for name in sorted(spec.sparse_layouts)))
 
 

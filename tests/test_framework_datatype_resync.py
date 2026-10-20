@@ -21,6 +21,7 @@ So the invariant is one line: once the inputs exist, the framework is bound to T
 """
 
 import pathlib
+from collections.abc import Iterator
 
 import numpy as np
 import pytest
@@ -36,7 +37,7 @@ PRESET = "S"
 
 
 @pytest.fixture
-def dtype_globals(tmp_path):
+def dtype_globals(tmp_path: pathlib.Path) -> Iterator[None]:
     """Give the process back the framework dtype globals, and send the run's results shard to
     ``tmp_path``.
 
@@ -72,7 +73,7 @@ def test_the_guarded_kernel_still_materializes_fp32() -> None:
     )
 
 
-def test_run_binds_the_framework_to_the_precision_of_the_data(dtype_globals) -> None:
+def test_run_binds_the_framework_to_the_precision_of_the_data(dtype_globals: None) -> None:
     """A ``--datatype``-less run leaves the framework bound to the precision the data actually has.
 
     Asserted on ``np_float`` because that is the binding every ``set_datatype`` override derives its
@@ -95,7 +96,7 @@ def test_run_binds_the_framework_to_the_precision_of_the_data(dtype_globals) -> 
     )
 
 
-def test_run_records_the_requested_precision_not_the_detected_one(dtype_globals, tmp_path: pathlib.Path) -> None:
+def test_run_records_the_requested_precision_not_the_detected_one(dtype_globals: None, tmp_path: pathlib.Path) -> None:
     """The other half of the same run: the FRAMEWORK follows the data, the recorded ROW follows the
     request.
 

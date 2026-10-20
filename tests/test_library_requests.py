@@ -8,6 +8,7 @@ import subprocess
 
 import pytest
 
+
 from hpcagent_bench import languages
 
 
@@ -274,7 +275,9 @@ def fake_mpi_prefix(root: pathlib.Path, mpich: bool) -> pathlib.Path:
     return lib
 
 
-def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(monkeypatch, tmp_path) -> None:
+def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """hipcc is not an MPI wrapper, so `mpi` hands it the wrapper's own include + link line; the
     judge image also ships Open MPI and Intel MPI, whose libmpi.so links just as clean, so a
     wrapper counts only when its -L holds libmpich.so -- and that -L comes first, with an rpath."""
@@ -297,7 +300,7 @@ def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(monkeypatch, tmp
     assert f"-L{ompi}" not in got[1]
 
 
-def test_no_mpich_wrapper_resolves_to_nothing(monkeypatch, tmp_path) -> None:
+def test_no_mpich_wrapper_resolves_to_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     ompi = fake_mpi_prefix(tmp_path / "openmpi", mpich=False)
     monkeypatch.setattr(languages, "mpi_wrapper_flags", lambda wrapper: (["-I/x"], [f"-L{ompi}", "-lmpi"]))
     assert languages.mpich_wrapper_flags(("mpicc.mpich", "mpicc")) == ([], [])
@@ -311,7 +314,7 @@ def test_libraries_yaml_has_no_duplicate_keys() -> None:
     class UniqueKeyLoader(yaml.SafeLoader):
         pass
 
-    def construct_mapping(loader, node, deep=False):
+    def construct_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False) -> dict[object, object]:
         keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
         duplicates = sorted({k for k in keys if keys.count(k) > 1})
         assert not duplicates, f"duplicate keys {duplicates} at line {node.start_mark.line + 1}"
@@ -321,7 +324,7 @@ def test_libraries_yaml_has_no_duplicate_keys() -> None:
     yaml.load(languages.LIBRARIES_YAML.read_text(), Loader=UniqueKeyLoader)  # noqa: S506 -- UniqueKeyLoader is a SafeLoader
 
 
-def test_mpi_without_its_wrapper_falls_back_to_pkg_config(monkeypatch) -> None:
+def test_mpi_without_its_wrapper_falls_back_to_pkg_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(languages, "mpi_wrapper_flags", lambda wrapper: ([], []))
     monkeypatch.setattr(languages, "library_links", lambda lang, tokens: True)
     answers = {"--cflags": ("-I/pc/include",), "--libs": ("-L/pc/lib", "-lmpi")}

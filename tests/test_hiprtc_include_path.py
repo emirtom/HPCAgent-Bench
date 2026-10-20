@@ -51,12 +51,12 @@ def test_a_clean_list_is_left_alone() -> None:
 
 
 class FakeRuntime:
-    def __init__(self, is_hip) -> None:
+    def __init__(self, is_hip: bool) -> None:
         self.is_hip = is_hip
 
 
 class FakeCupy:
-    def __init__(self, is_hip) -> None:
+    def __init__(self, is_hip: bool) -> None:
         self.cuda = type("cuda", (), {"runtime": FakeRuntime(is_hip)})
 
 

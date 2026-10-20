@@ -34,7 +34,7 @@ from hpcagent_bench.sizing import (
     preset_cost,
     stride_partition,
 )
-from hpcagent_bench.spec import KERNELS
+from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.collect.sweep import shard_names
 
 #: Rank counts the partition properties are proved at: one rank, a prime that divides nothing, the
@@ -93,13 +93,13 @@ def test_the_stride_fallback_is_also_a_partition(ranks: int) -> None:
 
 
 @pytest.mark.parametrize("ranks", RANK_COUNTS)
-def test_the_real_corpus_partitions_at_every_rank_count(corpus, ranks: int) -> None:
+def test_the_real_corpus_partitions_at_every_rank_count(corpus: dict[str, BenchSpec], ranks: int) -> None:
     """The gate on the real thing: every corpus kernel on exactly one rank, whatever the count."""
     names = sorted(corpus)
     assert_is_partition(pack_lpt(names, cost_vector(corpus, "M"), ranks), names, ranks)
 
 
-def test_two_independent_computations_agree_byte_for_byte(corpus) -> None:
+def test_two_independent_computations_agree_byte_for_byte(corpus: dict[str, BenchSpec]) -> None:
     """The determinism the results DB needs: rebuild the cost vector from scratch and pack again.
 
     Serialised and compared as JSON, not as objects -- what has to match is the bytes a second
@@ -110,7 +110,7 @@ def test_two_independent_computations_agree_byte_for_byte(corpus) -> None:
     assert first == second
 
 
-def test_every_rank_computes_the_same_partition_alone(corpus) -> None:
+def test_every_rank_computes_the_same_partition_alone(corpus: dict[str, BenchSpec]) -> None:
     """No master, no communication: each rank runs :func:`shard_names` for its own index and the
     slices must reassemble into the whole selection exactly once."""
     names = sorted(corpus)
@@ -165,7 +165,7 @@ def test_a_corpus_with_no_resolvable_cost_falls_back_to_the_stride() -> None:
     assert pack_lpt(names, costs_from(sizes), 3) == stride_partition(names, 3)
 
 
-def test_a_zero_byte_footprint_is_an_unknown_not_a_free_kernel(corpus) -> None:
+def test_a_zero_byte_footprint_is_an_unknown_not_a_free_kernel(corpus: dict[str, BenchSpec]) -> None:
     """A footprint that evaluates to zero is an unknown wearing a number, never a free kernel.
 
     No shipped kernel resolves to zero, so a spec is zeroed on purpose to drive the rule, and the
@@ -187,7 +187,7 @@ def test_shard_names_without_a_preset_is_still_the_stride() -> None:
     assert shard_names(names, (1, 3)) == names[1::3]
 
 
-def test_one_rank_still_runs_the_whole_selection_in_order(corpus) -> None:
+def test_one_rank_still_runs_the_whole_selection_in_order(corpus: dict[str, BenchSpec]) -> None:
     """The single-rank job -- what every test and every unsharded sweep is -- must be untouched by
     the packing: the same kernels in the same order the selector gave them."""
     names = sorted(corpus)
@@ -202,7 +202,7 @@ def partition_loads(partition: Sequence[Sequence[str]], costs: Mapping[str, Kern
 # The packer earns its place, or it does not.                                  #
 @pytest.mark.parametrize("ranks", MEASURED_RANKS)
 @pytest.mark.parametrize("preset", PRESETS)
-def test_lpt_beats_the_stride_on_the_real_corpus(corpus, preset: str, ranks: int) -> None:
+def test_lpt_beats_the_stride_on_the_real_corpus(corpus: dict[str, BenchSpec], preset: str, ranks: int) -> None:
     """Measured, not assumed: max-rank predicted load under LPT vs under the stride.
 
     A failure here is a legitimate finding and not an obstacle -- it says the packer is not worth
@@ -220,7 +220,7 @@ def test_lpt_beats_the_stride_on_the_real_corpus(corpus, preset: str, ranks: int
 
 
 @pytest.mark.parametrize("ranks", MEASURED_RANKS)
-def test_lpt_lands_within_a_percent_of_a_perfectly_balanced_split(corpus, ranks: int) -> None:
+def test_lpt_lands_within_a_percent_of_a_perfectly_balanced_split(corpus: dict[str, BenchSpec], ranks: int) -> None:
     """The packing is not merely better than the stride, it is near the floor no static split
     beats: total predicted work over ranks. LPT's worst case is 4/3 of optimal; the corpus is
     fine-grained enough that it does far better, and a regression that quietly halves the gain
@@ -294,7 +294,7 @@ def test_the_memory_cap_needs_both_halves() -> None:
         pack_lpt(sorted(sizes), costs_from(sizes), 2, node_ram_bytes=1 << 30)
 
 
-def test_the_real_corpus_at_xl_fits_four_ranks_on_a_large_node(corpus) -> None:
+def test_the_real_corpus_at_xl_fits_four_ranks_on_a_large_node(corpus: dict[str, BenchSpec]) -> None:
     """The check is not vacuous on the corpus it ships with: at XL, four ranks per node need a
     node bigger than four times the largest kernel, and the packer accepts that layout.
 

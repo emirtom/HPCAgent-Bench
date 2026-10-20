@@ -588,7 +588,7 @@ def program_shaped_file() -> pathlib.Path:
 
 
 @pytest.mark.dace_frontend
-def test_the_parse_server_times_a_kernel_out_and_goes_on_serving(program_shaped_file) -> None:
+def test_the_parse_server_times_a_kernel_out_and_goes_on_serving(program_shaped_file: pathlib.Path) -> None:
     """The budget is enforced on the FORKED child, so a kernel that never finishes costs its own
     budget and nothing else -- the same guarantee a process per kernel gave, which is the only
     reason this sweep is out of process. Asserted by wedging one and then asking the SAME server
@@ -606,7 +606,7 @@ def test_the_parse_server_times_a_kernel_out_and_goes_on_serving(program_shaped_
 
 
 @pytest.mark.dace_frontend
-def test_the_parse_server_calls_a_kernel_that_kills_its_process_a_crash(program_shaped_file) -> None:
+def test_the_parse_server_calls_a_kernel_that_kills_its_process_a_crash(program_shaped_file: pathlib.Path) -> None:
     """A frontend that dies rather than raises is one of the two failures worth forking for, and it
     reaches the ratchet as a verdict on THAT kernel. The server must not read a missing answer as
     its own death and take the rest of the queue down with it."""

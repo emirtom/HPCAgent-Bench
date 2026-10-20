@@ -26,8 +26,7 @@ import types
 import numpy as np
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import languages
+from hpcagent_bench import languages, modules
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.native_call import (
     WORKSPACE_ALIGN,
@@ -212,7 +211,7 @@ void wstest_fp64(const double *x, double *y, const int64_t N, const double a,
 
 
 @pytest.mark.skipif(not shutil.which("gcc"), reason="gcc required for the native round-trip")
-def test_native_call_passes_workspace(tmp_path) -> None:
+def test_native_call_passes_workspace(tmp_path: pathlib.Path) -> None:
     src = tmp_path / "wstest.c"
     src.write_text(_WS_KERNEL)
     so = tmp_path / "libwstest.so"
@@ -275,7 +274,7 @@ void wstest_fp64(const double *x, double *y, const int64_t N, const double a) {
 
 
 @pytest.mark.skipif(not shutil.which("gcc"), reason="gcc required for the native round-trip")
-def test_a_callee_that_declares_no_workspace_pair_is_still_callable(tmp_path) -> None:
+def test_a_callee_that_declares_no_workspace_pair_is_still_callable(tmp_path: pathlib.Path) -> None:
     """The property the trailing position buys, and the one five test files silently depend on.
 
     ``harness/agent.py:emit_reference_source`` emits the NumpyToX reference WITHOUT the reserved
@@ -318,7 +317,7 @@ void wstest_fp64(const double *x, double *y, const int64_t N, const double a,
 
 
 @pytest.mark.skipif(not shutil.which("gcc"), reason="gcc required for the native round-trip")
-def test_the_workspace_does_not_carry_between_reps(tmp_path) -> None:
+def test_the_workspace_does_not_carry_between_reps(tmp_path: pathlib.Path) -> None:
     """One child runs the whole budget, so the workspace is allocated once and would otherwise
     persist -- a channel to memoize through and have the replay credited by ``min(samples)``.
     Zeroing cannot break a conforming kernel: the ABI calls it write-before-read."""

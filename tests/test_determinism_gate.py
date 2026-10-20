@@ -49,7 +49,7 @@ N = 4096
 SPEC = grading_spec("total")
 
 
-def band(value, n: int = N) -> float:
+def band(value: np.ndarray, n: int = N) -> float:
     """The absolute residual the gate admits on ``value`` at accumulation length ``n``."""
     v = np.asarray(value)
     eps = float(np.finfo(v.dtype).eps)
@@ -63,7 +63,7 @@ def lengths(n: int) -> dict:
     return {"total": n}
 
 
-def reduction_pair(ulps: int = 1):
+def reduction_pair(ulps: int = 1) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """Two runs of the same float-atomic reduction, ``ulps`` apart.
 
     ``nextafter`` rather than a re-summation in a different order, because numpy's own pairwise sum

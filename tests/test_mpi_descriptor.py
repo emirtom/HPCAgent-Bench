@@ -33,11 +33,11 @@ from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import Arg, Binding, binding_from_spec
 
 
-def arange(shape, dtype):
+def arange(shape: tuple[int, ...], dtype: type[np.float64 | np.int32]) -> np.ndarray:
     return np.arange(math.prod(shape), dtype=dtype).reshape(shape)
 
 
-def dist_1d(scheme, parts, block_size: int = 1):
+def dist_1d(scheme: Scheme, parts: int, block_size: int = 1) -> tuple[Grid, ArrayDist]:
     return Grid((parts,)), ArrayDist(axes=(AxisDist(grid_dim=0, scheme=scheme, block_size=block_size),))
 
 
@@ -45,7 +45,7 @@ def dist_1d(scheme, parts, block_size: int = 1):
 
 
 @pytest.mark.parametrize(("n", "parts"), [(10, 3), (12, 4), (7, 4), (1, 4), (5, 5), (100, 7), (3, 8)])
-def test_block_bounds_partition_and_balance(n, parts) -> None:
+def test_block_bounds_partition_and_balance(n: int, parts: int) -> None:
     g, dist = dist_1d(Scheme.BLOCK, parts)
     idxs = [owned_indices(n, dist.axes[0], g, g.coords_of(r)) for r in range(parts)]
     # contiguous
@@ -139,7 +139,7 @@ def requested(grid: list[int], operations: list[dict]) -> Submission:
     )
 
 
-def block_axis0(scheme: Scheme = Scheme.BLOCK, block_size: int = 1):
+def block_axis0(scheme: Scheme = Scheme.BLOCK, block_size: int = 1) -> dict[str, list[dict[str, int | str | None]]]:
     # array laid out block over grid dim 0 (the leading axis), axis 1 whole.
     return {"axes": [{"grid_dim": 0, "scheme": scheme.value, "block_size": block_size}, {"grid_dim": None}]}
 
@@ -439,7 +439,7 @@ def test_distribution_over_symbol_no_matching_axis_raises() -> None:
         ("pclv", (5, 8, 14)),  # 3-D (nclv, nlev, klon): klon at axis 2
     ],
 )
-def test_cloudsc_klon_split_roundtrips_per_array(name, shape) -> None:
+def test_cloudsc_klon_split_roundtrips_per_array(name: str, shape: tuple[int, ...]) -> None:
     """gather(scatter(A)) is bit-exact and the owned interiors partition the array, per field rank."""
     b = cloudsc_binding()
     d = Descriptor.from_submission(submitted(split_over_klon(b, 4)), b, ranks=4)
@@ -479,7 +479,7 @@ def test_cloudsc_weak_scaling_grows_only_klon() -> None:
 
 
 @pytest.mark.parametrize(("nranks", "ndim", "dims"), [(4, 1, (4,)), (4, 2, (2, 2)), (8, 3, (2, 2, 2)), (9, 2, (3, 3))])
-def test_hypercube_grid_equal_edges(nranks, ndim, dims) -> None:
+def test_hypercube_grid_equal_edges(nranks: int, ndim: int, dims: tuple[int, ...]) -> None:
     g = hypercube_grid(nranks, ndim)
     assert g.dims == dims
     assert g.nranks == nranks

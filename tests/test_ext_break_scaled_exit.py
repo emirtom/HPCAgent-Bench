@@ -36,8 +36,7 @@ import importlib
 
 import numpy as np
 
-from hpcagent_bench import modules
-from hpcagent_bench import fuzz
+from hpcagent_bench import fuzz, modules
 from hpcagent_bench.benchmarks.loop_level_reasoning.ext_break_capture import ext_break_capture as capture_gen
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.spec import BenchSpec
@@ -77,7 +76,7 @@ FAMILY = {
 }
 
 
-def run_family(name, seed):
+def run_family(name: str, seed: int) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """Materialize preset-S inputs for ``name`` at ``seed`` and run its numpy reference.
 
     Returns (before, after): the graded buffers snapshotted before and after the kernel.

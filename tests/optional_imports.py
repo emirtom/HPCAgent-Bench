@@ -15,11 +15,12 @@ not ImportError.
 """
 
 import importlib
+import types
 
 import pytest
 
 
-def import_or_skip(modname: str):
+def import_or_skip(modname: str) -> types.ModuleType:
     """Import ``modname``, skipping the test (not failing it) when the wheel itself won't load.
 
     Catches exactly ``ImportError`` (module/submodule not found -- pytest.importorskip's own case)

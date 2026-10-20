@@ -15,6 +15,8 @@ import dace
 import pytest
 from dace import data as dace_data
 from dace import dtypes as dace_dtypes
+from dace.data.core import Array, Scalar
+from dace.sdfg.sdfg import SDFG
 
 from hpcagent_bench.frameworks.dace_framework import GPU_RESIDENT_STORAGE, enforce_gpu_residency
 
@@ -39,7 +41,7 @@ def running_min(A: dace.float64[N], out: dace.float64[N]) -> None:
     out[:] = A - lo
 
 
-def boundary(sdfg):
+def boundary(sdfg: SDFG) -> dict[str, Array | Scalar]:
     """``{name: descriptor}`` for the non-transients, which are the ABI boundary."""
     return {name: desc for name, desc in sdfg.arrays.items() if not desc.transient}
 

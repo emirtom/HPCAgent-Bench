@@ -15,6 +15,8 @@ import time
 import urllib.error
 import urllib.request
 
+import pytest
+
 from hpcagent_bench.api import InputMode
 from hpcagent_bench.harness import service
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
@@ -29,7 +31,7 @@ class ConcurrencyProbe:
         self.peak = 0
         self.lock = threading.Lock()
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: object, **kwargs: object) -> Score:
         with self.lock:
             self.active += 1
             self.peak = max(self.peak, self.active)
@@ -41,7 +43,7 @@ class ConcurrencyProbe:
                 self.active -= 1
 
 
-def test_judge_server_bounds_concurrent_grades_to_device_slots(monkeypatch) -> None:
+def test_judge_server_bounds_concurrent_grades_to_device_slots(monkeypatch: pytest.MonkeyPatch) -> None:
     probe = ConcurrencyProbe()
     monkeypatch.setattr(service, "score", probe)
     service.config.set_override("record.enabled", False)

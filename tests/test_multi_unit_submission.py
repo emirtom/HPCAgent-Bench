@@ -17,6 +17,7 @@ built WITHOUT its second unit, which still links and still has the helper undefi
 
 import ctypes
 import os
+import pathlib
 import shutil
 import subprocess
 
@@ -66,7 +67,7 @@ SOURCES = {
 LANGS = tuple(sorted(SOURCES))
 
 
-def write_units(lang, out_dir):
+def write_units(lang: str, out_dir: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     """The two sources on disk, entry first -- the order ``source_units`` delivers them in."""
     ext = languages.LANG_EXT[lang]
     entry = out_dir / f"entry.{ext}"
@@ -76,7 +77,7 @@ def write_units(lang, out_dir):
     return entry, kernels
 
 
-def undefined_symbols(lib):
+def undefined_symbols(lib: pathlib.Path) -> str:
     """``nm -D -u`` on a shared library, or a skip when this host's ``nm`` cannot read it."""
     nm = shutil.which("nm")
     if nm is None:
@@ -87,7 +88,9 @@ def undefined_symbols(lib):
     return proc.stdout
 
 
-def build(lang, out_dir, extra_sources):
+def build(
+    lang: str, out_dir: pathlib.Path, extra_sources: list[pathlib.Path]
+) -> tuple[pathlib.Path, list[list[str]], str]:
     """Build the entry unit into a ``.so`` down the judge's own line; skip when the compiler is absent."""
     entry, _ = write_units(lang, out_dir)
     lib = out_dir / "libunits.so"
@@ -104,7 +107,7 @@ def build(lang, out_dir, extra_sources):
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_every_unit_gets_its_own_compile_step(lang, tmp_path) -> None:
+def test_every_unit_gets_its_own_compile_step(lang: str, tmp_path: pathlib.Path) -> None:
     """Two units, two compile argvs, two distinct objects.
 
     Extension-inclusive object names are the point: an ``entry.o`` for both units is one clobbering
@@ -123,7 +126,7 @@ def test_every_unit_gets_its_own_compile_step(lang, tmp_path) -> None:
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_the_link_step_names_every_object(lang, tmp_path) -> None:
+def test_the_link_step_names_every_object(lang: str, tmp_path: pathlib.Path) -> None:
     """The link argv has to carry BOTH objects. Carrying only the entry's is the defect this file
     exists for: the link still succeeds, because an undefined symbol is legal in a ``.so``."""
     entry, kernels = write_units(lang, tmp_path)
@@ -137,7 +140,7 @@ def test_the_link_step_names_every_object(lang, tmp_path) -> None:
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_the_two_unit_library_resolves_and_computes(lang, tmp_path) -> None:
+def test_the_two_unit_library_resolves_and_computes(lang: str, tmp_path: pathlib.Path) -> None:
     """Built from both units, the library has no dangling helper and returns the right number."""
     entry, kernels = write_units(lang, tmp_path)
     lib, _, log = build(lang, tmp_path, [kernels])
@@ -149,7 +152,7 @@ def test_the_two_unit_library_resolves_and_computes(lang, tmp_path) -> None:
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_dropping_the_second_unit_still_links_and_that_is_the_defect(lang, tmp_path) -> None:
+def test_dropping_the_second_unit_still_links_and_that_is_the_defect(lang: str, tmp_path: pathlib.Path) -> None:
     """The witness. Built from the entry alone the library LINKS -- no error anywhere -- and only
     the dynamic symbol table says the helper is missing. That silence is why the two assertions
     above are on the argv rather than on the exit status of the build."""

@@ -62,7 +62,7 @@ def stub_srun(bin_dir: pathlib.Path, capture_file: pathlib.Path, exit_code: int 
 
 
 def run_in_judge_container(
-    tmp_path, env: dict[str, str], argv: list[str]
+    tmp_path: pathlib.Path, env: dict[str, str], argv: list[str]
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     capture_file = tmp_path / "srun.argv"
     bin_dir = tmp_path / "bin"
@@ -101,7 +101,7 @@ def test_the_merge_block_runs_merge_results_in_the_judge_container() -> None:
     assert "merge_results.py" in merge_block, merge_block
 
 
-def test_ce_runtime_runs_the_extractor_inside_the_judges_environment(tmp_path) -> None:
+def test_ce_runtime_runs_the_extractor_inside_the_judges_environment(tmp_path: pathlib.Path) -> None:
     edf_dir = tmp_path / "edf"
     write_edf(edf_dir, "bench-judge", MULTILINE_EDF)
     env = {
@@ -130,7 +130,7 @@ def test_ce_runtime_runs_the_extractor_inside_the_judges_environment(tmp_path) -
     assert argv[-3:] == ["python3", "-c", "import sys"]
 
 
-def test_ce_runtime_falls_back_to_an_agent_node_with_no_judge_node(tmp_path) -> None:
+def test_ce_runtime_falls_back_to_an_agent_node_with_no_judge_node(tmp_path: pathlib.Path) -> None:
     """With JUDGE_NODELIST empty, the step lands on an agent node rather than an empty
     ``--nodelist``."""
     edf_dir = tmp_path / "edf"
@@ -147,7 +147,7 @@ def test_ce_runtime_falls_back_to_an_agent_node_with_no_judge_node(tmp_path) -> 
     assert "--nodelist=nid007" in argv
 
 
-def test_no_node_in_the_allocation_fails_loudly_rather_than_launching_nowhere(tmp_path) -> None:
+def test_no_node_in_the_allocation_fails_loudly_rather_than_launching_nowhere(tmp_path: pathlib.Path) -> None:
     env = {"CONTAINER_RUNTIME": "ce", "JUDGE_NODELIST": "", "AGENT_NODELIST": ""}
     proc, argv = run_in_judge_container(tmp_path, env, ["run_in_judge_container", "extract-node", "true"])
     assert proc.returncode == 2
@@ -155,7 +155,7 @@ def test_no_node_in_the_allocation_fails_loudly_rather_than_launching_nowhere(tm
     assert argv == [], "srun must never be invoked with an empty --nodelist"
 
 
-def test_unknown_container_runtime_fails_loudly(tmp_path) -> None:
+def test_unknown_container_runtime_fails_loudly(tmp_path: pathlib.Path) -> None:
     env = {"CONTAINER_RUNTIME": "made-up", "JUDGE_NODELIST": "nid001", "AGENT_NODELIST": ""}
     proc, argv = run_in_judge_container(tmp_path, env, ["run_in_judge_container", "extract-node", "true"])
     assert proc.returncode == 2
@@ -163,7 +163,7 @@ def test_unknown_container_runtime_fails_loudly(tmp_path) -> None:
     assert argv == []
 
 
-def test_apptainer_runtime_binds_the_repo_and_wraps_the_image(tmp_path) -> None:
+def test_apptainer_runtime_binds_the_repo_and_wraps_the_image(tmp_path: pathlib.Path) -> None:
     """A second CONTAINER_RUNTIME, to pin that the seam reuses role_mounts rather than a ce-only path.
     role_mounts's default case (label matches neither agent*/vllm*/judge*) gives exactly
     HPCAGENT_BENCH_REPO + RUN_ROOT -- what the extractor needs to import the package and read the

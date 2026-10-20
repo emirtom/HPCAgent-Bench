@@ -8,6 +8,7 @@ that lived only in memory."""
 import contextlib
 import math
 import pathlib
+from sqlite3 import Connection
 
 import pytest
 
@@ -60,7 +61,7 @@ def rows(db: pathlib.Path, sql: str) -> list[dict]:
         return [dict(r) for r in conn.execute(sql)]
 
 
-def the_grade(conn) -> int:
+def the_grade(conn: Connection) -> int:
     """The one grade (run ``EPISODE_ID``, kernel, stamp ``TS``) every curve of these tests belongs to."""
     results_db.ensure_setup(conn, results_db.Setup("mlscale-strong-qwen38-hip", "hip", "gpu"))
     run = results_db.ensure_episode(conn, "mlscale-strong-qwen38-hip", EPISODE_ID, results_db.LOCAL_JOB)

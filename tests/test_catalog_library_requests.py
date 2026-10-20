@@ -8,9 +8,11 @@ tests/test_library_requests.py already pins.
 """
 
 import json
+import pathlib
 import threading
 import urllib.error
 import urllib.request
+from http.server import ThreadingHTTPServer
 
 import pytest
 
@@ -27,7 +29,7 @@ from tests.request_allowances import allowing
 RANK = 0
 
 
-def _server(cfg: ServiceConfig):
+def server(cfg: ServiceConfig) -> tuple[ThreadingHTTPServer, int]:
     srv = make_server("127.0.0.1", 0, cfg)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, srv.server_address[1]
@@ -78,7 +80,7 @@ def test_catalog_refusal_names_an_unoffered_library() -> None:
     assert "definitely-not-a-real-library" in refusal
 
 
-def test_sandbox_build_resolves_an_offered_catalog_request(tmp_path) -> None:
+def test_sandbox_build_resolves_an_offered_catalog_request(tmp_path: pathlib.Path) -> None:
     """The whole path through Sandbox.build -- graceful no-op when this host offers nothing from
     the catalog for C, the same pattern test_library_requests.py uses."""
     # The probes cache their first answer per process: one an earlier test computed under its own environment
@@ -113,7 +115,7 @@ def test_sandbox_build_resolves_an_offered_catalog_request(tmp_path) -> None:
     assert built.ok, built.log
 
 
-def test_sandbox_build_refuses_an_unoffered_catalog_request_before_compiling(tmp_path) -> None:
+def test_sandbox_build_refuses_an_unoffered_catalog_request_before_compiling(tmp_path: pathlib.Path) -> None:
     spec = BenchSpec.load("gemm")
     binding = binding_from_spec(spec)
     submission = Submission(
@@ -130,7 +132,7 @@ def test_an_unoffered_catalog_request_is_a_400_and_does_not_spend_the_submission
     single-submission-spending) attempt. submit.py's own SINGLE_SUBMISSION marker keys off exactly
     this status range (request_refused), so proving the refusal IS a 4xx here is what makes that
     contract hold for 'requests.startup.load' the same way it already does for every other malformed body."""
-    srv, port = _server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    srv, port = server(ServiceConfig(oracle="auto", baseline="auto", repeat=2))
     try:
         status, body = _post(
             port,

@@ -18,27 +18,26 @@ from pathlib import Path
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import numerical_oracle
+from hpcagent_bench import modules, numerical_oracle
 from hpcagent_bench.pluto_affine import KNOWN_POLYCC_ISSUES, scop_nonaffine_reason
 
 _SCOP = "#pragma scop\n{body}\n#pragma endscop\n"
 
 
-def _scop(body):
+def scop(body: str) -> str:
     return _SCOP.format(body=body)
 
 
 def test_affine_subscripts_are_not_flagged() -> None:
-    assert scop_nonaffine_reason(_scop("a[i] = (a[(i + 1)] * a[i]);")) is None
+    assert scop_nonaffine_reason(scop("a[i] = (a[(i + 1)] * a[i]);")) is None
     # A stride and an offset are still affine.
-    assert scop_nonaffine_reason(_scop("for (i = 0; i < N; i += 2) c[i] = a[i] + b[(i - 3)];")) is None
+    assert scop_nonaffine_reason(scop("for (i = 0; i < N; i += 2) c[i] = a[i] + b[(i - 3)];")) is None
 
 
 def test_indirection_is_flagged() -> None:
-    assert scop_nonaffine_reason(_scop("a[i] = (a[i] + (b[ip[i]] * 2.0));")) == "indirection"
+    assert scop_nonaffine_reason(scop("a[i] = (a[i] + (b[ip[i]] * 2.0));")) == "indirection"
     # Indirection nested one level deeper is still caught.
-    assert scop_nonaffine_reason(_scop("out[idx[k]] = v[k];")) == "indirection"
+    assert scop_nonaffine_reason(scop("out[idx[k]] = v[k];")) == "indirection"
 
 
 @pytest.mark.parametrize(
@@ -53,8 +52,8 @@ def test_indirection_is_flagged() -> None:
     ],
     ids=["multidim-subscripts-stay-affine", "value-side-division-not-flagged", "modulo-flagged", "int-div-flagged"],
 )
-def test_a_non_affine_subscript_kind_is_named_and_an_affine_one_is_not(code, expected_reason) -> None:
-    assert scop_nonaffine_reason(_scop(code)) == expected_reason
+def test_a_non_affine_subscript_kind_is_named_and_an_affine_one_is_not(code: str, expected_reason: str | None) -> None:
+    assert scop_nonaffine_reason(scop(code)) == expected_reason
 
 
 def test_no_pragma_falls_back_to_scanning_whole_text() -> None:

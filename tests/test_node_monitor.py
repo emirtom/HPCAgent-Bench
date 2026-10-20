@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -98,7 +99,7 @@ AMDSMI_JSON = (
 )
 
 
-def test_no_gpu_tool_keeps_the_old_8_column_header(tmp_path) -> None:
+def test_no_gpu_tool_keeps_the_old_8_column_header(tmp_path: Path) -> None:
     text = run_monitor(tmp_path, [restricted_bin(tmp_path)])
     lines = text.strip().splitlines()
     assert lines[0] == OLD_HEADER
@@ -107,7 +108,7 @@ def test_no_gpu_tool_keeps_the_old_8_column_header(tmp_path) -> None:
     assert row[5:8] == ["", "", ""]  # gpu_pct, vram_used_mib, vram_total_mib all blank
 
 
-def test_rocm_smi_appends_one_column_per_card_after_the_fixed_8(tmp_path) -> None:
+def test_rocm_smi_appends_one_column_per_card_after_the_fixed_8(tmp_path: Path) -> None:
     rocm_bin = fake_smi(tmp_path, "rocm-smi", f"echo '{ROCM_JSON}'")
     text = run_monitor(tmp_path, [rocm_bin, restricted_bin(tmp_path)])
     lines = text.strip().splitlines()
@@ -119,7 +120,7 @@ def test_rocm_smi_appends_one_column_per_card_after_the_fixed_8(tmp_path) -> Non
     assert row[8:10] == ["10", "90"]  # gpu0_pct, gpu1_pct: per-card, positional order preserved
 
 
-def test_amd_smi_fallback_also_appends_per_gpu_columns(tmp_path) -> None:
+def test_amd_smi_fallback_also_appends_per_gpu_columns(tmp_path: Path) -> None:
     amdsmi_bin = fake_smi(tmp_path, "amd-smi", f"echo '{AMDSMI_JSON}'")
     text = run_monitor(tmp_path, [amdsmi_bin, restricted_bin(tmp_path)])
     lines = text.strip().splitlines()
@@ -130,7 +131,7 @@ def test_amd_smi_fallback_also_appends_per_gpu_columns(tmp_path) -> None:
     assert row[6:8] == ["", ""]  # amd-smi metric -u carries no vram fields, same as before
 
 
-def test_header_is_fixed_for_the_life_of_the_csv_file(tmp_path) -> None:
+def test_header_is_fixed_for_the_life_of_the_csv_file(tmp_path: Path) -> None:
     """A relaunch that appends to an existing CSV must not rewrite its header, even if
     the GPU tool available at relaunch time differs (e.g. rocm-smi now installed)."""
     out_dir = tmp_path / "monitor"
@@ -155,7 +156,7 @@ def test_header_is_fixed_for_the_life_of_the_csv_file(tmp_path) -> None:
     assert lines[0] == OLD_HEADER  # unchanged: new columns from a mid-run tool swap would misalign old rows
 
 
-def monitor_report():
+def monitor_report() -> types.ModuleType:
     return fresh("hpcagent_bench.cluster.monitor_report")
 
 
@@ -163,7 +164,9 @@ def write_csv(path: Path, header: str, rows: list[str]) -> None:
     path.write_text(header + "\n" + "\n".join(rows) + "\n")
 
 
-def test_old_8_column_files_still_report_gpu_mean_and_no_balance_section(tmp_path, capsys) -> None:
+def test_old_8_column_files_still_report_gpu_mean_and_no_balance_section(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     write_csv(
         tmp_path / "agent-nid001.csv",
         OLD_HEADER,
@@ -181,7 +184,9 @@ def test_old_8_column_files_still_report_gpu_mean_and_no_balance_section(tmp_pat
     assert capsys.readouterr().out == ""  # nothing printed: old format carries no per-GPU columns
 
 
-def test_extended_format_reports_per_gpu_mean_and_imbalance_spread(tmp_path, capsys) -> None:
+def test_extended_format_reports_per_gpu_mean_and_imbalance_spread(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     header = OLD_HEADER + ",gpu0_pct,gpu1_pct,gpu2_pct,gpu3_pct"
     write_csv(
         tmp_path / "judge-nid002.csv",
@@ -209,7 +214,7 @@ def test_extended_format_reports_per_gpu_mean_and_imbalance_spread(tmp_path, cap
     assert "gpu1=95.0" in printed
 
 
-def test_gpu_columns_are_read_header_driven_not_by_position(tmp_path) -> None:
+def test_gpu_columns_are_read_header_driven_not_by_position(tmp_path: Path) -> None:
     """A file whose per-GPU columns are NOT contiguous with the fixed 8 (e.g. reordered
     by hand) still parses correctly -- gpu_columns() keys off the header, not offsets."""
     mod = monitor_report()
@@ -221,7 +226,7 @@ def test_gpu_columns_are_read_header_driven_not_by_position(tmp_path) -> None:
     assert mod.gpu_columns(list(OLD_HEADER.split(","))) == []
 
 
-def test_report_cli_prints_gpu_balance_only_for_extended_files(tmp_path) -> None:
+def test_report_cli_prints_gpu_balance_only_for_extended_files(tmp_path: Path) -> None:
     write_csv(
         tmp_path / "agent-old.csv",
         OLD_HEADER,

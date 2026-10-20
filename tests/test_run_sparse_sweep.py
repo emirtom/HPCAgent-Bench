@@ -5,6 +5,8 @@ wrong or crashing case fails the sweep, while a layout the translators do not em
 refuses is reported and passes -- exactly what an agent's request would meet. An older sweep
 swallowed a failed validation and exited 0; these pin that it cannot again."""
 
+from collections.abc import Callable
+
 import pytest
 
 from hpcagent_bench.cli import main
@@ -16,7 +18,7 @@ from hpcagent_bench.support.helpers.sparse.abi import FORMATS
 BLOCK = 2
 
 
-def fake_grader(outcomes: dict[tuple[str, str], str]):
+def fake_grader(outcomes: dict[tuple[str, str], str]) -> Callable[..., sweep.SparseCase]:
     """A ``grade_sparse_case`` stand-in answering ``outcomes[(kernel, format)]`` (default graded)."""
 
     def grade(kernel: str, fmt: str, preset: str, datatype: str, repeat: int, block_size: int) -> sweep.SparseCase:

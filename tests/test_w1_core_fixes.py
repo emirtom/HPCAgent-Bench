@@ -13,15 +13,16 @@ import numpy as np
 from hpcagent_bench import config
 from hpcagent_bench.fuzz import resolve_ranges
 from hpcagent_bench.harness.grading import _grade
+from hpcagent_bench.spec import BenchSpec
 from tests.bench_specs import grading_spec
 
 
-def _spec(outs):
+def make_spec(outs: list[str]) -> BenchSpec:
     return grading_spec(*outs)
 
 
 def test_grade_complex_compares_imaginary_part() -> None:
-    spec = _spec(["y"])
+    spec = make_spec(["y"])
     exp = {"y": np.array([1.0 + 2.0j, 3.0 - 1.0j])}
     same = {"y": np.array([1.0 + 2.0j, 3.0 - 1.0j])}
     # Real part identical, imaginary part completely wrong.
@@ -31,7 +32,7 @@ def test_grade_complex_compares_imaginary_part() -> None:
 
 
 def test_grade_real_output_unaffected() -> None:
-    spec = _spec(["y"])
+    spec = make_spec(["y"])
     exp = {"y": np.array([1.0, 2.0, 3.0])}
     assert _grade(spec, exp, {"y": np.array([1.0, 2.0, 3.0])}, 1e-9, 1e-9)[0] is True
     assert _grade(spec, exp, {"y": np.array([1.0, 2.0, 9.0])}, 1e-9, 1e-9)[0] is False

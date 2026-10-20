@@ -8,9 +8,12 @@ can actually sample (checked through the same :func:`perf_check` the endpoint ca
 """
 
 import json
+import pathlib
 import subprocess
 import sys
 import urllib.error
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 
 import pytest
 
@@ -88,7 +91,7 @@ def test_render_call_graph_is_a_readable_tree() -> None:
     assert "branches below 30% omitted" in text
 
 
-def test_perf_check_names_the_cause(tmp_path, monkeypatch) -> None:
+def test_perf_check_names_the_cause(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every reason perf cannot sample is reported as a distinct machine-readable cause."""
     monkeypatch.setattr(perf_reports.osinfo, "IS_LINUX", False)
     with pytest.raises(perf_reports.PerfUnavailable) as ei:
@@ -121,7 +124,7 @@ def test_perf_check_names_the_cause(tmp_path, monkeypatch) -> None:
     assert ei.value.cause == "no_perf_events"
 
 
-def test_one_child_argv_so_every_instrument_measures_the_same_run(tmp_path) -> None:
+def test_one_child_argv_so_every_instrument_measures_the_same_run(tmp_path: pathlib.Path) -> None:
     """Three routes drive this child -- perf, the plain instrument run, and the counted run. A
     second spelling of the argv is a second definition of what "the measured run" is.
 
@@ -154,7 +157,7 @@ def test_tail_keeps_the_end_and_admits_the_cut() -> None:
     assert profiling.tail("abcdef", 4) == ("cdef", True)
 
 
-def test_thread_sweep_clamps_to_available_cores(monkeypatch) -> None:
+def test_thread_sweep_clamps_to_available_cores(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(profiling.flags, "ncores", lambda: 2)
     assert profiling.thread_sweep() == [1, 2]
     assert profiling.thread_sweep([1, 2, 4, 8]) == [1, 2]
@@ -181,7 +184,7 @@ python 4242 [003] 10.000004: 1000000 cycles:u:
 """
 
 
-def fake_perf(monkeypatch, stdout: str, returncode: int = 0) -> None:
+def fake_perf(monkeypatch: pytest.MonkeyPatch, stdout: str, returncode: int = 0) -> None:
     """Drive the `perf script` parser without perf: it is pure text handling, and the shapes that
     break it (an unwind failure, a missing trailing blank) are hard to provoke on purpose."""
     monkeypatch.setattr(perf_reports, "perf_check", lambda: "/usr/bin/perf")
@@ -192,7 +195,9 @@ def fake_perf(monkeypatch, stdout: str, returncode: int = 0) -> None:
     )
 
 
-def test_stacks_reverses_each_sample_so_the_process_is_the_root(tmp_path, monkeypatch) -> None:
+def test_stacks_reverses_each_sample_so_the_process_is_the_root(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake_perf(monkeypatch, PERF_SCRIPT)
     recorded = perf_reports.stacks(tmp_path / "perf.data")
     assert len(recorded) == 4
@@ -201,7 +206,7 @@ def test_stacks_reverses_each_sample_so_the_process_is_the_root(tmp_path, monkey
     assert recorded[1][-1] == ("ns::run(int, double)", "libx.so.1"), "a C++ signature owns its own parens"
 
 
-def test_stacks_keeps_a_sample_perf_could_not_unwind(tmp_path, monkeypatch) -> None:
+def test_stacks_keeps_a_sample_perf_could_not_unwind(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Unattributed time must stay VISIBLE. A dropped sample silently inflates every percentage
     that remains, which reads as a cleaner profile than the one actually recorded."""
     fake_perf(monkeypatch, PERF_SCRIPT)
@@ -209,12 +214,14 @@ def test_stacks_keeps_a_sample_perf_could_not_unwind(tmp_path, monkeypatch) -> N
     assert recorded[2] == [("python", "python"), (perf_reports.UNKNOWN, perf_reports.UNKNOWN)]
 
 
-def test_stacks_emits_the_last_sample_without_a_trailing_blank_line(tmp_path, monkeypatch) -> None:
+def test_stacks_emits_the_last_sample_without_a_trailing_blank_line(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake_perf(monkeypatch, PERF_SCRIPT)
     assert perf_reports.stacks(tmp_path / "perf.data")[3][-1] == ("gemm_fp64", "libgemm.so")
 
 
-def test_stacks_surfaces_a_failed_perf_script(tmp_path, monkeypatch) -> None:
+def test_stacks_surfaces_a_failed_perf_script(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_perf(monkeypatch, "", returncode=1)
     with pytest.raises(perf_reports.PerfUnavailable) as ei:
         perf_reports.stacks(tmp_path / "perf.data")
@@ -222,7 +229,9 @@ def test_stacks_surfaces_a_failed_perf_script(tmp_path, monkeypatch) -> None:
     assert "boom" in str(ei.value)
 
 
-def test_call_graph_refuses_to_call_an_empty_recording_a_profile(tmp_path, monkeypatch) -> None:
+def test_call_graph_refuses_to_call_an_empty_recording_a_profile(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Zero samples folded into a tree would render as "nothing was hot" -- indistinguishable from
     a real answer, and wrong."""
     fake_perf(monkeypatch, "")
@@ -231,7 +240,9 @@ def test_call_graph_refuses_to_call_an_empty_recording_a_profile(tmp_path, monke
     assert ei.value.cause == "no_samples"
 
 
-def test_perf_record_asks_for_the_documented_event_and_unwind(tmp_path, monkeypatch) -> None:
+def test_perf_record_asks_for_the_documented_event_and_unwind(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The constants are the contract the skill and kernel_extraction.md both quote; a silent
     change to any of them makes both documents wrong."""
     seen = {}
@@ -254,7 +265,7 @@ def test_percent_of_nothing_is_zero_not_a_zero_division() -> None:
     assert perf_reports.percent(1, 3) == 33.33
 
 
-def run(threads: int, elapsed_ns: int, hotspots):
+def run(threads: int, elapsed_ns: int, hotspots: list[dict[str, str | float]]) -> profiling.ThreadRun:
     """A ThreadRun with only the fields the scalability/rising logic reads."""
     return profiling.ThreadRun(
         threads=threads,
@@ -268,7 +279,7 @@ def run(threads: int, elapsed_ns: int, hotspots):
     )
 
 
-def spot(symbol: str, self_pct: float):
+def spot(symbol: str, self_pct: float) -> dict[str, str | float]:
     return {"symbol": symbol, "dso": "app.so", "self_pct": self_pct, "total_pct": self_pct}
 
 
@@ -349,7 +360,9 @@ def test_child_result_reads_the_marked_line() -> None:
     assert profiling.child_result("only noise\n") is None
 
 
-def test_profile_endpoint_reports_perf_unavailability(make_judge, monkeypatch) -> None:
+def test_profile_endpoint_reports_perf_unavailability(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A host that cannot sample answers 503 + cause -- never an empty (or invented) profile."""
 
     def refuse() -> str:
@@ -366,7 +379,9 @@ def test_profile_endpoint_reports_perf_unavailability(make_judge, monkeypatch) -
 
 
 @pytest.mark.perf
-def test_profile_endpoint_returns_the_kernel_call_graph(make_judge) -> None:
+def test_profile_endpoint_returns_the_kernel_call_graph(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """End-to-end: build with debug symbols, sample the graded measurement, fold the call graph.
 
     The kernel symbol must dominate the profile -- if it does not, the endpoint is profiling the
@@ -421,7 +436,9 @@ def test_profile_endpoint_returns_the_kernel_call_graph(make_judge) -> None:
 
 
 @pytest.mark.perf
-def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(make_judge) -> None:
+def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """A kernel whose emit lowers to cblas spends its time in the LIBRARY, and the profile says so.
 
     This is the case the hotspot assertion above cannot answer. ``gemm_fp64`` hands its inner loop
@@ -463,7 +480,9 @@ def test_a_blas_lowered_kernel_reports_the_library_it_spends_in(make_judge) -> N
 
 
 @pytest.mark.perf
-def test_profile_reports_a_build_failure_instead_of_a_profile(make_judge) -> None:
+def test_profile_reports_a_build_failure_instead_of_a_profile(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     body = (
         tools.JudgeClient(make_judge(ServiceConfig())[1])
         .profile(Submission(language="c", source="this is not c"), "gemm", threads=[1], reps=1)
@@ -474,7 +493,9 @@ def test_profile_reports_a_build_failure_instead_of_a_profile(make_judge) -> Non
     assert body.detail
 
 
-def test_profile_endpoint_reports_the_threads_apart_when_asked(make_judge) -> None:
+def test_profile_endpoint_reports_the_threads_apart_when_asked(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """End-to-end: the imbalance question, through the ROUTE.
 
     It was reachable only as a library call, which put the one number that most often decides a
@@ -535,7 +556,9 @@ def test_profile_endpoint_reports_the_threads_apart_when_asked(make_judge) -> No
 
 
 @requires_papi
-def test_the_per_thread_route_actually_carries_rows_where_papi_exists(make_judge) -> None:
+def test_the_per_thread_route_actually_carries_rows_where_papi_exists(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """The other half of the test above, on a host that can count.
 
     The shape test passes on a machine with no libpapi -- correctly, because a refusal there IS the
@@ -588,7 +611,9 @@ def test_the_per_thread_route_actually_carries_rows_where_papi_exists(make_judge
     assert report["text"], "the rendered table is what a reader sees first"
 
 
-def test_a_dead_per_thread_child_is_a_named_cause_and_not_a_balanced_kernel(tmp_path, monkeypatch) -> None:
+def test_a_dead_per_thread_child_is_a_named_cause_and_not_a_balanced_kernel(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The parent-side decode. A counting process that dies has to become an empty report with a
     cause: the failure mode this guards is a crash reported as threads that did nothing, which
     reads as perfect balance and sends a reader to optimize the body of a kernel that never ran."""

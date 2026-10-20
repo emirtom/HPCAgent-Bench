@@ -58,7 +58,7 @@ def kernel(alpha, beta, C, A, B):
 
 
 @pytest.mark.parametrize("source", [NUMBA_NJIT, NUMBA_PRANGE], ids=["njit", "prange"])
-def test_a_numba_submission_is_graded_correct(source) -> None:
+def test_a_numba_submission_is_graded_correct(source: str) -> None:
     """The JIT must not read as a wrong answer, and the harness timer must have run."""
     result = score(Submission(language="python", source=source), Task("gemm", "restricted", "c"), preset="S", repeat=2)
     assert result.build_ok, result.detail

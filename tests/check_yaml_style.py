@@ -103,7 +103,7 @@ def fix(path: pathlib.Path) -> bool:
     return False
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fix", action="store_true", help="auto-fix trailing whitespace + final newline (lossless)")
     ap.add_argument(

@@ -15,19 +15,19 @@ from hpcagent_bench import packets, vocabulary
 from hpcagent_bench.stats import palette
 
 
-def test_every_registered_packet_has_a_name():
+def test_every_registered_packet_has_a_name() -> None:
     """A packet a figure can colour must also be a packet it can label; an unnamed one would put a
     raw tag like `cpf-src` on a legend."""
     named = {key for key, entry in vocabulary.PACKETS.entries.items() if entry.name}
     assert set(palette.hue_order("packets")) <= named, sorted(set(palette.hue_order("packets")) - named)
 
 
-def test_every_registered_model_has_a_name():
+def test_every_registered_model_has_a_name() -> None:
     named = {key for key, entry in vocabulary.MODELS.entries.items() if entry.name}
     assert set(palette.order("models")) <= named, sorted(set(palette.order("models")) - named)
 
 
-def test_the_control_has_a_name_and_a_neutral_colour():
+def test_the_control_has_a_name_and_a_neutral_colour() -> None:
     """No packet is a condition, so it is drawn and labelled like one -- neutral, because it is the
     reference every treatment is read against rather than one more colour among them."""
     assert vocabulary.PACKETS.entries[""].name == "No Skill Packet"
@@ -35,7 +35,7 @@ def test_the_control_has_a_name_and_a_neutral_colour():
     assert palette.control_color() not in palette.hues()
 
 
-def test_colour_does_not_depend_on_the_other_series():
+def test_colour_does_not_depend_on_the_other_series() -> None:
     """Dropping a series must not repaint the survivors."""
     many = palette.colors(["", "cpf-src", "cpf-tool", "lang-skills"])
     few = palette.colors(["", "cpf-tool"])
@@ -43,18 +43,18 @@ def test_colour_does_not_depend_on_the_other_series():
     assert few["cpf-tool"] == many["cpf-tool"]
 
 
-def test_a_combination_keeps_its_lead_packets_family():
+def test_a_combination_keeps_its_lead_packets_family() -> None:
     """`cpf-src+lang-skills` is a CPF setup carrying a second packet, and reads as one."""
     assert packets.lead(packets.spec_parts("cpf-src+lang-skills")) == "cpf-cpu-src"
     assert palette.color("cpf-src+lang-skills") != palette.color("cpf-src")
     assert palette.color("cpf-src+lang-skills") != palette.color("lang-skills")
 
 
-def test_order_within_a_combination_does_not_change_the_colour():
+def test_order_within_a_combination_does_not_change_the_colour() -> None:
     assert palette.color("cpf-src+lang-skills") == palette.color("lang-skills+cpf-src")
 
 
-def test_each_extra_packet_is_one_step_lighter():
+def test_each_extra_packet_is_one_step_lighter() -> None:
     base = palette.color("cpf-src")
     one = palette.color("cpf-src+lang-skills")
     two = palette.color("cpf-src+lang-skills+profiling")
@@ -63,7 +63,7 @@ def test_each_extra_packet_is_one_step_lighter():
     assert palette.lighten(base, 2) == two
 
 
-def test_the_ramp_is_tab20_dark_first_and_every_slot_is_distinct():
+def test_the_ramp_is_tab20_dark_first_and_every_slot_is_distinct() -> None:
     """One global palette, matplotlib's tab20, taken dark half first: reading tab20 straight
     through spends the second colour of a figure on a pale wash of its first."""
     ramp = palette.hues()
@@ -75,18 +75,18 @@ def test_the_ramp_is_tab20_dark_first_and_every_slot_is_distinct():
     assert sorted(palette.TAB20B_ORDER) == list(range(20))
 
 
-def test_no_registered_packet_shares_a_slot_with_another():
+def test_no_registered_packet_shares_a_slot_with_another() -> None:
     """Forty slots (tab20, then tab20b) for every packet, so nothing wraps and no packet needs an override."""
     leads = palette.hue_order("packets")
     assert len({palette.color(p) for p in leads}) == len(leads)
 
 
-def test_models_do_not_share_a_shape():
+def test_models_do_not_share_a_shape() -> None:
     assert len(set(palette.model_markers(palette.order("models")).values())) == len(palette.order("models"))
 
 
 @pytest.mark.parametrize("unknown", ["mystery", "not-a-packet"])
-def test_an_unregistered_packet_is_stable_and_warns(unknown, caplog):
+def test_an_unregistered_packet_is_stable_and_warns(unknown: str, caplog: pytest.LogCaptureFixture) -> None:
     """A new packet must not break a plot, and must not get a different colour in two runs of the
     same script -- which `hash()` would, being salted by PYTHONHASHSEED."""
     with caplog.at_level("WARNING"):
@@ -95,14 +95,14 @@ def test_an_unregistered_packet_is_stable_and_warns(unknown, caplog):
     assert "is not registered" in caplog.text
 
 
-def test_an_unregistered_model_is_stable_and_warns(caplog):
+def test_an_unregistered_model_is_stable_and_warns(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level("WARNING"):
         first = palette.marker("nomodel")
     assert first == palette.marker("nomodel")
     assert "is not registered" in caplog.text
 
 
-def test_two_entities_sharing_a_colour_in_one_figure_warn(caplog):
+def test_two_entities_sharing_a_colour_in_one_figure_warn(caplog: pytest.LogCaptureFixture) -> None:
     """The ramp still wraps for a kind with more entities than its forty slots, and
     wrapping is only safe while the wrapped pair never share a figure. Driven through the guard
     itself rather than through a pair that happens to wrap today, so the guard keeps being tested
@@ -171,7 +171,7 @@ PUBLISHED_FRAMEWORK_COLORS = {
 
 
 @pytest.mark.parametrize(("packet", "expected"), sorted(PUBLISHED_PACKET_COLORS.items()))
-def test_a_published_packet_colour_did_not_move(packet, expected):
+def test_a_published_packet_colour_did_not_move(packet: str, expected: str) -> None:
     assert palette.color(packet) == expected, (
         f"{packet!r} was {expected} and is now {palette.color(packet)}. An order was changed "
         "or reused, which repaints every figure already drawn with it. Give the entry the next free "
@@ -180,16 +180,16 @@ def test_a_published_packet_colour_did_not_move(packet, expected):
 
 
 @pytest.mark.parametrize(("model", "expected"), sorted(PUBLISHED_MODEL_MARKERS.items()))
-def test_a_published_model_shape_did_not_move(model, expected):
+def test_a_published_model_shape_did_not_move(model: str, expected: str) -> None:
     assert palette.marker(model) == expected
 
 
 @pytest.mark.parametrize(("framework", "expected"), sorted(PUBLISHED_FRAMEWORK_COLORS.items()))
-def test_a_published_framework_colour_did_not_move(framework, expected):
+def test_a_published_framework_colour_did_not_move(framework: str, expected: str) -> None:
     assert palette.framework_color(framework) == expected
 
 
-def test_an_alias_wears_what_it_aliases():
+def test_an_alias_wears_what_it_aliases() -> None:
     """A spelling is not an entity. `jax_cpu` and `jax` are one framework, so they must take one colour."""
     assert palette.framework_color("jax_cpu") == palette.framework_color("jax")
 

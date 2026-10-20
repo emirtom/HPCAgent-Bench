@@ -21,8 +21,7 @@ import re
 import pytest
 import yaml
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages, paths, perf_reports
+from hpcagent_bench import flags, languages, modules, paths, perf_reports
 from hpcagent_bench.harness import gpu_profiling, papi, profiling, service
 from hpcagent_bench.harness.prompts import load_skills, parse_skill
 from hpcagent_bench.languages import Language
@@ -873,7 +872,7 @@ def test_no_fortran_page_teaches_a_2023_spelling() -> None:
 REASSOCIATING_FLAGS = ("-ffast-math", "-funsafe-math-optimizations", "-Ofast", "--use_fast_math")
 
 
-def fenced_blocks(body: str):
+def fenced_blocks(body: str) -> list[str]:
     """The fenced code blocks in ``body`` -- what a page presents as a literal command line."""
     out, inside, buf = [], False, []
     for line in body.splitlines():

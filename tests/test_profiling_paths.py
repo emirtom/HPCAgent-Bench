@@ -16,11 +16,11 @@ import subprocess
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, perf_reports
+from hpcagent_bench import flags, modules, perf_reports
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import gpu_profiling, native_call, papi, profiling, sandbox, tools
 from hpcagent_bench.harness.envelope import Submission
@@ -38,7 +38,9 @@ FAKE_PERF = "/fake/bin/perf"
 TRIVIAL_GEMM = Submission(language="c", source="void gemm_fp64(void) {}")
 
 
-def test_a_wedged_perf_record_is_a_timed_out_refusal_not_a_raw_timeout(tmp_path, monkeypatch) -> None:
+def test_a_wedged_perf_record_is_a_timed_out_refusal_not_a_raw_timeout(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """subprocess signals a deadline by raising, and the route turned that raw exception into a 500
     with no cause, which an agent cannot tell apart from a broken judge."""
 
@@ -67,7 +69,7 @@ def test_a_wedged_perf_record_is_a_timed_out_refusal_not_a_raw_timeout(tmp_path,
     ],
     ids=lambda entry: entry.__name__,
 )
-def test_every_profiling_entry_point_needs_the_preset_named(entry) -> None:
+def test_every_profiling_entry_point_needs_the_preset_named(entry: str) -> None:
     """A defaulted preset measured size S whenever a caller forgot to pass the run's size, which is
     a problem no study grades, and nothing in the answer said so."""
     parameter = inspect.signature(entry).parameters["preset"]
@@ -240,7 +242,9 @@ def refuse_perf() -> str:
 
 
 @pytest.mark.parametrize("min_percent", [-1.0, 100.5])
-def test_a_min_percent_outside_zero_to_one_hundred_is_the_request_s_fault(make_judge, monkeypatch, min_percent) -> None:
+def test_a_min_percent_outside_zero_to_one_hundred_is_the_request_s_fault(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch, min_percent: float
+) -> None:
     """A negative threshold keeps every path perf saw and one above 100 keeps none. Both are a
     malformed body, refused with a 400 before the host is even asked whether it can sample."""
     monkeypatch.setattr(perf_reports, "perf_check", refuse_perf)
@@ -271,7 +275,7 @@ COUNTING_ROUTES = [{"tool": "papi"}, {"tool": "linuxperf", "counters": True}]
 
 @pytest.mark.parametrize("route", COUNTING_ROUTES, ids=["papi", "linuxperf-counters"])
 def test_an_unknown_counter_group_is_refused_as_the_request_s_fault_on_both_counting_routes(
-    make_judge, monkeypatch, route
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch, route: str
 ) -> None:
     """The alternative to refusing a typo is measuring some other group under the name asked for.
     PAPI is present here, so a 503 would blame a host that could have counted."""
@@ -284,7 +288,7 @@ def test_an_unknown_counter_group_is_refused_as_the_request_s_fault_on_both_coun
 
 @pytest.mark.parametrize("route", COUNTING_ROUTES, ids=["papi", "linuxperf-counters"])
 def test_a_python_submission_is_refused_counters_by_the_not_native_cause_on_both_counting_routes(
-    make_judge, monkeypatch, route
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch, route: str
 ) -> None:
     """Counters bracket the native call the judge times and a python delivery has none. On a host
     that can count, the refusal must name the submission, not the machine."""
@@ -333,7 +337,7 @@ def fake_perf(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_passing_linuxperf_profile_reaches_the_agent_through_the_router_with_its_call_graph(
-    make_judge, monkeypatch
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An agent reads /profile only through the router, so the hotspots and the call graph have to
     survive the real build, the fold, the judge's JSON and the relay together."""

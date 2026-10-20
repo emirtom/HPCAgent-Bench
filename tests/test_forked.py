@@ -22,7 +22,7 @@ from hpcagent_bench.frameworks.forked import forked_failure_reason, is_core_dump
 from hpcagent_bench.seal import SealError, SealPlan
 
 
-def _ok():
+def child_ok() -> int:
     return 42
 
 
@@ -65,14 +65,14 @@ def _ignore_sigterm_then_segfault() -> None:
     os.kill(os.getpid(), signal.SIGSEGV)
 
 
-def _stream_then_hang(progress=None) -> None:
+def stream_then_hang(progress: multiprocessing.queues.Queue | None = None) -> None:
     progress.put("best-1")
     progress.put("best-2")
     time.sleep(30)
 
 
 def test_ok_returns_value() -> None:
-    r = run_forked(_ok)
+    r = run_forked(child_ok)
     assert r.ok
     assert r.result == 42
     assert r.signal is None
@@ -157,7 +157,7 @@ def test_a_childs_own_signal_beats_the_timeout_it_raced() -> None:
     assert r.signal == "SIGSEGV", f"child's own signal must win over the timeout, got {r.signal}"
 
 
-def test_a_core_dumping_child_is_waited_out_rather_than_killed(monkeypatch) -> None:
+def test_a_core_dumping_child_is_waited_out_rather_than_killed(monkeypatch: pytest.MonkeyPatch) -> None:
     """The grace expiring MID-DUMP must not turn the crash into a timeout.
 
     This is what took CI down twice while the deadline was being widened: the child dies on time,
@@ -191,7 +191,7 @@ def test_is_core_dumping_denies_every_pid_that_is_not_dumping() -> None:
 def test_timeout_preserves_last_streamed_progress() -> None:
     # the online-exam snapshot: a child killed by the timeout still yields its last
     # reported best-so-far, not nothing.
-    r = run_forked(_stream_then_hang, timeout=0.6, stream_progress=True)
+    r = run_forked(stream_then_hang, timeout=0.6, stream_progress=True)
     assert not r.ok
     assert r.signal == "TIMEOUT"
     assert r.result == "best-2"
@@ -225,7 +225,7 @@ def test_a_host_oom_is_told_apart_from_a_bad_submission() -> None:
     ],
     ids=["run_forked", "numerical_oracle"],
 )
-def test_a_forked_child_does_not_outlive_the_process_that_forked_it(tmp_path, fork_call: str) -> None:
+def test_a_forked_child_does_not_outlive_the_process_that_forked_it(tmp_path: pathlib.Path, fork_call: str) -> None:
     """run_forked reaps its child on every path it controls; this pins the one it does NOT.
 
     When the PARENT is what dies -- pytest-timeout's thread method calls os._exit on an xdist
@@ -290,7 +290,7 @@ def test_reparented_is_a_change_from_entry_not_a_literal_pid(
     assert forked.reparented(parent_at_entry, parent_now) is expected
 
 
-def test_die_with_parent_survives_a_pid_namespace_init_as_the_real_parent(monkeypatch) -> None:
+def test_die_with_parent_survives_a_pid_namespace_init_as_the_real_parent(monkeypatch: pytest.MonkeyPatch) -> None:
     """A child of the sealed worker reads getppid() == 1 before AND after prctl setups -- no death."""
     monkeypatch.setattr(forked.osinfo, "IS_LINUX", True)
     monkeypatch.setattr(forked.os, "getppid", lambda: 1)
@@ -303,7 +303,7 @@ def test_die_with_parent_survives_a_pid_namespace_init_as_the_real_parent(monkey
     assert exited == [], "a live PID-1 parent (the sealed worker) must not be mistaken for a dead one"
 
 
-def test_die_with_parent_survives_a_normal_live_parent(monkeypatch) -> None:
+def test_die_with_parent_survives_a_normal_live_parent(monkeypatch: pytest.MonkeyPatch) -> None:
     """A child of an ordinary (non-namespaced) parent reads the same real pid before and after."""
     monkeypatch.setattr(forked.osinfo, "IS_LINUX", True)
     monkeypatch.setattr(forked.os, "getppid", lambda: 4242)
@@ -316,7 +316,7 @@ def test_die_with_parent_survives_a_normal_live_parent(monkeypatch) -> None:
     assert exited == []
 
 
-def test_die_with_parent_exits_when_the_parent_died_in_the_arming_gap(monkeypatch) -> None:
+def test_die_with_parent_exits_when_the_parent_died_in_the_arming_gap(monkeypatch: pytest.MonkeyPatch) -> None:
     """The parent that forked us is gone by the time prctl armed -- getppid() changed underneath us."""
     monkeypatch.setattr(forked.osinfo, "IS_LINUX", True)
     ppid_reads = iter([5000, 1])  # entry (real parent) -> after prctl (reparented, signal never comes)
@@ -415,7 +415,7 @@ def test_a_refused_seal_is_reported_even_when_the_child_cannot_start_a_thread(
     """
     monkeypatch.setattr(forked, "enter", refuse_the_seal)
     monkeypatch.setattr(multiprocessing.queues.Queue, "_start_thread", no_thread_for_you)
-    run = run_forked(_ok, seal=SealPlan(hide=(), workdir="/"), timeout=60, mp_context="fork")
+    run = run_forked(child_ok, seal=SealPlan(hide=(), workdir="/"), timeout=60, mp_context="fork")
     assert not run.ok, run
     assert "SealError" in (run.error or ""), run.error
     assert "cannot enter new namespaces" in (run.error or ""), run.error
@@ -424,13 +424,13 @@ def test_a_refused_seal_is_reported_even_when_the_child_cannot_start_a_thread(
 
 def run_under_forkserver() -> bool:
     """A grade nested in a forked child, the way a forked test calls ``score``: its own forkserver start."""
-    return run_forked(_ok, mp_context="forkserver", timeout=60).ok
+    return run_forked(child_ok, mp_context="forkserver", timeout=60).ok
 
 
 def test_a_forked_child_starts_its_own_forkserver_when_its_parent_runs_one() -> None:
     """The child inherits the parent's forkserver handle; without forgetting it, the child's first forkserver
     start ``waitpid``s a process that is not its child and raises ``ChildProcessError`` (CI replay 671509)."""
-    started = multiprocessing.get_context("forkserver").Process(target=_ok)
+    started = multiprocessing.get_context("forkserver").Process(target=child_ok)
     started.start()
     started.join()
     run = run_forked(run_under_forkserver, mp_context="fork", timeout=120)

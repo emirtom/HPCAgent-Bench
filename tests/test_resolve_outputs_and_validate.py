@@ -11,6 +11,7 @@ had no direct coverage.
 """
 
 import numpy as np
+import pytest
 
 from hpcagent_bench.frameworks.utilities import resolve_outputs, validate
 
@@ -98,7 +99,7 @@ def test_validate_false_when_one_pair_mismatches_among_good_ones() -> None:
     assert validate(ref, val) is False
 
 
-def test_validate_false_on_return_count_mismatch(capsys) -> None:
+def test_validate_false_on_return_count_mismatch(capsys: pytest.CaptureFixture[str]) -> None:
     assert validate([np.array([1.0]), np.array([2.0])], [np.array([1.0])]) is False
     assert "returned 1 arrays, expected 2" in capsys.readouterr().out
 
@@ -107,7 +108,7 @@ def test_validate_accepts_bare_arrays_not_wrapped_in_a_list() -> None:
     assert validate(np.array([1.0, 2.0]), np.array([1.0, 2.0])) is True
 
 
-def test_validate_prints_the_framework_name_on_failure(capsys) -> None:
+def test_validate_prints_the_framework_name_on_failure(capsys: pytest.CaptureFixture[str]) -> None:
     validate([np.array([1.0])], [np.array([2.0])], framework="MyFramework")
     out = capsys.readouterr().out
     assert "MyFramework" in out

@@ -93,7 +93,9 @@ def environment(root: pathlib.Path, **extra: str) -> dict[str, str]:
     return env
 
 
-def sweep_of(root: pathlib.Path, opt: pathlib.Path, kernels: tuple[str, ...], managed: bool = True, **extra: str):
+def sweep_of(
+    root: pathlib.Path, opt: pathlib.Path, kernels: tuple[str, ...], managed: bool = True, **extra: str
+) -> baseline.Sweep:
     """A sweep of column ``fakecol``; ``managed`` puts its out_root under the cache's runs root."""
     env = baseline.cache_environment(opt, environment(root, **extra))
     out_root = (pathlib.Path(env["HPCAGENT_BENCH_RUNS_ROOT"]) / "canon" / "unit") if managed else root / "out"

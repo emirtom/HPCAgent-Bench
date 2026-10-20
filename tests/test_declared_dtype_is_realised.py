@@ -23,7 +23,7 @@ import pytest
 
 from hpcagent_bench.dtypes import storage_dtype
 from hpcagent_bench.frameworks.benchmark import Benchmark
-from hpcagent_bench.spec import KERNELS
+from hpcagent_bench.spec import KERNELS, BenchSpec
 
 #: The precision the check runs at where the kernel supports it: fp64, the precision a job submission
 #: asks for, so it is the precision a disagreement is reached at in practice.
@@ -39,7 +39,7 @@ KERNEL_NAMES = sorted(KERNELS.select_keys("all"))
 SPECS = KERNELS.specs()
 
 
-def declared_dtypes(spec) -> dict[str, str]:
+def declared_dtypes(spec: BenchSpec) -> dict[str, str]:
     """``{array: dtype}`` the manifest declares, from either spelling of the init block."""
     out: dict[str, str] = {}
     if spec.init is None:
@@ -52,7 +52,7 @@ def declared_dtypes(spec) -> dict[str, str]:
     return out
 
 
-def check_precision(spec) -> str:
+def check_precision(spec: BenchSpec) -> str:
     """The precision to materialise ``spec`` at: :data:`PRECISION` where the manifest declares
     fp64, else the first precision it DOES declare.
 
