@@ -368,7 +368,9 @@ class PlutoOptimizer(Agent):
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
         if task.language is not Language.C or task.source_mode is not SourceMode.RESTRICTED:
-            raise NotImplementedError(f"{self.name} submits restricted C; got {task.language.text}/{task.source_mode.text}")
+            raise NotImplementedError(
+                f"{self.name} submits restricted C; got {task.language.text}/{task.source_mode.text}"
+            )
         return Submission(language=Language.C, source=pluto_source(task))
 
 

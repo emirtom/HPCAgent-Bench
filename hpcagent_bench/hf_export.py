@@ -227,7 +227,10 @@ def row_problems(r: ExportRow) -> list[str]:
             problems.append(f"{r.id}: {k} is not JSON")
     checks = [
         (r.track in Track.texts(), f"track {r.track!r} is not a Track"),
-        (json_list(r.languages) <= {language.text for language in LANG_EXT}, f"languages {r.languages} are not all Language values"),
+        (
+            json_list(r.languages) <= {language.text for language in LANG_EXT},
+            f"languages {r.languages} are not all Language values",
+        ),
         (r.numpy_reference, "empty numpy_reference"),
         (r.signature and r.symbol, "empty signature/symbol"),
         (r.manifest and (paths.ROOT / r.manifest).is_file(), f"manifest {r.manifest!r} not found"),
