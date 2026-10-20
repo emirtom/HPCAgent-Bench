@@ -26,7 +26,7 @@ import types
 import pytest
 
 from hpcagent_bench import config, osinfo
-from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.cli import agent_registry, build_parser, main, make_agent_builder
 from hpcagent_bench.harness import runner
 from hpcagent_bench.harness.runner import RunRow
@@ -157,7 +157,7 @@ def test_run_benchmark_resolves_preset_and_forwards_flags(monkeypatch) -> None:
     (kernel, framework, preset, *_rest), _kwargs = calls[0]
     assert kernel == "atax"
     assert framework == "numba"
-    assert preset == "fuzzed"  # base preset, seed stripped by resolve_preset
+    assert preset is Preset.FUZZED  # base preset, seed stripped by resolve_preset
 
 
 def test_bad_preset_is_rejected() -> None:

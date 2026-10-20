@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
@@ -58,11 +58,11 @@ def mpi_c():
 def stub_oracle(monkeypatch: pytest.MonkeyPatch) -> None:
     """The expected outputs come from the compiled references (numba, C: ``scoring.oracle_function``); these
     tests are about MPI wiring, so the oracle answers an empty set without a numba or C child."""
-    monkeypatch.setattr(scoring, "first_oracle", lambda kinds, spec, task, binding, data, **kw: ("numba", {}))
+    monkeypatch.setattr(scoring, "first_oracle", lambda kinds, spec, task, binding, data, **kw: (Oracle.NUMBA, {}))
     monkeypatch.setattr(scoring, "oracle_function", lambda kind, *a, **kw: lambda data: {})
 
 
-def _noop_submission(language: str = "c") -> Submission:
+def _noop_submission(language: Language = Language.C) -> Submission:
     """The reference distributed scaled_add submission (kernel_mpi + a 1-D block distribution)."""
     return NoOpMPIOptimizer().solve(Task(kernel="scaled_add", language=language, residency=Residency.DISTRIBUTED))
 
@@ -85,7 +85,7 @@ def test_distributed_scaled_add_python_delivery_scores_solved() -> None:
     task = Task(kernel="scaled_add", language=Language.PYTHON, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.launcher", list(launch))
     try:
-        result = scoring.score(_noop_submission("python"), task, preset=Preset.S)
+        result = scoring.score(_noop_submission(Language.PYTHON), task, preset=Preset.S)
     finally:
         config.clear_override("mpi.launcher")
     assert result.correct, result.detail
@@ -338,7 +338,7 @@ def test_distributed_scaled_add_device_cuda_source_scores_solved(mpi_c) -> None:
         language=Language.CUDA,
         source=_CUDA_SCALED_ADD_HOST,
         device_source=_CUDA_SCALED_ADD_KERNELS,
-        requests=_noop_submission("c").requests,
+        requests=_noop_submission(Language.C).requests,
     )
     task = Task(kernel="scaled_add", language=Language.CUDA, residency=Residency.DISTRIBUTED)
     config.set_override("mpi.residency", "device")
@@ -799,8 +799,8 @@ def test_grading_residency_is_single_node_unless_the_run_opts_in() -> None:
     """The default is untouched: no config, no distributed grading, whatever the kernel declares."""
     from hpcagent_bench.harness.task import grading_residency
 
-    assert grading_residency("scaled_add", Language.C) == "host"  # declares an mpi: block, still host
-    assert grading_residency("gemm", Language.HIP) == "device"
+    assert grading_residency("scaled_add", Language.C) is Residency.HOST  # declares an mpi: block, still host
+    assert grading_residency("gemm", Language.HIP) is Residency.DEVICE
 
 
 def test_grading_residency_routes_mpi_kernels_when_enabled() -> None:
@@ -813,12 +813,12 @@ def test_grading_residency_routes_mpi_kernels_when_enabled() -> None:
 
     config.set_override("mpi.grade_distributed", True)
     try:
-        assert grading_residency("scaled_add", Language.C) == "distributed"
-        assert grading_residency("heat_3d", Language.HIP) == "distributed"
+        assert grading_residency("scaled_add", Language.C) is Residency.DISTRIBUTED
+        assert grading_residency("heat_3d", Language.HIP) is Residency.DISTRIBUTED
         # No mpi: block -> single-node, so a mixed problem list grades rather than fails.
-        assert grading_residency("argmax_value", Language.C) == "host"
+        assert grading_residency("argmax_value", Language.C) is Residency.HOST
         # An unknown kernel is the caller's error to report, not this function's to raise.
-        assert grading_residency("no_such_kernel_anywhere", Language.C) == "host"
+        assert grading_residency("no_such_kernel_anywhere", Language.C) is Residency.HOST
     finally:
         config.clear_override("mpi.grade_distributed")
 

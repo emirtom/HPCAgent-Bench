@@ -29,7 +29,7 @@ def test_the_stdlib_call_is_graded_by_a_real_judge(tmp_path: pathlib.Path, monke
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
     monkeypatch.delenv("RUN_DIR", raising=False)
     (tmp_path / f"{KERNEL}.c").write_text(reference_source(Task(KERNEL, SourceMode.RESTRICTED, Language.C)))
-    server = make_server("127.0.0.1", 0, ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    server = make_server("127.0.0.1", 0, ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         for name, value in {

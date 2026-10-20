@@ -72,7 +72,7 @@ def the_grade(conn) -> int:
     return results_db.add_grade(conn, run, KERNEL, "submit", ts_ms=TS, values=GRADE_STAMP | values)[0]
 
 
-def record(db: pathlib.Path, curve: metric.ScalingScore | None, mode: str, **kw: object) -> int:
+def record(db: pathlib.Path, curve: metric.ScalingScore | None, mode: ScalingLaw, **kw: object) -> int:
     with contextlib.closing(recording.connect(str(db))) as conn:
         return recording.record_scaling(conn, the_grade(conn), curve, mode, **kw)  # type: ignore[arg-type]
 

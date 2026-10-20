@@ -213,7 +213,7 @@ def test_the_tool_sends_the_setups_detail_and_never_its_own(monkeypatch: pytest.
         return {"verdict": "ok", "source": "// par\n"}
 
     monkeypatch.setattr(tool.http_json, "get_judge", fake_get)
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: "c")
+    monkeypatch.setenv("LANGUAGE", "c")
     answer = tool.run({"kernel": KERNEL, "hints": "proofs"})
     assert captured["query"] == {"language": "c", "hints": "kinds"}
     assert answer["reminder"] == tool.KINDS_REMINDER
@@ -224,7 +224,7 @@ def test_the_tool_sends_the_setups_detail_and_never_its_own(monkeypatch: pytest.
     monkeypatch.delenv(cpf_cache.HINTS_ENV)
     tool = fresh("canonical_parallel_form")
     monkeypatch.setattr(tool.http_json, "get_judge", fake_get)
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: "c")
+    monkeypatch.setenv("LANGUAGE", "c")
     assert tool.run({"kernel": KERNEL})["reminder"] == tool.PROOFS_REMINDER
     assert captured["query"] == {"language": "c"}
     assert served_tool("canonical_parallel_form").description == tool.PROOFS_DESCRIPTION

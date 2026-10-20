@@ -371,7 +371,7 @@ PINNED = {
 def test_the_default_csr_signature_is_unchanged(kernel: str) -> None:
     binding = binding_from_spec(BenchSpec.load(kernel))
     symbol, args = PINNED[kernel]
-    assert binding.symbols["c"] == symbol
+    assert binding.symbols[Language.C] == symbol
     assert [(a.name, a.dtype, a.is_const) for a in binding.args] == args
 
 
@@ -397,7 +397,7 @@ def test_the_binding_names_the_arguments_the_emitted_c_takes(kernel: str, fmt: s
     binding and emitted C disagree (bsr's block scalars, dia's diagonal count) is a wrong call."""
     spec = BenchSpec.load(kernel)
     binding = binding_from_spec(spec, config=fmt)
-    assert emitted_signature(spec, fmt) == (binding.symbols["c"], [a.name for a in binding.args])
+    assert emitted_signature(spec, fmt) == (binding.symbols[Language.C], [a.name for a in binding.args])
 
 
 def sparse_data(kernel: str, seed: int) -> dict:

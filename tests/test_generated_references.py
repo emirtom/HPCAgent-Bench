@@ -20,6 +20,7 @@ import re
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import KERNELS
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
@@ -40,7 +41,7 @@ from hpcagent_bench.support.bindings.contract import binding_from_spec
 pytestmark = pytest.mark.xdist_group(name="generated_references")
 
 #: The three the agent may submit in.
-LANGUAGES = ("c", "cpp", "fortran")
+LANGUAGES = (Language.C, Language.CPP, Language.FORTRAN)
 
 #: A clock read in a baseline is measured AS kernel work, so the speedup every submission is
 #: graded by would be inflated by the timer.
@@ -178,8 +179,12 @@ def parse_fortran_signature(text: str):
     }
 
 
-def parse_signature(text: str, language: str):
-    return parse_fortran_signature(text) if language == "fortran" else parse_c_signature(text, language == "cpp")
+def parse_signature(text: str, language: Language):
+    return (
+        parse_fortran_signature(text)
+        if language is Language.FORTRAN
+        else parse_c_signature(text, language is Language.CPP)
+    )
 
 
 def is_canonical(args) -> bool:

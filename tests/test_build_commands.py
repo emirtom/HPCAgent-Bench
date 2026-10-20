@@ -18,7 +18,7 @@ import shutil
 
 import pytest
 
-from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness import recording, sandbox
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
@@ -34,7 +34,7 @@ from tests.results_rows import calls
 #: compiler (the grade's own denominator and oracle are not what is under test).
 KERNEL = "tsvc_2_s311"
 C_TASK = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
-C_ONLY = {"preset": "S", "repeat": 1, "oracle": "c", "baseline": "c"}
+C_ONLY = {"preset": Preset.S, "repeat": 1, "oracle": Oracle.C, "baseline": Baseline.C}
 
 #: s311 as a numba delivery (the python ABI: the reference's function name and arguments, outputs in place).
 NUMBA_S311 = """

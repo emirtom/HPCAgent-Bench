@@ -22,6 +22,7 @@ import subprocess
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench import languages
 
 #: Entry + helper for each host language. The helper lives in the SECOND unit and the entry cannot
@@ -29,15 +30,15 @@ from hpcagent_bench import languages
 #: ``bind(C)`` on the Fortran pair, because cross-unit linkage has to be a name both compilers spell
 #: the same way -- which is the same contract a submission's entry symbol is held to.
 SOURCES = {
-    "c": (
+    Language.C: (
         "int hpcb_helper(int x);\nint hpcb_entry(int x) { return hpcb_helper(x) + 1; }\n",
         "int hpcb_helper(int x) { return x * 3; }\n",
     ),
-    "cpp": (
+    Language.CPP: (
         'extern "C" int hpcb_helper(int x);\nextern "C" int hpcb_entry(int x) { return hpcb_helper(x) + 1; }\n',
         'extern "C" int hpcb_helper(int x) { return x * 3; }\n',
     ),
-    "fortran": (
+    Language.FORTRAN: (
         (
             "integer(c_int) function hpcb_entry(x) bind(C, name='hpcb_entry')\n"
             "   use, intrinsic :: iso_c_binding, only: c_int\n"
@@ -63,7 +64,7 @@ SOURCES = {
     ),
 }
 
-LANGS = tuple(sorted(SOURCES))
+LANGS = tuple(SOURCES)
 
 
 def write_units(lang, out_dir):

@@ -25,6 +25,7 @@ import re
 import pytest
 import yaml
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench import packets, paths
 from hpcagent_bench import study_tags as tags
 
@@ -198,7 +199,11 @@ def test_the_amd_tracer_page_applies_to_exactly_the_languages_its_route_traces(
     from hpcagent_bench.harness import gpu_profiling
 
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
-    traced = {language for language in LANGUAGES if gpu_profiling.traces_amd(language)}
+    traced = {
+        language
+        for language in LANGUAGES
+        if language in Language.texts() and gpu_profiling.traces_amd(Language.parse(language))
+    }
     assert traced, "no language is AMD-traced; this test is no longer checking anything"
     admitted = set(map(str, applies_block("rocprof").get("languages") or ()))
     assert admitted == traced, f"rocprof applies to {sorted(admitted)}; the route traces {sorted(traced)}"

@@ -17,7 +17,7 @@ import scipy.sparse as sp
 
 from hpcagent_bench import config, harbor
 from hpcagent_bench.anticheat import Judgement
-from hpcagent_bench.categories import Language, Oracle, Preset, Residency
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, Residency
 from hpcagent_bench.harness import grade_under, grading, hidden_tests, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.hidden_seeds import salted, secret_seed_second
@@ -58,7 +58,7 @@ void spmv_csc_fp64(const double *restrict A_data, const int64_t *restrict A_indi
 def judge(make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]) -> Iterator[JudgeClient]:
     """A live judge grading against the compiled references with the speed guillotine off: the translations are naive
     sequential C, and these tests are about the layout, not the speed."""
-    _server, url = make_judge(ServiceConfig(baseline="auto", oracle=Oracle.AUTO, input_mode="source", repeat=2))
+    _server, url = make_judge(ServiceConfig(baseline=None, oracle=Oracle.AUTO, input_mode=InputMode.SOURCE, repeat=2))
     with config.overridden("timeouts.guillotine_factor", 0):
         yield JudgeClient(url)
 
@@ -284,7 +284,7 @@ def graded_at(scenario: str, **kwargs: object) -> scoring.Score:
     """spmv's dia submission graded as /submit does (no held-out cases unless given), its public input
     drawn from ``scenario``."""
     spec = BenchSpec.load("spmv")
-    options: dict = {"preset": "S", "repeat": 2, "hidden": True, "hidden_cases": [], "baseline": "c"}
+    options: dict = {"preset": Preset.S, "repeat": 2, "hidden": True, "hidden_cases": [], "baseline": Baseline.C}
     with config.overridden("timeouts.guillotine_factor", 0):
         return scoring.score(
             dia_spmv(),
@@ -396,7 +396,7 @@ def test_the_final_grade_is_unsolved_when_an_input_is_uncovered(monkeypatch: pyt
     nonces = iter(submit_nonce(spec, cell["label"]) for cell in cells)
 
     def scorer(submission: Submission, task: Task, **kwargs: object) -> scoring.Score:
-        return scoring.score(submission, task, **{**kwargs, "preset": "S", "seed_nonce": next(nonces)})
+        return scoring.score(submission, task, **{**kwargs, "preset": Preset.S, "seed_nonce": next(nonces)})
 
     with (
         grade_under.environment_scope(),

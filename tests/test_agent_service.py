@@ -16,7 +16,7 @@ import urllib.request
 import pytest
 
 from hpcagent_bench import languages
-from hpcagent_bench.categories import Language, Oracle, Preset, SourceMode
+from hpcagent_bench.categories import InputMode, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness import grading
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.service import ServiceConfig, make_server
@@ -90,13 +90,13 @@ def test_get_routes_accept_path_style_kernel_keys() -> None:
 
 def test_baseline_endpoint() -> None:
     """A kernel is timed against its track's compiled denominators, never interpreted numpy."""
-    srv, port = _server(ServiceConfig(baseline="auto"))
+    srv, port = _server(ServiceConfig(baseline=None))
     try:
         code, body = _get(port, f"/baseline/gemm?language=c&preset=S&rank={RANK}")
         assert code == 200, body
         allowed = grading.track_baseline_set(BenchSpec.load("gemm").track)
         assert body["baselines"], body["baselines"]
-        assert set(body["baselines"]) <= set(allowed), body["baselines"]
+        assert set(body["baselines"]) <= {kind.text for kind in allowed}, body["baselines"]
         assert all(ns > 0 for ns in body["baselines"].values()), body["baselines"]
     finally:
         srv.shutdown()
@@ -108,7 +108,7 @@ def test_submit_scores_the_reference() -> None:
     from hpcagent_bench.harness.task import Task
 
     src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     try:
         code, body = _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "source": src})
         # /submit answers the verdict alone.
@@ -124,7 +124,7 @@ def test_profile_route_rejects_bad_bodies_exactly_like_submit() -> None:
     """/profile shares /submit's POST body contract (missing kernel, unknown kernel, the
     input_mode policy), asserted AS PARITY so the two routes cannot drift into two contracts.
     What the profile itself returns is tests/test_profiling.py."""
-    srv, port = _server(ServiceConfig(input_mode="source"))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.SOURCE))
 
     def status(route, body):
         with pytest.raises(urllib.error.HTTPError) as ei:
@@ -184,7 +184,7 @@ def test_profile_refuses_a_tool_its_language_cannot_use() -> None:
         # A GPU submission is two translation units, so it carries 'device_source' even when the
         # refusal under test is the tool's: a one-TU cuda body is refused by the envelope first,
         # and that answer says nothing about which tool serves the language.
-        gpu = {"device_source": "y"} if body["language"] in languages.GPU_HOST_LANG else {}
+        gpu = {"device_source": "y"} if body["language"] in {lang.text for lang in languages.GPU_HOST_LANG} else {}
         with pytest.raises(urllib.error.HTTPError) as ei:
             _post(port, "/profile", {"kernel": "gemm", "rank": RANK, "source": "x", **gpu, **body})
         assert ei.value.code == 400, body
@@ -233,7 +233,7 @@ def test_profile_opt_report_answers_the_graded_toolchain_and_its_report() -> Non
 
 
 def test_profile_opt_report_refuses_a_delivery_with_nothing_to_compile() -> None:
-    srv, port = _server(ServiceConfig(input_mode="any"))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.ANY))
     try:
         with pytest.raises(urllib.error.HTTPError) as ei:
             _post(
@@ -278,7 +278,7 @@ def test_score_is_public_only_and_submit_grades_the_hidden_seed() -> None:
     from hpcagent_bench.harness.task import Task
 
     src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source": src}
         code, scored = _post(port, "/score", body)
@@ -327,7 +327,7 @@ def test_submit_records_the_episode_id_and_optimizer_the_body_carried(tmp_path, 
     pass_reruns(monkeypatch)
     episode_id = "llr-cpp.n1.p7.w3"
     src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
             stack.enter_context(config.overridden(key, value))
@@ -415,7 +415,7 @@ def test_an_ml_submit_records_both_scaling_curves_and_holes_beside_the_row(
         "service.submit_feedback": "full",
     }
     pass_reruns(monkeypatch)
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
             stack.enter_context(config.overridden(key, value))
@@ -479,7 +479,7 @@ def test_an_ml_score_measures_both_laws_without_the_fuzz_gate_and_records_nothin
     monkeypatch.setattr(
         service.metric, "score_ml_distributed", lambda *a, **k: asked.append(k) or (graded, ml_law_curves())
     )
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     with contextlib.ExitStack() as stack:
         stack.enter_context(config.overridden("record.db_path", str(tmp_path / "hpcagent_bench.db")))
         stack.enter_context(config.overridden("record.allow_memory_db", True))
@@ -535,7 +535,7 @@ def test_a_bf16_ml_kernel_is_graded_scored_and_verified_in_bf16(
         "record.enabled": True,
         "service.submit_feedback": "full",
     }
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
             stack.enter_context(config.overridden(key, value))
@@ -562,7 +562,7 @@ def test_a_body_naming_a_preset_is_refused_on_every_graded_route() -> None:
     from hpcagent_bench.harness.task import Task
 
     src = reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C))
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2, preset=Preset.S))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2, preset=Preset.S))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source": src, "preset": "M"}
         for route in ("/submit", "/score"):
@@ -579,7 +579,7 @@ def test_unknown_kernel_is_404_on_both_post_routes() -> None:
     times or profiles anything. Pinned separately from the parity test above because parity alone
     cannot see this drift on a host that HAS perf -- there /profile fails at the same
     BenchSpec.load as /submit, so both routes drift together (to 500) and the test stays green."""
-    srv, port = _server(ServiceConfig(input_mode="source"))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.SOURCE))
     try:
         for route in ("/submit", "/profile"):
             with pytest.raises(urllib.error.HTTPError) as ei:
@@ -592,7 +592,7 @@ def test_unknown_kernel_is_404_on_both_post_routes() -> None:
 
 def test_submit_rejects_wrong_input_mode() -> None:
     """input_mode=source must reject a prebuilt-library submission (400)."""
-    srv, port = _server(ServiceConfig(input_mode="source"))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.SOURCE))
     try:
         with pytest.raises(urllib.error.HTTPError) as ei:
             _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "library": "/tmp/x.so"})
@@ -618,7 +618,7 @@ def test_a_source_file_in_the_shared_folder_is_read_compiled_and_scored(tmp_path
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
     (tmp_path / "gemm.c").write_text(reference_source(Task("gemm", SourceMode.RESTRICTED, Language.C)))
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     try:
         body = {"kernel": "gemm", "language": "c", "rank": RANK, "source_file": "gemm.c"}
         code, scored = _post(port, "/score", body)
@@ -637,7 +637,7 @@ def test_the_source_file_name_is_the_contract_and_each_refusal_names_expected_an
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
     for name in ("gemm.c", "gemm.cpp", "gemm_fast.c"):
         (tmp_path / name).write_text("/* the name is checked before the read */\n")
-    srv, port = _server(ServiceConfig(input_mode="source"))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.SOURCE))
     base = {"kernel": "gemm", "language": "c", "rank": RANK}
     try:
         code, err = _refusal(port, {**base, "source_file": "gemm.cpp"})
@@ -674,7 +674,7 @@ def test_an_enforced_track_refuses_a_wrong_language_before_it_builds(mode, langu
     COMPILES (a Python module is not something it can build) and `py-binding` CALLS Python (a .f90 is
     not something it can call). Refused with a 400 naming the languages that ARE accepted, before
     anything is compiled or run -- the prompt must not offer the escape hatch the judge rejects."""
-    srv, port = _server(ServiceConfig(input_mode=mode))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.parse(mode)))
     try:
         code, err = _refusal(port, {"kernel": "gemm", "language": language, "rank": RANK, "source": "x"})
         assert code == 400, err
@@ -691,12 +691,12 @@ def test_a_triton_setup_is_graded_as_python_on_a_py_binding_judge() -> None:
     from hpcagent_bench.api import InputMode
     from hpcagent_bench.harness.service import delivery_language
 
-    assert delivery_language("triton", InputMode.PY_BINDING) == "python"
+    assert delivery_language("triton", InputMode.PY_BINDING) is Language.PYTHON
 
 
 def test_a_plain_numpy_module_is_not_a_triton_submission() -> None:
     """The setup measures Triton: numpy delivered under its name is refused before it is built."""
-    srv, port = _server(ServiceConfig(input_mode="py-binding", oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.PY_BINDING, oracle=Oracle.AUTO, baseline=None, repeat=2))
     source = "def kernel(alpha, beta, C, A, B):\n    return alpha * A @ B + beta * C\n"
     try:
         code, err = _refusal(port, {"kernel": "gemm", "language": "triton", "rank": RANK, "source": source})
@@ -712,7 +712,7 @@ def test_a_library_outside_the_shared_folder_is_refused_before_anything_runs(tmp
     both containers see is an arbitrary object of the agent's choosing -- refused at the boundary,
     with the request faulted rather than the build."""
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    srv, port = _server(ServiceConfig(input_mode="any"))
+    srv, port = _server(ServiceConfig(input_mode=InputMode.ANY))
     try:
         with pytest.raises(urllib.error.HTTPError) as ei:
             _post(port, "/submit", {"kernel": "gemm", "language": "c", "rank": RANK, "library": "/usr/lib/libc.so.6"})

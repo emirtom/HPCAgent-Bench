@@ -753,8 +753,8 @@ def test_unique_layout_guard_rejects_colliding_subdirs_in_a_bundle() -> None:
     [
         {"selector": "gemm"},
         {"selector": "cg"},
-        {"selector": "dense_linear_algebra", "group": "dir", "max_bundle": 64},
-        {"selector": "jacobi_2d", "residency": "distributed"},
+        {"selector": "dense_linear_algebra", "group": A.Group.DIR, "max_bundle": 64},
+        {"selector": "jacobi_2d", "residency": Residency.DISTRIBUTED},
     ],
 )
 def test_generated_tasks_validate(tmp_path: pathlib.Path, kwargs: dict[str, object]) -> None:
@@ -794,7 +794,7 @@ def test_every_generated_verifier_line_parses_with_the_grader(tmp_path: pathlib.
     import shlex
 
     parser = A.build_parser()
-    for kwargs in ({"selector": "gemm"}, {"selector": "jacobi_2d", "residency": "distributed"}):
+    for kwargs in ({"selector": "gemm"}, {"selector": "jacobi_2d", "residency": Residency.DISTRIBUTED}):
         td = A.generate(tmp_path / kwargs["selector"], commit="", **kwargs)[0]
         text = (td / "tests" / "test.sh").read_text()
         argv = ["grade"]
@@ -936,7 +936,7 @@ def test_agent_verb_execution_harbor_dispatches_and_records_rows(
 
     calls = {}
 
-    def fake_run_agent(agent: str, selector: str, out_dir: pathlib.Path, **kw: str) -> tuple[int, list[HostGrade]]:
+    def fake_run_agent(agent: str, selector: str, out_dir: pathlib.Path, **kw: object) -> tuple[int, list[HostGrade]]:
         calls.update(agent=agent, selector=selector, language=kw["language"])
         return 0, [host_grade(reward=1.1, solved=True, kernel="gemm")]
 
@@ -946,7 +946,7 @@ def test_agent_verb_execution_harbor_dispatches_and_records_rows(
         ["agent", "noop", "--execution", "harbor", "--kernels", "gemm", "--output", str(out)]
     )
     assert args.func(args) == 0
-    assert calls == {"agent": "noop", "selector": "gemm", "language": "c"}
+    assert calls == {"agent": "noop", "selector": "gemm", "language": Language.C}
     row = json.loads(out.read_text())
     assert row["execution"] == "harbor"
     assert row["solved"] is True

@@ -19,6 +19,7 @@ import pydantic
 import pytest
 import yaml
 
+from hpcagent_bench.categories import Baseline, Preset
 from hpcagent_bench import (
     cpf_bridge,
     cpf_cache,
@@ -120,7 +121,7 @@ def test_a_yaml_tag_read_as_a_flag_or_a_number_is_text_and_an_unknown_block_is_r
 
 def test_the_grading_tables_parse_and_refuse_a_malformed_entry() -> None:
     """The leader hints, the grading cuts and the KernelBench map are read once and typed; a bad entry fails the load."""
-    assert grading.LEADERS_ADAPTER.validate_python({"gemm": {"XL": "c"}}) == {"gemm": {"XL": "c"}}
+    assert grading.LEADERS_ADAPTER.validate_python({"gemm": {"XL": "c"}}) == {"gemm": {Preset.XL: Baseline.C}}
     with pytest.raises(pydantic.ValidationError):
         grading.LEADERS_ADAPTER.validate_python({"gemm": "c"})
     cut = {"since": "2026-10-11T16:07:33+02:00", "why": "abc123 moved the reference"}

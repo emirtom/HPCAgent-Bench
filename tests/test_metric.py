@@ -785,7 +785,7 @@ def test_device_plausibility_row_matches_residency_and_language(residency: str, 
     itself GPU-graded (the one case Task's own host->device promotion never touches)."""
     from hpcagent_bench.harness.task import device_plausibility_row
 
-    assert device_plausibility_row(residency, language) is want
+    assert device_plausibility_row(Residency.parse(residency), Language.parse(language)) is want
 
 
 def test_suspect_timing_flags_a_ratio_between_the_host_and_device_bounds_only_on_device(

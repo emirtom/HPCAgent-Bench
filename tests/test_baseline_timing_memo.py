@@ -45,7 +45,7 @@ def grade(
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(False, timed))
     submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
-        config.overridden(f"measurement.denominator.{BenchSpec.load(KERNEL).track}", DENOMINATORS[policy]),
+        config.overridden(f"measurement.denominator.{BenchSpec.load(KERNEL).track.text}", DENOMINATORS[policy]),
         config.overridden("measurement.baseline_race", BaselineRace.COMPLETE),  # the policy's own order
         config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
         config.overridden("measurement.mannwhitney.repeats", 5),

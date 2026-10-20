@@ -249,7 +249,7 @@ def test_the_column_compiles_c_with_a_c_driver() -> None:
     """polycc's output is C and only C: VLA parameters, the ``restrict`` keyword and ``register``,
     none of which survive C++ -- and it prepends its own ``#define min(x,y)``, which detonates inside
     libstdc++. A ``clangpp`` here would not be a style choice, it would not compile."""
-    assert native_runtime.FRAMEWORK_LANG["pluto"] == "c"
+    assert native_runtime.FRAMEWORK_LANG["pluto"] is Language.C
     assert native_runtime.FRAMEWORK_COMPILER["pluto"] != "clangpp"
     assert native_runtime.FRAMEWORK_LANG["pluto"] != native_runtime.FRAMEWORK_LANG["llvm"]
 
@@ -262,7 +262,7 @@ def test_the_ppcg_column_follows_the_local_gpu_toolchain(monkeypatch) -> None:
     from hpcagent_bench import languages, ppcg_transform
 
     scop = pathlib.Path("/tmp/x_fp64_pluto_input.c")
-    for backend, ext, compiler in (("hip", "hip", "hipcc"), ("cuda", "cu", "nvcc")):
+    for backend, ext, compiler in ((Language.HIP, "hip", "hipcc"), (Language.CUDA, "cu", "nvcc")):
         monkeypatch.setattr(languages, "gpu_backend", lambda backend=backend: backend)
         monkeypatch.setattr(ppcg_transform, "gpu_backend", lambda backend=backend: backend)
         assert [p.name for p in ppcg_transform.transformed_paths(scop)] == [
@@ -284,15 +284,15 @@ def test_the_named_ppcg_columns_do_not_follow_the_host(monkeypatch) -> None:
     from hpcagent_bench import languages, ppcg_transform
 
     scop = pathlib.Path("/tmp/x_fp64_pluto_input.c")
-    for host in ("hip", "cuda"):
+    for host in (Language.HIP, Language.CUDA):
         monkeypatch.setattr(languages, "gpu_backend", lambda host=host: host)
         monkeypatch.setattr(ppcg_transform, "gpu_backend", lambda host=host: host)
-        for named, ext in (("cuda", "cu"), ("hip", "hip")):
+        for named, ext in ((Language.CUDA, "cu"), (Language.HIP, "hip")):
             assert [p.name for p in ppcg_transform.transformed_paths(scop, named)] == [
                 f"x_fp64_pluto_input_host.{ext}",
                 f"x_fp64_pluto_input_kernel.{ext}",
             ]
-        assert ppcg_transform.resolve_backend(None) == host
+        assert ppcg_transform.resolve_backend(None) is host
 
 
 def test_every_ppcg_column_compiles_ppcg_output_for_its_own_vendor(monkeypatch) -> None:
@@ -313,8 +313,8 @@ def test_every_ppcg_column_compiles_ppcg_output_for_its_own_vendor(monkeypatch) 
     for framework in native_runtime.PPCG_FRAMEWORKS:
         native_runtime.native_sources(pathlib.Path("/tmp/cpp_backend"), "mm", framework)
     assert seen == [("mm", native_runtime.FRAMEWORK_LANG[f]) for f in native_runtime.PPCG_FRAMEWORKS]
-    assert dict(zip(native_runtime.PPCG_FRAMEWORKS, (v for _, v in seen), strict=False))["ppcg_cuda"] == "cuda"
-    assert dict(zip(native_runtime.PPCG_FRAMEWORKS, (v for _, v in seen), strict=False))["ppcg_hip"] == "hip"
+    assert dict(zip(native_runtime.PPCG_FRAMEWORKS, (v for _, v in seen), strict=False))["ppcg_cuda"] is Language.CUDA
+    assert dict(zip(native_runtime.PPCG_FRAMEWORKS, (v for _, v in seen), strict=False))["ppcg_hip"] is Language.HIP
 
 
 def test_an_unknown_ppcg_vendor_is_refused_rather_than_guessed() -> None:

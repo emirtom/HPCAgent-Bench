@@ -20,14 +20,14 @@ import urllib.request
 import pytest
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Oracle
+from hpcagent_bench.categories import Oracle, Preset
 from hpcagent_bench.harness.service import ServiceConfig, make_server
 from tests.conftest import RANK_ENV_VARS
 from tests.rerun_stubs import pass_reruns
 from tests.results_rows import calls
 
 #: What the judge is configured to grade at -- the value every grade must carry.
-CONFIGURED = "M"
+CONFIGURED = Preset.M
 #: What a stale client may still send: an agent holding an older tool schema must have it IGNORED,
 #: never turned into a 400.
 ASKED = "S"
@@ -60,7 +60,7 @@ def judge_fixture(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
         "record.enabled": True,
     }
     pass_reruns(monkeypatch)
-    server = make_server("127.0.0.1", 0, ServiceConfig(preset=CONFIGURED, oracle=Oracle.AUTO, baseline="auto"))
+    server = make_server("127.0.0.1", 0, ServiceConfig(preset=CONFIGURED, oracle=Oracle.AUTO, baseline=None))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with contextlib.ExitStack() as stack:
         for key, value in settings.items():
@@ -81,7 +81,7 @@ def test_every_route_is_labelled_with_the_configured_preset_not_the_body(judge) 
         body = {"kernel": KERNEL, "language": "c", "rank": 0, "source": "oops", "episode_id": "t"}
         assert post(port, route, body) == 200
     presets = [row["preset"] for row in calls(shard)]
-    assert presets == [CONFIGURED, CONFIGURED], (
+    assert presets == [CONFIGURED.text, CONFIGURED.text], (
         f"grades were labelled {presets!r}; the judge grades at the configured size on every route, so "
         "recording the body's value puts a size no grade used into the column analysis slices on"
     )
@@ -95,7 +95,7 @@ def test_a_refused_request_is_recorded_under_the_configured_preset_too(judge) ->
     body = {"kernel": KERNEL, "language": "c", "rank": 0, "source": "x", "source_file": "/y", "episode_id": "t"}
     assert post(port, "/score", body) == 400
     (row,) = calls(shard)
-    assert (row["preset"], row["status"], row["kind"]) == (CONFIGURED, "score_error", "score")
+    assert (row["preset"], row["status"], row["kind"]) == (CONFIGURED.text, "score_error", "score")
     assert row["detail"].startswith("HTTP 400")
 
 

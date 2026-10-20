@@ -495,7 +495,7 @@ def test_the_score_route_never_answers_with_device_runtime(make_judge) -> None:
     whole outgoing key set, not just this one field, so a field silently added to ``Score`` fails
     this test rather than shipping to every agent unseen.
     """
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
@@ -513,7 +513,7 @@ def test_the_build_commands_are_recorded_never_answered_even_under_full_feedback
     """The judge records a grade's build commands itself (``grades.build_commands``), so /score has
     no reader to answer them to: under ``service.submit_feedback=full`` too, the agent gets the
     frozen keys and nothing else."""
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with config.overridden("service.submit_feedback", SubmitFeedback.FULL), urlopen(request, timeout=60) as reply:
@@ -530,7 +530,7 @@ def test_the_score_route_redacts_the_refusal_reason_too(
     ``detail`` must carry neither the word "refused" nor the runtime's name.
     """
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(fake_runtime.parent))
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     source = SMUGGLING_SOURCE.format(library=str(fake_runtime))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": source, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
@@ -606,7 +606,7 @@ def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(make_judge, monkeyp
     ever reaches a build or a device slot (no hipcc is on this host; a 200 build failure would
     prove nothing about whether the residency check ran first)."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps(
         {
             "kernel": KERNEL,
@@ -630,7 +630,7 @@ def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(make_judge, monk
     """The control for the test above: the SAME declared-host-only setup, a host language -- must
     reach scoring exactly as it always has, never a 400 from the new check."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
@@ -660,7 +660,9 @@ def test_a_hip_setups_source_judge_refuses_a_c_submit_over_http(
     """End to end: the ``language=c`` claim on a GPU setup's source judge is a 400 before any build."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "gpu")
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "hip")
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="source", repeat=2))
+    _srv, url = make_judge(
+        ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.SOURCE, repeat=2)
+    )
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with pytest.raises(urllib.error.HTTPError) as refused:

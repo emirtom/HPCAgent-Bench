@@ -83,7 +83,7 @@ def test_a_family_without_a_context_is_an_error_not_the_default() -> None:
 def test_a_compiled_submission_runs_in_its_toolchain_familys_context(
     language: str, requested: str | None, expected: str
 ) -> None:
-    assert sandbox.compiled_omp_context(language, requested) == expected
+    assert sandbox.compiled_omp_context(Language.parse(language), requested) == expected
 
 
 def test_an_unknown_family_request_falls_to_the_default_and_the_build_reports_it() -> None:
@@ -448,12 +448,12 @@ def test_a_pkg_config_less_variant_puts_its_own_directory_on_the_link_line(
     lib = root / "llvm" / "view" / "lib"
     (lib / "libhpcagentvariant.so.1").write_bytes(b"")
     (lib / "libhpcagentvariant.so").symlink_to("libhpcagentvariant.so.1")
-    entry = languages.LibraryEntry(summary="a variant", langs=("c",), link=("-lhpcagentvariant",))
+    entry = languages.LibraryEntry(summary="a variant", langs=(Language.C,), link=("-lhpcagentvariant",))
     monkeypatch.setattr(languages, "load_libraries", lambda: {"variant": entry})
     monkeypatch.setattr(languages, "library_links", lambda _lang, _tokens: True)
     languages.library_tokens.cache_clear()
     assert languages.context_view_lib(entry, "llvm") == str(lib)
-    _compile, link = languages.library_tokens("variant", "c", "llvm")
+    _compile, link = languages.library_tokens("variant", Language.C, "llvm")
     assert link[0] == f"-L{lib}"
     assert f"-Wl,-rpath,{lib}" in link
     assert "-lhpcagentvariant" in link

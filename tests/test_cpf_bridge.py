@@ -75,7 +75,7 @@ def build_dropin(source: pathlib.Path, work: pathlib.Path, language: str = "c") 
     ``-Wextra`` reports the contract as a defect. Every other diagnostic is still an error.
     """
     library = work / f"dropin_{language}.so"
-    std = languages.std_flag("cpp" if language == "c++" else "c")
+    std = languages.std_flag(Language.CPP if language == "c++" else Language.C)
     cmd = [DRIVERS[language], *BUILD_FLAGS, "-Wno-unused-parameter", std, str(source), "-lm", "-o", str(library)]
     done = subprocess.run(cmd, cwd=work, capture_output=True, text=True, check=False)
     assert done.returncode == 0, f"{DRIVERS[language]} rejected the drop-in {source.name}:\n{done.stderr}"
@@ -100,7 +100,7 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     assert source.name == f"{KERNEL}_fp64_cpf.{cpf_bridge.LANGUAGE_EXT[language]}"
     assert json.loads(pathlib.Path(record.binding).read_text()) == native.document().model_dump(exclude_unset=True)
     code = source.read_text()
-    stub = gen_call_stub(native, "cpp" if language == "c++" else "c")
+    stub = gen_call_stub(native, Language.CPP if language == "c++" else Language.C)
     assert entry_prototype(code, native.symbol) == entry_prototype(stub, native.symbol)
     assert "#pragma omp parallel for" in code, "a sequential rendering is the failure this path exists to avoid"
 
@@ -165,8 +165,8 @@ def prerender_kwargs() -> dict[str, object]:
     assert found.origin is not None
     return {
         "precision": "",
-        "target": "cpu",
-        "hints": "proofs",
+        "target": Target.CPU,
+        "hints": HintDetail.PROOFS,
         "dace_package_root": pathlib.Path(found.origin).resolve().parents[1],
         "dace_commit": "test-commit",
     }
@@ -400,8 +400,8 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
         canonical_program(RETURNING_PROGRAM_SOURCE, "returns_output", tmp_path),
         "c",
         "fp64",
-        "cpu",
-        "proofs",
+        Target.CPU,
+        HintDetail.PROOFS,
     )
     assert form.entry == native.symbol
     assert declared_parameters(form.code, form.entry) == abi
@@ -587,8 +587,8 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
         canonical_program(COUNTING_PROGRAM_SOURCE, "returns_count", tmp_path),
         "c",
         "fp64",
-        "cpu",
-        "proofs",
+        Target.CPU,
+        HintDetail.PROOFS,
     )
     assert declared_parameters(form.code, form.entry) == abi
 

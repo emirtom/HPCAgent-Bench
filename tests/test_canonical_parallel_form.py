@@ -48,7 +48,7 @@ def test_a_miss_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"kernel": "example_kernel", "verdict": "unavailable", "note": "nothing was pre-rendered"}
 
     monkeypatch.setattr(tool.http_json, "get_judge", fake_get)
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: "c")
+    monkeypatch.setenv("LANGUAGE", "c")
     answer = tool.run({"kernel": "example_kernel"})
     assert answer["verdict"] == "unavailable"
     assert captured["query"] == {"language": "c"}, "get_judge appends the rank itself"
@@ -80,11 +80,11 @@ def test_a_missing_kernel_is_content_not_an_exception(monkeypatch: pytest.Monkey
 def test_the_dialect_falls_back_rather_than_refusing(monkeypatch: pytest.MonkeyPatch) -> None:
     """A Fortran track still gets a form; the parallelism facts do not depend on the dialect."""
     tool = load_tool(monkeypatch)
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: "fortran")
+    monkeypatch.setenv("LANGUAGE", "fortran")
     assert tool.render_language({}) == "c++"
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: "cpp")
+    monkeypatch.setenv("LANGUAGE", "cpp")
     assert tool.render_language({}) == "c++"
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: "c")
+    monkeypatch.setenv("LANGUAGE", "c")
     assert tool.render_language({}) == "c"
     assert tool.render_language({"dialect": "c++"}) == "c++"
 
@@ -93,7 +93,7 @@ def test_the_dialect_falls_back_rather_than_refusing(monkeypatch: pytest.MonkeyP
 def test_a_gpu_task_asks_for_the_hip_form(monkeypatch: pytest.MonkeyPatch, language: str) -> None:
     """There is no CUDA form: a GPU task's view holds the hip device form, and the request names it."""
     tool = load_tool(monkeypatch)
-    monkeypatch.setattr(tool.http_json, "task_language", lambda: language)
+    monkeypatch.setenv("LANGUAGE", language)
     assert tool.render_language({}) == "hip"
     assert served_tool("canonical_parallel_form").input_schema["properties"]["dialect"]["enum"] == list(
         tool.RENDER_LANGUAGES

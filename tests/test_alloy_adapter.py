@@ -7,8 +7,10 @@ import dataclasses
 
 import pytest
 
-from hpcagent_bench.categories import Preset
-from hpcagent_bench.harness.alloy_adapter import fast_size, ranked, stub_time
+pytest.importorskip("alloy", reason="the adapter imports the optional alloy extra")
+
+from hpcagent_bench.categories import Preset  # noqa: E402 -- after the optional-extra skip
+from hpcagent_bench.harness.alloy_adapter import fast_size, ranked, stub_time  # noqa: E402
 from hpcagent_bench.harness.profile_wire import DeviceTraceReport, LinuxperfReport, ProfileAnswer
 
 

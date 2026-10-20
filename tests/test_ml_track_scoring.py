@@ -18,7 +18,7 @@ import pytest
 from relayout.ops import Scheme
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness import metric, mpi_call, native_call, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
@@ -103,7 +103,8 @@ def test_score_distributed_credits_the_torch_baseline(monkeypatch: pytest.Monkey
     monkeypatch.setattr(scoring.torch_baseline, "shipped_samples", fake_baseline)
     score = scoring.score_distributed(mpi_sub(), TASK, preset=Preset.S, datatype="bf16", repeat=2, hidden=False)
     assert score.correct
-    assert score.baseline == "torch-autotune-gpu" == seen["kind"]
+    assert score.baseline == Baseline.TORCH_AUTOTUNE_GPU.text
+    assert seen["kind"] is Baseline.TORCH_AUTOTUNE_GPU
     # /score (hidden=False) reduces both sides by their median (timing.LOCAL_BACKEND), not their minimum:
     # the four-rank samples are [8000 // 4, 9000 // 4].
     assert timing.LOCAL_BACKEND == Statistic.MEDIAN
@@ -165,7 +166,7 @@ def test_time_scaling_anchor_runs_a_gpu_anchor_on_the_device(monkeypatch: pytest
     monkeypatch.setattr(scoring, "Sandbox", fake_sandbox)
     monkeypatch.setattr(scoring, "_call_isolated", fake_call)
     monkeypatch.setattr(scoring, "_data_seeded", lambda *a, **k: {})
-    monkeypatch.setattr(scoring, "first_oracle", lambda kinds, spec, task, binding, data, **kw: ("numba", {}))
+    monkeypatch.setattr(scoring, "first_oracle", lambda kinds, spec, task, binding, data, **kw: (Oracle.NUMBA, {}))
     monkeypatch.setattr(scoring, "oracle_function", lambda kind, *a, **kw: lambda data: {})
     monkeypatch.setattr(scoring, "probe_write_mask", lambda *a, **k: {})
     monkeypatch.setattr(scoring, "contracted_extents", lambda *a, **k: {})
@@ -330,7 +331,7 @@ def fake_ml_grade(
 
 
 def ml_grade(**kw: object) -> scoring.MlGrade:
-    args = {"rank_counts": (1, 2, 4), "preset": "S", "datatype": "bf16", "repeat": 3}
+    args = {"rank_counts": (1, 2, 4), "preset": Preset.S, "datatype": "bf16", "repeat": 3}
     return scoring.score_ml(softmax_sub(), ML_TASK, **{**args, **kw})
 
 
@@ -734,7 +735,7 @@ def test_a_fuzzed_judge_preset_reverifies_the_ml_grade_at_the_leaderboard_preset
     res = scoring.independent_verify(
         softmax_sub(), ML_TASK, graded, preset=Preset.FUZZED, datatype="bf16", reverify_seed=7
     )
-    xl = dict(scoring.BenchSpec.load("dist_softmax").parameters[config.current().mpi.leaderboard_preset])
+    xl = dict(scoring.BenchSpec.load("dist_softmax").parameters[config.current().mpi.leaderboard_preset.text])
     assert [params for params, _ in seen] == [xl, xl]
     assert seen[1][1] == 7
     assert res.ok

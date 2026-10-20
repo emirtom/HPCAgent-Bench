@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness import recording, runner
 from hpcagent_bench.harness.agent import ScriptedAgent, reference_source
 from hpcagent_bench.harness.envelope import Submission
@@ -230,7 +230,7 @@ def test_scripted_tool_session_scores_then_submits(make_judge) -> None:
     from hpcagent_bench.harness import tools
     from hpcagent_bench.harness.service import ServiceConfig
 
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     client = tools.JudgeClient(url)
 
     # 1. read the contract + the time to beat. The contract is built locally (there is no

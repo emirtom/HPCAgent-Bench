@@ -48,14 +48,14 @@ def make_oracle_response(kernel: str = "gemm", **over: object) -> GradeAnswer:
         detail="",
         baseline_ns=400,
         speedup=2.0,  # authoritative judge speedup (differs from the 9.9 proxy)
-        baseline=Baseline.NUMBA,
+        baseline=Baseline.NUMBA.text,
         public_correct=True,
         hidden_correct=True,
         hidden_passed=3,
         hidden_total=3,
         baselines={"numba": 400},
         speedups={"numba": 2.0},
-        oracle=Oracle.AUTO,
+        oracle=Oracle.AUTO.text,
     )
     base.update(over)
     return grade_answer(Score(**base), kernel, Language.C, Preset.S, Residency.HOST, RecordedAnswer(skipped="off"), "r")

@@ -36,7 +36,7 @@ def test_a_failing_step_is_reported_and_the_next_one_still_runs(monkeypatch: pyt
     ran: list[str] = []
 
     def broken(kernel: str, plan: Plan) -> None:
-        raise OSError(f"no scratch for {kernel} in {plan.language}")
+        raise OSError(f"no scratch for {kernel} in {plan.language.text}")
 
     monkeypatch.setitem(prepare.STEP_FUNCTIONS, "sources", broken)
     monkeypatch.setitem(prepare.STEP_FUNCTIONS, "grade", lambda kernel, plan: ran.append(kernel))

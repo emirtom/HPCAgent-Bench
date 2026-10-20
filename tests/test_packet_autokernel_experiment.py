@@ -1,25 +1,25 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""AutoKernel's experiment ledger tool, loaded the way the packet-aware MCP server loads it: by file
-path with ``importlib.util``, not as a package import. It is STDLIB ONLY (no ``http_json``, no
+"""AutoKernel's experiment ledger tool, loaded the way the packet-aware MCP server loads it: as its plugin's
+``tools.experiment`` module (:func:`hpcagent_agent.plugins.import_tools`). It is STDLIB ONLY (no ``http_json``, no
 ``hpcagent_bench``), so every fixture here builds a real ledger under a tmp directory rather than
 mocking the module -- the behaviour under test IS the filesystem state machine.
 """
 
+import importlib
 import pathlib
 import types
 
 import pytest
-
-from hpcagent_bench import paths
-from tests.fresh_module import module_at
-
-MODULE_PATH = paths.ROOT / "plugins/autokernel/tools/experiment.py"
+from hpcagent_agent import plugins
+from hpcagent_agent.tools import registry
 
 
 def load_experiment_module() -> types.ModuleType:
-    """A fresh import of the module by file path, exactly as the packet-aware server will load it."""
-    return module_at(MODULE_PATH, "autokernel_experiment")
+    """A fresh import of the module under its plugin package, exactly as the packet-aware server loads it."""
+    (plugin,) = (found for found in plugins.find(plugins.plugin_dirs({})) if found.name == "autokernel")
+    plugins.import_package(plugin)
+    return importlib.reload(importlib.import_module(f"{plugin.package}.tools.experiment"))
 
 
 def set_ledger_root(monkeypatch: pytest.MonkeyPatch, root: pathlib.Path) -> None:
@@ -381,5 +381,10 @@ def test_the_actions_and_decisions_keep_their_tool_and_ledger_spellings() -> Non
     """The input schema's ``action`` enum and the ``decision`` column of results.tsv read these spellings."""
     experiment = load_experiment_module()
     assert experiment.Action.texts() == ("record", "best", "restore", "list")
-    assert experiment.INPUT_SCHEMA["properties"]["action"]["enum"] == ["record", "best", "restore", "list"]
+    assert registry.schema_of(experiment.ExperimentInput)["properties"]["action"]["enum"] == [
+        "record",
+        "best",
+        "restore",
+        "list",
+    ]
     assert experiment.Decision.texts() == ("keep", "revert")

@@ -14,8 +14,9 @@ import tempfile
 import pytest
 
 from hpcagent_bench import paths
-from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.categories import InputMode, Language, SourceMode
 from hpcagent_bench.harness.prompts import PROMPT_FACTS_KEY, cluster_facts
+from hpcagent_bench.harness.service import delivery_language
 from hpcagent_bench.harness.task import Residency, Task
 from tests.fresh_module import fresh
 
@@ -95,7 +96,7 @@ def render(variant: Variant, shared: pathlib.Path, monkeypatch: pytest.MonkeyPat
     ):
         monkeypatch.setenv(name, value)
     residency = Residency.DISTRIBUTED if dict(variant.env).get("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED") else None
-    task = Task(variant.kernel, SourceMode.RESTRICTED, Language.parse(variant.language))
+    task = Task(variant.kernel, SourceMode.RESTRICTED, delivery_language(variant.language, InputMode.PY_BINDING))
     facts = cluster_facts(dataclasses.replace(task, residency=residency) if residency else task)
     problem = {
         "id": 0,
@@ -137,7 +138,7 @@ def test_every_service_prompt_renders_whole_and_names_what_grades_it(kernel: str
     the kernel (``auto`` is a config token, not a reference), and a kernel with fixed sizes lists no empty range."""
     from hpcagent_bench.harness.service import service_prompt
 
-    text = service_prompt(kernel, language, "http://judge:8800")
+    text = service_prompt(kernel, Language.parse(language), "http://judge:8800")
     assert not empty_sections(text), empty_sections(text)
     assert "{{" not in text
     assert "auto" not in text.split("## Correctness")[1].split("## Scoring")[0]

@@ -30,7 +30,7 @@ import pytest
 import yaml
 
 from hpcagent_bench import languages, paths, protocols, recorded_rows
-from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.harness import (
     denominator,
     grade_under,
@@ -161,7 +161,7 @@ def test_every_timed_submission_is_listed_and_each_episodes_final_comes_first(
 def test_a_gpu_row_is_listed_with_both_stored_halves_of_its_own_grade(tmp_path: pathlib.Path) -> None:
     items = grade_under.build_worklist([shard_db(tmp_path)], [])[0]
     earlier = next(item for item in items if item.ts_ms == 10)
-    assert earlier.language is Language.HIP
+    assert earlier.language == Language.HIP.text
     submission = grade_under.submission_of(earlier)
     assert (submission.source, submission.device_source) == (HOST, DEVICE)
     later = next(item for item in items if item.ts_ms == 20)
@@ -281,16 +281,25 @@ def test_another_setup_sharing_the_name_prefix_is_not_the_setup_env(tmp_path: pa
 @pytest.mark.parametrize(
     ("setup", "knobs"),
     [
-        ("llr40-qwen38-c", ("experiment", "llr40", "qwen38", "c", "", "host", "", "")),
-        ("llr40-qwen38-c-skills-blind", ("llrblind", "llr40", "qwen38", "c", "", "host", "", "-blind")),
-        ("llr40-qwen38-c-openmp-device-skills", ("experiment", "llr40", "qwen38", "c", "openmp", "device", "", "")),
-        ("llr40-qwen38-c-openmp", ("experiment", "llr40", "qwen38", "c", "openmp", "host", "", "")),
-        ("llr40-qwen38-triton-device-skills", ("experiment", "llr40", "qwen38", "triton-device", "", "host", "", "")),
-        ("harness20-oss120b-c-miniswe", ("harness", "harness20", "oss120b", "c", "", "host", "miniswe", "")),
-        ("mlscale20-kimi27sglang-hip-gemmhint", ("mlscale", "mlscale20", "kimi27sglang", "hip", "", "host", "", "")),
+        ("llr40-qwen38-c", ("experiment", "llr40", "qwen38", "c", "", Residency.HOST, "", "")),
+        ("llr40-qwen38-c-skills-blind", ("llrblind", "llr40", "qwen38", "c", "", Residency.HOST, "", "-blind")),
+        (
+            "llr40-qwen38-c-openmp-device-skills",
+            ("experiment", "llr40", "qwen38", "c", "openmp", Residency.DEVICE, "", ""),
+        ),
+        ("llr40-qwen38-c-openmp", ("experiment", "llr40", "qwen38", "c", "openmp", Residency.HOST, "", "")),
+        (
+            "llr40-qwen38-triton-device-skills",
+            ("experiment", "llr40", "qwen38", "triton-device", "", Residency.HOST, "", ""),
+        ),
+        ("harness20-oss120b-c-miniswe", ("harness", "harness20", "oss120b", "c", "", Residency.HOST, "miniswe", "")),
+        (
+            "mlscale20-kimi27sglang-hip-gemmhint",
+            ("mlscale", "mlscale20", "kimi27sglang", "hip", "", Residency.HOST, "", ""),
+        ),
     ],
 )
-def test_a_setup_name_reads_back_into_the_knobs_submit_staged_it_with(setup: str, knobs: tuple[str, ...]) -> None:
+def test_a_setup_name_reads_back_into_the_knobs_submit_staged_it_with(setup: str, knobs: tuple[object, ...]) -> None:
     launch = grade_under.launch_of(setup)
     assert launch is not None
     got = (launch.base, launch.experiment, launch.model, launch.language, launch.offload, launch.residency)
@@ -418,7 +427,7 @@ def score_result(**changes: object) -> Score:
 @pytest.mark.parametrize("recorded", ["triton", "triton-device"])
 def test_a_python_delivered_row_is_graded_as_python_like_submit(tmp_path: pathlib.Path, recorded: str) -> None:
     """A promotion retry: all 40 triton rows raised 'language must be one of ...; got triton'."""
-    seen: list[tuple[str, str]] = []
+    seen: list[tuple[Language, Language]] = []
 
     def scorer(submission: Any, task: Any, **_kwargs: Any) -> Score:
         seen.append((submission.language, task.language))
@@ -428,7 +437,7 @@ def test_a_python_delivered_row_is_graded_as_python_like_submit(tmp_path: pathli
     host_only = next(item for item in grade_under.build_worklist([shard_db(tmp_path)], [])[0] if item.ts_ms == 20)
     item = dataclasses.replace(host_only, language=recorded)
     grade_under.grade(item, scorer=scorer, verifier=lambda *a, **k: verdict)
-    assert seen == [("python", "python")]
+    assert seen == [(Language.PYTHON, Language.PYTHON)]
 
 
 def test_a_verified_regrade_carries_the_current_reduction_and_its_times(

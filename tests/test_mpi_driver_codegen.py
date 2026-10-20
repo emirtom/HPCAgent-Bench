@@ -38,7 +38,7 @@ def _yax() -> Binding:
 def test_mpi_symbol_is_distinct_from_single_node() -> None:
     b = _yax()
     assert mpi_symbol(b) == "jac2d_mpi"  # <base>_mpi, derived from <base>_fp64
-    assert mpi_symbol(b) != b.symbols["c"]  # never collides with the single-node symbol
+    assert mpi_symbol(b) != b.symbols[Language.C]  # never collides with the single-node symbol
 
 
 def test_kernel_stub_has_section12_signature() -> None:

@@ -89,7 +89,7 @@ def test_a_complex_array_is_std_complex_in_every_cxx_parsed_stub() -> None:
     layout-compatible, so the C++/CUDA/HIP stubs spell it that way and C keeps ``_Complex``."""
     b = binding_from_spec(BenchSpec.load("contour_integral"))
     assert "double _Complex" in gen_call_stub(b, Language.C)
-    for lang in ("cpp", "cuda", "hip"):
+    for lang in (Language.CPP, Language.CUDA, Language.HIP):
         stub = gen_call_stub(b, lang)
         assert "std::complex<double>" in stub, lang
         assert "_Complex" not in stub, lang
@@ -107,7 +107,7 @@ def test_stub_restrict_spelling_is_per_language() -> None:
     assert "*restrict " in c_stub  # C keeps the C99 keyword
     assert "__restrict__" not in c_stub
 
-    for lang in ("cpp", "cuda", "hip"):
+    for lang in (Language.CPP, Language.CUDA, Language.HIP):
         stub = gen_call_stub(b, lang)
         assert "const double *__restrict__ A" in stub, lang
         assert "double *__restrict__ C" in stub, lang  # output, non-const
@@ -122,7 +122,7 @@ def test_gemm_host_glue_forwards_pure() -> None:
     glue = gen_host_glue(b)
     assert "gemm_pure" in glue
     assert "time_ns" not in glue  # timing is harness-owned externally (Sec. 6)
-    assert b.symbols["c"] in glue
+    assert b.symbols[Language.C] in glue
 
 
 def test_gemm_json_round_trip() -> None:
@@ -137,7 +137,7 @@ def test_gemm_json_round_trip() -> None:
     assert j["workspace"]["dtype"] == "uint8"
     assert j["workspace"]["size_name"] == "workspace_size"
     assert j["workspace"]["nullable"] is True
-    assert set(j["symbols"]) == set(LANGS)
+    assert set(j["symbols"]) == {lang.text for lang in LANGS}
     names = [a["name"] for a in j["args"]]
     assert names == ["A", "B", "C", "NI", "NJ", "NK", "alpha", "beta"]
     # const flags carried through.

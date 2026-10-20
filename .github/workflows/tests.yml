@@ -295,7 +295,7 @@ jobs:
         env:
           HPCAGENT_BENCH_SERVICE_PRESET: S
         run: |
-          python -m pytest -v -p no:cacheprovider -rfEs --maxfail=10 --timeout=2000 tests/test_alloy_optimizer.py
+          python -m pytest -v -p no:cacheprovider -rfEs --maxfail=10 --timeout=2000 tests/test_alloy_optimizer.py tests/test_alloy_adapter.py
       # The perf gate's other groups (see `perf`): reports, does not block.
       - name: Perf gate [${{ matrix.leg.perf }}]
         if: ${{ matrix.leg.perf && !cancelled() }}

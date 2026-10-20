@@ -40,7 +40,7 @@ from hpcagent_bench.cpf_cache import RenderVerdict
 KERNELS_UNDER_TEST = ("tsvc_2_s311", "indirect_gather_3nbr", "gemm", "atax", "heat_3d")
 
 #: CPF dialect -> the task language whose stub the prompt shows.
-STUB_LANGUAGE = {"c": "c", "c++": "cpp"}
+STUB_LANGUAGE = {"c": Language.C, "c++": Language.CPP}
 
 
 def entry_prototype(code: str, symbol: str) -> str:

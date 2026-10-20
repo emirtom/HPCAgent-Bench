@@ -10,7 +10,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import pytest
 
-from hpcagent_bench.categories import Baseline, Language, Oracle, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, SourceMode
 from hpcagent_bench.harness import native
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
@@ -99,7 +99,9 @@ def test_concurrent_judge_keeps_each_agents_result_separate(make_judge) -> None:
 
     config.set_override("runtime.mp_context", MpContext.FORKSERVER)
     try:
-        _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=1))
+        _srv, url = make_judge(
+            ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=1)
+        )
         client = tools.JudgeClient(url)
         ref = reference_source(TASK)
         items = [(0, ref, True), (1, WRONG_GEMM_C, False), (2, ref, True), (3, ref, True)]

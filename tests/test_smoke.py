@@ -24,7 +24,7 @@ import pytest
 
 from hpcagent_bench import config, dataset, paths, protocols, vocabulary
 from hpcagent_bench.api import RunConfig
-from hpcagent_bench.categories import Baseline, InputMode, Language, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, SourceMode, parse_baseline
 from hpcagent_bench.cluster import env_spec, systems
 from hpcagent_bench.harness import grade_under, timing, tools
 from hpcagent_bench.harness.envelope import Submission
@@ -219,7 +219,7 @@ def test_the_shipped_config_loads_and_validates() -> None:
     for target in env_spec.targets():
         assert env_spec.render(target), target
     with pytest.raises(ValueError, match="nonsense"):
-        RunConfig(baseline="nonsense")
+        parse_baseline("nonsense")
     with pytest.raises(ValueError, match="repeat"):
         timing.validate_repeat(1, Statistic.MANNWHITNEY)
 

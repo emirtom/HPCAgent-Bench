@@ -13,7 +13,7 @@ submission's ``build`` tokens) and the *ABI* option (the optimizer prebuilds the
 import pytest
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Baseline, Language, Oracle, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, SourceMode
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import BlasReductionOptimizer, have_openblas
@@ -28,7 +28,7 @@ KERNELS = ("tsvc_2_vdotr", "gesummv")  # BLAS-1 ddot, BLAS-2 dgemv
 
 def _cfg():
     # baseline=Baseline.C: the speedup denominator is the emitted C reference (always C).
-    return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=3)
+    return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=3)
 
 
 @pytest.mark.parametrize("kernel", KERNELS)

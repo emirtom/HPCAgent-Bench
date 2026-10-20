@@ -20,8 +20,8 @@ from tests.port_toolchain import gcc_available
 
 
 def test_task_expand_filtered_by_language() -> None:
-    tasks = expand_tasks(kernels=["gemm"], languages=["c", "cpp"])
-    assert {t.language for t in tasks} == {"c", "cpp"}
+    tasks = expand_tasks(kernels=["gemm"], languages=[Language.C, Language.CPP])
+    assert {t.language for t in tasks} == {Language.C, Language.CPP}
     assert all(t.kernel == "gemm" and t.source_mode is SourceMode.RESTRICTED for t in tasks)
     assert tasks[0].id.startswith("gemm::restricted::")
 
@@ -33,8 +33,8 @@ def test_task_rejects_bad_source_mode() -> None:
 
 def test_submission_validate() -> None:
     s = Submission(language=Language.C, source="void k(){}")
-    assert s.mode == "restricted"
-    assert Submission(language=Language.C, library="/tmp/libk.so").mode == "any"
+    assert s.mode is SourceMode.RESTRICTED
+    assert Submission(language=Language.C, library="/tmp/libk.so").mode is SourceMode.ANY
     with pytest.raises(ValueError):
         Submission(language=Language.C)  # neither source nor library
     with pytest.raises(ValueError):
@@ -54,7 +54,7 @@ def test_a_source_file_survives_the_json_round_trip_as_the_other_spelling_of_sou
     OTHER spelling of ``source``: restricted delivery, and never emitted next to an inline ``source``
     (the judge refuses that request rather than merging it, so the envelope cannot build one)."""
     s = Submission(language=Language.FORTRAN, source_file="argmax_value.f90", build=["{FLAGS}"])
-    assert s.mode == "restricted"
+    assert s.mode is SourceMode.RESTRICTED
     body = s.to_json()
     assert body["source_file"] == "argmax_value.f90"
     assert "source" not in body
@@ -73,7 +73,7 @@ def test_stub_agent_echoes_injected_source() -> None:
     assert isinstance(agent, Agent)
     assert sub.language is Language.C
     assert "gemm" in sub.source
-    assert sub.mode == "restricted"
+    assert sub.mode is SourceMode.RESTRICTED
 
 
 def test_stub_agent_rejects_any_mode() -> None:
@@ -100,7 +100,7 @@ def test_extract_json_object_balances_braces_in_source() -> None:
     assert obj["language"] == "c"
     assert obj["source"].count("{") == 2
     sub = Submission.from_response(reply)
-    assert sub.mode == "restricted"
+    assert sub.mode is SourceMode.RESTRICTED
     assert "if (a[0]>0)" in sub.source
 
 
@@ -159,7 +159,10 @@ def test_gen_stub_cuda_hip_host_entry() -> None:
     from hpcagent_bench.support.bindings import binding_from_spec, gen_call_stub
 
     b = binding_from_spec(BenchSpec.load("gemm"))
-    for lang, header, sym in (("cuda", "cuda_runtime.h", "gemm_fp64"), ("hip", "hip/hip_runtime.h", "gemm_fp64")):
+    for lang, header, sym in (
+        (Language.CUDA, "cuda_runtime.h", "gemm_fp64"),
+        (Language.HIP, "hip/hip_runtime.h", "gemm_fp64"),
+    ):
         stub = gen_call_stub(b, lang)
         assert header in stub  # GPU runtime header
         assert f'extern "C" void {sym}(' in stub  # canonical host symbol
@@ -176,9 +179,9 @@ def test_cuda_hip_registered_everywhere() -> None:
     from hpcagent_bench.languages import LANG_EXT
     from hpcagent_bench.support.bindings.stubs import LANGS
 
-    assert {"cuda", "hip"} <= set(LANGS)
-    assert LANG_EXT["cuda"] == "cu"
-    assert LANG_EXT["hip"] == "hip"
+    assert {Language.CUDA, Language.HIP} <= set(LANGS)
+    assert LANG_EXT[Language.CUDA] == "cu"
+    assert LANG_EXT[Language.HIP] == "hip"
 
 
 # the full loop: StubAgent -> sandbox compile -> native call -> score
@@ -215,7 +218,7 @@ def test_python_submission_validates_and_roundtrips() -> None:
 
     s = Submission(language=Language.PYTHON, source="def kernel(a):\n    return a\n")
     assert s.is_python
-    assert s.mode == "restricted"
+    assert s.mode is SourceMode.RESTRICTED
     assert Submission.from_obj(s.to_json()).is_python
 
 
@@ -471,7 +474,7 @@ def test_score_any_mode_prebuilt_library() -> None:
         for cmd in languages.build_shared_lib_commands(Language.C, src, lib):
             subprocess.run(cmd, check=True, cwd=d)
         submission = Submission(language=Language.C, library=str(lib))
-        assert submission.mode == "any"
+        assert submission.mode is SourceMode.ANY
         result = score(submission, Task("gemm", SourceMode.ANY, Language.C), preset=Preset.S, repeat=1)
     assert result.build_ok
     assert result.correct

@@ -15,7 +15,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import polygeist_transform
-from hpcagent_bench.categories import Preset
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.translators.numpyto_c.bindings import BindingArg
@@ -100,7 +100,7 @@ def test_missing_tools_decline_instead_of_building_the_untransformed_source(
 def test_both_columns_build_from_the_polygeist_transform() -> None:
     """Routed by the column's ``transform``, never to the translator's own C."""
     for column in ("polygeist_cpu", "polygeist_gpu"):
-        assert native_runtime.FRAMEWORK_LANG[column] == "c"
+        assert native_runtime.FRAMEWORK_LANG[column] is Language.C
         assert native_runtime.FRAMEWORK_COMPILER[column].startswith("clang-polygeist")
 
 

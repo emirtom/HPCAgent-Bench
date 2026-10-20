@@ -58,7 +58,7 @@ def _driver(cmd) -> str:
 
 # build_mpi_executable_commands: pure command shape (no compiler needed)
 def test_build_commands_compile_each_source_and_link_executable() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.C, Path("k.c"))], Path("d.c"), Path("bench"))
     assert len(cmds) == 3  # compile kernel, compile driver, link
     # the MPICH C wrapper is the default; each source compiles to an object.
     assert _driver(cmds[0]) == "mpicc.mpich"
@@ -74,20 +74,22 @@ def test_build_commands_compile_each_source_and_link_executable() -> None:
 
 
 def test_build_commands_cc_override_swaps_wrapper() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"), cc_override={"c": "mpicc"})
+    cmds = build_mpi_executable_commands(
+        [(Language.C, Path("k.c"))], Path("d.c"), Path("bench"), cc_override={Language.C: "mpicc"}
+    )
     assert all(_driver(argv) == "mpicc" for argv in cmds)  # OpenMPI wrapper for a matching launcher
 
 
 def test_build_commands_fortran_kernel_links_with_fortran_driver() -> None:
     # A Fortran kernel + the always-C driver -> link with the Fortran wrapper (pulls libgfortran).
-    cmds = build_mpi_executable_commands([("fortran", Path("k.f90"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.FORTRAN, Path("k.f90"))], Path("d.c"), Path("bench"))
     assert _driver(cmds[0]) == "mpifort.mpich"  # kernel compiled with the Fortran wrapper
     assert _driver(cmds[1]) == "mpicc.mpich"  # driver always C
     assert _driver(cmds[-1]) == "mpifort.mpich"  # link driver = Fortran
 
 
 def test_build_commands_baseline_flows_from_matrix_no_literal_flags() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.C, Path("k.c"))], Path("d.c"), Path("bench"))
     # -O3/-march come from the matrix baseline, never hard-coded in the yaml template.
     assert any("-O3" in tok for tok in cmds[0])
 
@@ -116,7 +118,7 @@ def test_build_commands_kernel_lib_links_the_kernel_objects_alone_as_a_pic_share
     """The sharded rank driver dlopens this next to an mpi4py that owns MPI_Init: a second main
     or non-PIC objects would make it unloadable."""
     monkeypatch.setenv("HPCAGENT_BENCH_GFX", "gfx942")  # the hip line names an arch; no rocminfo here
-    kernels = [("cpp", Path("k.cpp")), ("hip", Path("k.hip"))]
+    kernels = [(Language.CPP, Path("k.cpp")), (Language.HIP, Path("k.hip"))]
     cmds = build_mpi_executable_commands(
         kernels, Path("d.hip"), Path("bench"), driver_lang=Language.HIP, kernel_lib=Path("bench.kernel.so")
     )
@@ -131,7 +133,7 @@ def test_build_commands_kernel_lib_links_the_kernel_objects_alone_as_a_pic_share
 
 
 def test_build_commands_without_kernel_lib_are_unchanged() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.C, Path("k.c"))], Path("d.c"), Path("bench"))
     assert len(cmds) == 3
     assert not any("-shared" in c for c in cmds)
     assert all(c[-1] != "-fPIC" for c in cmds[:2])  # no PIC appended after the matrix flags

@@ -77,7 +77,7 @@ def test_emit_native_resolves_the_manifest_by_stem() -> None:
     for stale in cppdir.glob("arc_distance_fp*.c"):
         stale.unlink()
 
-    status = emit_native(spec, ["c"])
+    status = emit_native(spec, [Language.C])
 
     assert status, "emit_native reported nothing at all"
     bad = {k: v for k, v in status.items() if v.startswith("fail")}
@@ -131,7 +131,7 @@ def test_emitted_symbol_matches_the_binding(kernel, tmp_path) -> None:
     assert emit_kernel(spec, numpy_py, tmp_path, target="c") == 0
 
     binding = binding_from_spec(spec)
-    symbol = binding.symbols["c"]
+    symbol = binding.symbols[Language.C]
     hits = sorted(tmp_path.glob("*_fp64.c"))
     assert len(hits) == 1, f"expected one fp64 C source, got {[p.name for p in hits]}"
     assert hits[0].stem == f"{spec.native_base(binding.config)}_fp64", "file stem desynced from the loader"
@@ -447,7 +447,7 @@ def test_int32_array_promoted_on_read(framework, target, compiler, ext) -> None:
                 str(so),
             ]
         else:
-            std = languages.std_flag("cpp" if ext == "cpp" else "c")
+            std = languages.std_flag(Language.CPP if ext == "cpp" else Language.C)
             cmd = [compiler, "-O2", std, "-D_POSIX_C_SOURCE=199309L", "-fPIC", "-shared", str(src), "-o", str(so)]
         rc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         assert rc.returncode == 0, rc.stderr

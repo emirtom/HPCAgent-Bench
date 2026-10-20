@@ -24,7 +24,7 @@ def test_a_best_of_grade_that_lost_every_candidate_is_a_judge_fault(
     monkeypatch.setattr(scoring, "_run_c_reference", seq_c(True, timed))
     monkeypatch.setattr(scoring, "run_compiled_reference", autopar(True, timed))
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(True, timed))
-    with config.overridden(f"measurement.denominator.{BenchSpec.load(KERNEL).track}", DENOMINATORS[policy]):
+    with config.overridden(f"measurement.denominator.{BenchSpec.load(KERNEL).track.text}", DENOMINATORS[policy]):
         result = scoring.score(
             NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C)),
             Task(KERNEL, SourceMode.RESTRICTED, Language.C),

@@ -216,7 +216,7 @@ def test_task_text_documents_the_compiler_request_and_its_default() -> None:
     paths -- an agent that never reads the field cannot use the mechanism."""
     from hpcagent_bench.harness.service import service_prompt
 
-    for language in ("c", "cpp", "fortran"):
+    for language in (Language.C, Language.CPP, Language.FORTRAN):
         text = build_prompt(Task("gemm", SourceMode.RESTRICTED, language))
         assert '`"compiler"`' in text, language
         for family in languages.COMPILER_FAMILIES:

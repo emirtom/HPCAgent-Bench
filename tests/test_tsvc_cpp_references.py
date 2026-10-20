@@ -236,7 +236,7 @@ def test_the_numeric_gate_can_fail(tmp_path) -> None:
 
     key, path = committed()[0]
     text = path.read_text()
-    symbol = binding_from_spec(load_spec(key)).symbols["c"]
+    symbol = binding_from_spec(load_spec(key)).symbols[Language.C]
     opening = text.index("{", text.index(f"void {symbol}"))
     staged = tmp_path / path.name
     staged.write_text(f"{text[: opening + 1]}\n  return;\n{text[opening + 1 :]}")

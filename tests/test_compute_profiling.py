@@ -587,7 +587,7 @@ def test_the_route_hands_the_compute_profiler_its_reps_kernel_and_a_home_under_t
 
     def record(submission: Submission, task: Task, **kwargs: object) -> dict[str, object]:
         seen.update(kwargs)
-        return {"build_ok": False, "kernel": task.kernel, "language": task.language, "detail": "recorded"}
+        return {"build_ok": False, "kernel": task.kernel, "language": task.language.text, "detail": "recorded"}
 
     monkeypatch.setattr(compute_profiling, "profile_compute_submission", record)
     fields = {

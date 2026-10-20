@@ -27,7 +27,7 @@ import pytest
 
 import hpcagent_bench
 from hpcagent_bench import config, languages
-from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Residency, SourceMode
 from hpcagent_bench.harness import native_call, scoring, timing
 from hpcagent_bench.harness.native_call import RepTiming, TimingProbe
 from hpcagent_bench.harness.task import Task, default_residency, gpu_graded
@@ -59,7 +59,7 @@ def test_an_offload_setup_grades_device_resident(offload_setup) -> None:
     assert gpu_graded(Language.C)
     assert gpu_graded(Language.CPP)
     assert gpu_graded(Language.FORTRAN)
-    assert default_residency(Language.C) == "device"
+    assert default_residency(Language.C) is Residency.DEVICE
     assert Task("gemm", SourceMode.RESTRICTED, Language.C).residency is Residency.DEVICE
 
 
@@ -88,7 +88,7 @@ def test_a_plain_c_setup_is_untouched(monkeypatch) -> None:
 def test_a_gpu_language_is_device_resident_with_or_without_an_offload_setup(offload_setup) -> None:
     """hip/cuda are device-resident whatever the offload environment says."""
     assert Task("gemm", SourceMode.RESTRICTED, Language.HIP).residency is Residency.DEVICE
-    assert default_residency(Language.HIP) == "device"
+    assert default_residency(Language.HIP) is Residency.DEVICE
 
 
 def test_a_python_delivery_is_never_gpu_graded_by_language(offload_setup) -> None:
@@ -120,7 +120,7 @@ def test_the_row_states_which_clock_took_it(residency, language, bracket) -> Non
     provenance than none. Keyed on RESIDENCY alone for every delivery: residency decides which
     child runs the call and therefore which clock reads it, so a second rule keyed on the language
     could only ever disagree with the measurement it is supposed to describe."""
-    assert timing.timing_bracket(residency, language) == bracket
+    assert timing.timing_bracket(Residency.parse(residency), Language.parse(language)) == bracket
 
 
 def test_the_protocol_stamp_carries_the_bracket(offload_setup) -> None:
@@ -442,8 +442,8 @@ def test_the_judge_accepts_the_new_setup_language_as_a_python_delivery() -> None
     from hpcagent_bench.harness.service import PYTHON_DELIVERED_LANGUAGES, InputMode, delivery_language
 
     assert languages.PYTHON_DEVICE_LANGUAGE in PYTHON_DELIVERED_LANGUAGES
-    assert delivery_language(languages.PYTHON_DEVICE_LANGUAGE, InputMode.PY_BINDING) == "python"
-    assert delivery_language("triton", InputMode.PY_BINDING) == "python"
+    assert delivery_language(languages.PYTHON_DEVICE_LANGUAGE, InputMode.PY_BINDING) is Language.PYTHON
+    assert delivery_language("triton", InputMode.PY_BINDING) is Language.PYTHON
 
 
 def test_a_device_python_request_on_a_setup_that_never_declared_it_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -469,7 +469,9 @@ def test_the_judge_answers_that_refusal_as_a_400_before_any_build(
     from hpcagent_bench.harness.service import ServiceConfig
 
     monkeypatch.delenv(languages.PYTHON_DEVICE_ENV, raising=False)
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="py-binding", repeat=2))
+    _srv, url = make_judge(
+        ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.PY_BINDING, repeat=2)
+    )
     body = {"kernel": "tsvc_2_s311", "language": languages.PYTHON_DEVICE_LANGUAGE, "source": "x = 1", "rank": 0}
     request = urllib.request.Request(
         f"{url}/score", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST"
@@ -717,7 +719,7 @@ def test_a_native_device_bracket_opens_after_the_harness_staging_drained(
         Arg(name="y", kind="ptr", dtype="float64", is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
     )
-    binding = Binding(kernel="staged", config="dense", args=args, symbols={"c": "staged_fp64"})
+    binding = Binding(kernel="staged", config="dense", args=args, symbols={Language.C: "staged_fp64"})
     data = {"x": np.arange(8, dtype=np.float64), "y": np.zeros(8), "N": 8}
     outputs, _samples, _extras, _reps = native_call._call_native_device(
         str(lib), binding, data, Language.C, reps=2, warmup=1

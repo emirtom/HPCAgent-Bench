@@ -11,6 +11,7 @@ launcher bootstraps -- like the gcc-gated native tests. Every probe is timeout-w
 hanging launcher never wedges the suite.
 """
 
+from hpcagent_bench.categories import Language
 import functools
 import json
 import os
@@ -70,9 +71,9 @@ _C_TOOLCHAINS = [
 #: Compiler command per language for the C-toolchain family (MPICH vs OpenMPI wrappers), so a
 #: built ``bench`` and its launcher share one MPI. Keyed by the discovered C compiler.
 _CC_FAMILY = {
-    "mpicc.mpich": {"c": "mpicc.mpich", "cpp": "mpicxx.mpich", "fortran": "mpifort.mpich"},
-    "mpicc": {"c": "mpicc", "cpp": "mpicxx", "fortran": "mpifort"},
-    "mpicc.openmpi": {"c": "mpicc.openmpi", "cpp": "mpicxx.openmpi", "fortran": "mpifort.openmpi"},
+    "mpicc.mpich": {Language.C: "mpicc.mpich", Language.CPP: "mpicxx.mpich", Language.FORTRAN: "mpifort.mpich"},
+    "mpicc": {Language.C: "mpicc", Language.CPP: "mpicxx", Language.FORTRAN: "mpifort"},
+    "mpicc.openmpi": {Language.C: "mpicc.openmpi", Language.CPP: "mpicxx.openmpi", Language.FORTRAN: "mpifort.openmpi"},
 }
 
 
@@ -146,9 +147,9 @@ def c_toolchain_diagnosis() -> str:
     return c_toolchain_probe()[1]
 
 
-def cc_override_for(cc: str) -> dict[str, str]:
+def cc_override_for(cc: str) -> dict[Language, str]:
     """The ``{lang: compiler}`` map for the wrapper family of ``cc`` (feeds ``build_mpi``)."""
-    return dict(_CC_FAMILY.get(cc, {"c": cc}))
+    return dict(_CC_FAMILY.get(cc, {Language.C: cc}))
 
 
 @functools.lru_cache(maxsize=1, typed=True)

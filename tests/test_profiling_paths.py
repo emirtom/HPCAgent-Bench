@@ -20,7 +20,7 @@ from collections.abc import Callable
 import pytest
 
 from hpcagent_bench import flags, modules, perf_reports
-from hpcagent_bench.categories import Language, Preset, SourceMode
+from hpcagent_bench.categories import InputMode, Language, Preset, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import gpu_profiling, native_call, papi, profiling, sandbox, tools
 from hpcagent_bench.harness.envelope import Submission
@@ -234,7 +234,7 @@ def test_the_papi_and_none_routes_default_to_the_whole_slot(
 
     def record(submission: Submission, task: Task, **kwargs: object) -> dict[str, object]:
         seen.update(kwargs)
-        return {"build_ok": False, "kernel": task.kernel, "language": task.language, "detail": "recorded"}
+        return {"build_ok": False, "kernel": task.kernel, "language": task.language.text, "detail": "recorded"}
 
     monkeypatch.setattr(profiling, entry, record)
     status, answer = post_profile(make_judge(ServiceConfig())[1], fields)
@@ -297,7 +297,7 @@ def test_a_python_submission_is_refused_counters_by_the_not_native_cause_on_both
     monkeypatch.setattr(perf_reports, "perf_check", lambda: FAKE_PERF)
     monkeypatch.setattr(papi, "check", lambda: None)
     python = {"language": "python", "source": "def gemm(alpha, beta, C, A, B):\n    pass\n"}
-    status, answer = post_profile(make_judge(ServiceConfig(input_mode="any"))[1], {**route, **python})
+    status, answer = post_profile(make_judge(ServiceConfig(input_mode=InputMode.ANY))[1], {**route, **python})
     assert (status, answer.get("cause")) == (503, "not_native"), answer
 
 

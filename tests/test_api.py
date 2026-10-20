@@ -7,7 +7,7 @@ the container endpoints expose, plus the enum-typed config dataclass."""
 import pytest
 
 from hpcagent_bench import api, config
-from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import RecordedAnswer
@@ -165,7 +165,7 @@ def test_container_mode_scores_via_a_running_judge(make_judge) -> None:
         pytest.skip("gcc absent")
     from hpcagent_bench.harness.service import ServiceConfig
 
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     k = api.init("gemm", language=Language.C, mode="container", judge_url=url)
     # info + baseline come from the judge in this mode
     assert k.info()["symbol"] == "gemm_fp64"

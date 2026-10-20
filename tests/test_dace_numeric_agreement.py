@@ -34,7 +34,7 @@ import sys
 
 import pytest
 
-from hpcagent_bench.categories import Preset
+from hpcagent_bench.categories import Preset, Track
 from hpcagent_bench.numerical_oracle import DACE, run_kernel
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from tests.test_dace_frontend_validity import REFUSED, REPO, ensure_dace_program, shard_of
@@ -43,7 +43,7 @@ from tests.test_dace_frontend_validity import REFUSED, REPO, ensure_dace_program
 #: conv/transpose graphs are the heaviest ``to_sdfg`` + compile in the corpus, and the frontend
 #: already refuses most of them for the ``broadcast`` cause (111 of the 195 REFUSED entries), so the
 #: runnable remainder buys the least coverage for by far the most wall clock.
-GATED_TRACKS = ("loop_level_reasoning", "scientific_computing")
+GATED_TRACKS = (Track.LOOP_LEVEL_REASONING, Track.SCIENTIFIC_COMPUTING)
 
 #: ``machine_learning`` kernels this gate runs individually, though the track as a whole is not
 #: gated. A kernel the frontend accepts comes back through the port-fidelity ratchet the moment it

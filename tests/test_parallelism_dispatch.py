@@ -66,7 +66,7 @@ extern "C" int stdpar_dispatch_probe(void) {
 #: the source, so the question is never "did the compiler find parallelism" but "does the judge's
 #: build line keep the OpenMP runtime reachable at compile AND at link".
 OPENMP_SOURCES = {
-    "c": """\
+    Language.C: """\
 #include <stddef.h>
 int openmp_dispatch_probe(void) {
   double acc[64] = {0.0};
@@ -75,7 +75,7 @@ int openmp_dispatch_probe(void) {
   return (acc[63] == 63.0) ? 0 : 1;
 }
 """,
-    "cpp": """\
+    Language.CPP: """\
 extern "C" int openmp_dispatch_probe(void) {
   double acc[64] = {0.0};
   #pragma omp parallel for
@@ -83,7 +83,7 @@ extern "C" int openmp_dispatch_probe(void) {
   return (acc[63] == 63.0) ? 0 : 1;
 }
 """,
-    "fortran": """\
+    Language.FORTRAN: """\
 integer(c_int) function openmp_dispatch_probe() bind(c, name="openmp_dispatch_probe")
    use, intrinsic :: iso_c_binding, only: c_int, c_double
    implicit none
@@ -226,7 +226,7 @@ def cpp_blocks():
     return [
         (name, block)
         for name, block in sorted(languages._load_compilers().items())
-        if block.lang == "cpp" and not block.mpi
+        if block.lang is Language.CPP and not block.mpi
     ]
 
 
@@ -274,7 +274,7 @@ def compile_complaint(argv, source: str, suffix: str):
         return tail[-1] if tail else f"exit {proc.returncode}"
 
 
-def build_probe_lib(lang: str, source: str, out_dir: pathlib.Path, *, compiler=None, mode=Mode.SINGLE_CORE):
+def build_probe_lib(lang: Language, source: str, out_dir: pathlib.Path, *, compiler=None, mode=Mode.SINGLE_CORE):
     """Build ``source`` into a ``.so`` down the judge's own path, returning ``(lib, cmds, log)``.
 
     :func:`languages.build_shared_lib_commands` is what ``Sandbox.build`` calls for a restricted
@@ -371,7 +371,7 @@ def test_execution_policies_dispatch_into_tbb(name, block, tmp_path) -> None:
         f"__has_include(<tbb/tbb.h>)); install it or this judge cannot grade C++ parallel algorithms."
     )
 
-    lib, cmds, log = build_probe_lib("cpp", STDPAR_CALLABLE_SOURCE, tmp_path, compiler=name)
+    lib, cmds, log = build_probe_lib(Language.CPP, STDPAR_CALLABLE_SOURCE, tmp_path, compiler=name)
     link_argv = cmds[-1]
     assert flags.STDPAR_LINK_TBB in link_argv, (
         f"the judge's C++ link line does not carry {flags.STDPAR_LINK_TBB}: {' '.join(link_argv)}"
@@ -415,7 +415,7 @@ def test_cpp_link_line_omits_the_stdpar_runtime_without_the_backend(monkeypatch,
     assert flags.STDPAR_LINK_TBB not in cmds[-1], f"C++ link argv adds an unlinkable {flags.STDPAR_LINK_TBB}"
 
 
-@pytest.mark.parametrize("lang", ["c", "fortran"])
+@pytest.mark.parametrize("lang", [Language.C, Language.FORTRAN])
 def test_non_cpp_link_lines_never_carry_the_stdpar_runtime(lang, monkeypatch, tmp_path) -> None:
     """TBB is the C++ ``<execution>`` runtime and nothing else's. A C or Fortran link that grew
     ``-ltbb`` would be linking a library the object never calls -- and on a host without it, a
@@ -426,7 +426,7 @@ def test_non_cpp_link_lines_never_carry_the_stdpar_runtime(lang, monkeypatch, tm
     assert flags.STDPAR_LINK_TBB not in cmds[-1], f"{lang} link argv carries a C++-only runtime: {cmds[-1]}"
 
 
-@pytest.mark.parametrize("lang", ["c", "cpp"])
+@pytest.mark.parametrize("lang", [Language.C, Language.CPP])
 def test_graded_c_and_cpp_link_mimalloc_when_the_host_has_it(lang, monkeypatch, tmp_path) -> None:
     """The allocator is part of the graded C/C++ build, not only an
     LD_PRELOAD the launcher might drop."""
@@ -436,15 +436,15 @@ def test_graded_c_and_cpp_link_mimalloc_when_the_host_has_it(lang, monkeypatch, 
     assert flags.LINK_MIMALLOC in cmds[-1], f"{lang} link argv lost the allocator: {cmds[-1]}"
 
 
-@pytest.mark.parametrize("lang", ["c", "cpp", "fortran"])
+@pytest.mark.parametrize("lang", [Language.C, Language.CPP, Language.FORTRAN])
 def test_the_link_line_omits_mimalloc_when_the_host_lacks_it(lang, monkeypatch, tmp_path) -> None:
     """Same reason ``-ltbb`` is probe-gated, but worse: an unresolvable ``-lmimalloc`` fails EVERY
     build, including submissions that never allocate. Fortran is never given it at all."""
-    # ``lang == "fortran"``, not ``lang == "never"`` (which is False for every parametrized value):
+    # ``lang is Language.FORTRAN``, not ``lang == "never"`` (which is False for every parametrized value):
     # c/cpp check the PROBE gate with the host lacking it, and fortran checks the hardcoded
     # exclusion with the host HAVING it -- the second half is what the docstring claims, and the
     # positive test above only covers c and cpp, so nothing else asserts it.
-    monkeypatch.setattr(languages, "_mimalloc_links", lambda cc, tokens, offload: lang == "fortran")
+    monkeypatch.setattr(languages, "_mimalloc_links", lambda cc, tokens, offload: lang is Language.FORTRAN)
     src = tmp_path / f"k.{languages.LANG_EXT[lang]}"
     cmds = languages.build_shared_lib_commands(lang, src, tmp_path / "libk.so")
     assert flags.LINK_MIMALLOC not in cmds[-1], f"{lang} link argv adds an unlinkable allocator: {cmds[-1]}"
@@ -459,7 +459,7 @@ def test_the_link_line_omits_mimalloc_when_the_host_lacks_it(lang, monkeypatch, 
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("lang", sorted(OPENMP_SOURCES))
+@pytest.mark.parametrize("lang", list(OPENMP_SOURCES))
 @isolated
 def test_openmp_pragmas_dispatch_into_a_runtime(lang, tmp_path) -> None:
     """An OpenMP submission in ``lang`` must reach an OpenMP runtime through the judge's build.
@@ -486,7 +486,7 @@ def test_openmp_pragmas_dispatch_into_a_runtime(lang, tmp_path) -> None:
     assert call_probe(lib, "openmp_dispatch_probe") == 0, f"the {lang} OpenMP region computed the wrong result"
 
 
-@pytest.mark.parametrize("lang", ["c", "cpp", "fortran"])
+@pytest.mark.parametrize("lang", [Language.C, Language.CPP, Language.FORTRAN])
 def test_openmp_is_unconditional_in_every_submission_baseline(lang) -> None:
     """OpenMP is not an opt-in column: it is in the baseline of every language an agent may submit,
     in EVERY mode, so a submission never has to ask for it (and could not -- ``sandbox.split_build``
@@ -504,7 +504,7 @@ def test_openmp_is_unconditional_in_every_submission_baseline(lang) -> None:
 # rather than claiming the grade uses either.
 
 
-@pytest.mark.parametrize("lang", ["c", "cpp", "fortran"])
+@pytest.mark.parametrize("lang", [Language.C, Language.CPP, Language.FORTRAN])
 def test_autopar_delta_is_reachable_and_mode_gated(lang) -> None:
     """Each language's ``autopar_ref`` resolves and lands in the MULTI_CORE line -- and in no
     other. A delta that silently stopped resolving would turn an autopar column into a relabelled
@@ -517,7 +517,7 @@ def test_autopar_delta_is_reachable_and_mode_gated(lang) -> None:
     assert first.split("=")[0] in languages._resolve_baseline(block, Mode.MULTI_CORE), (
         f"{lang} MULTI_CORE line is missing its autopar delta {first}"
     )
-    if lang == "fortran":
+    if lang is Language.FORTRAN:
         # Reachability only. gfortran's autopar delta and its do-concurrent flag are the SAME
         # switch (-ftree-parallelize-loops), and doconcurrent_ref puts it on every mode by the
         # decision, so "absent from SINGLE_CORE" is not expressible here.
@@ -603,7 +603,7 @@ class TaughtConstruct:
 
     #: Directory under ``hpcagent_bench/skills`` whose SKILL.md teaches this spelling.
     page: str
-    lang: str
+    lang: Language
     #: Human name, used as the pytest id.
     name: str
     #: ``"openmp"``, ``"stdpar"``, or ``None`` when the construct is a vectorization hint that
@@ -617,17 +617,17 @@ SKILL_TAUGHT = (
     # gfortran line pins -std=f2018, and gfortran rejects it. The page was corrected to teach
     # `!$omp parallel do reduction` instead; re-add the case here the day the
     # harness moves to -std=f2023.
-    TaughtConstruct("lang-fortran", "fortran", "do-concurrent", "openmp", FORTRAN_DC_PLAIN),
-    TaughtConstruct("lang-fortran", "fortran", "do-concurrent-locality", "openmp", FORTRAN_DC_LOCALITY),
-    TaughtConstruct("openmp-fortran", "fortran", "omp-parallel-do-reduction", "openmp", FORTRAN_OMP_REDUCTION),
-    TaughtConstruct("openmp-fortran", "fortran", "omp-simd", None, FORTRAN_OMP_SIMD),
-    TaughtConstruct("openmp-c", "c", "omp-parallel-for", "openmp", C_OMP_PARALLEL_FOR),
-    TaughtConstruct("openmp-c", "c", "omp-simd", None, C_OMP_SIMD),
-    TaughtConstruct("openmp-cpp", "cpp", "omp-parallel-for", "openmp", CPP_OMP_PARALLEL_FOR),
-    TaughtConstruct("lang-cpp", "cpp", "execution-par-unseq", "stdpar", CPP_ISOPAR),
+    TaughtConstruct("lang-fortran", Language.FORTRAN, "do-concurrent", "openmp", FORTRAN_DC_PLAIN),
+    TaughtConstruct("lang-fortran", Language.FORTRAN, "do-concurrent-locality", "openmp", FORTRAN_DC_LOCALITY),
+    TaughtConstruct("openmp-fortran", Language.FORTRAN, "omp-parallel-do-reduction", "openmp", FORTRAN_OMP_REDUCTION),
+    TaughtConstruct("openmp-fortran", Language.FORTRAN, "omp-simd", None, FORTRAN_OMP_SIMD),
+    TaughtConstruct("openmp-c", Language.C, "omp-parallel-for", "openmp", C_OMP_PARALLEL_FOR),
+    TaughtConstruct("openmp-c", Language.C, "omp-simd", None, C_OMP_SIMD),
+    TaughtConstruct("openmp-cpp", Language.CPP, "omp-parallel-for", "openmp", CPP_OMP_PARALLEL_FOR),
+    TaughtConstruct("lang-cpp", Language.CPP, "execution-par-unseq", "stdpar", CPP_ISOPAR),
 )
 
-TAUGHT_IDS = [f"{case.page}:{case.lang}:{case.name}" for case in SKILL_TAUGHT]
+TAUGHT_IDS = [f"{case.page}:{case.lang.text}:{case.name}" for case in SKILL_TAUGHT]
 
 
 def taught_block(case: TaughtConstruct):

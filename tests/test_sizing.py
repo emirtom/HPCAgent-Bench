@@ -43,7 +43,8 @@ def test_every_kernel_declares_the_whole_ladder() -> None:
     it silently opts out of the fuzzer's ``[L, XL]`` interval, so the gap is invisible in every
     aggregate it appears in."""
     incomplete = {
-        key: [preset for preset in PRESETS if preset not in spec.parameters] for key, spec in KERNELS.specs().items()
+        key: [preset for preset in PRESETS if preset.text not in spec.parameters]
+        for key, spec in KERNELS.specs().items()
     }
     assert {k: v for k, v in incomplete.items() if v} == {}
 

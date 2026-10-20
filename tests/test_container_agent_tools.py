@@ -25,7 +25,7 @@ import pytest
 from hpcagent_agent.tools import http_json, registry
 
 from hpcagent_bench import languages, paths
-from hpcagent_bench.categories import Language, Oracle
+from hpcagent_bench.categories import InputMode, Language, Oracle
 from hpcagent_bench.harness import gpu_profiling
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
@@ -120,7 +120,7 @@ def judge(
     tmp_path: pathlib.Path,
 ) -> str:
     """A language-enforcing judge, with the environment the tools read pointed at it."""
-    _srv, url = make_judge(ServiceConfig(input_mode="source", oracle=Oracle.AUTO, repeat=2))
+    _srv, url = make_judge(ServiceConfig(input_mode=InputMode.SOURCE, oracle=Oracle.AUTO, repeat=2))
     monkeypatch.setenv("JUDGE_URL", url)
     in_agent_folder(monkeypatch, tmp_path)
     monkeypatch.delenv("JUDGE_RANK", raising=False)
@@ -134,7 +134,7 @@ def free_choice_judge(
     tmp_path: pathlib.Path,
 ) -> str:
     """A judge that pins nothing (``input_mode=any``) -- the one the free-choice variant runs."""
-    _srv, url = make_judge(ServiceConfig(input_mode="any", oracle=Oracle.AUTO, repeat=2))
+    _srv, url = make_judge(ServiceConfig(input_mode=InputMode.ANY, oracle=Oracle.AUTO, repeat=2))
     monkeypatch.setenv("JUDGE_URL", url)
     in_agent_folder(monkeypatch, tmp_path)
     monkeypatch.delenv("JUDGE_RANK", raising=False)
@@ -172,7 +172,7 @@ def test_the_body_is_field_for_field_what_the_reference_client_sends(
     rename is a 400 the model cannot fix from inside the container, so the two are compared as sets,
     not spot-checked.
     """
-    monkeypatch.setenv("LANGUAGE", submission["language"])
+    monkeypatch.setenv("LANGUAGE", submission["language"].text)
     reference = {"kernel": KERNEL, **Submission(**submission).to_json()}
     assert agent_tools.http_json.submission_body({"kernel": KERNEL, **payload}) == reference
 
@@ -242,7 +242,7 @@ def test_the_profile_tool_names_the_offload_tracer_for_exactly_the_languages_the
     """On an OpenMP-offload setup the judge traces some host languages with rocprofv3. A language the
     tool leaves out is a trace the model never asks for; an extra one is a guaranteed 400."""
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
-    traced = tuple(language.value for language in Language if gpu_profiling.offload_traced(language.value))
+    traced = tuple(language.text for language in Language if gpu_profiling.offload_traced(language))
     tool = agent_tools.profile_tool
     profile = agent_tools.served["profile"]
     assert traced == tool.OFFLOAD_TRACED_LANGUAGES
@@ -393,14 +393,12 @@ def test_the_launcher_allows_every_tool_the_server_advertises(
 def test_the_language_enum_is_the_judges_whole_delivery_vocabulary(agent_tools) -> None:
     """Offering a subset would withhold a legal choice; offering more would advertise a 400.
 
-    The container cannot import ``hpcagent_bench``, so this tuple is a copy of ``DELIVERY_LANGS`` and
+    The container cannot import ``hpcagent_bench``, so this tuple is a copy of ``Language.texts()`` and
     only a test can hold the two together -- adding a language to the judge must reach the tools.
     """
-    from hpcagent_bench.harness.envelope import DELIVERY_LANGS
-
-    assert agent_tools.http_json.DELIVERY_LANGUAGES == DELIVERY_LANGS
+    assert agent_tools.http_json.DELIVERY_LANGUAGES == Language.texts()
     free = http_json.submission_input(False, http_json.RequestActions())
-    assert registry.schema_of(free)["properties"]["language"]["enum"] == list(DELIVERY_LANGS)
+    assert registry.schema_of(free)["properties"]["language"]["enum"] == list(Language.texts())
 
 
 def test_the_enforced_input_modes_are_the_ones_the_judge_enforces(agent_tools) -> None:
@@ -409,7 +407,7 @@ def test_the_enforced_input_modes_are_the_ones_the_judge_enforces(agent_tools) -
     has a row, and ``any`` / ``library`` are absent from it."""
     from hpcagent_bench.harness.service import ENFORCED_LANGUAGES
 
-    assert set(agent_tools.http_json.ENFORCED_INPUT_MODES) == {mode.value for mode in ENFORCED_LANGUAGES}
+    assert set(agent_tools.http_json.ENFORCED_INPUT_MODES) == {mode.text for mode in ENFORCED_LANGUAGES}
 
 
 @pytest.mark.parametrize(
@@ -646,7 +644,7 @@ def test_syntax_check_picks_the_compiler_from_the_extension_then_the_language(
     assert agent_tools.syntax_check.language_of(pathlib.Path("scratch.txt")) == "cpp"
 
 
-@pytest.mark.parametrize("gpu_language", sorted(languages.GPU_HOST_LANG))
+@pytest.mark.parametrize("gpu_language", sorted(language.text for language in languages.GPU_HOST_LANG))
 def test_syntax_check_parses_a_gpu_host_half_with_the_gpu_compiler(
     agent_tools: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, gpu_language: str
 ) -> None:
@@ -700,6 +698,6 @@ def test_the_mcp_server_serves_syntax_check_as_its_own_tool(agent_tools, tmp_pat
 
     path = tmp_path / "broken.c"
     path.write_text(SNIPPETS["c"][1])
-    called = agent_tools.mcp_server.answer("syntax_check", {"source_file": str(path)})
+    called = agent_tools.mcp_server.answer(agent_tools.served, "syntax_check", {"source_file": str(path)})
     assert called.isError is True
     assert "error" in called.content[0].text.lower()

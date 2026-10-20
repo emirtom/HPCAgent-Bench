@@ -80,9 +80,9 @@ def test_source_file_ext_the_gpu_host_half_is_always_cpp() -> None:
     assert source_file_ext(Language.FORTRAN, device=False) == "f90"
 
 
-def test_source_file_ext_rejects_an_unknown_language() -> None:
-    with pytest.raises(ValueError, match="unknown submission language"):
-        source_file_ext("cobol", device=False)
+def test_every_delivery_language_has_a_source_file_ext() -> None:
+    for language in Language:
+        assert source_file_ext(language, device=False), language
 
 
 def hip_config() -> RunConfig:

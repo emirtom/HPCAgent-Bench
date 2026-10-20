@@ -78,7 +78,10 @@ def test_a_translator_source_change_forces_a_reemit(translator_tree: pathlib.Pat
 def test_the_key_names_the_target_backend(tmp_path: pathlib.Path) -> None:
     kernel_py = tmp_path / "k_numpy.py"
     kernel_py.write_text("def kernel(A):\n    return A\n")
-    keys = {agent._generated_cache_key("k", language, kernel_py) for language in ("c", "cpp", "fortran")}
+    keys = {
+        agent._generated_cache_key("k", language, kernel_py)
+        for language in (Language.C, Language.CPP, Language.FORTRAN)
+    }
     assert len(keys) == 3
 
 

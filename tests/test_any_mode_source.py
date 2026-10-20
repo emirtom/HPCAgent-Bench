@@ -19,13 +19,13 @@ AGENT_BUILD = ["-O3", "-march=native", "-ffast-math", "-std=c2x", "-DTILE=64", "
 
 
 def test_an_any_setup_grades_a_source_as_any() -> None:
-    assert task_source_mode(InputMode.ANY, library=False) == "any"
-    assert task_source_mode(InputMode.ANY, library=True) == "any"
+    assert task_source_mode(InputMode.ANY, library=False) is SourceMode.ANY
+    assert task_source_mode(InputMode.ANY, library=True) is SourceMode.ANY
 
 
 def test_a_source_setup_grades_a_source_as_restricted() -> None:
-    assert task_source_mode(InputMode.SOURCE, library=False) == "restricted"
-    assert task_source_mode(InputMode.LIBRARY, library=True) == "any"
+    assert task_source_mode(InputMode.SOURCE, library=False) is SourceMode.RESTRICTED
+    assert task_source_mode(InputMode.LIBRARY, library=True) is SourceMode.ANY
 
 
 def test_an_any_task_compiles_every_agent_flag_as_given() -> None:

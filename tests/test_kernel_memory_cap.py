@@ -67,7 +67,10 @@ def declared_bytes(preset: str, itemsize: int) -> int:
 def cap_bytes(preset: str, datatype: str = "float64", workspace=None) -> float:
     """The derived cap in BYTES, with the global floor lifted so the derivation is what is read."""
     with config.overridden("limits.kernel_memory_gb", 0):
-        return sizing.kernel_memory_gb(BenchSpec.load(KERNEL), preset, datatype, workspace) * sizing.BYTES_PER_GB
+        return (
+            sizing.kernel_memory_gb(BenchSpec.load(KERNEL), Preset.parse(preset), datatype, workspace)
+            * sizing.BYTES_PER_GB
+        )
 
 
 # the formula
@@ -445,7 +448,7 @@ def test_an_underivable_kernel_falls_back_to_the_global_budget() -> None:
 def test_an_absent_preset_falls_back_to_the_global_budget() -> None:
     """A preset the manifest never declared resolves to no sizes at all -- same fallback."""
     with config.overridden("limits.kernel_memory_gb", 7):
-        assert sizing.kernel_memory_gb(BenchSpec.load(KERNEL), "XXL") == 7.0
+        assert sizing.kernel_memory_gb(BenchSpec.load(KERNEL), Preset.FUZZED) == 7.0
 
 
 def test_an_unresolvable_workspace_request_does_not_break_the_cap() -> None:
@@ -850,7 +853,7 @@ def test_fv3_dycore_declares_a_hard_10gb_cap_at_every_preset() -> None:
     (:func:`hpcagent_bench.fuzz.resolve_ranges`)."""
     spec = BenchSpec.load("fv3_dycore")
     assert spec.memory_cap_gb == 10
-    for preset in ("S", "M", "L", "XL", "fuzzed"):
+    for preset in Preset:
         assert sizing.kernel_memory_gb(spec, preset) == 10
 
 

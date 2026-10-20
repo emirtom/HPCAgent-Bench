@@ -19,7 +19,7 @@ import subprocess
 import pytest
 
 from hpcagent_bench import modules, paths
-from hpcagent_bench.categories import Language, Preset
+from hpcagent_bench.categories import Language, Oracle, Preset
 from hpcagent_bench.harness import grading, native_call, scoring
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -59,7 +59,7 @@ def test_numba_override_matches_the_c_reference_on_the_judge_path(key: str) -> N
     path = grading.numba_reference_path(spec)
     assert is_override(pathlib.Path(path)), path
     data = grading._data_seeded(key, Preset.S, "float64", 1)
-    _kind, want = compiled_outputs(key, data, ("c",))
+    _kind, want = compiled_outputs(key, data, (Oracle.C,))
     func = modules.member(grading.numba_impl_module(spec), spec.func_name)
     order = grading.numba_call_order(spec, func, data)
     call = native_call._call_isolated(

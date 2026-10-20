@@ -12,7 +12,7 @@ import yaml
 from _pytest.mark.structures import ParameterSet
 
 from hpcagent_bench import autogen, paths
-from hpcagent_bench.categories import Preset
+from hpcagent_bench.categories import Preset, Track
 from hpcagent_bench.numerical_oracle import (
     CHAOTIC_FLOAT_TOLERANCE,
     COMPILE,
@@ -78,7 +78,7 @@ if E2E_PRECISION == "fp16":
         )
 
 #: Tracks the sweep gates; `machine_learning` also exercises reduction/keepdims/triangular-mask/promotion paths.
-GATED_TRACKS = ("loop_level_reasoning", "scientific_computing", "machine_learning")
+GATED_TRACKS = (Track.LOOP_LEVEL_REASONING, Track.SCIENTIFIC_COMPUTING, Track.MACHINE_LEARNING)
 
 #: Sole per-corpus witnesses for 3 precision-lowering bugs; membership asserted so none get silently dropped.
 PINNED_KERNELS = ("vexx_k", "chebyshev_filter_subspace", "raman_fitting")
@@ -345,7 +345,7 @@ def test_pinned_kernels_stay_in_the_sweep() -> None:
     missing = [k for k in PINNED_KERNELS if k not in stems]
     assert not missing, (
         f"pinned kernel(s) {missing} dropped out of the gated sweep "
-        f"(GATED_TRACKS={list(GATED_TRACKS)}); see PINNED_KERNELS for what each one "
+        f"(GATED_TRACKS={[track.text for track in GATED_TRACKS]}); see PINNED_KERNELS for what each one "
         f"is the only witness for"
     )
     # A pinned kernel parked on the debt list stops being a witness, and that list is tempting

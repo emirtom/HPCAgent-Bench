@@ -271,7 +271,7 @@ def test_the_host_repo_path_never_reaches_the_prompt() -> None:
     """The displayed compile commands are the real ones, and gcc's libmvec decl header is a
     repo-absolute path: valid for the judge, absent in the agent's container, and a
     disclosure of the host layout either way."""
-    for language in ("c", "cpp", "fortran"):
+    for language in (Language.C, Language.CPP, Language.FORTRAN):
         prompt = build_prompt(Task("gemm", SourceMode.RESTRICTED, language))
         assert str(paths.ROOT) not in prompt, f"{language} prompt leaks the host repo path"
 
@@ -562,7 +562,7 @@ def test_an_enforced_track_never_offers_the_python_escape_hatch(input_mode) -> N
     from hpcagent_bench import spec as spec_mod
     from hpcagent_bench.support.bindings import binding_from_spec
 
-    symbol = binding_from_spec(spec_mod.load_spec("gemm")).symbols["fortran"]
+    symbol = binding_from_spec(spec_mod.load_spec("gemm")).symbols[Language.FORTRAN]
     expected = languages.source_units(Language.FORTRAN, symbol)[0][1]
     assert f"`{expected}`" in enforced, f"the enforced prompt must name the source file the sandbox writes ({expected})"
 
@@ -597,7 +597,7 @@ def test_a_gpu_page_does_not_claim_a_standard_the_harness_never_passes(page: str
     from hpcagent_bench import languages, paths
 
     path = paths.ROOT / "hpcagent_bench" / "skills" / page / "SKILL.md"
-    lang = "cuda" if page == "lang-cuda" else "hip"
+    lang = Language.CUDA if page == "lang-cuda" else Language.HIP
     expected = languages.std_flag(lang)
     claimed = sorted(set(re.findall(r"-std=[A-Za-z0-9+]+", path.read_text())))
     if not expected:

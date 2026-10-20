@@ -89,7 +89,7 @@ def build(source: pathlib.Path, out_so: pathlib.Path) -> str | None:
 def call_reference(so: pathlib.Path, binding: Binding, data: dict[str, Any]) -> dict[str, Any]:
     """dlopen ``so``, bind ``binding.symbols['c']`` and call it positionally in canonical order."""
     buffers = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in data.items()}
-    entry = ctypes.CDLL(str(so))[binding.symbols["c"]]
+    entry = ctypes.CDLL(str(so))[binding.symbols[Language.C]]
     argtypes, argv = [], []
     for arg in binding.args:
         if arg.kind == "ptr":

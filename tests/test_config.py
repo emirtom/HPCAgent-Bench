@@ -16,7 +16,7 @@ from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, containers, flags, languages, paths, seal, spec
 from hpcagent_bench.api import InputMode, Oracle
-from hpcagent_bench.categories import Denominator, RecordDevice, Track
+from hpcagent_bench.categories import Baseline, Denominator, RecordDevice, Residency, Track
 from hpcagent_bench.config import BaselineRace, ContainerRuntime, Execution, Hardware, ScalingLaw
 from hpcagent_bench.harness import (
     agent,
@@ -44,8 +44,17 @@ def field_values(dotted: str) -> set[object]:
         annotation = args[0]
         args = get_args(annotation)
     if isinstance(annotation, type) and issubclass(annotation, Coded):
-        return set(annotation)
+        return {member for member in annotation if accepts(dotted, member.text)}
     return set(args)
+
+
+def accepts(dotted: str, text: str) -> bool:
+    """Whether leaf ``dotted`` validates the spelling ``text``."""
+    try:
+        config.parse_env(dotted, text)
+    except ValueError:
+        return False
+    return True
 
 
 # env text -> value
@@ -278,23 +287,23 @@ def test_the_seal_hides_the_configured_generated_reference_cache(tmp_path: pathl
 @pytest.mark.parametrize(
     ("dotted", "values"),
     [
-        ("service.oracle", set(Oracle.texts())),
-        ("service.input_mode", set(InputMode.texts())),
-        ("measurement.baseline", set(grading.BASELINE_OPTIONS)),
-        ("measurement.denominator.scientific_computing", set(Denominator.texts())),
-        ("measurement.denominator.machine_learning", {Denominator.TORCH_AUTOTUNE.text}),
+        ("service.oracle", set(Oracle)),
+        ("service.input_mode", set(InputMode)),
+        ("measurement.baseline", {*grading.BASELINE_CHOICES, Baseline.TORCH_AUTOTUNE}),
+        ("measurement.denominator.scientific_computing", set(Denominator)),
+        ("measurement.denominator.machine_learning", {Denominator.TORCH_AUTOTUNE}),
         ("measurement.timing_backend", set(timing.REDUCTIONS)),
         ("measurement.baseline_race", {BaselineRace.LEADER_FIRST, BaselineRace.COMPLETE}),
         ("prompt.strategy", set(prompts.STRATEGIES)),
-        ("record.device", set(RecordDevice.texts())),
-        ("cache.disk_results_tracks", set(Track.texts())),
-        ("agent.execution", set(Execution.texts())),
-        ("mpi.mode", set(ScalingLaw.texts())),
-        ("mpi.residency", {member.value for member in Location}),
+        ("record.device", set(RecordDevice)),
+        ("cache.disk_results_tracks", set(Track)),
+        ("agent.execution", set(Execution)),
+        ("mpi.mode", set(ScalingLaw)),
+        ("mpi.residency", {Residency.parse(member.value) for member in Location}),
         ("runtime.backend", set(containers.SELECTABLE)),
     ],
 )
-def test_a_choice_key_offers_exactly_what_its_reader_accepts(dotted: str, values: set[str]) -> None:
+def test_a_choice_key_offers_exactly_what_its_reader_accepts(dotted: str, values: set[object]) -> None:
     assert field_values(dotted) == values
 
 

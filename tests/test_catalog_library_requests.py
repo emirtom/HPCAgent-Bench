@@ -131,7 +131,7 @@ def test_an_unoffered_catalog_request_is_a_400_and_does_not_spend_the_submission
     single-submission-spending) attempt. submit.py's own SINGLE_SUBMISSION marker keys off exactly
     this status range (request_refused), so proving the refusal IS a 4xx here is what makes that
     contract hold for 'requests.startup.load' the same way it already does for every other malformed body."""
-    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline="auto", repeat=2))
+    srv, port = _server(ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     try:
         status, body = _post(
             port,

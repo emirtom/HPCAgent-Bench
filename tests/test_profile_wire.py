@@ -127,7 +127,7 @@ def test_a_papi_report_is_sent_as_built() -> None:
     report: profiling.CountPayload = {
         "build_ok": True,
         "kernel": TASK.kernel,
-        "language": TASK.language,
+        "language": TASK.language.text,
         "preset": "S",
         "datatype": "float64",
         "symbol": "gemm_fp64",
@@ -175,7 +175,7 @@ def test_a_per_thread_papi_report_is_sent_as_built(missing: bool) -> None:
     report: profiling.ThreadPayload = {
         "build_ok": True,
         "kernel": TASK.kernel,
-        "language": TASK.language,
+        "language": TASK.language.text,
         "preset": "S",
         "datatype": "float64",
         "symbol": "gemm_fp64",
@@ -191,7 +191,7 @@ def test_an_instrument_report_is_sent_as_built() -> None:
     report: profiling.InstrumentPayload = {
         "build_ok": True,
         "kernel": TASK.kernel,
-        "language": TASK.language,
+        "language": TASK.language.text,
         "preset": "S",
         "datatype": "float64",
         "symbol": "gemm_fp64",

@@ -24,7 +24,7 @@ def test_baseline_times_the_runs_preset_whatever_the_query_asks(monkeypatch: pyt
     died of SIGSEGV inside one), for a target no grade of the run is held to."""
     asked: list[str] = []
 
-    def measure(_task: object, *, preset: str, **_kwargs: object) -> dict[str, int]:
+    def measure(_task: object, *, preset: Preset, **_kwargs: object) -> dict[str, int]:
         asked.append(preset)
         return {"numpy": 1}
 
@@ -38,7 +38,7 @@ def test_baseline_times_the_runs_preset_whatever_the_query_asks(monkeypatch: pyt
     finally:
         srv.shutdown()
         srv.server_close()
-    assert asked == ["S"], asked
+    assert asked == [Preset.S], asked
     assert body["preset"] == "S", body
 
 

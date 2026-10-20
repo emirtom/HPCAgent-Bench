@@ -249,8 +249,8 @@ def test_task_accepts_distributed_residency_for_a_cpu_language() -> None:
 
 
 def test_task_rejects_unknown_residency() -> None:
-    with pytest.raises(ValueError, match="residency must be one of"):
-        Task(kernel="jacobi_2d", residency="sharded")
+    with pytest.raises(ValueError, match="is not a Residency"):
+        Residency.parse("sharded")
 
 
 def test_task_device_residency_still_gpu_gated() -> None:

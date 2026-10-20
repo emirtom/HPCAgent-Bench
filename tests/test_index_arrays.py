@@ -46,7 +46,7 @@ def test_the_corpus_declares_at_least_one_index_array() -> None:
 def test_fortran_is_the_only_one_based_language() -> None:
     """The whole mechanism is this table. Fortran counts from 1; every other backend from 0."""
     assert index_base(Language.FORTRAN) == 1
-    assert {lang for lang, base in INDEX_BASE.items() if base != 0} == {"fortran"}
+    assert {lang for lang, base in INDEX_BASE.items() if base != 0} == {Language.FORTRAN}
     assert index_base("nonesuch") == 0, "an unknown language must not silently become 1-based"
 
 

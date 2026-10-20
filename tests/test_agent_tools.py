@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.config import SubmitFeedback
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.envelope import Submission
@@ -49,7 +49,7 @@ def test_submit_and_score_endpoints(make_judge: Callable[[ServiceConfig], tuple[
     ``build_log`` -- the same inversion ``scoring.score_from_answer`` performs -- rather than
     off a ``build_ok`` flag the route deliberately does not send.
     """
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     client = tools.JudgeClient(url)
     sub = _reference_submission("gemm")
     v = client.submit(sub, "gemm")
@@ -93,7 +93,9 @@ def test_a_source_file_submission_is_delivered_by_the_python_client(
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
     inline = _reference_submission("gemm")
     (tmp_path / "gemm.c").write_text(inline.source)
-    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="source", repeat=2))
+    _srv, url = make_judge(
+        ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.SOURCE, repeat=2)
+    )
     by_file = Submission(language=Language.C, source_file="gemm.c")
     assert by_file.to_json() == {"language": "c", "build": [], "source_file": "gemm.c"}
     s = tools.JudgeClient(url).score(by_file, "gemm")

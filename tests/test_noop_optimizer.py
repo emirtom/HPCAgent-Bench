@@ -11,7 +11,7 @@ source options (language + ABI) -- on a plain kernel.
 import pathlib
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Baseline, Language, Oracle, SourceMode
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, SourceMode
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -23,7 +23,7 @@ KERNEL = "gemm"
 
 
 def _cfg():
-    return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="any", repeat=2)
+    return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2)
 
 
 def test_language_option(make_judge) -> None:
