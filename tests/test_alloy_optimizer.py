@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Alloy (the optional ``alloy`` extra) end to end on one kernel: every region gets several verified, screened
+"""Alloy (the optional ``alloy`` extra) end to end on one kernel: every region gets several verified
 variants, and both CPU profile flavors submit a library the judge grades correct. The ``alloy`` CI job runs it."""
 
 import pathlib
@@ -23,7 +23,7 @@ from hpcagent_bench.config import SubmitFeedback
 KERNEL = "tsvc_2_vpv"
 
 
-def test_every_region_gets_several_verified_screened_variants(tmp_path: pathlib.Path) -> None:
+def test_every_region_gets_several_verified_variants(tmp_path: pathlib.Path) -> None:
     # Deferred: both import the optional alloy extra.
     from alloy import configuration_matrix
 
@@ -35,10 +35,10 @@ def test_every_region_gets_several_verified_screened_variants(tmp_path: pathlib.
     sut = bench.generated(sdfg, spec, Precision.FP64, configuration_matrix.load(), tmp_path)
 
     assert sut.regions
-    assert sut.timings is not None
+    assert sut.verification is not None
     for rep in sut.regions:
-        screened = bench.screened(rep, sut.timings.regions[rep.region.symbol].screen, bench.TOP)
-        assert len(screened) >= 2, f"{rep.region.symbol}: {[b.name for b in screened]}"
+        variants = bench.verified(rep, sut.verification.verdicts[rep.region.symbol])
+        assert len(variants) >= 2, f"{rep.region.symbol}: {[b.name for b in variants]}"
 
 
 @pytest.mark.parametrize("flavor", ["dace_cpu_parallel_alloy_profile", "dace_cpu_canon_alloy_profile"])

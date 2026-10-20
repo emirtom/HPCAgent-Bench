@@ -471,7 +471,7 @@ class FakeLib:
     def PAPI_start(self, eventset: ctypes.c_int) -> int:
         return self.start
 
-    def PAPI_stop(self, eventset: ctypes.c_int, values: papi.c_long_Array_1) -> int:
+    def PAPI_stop(self, eventset: ctypes.c_int, values: "ctypes.Array[ctypes.c_long]") -> int:
         return papi.PAPI_OK
 
     def PAPI_cleanup_eventset(self, eventset: ctypes.c_int) -> int:
