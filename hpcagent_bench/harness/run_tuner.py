@@ -7,6 +7,7 @@ import argparse
 import os
 import pathlib
 import sys
+import tempfile
 import traceback
 
 from hpcagent_agent.driver.harnesses import USAGE_FILE
@@ -35,11 +36,14 @@ def task_of(kernel: str, language: str, input_mode: InputMode) -> Task:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workdir", type=pathlib.Path, required=True)
+    parser.add_argument("--cwd", type=pathlib.Path, required=True, help="the episode's folder, the one the judge reads")
     parser.add_argument("--kernel", required=True)
     parser.add_argument("--language", required=True)
     args = parser.parse_args(argv)
     tuner, kernel = os.environ[TUNER_ENV], kernel_stem(args.kernel)
     (args.workdir / USAGE_FILE).touch()
+    # What the optimizer builds is submitted by path, and the judge reads only the episode's folder.
+    tempfile.tempdir = str(args.cwd)
     try:
         input_mode = InputMode.parse(os.environ.get("JUDGE_INPUT_MODE", "").strip() or InputMode.SOURCE.text)
         submission = optimizer_registry()[tuner]().solve(task_of(kernel, args.language, input_mode))

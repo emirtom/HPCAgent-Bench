@@ -435,6 +435,8 @@ def tuner_command(context: Context) -> list[str]:
         "hpcagent_bench.harness.run_tuner",
         "--workdir",
         str(context.workdir),
+        "--cwd",
+        str(context.cwd),
         "--kernel",
         context.kernel,
         "--language",

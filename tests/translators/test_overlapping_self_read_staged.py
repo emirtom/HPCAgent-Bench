@@ -77,8 +77,9 @@ def test_a_read_no_earlier_iteration_stored_stays_one_fused_nest(label: str, bod
 
 
 def test_numba_spells_out_an_overlapping_augmented_slice_store() -> None:
+    """The overlapping store is spelled out and stores a copy, which numba's parfor pass cannot race."""
     src = HEAD + "    out[1:] += out[:-1]\n"
-    assert "out[1:] = out[1:] + out[:-1]" in emit_numba(src)
+    assert "out[1:] = materialized(out[1:] + out[:-1])" in emit_numba(src)
 
 
 def test_numba_keeps_an_elementwise_augmented_store_in_place() -> None:

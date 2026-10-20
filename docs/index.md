@@ -58,6 +58,7 @@ extending/optimizer
 extending/agent-harness
 extending/skills-and-tools
 extending/packets
+extending/plugins
 extending/inference
 ```
 

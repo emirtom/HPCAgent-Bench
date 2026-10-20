@@ -132,9 +132,9 @@ def run_halo(
     kernel: str,
     ndim: int,
     *,
-    language: str,
+    language: Language,
     launcher: list[str],
-    cc_override: dict[str, str] | None,
+    cc_override: dict[Language, str] | None,
     N: int,
     TSTEPS: int,
     R: int,
@@ -152,10 +152,10 @@ def run_halo(
     with Sandbox(binding) as sb:
         built = sb.build_mpi(sub, desc, cc_override=cc_override)
         assert built.ok, built.log
-        artifact = built.lib if language == "python" else built.exe
+        artifact = built.lib if language is Language.PYTHON else built.exe
         assert artifact is not None
         launched = mpi_call.run(
-            artifact, binding, desc, data, is_python=(language == "python"), launcher=launcher, k_repeats=2, timeout=120
+            artifact, binding, desc, data, is_python=language is Language.PYTHON, launcher=launcher, k_repeats=2, timeout=120
         )
         outputs, samples_ns = launched.outputs, launched.samples_ns
     assert len(samples_ns) == 2
@@ -168,9 +168,9 @@ def assert_matches_sequential(
     ndim: int,
     seq: Callable[[int, np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]],
     *,
-    language: str,
+    language: Language,
     launcher: list[str],
-    cc_override: dict[str, str] | None,
+    cc_override: dict[Language, str] | None,
     N: int,
     TSTEPS: int,
     R: int = 4,
