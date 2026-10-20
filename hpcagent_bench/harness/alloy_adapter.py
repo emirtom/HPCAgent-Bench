@@ -19,9 +19,10 @@ from alloy.evaluate.link import Linker, execution_order  # pyright: ignore[repor
 from alloy.evaluate.verify import Verdict  # pyright: ignore[reportMissingImports]
 from alloy.frontend import inputs, regions  # pyright: ignore[reportMissingImports]
 from dace.frontend.python.parser import DaceProgram
+from hpcagent_agent.tools.http_json import judge_rank
 
 from hpcagent_bench import config, paths
-from hpcagent_bench.categories import Preset, SourceMode
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.cpf_bridge import render_canonical
 from hpcagent_bench.cpf_cache import DEFAULT_HINTS, Target
 from hpcagent_bench.frameworks.benchmark import Benchmark
@@ -63,9 +64,9 @@ PROFILE_REPS = 5
 #: The size a stub is timed at when the run's preset is larger.
 FAST_SIZE = Preset.M
 #: Task language -> the CPF dialect the library is rendered in.
-DIALECT = {"c": "c", "cpp": "c++"}
-#: A flavor's ``arch`` -> the device its pipeline targets.
-DEVICES = {"cpu": dace.dtypes.DeviceType.CPU, "gpu": dace.dtypes.DeviceType.GPU}
+DIALECT = {Language.C: "c", Language.CPP: "c++"}
+#: A target -> the device its pipeline targets.
+DEVICES = {Target.CPU: dace.dtypes.DeviceType.CPU, Target.GPU: dace.dtypes.DeviceType.GPU}
 
 #: Builds a library submission from a rendered unit and what it links against.
 Deliver = Callable[[str, Sequence[str]], Submission]
@@ -73,15 +74,15 @@ Deliver = Callable[[str, Sequence[str]], Submission]
 Profile = Callable[[Submission], ProfileAnswer]
 
 
-def pipeline_sdfg(spec: BenchSpec, pipeline: str, precision: Precision, arch: str = "cpu") -> dace.SDFG:
-    """The kernel's SDFG at ``precision`` after the bench's DaCe pipeline ``pipeline`` for device ``arch``."""
-    framework = framework_class(f"dace_{arch}")(f"dace_{arch}")
+def pipeline_sdfg(spec: BenchSpec, pipeline: str, precision: Precision, target: Target = Target.CPU) -> dace.SDFG:
+    """The kernel's SDFG at ``precision`` after the bench's DaCe pipeline ``pipeline`` for ``target``."""
+    framework = framework_class(f"dace_{target.text}")(f"dace_{target.text}")
     framework.set_datatype(precision.value)
     program, _ = framework.implementations(Benchmark(spec.short_name))[0]
     if not isinstance(program, DaceProgram):
         raise TypeError(f"{spec.short_name}: the dace port is not a @dace.program")
     sdfg = program.to_sdfg(simplify=False)
-    PIPELINES_BY_NAME[pipeline].transform(sdfg, PipelineContext(device=DEVICES[arch]))
+    PIPELINES_BY_NAME[pipeline].transform(sdfg, PipelineContext(device=DEVICES[target]))
     return sdfg
 
 
@@ -118,9 +119,9 @@ def linked(linker: Linker, selection: dict[str, Build]) -> dace.SDFG:
     return linker.library_sdfg(archives, frozenset(build.candidate.compiler for build in selection.values()))
 
 
-def arch_of(task: Task) -> str:
-    """The device a task's image runs: ``cpu``, or ``gpu`` for the ``nvidia`` and ``amd`` images."""
-    return "cpu" if task.image == "cpu" else "gpu"
+def arch_of(task: Task) -> Target:
+    """The device a task's image runs: CPU, or GPU for the ``nvidia`` and ``amd`` images."""
+    return Target.CPU if task.image == "cpu" else Target.GPU
 
 
 def rendered(task: Task, spec: BenchSpec, sdfg: dace.SDFG, deliver: Deliver) -> Submission:
@@ -129,9 +130,9 @@ def rendered(task: Task, spec: BenchSpec, sdfg: dace.SDFG, deliver: Deliver) -> 
         spec,
         spec.short_name,
         sdfg,
-        DIALECT[task.language.text],
+        DIALECT[task.language],
         task.precision.value,
-        Target.parse(arch_of(task)),
+        arch_of(task),
         DEFAULT_HINTS,
     )
     return deliver(form.code, form.link)
@@ -189,7 +190,7 @@ def optimize(task: Task, pipeline: str, deliver: Deliver, profile: Profile | Non
     """Alloy on ``task``'s kernel after ``pipeline``: the stub-timed selection if ``/score`` grades it correct, else
     every region's reference (CPF's default rendering with no region)."""
     started = time.monotonic()
-    if task.language.text not in DIALECT or task.source_mode is SourceMode.RESTRICTED:
+    if task.language not in DIALECT or task.source_mode is SourceMode.RESTRICTED:
         raise NotImplementedError(f"Alloy submits a C/C++ library; got {task.language.text}/{task.source_mode.text}")
     spec = BenchSpec.load(task.kernel)
     deadline = started + resolve_kernel_timeout(spec)
@@ -202,7 +203,7 @@ def optimize(task: Task, pipeline: str, deliver: Deliver, profile: Profile | Non
     verification = result.verification
     if verification is None:
         raise RuntimeError(f"Alloy verified nothing for {spec.short_name}")
-    linker, judge = Linker(result.program, matrix, out), JudgeClient(judge_endpoints()[0])
+    linker, judge = Linker(result.program, matrix, out), JudgeClient(judge_endpoints()[0], rank=judge_rank())
     size = fast_size(config.current().service.preset)
     measure = profile or (lambda submission: judge.profile(submission, task.kernel, reps=PROFILE_REPS, size=size))
 
