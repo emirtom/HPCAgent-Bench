@@ -13,10 +13,8 @@ A new PyPI dependency goes in a `pyproject.toml` extra, the only dependency list
 ## Run one first
 
 The shipped optimizers are `noop` (the NumpyToX reference unchanged), `blas-reduction` (C, `tsvc_2_vdotr` and
-`gesummv` only), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels) and the Alloy flavors
-`dace_<cpu|gpu>_<canon|parallel|autoopt>_alloy_<profile|heuristic>`, of which only the CPU `profile` ones are built
-(`--extra alloy`, [jobs.md](../jobs.md#baseline)); all are in `hpcagent_bench/harness/optimizers.py`
-(`optimizer_registry()`). Grading needs the OpenMP launch environment before Python starts (the numpy import
+`gesummv` only), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels), all in `hpcagent_bench/harness/optimizers.py` (`optimizer_registry()`), plus the
+flavors of every installed tuner plugin ([plugins.md](plugins.md#tuners)). Grading needs the OpenMP launch environment before Python starts (the numpy import
 fixes it once): `hpcagent_bench/cluster/env.sh` exports `OMP_STACKSIZE=512M` and `OMP_THREAD_LIMIT` (the cores the
 shell owns), and the stack limit is one shell step:
 
@@ -56,12 +54,12 @@ JUDGE_EDF=~/.edf/<judge>.toml hpcagent-bench job submit hpcagent_bench/cluster/o
 
 `job submit` adds the partition, account and cores per task ([jobs.md](../jobs.md)); plain sbatch names them
 (`sbatch --cpus-per-task <N> -p <partition> -A <account> ...`). The task grades on one GPU's share of the cores,
-the graded width; an Alloy flavor, which times on every physical core, takes the whole node
-(`job submit --cpus-per-task <cores per node>`) after `uv sync --extra cpu --extra alloy`. With `JUDGE_EDF` naming
+the graded width; a tuner that times on every physical core takes the whole node
+(`job submit --cpus-per-task <cores per node>`). With `JUDGE_EDF` naming
 the judge image's EDF, the step runs in that image with this checkout mounted, which `pluto` and `ppcg-hip` need
 for `polycc` / `ppcg`; its `--output` must then be on a filesystem the image mounts.
 
-## A student project, end to end
+## An optimizer project, end to end
 
 The path for a course or thesis project that evaluates its own optimizer, compiler pass or library:
 
@@ -162,9 +160,9 @@ is added last: its registration position is its slot (hue and marker) on every f
   optimizer, never the device: it declares `column` and `flavor` and runs on its column's `arch`, which picks the
   device anti-cheats its grades meet. A column has one name: there are no aliases and no renaming of
   recorded databases.
-- An autotuning flavor (local timing plus the judge's `/score`, e.g. `dace_cpu_canon_alloy_profile`) names an
-  `Agent` in `hpcagent_bench/harness/optimizers.py` as its `adapter`, is not `sweep_deterministic`, and runs as
-  `hpcagent-bench agent <name>` (`--native` keeps the judge in the same process).
+- An autotuning flavor names a tuner (a plugin's `[tuners.<key>]`, [plugins.md](plugins.md#tuners)) whose
+  `TunerOptimizer` runs it; it is not `sweep_deterministic` and runs as `hpcagent-bench agent <name>` (`--native`
+  keeps the judge in the same process).
 - A native column also declares `language`, plus `emit_language` when it starts from another translator's
   output, and `compiler` for a non-default `compilers.yaml` block.
 - New base: subclass `Framework` in `<base>_framework.py` (smallest: `cupy_framework.py`). To generate the

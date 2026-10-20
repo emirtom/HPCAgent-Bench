@@ -211,16 +211,6 @@ wheels = [
 ]
 
 [[package]]
-name = "alloy"
-version = "0.0.1"
-source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=d6517881201abb26e169e7e2a5bd29fae30b1e39#d6517881201abb26e169e7e2a5bd29fae30b1e39" }
-dependencies = [
-    { name = "dace" },
-    { name = "numpy" },
-    { name = "pydantic" },
-]
-
-[[package]]
 name = "alphashape"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2633,9 +2623,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-alloy = [
-    { name = "alloy" },
-]
 amdgpu = [
     { name = "clang-format" },
     { name = "coverage" },
@@ -2746,7 +2733,6 @@ openblas-build = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate" },
-    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=d6517881201abb26e169e7e2a5bd29fae30b1e39" },
     { name = "anthropic" },
     { name = "apache-tvm", specifier = ">=0.25" },
     { name = "cffi" },
@@ -2827,7 +2813,7 @@ requires-dist = [
     { name = "xgboost" },
     { name = "z3-solver" },
 ]
-provides-extras = ["cpu", "amdgpu", "nvgpu", "docs", "alloy", "dev"]
+provides-extras = ["cpu", "amdgpu", "nvgpu", "docs", "dev"]
 
 [package.metadata.requires-dev]
 harbor = [

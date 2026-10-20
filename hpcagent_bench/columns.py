@@ -40,14 +40,9 @@ DACE_STAGES: dict[DaceStage, tuple[str, str, str]] = {
     DaceStage.PARALLEL: ("parallel", "parallel", "parallel"),
     DaceStage.AUTOOPT: ("auto-opt", "auto-opt", "auto_optimize"),
 }
-TUNERS.add(
-    "alloy_profile",
-    TunerEntry("Alloy profile", "Alloy (profiled)", "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"),
-)
-TUNERS.add(
-    "alloy_heuristic",
-    TunerEntry("Alloy heuristic", "Alloy (heuristic)", "hpcagent_bench.harness.optimizers:AlloyHeuristicOptimizer"),
-)
+# Alloy moved to its own repository as a tuner plugin; its slots are held so its columns keep their looks.
+TUNERS.retire("alloy_profile")
+TUNERS.retire("alloy_heuristic")
 DACE_PRECISIONS = frozenset({Precision.FP64, Precision.FP32, Precision.FP16})
 
 
@@ -510,14 +505,14 @@ FRAMEWORKS.add(
 
 add_dace(Arch.CPU, DaceStage.PARALLEL)
 add_dace(Arch.GPU, DaceStage.PARALLEL)
-add_dace(Arch.CPU, DaceStage.CANON, "alloy_profile")
-add_dace(Arch.CPU, DaceStage.CANON, "alloy_heuristic")
-add_dace(Arch.CPU, DaceStage.PARALLEL, "alloy_profile")
-add_dace(Arch.CPU, DaceStage.PARALLEL, "alloy_heuristic")
-add_dace(Arch.GPU, DaceStage.CANON, "alloy_profile")
-add_dace(Arch.GPU, DaceStage.CANON, "alloy_heuristic")
-add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_profile")
-add_dace(Arch.GPU, DaceStage.PARALLEL, "alloy_heuristic")
+FRAMEWORKS.retire("dace_cpu_canon_alloy_profile")
+FRAMEWORKS.retire("dace_cpu_canon_alloy_heuristic")
+FRAMEWORKS.retire("dace_cpu_parallel_alloy_profile")
+FRAMEWORKS.retire("dace_cpu_parallel_alloy_heuristic")
+FRAMEWORKS.retire("dace_gpu_canon_alloy_profile")
+FRAMEWORKS.retire("dace_gpu_canon_alloy_heuristic")
+FRAMEWORKS.retire("dace_gpu_parallel_alloy_profile")
+FRAMEWORKS.retire("dace_gpu_parallel_alloy_heuristic")
 
 
 # Polygeist lowers the C target to affine MLIR, Polymer reschedules it with Pluto, MLIR parallelizes it to OpenMP.
@@ -559,10 +554,10 @@ FRAMEWORKS.add(
 )
 
 
-add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_profile")
-add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_heuristic")
-add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_profile")
-add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_heuristic")
+FRAMEWORKS.retire("dace_cpu_autoopt_alloy_profile")
+FRAMEWORKS.retire("dace_cpu_autoopt_alloy_heuristic")
+FRAMEWORKS.retire("dace_gpu_autoopt_alloy_profile")
+FRAMEWORKS.retire("dace_gpu_autoopt_alloy_heuristic")
 
 
 # numba with LLVM's fast-math flags on every njit function of the reference (reassociation, no NaN/Inf guarantees).
@@ -581,3 +576,13 @@ FRAMEWORKS.add(
         flavor="fastmath",
     ),
 )
+
+
+def register_plugin_tuners() -> None:
+    """The plugins' tuners and their DaCe columns, after every shipped column (:func:`plugins.register_tuners`)."""
+    from hpcagent_bench import plugins  # noqa: PLC0415 -- plugins.register_tuners imports add_dace from here
+
+    plugins.register_tuners()
+
+
+register_plugin_tuners()

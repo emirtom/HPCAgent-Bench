@@ -146,9 +146,6 @@ amdgpu = [
 nvgpu = ["hpcagent_bench[dev]", "torch", "jax[cuda13]", "cupy-cuda13x", "triton", "cuda-tile"]
 # The Sphinx build of docs/ (`sphinx-build -W -b html docs docs/_build`).
 docs = ["sphinx", "myst-parser", "furo"]
-# Alloy, the autotuner behind the `dace_<arch>_<pipeline>_alloy_<mode>` flavors. It pins the
-# same dace commit, so it joins any of the framework sets.
-alloy = ["alloy"]
 # Tests and formatters, also part of every framework set so the suite runs inside each image.
 dev = [
     "pytest",
@@ -200,8 +197,6 @@ members = ["agent", "adapters/hpcagent_bench"]
 dace = { git = "https://github.com/spcl/dace.git", rev = "baac24733f204d0e992f8cf73ce3d7c77fce7b5d" }
 relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" }
 hpcagent-agent = { workspace = true }
-# Moves with the dace pin above: Alloy's own dace pin must be the same commit.
-alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "d6517881201abb26e169e7e2a5bd29fae30b1e39" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },
@@ -236,7 +231,7 @@ explicit = true
 # Linux only: the toolchain, the seal and the images are. CPython 3.15 is out until the GPU extras ship wheels
 # for it (cupy-cuda13x has none), so the lock resolves 3.12 to 3.14; the images run 3.12.
 environments = ["sys_platform == 'linux' and python_full_version < '3.15'"]
-# The bench's dace pin wins over the one Alloy's own pyproject names, so the [alloy] extra grades on the same dace.
+# The bench's dace pin wins over any a plugin's own pyproject names, so a plugin grades on the same dace.
 override-dependencies = ["dace @ git+https://github.com/spcl/dace.git@baac24733f204d0e992f8cf73ce3d7c77fce7b5d"]
 # One environment per framework set, and each group is its own venv (litellm's judge-proxy stack needs
 # rich<14; harbor and the OpenHands tools need rich>=14).

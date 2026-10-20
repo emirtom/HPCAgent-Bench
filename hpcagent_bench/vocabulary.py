@@ -22,7 +22,6 @@ __all__ = [
     "LANGUAGES",
     "MODELS",
     "OPTIMIZERS",
-    "OPTIMIZER_ADAPTER_MODULE",
     "PACKETS",
     "TUNERS",
     "Arch",
@@ -34,7 +33,6 @@ __all__ = [
     "Transform",
     "TunerEntry",
     "check_vocabulary",
-    "is_optimizer_adapter",
 ]
 
 
@@ -107,13 +105,6 @@ class PacketDef:
 
 #: ``package.module:Class``.
 ADAPTER_PATTERN = re.compile(r"^[a-z_][a-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
-#: The module whose Agent classes an autotuning flavor's ``adapter`` names (other adapters are Frameworks).
-OPTIMIZER_ADAPTER_MODULE = "hpcagent_bench.harness.optimizers"
-
-
-def is_optimizer_adapter(adapter: str) -> bool:
-    """Whether ``adapter`` names an autotuning :class:`~hpcagent_bench.harness.agent.Agent`, not a Framework."""
-    return adapter.partition(":")[0] == OPTIMIZER_ADAPTER_MODULE
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -168,24 +159,22 @@ class Column:
 
     @property
     def optimizer(self) -> bool:
-        """Whether an autotuning Agent runs this column, not a Framework."""
-        return is_optimizer_adapter(self.adapter)
+        """Whether a tuner (an autotuning Agent) runs this column, not a Framework."""
+        return self.tuner is not None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class TunerEntry:
-    """An autotuner a column can run after its framework's stage: its display name and Agent
-    (``package.module:Class``)."""
+    """An autotuner a column can run after its framework's stage: its display name and its
+    ``hpcagent_bench.harness.optimizers.TunerOptimizer`` (``package.module:Class``, often a plugin's)."""
 
     display: str
     full_name: str
     adapter: str
 
     def __post_init__(self) -> None:
-        if not is_optimizer_adapter(self.adapter):
-            raise RegistryError(
-                f"tuners {self.display!r}: adapter {self.adapter!r} must name a class of {OPTIMIZER_ADAPTER_MODULE}"
-            )
+        if not ADAPTER_PATTERN.match(self.adapter):
+            raise RegistryError(f"tuners {self.display!r}: adapter {self.adapter!r} must read 'package.module:Class'")
 
 
 MODELS: Kind[ModelEntry] = Kind("models")
@@ -195,7 +184,7 @@ OPTIMIZERS: Kind[str] = Kind("optimizers")
 HARNESSES: Kind[str] = Kind("harnesses")
 #: The language a setup asked for, by display name.
 LANGUAGES: Kind[str] = Kind("languages")
-#: Autotuners a framework column runs after its stage (Alloy, ...), by key.
+#: Autotuners a framework column runs after its stage (a plugin's tuners), by key.
 TUNERS: Kind[TunerEntry] = Kind("tuners")
 #: Where a kernel was timed, by display name.
 DEVICES: Kind[str] = Kind("devices")

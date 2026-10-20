@@ -10,7 +10,7 @@ name: CI
 # the finish step still runs. The whole run fits one wave of hosted runners (13 jobs, then `coverage`),
 # each filled to about 35-40 minutes: short work rides as extra steps on a runner with room (one step
 # per corpus slice where a sweep is split), rather than as its own job that pays a setup and a runner.
-# A rider is a matrix-leg field (`perf`, `alloy`, `native_fp64`, `floor`) its steps test.
+# A rider is a matrix-leg field (`perf`, `native_fp64`, `floor`) its steps test.
 #
 # The unit sweep DISCOVERS its files: `ls tests/test_*.py` minus .github/dedicated_tests.txt, which
 # lists the files a dedicated phase below runs instead. tests/test_ci_coverage.py fails when a file
@@ -138,9 +138,9 @@ jobs:
           floor = tuple(int(part) for part in os.environ["FLOOR_PYTHON"].split("."))
           assert sys.version_info[:2] == floor, f"the floor environment runs {sys.version}, not {floor}"
           # Packages of extras this leg does not install: the GPU ones (the amd/nvidia extras and the
-          # ROCm base image ship them) and alloy (its own step installs it). A module that needs one is
+          # ROCm base image ship them). A module that needs one is
           # skipped by name, never silently: any other missing module still fails the leg.
-          NOT_INSTALLED = {"triton", "cupy", "alloy"}
+          NOT_INSTALLED = {"triton", "cupy"}
           names = [m.name for m in pkgutil.walk_packages(hpcagent_bench.__path__, "hpcagent_bench.")
                    if ".benchmarks." not in m.name]
           names += [m.name for m in pkgutil.walk_packages(hpcagent_agent.__path__, "hpcagent_agent.")]
@@ -235,22 +235,22 @@ jobs:
           coverage: perf-cloudsc
 
   # The numerical sweep @ S on numba, in halves (HPCAGENT_BENCH_E2E_SHARD;
-  # test_ci_coverage.py::test_every_sliced_sweep_runs_each_slice_exactly_once), each carrying riders: Alloy and
+  # test_ci_coverage.py::test_every_sliced_sweep_runs_each_slice_exactly_once), each carrying a perf rider:
   # perf[cloudsc_monolith] on one half, perf[kernels] on the other.
   # A leg's `minutes` caps its own sweep so a hang still leaves the finish step its time.
   # Coverage artifacts are named by matrix position (e2e-<job-index>), unique per leg.
   e2e:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
-    name: e2e[${{ matrix.leg.backend }}${{ matrix.leg.shard && format(' {0}', matrix.leg.shard) || '' }}]${{ matrix.leg.alloy && ' + alloy' || '' }}${{ matrix.leg.perf && format(' + perf[{0}]', matrix.leg.perf) || '' }} (numerical sweep @ S)
+    name: e2e[${{ matrix.leg.backend }}${{ matrix.leg.shard && format(' {0}', matrix.leg.shard) || '' }}]${{ matrix.leg.perf && format(' + perf[{0}]', matrix.leg.perf) || '' }} (numerical sweep @ S)
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         leg:
           # numba in halves (every generated build is parallel=True; cloudsc and cloudsc_monolith each compile for
-          # minutes and sort next to each other, so each half takes one): half + Alloy 5 + perf[cloudsc_monolith] 11.5 /
+          # minutes and sort next to each other, so each half takes one): half + perf[cloudsc_monolith] 11.5 /
           # half + perf[kernels] 12.5
-          - { backend: numba, workers: auto, minutes: 25, shard: "0/2", alloy: true, perf: cloudsc_monolith }
+          - { backend: numba, workers: auto, minutes: 25, shard: "0/2", perf: cloudsc_monolith }
           - { backend: numba, workers: auto, minutes: 25, shard: "1/2", perf: kernels }
     timeout-minutes: 45
     steps:
@@ -259,7 +259,6 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup
         with:
-          sync-args: ${{ matrix.leg.alloy && '--extra alloy' || '' }}
           ccache: e2e-${{ matrix.leg.backend }}
       # --timeout stays above numerical_oracle.PY_FORK_TIMEOUT_S (600) so the oracle's own
       # SIGKILL reports skip:too-long first.
@@ -273,16 +272,6 @@ jobs:
         run: |
           python -m pytest -p no:cacheprovider -rfEs -n ${{ matrix.leg.workers }} --dist loadgroup --durations=25 \
             --timeout=900 tests/test_e2e_numerical.py
-      # Alloy (the optional `alloy` extra): one kernel's region variants built, verified and screened, and both
-      # CPU profile flavors' libraries graded by an in-process judge. gcc and the setup's LLVM clang are its
-      # compilers. About 5 minutes.
-      - name: Alloy variants and profile flavors @ S
-        if: ${{ matrix.leg.alloy && !cancelled() }}
-        timeout-minutes: 12
-        env:
-          HPCAGENT_BENCH_SERVICE_PRESET: S
-        run: |
-          python -m pytest -v -p no:cacheprovider -rfEs --maxfail=10 --timeout=2000 tests/test_alloy_optimizer.py tests/test_alloy_adapter.py
       # The perf gate's other groups (see `perf`): reports, does not block.
       - name: Perf gate [${{ matrix.leg.perf }}]
         if: ${{ matrix.leg.perf && !cancelled() }}

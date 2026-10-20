@@ -292,7 +292,7 @@ MATRIX_FIELD = re.compile(r"^\$\{\{\s*matrix\.([\w.]+)(?:\s*\|\|\s*'')?\s*\}\}$"
 
 def runs_on_leg(step: dict, leg: dict) -> bool:
     """Whether a step's ``if:`` lets it run on this leg. The workflow's conditions on the matrix are conjunctions of
-    fields (``matrix.leg.alloy && !cancelled()``) and comparisons (``matrix.shard.id == 0``)."""
+    fields (``matrix.leg.perf && !cancelled()``) and comparisons (``matrix.shard.id == 0``)."""
     for path, op, literal in MATRIX_TEST.findall(str(step.get("if", ""))):
         value = matrix_value(leg, path)
         if (op == "==" and str(value) != literal) or (op == "!=" and str(value) == literal) or (not op and not value):

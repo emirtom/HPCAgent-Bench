@@ -49,13 +49,16 @@ METHOD_ENV = "AGENT_METHOD"
 
 
 class Manifest(pydantic.BaseModel):
-    """A plugin's ``plugin.toml``; ``packets`` maps a packet key to its ``packet:`` block fields."""
+    """A plugin's ``plugin.toml``: the optimizers it adds. ``packets`` maps a packet key (a method an LLM agent runs)
+    to its ``packet:`` block fields; ``tuners`` maps a tuner key (an optimizer that runs without an LLM) to its
+    ``tuners.<key>`` block (``hpcagent_bench.plugins.TunerBlock``)."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
     name: str = pydantic.Field(pattern=r"^[a-z][a-z0-9_]*$")
     description: str = ""
     packets: dict[str, dict[str, object]] = pydantic.Field(default_factory=dict[str, dict[str, object]])
+    tuners: dict[str, dict[str, object]] = pydantic.Field(default_factory=dict[str, dict[str, object]])
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

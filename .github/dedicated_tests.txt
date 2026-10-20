@@ -46,10 +46,6 @@ tests/test_token_usage.py
 tests/test_packaging.py
 tests/test_container_launch.py
 
-# --- e2e[numba]: the optional Alloy extra end to end ----------------------------------------------
-tests/test_alloy_adapter.py
-tests/test_alloy_optimizer.py
-
 # --- native (+ e2e, integration): frameworks, Pluto (polycc), native emit, the e2e sweeps ----------
 tests/test_default_datatype_tolerance.py
 tests/test_fp16.py

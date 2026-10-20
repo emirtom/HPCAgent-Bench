@@ -24,15 +24,18 @@ class Kind[Entry]:
     aliases: dict[str, str] = dataclasses.field(default_factory=dict[str, str])
 
     def add(self, key: str, entry: Entry, *, slotted: bool = True, aliases: Iterable[str] = ()) -> Entry:
-        """Register ``entry`` under ``key`` at the next slot (none unless ``slotted``); a taken key or alias raises."""
+        """Register ``entry`` under ``key`` at the next slot (none unless ``slotted``), or at the slot :meth:`retire`
+        holds for ``key`` (a plugin bringing back a removed entry keeps its look); a taken key or alias raises."""
         if key in self.entries or key in self.aliases:
             raise RegistryError(f"{self.name}: {key!r} is registered twice")
         names = tuple(aliases)
         for alias in names:
-            if alias in self.entries or alias in self.aliases or alias == key or names.count(alias) > 1:
+            if alias in self.entries or self.aliases.get(alias, key) != key or alias == key or names.count(alias) > 1:
                 raise RegistryError(f"{self.name} {key!r}: alias {alias!r} is already a name or an alias")
+        held = self.orders.get(key)
         self.entries[key] = entry
-        self.orders[key] = sum(order is not None for order in self.orders.values()) if slotted else None
+        if held is None:
+            self.orders[key] = sum(order is not None for order in self.orders.values()) if slotted else None
         self.aliases.update(dict.fromkeys(names, key))
         return entry
 

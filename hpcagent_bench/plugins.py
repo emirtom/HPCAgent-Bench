@@ -1,7 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge's side of the plugins (:mod:`hpcagent_agent.plugins` has the layout): their packets join the vocabulary,
-their skill pages the page lookup, their routes the judge. Plugins are the agent-side folders plus installed packages
+"""The judge's side of the plugins (:mod:`hpcagent_agent.plugins` has the layout): every plugin adds optimizers. Its
+packets (methods an LLM agent runs) join the vocabulary, their skill pages the page lookup, their routes the judge;
+its tuners (optimizers with no LLM) join the tuners and each DaCe stage they tune joins the framework columns. Plugins are the agent-side folders plus installed packages
 under :data:`ENTRY_POINT_GROUP`; :func:`roots` is what a launcher exports to every role."""
 
 import functools
@@ -12,14 +13,17 @@ import pathlib
 import sys
 from collections.abc import Mapping
 
+import pydantic
+
 from hpcagent_agent import plugins as agent_plugins
 from hpcagent_agent.plugins import Plugin
 
 from hpcagent_bench.skill_frontmatter import PacketBlock
-from hpcagent_bench.vocabulary import PACKETS, PacketDef
+from hpcagent_bench.vocabulary import PACKETS, TUNERS, Arch, DaceStage, PacketDef, TunerEntry
 
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "TunerBlock",
     "entry_point_dirs",
     "load",
     "main",
@@ -28,6 +32,7 @@ __all__ = [
     "recorded",
     "register",
     "register_packets",
+    "register_tuners",
     "roots",
 ]
 
@@ -49,6 +54,39 @@ def entry_point_dirs() -> tuple[pathlib.Path, ...]:
 def roots(environ: Mapping[str, str] = os.environ) -> tuple[pathlib.Path, ...]:
     """Every plugin directory: the folders, then the installed ones, each once."""
     return tuple(dict.fromkeys((*agent_plugins.plugin_dirs(environ), *entry_point_dirs())))
+
+
+class TunerBlock(pydantic.BaseModel):
+    """A plugin's ``[tuners.<key>]``: an optimizer that runs without an LLM, as ``hpcagent-bench agent <column>``."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    #: The name a figure prints beside a stage, and the long name a table prints.
+    name: str
+    full_name: str
+    #: ``package.module:Class`` of its ``hpcagent_bench.harness.optimizers.TunerOptimizer``, imported on first use.
+    optimizer: str = pydantic.Field(pattern=r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")
+    #: The DaCe stages it tunes, ``<arch>_<stage>`` (``cpu_canon``, ``gpu_parallel``, ...): one column each,
+    #: ``dace_<arch>_<stage>_<key>``.
+    dace: tuple[str, ...] = ()
+
+
+@functools.lru_cache(maxsize=1, typed=True)
+def register_tuners() -> None:
+    """Add every plugin's tuners and their DaCe columns, once per process, after the shipped columns (a key core
+    retired takes back its slot)."""
+    from hpcagent_bench.columns import add_dace  # deferred: columns calls this at its end
+
+    for plugin in agent_plugins.find(roots()):
+        if plugin.manifest.tuners:
+            # A folder plugin's optimizer imports as hpcagent_bench_plugins.<name>.<module>.
+            agent_plugins.import_package(plugin)
+        for key, raw in sorted(plugin.manifest.tuners.items()):
+            block = TunerBlock.model_validate(raw)
+            TUNERS.add(key, TunerEntry(block.name, block.full_name, block.optimizer))
+            for target in block.dace:
+                arch, stage = target.split("_", 1)
+                add_dace(Arch.parse(arch), DaceStage.parse(stage), key)
 
 
 def packet_definition(plugin: Plugin, key: str, block: PacketBlock) -> PacketDef:

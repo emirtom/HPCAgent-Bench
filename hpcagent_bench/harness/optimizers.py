@@ -1,15 +1,15 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Non-AI optimizers (NoOp, BLAS, Pluto, PPCG, Alloy flavors) behind the agent contract, so the harness runs them
+"""Non-AI optimizers (NoOp, BLAS, Pluto, PPCG, plugin tuners) behind the agent contract, so the harness runs them
 exactly like an LLM agent; :func:`optimizer_registry` names them for ``hpcagent-bench agent``."""
 
 import functools
+import importlib
 import pathlib
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import weakref
 from collections.abc import Callable, Sequence
@@ -31,15 +31,13 @@ from hpcagent_bench.translators.numpyto_c.bindings import read_binding
 from hpcagent_bench.vocabulary import Arch
 
 __all__ = [
-    "AlloyHeuristicOptimizer",
-    "AlloyOptimizer",
-    "AlloyProfileOptimizer",
     "BlasReductionOptimizer",
     "LibraryOptimizer",
     "NoOpMPIOptimizer",
     "NoOpOptimizer",
     "PlutoOptimizer",
     "PpcgHipOptimizer",
+    "TunerOptimizer",
     "agent_class",
     "call_argument",
     "emit_scops",
@@ -51,6 +49,7 @@ __all__ = [
     "pluto_source",
     "polyhedral_binding",
     "ppcg_hip_sources",
+    "tuner_agent",
 ]
 
 
@@ -360,8 +359,9 @@ class PpcgHipOptimizer(Agent):
         return Submission(language=Language.HIP, source=host, device_source=device)
 
 
-class AlloyOptimizer(LibraryOptimizer):
-    """An autotuning DaCe flavor: Alloy on the SDFG of the flavor's pipeline, constructed with the flavor's name."""
+class TunerOptimizer(LibraryOptimizer):
+    """An autotuning DaCe flavor (a tuner a plugin registers): it tunes the SDFG of the flavor's pipeline and
+    delivers a library; constructed with the flavor's name, which its rows carry."""
 
     __slots__ = ("fname",)
 
@@ -377,36 +377,16 @@ class AlloyOptimizer(LibraryOptimizer):
             raise NotImplementedError(f"{self.fname} runs on {column.arch.text}; got a {task.image} task")
         pipelines = column.pipelines
         if len(pipelines) != 1:
-            raise ValueError(f"{self.fname} names pipelines {pipelines}; an Alloy flavor tunes exactly one")
+            raise ValueError(f"{self.fname} names pipelines {pipelines}; a tuner flavor tunes exactly one")
         return self.tune(task, pipelines[0])
 
     def tune(self, task: Task, pipeline: str) -> Submission:
-        """The library this mode picks for ``task`` from ``pipeline``'s output."""
+        """The library this tuner picks for ``task`` from ``pipeline``'s output."""
         raise NotImplementedError
 
-
-class AlloyProfileOptimizer(AlloyOptimizer):
-    """Alloy's profile mode: candidates verified and timed by the judge via ``/profile``, the chosen one scored."""
-
-    __slots__ = ()
-
-    def tune(self, task: Task, pipeline: str) -> Submission:
-        # Deferred: Alloy is an optional install.
-        from hpcagent_bench.harness import alloy_adapter
-
-        def deliver(code: str, link: Sequence[str]) -> Submission:
-            return self._library_submission(task, code, extra_link=link)
-
-        return alloy_adapter.optimize(task, pipeline, deliver)
-
-
-class AlloyHeuristicOptimizer(AlloyOptimizer):
-    """Alloy's heuristic mode: one candidate per region picked from build signals, verified, then scored."""
-
-    __slots__ = ()
-
-    def tune(self, task: Task, pipeline: str) -> Submission:
-        raise NotImplementedError("Alloy's heuristic mode is not built yet")
+    def deliver(self, task: Task, code: str, link: Sequence[str]) -> Submission:
+        """``code`` built into the episode's library, linked against ``link``, as the submission."""
+        return self._library_submission(task, code, extra_link=link)
 
 
 def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
@@ -417,11 +397,12 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
     return target
 
 
-def tuner_agent(adapter: str) -> type[AlloyOptimizer]:
-    """The autotuning :class:`Agent` a tuner's ``adapter`` (``package.module:Class``) names."""
-    value = modules.optional(sys.modules[__name__], adapter.partition(":")[2], type)
-    if not (isinstance(value, type) and issubclass(value, AlloyOptimizer)):
-        raise TypeError(f"tuner adapter {adapter!r} names no autotuning Agent of {__name__}")
+def tuner_agent(adapter: str) -> type[TunerOptimizer]:
+    """The :class:`TunerOptimizer` a tuner's ``adapter`` (``package.module:Class``, the plugin's) names."""
+    module_name, class_name = adapter.split(":", 1)
+    value = modules.optional(importlib.import_module(module_name), class_name, type)
+    if not (isinstance(value, type) and issubclass(value, TunerOptimizer)):
+        raise TypeError(f"tuner adapter {adapter!r} names no TunerOptimizer")
     return value
 
 
