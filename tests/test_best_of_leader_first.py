@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode, Track
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.native_call import NativeCallTimeout, NativeCallTooSlow
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -95,7 +96,7 @@ def grade(
     budgets: list[float] = []
     monkeypatch.setattr(scoring, "_run_c_reference", seq_c(c_ns, timed))
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(numba_ns, timed, budgets))
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
         config.overridden("measurement.baseline_race", race),
         config.overridden("measurement.early_stop_factor", FACTOR),
@@ -107,11 +108,11 @@ def grade(
     ):
         result = scoring.score(
             submission,
-            Task(KERNEL, "restricted", "c"),
-            preset="S",
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             repeat=5,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             hidden=False,
             hidden_cases=[],
         )
@@ -119,9 +120,9 @@ def grade(
 
 
 def test_the_default_race_is_leader_first_with_its_own_stamp() -> None:
-    kinds = grading.track_baseline_set("scientific_computing")
+    kinds = grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING)
     assert grading.baseline_policy_stamp(kinds) == "best-of-v4:c+numba"
-    assert grading.track_baseline_set("loop_level_reasoning") == kinds
+    assert grading.track_baseline_set(Track.LOOP_LEVEL_REASONING) == kinds
     with config.overridden("measurement.baseline_race", grading.COMPLETE_RACE):
         assert grading.baseline_policy_stamp(kinds) == "best-of-v2:c+numba"
 
@@ -184,10 +185,10 @@ def test_first_contact_has_no_hint_and_no_memo_so_numba_leads_then_the_winner_do
 def test_the_leader_is_the_remembered_winner_then_the_hint_then_numba(monkeypatch: pytest.MonkeyPatch) -> None:
     kinds = ("c", "numba")
     monkeypatch.setattr(grading, "leader_hints", lambda: {KERNEL: {"XL": "c"}})
-    assert grading.race_order(kinds, KERNEL, "XL", remembered="numba") == ("numba", "c")
-    assert grading.race_order(kinds, KERNEL, "XL") == ("c", "numba")
-    assert grading.race_order(kinds, KERNEL, "S") == ("numba", "c")
-    assert grading.race_order(kinds, "gemm", "XL", remembered="c-autopar") == ("numba", "c")
+    assert grading.race_order(kinds, KERNEL, Preset.XL, remembered=Baseline.NUMBA) == ("numba", "c")
+    assert grading.race_order(kinds, KERNEL, Preset.XL) == ("c", "numba")
+    assert grading.race_order(kinds, KERNEL, Preset.S) == ("numba", "c")
+    assert grading.race_order(kinds, "gemm", Preset.XL, remembered=Baseline.C_AUTOPAR) == ("numba", "c")
 
 
 def test_the_grade_records_the_race_its_denominator_came_from(monkeypatch: pytest.MonkeyPatch) -> None:

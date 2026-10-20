@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import flags, pluto_transform, ppcg_transform
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -346,7 +347,7 @@ def test_a_scop_ppcg_passed_through_is_declined_rather_than_timed(tmp_path, monk
     monkeypatch.setattr(ppcg_transform, "hipify_exe", lambda: "/usr/bin/true")
     monkeypatch.setattr(ppcg_transform, "assert_affine", lambda *a, **k: None)
 
-    host, device = ppcg_transform.transformed_paths(scop, "hip")
+    host, device = ppcg_transform.transformed_paths(scop, Language.HIP)
     host.write_text(scop.read_text())
     device.write_text(f'#include "{scop.stem}_kernel.hu"\n')
     os.utime(host, None)
@@ -357,11 +358,11 @@ def test_a_scop_ppcg_passed_through_is_declined_rather_than_timed(tmp_path, monk
 
     monkeypatch.setattr(ppcg_transform, "run_ppcg", must_not_run)
     with pytest.raises(NotSupportedByFramework, match="offloaded nothing"):
-        ppcg_transform.transformed_sources(cpp_backend, "mm", "hip")
+        ppcg_transform.transformed_sources(cpp_backend, "mm", Language.HIP)
 
     # The control: the same fresh pair, with a kernel in it, is accepted.
     device.write_text(f'#include "{scop.stem}_kernel.hu"\n__global__ void kernel0(void) {{}}\n')
-    assert ppcg_transform.transformed_sources(cpp_backend, "mm", "hip") == [host, device]
+    assert ppcg_transform.transformed_sources(cpp_backend, "mm", Language.HIP) == [host, device]
 
 
 def test_ppcgs_c_output_is_repaired_into_the_cpp_the_gpu_drivers_compile() -> None:
@@ -1174,7 +1175,7 @@ def test_a_missing_ppcg_is_recorded_as_tool_missing_and_a_real_decline_is_not(tm
     write_scop(cpp_backend)
     monkeypatch.setattr(ppcg_transform, "ppcg_lookup", lambda: (None, "ppcg is not installed on this host: nowhere"))
     with pytest.raises(ToolMissing) as absent:
-        ppcg_transform.transformed_sources(cpp_backend, "mm", "hip")
+        ppcg_transform.transformed_sources(cpp_backend, "mm", Language.HIP)
     assert "ppcg is not installed on this host" in str(absent.value)
     assert decline_kind(absent.value) == "tool_missing"
 
@@ -1182,7 +1183,7 @@ def test_a_missing_ppcg_is_recorded_as_tool_missing_and_a_real_decline_is_not(tm
     monkeypatch.setattr(ppcg_transform, "ppcg_lookup", lambda: ("/usr/bin/true", ""))
     monkeypatch.setattr(ppcg_transform, "hipify_exe", lambda: "/usr/bin/true")
     with pytest.raises(NotSupportedByFramework) as declined:
-        ppcg_transform.transformed_sources(tmp_path / "empty", "mm", "hip")
+        ppcg_transform.transformed_sources(tmp_path / "empty", "mm", Language.HIP)
     assert not isinstance(declined.value, ToolMissing)
     assert decline_kind(declined.value) == "unsupported"
 
@@ -1197,7 +1198,7 @@ def test_the_ppcg_column_asks_about_its_tool_before_it_asks_about_the_kernel(tmp
 
     monkeypatch.setattr(ppcg_transform, "ppcg_lookup", lambda: (None, "ppcg is not installed on this host: nowhere"))
     with pytest.raises(ToolMissing, match="ppcg is not installed"):
-        ppcg_transform.transformed_sources(tmp_path / "no_scop_here", "mm", "hip")
+        ppcg_transform.transformed_sources(tmp_path / "no_scop_here", "mm", Language.HIP)
 
 
 def test_a_broken_ppcg_is_walked_past_rather_than_shadowing_a_working_one(tmp_path, monkeypatch) -> None:
@@ -1242,8 +1243,8 @@ def test_the_hip_column_declines_when_only_hipify_is_missing(monkeypatch) -> Non
     monkeypatch.setattr(ppcg_transform, "ppcg_lookup", lambda: ("/usr/bin/true", ""))
     monkeypatch.setattr(ppcg_transform, "hipify_exe", lambda: None)
 
-    assert ppcg_transform.missing_tool("cuda") == ""
-    problem = ppcg_transform.missing_tool("hip")
+    assert ppcg_transform.missing_tool(Language.CUDA) == ""
+    problem = ppcg_transform.missing_tool(Language.HIP)
     assert ppcg_transform.HIPIFY in problem
     assert "is not installed" in problem
 
@@ -1397,10 +1398,10 @@ def test_the_transform_publishes_from_a_scratch_dir_beside_the_scop(tmp_path, mo
     stub.chmod(0o755)
     monkeypatch.setattr(ppcg_transform, "ppcg_lookup", lambda: (str(stub), ""))
 
-    _argv, proc = ppcg_transform.run_ppcg(scop, "cuda")
+    _argv, proc = ppcg_transform.run_ppcg(scop, Language.CUDA)
 
     assert proc.returncode == 0, proc.stderr
-    host, device = ppcg_transform.transformed_paths(scop, "cuda")
+    host, device = ppcg_transform.transformed_paths(scop, Language.CUDA)
     assert host.is_file(), "the transform published nothing"
     assert device.is_file(), "the transform published nothing"
     assert scop.with_name(f"{scop.stem}_kernel.hu").is_file(), "the shared header was not published"
@@ -1442,7 +1443,7 @@ def test_a_validation_that_could_not_run_is_not_recorded_as_validated(tmp_path, 
     monkeypatch.setattr(utilities, "validate", boom)
     try:
         timings = Test(Benchmark("arc_distance"), generate_framework("numba")).run(
-            preset="S", validate=True, repeat=1, timeout=120.0, ignore_errors=True
+            preset=Preset.S, validate=True, repeat=1, timeout=120.0, ignore_errors=True
         )
     finally:
         config.clear_override("record.db_path")

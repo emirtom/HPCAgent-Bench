@@ -3,17 +3,18 @@
 """A ``workspace_bytes`` naming what the kernel does not have is refused before the build (400, the
 submission not spent); the names the grade binds pass."""
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import service
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 
 #: gemm's scalars are NI, NJ, NK, alpha, beta.
-GEMM = Task("gemm", language="c")
+GEMM = Task("gemm", language=Language.C)
 
 
 def refusal(expr: str | None) -> str | None:
     return service.workspace_refusal(
-        Submission(language="c", source="void gemm_fp64(void) {}", workspace_bytes=expr), GEMM
+        Submission(language=Language.C, source="void gemm_fp64(void) {}", workspace_bytes=expr), GEMM
     )
 
 

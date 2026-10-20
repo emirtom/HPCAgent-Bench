@@ -25,9 +25,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from hpcagent_bench.support.counter_generator import CounterGenerator
 from tests.fresh_module import module_at
 from tests.port_toolchain import cxx, openmp_or_serial_library
-from hpcagent_bench.support.counter_generator import CounterGenerator
 
 _HERE = Path(__file__).resolve().parent
 _BENCH = (

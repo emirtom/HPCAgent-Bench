@@ -37,6 +37,7 @@ import tempfile
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.translators.numpyto_c.emit import emit_cpp, emit_cpp_isopar
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
 from hpcagent_bench.translators.numpyto_common.lowering import lower
@@ -615,7 +616,7 @@ def oracle():
 @pytest.mark.parametrize(("kernel", "shape"), CORPUS, ids=[k for k, unused in CORPUS])
 def test_corpus_kernel_matches_numpy(kernel, shape) -> None:
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", only_backends={"cpp", no.ISOPAR})
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", only_backends={"cpp", no.ISOPAR})
     assert status.get(no.ISOPAR) == "ok", f"{kernel} ({shape}): {status}"
     assert status.get("cpp") == "ok", f"{kernel} plain cpp regressed: {status}"
 
@@ -680,7 +681,7 @@ def test_emitted_source_has_no_implicit_conversion(name, body, dtypes) -> None:
             [
                 "g++",
                 "-O1",
-                languages.std_flag("cpp"),
+                languages.std_flag(Language.CPP),
                 "-Wall",
                 "-Wextra",
                 "-Wno-unused-parameter",

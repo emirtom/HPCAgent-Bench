@@ -14,6 +14,7 @@ import importlib
 import pytest
 
 from hpcagent_bench import modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark, returned_names
 from hpcagent_bench.spec import BenchSpec
 
@@ -54,5 +55,5 @@ def test_a_fallback_draw_binds_every_declared_array(kernel: str) -> None:
     """The draw goes through the strict binding; bout_elm_pb leaves its ``hyperresist`` value scalar out."""
     spec = BenchSpec.load(kernel)
     assert spec.init is not None
-    data = Benchmark(kernel).get_data(preset="S", datatype="float64", input_seed=0)
+    data = Benchmark(kernel).get_data(preset=Preset.S, datatype="float64", input_seed=0)
     assert set(spec.init.output_args) <= set(data)

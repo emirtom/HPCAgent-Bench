@@ -11,9 +11,9 @@ from collections.abc import Iterator
 import pytest
 
 from hpcagent_bench import config, harbor
+from hpcagent_bench.categories import RecordDevice
 from hpcagent_bench.cli import Execution, build_parser
 from hpcagent_bench.harness import recording
-from hpcagent_bench.harness.task import RecordDevice
 
 
 @pytest.fixture
@@ -23,17 +23,17 @@ def judge_db(tmp_path: pathlib.Path) -> Iterator[sqlite3.Connection]:
         yield conn
 
 
-@pytest.mark.parametrize("device", list(RecordDevice), ids=lambda device: device.value)
+@pytest.mark.parametrize("device", list(RecordDevice), ids=lambda device: device.text)
 def test_the_recorded_device_reads_back_to_its_member(
     device: RecordDevice, judge_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``setups.device`` holds the member's value, and parsing it gives the member back."""
-    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", device.value)
+    """``setups.device`` holds the member's text, and parsing it gives the member back."""
+    monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", device.text)
     config.reload()
     recording.open_episode(judge_db, "setup.n0.p0.w0")
     (stored,) = judge_db.execute("SELECT device FROM setups WHERE setup = 'setup'").fetchone()
-    assert stored == device.value
-    assert RecordDevice(stored) is device
+    assert stored == device.text
+    assert RecordDevice.parse(stored) is device
 
 
 @pytest.mark.parametrize("execution", list(Execution), ids=lambda execution: execution.value)

@@ -32,6 +32,7 @@ from hpcagent_agent.tools import http_json
 from hpcagent_bench import config, cpf_cache, fused
 from hpcagent_bench.anticheat import Judgement
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import InputMode, Language, Oracle, SourceMode
 from hpcagent_bench.harness import recording, results_db, tools
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import HealthAnswer, SubmitVerdict
@@ -232,14 +233,19 @@ def record_all(db: str, episode_id: str) -> None:
     """One /submit row and one router calls row, as a judge records a worker's grade."""
     recording.record(
         graded(),
-        Submission(language="c", source="/* x */", build=[]),
-        Task(KERNEL, "restricted", "c"),
+        Submission(language=Language.C, source="/* x */", build=[]),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=Judgement(),
         path=db,
         episode_id=episode_id,
     )
     recording.record_call(
-        graded(), Task(KERNEL, "restricted", "c"), status="ok", route="score", episode_id=episode_id, path=db
+        graded(),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        status="ok",
+        route="score",
+        episode_id=episode_id,
+        path=db,
     )
 
 
@@ -336,7 +342,9 @@ class HeaderEcho(BaseHTTPRequestHandler):
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
         # What the judge answers the route, as its model dumps it: JudgeClient validates every answer.
         answer = (
-            HealthAnswer(status="ok", rank=0, oracle="auto", baseline="auto", input_mode="any", submits_in_flight=0)
+            HealthAnswer(
+                status="ok", rank=0, oracle=Oracle.AUTO, baseline=None, input_mode=InputMode.ANY, submits_in_flight=0
+            )
             if self.path.startswith("/health")
             else SubmitVerdict(correct="yes", request_id="r")
         )
@@ -379,7 +387,7 @@ def test_every_judge_client_sends_the_token_only_inside_a_fused_job(
     http_json.call_json(f"{echo}/score", b"{}", 10)
     client = tools.JudgeClient(echo)
     client.health()
-    client.submit(Submission(language="c", source="x", build=[]), KERNEL)
+    client.submit(Submission(language=Language.C, source="x", build=[]), KERNEL)
     promote_unsubmitted.promote(echo, {"kernel": KERNEL, "language": "c", "source": "x", "episode_id": "r"}, False, 0)
     assert HeaderEcho.headers_seen == [token] * 4
 

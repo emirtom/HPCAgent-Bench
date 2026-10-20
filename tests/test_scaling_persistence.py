@@ -12,6 +12,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import observations_extract
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import metric, recording, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
@@ -185,8 +186,8 @@ def test_record_writes_the_curve_under_the_grade_that_measured_it(tmp_path: path
     score = Score(True, 0.0, 1000, True, "", baseline_ns=2000, speedup=2.0, public_correct=True, hidden_correct=True)
     table = recording.record(
         score,
-        Submission(language="c", source="/* x */", build=[]),
-        Task(KERNEL, "restricted", "c"),
+        Submission(language=Language.C, source="/* x */", build=[]),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         episode_id=EPISODE_ID,
         path=str(db),
         curves=(law_of(strong_curve()),),
@@ -204,8 +205,8 @@ def test_record_keeps_the_holes_of_a_grade_whose_every_point_dropped(tmp_path: p
     holes = metric.scaling_drops({}, {2: "unsizable", 4: "unsizable"})
     recording.record(
         score,
-        Submission(language="c", source="/* x */", build=[]),
-        Task(KERNEL, "restricted", "c"),
+        Submission(language=Language.C, source="/* x */", build=[]),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         episode_id=EPISODE_ID,
         path=str(db),
         curves=(metric.LawCurve(ScalingLaw.WEAK, None, (), holes, {}),),
@@ -218,7 +219,10 @@ def test_a_grade_without_a_sweep_writes_no_scaling_rows(tmp_path: pathlib.Path) 
     db = tmp_path / "r.db"
     score = Score(True, 0.0, 1000, True, "", baseline_ns=2000, speedup=2.0)
     recording.record(
-        score, Submission(language="c", source="/* x */", build=[]), Task(KERNEL, "restricted", "c"), path=str(db)
+        score,
+        Submission(language=Language.C, source="/* x */", build=[]),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        path=str(db),
     )
     assert rows(db, "SELECT COUNT(*) AS n FROM scaling_points") == [{"n": 0}]
 

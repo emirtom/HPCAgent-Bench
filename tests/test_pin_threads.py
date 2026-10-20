@@ -12,8 +12,7 @@ import re
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import config
+from hpcagent_bench import config, modules
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.harness.timing import parse_cpu_list, physical_core_affinity
 

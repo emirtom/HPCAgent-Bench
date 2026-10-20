@@ -24,6 +24,7 @@ import pytest
 
 from hpcagent_bench import config, cpf_bridge, cpf_cache, cpf_canonical, cpf_prerender, packets
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Language
 from hpcagent_bench.cluster import make_problems
 from hpcagent_bench.harness.tools import DEFAULT_RANK
 from hpcagent_bench.spec import BenchSpec
@@ -348,7 +349,7 @@ def test_the_curl_prompt_of_a_kinds_setup_defines_the_three_words(tmp_path: path
         config.overridden("service.canonical_parallel_form_dir", str(tmp_path)),
         config.overridden(cpf_cache.HINTS_CONFIG_KEY, "kinds"),
     ):
-        prompt = service.service_prompt(KERNEL, "c", "http://judge")
+        prompt = service.service_prompt(KERNEL, Language.C, "http://judge")
     section = prompt.split("### `canonical_parallel_form`", 1)[1].split("\n### ", 1)[0]
     assert "`// par` means proven independent" in section
     assert not PROOF_WORDING.search(section), section

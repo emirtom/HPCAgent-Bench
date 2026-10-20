@@ -8,6 +8,7 @@ gap is already the ``c`` FAIL), not a duplicate FAIL."""
 import pytest
 
 from hpcagent_bench import numerical_oracle as no
+from hpcagent_bench.categories import Preset
 from tests.optional_imports import import_or_skip
 
 
@@ -15,7 +16,7 @@ def test_native_emit_failure_marks_native_but_still_runs_python_backends(monkeyp
     # Force the shared native emit to fail; numba emits its own module, so it still
     # validates while c/fortran report the emit gap.
     monkeypatch.setattr(no, "_emit", lambda *a, **k: (False, ""))
-    res = no.run_kernel("cond_reduce_sum", "S", only_backends={"c", "fortran", "numba"})
+    res = no.run_kernel("cond_reduce_sum", Preset.S, only_backends={"c", "fortran", "numba"})
     assert res["c"] == "FAIL:emit"
     assert res["fortran"] == "FAIL:emit"
     # numba runs the numpy body verbatim -- unaffected by the native emit.
@@ -26,7 +27,7 @@ def test_pluto_skips_when_native_emit_fails(monkeypatch) -> None:
     # Pluto optimizes the emitted C scop; with no C source it skips (the gap is the
     # c backend's FAIL), rather than double-counting a second FAIL.
     monkeypatch.setattr(no, "_emit", lambda *a, **k: (False, ""))
-    res = no.run_kernel("cond_reduce_sum", "S", only_backends={"c", "pluto"})
+    res = no.run_kernel("cond_reduce_sum", Preset.S, only_backends={"c", "pluto"})
     assert res["c"] == "FAIL:emit"
     assert res["pluto"] == "skip:native-emit"
 
@@ -53,9 +54,9 @@ def _jax_ok(short, **kwargs):
     a bigger budget and, where the caller offers one, a smaller problem; only then report what came
     back.
     """
-    res = no.run_kernel(short, "S", **kwargs)
+    res = no.run_kernel(short, Preset.S, **kwargs)
     if res.get("jax") == "skip:too-long":
-        res = no.run_kernel(short, "S", jax_timeout_s=_JAX_RETRY_TIMEOUT_S, **kwargs)
+        res = no.run_kernel(short, Preset.S, jax_timeout_s=_JAX_RETRY_TIMEOUT_S, **kwargs)
     return res
 
 
@@ -100,7 +101,7 @@ def test_vexx_k_config_parameter_validates_under_jax(cfg) -> None:
     # PAW and real-space augmentation are ultrasoft features (okpaw => okvan, tqr => okvan).
     if cfg.get("okpaw") or cfg.get("tqr"):
         assert cfg.get("okvan"), f"invalid config (okpaw/tqr require okvan): {cfg}"
-    res = no.run_kernel("vexx_k", "S", config=cfg, only_backends={"jax"})
+    res = no.run_kernel("vexx_k", Preset.S, config=cfg, only_backends={"jax"})
     if res.get("jax") == "skip:too-long":
         # Eager jax on the ultrasoft paths is minutes of tracing on a shared runner and seconds on
         # a developer box; the three heaviest configs (okvan, noncolin, gamma_only) crossed the
@@ -108,7 +109,7 @@ def test_vexx_k_config_parameter_validates_under_jax(cfg) -> None:
         # rather than either pinning a longer timeout on every kernel or dropping the config.
         res = no.run_kernel(
             "vexx_k",
-            "S",
+            Preset.S,
             config=cfg,
             max_size=_VEXX_JAX_MAX_SIZE,
             jax_timeout_s=_JAX_RETRY_TIMEOUT_S,

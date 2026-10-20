@@ -17,6 +17,7 @@ from hpcagent_agent.driver import agent_driver
 from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_verify
+from hpcagent_bench.categories import Language
 from hpcagent_bench.cluster import make_problems
 from hpcagent_bench.harness.envelope import Submission
 from tests.test_cpf_cache import OPTIONS
@@ -82,7 +83,7 @@ def test_cpf_verify_grades_a_form_with_its_workspace(tmp_path: pathlib.Path, mon
     monkeypatch.setattr(cpf_verify, "abi_refusal", lambda *a: "")
     monkeypatch.setattr(cpf_verify, "score", capture)
     with pytest.raises(RuntimeError, match="stop after"):
-        cpf_verify.grade(str(view), KERNEL, "c", "fp64", "proofs")
+        cpf_verify.grade(str(view), KERNEL, Language.C, "fp64", "proofs")
     (submission,) = seen
     assert isinstance(submission, Submission)
     assert submission.workspace_bytes == WORKSPACE

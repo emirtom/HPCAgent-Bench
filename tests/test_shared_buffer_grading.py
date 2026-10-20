@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import spec
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import native_call, sandbox, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
@@ -109,7 +110,7 @@ def measure(
         write_kernel(source),
         BINDING,
         public_data(),
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=timeout,
         py_meta=PY_META,
@@ -210,7 +211,7 @@ def test_the_time_a_rep_is_held_does_not_count_against_the_call() -> None:
         write_kernel("def kern(x, y):\n    y[:] = x + 1.0\n"),
         BINDING,
         public_data(),
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=1.0,
         py_meta=PY_META,
@@ -280,7 +281,9 @@ def score_with(monkeypatch: pytest.MonkeyPatch, checked: bool) -> scoring.Score:
     )
     monkeypatch.setattr(scoring, "numba_reference_outputs", lambda *_a, **_kw: {"C": np.zeros(1)})
     return scoring.score(
-        Submission(language="c", source="/* build is faked */", build=[]), Task("gemm", "restricted", "c"), preset="S"
+        Submission(language=Language.C, source="/* build is faked */", build=[]),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
     )
 
 

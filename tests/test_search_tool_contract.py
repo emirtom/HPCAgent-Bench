@@ -14,8 +14,6 @@ Two things drift together and this file pins each one:
 
 from types import ModuleType
 
-import pytest
-
 from hpcagent_bench import paths
 from tests.fresh_module import fresh
 

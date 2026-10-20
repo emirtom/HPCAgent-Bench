@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.harness.judge_wire import RecordedAnswer
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.service import grade_answer
@@ -60,9 +61,9 @@ GRADE = grade_answer(
         oracle="numba",
     ),
     "gemm",
-    "c",
-    "S",
-    "host",
+    Language.C,
+    Preset.S,
+    Residency.HOST,
     RecordedAnswer(skipped="record.enabled is false"),
     "rid1",
 ).to_json()

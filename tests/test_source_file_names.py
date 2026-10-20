@@ -10,6 +10,7 @@ import tempfile
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import sandbox, service
 
 #: A Fortran unit that compiles only when preprocessed.
@@ -130,4 +131,4 @@ def test_a_source_file_swapped_for_a_symlink_after_the_check_is_never_read(
 
     monkeypatch.setattr(sandbox, "resolve_shared", racing)
     with pytest.raises(ValueError, match="not readable"):
-        service._source_from_file("sub/gemm.c", "gemm", "c", None)
+        service._source_from_file("sub/gemm.c", "gemm", Language.C, None)

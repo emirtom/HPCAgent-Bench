@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import papi
 from hpcagent_bench.harness.native_call import RepTiming
 
@@ -153,11 +154,11 @@ def install(monkeypatch: pytest.MonkeyPatch, lib: ScriptedPapi, *, slow_first_re
 
 
 def count(metric: str = "cycles", *, reps: int = 2, warmup: int = 1) -> papi.MetricRow:
-    return papi.counting_worker("/fake.so", None, {}, "c", None, metric, reps, warmup, 1.0, 0)
+    return papi.counting_worker("/fake.so", None, {}, Language.C, None, metric, reps, warmup, 1.0, 0)
 
 
 def per_thread(*, reps: int = 2, warmup: int = 1) -> papi.PerThreadReport:
-    return papi.per_thread_report("/fake.so", None, {}, "c", None, reps, warmup, 1.0, 0)
+    return papi.per_thread_report("/fake.so", None, {}, Language.C, None, reps, warmup, 1.0, 0)
 
 
 def transient_worker(lib: ScriptedPapi) -> Callable[[], tuple[int, ...]]:

@@ -32,7 +32,7 @@ it is a deliberate write-conflict kernel.
 import numpy as np
 import pytest
 
-from hpcagent_bench import fuzz
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks import Benchmark
 from hpcagent_bench.initialize import parse_shape
 from hpcagent_bench.spec import BenchSpec
@@ -54,7 +54,7 @@ STRUCTURAL_CONFLICT = {"quasi_affine_floor_div_scatter"}
 
 #: Fuzz draws per kernel. The fuzzed preset is the ONLY one that moves the seed and the data
 #: distribution (``Benchmark.get_data`` adds ``fuzz_iteration`` to the seed only when the preset is
-#: ``fuzz.FUZZED_PRESET``), so this is where repeated iterations buy coverage; repeating them on a
+#: ``Preset.FUZZED.text``), so this is where repeated iterations buy coverage; repeating them on a
 #: fixed preset redraws byte-identical data. Sizes stay under ``fuzz.correctness_size_cap``.
 FUZZ_ITERATIONS = (0, 1, 2)
 
@@ -74,7 +74,7 @@ def assert_injective(idx, kernel, index_name, where) -> None:
 @pytest.mark.parametrize(("kernel", "index_name"), sorted(SCATTER_KERNELS.items()))
 def test_scatter_index_is_conflict_free(kernel, index_name) -> None:
     """A materialized draw at the small preset is injective."""
-    data = Benchmark(kernel).get_data("S", None)
+    data = Benchmark(kernel).get_data(Preset.S, None)
     assert_injective(data[index_name], kernel, index_name, "S")
 
 
@@ -83,7 +83,7 @@ def test_scatter_index_is_conflict_free_under_fuzz(kernel, index_name) -> None:
     """Injective across fuzz iterations, which move BOTH the seed and the data distribution."""
     bench = Benchmark(kernel)
     for fuzz_iteration in FUZZ_ITERATIONS:
-        data = bench.get_data(fuzz.FUZZED_PRESET, None, fuzz_iteration=fuzz_iteration)
+        data = bench.get_data(Preset.FUZZED, None, fuzz_iteration=fuzz_iteration)
         assert_injective(data[index_name], kernel, index_name, f"fuzzed fuzz={fuzz_iteration}")
 
 

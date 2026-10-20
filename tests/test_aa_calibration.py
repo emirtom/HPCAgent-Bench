@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -70,18 +71,18 @@ def graded(aa: bool, monkeypatch: pytest.MonkeyPatch) -> tuple[scoring.Score, li
     """One real grade of the NoOp C submission against the (faked) C denominator, 1 warmup + 5 runs."""
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(scoring, "_run_c_reference", c_timer(calls))
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
         config.overridden("measurement.timing_backend", "mannwhitney_delta"),
         config.overridden("measurement.mannwhitney.repeats", 5),
     ):
         result = scoring.score(
             submission,
-            Task(KERNEL, "restricted", "c"),
-            preset="S",
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             repeat=5,
-            oracle="auto",
-            baseline="c",
+            oracle=Oracle.AUTO,
+            baseline=Baseline.C,
             hidden=True,
             hidden_cases=[],
             aa=aa,
@@ -123,7 +124,7 @@ def test_an_own_build_baseline_is_re_timed_with_the_compiler_that_won(monkeypatc
 
     monkeypatch.setattr(scoring, "run_compiled_reference", compiled)
     samples = scoring.retime_baseline(
-        "c-autopar",
+        Baseline.C_AUTOPAR,
         {"c-autopar": ("c", "clang", Mode.MULTI_CORE)},
         isolated_numba=True,
         spec=None,

@@ -12,6 +12,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import flags, languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.sandbox import Sandbox
 from hpcagent_bench.spec import BenchSpec
@@ -43,9 +44,13 @@ def test_an_offload_setup_reports_with_its_legs_driver_not_the_blocks_family(mon
     """An OpenMP-offload C setup keeps the gcc block's line but runs amdclang, which rejects -fopt-info."""
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
     monkeypatch.setattr(languages, "offload_build_driver", lambda model, vendor, lang: f"/rocm/bin/amd-{lang}")
-    got = languages.submission_toolchain("c", None, vendor="amd")
+    got = languages.submission_toolchain(Language.C, None, vendor="amd")
     assert got == languages.Toolchain(
-        language="c", compiler="gcc", driver="/rocm/bin/amd-c", family="llvm", report_flags=flags.CLANG_OPT_REPORT
+        language=Language.C,
+        compiler="gcc",
+        driver="/rocm/bin/amd-c",
+        family="llvm",
+        report_flags=flags.CLANG_OPT_REPORT,
     )
 
 
@@ -66,7 +71,7 @@ def captured_build(monkeypatch: pytest.MonkeyPatch, *, report: bool) -> list[lis
 
     monkeypatch.setattr(languages, "run_build_commands", record)
     with Sandbox(binding_from_spec(BenchSpec.load("gemm"))) as box:
-        box.build(Submission(language="c", source="void k(void) {}"), report=report)
+        box.build(Submission(language=Language.C, source="void k(void) {}"), report=report)
     return seen
 
 

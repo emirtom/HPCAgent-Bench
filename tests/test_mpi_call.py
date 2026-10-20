@@ -10,6 +10,7 @@ import pytest
 from relayout.ops import Location, Scheme
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import mpi_call
 from hpcagent_bench.harness import sandbox as sandbox_module
 from hpcagent_bench.harness.envelope import Submission
@@ -98,7 +99,9 @@ def test_build_commands_empty_sources_raises() -> None:
 
 def test_build_commands_device_routes_driver_and_link_to_gpu_compiler() -> None:
     # Device residency: CUDA kernel + driver both compile with nvcc; the link is nvcc too, not the C wrapper.
-    cmds = build_mpi_executable_commands([("cuda", Path("k.cu"))], Path("d.cu"), Path("bench"), driver_lang="cuda")
+    cmds = build_mpi_executable_commands(
+        [("cuda", Path("k.cu"))], Path("d.cu"), Path("bench"), driver_lang=Language.CUDA
+    )
     assert _driver(cmds[0]) == "nvcc"
     assert str(Path("k.cu")) in cmds[0]
     assert _driver(cmds[1]) == "nvcc"
@@ -115,7 +118,7 @@ def test_build_commands_kernel_lib_links_the_kernel_objects_alone_as_a_pic_share
     monkeypatch.setenv("HPCAGENT_BENCH_GFX", "gfx942")  # the hip line names an arch; no rocminfo here
     kernels = [("cpp", Path("k.cpp")), ("hip", Path("k.hip"))]
     cmds = build_mpi_executable_commands(
-        kernels, Path("d.hip"), Path("bench"), driver_lang="hip", kernel_lib=Path("bench.kernel.so")
+        kernels, Path("d.hip"), Path("bench"), driver_lang=Language.HIP, kernel_lib=Path("bench.kernel.so")
     )
     compiles, exe_link, lib_link = cmds[:-2], cmds[-2], cmds[-1]
     assert all(c[-1] == "-fPIC" for c in compiles)
@@ -198,7 +201,7 @@ def test_oversubscribe_leaves_srun_to_the_scheduler() -> None:
 # Sandbox.build_mpi: delivery handling
 def test_build_mpi_any_delivery_unsupported() -> None:
     b = _yax_binding()
-    sub = Submission(language="c", library="/tmp/does-not-matter.so")
+    sub = Submission(language=Language.C, library="/tmp/does-not-matter.so")
     with Sandbox(b) as sb:
         res = sb.build_mpi(sub, _descriptor())
     assert not res.ok
@@ -207,7 +210,7 @@ def test_build_mpi_any_delivery_unsupported() -> None:
 
 def test_build_mpi_python_delivery_stashes_module() -> None:
     b = _yax_binding()
-    sub = Submission(language="python", source="def kernel_mpi(*a, **k): pass\n")
+    sub = Submission(language=Language.PYTHON, source="def kernel_mpi(*a, **k): pass\n")
     with Sandbox(b) as sb:
         res = sb.build_mpi(sub, _descriptor())
         assert res.ok
@@ -219,7 +222,7 @@ def test_build_mpi_python_delivery_stashes_module() -> None:
 def test_build_mpi_device_rejects_non_gpu_kernel() -> None:
     # A GPU-located array delivers device pointers, so a plain C kernel_mpi is a clean build failure.
     b = _yax_binding()
-    sub = Submission(language="c", source=_C_KERNEL)
+    sub = Submission(language=Language.C, source=_C_KERNEL)
     with Sandbox(b) as sb:
         res = sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
     assert not res.ok
@@ -238,7 +241,7 @@ def test_build_mpi_writes_both_gpu_translation_units() -> None:
     the GPU-less runner saw a green job while the distributed device track could not build at all.
     """
     b = _yax_binding()
-    sub = Submission(language="cuda", source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
+    sub = Submission(language=Language.CUDA, source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
     stem = mpi_symbol(b)
     with Sandbox(b) as sb:
         sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
@@ -282,7 +285,7 @@ def test_build_mpi_and_run_round_trip(tmp_path) -> None:
         pytest.skip(f"no working MPI C compiler + launcher in this environment: {c_toolchain_diagnosis()}")
     cc, launch = tc
     b, desc = _yax_binding(), _descriptor()
-    sub = Submission(language="c", source=_C_KERNEL)
+    sub = Submission(language=Language.C, source=_C_KERNEL)
     N = 20
     x = np.arange(N, dtype=np.float64) + 1.0
     data = {"x": x, "y": np.zeros(N), "N": N, "a": 3.0}

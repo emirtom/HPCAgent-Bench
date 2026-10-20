@@ -18,7 +18,6 @@ from hpcagent_bench.api import InputMode, Oracle
 from hpcagent_bench.cli import Execution
 from hpcagent_bench.harness import (
     agent,
-    denominator,
     grading,
     judge_scheduler,
     mpi_gang,
@@ -275,16 +274,16 @@ def test_the_seal_hides_the_configured_generated_reference_cache(tmp_path: pathl
 @pytest.mark.parametrize(
     ("dotted", "values"),
     [
-        ("service.oracle", {member.value for member in Oracle}),
-        ("service.input_mode", {member.value for member in InputMode}),
+        ("service.oracle", set(Oracle.texts())),
+        ("service.input_mode", set(InputMode.texts())),
         ("measurement.baseline", set(grading.BASELINE_OPTIONS)),
-        ("measurement.denominator.scientific_computing", {member.value for member in denominator.Denominator}),
-        ("measurement.denominator.machine_learning", {denominator.Denominator.TORCH_AUTOTUNE.value}),
+        ("measurement.denominator.scientific_computing", set(Denominator.texts())),
+        ("measurement.denominator.machine_learning", {Denominator.TORCH_AUTOTUNE.text}),
         ("measurement.timing_backend", set(timing.REDUCTIONS)),
         ("measurement.baseline_race", {grading.LEADER_FIRST_RACE, grading.COMPLETE_RACE}),
         ("prompt.strategy", set(prompts.STRATEGIES)),
-        ("record.device", {member.value for member in recording.RecordDevice}),
-        ("cache.disk_results_tracks", {member.value for member in spec.Track}),
+        ("record.device", set(RecordDevice.texts())),
+        ("cache.disk_results_tracks", set(Track.texts())),
         ("agent.execution", {member.value for member in Execution}),
         ("mpi.mode", {member.value for member in ScalingLaw}),
         ("mpi.residency", {member.value for member in Location}),
@@ -300,7 +299,7 @@ def test_the_agent_driver_defaults_match_the_model() -> None:
     from hpcagent_agent.driver import agent_driver
 
     assert config.default_value("grading.allow_agent_build_tokens") is agent_driver.BUILD_TOKENS_DEFAULT
-    assert recording.RecordDevice.CPU.value == agent_driver.RECORD_DEVICE_DEFAULT
+    assert RecordDevice.CPU.text == agent_driver.RECORD_DEVICE_DEFAULT
 
 
 def test_config_yaml_names_exactly_the_model_keys() -> None:

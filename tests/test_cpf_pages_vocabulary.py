@@ -15,8 +15,7 @@ from dace.transformation.passes.canonicalize import annotate_loop_kinds as kinds
 from dace.transformation.passes.cpu_specialization import sequentialize_unprofitable_parallel_scopes as cpu_costs
 from dace.transformation.passes.gpu_specialization import block_tile_kernels, promote_warp_tiles
 
-from hpcagent_bench import modules
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 
 SKILLS = paths.ROOT / "hpcagent_bench" / "skills"
 

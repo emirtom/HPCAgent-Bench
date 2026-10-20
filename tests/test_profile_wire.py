@@ -20,6 +20,7 @@ import pydantic
 import pytest
 
 from hpcagent_bench import perf_reports
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import compute_profiling, gpu_profiling, papi, profiling, report_staging, sandbox
 from hpcagent_bench.harness.judge_wire import OptReportAnswer
 from hpcagent_bench.harness.profile_wire import (
@@ -36,8 +37,8 @@ from hpcagent_bench.harness.profile_wire import (
 )
 from hpcagent_bench.harness.task import Task
 
-TASK = Task("gemm", "restricted", "c")
-DEVICE_TASK = Task("gemm", "restricted", "hip")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
+DEVICE_TASK = Task("gemm", SourceMode.RESTRICTED, Language.HIP)
 
 
 def assert_sent_as_built(report: object, model: type[pydantic.BaseModel]) -> None:
@@ -109,7 +110,7 @@ def test_a_linuxperf_report_is_sent_as_built() -> None:
         TASK,
         runs,
         counter_payload(),
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         symbol="gemm_fp64",
         reps=3,
@@ -250,7 +251,7 @@ def test_a_device_trace_report_is_sent_as_built() -> None:
         occupancy_note=gpu_profiling.OCCUPANCY_NOTE,
     )
     report = gpu_profiling.gpu_payload(
-        DEVICE_TASK, run, preset="S", datatype="float64", symbol="gemm_fp64", warmup=1, min_percent=1.0
+        DEVICE_TASK, run, preset=Preset.S, datatype="float64", symbol="gemm_fp64", warmup=1, min_percent=1.0
     )
     for rows in ("kernels", "memory", "launches", "ranges"):
         assert report[rows], f"no {rows} rows: that row kind would go unchecked"
@@ -287,7 +288,7 @@ def test_a_device_count_report_is_sent_as_built(tool: str) -> None:
     run = compute_profiling.ComputeRun(tool, pathlib.Path("/nonexistent"), kernels, metrics, None if kernels else "x")
     staged = report_staging.StagedReport("/shared/r", ("a.csv", "b.txt"), (("big.bin", "over the cap"),))
     report = compute_profiling.compute_payload(
-        DEVICE_TASK, run, staged, preset="S", datatype="float64", symbol="gemm_fp64", reps=1, warmup=1
+        DEVICE_TASK, run, staged, preset=Preset.S, datatype="float64", symbol="gemm_fp64", reps=1, warmup=1
     )
     assert_sent_as_built(report, DeviceCountReport)
 
@@ -302,7 +303,7 @@ def test_an_opt_report_reads_back_as_its_model() -> None:
     answer = OptReportAnswer(
         tool="opt-report",
         kernel="gemm",
-        language="c",
+        language=Language.C,
         build_ok=True,
         family="gcc",
         compiler="gcc",

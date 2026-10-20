@@ -26,13 +26,14 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks import framework
 
 #: The kernel the CI failure named. Chosen for the same reason ``test_fp8`` chooses it: it is the
 #: smallest corpus kernel whose hand-written ``initialize()`` defaults to fp32.
 KERNEL = "arc_distance"
 
-PRESET = "S"
+PRESET = Preset.S
 
 
 @pytest.fixture

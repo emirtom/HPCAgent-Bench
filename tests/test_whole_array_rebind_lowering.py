@@ -22,6 +22,7 @@ lowered IR and neither signature alone proves the arithmetic came out right.
 import ast
 
 from hpcagent_bench import numerical_oracle as no
+from hpcagent_bench.categories import Preset
 from tests.translators.bench_yaml import kir_for
 
 _NATIVE = frozenset({"c", "cpp", "fortran"})
@@ -143,7 +144,7 @@ def test_both_kernels_agree_with_numpy_on_every_native_backend() -> None:
     """
     failures = {}
     for short in (_REBIND_KERNEL, _STRIDED_KERNEL):
-        status = no.run_kernel(short, preset="S", only_backends=_NATIVE)
+        status = no.run_kernel(short, preset=Preset.S, only_backends=_NATIVE)
         bad = {backend: value for backend, value in status.items() if value.startswith("FAIL")}
         if bad:
             failures[short] = bad

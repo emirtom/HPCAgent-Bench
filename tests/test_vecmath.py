@@ -15,8 +15,8 @@ import tomllib
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages, osinfo
+from hpcagent_bench import flags, languages, modules, osinfo
+from hpcagent_bench.categories import Language
 from hpcagent_bench.languages import _load_compilers
 
 #: Any libmvec entry point: _ZGV <isa> N <width> <v...> _ <fn>, e.g. _ZGVeN8v_exp.
@@ -209,7 +209,7 @@ def test_gcc_vectorizes_libm_at_the_baseline(tmp_path) -> None:
     """The regression this file exists for: before the header, gcc called scalar libm in a loop while
     clang vectorized the same source."""
     assert shutil.which("gcc"), "gcc is required to build native C kernels"
-    obj = compile_object(tmp_path, C_LIBM_LOOP, ".c", "gcc", flags.CPU_BASELINE_GCC, languages.std_flag("c"))
+    obj = compile_object(tmp_path, C_LIBM_LOOP, ".c", "gcc", flags.CPU_BASELINE_GCC, languages.std_flag(Language.C))
     calls = libmvec_calls(obj)
     assert calls, "gcc emitted NO libmvec calls at CPU_BASELINE_GCC -- the vecmath.h -include is not reaching it"
     assert any("_exp" in s for s in calls), f"got {sorted(calls)}"
@@ -220,7 +220,9 @@ def test_gcc_vectorizes_libm_at_the_baseline(tmp_path) -> None:
 def test_gxx_vectorizes_libm_at_the_baseline(tmp_path) -> None:
     """C++ is a separate risk from C: the decls must survive <cmath>'s extern "C" + noexcept."""
     assert shutil.which("g++"), "g++ is required to build native C++ kernels"
-    obj = compile_object(tmp_path, CXX_LIBM_LOOP, ".cpp", "g++", flags.CPU_BASELINE_GCC, languages.std_flag("cpp"))
+    obj = compile_object(
+        tmp_path, CXX_LIBM_LOOP, ".cpp", "g++", flags.CPU_BASELINE_GCC, languages.std_flag(Language.CPP)
+    )
     assert libmvec_calls(obj), "g++ emitted NO libmvec calls at CPU_BASELINE_GCC"
 
 
@@ -236,7 +238,7 @@ def test_gfortran_vectorizes_libm_at_the_baseline(tmp_path) -> None:
         "gfortran",
         flags.CPU_BASELINE_GFORTRAN,
         "-ffree-form",
-        languages.std_flag("fortran"),
+        languages.std_flag(Language.FORTRAN),
     )
     assert libmvec_calls(obj), (
         "gfortran emitted NO libmvec calls at CPU_BASELINE_GFORTRAN -- this host's gcc spec "
@@ -255,7 +257,7 @@ def test_the_fortran_baseline_compiles_without_warnings(tmp_path) -> None:
         "gfortran",
         *flags.CPU_BASELINE_GFORTRAN.split(),
         "-ffree-form",
-        languages.std_flag("fortran"),
+        languages.std_flag(Language.FORTRAN),
         "-c",
         str(src),
         "-o",
@@ -283,7 +285,7 @@ def test_the_header_does_not_leak_fast_math_into_libstdcxx(tmp_path) -> None:
         "#endif\n"
         "int main() { return 0; }\n"
     )
-    base = ["g++", languages.std_flag("cpp"), "-fopenmp", "-fsyntax-only", str(probe)]
+    base = ["g++", languages.std_flag(Language.CPP), "-fopenmp", "-fsyntax-only", str(probe)]
     clean = subprocess.run(base, capture_output=True, text=True, check=False)
     assert clean.returncode == 0, f"vecmath.h leaked __FAST_MATH__ into libstdc++:\n{clean.stderr}"
     poisoned = subprocess.run([*base, "-ffast-math"], capture_output=True, text=True, check=False)

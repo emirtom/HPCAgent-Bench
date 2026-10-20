@@ -37,8 +37,8 @@ import importlib
 import numpy as np
 
 from hpcagent_bench import modules
-from hpcagent_bench import fuzz
 from hpcagent_bench.benchmarks.loop_level_reasoning.ext_break_capture import ext_break_capture as capture_gen
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.counter_generator import CounterGenerator
@@ -183,7 +183,7 @@ def test_the_capture_crossing_moves_with_the_fuzz_iteration() -> None:
     bench = Benchmark("ext_break_capture")
     drawn = []
     for iteration in range(6):
-        a = bench.get_data(fuzz.FUZZED_PRESET, None, fuzz_iteration=iteration, input_seed=1234)["a"]
+        a = bench.get_data(Preset.FUZZED, None, fuzz_iteration=iteration, input_seed=1234)["a"]
         crossings = np.flatnonzero(a > 1)
         assert crossings.size == 1, f"iteration={iteration}: {crossings.size} crossings, expected 1"
         cut = int(crossings[0])
@@ -200,7 +200,7 @@ def test_the_capture_crossing_moves_with_the_fuzz_iteration() -> None:
     # one (input_seed, fuzz_iteration) pair must reproduce one input exactly.
     replay = Benchmark("ext_break_capture")
     for iteration, (size, cut) in enumerate(drawn):
-        a = replay.get_data(fuzz.FUZZED_PRESET, None, fuzz_iteration=iteration, input_seed=1234)["a"]
+        a = replay.get_data(Preset.FUZZED, None, fuzz_iteration=iteration, input_seed=1234)["a"]
         assert (int(a.size), int(np.flatnonzero(a > 1)[0])) == (size, cut), (
             f"iteration={iteration} did not reproduce from the same seed: "
             f"got ({a.size}, {int(np.flatnonzero(a > 1)[0])}), want ({size}, {cut})"

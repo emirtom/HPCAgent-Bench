@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.sizing import (
     PRESETS,
     TIME_UNIT_BYTES,
@@ -96,7 +97,7 @@ def test_the_stride_fallback_is_also_a_partition(ranks: int) -> None:
 def test_the_real_corpus_partitions_at_every_rank_count(corpus, ranks: int) -> None:
     """The gate on the real thing: every corpus kernel on exactly one rank, whatever the count."""
     names = sorted(corpus)
-    assert_is_partition(pack_lpt(names, cost_vector(corpus, "M"), ranks), names, ranks)
+    assert_is_partition(pack_lpt(names, cost_vector(corpus, Preset.M), ranks), names, ranks)
 
 
 def test_two_independent_computations_agree_byte_for_byte(corpus) -> None:
@@ -105,8 +106,8 @@ def test_two_independent_computations_agree_byte_for_byte(corpus) -> None:
     Serialised and compared as JSON, not as objects -- what has to match is the bytes a second
     run of the same job would write, not an in-memory structure that happens to compare equal.
     """
-    first = json.dumps([pack_lpt(sorted(corpus), cost_vector(corpus, "M"), ranks) for ranks in MEASURED_RANKS])
-    second = json.dumps([pack_lpt(sorted(corpus), cost_vector(corpus, "M"), ranks) for ranks in MEASURED_RANKS])
+    first = json.dumps([pack_lpt(sorted(corpus), cost_vector(corpus, Preset.M), ranks) for ranks in MEASURED_RANKS])
+    second = json.dumps([pack_lpt(sorted(corpus), cost_vector(corpus, Preset.M), ranks) for ranks in MEASURED_RANKS])
     assert first == second
 
 
@@ -115,10 +116,10 @@ def test_every_rank_computes_the_same_partition_alone(corpus) -> None:
     slices must reassemble into the whole selection exactly once."""
     names = sorted(corpus)
     ranks = 8
-    shards = [shard_names(names, (index, ranks), "M") for index in range(ranks)]
+    shards = [shard_names(names, (index, ranks), Preset.M) for index in range(ranks)]
     assert_is_partition(shards, names, ranks)
     # A rank asking twice gets the same answer; nothing here depends on call order or on a clock.
-    assert shards[3] == shard_names(names, (3, ranks), "M")
+    assert shards[3] == shard_names(names, (3, ranks), Preset.M)
 
 
 def test_the_partition_does_not_depend_on_the_input_order() -> None:
@@ -174,10 +175,10 @@ def test_a_zero_byte_footprint_is_an_unknown_not_a_free_kernel(corpus) -> None:
     """
     spec = next(s for s in corpus.values() if s.short_name == "lulesh")
     zeroed = spec.replace(parameters={**spec.parameters, "M": dict.fromkeys(spec.parameters["M"], 0)})
-    cost = preset_cost(zeroed, "scientific_computing/unstructured_grids/lulesh/lulesh", "M")
+    cost = preset_cost(zeroed, "scientific_computing/unstructured_grids/lulesh/lulesh", Preset.M)
     assert not cost.resolved, "a 0-byte footprint was accepted as a prediction"
     assert "0 bytes" in cost.reason
-    free = sorted(name for name, c in cost_vector(corpus, "M").items() if c.resolved and c.working_bytes <= 0)
+    free = sorted(name for name, c in cost_vector(corpus, Preset.M).items() if c.resolved and c.working_bytes <= 0)
     assert not free, f"these kernels resolve to no bytes yet are packed as real costs: {free}"
 
 
@@ -191,7 +192,7 @@ def test_one_rank_still_runs_the_whole_selection_in_order(corpus) -> None:
     """The single-rank job -- what every test and every unsharded sweep is -- must be untouched by
     the packing: the same kernels in the same order the selector gave them."""
     names = sorted(corpus)
-    assert shard_names(names, (0, 1), "M") == names
+    assert shard_names(names, (0, 1), Preset.M) == names
 
 
 def partition_loads(partition: Sequence[Sequence[str]], costs: Mapping[str, KernelCost]) -> list[float]:
@@ -225,7 +226,7 @@ def test_lpt_lands_within_a_percent_of_a_perfectly_balanced_split(corpus, ranks:
     beats: total predicted work over ranks. LPT's worst case is 4/3 of optimal; the corpus is
     fine-grained enough that it does far better, and a regression that quietly halves the gain
     would still pass the beats-the-stride test above."""
-    costs = cost_vector(corpus, "XL")
+    costs = cost_vector(corpus, Preset.XL)
     names = sorted(corpus)
     ideal = sum(cost.predicted_time for cost in costs.values() if cost.resolved) / ranks
     packed_max = max(partition_loads(pack_lpt(names, costs, ranks), costs))
@@ -300,7 +301,7 @@ def test_the_real_corpus_at_xl_fits_four_ranks_on_a_large_node(corpus) -> None:
 
     Each kernel is held to the XL ceiling (:data:`XL_BYTE_CEILING`): an oversized kernel has to fail here.
     """
-    costs = cost_vector(corpus, "XL")
+    costs = cost_vector(corpus, Preset.XL)
     names = sorted(corpus)
     over = [
         f"{name} {cost.working_bytes / 2**30:.2f} GB > {XL_BYTE_CEILING / 2**30:.0f} GB"

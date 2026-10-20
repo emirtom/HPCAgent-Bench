@@ -23,8 +23,8 @@ import multiprocessing as mp
 import numpy as np
 import pytest
 
-from tests.optional_imports import import_or_skip
 from hpcagent_bench import modules
+from tests.optional_imports import import_or_skip
 
 _BENCH = "hpcagent_bench.benchmarks.scientific_computing"
 

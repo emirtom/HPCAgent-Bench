@@ -40,8 +40,8 @@ import tempfile
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages
+from hpcagent_bench import flags, languages, modules
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from tests.own_process import isolated
 
@@ -402,7 +402,7 @@ def test_cpp_link_line_carries_the_stdpar_runtime(monkeypatch, tmp_path) -> None
     C++ toolchain at all.
     """
     monkeypatch.setattr(languages, "_stdpar_backend_is_tbb", lambda cc: True)
-    cmds = languages.build_shared_lib_commands("cpp", tmp_path / "k.cpp", tmp_path / "libk.so")
+    cmds = languages.build_shared_lib_commands(Language.CPP, tmp_path / "k.cpp", tmp_path / "libk.so")
     assert flags.STDPAR_LINK_TBB in cmds[-1], f"C++ link argv lost the stdpar runtime: {cmds[-1]}"
 
 
@@ -411,7 +411,7 @@ def test_cpp_link_line_omits_the_stdpar_runtime_without_the_backend(monkeypatch,
     ``link:`` line: on a host without the TBB headers, ``-ltbb`` is a hard ``cannot find -ltbb``
     link error, so every C++ submission would fail to build."""
     monkeypatch.setattr(languages, "_stdpar_backend_is_tbb", lambda cc: False)
-    cmds = languages.build_shared_lib_commands("cpp", tmp_path / "k.cpp", tmp_path / "libk.so")
+    cmds = languages.build_shared_lib_commands(Language.CPP, tmp_path / "k.cpp", tmp_path / "libk.so")
     assert flags.STDPAR_LINK_TBB not in cmds[-1], f"C++ link argv adds an unlinkable {flags.STDPAR_LINK_TBB}"
 
 
@@ -539,7 +539,7 @@ def test_fortran_do_concurrent_is_threaded_in_a_graded_build() -> None:
     validates either way), and before the flag arrived the skill pages
     advertised a lever that produced no threads at all.
     """
-    _cname, block = languages._compiler_for_lang(languages._load_compilers(), "fortran")
+    _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
     graded = languages._resolve_baseline(block, Mode.SINGLE_CORE)
     assert "-ftree-parallelize-loops" in graded, (
         f"fortran's graded build lost its do-concurrent flag; DO CONCURRENT is now SERIAL: {graded}"
@@ -554,7 +554,7 @@ def test_fortran_do_concurrent_thread_count_matches_the_grading_slot() -> None:
     ``nslots`` times too many threads inside the cpuset -- measured as ``=64`` on a login node
     whose grading slots are 24 cores.
     """
-    _cname, block = languages._compiler_for_lang(languages._load_compilers(), "fortran")
+    _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
     graded = languages._resolve_baseline(block, Mode.SINGLE_CORE)
     baked = [tok for tok in graded.split() if tok.startswith("-ftree-parallelize-loops=")]
     assert baked, f"fortran's graded build carries no do-concurrent thread count: {graded}"
@@ -763,7 +763,7 @@ def autopar_pool_size(exe: str, graded: str, n: int, workdir: pathlib.Path, omp_
 
 def test_gcc_autopar_thread_count_has_no_ceiling(tmp_path) -> None:
     """Every rung of the ladder must produce a pool of exactly that many threads."""
-    _cname, block = languages._compiler_for_lang(languages._load_compilers(), "fortran")
+    _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
     if "gfortran" not in block.cc:
         pytest.skip(
             f"environment cannot build this construct: this tree's fortran driver is "
@@ -787,7 +787,7 @@ def test_gcc_autopar_thread_count_has_no_ceiling(tmp_path) -> None:
 
 def test_omp_num_threads_cannot_widen_a_baked_autopar_count(tmp_path) -> None:
     """The environment must not move the baked count -- grading_ncores() is only sound if it holds."""
-    _cname, block = languages._compiler_for_lang(languages._load_compilers(), "fortran")
+    _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
     if "gfortran" not in block.cc:
         pytest.skip(
             f"environment cannot build this construct: this tree's fortran driver is "

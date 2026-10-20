@@ -14,6 +14,7 @@ import tempfile
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness.prompts import PROMPT_FACTS_KEY, cluster_facts
 from hpcagent_bench.harness.task import Residency, Task
 from tests.fresh_module import fresh
@@ -93,8 +94,8 @@ def render(variant: Variant, shared: pathlib.Path, monkeypatch: pytest.MonkeyPat
         *variant.env,
     ):
         monkeypatch.setenv(name, value)
-    residency = Residency.DISTRIBUTED.value if dict(variant.env).get("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED") else ""
-    task = Task(variant.kernel, "restricted", variant.language)
+    residency = Residency.DISTRIBUTED if dict(variant.env).get("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED") else None
+    task = Task(variant.kernel, SourceMode.RESTRICTED, Language.parse(variant.language))
     facts = cluster_facts(dataclasses.replace(task, residency=residency) if residency else task)
     problem = {
         "id": 0,
@@ -123,7 +124,7 @@ def test_every_variant_renders_whole(name: str, shared: pathlib.Path, monkeypatc
 )
 def test_the_cluster_grade_names_the_tracks_own_baseline(kernel: str, baseline: str) -> None:
     """``measurement.denominator``: best-of(numba,c) on the NumPy tracks, torch-autotune on machine_learning."""
-    grading = " ".join(cluster_facts(Task(kernel, "restricted", "c"))["GRADING"].split())
+    grading = " ".join(cluster_facts(Task(kernel, SourceMode.RESTRICTED, Language.C))["GRADING"].split())
     assert f"The baseline is {baseline}" in grading, grading
 
 

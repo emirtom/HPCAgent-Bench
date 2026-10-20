@@ -29,8 +29,7 @@ import tempfile
 import time
 import traceback
 
-from hpcagent_bench import modules
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 
 REPO = paths.ROOT
 

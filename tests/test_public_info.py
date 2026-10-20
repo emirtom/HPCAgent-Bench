@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import cpf_canonical
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness import prompts
 from hpcagent_bench.spec import KERNELS, SMALL_LIMIT, BenchSpec
@@ -239,7 +240,7 @@ NEGATIVE_KERNELS: list[str] = sorted(
 def test_a_kernel_with_a_negative_symbol_generates_its_data(kernel: str) -> None:
     """get_data re-parses the manifest from the legacy info dict, which carries no public block: without it the
     declared negatives read as undeclared and every such kernel failed to build its inputs."""
-    assert Benchmark(kernel).get_data(preset="S")
+    assert Benchmark(kernel).get_data(preset=Preset.S)
 
 
 if __name__ == "__main__":

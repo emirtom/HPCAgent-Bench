@@ -3,15 +3,14 @@
 """The registered anti-cheat gates: the order a submission meets them, what each one names, the docs table,
 and :func:`anticheat.judge`, the loop that runs the post-run gates on a finished grade."""
 
-import dataclasses
 import importlib
 import re
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import anticheat, paths
+from hpcagent_bench import anticheat, modules, paths
 from hpcagent_bench.anticheat import ANTICHEAT, Context, Found, Gate, Verdict, build, judge
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, VerifyResult
@@ -152,10 +151,10 @@ class Reruns:
 
     def judge(self, score: Score | None = None, **kwargs: object) -> anticheat.Judgement:
         context = Context(
-            Submission(language="c", source="int x;"),
-            Task("scaled_add", "restricted", "c"),
+            Submission(language=Language.C, source="int x;"),
+            Task("scaled_add", SourceMode.RESTRICTED, Language.C),
             score or graded(),
-            "S",
+            Preset.S,
             "float64",
             self.verifier,
         )

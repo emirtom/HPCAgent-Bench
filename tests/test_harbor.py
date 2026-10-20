@@ -14,6 +14,7 @@ import pytest
 
 from hpcagent_bench import harbor as A
 from hpcagent_bench import hf_export
+from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.harbor_grade import (
     BundleGrade,
     DistributedGrade,
@@ -250,7 +251,7 @@ def track_policy(kernel: str) -> str:
     from hpcagent_bench.harness import grading
     from hpcagent_bench.spec import BenchSpec
 
-    return grading.baseline_policy_stamp(grading.resolve_baseline_set("auto", BenchSpec.load(kernel)))
+    return grading.baseline_policy_stamp(grading.resolve_baseline_set(None, BenchSpec.load(kernel)))
 
 
 def final_rule_reward(reward: HostGrade) -> float:
@@ -275,7 +276,7 @@ def test_every_timed_input_of_a_harbor_grade_is_a_final_grade_input(monkeypatch:
         return grade_under.FinalGrade((), False, (), score_rule.credit([], solved=False))
 
     monkeypatch.setattr(grade_under, "final_grade", fake_final_grade)
-    reward = harbor.grade("tsvc_2_s212", "c", source="void f(void) {}")
+    reward = harbor.grade("tsvc_2_s212", Language.C, source="void f(void) {}")
     assert seen == [
         {
             grade_under.N_INPUTS_ENV: str(grade_under.FINAL.inputs),
@@ -294,8 +295,8 @@ def test_harbor_grade_scores_the_reference_as_solved(tmp_path: pathlib.Path) -> 
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 
-    src = reference_source(Task("tsvc_2_s212", "restricted", "c"))
-    reward = harbor.grade("tsvc_2_s212", "c", source=src)
+    src = reference_source(Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C))
+    reward = harbor.grade("tsvc_2_s212", Language.C, source=src)
     assert isinstance(reward, HostGrade)
     assert reward.solved is True
     assert final_rule_reward(reward) == pytest.approx(reward.reward)
@@ -316,7 +317,7 @@ def test_harbor_grade_cli_writes_reward_json(tmp_path: pathlib.Path, monkeypatch
     from hpcagent_bench.harness.task import Task
 
     src_file = tmp_path / "submission.c"
-    src_file.write_text(reference_source(Task("tsvc_2_s212", "restricted", "c")))
+    src_file.write_text(reference_source(Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C)))
     reward_file = tmp_path / "reward.json"
     rc = harbor.main(
         [
@@ -351,7 +352,7 @@ def test_harbor_grade_cli_multi_kernel_combines(tmp_path: pathlib.Path, monkeypa
 
     f1, f2 = tmp_path / "a.c", tmp_path / "b.c"
     for f in (f1, f2):
-        f.write_text(reference_source(Task("tsvc_2_s212", "restricted", "c")))
+        f.write_text(reference_source(Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C)))
     reward_file = tmp_path / "reward.json"
     rc = harbor.main(
         [
@@ -396,7 +397,7 @@ def test_harbor_grade_bad_source_is_neutral_reward(tmp_path: pathlib.Path) -> No
         pytest.skip("gcc absent")
     from hpcagent_bench import harbor
 
-    reward = harbor.grade("tsvc_2_s212", "c", source="this is not valid C { ;", k=1, repeat=2, verify=False)
+    reward = harbor.grade("tsvc_2_s212", Language.C, source="this is not valid C { ;", k=1, repeat=2, verify=False)
     assert reward.solved is False
     assert reward.reward == 1.0
 
@@ -487,7 +488,7 @@ def test_harbor_noop_agent_scores_tsvc_reference_as_solved_1x(tmp_path: pathlib.
     from hpcagent_bench.harness.task import Task
 
     # the no-op agent's submission IS the reference implementation (identity optimizer)
-    sub = NoOpOptimizer().solve(Task("tsvc_2_s212", "restricted", "c"))
+    sub = NoOpOptimizer().solve(Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C))
     src_file = tmp_path / "submission.c"
     src_file.write_text(sub.source)
     reward_file = tmp_path / "reward.json"
@@ -516,7 +517,7 @@ def test_harbor_noop_agent_scores_tsvc_reference_as_solved_1x(tmp_path: pathlib.
     assert reward.reward < 2.0
 
 
-# distributed (MPI) task generation + grading: residency="distributed" emits multi-node tasks
+# distributed (MPI) task generation + grading: residency=Residency.DISTRIBUTED emits multi-node tasks
 _MPI_STENCILS = ["jacobi_2d", "heat_3d"]
 
 
@@ -536,7 +537,7 @@ def test_generates_distributed_task_layout(kernel: str, tmp_path: pathlib.Path) 
     from hpcagent_bench.support.bindings import binding_from_spec
     from hpcagent_bench.support.bindings.mpi_driver import mpi_symbol
 
-    dirs = A.generate(str(tmp_path), selector=kernel, residency="distributed", commit="abc123")
+    dirs = A.generate(str(tmp_path), selector=kernel, residency=Residency.DISTRIBUTED, commit="abc123")
     assert len(dirs) == 1
     td, sub = dirs[0], _env_subdir(kernel)
     for rel in (
@@ -563,7 +564,7 @@ def test_generates_distributed_task_layout(kernel: str, tmp_path: pathlib.Path) 
 
 def test_distributed_test_sh_passes_loadable_kernel_and_requests(tmp_path: pathlib.Path) -> None:
     """The verifier gets the loadable kernel stem, each artifact's --requests, and --residency."""
-    td = A.generate(str(tmp_path), selector="jacobi_2d", residency="distributed")[0]
+    td = A.generate(str(tmp_path), selector="jacobi_2d", residency=Residency.DISTRIBUTED)[0]
     sh = (td / "tests" / "test.sh").read_text()
     assert "--kernel jacobi_2d" in sh  # the BenchSpec.load-able stem, NOT the short_name jacobi_2d
     assert "--requests /app/jacobi_2d/requests.json" in sh
@@ -579,7 +580,7 @@ def test_distributed_instruction_references_files_and_mpi_contract(tmp_path: pat
 
     spec = BenchSpec.load("jacobi_2d")
     row = hf_export.resolved_row(spec, A.default_rb(spec))
-    td = A.generate(str(tmp_path), selector="jacobi_2d", residency="distributed")[0]
+    td = A.generate(str(tmp_path), selector="jacobi_2d", residency=Residency.DISTRIBUTED)[0]
     instr = (td / "instruction.md").read_text()
     assert "distributed MPI" in instr
     assert "SPMD" in instr
@@ -603,7 +604,7 @@ def test_distributed_instruction_states_the_single_submission_sweep(tmp_path: pa
     config.set_override("mpi.rank_counts", [1, 4, 8])
     try:
         assert graded_rank_counts(BenchSpec.load("jacobi_2d")) == (1, 4, 8)
-        td = A.generate(str(tmp_path / "sweep"), selector="jacobi_2d", residency="distributed")[0]
+        td = A.generate(str(tmp_path / "sweep"), selector="jacobi_2d", residency=Residency.DISTRIBUTED)[0]
         instr = (td / "instruction.md").read_text()
         assert "P = 1, 4, 8" in instr
         assert "`submit` your best version ONCE" in instr
@@ -611,7 +612,7 @@ def test_distributed_instruction_states_the_single_submission_sweep(tmp_path: pa
         assert "`score` is one run at P = 4; the version you `submit` is measured at P = 1, 4, 8" in instr
     finally:
         config.clear_override("mpi.rank_counts")
-    td = A.generate(str(tmp_path / "nosweep"), selector="jacobi_2d", residency="distributed")[0]
+    td = A.generate(str(tmp_path / "nosweep"), selector="jacobi_2d", residency=Residency.DISTRIBUTED)[0]
     assert "your best version ONCE" not in (td / "instruction.md").read_text()
 
 
@@ -620,7 +621,7 @@ def test_distributed_task_toml_validates_against_real_harbor_model(tmp_path: pat
     harbor_cfg = pytest.importorskip("harbor.models.task.config")
     from hpcagent_bench import config
 
-    td = A.generate(str(tmp_path), selector="jacobi_2d", residency="distributed", commit="abc123")[0]
+    td = A.generate(str(tmp_path), selector="jacobi_2d", residency=Residency.DISTRIBUTED, commit="abc123")[0]
     cfg = harbor_cfg.TaskConfig.model_validate_toml((td / "task.toml").read_text())
     assert f"FROM {config.get('images.mpi.agent')}\n" in (td / "environment" / A.COMPOSE_NAME).read_text()
     assert cfg.verifier.environment.docker_image == config.get("images.mpi.verifier")
@@ -638,7 +639,7 @@ def test_distributed_generation_skips_non_mpi_kernels(
     """A kernel with no mpi: block cannot be a distributed task -> skipped (logged), not ungradeable."""
     # spmv, not gemm (which declares mpi:): BenchSpec forbids 'mpi:' beside 'sparse_layouts', so a
     # sparse kernel stays a non-mpi exemplar for good.
-    dirs = A.generate(str(tmp_path), selector="spmv", residency="distributed")
+    dirs = A.generate(str(tmp_path), selector="spmv", residency=Residency.DISTRIBUTED)
     assert dirs == []
     assert json.loads((tmp_path / "tasks.json").read_text()) == []
     assert "no 'mpi:' block" in capsys.readouterr().err
@@ -647,7 +648,7 @@ def test_distributed_generation_skips_non_mpi_kernels(
 def test_distributed_group_dir_rejected(tmp_path: pathlib.Path) -> None:
     """Distributed tasks are one kernel each (an MPI run is per-kernel); group='dir' is rejected."""
     with pytest.raises(ValueError, match="one kernel each"):
-        A.generate(str(tmp_path), selector="jacobi_2d", residency="distributed", group="dir")
+        A.generate(str(tmp_path), selector="jacobi_2d", residency=Residency.DISTRIBUTED, group="dir")
 
 
 @pytest.mark.parametrize("kernel", _MPI_STENCILS)
@@ -656,9 +657,11 @@ def test_distributed_requests_json_matches_noop_optimizer(kernel: str, tmp_path:
     from hpcagent_bench.harness.optimizers import NoOpMPIOptimizer
     from hpcagent_bench.harness.task import Task
 
-    td = A.generate(str(tmp_path), selector=kernel, residency="distributed")[0]
+    td = A.generate(str(tmp_path), selector=kernel, residency=Residency.DISTRIBUTED)[0]
     shipped = json.loads((td / f"environment/{_env_subdir(kernel)}/requests.json").read_text())
-    served = NoOpMPIOptimizer().solve(Task(kernel, language="c", residency="distributed")).requests.to_json()
+    served = (
+        NoOpMPIOptimizer().solve(Task(kernel, language=Language.C, residency=Residency.DISTRIBUTED)).requests.to_json()
+    )
     assert shipped == served
 
 
@@ -674,7 +677,7 @@ def test_harbor_grade_distributed_scores_reference_solved(
     from tests import mpi_launch_helpers  # noqa: F401 -- import sets HWLOC_COMPONENTS process-wide
 
     monkeypatch.setenv("HPCAGENT_BENCH_MEASUREMENT_REPEAT", "2")  # wiring test, keep the launches few
-    sub = NoOpMPIOptimizer().solve(Task("jacobi_2d", language="c", residency="distributed"))
+    sub = NoOpMPIOptimizer().solve(Task("jacobi_2d", language=Language.C, residency=Residency.DISTRIBUTED))
     src = tmp_path / "submission.c"
     src.write_text(sub.source)
     requests = tmp_path / "requests.json"
@@ -836,7 +839,7 @@ def test_oracle_ships_the_reference_translation_as_solution(tmp_path: pathlib.Pa
     td = A.generate(tmp_path, selector="tsvc_2_s212", commit="", oracle=True)[0]
     assert A.validate_task(td) == []
     sol = td / "solution" / "tsvc_2_s212" / "submission.c"
-    assert sol.read_text() == reference_source(Task("tsvc_2_s212", language="c"))
+    assert sol.read_text() == reference_source(Task("tsvc_2_s212", language=Language.C))
     assert "/app/tsvc_2_s212/submission.c" in (td / "solution" / "solve.sh").read_text()
 
 
@@ -844,7 +847,7 @@ def test_oracle_is_refused_for_repo_and_distributed(tmp_path: pathlib.Path) -> N
     with pytest.raises(ValueError, match="oracle"):
         A.generate(tmp_path, selector="tsvc_2_s212", layout="repo", oracle=True)
     with pytest.raises(ValueError, match="oracle"):
-        A.generate(tmp_path, selector="jacobi_2d", residency="distributed", oracle=True)
+        A.generate(tmp_path, selector="jacobi_2d", residency=Residency.DISTRIBUTED, oracle=True)
 
 
 def test_task_scripts_grade_the_oracle_solution_end_to_end(tmp_path: pathlib.Path) -> None:

@@ -23,6 +23,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness import kernelbench_adapter, torch_reference
 from hpcagent_bench.spec import BenchSpec
@@ -31,7 +32,7 @@ from tests.reference_outputs import torch_eager_outputs
 
 pytestmark = [pytest.mark.filterwarnings(w) for w in UPSTREAM_MODEL_WARNINGS]
 
-PRESET = "S"
+PRESET = Preset.S
 INPUT_SEED = 7
 DEVICE = "cpu"
 #: Checked for every kernel.

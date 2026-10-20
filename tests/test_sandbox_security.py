@@ -12,6 +12,7 @@ import shutil
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.sandbox import agent_flags_allowed, safe_link, split_build
 
 
@@ -250,9 +251,9 @@ def test_unresolvable_libraries_closes_the_linker_probe_fallback(
     (shared / "lib" / "libmine.so").touch()
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(shared))
 
-    assert unresolvable_libraries(["-lmine", "-lm", "-lpthread", "-lnotalib"], "c") == ["notalib"]
+    assert unresolvable_libraries(["-lmine", "-lm", "-lpthread", "-lnotalib"], Language.C) == ["notalib"]
     # No -l tokens at all -> nothing to diagnose, not "everything is missing".
-    assert unresolvable_libraries(["-Ifoo", "-L/x"], "c") == []
+    assert unresolvable_libraries(["-Ifoo", "-L/x"], Language.C) == []
 
 
 def test_build_link_refusal_rejects_a_name_off_the_shared_folder_and_the_catalog(
@@ -264,7 +265,7 @@ def test_build_link_refusal_rejects_a_name_off_the_shared_folder_and_the_catalog
     from hpcagent_bench.harness.sandbox import build_link_refusal
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path / "empty-shared"))
-    refusal = build_link_refusal(["-lnotalib"], "c")
+    refusal = build_link_refusal(["-lnotalib"], Language.C)
     assert refusal is not None
     assert "notalib" in refusal
 
@@ -279,7 +280,7 @@ def test_build_link_refusal_allows_toolchain_basics_and_shared_folder_names(
     (shared / "lib" / "libmine.so").touch()
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(shared))
 
-    assert build_link_refusal(["-lm", "-lpthread", "-lmine"], "c") is None
+    assert build_link_refusal(["-lm", "-lpthread", "-lmine"], Language.C) is None
 
 
 def test_build_link_refusal_is_off_when_the_outer_switch_is_off(
@@ -292,7 +293,7 @@ def test_build_link_refusal_is_off_when_the_outer_switch_is_off(
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path / "empty-shared"))
     with config.overridden("grading.allow_agent_build_tokens", False):
-        assert build_link_refusal(["-lnotalib"], "c") is None
+        assert build_link_refusal(["-lnotalib"], Language.C) is None
 
 
 def test_the_outer_switch_makes_the_whole_build_list_inert() -> None:

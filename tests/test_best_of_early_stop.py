@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
 from hpcagent_bench.harness import disk_cache, grading, scoring
 from hpcagent_bench.harness.native_call import NativeCallTimeout
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -126,7 +127,7 @@ def grade(
     monkeypatch.setattr(scoring, "run_compiled_reference", own_build(AUTOPAR_NS, timed, budgets))
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(numba_samples, timed))
     numba_first(monkeypatch)
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
         config.overridden("measurement.early_stop_factor", factor),
         config.overridden("measurement.early_stop_floor_s", 1.0),
@@ -137,11 +138,11 @@ def grade(
     ):
         result = scoring.score(
             submission,
-            Task(KERNEL, "restricted", "c"),
-            preset="S",
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             repeat=5,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             hidden=hidden,
             hidden_cases=[],
         )
@@ -186,18 +187,18 @@ def test_a_cut_that_fits_on_its_retry_is_timed_not_cut(monkeypatch: pytest.Monke
     monkeypatch.setattr(scoring, "_run_c_reference", contended_once)
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(NUMBA_SLOW, []))
     numba_first(monkeypatch)
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with (
         config.overridden("measurement.early_stop_floor_s", 1.0),
         config.overridden("timeouts.kernel_s", 300),
     ):
         result = scoring.score(
             submission,
-            Task(KERNEL, "restricted", "c"),
-            preset="S",
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             repeat=5,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             hidden=False,
             hidden_cases=[],
         )
@@ -273,15 +274,15 @@ def test_a_crashing_candidate_under_the_budget_is_still_lost(monkeypatch: pytest
     monkeypatch.setattr(scoring, "_run_c_reference", crash)
     monkeypatch.setattr(scoring, "time_numba_isolated", numba(NUMBA_FAST, []))
     numba_first(monkeypatch)
-    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    submission = NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
     with config.overridden("timeouts.kernel_s", 300):
         result = scoring.score(
             submission,
-            Task(KERNEL, "restricted", "c"),
-            preset="S",
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             repeat=5,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             hidden=False,
             hidden_cases=[],
         )
@@ -314,7 +315,7 @@ def test_the_early_stop_budget(
 @pytest.mark.parametrize(
     ("samples", "want"),
     [
-        ({"numba": [1], "c": [], grading.cut_key("c"): [9]}, []),
+        ({"numba": [1], "c": [], grading.cut_key(Baseline.C): [9]}, []),
         ({"numba": [1], "c": []}, ["c"]),
     ],
 )
@@ -325,7 +326,7 @@ def test_a_cut_compiled_reference_is_not_lost(samples: dict[str, list[int]], wan
 def test_best_of_v3_is_its_own_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """The winner can differ from best-of-v2's, so its rows carry their own stamp."""
     numba_first(monkeypatch)
-    assert grading.resolve_baseline_set("auto", BenchSpec.load(KERNEL)) == ("numba", "c")
+    assert grading.resolve_baseline_set(None, BenchSpec.load(KERNEL)) == ("numba", "c")
     assert grading.baseline_policy_stamp(("numba", "c")) == "best-of-v3:numba+c"
     assert grading.baseline_policy_stamp(("c", "numba")) == "best-of-v4:c+numba"
     with config.overridden("measurement.baseline_race", grading.COMPLETE_RACE):
@@ -379,7 +380,18 @@ def test_the_advisory_baseline_gives_a_cut_compiled_reference_its_cold_call_and_
     out: dict[str, int] = {"numba": max(NUMBA_SLOW)}
     with config.overridden("timeouts.kernel_s", 300):
         scoring.measure_one_baseline(
-            out, spec, Task(KERNEL, "restricted", "c"), None, {}, "c", "S", "float64", 5, 1, True, cut_s=1.0
+            out,
+            spec,
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+            None,
+            {},
+            Baseline.C,
+            Preset.S,
+            "float64",
+            5,
+            1,
+            True,
+            cut_s=1.0,
         )  # type: ignore[arg-type]
     assert handed == [(1.0, 300.0)] * (1 + grading.CUT_RETRIES)
     assert out["c"] == C_FAST_NS
@@ -431,11 +443,11 @@ def test_the_advisory_baseline_retries_a_cut_compiled_reference_with_a_cold_budg
         scoring.measure_one_baseline(
             out,
             spec,
-            Task(KERNEL, "restricted", "c"),
+            Task(KERNEL, SourceMode.RESTRICTED, Language.C),
             scoring.binding_from_spec(spec),
             {},
-            "c",
-            "S",
+            Baseline.C,
+            Preset.S,
             "float64",
             5,
             1,

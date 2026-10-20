@@ -13,6 +13,7 @@ through an fp16-native framework (JAX) within the looser fp16 tolerance.
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.precision import DTYPES, Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.support.counter_generator import CounterGenerator
 from tests.optional_imports import import_or_skip
@@ -99,7 +100,7 @@ def test_fp16_native_kernel_executes(kernel) -> None:
     (which is JAX-only) never touches."""
     from hpcagent_bench.numerical_oracle import FP16_BACKENDS, run_kernel
 
-    res = run_kernel(kernel, "S", precision="fp16", only_backends=set(FP16_BACKENDS))
+    res = run_kernel(kernel, Preset.S, precision="fp16", only_backends=set(FP16_BACKENDS))
     assert res, f"{kernel}: fp16 sweep returned nothing"
     for backend, status in res.items():
         assert status == "ok", f"{kernel} [{backend}] at fp16 -> {status}"
@@ -113,7 +114,7 @@ def test_fp16_kernel_executes_via_jax(kernel) -> None:
 
     try:
         res = Test(Benchmark(kernel), generate_framework("jax")).run(
-            preset="S", validate=True, repeat=1, timeout=180.0, datatype="float16", ignore_errors=True
+            preset=Preset.S, validate=True, repeat=1, timeout=180.0, datatype="float16", ignore_errors=True
         )
     except ModuleNotFoundError as e:
         # fp16-via-jax needs a hand-written <kernel>_jax impl; skip cleanly if this

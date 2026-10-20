@@ -10,6 +10,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import dataset, experiments, paths, tags
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.cluster import env_spec
 from hpcagent_bench.harness import recording
 from hpcagent_bench.harness.envelope import Submission
@@ -113,8 +114,8 @@ def test_an_owed_wave_root_is_read_under_its_setups_real_key(
                 speedup=2.0,
                 timing_reduction="mwd-v2",
             ),
-            Submission(language="c", source="void k(void) {}"),
-            Task("argmax_with_index", "restricted", "c"),
+            Submission(language=Language.C, source="void k(void) {}"),
+            Task("argmax_with_index", SourceMode.RESTRICTED, Language.C),
             episode_id=f"{setup}.n0.p0.w0",
             path=str(db),
         )

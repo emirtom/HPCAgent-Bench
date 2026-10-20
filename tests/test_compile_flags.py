@@ -10,8 +10,7 @@ import tempfile
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages
+from hpcagent_bench import flags, languages, modules
 
 # A trivial program per language whose result depends on an FP loop, so the optimizer can't delete it.
 _C_SRC = "int main(void){double x=1.0;for(int i=0;i<1000;i++)x*=1.0000001;return x>1e9;}\n"

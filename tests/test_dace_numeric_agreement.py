@@ -34,6 +34,7 @@ import sys
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.numerical_oracle import DACE, run_kernel
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from tests.test_dace_frontend_validity import REFUSED, REPO, ensure_dace_program, shard_of
@@ -247,7 +248,7 @@ def test_dace_agrees_with_numpy(key: str) -> None:
         "excuses emitting nothing, and silently not running it is how the "
         "coverage went missing before."
     )
-    status = run_kernel(key, preset="S", only_backends={DACE}).get(DACE, "skip:no-case")
+    status = run_kernel(key, preset=Preset.S, only_backends={DACE}).get(DACE, "skip:no-case")
     if status.startswith("skip"):
         pytest.skip(status)
     assert status == "ok", f"{key} -> {status}"

@@ -7,6 +7,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import cpf_cache, cpf_verify
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -108,4 +109,4 @@ def test_a_form_whose_parameter_types_differ_from_the_stub_is_refused(tmp_path: 
 def test_a_form_defining_another_symbol_is_refused(tmp_path: pathlib.Path) -> None:
     key = cpf_verify.registry_key(KERNEL)
     form = stub_form(tmp_path, "c")._replace(entry="other_fp64")
-    assert cpf_verify.abi_refusal(form, key, "c").startswith("abi: the form defines other_fp64")
+    assert cpf_verify.abi_refusal(form, key, Language.C).startswith("abi: the form defines other_fp64")

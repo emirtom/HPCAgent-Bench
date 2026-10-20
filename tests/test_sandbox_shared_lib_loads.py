@@ -20,6 +20,7 @@ import pathlib
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.sandbox import Sandbox
@@ -71,7 +72,7 @@ def test_a_self_built_library_in_the_shared_folder_loads_at_grade_time(
 
     spec = BenchSpec.load("gemm")
     binding = binding_from_spec(spec)
-    submission = Submission(language="c", source=_PROBE_C, build=["-lmylib"])
+    submission = Submission(language=Language.C, source=_PROBE_C, build=["-lmylib"])
     # The load must happen INSIDE the sandbox's lifetime: __exit__ cleans up the temp dir the
     # built .so lives in (the same throwaway root a real grade builds under), so loading it after
     # the `with` block would raise "cannot open shared object file" for a reason that has nothing

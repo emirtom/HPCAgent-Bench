@@ -18,6 +18,7 @@ import pytest
 from relayout.ops import Scheme
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
 from hpcagent_bench.harness import metric, mpi_call, native_call, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
@@ -26,13 +27,13 @@ from hpcagent_bench.harness.requests_api import DistributionPlan, Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
 
-TASK = Task("jacobi_2d", "restricted", "hip", residency="distributed")
+TASK = Task("jacobi_2d", SourceMode.RESTRICTED, Language.HIP, residency=Residency.DISTRIBUTED)
 
 
 def mpi_sub(scheme: Scheme = Scheme.BLOCK, block_size: int = 1) -> Submission:
     axes = [{"grid_dim": 0, "scheme": scheme.value, "block_size": block_size}, {"grid_dim": None}]
     return Submission(
-        language="hip",
+        language=Language.HIP,
         source="mpi",
         device_source="kernels",
         requests=Requests.from_plan({"grid": [1], "arrays": {"A": {"axes": axes}, "B": {"axes": axes}}}),
@@ -73,7 +74,7 @@ def fake_ml_track(
 def test_no_anchor_off_the_ml_track_still_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     """Outside the ML track the old rule holds: no anchor submission, no curve."""
     monkeypatch.setattr(scoring.torch_reference, "has_torch_reference", lambda spec: False)
-    runs = scoring.score_scaling(mpi_sub(), TASK, None, rank_counts=(4,), preset="S")
+    runs = scoring.score_scaling(mpi_sub(), TASK, None, rank_counts=(4,), preset=Preset.S)
     assert runs.measured_ns == {}
     assert "no single-node anchor" in runs.notes[0]
 
@@ -99,7 +100,7 @@ def test_score_distributed_credits_the_torch_baseline(monkeypatch: pytest.Monkey
         return [4000] * repeat
 
     monkeypatch.setattr(scoring.torch_baseline, "shipped_samples", fake_baseline)
-    score = scoring.score_distributed(mpi_sub(), TASK, preset="S", datatype="bf16", repeat=2, hidden=False)
+    score = scoring.score_distributed(mpi_sub(), TASK, preset=Preset.S, datatype="bf16", repeat=2, hidden=False)
     assert score.correct
     assert score.baseline == "torch-autotune-gpu" == seen["kind"]
     # /score (hidden=False) reduces both sides by their median (timing.LOCAL_BACKEND), not their minimum:
@@ -119,7 +120,7 @@ def test_score_distributed_torch_baseline_failure_credits_nothing(monkeypatch: p
         raise scoring.TorchBaselineUnavailable("the torch-autotune-gpu child failed")
 
     monkeypatch.setattr(scoring.torch_baseline, "shipped_samples", boom)
-    score = scoring.score_distributed(mpi_sub(), TASK, preset="S", datatype="bf16", repeat=2, hidden=False)
+    score = scoring.score_distributed(mpi_sub(), TASK, preset=Preset.S, datatype="bf16", repeat=2, hidden=False)
     assert score.correct
     assert score.speedup == 0
     assert score.timing_reduction is None
@@ -138,7 +139,7 @@ def test_verify_distributed_ml_reruns_on_public_and_fresh_seed(monkeypatch: pyte
         scoring.binding_from_spec(spec),
         1e-2,
         1e-2,
-        preset="S",
+        preset=Preset.S,
         datatype="bf16",
         reverify_seed=99,
     )
@@ -170,8 +171,13 @@ def test_time_scaling_anchor_runs_a_gpu_anchor_on_the_device(monkeypatch: pytest
     monkeypatch.setattr(scoring, "_grade", lambda *a, **k: (True, 0.0, ""))
     spec = scoring.BenchSpec.load("jacobi_2d")
     binding = scoring.binding_from_spec(spec)
-    for anchor in (Submission(language="hip", source="x", device_source="k"), Submission(language="c", source="x")):
-        ns, note = scoring.time_scaling_anchor(anchor, TASK, spec, binding, "S", "float64", 1, {}, 1e-6, 1e-9, 0.0, 2)
+    for anchor in (
+        Submission(language=Language.HIP, source="x", device_source="k"),
+        Submission(language=Language.C, source="x"),
+    ):
+        ns, note = scoring.time_scaling_anchor(
+            anchor, TASK, spec, binding, Preset.S, "float64", 1, {}, 1e-6, 1e-9, 0.0, 2
+        )
         assert (ns, note) == (700, "")
     assert seen == [True, False]
 
@@ -187,7 +193,7 @@ def test_a_decorative_scheme_fails_the_leaderboard_grade(monkeypatch: pytest.Mon
         "shipped_samples",
         lambda *a, **k: pytest.fail("a refused layout must not be timed against the baseline"),
     )
-    score = scoring.score_distributed(mpi_sub(), TASK, preset="S", datatype="bf16", repeat=2, hidden=False)
+    score = scoring.score_distributed(mpi_sub(), TASK, preset=Preset.S, datatype="bf16", repeat=2, hidden=False)
     assert not score.correct
     assert not score.build_ok
     assert "block_cyclic" in score.detail
@@ -201,7 +207,7 @@ def test_only_a_distributed_ml_kernel_takes_the_sweep_route(monkeypatch: pytest.
 
     monkeypatch.setattr(service.torch_reference, "has_torch_reference", lambda spec: True)
     assert service.scales(TASK)
-    assert not service.scales(Task("jacobi_2d", "restricted", "hip"))
+    assert not service.scales(Task("jacobi_2d", SourceMode.RESTRICTED, Language.HIP))
     monkeypatch.setattr(service.torch_reference, "has_torch_reference", lambda spec: False)
     assert not service.scales(TASK)
 
@@ -212,34 +218,34 @@ def test_replicating_an_unlisted_array_is_a_request_fault(monkeypatch: pytest.Mo
     from hpcagent_bench.harness import service
 
     spec = scoring.BenchSpec.load("dist_softmax")
-    task = Task("dist_softmax", "restricted", "hip", residency="distributed")
+    task = Task("dist_softmax", SourceMode.RESTRICTED, Language.HIP, residency=Residency.DISTRIBUTED)
     split = {"axes": [{"grid_dim": None}, {"grid_dim": 0, "scheme": "block"}]}
     sub = Submission(
-        language="hip",
+        language=Language.HIP,
         source="mpi",
         device_source="k",
         requests=Requests.from_plan({"grid": [4], "arrays": {"x": split}}),
     )
     # The real manifest allowlists NOTHING for dist_softmax: replicating `out` is refused by name.
-    reason = service.distribution_refusal(sub, task, "S")
+    reason = service.distribution_refusal(sub, task, Preset.S)
     assert reason is not None
     assert "'out'" in reason
     assert "[]" in reason
 
     unlisted = spec.replace(mpi={k: v for k, v in spec.mpi.items() if k != "replicatable"})
     monkeypatch.setattr(service.BenchSpec, "load", staticmethod(lambda name: unlisted))
-    assert service.distribution_refusal(sub, task, "S") is None  # no list declared: rule off
+    assert service.distribution_refusal(sub, task, Preset.S) is None  # no list declared: rule off
 
     listed = spec.replace(mpi={**spec.mpi, "replicatable": ["scratch"]})
     monkeypatch.setattr(service.BenchSpec, "load", staticmethod(lambda name: listed))
-    reason = service.distribution_refusal(sub, task, "S")
+    reason = service.distribution_refusal(sub, task, Preset.S)
     assert reason is not None
     assert "'out'" in reason
     assert "scratch" in reason
 
     both = spec.replace(mpi={**spec.mpi, "replicatable": ["out"]})
     monkeypatch.setattr(service.BenchSpec, "load", staticmethod(lambda name: both))
-    assert service.distribution_refusal(sub, task, "S") is None
+    assert service.distribution_refusal(sub, task, Preset.S) is None
 
 
 def test_the_curve_is_never_an_agent_facing_signal() -> None:
@@ -252,7 +258,7 @@ def test_the_curve_is_never_an_agent_facing_signal() -> None:
 
 # score_ml: ONE build, the fuzz gate, the leaderboard launch, both laws' sweeps
 
-ML_TASK = Task("dist_softmax", "restricted", "hip", residency="distributed")
+ML_TASK = Task("dist_softmax", SourceMode.RESTRICTED, Language.HIP, residency=Residency.DISTRIBUTED)
 
 
 def softmax_sub(scheme: Scheme = Scheme.BLOCK) -> Submission:
@@ -260,7 +266,10 @@ def softmax_sub(scheme: Scheme = Scheme.BLOCK) -> Submission:
     axes = [{"grid_dim": None}, {"grid_dim": 0, "scheme": scheme.value}]
     arrays = {"x": {"axes": axes}, "out": {"axes": axes}}
     return Submission(
-        language="hip", source="mpi", device_source="k", requests=Requests.from_plan({"grid": [4], "arrays": arrays})
+        language=Language.HIP,
+        source="mpi",
+        device_source="k",
+        requests=Requests.from_plan({"grid": [4], "arrays": arrays}),
     )
 
 
@@ -414,7 +423,7 @@ def test_weak_sizes_keep_every_rank_block_64_aligned_and_record_the_work_ratio(m
     """Weak grows the split symbol ``dim`` with P, snapped so each of the P blocks is a multiple of
     64; the realized work ratio is recorded per P."""
     fake_ml_grade(monkeypatch, preset="XL")
-    weak = ml_grade(preset="XL").laws[1]
+    weak = ml_grade(preset=Preset.XL).laws[1]
     base = scoring.BenchSpec.load("dist_softmax").parameters["XL"]["dim"]
     for p in (2, 4):
         assert weak.shapes[p]["dim"] % (64 * p) == 0
@@ -456,7 +465,7 @@ def launch_fails(p_failed: int, only_grown: bool = False) -> Verdict:
 def test_a_failed_point_is_a_hole_of_its_own_law_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """A weak launch that fails leaves the weak curve a hole at that P and the strong curve whole."""
     fake_ml_grade(monkeypatch, verdict=launch_fails(2, only_grown=True), preset="XL")
-    strong, weak = ml_grade(preset="XL").laws
+    strong, weak = ml_grade(preset=Preset.XL).laws
     assert sorted(strong.measured_ns) == [1, 2, 4]
     assert sorted(weak.measured_ns) == [1, 4]
     assert weak.rank_notes[2] == "mpi run failed (boom)"
@@ -531,7 +540,7 @@ def test_a_flexible_scheme_is_realized_not_refused_on_the_leaderboard_launch(mon
     cyclic on `dim` realizes for real (shard_torch.make_tiles honours the declared scheme), so
     it reaches the (faked) launch instead of being refused as decorative."""
     fake_ml_grade(monkeypatch)
-    graded = scoring.score_ml(softmax_sub(Scheme.CYCLIC), ML_TASK, rank_counts=(1, 2, 4), preset="XL", repeat=3)
+    graded = scoring.score_ml(softmax_sub(Scheme.CYCLIC), ML_TASK, rank_counts=(1, 2, 4), preset=Preset.XL, repeat=3)
     assert graded.score.correct
     assert graded.score.baseline == "torch-autotune-gpu"
 
@@ -546,12 +555,12 @@ def test_a_different_split_axis_is_still_a_400_before_any_build(monkeypatch: pyt
 
     axes = [{"grid_dim": 0, "scheme": "block"}, {"grid_dim": None}]
     sub = Submission(
-        language="hip",
+        language=Language.HIP,
         source="mpi",
         device_source="k",
         requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}}),
     )
-    reason = service.distribution_refusal(sub, ML_TASK, "XL")
+    reason = service.distribution_refusal(sub, ML_TASK, Preset.XL)
     assert reason is not None
     assert "not this kernel's layout" in reason
 
@@ -650,13 +659,13 @@ def test_an_allowlisted_array_may_be_replicated_and_any_other_layout_is_refused(
     from hpcagent_bench.harness.mpi_descriptor import distribution_for_kernel
 
     spec = scoring.BenchSpec.load("dist_matmul_gelu_softmax")
-    task = Task(spec.short_name, "restricted", "hip", residency="distributed")
+    task = Task(spec.short_name, SourceMode.RESTRICTED, Language.HIP, residency=Residency.DISTRIBUTED)
     layout = distribution_for_kernel(spec.mpi, scoring.binding_from_spec(spec), 4).to_json()
 
     def refusal(dist: dict) -> str | None:
         plan = DistributionPlan.model_validate(dist)
-        sub = Submission(language="hip", source="mpi", device_source="k", requests=Requests.from_plan(plan))
-        return service.distribution_refusal(sub, task, "XL")
+        sub = Submission(language=Language.HIP, source="mpi", device_source="k", requests=Requests.from_plan(plan))
+        return service.distribution_refusal(sub, task, Preset.XL)
 
     assert refusal(layout) is None
     assert refusal({**layout, "arrays": {**layout["arrays"], "x": {"replicated": True}}}) is None
@@ -678,22 +687,22 @@ def test_a_fuzzed_judge_preset_sizes_the_ml_refusal_at_the_leaderboard_preset() 
 
     axes = [{"grid_dim": 0, "scheme": "block"}, {"grid_dim": None}]
     split_batch = Submission(
-        language="hip",
+        language=Language.HIP,
         source="mpi",
         device_source="k",
         requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": axes}, "out": {"axes": axes}}}),
     )
-    reason = service.distribution_refusal(split_batch, ML_TASK, "fuzzed")
+    reason = service.distribution_refusal(split_batch, ML_TASK, Preset.FUZZED)
     assert reason is not None
     assert "not this kernel's layout" in reason
     whole = [{"grid_dim": None}, {"grid_dim": None}]
     replicated_out = Submission(
-        language="hip",
+        language=Language.HIP,
         source="mpi",
         device_source="k",
         requests=Requests.from_plan({"grid": [4], "arrays": {"x": {"axes": whole}, "out": {"axes": whole}}}),
     )
-    assert service.distribution_refusal(replicated_out, ML_TASK, "fuzzed") is not None
+    assert service.distribution_refusal(replicated_out, ML_TASK, Preset.FUZZED) is not None
 
 
 def test_a_fuzzed_judge_preset_reverifies_the_ml_grade_at_the_leaderboard_preset(
@@ -721,7 +730,9 @@ def test_a_fuzzed_judge_preset_reverifies_the_ml_grade_at_the_leaderboard_preset
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_RANKS", "4")
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_MODE", "strong")
     graded = scoring.Score(True, 0.0, 2000, True, baseline_ns=4000, speedup=2.0, baseline="torch")
-    res = scoring.independent_verify(softmax_sub(), ML_TASK, graded, preset="fuzzed", datatype="bf16", reverify_seed=7)
+    res = scoring.independent_verify(
+        softmax_sub(), ML_TASK, graded, preset=Preset.FUZZED, datatype="bf16", reverify_seed=7
+    )
     xl = dict(scoring.BenchSpec.load("dist_softmax").parameters[config.current().mpi.leaderboard_preset])
     assert [params for params, _ in seen] == [xl, xl]
     assert seen[1][1] == 7

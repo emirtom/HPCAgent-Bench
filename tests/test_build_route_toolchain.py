@@ -16,6 +16,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.sandbox import Sandbox
 from hpcagent_bench.harness.service import ServiceConfig
@@ -61,7 +62,7 @@ def test_the_build_route_answers_with_the_family_the_request_names(
     asked for llvm check its code locally against gcc while the grade compiles it with clang."""
     monkeypatch.delenv(languages.OFFLOAD_MODEL_ENV, raising=False)
     body = build_route(make_judge, "cpp", "&compiler=llvm")
-    built = sandbox_commands(monkeypatch, Submission(language="cpp", source="void k(void) {}", compiler="llvm"))
+    built = sandbox_commands(monkeypatch, Submission(language=Language.CPP, source="void k(void) {}", compiler="llvm"))
     assert (body["family"], body["compiler"]) == ("llvm", "clangpp"), body
     assert [argv[0] for argv in body["commands"]] == [argv[0] for argv in built], (body["commands"], built)
 
@@ -76,7 +77,7 @@ def test_an_offload_setup_is_shown_its_legs_driver_and_offload_flags(
     monkeypatch.setattr(languages, "offload_build_driver", lambda model, vendor, lang: LEG_DRIVER)
     monkeypatch.setattr(languages, "agent_offload_flags", lambda vendor="amd": list(LEG_FLAGS))
     body = build_route(make_judge, "c")
-    built = sandbox_commands(monkeypatch, Submission(language="c", source="void k(void) {}"))
+    built = sandbox_commands(monkeypatch, Submission(language=Language.C, source="void k(void) {}"))
     assert (body["driver"], body["family"]) == (LEG_DRIVER, "llvm"), body
     route_drivers = [argv[0] for argv in body["commands"]]
     built_drivers = [argv[0] for argv in built]

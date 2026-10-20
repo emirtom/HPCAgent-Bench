@@ -18,8 +18,8 @@ from types import MappingProxyType
 import pytest
 from _pytest._code.code import ExceptionChainRepr, ReprExceptionInfo
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags
+from hpcagent_bench import flags, modules
+from hpcagent_bench.categories import Language
 from tests.dace_build_isolation import pin_per_worker_dace_build_folder
 from tests.request_allowances import every_request_allowed as allowing_every_request
 
@@ -154,7 +154,7 @@ def ppcg_missing() -> str:
     and cannot deselect one on a host where it would have run."""
     from hpcagent_bench import ppcg_transform
 
-    problem = ppcg_transform.missing_tool("hip")
+    problem = ppcg_transform.missing_tool(Language.HIP)
     if problem:
         return problem
     return device_and_tools_missing(gpu_profiling.KFD_DEVICE, ("hipcc",))

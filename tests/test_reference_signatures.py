@@ -31,11 +31,14 @@ import ast
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Track
 from hpcagent_bench.spec import KERNELS, BenchSpec
 
 
 def machine_learning_references() -> list:
-    return sorted((s for s in KERNELS.specs().values() if s.track == "machine_learning"), key=lambda s: s.module_name)
+    return sorted(
+        (s for s in KERNELS.specs().values() if s.track is Track.MACHINE_LEARNING), key=lambda s: s.module_name
+    )
 
 
 def dead_preset_parameters(spec: BenchSpec) -> list[str]:

@@ -28,6 +28,7 @@ import pytest
 
 from hpcagent_bench import packets, paths
 from hpcagent_bench import study_tags as tags
+from hpcagent_bench.categories import Language, SourceMode
 from tests.fresh_module import fresh
 from tests.mcp_stdio import served_tools, tool_names
 
@@ -321,12 +322,11 @@ def test_the_in_process_prompt_shows_the_library_text_exactly_when_the_grading_s
     from hpcagent_bench import config
     from hpcagent_bench.harness.prompts import build_prompt
     from hpcagent_bench.harness.task import Task
-
     from tests.request_allowances import allowing
 
     enabled = packets.libraries_enabled(key)
     with config.overridden("grading.allow_agent_build_tokens", enabled), allowing(*["load"] * enabled):
-        text = build_prompt(Task("gemm", "restricted", "c"))
+        text = build_prompt(Task("gemm", SourceMode.RESTRICTED, Language.C))
     assert ("You may link a library" in text) == enabled, (key, enabled)
     assert ("list the catalog name in the response's `requests.startup.load`" in text) == enabled, (key, enabled)
 

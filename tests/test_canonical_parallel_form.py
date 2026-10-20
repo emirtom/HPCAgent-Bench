@@ -137,7 +137,6 @@ def test_the_route_serves_the_cached_form(
     """A kernel the view holds is read from the cache, with no render."""
     from hpcagent_bench import config
     from hpcagent_bench.api import RunConfig
-    from hpcagent_bench.harness import service
 
     view = publish_view(tmp_path, "example_kernel", "// pre-rendered\n")
     config.set_override("service.canonical_parallel_form_dir", str(view))
@@ -234,7 +233,6 @@ def test_the_tool_receives_its_setups_form_from_a_live_judge_configured_by_env(
 def test_no_directory_means_no_root(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unset is a normal state: the ablation setup that withholds the form changes nothing else."""
     from hpcagent_bench import config
-    from hpcagent_bench.harness import service
 
     config.set_override("service.canonical_parallel_form_dir", "")
     assert cpf_route.canonical_parallel_form_root() is None

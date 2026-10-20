@@ -6,6 +6,7 @@ the code-agent: same base class, same registry, same entry point."""
 
 import pytest
 
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.cli import agent_registry
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.harness import optimizers
@@ -64,10 +65,10 @@ def test_an_autotuning_flavor_refuses_a_task_on_the_other_device() -> None:
     always meets the anti-cheats of the device it was built for."""
     sut = optimizers.optimizer_registry()["dace_gpu_canon_alloy_profile"]()
     with pytest.raises(NotImplementedError, match="runs on gpu; got a cpu task"):
-        sut.solve(Task("tsvc_2_vpv", "any", "c"))
+        sut.solve(Task("tsvc_2_vpv", SourceMode.ANY, Language.C))
 
 
 def test_the_heuristic_mode_is_not_built_yet() -> None:
     sut = optimizers.optimizer_registry()["dace_cpu_canon_alloy_heuristic"]()
     with pytest.raises(NotImplementedError, match="heuristic mode is not built"):
-        sut.solve(Task("tsvc_2_vpv", "any", "c"))
+        sut.solve(Task("tsvc_2_vpv", SourceMode.ANY, Language.C))

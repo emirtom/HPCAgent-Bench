@@ -12,8 +12,8 @@ import json
 from typing import Any
 
 import pytest
-
 from hpcagent_agent.tools import registry
+
 from tests.fresh_module import fresh
 
 #: ``canonical_parallel_form.INPUT_SCHEMA`` as 123060f79 wrote it by hand.

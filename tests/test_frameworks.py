@@ -6,6 +6,7 @@ import shutil
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from tests.optional_imports import import_or_skip
 
@@ -17,7 +18,7 @@ def _run_and_validate(framework: str) -> dict:
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
     test = Test(Benchmark(KERNEL), generate_framework(framework))
-    return test.run(preset="S", validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
+    return test.run(preset=Preset.S, validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
 
 
 def _assert_validated(framework: str) -> None:

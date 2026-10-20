@@ -8,6 +8,7 @@ Pure: no agent, no compile, no LLM.
 """
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import runner
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
@@ -16,7 +17,7 @@ from hpcagent_bench.harness.scoring import Score, resolve_token_budget
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import KERNELS, BenchSpec
 
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 def test_round_cap_stops_after_that_many_attempts() -> None:

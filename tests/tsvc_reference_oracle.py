@@ -23,11 +23,11 @@ from typing import Any
 
 import numpy as np
 
-from hpcagent_bench import modules
-from hpcagent_bench import languages, paths
+from hpcagent_bench import languages, modules, paths
+from hpcagent_bench.categories import Language
+from hpcagent_bench.flags import Mode
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.flags import Mode
 from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.support.bindings.contract import Binding, binding_from_spec
 from tests.fresh_module import module_at
@@ -73,7 +73,7 @@ def build(source: pathlib.Path, out_so: pathlib.Path) -> str | None:
     to look at even when it links.
     """
     for argv in languages.build_shared_lib_commands(
-        "c",
+        Language.C,
         source,
         out_so,
         mode=Mode.SINGLE_CORE,

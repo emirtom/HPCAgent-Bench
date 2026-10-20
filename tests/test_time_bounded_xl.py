@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 
 import pytest
 
-from hpcagent_bench.fuzz import FUZZED_PRESET
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
 
 #: Multiply-adds per kernel call, from the manifest's size symbols.
@@ -43,4 +43,4 @@ def test_the_preset_ladder_grows_up_to_xl(kernel: str) -> None:
     parameters = BenchSpec.load(kernel).parameters
     work = [WORK[kernel](parameters[preset]) for preset in ("S", "M", "L", "XL")]
     assert work == sorted(work), f"{kernel}: S/M/L/XL work {work}"
-    assert FUZZED_PRESET not in parameters, f"{kernel}: an explicit fuzzed preset would bypass the XL bound"
+    assert Preset.FUZZED.text not in parameters, f"{kernel}: an explicit fuzzed preset would bypass the XL bound"

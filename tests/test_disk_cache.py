@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import disk_cache, grading, rep_variation, scoring
 from hpcagent_bench.spec import BenchSpec
 
@@ -256,10 +257,10 @@ SCORE = textwrap.dedent(
             scoring.run_compiled_reference = forbidden
         if sys.argv[1] == "probe":
             grading.probe_write_mask_uncached = forbidden
-        task = Task("jacobi_2d", "restricted", "c")
+        task = Task("jacobi_2d", SourceMode.RESTRICTED, Language.C)
         result = scoring.score(
-            grading.reference_submission(task, "c"), task, preset="S", repeat=5, hidden=sys.argv[2] == "submit",
-            baseline="c-autopar",
+            grading.reference_submission(task, "c"), task, preset=Preset.S, repeat=5, hidden=sys.argv[2] == "submit",
+            baseline=Baseline.C_AUTOPAR,
         )
         assert result.correct, result.detail[-2000:]
 
@@ -492,7 +493,7 @@ def probe_scope_fixture(store_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 
 def probe(spec: BenchSpec) -> tuple[dict[str, np.ndarray] | None, dict[str, str]]:
     return grading.probe_write_mask_cached(
-        spec, "jacobi_2d", "fuzzed", "float64", {}, {}, lambda _data: {}, drawn={"N": 64}
+        spec, "jacobi_2d", Preset.FUZZED, "float64", {}, {}, lambda _data: {}, drawn={"N": 64}
     )
 
 

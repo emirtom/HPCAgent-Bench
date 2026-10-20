@@ -14,8 +14,7 @@ import types
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import frameworks
+from hpcagent_bench import frameworks, modules
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks import NativeFramework, PlutoFramework
 from hpcagent_bench.frameworks import framework as framework_module

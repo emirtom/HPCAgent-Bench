@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, sizing
-from hpcagent_bench.spec import KERNELS, BenchSpec, Preset, load_yaml
+from hpcagent_bench.categories import Preset
+from hpcagent_bench.spec import KERNELS, BenchSpec, load_yaml
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import declared_float_dtype, graded_datatype
 from tests.reference_outputs import torch_eager_outputs
@@ -58,9 +59,9 @@ def test_an_ml_kernels_xl_grows_along_its_scale_axis_only_and_stays_admissible(k
     unless the constraints or the byte ceiling stop it, and never shrunk -- every other rung as
     written, the constraints holding and the working set under the track's ceiling."""
     spec, raw = BenchSpec.load(kernel), authored(kernel)
-    for rung in (p.value for p in Preset if p is not Preset.XL):
+    for rung in (p.text for p in Preset if p is not Preset.XL):
         assert spec.parameters.get(rung) == raw.parameters.get(rung), rung
-    xl, raw_xl = spec.parameters[Preset.XL.value], raw.parameters[Preset.XL.value]
+    xl, raw_xl = spec.parameters[Preset.XL.text], raw.parameters[Preset.XL.text]
     axes = raw.scale_axes or sizing.leading_axis(raw)
     assert {n for n in raw_xl if xl[n] != raw_xl[n]} <= set(axes), kernel
     rung, growth = sizing.datatype_rung(raw, graded_datatype(raw, "float64"))
@@ -153,7 +154,7 @@ def test_every_ml_kernel_draws_its_graded_datatype_and_its_oracle_runs(kernel: s
 
     spec = BenchSpec.load(kernel)
     datatype = graded_datatype(spec, "float64")
-    data = Benchmark(kernel).get_data(preset="S", datatype=datatype, input_seed=7)
+    data = Benchmark(kernel).get_data(preset=Preset.S, datatype=datatype, input_seed=7)
     storage = data["datatype"]
     floats = [v for v in data.values() if isinstance(v, np.ndarray) and v.dtype.kind in "fV"]
     assert floats, kernel
@@ -177,7 +178,7 @@ def test_every_ml_kernel_stays_finite_in_every_narrow_format(kernel: str, dataty
     spec = BenchSpec.load(kernel)
     if graded_datatype(spec, "float64") != graded_datatype(spec, datatype):
         datatype = graded_datatype(spec, datatype)
-    data = Benchmark(kernel).get_data(preset="S", datatype=datatype, input_seed=7)
+    data = Benchmark(kernel).get_data(preset=Preset.S, datatype=datatype, input_seed=7)
     arrays = [v for v in data.values() if isinstance(v, np.ndarray) and v.dtype.kind in "fV"]
     assert all(np.isfinite(value.astype(np.float64)).all() for value in arrays), f"{kernel} inputs at {datatype}"
     outputs = list(cpu_reference(spec, data).values())

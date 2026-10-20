@@ -23,8 +23,8 @@ from typing import ClassVar
 import pydantic
 import pytest
 import yaml
-
 from hpcagent_agent.harness.runner_common import HistoryWindow
+
 from hpcagent_bench import paths
 
 AGENT_DIR = paths.ROOT / "agent"

@@ -24,6 +24,7 @@ from collections.abc import Callable, Mapping, Sequence
 import pytest
 
 from hpcagent_bench import config, languages
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import mpi_call, mpi_shard_driver, prompts, recording, scaling_grade
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -272,7 +273,9 @@ def test_the_driver_text_sends_a_distributed_agent_to_load_rccl(monkeypatch: pyt
 def gemm_contract(hint: bool) -> str:
     """dist_matmul_large_k's hip distributed contract, rendered with ``mpi.compute_hint`` = ``hint``."""
     with config.overridden("mpi.compute_hint", hint):
-        return prompts.distributed_contract(Task(kernel="dist_matmul_large_k", language="hip", residency="distributed"))
+        return prompts.distributed_contract(
+            Task(kernel="dist_matmul_large_k", language=Language.HIP, residency=Residency.DISTRIBUTED)
+        )
 
 
 def test_the_compute_hint_renders_only_when_the_setup_sets_it() -> None:

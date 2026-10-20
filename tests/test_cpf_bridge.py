@@ -34,6 +34,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical, languages, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec, ConfigKnob
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -106,7 +107,7 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     _kind, expected = compiled_outputs(
         KERNEL, {name: (value.copy() if isinstance(value, np.ndarray) else value) for name, value in data.items()}
     )
-    (outs,), _, _, _ = _call_native(library, native, data, "c", workspace_bytes="8*N")
+    (outs,), _, _, _ = _call_native(library, native, data, Language.C, workspace_bytes="8*N")
     assert outs, "the kernel declared no outputs"
     for name, got in outs.items():
         np.testing.assert_allclose(got, expected[name], rtol=1e-12, atol=0.0)
@@ -407,7 +408,7 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
     library = build_dropin(source, tmp_path)
     a = np.random.default_rng(0).random(EXTENT)
     (outs,), _, _, _ = _call_native(
-        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, "c", workspace_bytes="8*N"
+        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, Language.C, workspace_bytes="8*N"
     )
     np.testing.assert_allclose(outs["b"], 2.0 * a, rtol=1e-12, atol=0.0)
 
@@ -592,7 +593,7 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
     library = build_dropin(source, tmp_path)
     a = np.random.default_rng(0).random(EXTENT)
     (outs,), _, _, _ = _call_native(
-        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, "c", workspace_bytes="8*N"
+        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, Language.C, workspace_bytes="8*N"
     )
     np.testing.assert_allclose(outs["b"], 2.0 * a, rtol=1e-12, atol=0.0)
 
@@ -690,7 +691,9 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     a = np.random.default_rng(0).random(EXTENT)
     expected = np.zeros(EXTENT)
     reference(a, expected, PINNED_KNOB)
-    outs = _call_native(library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, "c", workspace_bytes="8*N")[0][0]
+    outs = _call_native(
+        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, Language.C, workspace_bytes="8*N"
+    )[0][0]
     np.testing.assert_allclose(outs["b"], expected, rtol=1e-12, atol=0.0)
 
 
@@ -734,7 +737,7 @@ def test_a_dropin_takes_a_rebound_scalar_parameter_by_value(tmp_path: pathlib.Pa
     library = build_dropin(source, tmp_path)
     a = np.random.default_rng(0).random(EXTENT)
     inputs = {"a": a, "b": np.zeros(EXTENT), "N": EXTENT, "k": 1.5}
-    outs = _call_native(library, native, inputs, "c", workspace_bytes="8*N")[0][0]
+    outs = _call_native(library, native, inputs, Language.C, workspace_bytes="8*N")[0][0]
     np.testing.assert_allclose(outs["b"], 3.0 * a, rtol=1e-12, atol=0.0)
 
 

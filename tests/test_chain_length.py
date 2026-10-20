@@ -27,8 +27,8 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import sizing
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.utilities import compare_arrays
-from hpcagent_bench.fuzz import FUZZED_PRESET
 from hpcagent_bench.harness.grading import (
     ContractedExtent,
     contracted_extent,
@@ -118,7 +118,7 @@ def test_a_preset_only_the_fuzzed_range_leaves_symbolic_is_skipped_not_rejected(
     """A concrete preset ('S') resolving the expression is enough; a 'fuzzed' range for the SAME
     symbol does not also need to resolve -- mirrors _validate_packed_shapes' skip rule."""
     spec = BenchSpec.from_dict(
-        _raw(parameters={"S": {"N": 16}, FUZZED_PRESET: {"N": [4, 64]}}, chain_length={"x": "N"}),
+        _raw(parameters={"S": {"N": 16}, Preset.FUZZED.text: {"N": [4, 64]}}, chain_length={"x": "N"}),
         source="<test>",
     )
     assert spec.chain_length == {"x": "N"}
@@ -146,7 +146,7 @@ def test_a_declared_chain_wins_over_the_shape_derivation(short: str) -> None:
     """``contracted_extent`` returns the declared chain with rule ``declared_chain`` -- the paper's
     step (iv): a scan declares its chain length rather than deriving it."""
     spec = BenchSpec.load(short)
-    values = next(v for p, v in spec.parameters.items() if p != FUZZED_PRESET)
+    values = next(v for p, v in spec.parameters.items() if p != Preset.FUZZED.text)
     for name in spec.chain_length:
         got = contracted_extent(spec, name, None, values)
         assert got == ContractedExtent(declared_chain_length(spec, name, values), "declared_chain")
@@ -169,7 +169,7 @@ assert CHAIN_LENGTH_KERNELS, "the scan-chain audit manifests should have declare
 def test_declared_chain_length_is_a_positive_int_at_every_concrete_preset(short: str) -> None:
     spec = BenchSpec.load(short)
     for preset, values in spec.parameters.items():
-        if preset == FUZZED_PRESET:
+        if preset == Preset.FUZZED.text:
             continue  # a range/config draw, not a concrete size -- see the parser tests above
         for name in spec.chain_length:
             try:
@@ -192,7 +192,7 @@ def test_declared_chain_length_is_at_least_the_shared_kept_axis(short: str) -> N
     if spec.init is None:
         return
     for preset, values in spec.parameters.items():
-        if preset == FUZZED_PRESET:
+        if preset == Preset.FUZZED.text:
             continue
         namespace = sizing.shape_namespace(spec, values)
         for name, expr in spec.chain_length.items():

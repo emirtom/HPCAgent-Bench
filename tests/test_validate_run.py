@@ -17,8 +17,7 @@ from types import ModuleType
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 from hpcagent_bench.harness import results_db
 from tests.fresh_module import fresh
 

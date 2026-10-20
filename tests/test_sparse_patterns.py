@@ -6,8 +6,8 @@ Each position is kept independently with one probability, so the count is binomi
 allow six standard deviations."""
 
 import math
-from collections.abc import Callable
 import time
+from collections.abc import Callable
 
 import numpy as np
 import pytest

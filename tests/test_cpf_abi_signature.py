@@ -26,6 +26,7 @@ import pytest
 
 from hpcagent_bench import cpf_bridge, cpf_cache
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import score
@@ -69,7 +70,7 @@ def test_the_form_takes_the_required_signature_and_grades_correct(
             requests=Requests.of(libraries=record.libraries),
             workspace_bytes=None if record.workspace_bytes in ("", "0") else record.workspace_bytes,
         ),
-        Task(KERNELS.key_for_name(kernel), "restricted", language),
+        Task(KERNELS.key_for_name(kernel), SourceMode.RESTRICTED, language),
     )
     assert (result.build_ok, result.correct) == (True, True), result.detail[-2000:]
 
@@ -102,7 +103,7 @@ def test_the_route_answers_a_request_naming_no_order_with_the_required_signature
     native = binding_from_spec(BenchSpec.load("gemm"))
     assert answer["entry"] == native.symbol
     assert entry_prototype(answer["source"], native.symbol) == entry_prototype(
-        gen_call_stub(native, "c"), native.symbol
+        gen_call_stub(native, Language.C), native.symbol
     )
 
 

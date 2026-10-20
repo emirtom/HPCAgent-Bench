@@ -27,6 +27,7 @@ import pytest
 
 import hpcagent_bench
 from hpcagent_bench import config, languages
+from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, SourceMode
 from hpcagent_bench.harness import native_call, scoring, timing
 from hpcagent_bench.harness.native_call import RepTiming, TimingProbe
 from hpcagent_bench.harness.task import Task, default_residency, gpu_graded
@@ -55,11 +56,11 @@ def test_an_offload_setup_grades_device_resident(offload_setup) -> None:
     """``c-openmp-device``: an offload setup's LANGUAGE is ``c``, so nothing in the language says a
     GPU is involved. The setup says it, and when it also declares device residency the buffers are
     staged on the GPU and the transfers leave the timed section."""
-    assert gpu_graded("c")
-    assert gpu_graded("cpp")
-    assert gpu_graded("fortran")
-    assert default_residency("c") == "device"
-    assert Task("gemm", "restricted", "c").residency == "device"
+    assert gpu_graded(Language.C)
+    assert gpu_graded(Language.CPP)
+    assert gpu_graded(Language.FORTRAN)
+    assert default_residency(Language.C) == "device"
+    assert Task("gemm", SourceMode.RESTRICTED, Language.C).residency is Residency.DEVICE
 
 
 def test_the_host_resident_offload_setup_is_untouched(monkeypatch) -> None:
@@ -69,31 +70,31 @@ def test_the_host_resident_offload_setup_is_untouched(monkeypatch) -> None:
     the text they ran under."""
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
     monkeypatch.delenv(languages.OFFLOAD_RESIDENCY_ENV, raising=False)
-    assert languages.offload_setup_language("c")  # still an offload setup
+    assert languages.offload_setup_language(Language.C)  # still an offload setup
     assert not languages.offload_device_residency()
-    assert not gpu_graded("c")
-    assert Task("gemm", "restricted", "c").residency == "host"
-    assert timing.timing_bracket("host", "c") == "host-monotonic"
+    assert not gpu_graded(Language.C)
+    assert Task("gemm", SourceMode.RESTRICTED, Language.C).residency is Residency.HOST
+    assert timing.timing_bracket(Residency.HOST, Language.C) == "host-monotonic"
 
 
 def test_a_plain_c_setup_is_untouched(monkeypatch) -> None:
     """Same language, no offload declaration: still a host setup. The setup says it, not the language,
     and a CPU C setup runs in the same experiment as the offload one."""
     monkeypatch.delenv(languages.OFFLOAD_MODEL_ENV, raising=False)
-    assert not gpu_graded("c")
-    assert Task("gemm", "restricted", "c").residency == "host"
+    assert not gpu_graded(Language.C)
+    assert Task("gemm", SourceMode.RESTRICTED, Language.C).residency is Residency.HOST
 
 
 def test_a_gpu_language_is_device_resident_with_or_without_an_offload_setup(offload_setup) -> None:
     """hip/cuda are device-resident whatever the offload environment says."""
-    assert Task("gemm", "restricted", "hip").residency == "device"
-    assert default_residency("hip") == "device"
+    assert Task("gemm", SourceMode.RESTRICTED, Language.HIP).residency is Residency.DEVICE
+    assert default_residency(Language.HIP) == "device"
 
 
 def test_a_python_delivery_is_never_gpu_graded_by_language(offload_setup) -> None:
     """A python delivery runs in the host process on host arrays whatever the task says, so it
     must not acquire device residency from an offload setup's environment."""
-    assert not gpu_graded("python")
+    assert not gpu_graded(Language.PYTHON)
 
 
 # what a sample contains
@@ -126,8 +127,12 @@ def test_the_protocol_stamp_carries_the_bracket(offload_setup) -> None:
     """``grading_protocol`` is what a reader pools on. The reduction says how samples became a
     credit; the bracket says what a sample holds, and a ``gpu-event-nocopy`` sample and a
     ``host-monotonic`` one of the same kernel are not measurements of the same quantity."""
-    assert scoring.graded_protocol(Task("gemm", "restricted", "c")) == "sealed-nonce-v1+gpu-event-nocopy"
-    assert scoring.graded_protocol(Task("gemm", "restricted", "hip")) == "sealed-nonce-v1+gpu-event-nocopy"
+    assert (
+        scoring.graded_protocol(Task("gemm", SourceMode.RESTRICTED, Language.C)) == "sealed-nonce-v1+gpu-event-nocopy"
+    )
+    assert (
+        scoring.graded_protocol(Task("gemm", SourceMode.RESTRICTED, Language.HIP)) == "sealed-nonce-v1+gpu-event-nocopy"
+    )
 
 
 # the build refusal
@@ -170,7 +175,7 @@ def test_the_refusal_is_off_for_every_setup_that_is_not_an_offload_setup(monkeyp
     plain C setup's host OpenMP nor the host-resident ``c-openmp`` setup -- both of which legitimately
     map their own buffers -- ever meets it."""
     monkeypatch.delenv(languages.OFFLOAD_MODEL_ENV, raising=False)
-    assert not languages.offload_setup_language("c")
+    assert not languages.offload_setup_language(Language.C)
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
     monkeypatch.delenv(languages.OFFLOAD_RESIDENCY_ENV, raising=False)
     assert not languages.offload_device_residency()
@@ -417,17 +422,17 @@ def test_the_two_python_setups_are_different_setups(triton_device_setup) -> None
     arrays and pays its own round trip inside the sample, the other takes device arrays and pays
     none. Redefining the first into the second would have made every row already recorded under it
     unreadable, so the second is its own setup with its own key."""
-    assert gpu_graded("python")
-    assert Task("gemm", "restricted", "python").residency == "device"
+    assert gpu_graded(Language.PYTHON)
+    assert Task("gemm", SourceMode.RESTRICTED, Language.PYTHON).residency is Residency.DEVICE
 
 
 def test_the_host_resident_python_setup_is_untouched(monkeypatch) -> None:
     """Same language, no declaration: still host-resident, still host-timed. The existing triton
     rows stay exactly what they were measured as."""
     monkeypatch.delenv(languages.PYTHON_DEVICE_ENV, raising=False)
-    assert not gpu_graded("python")
-    assert Task("gemm", "restricted", "python").residency == "host"
-    assert timing.timing_bracket("host", "python") == "host-monotonic"
+    assert not gpu_graded(Language.PYTHON)
+    assert Task("gemm", SourceMode.RESTRICTED, Language.PYTHON).residency is Residency.HOST
+    assert timing.timing_bracket(Residency.HOST, Language.PYTHON) == "host-monotonic"
 
 
 def test_the_judge_accepts_the_new_setup_language_as_a_python_delivery() -> None:
@@ -464,7 +469,7 @@ def test_the_judge_answers_that_refusal_as_a_400_before_any_build(
     from hpcagent_bench.harness.service import ServiceConfig
 
     monkeypatch.delenv(languages.PYTHON_DEVICE_ENV, raising=False)
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="py-binding", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode="py-binding", repeat=2))
     body = {"kernel": "tsvc_2_s311", "language": languages.PYTHON_DEVICE_LANGUAGE, "source": "x = 1", "rank": 0}
     request = urllib.request.Request(
         f"{url}/score", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST"
@@ -512,7 +517,7 @@ def test_the_two_setups_rows_refuse_to_pool(triton_device_setup) -> None:
     same refusal the reduction stamps already carry."""
     from hpcagent_bench.stats.population import MixedPopulationError, one_bracket
 
-    device_row = scoring.graded_protocol(Task("gemm", "restricted", "python"))
+    device_row = scoring.graded_protocol(Task("gemm", SourceMode.RESTRICTED, Language.PYTHON))
     assert one_bracket([device_row, device_row]) == "gpu-event-nocopy"
     with pytest.raises(MixedPopulationError, match="mixes timing brackets"):
         one_bracket([device_row, "sealed-nonce-v1+host-monotonic"])
@@ -704,7 +709,9 @@ def test_a_native_device_bracket_opens_after_the_harness_staging_drained(
     _fake, log = staging_log(monkeypatch)
     src, lib = tmp_path / "staged.c", tmp_path / "libstaged.so"
     src.write_text(STAGED_KERNEL)
-    subprocess.run(["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC", str(src), "-o", str(lib)], check=True)
+    subprocess.run(
+        ["gcc", "-O2", languages.std_flag(Language.C), "-shared", "-fPIC", str(src), "-o", str(lib)], check=True
+    )
     args = (
         Arg(name="x", kind="ptr", dtype="float64", is_const=True),
         Arg(name="y", kind="ptr", dtype="float64", is_const=False, role="output"),
@@ -712,7 +719,9 @@ def test_a_native_device_bracket_opens_after_the_harness_staging_drained(
     )
     binding = Binding(kernel="staged", config="dense", args=args, symbols={"c": "staged_fp64"})
     data = {"x": np.arange(8, dtype=np.float64), "y": np.zeros(8), "N": 8}
-    outputs, _samples, _extras, _reps = native_call._call_native_device(str(lib), binding, data, "c", reps=2, warmup=1)
+    outputs, _samples, _extras, _reps = native_call._call_native_device(
+        str(lib), binding, data, Language.C, reps=2, warmup=1
+    )
     for rep in outputs:
         np.testing.assert_array_equal(rep["y"], 2.0 * np.arange(8, dtype=np.float64))
     assert_every_bracket_opens_drained(log)

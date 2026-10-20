@@ -33,6 +33,7 @@ import pytest
 
 from hpcagent_bench import config, experiments, fuzz, observations_extract, paths, protocols
 from hpcagent_bench.anticheat import Effect, Finding, Judgement
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import grade_under, recording, results_db, scoring, service, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
@@ -137,12 +138,14 @@ def cells_fixture(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 def real_submission() -> Submission:
-    return NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    return NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
 
 
 def submitted(scorer: Scorer) -> tuple[Score, recording.FinalRecord | None]:
     """``grade_under.submit_grade`` of the scaled_add reference under the judge's own :class:`RunConfig`."""
-    return grade_under.submit_grade(real_submission(), Task(KERNEL, "restricted", "c"), service.from_config(), scorer)
+    return grade_under.submit_grade(
+        real_submission(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), service.from_config(), scorer
+    )
 
 
 def test_a_submit_is_timed_under_the_final_grades_own_settings(cells: list[dict[str, Any]]) -> None:
@@ -228,9 +231,9 @@ def test_a_correct_submit_answers_the_final_grade_and_carries_its_rows(cells: li
     assert [row["ratio"] for row in final.cells] == ratios
     # the same rows grade-under run would write for the same measurements
     graded = grade_under.final_grade(
-        real_submission(), Task(KERNEL, "restricted", "c"), Scorer(*[fake_result(r) for r in ratios])
+        real_submission(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), Scorer(*[fake_result(r) for r in ratios])
     )
-    rows, values = grade_under.final_rows(graded, Task(KERNEL, "restricted", "c"), KERNEL)
+    rows, values = grade_under.final_rows(graded, Task(KERNEL, SourceMode.RESTRICTED, Language.C), KERNEL)
     assert (list(final.cells), dict(final.values)) == (rows, values)
 
 
@@ -269,9 +272,9 @@ def record_db(tmp_path: pathlib.Path) -> str:
 def record_submit(tmp_path: pathlib.Path, episode_id: str, scorer: Scorer) -> int:
     """One /submit graded by ``scorer`` and recorded as the judge records it; the submit grade's id."""
     result, final = submitted(scorer)
-    task = Task(KERNEL, "restricted", "c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     recorded = recording.record(
-        result, real_submission(), task, episode_id=episode_id, preset="S", path=record_db(tmp_path), final=final
+        result, real_submission(), task, episode_id=episode_id, preset=Preset.S, path=record_db(tmp_path), final=final
     )
     assert recorded.outcome == "submission"
     assert recorded.grade_id is not None
@@ -318,7 +321,7 @@ def test_a_submit_the_verify_leg_rejects_records_no_final_grade(
     recorded = recording.record(
         result,
         real_submission(),
-        Task(KERNEL, "restricted", "c"),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=rejected,
         episode_id=RUN,
         path=record_db(tmp_path),
@@ -338,7 +341,11 @@ def test_only_a_submission_of_an_older_protocol_is_owed_a_final_grade(
     old_run = f"{SETUP}.n0.p1.w0"
     old = fake_result(2.0, timing_reduction="mwd-v3")
     recording.record(
-        old, real_submission(), Task(KERNEL, "restricted", "c"), episode_id=old_run, path=record_db(tmp_path)
+        old,
+        real_submission(),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        episode_id=old_run,
+        path=record_db(tmp_path),
     )
     db = pathlib.Path(record_db(tmp_path))
     listed, problems = grade_under.build_worklist([db], [])
@@ -397,7 +404,7 @@ class Judge:
 
 
 def correct_source() -> str:
-    return NoOpOptimizer().solve(Task(kernel=KERNEL, language="c")).source
+    return NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C)).source
 
 
 def wrong_source() -> str:
@@ -606,21 +613,21 @@ def test_regrade_finalize_grades_a_submission_the_older_protocol_recorded(
     """An older /submit graded ONE input under ``mwd-v3`` and left no final row: its submission is
     owed one, ``run`` grades it into a shard, ``apply`` merges it back, and it is no longer owed."""
     episode_id = f"{SETUP}.n0.p4.w0"
-    task = Task(KERNEL, "restricted", "c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     db = tmp_path / "old" / "judge" / "rank-0" / "hpcagent_bench.db"
     cfg = service.from_config()
     with config.overridden("measurement.timing_backend", "mannwhitney_delta"):
         old = scoring.score(
             real_submission(),
             task,
-            preset="S",
+            preset=Preset.S,
             repeat=timing.measurement_repeat(),
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             hidden=True,
         )
     assert old.timing_reduction == "mwd-v3", "an older /submit's stamp: one input, a live reduction"
-    recorded = recording.record(old, real_submission(), task, episode_id=episode_id, preset="S", path=str(db))
+    recorded = recording.record(old, real_submission(), task, episode_id=episode_id, preset=Preset.S, path=str(db))
     assert recorded.outcome == "submission"
     owed, _ = grade_under.build_owed_worklist([db], [])
     assert [item.episode_id for item in owed] == [episode_id]

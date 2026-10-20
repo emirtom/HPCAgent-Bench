@@ -9,7 +9,6 @@ build. ``canonical_parallel_form`` was served in all of them -- 24 of 40 bare ag
 holds, which is a turn spent and a treatment leaked into the control."""
 
 import json
-import os
 import subprocess
 import sys
 from types import ModuleType
@@ -18,7 +17,7 @@ import pytest
 
 from hpcagent_bench import paths
 from tests.fresh_module import fresh
-from tests.mcp_stdio import server_env, served_tools, tool_names
+from tests.mcp_stdio import served_tools, server_env, tool_names
 
 REPO = paths.ROOT
 PACKET = REPO / "agent" / "hpcagent_agent" / "packets" / "autokernel"

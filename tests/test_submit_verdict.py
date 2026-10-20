@@ -11,6 +11,7 @@ import dataclasses
 
 import numpy as np
 
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.frameworks.utilities import compare_arrays
 from hpcagent_bench.harness.judge_wire import RecordedAnswer, SubmitVerdict
 from hpcagent_bench.harness.scoring import Score, score_from_answer
@@ -59,7 +60,7 @@ def test_a_verdict_body_decodes_to_a_score_with_no_invented_numbers() -> None:
 
 
 def test_a_full_body_still_decodes_to_the_whole_grade() -> None:
-    full = grade_answer(WRONG, "k", "c", "S", "host", RecordedAnswer(skipped="off"), "r")
+    full = grade_answer(WRONG, "k", Language.C, Preset.S, Residency.HOST, RecordedAnswer(skipped="off"), "r")
     assert score_from_answer(full) == WRONG
 
 
