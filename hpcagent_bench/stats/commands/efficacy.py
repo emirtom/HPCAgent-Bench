@@ -29,9 +29,10 @@ import numpy as np
 import pandas as pd
 
 from hpcagent_bench import packets, paths, studies, study_tags
-from hpcagent_bench.stats import cost, population, score_rule, significance
+from hpcagent_bench.stats import choices, cost, population, score_rule, significance
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
+from hpcagent_bench.stats.figures import marks
 
 __all__ = [
     "HARNESS_INTERVENTION",
@@ -776,13 +777,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--table", type=pathlib.Path, default=None, help="stats table (default: the figure's path with .csv)"
     )
-    parser.add_argument(
-        "--mode",
-        choices=("absolute", "relative"),
-        default="absolute",
-        help="absolute: each setup against the experiment baseline, the control hollow beside it; relative: each "
-        "LLM's no-packet control is its 1x, the treated mark its change, the control's own level in a baseline band",
-    )
+    choices.add_argument(
+        parser, "--mode", marks.Mode, marks.Mode.ABSOLUTE,
+        "absolute: each setup against the experiment baseline, the control hollow beside it; relative: each LLM's "
+        "no-packet control is its 1x, the treated mark its change, the control's own level in a baseline band",
+    )  # fmt: skip
+    choices.add_argument(
+        parser, "--mark", marks.Mark, marks.Mark.SCATTER,
+        "scatter: a marker at each estimate; bar: a bar to each estimate; both with the same 95%% interval",
+    )  # fmt: skip
     cost.add_arguments(parser)
     return parser
 
@@ -801,7 +804,9 @@ def figure_config(args: argparse.Namespace, row_width: float | None) -> efficacy
     """The figure's config from the command line. A ``--row-width`` is a promise to drop the figure
     in at scale 1.0, so it is drawn at its printed size under the two-column type convention."""
     config = efficacy_figures.PAPER_CONFIG if row_width is not None else efficacy_figures.DEFAULT_CONFIG
-    return dataclasses.replace(config, mark_pending=bool(args.mark_pending) or config.mark_pending, mode=args.mode)
+    return dataclasses.replace(
+        config, mark_pending=bool(args.mark_pending) or config.mark_pending, mode=args.mode, mark=args.mark
+    )
 
 
 def comparison_panel(

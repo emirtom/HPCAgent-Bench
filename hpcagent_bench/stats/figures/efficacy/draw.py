@@ -15,11 +15,11 @@ from matplotlib.lines import Line2D
 from matplotlib.text import Annotation
 from matplotlib.ticker import FuncFormatter, LogLocator, MultipleLocator
 from matplotlib.transforms import blended_transform_factory
-from matplotlib.typing import LineStyleType
 
 from hpcagent_bench import packets, study_tags
 from hpcagent_bench.stats import cost as cost_models
 from hpcagent_bench.stats import palette, population, style
+from hpcagent_bench.stats.figures.marks import Estimate, IntervalStyle, Mark, Mode, draw_estimate
 from hpcagent_bench.stats.figures.efficacy.layout import (
     BASELINE_BAND_FRACTION,
     BASELINE_BAND_TYPE,
@@ -128,7 +128,6 @@ __all__ = [
     "draw_column_names",
     "draw_difference_arrow",
     "draw_grid_rows",
-    "draw_interval",
     "draw_measure_marks",
     "draw_measure_row",
     "draw_panel_letter",
@@ -225,7 +224,7 @@ def control_legend_mark(
     the absence of a packet. The swatch is the hollow :data:`CONTROL_MARKER` every control wears.
     """
     name = f"Baseline ({control_name or packets.control_label(list(control_over))})"
-    if config.mode == "relative":
+    if config.mode is Mode.RELATIVE:
         # The control is the 1x line and, on the solved row, a dash: its key swatch is the dash.
         return Line2D(
             [], [], marker="_", linestyle="none", color=palette.control_color(), markeredgewidth=2.0,
@@ -456,22 +455,6 @@ def draw_difference_arrow(
     )  # fmt: skip
 
 
-def draw_interval(
-    ax: Axes, x: float, low: float, high: float, bounds: tuple[float, float], colour: str, linestyle: LineStyleType,
-    config: FigureConfig,
-) -> tuple[float, float]:  # fmt: skip
-    """One setup's interval as a vertical bar cut to ``bounds``, with an arrowhead in the setup's colour
-    at each cut end; returns the ends drawn."""
-    bottom, top = max(low, bounds[0]), min(high, bounds[1])
-    ax.vlines(x, bottom, top, color=colour, linewidth=config.interval_width, alpha=0.75, linestyles=linestyle,
-              zorder=style.CONNECTOR_Z)  # fmt: skip
-    for cut, end, marker in ((low < bounds[0], bottom, "v"), (high > bounds[1], top, "^")):
-        if cut:
-            ax.plot([x], [end], marker=marker, markersize=config.interval_cap_pt * 1.6, color=colour,
-                    linestyle="none", clip_on=False, zorder=style.CONNECTOR_Z)  # fmt: skip
-    return bottom, top
-
-
 def few_kernel_marks(rows: Sequence[SetupRow], config: FigureConfig) -> bool:
     """Whether any drawn speedup or cost mark has too few kernels for its interval."""
     return any(
@@ -544,7 +527,7 @@ def draw_measure_row(
     the packet's effect, in the measure's own units, against a reference a reader already knows
     (1x over the experiment baseline on the speedup row).
     """
-    relative = config.mode == "relative"
+    relative = config.mode is Mode.RELATIVE
     # The token row is a count in absolute mode; in relative mode it is a change, on the speedup's own log2 axis.
     count = measure == "cost" and not relative
     draw_pending(ax, rows, config)
@@ -580,7 +563,7 @@ def setup_marks(
     mark, centred."""
     if row.comparator:
         return ((row.treated, True, 0.0, row.shape, row.colour),)
-    if config.mode == "relative":
+    if config.mode is Mode.RELATIVE:
         # The control IS the 1x line: only the change is a mark.
         return ((row.treated, True, 0.0, row.shape or shape, row.colour),)
     return (
@@ -593,20 +576,25 @@ def draw_setup(
     ax: Axes, x: float, point: SetupPoint, measure: str, bounds: tuple[float, float], mark: tuple[bool, Marker, str],
     config: FigureConfig,
 ) -> tuple[list[float], float]:  # fmt: skip
-    """One setup's mark (``mark`` = filled, shape, colour) and, over enough kernels, its interval.
-    Returns the values the axis has to hold and the interval's drawn top (NaN when none is drawn)."""
+    """One setup's estimate (``mark`` = filled, shape, colour) drawn as ``config.mark`` and, over enough kernels,
+    its interval. Returns the values the axis has to hold and the interval's drawn top (NaN when none is drawn)."""
     filled, shape, colour = mark
     value, low, high = measure_value(point, measure)
     if interval_kernels(point, measure) < config.min_interval_kernels:
         low, high = math.nan, math.nan
-    top = math.nan
-    if np.isfinite(low) and np.isfinite(high):
-        low, high = draw_interval(
-            ax, x, low, high, bounds, colour, config.cost_linestyle if measure == "cost" else "-", config
-        )
-        top = high
-    style.point_mark(ax, x, value, colour, shape, filled, size=config.mark_size)
-    return [v for v in (value, low, high) if math.isfinite(v)], top
+    line = IntervalStyle(config.interval_width, config.cost_linestyle if measure == "cost" else "-",
+                         config.interval_cap_pt)  # fmt: skip
+    # A bar stands on the row's reference: 1x (log2 0) on a ratio row, the interval floor on a token count row.
+    count = measure == "cost" and config.mode is Mode.ABSOLUTE
+    base = bounds[0] if count and math.isfinite(bounds[0]) else 0.0
+    low, high = draw_estimate(
+        ax, Estimate(x, value, low, high), palette.Look(colour, shape), filled, config.mark, line, bounds=bounds,
+        size=config.mark_size, width=config.bar_width, base=base,
+    )  # fmt: skip
+    held = [v for v in (value, low, high) if math.isfinite(v)]
+    if config.mark is Mark.BAR and count and math.isfinite(value):
+        held.append(base)
+    return held, high
 
 
 def draw_verdict(ax: Axes, x: float, value: float, measure: str, config: FigureConfig) -> None:
@@ -632,7 +620,7 @@ def draw_measure_marks(
     """Every category's two setups, the faint link between them, its arrow and its star; returns the
     values the Y axis has to hold."""
     span: list[float] = []
-    relative = config.mode == "relative"
+    relative = config.mode is Mode.RELATIVE
     bounds = interval_bounds(
         [measure_value(point, measure)[0] for row in rows for point in (row.control, row.treated)],
         measure == "cost" and not relative, config,
@@ -774,7 +762,7 @@ def draw_success_row(
                 ax, x + dodge, success_rate(point.solved, point.served), colour, mark, filled,
                 size=config.mark_size, clip=False,
             )  # fmt: skip
-        relative = config.mode == "relative"
+        relative = config.mode is Mode.RELATIVE
         if relative and not row.comparator and row.control.served:
             # The control's own rate: a short dash in its lighter shade under the change mark, not a second mark.
             ax.hlines(
@@ -889,7 +877,7 @@ def figure_setup_dots(
     """
     import matplotlib.pyplot as plt
 
-    rows = relative_rows(frame, over, card) if config.mode == "relative" else setup_rows(frame, over, card)
+    rows = relative_rows(frame, over, card) if config.mode is Mode.RELATIVE else setup_rows(frame, over, card)
     if not rows:
         raise ValueError("no (model, leg) pair draws a point")
     texts = {**MEASURE_LABELS, **mode_labels(config), **(labels or {})}
@@ -1115,7 +1103,7 @@ def figure_dot_row(
         card, config.mode,
     )  # fmt: skip
     # A comparator (a compiler) has no no-packet control to be relative to: relative mode draws LLM pairs only.
-    columns = with_comparators(columns, comparators) if config.mode == "absolute" else columns
+    columns = with_comparators(columns, comparators) if config.mode is Mode.ABSOLUTE else columns
     texts = {**MEASURE_LABELS, "speedup": speedup_row_label(over), **mode_labels(config), **(labels or {})}
     rows_config = measure_row_config(config, row_height_in)
     title_band = text_band(config.type_.title_pt, 2)

@@ -14,7 +14,7 @@ import sys
 import pandas as pd
 
 from hpcagent_bench import paths, studies
-from hpcagent_bench.stats import population
+from hpcagent_bench.stats import choices, population
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import scaling
 
@@ -60,13 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
         default="weak",
         help="which scaling law the per-kernel small multiples draw (default: weak)",
     )
-    parser.add_argument(
-        "--quantity",
-        type=scaling.Quantity,
-        choices=tuple(scaling.Quantity),
-        default=scaling.Quantity.EFFICIENCY,
-        help="what the per-kernel small multiples put on Y (default: efficiency)",
-    )
+    choices.add_argument(
+        parser, "--quantity", scaling.Quantity, scaling.Quantity.EFFICIENCY,
+        "what the per-kernel small multiples put on Y (default: efficiency)",
+    )  # fmt: skip
     parser.add_argument(
         "--width",
         type=float,

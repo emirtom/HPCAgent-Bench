@@ -226,7 +226,7 @@ def canon_kernel_row(
     notes = [note for note in (pending_note(pending), fallback_note(substituted, baseline_fallback)) if note != "none"]
     return Row(
         column, canon_label(column), ratios, numerator_ms, denominator_ms, "; ".join(notes) or "none",
-        palette.framework_color(column), palette.marker(column), delivered=delivered, pending=pending,
+        palette.framework_color(column), palette.framework_marker(column), delivered=delivered, pending=pending,
     )  # fmt: skip
 
 

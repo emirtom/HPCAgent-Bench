@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from hpcagent_bench.stats import summary
-from hpcagent_bench.stats.figures import efficacy
+from hpcagent_bench.stats.figures import efficacy, marks
 from tests import test_plot_score_change as fixtures
 
 
@@ -48,7 +48,7 @@ def test_the_band_prints_tokens_in_thousands_or_millions(tokens: float, text: st
 def test_relative_mode_draws_one_mark_per_column_and_the_baseline_band(tmp_path: pathlib.Path) -> None:
     frame = pair(2.0, 4.0, 100e3, 50e3)
     stats = fixtures.plot.points(frame[~frame.skills], frame[frame.skills])
-    config = dataclasses.replace(efficacy.DEFAULT_CONFIG, mode="relative")
+    config = dataclasses.replace(efficacy.DEFAULT_CONFIG, mode=marks.Mode.RELATIVE)
     out = efficacy.figure_dot_row([("Blind", "no-score", stats, frame)], tmp_path / "dots.pdf", config=config)
     assert pathlib.Path(out).with_suffix(".pdf").exists()
 

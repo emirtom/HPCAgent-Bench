@@ -39,6 +39,10 @@ Every figure in the HPCAgent-Bench papers follows these rules. A figure that bre
      inks and statistic inks, never a model or treatment colour. No figure carries a hex literal.
    - Standalone optimizers (DaCe, CPF as a compiler, Pluto, PPCG) keep `palette.marker` shapes in
      the compiler figures, where the optimizer is the entity.
+   - Any other registry entry (a framework column above all) takes its colour and marker from its registry slot
+     (`palette.look`): colour = `hues()[slot % H]`, marker = `markers()[(slot // H) % M]`. An entry registered at
+     runtime or by a plugin plots with no edit to the plot code; an unregistered name takes a stable CRC slot,
+     never a shared grey.
 5. **Efficacy figure** (`hpcagent-bench plot efficacy`, dot rows only). One row of panels, each an
    intervention against its control; rows: speedup (log2, over each kernel's own baseline), solved
    rate (%, no interval: a census), billed token cost. The x axis groups by delivery (C | Fortran,
@@ -47,7 +51,8 @@ Every figure in the HPCAgent-Bench papers follows these rules. A figure that bre
    language's tick in their own shapes; a harness panel (`intervention=harness`) gives each harness
    its own group and shape. Speedup is a geometric mean and token cost an arithmetic mean over kernels,
    each with a 95% bootstrap interval; `--mode relative` draws each as the change over the LLM's own
-   no-packet baseline. Intervals from `summary.MIN_PAIRS_FOR_INTERVAL` (6) kernels. Compiler/framework comparators (`comparators=`) sit after the
+   no-packet baseline. `--mark scatter` (default) draws each estimate as a marker, `--mark bar` as a bar from 1x
+   (from the axis floor on the absolute token row); the interval is the same under both (`figures.marks`). Intervals from `summary.MIN_PAIRS_FOR_INTERVAL` (6) kernels. Compiler/framework comparators (`comparators=`) sit after the
    models of their delivery on the speedup and solved rows only, in `palette.framework_color` and
    an optimizer shape no packet wears (`figures.efficacy.comparator_shapes`). The paper key has four
    columns (`PAPER_CONFIG.legend_ncol`, compact spacing).
