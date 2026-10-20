@@ -1,24 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A kernel renders through :mod:`hpcagent_bench.cpf_bridge` into a drop-in that BUILDS and runs.
-
-The bridge's claim is end-to-end -- numpy reference in, one self-contained C/C++ file out, same
-numbers -- and each link is checked here rather than only the last one, because the intermediate
-failures all still produce a file:
-
-* the entry is the canonical native symbol and its signature is the prompt's required signature
-  (array pointers by name, scalars and size symbols by name, then the workspace pair);
-* the binding is the native one;
-* the unit compiles with a bare compiler in an empty directory, with warnings on -- no ``-I``, so a
-  leaked runtime header fails here instead of at link time in some later consumer;
-* it carries an OpenMP region, because a correct but entirely SEQUENTIAL rendering is the failure
-  mode this whole path exists to avoid and numbers alone would not catch it;
-* the numbers the harness's own caller reads back match the numpy reference.
-
-``arc_distance`` is the kernel because it is small enough to render in seconds and still exercises
-the parts that matter: a symbolic extent, a real maths lowering (``atan2``/``sqrt``), and an output
-buffer written through a map.
-"""
+"""A kernel renders through :mod:`hpcagent_bench.cpf_bridge` into a drop-in (``arc_distance``): canonical
+symbol and signature, native binding, a bare warning-clean compile, an OpenMP region, and numpy-equal numbers."""
 
 import importlib
 import importlib.util
@@ -34,10 +17,15 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical, languages, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec, ConfigKnob
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.bindings.stubs import gen_call_stub
+from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.cpf_cache import RenderVerdict
+from hpcagent_bench.cpf_cache import Role
+from hpcagent_bench.cpf_cache import Target
 from tests.reference_outputs import compiled_outputs
 
 if TYPE_CHECKING:
@@ -70,7 +58,7 @@ def build_dropin(source: pathlib.Path, work: pathlib.Path, language: str = "c") 
     ``-Wextra`` reports the contract as a defect. Every other diagnostic is still an error.
     """
     library = work / f"dropin_{language}.so"
-    std = languages.std_flag("cpp" if language == "c++" else "c")
+    std = languages.std_flag(Language.CPP if language == "c++" else Language.C)
     cmd = [DRIVERS[language], *BUILD_FLAGS, "-Wno-unused-parameter", std, str(source), "-lm", "-o", str(library)]
     done = subprocess.run(cmd, cwd=work, capture_output=True, text=True, check=False)
     assert done.returncode == 0, f"{DRIVERS[language]} rejected the drop-in {source.name}:\n{done.stderr}"
@@ -87,7 +75,7 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     passes the reserved pair, here with scratch REQUESTED so the pointer is non-NULL -- reads back the compiled
     reference's numbers through it."""
     record = cpf_bridge.render_kernel(spec, tmp_path, language=language)
-    assert record.verdict == "ok", f"{KERNEL} did not render: {record}"
+    assert record.verdict is RenderVerdict.OK, f"{KERNEL} did not render: {record}"
     native = binding_from_spec(spec)
     assert record.entry == native.symbol
 
@@ -95,7 +83,7 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     assert source.name == f"{KERNEL}_fp64_cpf.{cpf_bridge.LANGUAGE_EXT[language]}"
     assert json.loads(pathlib.Path(record.binding).read_text()) == native.document().model_dump(exclude_unset=True)
     code = source.read_text()
-    stub = gen_call_stub(native, "cpp" if language == "c++" else "c")
+    stub = gen_call_stub(native, Language.CPP if language == "c++" else Language.C)
     assert entry_prototype(code, native.symbol) == entry_prototype(stub, native.symbol)
     assert "#pragma omp parallel for" in code, "a sequential rendering is the failure this path exists to avoid"
 
@@ -106,7 +94,7 @@ def test_a_kernel_renders_to_a_dropin_that_takes_the_stub_signature_and_reproduc
     _kind, expected = compiled_outputs(
         KERNEL, {name: (value.copy() if isinstance(value, np.ndarray) else value) for name, value in data.items()}
     )
-    (outs,), _, _, _ = _call_native(library, native, data, "c", workspace_bytes="8*N")
+    (outs,), _, _, _ = _call_native(library, native, data, Language.C, workspace_bytes="8*N")
     assert outs, "the kernel declared no outputs"
     for name, got in outs.items():
         np.testing.assert_allclose(got, expected[name], rtol=1e-12, atol=0.0)
@@ -134,7 +122,7 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     assert first_record.results is not None, first_record
     assert first_record.canonical is not None, first_record
     first = first_record.results["c"]
-    assert (first.verdict, first.cached) == ("ok", False), first
+    assert (first.verdict, first.cached) == (RenderVerdict.OK, False), first
 
     second_record = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
     assert second_record.results is not None, second_record
@@ -143,9 +131,9 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     assert (second.key, second.cached) == (first.key, True)
 
     view = tmp_path / "view"
-    cpf_cache.open_view(view, cache, "cpu", "test-commit")
-    cpf_cache.record(view, spec.short_name, "c", "fp64", "proofs", second.model_dump())
-    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", "proofs")
+    cpf_cache.open_view(view, cache, Target.CPU, "test-commit")
+    cpf_cache.record(view, spec.short_name, "c", "fp64", HintDetail.PROOFS, second.model_dump())
+    form = cpf_cache.resolve(view, spec.short_name, "c", "fp64", HintDetail.PROOFS)
     native = binding_from_spec(spec)
     assert form.entry == native.symbol
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
@@ -160,8 +148,8 @@ def prerender_kwargs() -> dict[str, object]:
     assert found.origin is not None
     return {
         "precision": "",
-        "target": "cpu",
-        "hints": "proofs",
+        "target": Target.CPU,
+        "hints": HintDetail.PROOFS,
         "dace_package_root": pathlib.Path(found.origin).resolve().parents[1],
         "dace_commit": "test-commit",
     }
@@ -178,7 +166,7 @@ def test_a_second_language_renders_from_the_cached_canonical_sdfg(spec: BenchSpe
     second = cpf_bridge.prerender_kernel(spec, cache, languages=["c++"], **prerender_kwargs())
     assert second.canonical == cpf_bridge.CanonicalOutcome(key=first.canonical.key, cached=True), second
     assert second.results is not None, second
-    assert second.results["c++"].verdict == "ok", second
+    assert second.results["c++"].verdict is RenderVerdict.OK, second
 
 
 @pytest.mark.integration
@@ -193,14 +181,14 @@ def test_a_form_rendered_again_from_the_stored_sdfg_is_the_first_render_byte_for
     first = rendered.results["c"]
     entry = cpf_cache.entry_path(cache, str(first.key))
     manifest = cpf_cache.EntryManifest.model_validate_json((entry / cpf_cache.MANIFEST_NAME).read_bytes())
-    text = (entry / manifest.artefacts["source"].name).read_text()
+    text = (entry / manifest.artefacts[Role.SOURCE].name).read_text()
     shutil.rmtree(entry)
     again = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
     assert again.canonical is not None, again
     assert again.results is not None, again
     assert again.canonical.cached is True, again
     assert again.results["c"].key == first.key
-    assert (entry / manifest.artefacts["source"].name).read_text() == text
+    assert (entry / manifest.artefacts[Role.SOURCE].name).read_text() == text
 
 
 def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
@@ -228,7 +216,7 @@ def test_the_target_reaches_the_child_and_the_device_is_not_hidden(
     monkeypatch.setattr(cpf_bridge.subprocess, "run", fake_run)
     spec = types.SimpleNamespace(short_name="k")
 
-    cpf_bridge.render_kernel(spec, tmp_path, language="c++", target="gpu")
+    cpf_bridge.render_kernel(spec, tmp_path, language="c++", target=Target.GPU)
     assert "--target" in seen["cmd"]
     assert "gpu" in seen["cmd"]
     assert seen["env"].get("CUDA_VISIBLE_DEVICES", "unset") != ""
@@ -376,7 +364,7 @@ def parsed_program(source: str, entry: str, work: pathlib.Path) -> "SDFG":
 def canonical_program(source: str, entry: str, work: pathlib.Path) -> "SDFG":
     """``entry`` from ``source``, parsed and canonicalized for the cpu."""
     sdfg = parsed_program(source, entry, work)
-    cpf_canonical.canonicalize_for(sdfg, "cpu")
+    cpf_canonical.canonicalize_for(sdfg, Target.CPU)
     return sdfg
 
 
@@ -395,8 +383,8 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
         canonical_program(RETURNING_PROGRAM_SOURCE, "returns_output", tmp_path),
         "c",
         "fp64",
-        "cpu",
-        "proofs",
+        Target.CPU,
+        HintDetail.PROOFS,
     )
     assert form.entry == native.symbol
     assert declared_parameters(form.code, form.entry) == abi
@@ -407,7 +395,7 @@ def test_a_dropin_of_a_kernel_that_returns_its_output_takes_the_abi_and_runs(tmp
     library = build_dropin(source, tmp_path)
     a = np.random.default_rng(0).random(EXTENT)
     (outs,), _, _, _ = _call_native(
-        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, "c", workspace_bytes="8*N"
+        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, Language.C, workspace_bytes="8*N"
     )
     np.testing.assert_allclose(outs["b"], 2.0 * a, rtol=1e-12, atol=0.0)
 
@@ -424,8 +412,8 @@ def test_a_dropin_refuses_a_returned_value_no_argument_holds(tmp_path: pathlib.P
             canonical_program(RETURNING_PROGRAM_SOURCE, "returns_computed", tmp_path),
             "c",
             "fp64",
-            "cpu",
-            "proofs",
+            Target.CPU,
+            HintDetail.PROOFS,
         )
 
 
@@ -582,8 +570,8 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
         canonical_program(COUNTING_PROGRAM_SOURCE, "returns_count", tmp_path),
         "c",
         "fp64",
-        "cpu",
-        "proofs",
+        Target.CPU,
+        HintDetail.PROOFS,
     )
     assert declared_parameters(form.code, form.entry) == abi
 
@@ -592,7 +580,7 @@ def test_a_dropin_of_a_kernel_that_returns_an_ungraded_count_takes_the_abi_and_r
     library = build_dropin(source, tmp_path)
     a = np.random.default_rng(0).random(EXTENT)
     (outs,), _, _, _ = _call_native(
-        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, "c", workspace_bytes="8*N"
+        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, Language.C, workspace_bytes="8*N"
     )
     np.testing.assert_allclose(outs["b"], 2.0 * a, rtol=1e-12, atol=0.0)
 
@@ -680,7 +668,7 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     abi = [a.name for a in native.args] + ["workspace", "workspace_size"]
     canonical = canonical_program(PINNED_PROGRAM_SOURCE, entry, tmp_path)
     assert ("scalar" if "knob" in canonical.arrays else "symbol") == canonical_kind, "the fixture lost its case"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", Target.CPU, HintDetail.PROOFS)
     assert declared_parameters(form.code, form.entry) == abi
     assert json.loads(form.binding) == native.document().model_dump(exclude_unset=True)
 
@@ -690,7 +678,9 @@ def test_a_dropin_binds_a_pinned_config_knob_and_takes_the_abi(
     a = np.random.default_rng(0).random(EXTENT)
     expected = np.zeros(EXTENT)
     reference(a, expected, PINNED_KNOB)
-    outs = _call_native(library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, "c", workspace_bytes="8*N")[0][0]
+    outs = _call_native(
+        library, native, {"a": a, "b": np.zeros(EXTENT), "N": EXTENT}, Language.C, workspace_bytes="8*N"
+    )[0][0]
     np.testing.assert_allclose(outs["b"], expected, rtol=1e-12, atol=0.0)
 
 
@@ -726,7 +716,7 @@ def test_a_dropin_takes_a_rebound_scalar_parameter_by_value(tmp_path: pathlib.Pa
     native = binding_from_spec(spec)
     canonical = canonical_program(REBINDING_PROGRAM_SOURCE, "doubles_its_factor", tmp_path)
     assert "k" in canonical.arrays, "the fixture lost its written scalar"
-    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", "cpu", "proofs")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, canonical, "c", "fp64", Target.CPU, HintDetail.PROOFS)
     assert {arg["name"]: arg["kind"] for arg in json.loads(form.binding)["args"]}["k"] == "scalar"
 
     source = tmp_path / form.name
@@ -734,7 +724,7 @@ def test_a_dropin_takes_a_rebound_scalar_parameter_by_value(tmp_path: pathlib.Pa
     library = build_dropin(source, tmp_path)
     a = np.random.default_rng(0).random(EXTENT)
     inputs = {"a": a, "b": np.zeros(EXTENT), "N": EXTENT, "k": 1.5}
-    outs = _call_native(library, native, inputs, "c", workspace_bytes="8*N")[0][0]
+    outs = _call_native(library, native, inputs, Language.C, workspace_bytes="8*N")[0][0]
     np.testing.assert_allclose(outs["b"], 3.0 * a, rtol=1e-12, atol=0.0)
 
 
@@ -771,9 +761,9 @@ def test_a_dropin_of_a_renamed_argument_declares_the_manifest_name_in_abi_order(
     impl = cpf_canonical.emit_program(spec)
     assert cpf_bridge.generated_renames(impl) == {"field": "__field"}
     sdfg = cpf_canonical.parse_program(spec, impl, "")
-    cpf_canonical.canonicalize_for(sdfg, "cpu")
+    cpf_canonical.canonicalize_for(sdfg, Target.CPU)
 
-    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", "cpu", "proofs")
+    form = cpf_bridge.render_canonical(spec, spec.short_name, sdfg, "c", "", Target.CPU, HintDetail.PROOFS)
 
     want = [arg.name for arg in binding_from_spec(spec).args] + [
         cpf_bridge.WORKSPACE_NAME,

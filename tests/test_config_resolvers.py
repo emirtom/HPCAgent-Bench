@@ -27,7 +27,7 @@ def test_the_timed_input_count_follows_the_credited_protocol_and_a_grading_scope
 
 def test_service_from_config_routes_baseline_through_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
     """from_config reads the shared measurement_baseline resolver, not a key of its own."""
-    monkeypatch.setattr(service, "measurement_baseline", lambda: "c-autopar")
+    monkeypatch.setattr(service, "measurement_baseline", lambda: Baseline.C_AUTOPAR)
     assert service.from_config().baseline is Baseline.C_AUTOPAR
 
 

@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The image recipes and the tooling around them install Python only through uv sync from uv.lock.
-
-uv.lock decides every version. An image installs only what it builds from source (the image-python groups); every
-other locked package is installed when a job starts (containers/images/lib/launch_venv.sh). Static: the checks read files.
-"""
+"""Image recipes install Python only through uv sync from uv.lock (source-built groups in the image, the rest at
+job start). Static."""
 
 import pathlib
 import re
@@ -19,7 +16,13 @@ IMAGES: pathlib.Path = ROOT / "containers" / "images"
 LIB: pathlib.Path = ROOT / "containers" / "images" / "lib"
 JUDGE_AGENT: tuple[str, ...] = ("judge-agent-amd", "judge-agent-cpu", "judge-agent-cuda")
 EXTRA_OF: dict[str, str] = {"judge-agent-amd": "amdgpu", "judge-agent-cpu": "cpu", "judge-agent-cuda": "nvgpu"}
-HARNESS_GROUPS: tuple[str, ...] = ("harness-miniswe", "harness-openhands")
+HARNESS_GROUPS: tuple[str, ...] = (
+    "harness-anthropic",
+    "harness-miniswe",
+    "harness-openai",
+    "harness-openhands",
+    "harness-optimas",
+)
 PIP_INTERFACE: re.Pattern[str] = re.compile(
     r"uv pip|pip install|image-pins|UV_CONSTRAINT|PIP_[A-Z]|--break-system-packages|--no-sources|--excludes"
 )

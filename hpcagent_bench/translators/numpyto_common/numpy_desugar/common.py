@@ -93,7 +93,7 @@ def replace_call_with_name(root: ast.AST, target: ast.Call, name: str) -> None:
     Swap().visit(root)
 
 
-def as_stmts(res) -> list[ast.stmt]:
+def as_stmts(res: ast.stmt | list[ast.stmt]) -> list[ast.stmt]:
     """A NodeTransformer result (one node, a list, or a dropped ``None``) as a list."""
     if res is None:
         return []
@@ -113,7 +113,9 @@ def eigh_alias_names(tree: ast.AST) -> set:
     return out
 
 
-def eigh_call_kind(node: ast.expr, alias_names: set):
+def eigh_call_kind(
+    node: ast.expr, alias_names: set
+) -> tuple[str, ast.expr, ast.expr | None, dict[str | None, ast.expr]] | None:
     """``eigh(a[, b], ...)`` / ``eigvalsh(a, ...)`` -> ``(kind, a_node, b_node_or_None, kwargs)``, else None.
 
     Matches ``np.linalg``, ``scipy.linalg`` and an imported ``eigh`` alias. ``kind`` is ``"eigh"`` (an
@@ -144,7 +146,9 @@ def eigh_call_kind(node: ast.expr, alias_names: set):
     return kind, a, b, kw
 
 
-def eigh_call_ab(node: ast.expr, alias_names: set):
+def eigh_call_ab(
+    node: ast.expr, alias_names: set
+) -> tuple[ast.expr, ast.expr | None, dict[str | None, ast.expr]] | None:
     """:func:`eigh_call_kind` without the kind: ``(a_node, b_node_or_None, kwargs)``, else None."""
     hit = eigh_call_kind(node, alias_names)
     return None if hit is None else hit[1:]

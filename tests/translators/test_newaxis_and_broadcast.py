@@ -22,7 +22,7 @@ def expr_(src: str) -> ast.expr:
     return ast.parse(src, mode="eval").body
 
 
-def unparse_ext(ext) -> tuple:
+def unparse_ext(ext: tuple[ast.Constant | ast.Name, ...]) -> tuple:
     return tuple(ast.unparse(e) for e in ext)
 
 

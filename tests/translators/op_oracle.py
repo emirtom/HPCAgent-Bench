@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone numerical oracle for ad-hoc numpy kernels (no BenchSpec).
-
-The repo-level ``hpcagent_bench/numerical_oracle.py`` validates *registered* benchmarks
-(it reads ``hpcagent_bench/benchmarks/``). The contraction / indexing / misc ops added
-in this batch need a numerical check on tiny throwaway kernels that are NOT
-benchmarks, so this harness emits + compiles + runs an inline numpy function for
-every backend and compares against numpy -- reusing the repo oracle's compile
-flags and ctypes invoke so the comparison logic stays in one place.
-
-``run_op(src, func, inputs, syms=...)`` returns ``{backend: "ok"|"skip:..."|
-"FAIL:..."}`` exactly like ``numerical_oracle.run_kernel``.
-"""
+"""Numerical oracle for ad-hoc numpy kernels (no BenchSpec): ``run_op(src, func, inputs, syms=...)`` emits,
+compiles and runs every backend against numpy, returning ``{backend: "ok"|"skip:..."|"FAIL:..."}``."""
 
 import importlib.util
 import json
@@ -29,6 +19,7 @@ import numpy as np
 import pytest
 
 # Reuse the repo oracle's compile flags + ctypes invoke + comparison.
+from hpcagent_bench import modules
 from hpcagent_bench import numerical_oracle as no
 from hpcagent_bench.frameworks.forked import RunResult, run_forked
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
@@ -320,7 +311,7 @@ def run_op(
                     # runs it in a child and reports the crash as a ``FAIL`` string.
                     # frozenset(): these kernels are ad-hoc numpy source with no manifest, so no
                     # buffer is tagged index_array and nothing is rebased at the seam.
-                    status[b] = no._invoke_isolated(
+                    status[b] = no.invoke_isolated(
                         "cpp" if b == no.ISOPAR else b,
                         binding,
                         so,
@@ -417,7 +408,7 @@ def numba_leg_child(
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = m
         spec.loader.exec_module(m)
-        fn = vars(m)[func]  # already @nb.njit-decorated by emit_numba
+        fn = modules.member(m, func)  # already @nb.njit-decorated by emit_numba
         ins = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in inputs.items()}
         if capture_return:
             # Return-style kernel: emit_numba keeps the body verbatim (functional),
@@ -477,7 +468,7 @@ def run_pythran(
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = m
         spec.loader.exec_module(m)
-        fn = vars(m)[func]
+        fn = modules.member(m, func)
     except Exception as exc:  # noqa: BLE001
         return f"skip:unsupported:import:{type(exc).__name__}"
     ins = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in inputs.items()}
@@ -773,7 +764,7 @@ def run_return_op(
                     continue
                 try:
                     # frozenset(): ad-hoc numpy source, no manifest, so no buffer is index_array-tagged.
-                    status[b] = no._invoke_isolated(
+                    status[b] = no.invoke_isolated(
                         b, binding, so, by, syms, expected, out_names, rtol, atol, frozenset()
                     )
                 except Exception as exc:  # noqa: BLE001

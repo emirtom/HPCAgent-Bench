@@ -2,7 +2,7 @@
 
 import ast
 import copy
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_
@@ -46,10 +46,17 @@ class SliceToScalarRewriter(ast.NodeTransformer):
 
     __slots__ = ("_slice_iter_names", "array_shapes", "iter_vars", "lhs_dims", "lhs_name", "lhs_ranges")
 
-    def __init__(self, array_shapes, iter_vars, lhs_ranges, lhs_name, lhs_dims) -> None:
-        self.array_shapes = array_shapes
-        self.iter_vars = iter_vars
-        self.lhs_ranges = lhs_ranges
+    def __init__(
+        self,
+        array_shapes: Mapping[str, Sequence[str]],
+        iter_vars: Sequence[ast.Name | None],
+        lhs_ranges: Sequence[tuple[ast.expr | int, ...]],
+        lhs_name: str | None,
+        lhs_dims: Sequence[ast.expr],
+    ) -> None:
+        self.array_shapes: Mapping[Any, Any] = array_shapes
+        self.iter_vars: Sequence[Any] = iter_vars
+        self.lhs_ranges: Sequence[tuple[Any, ...]] = lhs_ranges
         self.lhs_name = lhs_name
         self.lhs_dims = lhs_dims
         # Iter vars for slice axes only, in order.
@@ -757,7 +764,7 @@ class SliceToScalarRewriter(ast.NodeTransformer):
         return bound
 
 
-def is_unit_extent(start: ast.expr, stop: ast.expr | None, axis_len: Any = None) -> bool:
+def is_unit_extent(start: ast.expr, stop: ast.expr | None, axis_len: object = None) -> bool:
     """Is this slice exactly one element long -- ``[0:1]``, the symbolic ``[k:k+1]``, or a full
     ``[:]`` over an axis the array itself declares as 1?
 

@@ -288,7 +288,7 @@ class ReshapeContiguousInline(ast.NodeTransformer):
         acont = numpy_attribute("ascontiguousarray")
         return ast.Call(func=acont, args=[x], keywords=[])
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if numpy_call_attr(node) == "reshape" and node.args and self.noncontig_(node.args[0]):
             node.args[0] = self.wrap(node.args[0])
@@ -297,7 +297,7 @@ class ReshapeContiguousInline(ast.NodeTransformer):
         return node
 
 
-def as_matmul(node: ast.expr):
+def as_matmul(node: ast.expr) -> tuple[ast.expr, ast.expr] | None:
     """``a @ b`` / ``np.matmul(a, b)`` / ``np.dot(a, b)`` -> ``(a, b)`` else None."""
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.MatMult):
         return node.left, node.right
@@ -306,7 +306,7 @@ def as_matmul(node: ast.expr):
     return None
 
 
-def as_reshape(node: ast.expr):
+def as_reshape(node: ast.expr) -> tuple[ast.expr, ast.expr] | None:
     """``np.reshape(x, shape)`` / ``x.reshape(shape)`` -> ``(x, shape_node)`` else None."""
     if isinstance(node, ast.Call) and numpy_call_attr(node) == "reshape" and len(node.args) >= 2:
         return node.args[0], node.args[1]
@@ -331,7 +331,7 @@ class ReshapeMatmulInline(RankedRewritePass):
 
     __slots__ = ()
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         if len(node.targets) != 1:
             return node

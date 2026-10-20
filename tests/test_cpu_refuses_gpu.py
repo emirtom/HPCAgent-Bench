@@ -1,23 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A CPU-track grade must REFUSE device work, not quietly fall back to the CPU when it fails.
-
-Measured on recorded data: a C submission on a CPU setup whose constructor ``dlopen``ed a prebuilt
-HIP object off shared scratch and routed the reduction through it, reporting 277x that the graded
-translation unit cannot produce -- and falling back to its own ``cpu_sum`` wherever the object was
-missing, which is why nobody noticed.
-
-Three layers, tested apart because they fail apart:
-
-* the child cannot REACH a GPU -- the seal covers the device nodes (the half a submission cannot
-  undo) and the visibility variables are emptied (the floor);
-* loading a GPU runtime anyway is DETECTED and SCORED -- the grade is a refusal worth exactly 1,
-  the row is suspect, and it names the runtime;
-* the REQUEST cannot ASK for device residency in the first place on a setup that never declared
-  one -- ``grading_residency`` derives device-vs-host purely from the request's own ``language``,
-  so nothing above this stopped a CPU-setup agent from POSTing ``language=hip`` and being handed a
-  device-timed grade under the CPU setup's own rows. ``gpu_language_refusal`` is that check.
-"""
+"""A CPU-track grade REFUSES device work: the child cannot reach a GPU, a loaded GPU runtime is detected and
+scored as a refusal, and a CPU setup cannot request a GPU language (``gpu_language_refusal``)."""
 
 import json
 import os
@@ -27,15 +11,18 @@ import subprocess
 import sys
 import urllib.error
 from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 from urllib.request import Request, urlopen
 
 import numpy as np
 import pytest
 
 from hpcagent_bench import config, languages, seal, spec
+from hpcagent_bench.api import InputMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
+from hpcagent_bench.config import SubmitFeedback
 from hpcagent_bench.harness import native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.api import InputMode
 from hpcagent_bench.harness.service import ServiceConfig, gpu_language_refusal, setup_language_refusal
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -232,7 +219,7 @@ def write_kernel(source: str, folder: pathlib.Path) -> str:
 def host_grade(kernel: str) -> native_call.CallProbes:
     """One CPU-track measurement of ``kernel`` through the real grading call; what its child saw."""
     _outs, _samples, usage, _extras, _timed = native_call._call_isolated(
-        kernel, BINDING, {"x": np.zeros(4)}, "python", device=False, timeout=60, py_meta=PY_META
+        kernel, BINDING, {"x": np.zeros(4)}, Language.PYTHON, device=False, timeout=60, py_meta=PY_META
     )
     return usage
 
@@ -309,7 +296,7 @@ def test_a_cpu_track_grading_child_cannot_open_a_device(tmp_path: pathlib.Path) 
         write_kernel(DEVICE_PROBE, tmp_path),
         BINDING,
         {"x": np.zeros(3)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60,
         py_meta=PY_META,
@@ -329,7 +316,7 @@ def test_a_host_grading_child_sees_no_visible_devices(tmp_path: pathlib.Path, mo
         write_kernel(source, tmp_path),
         BINDING,
         {"x": np.zeros(len(native_call.DEVICE_VISIBILITY_ENV))},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60,
         py_meta=PY_META,
@@ -429,7 +416,7 @@ def test_a_gpu_setups_host_grading_child_keeps_its_visible_devices(
         write_kernel(source, tmp_path),
         BINDING,
         {"x": np.zeros(len(native_call.DEVICE_VISIBILITY_ENV))},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60,
         py_meta=PY_META,
@@ -447,13 +434,13 @@ def test_a_smuggled_gpu_runtime_is_refused_with_credit_one_and_suspect(
     exactly 1, the row suspect, and the runtime named on the row so it explains itself."""
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(fake_runtime.parent))
     result = scoring.score(
-        Submission(language="c", source=SMUGGLING_SOURCE.format(library=str(fake_runtime))),
-        Task(KERNEL, "restricted", "c"),
-        preset="S",
+        Submission(language=Language.C, source=SMUGGLING_SOURCE.format(library=str(fake_runtime))),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
         datatype="float64",
         repeat=3,
         hidden=True,
-        baseline="auto",
+        baseline=None,
     )
     assert result.build_ok, result.detail
     assert result.correct, result.detail
@@ -471,13 +458,13 @@ def test_an_honest_host_grade_keeps_its_measured_credit(monkeypatch: pytest.Monk
     """The control for the test above: same kernel, same route, no runtime loaded -- nothing is
     refused, so a false positive here would cost every real submission its credit."""
     result = scoring.score(
-        Submission(language="c", source=HONEST_SOURCE),
-        Task(KERNEL, "restricted", "c"),
-        preset="S",
+        Submission(language=Language.C, source=HONEST_SOURCE),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
         datatype="float64",
         repeat=3,
         hidden=True,
-        baseline="auto",
+        baseline=None,
     )
     assert result.build_ok, result.detail
     assert result.correct, result.detail
@@ -486,14 +473,16 @@ def test_an_honest_host_grade_keeps_its_measured_credit(monkeypatch: pytest.Monk
     assert not any(cell.suspect for cell in result.cells)
 
 
-def test_the_score_route_never_answers_with_device_runtime(make_judge) -> None:
+def test_the_score_route_never_answers_with_device_runtime(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """``device_runtime`` reaches the DB (:mod:`hpcagent_bench.harness.recording`) and the internal
     ``Score`` a submitting process's own :meth:`~hpcagent_bench.harness.tools.JudgeClient` reads --
     it must never reach the ``/score`` WIRE payload, whose shape is frozen mid-experiment. Pins the
     whole outgoing key set, not just this one field, so a field silently added to ``Score`` fails
     this test rather than shipping to every agent unseen.
     """
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
@@ -511,16 +500,18 @@ def test_the_build_commands_are_recorded_never_answered_even_under_full_feedback
     """The judge records a grade's build commands itself (``grades.build_commands``), so /score has
     no reader to answer them to: under ``service.submit_feedback=full`` too, the agent gets the
     frozen keys and nothing else."""
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
-    with config.overridden("service.submit_feedback", "full"), urlopen(request, timeout=60) as reply:
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL), urlopen(request, timeout=60) as reply:
         payload = json.loads(reply.read())
     assert set(payload) == FROZEN_SCORE_ROUTE_KEYS
 
 
 def test_the_score_route_redacts_the_refusal_reason_too(
-    make_judge, fake_runtime: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+    fake_runtime: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Same rationale as the key redaction above, on the actual refusal PATH: telling a cheating
     agent it was caught, or by which library, is exactly the feedback it needs to iterate into an
@@ -528,7 +519,7 @@ def test_the_score_route_redacts_the_refusal_reason_too(
     ``detail`` must carry neither the word "refused" nor the runtime's name.
     """
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(fake_runtime.parent))
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     source = SMUGGLING_SOURCE.format(library=str(fake_runtime))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": source, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
@@ -586,25 +577,27 @@ def test_gpu_language_refusal_fires_only_for_a_gpu_language_on_a_declared_host_o
     declaration never even matters); a setup the judge was told nothing about -> not refused, the
     unrestricted behaviour this check must leave untouched."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
-    assert gpu_language_refusal("hip") is not None
-    assert gpu_language_refusal("cuda") is not None
-    assert gpu_language_refusal("c") is None  # not a GPU language: the setup's device never enters it
+    assert gpu_language_refusal(Language.HIP) is not None
+    assert gpu_language_refusal(Language.CUDA) is not None
+    assert gpu_language_refusal(Language.C) is None  # not a GPU language: the setup's device never enters it
 
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "gpu")
-    assert gpu_language_refusal("hip") is None
+    assert gpu_language_refusal(Language.HIP) is None
 
     monkeypatch.delenv("HPCAGENT_BENCH_RECORD_DEVICE", raising=False)
     monkeypatch.delenv("HPCAGENT_BENCH_RECORD_LANGUAGE", raising=False)
-    assert gpu_language_refusal("hip") is None, "an undeclared setup keeps its current, unrestricted behaviour"
+    assert gpu_language_refusal(Language.HIP) is None, "an undeclared setup keeps its current, unrestricted behaviour"
 
 
-def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(make_judge, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """End to end: the recorded exploit's OTHER shape -- no dlopen trick needed at all, just a
     ``language=hip`` claim on a CPU setup's own /score route -- is a clean 400, before the request
     ever reaches a build or a device slot (no hipcc is on this host; a 200 build failure would
     prove nothing about whether the residency check ran first)."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps(
         {
             "kernel": KERNEL,
@@ -624,11 +617,13 @@ def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(make_judge, monkeyp
     assert "host-only" in payload["error"]
 
 
-def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(make_judge, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The control for the test above: the SAME declared-host-only setup, a host language -- must
     reach scoring exactly as it always has, never a 400 from the new check."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
+    _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=60) as reply:
@@ -642,14 +637,14 @@ def test_an_enforced_input_mode_pins_the_setups_own_language(monkeypatch: pytest
     be timed on the host and recorded as a HIP answer). ``any`` / ``library`` and a setup that declares no
     language this mode accepts keep the free choice."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "hip")
-    assert setup_language_refusal("c", InputMode.SOURCE) is not None
-    assert setup_language_refusal("hip", InputMode.SOURCE) is None
-    assert setup_language_refusal("c", InputMode.ANY) is None
+    assert setup_language_refusal(Language.C, InputMode.SOURCE) is not None
+    assert setup_language_refusal(Language.HIP, InputMode.SOURCE) is None
+    assert setup_language_refusal(Language.C, InputMode.ANY) is None
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "triton")
-    assert setup_language_refusal("python", InputMode.PY_BINDING) is None
-    assert setup_language_refusal("c", InputMode.SOURCE) is None  # triton is no source language
+    assert setup_language_refusal(Language.PYTHON, InputMode.PY_BINDING) is None
+    assert setup_language_refusal(Language.C, InputMode.SOURCE) is None  # triton is no source language
     monkeypatch.delenv("HPCAGENT_BENCH_RECORD_LANGUAGE", raising=False)
-    assert setup_language_refusal("fortran", InputMode.SOURCE) is None
+    assert setup_language_refusal(Language.FORTRAN, InputMode.SOURCE) is None
 
 
 def test_a_hip_setups_source_judge_refuses_a_c_submit_over_http(
@@ -658,7 +653,9 @@ def test_a_hip_setups_source_judge_refuses_a_c_submit_over_http(
     """End to end: the ``language=c`` claim on a GPU setup's source judge is a 400 before any build."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "gpu")
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_LANGUAGE", "hip")
-    _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="source", repeat=2))
+    _srv, url = make_judge(
+        ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.SOURCE, repeat=2)
+    )
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with pytest.raises(urllib.error.HTTPError) as refused:

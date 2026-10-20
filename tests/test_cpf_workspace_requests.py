@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A canonical parallel form carves its host transients from the caller's workspace (CPF's
-``Rendering.workspace_bytes``), so every submission of it must request that much scratch.
-
-- ``cpf_bridge`` spells CPF's size expression over the binding's scalar names, which is what the judge binds;
-- the cache keeps it beside the form, and ``cpf_verify`` grades the form with it;
-- the ``canonical_parallel_form`` answer states it, and ``make_problems`` writes it as the line's
-  ``default_workspace_bytes``, which the driver exports and the agent tools request when a submission names none.
-"""
+"""A canonical parallel form's ``workspace_bytes`` flows through: spelled over the binding's scalars, cached with
+the form, graded by ``cpf_verify``, stated by the tool, and requested by default via ``make_problems``."""
 
 import pathlib
 import types
@@ -17,7 +11,9 @@ from hpcagent_agent.driver import agent_driver
 from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_verify
+from hpcagent_bench.categories import Language
 from hpcagent_bench.cluster import make_problems
+from hpcagent_bench.cpf_cache import HintDetail, RenderVerdict, Role, Target
 from hpcagent_bench.harness.envelope import Submission
 from tests.test_cpf_cache import OPTIONS
 
@@ -28,13 +24,15 @@ WORKSPACE = "8*klon*nlev + 64"
 def view_with_workspace(tmp_path: pathlib.Path, workspace_bytes: str) -> pathlib.Path:
     """A cpu view whose :data:`KERNEL` form records ``workspace_bytes``."""
     cache, view = tmp_path / "cache", tmp_path / "view"
-    cpf_cache.open_view(view, cache, "cpu", "dace")
+    cpf_cache.open_view(view, cache, Target.CPU, "dace")
     key = cpf_cache.cache_key("sdfg", "dace", {**OPTIONS, "kernel": KERNEL, "language": "c"})
     manifest = {"kernel": KERNEL, "entry": f"{KERNEL}_fp64", "workspace_bytes": workspace_bytes}
     cpf_cache.publish(
-        cache, key, manifest, [("source", f"{KERNEL}_fp64_cpf.c", "// form\n"), ("binding", "b.json", "{}\n")]
+        cache, key, manifest, [(Role.SOURCE, f"{KERNEL}_fp64_cpf.c", "// form\n"), (Role.BINDING, "b.json", "{}\n")]
     )
-    cpf_cache.record(view, KERNEL, "c", "fp64", "proofs", {"key": key, "verdict": "ok", "cached": False})
+    cpf_cache.record(
+        view, KERNEL, "c", "fp64", HintDetail.PROOFS, {"key": key, "verdict": RenderVerdict.OK, "cached": False}
+    )
     return view
 
 
@@ -67,7 +65,7 @@ def test_a_size_over_a_name_the_kernel_lacks_is_a_render_failure() -> None:
 
 
 def test_the_cache_returns_the_forms_workspace(tmp_path: pathlib.Path) -> None:
-    form = cpf_cache.resolve(view_with_workspace(tmp_path, WORKSPACE), KERNEL, "c", "fp64", "proofs")
+    form = cpf_cache.resolve(view_with_workspace(tmp_path, WORKSPACE), KERNEL, "c", "fp64", HintDetail.PROOFS)
     assert form.workspace_bytes == WORKSPACE
 
 
@@ -82,7 +80,7 @@ def test_cpf_verify_grades_a_form_with_its_workspace(tmp_path: pathlib.Path, mon
     monkeypatch.setattr(cpf_verify, "abi_refusal", lambda *a: "")
     monkeypatch.setattr(cpf_verify, "score", capture)
     with pytest.raises(RuntimeError, match="stop after"):
-        cpf_verify.grade(str(view), KERNEL, "c", "fp64", "proofs")
+        cpf_verify.grade(str(view), KERNEL, Language.C, "fp64", HintDetail.PROOFS)
     (submission,) = seen
     assert isinstance(submission, Submission)
     assert submission.workspace_bytes == WORKSPACE
@@ -103,12 +101,12 @@ def test_a_cpf_problem_requests_its_forms_workspace(
 def test_a_form_needing_no_workspace_requests_none(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CPF_VIEW", str(view_with_workspace(tmp_path, "0")))
     assert make_problems.default_workspace_bytes("cpf-src", "c", KERNEL) is None
-    assert make_problems.form_workspace_note(KERNEL, "c", "proofs") == ""
+    assert make_problems.form_workspace_note(KERNEL, "c", HintDetail.PROOFS) == ""
 
 
 def test_the_cpf_src_note_names_the_workspace(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CPF_VIEW", str(view_with_workspace(tmp_path, WORKSPACE)))
-    assert WORKSPACE in make_problems.form_workspace_note(KERNEL, "c", "proofs")
+    assert WORKSPACE in make_problems.form_workspace_note(KERNEL, "c", HintDetail.PROOFS)
 
 
 def test_the_driver_exports_the_lines_default_workspace() -> None:

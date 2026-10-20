@@ -1,25 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A fused owed wave's JUDGE records and serves every request under the worker's own setup.
-
-One fused job grades workers of many setups with one judge. The judge process holds no setup
-identity of its own; each request is resolved from the worker's secret token (router) to its setup,
-and graded under that setup's ``HPCAGENT_BENCH_*`` keys (upstream, :mod:`hpcagent_bench.fused`).
-What is pinned here:
-
-* GOLDEN identity: a row a fused judge records for a setup is the row a single-setup judge of that
-  setup records -- runs, submissions and calls alike.
-* ISOLATION: a control worker's token never reaches the CPF view or the score route of another
-  setup, whatever setup its body claims; a request without a token grades nothing.
-* the agent-side clients send the token, and only inside a fused job.
-"""
+"""A fused owed wave's JUDGE grades every request under the worker's own setup (resolved from its token): rows
+equal a single-setup judge's, workers are isolated, and clients send the token only in a fused job."""
 
 import contextlib
 import json
 import pathlib
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 from urllib.error import HTTPError
@@ -32,9 +21,12 @@ from hpcagent_agent.tools import http_json
 from hpcagent_bench import config, cpf_cache, fused
 from hpcagent_bench.anticheat import Judgement
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import InputMode, Language, Oracle, SourceMode
+from hpcagent_bench.cpf_cache import HintDetail, RenderVerdict, Role, Target
 from hpcagent_bench.harness import recording, results_db, tools
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.judge_wire import HealthAnswer, SubmitVerdict
+from hpcagent_bench.harness.judge_wire import Correct, HealthAnswer, SubmitVerdict
+from hpcagent_bench.harness.outcomes import RunStatus
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 
@@ -83,12 +75,12 @@ def setup_lines(setup: str, view: pathlib.Path | None) -> list[str]:
 def publish_view(tmp_path: pathlib.Path) -> pathlib.Path:
     """A CPF view serving ``example_kernel``'s C form (as tests/test_canonical_parallel_form.py)."""
     cache, view = tmp_path / "cache", tmp_path / "view"
-    cpf_cache.open_view(view, cache, "cpu", "dace")
+    cpf_cache.open_view(view, cache, Target.CPU, "dace")
     key = cpf_cache.cache_key("sdfg", "dace", {"kernel": "example_kernel"})
     name = "example_kernel_fp64_cpf"
-    files = [("source", f"{name}.c", "// form\n"), ("binding", f"{name}_binding.json", "{}")]
+    files = [(Role.SOURCE, f"{name}.c", "// form\n"), (Role.BINDING, f"{name}_binding.json", "{}")]
     cpf_cache.publish(cache, key, {"kernel": "example_kernel", "entry": "example_kernel_fp64"}, files)
-    cpf_cache.record(view, "example_kernel", "c", "fp64", "proofs", {"key": key, "verdict": "ok"})
+    cpf_cache.record(view, "example_kernel", "c", "fp64", HintDetail.PROOFS, {"key": key, "verdict": RenderVerdict.OK})
     return view
 
 
@@ -232,14 +224,19 @@ def record_all(db: str, episode_id: str) -> None:
     """One /submit row and one router calls row, as a judge records a worker's grade."""
     recording.record(
         graded(),
-        Submission(language="c", source="/* x */", build=[]),
-        Task(KERNEL, "restricted", "c"),
+        Submission(language=Language.C, source="/* x */", build=[]),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=Judgement(),
         path=db,
         episode_id=episode_id,
     )
     recording.record_call(
-        graded(), Task(KERNEL, "restricted", "c"), status="ok", route="score", episode_id=episode_id, path=db
+        graded(),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        status=RunStatus.OK,
+        route="score",
+        episode_id=episode_id,
+        path=db,
     )
 
 
@@ -304,7 +301,9 @@ def upstream_get(url: str, setup: str | None) -> tuple[int, dict[str, object]]:
             return exc.code, json.loads(exc.read() or b"{}")
 
 
-def test_the_upstream_serves_each_setup_its_own_cpf_view(fused_job: dict[str, str], make_judge) -> None:
+def test_the_upstream_serves_each_setup_its_own_cpf_view(
+    fused_job: dict[str, str], make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]
+) -> None:
     """The CPF view is the cpf setup's; the control setup is answered as its own control job is."""
     _, url = make_judge(RunConfig())
     status, answer = upstream_get(url, fused_job["cpf-tool"])
@@ -313,7 +312,9 @@ def test_the_upstream_serves_each_setup_its_own_cpf_view(fused_job: dict[str, st
     assert (status, answer["verdict"]) == (200, "unavailable")
 
 
-def test_the_upstream_grades_nothing_without_a_known_setup(fused_job: dict[str, str], make_judge) -> None:
+def test_the_upstream_grades_nothing_without_a_known_setup(
+    fused_job: dict[str, str], make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]
+) -> None:
     _, url = make_judge(RunConfig())
     assert upstream_get(url, None)[0] == 403
     assert upstream_get(url, "no-such-setup")[0] == 403
@@ -336,9 +337,11 @@ class HeaderEcho(BaseHTTPRequestHandler):
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
         # What the judge answers the route, as its model dumps it: JudgeClient validates every answer.
         answer = (
-            HealthAnswer(status="ok", rank=0, oracle="auto", baseline="auto", input_mode="any", submits_in_flight=0)
+            HealthAnswer(
+                status="ok", rank=0, oracle=Oracle.AUTO, baseline=None, input_mode=InputMode.ANY, submits_in_flight=0
+            )
             if self.path.startswith("/health")
-            else SubmitVerdict(correct="yes", request_id="r")
+            else SubmitVerdict(correct=Correct.YES, request_id="r")
         )
         data = json.dumps(answer.to_json()).encode()
         self.send_response(200)
@@ -379,7 +382,7 @@ def test_every_judge_client_sends_the_token_only_inside_a_fused_job(
     http_json.call_json(f"{echo}/score", b"{}", 10)
     client = tools.JudgeClient(echo)
     client.health()
-    client.submit(Submission(language="c", source="x", build=[]), KERNEL)
+    client.submit(Submission(language=Language.C, source="x", build=[]), KERNEL)
     promote_unsubmitted.promote(echo, {"kernel": KERNEL, "language": "c", "source": "x", "episode_id": "r"}, False, 0)
     assert HeaderEcho.headers_seen == [token] * 4
 

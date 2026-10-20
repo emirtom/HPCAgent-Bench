@@ -1,27 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Which tag kernels a setup still owes, and the job that reruns them.
+"""Which tag kernels (runs: kernel x slot) a setup still owes, and the job that reruns them.
 
-``hpcagent-bench owed collect`` reads every job directory under the run roots. What a setup owes is a
-:class:`Run`: a tag kernel, and for a designed repeat (``make_problems.py --repeat``) one run slot of it,
-recorded in ``episodes.slot``; every slot the setup's launch problems gave is owed until a
-job delivers it. A job's setup is
-``episodes.setup`` in its judge shards (results DBs); a setup is one identity, covered by the union of all its jobs, because a rerun runs only the kernels
-still owed. A kernel is delivered when a job graded it: a credited /submit grade, or one the judge
-graded and refused. A refusal reasoned ``score_error`` (the judge's own reference failed) and any
-grade under the ``adhoc`` episode id (no episode) deliver nothing. Every other tag kernel is owed, classed
-by its latest episode's ``tokens.json``: ``budget`` when the agent hit its own time or token cap and
-the job did not cancel it (rerun at a scaled budget), ``infra`` otherwise (rerun as it was). A delivered
-run is owed again, class ``task``, when a final grade (in a job's shards or a ``--regrades`` results DB)
-found its kernel's task changed since the run and its submission failing every input (reason
-``recorded_rows.TASK_CHANGED_PREFIX``), until a job delivers the run after that submission.
-
-``hpcagent-bench owed run`` reruns one setup on its owed runs: the job env the setup last launched
-with (``<run root>/.agent-launch/<job>/.env``) and its problems file filtered to those runs (a replayed
-problem keeps its slot, so a rerun fills the slot it was owed), staged
-in the checkout's ``experiments/`` and handed to ``submit_common.sh``'s ``submit_setup_job``, which
-submits with ``--submit`` and only reports otherwise. ``--token-scale``/``--time-scale`` scale the
-budget as ``submit.sh``'s TOKEN_SCALE/TIME_SCALE do.
+``owed collect`` reads every job directory under the run roots: a run is delivered when a job graded it (not as a
+``score_error`` or ``adhoc`` grade); otherwise it is owed as ``budget`` (the agent hit its own cap) or ``infra``, and
+as ``task`` when a final grade found its task changed since. ``owed run`` reruns one setup's owed runs from its last
+launch env and filtered problems via ``submit_common.sh`` (``--token-scale``/``--time-scale`` as ``submit.sh``).
 """
 
 import argparse
@@ -36,6 +20,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from typing import NamedTuple
 
+from hpcagent_agent.coded import Coded
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER, RC_TIMEOUT, RC_TOKEN_BUDGET
 
 from hpcagent_bench import tags
@@ -88,13 +73,13 @@ BUDGET_RETURNCODES = frozenset({RC_TIMEOUT, RC_TOKEN_BUDGET})
 LAUNCH_DIR = ".agent-launch"
 
 
-class OwedClass(enum.Enum):
+class OwedClass(Coded):
     """How an owed kernel reruns."""
 
-    BUDGET = "budget"
-    INFRA = "infra"
+    BUDGET = enum.auto()
+    INFRA = enum.auto()
     #: The kernel's task changed since the run and the submission failed every input: a fresh run as it was.
-    TASK = "task"
+    TASK = enum.auto()
 
 
 class Run(NamedTuple):
@@ -143,8 +128,7 @@ def shard_rows(job_dir: pathlib.Path, query: str, args: tuple[object, ...] = ())
 
 
 def job_setup(job_dir: pathlib.Path) -> str:
-    """The one setup ``job_dir`` recorded; empty when it has no shard. Raises on a shard with no setup or
-    a job that recorded several."""
+    """The one setup ``job_dir`` recorded ("" without a shard); raises on a shard with no setup or several setups."""
     setups = {str(setup) for (setup,) in shard_rows(job_dir, "select distinct setup from episodes") if setup}
     if len(setups) > 1:
         raise SystemExit(f"{job_dir}: episodes.setup names several setups: {sorted(setups)}")
@@ -170,9 +154,8 @@ def collect_jobs(roots: Iterable[pathlib.Path], excluded: set[str]) -> tuple[dic
 
 
 def delivered_at(job_dir: pathlib.Path) -> dict[Run, int]:
-    """Every run ``job_dir`` graded for an episode, with the ``ts_ms`` of its newest such grade: a
-    submission, or a refused real attempt -- never one refused for the judge's own fault, nor one an operator
-    voided for a rerun (:data:`~hpcagent_bench.recorded_rows.RERUN_PREFIXES`)."""
+    """Every run ``job_dir`` graded with the ``ts_ms`` of its newest such grade (a submission or a refused real
+    attempt; never a judge fault or an operator void)."""
     kinds = ", ".join("?" * len(results_db.SUBMIT_KINDS))
     voided = " ".join("and g.reason not like ?" for _ in RERUN_PREFIXES)
     graded = shard_rows(
@@ -244,10 +227,8 @@ def designed_runs(jobs: Sequence[Job], tag_kernels: Sequence[str]) -> list[Run]:
 
 
 def owed(jobs: Sequence[Job], runs: Sequence[Run], regrades: Sequence[pathlib.Path] = ()) -> dict[Run, OwedClass]:
-    """Every run of ``runs`` the identity owes, in order, with its class: one no job delivered (a run no
-    episode ever started is ``infra``), and one whose newest delivery is no newer than a submission a final
-    grade in the jobs' shards or in ``regrades`` found failing every input after its task changed
-    (:func:`task_changed`, class ``task``)."""
+    """Every run of ``runs`` the identity owes, in order, with its class: undelivered (``infra`` if never started),
+    or not delivered after a task-changed final grade (``task``)."""
     done: dict[Run, int] = {}
     for job in jobs:
         for run, ts in delivered_at(job.path).items():
@@ -274,8 +255,7 @@ def selected(name: str, prefixes: Sequence[str]) -> bool:
 
 
 def write_listing(out_dir: pathlib.Path, name: str, runs: Sequence[Run]) -> None:
-    """``<out_dir>/<name>.txt``, one run per line (:meth:`Run.line`); removed when nothing is owed, so a
-    stale list never reruns finished work."""
+    """``<out_dir>/<name>.txt``, one run per line; removed when nothing is owed."""
     listing = out_dir / f"{name}.txt"
     if runs:
         listing.write_text("".join(f"{run.line()}\n" for run in runs), encoding="utf-8")
@@ -287,7 +267,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     tag_kernels = list(tags.kernels_of(args.tag))
     by_identity, empty = collect_jobs(args.runs, set(args.exclude_job))
     regrades = regrade_dbs(args.regrades)
-    only = OwedClass(args.owed_class) if args.owed_class else None
+    only = OwedClass.parse(args.owed_class) if args.owed_class else None
     print(f"tag {args.tag}: {len(tag_kernels)} kernels")
     if empty:
         print(f"no judge shard: jobs {sorted(empty)}")
@@ -297,10 +277,10 @@ def cmd_collect(args: argparse.Namespace) -> int:
         jobs = sorted(by_identity[name], key=lambda job: int(job.job))
         runs = designed_runs(jobs, tag_kernels)
         classes = owed(jobs, runs, regrades)
-        counts = collections.Counter(owed_class.value for owed_class in classes.values())
+        counts = collections.Counter(classes.values())
         print(
             f"{name} done {len(runs) - len(classes)}/{len(runs)} owed {len(classes)} "
-            f"({', '.join(f'{c.value} {counts[c.value]}' for c in OwedClass)}) newest {jobs[-1].path}"
+            f"({', '.join(f'{c.text} {counts[c]}' for c in OwedClass)}) newest {jobs[-1].path}"
         )
         if args.out:
             write_listing(args.out, name, [run for run, owed_class in classes.items() if only in (None, owed_class)])
@@ -437,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument("--out", type=pathlib.Path, help="write <setup>.txt run lists here (<kernel> [<slot>])")
     collect.add_argument(
-        "--class", dest="owed_class", choices=[c.value for c in OwedClass], help="write only this class's kernels"
+        "--class", dest="owed_class", choices=OwedClass.texts(), help="write only this class's kernels"
     )
     collect.set_defaults(func=cmd_collect)
     run = sub.add_parser("run", help="rerun one setup on a kernel list with its recorded job env")

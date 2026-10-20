@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``requests.precisions()``: the judge converts the requested arrays around every call, outside the score.
-
-The harness's casts are bit-exact against the ml_dtypes/numpy conversions; the judge refuses a request
-that changes nothing or that this delivery cannot take; a grade records the conversion time beside the
-kernel time it never enters; and the MPI driver and its wire carry the same casts per rank.
-"""
+"""``requests.precisions()``: bit-exact casts around every call outside the score, refusals of no-op or
+unsupported requests, recorded conversion time, and the same casts per MPI rank."""
 
 import shutil
 
@@ -14,6 +10,7 @@ import numpy as np
 import pytest
 from relayout.ops import ArraySpec
 
+from hpcagent_bench.categories import Baseline, Language, Preset, SourceMode
 from hpcagent_bench.harness import grading, mpi_wire, precision_casts
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.prompts import build_prompt
@@ -215,7 +212,7 @@ def requested(precision: dict[str, str], language: str = "c", **fields: object) 
 def test_the_judge_refuses_a_precision_this_kernel_cannot_take(
     precision: dict[str, str], datatype: str, language: str, match: str | None
 ) -> None:
-    refusal = requests_refusal(requested(precision, language), Task(KERNEL, "restricted", language), datatype)
+    refusal = requests_refusal(requested(precision, language), Task(KERNEL, SourceMode.RESTRICTED, language), datatype)
     assert (refusal is None) if match is None else (match in str(refusal)), refusal
 
 
@@ -253,9 +250,9 @@ def laid_out(language: str = "c", operations: list | None = None) -> Submission:
 
 
 def test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where_it_is_not_carried() -> None:
-    jacobi = Task("jacobi_2d", "restricted", "c")
+    jacobi = Task("jacobi_2d", SourceMode.RESTRICTED, Language.C)
     assert requests_refusal(laid_out(), jacobi, "float64") is None
-    python = Task("jacobi_2d", "restricted", "python")
+    python = Task("jacobi_2d", SourceMode.RESTRICTED, Language.PYTHON)
     assert "python" in str(requests_refusal(laid_out("python"), python, "float64"))
     placed = [{"action": "place", "array": "A", "on": "device"}]
     assert "place without startup.grid" in str(requests_refusal(laid_out(operations=placed), jacobi, "float64"))
@@ -264,7 +261,7 @@ def test_a_single_node_layout_is_accepted_for_a_c_abi_delivery_and_refused_where
     unzip_symbolic = [{"action": "unzip", "array": "A", "into": ["a0", "a1"], "dim": 0}]
     refused = requests_refusal(laid_out(operations=unzip_symbolic), jacobi, "float64")
     assert "no constant extent" in str(refused)
-    s132 = Task("tsvc_2_s132", "restricted", "c")
+    s132 = Task("tsvc_2_s132", SourceMode.RESTRICTED, Language.C)
     unzip_three = [{"action": "unzip", "array": "aa", "into": ["a0", "a1", "a2"], "dim": 0}]
     assert "splits into 2 array(s)" in str(requests_refusal(laid_out(operations=unzip_three), s132, "float64"))
     assert converts_kernel_arrays(
@@ -339,19 +336,21 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
     takes the regrouped buffers, the problem's arrays are graded, the regrouping is timed beside the call."""
     if not gcc_available():
         pytest.skip("no C compiler")
-    jacobi = Task("jacobi_2d", "restricted", "c")
+    jacobi = Task("jacobi_2d", SourceMode.RESTRICTED, Language.C)
     stacked = [{"action": "zip", "arrays": ["A", "B"], "into": "Z", "dim": 0}]
     struct = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
     unzip = [{"action": "unzip", "array": "aa", "into": ["aa0", "aa1"], "dim": 0}]
     cases = [
         (STACKED_JACOBI, stacked, jacobi, {}),
         (STRUCT_JACOBI, struct, jacobi, {"rtol": 1e-4, "atol": 1e-6}),
-        (UNZIPPED_S132, unzip, Task("tsvc_2_s132", "restricted", "c"), {}),
+        (UNZIPPED_S132, unzip, Task("tsvc_2_s132", SourceMode.RESTRICTED, Language.C), {}),
     ]
     for source, operations, task, tolerance in cases:
-        submission = Submission(language="c", source=source, requests=Requests.validate({"operations": operations}))
+        submission = Submission(
+            language=Language.C, source=source, requests=Requests.validate({"operations": operations})
+        )
         assert requests_refusal(submission, task, "float64") is None
-        result = score(submission, task, preset="S", repeat=2, hidden=False, baseline="c", **tolerance)
+        result = score(submission, task, preset=Preset.S, repeat=2, hidden=False, baseline=Baseline.C, **tolerance)
         assert result.build_ok, result.detail
         assert result.correct, result.detail
         assert result.convert_in_ns > 0
@@ -360,7 +359,7 @@ def test_zipped_and_unzipped_grades_regroup_around_the_call() -> None:
 
 def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal() -> None:
     operations = [*LAYOUT_OPERATIONS, {"action": "cast", "array": "B", "to": "fp32"}]
-    answer = requests_check("jacobi_2d", "c", {"operations": operations}, "float64").to_json()
+    answer = requests_check("jacobi_2d", Language.C, {"operations": operations}, "float64").to_json()
     assert answer["accepted"] is True
     assert "plan" not in answer
     assert answer["arrays"] == {
@@ -369,7 +368,7 @@ def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal(
     }
     assert answer["signature"] == "void jacobi_2d_fp64(double *, float *, int64_t, int64_t, uint8_t *, int64_t);"
     struct = [{"action": "cast", "array": "A", "to": "fp32"}, {"action": "zip", "arrays": ["A", "B"], "into": "Z"}]
-    zipped = requests_check("jacobi_2d", "c", {"operations": struct}, "float64").to_json()
+    zipped = requests_check("jacobi_2d", Language.C, {"operations": struct}, "float64").to_json()
     assert zipped["arrays"]["Z"] == {
         "extents": ["d0", "d1"],
         "zips": ["A", "B"],
@@ -379,7 +378,7 @@ def test_requests_check_resolves_the_buffers_and_signature_or_names_the_refusal(
         "typedef struct { float A; double B; } hb_zip_Z;\n"
         "void jacobi_2d_fp64(hb_zip_Z *, int64_t, int64_t, uint8_t *, int64_t);"
     )
-    refused = requests_check("jacobi_2d", "python", {"operations": LAYOUT_OPERATIONS}, "float64").to_json()
+    refused = requests_check("jacobi_2d", Language.PYTHON, {"operations": LAYOUT_OPERATIONS}, "float64").to_json()
     assert set(refused) == {"accepted", "refusal"}
     assert refused["accepted"] is False
     assert "python" in str(refused["refusal"])
@@ -391,7 +390,14 @@ def test_a_laid_out_grade_converts_in_and_out_and_is_correct() -> None:
     are converted back before grading, and the conversions are timed beside the kernel."""
     if not gcc_available():
         pytest.skip("no C compiler")
-    result = score(laid_out(), Task("jacobi_2d", "restricted", "c"), preset="S", repeat=3, hidden=False, baseline="c")
+    result = score(
+        laid_out(),
+        Task("jacobi_2d", SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
+        repeat=3,
+        hidden=False,
+        baseline=Baseline.C,
+    )
     assert result.build_ok, result.detail
     assert result.correct, result.detail
     assert result.convert_in_ns > 0
@@ -417,10 +423,10 @@ def test_a_widened_grade_is_correct_and_records_its_casts_outside_the_score() ->
     if not gcc_available():
         pytest.skip("no C compiler")
     submission = Submission(
-        language="c", source=WIDENED, requests=Requests.of(precision={"x": Precision.FP64, "y": Precision.FP64})
+        language=Language.C, source=WIDENED, requests=Requests.of(precision={"x": Precision.FP64, "y": Precision.FP64})
     )
-    task = Task(KERNEL, "restricted", "c")
-    result = score(submission, task, preset="S", datatype="float32", repeat=5, hidden=False, baseline="c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
+    result = score(submission, task, preset=Preset.S, datatype="float32", repeat=5, hidden=False, baseline=Baseline.C)
     assert result.build_ok, result.detail
     assert result.correct, result.detail
     assert result.native_ns > 0
@@ -458,12 +464,12 @@ def test_the_outfile_carries_the_cast_samples() -> None:
 
 
 def test_the_prompt_tables_the_precisions_for_a_compiled_task_only() -> None:
-    compiled = build_prompt(Task(KERNEL, "restricted", "c"))
+    compiled = build_prompt(Task(KERNEL, SourceMode.RESTRICTED, Language.C))
     assert "## Requests (optional)" in compiled
     assert "`fp32` -> `float`" in compiled
     assert "`bf16` -> `__npb_bf16`" in compiled
     assert "NOT part of your score" in compiled
-    assert "`precision`" not in build_prompt(Task(KERNEL, "restricted", "python"))
+    assert "`precision`" not in build_prompt(Task(KERNEL, SourceMode.RESTRICTED, Language.PYTHON))
 
 
 if __name__ == "__main__":

@@ -1,15 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The perturbation a fallback ``initialize`` draws from, and the scenario kernels that use it.
-
-A deterministic initializer hands the four timed draws the same bytes, so a candidate can cache
-across calls and the four timed inputs are one input. The perturbation is what makes them differ,
-and the scenarios are what keep a stencil/PDE draw physical while it does."""
+"""The perturbation a fallback ``initialize`` draws from (making the timed draws differ) and the scenario kernels
+that keep it physical."""
 
 import numpy as np
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness import rep_variation
 from hpcagent_bench.spec import KERNELS, BenchSpec, function_parameters
@@ -93,10 +91,10 @@ def test_there_are_scenario_and_perturbed_kernels() -> None:
 def test_the_timed_draws_of_a_perturbed_kernel_are_distinct(kernel: str) -> None:
     """The timed window cycles over 4 draws; identical bytes would let a candidate cache across them."""
     spec = BenchSpec.load(kernel)
-    seeds = rep_variation.pool_seeds(0, kernel, "S", "float64")
+    seeds = rep_variation.pool_seeds(0, kernel, Preset.S, "float64")
     blobs = set()
     for seed in seeds:
-        data = Benchmark(kernel).get_data(preset="S", datatype="float64", input_seed=seed)
+        data = Benchmark(kernel).get_data(preset=Preset.S, datatype="float64", input_seed=seed)
         blobs.add(
             b"".join(
                 np.ascontiguousarray(data[n]).tobytes() for n in spec.input_args if isinstance(data[n], np.ndarray)
@@ -112,7 +110,7 @@ def test_every_scenario_of_a_kernel_gives_a_finite_bounded_reference(kernel: str
     spec = BenchSpec.load(kernel)
     assert spec.init is not None
     for seed in range(1, len(spec.init.scenarios) + 1):
-        data = Benchmark(kernel).get_data(preset="S", datatype="float64", input_seed=seed)
+        data = Benchmark(kernel).get_data(preset=Preset.S, datatype="float64", input_seed=seed)
         arrays = [np.asarray(data[n]) for n in spec.input_args if isinstance(data[n], np.ndarray)]
         # A pattern-only kernel (spgemm_hash) has no floating input: its index arrays bound it.
         measured = [a for a in arrays if a.dtype.kind == "f"] or arrays

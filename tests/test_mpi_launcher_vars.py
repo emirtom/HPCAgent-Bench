@@ -1,18 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The framework sweep must not let DaCe bootstrap MPI in a forked child.
-
-DaCe calls ``ensure_mpi_initialized()`` when it is imported and a launcher variable is set. Slurm's
-pmix plugin sets one (``PMIX_RANK``) for every step, MPI or not, so a per-kernel child of the sweep
-imported DaCe, called ``MPI_Init``, and hung -- the whole GPU track produced zero rows for a day.
-The variables are stripped before the first framework import; these tests pin that, and pin the two
-things about it that are easy to break by tidying.
-"""
+"""The framework sweep strips the MPI launcher variables (Slurm sets ``PMIX_RANK`` on every step) before the first
+framework import, so DaCe never bootstraps MPI in a forked child."""
 
 import os
 
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.support.collect.sweep import MPI_LAUNCHER_VARS, drop_mpi_launcher_vars
 
 
@@ -82,8 +77,8 @@ def test_the_distributed_residency_keeps_its_launcher_variables(
     monkeypatch.setattr(sweep, "Benchmark", lambda *a, **k: None)
     monkeypatch.setattr(sweep, "Test", lambda *a, **k: type("T", (), {"run": lambda *_, **__: {}})())
 
-    sweep.run_one("k", [], "S", False, 1, 1.0, True, None, distributed=True)
+    sweep.run_one("k", [], Preset.S, False, 1, 1.0, True, None, distributed=True)
     assert called == [], "an MPI rank had its launcher variables stripped"
 
-    sweep.run_one("k", [], "S", False, 1, 1.0, True, None)
+    sweep.run_one("k", [], Preset.S, False, 1, 1.0, True, None)
     assert called == [True], "the single-node default did not strip"

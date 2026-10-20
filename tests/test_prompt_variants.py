@@ -1,31 +1,31 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prompt variants: discovery from ``task_var<N>.j2``, and X variants -> X runs.
+"""Prompt variants are optional, discovered from ``task_var<N>.j2`` without config edits, and a sweep runs each
+kernel once per variant."""
 
-Pins that variants are OPTIONAL (no flag = one plain ``task.j2`` run, no variant recorded),
-that dropping a ``task_var<N>.j2`` registers a variant with no config or code edit, and that
-a sweep runs each kernel once per variant with one prompt each.
-"""
+import pathlib
+from collections.abc import Iterator
 
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Oracle, Preset, SourceMode
 from hpcagent_bench.cli import resolve_prompt_variants
 from hpcagent_bench.harness.prompts import PromptConfig, available_variants, build_prompt, discovered_variants
 from hpcagent_bench.harness.task import Task
 
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
 
 @pytest.fixture(autouse=True)
-def clean_settings():
+def clean_settings() -> Iterator[None]:
     config.reload()
     yield
     config.reload()
 
 
 @pytest.fixture
-def variant_root(tmp_path):
+def variant_root(tmp_path: pathlib.Path) -> pathlib.Path:
     """A template root holding two variant templates."""
     (tmp_path / "task_var1.j2").write_text("VARIANT ONE for {{ kernel }}\n")
     (tmp_path / "task_var2.j2").write_text("VARIANT TWO for {{ kernel }}\n")
@@ -33,7 +33,7 @@ def variant_root(tmp_path):
     return tmp_path
 
 
-def test_variants_are_named_by_their_suffix(variant_root) -> None:
+def test_variants_are_named_by_their_suffix(variant_root: pathlib.Path) -> None:
     """The file, the --prompt-variant value and the recorded column all read the same."""
     assert discovered_variants([str(variant_root)]) == {
         "var1": {"template": "task_var1.j2"},
@@ -41,11 +41,11 @@ def test_variants_are_named_by_their_suffix(variant_root) -> None:
     }
 
 
-def test_a_dropped_template_needs_no_config_or_code(variant_root) -> None:
+def test_a_dropped_template_needs_no_config_or_code(variant_root: pathlib.Path) -> None:
     assert {"var1", "var2"} <= set(available_variants())
 
 
-def test_each_variant_renders_its_own_template(variant_root) -> None:
+def test_each_variant_renders_its_own_template(variant_root: pathlib.Path) -> None:
     assert "VARIANT ONE" in build_prompt(TASK, prompt_config=PromptConfig.variant("var1"))
     assert "VARIANT TWO" in build_prompt(TASK, prompt_config=PromptConfig.variant("var2"))
 
@@ -55,7 +55,7 @@ def test_no_variants_present_is_fine() -> None:
     assert discovered_variants(()) == {}
 
 
-def test_a_user_root_shadows_a_variant_of_the_same_name(tmp_path, variant_root) -> None:
+def test_a_user_root_shadows_a_variant_of_the_same_name(tmp_path: pathlib.Path, variant_root: pathlib.Path) -> None:
     """First root wins, the rule templates and skills already follow."""
     (tmp_path / "task_var1.j2").write_text("SHADOWED\n")
     config.set_override("prompt.template_dir", str(tmp_path))
@@ -69,11 +69,11 @@ def test_unset_is_one_run_with_no_variant() -> None:
     assert resolve_prompt_variants("") == [None]
 
 
-def test_explicit_list_is_one_run_each(variant_root) -> None:
+def test_explicit_list_is_one_run_each(variant_root: pathlib.Path) -> None:
     assert resolve_prompt_variants("var1,var2") == ["var1", "var2"]
 
 
-def test_all_covers_every_variant_but_not_default(variant_root) -> None:
+def test_all_covers_every_variant_but_not_default(variant_root: pathlib.Path) -> None:
     names = resolve_prompt_variants("all")
     assert {"var1", "var2"} <= set(names)
     # "default" renders the same task.j2 as the no-variant run; including it would duplicate it.
@@ -85,7 +85,7 @@ def test_unknown_variant_is_a_clean_error_not_a_traceback() -> None:
         resolve_prompt_variants("no_such_variant")
 
 
-def test_a_run_resolves_exactly_one_variant(variant_root, monkeypatch) -> None:
+def test_a_run_resolves_exactly_one_variant(variant_root: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """X variants = X runs, each rendering ONE prompt for all of its attempts."""
     from hpcagent_bench.harness import runner
     from tests.test_attempt_budget import RecordingAgent, failing_score
@@ -121,10 +121,10 @@ def test_static_pipeline_rejects_a_mismatched_variant_list() -> None:
             vllm_urls=[None],
             judge_urls=["http://j:1"],
             workers=1,
-            preset="S",
+            preset=Preset.S,
             datatype="float64",
             repeat=1,
-            oracle="auto",
-            baseline="auto",
+            oracle=Oracle.AUTO,
+            baseline=None,
             prompt_variants=["var1"],
         )

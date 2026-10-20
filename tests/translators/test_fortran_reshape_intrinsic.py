@@ -52,7 +52,7 @@ def kernel(newshape: str) -> str:
     return f"import numpy as np\ndef rs(a, out):\n    out[:] = np.reshape(a, {newshape})\n"
 
 
-def check(res) -> None:
+def check(res: dict[str, str]) -> None:
     # Both asserted: ``all()`` over an empty dict is vacuously true, so a harness that ran nothing
     # would read as a pass.
     assert set(res) == {"fortran"}, res
@@ -91,7 +91,7 @@ def test_the_dims_are_reversed() -> None:
         ("(a.shape[1], a.shape[0], a.shape[2])", (4, 3, 5), "(NB, NA, NC)"),
     ],
 )
-def test_reshape_matches_numpy(newshape, out_shape, sym_shape) -> None:
+def test_reshape_matches_numpy(newshape: str, out_shape: tuple[int, ...], sym_shape: str) -> None:
     """Rank down, rank up, full flatten, and a same-rank re-extenting: each reads the source in a
     different pattern, and only running them proves the ravel order is numpy's."""
     body = kernel(newshape)

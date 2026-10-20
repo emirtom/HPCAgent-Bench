@@ -24,6 +24,7 @@ from collections.abc import Mapping, Sequence
 from functools import cached_property
 from typing import NamedTuple
 
+from hpcagent_bench.translators.numpyto_common.ast_build import line_of
 from hpcagent_bench.translators.numpyto_common import dtypes, narrow_int
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR, numpy_origin
 from hpcagent_bench.translators.numpyto_common.statement_desugar import Spelled, SplitTupleUnpack
@@ -245,9 +246,7 @@ class BaseEmitter:
             return ""
         if isinstance(node, ast.Return):
             return self.emit_return(node, indent)
-        raise NotImplementedError(
-            f"unsupported statement: {type(node).__name__} (line {vars(node).get('lineno', '?')})"
-        )
+        raise NotImplementedError(f"unsupported statement: {type(node).__name__} (line {line_of(node)})")
 
     def emit_return(self, node: ast.Return, indent: str) -> str:
         """HPCAgent-Bench kernels are void -- outputs are written through array

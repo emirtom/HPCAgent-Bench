@@ -1,20 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""agent_driver.py: the agent budget regimes -- wall clock, total tokens, or neither.
-
-The prompt states neither budget; the driver enforces both. The token watcher has two details its
-correctness rests on. First, ``claude --output-format stream-json`` repeats a turn's
-``message.usage`` once per content block, so summing the events instead of keeping the last usage
-per ``message.id`` multiplies a turn's cost by its block count and kills every agent early. Second,
-the metric is TOTAL consumed tokens -- input, both cache fields, output -- because output alone
-never binds: sweep-1 agents produced ~50-80k output tokens while consuming ~1-2M in total.
-"""
+"""agent_driver.py's budget regimes (wall clock, total tokens, or neither): the token watcher keeps the last usage
+per ``message.id`` and counts TOTAL consumed tokens."""
 
 import json
 import pathlib
 import subprocess
 import sys
 import time
+import types
 from types import ModuleType
 
 import pytest
@@ -77,7 +71,7 @@ def test_the_prompt_states_neither_budget_although_both_are_enforced(
 def test_a_run_without_the_search_tool_is_told_it_has_no_internet(
     driver: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("AGENT_SEARCH_TOOL", raising=False)
+    monkeypatch.delenv("HPCAGENT_BENCH_PACKET_TOOLS", raising=False)
     problem = problem_line(0, "gemm", "Optimize gemm in c.")
     prompt = driver.render_prompt(problem, pathlib.Path(driver.__file__).resolve().parents[2], "")
     assert driver.NO_INTERNET.strip() in prompt
@@ -88,7 +82,9 @@ def test_a_run_without_the_search_tool_is_told_it_has_no_internet(
 
 
 @pytest.mark.parametrize(("raw", "expected"), [(None, 0.0), ("", 0.0), ("0", 0.0), ("3600", 3600.0), ("junk", 0.0)])
-def test_budget_seconds_reads_the_env(driver, monkeypatch, raw, expected) -> None:
+def test_budget_seconds_reads_the_env(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: float
+) -> None:
     monkeypatch.delenv("AGENT_TIMEOUT_SECONDS", raising=False)
     if raw is not None:
         monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", raw)
@@ -96,7 +92,9 @@ def test_budget_seconds_reads_the_env(driver, monkeypatch, raw, expected) -> Non
 
 
 @pytest.mark.parametrize(("raw", "expected"), [(None, 0), ("", 0), ("0", 0), ("10000000", 10000000), ("junk", 0)])
-def test_budget_tokens_reads_the_env(driver, monkeypatch, raw, expected) -> None:
+def test_budget_tokens_reads_the_env(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: int
+) -> None:
     monkeypatch.delenv("AGENT_MAX_TOKENS", raising=False)
     if raw is not None:
         monkeypatch.setenv("AGENT_MAX_TOKENS", raw)
@@ -106,7 +104,7 @@ def test_budget_tokens_reads_the_env(driver, monkeypatch, raw, expected) -> None
 # token accounting
 
 
-def test_a_turn_costs_input_plus_cache_plus_output(driver) -> None:
+def test_a_turn_costs_input_plus_cache_plus_output(driver: types.ModuleType) -> None:
     """The metric is everything consumed. Output alone would report 400 of this turn's 70400."""
     seen: dict[str, int] = {}
     block = usage(input_tokens=4000, cache_creation=6000, cache_read=60000, output_tokens=400)
@@ -114,7 +112,7 @@ def test_a_turn_costs_input_plus_cache_plus_output(driver) -> None:
     assert seen == {"msg_1": 70400}
 
 
-def test_repeated_usage_per_block_is_counted_once(driver) -> None:
+def test_repeated_usage_per_block_is_counted_once(driver: types.ModuleType) -> None:
     """Three events of ONE turn, each repeating usage: the turn costs 70400, not 211200."""
     seen: dict[str, int] = {}
     block = usage(input_tokens=4000, cache_creation=6000, cache_read=60000, output_tokens=400)
@@ -127,7 +125,7 @@ def test_repeated_usage_per_block_is_counted_once(driver) -> None:
     assert seen == {"msg_1": 70400}
 
 
-def test_turns_accumulate_and_the_last_usage_per_id_wins(driver) -> None:
+def test_turns_accumulate_and_the_last_usage_per_id_wins(driver: types.ModuleType) -> None:
     seen: dict[str, int] = {}
     first = [assistant_line("msg_1", usage(input_tokens=1000, output_tokens=100))]
     assert driver.accumulate_total_tokens(first, seen) == 1100
@@ -151,13 +149,15 @@ def test_turns_accumulate_and_the_last_usage_per_id_wins(driver) -> None:
         ({"service_tier": "standard"}, None),
     ],
 )
-def test_usage_total_treats_missing_and_junk_fields_as_zero(driver, block, expected) -> None:
+def test_usage_total_treats_missing_and_junk_fields_as_zero(
+    driver: types.ModuleType, block: dict[str, int | str], expected: int | None
+) -> None:
     """A usage block from an older CLI, or one served without caching, still counts what it has;
     a block with no numeric field at all is None -- a line to ignore, not a turn costing zero."""
     assert driver.usage_total(block) == expected
 
 
-def test_non_assistant_and_malformed_lines_are_skipped(driver) -> None:
+def test_non_assistant_and_malformed_lines_are_skipped(driver: types.ModuleType) -> None:
     """The merged stderr, a half-written tail and the CLI's own non-assistant events."""
     seen: dict[str, int] = {}
     lines = [
@@ -276,7 +276,9 @@ def test_a_killed_agent_records_its_transcript_turns_and_the_drivers_wall_clock(
     assert "transcript_turns" not in record
 
 
-def test_read_new_lines_leaves_a_partial_tail_for_the_next_poll(driver, tmp_path) -> None:
+def test_read_new_lines_leaves_a_partial_tail_for_the_next_poll(
+    driver: types.ModuleType, tmp_path: pathlib.Path
+) -> None:
     log = tmp_path / "claude.log"
     assert driver.read_new_lines(log, 0) == (0, [])  # the agent has written nothing yet
     log.write_text('{"a": 1}\n{"b": 2}\n{"c": ', encoding="utf-8")
@@ -308,7 +310,7 @@ FAKE_AGENT = (
 )
 
 
-def run_fake_agent(driver, tmp_path, turns: int, max_tokens: int, linger: int) -> dict:
+def run_fake_agent(driver: types.ModuleType, tmp_path: pathlib.Path, turns: int, max_tokens: int, linger: int) -> dict:
     log_path = tmp_path / "claude.log"
     state: dict = {"tokens": 0, "exceeded": False}
     with log_path.open("w", encoding="utf-8") as log:
@@ -324,7 +326,9 @@ def run_fake_agent(driver, tmp_path, turns: int, max_tokens: int, linger: int) -
     return state
 
 
-def test_watcher_kills_the_process_once_the_budget_is_exceeded(driver, monkeypatch, tmp_path) -> None:
+def test_watcher_kills_the_process_once_the_budget_is_exceeded(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     monkeypatch.setattr(driver, "TOKEN_POLL_SECONDS", 0.05)
     started = time.monotonic()
     # 4 turns x 1000 total tokens (400+100+200+300), each reported twice; the cap trips on turn 3
@@ -336,14 +340,18 @@ def test_watcher_kills_the_process_once_the_budget_is_exceeded(driver, monkeypat
     assert time.monotonic() - started < 30
 
 
-def test_watcher_lets_an_under_budget_process_finish(driver, monkeypatch, tmp_path) -> None:
+def test_watcher_lets_an_under_budget_process_finish(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     monkeypatch.setattr(driver, "TOKEN_POLL_SECONDS", 0.05)
     state = run_fake_agent(driver, tmp_path, turns=3, max_tokens=10000000, linger=0)
     assert state["exceeded"] is False
     assert state["returncode"] == 0
 
 
-def test_the_closing_result_event_gives_the_subtype_and_turn_count(driver, tmp_path) -> None:
+def test_the_closing_result_event_gives_the_subtype_and_turn_count(
+    driver: types.ModuleType, tmp_path: pathlib.Path
+) -> None:
     """The turn cap is the CLI's, not the driver's: it ends the agent with exit 0. Without the
     closing event's num_turns a turn-exhausted run and a finished one look identical."""
     log = tmp_path / "claude.log"
@@ -355,7 +363,9 @@ def test_the_closing_result_event_gives_the_subtype_and_turn_count(driver, tmp_p
     assert driver.final_result(log) == ("error_max_turns", 40)
 
 
-def test_a_killed_agent_wrote_no_result_and_that_is_not_an_error(driver, tmp_path) -> None:
+def test_a_killed_agent_wrote_no_result_and_that_is_not_an_error(
+    driver: types.ModuleType, tmp_path: pathlib.Path
+) -> None:
     """A process the driver terminated never closes its transcript. Reporting runs last, so a
     missing event must read as 'nothing to say' rather than raise and take the problem with it."""
     log = tmp_path / "claude.log"
@@ -364,7 +374,9 @@ def test_a_killed_agent_wrote_no_result_and_that_is_not_an_error(driver, tmp_pat
     assert driver.final_result(tmp_path / "absent.log") == ("", 0)
 
 
-def test_only_the_tail_is_read_and_a_partial_first_line_is_skipped(driver, tmp_path) -> None:
+def test_only_the_tail_is_read_and_a_partial_first_line_is_skipped(
+    driver: types.ModuleType, tmp_path: pathlib.Path
+) -> None:
     """The event is the last line of a transcript that runs to megabytes. Seeking to the tail cuts
     the first line mid-JSON, which must be skipped rather than counted as corruption."""
     log = tmp_path / "claude.log"
@@ -374,7 +386,7 @@ def test_only_the_tail_is_read_and_a_partial_first_line_is_skipped(driver, tmp_p
     assert driver.final_result(log) == ("success", 7)
 
 
-def test_the_last_result_wins_over_an_earlier_one(driver, tmp_path) -> None:
+def test_the_last_result_wins_over_an_earlier_one(driver: types.ModuleType, tmp_path: pathlib.Path) -> None:
     """Reading backwards is what makes this the CLOSING event; a transcript that somehow carries
     two must report the one the run actually ended on."""
     log = tmp_path / "claude.log"

@@ -21,6 +21,7 @@ import importlib
 from typing import Any
 
 # The package re-exports each module's __all__.
+from hpcagent_bench import modules
 from hpcagent_bench.frameworks.benchmark import *  # noqa: F403
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework as NotSupportedByFramework
 from hpcagent_bench.frameworks.framework import *  # noqa: F403
@@ -57,7 +58,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 _EAGER_NAMES: frozenset[str] = frozenset(name for name in globals() if not name.startswith("_"))
 
 
-def __getattr__(name: str, eager_names: frozenset[str] = _EAGER_NAMES) -> Any:
+def __getattr__(name: str, eager_names: frozenset[str] = _EAGER_NAMES) -> Any:  # noqa: ANN401 -- PEP 562: a lazily exported class, or __all__
     """Resolve a lazily-exported backend name (PEP 562), then cache it in the module.
 
     ``__all__`` resolves here as well: a backend class's exact spelling (``TVMFramework``) is known
@@ -67,10 +68,12 @@ def __getattr__(name: str, eager_names: frozenset[str] = _EAGER_NAMES) -> Any:
         value: Any = sorted(eager_names | set(_LAZY_EXPORTS) | classes)
     elif name in _LAZY_EXPORTS:
         module = _LAZY_EXPORTS[name]
-        namespace = vars(importlib.import_module(f"{__name__}.{module}"))
-        if name not in namespace:  # never a KeyError: getattr(default)/hasattr absorb only AttributeError
+        backend = importlib.import_module(f"{__name__}.{module}")
+        if not modules.defines(
+            backend, name
+        ):  # never a KeyError: a module attribute lookup absorbs only AttributeError
             raise AttributeError(f"module {__name__!r} maps {name!r} to {module!r}, which does not define it")
-        value = namespace[name]
+        value = modules.member(backend, name)
     else:
         base = name.removesuffix("Framework").lower()
         if base == name.lower() or base not in framework_bases() or base_framework_class(base).__name__ != name:

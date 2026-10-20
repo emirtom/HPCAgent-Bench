@@ -59,6 +59,15 @@ runs:
         [ "${blas#/}" != "$blas" ] || { echo "::error::gcc cannot find libopenblas.so"; exit 1; }
         echo "OPENBLAS_DIR=$(dirname "$blas")" >> "$GITHUB_ENV"
 
+    # The PPA serves the GCC 16 debs slowly (13 min for ~350 MB on a bad day); the debs are cached and
+    # apt installs them from its archive, contacting the PPA only for the index.
+    - name: GCC 16 debs restore
+      id: gcc-debs
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/gcc-ppa-debs
+        key: gcc-ppa-debs-16-${{ runner.os }}-${{ runner.arch }}-v1
+
     - name: GNU toolchain matching the graded image (GCC 16)
       shell: bash
       run: |
@@ -82,11 +91,14 @@ runs:
           fi
           sleep $((attempt * 10))
         done
+        if compgen -G "$HOME/gcc-ppa-debs/*.deb" > /dev/null; then
+          sudo cp "$HOME"/gcc-ppa-debs/*.deb /var/cache/apt/archives/
+        fi
         # The PPA intermittently answers 503 or times out; apt keeps the debs it already fetched,
         # so a retry only downloads the missing ones.
         for attempt in 1 2 3 4 5; do
           sudo apt-get update
-          sudo apt-get install -y -o Acquire::Retries=5 "gcc-${GCC_MAJOR}" "g++-${GCC_MAJOR}" \
+          sudo apt-get install -y -o Acquire::Retries=5 -o APT::Keep-Downloaded-Packages=true "gcc-${GCC_MAJOR}" "g++-${GCC_MAJOR}" \
             "gfortran-${GCC_MAJOR}" "libstdc++-${GCC_MAJOR}-dev" && break
           if [ "$attempt" = 5 ]; then
             echo "::error::installing GCC ${GCC_MAJOR} from the PPA failed 5 times"
@@ -94,6 +106,8 @@ runs:
           fi
           sleep $((attempt * 30))
         done
+        mkdir -p "$HOME/gcc-ppa-debs"
+        cp /var/cache/apt/archives/*ppa*.deb "$HOME/gcc-ppa-debs/"
         # compilers.yaml, dace and CMake all name the drivers unversioned (dace falls back to `c++`).
         for driver in gcc g++ gfortran; do
           sudo ln -sf "/usr/bin/${driver}-${GCC_MAJOR}" "/usr/local/bin/${driver}"
@@ -104,6 +118,14 @@ runs:
         echo "CXX=/usr/local/bin/g++" >> "$GITHUB_ENV"
         gcc --version | head -1
         gfortran --version | head -1
+
+    - name: GCC 16 debs save
+      if: ${{ steps.gcc-debs.outputs.cache-hit != 'true' }}
+      continue-on-error: true
+      uses: actions/cache/save@v5
+      with:
+        path: ~/gcc-ppa-debs
+        key: gcc-ppa-debs-16-${{ runner.os }}-${{ runner.arch }}-v1
 
     - name: LLVM toolchain (clang / clang++ / flang / libomp)
       shell: bash

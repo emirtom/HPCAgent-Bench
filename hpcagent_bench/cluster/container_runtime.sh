@@ -146,6 +146,43 @@ agent_ro_binds() {
     esac
 }
 
+# plugin_binds -- every plugin folder (hpcagent_agent/plugins.py) as host:container, one per line: each one in the
+# repository's plugins/ and in the ``:``-separated HPCAGENT_BENCH_USER_PLUGIN_DIRS (a plugin, or a folder of them),
+# bound at PLUGIN_MOUNT/<folder name> in every role but the engines, so the agent serves the tools and the judge the
+# routes of the same plugins. Two plugins in folders of one name are refused.
+PLUGIN_MOUNT="/opt/hpcagent-bench-plugins"
+plugin_binds() {
+    local folder candidate name
+    local -A seen=()
+    local -a folders=("${HPCAGENT_BENCH_REPO}/plugins")
+    IFS=: read -r -a user_folders <<<"${HPCAGENT_BENCH_USER_PLUGIN_DIRS:-}"
+    folders+=("${user_folders[@]}")
+    for folder in "${folders[@]}"; do
+        [[ -n "${folder}" && -d "${folder}" ]] || continue
+        if [[ -f "${folder}/plugin.toml" ]]; then
+            set -- "${folder}"
+        else
+            set -- "${folder}"/*/
+        fi
+        for candidate in "$@"; do
+            candidate="${candidate%/}"
+            [[ -f "${candidate}/plugin.toml" ]] || continue
+            name="$(basename "${candidate}")"
+            if [[ -n "${seen[${name}]:-}" ]]; then
+                echo "plugin folder ${name} is both ${seen[${name}]} and ${candidate}" >&2
+                return 2
+            fi
+            seen[${name}]="${candidate}"
+            printf '%s:%s/%s\n' "$(realpath "${candidate}")" "${PLUGIN_MOUNT}" "${name}"
+        done
+    done
+}
+
+# plugin_dirs -- the container side of plugin_binds, ``:``-joined: what every role reads as HPCAGENT_BENCH_PLUGIN_DIRS.
+plugin_dirs() {
+    plugin_binds | cut -d: -f2 | paste -sd:
+}
+
 derived_edf() {
     # derived_edf <registered EDF name> <role tag> -- leaves in EDF_FILE a per-run COPY of that EDF
     # which also mounts the shared folder. An EDF is a static registered file, so a run-specific
@@ -206,6 +243,16 @@ derived_edf() {
         case "${role}" in
             agent* | vllm* | inference*) ;;
             *) printf '    "%s:%s",\n' "${HPCAGENT_BENCH_REPO}" "${JUDGE_PACKAGE_MOUNT}" ;;
+        esac
+        # The plugins, read-only for every role that runs benchmark code (an agent able to write a tool would change
+        # what the rest of its own job runs).
+        case "${role}" in
+            vllm* | inference*) ;;
+            *)
+                plugin_binds | while IFS= read -r plugin_bind; do
+                    printf '    "%s:ro",\n' "${plugin_bind}"
+                done
+                ;;
         esac
         case "${role}" in
             # The tools and the launch directory, read-only: an agent able to write either would
@@ -361,11 +408,15 @@ container_wrap() {
 # ${PWD}/materialize_shared.sh), and a checkout outside the filesystems the EDF was installed with is otherwise not
 # in the container. Refuses an EDF with no such mount.
 edf_with_checkout() {
-    local edf="$1" checkout="$2" out="$3"
+    local edf="$1" checkout="$2" out="$3" plugins="" bind
     grep -qE "\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\"" "${edf}" || {
         echo "edf_with_checkout: ${edf} mounts nothing at ${JUDGE_PACKAGE_MOUNT} (install_edfs.sh renders one that does)" >&2
         return 2
     }
-    sed -E "s|^([[:space:]]*)\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\",?|\1\"${checkout}:${JUDGE_PACKAGE_MOUNT}\",\n\1\"${checkout}:${checkout}\",|" \
+    # The plugins too: a step importing hpcagent_bench loads them from HPCAGENT_BENCH_PLUGIN_DIRS.
+    while IFS= read -r bind; do
+        plugins+="\\n\\1\"${bind}:ro\","
+    done < <(plugin_binds)
+    sed -E "s|^([[:space:]]*)\"[^\"]*:${JUDGE_PACKAGE_MOUNT}\",?|\1\"${checkout}:${JUDGE_PACKAGE_MOUNT}\",\n\1\"${checkout}:${checkout}\",${plugins}|" \
         "${edf}" >"${out}.tmp" && mv -f "${out}.tmp" "${out}"
 }

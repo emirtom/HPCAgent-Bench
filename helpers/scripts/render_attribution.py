@@ -18,14 +18,15 @@ then run ``--write``. Without it the script only checks, which is what the test 
 
 import argparse
 import dataclasses
+import enum
 import pathlib
 import sys
 from collections.abc import Iterable
-from enum import Enum
 from typing import Annotated
 
 import pydantic
 import yaml
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import paths
 
@@ -42,12 +43,12 @@ NOTICE_LIST_LIMIT = 40
 RULE = "=" * 100
 
 
-class Kind(Enum):
-    """How a kernel relates to its upstream."""
+class Kind(Coded):
+    """How a kernel relates to its upstream; spelled as a provenance line's ``kind``."""
 
-    DERIVED = "derived"
-    ALGORITHM = "algorithm"
-    ORIGINAL = "original"
+    DERIVED = enum.auto()
+    ALGORITHM = enum.auto()
+    ORIGINAL = enum.auto()
 
 
 def as_keys(raw: object) -> object:
@@ -173,7 +174,7 @@ def problems(entries: list[Provenance], registry: AttributionRegistry) -> list[s
             out.append(f"{entry.kernel}: unknown contributor {entry.contributor!r}")
         if (entry.kind is Kind.ORIGINAL) == bool(entry.upstreams):
             out.append(
-                f"{entry.kernel}: kind {entry.kind.value} {'must not' if entry.upstreams else 'must'} name an upstream"
+                f"{entry.kernel}: kind {entry.kind.text} {'must not' if entry.upstreams else 'must'} name an upstream"
             )
     out.extend(f"registry: upstream {key!r} is named by no kernel" for key in sorted(set(upstreams) - used))
     return out

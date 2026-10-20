@@ -13,7 +13,7 @@ case "$(uname -m)" in
         ;;
     x86_64)
         TARGET_ROLE=([agent]=judge-agent-cuda-x86_64 [judge]=judge-cuda-x86_64)
-        CUDA_ARCHS="${CUDA_ARCHS:-75,80,90,100,120}"
+        CUDA_ARCHS="${CUDA_ARCHS:-75,80,86,89,90,100,120}"
         ;;
     *) echo "judge-agent-cuda builds on aarch64 or x86_64, not $(uname -m)" >&2; return 2 ;;
 esac

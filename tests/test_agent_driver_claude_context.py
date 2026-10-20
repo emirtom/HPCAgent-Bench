@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The context window claude-code 2.1.197 is told about, and where it compacts inside it.
-
-Left alone the CLI never compacts: for a model it does not know it assumes a 200000 window,
-leaves proactive compaction off while that window's source is "auto", and waits for Anthropic's
-"prompt is too long" to compact reactively -- vLLM and SGLang say "maximum context length" instead,
-so an episode grows past the window and dies on the 400. agent_driver.claude_context_env
-names the window (CLAUDE_CODE_MAX_CONTEXT_TOKENS, CLAUDE_CODE_AUTO_COMPACT_WINDOW) and places the
-trigger (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).
-
-the limit L is min(served window, 262144) for every model; the reply reserve R is
-min(CLAUDE_CODE_MAX_OUTPUT_TOKENS, L // 8) and is exported as the reply cap; the trigger leaves R plus
-one turn of growth, round(0.12 * L), under L -- ~198k at 256k, ~99k at 128k. The window comes from
-keys every setup snapshot ALREADY carries -- CONTEXT_LENGTH and the engine's --context-length /
---max-model-len -- so a pending job picks the window up at start without being re-rendered.
-"""
+"""The context window claude-code is told about and where it compacts: L = min(served window, 262144), reply
+reserve R = min(max output, L // 8), trigger R + round(0.12 * L) below L, read from the setup's existing keys."""
 
 import math
 import pathlib
@@ -133,6 +120,22 @@ def test_claude_env_carries_the_context_variables_over_whatever_the_submitter_ex
     base = {"VLLM_EXTRA_ARGS": "--max-model-len 131072", "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "900000"}
     environment = driver.claude_env(context, base)
     assert {name: environment[name] for name in EXPECTED[131072]} == EXPECTED[131072]
+
+
+@pytest.mark.parametrize(("mode", "direct"), [("", True), ("direct", True), ("litellm", False)])
+def test_only_a_direct_llm_mode_points_claude_at_the_replica(
+    driver: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, mode: str, direct: bool
+) -> None:
+    """``AGENT_LLM_MODE`` (unset is direct) is read as an :class:`LlmMode`; through the proxy the launcher names
+    the endpoint, so the replica root must not override it, and a misspelled mode stops the launch."""
+    assert driver.LlmMode.texts() == ("direct", "litellm")
+    monkeypatch.setenv("AGENT_LLM_MODE", mode)
+    context = SimpleNamespace(replica_root="http://n0:8000", workdir=tmp_path)
+    environment = driver.claude_env(context, {})
+    assert (environment.get("ANTHROPIC_BASE_URL") == "http://n0:8000") is direct
+    monkeypatch.setenv("AGENT_LLM_MODE", "LiteLLM")
+    with pytest.raises(ValueError, match="one of direct, litellm"):
+        driver.claude_env(context, {})
 
 
 def test_the_argv_never_carries_autocompact_even_where_a_cli_would_accept_it(

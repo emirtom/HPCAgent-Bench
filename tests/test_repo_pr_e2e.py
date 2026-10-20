@@ -12,6 +12,7 @@ import pytest
 
 from hpcagent_bench import harbor
 from hpcagent_bench import harbor as A
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harbor_grade import DistributedGrade, HostGrade
 from hpcagent_bench.harness import repo_pr
 from hpcagent_bench.stats import score_rule
@@ -31,7 +32,7 @@ _SIZE_CAP = "128"
 
 def _repo(tmp_path: pathlib.Path) -> pathlib.Path:
     """Generate the gemm repo task and return its shipped ``repo/`` dir (seed committed on main)."""
-    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout="repo")
+    dirs = A.generate(str(tmp_path), selector=_KERNEL, layout=A.Layout.REPO)
     if not dirs:
         pytest.skip("no C translation for the seed -- repo layout skipped")
     return dirs[0] / "environment" / _KERNEL / "repo"
@@ -39,7 +40,7 @@ def _repo(tmp_path: pathlib.Path) -> pathlib.Path:
 
 def _grade(repo: pathlib.Path, speedup_min: float) -> HostGrade | DistributedGrade:
     src = repo / "src" / f"{_KERNEL}.c"
-    graded = harbor.grade(_KERNEL, "c", source=src.read_text(), repo_dir=str(repo), speedup_min=speedup_min, k=1)
+    graded = harbor.grade(_KERNEL, Language.C, source=src.read_text(), repo_dir=str(repo), speedup_min=speedup_min, k=1)
     assert graded.pr is not None and graded.accept_reason is not None, "a repo grade records the PR verdict"
     return graded
 

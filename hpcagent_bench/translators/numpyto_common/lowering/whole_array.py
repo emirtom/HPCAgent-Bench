@@ -94,7 +94,7 @@ def is_constructor_call(node: ast.Call) -> bool:
     }
 
 
-def normalise_shape(shape) -> tuple[str, ...]:
+def normalise_shape(shape: tuple[str, ...]) -> tuple[str, ...]:
     """Normalise shape tokens for structural comparison.
 
     Tokens like ``"H + 2"`` and ``"(H + 2)"`` denote the same extent
@@ -153,7 +153,7 @@ def is_bool_expr(node: ast.expr, local_dtypes: dict[str, str]) -> bool:
     return False
 
 
-def has_index_array(node: ast.Subscript, shape_table) -> bool:
+def has_index_array(node: ast.Subscript, shape_table: dict[str, tuple[str, ...]]) -> bool:
     """True when a Subscript uses at least one integer index-ARRAY index
     (advanced indexing) -- ``u2[q, r, s]`` with q/r/s in the shape table, or
     ``A[B[i]]``. Distinguishes a fancy gather (whole-array-expandable) from a
@@ -482,7 +482,9 @@ class WholeArrayAssignRewriter(ast.NodeTransformer):
                     plan.insert(0 if rhs_carries_index else len(plan), (it, const_or_name(extent)))
         return new_lead, plan
 
-    def expand_fancy_scatter_store(self, target: ast.Subscript, value: ast.expr, op) -> list[ast.stmt]:
+    def expand_fancy_scatter_store(
+        self, target: ast.Subscript, value: ast.expr, op: ast.operator | None
+    ) -> list[ast.stmt]:
         """Lower a fancy-index scatter store ``A[idx, c] (op)= rhs`` where one or
         more lead components CONTAIN an INDEX ARRAY (``idx``, or an expression
         over it like ``(idx + m) % n``) and the rest are scalars, into a
@@ -1093,7 +1095,7 @@ class WholeArrayAssignRewriter(ast.NodeTransformer):
                     f"through its 0/1 values would be a wrong answer"
                 )
 
-    def norm_(self, shape) -> tuple[str, ...]:
+    def norm_(self, shape: tuple[str, ...]) -> tuple[str, ...]:
         """Shape tokens with scalar-dim locals resolved, then folded -- the comparison form."""
         key = tuple(str(t) for t in shape)
         got = self._norm_memo.get(key)
@@ -1169,7 +1171,7 @@ class WholeArrayAssignRewriter(ast.NodeTransformer):
         return self.broadcastable_to(extent, target)
 
     @staticmethod
-    def broadcastable_to(shape, target_shape):
+    def broadcastable_to(shape: tuple[str, ...], target_shape: tuple[str, ...]) -> bool:
         """Numpy broadcast rule: align shapes right-to-left; each
         dim must match the target or be 1; missing dims are treated
         as 1."""

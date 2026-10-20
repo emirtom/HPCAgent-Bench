@@ -13,9 +13,16 @@ import pathlib
 import pandas as pd
 
 from hpcagent_bench import paths, studies, study_tags
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.stats import cost, population
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
 from hpcagent_bench.stats.figures import kernel_speedups, setup_names
+
+__all__ = [
+    "build_parser",
+    "draw",
+    "main",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,7 +99,9 @@ def draw(args: argparse.Namespace, card: cost.CostModel) -> None:
         observations = cost.priced(observations, card)
     baseline = args.baseline
     if baseline is None:
-        submitted = observations.loc[observations.row_kind == "submission"] if observations is not None else None
+        submitted = (
+            observations.loc[observations.row_kind == RowKind.SUBMISSION.text] if observations is not None else None
+        )
         baseline = (
             population.rows_denominator(submitted)
             if submitted is not None and not submitted.empty

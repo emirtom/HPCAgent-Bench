@@ -8,7 +8,9 @@ import subprocess
 
 import pytest
 
+
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 
 
 def test_every_entry_declares_what_the_tool_needs() -> None:
@@ -28,7 +30,7 @@ def test_openmp_never_leaks_in_through_cflags() -> None:
     """openblas.pc emits -fopenmp in its cflags. Letting that through would mean an agent can turn
     OpenMP on for its whole translation unit by requesting a library, which is the matrix's call."""
     for name in languages.load_libraries():
-        for lang in ("c", "cpp", "fortran"):
+        for lang in (Language.C, Language.CPP, Language.FORTRAN):
             compile_tokens, link_tokens = languages.library_tokens(name, lang)
             assert all(t.startswith("-I") for t in compile_tokens), (name, lang, compile_tokens)
             assert not any("openmp" in t for t in compile_tokens + link_tokens), (name, lang)
@@ -36,32 +38,32 @@ def test_openmp_never_leaks_in_through_cflags() -> None:
 
 def test_link_tokens_are_only_paths_names_and_rpath() -> None:
     for name in languages.load_libraries():
-        _compile, link = languages.library_tokens(name, "c")
+        _compile, link = languages.library_tokens(name, Language.C)
         for token in link:
             assert token.startswith(("-L", "-l", "-Wl,-rpath,")), (name, token)
 
 
 def test_language_gate_withholds_a_cpp_only_library() -> None:
     """tbb is C++ only; offering it to a C agent is a build error scored against the agent."""
-    assert languages.library_tokens("tbb", "c") == ((), ())
-    assert "tbb" not in languages.available_libraries("c")
-    assert "tbb" not in languages.available_libraries("fortran")
+    assert languages.library_tokens("tbb", Language.C) == ((), ())
+    assert "tbb" not in languages.available_libraries(Language.C)
+    assert "tbb" not in languages.available_libraries(Language.FORTRAN)
 
 
 def test_unknown_library_resolves_to_nothing() -> None:
-    assert languages.library_tokens("definitely-not-a-library", "c") == ((), ())
-    assert languages.library_build_flags("c", ["definitely-not-a-library"]) == ((), ())
+    assert languages.library_tokens("definitely-not-a-library", Language.C) == ((), ())
+    assert languages.library_build_flags(Language.C, ["definitely-not-a-library"]) == ((), ())
 
 
 def test_two_names_on_one_shared_object_do_not_duplicate_the_link() -> None:
     """blas and lapack are both openblas here; requesting both must not repeat -lopenblas."""
-    _compile, link = languages.library_build_flags("c", ["blas", "lapack"])
+    unused_compile, link = languages.library_build_flags(Language.C, ["blas", "lapack"])
     assert len(link) == len(set(link))
     assert sum(1 for t in link if t == "-lopenblas") <= 1
 
 
 def test_available_libraries_is_a_subset_of_the_table() -> None:
-    for lang in ("c", "cpp", "fortran"):
+    for lang in (Language.C, Language.CPP, Language.FORTRAN):
         assert set(languages.available_libraries(lang)) <= set(languages.load_libraries())
 
 
@@ -69,7 +71,7 @@ def test_rpath_accompanies_every_search_path() -> None:
     """Nothing here is on the loader path, so a -L without its rpath builds fine and fails to
     LOAD -- a runtime error with no visible cause."""
     for name in languages.load_libraries():
-        _compile, link = languages.library_tokens(name, "cpp")
+        _compile, link = languages.library_tokens(name, Language.CPP)
         for token in link:
             if token.startswith("-L"):
                 assert f"-Wl,-rpath,{token[2:]}" in link, (name, token)
@@ -79,9 +81,9 @@ def test_python_delivery_is_never_given_library_flags() -> None:
     """Python-delivered work (a module, triton, tvm) has no harness-owned link line; its own
     import system is the library mechanism, so a request there resolves to nothing."""
     for name in languages.load_libraries():
-        assert languages.library_tokens(name, "python") == ((), ())
-    assert languages.library_build_flags("python", ["blas", "lapack", "fftw"]) == ((), ())
-    assert languages.available_libraries("python") == ()
+        assert languages.library_tokens(name, Language.PYTHON) == ((), ())
+    assert languages.library_build_flags(Language.PYTHON, ["blas", "lapack", "fftw"]) == ((), ())
+    assert languages.available_libraries(Language.PYTHON) == ()
 
 
 def test_requests_are_gated_to_languages_the_harness_compiles() -> None:
@@ -156,15 +158,17 @@ def test_a_requested_library_actually_builds_links_and_loads(name: str, tmp_path
     library through the built object, which is the step that would catch it.
     """
     _header, decl, body, expected = LIBRARY_PROBES[name]
-    compile_tokens, link_tokens = languages.library_build_flags("c", [name])
+    compile_tokens, link_tokens = languages.library_build_flags(Language.C, [name])
     if not link_tokens:
         # Not offered here -- then it must be offered NOWHERE, or the task text could promise it.
-        assert name not in languages.available_libraries("c")
+        assert name not in languages.available_libraries(Language.C)
         return
     src = tmp_path / "probe.c"
     src.write_text(f"#include <stddef.h>\n{decl}\nint probe(void) {{ {body} }}\n")
     out = tmp_path / "libprobe.so"
-    commands = languages.build_shared_lib_commands("c", src, out, extra_compile=compile_tokens, extra_link=link_tokens)
+    commands = languages.build_shared_lib_commands(
+        Language.C, src, out, extra_compile=compile_tokens, extra_link=link_tokens
+    )
     failed, log = languages.run_build_commands(commands, tmp_path)
     assert not failed, f"{name} was offered but its build failed:\n{log}"
     assert out.exists(), f"{name} built without producing {out}"
@@ -214,12 +218,12 @@ def test_a_header_only_library_is_offered_without_link_tokens() -> None:
     /usr/include/eigen3, so advertising eigen without it promises a build that does not compile."""
     entry = languages.load_libraries()["eigen"]
     assert entry.header_only is True
-    compile_tokens, link_tokens = languages.library_tokens("eigen", "cpp")
+    compile_tokens, link_tokens = languages.library_tokens("eigen", Language.CPP)
     assert link_tokens == ()
     assert all(t.startswith("-I") for t in compile_tokens), compile_tokens
-    if languages.library_offered("eigen", "cpp"):
-        assert languages.library_compiles("cpp", compile_tokens, "Eigen/Dense")
-        assert "eigen" in languages.available_libraries("cpp")
+    if languages.library_offered("eigen", Language.CPP):
+        assert languages.library_compiles(Language.CPP, compile_tokens, "Eigen/Dense")
+        assert "eigen" in languages.available_libraries(Language.CPP)
 
 
 def test_header_only_availability_is_not_token_emptiness() -> None:
@@ -233,7 +237,7 @@ def test_header_only_availability_is_not_token_emptiness() -> None:
             if offered and languages.library_tokens(name, lang) == ((), ()):
                 return  # a header-only library offered with no tokens is reachable here
     # Nothing on this host exercises it; the language gate must still hold.
-    assert not languages.library_offered("eigen", "fortran")
+    assert not languages.library_offered("eigen", Language.FORTRAN)
 
 
 def test_one_catalog_name_may_resolve_several_pkg_config_modules() -> None:
@@ -249,9 +253,9 @@ def test_one_catalog_name_may_resolve_several_pkg_config_modules() -> None:
     assert entry.pkg == ("fftw3", "fftw3f")
     # A plain string entry still resolves to exactly one module -- the list form is additive.
     assert languages.load_libraries()["blas"].pkg == ("openblas",)
-    link_tokens = languages.library_tokens("fftw", "c")[1]
+    link_tokens = languages.library_tokens("fftw", Language.C)[1]
     if not link_tokens:
-        assert "fftw" not in languages.available_libraries("c")
+        assert "fftw" not in languages.available_libraries(Language.C)
         return
     linked = " ".join(link_tokens)
     assert "-lfftw3" in linked, (
@@ -274,7 +278,9 @@ def fake_mpi_prefix(root: pathlib.Path, mpich: bool) -> pathlib.Path:
     return lib
 
 
-def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(monkeypatch, tmp_path) -> None:
+def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """hipcc is not an MPI wrapper, so `mpi` hands it the wrapper's own include + link line; the
     judge image also ships Open MPI and Intel MPI, whose libmpi.so links just as clean, so a
     wrapper counts only when its -L holds libmpich.so -- and that -L comes first, with an rpath."""
@@ -288,7 +294,7 @@ def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(monkeypatch, tmp
     monkeypatch.setattr(languages, "library_links", lambda lang, tokens: True)
     languages.library_tokens.cache_clear()
     try:
-        got = languages.library_tokens("mpi", "hip")
+        got = languages.library_tokens("mpi", Language.HIP)
     finally:
         languages.library_tokens.cache_clear()
     assert got[0] == ("-I/mpich/include",)
@@ -297,7 +303,7 @@ def test_mpi_resolves_from_the_first_mpich_wrapper_like_findmpi(monkeypatch, tmp
     assert f"-L{ompi}" not in got[1]
 
 
-def test_no_mpich_wrapper_resolves_to_nothing(monkeypatch, tmp_path) -> None:
+def test_no_mpich_wrapper_resolves_to_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     ompi = fake_mpi_prefix(tmp_path / "openmpi", mpich=False)
     monkeypatch.setattr(languages, "mpi_wrapper_flags", lambda wrapper: (["-I/x"], [f"-L{ompi}", "-lmpi"]))
     assert languages.mpich_wrapper_flags(("mpicc.mpich", "mpicc")) == ([], [])
@@ -311,7 +317,7 @@ def test_libraries_yaml_has_no_duplicate_keys() -> None:
     class UniqueKeyLoader(yaml.SafeLoader):
         pass
 
-    def construct_mapping(loader, node, deep=False):
+    def construct_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False) -> dict[object, object]:
         keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
         duplicates = sorted({k for k in keys if keys.count(k) > 1})
         assert not duplicates, f"duplicate keys {duplicates} at line {node.start_mark.line + 1}"
@@ -321,7 +327,7 @@ def test_libraries_yaml_has_no_duplicate_keys() -> None:
     yaml.load(languages.LIBRARIES_YAML.read_text(), Loader=UniqueKeyLoader)  # noqa: S506 -- UniqueKeyLoader is a SafeLoader
 
 
-def test_mpi_without_its_wrapper_falls_back_to_pkg_config(monkeypatch) -> None:
+def test_mpi_without_its_wrapper_falls_back_to_pkg_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(languages, "mpi_wrapper_flags", lambda wrapper: ([], []))
     monkeypatch.setattr(languages, "library_links", lambda lang, tokens: True)
     answers = {"--cflags": ("-I/pc/include",), "--libs": ("-L/pc/lib", "-lmpi")}
@@ -330,7 +336,7 @@ def test_mpi_without_its_wrapper_falls_back_to_pkg_config(monkeypatch) -> None:
     )
     languages.library_tokens.cache_clear()
     try:
-        got = languages.library_tokens("mpi", "c")
+        got = languages.library_tokens("mpi", Language.C)
     finally:
         languages.library_tokens.cache_clear()
     assert got == (("-I/pc/include",), ("-L/pc/lib", "-lmpi", "-Wl,-rpath,/pc/lib"))
@@ -338,6 +344,6 @@ def test_mpi_without_its_wrapper_falls_back_to_pkg_config(monkeypatch) -> None:
 
 def test_mpi_and_rccl_are_requestable_by_a_hip_submission() -> None:
     libraries = languages.load_libraries()
-    assert "hip" in libraries["mpi"].langs
-    assert "hip" in libraries["rccl"].langs
+    assert Language.HIP in libraries["mpi"].langs
+    assert Language.HIP in libraries["rccl"].langs
     assert languages.toolset_link_tokens(libraries["rccl"].toolset) == ("-lrccl",)

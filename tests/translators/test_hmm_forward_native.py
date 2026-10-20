@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the hmm_forward kernel (graphical-models dwarf).
-
-The emitted kernel is compiled into a SINGLE translation unit with a self-checking
-driver embedding the HMM parameters (full repr precision) and the numpy-reference
-log-likelihood, then run; the driver checks within a float tolerance and exits
-nonzero on mismatch. Exercises the forward sum-product mat-vec + column gather.
-"""
+"""Standalone-TU e2e test for hmm_forward: the emitted kernel plus a self-checking driver embedding the HMM
+parameters and the numpy log-likelihood."""
 
 import importlib.util
 import sys
@@ -14,6 +9,7 @@ import tempfile
 
 import numpy as np
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.support.bindings.contract import index_base
 from tests.translators import native_tu as tu
 
@@ -94,7 +90,7 @@ program test_hmm_forward
     emit  = reshape([{tu.fortran_real_list(EMIT.ravel("C"))}], [M, K])
     init  = [{tu.fortran_real_list(INIT)}]
     trans = reshape([{tu.fortran_real_list(TRANS.ravel("C"))}], [K, K])
-    obs   = [{tu.fortran_int_list(OBS + index_base("fortran"))}]
+    obs   = [{tu.fortran_int_list(OBS + index_base(Language.FORTRAN))}]
     loglik = 0.0_c_double
     call hmm_forward_fp64(emit, init, loglik, obs, trans, K, M, T)
     if (abs(loglik(1) - ({WANT!r}_c_double)) > 1e-9_c_double + 1e-9_c_double * abs({WANT!r}_c_double)) then

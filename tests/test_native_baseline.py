@@ -1,24 +1,12 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Native (no-container) framework-baseline collection: the sweep path that measures a framework directly on
-the host and records ``canon`` rows, used to collect no-agent baselines (jax / dace / tvm / ...) to compare
-against.
-
-Two things are locked here:
-* the collection actually WRITES ``canon`` rows (validated, timed, with their hardware) when NumPy is
-  run against itself -- the leanest end-to-end smoke of the baseline path;
-* every row carries the ``execution`` provenance (``native`` by default, or whatever
-  ``record.execution`` / ``HPCAGENT_BENCH_RECORD_EXECUTION`` says) so a native number is
-  never silently compared against a containerized one.
-
-The per-kernel process isolation this path relies on (a crashing kernel is a scored
-failure, not a dead sweep) is covered by ``tests/test_forked.py``; the native AGENT
-run reuses the same primitive.
-"""
+"""Native (no-container) framework-baseline collection writes ``canon`` rows, each carrying its ``execution``
+provenance."""
 
 import pathlib
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.support.collect import canon_db
 
 KERNEL = "tsvc_2_s212"  # a small, fast-loading loop_level_reasoning kernel with a pure-NumPy reference
@@ -30,7 +18,7 @@ def run_numpy_baseline(short: str, workdir: pathlib.Path) -> list[dict[str, obje
     from hpcagent_bench.support.collect.sweep import CanonTarget, run_benchmark_sweep
 
     canon = CanonTarget(workdir / "canon.db", "baseline")
-    run_benchmark_sweep(short, "numpy", "S", True, 1, 120.0, "float64", canon)
+    run_benchmark_sweep(short, "numpy", Preset.S, True, 1, 120.0, "float64", canon)
     return canon_db.read(canon.db, run="baseline")
 
 

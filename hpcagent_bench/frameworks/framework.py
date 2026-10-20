@@ -17,10 +17,10 @@ from typing import (
 
 import numpy as np
 
-from hpcagent_bench import config, precision
+from hpcagent_bench import config, modules, precision
 from hpcagent_bench.columns import ALL_PRECISIONS, FRAMEWORKS, IEEE_PRECISIONS
 from hpcagent_bench.frameworks import Benchmark
-from hpcagent_bench.vocabulary import FRAMEWORK_ARCHS, FrameworkMeta, is_optimizer_adapter
+from hpcagent_bench.vocabulary import Arch, Column
 
 __all__ = [
     "ALL_PRECISIONS",
@@ -41,7 +41,6 @@ __all__ = [
     "DeviceStreamApi",
     "DtypePair",
     "Framework",
-    "FrameworkMeta",
     "KernelImpl",
     "KernelResult",
     "OutputValue",
@@ -293,6 +292,10 @@ class CallPlan:
         resolved.update({a: self._mutable[a] for a in self.output_args if a in self._mutable})
         return resolved
 
+    def bound(self) -> tuple[Sequence[ArgValue], dict[str, ArgValue]]:
+        """The ``(args, kwargs)`` :meth:`before_each` bound for the next :meth:`run`."""
+        return self._call
+
     def run(self) -> KernelResult:
         """One kernel call inside the timed bracket: invoke the impl and apply post_call (arguments are bound
         in :meth:`before_each`)."""
@@ -386,23 +389,16 @@ class TorchCudaEventTiming:
 
 def framework_flavors(base: str) -> list[str]:
     """The flat framework names that are flavors of ``base`` (e.g. "native" -> ["cc", "llvm", ...])."""
-    return [name for name, meta in FRAMEWORKS.entries.items() if meta["base"] == base]
+    return [name for name, column in FRAMEWORKS.entries.items() if column.base == base]
 
 
 def split_flavor(fname: str) -> tuple[str, str | None]:
-    """``"dace_cpu_parallel"`` -> ``("dace_cpu", "parallel")``; a column with no flavor -> ``(name, None)``.
-
-    One name on the command line, two DB columns (``framework`` groups every DaCe row, ``flavor`` names
-    the optimizer). The split is declared (``column`` + ``flavor``), never parsed from underscores;
-    :func:`check_flavor_registry` checks it composes back."""
-    meta = FRAMEWORKS.entries[fname]
-    flavor = meta.get("flavor")
-    if flavor is None:
+    """``"dace_cpu_parallel"`` -> ``("dace_cpu", "parallel")``; a column with no flavor -> ``(name, None)``. Declared
+    (``column`` + ``flavor``), never parsed from underscores."""
+    entry = FRAMEWORKS.entries[fname]
+    if entry.flavor is None or entry.column is None:  # Column refuses one without the other
         return fname, None
-    column = meta.get("column")
-    if column is None:  # unreachable: check_flavor_registry refuses a flavor without a column at import
-        raise KeyError(f"framework {fname!r} declares flavor {flavor!r} and no column")
-    return column, flavor
+    return entry.column, entry.flavor
 
 
 def check_flavor_registry() -> None:
@@ -410,19 +406,17 @@ def check_flavor_registry() -> None:
     ``flavor``, names a registered column, composes back into its name and runs on its column's ``arch``; a column
     named ``<backend>_<arch>`` declares that ``arch``, and a backend with such a column has no bare ``<backend>`` one;
     an autotuning (Agent) adapter is a flavor no deterministic sweep selects."""
-    for name, meta in FRAMEWORKS.entries.items():
-        flavor, column = meta.get("flavor"), meta.get("column")
-        if is_optimizer_adapter(meta["adapter"]) and (flavor is None or meta["sweep_deterministic"]):
+    for name, entry in FRAMEWORKS.entries.items():
+        flavor, column = entry.flavor, entry.column
+        if entry.optimizer and (flavor is None or entry.sweep_deterministic):
             raise KeyError(f"framework {name!r} runs as an optimizer, so it is a flavor no deterministic sweep selects")
-        if flavor is None and column is None:
+        if flavor is None or column is None:
             device = name.rpartition("_")[2]
-            if device in FRAMEWORK_ARCHS and device != meta["arch"]:
-                raise KeyError(f"framework {name!r} is named for {device} but runs on {meta['arch']}")
-            if any(f"{name}_{arch}" in FRAMEWORKS.entries for arch in FRAMEWORK_ARCHS):
+            if device in Arch.texts() and device != entry.arch.text:
+                raise KeyError(f"framework {name!r} is named for {device} but runs on {entry.arch.text}")
+            if any(f"{name}_{arch}" in FRAMEWORKS.entries for arch in Arch.texts()):
                 raise KeyError(f"framework {name!r} runs on one device of a two-device backend: name it {name}_<arch>")
             continue
-        if flavor is None or column is None:
-            raise KeyError(f"framework {name!r} declares only one of column/flavor; a flavor entry needs both")
         if column not in FRAMEWORKS.entries:
             raise KeyError(f"framework {name!r} names column {column!r}, which is not a registered framework")
         if name != f"{column}_{flavor}":
@@ -430,13 +424,15 @@ def check_flavor_registry() -> None:
                 f"framework {name!r} must be named {column}_{flavor} so the CLI name and the stored "
                 "(framework, flavor) pair cannot drift apart"
             )
-        if meta["arch"] != FRAMEWORKS.entries[column]["arch"]:
-            raise KeyError(f"framework {name!r} runs on {meta['arch']}, but its column {column!r} is the other device")
+        if entry.arch is not FRAMEWORKS.entries[column].arch:
+            raise KeyError(
+                f"framework {name!r} runs on {entry.arch.text}, but its column {column!r} is the other device"
+            )
 
 
 def framework_bases() -> tuple[str, ...]:
     """Every ``base`` registered in :data:`~hpcagent_bench.vocabulary.FRAMEWORKS`, in registry order."""
-    return tuple(dict.fromkeys(meta["base"] for meta in FRAMEWORKS.entries.values()))
+    return tuple(dict.fromkeys(column.base for column in FRAMEWORKS.entries.values()))
 
 
 def adapter_class(adapter: str) -> "type[Framework]":
@@ -451,7 +447,7 @@ def adapter_class(adapter: str) -> "type[Framework]":
         raise ModuleNotFoundError(
             f"adapter {adapter!r}: module {module_name} does not exist", name=module_name
         ) from exc
-    value = getattr(module, class_name, None)
+    value = modules.optional(module, class_name, type)
     if not (isinstance(value, type) and issubclass(value, Framework)):
         raise ImportError(
             f"adapter {adapter!r}: {module_name} defines no Framework subclass {class_name}", name=module_name
@@ -462,9 +458,7 @@ def adapter_class(adapter: str) -> "type[Framework]":
 def base_framework_class(base: str) -> "type[Framework]":
     """The adapter class every column of ``base`` shares (``tvm`` -> ``TVMFramework``)."""
     adapters = {
-        meta["adapter"]
-        for meta in FRAMEWORKS.entries.values()
-        if meta["base"] == base and not is_optimizer_adapter(meta["adapter"])
+        column.adapter for column in FRAMEWORKS.entries.values() if column.base == base and not column.optimizer
     }
     if len(adapters) != 1:
         raise KeyError(f"framework base {base!r} has Framework adapters {sorted(adapters)}; it needs exactly one")
@@ -476,16 +470,16 @@ def framework_class(fname: str) -> "type[Framework]":
     flavor runs as an optimizer instead, which is an error naming the command that runs it."""
     if fname not in FRAMEWORKS.entries:
         raise KeyError(f"unknown framework {fname!r}; known: {sorted(FRAMEWORKS.entries)}")
-    adapter = FRAMEWORKS.entries[fname]["adapter"]
-    if is_optimizer_adapter(adapter):
+    column = FRAMEWORKS.entries[fname]
+    if column.optimizer:
         raise ValueError(f"{fname} autotunes against the judge: run it as `hpcagent-bench agent {fname}`")
-    return adapter_class(adapter)
+    return adapter_class(column.adapter)
 
 
 def load_impl(bench: Benchmark, postfix: str) -> KernelImpl:
     """The kernel entry point ``func_name`` of ``bench``'s ``<module_name>_<postfix>.py``."""
     module_str = bench.impl_module(postfix)
-    impl: KernelImpl | None = vars(importlib.import_module(module_str)).get(bench.spec.func_name)
+    impl: KernelImpl | None = modules.optional_function(importlib.import_module(module_str), bench.spec.func_name)
     if impl is None:
         raise AttributeError(f"{module_str} defines no {bench.spec.func_name}")
     return impl
@@ -495,14 +489,14 @@ class Framework:
     """Base per-backend adapter with default implementations()/call_args()/timing hooks; used directly
     for the numpy flavor (:data:`~hpcagent_bench.vocabulary.FRAMEWORKS`)."""
 
-    __slots__ = ("fname", "info")
+    __slots__ = ("column", "fname")
 
     def __init__(self, fname: str) -> None:
         """Populate framework metadata from :data:`~hpcagent_bench.vocabulary.FRAMEWORKS`."""
         self.fname = fname
         if fname not in FRAMEWORKS.entries:
             raise KeyError(f"unknown framework {fname!r}; known: {sorted(FRAMEWORKS.entries)}")
-        self.info: FrameworkMeta = {"simple_name": fname, **FRAMEWORKS.entries[fname]}
+        self.column: Column = FRAMEWORKS.entries[fname]
 
     def imports(self) -> dict[str, ModuleType]:
         """Returns modules/methods needed for running a benchmark."""
@@ -544,7 +538,7 @@ class Framework:
         """Returns the framework's implementations for ``bench``."""
 
         self.ensure_impls(bench)
-        return [(load_impl(bench, self.info["postfix"]), "default")]
+        return [(load_impl(bench, self.column.postfix), "default")]
 
     def prepare(self, bench: Benchmark) -> None:
         """Fill what this framework caches for ``bench`` ahead of any run (the preparation job,
@@ -614,11 +608,8 @@ class Framework:
         return Timer(program)
 
     def synchronize_device(self) -> None:
-        """Block until the device is idle, so a host timer brackets this call's work only.
-
-        No-op on CPU. Event-timed frameworks (CuPy, the torch mixin) never reach this; a framework whose
-        device is not reachable through the project's device array module overrides it."""
-        if self.info.get("arch") != "gpu":
+        """Block until the device is idle, so a host timer brackets this call's work only (no-op on CPU)."""
+        if self.column.arch is not Arch.GPU:
             return
         device_array_module().cuda.stream.get_current_stream().synchronize()
 
@@ -678,13 +669,12 @@ def native_column_languages() -> dict[str, tuple[str, str]]:
     ``language`` is what it compiles (``native_runtime.FRAMEWORK_LANG``), ``emit_language`` the translator
     output its sources start from (``autogen.NATIVE_FRAMEWORKS``; defaults to ``language``)."""
     columns: dict[str, tuple[str, str]] = {}
-    for name, meta in FRAMEWORKS.entries.items():
-        if meta["base"] not in ("native", "pluto"):
+    for name, entry in FRAMEWORKS.entries.items():
+        if entry.base not in ("native", "pluto"):
             continue
-        language = meta.get("language")
-        if language is None:
+        if entry.language is None:
             raise KeyError(f"native framework {name!r} declares no language")
-        columns[name] = (meta.get("emit_language", language), language)
+        columns[name] = (entry.emit_language or entry.language, entry.language)
     return columns
 
 

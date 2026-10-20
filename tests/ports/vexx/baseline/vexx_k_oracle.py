@@ -134,7 +134,7 @@ def build_so() -> pathlib.Path | None:
     return shared_library(cxx, [CPP], ["-O3", "-std=c++20", "-fPIC", "-shared"], ["-lfftw3"])
 
 
-def _F(a, dt):
+def F(a: object, dt: type) -> np.ndarray | None:
     return np.asfortranarray(np.asarray(a, dtype=dt)) if a is not None else None
 
 
@@ -144,93 +144,93 @@ def _C(a: object, dt: type) -> np.ndarray | None:
     return np.ascontiguousarray(np.asarray(a, dtype=dt)) if a is not None else None
 
 
-def _p(a):
+def p(a: np.ndarray | None) -> ctypes.c_void_p:
     return a.ctypes.data_as(_VP) if a is not None else _VP(0)
 
 
 def vexx_k(
-    psi,
-    hpsi,
-    exxbuff,
-    x_occupation,
-    g,
-    nl,
-    nlm,
-    igk_exx,
-    index_xk,
-    index_xkq,
-    xk,
-    xkq_collect,
-    ibands,
-    nibands,
-    egrp_pairs,
-    all_start,
-    all_end,
-    iexx_istart,
-    iexx_iend,
-    becpsi,
-    becxx,
-    qgm,
-    ijtoh,
-    ofsbeta,
-    eigqts,
-    sfac,
-    vkb,
-    tabxx_box,
-    tabxx_qr,
-    ke,
-    exxalfa,
-    omega,
-    tpiba2,
-    exxdiv,
-    eps_qdiv,
-    gau_scrlen,
-    erf_scrlen,
-    erfc_scrlen,
-    yukawa,
-    eps_occ,
-    nqs,
-    n,
-    m,
-    npwx,
-    npol,
-    nrxxs,
-    ngm,
-    n1,
-    n2,
-    n3,
-    nbnd,
-    nat,
-    nh,
-    nkb,
-    max_pairs,
-    jblock,
-    negrp,
-    iexx_start,
-    my_egrp_id,
-    current_k,
-    current_ik,
-    okvan,
-    okpaw,
-    noncolin,
-    tqr,
-    gamma_only,
-    coulomb_fac_q=None,
-    qgm_q=None,
-    sf_q=None,
+    psi: np.ndarray,
+    hpsi: np.ndarray,
+    exxbuff: np.ndarray,
+    x_occupation: np.ndarray,
+    g: np.ndarray,
+    nl: np.ndarray,
+    nlm: np.ndarray,
+    igk_exx: np.ndarray,
+    index_xk: np.ndarray,
+    index_xkq: np.ndarray,
+    xk: np.ndarray,
+    xkq_collect: np.ndarray,
+    ibands: np.ndarray,
+    nibands: np.ndarray,
+    egrp_pairs: np.ndarray,
+    all_start: np.ndarray,
+    all_end: np.ndarray,
+    iexx_istart: np.ndarray,
+    iexx_iend: np.ndarray,
+    becpsi: np.ndarray,
+    becxx: np.ndarray,
+    qgm: np.ndarray,
+    ijtoh: np.ndarray,
+    ofsbeta: np.ndarray,
+    eigqts: np.ndarray,
+    sfac: np.ndarray,
+    vkb: np.ndarray,
+    tabxx_box: np.ndarray,
+    tabxx_qr: np.ndarray,
+    ke: np.ndarray,
+    exxalfa: float,
+    omega: float,
+    tpiba2: float,
+    exxdiv: float,
+    eps_qdiv: float,
+    gau_scrlen: float,
+    erf_scrlen: float,
+    erfc_scrlen: float,
+    yukawa: float,
+    eps_occ: float,
+    nqs: int,
+    n: int,
+    m: int,
+    npwx: int,
+    npol: int,
+    nrxxs: int,
+    ngm: int,
+    n1: int,
+    n2: int,
+    n3: int,
+    nbnd: int,
+    nat: int,
+    nh: int,
+    nkb: int,
+    max_pairs: int,
+    jblock: int,
+    negrp: int,
+    iexx_start: int,
+    my_egrp_id: int,
+    current_k: int,
+    current_ik: int,
+    okvan: bool,
+    okpaw: bool,
+    noncolin: bool,
+    tqr: bool,
+    gamma_only: bool,
+    coulomb_fac_q: np.ndarray | None = None,
+    qgm_q: np.ndarray | None = None,
+    sf_q: np.ndarray | None = None,
     x_gamma_extrapolation: bool = False,
     grid_factor: float = 1.0,
-    at=None,
+    at: np.ndarray | None = None,
     nq1: int = 1,
     nq2: int = 1,
     nq3: int = 1,
     eps_gcv: float = 1e-6,
     use_coulomb_vcut_ws: bool = False,
     use_coulomb_vcut_spheric: bool = False,
-    vcut_a=None,
+    vcut_a: np.ndarray | None = None,
     vcut_cutoff: float = 0.0,
-    vcut_corrected=None,
-):
+    vcut_corrected: np.ndarray | None = None,
+) -> np.ndarray:
     """C++-oracle vexx. Same contract as ``vexx_k_numpy.vexx_k``: accumulate
     Vx|psi> onto ``hpsi`` in place and return it."""
     so = build_so()
@@ -297,9 +297,9 @@ def vexx_k(
 
     has_cfq = coulomb_fac_q is not None
     cfq_f = _C(coulomb_fac_q, np.float64) if has_cfq else None
-    at_f = _F(at if at is not None else np.eye(3), np.float64)
-    vcut_a_f = _F(vcut_a if vcut_a is not None else np.eye(3), np.float64)
-    vcut_corr_f = _F(vcut_corrected, np.float64) if vcut_corrected is not None else None
+    at_f = F(at if at is not None else np.eye(3), np.float64)
+    vcut_a_f = F(vcut_a if vcut_a is not None else np.eye(3), np.float64)
+    vcut_corr_f = F(vcut_corrected, np.float64) if vcut_corrected is not None else None
     if vcut_corr_f is not None:
         vn1 = (vcut_corr_f.shape[0] - 1) // 2
         vn2 = (vcut_corr_f.shape[1] - 1) // 2
@@ -441,7 +441,7 @@ def vexx_k(
         xkq_all=xkq_all,
     )
     for k in _PTRS:
-        setattr(c, k, _p(P[k]))
+        setattr(c, k, p(P[k]))
 
     msg = ctypes.create_string_buffer(256)
     rc = lib.vexx_run(ctypes.byref(c), msg)

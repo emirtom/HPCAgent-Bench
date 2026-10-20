@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The distributed (MPI) prompt contract -- ``prompts.build_prompt`` for a
-``residency="distributed"`` task.
-
-``node_mode`` (single | multi, derived from residency) and ``scaling`` (strong | weak, from the
-mpi config) are first-class prompt knobs: a multi-node task renders ``sections/mpi.j2`` (the Sec. 12
-``kernel_mpi`` signature, the you-choose-it data distribution, the executable/mpi4py delivery, and
-the MPI timing + strong/weak sizing) INSTEAD of the single-node api/delivery/timing/fuzzing
-sections. The single-node prompt must be byte-unchanged (no MPI leak). Pure: no MPI launch.
-"""
+"""The distributed (MPI) prompt contract: a multi-node task renders ``sections/mpi.j2`` instead of the
+single-node sections, and the single-node prompt stays byte-unchanged. Pure: no MPI launch."""
 
 import json
 import re
@@ -16,6 +9,7 @@ import re
 from relayout.ops import Scheme
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness.mpi_descriptor import (
     AxisDist,
     Grid,
@@ -30,9 +24,10 @@ from hpcagent_bench.harness.torch_reference import graded_rank_counts
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub, mpi_symbol
+from hpcagent_bench.config import ScalingLaw
 
-DIST = Task(kernel="jacobi_2d", language="c", residency="distributed")
-HOST = Task(kernel="jacobi_2d", language="c", residency="host")
+DIST = Task(kernel="jacobi_2d", language=Language.C, residency=Residency.DISTRIBUTED)
+HOST = Task(kernel="jacobi_2d", language=Language.C, residency=Residency.HOST)
 
 
 def test_build_context_sets_node_mode_and_mpi_fields() -> None:
@@ -109,7 +104,7 @@ def test_single_node_prompt_unchanged_no_mpi_leak() -> None:
 
 
 def test_weak_scaling_framing() -> None:
-    config.set_override("mpi.mode", "weak")
+    config.set_override("mpi.mode", ScalingLaw.WEAK)
     try:
         p = build_prompt(DIST)
     finally:
@@ -122,7 +117,7 @@ def test_weak_scaling_framing() -> None:
 def test_python_distributed_prompt_builds_and_targets_python() -> None:
     # Regression: build_context eagerly builds the single-node call stub, which gen_call_stub
     # cannot emit for python -- it must be swallowed, not crash the multi-node prompt.
-    p = build_prompt(Task(kernel="jacobi_2d", language="python", residency="distributed"))
+    p = build_prompt(Task(kernel="jacobi_2d", language=Language.PYTHON, residency=Residency.DISTRIBUTED))
     assert '"language": "python"' in p
     assert '"requests":' in p
     assert "jacobi_2d_mpi" in p
@@ -262,7 +257,7 @@ def test_a_device_distributed_prompt_directs_rccl_to_every_setup() -> None:
     about the build, and an agent that hits it spends its single submission on an abort."""
     config.set_override("mpi.residency", "device")
     try:
-        p = build_prompt(Task(kernel="dist_softmax", language="hip", residency="distributed"))
+        p = build_prompt(Task(kernel="dist_softmax", language=Language.HIP, residency=Residency.DISTRIBUTED))
     finally:
         config.clear_override("mpi.residency")
     assert "Write your collectives with RCCL" in p
@@ -285,7 +280,7 @@ def test_the_prompt_never_names_a_rank_count_beyond_one_node() -> None:
     config.set_override("mpi.residency", "device")
     try:
         p = build_prompt(DIST)
-        ml = build_prompt(Task(kernel="dist_softmax", language="hip", residency="distributed"))
+        ml = build_prompt(Task(kernel="dist_softmax", language=Language.HIP, residency=Residency.DISTRIBUTED))
     finally:
         config.clear_override("mpi.rank_counts")
         config.clear_override("mpi.residency")
@@ -299,7 +294,7 @@ def test_ml_track_prompt_states_the_sweep_the_grader_actually_uses() -> None:
     ``ml.rank_counts``: ``metric.score_task_distributed`` and the prompt read the SAME
     ``graded_rank_counts``, so the single-submission sweep the agent is told is the one measured.
     Without this the bullet renders only when a setup sets ``mpi.rank_counts`` by hand."""
-    ml = Task(kernel="dist_softmax", language="c", residency="distributed")
+    ml = Task(kernel="dist_softmax", language=Language.C, residency=Residency.DISTRIBUTED)
     counts = graded_rank_counts(BenchSpec.load("dist_softmax"))
     assert counts == (1, 2, 4)  # the ml.rank_counts default (one node), not the empty mpi.rank_counts
     assert build_context(ml)["rank_counts"] == list(counts)
@@ -325,7 +320,7 @@ def ml_prompt(kernel: str = "dist_softmax") -> str:
     config.set_override("mpi.residency", "device")
     config.set_override("mpi.rank_counts", [1, 2, 4])
     try:
-        return build_prompt(Task(kernel=kernel, language="hip", residency="distributed"))
+        return build_prompt(Task(kernel=kernel, language=Language.HIP, residency=Residency.DISTRIBUTED))
     finally:
         config.clear_override("mpi.residency")
         config.clear_override("mpi.rank_counts")
@@ -417,7 +412,7 @@ def test_a_gpu_distributed_prompt_states_its_two_unit_delivery() -> None:
 
 def test_a_fortran_prompt_states_that_layout_dimensions_are_numpys_reversed() -> None:
     """Layout ops act in numpy's row-major index space; Fortran reverses the extents at codegen."""
-    fortran = build_prompt(Task(kernel="jacobi_2d", language="fortran", residency="distributed"))
+    fortran = build_prompt(Task(kernel="jacobi_2d", language=Language.FORTRAN, residency=Residency.DISTRIBUTED))
     assert "`A(N, M)` for numpy `A[M, N]`, so `dim` 0 is your LAST subscript" in fortran
     section = fortran[fortran.index("### Data distribution") : fortran.index("### Delivery")].rstrip()
     assert len(section.splitlines()) <= 40

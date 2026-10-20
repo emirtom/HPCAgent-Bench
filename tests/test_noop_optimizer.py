@@ -1,16 +1,17 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The no-op (identity) optimizer, verified + scored both submission ways.
-
-:class:`NoOpOptimizer` submits the NumpyToX reference unchanged. It needs no
-external library, so it is the canonical fixture for exercising the full harness
--- the tools client's verify/score endpoints, the in-judge C baseline, and BOTH
-source options (language + ABI) -- on a plain kernel.
-"""
+"""The no-op optimizer submits the NumpyToX reference unchanged, exercising verify/score, the in-judge C baseline
+and both source options."""
 
 import pathlib
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
+
+import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, SourceMode
+from hpcagent_bench.config import SubmitFeedback
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
@@ -20,18 +21,18 @@ from hpcagent_bench.harness.task import Task
 KERNEL = "gemm"
 
 
-def _cfg():
-    return ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2)
+def cfg() -> ServiceConfig:
+    return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2)
 
 
-def test_language_option(make_judge) -> None:
+def test_language_option(make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]) -> None:
     """restricted mode: the reference source, compiled by the judge."""
-    sub = NoOpOptimizer().solve(Task(KERNEL, "restricted", "c"))
+    sub = NoOpOptimizer().solve(Task(KERNEL, SourceMode.RESTRICTED, Language.C))
     assert sub.source is not None
     assert sub.library is None
 
-    _srv, url = make_judge(_cfg())
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    unused_srv, url = make_judge(cfg())
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer)
     assert r.build_ok is True, r.detail
@@ -40,19 +41,21 @@ def test_language_option(make_judge) -> None:
     assert r.speedup > 0.0
 
 
-def test_abi_option(make_judge, tmp_path, monkeypatch) -> None:
+def test_abi_option(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """any mode: the optimizer prebuilds the reference .so and submits it.
 
     Built INTO the shared folder (``workdir``), because a library named over HTTP is read from the
     one filesystem both containers see and the judge refuses any other path.
     """
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    sub = NoOpOptimizer(workdir=tmp_path).solve(Task(KERNEL, "any", "c"))
+    sub = NoOpOptimizer(workdir=tmp_path).solve(Task(KERNEL, SourceMode.ANY, Language.C))
     assert sub.library is not None
     assert sub.source is None
 
-    _srv, url = make_judge(_cfg())
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    unused_srv, url = make_judge(cfg())
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer)
     assert r.build_ok is True, r.detail
@@ -68,7 +71,7 @@ def test_abi_so_outlives_dropped_optimizer() -> None:
     temp-dir-tied-to-optimizer-GC footgun."""
     import gc
 
-    sub = NoOpOptimizer().solve(Task(KERNEL, "any", "c"))  # optimizer dropped here
+    sub = NoOpOptimizer().solve(Task(KERNEL, SourceMode.ANY, Language.C))  # optimizer dropped here
     gc.collect()  # force-collect the unreferenced optimizer
     assert sub.library, "the .so vanished with the optimizer"
     assert pathlib.Path(sub.library).exists(), "the .so vanished with the optimizer"

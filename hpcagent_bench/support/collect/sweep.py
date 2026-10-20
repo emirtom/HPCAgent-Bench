@@ -24,6 +24,7 @@ from typing import Any
 from relayout.sparse import SparseFormat
 
 from hpcagent_bench import config, osinfo, sizing
+from hpcagent_bench.categories import Baseline, Language, Preset
 from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 from hpcagent_bench.frameworks.forked import RunResult, forked_failure_reason, run_forked
 from hpcagent_bench.frameworks.utilities import MPI_LAUNCHER_VARS
@@ -33,7 +34,7 @@ from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.collect import canon_db
 from hpcagent_bench.support.helpers.sparse.abi import BLOCK_FORMAT, LayoutRefused
-from hpcagent_bench.vocabulary import FRAMEWORKS
+from hpcagent_bench.vocabulary import FRAMEWORKS, Arch
 
 __all__ = [
     "DETAIL_CHARS",
@@ -64,12 +65,8 @@ __all__ = [
 
 
 def drop_mpi_launcher_vars() -> list[str]:
-    """Unset the MPI launcher variables in this process; returns the names removed.
-
-    DaCe's parser calls ``ensure_mpi_initialized()`` at import unless none is set, and Slurm's pmix
-    exports ``PMIX_RANK`` for every step, so a forked per-kernel child would call ``MPI_Init`` under an
-    MPI-holding parent and deadlock (``MPI4PY_RC_INITIALIZE=0`` does not help). The framework sweep is
-    not an MPI program; the MPI residency never calls this."""
+    """Unset the MPI launcher variables in this process (a forked child of an MPI-holding parent would deadlock in
+    DaCe's ``MPI_Init``); returns the names removed. Never called on an MPI residency."""
     removed = [var for var in MPI_LAUNCHER_VARS if var in os.environ]
     for var in removed:
         del os.environ[var]
@@ -79,7 +76,7 @@ def drop_mpi_launcher_vars() -> list[str]:
 def run_one(
     benchname: str,
     framework_names: Sequence[str],
-    preset: str,
+    preset: Preset,
     validate: bool,
     repeat: int,
     timeout: float,
@@ -111,7 +108,7 @@ def run_one(
 def run_benchmark_sweep(
     kernel: str,
     framework: str,
-    preset: str,
+    preset: Preset,
     validate: bool,
     repeat: int,
     timeout: float,
@@ -149,14 +146,14 @@ def run_benchmark_sweep(
 
 
 def filter_out_completed_benchmarks(
-    canon: "CanonTarget", framework_name: str, preset: str, datatype: str, all_benchmarks: list[str]
+    canon: "CanonTarget", framework_name: str, preset: Preset, datatype: str, all_benchmarks: list[str]
 ) -> list[str]:
     """Drop the kernels ``canon`` already holds a validated row of ``framework_name`` for, at ``preset`` and
     ``datatype``, in its run; a kernel with no such row (absent, crashed, unvalidated) runs again."""
     done = {
         str(row["kernel"])
         for row in canon_db.read(canon.db, run=canon.run, column=framework_name)
-        if row["preset"] == preset and row["datatype"] == datatype and row["validated"] == 1
+        if row["preset"] == preset.text and row["datatype"] == datatype and row["validated"] == 1
     }
     remaining = [name for name in all_benchmarks if name not in done]
     print(
@@ -168,19 +165,13 @@ def filter_out_completed_benchmarks(
 def shard_names(
     names: list[str],
     shard: tuple[int, int],
-    preset: str | None = None,
+    preset: Preset | None = None,
     ranks_per_node: int | None = None,
     node_ram_bytes: int | None = None,
 ) -> list[str]:
-    """This rank's slice of ``names`` for ``shard=(index, count)``.
-
-    With a ``preset``: a cost-aware LPT bin-pack (:func:`sizing.pack_lpt`) on the preset's predicted
-    costs, deterministic so every rank computes the same partition (the results DB is keyed by
-    shard). Without one (or when no cost resolves): the ``names[index::total]`` stride.
-
-    ``ranks_per_node`` and ``node_ram_bytes`` (arguments: the harness cannot read the node count) make
-    a packing whose per-node working set overruns the budget a refusal. A manifest that fails to load
-    propagates, so the partition stays reproducible."""
+    """This rank's slice of ``names`` for ``shard=(index, count)``: a deterministic LPT bin-pack on ``preset``'s
+    predicted costs (:func:`sizing.pack_lpt`), else the ``names[index::total]`` stride. ``ranks_per_node`` and
+    ``node_ram_bytes`` refuse a packing that overruns a node."""
     index, total = shard
     if preset is None:
         return names[index::total]
@@ -191,7 +182,7 @@ def shard_names(
 def run_framework_sweep(
     kernel: str,
     framework: str,
-    preset: str,
+    preset: Preset,
     validate: bool,
     repeat: int,
     timeout: float,
@@ -287,9 +278,9 @@ class CanonTarget:
                     "run": self.run,
                     "build": self.build,
                     "node": node,
-                    "execution": execution,
+                    "execution": execution.text,
                     "cpu": cpu,
-                    "gpu": gpu if FRAMEWORKS.entries[str(row["column"])]["arch"] == "gpu" else "",
+                    "gpu": gpu if FRAMEWORKS.entries[str(row["column"])].arch is Arch.GPU else "",
                 }
                 for row in rows
             ],
@@ -309,11 +300,18 @@ def best_ms(native: Sequence[float] | None, python: Sequence[float] | None) -> f
 
 
 def sweep_rows(
-    benchname: str, framework_names: Sequence[str], preset: str, datatype: str, result: RunResult
+    benchname: str, framework_names: Sequence[str], preset: Preset, datatype: str, result: RunResult
 ) -> list[dict[str, object]]:
     """Canon rows for one ``run_forked(run_one, ...)`` outcome: one ``status=crash`` row per framework when
     the child died, else one row per reported (framework, impl) with its validation and timing."""
-    base = {"preset": preset, "datatype": datatype, "kernel": benchname, "validated": None, "failure": "", "error": ""}
+    base = {
+        "preset": preset.text,
+        "datatype": datatype,
+        "kernel": benchname,
+        "validated": None,
+        "failure": "",
+        "error": "",
+    }
     if not result.ok:
         why = forked_failure_reason(result)
         return [{**base, "column": name, "impl": "", "status": "crash", "error": why} for name in framework_names]
@@ -333,6 +331,9 @@ def sweep_rows(
                     "status": "ok",
                     "validated": None if "validated" not in timing else int(bool(timing["validated"])),
                     "median_ms": best_ms(timing.get("native"), timing.get("python")),
+                    "transform_time": timing.get("transform_time"),
+                    "codegen_time": timing.get("codegen_time"),
+                    "compile_time": timing.get("compile_time"),
                     "failure": timing.get("failure") or "",
                 }
             )
@@ -407,12 +408,8 @@ class SparseCase:
     elapsed_s: float = 0.0
 
 
-#: Outcomes of a :class:`SparseCase`. ``graded`` = the per-layout reference translation scored
-#: correct through the judge's own grading path; ``refused`` = the judge refuses the layout on this
-#: input (a padded format past its limit), as it would an agent's request. ``untranslated`` (the
-#: translators emit no reference for an offered layout), ``wrong`` and ``error`` fail the sweep, and
-#: so does ``judge-fault`` (the grade had no denominator or reference: nothing about the layout was
-#: checked).
+#: Outcomes of a :class:`SparseCase` that pass: ``graded`` (scored correct through the judge's path) and ``refused``
+#: (the judge refuses the layout on this input); ``untranslated``, ``wrong``, ``error`` and ``judge-fault`` fail.
 SPARSE_OK_STATUSES = frozenset({"graded", "refused"})
 
 
@@ -436,14 +433,14 @@ def layout_reference_source(spec: BenchSpec, fmt: str) -> str | None:
     from hpcagent_bench.emit_bridge import emit_kernel  # the translators: import on use
 
     kernel_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    symbol = binding_from_spec(spec, config=fmt).symbols["c"]
+    symbol = binding_from_spec(spec, config=fmt).symbols[Language.C]
     with tempfile.TemporaryDirectory() as tmp:
         rc = emit_kernel(spec, kernel_py, pathlib.Path(tmp), target="c", config=fmt)
         emitted = pathlib.Path(tmp) / f"{symbol}.c"
         return emitted.read_text() if rc == 0 and emitted.is_file() else None
 
 
-def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat: int, block_size: int) -> SparseCase:
+def grade_sparse_case(kernel: str, fmt: str, preset: Preset, datatype: str, repeat: int, block_size: int) -> SparseCase:
     """Grade ``kernel``'s ``fmt`` reference translation as a submission requesting ``fmt``, through
     :func:`hpcagent_bench.harness.scoring.score` (conversion, binding, build, run, grade)."""
     from hpcagent_bench.harness.envelope import Submission
@@ -458,14 +455,14 @@ def grade_sparse_case(kernel: str, fmt: str, preset: str, datatype: str, repeat:
     source = layout_reference_source(spec, fmt)
     if source is None:
         return SparseCase(kernel, label, "untranslated", "no reference translation for this layout")
-    submission = Submission(language="c", source=source, requests=Requests.of(sparse=formats))
-    task = Task(kernel, language="c")
+    submission = Submission(language=Language.C, source=source, requests=Requests.of(sparse=formats))
+    task = Task(kernel, language=Language.C)
     try:
         # A correctness sweep: the translation is sequential and naive, so no speed guillotine, and
         # one compiled denominator.
         with config.overridden("timeouts.guillotine_factor", 0):
             result = score(
-                submission, task, preset=preset, datatype=datatype, repeat=repeat, hidden=False, baseline="c"
+                submission, task, preset=preset, datatype=datatype, repeat=repeat, hidden=False, baseline=Baseline.C
             )
     except LayoutRefused as exc:
         return SparseCase(kernel, label, "refused", str(exc), time.monotonic() - started)
@@ -488,7 +485,7 @@ def print_sparse_summary(cases: Sequence[SparseCase], total_elapsed: float) -> N
 
 
 def run_sparse_sweep(
-    preset: str,
+    preset: Preset,
     datatype: str,
     repeat: int,
     benchmark_filter: Sequence[str] | None,

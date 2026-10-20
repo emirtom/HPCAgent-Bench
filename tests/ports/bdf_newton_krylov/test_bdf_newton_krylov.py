@@ -1,31 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Acceptance gates for the BDF/Newton/Krylov Brusselator solver.
+"""Acceptance gates for the BDF/Newton/Krylov Brusselator solver: order adaptation reaches order >= 3,
+Jacobian reuse engages, and (integration) the problem is stiff, checked against scipy's ``solve_ivp``.
 
-Three things a plain "it ran and produced numbers" check cannot see are graded here.
-
-ORDER ADAPTATION actually engages: a controller pinned at order 1 is backward Euler wearing a BDF
-label, and the variable-order machinery -- the whole point of this kernel over ``jfnk_bratu`` or
-``rk45_ensemble`` -- would be untested. ``test_order_adaptation_and_jacobian_reuse`` reads the
-returned order history and asserts it reaches order >= 3 and changes at least twice.
-
-JACOBIAN REUSE actually engages: the same test counts ``njev`` (the number of times the frozen
-reaction-Jacobian state is refreshed) against ``nsteps`` and asserts reuse, not "it happened to
-converge."
-
-STIFFNESS is real and GROWS with the grid: ``test_s_preset_clears_every_gate_and_the_stiffness_gap_grows_with_n``
-(``@pytest.mark.integration``, since it needs two grid sizes no single manifest preset expresses)
-runs ``scipy.integrate.solve_ivp``'s explicit RK45 at the kernel's own tolerance and shows it needs
->= 25x more steps than BDF at S, with the ratio growing between two grid sizes -- the alpha/h^2
-argument from the manifest's docstring, measured rather than asserted in prose.
-
-The independent path throughout is ``scipy.integrate.solve_ivp`` (``BDF``/``Radau`` for the
-solution cross-check, ``RK45`` for the stiffness ratio) called against the kernel's own
-``brusselator_rhs`` -- an external, separately implemented integrator, not a second copy of this
-file's math.
-
-    pytest tests/ports/bdf_newton_krylov/
-    pytest tests/ports/bdf_newton_krylov/ -m integration
+    pytest tests/ports/bdf_newton_krylov/ [-m integration]
 """
 
 import time
@@ -33,13 +11,13 @@ import types
 from pathlib import Path
 
 import numpy as np
-
-from hpcagent_bench.support.counter_generator import CounterGenerator
 import pytest
 from scipy.integrate import solve_ivp
 
 from hpcagent_bench import fuzz
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.support.counter_generator import CounterGenerator
 from tests.fresh_module import module_at
 
 _HERE = Path(__file__).resolve().parent
@@ -76,16 +54,16 @@ MIN_STIFFNESS_RATIO = 25.0
 
 
 @pytest.fixture(scope="module")
-def kernel():
+def kernel() -> types.ModuleType:
     return module_at(_BENCH / "bdf_newton_krylov_numpy.py")
 
 
 @pytest.fixture(scope="module")
-def initmod():
+def initmod() -> types.ModuleType:
     return module_at(_BENCH / "bdf_newton_krylov.py")
 
 
-def _initial_fields(N):
+def initial_fields(N: int) -> tuple[np.ndarray, np.ndarray]:
     # The initializer's own draw (CounterGenerator seed 0), so the gates run on the S preset's fields.
     rng = CounterGenerator(0)
     u = np.zeros((N, N), dtype=np.float64)
@@ -95,8 +73,15 @@ def _initial_fields(N):
     return u, v
 
 
-def _run(km, N, max_steps=MAX_STEPS, t_end=T_END, rtol=RTOL, atol=ATOL):
-    u, v = _initial_fields(N)
+def run(
+    km: types.ModuleType,
+    N: int,
+    max_steps: int = MAX_STEPS,
+    t_end: float = T_END,
+    rtol: float = RTOL,
+    atol: float = ATOL,
+) -> dict[str, float | np.ndarray]:
+    u, v = initial_fields(N)
     order_history = np.zeros((max_steps,), dtype=np.int64)
     diagnostics = np.zeros((3,), dtype=np.float64)
     km.bdf_newton_krylov(
@@ -129,12 +114,12 @@ def _run(km, N, max_steps=MAX_STEPS, t_end=T_END, rtol=RTOL, atol=ATOL):
     }
 
 
-def _rk45_step_count(km, N, rtol=RTOL, atol=ATOL, t_end=T_END):
+def rk45_step_count(km: types.ModuleType, N: int, rtol: float = RTOL, atol: float = ATOL, t_end: float = T_END) -> int:
     """Independent path: scipy's own explicit RK45 driver, over the kernel's brusselator_rhs."""
     h_grid = 1.0 / N
-    u0, v0 = _initial_fields(N)  # the start state _run gave the kernel
+    u0, v0 = initial_fields(N)  # the start state _run gave the kernel
 
-    def rhs_flat(t, y):
+    def rhs_flat(t: float, y: np.ndarray) -> np.ndarray:
         u = y[: N * N].reshape(N, N)
         v = y[N * N :].reshape(N, N)
         du = np.zeros((N, N))
@@ -148,14 +133,14 @@ def _rk45_step_count(km, N, rtol=RTOL, atol=ATOL, t_end=T_END):
     return sol.t.size
 
 
-def test_grid_edge_below_four_must_raise(initmod) -> None:
+def test_grid_edge_below_four_must_raise(initmod: types.ModuleType) -> None:
     """The oracle does not know a 2x2 grid has no interior for the Neumann stencil; initialize()
     has to."""
     with pytest.raises(ValueError, match="N must be"):
         initmod.initialize(3, MAX_STEPS)
 
 
-def test_max_steps_below_fifty_must_raise(initmod) -> None:
+def test_max_steps_below_fifty_must_raise(initmod: types.ModuleType) -> None:
     """A fuzz draw could hand initialize() an undersized order_history buffer; it must refuse
     rather than silently truncate the run."""
     with pytest.raises(ValueError, match="max_steps"):
@@ -197,7 +182,7 @@ def test_manifest_fuzz_ceiling_stays_tractable_for_the_numpy_oracle(
     oracle at XL=80 clears the 600s budget (243.4s, njev=15). A sane absolute cap guards against
     either preset creeping back up unnoticed."""
     spec = BenchSpec.load(_KEY)
-    n_max = spec.parameters[fuzz.FUZZED_PRESET]["N"][1]
+    n_max = spec.parameters[Preset.FUZZED.text]["N"][1]
     xl_n = spec.parameters["XL"]["N"]
     assert n_max == xl_n, f"fuzzed.N ceiling ({n_max}) must track XL ({xl_n}) exactly"
     assert n_max <= 200, f"fuzzed.N ceiling grew to {n_max} -- re-measure the numpy oracle's max-cell time"
@@ -238,11 +223,11 @@ def test_newton_tolerance_is_kept_separate_from_the_bdf_tolerance() -> None:
     assert NEWTON_RTOL <= RTOL * 1.0e-3, "newton_rtol must be tight relative to the BDF step tolerance"
 
 
-def test_order_adaptation_and_jacobian_reuse(kernel) -> None:
+def test_order_adaptation_and_jacobian_reuse(kernel: types.ModuleType) -> None:
     """Gates (a) and (b): order must reach >= 3 and change >= 2 times; njev must stay well below
     nsteps/20 (the Jacobian is reused, not refreshed on a schedule)."""
     N = 32
-    result = _run(kernel, N)
+    result = run(kernel, N)
     oh = result["order_history"]
     max_order_reached = int(oh.max())
     n_changes = int(np.sum(np.diff(oh) != 0))
@@ -266,17 +251,17 @@ def test_order_adaptation_and_jacobian_reuse(kernel) -> None:
     )
 
 
-def test_kernel_matches_independent_scipy_stiff_solve(kernel) -> None:
+def test_kernel_matches_independent_scipy_stiff_solve(kernel: types.ModuleType) -> None:
     """The kernel's own state at t_end, checked against scipy's BDF driver over the SAME
     brusselator_rhs -- an independently implemented variable-order BDF, not a second copy of this
     file's controller."""
     N = 8
-    result = _run(kernel, N)
+    result = run(kernel, N)
 
     h_grid = 1.0 / N
-    u0, v0 = _initial_fields(N)  # the start state _run gave the kernel
+    u0, v0 = initial_fields(N)  # the start state _run gave the kernel
 
-    def rhs_flat(t, y):
+    def rhs_flat(t: float, y: np.ndarray) -> np.ndarray:
         u = y[: N * N].reshape(N, N)
         v = y[N * N :].reshape(N, N)
         du = np.zeros((N, N))
@@ -299,7 +284,9 @@ def test_kernel_matches_independent_scipy_stiff_solve(kernel) -> None:
 
 
 @pytest.mark.integration
-def test_s_preset_clears_every_gate_and_the_stiffness_gap_grows_with_n(initmod, kernel) -> None:
+def test_s_preset_clears_every_gate_and_the_stiffness_gap_grows_with_n(
+    initmod: types.ModuleType, kernel: types.ModuleType
+) -> None:
     """Gates (a), (b) and (c) at S (N=64), plus the gap's growth from N=32.
 
     (c): explicit RK45 at S needs >= 25x more steps than BDF, and the ratio grows between two grid sizes --
@@ -310,16 +297,16 @@ def test_s_preset_clears_every_gate_and_the_stiffness_gap_grows_with_n(initmod, 
     preset, loaded as the harness would, clears the gates, not only the smaller grid the fast tests use.
     """
     u0, v0, _, _ = initmod.initialize(64, MAX_STEPS)
-    u_run, v_run = _initial_fields(64)
+    u_run, v_run = initial_fields(64)
     np.testing.assert_array_equal(u0, u_run, err_msg="the manifest's S-preset u is not the fields the gates run on")
     np.testing.assert_array_equal(v0, v_run, err_msg="the manifest's S-preset v is not the fields the gates run on")
 
     results = {}
     runs = {}
     for N in (32, 64):
-        bdf = _run(kernel, N)
+        bdf = run(kernel, N)
         runs[N] = bdf
-        rk45_steps = _rk45_step_count(kernel, N)
+        rk45_steps = rk45_step_count(kernel, N)
         ratio = rk45_steps / bdf["nsteps"]
         results[N] = (bdf["nsteps"], rk45_steps, ratio)
         print(

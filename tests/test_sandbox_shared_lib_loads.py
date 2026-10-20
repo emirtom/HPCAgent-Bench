@@ -1,25 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A submission that links a library it built itself into the shared folder must actually LOAD
-at grade time, not just compile.
-
-``Sandbox.build`` wires ``-Wl,-rpath,<shared>/lib`` (a run-time search path) beside
-``-L<shared>/lib`` (a compile-time one). Without it the workflow ``hpcagent_bench/harness/README.md``
-documents -- build a ``.so``, drop it in the shared folder, link with ``-L<shared>/lib -l<name>`` --
-produces an object that links clean and then fails ``dlopen``/``ctypes.CDLL`` with "cannot open
-shared object file", since ``/shared`` is a runtime bind mount and never on the image's baked-in
-``LD_LIBRARY_PATH``. Pinned through the real path, ``Sandbox.build``.
-
-The probe C source calls into the shared library's symbol (rather than merely declaring it) so the
-default ``--as-needed`` linker behaviour keeps the ``DT_NEEDED`` entry -- an unreferenced ``-l`` is
-dropped from the produced object entirely and would pass even without the rpath, proving nothing.
-"""
+"""A submission linking a library it built into the shared folder LOADS at grade time: ``Sandbox.build`` adds
+``-Wl,-rpath,<shared>/lib`` beside ``-L`` (the probe calls the library, so ``--as-needed`` keeps it)."""
 
 import ctypes
 import pathlib
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.sandbox import Sandbox
@@ -71,7 +60,7 @@ def test_a_self_built_library_in_the_shared_folder_loads_at_grade_time(
 
     spec = BenchSpec.load("gemm")
     binding = binding_from_spec(spec)
-    submission = Submission(language="c", source=_PROBE_C, build=["-lmylib"])
+    submission = Submission(language=Language.C, source=_PROBE_C, build=["-lmylib"])
     # The load must happen INSIDE the sandbox's lifetime: __exit__ cleans up the temp dir the
     # built .so lives in (the same throwaway root a real grade builds under), so loading it after
     # the `with` block would raise "cannot open shared object file" for a reason that has nothing

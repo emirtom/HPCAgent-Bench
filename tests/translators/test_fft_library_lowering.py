@@ -1,27 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Regression tests for the FFT_LIBRARY_MARKER lowering (fft_1d canon fix): a
-whole-array 1-D ``np.fft.fft``/``ifft`` renders as one ``fftw_plan_dft_1d`` call (O(N log N))
-instead of the naive O(N^2) loop, on C, C++ and Fortran.
-
-Two bugs blocked turning this on (both fixed in ``numpyto_common/lowering/`` and
-``numpyto_fortran/emit.py``, see ``numpyto_c/cli.py`` / ``numpyto_fortran/cli.py`` for the history):
-
-1. The hoisted result temp (``__cb<n> = np.fft.fft(x)``, spilled out of a larger expression or a
-   canonicalised ``y[:] = ...``) was malloc'd/declared REAL, not complex. The hoister tagged it
-   complex128 correctly, but ``fix_real_scalar_dtypes``'s real-narrowing pass saw only the temp's
-   ``__hpcagent_bench_zeros__()`` init as a "write" -- the FFTW_LIBRARY_MARKER call that actually
-   fills it is a bare ``Expr``, invisible to that pass's Assign/AugAssign walk -- and downgraded the
-   tag back to real, under-allocating the buffer by 2x.
-2. On Fortran, ``FortranRenameTemps`` strips every leading-underscore identifier (including a
-   Call's own ``func`` Name), so the marker's ``__fft_1d_library`` spelling never survived to the
-   ``emit_stmt`` check that dispatches to ``emit_fftw`` -- it fell through to a bogus bare-call
-   render instead of the FFTW3 plan/execute/destroy block.
-
-The first test below asserts the property directly (no compiler needed, always runs); the second
-emits + compiles + runs a forward-and-inverse round trip on c / cpp / fortran and compares against
-numpy, the way ``test_diag_fftfreq_einsum_ops.py`` does for its own ops.
-"""
+"""A whole-array 1-D ``np.fft.fft``/``ifft`` lowers to one FFTW plan call on C, C++ and Fortran: the hoisted
+result temp stays complex and the Fortran marker survives renaming; a round trip matches numpy."""
 
 import os
 import pathlib
@@ -31,6 +11,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.translators.numpyto_c.emit import emit_c
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
@@ -90,7 +71,7 @@ def test_fortran_emit_renders_the_fftw_block_not_a_bare_call() -> None:
 
 
 def fft_library_available(lang: str) -> bool:
-    return bool(languages.library_build_flags(lang, ["fftw"])[1])
+    return bool(languages.library_build_flags(Language.parse(lang), ["fftw"])[1])
 
 
 #: 8388608 (fft_1d's own "M" preset, 2**23): a standalone (non-pytest) ctypes call into this
@@ -145,10 +126,12 @@ def test_fftw_library_group_sits_after_the_objects_on_the_shared_backend_link_li
     under ``--as-needed`` -- the link reports success and the .so fails ``dlopen`` with
     ``undefined symbol: fftw_plan_dft_1d``, same failure mode BLAS hit (test_blas_link_order.py)."""
     ext = {"c": "k.c", "cpp": "k.cpp", "fortran": "k.f90"}[lang]
-    cmds = languages.build_kernel_lib_commands([(lang, tmp_path / ext)], tmp_path / "libk.so", build_dir=tmp_path)
+    cmds = languages.build_kernel_lib_commands(
+        [(Language.parse(lang), tmp_path / ext)], tmp_path / "libk.so", build_dir=tmp_path
+    )
     link = cmds[-1]
     last_obj = max(i for i, t in enumerate(link) if t.endswith(".o"))
-    fftw = languages.library_build_flags(lang, languages.FFT_LINKED_LIBRARIES)[1]
+    fftw = languages.library_build_flags(Language.parse(lang), languages.FFT_LINKED_LIBRARIES)[1]
     assert fftw, f"the {lang} build must resolve an FFTW library group at all"
     missing = [t for t in fftw if t not in link]
     assert not missing, f"FFTW tokens absent from the {lang} link line: {missing} not in {link}"
@@ -159,7 +142,7 @@ def test_the_shared_backend_compile_line_can_find_the_fftw_header(tmp_path: path
     """A ``-lfftw3`` on the link step is useless if ``<fftw3.h>`` never resolved at compile time."""
     src = tmp_path / "probe.c"
     src.write_text("#include <fftw3.h>\nvoid probe(void) { fftw_plan p; (void)p; }\n")
-    cmds = languages.build_kernel_lib_commands([("c", src)], tmp_path / "libprobe.so", build_dir=tmp_path)
+    cmds = languages.build_kernel_lib_commands([(Language.C, src)], tmp_path / "libprobe.so", build_dir=tmp_path)
     for cmd in cmds:
         r = subprocess.run(cmd, capture_output=True, text=True, check=False)
         assert r.returncode == 0, f"{' '.join(cmd)}\n{r.stderr[:800]}"

@@ -43,7 +43,7 @@ __all__ = [
 ]
 
 
-def const_(v: Any) -> ast.Constant:
+def const_(v: Any) -> ast.Constant:  # noqa: ANN401 -- any literal an ast.Constant holds, or a numpy scalar
     # numpy scalars (np.int64(0)) aren't Python int, so Fortran emit misclassifies
     # a size symbol built from one as REAL, and numpy 2.0's repr unparses it as
     # ``np.int64(0)``, breaking dace's sympy range parse. Coerce so every backend

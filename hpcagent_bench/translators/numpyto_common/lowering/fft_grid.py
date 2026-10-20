@@ -1,6 +1,7 @@
 """The flat-grid FFT idiom (reshape + fftn + reshape) lowered to materialised temporaries."""
 
 import ast
+from collections.abc import Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import expr_of, name_, numpy_attribute, store_
 from hpcagent_bench.translators.numpyto_common.lowering.calls import match_fft, match_reshape
@@ -36,7 +37,7 @@ class FftGridReshapeRewriter(ast.NodeTransformer):
         self.local_dtypes = local_dtypes
         self.counter = counter
 
-    def src_MC(self, src: ast.expr):
+    def src_MC(self, src: ast.expr) -> tuple[str, str, str] | None:
         """Resolve the FFT input expression to ``(name, M, C)`` -- a bare Name
         to reshape and its leading/trailing extents. Handles a 2-D Name, a 1-D
         Name (C=1), and ``X[:, None]`` of a 1-D Name (C=1). Else ``None``."""
@@ -60,7 +61,7 @@ class FftGridReshapeRewriter(ast.NodeTransformer):
             return src.value.id, shp[0], "1"
         return None
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         if len(node.targets) != 1:
             return node
@@ -103,7 +104,7 @@ class FftGridReshapeRewriter(ast.NodeTransformer):
         self.counter[0] += 3
         g, f, o = f"__fg{n}", f"__ff{n}", f"__fo{n}"
 
-        def tuple_(toks):
+        def tuple_(toks: Sequence[str]) -> ast.Tuple:
             return ast.Tuple(elts=[expr_of(t) for t in toks], ctx=ast.Load())
 
         reshape_g = ast.Assign(

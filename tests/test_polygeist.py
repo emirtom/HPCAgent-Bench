@@ -1,20 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Polygeist columns compile what cgeist + polygeist-opt made of the emitted scop, or they decline.
-
-The shim and entry-point tests pin the ABI glue without a toolchain: a descriptor stride that is wrong reads the
-wrong element and computes a plausible number, and a scalar passed through an unprototyped call is promoted
-(fp32 -> double) without a diagnostic. The end-to-end tests run the real pipeline through the harness and check
-every implementation against the compiled reference, each in a process of its own (the library maps LLVM's OpenMP runtime, and the
-GPU column needs HSA_XNACK set before HIP starts); they skip where the Polygeist tools are not on PATH (the judge
-image has them).
-"""
+"""The Polygeist columns compile cgeist + polygeist-opt's output or decline: the ABI shim without a toolchain,
+and end to end against the compiled reference where the tools are on PATH."""
 
 import pathlib
 
 import pytest
 
 from hpcagent_bench import polygeist_transform
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.translators.numpyto_c.bindings import BindingArg
@@ -99,7 +93,7 @@ def test_missing_tools_decline_instead_of_building_the_untransformed_source(
 def test_both_columns_build_from_the_polygeist_transform() -> None:
     """Routed by the column's ``transform``, never to the translator's own C."""
     for column in ("polygeist_cpu", "polygeist_gpu"):
-        assert native_runtime.FRAMEWORK_LANG[column] == "c"
+        assert native_runtime.FRAMEWORK_LANG[column] is Language.C
         assert native_runtime.FRAMEWORK_COMPILER[column].startswith("clang-polygeist")
 
 
@@ -108,7 +102,7 @@ def run_and_validate(framework: str, kernel: str) -> None:
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework
 
     test = Test(Benchmark(kernel), generate_framework(framework))
-    results = test.run(preset="S", validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
+    results = test.run(preset=Preset.S, validate=True, repeat=1, timeout=300.0, datatype="float64", ignore_errors=True)
     assert results, f"{framework}/{kernel}: no implementation ran"
     for impl, result in results.items():
         assert not result.get("failure"), f"{framework}/{kernel}/{impl}: {result.get('failure')}"

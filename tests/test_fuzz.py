@@ -5,6 +5,7 @@
 import pytest
 
 from hpcagent_bench import config, fuzz
+from hpcagent_bench.config import PerfMode, SizeDistribution
 
 # Validates the REAL size ranges/distributions -> opt out of the suite-wide small-size
 # cap (the autouse _cap_fuzz_sizes fixture in conftest). No speed cost: pure sampler.
@@ -125,7 +126,7 @@ def test_construct_cube_always_perfect_cube() -> None:
 _BIG = {"L": {"NI": 7000, "NJ": 8000}, "XL": {"NI": 12000, "NJ": 13000}}
 
 
-def test_apply_size_cap_explicit_arg_overrides_global(monkeypatch) -> None:
+def test_apply_size_cap_explicit_arg_overrides_global(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "5000")  # the global clamp
     capped = fuzz.resolve_ranges(_BIG, size_cap=256)  # an explicit arg wins over it
     # A range whose both ends exceed the cap keeps a sub-cap SPREAD (not a collapsed [256, 256]),
@@ -136,7 +137,7 @@ def test_apply_size_cap_explicit_arg_overrides_global(monkeypatch) -> None:
     assert glob["NI"] == [2500, 5000]
 
 
-def test_size_cap_keeps_distinct_dim_constraint_satisfiable(monkeypatch) -> None:
+def test_size_cap_keeps_distinct_dim_constraint_satisfiable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: an oversized range clamped to a single point makes `NI != NJ` unsatisfiable, which
     silently drops every fuzz cell. The sub-cap spread keeps it satisfiable."""
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "0")
@@ -147,14 +148,14 @@ def test_size_cap_keeps_distinct_dim_constraint_satisfiable(monkeypatch) -> None
     assert out["NI"] > 0
     # under the cap, a resample against a != constraint must find a draw (not exhaust + ValueError).
     resolved = fuzz._resolve_against(
-        _BIG, {}, seed=1, distribution="log_uniform", constraints=["NI != NJ"], size_cap=256
+        _BIG, {}, seed=1, distribution=SizeDistribution.LOG_UNIFORM, constraints=["NI != NJ"], size_cap=256
     )
     assert resolved["NI"] != resolved["NJ"]
     assert resolved["NI"] <= 256
     assert resolved["NJ"] <= 256
 
 
-def test_correctness_size_cap_bounds_only_the_correctness_fuzz(monkeypatch) -> None:
+def test_correctness_size_cap_bounds_only_the_correctness_fuzz(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP", "1024")
     # Stage-1 correctness fuzz shapes are clamped to the cap per dimension...
     for j in range(3):
@@ -167,7 +168,7 @@ def test_correctness_size_cap_bounds_only_the_correctness_fuzz(monkeypatch) -> N
     assert all(s["NI"] > 1024 for _, s in larges)
 
 
-def test_large_shapes_warns_when_all_seeds_dropped(caplog) -> None:
+def test_large_shapes_warns_when_all_seeds_dropped(caplog: pytest.LogCaptureFixture) -> None:
     """An over-constrained config yields zero timed shapes; that must be SURFACED
     (a WARNING naming the config), never silently returned as an empty list."""
     import logging
@@ -180,14 +181,14 @@ def test_large_shapes_warns_when_all_seeds_dropped(caplog) -> None:
     )
 
 
-def test_correctness_size_cap_off_leaves_fuzz_uncapped(monkeypatch) -> None:
+def test_correctness_size_cap_off_leaves_fuzz_uncapped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP", "0")  # 0 = legacy uncapped
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "0")  # and no global clamp either
     s = fuzz.fuzzed_shape(_BIG, 0)
     assert s["NI"] > 1024  # the full fuzz range, no correctness clamp
 
 
-def test_correctness_cap_respects_a_tighter_global(monkeypatch) -> None:
+def test_correctness_cap_respects_a_tighter_global(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP", "1024")
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "64")  # global is tighter -> bounds correctness too
     s = fuzz.fuzzed_shape(_BIG, 0)
@@ -195,7 +196,7 @@ def test_correctness_cap_respects_a_tighter_global(monkeypatch) -> None:
     assert s["NJ"] <= 64
 
 
-def test_sample_params_honors_size_cap(monkeypatch) -> None:
+def test_sample_params_honors_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     """sample_params (the microkernel/legacy correctness draw) accepts the correctness cap, so a
     correct-but-slow reference is not drawn a shape it cannot finish inside the timeout. Uncapped by
     default (the general sampler is unchanged)."""
@@ -270,7 +271,7 @@ def test_classed_large_shapes_never_perturb_a_declared_config_knob() -> None:
         assert sample["multrec_limit"] == 512
 
 
-def test_size_cap_does_not_clamp_a_declared_config_knob(monkeypatch) -> None:
+def test_size_cap_does_not_clamp_a_declared_config_knob(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "10")  # far below multrec_limit's 512
     capped = fuzz.resolve_ranges(CONFIG_AND_DIM_PARAMS, config_names=CONFIG_NAMES)
     assert capped["multrec_limit"] == 512  # exempt from the size cap entirely
@@ -287,7 +288,7 @@ def test_large_shapes_are_distinct_on_a_narrow_integer_domain() -> None:
 
     Uniform draws over six integers collide for most seed sets (the public seeds gave N = 17, 18,
     17, 17), and the geomean over cells then double-weights the repeated shape."""
-    shapes = fuzz.large_shapes(NARROW_DOMAIN, mode="all_configs_3shapes", n=4)
+    shapes = fuzz.large_shapes(NARROW_DOMAIN, mode=PerfMode.ALL_CONFIGS_3SHAPES, n=4)
     values = [s["N"] for _, s in shapes]
     assert len(values) == 4, values
     assert len(set(values)) == 4, values
@@ -297,13 +298,13 @@ def test_large_shapes_are_distinct_on_a_narrow_integer_domain() -> None:
 def test_large_shapes_keep_every_first_draw_that_was_already_distinct() -> None:
     """Deduplication only replaces a repeat: each seed's first distinct draw is unchanged, so a
     kernel whose timed shapes never collided keeps exactly the inputs it was timed on."""
-    shapes = fuzz.large_shapes(_BIG, mode="all_configs_3shapes", n=4)
+    shapes = fuzz.large_shapes(_BIG, mode=PerfMode.ALL_CONFIGS_3SHAPES, n=4)
     big_spec = fuzz.respec_ranges(
         _BIG, fuzz.resolve_ranges(_BIG), lambda lo, hi: [int(lo) + (int(hi) - int(lo)) // 2, int(hi)]
     )
     seeds = fuzz._public_large_seeds(4)
     first = [
-        fuzz._resolve_against(big_spec, {}, sd, "uniform", None, size_class=size_class)
+        fuzz._resolve_against(big_spec, {}, sd, SizeDistribution.UNIFORM, None, size_class=size_class)
         for sd, size_class in zip(seeds, fuzz.SIZE_CLASSES, strict=True)
     ]
     assert len({tuple(sorted(s.items())) for s in first}) == 4  # premise: no collision here
@@ -314,5 +315,5 @@ def test_large_shapes_keep_the_repeat_when_the_domain_has_one_point() -> None:
     """A pinned domain (one downloaded matrix) cannot yield distinct shapes; it keeps the n
     repeats it always timed rather than dropping cells."""
     pinned = {"S": {"N": 7}, "fuzzed": {"N": {"set": [7]}}}
-    shapes = fuzz.large_shapes(pinned, mode="all_configs_3shapes", n=3)
+    shapes = fuzz.large_shapes(pinned, mode=PerfMode.ALL_CONFIGS_3SHAPES, n=3)
     assert [s["N"] for _, s in shapes] == [7, 7, 7]

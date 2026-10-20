@@ -1,18 +1,15 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The timed inputs: input ``i`` pairs round-robin with config ``i % #configs`` and draws every free
-size dimension in ``fuzz.SIZE_CLASSES[i % 4]`` (``metric._timed_cells``).
-
-The prompt promises "each [timed shape] paired with one configuration": with 2 configs and 4 timed
-inputs both branches are timed twice, all four size classes are timed once, and the whole set is a
-function of the seed alone."""
+"""Timed input ``i`` pairs with config ``i % #configs`` and size class ``fuzz.SIZE_CLASSES[i % 4]``
+(``metric._timed_cells``), as a function of the seed alone."""
 
 from pathlib import Path
 
 import pytest
 
-from hpcagent_bench import config, fuzz
+from hpcagent_bench import config, fuzz, modules
 from hpcagent_bench.harness import metric
+from hpcagent_bench.config import PerfMode
 
 pytestmark = pytest.mark.real_fuzz  # the suite's size cap would pull the draws out of the upper half
 
@@ -30,7 +27,9 @@ FREE = ("N", "M", "P")
 def timed(seed: int, constraints: tuple[str, ...] = ()) -> list[dict[str, int]]:
     """The params of the 4 timed cells drawn off the judge-only ``seed``, after checking their labels."""
     with config.overridden("perf.n_large_shapes", 4):
-        cells = metric._timed_cells(PARAMETERS, CONFIGS, constraints, "secret_3shapes", CONFIG_NAMES, secret_seed=seed)
+        cells = metric._timed_cells(
+            PARAMETERS, CONFIGS, constraints, PerfMode.SECRET_3SHAPES, CONFIG_NAMES, secret_seed=seed
+        )
     assert [cell["label"] for cell in cells] == ["cfg0:secret0", "cfg1:secret1", "cfg0:secret2", "cfg1:secret3"]
     return [{name: int(value) for name, value in dict(cell["params"]).items()} for cell in cells]  # type: ignore[arg-type]
 
@@ -69,8 +68,8 @@ def test_snap_to_class_takes_the_nearest_member_or_none() -> None:
 
 
 def test_no_edge_probe_code_remains() -> None:
-    assert not hasattr(fuzz, "edge_shapes")
-    assert not hasattr(fuzz, "EDGE_VALUES")
+    assert not modules.defines(fuzz, "edge_shapes")
+    assert not modules.defines(fuzz, "EDGE_VALUES")
     package = Path(fuzz.__file__).parent
     assert not [p for p in package.rglob("*.py") if "edge_shapes" in p.read_text(encoding="utf-8")]
 

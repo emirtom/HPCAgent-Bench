@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The opt-in ``noise`` input distribution (``support/distributions/noise.py``).
-
-It multiplies float inputs by ``1 + eps * u``, ``u`` the counter generator's uniform in ``[-1, 1)``. These tests pin
-what makes it safe to offer: it is never applied unless selected, it leaves integer, index and structural arrays
-alone, it is deterministic per seed and distinct across seeds and arrays, it keeps zeros, signs and ranges, its
-default step per format is as documented, and it reaches the arrays of a declarative kernel and of a custom
-initializer alike.
-"""
+"""The opt-in ``noise`` input distribution (``1 + eps * u``): never applied unless selected, float arrays only,
+deterministic per seed, zero/sign/range-preserving, reaching declarative and custom initializers."""
 
 import math
 
@@ -17,11 +11,12 @@ import pytest
 from numpy.typing import DTypeLike
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.precision import Precision
 from hpcagent_bench.support import distributions
-from hpcagent_bench.support.distributions import noise
 from hpcagent_bench.support.counter_generator import CounterGenerator
+from hpcagent_bench.support.distributions import noise
 
 GATHER = "loop_level_reasoning/ext_gather_load/ext_gather_load"
 GRAUPEL = "scientific_computing/structured_grids/aes_graupel/aes_graupel"
@@ -105,9 +100,9 @@ def test_the_registered_distribution_draws_its_base_and_perturbs_it_from_the_arr
 def test_apply_to_inputs_leaves_index_and_integer_arrays_and_scalars_alone() -> None:
     kernel = Benchmark(GATHER)
     with config.overridden("inputs.noise", False):
-        plain = kernel.get_data("S", datatype="float64", input_seed=1)
+        plain = kernel.get_data(Preset.S, datatype="float64", input_seed=1)
     with config.overridden("inputs.noise", True):
-        noisy = Benchmark(GATHER).get_data("S", datatype="float64", input_seed=1)
+        noisy = Benchmark(GATHER).get_data(Preset.S, datatype="float64", input_seed=1)
     assert not np.array_equal(plain["src"], noisy["src"])
     assert np.abs(relative_error(noisy["src"], plain["src"])).max() < 1.1e-6
     assert noisy["idx"].dtype.kind == "i"
@@ -118,10 +113,10 @@ def test_apply_to_inputs_leaves_index_and_integer_arrays_and_scalars_alone() -> 
 def test_the_noise_reaches_a_custom_initializers_arrays_and_follows_the_seed() -> None:
     names = ("t", "qv", "p")
     with config.overridden("inputs.noise", False):
-        plain = Benchmark(GRAUPEL).get_data("S", datatype="float64", input_seed=0)
+        plain = Benchmark(GRAUPEL).get_data(Preset.S, datatype="float64", input_seed=0)
     with config.overridden("inputs.noise", True):
-        first = Benchmark(GRAUPEL).get_data("S", datatype="float64", input_seed=0)
-        other = Benchmark(GRAUPEL).get_data("S", datatype="float64", input_seed=1)
+        first = Benchmark(GRAUPEL).get_data(Preset.S, datatype="float64", input_seed=0)
+        other = Benchmark(GRAUPEL).get_data(Preset.S, datatype="float64", input_seed=1)
     for name in names:
         assert not np.array_equal(plain[name], first[name])
         assert np.abs(relative_error(first[name], plain[name])).max() < 1.1e-6
@@ -133,9 +128,9 @@ def test_the_noise_reaches_a_custom_initializers_arrays_and_follows_the_seed() -
 
 def test_eps_from_the_configuration_overrides_the_default() -> None:
     with config.overridden("inputs.noise", True), config.overridden("inputs.noise_eps", 1e-3):
-        noisy = Benchmark(GATHER).get_data("S", datatype="float64", input_seed=1)
+        noisy = Benchmark(GATHER).get_data(Preset.S, datatype="float64", input_seed=1)
     with config.overridden("inputs.noise", False):
-        plain = Benchmark(GATHER).get_data("S", datatype="float64", input_seed=1)
+        plain = Benchmark(GATHER).get_data(Preset.S, datatype="float64", input_seed=1)
     peak = np.abs(relative_error(noisy["src"], plain["src"])).max()
     assert 5e-4 < peak <= 1.0e-3 * (1 + 1e-9)
 

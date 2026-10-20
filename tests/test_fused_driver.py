@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A fused owed wave's AGENT side: each worker runs exactly as a single-setup job of its setup would.
-
-The fused driver hands every problem to a child driver whose environment is the job's with the
-problem's setup overlay applied (agent_driver.fused_child_env), and whose staged material is its
-setup's own root under the shared mount (``<shared>/setups/<setup>``, presented at the shared mount
-by the seal). Pinned here:
-
-* GOLDEN: the argv, the environment, the rendered prompt, the MCP config and the cost record of a
-  fused worker are those of the same kernel in a single-setup job -- up to the three fused-only
-  variables and the material path the seal maps back onto the shared mount.
-* BUDGET: each worker is told, and held to, its OWN setup's token and wall-clock budget.
-* ISOLATION: a control worker's view holds none of another setup's staged skills or CPF material,
-  and its MCP server lists no tool its setup does not declare -- even when the job env carries one.
-"""
+"""A fused owed wave's AGENT side: each worker runs exactly as in a single-setup job of its setup (golden argv,
+env, prompt, MCP config, cost record), held to its own budget and isolated from other setups' material."""
 
 import fcntl
 import json
@@ -21,23 +9,25 @@ import os
 import pathlib
 import shutil
 import subprocess
-import sys
 from types import ModuleType, SimpleNamespace
 from typing import NamedTuple
 
 import pytest
+from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import fused
 from hpcagent_bench.paths import ROOT
 from tests.fresh_module import fresh
+from tests.mcp_stdio import served_tools
+from tests.mcp_stdio import tool_names as stdio_tool_names
 
 REPO = ROOT
 GOLDEN = REPO / "tests" / "fixtures" / "claude_driver_golden"
-MCP_SERVER = REPO / "agent" / "hpcagent_agent" / "tools" / "mcp_server.py"
 KERNEL = "loop_level_reasoning/argmax_value/argmax_value"
 STEM = KERNEL.rsplit("/", 1)[-1]
 PROBLEM_INDEX = 3
-CPF_TOOL_SWITCH = "HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR"
+#: The env that carries a packet's MCP tools to the server (``hpcagent_bench.packets.PACKET_TOOLS_ENV``).
+CPF_TOOL_SWITCH = "HPCAGENT_BENCH_PACKET_TOOLS"
 
 #: What every setup of the wave shares: the job env of a qwen38 claude job.
 JOB_ENV = {
@@ -78,7 +68,7 @@ SETUPS = {
 }
 #: The per-problem keys any setup sets, plus the packet switches (the CPF view, the method packet): a setup
 #: that does not set one UNSETS it for its worker.
-OWNED = sorted({key for env in SETUPS.values() for key in env} | {CPF_TOOL_SWITCH, "AGENT_PACKET"})
+OWNED = sorted({key for env in SETUPS.values() for key in env} | {CPF_TOOL_SWITCH, "AGENT_METHOD"})
 FUSED_ONLY = ("HPCAGENT_BENCH_WORKER_TOKEN", "HPCAGENT_BENCH_MATERIAL_DIR", "HPCAGENT_BENCH_START_GATE_DIR")
 
 
@@ -139,7 +129,9 @@ def run_worker(tmp_path: pathlib.Path, environment: dict[str, str], problem: dic
         transcript = (GOLDEN / "logs" / "success.jsonl").read_text(encoding="utf-8")
         seen: list[tuple[list[str], dict[str, str]]] = []
 
-        def spawn(command, cwd, env, stdout, stderr):  # the Popen signature
+        def spawn(
+            command: list[str], cwd: pathlib.Path, env: dict[str, str], stdout: object, stderr: object
+        ) -> object:  # the Popen signature
             seen.append((list(command), dict(env)))
             stdout.write(transcript)
             stdout.flush()
@@ -226,6 +218,15 @@ def without_material(argv: list[str], material: str, shared: str) -> list[str]:
     return out
 
 
+def masked_tokens(mcp_config: str) -> str:
+    """``mcp_config`` with each episode token replaced by a placeholder (it must be present)."""
+    config = json.loads(mcp_config)
+    for server in config["mcpServers"].values():
+        assert server["env"].pop(http_json.EPISODE_TOKEN_ENV)
+        server["env"][http_json.EPISODE_TOKEN_ENV] = "<token>"
+    return json.dumps(config, sort_keys=True)
+
+
 @pytest.mark.parametrize("setup", sorted(SETUPS))
 def test_a_fused_worker_is_launched_exactly_as_its_single_setup_job_launches_it(
     setup: str, tmp_path: pathlib.Path
@@ -236,14 +237,17 @@ def test_a_fused_worker_is_launched_exactly_as_its_single_setup_job_launches_it(
     shared = f"{fused_root}/mnt/shared"
     material = f"{shared}/setups/{setup}"
     assert fused_run.prompt.replace(fused_root, single_root) == single.prompt
-    assert fused_run.mcp.replace(fused_root, single_root) == single.mcp
+    # Each job's drivers issue episode tokens under their own run's secret: the same shape, another value.
+    assert masked_tokens(fused_run.mcp.replace(fused_root, single_root)) == masked_tokens(single.mcp)
     fused_env = {key: value.replace(fused_root, single_root) for key, value in fused_run.env.items()}
     assert {key: fused_env.pop(key, None) for key in FUSED_ONLY} == {
         "HPCAGENT_BENCH_WORKER_TOKEN": "secret",
         "HPCAGENT_BENCH_MATERIAL_DIR": material.replace(fused_root, single_root),
         "HPCAGENT_BENCH_START_GATE_DIR": f"{single_root}/gate",
     }
-    assert fused_env == single.env
+    single_env = dict(single.env)
+    assert fused_env.pop(http_json.EPISODE_TOKEN_ENV) and single_env.pop(http_json.EPISODE_TOKEN_ENV)
+    assert fused_env == single_env
     argv = [word.replace(fused_root, single_root) for word in without_material(fused_run.argv, material, shared)]
     assert argv == single.argv
     assert "--material" in fused_run.argv
@@ -273,40 +277,27 @@ def test_each_worker_is_held_to_its_own_setups_budget_and_told_none(tmp_path: pa
 
 def test_a_setup_that_sets_no_key_unsets_it_whatever_the_job_env_holds(tmp_path: pathlib.Path) -> None:
     """A treatment switch the job env leaked (a submitting shell's export) never reaches a control."""
-    run = fused_setup(tmp_path, "setup-hip", {CPF_TOOL_SWITCH: "/views/cpf", "AGENT_PACKET": "autokernel"})
+    run = fused_setup(tmp_path, "setup-hip", {CPF_TOOL_SWITCH: "/views/cpf", "AGENT_METHOD": "autokernel"})
     assert CPF_TOOL_SWITCH not in run.env
-    assert "AGENT_PACKET" not in run.env
+    assert "AGENT_METHOD" not in run.env
 
 
 # isolation per worker
 
 
 def tool_names(env: dict[str, str]) -> set[str]:
-    """``tools/list`` of a fresh mcp_server.py under exactly ``env``, started as the worker's CLI starts it:
-    ``env -u PYTHONSAFEPATH python3 mcp_server.py``, so the server's own directory heads sys.path."""
-    base = {
-        key: value
-        for key, value in os.environ.items()
-        if key not in OWNED and key not in {"AGENT_PACKET", "PYTHONSAFEPATH"}
-    }
-    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
-    result = subprocess.run(
-        [sys.executable, str(MCP_SERVER)],
-        input=request,
-        env={**base, **env},
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    return {tool["name"] for tool in json.loads(result.stdout.splitlines()[0])["result"]["tools"]}
+    """``tools/list`` of a fresh MCP server under exactly ``env`` (the job's other owned keys stripped)."""
+    base = {key: "" for key in OWNED if key not in env}
+    result = served_tools(**base, **env)
+    assert result.returncode == 0, result.stderr
+    return stdio_tool_names(result)
 
 
 def test_only_the_cpf_setups_worker_is_served_the_cpf_tool(tmp_path: pathlib.Path) -> None:
     """Both workers of one fused job; the job env itself carries the switch, as a leak would."""
     driver = load("agent_driver")
-    job = {CPF_TOOL_SWITCH: "/views/leaked"}
-    cpf = {**overlay_of("setup-c-skills.budget4x"), CPF_TOOL_SWITCH: "/views/cpf"}
+    job = {CPF_TOOL_SWITCH: "canonical_parallel_form"}
+    cpf = {**overlay_of("setup-c-skills.budget4x"), CPF_TOOL_SWITCH: "canonical_parallel_form"}
     control = overlay_of("setup-hip")
     cpf_env = driver.fused_child_env(job, cpf, "t1", "/shared/setups/a", "/tmp/g")
     control_env = driver.fused_child_env(job, control, "t2", "/shared/setups/b", "/tmp/g")
@@ -335,7 +326,7 @@ def test_a_control_workers_view_holds_nothing_of_another_setup(tmp_path: pathlib
     entries = seal.shared_root_entries(material)
     assert "setups" not in seal.shared_root_entries(shared), "the whole setups tree is never passed through"
     plan = seal.seal_plan(layout, entries)
-    bound = [op.source for op in plan if op.kind == "bind"]
+    bound = [op.source for op in plan if op.kind is seal.MountKind.BIND]
     other = str(shared / "setups" / "cpf-setup")
     assert not [source for source in bound if source == other or source.startswith(f"{other}/")]
     assert str(material / "skills") in bound, "its own setup's skill pages, at /skills"

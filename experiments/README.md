@@ -157,7 +157,7 @@ Key variables (full lists: `layers/common.env`, `run_cluster.sh`):
 | `JUDGE_INPUT_MODE` | judge config | `source`, `py-binding`, `library` or `any`; `source` enforces the language track. |
 | `JUDGE_PORT` | 8800 | Base judge port. |
 | `CONTAINER_RUNTIME` | `ce` | `ce`, `apptainer`, `podman`, `docker`. |
-| `SERPAPI_API_KEY` | empty | Web search; opt-in via `AGENT_SEARCH_TOOL=1`. |
+| `SERPAPI_API_KEY` | empty | Web search; served only by the `web-search` packet. |
 
 ### Hosted inference
 

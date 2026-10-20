@@ -5,6 +5,7 @@ import copy
 import dataclasses
 from collections.abc import Mapping, Sequence
 
+from hpcagent_bench.translators.numpyto_common.ast_build import set_field
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import iter_extent_of
 from hpcagent_bench.translators.numpyto_common.lowering.indexing import (
     compose_kept_axis,
@@ -154,9 +155,7 @@ def outermost_chains(tree: ast.AST) -> list[tuple[ast.AST, str, int | None, ast.
     stack: list[ast.AST] = [tree]
     while stack:
         node = stack.pop()
-        values = vars(node)
-        for field in node._fields:
-            value = values.get(field)
+        for field, value in ast.iter_fields(node):
             kind = type(value)
             if kind in LEAF_TYPES:
                 continue
@@ -211,9 +210,9 @@ class ChainedSubscriptFlattener(ast.NodeTransformer):
         for parent, field, pos, chain in outermost_chains(node):
             rewritten = self.visit_Subscript(chain)
             if pos is None:
-                vars(parent)[field] = rewritten
+                set_field(parent, field, rewritten)
             else:
-                vars(parent)[field][pos] = rewritten
+                dict(ast.iter_fields(parent))[field][pos] = rewritten
         return node
 
     def visit_Subscript(self, node: ast.Subscript) -> ast.expr:

@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``token_cost``: the TASK TOKEN TOTAL (T2) of one worker directory, and what one episode's OUTPUT is.
-
-A relaunched task's attempts are separate transcripts -- the driver moves a crashed attempt's log
-aside (``claude.attemptN.log``) and starts the next one from an empty context AND an empty workspace
-(T5) -- so the task is what its FINAL attempt did and the earlier attempts are reported beside it as
-spend. A worker directory the driver never entered must not read as a task that cost 0.
-
-The other property here is the OUTPUT RULE (8.2, F8): both engines serve ``/v1/messages`` with an
-``output_tokens`` that already counts reasoning, so the streamed thinking estimate is informational
-and is never added to anything.
-"""
+"""``token_cost``: the task token total (T2) of one worker directory (final attempt, earlier attempts beside it;
+an untouched directory is not 0), and the output rule (streamed thinking is never added)."""
 
 import ast
 import json
@@ -664,9 +655,15 @@ def tmp_path_log(tmp_path: pathlib.Path, lines: list[str]) -> pathlib.Path:
     return log
 
 
+#: The third-party packages the agent runtime may import at module level: its declared dependencies
+#: (``agent/pyproject.toml``: the MCP SDK and pydantic, with pydantic_core) and anyio, the async runtime the SDK runs on.
+AGENT_DEPENDENCIES = frozenset({"mcp", "pydantic", "pydantic_core", "anyio"})
+
+
 def test_the_agent_runtime_imports_the_standard_library_only() -> None:
-    """The agent image has no ``hpcagent_bench`` and no third-party packages for hpcagent_agent to import
-    (a harness runner imports its harness lazily, inside the harness's own venv)."""
+    """The agent image has no ``hpcagent_bench``: hpcagent_agent imports the stdlib, its declared dependencies
+    (:data:`AGENT_DEPENDENCIES`) and itself; a harness runner imports its harness lazily, inside the harness's own
+    venv."""
     outside: list[str] = []
     for path in sorted((REPO / "agent" / "hpcagent_agent").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -675,6 +672,6 @@ def test_the_agent_runtime_imports_the_standard_library_only() -> None:
         outside += [
             f"{path.name}: {name}"
             for name in sorted(imported)
-            if name.split(".")[0] not in sys.stdlib_module_names and name.split(".")[0] != "hpcagent_agent"
+            if name.split(".")[0] not in sys.stdlib_module_names | AGENT_DEPENDENCIES | {"hpcagent_agent"}
         ]
     assert not outside, outside

@@ -7,14 +7,15 @@ import pathlib
 import shlex
 from types import ModuleType
 
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness.prompts import PROMPT_FACTS_KEY, cluster_facts
 from hpcagent_bench.harness.task import Task
 
 
 @functools.cache
 def facts(kernel: str, language: str = "c") -> dict[str, str]:
-    """The prompt facts of ``kernel`` in ``language``, rendered once per test session."""
-    return cluster_facts(Task(kernel, "restricted", language))
+    """The prompt facts of ``kernel`` in the language spelled ``language``, rendered once per test session."""
+    return cluster_facts(Task(kernel, SourceMode.RESTRICTED, Language.parse(language)))
 
 
 def problem(problem_id: int, kernel: str, task: str, language: str = "c") -> dict[str, object]:

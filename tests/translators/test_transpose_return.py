@@ -17,12 +17,13 @@ import tempfile
 import numpy as np
 import pytest
 
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_transpose
 from hpcagent_bench.translators.numpyto_common.lowering import TransposeRewriter
 from tests.translators.op_oracle import parse_source
 
 
-def rewrite_(src, sparse=()):
+def rewrite_(src: str, sparse: list[str] | tuple[()] = ()) -> str:
     tree = ast.parse(src)
     TransposeRewriter(set(sparse)).visit(tree)
     ast.fix_missing_locations(tree)
@@ -62,7 +63,7 @@ def test_sparse_transpose_not_densified() -> None:
 # frontend: a returned transpose promotes to an output buffer                  #
 
 
-def parse_(src, input_args, shapes, syms):
+def parse_(src: str, input_args: list[str], shapes: dict[str, str], syms: dict[str, int]) -> KernelIR:
     from hpcagent_bench.translators.numpyto_common.lowering import lower
 
     return lower(parse_source(src, "f", input_args, [], shapes, syms))
@@ -103,7 +104,14 @@ def test_tuple_return_with_transpose_promotes_both_into_outputs() -> None:
 # numerical: bit-exact vs numpy on c / cpp / fortran                          #
 
 
-def validate_native(src, x, expected, out_shape, shapes, syms) -> None:
+def validate_native(
+    src: str,
+    x: np.ndarray,
+    expected: np.ndarray,
+    out_shape: tuple[int, int],
+    shapes: dict[str, str],
+    syms: dict[str, int],
+) -> None:
     from hpcagent_bench import numerical_oracle as no
     from tests.translators import op_oracle as oo
 
@@ -133,7 +141,7 @@ def validate_native(src, x, expected, out_shape, shapes, syms) -> None:
         so = d / f"l_{b}.so"
         cc = subprocess.run(no.native_build_command(b, d / f"f{ext}", so), capture_output=True, text=True, check=False)
         assert cc.returncode == 0, f"{b} compile: {cc.stderr[-200:]}"
-        st = no._invoke_isolated(b, binding, so, by, syms, exp, ["ret_arr0"], 1e-9, 1e-9, frozenset())
+        st = no.invoke_isolated(b, binding, so, by, syms, exp, ["ret_arr0"], 1e-9, 1e-9, frozenset())
         assert st == "ok", f"{b}: {st}"
 
 

@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Numerical validation of the elementwise transcendental / math ufuncs.
-
-The NumpyToX emitters lower ``out = np.<fn>(a)`` (and the 2-arg forms)
-to a per-element loop. This proves every supported ufunc computes the
-same answer as numpy across all three compiled backends (C / C++ /
-Fortran) -- catching name-mapping gaps (``arctan2``->``atan2``,
-``rint``->``ANINT``, ``copysign``->``SIGN``), promotion collisions, and
-the inline-expression forms (``square``/``reciprocal``/``sign``/
-``degrees``/``radians``) that must read identically in C and Fortran.
-
-Each case builds a tiny kernel, emits it, compiles a shared library and
-calls it via ctypes (the binding JSON drives the argument order, exactly
-like the numerical oracle). Skips a backend whose compiler is absent.
-"""
+"""Every supported elementwise math ufunc computes numpy's answer on C, C++ and Fortran (tiny kernels emitted,
+built and called via ctypes; a backend without its compiler skips)."""
 
 import ctypes
 import json
@@ -26,6 +14,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.translators.numpyto_c.bindings import emit_binding
 from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_cpp
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
@@ -69,8 +58,8 @@ BINARY = ["arctan2", "hypot", "copysign", "fmod", "fmax", "fmin"]
 # _auto / per-compiler suffix). emit_binding(base_name="k") records "k" for every
 # language, so each backend emits its source with fn_name "k".
 _BACKENDS = {
-    "c": (emit_c, "c", "k", ["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC"], "gcc"),
-    "cpp": (emit_cpp, "cpp", "k", ["g++", "-O2", languages.std_flag("cpp"), "-shared", "-fPIC"], "g++"),
+    "c": (emit_c, "c", "k", ["gcc", "-O2", languages.std_flag(Language.C), "-shared", "-fPIC"], "gcc"),
+    "cpp": (emit_cpp, "cpp", "k", ["g++", "-O2", languages.std_flag(Language.CPP), "-shared", "-fPIC"], "g++"),
     "fortran": (
         emit_fortran,
         "fortran",
@@ -80,7 +69,7 @@ _BACKENDS = {
             "-O2",
             "-ffree-form",
             "-ffree-line-length-none",
-            languages.std_flag("fortran"),
+            languages.std_flag(Language.FORTRAN),
             "-shared",
             "-fPIC",
         ],

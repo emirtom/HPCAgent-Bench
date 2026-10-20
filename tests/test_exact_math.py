@@ -6,6 +6,7 @@ and the functions stay within a few ulp of numpy's. Device agreement is :mod:`te
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.support import exact_math
 
 #: Ulps the series-based functions may differ from numpy's libm-backed ones.
@@ -32,7 +33,7 @@ def test_frexp_is_numpys_bit_for_bit() -> None:
 @pytest.mark.parametrize("name", ["frexp", "log", "exp", "sin", "cos", "tanh", "expm1"])
 def test_a_scalar_stays_a_scalar(name: str) -> None:
     """A 0-d input gives 0-d outputs: ``round()`` and scalar assignment downstream need them."""
-    result = vars(exact_math)[name](np.float64(0.75))
+    result = modules.member(exact_math, name)(np.float64(0.75))
     for part in result if isinstance(result, tuple) else (result,):
         assert np.ndim(part) == 0, f"{name} turned a scalar into shape {np.shape(part)}"
     assert np.ndim(exact_math.pow(np.float64(27.0), 1.0 / 3.0)) == 0
@@ -41,7 +42,7 @@ def test_a_scalar_stays_a_scalar(name: str) -> None:
 @pytest.mark.parametrize(("name", "reference"), [("log", np.log), ("exp", np.exp), ("sin", np.sin), ("cos", np.cos)])
 def test_a_function_is_within_a_few_ulp_of_numpy(name: str, reference: np.ufunc) -> None:
     values = np.random.default_rng(1).uniform(0.001, 50.0, 100_000)
-    got, expected = vars(exact_math)[name](values), reference(values)
+    got, expected = modules.member(exact_math, name)(values), reference(values)
     # Measured against the larger of the result and 1: near a zero of sin, cos or log the error is absolute.
     gap = np.abs(got - expected) / np.spacing(np.maximum(np.abs(expected), 1.0))
     assert float(np.max(gap)) <= ULP_BAND

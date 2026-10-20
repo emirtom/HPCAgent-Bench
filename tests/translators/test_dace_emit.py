@@ -2100,7 +2100,7 @@ def lowered(src: str, ranks: dict, complex_arrays: set = frozenset()) -> str:
     return ast.unparse(out)
 
 
-def run_lowered(src: str, ranks: dict, complex_arrays: set = frozenset(), **binds: Any) -> Any:
+def run_lowered(src: str, ranks: dict, complex_arrays: set = frozenset(), **binds: object) -> object:
     """Execute the lowered body and hand back what it bound to ``__probe__``.
 
     The lowerings replace a numpy call with arithmetic that has to produce the SAME numbers; a

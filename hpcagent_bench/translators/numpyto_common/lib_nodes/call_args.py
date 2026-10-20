@@ -210,7 +210,7 @@ def tensordot_axes(node: ast.expr, ra: int, rb: int) -> tuple[list[int], list[in
         return list(range(ra - k, ra)), list(range(k))
     if isinstance(node, (ast.Tuple, ast.List)) and len(node.elts) == 2:
 
-        def axis_literal(x: ast.expr) -> Any:
+        def axis_literal(x: ast.expr) -> object:
             # A negative axis parses as UnaryOp(USub), not Constant -- reading ``.value`` off it
             # raised AttributeError out of the sizer, the same escaped-exception class as the
             # out-of-range index below.

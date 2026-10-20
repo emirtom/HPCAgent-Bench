@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The hand-written ``_jax`` and ``_triton`` references of the ``npbench`` tag are kept, and each ``_jax`` one is correct.
-
-Both are committed beside ``<kernel>_numpy.py``. The loader would emit an eager ``_jax`` from the NumPy reference for a
-kernel without one, so a missing file does not fail a run: it silently swaps the manual reference for a generated one.
-The first test makes that swap loud. ``_triton`` has no translator and needs a GPU, so its presence is the only thing
-checkable on the CPU runners. ``eigh_test`` and ``reduce_2d`` left the tag but keep their manual ``_jax``.
-
-The second test runs each kernel's ``_jax`` through the harness at the S preset against the compiled reference, which is the
-check a run applies at its own tolerance.
-"""
+"""The hand-written ``_jax`` and ``_triton`` references of the ``npbench`` tag are present (a missing ``_jax``
+would silently be generated), and each ``_jax`` matches the compiled reference at S."""
 
 import pathlib
 from collections.abc import Iterator
@@ -17,6 +9,7 @@ from collections.abc import Iterator
 import pytest
 
 from hpcagent_bench import config, paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks import Benchmark, generate_framework
 from hpcagent_bench.spec import KERNELS
 
@@ -122,7 +115,7 @@ def test_jax_reference_matches_numpy(kernel: str) -> None:
     from hpcagent_bench.frameworks import Test
 
     test = Test(Benchmark(kernel), generate_framework("jax"))
-    result = test.run(preset="S", validate=True, repeat=1, timeout=600.0, datatype="float64", ignore_errors=True)
+    result = test.run(preset=Preset.S, validate=True, repeat=1, timeout=600.0, datatype="float64", ignore_errors=True)
     assert "default" in result, f"{kernel}: the jax reference did not run"
     assert not result["default"].get("failure"), f"{kernel}: {result['default'].get('failure')}"
     assert result["default"].get("validated"), f"{kernel}: the jax reference does not match numpy"
@@ -133,7 +126,7 @@ def test_jax_lib_variant_matches_numpy(kernel: str) -> None:
     from hpcagent_bench.frameworks import Test
 
     test = Test(Benchmark(kernel), generate_framework("jax"))
-    result = test.run(preset="S", validate=True, repeat=1, timeout=600.0, datatype="float64", ignore_errors=True)
+    result = test.run(preset=Preset.S, validate=True, repeat=1, timeout=600.0, datatype="float64", ignore_errors=True)
     assert "lib-implementation" in result, f"{kernel}: the jax_lib variant did not run"
     assert result["lib-implementation"].get("validated"), f"{kernel}: the jax_lib variant does not match numpy"
 

@@ -15,9 +15,10 @@ import yaml
 from hpcagent_agent.driver import agent_driver, harnesses
 from hpcagent_agent.tools import http_json
 
-from hpcagent_bench import config, containers, paths, run_layout
+from hpcagent_bench import config, containers, modules, paths, run_layout
 from hpcagent_bench.cluster import judge_service
 from hpcagent_bench.harness import recording
+from hpcagent_bench.config import ContainerRuntime, Hardware
 
 RUN_CLUSTER = paths.PACKAGE / "cluster" / "run_cluster.sh"
 ENV_SH = paths.PACKAGE / "cluster" / "env.sh"
@@ -74,7 +75,7 @@ def test_a_container_binds_the_checkout_not_the_working_directory(
     """With no ``repo_root``, :func:`containers.local_run_command` binds and enters :func:`paths.repo_root`."""
     monkeypatch.delenv("HPCAGENT_BENCH_REPO", raising=False)
     monkeypatch.chdir(tmp_path)
-    argv = containers.local_run_command(["true"], backend="apptainer", hardware="cpu")
+    argv = containers.local_run_command(["true"], backend=ContainerRuntime.APPTAINER, hardware=Hardware.CPU)
     assert f"{paths.ROOT}:{paths.ROOT}" in argv
     assert str(tmp_path) not in " ".join(argv)
 
@@ -108,7 +109,7 @@ def test_run_cluster_spells_the_run_directory_as_run_layout_does() -> None:
         if name.startswith("LAYOUT_")
     }
     assert layout, "run_cluster.sh defines no LAYOUT_ names"
-    assert layout == {name: getattr(run_layout, name) for name in layout}
+    assert layout == {name: modules.member(run_layout, name) for name in layout}
 
 
 def test_the_agent_writes_the_names_run_layout_reads() -> None:

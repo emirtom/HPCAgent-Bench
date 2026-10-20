@@ -19,7 +19,7 @@ RunState = population.RunState
 
 def credited(kernel: str) -> dict[str, object]:
     """The stamps of a credited final grade of ``kernel``."""
-    return {"timing_reduction": timing.FINAL_GRADE_REDUCTION, "denominator": denominator.for_kernel(kernel).value}
+    return {"timing_reduction": timing.FINAL_GRADE_REDUCTION, "denominator": denominator.for_kernel(kernel).text}
 
 
 def states_of(runs: pd.DataFrame, setup: str, kernel: str) -> list[RunState]:

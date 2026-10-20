@@ -1,40 +1,19 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The USER tolerance decision: ``atol_eff = max(atol_p, eps_acc(p) * sqrt(l) *
-||x_ref||_inf)`` per output array, where ``l`` is the CONTRACTED EXTENT -- the
-PER-INPUT MAXIMUM: for each input, the product of its own shape symbols' values that do not appear
-in the output's (effective) shape, maximized over the inputs -- and ``eps_acc(p)`` is the unit
-roundoff of the precision the arithmetic actually ACCUMULATES in, not the one its operands are
-stored in.
-
-Five pieces, five groups of tests:
-
-* :func:`hpcagent_bench.harness.grading.contracted_extent` -- the ``l`` computation itself, on the
-  four worked examples from the decision plus the "reduction into one element of a declared
-  buffer" effective-shape case. Returns a :class:`~hpcagent_bench.harness.grading.ContractedExtent`
-  (``value``, ``rule``); the ambiguous-symbol case does not refuse,
-  it takes the same largest-input fallback the no-symbolic-shapes case does.
-* :func:`hpcagent_bench.precision.accumulation_eps` -- the eps_acc column.
-* the GUARD (:class:`hpcagent_bench.precision.UngradeableTolerance`) -- refusing a config where the
-  floor already consumes the whole rtol band, raised out of
-  :func:`hpcagent_bench.frameworks.utilities.compare_arrays` -- the ONLY place this exception is
-  raised any more; ``contracted_extent`` itself never raises.
-* the replay/determinism leg (``scoring._reproduces``) sharing the SAME per-output ``l``, and the
-  residual columns (including ``l_rule``) a leaderboard row persists.
-* the write probe (:func:`hpcagent_bench.harness.grading.probe_write_mask` /
-  :func:`~hpcagent_bench.harness.grading.typed_contracted_extents`) -- widens ``l`` and never narrows
-  what is graded.
-"""
+"""The accumulation tolerance ``atol_eff = max(atol_p, eps_acc(p) * sqrt(l) * ||x_ref||_inf)`` per output:
+the contracted extent ``l``, ``eps_acc``, the ungradeable-tolerance guard, the replay leg and the write probe."""
 
 import math
+import pathlib
 import types
 
 import numpy as np
 import pytest
 
 from hpcagent_bench import sizing
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.frameworks.utilities import LAPACK_THRESH, compare_arrays, reassociation_growth
-from hpcagent_bench.fuzz import FUZZED_PRESET, safe_eval
+from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import grading, native_call, recording, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.grading import contracted_extent, contracted_extents
@@ -291,7 +270,14 @@ def test_probe_write_mask_cached_runs_once_per_configuration_not_per_seed(monkey
     seed_b = {"x": np.ones(10), "y": np.zeros(10), "N": 10}  # a different draw, same configuration
     for data in (seed_a, seed_b):
         mask, overrides = grading.probe_write_mask_cached(
-            spec, "p1_kernel_once", "S", "float64", data, {"y": data["y"]}, lambda d: {"y": d["y"]}, drawn={"N": 10}
+            spec,
+            "p1_kernel_once",
+            Preset.S,
+            "float64",
+            data,
+            {"y": data["y"]},
+            lambda d: {"y": d["y"]},
+            drawn={"N": 10},
         )
         assert overrides == {}
         assert mask is not None
@@ -320,7 +306,7 @@ def test_probe_write_mask_cached_collapses_a_consistent_reduction_into_one_eleme
     mask, overrides = grading.probe_write_mask_cached(
         spec,
         "p1_kernel_reduce0",
-        "S",
+        Preset.S,
         "float64",
         data,
         {"acc": data["acc"]},
@@ -360,7 +346,7 @@ def test_probe_write_mask_cached_flags_a_data_dependent_single_write(monkeypatch
     mask, overrides = grading.probe_write_mask_cached(
         spec,
         "p1_kernel_argmax",
-        "S",
+        Preset.S,
         "float64",
         first_draw,
         {"pos": first_draw["pos"]},
@@ -399,7 +385,7 @@ def test_probe_write_mask_cached_never_crashes_when_the_second_probe_fails(monke
     mask, overrides = grading.probe_write_mask_cached(
         spec,
         "p1_kernel_second_probe_fails",
-        "S",
+        Preset.S,
         "float64",
         data,
         {"acc": data["acc"]},
@@ -552,7 +538,7 @@ def test_addusxx_g_at_preset_s_is_gradeable_with_l_from_its_largest_input() -> N
     ``(nat,)``/``(ntyp,)`` index maps) is smaller."""
     kernel = "addusxx_g"
     spec = BenchSpec.load(kernel)
-    data = grading._data_seeded(kernel, "S", "float64", 1)
+    data = grading._data_seeded(kernel, Preset.S, "float64", 1)
     union = math.prod(int(data[s]) for s in ("nkb", "nat", "ntyp", "nhm", "ngms", "nij_tot", "nr1", "nr2", "nr3"))
     assert not passes_the_fp64_guard(union), f"the draw no longer reproduces the old refusal (union l={union})"
     got = contracted_extent(spec, "rhoc", data["rhoc"], data)
@@ -592,7 +578,7 @@ def test_no_corpus_output_at_any_concrete_preset_trips_the_fp64_guard(short: str
     spec = BenchSpec.load(short)
     refused = []
     for preset, values in spec.parameters.items():
-        if preset == FUZZED_PRESET:
+        if preset == Preset.FUZZED.text:
             continue  # a range/config draw, not a concrete size
         data = shape_only_data(spec, values)
         for name in spec.output_args:
@@ -632,23 +618,28 @@ def test_an_ungradeable_grade_is_scored_not_a_crash(monkeypatch: pytest.MonkeyPa
         ),
     )
 
-    def refuse(*_args, **_kwargs):
+    def refuse(
+        *args: object,
+        **kwargs: object,
+    ) -> None:
         raise UngradeableTolerance("eps_acc*sqrt(l) >= rtol -- ungradeable")
 
     monkeypatch.setattr(scoring, "_grade_against", refuse)
-    task = Task("gemm", "restricted", "c")
-    result = scoring.score(Submission(language="c", source="/* build is faked */", build=[]), task, preset="S")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
+    result = scoring.score(
+        Submission(language=Language.C, source="/* build is faked */", build=[]), task, preset=Preset.S
+    )
     assert result.ungradeable is True
     assert result.correct is False
     assert "ungradeable" in result.detail
 
 
-def test_the_recorded_reason_is_ungradeable_not_incorrect_or_score_error(tmp_path) -> None:
+def test_the_recorded_reason_is_ungradeable_not_incorrect_or_score_error(tmp_path: pathlib.Path) -> None:
     """The DB-facing half of the same guard: Score.ungradeable / VerifyResult.ungradeable must
     reach the ``attempts`` row's ``reason`` column as its own bucket, not fall through to
     "incorrect" or "score_error" the way a bare RuntimeError message would."""
     db = str(tmp_path / "r.db")
-    task = Task("tsvc_2_s212", "restricted", "c")
+    task = Task("tsvc_2_s212", SourceMode.RESTRICTED, Language.C)
     score = Score(
         correct=False,
         max_rel_error=float("inf"),
@@ -704,4 +695,4 @@ def test_the_determinism_leg_uses_the_output_specific_contracted_length() -> Non
 
 
 def _sub() -> Submission:
-    return Submission(language="c", source="/* x */", build=[])
+    return Submission(language=Language.C, source="/* x */", build=[])

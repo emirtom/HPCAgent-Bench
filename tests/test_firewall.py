@@ -15,6 +15,7 @@ contract:
 
 import re
 import tempfile
+import types
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,7 @@ JUDGE_AGENT_IMAGES = ("judge-agent-amd", "judge-agent-cpu", "judge-agent-cuda")
 JUDGE_STAGE = re.compile(r"^FROM (agent|\$\{AGENT_BASE\}) AS judge$", re.MULTILINE)
 
 
-def load_guard():
+def load_guard() -> types.ModuleType:
     """Import the guard script as a module from its on-disk path (no hardcoding)."""
     return module_at(SCRIPT_PATH, "check_no_hidden_in_image")
 

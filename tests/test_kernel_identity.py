@@ -12,16 +12,17 @@ emitter (:func:`numpyto_common.naming.entry_symbol`, the single rule both the em
 
 import collections
 import pathlib
+from collections.abc import Iterator
 
 import pytest
 import yaml
 
 from hpcagent_bench.spec import KERNELS, BenchSpec
-from hpcagent_bench.support.bindings.contract import binding_from_spec
+from hpcagent_bench.support.bindings.contract import Binding, binding_from_spec
 from hpcagent_bench.translators.numpyto_common.naming import FORTRAN_SYMBOL_LIMIT, entry_symbol
 
 
-def specs():
+def specs() -> list[BenchSpec]:
     out = []
     for key in sorted(KERNELS):
         try:
@@ -34,7 +35,7 @@ def specs():
 ALL = specs()
 
 
-def bindings():
+def bindings() -> Iterator[tuple[BenchSpec, str | None, Binding]]:
     """Every (spec, config) pair, because a sparse config is part of the symbol."""
     for spec in ALL:
         for config in list(spec.configurations) or [None]:
@@ -71,7 +72,7 @@ def test_the_name_is_the_manifest_stem() -> None:
     assert not mismatched, f"name is not the manifest stem for: {mismatched[:5]}"
 
 
-def test_a_manifest_may_not_declare_a_second_identity(tmp_path) -> None:
+def test_a_manifest_may_not_declare_a_second_identity(tmp_path: pathlib.Path) -> None:
     """The guard itself: a kernel has ONE name, and the manifest stem is it.
 
     ``short_name`` is not a manifest field, so the refusal comes from the unknown-field check: the

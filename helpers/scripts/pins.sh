@@ -26,7 +26,8 @@ for name in dace relayout; do
     if ((bump)); then
         new="$(git ls-remote "${repo[${name}]}" "refs/heads/${branch[${name}]}" | cut -f1)"
         [[ "${new}" =~ ^[0-9a-f]{40}$ ]] || { echo "pins.sh: no ${branch[${name}]} head from ${repo[${name}]}" >&2; exit 2; }
-        sed -i "s/rev = \"${pin}\"/rev = \"${new}\"/" "${root}/pyproject.toml"
+        # The rev in [tool.uv.sources] and dace's override-dependencies URL (which wins over Alloy's pin) move together.
+        sed -i "s/rev = \"${pin}\"/rev = \"${new}\"/; s/@${pin}\"/@${new}\"/" "${root}/pyproject.toml"
     fi
 done
 ((bump)) && (cd "${root}" && uv lock -q --upgrade-package dace --upgrade-package relayout)

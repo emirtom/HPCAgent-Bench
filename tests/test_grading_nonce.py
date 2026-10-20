@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Recorded grades draw their inputs from a PER-CALL nonce, not from constants.
-
-With fixed seeds every /submit and every harden leg graded the same inputs, so a kernel could carry
-an answer from one grade to the next (a disk or shm cache), and the secret shape was one literal in
-config.yaml. Each test pins one piece: the nonce differs per call and is stamped, the held-out cases
-and the harden legs follow it, the harden seed is a third one, and the secret shape is drawn per
-call.
-"""
+"""Recorded grades draw their inputs from a per-call, stamped nonce: held-out cases and harden legs follow it,
+the harden seed is a third one, and the secret shape is drawn per call."""
 
 import dataclasses
 import pathlib
@@ -15,6 +9,7 @@ import pathlib
 import pytest
 
 from hpcagent_bench import config, fuzz
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import hidden_tests, native_call, recording, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.hidden_seeds import salted, secret_seed_first, secret_seed_harden, secret_seed_second
@@ -23,8 +18,8 @@ from hpcagent_bench.spec import BenchSpec
 from tests.results_rows import submissions
 
 KERNEL = "tsvc_2_s212"
-SUBMISSION = Submission(language="c", source="/* x */", build=[])
-TASK = Task(KERNEL, "restricted", "c")
+SUBMISSION = Submission(language=Language.C, source="/* x */", build=[])
+TASK = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
 
 
 def captured_nonces(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -> tuple[list[int], list[scoring.Score]]:
@@ -68,12 +63,12 @@ def test_a_replay_passes_the_recorded_nonce_through(monkeypatch: pytest.MonkeyPa
 
 def test_the_held_out_seed_follows_the_nonce() -> None:
     spec = BenchSpec.load(KERNEL)
-    first = {case.seed for case in hidden_tests.hidden_cases(spec, "S", nonce=11)}
-    second = {case.seed for case in hidden_tests.hidden_cases(spec, "S", nonce=12)}
+    first = {case.seed for case in hidden_tests.hidden_cases(spec, Preset.S, nonce=11)}
+    second = {case.seed for case in hidden_tests.hidden_cases(spec, Preset.S, nonce=12)}
     assert first == {salted(secret_seed_second(), 11)}
     assert second == {salted(secret_seed_second(), 12)}
     assert first != second
-    assert {case.seed for case in hidden_tests.hidden_cases(spec, "S")} == {secret_seed_second()}
+    assert {case.seed for case in hidden_tests.hidden_cases(spec, Preset.S)} == {secret_seed_second()}
 
 
 def test_salting_is_reproducible_and_bounded() -> None:

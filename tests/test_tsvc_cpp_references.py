@@ -1,36 +1,16 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The committed TSVC ``_reference.c`` files are hand ports that still satisfy the v2 C-ABI.
+"""The committed hand-ported TSVC ``_reference.c`` files: no autogen marker, the v2 C-ABI symbol and argument
+order, numpy-equal results (checked in a child, :mod:`tests.tsvc_reference_oracle`, since a bad port segfaults),
+and reachable behind ``references.prefer_committed`` in both settings."""
 
-``loop_level_reasoning`` emits its native sources on demand
-(:mod:`tests.test_generated_references`). These 222 files are the deliberate exception: 212 hand
-ports of the TSVC C++ microkernels and 10 kernels with no C++ at all whose loop nests were written
-by hand, committed as frozen sources and kept so the corpus can ask
-whether a compiler vectorizes and parallelizes HUMAN-WRITTEN C where it fails on
-translator-generated C. That question only means something while three properties hold, and each
-one has failed silently in this corpus before:
-
-* they carry NO ``hpcagent_bench-autogen`` marker -- the marker is what makes ``emit_io`` overwrite
-  a file, and a regenerated reference would put translator output on both sides of the comparison;
-* they export ``binding.symbols["c"]`` with the manifest's argument list in canonical order, not
-  verbatim TSVC (named ``s115``, taking ``struct args_t *``, reading the TSVC globals), which cannot
-  load (``undefined symbol: aa``) and is scored ``incorrect``, against the model;
-* they compute what the kernel's numpy reference computes. numpy stays the oracle, so a reference
-  that disagrees with it is a reference that teaches an agent the wrong answer.
-
-A fourth property: the harness can REACH these files, behind ``references.prefer_committed``
-(otherwise it emits a fresh NumpyToX translation on every grade), and both settings of that knob
-are asserted here -- on, because an unreachable corpus answers nothing; off, because a scoring change that
-arrives without being asked for invalidates every earlier run.
-
-The numeric half runs in a CHILD process (:mod:`tests.tsvc_reference_oracle`) because a bad port
-segfaults rather than returning: the child names the kernel it died on instead of taking the
-session with it.
-"""
-
+import pathlib
 import re
 
+import pytest
+
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.spec import KERNELS, load_spec
 from hpcagent_bench.support.bindings.contract import binding_from_spec, c_param
@@ -61,7 +41,7 @@ DEFN = re.compile(
 _COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
 
 
-def committed():
+def committed() -> list[tuple[str, pathlib.Path]]:
     """``(registry_key, path)`` for every committed loop_level_reasoning ``_reference.c``."""
     out = []
     for key, spec in sorted(KERNELS.specs().items()):
@@ -73,7 +53,7 @@ def committed():
     return out
 
 
-def signature(text: str):
+def signature(text: str) -> tuple[str, list[str]]:
     """``(symbol, [param declarations])`` for the reference's entry point."""
     match = ENTRY.search(_COMMENT.sub(" ", text))
     assert match is not None, "no entry-point definition found"
@@ -190,22 +170,24 @@ def test_the_committed_references_are_reachable_from_the_harness_but_only_on_req
     from hpcagent_bench.harness.agent import committed_reference_override, emit_reference_source
 
     key, path = committed()[0]
-    assert committed_reference_override(key, "c") == path, (
+    assert committed_reference_override(key, Language.C) == path, (
         "the harness does not recognise the committed reference as an override; emit_io's rule and "
         "the path this looks under have drifted apart"
     )
 
-    default = emit_reference_source(key, "c")
+    default = emit_reference_source(key, Language.C)
     assert AUTOGEN_MARKER in default.splitlines()[0], (
         "the DEFAULT reference is no longer the NumpyToX emit -- grading changed for every run that did not ask for it"
     )
 
     with config.overridden("references.prefer_committed", True):
-        chosen = emit_reference_source(key, "c")
+        chosen = emit_reference_source(key, Language.C)
     assert chosen == path.read_text(), f"{key}: the knob is on and the harness still did not use {path}"
 
 
-def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(tmp_path, monkeypatch) -> None:
+def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The knob selects on ``emit_io.is_override``, not on the file merely existing. A
     ``_reference.c`` that DOES carry the autogen marker is generator output the emitter would
     rewrite anyway, so preferring it would pin a stale emit as the baseline -- worse than emitting,
@@ -218,24 +200,24 @@ def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(tmp_path, monkeyp
     monkeypatch.setattr(paths, "BENCHMARKS", tmp_path)
 
     staged.write_text(path.read_text())
-    assert committed_reference_override(key, "c") == staged, (
+    assert committed_reference_override(key, Language.C) == staged, (
         "the staged copy was not found at all; the negative half below would pass for the wrong reason"
     )
 
     staged.write_text(f"// {AUTOGEN_MARKER} -- generated\n{path.read_text()}")
-    assert committed_reference_override(key, "c") is None, (
+    assert committed_reference_override(key, Language.C) is None, (
         "a sidecar carrying the autogen marker was taken for a hand-written override"
     )
 
 
-def test_the_numeric_gate_can_fail(tmp_path) -> None:
+def test_the_numeric_gate_can_fail(tmp_path: pathlib.Path) -> None:
     """A build-and-compare gate that silently graded nothing would look identical to a clean corpus.
     Perturbing one reference must make the oracle report exactly that kernel as wrong."""
     from tests import tsvc_reference_oracle as oracle
 
     key, path = committed()[0]
     text = path.read_text()
-    symbol = binding_from_spec(load_spec(key)).symbols["c"]
+    symbol = binding_from_spec(load_spec(key)).symbols[Language.C]
     opening = text.index("{", text.index(f"void {symbol}"))
     staged = tmp_path / path.name
     staged.write_text(f"{text[: opening + 1]}\n  return;\n{text[opening + 1 :]}")

@@ -8,6 +8,7 @@ CI went red on a toolchain every test then used successfully.
 
 import pathlib
 import stat
+import types
 
 import pytest
 
@@ -22,7 +23,7 @@ REPO = paths.ROOT
 FAKE_PATH_ENTRIES = ("make", "gcc", "g++", "gfortran", "clang", "clang++", "flang-new-22")
 
 
-def load_script():
+def load_script() -> types.ModuleType:
     """Import ``helpers/scripts/checks/verify_toolchain.py`` as a module (helpers/scripts/ is not a package)."""
     return module_at(REPO / "helpers" / "scripts" / "checks" / "verify_toolchain.py")
 
@@ -33,7 +34,7 @@ def write_executable(path: pathlib.Path, body: str) -> None:
 
 
 @pytest.fixture
-def fake_toolchain(tmp_path, monkeypatch):
+def fake_toolchain(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
     """A PATH holding nothing but the entries above, plus a pkg-config and a link probe that
     both say yes -- the link rows have their own test below."""
     for name in FAKE_PATH_ENTRIES:
@@ -49,18 +50,18 @@ def fake_toolchain(tmp_path, monkeypatch):
     resolve_compiler.cache_clear()
 
 
-def test_a_versioned_only_llvm_driver_counts_as_present(fake_toolchain) -> None:
+def test_a_versioned_only_llvm_driver_counts_as_present(fake_toolchain: pathlib.Path) -> None:
     """The exact CI failure: `command -v flang` misses flang-new-22, the harness resolves it."""
     rows = dict(load_script().probe())
     assert rows["flang"] == str(fake_toolchain / "flang-new-22")
     assert all(found is not None for found in rows.values()), f"unexpected MISS: {rows}"
 
 
-def test_a_complete_toolchain_exits_zero(fake_toolchain) -> None:
+def test_a_complete_toolchain_exits_zero(fake_toolchain: pathlib.Path) -> None:
     assert load_script().main() == 0
 
 
-def test_a_missing_driver_fails_loudly(fake_toolchain, capsys) -> None:
+def test_a_missing_driver_fails_loudly(fake_toolchain: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A gate that tolerated a missing driver would let the tests needing it skip silently."""
     (fake_toolchain / "gfortran").unlink()
     resolve_compiler.cache_clear()
@@ -68,14 +69,16 @@ def test_a_missing_driver_fails_loudly(fake_toolchain, capsys) -> None:
     assert "MISS  gfortran" in capsys.readouterr().out
 
 
-def test_a_missing_library_fails_loudly(fake_toolchain, capsys) -> None:
+def test_a_missing_library_fails_loudly(fake_toolchain: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     """openblas resolves through pkg-config, not PATH, so it needs its own MISS row."""
     write_executable(fake_toolchain / "pkg-config", "#!/bin/sh\nexit 1\n")
     assert load_script().main() == 1
     assert "MISS  pkg-config:openblas" in capsys.readouterr().out
 
 
-def test_an_unlinkable_runtime_fails_loudly(fake_toolchain, monkeypatch, capsys) -> None:
+def test_an_unlinkable_runtime_fails_loudly(
+    fake_toolchain: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """libomp is a HARD requirement, not an extra: libgomp deadlocks across fork() and libomp
     recovers, so a runner with only libgomp cannot tell a fork-safe harness from the forgiving runtime.
     apt's libomp-dev is a metapackage, so `installed` and `linkable` are different questions."""

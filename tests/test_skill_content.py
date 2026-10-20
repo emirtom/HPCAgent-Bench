@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the shipped skills SAY, checked against the code that has to make it true.
-
-``tests/test_prompt_skills.py`` covers how a skill is discovered, parsed and layered -- the
-mechanism. This covers the content, because a skill is documentation that gets INJECTED INTO
-EVERY PROMPT and therefore drifts in the most expensive possible direction: silently, into an
-agent's instructions. A skill naming a metric the code does not report, or quoting a perf event the
-code does not record, is worse than no skill -- it is a confident wrong answer with the repo's name
-on it.
-
-Every assertion here is a cross-check against a constant or a table that already exists. Nothing
-pins prose for its own sake: rewording is free, contradicting the code is not.
-"""
+"""What the shipped skills SAY, cross-checked against the constants and tables that make it true (rewording is
+free, contradicting the code is not)."""
 
 import dataclasses
 import inspect
@@ -21,10 +11,10 @@ import re
 import pytest
 import yaml
 
-from hpcagent_bench import flags, languages, paths, perf_reports
+from hpcagent_bench import flags, languages, modules, paths, perf_reports
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import gpu_profiling, papi, profiling, service
 from hpcagent_bench.harness.prompts import load_skills, parse_skill
-from hpcagent_bench.languages import Language
 
 # The rocprofv3 CSVs live with the readers they exercise; a second copy here would drift, and the
 # whole point of these checks is that the skill describes rows the code really produces.
@@ -475,7 +465,7 @@ def test_each_device_skill_names_every_cause_its_compute_profiler_refuses_with(
     """A 503 an agent cannot name is an agent that reads a refusal as a measurement."""
     from hpcagent_bench.harness import compute_profiling
 
-    refusal = vars(compute_profiling)[refusals]
+    refusal = modules.member(compute_profiling, refusals)
     body = skill_bodies()[page]
     for cause in (refusal.denied, refusal.failed, refusal.missing, *own_causes):
         assert cause in gpu_profiling.CAUSES, f"{cause!r} is no longer a GPU profiler cause"
@@ -590,7 +580,7 @@ def test_the_rocprof_skill_names_the_offload_languages_the_route_traces(monkeypa
     each and never says an offload submission has no device trace."""
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
     body = skill_bodies()[ROCPROF]
-    traced = [language.value for language in Language if gpu_profiling.offload_traced(language.value)]
+    traced = [language.text for language in Language if gpu_profiling.offload_traced(language)]
     assert traced, "no language is offload-traced; this test is no longer checking anything"
     assert "no device trace for offload" not in body, "the rocprof skill still says offload has no trace"
     assert f"`{service.OFFLOAD_DEVICE_TOOL}`" in body
@@ -770,7 +760,7 @@ def test_a_language_page_names_the_standard_the_harness_actually_builds_with() -
     """
     from hpcagent_bench import languages, paths
 
-    pages = {"lang-c": "c", "lang-cpp": "cpp", "lang-fortran": "fortran"}
+    pages = {"lang-c": Language.C, "lang-cpp": Language.CPP, "lang-fortran": Language.FORTRAN}
     for page, lang in pages.items():
         path = paths.ROOT / "hpcagent_bench" / "skills" / page / "SKILL.md"
         if not path.exists():
@@ -797,7 +787,7 @@ def test_the_fortran_page_teaches_the_index_base_the_seam_delivers() -> None:
     from hpcagent_bench import paths
     from hpcagent_bench.support.bindings.contract import index_base
 
-    assert index_base("fortran") == 1, "the page below is written for a 1-based delivery"
+    assert index_base(Language.FORTRAN) == 1, "the page below is written for a 1-based delivery"
     text = (paths.ROOT / "hpcagent_bench" / "skills" / "lang-fortran" / "SKILL.md").read_text()
     assert "a(ip(j))" in text, "the page never shows the bare gather the seam delivers"
     assert "a(ip(j) + 1)" not in text, (
@@ -872,7 +862,7 @@ def test_no_fortran_page_teaches_a_2023_spelling() -> None:
 REASSOCIATING_FLAGS = ("-ffast-math", "-funsafe-math-optimizations", "-Ofast", "--use_fast_math")
 
 
-def fenced_blocks(body: str):
+def fenced_blocks(body: str) -> list[str]:
     """The fenced code blocks in ``body`` -- what a page presents as a literal command line."""
     out, inside, buf = [], False, []
     for line in body.splitlines():

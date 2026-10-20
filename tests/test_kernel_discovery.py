@@ -13,6 +13,8 @@ conv_3d) were merged, then swept out as collateral in a mass KernelBench prune, 
 until a downstream clone came up short. These guards make the class of loss loud.
 """
 
+import pathlib
+
 import pytest
 
 from hpcagent_bench import spec
@@ -26,7 +28,7 @@ BENCH = spec.paths.BENCHMARKS
 _MANIFEST_ALIASES = {"bicg", "sp_bicg"}
 
 
-def _kernel_numpy_impls():
+def kernel_numpy_impls() -> list[tuple[str, pathlib.Path]]:
     """Every ``<k>_numpy.py`` that is a kernel in its own right (has a same-stem ``<k>.yaml``)."""
     out = []
     for npf in sorted(BENCH.rglob("*_numpy.py")):
@@ -38,8 +40,8 @@ def _kernel_numpy_impls():
     return out
 
 
-@pytest.mark.parametrize(("stem", "npf"), _kernel_numpy_impls(), ids=lambda v: v if isinstance(v, str) else "")
-def test_every_manifested_numpy_impl_is_discoverable_and_loads(stem, npf) -> None:
+@pytest.mark.parametrize(("stem", "npf"), kernel_numpy_impls(), ids=lambda v: v if isinstance(v, str) else "")
+def test_every_manifested_numpy_impl_is_discoverable_and_loads(stem: str, npf: pathlib.Path) -> None:
     """A ``<k>_numpy.py`` + ``<k>.yaml`` pair MUST resolve via BenchSpec.load, at the same dir.
 
     This is the exact invariant that would have caught the pruned kernels the day a ``<k>.yaml`` went
@@ -70,7 +72,7 @@ def test_discovery_scans_are_nonempty() -> None:
     skip, and the loop over ``_scan_kernels()`` asserts nothing when it is empty. Pin that both
     discovery mechanisms actually find kernels, so a rglob / rename / BENCH-path regression returning
     nothing fails loudly here instead of silently disarming the very guards meant to make loss loud."""
-    assert _kernel_numpy_impls(), "no <k>_numpy.py + <k>.yaml pairs discovered -- the impl scan regressed"
+    assert kernel_numpy_impls(), "no <k>_numpy.py + <k>.yaml pairs discovered -- the impl scan regressed"
     assert list(spec._scan_kernels()), "spec._scan_kernels() found no manifests -- the manifest scan regressed"
 
 
@@ -81,7 +83,7 @@ _RESTORED_HPC_PORTS = ("examinimd", "dbcsr", "minife", "srad", "reduce_2d", "con
 
 
 @pytest.mark.parametrize("short", _RESTORED_HPC_PORTS)
-def test_restored_hpc_ports_stay_present(short) -> None:
+def test_restored_hpc_ports_stay_present(short: str) -> None:
     s = BenchSpec.load(short)  # raises KeyError if it vanishes again
     assert s.module_name == short
 

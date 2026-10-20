@@ -152,6 +152,13 @@ def test_the_script_writes_the_figure_and_the_runs_behind_it(tmp_path: pathlib.P
     table = pd.read_csv(tmp_path / "temperature.csv", keep_default_na=False)
     assert sorted(table["condition"].unique()) == ["", "t0", "t1.5"]
     assert len(table) == len(SUFFIXES) * len(stub.SETUPS) * len(stub.KERNELS) * stub.RUNS
+    assert set(table[population.RUN_STATE_COLUMN]) <= set(population.RunState.texts())
+
+
+def test_the_style_and_the_run_state_keep_their_spellings() -> None:
+    """``--style`` reads these spellings, and the runs table writes these into its ``run_state`` column."""
+    assert kernel_runs.Mode.texts() == ("box", "violin")
+    assert population.RunState.texts() == ("solved", "unsolved", "owed")
 
 
 def test_the_script_draws_only_the_conditions_asked_for(tmp_path: pathlib.Path) -> None:
@@ -222,3 +229,4 @@ if __name__ == "__main__":
     test_temperatures_order_by_value_with_the_default_among_them()
     test_one_condition_draws_one_unruled_untitled_group()
     test_the_script_refuses_owed_runs_by_default(pathlib.Path(tempfile.mkdtemp()))
+    test_the_style_and_the_run_state_keep_their_spellings()

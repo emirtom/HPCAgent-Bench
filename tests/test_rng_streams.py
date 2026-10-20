@@ -1,16 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The per-array RNG stream policy.
-
-The property that matters is INDEPENDENCE: array *k*'s values are a function of the seed and *k*,
-and of nothing else. A single shared stream does not have it -- there, array *k* depends on how
-many draws arrays *0..k-1* made, so materialising a subset, reordering the declaration, or filling
-on threads all change the data.
-"""
+"""The per-array RNG stream policy: array *k*'s values depend on the seed and *k* alone."""
 
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision, numpy_dtype, safe_max
 from hpcagent_bench.spec import KERNELS, BenchSpec
@@ -22,7 +17,7 @@ from hpcagent_bench.support.distributions import streams
 STANDARD = ("uniform", "normal", "lognormal", "exponential", "gamma", "beta", "laplace")
 
 
-def auto_init_specs(minimum_arrays: int = 2, limit: int = 4):
+def auto_init_specs(minimum_arrays: int = 2, limit: int = 4) -> list[tuple[str, BenchSpec]]:
     """Specs that opt into :func:`auto_initialize` (declarative ``init.shapes``, no custom func)."""
     found = []
     for key in sorted(KERNELS):
@@ -76,7 +71,7 @@ EXTREME = {"sigma": 90.0, "scale": 1e30, "loc": 1e30}
 @pytest.mark.parametrize("name", STANDARD)
 @pytest.mark.parametrize("precision", list(Precision))
 @pytest.mark.parametrize("spec", [{}, EXTREME], ids=["default", "extreme"])
-def test_standard_distributions_stay_in_the_safe_range(name, precision, spec) -> None:
+def test_standard_distributions_stay_in_the_safe_range(name: str, precision: Precision, spec: dict[str, float]) -> None:
     """EVERY precision, not just the two wide ones: the narrow formats are where the clip does the
     work, and the wide ones are where its absence went unnoticed."""
     got = distributions.generate(name, (2048,), precision, {"rng": CounterGenerator(5), **spec})
@@ -94,7 +89,7 @@ def test_no_precision_has_an_unbounded_ceiling() -> None:
 
 
 @pytest.mark.parametrize("name", STANDARD)
-def test_standard_distributions_follow_their_stream(name) -> None:
+def test_standard_distributions_follow_their_stream(name: str) -> None:
     kwargs = {"rng": CounterGenerator(3)}
     a = distributions.generate(name, (64,), Precision.FP64, kwargs)
     b = distributions.generate(name, (64,), Precision.FP64, {"rng": CounterGenerator(3)})
@@ -104,8 +99,8 @@ def test_standard_distributions_follow_their_stream(name) -> None:
 
 
 @pytest.mark.parametrize("stem_spec", auto_init_specs(), ids=lambda s: s[0])
-def test_auto_initialize_is_reproducible(stem_spec) -> None:
+def test_auto_initialize_is_reproducible(stem_spec: tuple[str, BenchSpec]) -> None:
     _, spec = stem_spec
-    a = auto_initialize(spec, "S", Precision.FP64, seed=42)
-    b = auto_initialize(spec, "S", Precision.FP64, seed=42)
+    a = auto_initialize(spec, Preset.S, Precision.FP64, seed=42)
+    b = auto_initialize(spec, Preset.S, Precision.FP64, seed=42)
     assert all(np.array_equal(x, y) for x, y in zip(a, b, strict=False))

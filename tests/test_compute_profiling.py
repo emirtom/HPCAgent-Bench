@@ -1,9 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The compute profilers (:mod:`hpcagent_bench.harness.compute_profiling`): ``rocprof-compute`` on AMD,
-``ncu`` on NVIDIA. CPU group: no GPU, no ROCm and no Nsight Compute here. The readers run against the
-tables rocprof-compute 3.4.0 wrote on MI300A, and every process is a stand-in that writes what the
-real tool writes, so the path taken when a tool fails is provable on the host that has none."""
+"""The compute profilers (``rocprof-compute``, ``ncu``) on a host without them: readers against real MI300A
+tables, every process a stand-in, so the failure paths are provable."""
 
 import ast
 import json
@@ -16,6 +14,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from hpcagent_bench import seal
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import compute_profiling, gpu_profiling, profiling, report_staging, service, tools
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.gpu_profiling import GpuProfilerUnavailable
@@ -314,9 +313,9 @@ def test_a_regex_device_kernel_is_refused_before_the_host_is_probed(monkeypatch:
     monkeypatch.setattr(compute_profiling, "compute_check", probed)
     with pytest.raises(ValueError, match="exact kernel name"):
         compute_profiling.profile_compute_submission(
-            Submission(language="c", source="void gemm_fp64(void) {}"),
-            Task("gemm", "restricted", "c"),
-            preset="S",
+            Submission(language=Language.C, source="void gemm_fp64(void) {}"),
+            Task("gemm", SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             home=(pathlib.Path("/j"), "/a"),
             device_kernel="regex:gemm",
         )
@@ -327,7 +326,7 @@ def test_an_amd_host_without_rocprof_compute_is_refused_by_that_name(monkeypatch
     monkeypatch.setattr(gpu_profiling, "rocprof_check", lambda: ("rocprofv3", "/opt/rocm/bin/rocprofv3"))
     monkeypatch.setattr(compute_profiling.shutil, "which", lambda name: None)
     with pytest.raises(GpuProfilerUnavailable) as refused:
-        compute_profiling.compute_check("hip")
+        compute_profiling.compute_check(Language.HIP)
     assert refused.value.cause == "rocprof_compute_missing"
 
 
@@ -339,7 +338,7 @@ def test_an_amd_host_that_fails_the_device_gate_is_refused_with_the_trace_s_caus
 
     monkeypatch.setattr(gpu_profiling, "rocprof_check", no_gpu)
     with pytest.raises(GpuProfilerUnavailable) as refused:
-        compute_profiling.compute_check("hip")
+        compute_profiling.compute_check(Language.HIP)
     assert refused.value.cause == "no_amd_gpu"
 
 
@@ -357,7 +356,7 @@ def test_an_nvidia_host_that_cannot_count_is_refused_by_the_first_gate_it_fails(
     monkeypatch.setattr(compute_profiling.shutil, "which", lambda name: f"/usr/bin/{name}" if name in tools else None)
     monkeypatch.setattr(gpu_profiling, "NVIDIA_DEVICE", nvidiactl)
     with pytest.raises(GpuProfilerUnavailable) as refused:
-        compute_profiling.compute_check("cuda")
+        compute_profiling.compute_check(Language.CUDA)
     assert refused.value.cause == cause
 
 
@@ -368,7 +367,7 @@ def test_an_nvidia_host_with_ncu_and_a_device_answers_the_executable(
     monkeypatch.setattr(compute_profiling.osinfo, "IS_LINUX", True)
     monkeypatch.setattr(compute_profiling.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(gpu_profiling, "NVIDIA_DEVICE", tmp_path / "nvidiactl")
-    assert compute_profiling.compute_check("cuda") == "/usr/bin/ncu"
+    assert compute_profiling.compute_check(Language.CUDA) == "/usr/bin/ncu"
 
 
 def test_an_amd_counted_run_reads_the_tables_and_leaves_the_whole_report_to_stage(
@@ -494,9 +493,9 @@ def test_a_counted_submission_stages_its_report_into_the_agent_s_shared_folder(
     monkeypatch.setattr(compute_profiling, "run_command", fake_rocprof_compute())
     home = report_staging.report_home(None, "setup.n0.p1.w2", "rocprof-compute", "r1")
     payload = compute_profiling.profile_compute_submission(
-        Submission(language="c", source="void gemm_fp64(void) {}"),
-        Task("gemm", "restricted", "c"),
-        preset="S",
+        Submission(language=Language.C, source="void gemm_fp64(void) {}"),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
         home=home,
     )
     assert payload["build_ok"] is True
@@ -524,9 +523,9 @@ def test_a_counted_submission_that_wedges_is_a_timed_out_refusal(
     monkeypatch.setattr(compute_profiling, "run_command", wedge)
     with pytest.raises(GpuProfilerUnavailable) as refused:
         compute_profiling.profile_compute_submission(
-            Submission(language="c", source="void gemm_fp64(void) {}"),
-            Task("gemm", "restricted", "c"),
-            preset="S",
+            Submission(language=Language.C, source="void gemm_fp64(void) {}"),
+            Task("gemm", SourceMode.RESTRICTED, Language.C),
+            preset=Preset.S,
             home=(tmp_path / "j", str(tmp_path / "j")),
         )
     assert refused.value.cause == "timed_out"
@@ -539,10 +538,10 @@ def test_a_payload_built_from_the_real_tables_stays_small_enough_to_keep_in_cont
     run = compute_profiling.ComputeRun("rocprof-compute", tmp_path, kernels, metrics, missing)
     staged = report_staging.StagedReport("/shared/r", ("a.csv",) * 60, (("big.bin", "over the cap"),))
     payload = compute_profiling.compute_payload(
-        Task("gemm", "restricted", "hip"),
+        Task("gemm", SourceMode.RESTRICTED, Language.HIP),
         run,
         staged,
-        preset="S",
+        preset=Preset.S,
         datatype="float64",
         symbol="gemm_fp64",
         reps=1,
@@ -586,7 +585,7 @@ def test_the_route_hands_the_compute_profiler_its_reps_kernel_and_a_home_under_t
 
     def record(submission: Submission, task: Task, **kwargs: object) -> dict[str, object]:
         seen.update(kwargs)
-        return {"build_ok": False, "kernel": task.kernel, "language": task.language, "detail": "recorded"}
+        return {"build_ok": False, "kernel": task.kernel, "language": task.language.text, "detail": "recorded"}
 
     monkeypatch.setattr(compute_profiling, "profile_compute_submission", record)
     fields = {
@@ -617,7 +616,8 @@ def test_every_cause_the_compute_module_raises_is_a_documented_gpu_cause() -> No
         node.args[0].value
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and getattr(node.func, "id", None) == "GpuProfilerUnavailable"
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "GpuProfilerUnavailable"
         and node.args
         and isinstance(node.args[0], ast.Constant)
     }
@@ -639,7 +639,7 @@ def test_no_message_the_compute_module_returns_hands_the_agent_a_command() -> No
         compute_profiling.NVIDIA_REFUSALS.fix,
     ]
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "GpuProfilerUnavailable":
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "GpuProfilerUnavailable":
             outward += [
                 part.value
                 for arg in node.args
@@ -682,10 +682,10 @@ def test_rocprof_compute_counts_a_hip_kernel_and_stages_its_whole_report_on_an_a
     from tests.test_agent_bench import _DEVICE_CUDA_GEMM_HOST
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    submission = Submission(language="hip", source=_DEVICE_CUDA_GEMM_HOST, device_source=HIP_GEMM_KERNELS)
+    submission = Submission(language=Language.HIP, source=_DEVICE_CUDA_GEMM_HOST, device_source=HIP_GEMM_KERNELS)
     body = (
         tools.JudgeClient(make_judge(service.ServiceConfig())[1])
-        .profile(submission, "gemm", preset="S", tool="rocprof-compute", reps=1)
+        .profile(submission, "gemm", preset=Preset.S, tool="rocprof-compute", reps=1)
         .root
     )
     assert isinstance(body, DeviceCountReport), body
@@ -710,10 +710,12 @@ def test_ncu_counts_one_cuda_launch_and_stages_its_whole_report_on_an_nvidia_gpu
     from tests.test_agent_bench import _DEVICE_CUDA_GEMM_HOST, _DEVICE_CUDA_GEMM_KERNELS
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
-    submission = Submission(language="cuda", source=_DEVICE_CUDA_GEMM_HOST, device_source=_DEVICE_CUDA_GEMM_KERNELS)
+    submission = Submission(
+        language=Language.CUDA, source=_DEVICE_CUDA_GEMM_HOST, device_source=_DEVICE_CUDA_GEMM_KERNELS
+    )
     body = (
         tools.JudgeClient(make_judge(service.ServiceConfig())[1])
-        .profile(submission, "gemm", preset="S", tool="ncu", reps=1, device_kernel="gemm_k")
+        .profile(submission, "gemm", preset=Preset.S, tool="ncu", reps=1, device_kernel="gemm_k")
         .root
     )
     assert isinstance(body, DeviceCountReport), body

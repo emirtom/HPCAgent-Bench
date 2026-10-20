@@ -28,7 +28,7 @@
 #   MODELS            space-separated (default qwen38)
 #   LANGUAGES         space-separated (default: the base's LANGUAGE)
 #   PACKETS           space-separated packet specs, `none` for the control (default none)
-#   HARNESSES         claude (default), miniswe, openhands
+#   HARNESSES         claude (default), miniswe, openhands, optimas, anthropic, openai
 #   TEMPERATURES      sampling temperatures the serving engine applies, `default` for the model's own
 #                     (1.0 for every served model; default `default`). A setup at another value is
 #                     named -t<value> and records it in setups.temperature.
@@ -91,7 +91,7 @@ BEGIN=${BEGIN:-}
 [[ "${BEGIN}" != now ]] || BEGIN=""
 
 #: The task prompt of each harness but claude, which reads its language's prompt.
-declare -A HARNESS_PROMPT=([miniswe]=prompt-cli.md [openhands]=prompt-openhands.md)
+declare -A HARNESS_PROMPT=([miniswe]=prompt-cli.md [openhands]=prompt-openhands.md [optimas]=prompt-native.md [anthropic]=prompt-native.md [openai]=prompt-native.md)
 
 # base_value <flat env> <KEY> -> <KEY>'s value in a rendered base, empty when unset
 base_value() { sed -n "s/^$2=//p" <<<"$1" | tail -n 1; }
@@ -177,7 +177,7 @@ stage_setup() {
         [[ "${harness}" == claude ]] || args+=(--harness "${harness}")
         if [[ -n "${KERNELS_FILE}" ]]; then args+=(--kernels-file "${KERNELS_FILE}"); else args+=(--select "all@${TAG}"); fi
         [[ "$(base_value "${flat}" HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED)" != true ]] || args+=(--multinode)
-        mapfile -t grading < <(grep -E '^HPCAGENT_BENCH_(MPI|GRADING|MEASUREMENT|REQUESTS)_[A-Z0-9_]+=' <<<"${flat}" || true)
+        mapfile -t grading < <(grep -E '^HPCAGENT_BENCH_(MPI|GRADING|MEASUREMENT|REQUESTS|FUZZ)_[A-Z0-9_]+=' <<<"${flat}" || true)
         env "${grading[@]}" "${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/make_problems.py" "${args[@]}" >"${problems}.tmp" || return 2
         mv -f "${problems}.tmp" "${problems}" || return 2
     fi
@@ -228,8 +228,11 @@ stage_setup() {
     for kv in "${kvs[@]}" ${EXTRA_ENV_KV:-}; do pin_env_kv "${staged}" "${kv}" || return 2; done
     local record_lang="${lang}${residency:+-${OFFLOAD}-device}" record_device
     record_device=$(base_value "${flat}" SUBMIT_DEVICE)
+    # A tuner setup's harness is its layer's (tuner), whatever --harnesses named.
+    local record_harness="${NAMED_HARNESS:+${harness}}"
+    [[ "$(base_value "${flat}" HARNESS)" != tuner ]] || record_harness=tuner
     record_identity "${staged}" "${RECORD_STUDY}" "${model}" "${record_lang}" "${record_device:-${device}}" \
-        "${packet}" "${SETUP}" "${NAMED_HARNESS:+${harness}}" "${temperature}" || { rm -f "${staged}"; return 2; }
+        "${packet}" "${SETUP}" "${record_harness}" "${temperature}" || { rm -f "${staged}"; return 2; }
     [[ -z "${TAG}" ]] || record_tag_version "${staged}" "${TAG}" || { rm -f "${staged}"; return 2; }
     printf 'HPCAGENT_BENCH_RECORD_AGENT_TIMEOUT_SECONDS=%s\nHPCAGENT_BENCH_RECORD_AGENT_MAX_TOKENS=%s\n' \
         "${agent}" "${tokens}" >>"${staged}"

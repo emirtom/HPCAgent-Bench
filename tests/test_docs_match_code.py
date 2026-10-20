@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Docs must not drift from the implementation.
-
-Prose goes stale silently: a knob is renamed, a template moves, an endpoint changes shape,
-and the doc keeps confidently describing the old world. These check the claims that are
-mechanically checkable, so drift fails a test instead of misleading a reader.
-"""
+"""Docs must not drift from the implementation: mechanically checkable claims are checked."""
 
 import argparse
 import dataclasses
@@ -15,7 +10,7 @@ import subprocess
 
 import pytest
 
-from hpcagent_bench import cli, config, paths
+from hpcagent_bench import cli, config, modules, paths
 from hpcagent_bench.harness.prompts import PROMPT_VARIANTS, PromptConfig
 
 PROMPTS_DIR = pathlib.Path("hpcagent_bench/harness/prompts")
@@ -207,7 +202,7 @@ def test_docs_name_only_autogen_registries_that_exist() -> None:
         for paragraph in text.split("\n\n")
         if "hpcagent_bench/autogen.py" in paragraph
         for name in re.findall(r"`([A-Z][A-Z_]+)`", paragraph)
-        if not hasattr(hpcagent_bench.autogen, name)
+        if not modules.defines(hpcagent_bench.autogen, name)
     ]
     assert not stale, f"documented autogen names that do not exist: {stale}"
 

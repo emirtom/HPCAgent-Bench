@@ -32,7 +32,7 @@ def expr_(src: str) -> ast.expr:
 # A. ``SubscriptifyNames`` -- newaxis binds the slice to the right iter       #
 
 
-def subscriptify(src, iters, shapes):
+def subscriptify(src: str, iters: list[str], shapes: dict[str, tuple[str, ...]]) -> str:
     return ast.unparse(SubscriptifyNames(shapes, iters).visit(expr_(src)))
 
 
@@ -62,7 +62,9 @@ def test_plain_slice_pair_unchanged_by_newaxis_fix() -> None:
 # B. ``np.argmax(a, axis=k)`` hoists to an int64 INDEX ARRAY                    #
 
 
-def hoist(src, shapes):
+def hoist(
+    src: str, shapes: dict[str, tuple[str, ...]]
+) -> tuple[dict[str, tuple[str, ...]], dict[str, str], dict[str, str]]:
     """Run the call-hoister over ``target = <src>`` and return
     (array_temps, scalar_temps, local_dtypes)."""
     array_temps, scalar_temps, local_dtypes = {}, {}, {}
@@ -147,7 +149,7 @@ CAST_BENCH = {
 }
 
 
-def emit_(target):
+def emit_(target: str) -> str:
     from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
     from hpcagent_bench.translators.numpyto_common.lowering import lower
 

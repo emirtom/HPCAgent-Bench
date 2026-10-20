@@ -28,13 +28,13 @@ SHAPES = {"a": "(N, M)", "out": "(N,)"}
 SYMS = {"N": 8, "M": 4}
 
 
-def emit(body: str, target: str, shapes=None, syms=None) -> str:
+def emit(body: str, target: str, shapes: dict[str, str] | None = None, syms: dict[str, int] | None = None) -> str:
     src = "import numpy as np\ndef f(a, out):\n" + body
     kir = lower(oo.parse_source(src, "f", ["a"], ["out"], shapes or SHAPES, syms or SYMS))
     return emit_c(kir, fn_name="f") if target == "c" else emit_fortran(kir, fn_name="f")
 
 
-def notes(text: str):
+def notes(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if "numpy:" in line]
 
 

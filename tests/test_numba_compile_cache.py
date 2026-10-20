@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A numba reference's compile is paid once per (bytes, image), not once per job and judge rank.
-
-Each job grades from its own path, so numba's ``cache=True`` (keyed on the source file's
-path and stamp) never hit across jobs, and a large numba reference recompiled for ~13 minutes
-on every first /score. The judge imports the reference from a content-addressed copy in its disk
-store instead (:func:`disk_cache.shared_source`).
-"""
+"""A numba reference compiles once per (bytes, image): the judge imports it from a content-addressed copy
+(:func:`disk_cache.shared_source`)."""
 
 import os
 import pathlib
@@ -18,6 +13,7 @@ from collections.abc import Iterator
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import disk_cache, grading
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
@@ -142,7 +138,7 @@ def test_the_sealed_reference_child_compiles_into_the_store(
     that directory must stay writable there, or numba silently falls back to a per-container cache."""
     spec = BenchSpec.load("jacobi_2d")
     monkeypatch.setenv(disk_cache.COMMIT_ENV, "abc1234")
-    data = grading._data_seeded("jacobi_2d", "S", "float64", 1)
+    data = grading._data_seeded("jacobi_2d", Preset.S, "float64", 1)
     with config.overridden("cache.disk_results_levels", [spec.resolved_level]):
         samples = grading.time_numba_isolated(spec, binding_from_spec(spec), data, 1, 600.0, 4.0)
     assert samples

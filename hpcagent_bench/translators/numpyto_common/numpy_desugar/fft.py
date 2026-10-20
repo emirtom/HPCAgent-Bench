@@ -12,7 +12,7 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.ranks import expr_r
 __all__ = ["NATIVE_FFT_BACKENDS", "FftInline", "SubstituteFftCalls", "fft_axes", "fft_inline_stmts", "fft_real_dtype"]
 
 
-def fft_axes(fattr: str, call: ast.Call, rank: int):
+def fft_axes(fattr: str, call: ast.Call, rank: int) -> tuple[list[int] | None, bool]:
     """``(transform_axes, inverse)`` for an ``np.fft.<fattr>`` call; axes are ``None`` when non-constant.
 
     ``fft``: one ``axis`` (default last); ``fftn``: ``axes`` (default all); ``fft2``: last two.
@@ -115,7 +115,7 @@ class FftInline(ast.NodeTransformer):
         self.changed = False
         self._ctr = 0
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         if len(node.targets) != 1:
             return node

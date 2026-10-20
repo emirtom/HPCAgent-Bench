@@ -3,7 +3,7 @@
 import ast
 from collections.abc import Sequence
 
-from hpcagent_bench.translators.numpyto_common.ast_build import name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import name_, set_field, store_
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR, SparseArrayDesc
 from hpcagent_bench.translators.numpyto_common.numpy_desugar import expr_rank, rank_table
 
@@ -15,7 +15,6 @@ __all__ = [
     "SparseMatmulRewriter",
     "call_leaf",
     "dense_operands_are_vectors",
-    "prange_row_loop",
     "rewrite_sparse_matmuls",
     "sparse_operand",
     "symbol_readbacks",
@@ -104,18 +103,6 @@ def dense_operands_are_vectors(fn: ast.FunctionDef, kir: KernelIR, buffers: set[
     return True
 
 
-def prange_row_loop(loop: ast.For) -> None:
-    """Hand a ROW-PARTITIONED loop to numba's parfor.
-
-    Iteration ``i`` writes only row ``i`` of a freshly allocated temp, so independence holds by
-    construction. Done here because :func:`parallelize_one_range_loop` picks ONE loop in source
-    order, and the sparse matvec -- which is where these kernels spend their time -- is not it.
-    """
-    call = loop.iter
-    if isinstance(call, ast.Call):
-        call.func = ast.Attribute(value=name_("nb"), attr="prange", ctx=ast.Load())
-
-
 class SparseMatmulRewriter(ast.NodeTransformer):
     """Replace every sparse ``@`` with a dense temp plus the loop nest ``sparse_emit`` lowers it to.
 
@@ -154,11 +141,11 @@ class SparseMatmulRewriter(ast.NodeTransformer):
     def generic_visit(self, node: ast.AST) -> ast.AST:
         for field, value in ast.iter_fields(node):
             if isinstance(value, list) and any(isinstance(v, ast.stmt) for v in value):
-                setattr(node, field, self.block(value))
+                set_field(node, field, self.block(value))
             elif isinstance(value, list):
-                setattr(node, field, [self.visit(v) if isinstance(v, ast.AST) else v for v in value])
+                set_field(node, field, [self.visit(v) if isinstance(v, ast.AST) else v for v in value])
             elif isinstance(value, ast.AST):
-                setattr(node, field, self.visit(value))
+                set_field(node, field, self.visit(value))
         return node
 
     def visit_While(self, node: ast.While) -> ast.AST:
@@ -217,8 +204,6 @@ class SparseMatmulRewriter(ast.NodeTransformer):
                 raise SparseLoweringRefused(f"no sparse x sparse lowering for {desc.format}/{rhs_desc.format}")
             out_cols = self.bound(rhs_desc.logical_shape[1])
             stmts = expand(temp, desc.buffers, rhs_desc.buffers, rows, out_cols)
-            for loop in stmts:
-                prange_row_loop(loop)
             return [self.alloc(temp, desc.buffers["data"], (rows, out_cols)), *stmts]
         # An integer-indexed axis of a matrix (``Q[:, k]``) is a rank-1 VIEW: numpy drops the axis an
         # integer index selects and keeps the one a slice spans. The rank table proves it; the view is
@@ -239,9 +224,7 @@ class SparseMatmulRewriter(ast.NodeTransformer):
         target = name_(temp)
         if desc.format == "csr":
             stmts = SPARSE_MATMUL_DISPATCH[("csr", "dense", "matmul_vec")](target, desc.buffers, rhs_name, rows)
-            prange_row_loop(stmts[0])
         elif desc.format == "csc":
-            # CSC scatter-adds into y[indices[k]], a data-dependent row, so this one stays serial.
             cols = self.bound(desc.logical_shape[1])
             stmts = SPARSE_MATMUL_DISPATCH[("csc", "dense", "matmul_vec")](target, desc.buffers, rhs_name, rows, cols)
         else:

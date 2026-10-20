@@ -1,20 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The dense kernels whose XL is bounded by the baselines' time, not by memory, stay inside that bound.
-
-Their C reference is a translated loop nest (no BLAS or LAPACK call) and their parallel numba
-reference is the numpy body under ``njit(parallel=True)``. Sized by memory alone (the 4 GiB XL cap),
-gramschmidt, syr2k, cholesky and cholesky2 took 1100-5600 s a rep, past the 300 s per-rep cap for
-both baselines, so every grade was a judge fault ('best-of baseline lost its compiled reference') or,
-for cholesky2, a dual-oracle C leg killed at the cap. Each manifest's XL comment records the
-measurement its size comes from; this pins the work so a later memory-driven resize cannot undo it.
-"""
+"""The dense kernels whose XL is bounded by the baselines' time (translated loop nests, parallel numba), not
+memory, stay inside the per-rep cap; each manifest's XL comment records its measurement."""
 
 from collections.abc import Callable, Mapping
 
 import pytest
 
-from hpcagent_bench.fuzz import FUZZED_PRESET
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
 
 #: Multiply-adds per kernel call, from the manifest's size symbols.
@@ -43,4 +36,4 @@ def test_the_preset_ladder_grows_up_to_xl(kernel: str) -> None:
     parameters = BenchSpec.load(kernel).parameters
     work = [WORK[kernel](parameters[preset]) for preset in ("S", "M", "L", "XL")]
     assert work == sorted(work), f"{kernel}: S/M/L/XL work {work}"
-    assert FUZZED_PRESET not in parameters, f"{kernel}: an explicit fuzzed preset would bypass the XL bound"
+    assert Preset.FUZZED.text not in parameters, f"{kernel}: an explicit fuzzed preset would bypass the XL bound"

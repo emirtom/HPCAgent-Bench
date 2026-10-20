@@ -122,7 +122,7 @@ def test_point_ranks_below_one_floors_to_one() -> None:
 
 
 @pytest.mark.parametrize(("t1", "tp"), [(0, 1000), (1000, 0), (-5, 1000), (1000, -5)])
-def test_point_nonpositive_times_raise(t1, tp) -> None:
+def test_point_nonpositive_times_raise(t1: int, tp: int) -> None:
     with pytest.raises(ValueError, match="positive"):
         scaling_point(ScalingLaw.STRONG, 4, single_rank_ns=t1, ranked_ns=tp)
 

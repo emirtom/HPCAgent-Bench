@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge-, tool- and prompt-side contract of the mlscale setups, each case run at the setups' REAL
-judge config (``test_ml_submit_records.setup_judge``: preset fuzzed, hip, ``mpi.ranks`` 4, P = 1, 2, 4,
-the real ``dist_*`` manifests) with only the GPU build, the rank launch and the torch baseline child
-faked.
-
-* A correct score the agent never submitted is promoted WITH its requests (layout, libraries) and scratch.
-* A request with no (or an unresolvable) layout is a 400, like every other layout fault, so it
-  cannot spend the one submission.
-* A ``grid: [1]`` layout, re-gridded to every P by the grade, is re-verified as it was graded.
-* The reference receives a replicated input on the kernel's default split, so a correct kernel
-  holding ``x`` replicated grades against a reference shard of its own shape.
-* The prompt and the refusal name which ``requests.startup.load`` still link (``rccl``, ``mpi``).
-* A wrong answer at any graded rank count fails the grade; a timed-out rank count is a hole in the
-  curve.
-"""
+"""The judge-, tool- and prompt-side contract of the mlscale setups at their real judge config (only the GPU
+build, rank launch and torch baseline faked)."""
 
 import json
 import pathlib
@@ -24,9 +11,11 @@ from collections.abc import Callable, Mapping, Sequence
 import pytest
 
 from hpcagent_bench import config, languages
+from hpcagent_bench.categories import Language, Residency
 from hpcagent_bench.harness import mpi_call, mpi_shard_driver, prompts, recording, scaling_grade
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.harness.outcomes import GradeStatus
 from tests.test_ml_submit_records import JOB, SETUP, SETUP_ENV, agent_body, post, recorded_requests, rows, setup_judge
 from tests.test_promote_unsubmitted import load_example_module
 from tests.test_prompt_contract_consistency import driver_module
@@ -272,7 +261,9 @@ def test_the_driver_text_sends_a_distributed_agent_to_load_rccl(monkeypatch: pyt
 def gemm_contract(hint: bool) -> str:
     """dist_matmul_large_k's hip distributed contract, rendered with ``mpi.compute_hint`` = ``hint``."""
     with config.overridden("mpi.compute_hint", hint):
-        return prompts.distributed_contract(Task(kernel="dist_matmul_large_k", language="hip", residency="distributed"))
+        return prompts.distributed_contract(
+            Task(kernel="dist_matmul_large_k", language=Language.HIP, residency=Residency.DISTRIBUTED)
+        )
 
 
 def test_the_compute_hint_renders_only_when_the_setup_sets_it() -> None:
@@ -334,7 +325,10 @@ def test_the_requests_field_shows_the_grid_over_p(monkeypatch: pytest.MonkeyPatc
     from tests.test_ml_submit_records import load_http_json
 
     monkeypatch.setenv("HPCAGENT_BENCH_REQUEST_ACTIONS", json.dumps(RequestActions(distributed=True, grid=True).wire()))
-    schema = load_http_json().schema_with_language({})
+    from hpcagent_agent.tools.registry import schema_of
+
+    http_json = load_http_json()
+    schema = schema_of(http_json.submission_input(True, http_json.request_actions()))
     requests = schema["properties"]["requests"]
     described = str(requests["description"])
     assert "REQUIRED on this distributed run" in described, described
@@ -458,7 +452,7 @@ def test_the_grade_job_fails_a_submission_wrong_at_one_rank_count(
         monkeypatch.setenv(scaling_grade.RANK_COUNTS_ENV, "[1,2,4,8,16]")
         monkeypatch.setattr(mpi_call, "launch", launch_by_rank_count(launches, wrong_at=8))
         replayed = scaling_grade.grade(items[0])
-    assert replayed.status is scaling_grade.GradeStatus.INCORRECT, replayed
+    assert replayed.status is GradeStatus.INCORRECT, replayed
     assert replayed.detail.startswith("P=8 ("), replayed.detail
 
 

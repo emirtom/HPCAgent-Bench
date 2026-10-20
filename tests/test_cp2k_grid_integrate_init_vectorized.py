@@ -1,22 +1,17 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""CP2K grid-integrate's initializer builds bit-identical inputs to the shipped scalar loops.
-
-The shipped ``initialize`` filled the grid point by point and every task field task by task, one
-scalar ``rng.uniform`` per jitter (~17 s at XL). The vectorized one is pinned here to a verbatim
-copy of those loops, at both precisions, including the RNG state it leaves behind.
-"""
+"""CP2K grid-integrate's vectorized initializer is bit-identical to the scalar loops (RNG state included) at both
+precisions."""
 
 import numpy as np
 import pytest
-
-from hpcagent_bench.support.counter_generator import CounterGenerator
-from tests.counter_stream import CounterStream, cos, sin
 
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cp2k_grid_integrate import cp2k_grid_integrate
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cp2k_grid_integrate.cp2k_grid_integrate import (
     MAX_COSET,
 )
+from hpcagent_bench.support.counter_generator import CounterGenerator
+from tests.counter_stream import CounterStream, cos, sin
 
 
 def scalar_initialize(

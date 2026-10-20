@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every timed rep is checked as it returns, in one shared region per output, with the child stopped
-(``_call_isolated(checks=...)``, :class:`native_call.RepCheckServer`).
-
-Spilling every timed rep's outputs to the node-local temp directory and grading them all at the end held
-reps x output bytes of tmpfs, which is memory: job 683329's shards were OOM-killed at 68 GB of shmem. The
-check gives the same verdicts as grading the spilled reps, holds one rep's outputs at a time, hands each
-rep the in-place outputs' fresh initial values, and the code under test cannot change a rep's outputs
-while they are checked.
-"""
+"""Every timed rep is checked as it returns, in one shared region per output with the child stopped
+(``_call_isolated(checks=...)``): same verdicts as grading spilled reps, one rep's outputs held at a time."""
 
 import collections
 import os
@@ -20,6 +13,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import spec
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import native_call, sandbox, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
@@ -109,7 +103,7 @@ def measure(
         write_kernel(source),
         BINDING,
         public_data(),
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=timeout,
         py_meta=PY_META,
@@ -210,7 +204,7 @@ def test_the_time_a_rep_is_held_does_not_count_against_the_call() -> None:
         write_kernel("def kern(x, y):\n    y[:] = x + 1.0\n"),
         BINDING,
         public_data(),
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=1.0,
         py_meta=PY_META,
@@ -280,7 +274,9 @@ def score_with(monkeypatch: pytest.MonkeyPatch, checked: bool) -> scoring.Score:
     )
     monkeypatch.setattr(scoring, "numba_reference_outputs", lambda *_a, **_kw: {"C": np.zeros(1)})
     return scoring.score(
-        Submission(language="c", source="/* build is faked */", build=[]), Task("gemm", "restricted", "c"), preset="S"
+        Submission(language=Language.C, source="/* build is faked */", build=[]),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
     )
 
 

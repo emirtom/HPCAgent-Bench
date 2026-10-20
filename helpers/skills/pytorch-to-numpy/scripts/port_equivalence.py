@@ -27,10 +27,13 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 
+from hpcagent_bench import modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.numerical_oracle import custom_initialize
 from hpcagent_bench.precision import Precision
@@ -67,12 +70,12 @@ def kernel_dir(spec: BenchSpec) -> pathlib.Path:
     return REPO / "hpcagent_bench" / "benchmarks" / spec.relative_path
 
 
-def load_fn(path: pathlib.Path, func_name: str, tag: str):
+def load_fn(path: pathlib.Path, func_name: str, tag: str) -> Callable[..., object]:
     """Import one kernel file under a unique module name, so old and new coexist in one process."""
     spec = importlib.util.spec_from_file_location(f"kern_{tag}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return vars(mod)[func_name]
+    return modules.function(mod, func_name)
 
 
 def baseline_copy(rel: pathlib.Path, rev: str, tmp: pathlib.Path) -> pathlib.Path:
@@ -87,13 +90,13 @@ def baseline_copy(rel: pathlib.Path, rev: str, tmp: pathlib.Path) -> pathlib.Pat
     return dst
 
 
-def build_inputs(spec: BenchSpec, preset: str, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_inputs(spec: BenchSpec, preset: Preset, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(arrays_by_name, symbols)`` -- the oracle's own materialisation, minus the size down-scale.
 
     No down-scale on purpose: this compares two implementations of the SAME kernel, so the preset's
     declared size is both affordable (S) and the shape the manifest actually describes.
     """
-    syms: dict[str, Any] = dict(spec.parameters[preset])
+    syms: dict[str, Any] = dict(spec.parameters[preset.text])
     for name, value in (spec.init.scalars or {}).items():
         syms.setdefault(name, value)
     if spec.init.func_name:
@@ -108,7 +111,7 @@ def build_inputs(spec: BenchSpec, preset: str, seed: int) -> tuple[dict[str, Any
     return by, syms
 
 
-def call(fn, spec: BenchSpec, by: dict[str, Any], syms: dict[str, Any]) -> dict[str, np.ndarray]:
+def call(fn: Callable[..., object], spec: BenchSpec, by: dict[str, Any], syms: dict[str, Any]) -> dict[str, np.ndarray]:
     """Run one kernel on private copies; return every output it produced, by name.
 
     The argument list comes from THIS function's own ``def`` line, not from the manifest, because a
@@ -189,7 +192,7 @@ def compare(old: dict[str, np.ndarray], new: dict[str, np.ndarray], rtol: float,
     return bad
 
 
-def check_one(short: str, preset: str, seed: int, rev: str, tmp: pathlib.Path, rtol: float, atol: float) -> bool:
+def check_one(short: str, preset: Preset, seed: int, rev: str, tmp: pathlib.Path, rtol: float, atol: float) -> bool:
     spec = BenchSpec.load(short)
     new_path = kernel_dir(spec) / f"{spec.module_name}_numpy.py"
     rel = new_path.relative_to(REPO)
@@ -198,12 +201,12 @@ def check_one(short: str, preset: str, seed: int, rev: str, tmp: pathlib.Path, r
     new = call(load_fn(new_path, spec.func_name, "new"), spec, by, syms)
     bad = compare(old, new, rtol, atol)
     if bad:
-        print(f"MISMATCH {short} (preset {preset}, seed {seed}, baseline {rev})")
+        print(f"MISMATCH {short} (preset {preset.text}, seed {seed}, baseline {rev})")
         for line in bad:
             print(f"    {line}")
         return False
     how = "bit-identical" if not (rtol or atol) else f"within rtol={rtol:g} atol={atol:g}"
-    print(f"ok {short}: {len(new)} output(s) {how} to {rev} at preset {preset}, seed {seed}")
+    print(f"ok {short}: {len(new)} output(s) {how} to {rev} at preset {preset.text}, seed {seed}")
     return True
 
 
@@ -219,22 +222,23 @@ def render_cpf(short: str, out_dir: pathlib.Path, language: str) -> bool:
     reported and it is not a failure of the port.
     """
     from hpcagent_bench import cpf_bridge
+    from hpcagent_bench.cpf_cache import RenderVerdict
 
     spec = BenchSpec.load(short)
     out_dir.mkdir(parents=True, exist_ok=True)
     rec = cpf_bridge.render_kernel(spec, out_dir, language=language)
-    if rec.verdict == "ok":
+    if rec.verdict is RenderVerdict.OK:
         written = rec.source or f"{out_dir}/{short}.{cpf_bridge.LANGUAGE_EXT[language]}"
         print(f"    cpf {language}: {written} ({rec.seconds or 0.0:.1f}s)")
         return True
-    print(f"    cpf {language}: {rec.verdict} -- {rec.error[:200]}")
-    return rec.verdict == "refused"
+    print(f"    cpf {language}: {rec.verdict.text if rec.verdict else ''} -- {rec.error[:200]}")
+    return rec.verdict is RenderVerdict.REFUSED
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("kernels", nargs="+", help="short names, e.g. max_pooling_3d")
-    ap.add_argument("--preset", default="S")
+    ap.add_argument("--preset", default=Preset.S.text, choices=Preset.texts())
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--rev", default="HEAD", help="git revision holding the pre-port kernel")
     ap.add_argument("--rtol", type=float, default=0.0, help="only for reduction reassociation")
@@ -245,7 +249,8 @@ def main() -> int:
     args = ap.parse_args()
     with tempfile.TemporaryDirectory() as td:
         results = [
-            check_one(k, args.preset, args.seed, args.rev, pathlib.Path(td), args.rtol, args.atol) for k in args.kernels
+            check_one(k, Preset.parse(args.preset), args.seed, args.rev, pathlib.Path(td), args.rtol, args.atol)
+            for k in args.kernels
         ]
         if args.emit_cpf:
             rendered = [render_cpf(k, pathlib.Path(args.emit_cpf), args.cpf_language) for k in args.kernels]

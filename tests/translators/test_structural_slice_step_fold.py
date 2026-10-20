@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from tests.translators.op_oracle import assert_all_ok, run_op
 
 NATIVE = ("c", "cpp", "fortran")
@@ -38,7 +39,7 @@ NATIVE = ("c", "cpp", "fortran")
 A12 = np.arange(1.0, 13.0)
 
 
-def parse(src: str, args: list[str], arrays: list[str], shapes: dict[str, str], preset: dict[str, int]):
+def parse(src: str, args: list[str], arrays: list[str], shapes: dict[str, str], preset: dict[str, int]) -> KernelIR:
     """Parse ``src``'s ``f`` against a synthesized manifest (``preset`` is the ``S`` block)."""
     d = pathlib.Path(tempfile.mkdtemp())
     npy = d / "k_numpy.py"
@@ -65,7 +66,7 @@ def parse(src: str, args: list[str], arrays: list[str], shapes: dict[str, str], 
     return parse_kernel(npy, bi)
 
 
-def steps(kir) -> list[object | None]:
+def steps(kir: KernelIR) -> list[object | None]:
     """Every slice step in the parsed body, as a literal value (``None`` when not a literal).
 
     The helper trees too: a helper is KEPT as its own function, so the pooling slice these

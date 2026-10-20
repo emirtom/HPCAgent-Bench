@@ -1,20 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Parse generated ``*_dace.py`` files through the DaCe python frontend; print a JSON verdict each.
+"""Parse generated ``*_dace.py`` files through the DaCe frontend and print a JSON verdict each, one kernel per
+process (the child of :mod:`tests.test_dace_frontend_validity`).
 
-The child of :mod:`tests.test_dace_frontend_validity`: one kernel per PROCESS, so a parse that
-wedges or crashes costs that kernel and reports it, instead of taking the whole sweep down.
-
-Two ways in, same verdicts:
-
-* ``python -m tests.dace_parse_probe <path>`` -- one kernel, one interpreter. What a human runs to
-  reproduce a single verdict.
-* ``python -m tests.dace_parse_probe --serve`` -- a FORK SERVER on stdin/stdout. It imports dace
-  once and then forks a child per request, which is the same pristine per-kernel process the
-  one-shot form gives (the server itself never parses, so no kernel can leave state behind for the
-  next) without paying ``import dace`` per kernel. That import is 1.6 s on the dev box against a
-  1.9 s median parse on CI, i.e. a one-shot sweep spends most of its time per kernel on the
-  interpreter arriving, not the frontend deciding.
+    python -m tests.dace_parse_probe <path>      # one kernel
+    python -m tests.dace_parse_probe --serve     # fork server on stdin/stdout
 """
 
 import contextlib
@@ -29,7 +19,7 @@ import tempfile
 import time
 import traceback
 
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 
 REPO = paths.ROOT
 
@@ -71,7 +61,7 @@ def parse_path(path: pathlib.Path) -> dict:
     try:
         rec["file"] = str(path.relative_to(REPO))
         module = importlib.import_module(".".join(path.relative_to(REPO).with_suffix("").parts))
-        members = vars(module)
+        members = modules.members(module)
         # The generator names its kernel program: the stem does not (tsvc_2_s000 -> s000, gemm ->
         # kernel), and a module with kept helpers holds several programs, so neither the stem nor
         # "the sole program" finds it.

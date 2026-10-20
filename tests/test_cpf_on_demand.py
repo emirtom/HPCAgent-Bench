@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The CPF cache is not mandatory: the judge renders a kernel the setup's view lacks on its first request.
-
-A view that was never prerendered (the directory does not exist) or misses kernels does not stop the
-setup: the judge renders the kernel with the prerender's own code path
-(cpf_prerender.render_kernel), caches it, and every later request reads the cache. The properties
-that matter: a miss is served after one render; two concurrent requests render once; a recorded
-failure is answered, never rendered again; the setup gate lets a miss through but still refuses a
-view no render can land in. The renderer is faked at its one seam, cpf_bridge.prerender_kernel.
-"""
+"""The judge renders a kernel the setup's CPF view lacks on its first request (once, even when concurrent), a
+recorded failure is never re-rendered, and the gate refuses a view no render can land in."""
 
 import json
 import pathlib
@@ -28,6 +21,10 @@ import pytest
 from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical, paths
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.tools import DEFAULT_RANK
+from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.cpf_cache import RenderVerdict
+from hpcagent_bench.cpf_cache import Role
+from hpcagent_bench.cpf_cache import Target
 
 JudgeFactory = Callable[..., tuple[ThreadingHTTPServer, str]]
 REPO = paths.ROOT
@@ -38,7 +35,7 @@ KERNEL = "gemm"
 class FakeRenderer:
     """Stands in for cpf_bridge.prerender_kernel: publishes a form per dialect, or fails, and counts calls."""
 
-    def __init__(self, verdict: str = "ok", delay: float = 0.0) -> None:
+    def __init__(self, verdict: RenderVerdict = RenderVerdict.OK, delay: float = 0.0) -> None:
         self.verdict = verdict
         self.delay = delay
         self.calls = 0
@@ -50,7 +47,7 @@ class FakeRenderer:
         cache_root: pathlib.Path,
         *,
         languages: tuple[str, ...],
-        target: str,
+        target: Target,
         dace_commit: str,
         **kwargs: object,
     ) -> cpf_bridge.RenderRecord:
@@ -59,16 +56,16 @@ class FakeRenderer:
         time.sleep(self.delay)
         results: dict[str, cpf_bridge.RenderOutcome] = {}
         for dialect in languages:
-            options = {"kernel": spec.short_name, "language": dialect, "target": target}
+            options = {"kernel": spec.short_name, "language": dialect, "target": target.text}
             key = cpf_cache.cache_key("sdfg", dace_commit, options)
-            if self.verdict != "ok":
+            if self.verdict is not RenderVerdict.OK:
                 results[dialect] = cpf_bridge.RenderOutcome(key=key, verdict=self.verdict, error="renderer refused")
                 continue
             stem = f"{spec.short_name}_fp64_cpf"
-            source = ("source", f"{stem}.{cpf_cache.LANGUAGE_EXT[dialect]}", f"// {dialect} form\n")
-            files = [source, ("binding", f"{stem}_binding.json", "{}")]
+            source = (Role.SOURCE, f"{stem}.{cpf_cache.LANGUAGE_EXT[dialect]}", f"// {dialect} form\n")
+            files = [source, (Role.BINDING, f"{stem}_binding.json", "{}")]
             cpf_cache.publish(cache_root, key, {"kernel": spec.short_name, "entry": f"{spec.short_name}_fp64"}, files)
-            results[dialect] = cpf_bridge.RenderOutcome(key=key, verdict="ok", cached=False)
+            results[dialect] = cpf_bridge.RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=False)
         return cpf_bridge.RenderRecord(kernel=spec.short_name, results=results)
 
 
@@ -211,16 +208,16 @@ def test_a_recorded_failure_is_answered_and_never_rendered_again(
     setup: tuple[pathlib.Path, pathlib.Path], monkeypatch: pytest.MonkeyPatch, make_judge: JudgeFactory
 ) -> None:
     view = setup[0]
-    renderer = FakeRenderer(verdict="fail")
+    renderer = FakeRenderer(verdict=RenderVerdict.FAIL)
     monkeypatch.setattr(cpf_bridge, "prerender_kernel", renderer)
     url = make_judge(RunConfig())[1]
     first, second = get_form(url), get_form(url)
     assert first["verdict"] == second["verdict"] == "unavailable"
     assert "renderer refused" in second["error"], second
     assert renderer.calls == 1
-    pointer = cpf_cache.recorded(view, KERNEL, "c", "fp64", "proofs")
+    pointer = cpf_cache.recorded(view, KERNEL, "c", "fp64", HintDetail.PROOFS)
     assert pointer is not None
-    assert pointer.verdict == "fail"
+    assert pointer.verdict is RenderVerdict.FAIL
 
 
 def test_an_unknown_kernel_is_answered_without_rendering_or_recording(
@@ -243,7 +240,7 @@ def test_a_view_opened_under_another_dace_still_renders_a_missing_kernel(
     """A dace pin bump keeps the view: a kernel it lacks renders with the current dace, and the header keeps
     the commit the view was opened with."""
     view, cache = setup
-    cpf_cache.open_view(view, cache, "cpu", "another-dace-commit")
+    cpf_cache.open_view(view, cache, Target.CPU, "another-dace-commit")
     renderer = FakeRenderer()
     monkeypatch.setattr(cpf_bridge, "prerender_kernel", renderer)
     url = make_judge(RunConfig())[1]
@@ -293,7 +290,7 @@ def test_the_gate_check_refuses_a_view_pinned_elsewhere(
 def test_the_gate_check_lets_a_view_opened_under_another_dace_through(tmp_path: pathlib.Path) -> None:
     """A dace pin bump is not a reason to refuse or re-render a view."""
     view = tmp_path / "view"
-    cpf_cache.open_view(view, tmp_path / "cache", "cpu", "stale")
+    cpf_cache.open_view(view, tmp_path / "cache", Target.CPU, "stale")
     done = check(*on_demand(view, tmp_path / "cache", "c0ffee"))
     assert done.returncode == 0, done.stdout + done.stderr
 
@@ -333,7 +330,7 @@ def test_prepare_jobs_form_gate_continues_past_a_miss(tmp_path: pathlib.Path) ->
 
 def test_prepare_jobs_form_gate_still_exits_on_a_mispinned_view(tmp_path: pathlib.Path) -> None:
     view = tmp_path / "view"
-    cpf_cache.open_view(view, tmp_path / "other-cache", "cpu", "c0ffee")
+    cpf_cache.open_view(view, tmp_path / "other-cache", Target.CPU, "c0ffee")
     done = form_gate(tmp_path, view, "c0ffee")
     assert done.returncode == 3, done.stdout
     assert "cannot take the judge's renders" in done.stderr
@@ -341,7 +338,7 @@ def test_prepare_jobs_form_gate_still_exits_on_a_mispinned_view(tmp_path: pathli
 
 def test_prepare_jobs_form_gate_continues_past_a_dace_pin_bump(tmp_path: pathlib.Path) -> None:
     view = tmp_path / "view"
-    cpf_cache.open_view(view, tmp_path / "cache", "cpu", "stale")
+    cpf_cache.open_view(view, tmp_path / "cache", Target.CPU, "stale")
     done = form_gate(tmp_path, view, "c0ffee")
     assert done.returncode == 0, done.stdout + done.stderr
 
@@ -374,7 +371,7 @@ def test_submit_stages_a_cpf_tool_setup_whose_view_the_judge_renders_into(tmp_pa
 
 def test_submit_refuses_a_cpf_tool_view_pinned_to_another_cache(tmp_path: pathlib.Path) -> None:
     view = tmp_path / "view"
-    cpf_cache.open_view(view, tmp_path / "other-cache", "cpu", "c0ffee")
+    cpf_cache.open_view(view, tmp_path / "other-cache", Target.CPU, "c0ffee")
     done = submit_gate(tmp_path, view, "on-demand", "c0ffee")
     assert done.returncode == 0, done.stderr
     assert "other-cache" in done.stdout, done.stdout
@@ -382,7 +379,7 @@ def test_submit_refuses_a_cpf_tool_view_pinned_to_another_cache(tmp_path: pathli
 
 def test_submit_stages_a_cpf_tool_view_opened_under_another_dace(tmp_path: pathlib.Path) -> None:
     view = tmp_path / "view"
-    cpf_cache.open_view(view, tmp_path / "cache", "cpu", "stale")
+    cpf_cache.open_view(view, tmp_path / "cache", Target.CPU, "stale")
     done = submit_gate(tmp_path, view, "on-demand", "c0ffee")
     assert done.returncode == 0, done.stderr
     assert done.stdout == "", done.stdout

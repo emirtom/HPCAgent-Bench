@@ -1,23 +1,12 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A range step whose sign is only known at RUNTIME must still iterate the Python direction.
-
-Deciding the loop direction from the emitted TEXT of the step (``step.startswith("-")``) is only
-right for a literal. With ``s = -1`` held in a variable the text is ``s``, and the positive-step
-form diverges silently:
-
-* C ``for (i = lo; i < hi; i += s)`` -- the guard is false at entry, so the loop runs ZERO times
-  and the output keeps whatever it was initialised with.
-* Fortran ``do i = lo, hi - 1, s`` honours the runtime sign, but the inclusive-bound adjustment
-  goes the wrong way, so ``range(n, 0, -1)`` runs two iterations too far (down to ``-1``) --
-  out-of-range indices, not merely a wrong count.
-
-Neither fails loudly, which is why this is pinned per backend rather than left to a kernel test.
-"""
+"""A range step whose sign is only known at RUNTIME still iterates the Python direction, on every backend
+(deciding the direction from the step's emitted text is right only for a literal)."""
 
 import numpy as np
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from tests.translators.native_tu import have_gcc, have_gpp
 from tests.translators.op_oracle import assert_all_ok, run_op
 
@@ -106,7 +95,7 @@ def compiles_openmp(src: str, *, cpp: bool = False) -> tuple[int, str]:
     d = pathlib.Path(tempfile.mkdtemp())
     ext = "cpp" if cpp else "c"
     (d / f"t.{ext}").write_text(src)
-    cc = ["g++", languages.std_flag("cpp")] if cpp else ["gcc", languages.std_flag("c")]
+    cc = ["g++", languages.std_flag(Language.CPP)] if cpp else ["gcc", languages.std_flag(Language.C)]
     r = subprocess.run(
         [*cc, "-O2", "-fopenmp", "-c", str(d / f"t.{ext}"), "-o", str(d / "t.o")],
         capture_output=True,

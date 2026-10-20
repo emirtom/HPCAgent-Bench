@@ -1,28 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Generalized scipy-oracle harness for sparse kernels.
-
-Drives the FULL NumpyToC pipeline for any kernel that declares a
-``sparse_layouts`` block in its bench_info, then checks the compiled C
-output against a scipy reference:
-
-    bench_info + numpy ref  ->  emit C  ->  gcc -shared  ->  ctypes call
-                            \\->  run numpy ref with scipy.sparse inputs (oracle)
-                                 compare output_args, element-wise.
-
-The harness is data-driven: it reads the ``sparse_layouts`` /
-``configurations`` blocks to learn each logical array's format, the
-binding JSON (emitted alongside the C source) to learn the exact C
-argument order + per-arg kind, and the manifest's declared-array surface
-(``numpyto_common.frontend.declared_shapes``) for the dense arrays.
-Nothing here is spmv/spmm-specific, so new sparse kernels are picked up
-automatically by :func:`discover_sparse_kernels`.
-
-Format materialization (scipy matrix -> per-role physical buffers) covers
-all nine supported layouts; csr/csc/coo/dia/bcsr come straight from
-scipy, bcoo/ell/jds/sell_c_sigma reuse the builders validated in
-``test_sparse_matvec``.
-"""
+"""Scipy-oracle harness for sparse kernels: emit C via NumpyToC, build, call through ctypes per the binding
+JSON, and compare against the numpy reference run on scipy.sparse inputs, for all nine layouts."""
 
 import ctypes
 import json
@@ -38,9 +17,10 @@ from typing import Any
 import numpy as np
 import scipy.sparse as sp
 
-from hpcagent_bench import languages, paths
-from hpcagent_bench.translators.numpyto_common.dtypes import SCALAR_KINDS, ctype_for_scalar_kind
+from hpcagent_bench import languages, modules, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.emit_bridge import InitDocument
+from hpcagent_bench.translators.numpyto_common.dtypes import SCALAR_KINDS, ctype_for_scalar_kind
 from hpcagent_bench.translators.numpyto_common.frontend import declared_shapes
 from tests.translators.source_module import evaluate, run_source
 
@@ -274,7 +254,7 @@ def load_numpy_fn(numpy_py: pathlib.Path, func_name: str) -> Callable:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
-    return vars(mod)[func_name]
+    return modules.member(mod, func_name)
 
 
 def emit_c_(short: str, numpy_py: pathlib.Path, out: pathlib.Path, config_name: str | None = None) -> None:
@@ -487,7 +467,7 @@ def run_kernel(
     csrc = out / f"{base}.c"
     so = out / f"lib{base}.so"
     r = subprocess.run(
-        ["gcc", "-O2", languages.std_flag("c"), "-shared", "-fPIC", str(csrc), "-o", str(so)],
+        ["gcc", "-O2", languages.std_flag(Language.C), "-shared", "-fPIC", str(csrc), "-o", str(so)],
         capture_output=True,
         text=True,
         check=False,
@@ -698,7 +678,7 @@ def run_dace(
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = mod
         spec.loader.exec_module(mod)
-        prog = vars(mod)[info["func_name"]]
+        prog = modules.member(mod, info["func_name"])
         sdfg = prog.to_sdfg(simplify=True)
         # Isolate the build under this run's own temp dir. dace's default build
         # folder is ``.dacecache/<sdfg.name>`` relative to CWD, shared across xdist
@@ -732,7 +712,7 @@ def run_dace(
     # A promoted workspace dimension (gmres ``n = N``, ``m = min(max_iter, n)``) is a dace
     # symbol the emitter cannot pass as an argument -- the caller binds it by evaluating
     # the recorded closed-form recipe, in dependency order, over the already-known values.
-    for name, expr in vars(mod).get("__hpcagent_bench_symbol_defs__", []):
+    for name, expr in modules.optional(mod, "__hpcagent_bench_symbol_defs__", list) or []:
         sym_vals[name] = int(evaluate(expr, {"__builtins__": {}, "min": min, "max": max, **sym_vals}))
     syms = {s: int(sym_vals[s]) for s in free_syms if s in sym_vals}
     try:

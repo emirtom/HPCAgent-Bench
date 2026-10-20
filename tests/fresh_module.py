@@ -39,7 +39,17 @@ WHERE: dict[str, str] = {
             "hpcagent_bench_tool",
         )
     },
-    **{name: f"hpcagent_agent.harness.{name}" for name in ("runner_common", "run_miniswe", "run_openhands")},
+    **{
+        name: f"hpcagent_agent.harness.{name}"
+        for name in (
+            "runner_common",
+            "run_miniswe",
+            "run_openhands",
+            "run_anthropic",
+            "run_openai",
+            "run_optimas",
+        )
+    },
     **{
         name: f"hpcagent_bench.cluster.{name}"
         for name in (

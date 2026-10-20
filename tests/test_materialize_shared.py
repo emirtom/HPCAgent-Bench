@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The cluster experiment's shared-folder materialization: read-only task material + write folders.
-
-``materialize_shared.sh`` runs once in the launcher, before any role starts; ``agent_driver.py``
-hands every agent its own subfolder. Both are pinned here because their failure modes are silent: a
-missing ``tasks/`` folder only makes the agents' prompts point at nothing, and a shared write folder
-that repeats across agents lets ten agents on ONE kernel overwrite each other's submission.
-"""
+"""The shared-folder materialization: ``materialize_shared.sh`` stages read-only task material and
+``agent_driver.py`` gives every agent its own write subfolder."""
 
 import json
 import os
@@ -14,10 +9,12 @@ import pathlib
 import re
 import subprocess
 import sys
+import types
 
 import pytest
 
 from hpcagent_bench import cpf_cache, paths
+from hpcagent_bench.cpf_cache import HintDetail, Target
 from tests.fresh_module import fresh
 from tests.problem_facts import problem as problem_line
 from tests.test_cpf_cache import view_with
@@ -59,14 +56,19 @@ def repo_fixture(tmp_path: pathlib.Path) -> pathlib.Path:
     return tmp_path
 
 
-def materialize(repo: pathlib.Path, shared, problems: str = ""):
+def materialize(repo: pathlib.Path, shared: pathlib.Path, problems: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(SCRIPT), str(repo), str(shared), str(problems)], capture_output=True, text=True, check=True
     )
 
 
-def problems_file(path, kernels):
-    path.write_text("".join(json.dumps({"id": i, "kernel": k, "task": "opt"}) + "\n" for i, k in enumerate(kernels)))
+def problems_file(path: pathlib.Path, kernels: list[str]) -> pathlib.Path:
+    path.write_text(
+        "".join(
+            json.dumps({"id": i, "kernel": k, "task": "opt", "request_actions": {}}) + "\n"
+            for i, k in enumerate(kernels)
+        )
+    )
     return path
 
 
@@ -317,10 +319,10 @@ SOURCE_SUFFIXES = frozenset({".c", ".cpp", ".cc", ".cxx", ".hip", ".cu", ".f90",
 
 @pytest.mark.parametrize(
     ("language", "dialect", "target"),
-    [("c", "c", "cpu"), ("cpp", "c++", "cpu"), ("hip", "hip", "gpu")],
+    [("c", "c", Target.CPU), ("cpp", "c++", Target.CPU), ("hip", "hip", Target.GPU)],
 )
 def test_a_cpf_src_setup_stages_the_dropin_as_the_only_kernel_source(
-    tmp_path: pathlib.Path, repo: pathlib.Path, language: str, dialect: str, target: str
+    tmp_path: pathlib.Path, repo: pathlib.Path, language: str, dialect: str, target: Target
 ) -> None:
     """The CPF REPLACES the hand-written source: the task folder holds the drop-in (on gpu its host
     ``.cpp`` and device ``.hip``, the two units a GPU submission is) and no other kernel source, under
@@ -330,7 +332,7 @@ def test_a_cpf_src_setup_stages_the_dropin_as_the_only_kernel_source(
     for ext in ("c", "hip", "f90"):
         (kernel_dir / f"argmax_value_reference.{ext}").write_text("// naive baseline\n")
     view = view_with(tmp_path, "argmax_value", dialect=dialect, target=target)
-    dropin = cpf_cache.resolve(view, "argmax_value", dialect, "fp64", "proofs")
+    dropin = cpf_cache.resolve(view, "argmax_value", dialect, "fp64", HintDetail.PROOFS)
     shared = tmp_path / "shared"
     materialize_setup(
         repo,
@@ -338,7 +340,7 @@ def test_a_cpf_src_setup_stages_the_dropin_as_the_only_kernel_source(
         problems_file(tmp_path / "problems.jsonl", [KERNEL]),
         CPF_DROPIN_DIR=str(view),
         AGENT_LANGUAGE=language,
-        CPF_TARGET=target,
+        CPF_TARGET=target.text,
     )
     task = shared / "tasks/argmax_value"
     staged = {path.name: path for path in task.iterdir() if path.suffix in SOURCE_SUFFIXES}
@@ -388,7 +390,7 @@ def test_the_launcher_materializes_before_it_starts_any_role() -> None:
     assert SCRIPT.stat().st_mode & 0o111, f"{SCRIPT} is invoked directly and must be executable"
 
 
-def agent_driver():
+def agent_driver() -> types.ModuleType:
     return fresh("agent_driver")
 
 

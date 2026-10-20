@@ -1,27 +1,18 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The judge's HTTP wire format: every request body (:class:`RequestFields`) and every answer, one pydantic
-model each, ``extra="forbid"``.
+"""The judge's HTTP wire format: every request body and answer as one ``extra="forbid"`` pydantic model. Answers
+carry exactly the fields they were built with (``exclude_unset``) and non-finite floats as ``NaN`` / ``Infinity``,
+the shape stdlib ``json`` in the agent containers reads."""
 
-The judge (:mod:`hpcagent_bench.harness.service`) builds an answer and sends :meth:`JudgeAnswer.to_json`;
-:class:`~hpcagent_bench.harness.tools.JudgeClient` and the router (:mod:`hpcagent_bench.cluster.judge_service`)
-validate what they read with ``model_validate_json``. An answer carries exactly the fields it was built with
-(``exclude_unset``): an optional key that does not apply is absent, as a JSON reader expects, and a field that
-is null in the grade (``timing_reduction``) stays null. Non-finite floats travel as ``NaN`` / ``Infinity``,
-which stdlib ``json`` reads and writes; the agent containers parse these answers with it, so the shape here is
-the shape they read (a test pins it against the grade).
-
-``POST /requests/check`` answers :class:`~hpcagent_bench.harness.requests_api.RequestsCheck`, and ``POST /profile``
-an instrument report of :mod:`hpcagent_bench.harness.profile_wire` (or :class:`OptReportAnswer`), which this module
-does not repeat.
-"""
-
-from typing import Literal
+import enum
 
 import pydantic
+from hpcagent_agent.coded import Coded
 
+from hpcagent_bench.categories import BaselineChoice, InputMode, Language, Oracle, Preset, Residency
 from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.flags import Mode
 
 __all__ = [
     "SUBMIT_ANSWER",
@@ -29,7 +20,9 @@ __all__ = [
     "BuildAnswer",
     "CanonicalFormAnswer",
     "CanonicalFormQuery",
+    "Correct",
     "CrawledPageAnswer",
+    "FormVerdict",
     "GradeAnswer",
     "HealthAnswer",
     "InFlightAnswer",
@@ -53,9 +46,27 @@ __all__ = [
 ]
 
 
+class FormVerdict(Coded):
+    """Whether ``GET /canonical_parallel_form`` served a form (:class:`CanonicalFormAnswer`)."""
+
+    OK = enum.auto()
+    UNAVAILABLE = enum.auto()
+
+
+class Correct(Coded):
+    """``POST /submit``'s verdict as an agent reads it (:class:`SubmitVerdict`)."""
+
+    YES = enum.auto()
+    NO = enum.auto()
+
+    @classmethod
+    def of(cls, correct: bool) -> "Correct":
+        """The verdict of a grade that was ``correct`` or not."""
+        return cls.YES if correct else cls.NO
+
+
 class RequestFields(pydantic.BaseModel):
-    """Every field a POST body may carry (``/submit``, ``/score``, ``/profile``, ``/requests/check``),
-    typed. A field the model does not name is refused (400); a route reads only its own."""
+    """Every field a POST body may carry, typed; an unnamed field is refused (400) and a route reads only its own."""
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
@@ -78,7 +89,7 @@ class RequestFields(pydantic.BaseModel):
     requests: dict[str, object] | None = None
     #: ``/profile`` only.
     tool: str | None = None
-    residency: str | None = None
+    residency: Residency | None = None
     reps: int | None = None
     threads: int | list[int] | None = None
     device_kernel: str | None = None
@@ -86,13 +97,13 @@ class RequestFields(pydantic.BaseModel):
     counter_group: str | None = None
     per_thread: bool | None = None
     min_percent: float | None = None
+    #: ``/profile`` only: a smaller size rung than the run's to measure at.
+    size: str | None = None
 
 
 class CanonicalFormQuery(pydantic.BaseModel):
-    """The query of ``GET /canonical_parallel_form/<kernel>``, typed: the dialect asked for, the hint detail the
-    client's setup serves (``hints``, sent by the ``canonical_parallel_form`` tool from the setup's
-    ``HPCAGENT_BENCH_CPF_HINTS``; absent means the setup's own), the judge rank and, without a path, the kernel. A
-    parameter the model does not name, or a detail that is neither ``proofs`` nor ``kinds``, is refused (400)."""
+    """The query of ``GET /canonical_parallel_form/<kernel>``: dialect, ``hints`` (``proofs`` / ``kinds``), rank and
+    kernel; anything else is refused (400)."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -113,10 +124,8 @@ class JudgeAnswer(pydantic.BaseModel):
 
 
 class JudgeError(JudgeAnswer):
-    """Every refusal and failure: ``error`` says why; ``cause`` names a class of it a client acts on
-    (``judge_fault``, ``public_seeds``, ``episode_id_missing``, ...); a misrouted request names the judge's
-    rank (``judge_rank``) and the one it asked for (``requested_rank``); the router's own refusals carry
-    ``ok: false``."""
+    """Every refusal and failure: ``error`` says why, ``cause`` names a class a client acts on; a misrouted
+    request names both ranks."""
 
     error: str
     cause: str | None = None
@@ -130,9 +139,9 @@ class HealthAnswer(JudgeAnswer):
 
     status: str
     rank: int
-    oracle: str
-    baseline: str
-    input_mode: str
+    oracle: Oracle
+    baseline: BaselineChoice
+    input_mode: InputMode
     submits_in_flight: int
 
 
@@ -157,15 +166,15 @@ class BaselineAnswer(JudgeAnswer):
     """``GET /baseline/<kernel>``: each reference's best time in ns, at the run's size."""
 
     kernel: str
-    preset: str
+    preset: Preset
     baselines: dict[str, int]
 
 
 class BuildAnswer(JudgeAnswer):
     """``GET /build/<language>``: the compile and link argv this judge runs for a submission."""
 
-    language: str
-    mode: str
+    language: Language
+    mode: Mode
     source: str
     library: str
     commands: list[list[str]]
@@ -175,26 +184,24 @@ class BuildAnswer(JudgeAnswer):
 
 
 class CanonicalFormAnswer(JudgeAnswer):
-    """``GET /canonical_parallel_form/<kernel>``: the form (``verdict`` ``ok``) or why there is none
-    (``unavailable``, with a ``note`` and possibly the ``error``)."""
+    """``GET /canonical_parallel_form/<kernel>``: the form (``verdict`` ``ok``) or why there is none."""
 
     kernel: str
-    verdict: Literal["ok", "unavailable"]
+    verdict: FormVerdict
     dialect: str | None = None
     entry: str | None = None
     source: str | None = None
     device_source: str | None = None
     binding: str | None = None
     libraries: list[str] | None = None
-    #: The scratch the form carves its transients from: the ``workspace_bytes`` a submission of it requests.
+    #: The ``workspace_bytes`` a submission of the form requests.
     workspace_bytes: str | None = None
     note: str | None = None
     error: str | None = None
 
 
 class ScoreCellAnswer(JudgeAnswer):
-    """One timed cell of a ``/score`` answer: :class:`~hpcagent_bench.harness.scoring.TimedCell` without
-    ``service.SCORE_ROUTE_REDACTED_CELL_FIELDS``."""
+    """One timed cell of a ``/score`` answer: a TimedCell without the redacted cell fields."""
 
     label: str
     shape: str
@@ -222,8 +229,7 @@ class TimedCellAnswer(ScoreCellAnswer):
 
 
 class ScoreFields[CellT: ScoreCellAnswer](JudgeAnswer):
-    """The fields :class:`ScoreAnswer` and :class:`GradeAnswer` share, in wire order, over the cell model each
-    answers with (a subclass may not narrow a mutable field, so the cell type is a parameter instead)."""
+    """The fields :class:`ScoreAnswer` and :class:`GradeAnswer` share, generic over the cell model."""
 
     correct: bool
     max_rel_error: float
@@ -250,21 +256,17 @@ class ScoreFields[CellT: ScoreCellAnswer](JudgeAnswer):
     baseline_policy: str | None
     cells: tuple[CellT, ...]
     kernel: str
-    language: str
-    preset: str
-    residency: str
+    language: Language
+    preset: Preset
+    residency: Residency
 
 
 class ScoreAnswer(ScoreFields[ScoreCellAnswer]):
-    """``POST /score``: :class:`~hpcagent_bench.harness.scoring.Score` without
-    ``service.SCORE_ROUTE_REDACTED_FIELDS``, ``detail`` as ``scoring.public_detail`` reads it, plus what was
-    graded: the kernel, language, size and residency. The key set is frozen mid-experiment."""
+    """``POST /score``: the Score without the redacted fields, plus what was graded; the key set is frozen."""
 
 
 class RecordedAnswer(JudgeAnswer):
-    """How a ``/submit`` grade was recorded (``service.record_result``): ``skipped`` when recording is off;
-    else the outcome (``table``), its ``detail`` and the ``grade`` row id, or the ``error`` that stopped it;
-    ``judge_fault`` when an anti-cheat gate faulted."""
+    """How a ``/submit`` grade was recorded: ``skipped``, or the outcome, detail and row id (or the error)."""
 
     skipped: str | None = None
     judge_fault: bool | None = None
@@ -275,9 +277,7 @@ class RecordedAnswer(JudgeAnswer):
 
 
 class GradeAnswer(ScoreFields[TimedCellAnswer]):
-    """``POST /submit`` under ``service.submit_feedback=full`` (the loopback judge behind the redacting
-    router): the whole :class:`~hpcagent_bench.harness.scoring.Score` with its whole cells, plus what was
-    graded, how it was recorded and the request id."""
+    """``POST /submit`` under ``service.submit_feedback=full``: the whole Score, what was graded and how recorded."""
 
     ungradeable: bool
     floor_ns: float
@@ -307,10 +307,9 @@ class GradeAnswer(ScoreFields[TimedCellAnswer]):
 
 
 class SubmitVerdict(JudgeAnswer):
-    """``POST /submit`` as an agent gets it: correct or not and the recorded row id; the compiler log of a
-    failed build (``build_log``) and ``judge_fault`` only when they apply."""
+    """``POST /submit`` as an agent gets it: correct or not and the row id (plus ``build_log`` / ``judge_fault``)."""
 
-    correct: Literal["yes", "no"]
+    correct: Correct
     request_id: str
     build_log: str | None = None
     judge_fault: bool | None = None
@@ -319,7 +318,7 @@ class SubmitVerdict(JudgeAnswer):
 #: What ``POST /submit`` answers: the verdict, or the whole grade from a ``submit_feedback=full`` judge.
 type SubmitAnswer = SubmitVerdict | GradeAnswer
 
-#: Reads a ``/submit`` answer of either shape (each refuses the other's fields).
+#: Reads a ``/submit`` answer of either shape.
 SUBMIT_ANSWER: pydantic.TypeAdapter[SubmitVerdict | GradeAnswer] = pydantic.TypeAdapter(SubmitVerdict | GradeAnswer)
 
 
@@ -339,7 +338,7 @@ class OptReportAnswer(JudgeAnswer):
 
     tool: str
     kernel: str
-    language: str
+    language: Language
     build_ok: bool
     family: str
     compiler: str
@@ -358,8 +357,7 @@ class RouterFault(JudgeAnswer):
 
 
 class RouterError(JudgeAnswer):
-    """Every ``HTTPException`` the router raises, in FastAPI's own ``{"detail": ...}`` envelope: the reason, or a
-    :class:`RouterFault`."""
+    """Every ``HTTPException`` the router raises, in FastAPI's ``{"detail": ...}`` envelope."""
 
     detail: RouterFault | str
 

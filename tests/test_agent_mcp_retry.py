@@ -8,10 +8,12 @@ such agent ran 36 minutes over 54 turns and called a `Submit` tool that does not
 records rc=0 and the data point is simply gone, so the driver has to notice and relaunch.
 """
 
+import io
 import json
 import pathlib
 import threading
 import time
+import types
 from typing import Self
 
 import pytest
@@ -20,7 +22,7 @@ from tests.fresh_module import fresh
 from tests.problem_facts import problem as problem_line
 
 
-def load_driver(monkeypatch, **env):
+def load_driver(monkeypatch: pytest.MonkeyPatch, **env: str) -> types.ModuleType:
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     driver = fresh("agent_driver")
@@ -29,18 +31,25 @@ def load_driver(monkeypatch, **env):
     return driver
 
 
-def init_line(status):
+def init_line(status: str) -> str:
     return json.dumps({"subtype": "init", "mcp_servers": [{"name": "hpcagent-bench", "status": status}]}) + "\n"
 
 
-def fake_popen_class(statuses, seen=None):
+def fake_popen_class(statuses: list[str], seen: list[int] | None = None) -> type:
     """Popen stand-in that writes one init event per spawn, taking each status in turn."""
 
     class FakePopen:
         spawned = 0
         live = 0
 
-        def __init__(self, command, cwd=None, env=None, stdout=None, stderr=None) -> None:
+        def __init__(
+            self,
+            command: list[str],
+            cwd: pathlib.Path | None = None,
+            env: dict[str, str] | None = None,
+            stdout: io.TextIOWrapper | None = None,
+            stderr: int | None = None,
+        ) -> None:
             cls = type(self)
             cls.spawned += 1
             cls.live += 1
@@ -51,10 +60,10 @@ def fake_popen_class(statuses, seen=None):
             stdout.write(init_line(status))
             stdout.flush()
 
-        def poll(self):
+        def poll(self) -> int | None:
             return self.returncode
 
-        def wait(self, timeout=None):
+        def wait(self, timeout: int | None = None) -> int:
             self.returncode = self.returncode or 0
             return self.returncode
 
@@ -74,7 +83,13 @@ def fake_popen_class(statuses, seen=None):
 _UNPINNED: list[int] = []
 
 
-def start(driver, monkeypatch, tmp_path, statuses, seen=None):
+def start(
+    driver: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    statuses: list[str],
+    seen: list[int] | None = None,
+) -> tuple[object, int, pathlib.Path]:
     monkeypatch.setattr(driver.subprocess, "Popen", fake_popen_class(statuses, seen))
     log_path = tmp_path / "claude.log"
     with log_path.open("w", encoding="utf-8") as log:
@@ -82,20 +97,24 @@ def start(driver, monkeypatch, tmp_path, statuses, seen=None):
     return process, attempts, log_path
 
 
-def test_a_connected_server_is_not_retried(monkeypatch, tmp_path) -> None:
+def test_a_connected_server_is_not_retried(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     driver = load_driver(monkeypatch)
     _, attempts, _ = start(driver, monkeypatch, tmp_path, ["connected"])
     assert attempts == 1
 
 
-def test_a_failed_server_is_relaunched_until_it_connects(monkeypatch, tmp_path) -> None:
+def test_a_failed_server_is_relaunched_until_it_connects(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     driver = load_driver(monkeypatch)
     _, attempts, log_path = start(driver, monkeypatch, tmp_path, ["failed", "failed", "connected"])
     assert attempts == 3
     assert driver.mcp_failed(log_path) is False, "the surviving transcript is the connected attempt"
 
 
-def test_the_retries_are_bounded_and_an_agent_without_its_tools_never_runs(monkeypatch, tmp_path) -> None:
+def test_the_retries_are_bounded_and_an_agent_without_its_tools_never_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """An agent without the judge tools finishes rc 0 and grades nothing it was meant to, so spent
     attempts end it loudly, and the log says why."""
     driver = load_driver(monkeypatch, AGENT_MCP_ATTEMPTS="2")
@@ -104,14 +123,16 @@ def test_the_retries_are_bounded_and_an_agent_without_its_tools_never_runs(monke
     assert "MCP still not connected" in (tmp_path / "claude.log").read_text(encoding="utf-8")
 
 
-def test_a_retry_leaves_no_half_transcript(monkeypatch, tmp_path) -> None:
+def test_a_retry_leaves_no_half_transcript(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Downstream readers take the LAST result event; a dead attempt's output must not linger."""
     driver = load_driver(monkeypatch)
     _, _, log_path = start(driver, monkeypatch, tmp_path, ["failed", "connected"])
     assert log_path.read_text(encoding="utf-8").count('"subtype": "init"') == 1
 
 
-def test_mcp_failed_distinguishes_not_yet_from_connected(monkeypatch, tmp_path) -> None:
+def test_mcp_failed_distinguishes_not_yet_from_connected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     driver = load_driver(monkeypatch)
     log_path = tmp_path / "claude.log"
     log_path.write_text("", encoding="utf-8")
@@ -122,7 +143,7 @@ def test_mcp_failed_distinguishes_not_yet_from_connected(monkeypatch, tmp_path) 
     assert driver.mcp_failed(log_path) is True
 
 
-def test_only_so_many_agents_start_at_once(monkeypatch, tmp_path) -> None:
+def test_only_so_many_agents_start_at_once(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The whole point: 120 pool threads must not put 120 python3 servers on one node at once.
 
     The stand-in blocks inside the spawn, which is where the real one sits too -- the gate is held
@@ -134,7 +155,14 @@ def test_only_so_many_agents_start_at_once(monkeypatch, tmp_path) -> None:
     lock = threading.Lock()
 
     class BlockingPopen:
-        def __init__(self, command, cwd=None, env=None, stdout=None, stderr=None) -> None:
+        def __init__(
+            self,
+            command: list[str],
+            cwd: pathlib.Path | None = None,
+            env: dict[str, str] | None = None,
+            stdout: io.TextIOWrapper | None = None,
+            stderr: int | None = None,
+        ) -> None:
             with lock:
                 spawned.append(1)
             self.returncode = None
@@ -142,10 +170,10 @@ def test_only_so_many_agents_start_at_once(monkeypatch, tmp_path) -> None:
             stdout.write(init_line("connected"))
             stdout.flush()
 
-        def poll(self):
+        def poll(self) -> int | None:
             return self.returncode
 
-        def wait(self, timeout=None):
+        def wait(self, timeout: float | None = None) -> int:
             self.returncode = 0
             return 0
 
@@ -161,7 +189,7 @@ def test_only_so_many_agents_start_at_once(monkeypatch, tmp_path) -> None:
         workdir = tmp_path / str(index)
         workdir.mkdir()
 
-        def run(workdir=workdir) -> None:
+        def run(workdir: pathlib.Path = workdir) -> None:
             log_path = workdir / "claude.log"
             with log_path.open("w", encoding="utf-8") as log:
                 driver.start_agent(["claude"], workdir, {}, log, log_path, _UNPINNED)
@@ -180,7 +208,7 @@ def test_only_so_many_agents_start_at_once(monkeypatch, tmp_path) -> None:
     assert len(spawned) == 12, "every agent must still get its turn"
 
 
-def test_a_crash_is_a_fault_but_a_budget_is_not(monkeypatch, tmp_path) -> None:
+def test_a_crash_is_a_fault_but_a_budget_is_not(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Many agents end on the wall clock and nothing else. A timed-out agent
     spent what it was given and keeps every submission it made; relaunching it would hand it a
     second budget its peers never had."""
@@ -196,7 +224,9 @@ def test_a_crash_is_a_fault_but_a_budget_is_not(monkeypatch, tmp_path) -> None:
         )
 
 
-def test_a_reported_result_is_the_cli_verdict_not_a_crash(monkeypatch, tmp_path) -> None:
+def test_a_reported_result_is_the_cli_verdict_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """A nonzero exit AFTER the CLI wrote its result is that run's answer; relaunching overwrites it."""
     driver = load_driver(monkeypatch)
     log = tmp_path / "claude.log"
@@ -204,13 +234,13 @@ def test_a_reported_result_is_the_cli_verdict_not_a_crash(monkeypatch, tmp_path)
     assert driver.closing_crashed(1, driver.transcript_closing(log)) is False
 
 
-def test_crash_retries_are_bounded(monkeypatch) -> None:
+def test_crash_retries_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENT_CRASH_ATTEMPTS", raising=False)
     driver = load_driver(monkeypatch)
     assert 2 <= driver.AGENT_CRASH_ATTEMPTS <= 5
 
 
-def crashing_popen_class(exit_codes):
+def crashing_popen_class(exit_codes: list[int]) -> type:
     """Popen stand-in whose Nth spawn exits with ``exit_codes[N-1]`` and marks its own transcript.
 
     Each spawn writes a connected init event -- the MCP path is not what these exercise -- plus a
@@ -221,7 +251,14 @@ def crashing_popen_class(exit_codes):
         spawned = 0
 
         def __init__(
-            self, command, cwd=None, env=None, stdout=None, stderr=None, text: bool | None = None, **kwargs: object
+            self,
+            command: list[str],
+            cwd: pathlib.Path | None = None,
+            env: dict[str, str] | None = None,
+            stdout: io.TextIOWrapper | int | None = None,
+            stderr: int | None = None,
+            text: bool | None = None,
+            **kwargs: object,
         ) -> None:
             self.args = command
             # Recorded so a test can assert on exactly what production passed to Popen.
@@ -250,10 +287,10 @@ def crashing_popen_class(exit_codes):
         def __exit__(self, *exc_info: object) -> bool:
             return False
 
-        def poll(self):
+        def poll(self) -> int | None:
             return self.returncode
 
-        def wait(self, timeout=None):
+        def wait(self, timeout: float | None = None) -> int:
             self.returncode = exit_codes[min(self.attempt - 1, len(exit_codes) - 1)]
             return self.returncode
 
@@ -266,7 +303,9 @@ def crashing_popen_class(exit_codes):
     return FakePopen
 
 
-def supervise(driver, monkeypatch, tmp_path, exit_codes):
+def supervise(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, exit_codes: list[int]
+) -> pathlib.Path:
     """Drive run_agent over a fake CLI, returning the worker directory it wrote into."""
     monkeypatch.setattr(driver.subprocess, "Popen", crashing_popen_class(exit_codes))
     monkeypatch.setattr(driver, "vllm_urls", lambda: ["http://127.0.0.1:8000"])
@@ -277,7 +316,9 @@ def supervise(driver, monkeypatch, tmp_path, exit_codes):
     return node_dir / "problem-0-worker-0"
 
 
-def test_a_relaunch_keeps_the_transcript_of_the_crash_it_followed(monkeypatch, tmp_path) -> None:
+def test_a_relaunch_keeps_the_transcript_of_the_crash_it_followed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """Reopening claude.log with "w" would delete the crash being relaunched -- and the note saying
     a relaunch happened -- leaving only crash_attempts= on the summary line, which says a crash
     happened and nothing about why."""

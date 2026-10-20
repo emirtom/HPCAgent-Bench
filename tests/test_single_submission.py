@@ -1,24 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Single-submission mode: ONE recorded grade, it ends the episode, and never nothing.
-
-Three rules, each enforced rather than asked for -- a prompt that merely requests one submission
-answers nothing, because agents were measured ignoring page-level instructions they were holding:
-
-* exactly one submission (``tools/submit.py`` and its spent marker),
-* submitting ENDS the run (``agent_driver.watch_submission``), since the grade is already recorded
-  and every turn after it spends inference the setup is sized against,
-* an agent that never submits has its last correct ``score`` promoted to a submission
-  (``promote_unsubmitted.py``).
-
-The third is why ``score`` is OFFERED here. Withdrawing it leaves an agent no way to know whether
-its answer works and nothing to fall back on -- and the killed agents are the ones this matters
-for: verified-but-unsubmitted kernels come from workers that were killed, not ones that chose to stop.
-"""
+"""Single-submission mode, enforced: exactly one submission, submitting ends the run, and an agent that never
+submits has its last correct ``score`` promoted."""
 
 import importlib
 import pathlib
+import types
 from types import ModuleType
+from typing import Any
 
 import pytest
 from hpcagent_agent import submission_mode
@@ -31,6 +20,13 @@ AGENT = paths.ROOT / "agent"
 
 
 MODE_SECTIONS = {"tool", "feedback", "routes", "example", "closing", "grading"}
+
+
+def test_a_mode_is_spelled_as_its_setup_value_and_template_name() -> None:
+    """``AGENT_SUBMISSION_MODE`` and the template file names read these spellings."""
+    assert submission_mode.SubmissionMode.texts() == ("multi", "single", "blind")
+    for mode in submission_mode.SubmissionMode:
+        assert (AGENT / mode.template).is_file(), mode
 
 
 @pytest.mark.parametrize("mode", list(submission_mode.SubmissionMode))
@@ -56,11 +52,10 @@ def test_the_mcp_server_instructions_carry_the_modes_submit_bullet_and_no_raw_sl
     """Claude Code injects the server's ``initialize`` instructions into the system prompt verbatim.
     They were ``prompt_tool_list()`` unfilled, so every agent read a literal ``{{MODE:tool}}`` line and
     a tool list with no ``submit`` bullet."""
-    monkeypatch.setenv(submission_mode.KEY, mode.value)
+    monkeypatch.setenv(submission_mode.KEY, mode.text)
     server = fresh("mcp_server")
     try:
-        started = server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize"})
-        instructions = started["result"]["instructions"]
+        instructions = server.build_server().instructions or ""
         assert "{{" not in instructions, f"{mode.value}: a raw template slot reaches the agent"
         assert "- `submit` --" in instructions, f"{mode.value}: the instructions leave out the submit tool"
         assert instructions.startswith(server.MCP_HEAD)
@@ -85,14 +80,16 @@ def test_the_two_policies_actually_differ_in_treatment() -> None:
     assert "`profile`" not in blind
 
 
-def load_submit(monkeypatch, tmp_path, single: bool):
+def load_submit(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, single: bool) -> types.ModuleType:
     monkeypatch.setenv("AGENT_SUBMISSION_MODE", "single" if single else "multi")
     monkeypatch.setenv("AGENT_SUBMISSION_MARKER", str(tmp_path / ".spent"))
     monkeypatch.setenv("JUDGE_URL", "http://judge.invalid")
     return fresh("submit")
 
 
-def test_the_second_submission_is_refused_and_the_first_is_not(monkeypatch, tmp_path) -> None:
+def test_the_second_submission_is_refused_and_the_first_is_not(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     submit = load_submit(monkeypatch, tmp_path, single=True)
     calls = []
     monkeypatch.setattr(submit.http_json, "post_judge", lambda route, body: calls.append(route) or {"correct": True})
@@ -107,11 +104,11 @@ def test_the_second_submission_is_refused_and_the_first_is_not(monkeypatch, tmp_
     assert calls == ["/submit"], "the judge was called twice"
 
 
-def test_a_judge_refusal_does_not_burn_the_submission(monkeypatch, tmp_path) -> None:
+def test_a_judge_refusal_does_not_burn_the_submission(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """A 400 on a malformed body is the agent's request being rejected, not a graded attempt."""
     submit = load_submit(monkeypatch, tmp_path, single=True)
 
-    def raise_once(route, body) -> None:
+    def raise_once(route: str, body: dict[str, Any]) -> None:
         raise RuntimeError("400 malformed")
 
     monkeypatch.setattr(submit.http_json, "post_judge", raise_once)
@@ -121,7 +118,7 @@ def test_a_judge_refusal_does_not_burn_the_submission(monkeypatch, tmp_path) -> 
     assert not submit.SPENT_MARKER.exists(), "a refused request spent the one submission"
 
 
-def test_multi_submission_mode_is_unchanged(monkeypatch, tmp_path) -> None:
+def test_multi_submission_mode_is_unchanged(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     submit = load_submit(monkeypatch, tmp_path, single=False)
     calls = []
     monkeypatch.setattr(submit.http_json, "post_judge", lambda route, body: calls.append(route) or {"correct": True})
@@ -131,7 +128,7 @@ def test_multi_submission_mode_is_unchanged(monkeypatch, tmp_path) -> None:
     assert calls == ["/submit"] * 3
 
 
-def test_single_submission_keeps_the_score_tool(monkeypatch) -> None:
+def test_single_submission_keeps_the_score_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     """``score`` IS the fallback. Withdrawing it left an agent no way to know whether its answer
     worked and left promote_unsubmitted.py nothing to promote, which is the whole safety net."""
     import importlib
@@ -142,13 +139,13 @@ def test_single_submission_keeps_the_score_tool(monkeypatch) -> None:
     importlib.reload(submit_mod)
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
-    assert "score" in mcp_server.TOOLS, "the last correct score is what a non-submitting agent is graded on"
-    assert "submit" in mcp_server.TOOLS
-    assert {d["name"] for d in mcp_server.tool_definitions()} >= {"score", "submit"}
+    served = mcp_server.tools()
+    assert "score" in served, "the last correct score is what a non-submitting agent is graded on"
+    assert "submit" in served
+    assert {tool.name for tool in mcp_server.tool_definitions(served)} >= {"score", "submit"}
 
 
-def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:
+def test_multi_submission_is_the_default_and_keeps_score(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unset means multi: a run outside the experiment layers (which set single) submits freely."""
     import importlib
 
@@ -159,28 +156,25 @@ def test_multi_submission_is_the_default_and_keeps_score(monkeypatch) -> None:
     assert submit_mod.SINGLE_SUBMISSION is False
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
-    assert "score" in mcp_server.TOOLS
+    assert "score" in mcp_server.tools()
 
 
 def test_blind_withdraws_score_and_profile_from_every_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """A tool the mode does not serve is in no list: not served, not allowed, not in the prompt. A prompt that
     listed ``score`` beside a template saying there is none told the agent two things."""
-    import importlib
-
     monkeypatch.setenv("AGENT_SUBMISSION_MODE", "blind")
     from hpcagent_agent.tools import mcp_server
 
-    importlib.reload(mcp_server)
+    served = mcp_server.tools()
     for name in ("score", "profile"):
-        assert name not in mcp_server.TOOLS
-        assert name not in mcp_server.ALLOWED_TOOLS
-        assert f"`{name}`" not in mcp_server.prompt_tool_list()
-    assert "submit" in mcp_server.TOOLS
-    assert "syntax_check" in mcp_server.TOOLS
+        assert name not in served
+        assert name not in mcp_server.allowed_tools(served)
+        assert f"`{name}`" not in mcp_server.prompt_tool_list(served)
+    assert "submit" in served
+    assert "syntax_check" in served
 
 
-def test_a_submission_ends_the_episode(monkeypatch, tmp_path) -> None:
+def test_a_submission_ends_the_episode(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Submitting IS the end: the one grade is recorded and cannot be revised, so every turn after
     it spends inference for nothing. Enforced by the driver, not asked of the model."""
     import importlib
@@ -195,7 +189,7 @@ def test_a_submission_ends_the_episode(monkeypatch, tmp_path) -> None:
     class Process:
         """Alive until the watcher kills it, which is what the real Popen does under terminate()."""
 
-        def poll(self):
+        def poll(self) -> int | None:
             return 0 if killed else None
 
     marker = tmp_path / ".spent"
@@ -207,7 +201,7 @@ def test_a_submission_ends_the_episode(monkeypatch, tmp_path) -> None:
     assert killed == [process]
 
 
-def test_an_agent_that_has_not_submitted_is_left_alone(monkeypatch, tmp_path) -> None:
+def test_an_agent_that_has_not_submitted_is_left_alone(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The watcher must not end a run on anything but a graded submission -- a refused body writes
     no marker, so the agent gets to fix it and submit again."""
     import importlib
@@ -220,7 +214,7 @@ def test_an_agent_that_has_not_submitted_is_left_alone(monkeypatch, tmp_path) ->
     monkeypatch.setattr(agent_driver, "terminate", killed.append)
 
     class Finished:
-        def poll(self):
+        def poll(self) -> int:
             return 0
 
     state: dict[str, object] = {}
@@ -229,7 +223,7 @@ def test_an_agent_that_has_not_submitted_is_left_alone(monkeypatch, tmp_path) ->
     assert "submitted" not in state
 
 
-def test_a_finished_episode_is_never_relaunched(monkeypatch, tmp_path) -> None:
+def test_a_finished_episode_is_never_relaunched(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """RC_SUBMITTED is a result, not a fault: relaunching would spend a second submission."""
     import importlib
 

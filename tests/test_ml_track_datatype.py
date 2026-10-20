@@ -1,21 +1,15 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The machine_learning track's datatype, its XL rung, and its inputs at narrow formats.
-
-Every ML kernel that declares no storage precision of its own is graded in ``ml.datatype`` (bf16) and
-crosses the ABI in it. Its XL rung is sized for CONSTANT BYTES (:func:`hpcagent_bench.sizing.datatype_rung`):
-the rung is authored at fp64, and a grade in a narrower format grows the kernel's declared
-``scale_axes`` (else its batch axis) by 8 / bytes(format) -- fp32 x2, bf16 / fp16 x4, fp8 x8 -- as far
-as its constraints and the one XL byte ceiling allow. The distributed operators (``dist_*``) declare
-bf16 and their own XL, and keep both.
-"""
+"""The machine_learning track's datatype (``ml.datatype``, bf16), its constant-bytes XL rung
+(:func:`hpcagent_bench.sizing.datatype_rung`), and inputs at narrow formats; ``dist_*`` operators keep their
+own."""
 
 import numpy as np
 import pytest
 
 from hpcagent_bench import config, sizing
-from hpcagent_bench.harness import grading
-from hpcagent_bench.spec import KERNELS, BenchSpec, Preset, load_yaml
+from hpcagent_bench.categories import Preset
+from hpcagent_bench.spec import KERNELS, BenchSpec, load_yaml
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import declared_float_dtype, graded_datatype
 from tests.reference_outputs import torch_eager_outputs
@@ -59,9 +53,9 @@ def test_an_ml_kernels_xl_grows_along_its_scale_axis_only_and_stays_admissible(k
     unless the constraints or the byte ceiling stop it, and never shrunk -- every other rung as
     written, the constraints holding and the working set under the track's ceiling."""
     spec, raw = BenchSpec.load(kernel), authored(kernel)
-    for rung in (p.value for p in Preset if p is not Preset.XL):
+    for rung in (p.text for p in Preset if p is not Preset.XL):
         assert spec.parameters.get(rung) == raw.parameters.get(rung), rung
-    xl, raw_xl = spec.parameters[Preset.XL.value], raw.parameters[Preset.XL.value]
+    xl, raw_xl = spec.parameters[Preset.XL.text], raw.parameters[Preset.XL.text]
     axes = raw.scale_axes or sizing.leading_axis(raw)
     assert {n for n in raw_xl if xl[n] != raw_xl[n]} <= set(axes), kernel
     rung, growth = sizing.datatype_rung(raw, graded_datatype(raw, "float64"))
@@ -126,22 +120,40 @@ def test_the_grade_and_the_abi_run_in_the_track_datatype() -> None:
 NARROW_DATATYPES: tuple[str, ...] = ("bf16", "fp16", "fp8_e4m3", "fp8_e5m2")
 
 
+def cpu_reference(spec: BenchSpec, data: dict) -> dict[str, np.ndarray]:
+    """The kernel's torch reference run eagerly on the CPU the way the C reference's casts run it: every array
+    of a format narrower than fp32 read as an fp32 copy (torch's CPU kernels lack several of them, e.g.
+    ``avg_pool3d`` in bf16 / fp16), every output stored back in its argument's format."""
+    wide = {
+        name: value.astype(np.float32)
+        if isinstance(value, np.ndarray) and value.dtype.kind in "fV" and value.dtype.itemsize < 4
+        else value
+        for name, value in data.items()
+    }
+    return {
+        name: np.asarray(value).astype(data[name].dtype)
+        if isinstance(data.get(name), np.ndarray)
+        else np.asarray(value)
+        for name, value in torch_eager_outputs(spec, wide).items()
+    }
+
+
 @pytest.mark.parametrize("kernel", ml_kernels())
 def test_every_ml_kernel_draws_its_graded_datatype_and_its_oracle_runs(kernel: str) -> None:
     """Every ML kernel's inputs are drawn in its graded datatype -- a custom ``initialize`` draws in
     float32 and is stored back, since numpy's generators have no bf16 -- and its torch reference (the
     track's oracle, run eagerly here) computes on them and returns its float outputs in the same storage
-    dtype."""
+    dtype (:func:`cpu_reference`)."""
     from hpcagent_bench.frameworks.benchmark import Benchmark
 
     spec = BenchSpec.load(kernel)
     datatype = graded_datatype(spec, "float64")
-    data = Benchmark(kernel).get_data(preset="S", datatype=datatype, input_seed=7)
+    data = Benchmark(kernel).get_data(preset=Preset.S, datatype=datatype, input_seed=7)
     storage = data["datatype"]
     floats = [v for v in data.values() if isinstance(v, np.ndarray) and v.dtype.kind in "fV"]
     assert floats, kernel
     assert all(value.dtype == storage for value in floats), kernel
-    outputs = [np.asarray(v) for v in torch_eager_outputs(spec, data).values()]
+    outputs = list(cpu_reference(spec, data).values())
     assert all(value.dtype == storage for value in outputs if value.dtype.kind in "fV"), kernel
 
 
@@ -153,21 +165,16 @@ def test_every_ml_kernel_stays_finite_in_every_narrow_format(kernel: str, dataty
     :func:`hpcagent_bench.initialize.ml_default_domain`), bounded so no product-sum over its fan-in
     leaves the format (:func:`hpcagent_bench.support.distributions.reduction_bound`). The ``dist_*``
     operators declare bf16 alone and are checked at it. The answer is the kernel's torch reference run
-    eagerly with reads promoted to a storage-only format's compute dtype and writes stored back in the
-    format (torch has no CPU fp8 arithmetic), as the C reference's casts do."""
+    eagerly with every narrow format read as fp32 and written back in the format (:func:`cpu_reference`;
+    torch has no CPU fp8 arithmetic), as the C reference's casts do."""
     from hpcagent_bench.frameworks.benchmark import Benchmark
 
     spec = BenchSpec.load(kernel)
     if graded_datatype(spec, "float64") != graded_datatype(spec, datatype):
         datatype = graded_datatype(spec, datatype)
-    data = Benchmark(kernel).get_data(preset="S", datatype=datatype, input_seed=7)
+    data = Benchmark(kernel).get_data(preset=Preset.S, datatype=datatype, input_seed=7)
     arrays = [v for v in data.values() if isinstance(v, np.ndarray) and v.dtype.kind in "fV"]
     assert all(np.isfinite(value.astype(np.float64)).all() for value in arrays), f"{kernel} inputs at {datatype}"
-    wide = {name: grading.promoted(value) for name, value in data.items()}
-    stored = {
-        name: np.asarray(value).astype(data[name].dtype) if isinstance(data.get(name), np.ndarray) else value
-        for name, value in torch_eager_outputs(spec, wide).items()
-    }
-    outputs = [np.asarray(v) for v in stored.values()]
+    outputs = list(cpu_reference(spec, data).values())
     finite = all(np.isfinite(v.astype(np.float64)).all() for v in outputs if v.dtype.kind in "fV")
     assert finite, f"{kernel} oracle at {datatype}"

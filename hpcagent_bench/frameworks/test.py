@@ -6,6 +6,8 @@ from typing import NotRequired, TypedDict
 
 import numpy as np
 
+from hpcagent_bench import phase_clock
+from hpcagent_bench.categories import Oracle, Preset
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import timeout_decorator as tout
 from hpcagent_bench.frameworks import utilities as util
@@ -78,6 +80,10 @@ class ImplTiming(TypedDict):
     native: list[float] | None
     validated: bool
     failure: NotRequired[str]
+    #: Seconds per phase, cached work credited (:mod:`hpcagent_bench.phase_clock`): the canon table's optional columns.
+    transform_time: NotRequired[float]
+    codegen_time: NotRequired[float]
+    compile_time: NotRequired[float]
 
 
 def float_scalar_of(value: ArgValue) -> type[np.floating] | None:
@@ -110,26 +116,20 @@ def failed_timing(failure: str) -> ImplTiming:
     return {"python": None, "native": None, "validated": False, "failure": failure}
 
 
-def reference_outputs(bench: Benchmark, bdata: BenchData, preset: str | None = None) -> list[OutputValue]:
-    """``bench``'s expected outputs on ``bdata``, in ``output_args`` order, from the compiled reference a
-    grade of it takes its answer from: the track's oracle
-    (:func:`~hpcagent_bench.harness.grading.resolve_oracle`), its references tried in the grade's order
-    (:func:`~hpcagent_bench.harness.grading.oracle_kinds`: the numba and C references on the numpy
-    tracks, the compiled PyTorch one on machine_learning) through the grade's own road to them
-    (:func:`~hpcagent_bench.harness.scoring.first_oracle`). ``preset`` names the race leader's preset
-    (None: the XL one, as a grade's).
+def reference_outputs(bench: Benchmark, bdata: BenchData, preset: Preset | None = None) -> list[OutputValue]:
+    """``bench``'s expected outputs on ``bdata`` in ``output_args`` order, from the grade's compiled reference
+    (the track's oracle, references tried in the grade's order; ``preset`` None = XL).
 
-    Raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` naming the kernel and every
-    reference's failure when none answers: there is no fallback, and a kernel's ``_numpy.py`` is the task
-    program, never an oracle."""
+    Raises :class:`~hpcagent_bench.harness.grading.ReferenceUnavailable` when none answers: there is no fallback (a
+    ``_numpy.py`` is the task program, never an oracle)."""
     # Deferred: the judge's machinery is only needed by a validating run.
     from hpcagent_bench.harness import scoring, timing
-    from hpcagent_bench.harness.grading import AUTO_ORACLE, ReferenceUnavailable, oracle_kinds, resolve_oracle
+    from hpcagent_bench.harness.grading import ReferenceUnavailable, oracle_kinds, resolve_oracle
     from hpcagent_bench.harness.task import Task
     from hpcagent_bench.support.bindings import binding_from_spec
 
     spec = bench.spec
-    kinds = oracle_kinds(resolve_oracle(AUTO_ORACLE, spec), spec, preset)
+    kinds = oracle_kinds(resolve_oracle(Oracle.AUTO, spec), spec, preset)
     try:
         _kind, outputs = scoring.first_oracle(
             kinds,
@@ -152,13 +152,15 @@ DEFAULT_TIMEOUT_S: float = 200.0
 class Test:
     """A class for testing a framework on a benchmark."""
 
-    __slots__ = ("_last_failure", "_measured_impl", "bench", "frmwrk")
+    __slots__ = ("_last_failure", "_measured_impl", "bench", "frmwrk", "prepared")
 
     def __init__(self, bench: Benchmark, frmwrk: Framework) -> None:
         self.bench = bench
         self.frmwrk = frmwrk
         #: Structured failure reason from the last :meth:`_execute`; None means it produced output.
         self._last_failure: str | None = None
+        #: The phase seconds of the implementation :meth:`_execute` last prepared (its optimize and build_call).
+        self.prepared = phase_clock.Clock()
         #: The handle :meth:`_execute` actually MEASURED (post-``optimize``), which :meth:`timed_run` re-times.
         self._measured_impl: KernelImpl | None = None
 
@@ -176,15 +178,20 @@ class Test:
         """Run ``impl`` ``repeat`` times via :meth:`Framework.measure`; returns ``(outputs, python_time_list,
         native_time_list)``. ``repeat=0`` is one untimed run. ``optimized`` means ``impl`` already came from
         :meth:`Framework.optimize`."""
-        report_str = frmwrk.info["full_name"] + " - " + impl_name
+        report_str = frmwrk.column.full_name + " - " + impl_name
         self._last_failure = None
         self._measured_impl = impl
         try:
-            # Optimize once before the runner and timer are built, outside the timed bracket.
+            # Optimize once before the runner and timer are built, outside the timed bracket; the phase clock
+            # measures it and the build in build_call.
+            with phase_clock.measuring() as clock:
+                if not optimized:
+                    impl = frmwrk.optimize(impl, self.bench, bdata)
+                self._measured_impl = impl
+                plan = frmwrk.build_call(self.bench, impl, bdata)
             if not optimized:
-                impl = frmwrk.optimize(impl, self.bench, bdata)
-            self._measured_impl = impl
-            plan = frmwrk.build_call(self.bench, impl, bdata)
+                # The timed reruns reuse the optimized implementation: only the first preparation is counted.
+                self.prepared = clock
         except NotSupportedByFramework as e:
             # A decline records no row; errors.decline_kind separates ``unsupported`` from ``tool_missing``.
             print(f"UNSUPPORTED: {e}")
@@ -248,7 +255,7 @@ class Test:
 
     def run(
         self,
-        preset: str,
+        preset: Preset,
         validate: bool,
         repeat: int,
         timeout: float = DEFAULT_TIMEOUT_S,
@@ -258,9 +265,9 @@ class Test:
     ) -> dict[str, ImplTiming]:
         """Tests the framework against the benchmark; returns the per-implementation timings the CLI
         persists as JSONL, and records every timed sample in the results DB."""
-        full_name = self.frmwrk.info["full_name"]
+        full_name = self.frmwrk.column.full_name
         shown = datatype if datatype is not None else "default"
-        print(f"***** Testing {full_name} with {self.bench.bname} on the {preset} dataset, datatype {shown} *****")
+        print(f"***** Testing {full_name} with {self.bench.bname} on the {preset.text} dataset, datatype {shown} *****")
 
         self.frmwrk.set_datatype(datatype)
         bdata: BenchData = self.bench.get_data(preset, datatype, fuzz_iteration=fuzz_iteration)
@@ -278,8 +285,7 @@ class Test:
 
         ref_out = self.oracle_output(bdata, preset, ignore_errors) if validate else None
         band_rtol, band_atol = tolerances_for(tolerance_datatype(datatype, detected_dtype))
-        # Keyed by the data precision when no --datatype was given; the spec carries no per-bench rtol/atol
-        # (spec.py rejects them), so the band is the datatype's alone.
+        # Keyed by the data precision when no --datatype was given (manifests carry no per-bench rtol/atol).
         band = (band_rtol, band_atol)
         context: BenchData = {**bdata, **self.frmwrk.imports()}
 
@@ -290,8 +296,12 @@ class Test:
             return self._execute(self.frmwrk, impl, impl_name, "first/validation", context, 0, ignore_errors)
 
         per_impl_timings: dict[str, ImplTiming] = {}
-        for impl, impl_name in self.frmwrk.implementations(self.bench):
+        # Emitting and parsing the implementations is counted too, shared by every implementation listed.
+        with phase_clock.measuring() as listing:
+            implementations = list(self.frmwrk.implementations(self.bench))
+        for impl, impl_name in implementations:
             self._last_failure = None
+            self.prepared = phase_clock.Clock()
             try:
                 frmwrk_out, _, _ = first_execution(impl, impl_name)
             except KeyboardInterrupt:
@@ -317,10 +327,16 @@ class Test:
             )
             timing = self.timed_run(impl_name, context, repeat, ignore_errors, valid, validate, ref_out, band)
             if timing is not None:
-                per_impl_timings[impl_name] = timing
+                seconds = {name: listing.seconds[name] + self.prepared.seconds[name] for name in phase_clock.PHASES}
+                per_impl_timings[impl_name] = {
+                    **timing,
+                    "transform_time": seconds[phase_clock.Phase.TRANSFORM],
+                    "codegen_time": seconds[phase_clock.Phase.CODEGEN],
+                    "compile_time": seconds[phase_clock.Phase.COMPILE],
+                }
         return per_impl_timings
 
-    def oracle_output(self, bdata: BenchData, preset: str, ignore_errors: bool) -> list[OutputValue] | None:
+    def oracle_output(self, bdata: BenchData, preset: Preset, ignore_errors: bool) -> list[OutputValue] | None:
         """The compiled reference's outputs for ``bdata`` (:func:`reference_outputs`). When none answers the
         run fails validation loudly: the failure names the kernel, and it raises unless ``ignore_errors``,
         where it is ``None`` and no implementation validates."""
@@ -357,7 +373,7 @@ class Test:
                 ref_out, later_out, impl_name, "later-call validation", band, ignore_errors
             )
             if not valid:
-                print(f"{self.frmwrk.info['full_name']} - {impl_name}: later call did not validate")
+                print(f"{self.frmwrk.column.full_name} - {impl_name}: later call did not validate")
         if not timelist:
             return None
         return {"python": timelist, "native": native_times, "validated": valid}
@@ -380,7 +396,7 @@ class Test:
                 if isinstance(frmwrk_out, (tuple, list))
                 else frmwrk_out
             )
-            frmwrk_name = self.frmwrk.info["full_name"] + " - " + impl_name
+            frmwrk_name = self.frmwrk.column.full_name + " - " + impl_name
             spec = self.bench.spec
             valid = util.validate(
                 ref_out, host, frmwrk_name, rtol=band[0], atol=band[1], mismatch_fraction=spec.mismatch_fraction or 0.0
@@ -390,7 +406,7 @@ class Test:
             elif not ignore_errors:
                 raise ValueError(f"{frmwrk_name} did not validate ({stage})!")
         except Exception as e:
-            print("Failed to run {} validation.".format(self.frmwrk.info["full_name"]))
+            print(f"Failed to run {self.frmwrk.column.full_name} validation.")
             traceback.print_exception(e)
             if not ignore_errors:
                 raise

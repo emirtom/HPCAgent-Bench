@@ -1,33 +1,20 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for the translator feature/bug fixes in this work batch.
-
-Grouped by feature so a regression points straight at the cause:
-
-* ``shape_from_constructor`` -- ``rng.integers(size=...)`` shape recovery
-  (dfa) and the ``np.full(N, fill)`` fix (the fill value must NOT be read as
-  a second axis -- bellman_ford's ``INF`` leak).
-* ``expand_arange`` -- ``np.arange`` value emission (iota loop).
-* ``AstypeRewriter`` -- ``<expr>.astype(dtype)`` on ANY receiver.
-* variadic ``max``/``min`` folding in the C/C++ emitter (needleman_wunsch).
-* ``np.var`` is classified as a SCALAR reduction so it can nest in an
-  expression (srad's ``np.var(J) / (mean*mean)``).
-* Fortran ABI: the emitted subroutine's parameter order matches the binding
-  (the matvec-cluster fix) and synthesized return outputs carry no leading
-  ``__`` (``ret_arr`` -- valid in every backend).
-
-The end-to-end correctness of these on the real kernels is asserted by the corpus gate,
-``tests/test_e2e_numerical.py`` (native leg on every gated kernel), via the numerical oracle; conv2d's
-wider backend matrix is ``test_feature_kernels_e2e``.
-"""
+"""Unit tests for translator features, grouped by feature (constructor shapes, ``np.arange``, ``astype``,
+variadic ``max``/``min``, ``np.var`` as a scalar reduction, Fortran ABI order); corpus numerics are
+``tests/test_e2e_numerical.py``'s."""
 
 import ast
+import pathlib
+import types
 
 import numpy as np
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.translators.numpyto_common.frontend import shape_from_constructor
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lib_nodes import expand_arange, expand_fromfunction
 from hpcagent_bench.translators.numpyto_common.lowering import (
     AstypeRewriter,
@@ -39,7 +26,7 @@ from hpcagent_bench.translators.numpyto_common.lowering import (
 from tests.translators.source_module import run_source
 
 
-def expr_(src):
+def expr_(src: str) -> ast.BinOp | ast.Call | ast.Subscript:
     return ast.parse(src, mode="eval").body
 
 
@@ -80,7 +67,7 @@ def test_rand_separate_axes_still_supported() -> None:
 # B. np.arange value emission                                                  #
 
 
-def arange_stmts(src):
+def arange_stmts(src: str) -> list[ast.For]:
     call = expr_(src)
     stmts = expand_arange(ast.Name(id="out", ctx=ast.Store()), call.args, {})
     # The pipeline calls fix_missing_locations after the expander; do the same
@@ -90,7 +77,7 @@ def arange_stmts(src):
     return stmts
 
 
-def for_loops(stmts):
+def for_loops(stmts: list[ast.For]) -> list[ast.For]:
     return [n for s in stmts for n in ast.walk(s) if isinstance(n, ast.For)]
 
 
@@ -122,7 +109,7 @@ def test_arange_step_form() -> None:
 # C. .astype() on an arbitrary expression                                      #
 
 
-def astype_(src):
+def astype_(src: str) -> str:
     tree = ast.parse(src)
     AstypeRewriter().visit(tree)
     return ast.unparse(tree).strip()
@@ -151,7 +138,7 @@ def test_astype_string_dtype() -> None:
 
 
 @pytest.mark.parametrize("fn", ["max", "min"])
-def test_variadic_minmax_folds_to_nested_2arg(fn) -> None:
+def test_variadic_minmax_folds_to_nested_2arg(fn: str) -> None:
     """A 3-arg builtin ``max(a, b, c)`` emits as nested 2-arg calls so the
     C/C++ 2-arg ``max``/``min`` macros accept it (needleman_wunsch)."""
     from hpcagent_bench.translators.numpyto_c.emit import CBodyEmitter
@@ -185,7 +172,7 @@ def test_var_is_scalar_reduction(fn: str) -> None:
 # F. np.permute_dims / np.amax aliases -> canonical names                       #
 
 
-def alias(src):
+def alias(src: str) -> str:
     tree = ast.parse(src)
     NpAliasRewriter().visit(tree)
     return ast.unparse(tree).strip()
@@ -209,7 +196,7 @@ def test_amax_amin_alias_max_min() -> None:
 # G. np.fromfunction -- lambda inlined as the per-element loop body             #
 
 
-def fromfunction_stmts(src):
+def fromfunction_stmts(src: str) -> list[ast.For]:
     call = expr_(src)
     stmts = expand_fromfunction(ast.Name(id="out", ctx=ast.Store()), call.args, {})
     for s in stmts:
@@ -244,7 +231,7 @@ def test_fromfunction_rejects_non_lambda() -> None:
 # I. np.<op>.at unbuffered scatter                                             #
 
 
-def scatter(src, shapes):
+def scatter(src: str, shapes: dict[str, list[str]]) -> str:
     tree = ast.parse(src)
     ScatterAtRewriter(shapes).visit(tree)
     ast.fix_missing_locations(tree)
@@ -413,7 +400,7 @@ def test_add_at_slice_view_target() -> None:
         "deexx[mask, ii]",  # a fancy index, not a slice
     ],
 )
-def test_add_at_view_target_non_full_slice_refused(bad_target) -> None:
+def test_add_at_view_target_non_full_slice_refused(bad_target: str) -> None:
     with pytest.raises(NotImplementedError, match="full-slice axis"):
         scatter(f"np.add.at({bad_target}, idx, v)", {"idx": ["E"]})
 
@@ -548,7 +535,7 @@ def test_front_placed_gather_separated_by_real_slice() -> None:
 # K. axis-aware reduction shape derivation (the IR-level axis= support)        #
 
 
-def ext_(src, table):
+def ext_(src: str, table: dict[str, tuple[str, ...]]) -> tuple[str, ...] | None:
     from hpcagent_bench.translators.numpyto_common.lib_nodes import iter_extent_of
 
     e = iter_extent_of(ast.parse(src, mode="eval").body, table)
@@ -618,7 +605,7 @@ def test_produces_logical_sees_known_logical_names() -> None:
 # H. end-to-end correctness on the real kernels these fixes unblocked          #
 
 
-def oracle():
+def oracle() -> types.ModuleType:
     """Import the numerical oracle (top-level tests/) for an emit+compile+run
     +compare-vs-numpy check. Skips cleanly if it (or a compiler) is absent."""
     import shutil
@@ -646,9 +633,9 @@ E2E_BACKENDS = {"conv2d": {"c", "cpp", "fortran", "numba", "pythran", "jax"}}
 
 
 @pytest.mark.parametrize(("kernel", "feature"), E2E, ids=[k for k, unused in E2E])
-def test_feature_kernels_e2e(kernel, feature) -> None:
+def test_feature_kernels_e2e(kernel: str, feature: str) -> None:
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", seed=0, only_backends=E2E_BACKENDS[kernel])
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", seed=0, only_backends=E2E_BACKENDS[kernel])
     fails = {b: s for b, s in status.items() if s.startswith("FAIL")}
     assert not fails, f"{kernel} ({feature}): {fails}"
 
@@ -671,7 +658,7 @@ def test_compare_scalar_operands_have_no_extent() -> None:
 # N. N-D implicit trailing-slice padding (A[i, j] on 3-D -> A[i, j, :])         #
 
 
-def pad(src, table):
+def pad(src: str, table: dict[str, tuple[str, ...]]) -> str:
     from hpcagent_bench.translators.numpyto_common.lowering import PadImplicitTrailingSlices
 
     tree = ast.parse(src)
@@ -750,7 +737,7 @@ def test_body_local_dim_alias_excluded_from_params() -> None:
 
     info = BenchSpec.load("smith_waterman")
     with tempfile.TemporaryDirectory() as td:
-        ok, diag = no._emit("smith_waterman", info, pathlib.Path(td))
+        ok, diag = no.emit_kernel("smith_waterman", info, pathlib.Path(td))
         assert ok, f"smith_waterman emit failed{diag}"
         binding = json.loads(next(pathlib.Path(td).glob("*_binding.json")).read_text())
         names = [a["name"] for a in binding["args"]]
@@ -764,10 +751,10 @@ def test_oracle_output_dtype_for_kind() -> None:
     no = oracle()
     import numpy as np
 
-    assert no._np_dtype_for_kind("ptr_int32", np.float64) == np.int32
-    assert no._np_dtype_for_kind("ptr_double", np.float64) == np.float64
-    assert no._np_dtype_for_kind("ptr_float", np.float32) == np.float32
-    assert no._np_dtype_for_kind("ptr_complex128", np.float64) == np.complex128
+    assert no.np_dtype_for_kind("ptr_int32", np.float64) == np.int32
+    assert no.np_dtype_for_kind("ptr_double", np.float64) == np.float64
+    assert no.np_dtype_for_kind("ptr_float", np.float32) == np.float32
+    assert no.np_dtype_for_kind("ptr_complex128", np.float64) == np.complex128
 
 
 # S. np_float / np_complex dtype aliases never become scalar parameters         #
@@ -830,7 +817,7 @@ def test_fortran_abi_param_order_matches_binding() -> None:
 
     info = BenchSpec.load("gesummv")
     with tempfile.TemporaryDirectory() as td:
-        ok, diag = no._emit("gesummv", info, pathlib.Path(td))
+        ok, diag = no.emit_kernel("gesummv", info, pathlib.Path(td))
         assert ok, f"gesummv emit failed{diag}"
         # The fp64 C/Fortran binding -- NOT the pluto sidecar
         # (``*_fp64_pluto_binding.json``), which carries its own symbols-first arg
@@ -858,7 +845,7 @@ def test_fortran_abi_param_order_matches_binding() -> None:
 
 
 @pytest.mark.parametrize("kernel", ["gemm", "softmax"])
-def test_fp16_emission_compiles_c_cpp(kernel) -> None:
+def test_fp16_emission_compiles_c_cpp(kernel: str) -> None:
     no = oracle()
     import pathlib
     import subprocess
@@ -869,7 +856,7 @@ def test_fp16_emission_compiles_c_cpp(kernel) -> None:
     info = BenchSpec.load(kernel)
     with tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
-        ok, diag = no._emit(kernel, info, tdp, precision="float16")
+        ok, diag = no.emit_kernel(kernel, info, tdp, precision="float16")
         assert ok, f"{kernel}: fp16 emit failed{diag}"
         for backend, ext in (("c", ".c"), ("cpp", ".cpp")):
             src = next(tdp.glob(f"*_fp16{ext}"))
@@ -896,7 +883,7 @@ def test_fp16_signature_uses_half_not_double() -> None:
     info = BenchSpec.load("gemm")
     with tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
-        ok, diag = no._emit("gemm", info, tdp, precision="float16")
+        ok, diag = no.emit_kernel("gemm", info, tdp, precision="float16")
         assert ok, f"gemm fp16 emit failed{diag}"
         c_src = next(tdp.glob("*_fp16.c")).read_text()
         sig = c_src.split("gemm_fp16(", 1)[1].split(")", 1)[0]
@@ -915,7 +902,7 @@ def test_fp16_signature_uses_half_not_double() -> None:
 # The emitter's macro/template operand order must match Python's.
 
 
-def run_c(compile_cmd, source, ext, tmp):
+def run_c(compile_cmd: list[str], source: str, ext: str, tmp: pathlib.Path) -> str:
     import subprocess
 
     src = tmp / f"nan_probe{ext}"
@@ -931,7 +918,7 @@ def run_c(compile_cmd, source, ext, tmp):
 
 
 @pytest.mark.parametrize("backend", ["c", "cpp"])
-def test_max_min_propagate_nan_like_numpy(backend) -> None:
+def test_max_min_propagate_nan_like_numpy(backend: str) -> None:
     """max/min emitted by the C/C++ prelude must PROPAGATE a NaN in EITHER operand,
     exactly as numpy.maximum/minimum (which the elementwise broadcast and the
     ``np.maximum.at`` / ``np.minimum.at`` scatter folds lower to) -- not the
@@ -988,7 +975,9 @@ def test_max_min_propagate_nan_like_numpy(backend) -> None:
 #    nor np.mgrid. ``desugar_for_python_backend`` lowers these to plain loops/  #
 #    broadcasts both backends compile; the #pythran export must list types in   #
 #    the verbatim def-signature order, not the alphabetical ABI param_order.    #
-def py_kir(name, src, arrays, syms, input_args):
+def py_kir(
+    name: str, src: str, arrays: list[tuple[str, str, tuple[str, ...]]], syms: list[str], input_args: list[str]
+) -> KernelIR:
     """Minimal KernelIR for the source-level python-backend passes."""
     from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc, KernelIR, SymbolDesc
 
@@ -1149,12 +1138,12 @@ def test_pythran_export_uses_signature_order_not_abi() -> None:
 
 
 @pytest.mark.parametrize("kernel", ["fft_1d", "fft_3d"])
-def test_fft_numba_pythran_e2e(kernel) -> None:
+def test_fft_numba_pythran_e2e(kernel: str) -> None:
     """fft_1d/fft_3d run bit-close to numpy on numba (np.fft lowered) AND pythran
     (fftn lowered + export in signature order); fft_3d also exercises the
     multi-array fancy gather ``u2[q, r, s]``."""
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", seed=0)
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", seed=0)
     for b in ("numba", "pythran"):
         s = status.get(b)
         if s == "skip:not-installed":
@@ -1566,7 +1555,13 @@ def test_reshape_of_transpose_forced_contiguous() -> None:
 #    partial pivoting) -- but ONLY for pythran: numba (numba.np.linalg) and     #
 #    dace (dace.libraries.linalg) implement them natively and keep the          #
 #    intrinsic. The loops match numpy to rounding (validated below).           #
-def desugar(src, arrays, syms, input_args, backend):
+def desugar(
+    src: str,
+    arrays: list[tuple[str, str, tuple[str, ...]]],
+    syms: dict[str, int],
+    input_args: list[str],
+    backend: str | None,
+) -> str:
     from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
 
     return desugar_for_python_backend(src, py_kir("kernel", src, arrays, syms, input_args), backend=backend)
@@ -1605,7 +1600,13 @@ def test_solve_and_inv_lower_for_pythran_only() -> None:
     assert "np.linalg.inv" in desugar(isrc, iarr, [], ["A", "o"], "dace")
 
 
-def exec_desugared(src, arrays, input_args, scope, backend: str = "pythran"):
+def exec_desugared(
+    src: str,
+    arrays: list[tuple[str, str, tuple[str, ...]]],
+    input_args: list[str],
+    scope: dict[str, int | np.ndarray],
+    backend: str = "pythran",
+) -> dict[str, int | np.ndarray]:
     """Desugar ``src`` for ``backend`` and exec it against numpy ``scope`` buffers
     -- the strongest correctness check (matches numpy, no tolerance games)."""
     from hpcagent_bench.translators.numpyto_common.numpy_desugar import desugar_for_python_backend
@@ -1723,7 +1724,9 @@ def test_eigh_gated_native_linalg_per_backend() -> None:
         ),  # 3-D rhs
     ],
 )
-def test_linalg_desugar_raises_on_unsupported_shape(src, arrays, args) -> None:
+def test_linalg_desugar_raises_on_unsupported_shape(
+    src: str, arrays: list[tuple[str, str, tuple[str]]], args: list[str]
+) -> None:
     """An owned-but-unhandled operand shape raises DesugarError (never a silent
     miscompile); an unknown-rank operand instead stays verbatim (a clean skip)."""
     from hpcagent_bench.translators.numpyto_common.numpy_desugar import DesugarError
@@ -1836,7 +1839,7 @@ def test_drop_guards_replaces_raise_and_assert_with_pass() -> None:
         ("float64", "integer", False),  # float idx is NOT integer -> guard body (raise) runs -> kept-then-dropped
     ],
 )
-def test_issubdtype_folds_from_known_dtype(dtype, category, vanishes) -> None:
+def test_issubdtype_folds_from_known_dtype(dtype: str, category: str, vanishes: bool) -> None:
     """``np.issubdtype(x.dtype, np.<category>)`` folds to a compile-time bool from
     x's known dtype kind (the isinstance-style check); the validation guard it
     feeds then resolves and disappears. numba/pythran/dace cannot evaluate it."""
@@ -1873,20 +1876,20 @@ def test_pythran_export_dtypes_parses_2d_types() -> None:
     carries an inner comma (compute's TypeError was a mis-split here)."""
     no = oracle()
     sig = "#pythran export f(int64[:,:], int64[:,:], float64, float64, float64, int64[:,:])\n"
-    dts = no._pythran_export_dtypes(sig)
+    dts = no.pythran_export_dtypes(sig)
     assert dts == [np.int64, np.int64, np.float64, np.float64, np.float64, np.int64]
-    assert no._coerce_to_dtype(np.int64(4), np.float64).dtype == np.float64  # scalar cast
-    assert no._coerce_to_dtype(np.zeros(3, np.uint8), np.int64).dtype == np.int64  # array cast
+    assert no.coerce_to_dtype(np.int64(4), np.float64).dtype == np.float64  # scalar cast
+    assert no.coerce_to_dtype(np.zeros(3, np.uint8), np.int64).dtype == np.int64  # array cast
 
 
 @pytest.mark.parametrize("kernel", ["cholesky2", "contour_integral", "azimint_naive", "crc16", "compute"])
-def test_cholesky2_contour_pythran_e2e(kernel) -> None:
+def test_cholesky2_contour_pythran_e2e(kernel: str) -> None:
     """Kernels reclaimed for pythran: cholesky2 (np.linalg.cholesky),
     contour_integral (np.linalg.solve + dead-but-typed np.linalg.inv), azimint_naive
     (masked-mean loop + 'res' param rename), crc16 (uint8-vs-int64 export marshal),
     compute (int64-scalar-vs-float64 export marshal). All bit-close to numpy."""
     no = oracle()
-    status = no.run_kernel(kernel, preset="S", precision="fp64", seed=0)
+    status = no.run_kernel(kernel, preset=Preset.S, precision="fp64", seed=0)
     s = status.get("pythran")
     if s == "skip:not-installed":
         pytest.skip("pythran not installed")
@@ -1902,7 +1905,7 @@ def test_cholesky2_contour_pythran_e2e(kernel) -> None:
 # The e2e fp32 leg catches this too (vexx_k), but these run in a second and name the cause.
 
 
-def kir_with_helper():
+def kir_with_helper() -> KernelIR:
     """Parse a kernel whose helper survives inlining, and return its lowered IR."""
     import pathlib
 
@@ -1918,7 +1921,7 @@ def kir_with_helper():
         return lower(parse_kernel(npy, pathlib.Path(bi)))
 
 
-def float_dtypes(kir):
+def float_dtypes(kir: KernelIR) -> list[str]:
     return [a.dtype for a in kir.arrays] + [s.dtype for s in kir.scalars] + list(kir.local_dtypes.values())
 
 
@@ -1962,7 +1965,7 @@ def test_fortran_wraps_a_preset_symbol_used_as_a_condition() -> None:
     from hpcagent_bench import paths
     from hpcagent_bench.autogen import ensure_native
 
-    ensure_native("crc16", "fortran")
+    ensure_native("crc16", Language.FORTRAN)
     src = (paths.BENCHMARKS / "scientific_computing/combinational_logic/crc16/cpp_backend/crc16_fp64.f90").read_text()
     assert "if ((reflect_out) /= 0) then" in src, f"integer preset symbol emitted as a bare LOGICAL condition:\n{src}"
 
@@ -2002,7 +2005,7 @@ def test_listcomp_iterable_resolved_through_the_const_name_table() -> None:
         "[x[i] for i in range(128)]",
     ],
 )
-def test_listcomp_unroll_bails_on_an_unrollable_form(comp) -> None:
+def test_listcomp_unroll_bails_on_an_unrollable_form(comp: str) -> None:
     """A runtime trip count, a guard, a second ``for`` clause, and a length over the
     unroll bound each leave the comprehension verbatim (a loud refusal downstream
     beats a wrong or exploded unroll)."""
@@ -2064,7 +2067,7 @@ D4 = [("x", "float64", ("N", "M", "K", "L")), ("out", "float64", ("N", "M", "K",
 D2 = [("x", "float64", ("N", "M")), ("out", "float64", ("N", "M"))]
 
 
-def exec_source(src, args) -> None:
+def exec_source(src: str, args: list[int | np.ndarray]) -> None:
     """Run a kernel source VERBATIM under numpy -- the original side of an
     original-vs-desugared equivalence check."""
     ns = {"np": np}
@@ -2072,7 +2075,7 @@ def exec_source(src, args) -> None:
     ns["kernel"](*args)
 
 
-def keepdims_src(call):
+def keepdims_src(call: str) -> str:
     """A kernel whose reduction operand has NO known rank: ``t`` is bound at two
     different ranks, so ``drop_rank_conflicts`` forgets it and ``hoist_reduce_axis``
     (which needs the rank to build its loop nest) declines -- leaving the keepdims
@@ -2138,7 +2141,7 @@ def test_keepdims_tuple_axis_restores_every_reduced_axis_in_place() -> None:
         "t.sum(axis=1, keepdims=True)",
     ],
 )
-def test_keepdims_bails_when_the_axes_do_not_resolve(call) -> None:
+def test_keepdims_bails_when_the_axes_do_not_resolve(call: str) -> None:
     """``axis=None`` / no axis keeps EVERY axis (how many is the rank this does not
     have), a mixed-sign tuple needs the rank to interleave its two ends, a symbolic
     axis is not an axis yet, and the method form is not this pass's shape. Each is
@@ -2232,7 +2235,7 @@ def test_boolop_preserves_short_circuit_and_evaluation_order() -> None:
     out = desugar(src, arrays, [], ["log", "dim", "out"], "dace")
     assert " or " not in out, out
 
-    def bump(log, i):
+    def bump(log: np.ndarray, i: int) -> int:
         log[i] += 1
         return i
 
@@ -2255,7 +2258,7 @@ def test_boolop_preserves_short_circuit_and_evaluation_order() -> None:
         ("dim == 0 or dim == 1 or dim == 2 or dim == 3 or dim == 4", " or "),
     ],
 )
-def test_boolop_bails_on_a_form_it_cannot_lower_for_free(test, keep) -> None:
+def test_boolop_bails_on_a_form_it_cannot_lower_for_free(test: str, keep: str) -> None:
     """An ``and`` carrying an ``else`` would have to clone the ELSE into every level; a
     test with no bare ``==``/``!=`` never trips the dace bug (and splitting it would
     cost ``DeadBranchElim`` its whole-BoolOp fold); a disjunction past the clone bound

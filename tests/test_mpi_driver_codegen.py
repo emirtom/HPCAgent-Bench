@@ -2,18 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The generated C MPI driver + kernel_mpi stub: pins the abi_contract.md Sec. 12 shape without a cluster."""
 
+import pathlib
 import shutil
 import subprocess
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.languages import std_flag
 from hpcagent_bench.support.bindings.contract import Arg, Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub, gen_mpi_driver, mpi_symbol
 from hpcagent_bench.support.bindings.stubs import LANGS, STUB_BODY
 
 #: The C standard the harness builds with (compilers.yaml), not a literal restated here.
-C_STD = std_flag("c")
+C_STD = std_flag(Language.C)
 
 #: Prefer the MPICH wrapper (the track's default toolchain); fall back to a generic ``mpicc``.
 _MPICC = shutil.which("mpicc.mpich") or shutil.which("mpicc")
@@ -21,12 +23,12 @@ _MPICC = shutil.which("mpicc.mpich") or shutil.which("mpicc")
 _NVCC = shutil.which("nvcc")
 
 
-def _binding(*args) -> Binding:
+def binding(*args: Arg) -> Binding:
     return Binding(kernel="jac", config="dense", args=tuple(args), symbols=dict.fromkeys(LANGS, "jac2d_fp64"))
 
 
 def _yax() -> Binding:
-    return _binding(
+    return binding(
         Arg(name="x", kind="ptr", dtype="float64", is_const=True),
         Arg(name="y", kind="ptr", dtype="float64", is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
@@ -37,7 +39,7 @@ def _yax() -> Binding:
 def test_mpi_symbol_is_distinct_from_single_node() -> None:
     b = _yax()
     assert mpi_symbol(b) == "jac2d_mpi"  # <base>_mpi, derived from <base>_fp64
-    assert mpi_symbol(b) != b.symbols["c"]  # never collides with the single-node symbol
+    assert mpi_symbol(b) != b.symbols[Language.C]  # never collides with the single-node symbol
 
 
 def test_kernel_stub_has_section12_signature() -> None:
@@ -63,7 +65,7 @@ def test_kernel_stub_has_section12_signature() -> None:
 def test_kernel_stub_is_cpp_compilable_for_a_cpp_submission() -> None:
     """A C++ submission compiles with ``g++ -std=c++20``: bare C99 ``restrict`` is a parse error
     there, and a plain (mangled) definition never resolves the driver's C-linkage extern."""
-    stub = gen_kernel_mpi_stub(_yax(), "cpp")
+    stub = gen_kernel_mpi_stub(_yax(), Language.CPP)
     assert 'extern "C" void jac2d_mpi' in stub
     assert "const double *__restrict__ x" in stub
     assert "double *__restrict__ y" in stub
@@ -115,7 +117,7 @@ def test_driver_seeds_work_before_timed_loop() -> None:
 
 def test_driver_reads_scalars_by_register_class() -> None:
     # A scalar travels in a fixed 8-byte wire slot per register class; reading it as the wrong class is garbage.
-    b = _binding(
+    b = binding(
         Arg(name="y", kind="ptr", dtype="float32", is_const=False, role="output"),
         Arg(name="af", kind="scalar", dtype="float32", is_const=True),
         Arg(name="ni", kind="scalar", dtype="int32", is_const=True, role="symbol"),
@@ -127,14 +129,14 @@ def test_driver_reads_scalars_by_register_class() -> None:
 
 
 def test_driver_grid_dims_baked_multidim() -> None:
-    b = _binding(Arg(name="A", kind="ptr", dtype="float64", is_const=False, role="output"))
+    b = binding(Arg(name="A", kind="ptr", dtype="float64", is_const=False, role="output"))
     drv = gen_mpi_driver(b, [2, 3])
     assert "static const int g_dims[] = { 2, 3 };" in drv
     assert "#define GRID_NDIM 2" in drv
 
 
 @pytest.mark.skipif(_MPICC is None, reason="an MPI C compiler (mpicc.mpich / mpicc) is required")
-def test_generated_driver_compiles(tmp_path) -> None:
+def test_generated_driver_compiles(tmp_path: pathlib.Path) -> None:
     # The strongest offline check: the emitted driver is well-formed C against a real <mpi.h>.
     src = tmp_path / "driver.c"
     src.write_text(gen_mpi_driver(_yax(), [4]))
@@ -148,7 +150,7 @@ def test_generated_driver_compiles(tmp_path) -> None:
 
 
 @pytest.mark.skipif(_MPICC is None, reason="an MPI C compiler (mpicc.mpich / mpicc) is required")
-def test_generated_stub_compiles(tmp_path) -> None:
+def test_generated_stub_compiles(tmp_path: pathlib.Path) -> None:
     src = tmp_path / "kernel.c"
     src.write_text(gen_kernel_mpi_stub(_yax()))
     r = subprocess.run(
@@ -238,7 +240,7 @@ def test_device_timed_window_closes_after_the_device_drained() -> None:
 
 
 @pytest.mark.skipif(_NVCC is None or _MPICC is None, reason="nvcc + an MPI wrapper are required")
-def test_generated_device_driver_compiles_with_nvcc(tmp_path) -> None:
+def test_generated_device_driver_compiles_with_nvcc(tmp_path: pathlib.Path) -> None:
     # The strongest offline check for the device path: nvcc compiles the portable-shim driver as CUDA C++.
     from hpcagent_bench.languages import mpi_wrapper_flags
 

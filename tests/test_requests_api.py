@@ -1,16 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``requests`` hb reads against a kernel: the request relayout parses, the distribution plan it
-lowers to at a rank count, and the arrays it leaves unplaced.
-
-The operations themselves (their JSON, effects, lowering) are relayout's (``relayout.ops``,
-``relayout.requests``, tested there); here they are exercised through the envelope an agent sends.
-"""
+"""The ``requests`` hb reads against a kernel: relayout's parse, the distribution plan at a rank count, and the
+unplaced arrays, through the envelope an agent sends."""
 
 import pydantic
 import pytest
 from relayout.requests import requests_schema
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import default_requests, kernel_ndims
 from hpcagent_bench.harness.requests_api import (
@@ -124,7 +121,7 @@ def test_the_submission_declares_requests_as_the_pydantic_field() -> None:
     assert submission.model_dump(mode="json")["requests"] == raw
     assert Submission.model_validate(submission.model_dump()) == submission
     assert submission.to_json() == {"language": "c", "source": "x", "build": [], "requests": raw}
-    empty = Submission(language="c", source="x", requests=None)
+    empty = Submission(language=Language.C, source="x", requests=None)
     assert empty.requests == Requests()
     assert "requests" not in empty.model_dump(mode="json")
     assert empty.to_json() == {"language": "c", "source": "x", "build": []}

@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpcagent-bench"
-version = "0.2.0"
+version = "0.2.1"
 description = "A benchmark for AI agents that optimize numerical code: NumPy kernels, a judge, and speedup scoring."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -203,11 +203,11 @@ members = ["agent", "adapters/hpcagent_bench"]
 [tool.uv.sources]
 # The spcl/dace@extended and relayout@main commits this release is tested with, and the ONE place each is
 # written: uv.lock records them, and the image builds and jobs read them through helpers/scripts/pins.sh.
-dace = { git = "https://github.com/spcl/dace.git", rev = "3f5d9a884c5d0547a65f17e61397e28c14947342" }
+dace = { git = "https://github.com/spcl/dace.git", rev = "baac24733f204d0e992f8cf73ce3d7c77fce7b5d" }
 relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" }
 hpcagent-agent = { workspace = true }
 # Moves with the dace pin above: Alloy's own dace pin must be the same commit.
-alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "aeca753a0bc83f5a34924f7d6d14c28c16f7363c" }
+alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "d6517881201abb26e169e7e2a5bd29fae30b1e39" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },
@@ -242,6 +242,8 @@ explicit = true
 # Linux only: the toolchain, the seal and the images are. CPython 3.15 is out until the GPU extras ship wheels
 # for it (cupy-cuda13x has none), so the lock resolves 3.12 to 3.14; the images run 3.12.
 environments = ["sys_platform == 'linux' and python_full_version < '3.15'"]
+# The bench's dace pin wins over the one Alloy's own pyproject names, so the [alloy] extra grades on the same dace.
+override-dependencies = ["dace @ git+https://github.com/spcl/dace.git@baac24733f204d0e992f8cf73ce3d7c77fce7b5d"]
 # One environment per framework set, and each group is its own venv (litellm's judge-proxy stack needs
 # rich<14; harbor and the OpenHands tools need rich>=14).
 conflicts = [
@@ -251,6 +253,9 @@ conflicts = [
         { group = "harbor" },
         { package = "hpcagent-agent", group = "harness-miniswe" },
         { package = "hpcagent-agent", group = "harness-openhands" },
+        { package = "hpcagent-agent", group = "harness-anthropic" },
+        { package = "hpcagent-agent", group = "harness-openai" },
+        { package = "hpcagent-agent", group = "harness-optimas" },
     ],
 ]
 
@@ -350,13 +355,11 @@ force-exclude = true
 
 [tool.ruff.lint]
 select = ["ALL"]
-# ANN is off, but its noqa markers are what check_annotation_ratchet.py exempts: keep them valid.
-external = ["ANN"]
 # The benchmark kernels are task text the translators parse and agents read, not package code (as for the
 # type checkers below): a lint rewrite would change what a task says or what a frontend accepts.
 exclude = ["hpcagent_bench/benchmarks/**"]
 ignore = [
-    "ANN", "D",  # annotations and docstrings: the type checkers and the reviewers own these
+    "D",  # docstrings: the reviewers own these
     "ARG",  # unused arguments: callbacks and protocol signatures
     "C408",  # dict(a=..., b=...) reads better than a literal here
     "PLR2004",  # magic values: tolerances, sizes and exit codes are named where it helps
@@ -381,7 +384,7 @@ ignore = [
     "ERA001",  # code-shaped comments are worked examples
     "TD002", "TD003", "FIX002",  # TODO format
     "RUF059", "B007",  # their fix binds a _-prefixed name, which check_names.py forbids
-    "E731",  # a named one-line lambda; its fix is an unannotated def the annotation ratchet refuses
+    "E731",  # a named one-line lambda; its fix is an unannotated def
     "PTH100",  # os.path.abspath keeps a symlink where Path.resolve follows it (mount points, the seal's paths)
     "TRY301",  # a raise its own except clause reports is the point of that try
 ]
@@ -407,5 +410,7 @@ exclude = ["hpcagent_bench/benchmarks", "third_party", "**/node_modules", "**/__
 [tool.mypy]
 python_version = "3.12"
 follow_imports = "silent"
+# The agent package (hpcagent_agent) is a source root of its own: the judge imports its wire types.
+mypy_path = "agent"
 ignore_missing_imports = true
 exclude = ["^hpcagent_bench/benchmarks/", "^third_party/", "_generated\\.py$"]

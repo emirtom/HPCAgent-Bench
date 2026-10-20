@@ -14,6 +14,7 @@ from types import ModuleType
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import mpi_call, mpi_shard_driver
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor, distribution_for_kernel
@@ -48,7 +49,7 @@ def plan_for(ranks: int, grid: dict, **overrides: object) -> dict:
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
         Submission(
-            language="hip",
+            language=Language.HIP,
             source="kernel_mpi",
             device_source="kernels",
             requests=Requests.from_plan({**grid, "grid": [ranks]}),
@@ -102,7 +103,7 @@ def test_the_plan_is_json(tmp_path: Path) -> None:
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
         Submission(
-            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+            language=Language.HIP, source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
         ),
         binding,
         4,
@@ -150,7 +151,7 @@ def test_run_sharded_returns_rank_verdicts_and_ns_samples(monkeypatch: pytest.Mo
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
         Submission(
-            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+            language=Language.HIP, source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
         ),
         binding,
         4,
@@ -204,7 +205,7 @@ def test_run_sharded_runs_every_draw_in_one_launch(monkeypatch: pytest.MonkeyPat
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     descriptor = Descriptor.from_submission(
         Submission(
-            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+            language=Language.HIP, source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
         ),
         binding,
         4,
@@ -246,7 +247,7 @@ def test_run_sharded_answering_for_fewer_ranks_than_launched_is_an_infra_fault(
     binding = binding_from_spec(BenchSpec.load(KERNEL))
     descriptor = Descriptor.from_submission(
         Submission(
-            language="hip", source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
+            language=Language.HIP, source="kernel_mpi", device_source="kernels", requests=Requests.from_plan(ROW_SPLIT)
         ),
         binding,
         4,
@@ -273,7 +274,7 @@ def test_run_sharded_without_a_kernel_library_is_a_launch_failure(tmp_path: Path
     spec = BenchSpec.load(KERNEL)
     binding = binding_from_spec(spec)
     descriptor = Descriptor.from_submission(
-        Submission(language="c", source="kernel_mpi", requests=Requests.from_plan(ROW_SPLIT)), binding, 4
+        Submission(language=Language.C, source="kernel_mpi", requests=Requests.from_plan(ROW_SPLIT)), binding, 4
     )
     with pytest.raises(RuntimeError, match="no kernel library"):
         mpi_call.run_sharded(

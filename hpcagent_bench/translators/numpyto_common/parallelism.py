@@ -272,9 +272,8 @@ def enclosing_blocks(root: ast.AST, stmt: ast.stmt) -> list[tuple[list[ast.stmt]
     """``(block, position, owner)`` from ``root`` down to ``stmt``: each statement list that holds the
     path, where in it the path continues, and the node that owns the list. ``None`` when ``stmt`` is
     not under ``root``."""
-    for field in ("body", "orelse", "finalbody", "handlers"):
-        block = getattr(root, field, None)
-        if not isinstance(block, list):
+    for field, block in ast.iter_fields(root):
+        if field not in ("body", "orelse", "finalbody", "handlers") or not isinstance(block, list):
             continue
         for pos, child in enumerate(block):
             if child is stmt:

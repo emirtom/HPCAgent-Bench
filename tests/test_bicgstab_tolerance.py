@@ -1,17 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""bicgstab's ``conditioning_atol`` admits a solve that stops one iteration later and still fails wrong answers.
-
-The solve stops on ``||r|| < ATOL + RTOL ||b||``; an implementation whose reductions round differently can stop one
-iteration later where ``||r||`` lands at the threshold, which moves ``x`` by ~1e-7 against the fp64 band's 1e-9. On
-this strongly diagonally dominant system wrong answers land close too (three Jacobi sweeps ~4e-4, a solve of
-``A^T``), so the floor (1e-5, see the manifest) must sit between the two.
-"""
+"""bicgstab's ``conditioning_atol`` admits a solve that stops one iteration later yet still fails wrong
+answers."""
 
 import numpy as np
 import scipy.sparse as sp
 
 from hpcagent_bench.benchmarks.scientific_computing.sparse_linear_algebra.bicgstab import bicgstab_numpy
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.test import kernel_tolerances, tolerances_for
 from hpcagent_bench.frameworks.utilities import compare_arrays
@@ -73,7 +69,7 @@ def test_bicgstab_is_graded_at_its_absolute_floor() -> None:
 
 
 def test_one_more_iteration_passes_and_wrong_answers_fail() -> None:
-    data = Benchmark(KERNEL).get_data("S", "float64", input_seed=1)
+    data = Benchmark(KERNEL).get_data(Preset.S, "float64", input_seed=1)
     A, b, x0 = sp.csr_matrix(data["A"]), data["b"], data["x"]
     max_iter = int(data["max_iter"])
     expected = iterate(A, b, x0.copy(), None, max_iter)

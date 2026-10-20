@@ -1,23 +1,16 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""One DaCe flavor per SDFG pipeline, and the two things that make them meaningful.
+"""One DaCe flavor per SDFG pipeline (``parallel``, ``autoopt``, ``canon`` x two targets): each scores exactly its
+pipeline, and only the columns needing spcl/dace@extended ask for it."""
 
-THREE optimizers -- ``parallel``, ``autoopt``, ``canon`` -- times TWO targets, and nothing else.
-There are no ``strict``/``fusion`` rungs any more: those were stages of a search, and a search
-reports its winner, which answers "how fast is DaCe" rather than "how fast is THIS optimizer".
-
-A flavor that scores one pipeline is only useful if it scores THAT pipeline and pays for nothing
-else, and if the columns that need spcl/dace@extended are exactly the ones that ask for it --
-the ``autoopt`` columns are upstream DaCe's own optimizer and must stay runnable on a stock
-install, so a fork gate that fired on every ``dace_*`` name would make that impossible while the
-column still looked fine locally.
-"""
-
+import dataclasses
+import pathlib
 import types
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.dace_framework import (
     DACE_PIPELINES,
@@ -30,7 +23,8 @@ from hpcagent_bench.frameworks.framework import (
     split_flavor,
 )
 from hpcagent_bench.harness import preflight
-from hpcagent_bench.vocabulary import is_optimizer_adapter
+from hpcagent_bench.registry import RegistryError
+from hpcagent_bench.vocabulary import Arch, DaceStage
 
 #: (flavor, the one pipeline it scores). THREE optimizers x TWO targets; a pipeline transforms a copy
 #: of the parsed SDFG directly, so what a flavor scores is all it builds.
@@ -45,9 +39,9 @@ EXPECTED = (
 
 
 @pytest.mark.parametrize(("flavor", "scored"), EXPECTED)
-def test_a_flavor_scores_exactly_its_own_pipeline(flavor, scored) -> None:
+def test_a_flavor_scores_exactly_its_own_pipeline(flavor: str, scored: bool) -> None:
     """A column pays for its own pipeline and nothing else: anything extra is work no column asked for."""
-    assert FRAMEWORKS.entries[flavor]["pipelines"] == scored
+    assert FRAMEWORKS.entries[flavor].pipelines == scored
     assert DaceFramework(flavor).scored_pipelines() == scored
 
 
@@ -55,7 +49,7 @@ def test_a_flavor_naming_two_pipelines_is_refused() -> None:
     """Two pipelines under one column would be a search reporting its winner, which answers "how fast
     is DaCe" rather than "how fast is THIS optimizer"; the flavor is refused before anything builds."""
     framework = DaceFramework("dace_cpu_parallel")
-    framework.info["pipelines"] = ("parallel_cpu", "canon_cpu")
+    framework.column = dataclasses.replace(framework.column, pipelines=("parallel_cpu", "canon_cpu"))
     with pytest.raises(ValueError, match="exactly one"):
         framework.scored_pipelines()
 
@@ -72,9 +66,9 @@ def test_every_pipeline_is_scored_by_exactly_one_deterministic_flavor() -> None:
     autotuning (Alloy) flavors start from these pipelines and report their own numbers."""
     scored = [
         p
-        for meta in FRAMEWORKS.entries.values()
-        if meta["base"] == "dace" and not is_optimizer_adapter(meta["adapter"])
-        for p in meta.get("pipelines", ())
+        for column in FRAMEWORKS.entries.values()
+        if column.base == "dace" and not column.optimizer
+        for p in column.pipelines
     ]
     assert sorted(scored) == sorted(p.name for p in DACE_PIPELINES), (
         f"pipelines {sorted(p.name for p in DACE_PIPELINES)} vs scored {sorted(scored)}"
@@ -91,9 +85,7 @@ def test_only_canonicalize_columns_need_the_fork() -> None:
     every = framework_flavors("dace")
     gated = set(preflight.needs_canonicalize(every))
     for name in every:
-        # By PREFIX: the pipelines are named per target (``canon_cpu`` / ``canon_gpu``), so an
-        # equality test against "canonicalize" matches nothing and the gate reads as empty.
-        wants = any(p.startswith("canon") for p in FRAMEWORKS.entries[name].get("pipelines", ()))
+        wants = FRAMEWORKS.entries[name].stage is DaceStage.CANON
         assert (name in gated) is wants, f"{name}: fork gate does not match its pipelines"
     assert "dace_cpu_autoopt" not in gated, (
         "dace_cpu_autoopt is upstream auto_optimize end to end; gating it on the fork removes "
@@ -110,7 +102,7 @@ def test_every_dace_flavor_is_a_deterministic_column_unless_it_autotunes() -> No
     assert refused == {
         "dace_cpu",
         "dace_gpu",
-        *(name for name in framework_flavors("dace") if is_optimizer_adapter(FRAMEWORKS.entries[name]["adapter"])),
+        *(name for name in framework_flavors("dace") if FRAMEWORKS.entries[name].optimizer),
     }
 
 
@@ -125,7 +117,7 @@ def test_every_dace_flavor_is_a_deterministic_column_unless_it_autotunes() -> No
         ("numpy", ("numpy", None)),
     ],
 )
-def test_the_flat_name_splits_into_framework_and_flavor(flavor, expected) -> None:
+def test_the_flat_name_splits_into_framework_and_flavor(flavor: str, expected: tuple[str, str | None]) -> None:
     """One name on the CLI, two columns in the DB -- so `GROUP BY framework` still gathers every
     DaCe row instead of scattering it across five names."""
     assert split_flavor(flavor) == expected
@@ -138,8 +130,8 @@ def test_the_split_is_declared_not_parsed() -> None:
     Pinned because the tempting shortcut -- derive the column by stripping the flavor suffix -- is
     only unambiguous while no framework named ``dace`` exists, and it would start returning a
     different answer on the day one is registered."""
-    meta = FRAMEWORKS.entries["dace_cpu_autoopt"]
-    assert (meta["column"], meta["flavor"]) == ("dace_cpu", "autoopt")
+    column = FRAMEWORKS.entries["dace_cpu_autoopt"]
+    assert (column.column, column.flavor) == ("dace_cpu", "autoopt")
     assert split_flavor("dace_cpu_autoopt") == ("dace_cpu", "autoopt")
     # The alternative reading composes to the same flat name, which is exactly why parsing cannot
     # decide between them -- and why declaring is the only safe answer.
@@ -153,21 +145,24 @@ def test_the_split_is_declared_not_parsed() -> None:
         ({"flavor": None, "column": "dace_cpu"}, "column without a flavor"),
         ({"flavor": "parallel", "column": "not_a_framework"}, "column is not registered"),
         ({"flavor": "cpu_autoopt", "column": "dace_cpu"}, "pair does not compose into the name"),
-        ({"arch": "gpu"}, "flavor on the other device than its column"),
+        ({"arch": Arch.GPU}, "flavor on the other device than its column"),
         ({"adapter": "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"}, "optimizer a sweep selects"),
     ],
 )
-def test_a_malformed_flavor_entry_is_rejected_at_import(monkeypatch, broken, why) -> None:
-    """Each of these writes a wrong GROUP BY key onto every row of a finished sweep."""
-    entry = {k: v for k, v in {**FRAMEWORKS.entries["dace_cpu_autoopt"], **broken}.items() if v is not None}
-    monkeypatch.setitem(FRAMEWORKS.entries, "dace_cpu_autoopt", entry)
-    with pytest.raises(KeyError):
+def test_a_malformed_flavor_entry_is_rejected_at_import(
+    monkeypatch: pytest.MonkeyPatch, broken: dict[str, Any], why: str
+) -> None:
+    """Each of these writes a wrong GROUP BY key onto every row of a finished sweep: refused when the entry is
+    built (:class:`~hpcagent_bench.vocabulary.Column`) or when the registry is checked."""
+    with pytest.raises((KeyError, RegistryError)):
+        entry = dataclasses.replace(FRAMEWORKS.entries["dace_cpu_autoopt"], **broken)
+        monkeypatch.setitem(FRAMEWORKS.entries, "dace_cpu_autoopt", entry)
         check_flavor_registry()
 
 
 def test_a_two_device_backend_names_its_columns_by_device(monkeypatch: pytest.MonkeyPatch) -> None:
     """``tvm`` runs on both devices, so a column named ``tvm`` could be either; the scheme refuses it."""
-    monkeypatch.setitem(FRAMEWORKS.entries, "tvm", {**FRAMEWORKS.entries["tvm_gpu"]})
+    monkeypatch.setitem(FRAMEWORKS.entries, "tvm", FRAMEWORKS.entries["tvm_gpu"])
     with pytest.raises(KeyError, match="two-device backend"):
         check_flavor_registry()
 
@@ -194,7 +189,7 @@ def test_ranks_per_node_splits_the_node() -> None:
     assert preflight.thread_env(ranks_per_node=1) == whole
 
 
-def _canon_row(**overrides):
+def canon_row(**overrides: object) -> dict[str, Any]:
     """One canon row for the summarize tests below, all-green unless overridden."""
     row = dict(
         run="r",
@@ -213,19 +208,21 @@ def _canon_row(**overrides):
     return row
 
 
-def test_summarize_separates_no_rows_from_a_real_failure_count(capsys) -> None:
+def test_summarize_separates_no_rows_from_a_real_failure_count(capsys: pytest.CaptureFixture[str]) -> None:
     """No row and rows with known failures land on DIFFERENT signals: a caller tolerates "56 kernels ran,
     3 are known-broken" (a real count) without also tolerating "nothing ran" (NO_ROWS)."""
     from hpcagent_bench.support.collect.sweep import NO_ROWS, summarize
 
     assert summarize([]) == NO_ROWS
     assert "produced nothing" in capsys.readouterr().out
-    assert summarize([_canon_row()]) == 0
-    assert summarize([_canon_row(), _canon_row(kernel="k2", status="crash", error="signal 11")]) == 1
+    assert summarize([canon_row()]) == 0
+    assert summarize([canon_row(), canon_row(kernel="k2", status="crash", error="signal 11")]) == 1
     assert "1 CRASHES" in capsys.readouterr().out
 
 
-def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(tmp_path, monkeypatch, capsys) -> None:
+def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The CLI keeps summarize's verdict three-way: 0 all green, 1 a real measurement with known failures,
     2 the sweep produced nothing. A CI gate that tolerates case 1 must never also tolerate case 2."""
     from hpcagent_bench import cli
@@ -234,7 +231,7 @@ def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(tmp_path, monkey
 
     monkeypatch.setattr(recording, "aggregate", lambda *a, **k: 0)
 
-    def verdict(db, run=None) -> int:
+    def verdict(db: str, run: str | None = None) -> int:
         return cli.cmd_run_framework(types.SimpleNamespace(summarize=[db], canon_run=run))
 
     empty = tmp_path / "empty.db"
@@ -242,13 +239,13 @@ def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(tmp_path, monkey
     assert "produced nothing" in capsys.readouterr().out
 
     one_crash = tmp_path / "one-crash.db"
-    canon_db.record(one_crash, [_canon_row(), _canon_row(kernel="k2", status="crash", error="signal 11")])
+    canon_db.record(one_crash, [canon_row(), canon_row(kernel="k2", status="crash", error="signal 11")])
     assert verdict(one_crash) == 1
     assert "CRASHES" in capsys.readouterr().out
     assert verdict(one_crash, run="another") == 2
 
     all_green = tmp_path / "all-green.db"
-    canon_db.record(all_green, [_canon_row()])
+    canon_db.record(all_green, [canon_row()])
     assert verdict(all_green) == 0
 
 
@@ -394,7 +391,7 @@ def test_ccache_is_offered_to_cmake_without_depending_on_path_order() -> None:
                 os.environ[key] = value
 
 
-def test_a_minted_size_symbol_is_bound_from_its_recorded_recipe(monkeypatch) -> None:
+def test_a_minted_size_symbol_is_bound_from_its_recorded_recipe(monkeypatch: pytest.MonkeyPatch) -> None:
     """``m = N // 2`` is minted as a dace symbol so the frontend can prove shapes equal, but no
     array carries it and no manifest names it -- shape matching alone leaves it free, and the call
     then dies on ``Missing program argument "m"``. The emitter records the closed form; binding it
@@ -450,4 +447,4 @@ def test_every_dace_symbol_a_pipeline_names_still_resolves() -> None:
     for node in imports:
         module = importlib.import_module(node.module)
         for alias in node.names:
-            assert hasattr(module, alias.name), f"{node.module}.{alias.name} is gone (line {node.lineno})"
+            assert modules.defines(module, alias.name), f"{node.module}.{alias.name} is gone (line {node.lineno})"

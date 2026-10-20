@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The example cluster judge router forwards grading and still serves search itself.
-
-The router sits between an untrusted agent and the real judge, so what is tested here is that it
-DOES NOT interpret: the method, the path, the body (``rank`` included) and the query string reach
-the upstream judge unchanged, and the judge's answer -- a refusal as much as a grade -- comes back
-as itself. A proxy that swallowed a 400 into a 500, or that re-encoded a body, would grade nothing
-and say so wrongly. The ONE thing it reshapes is a /submit grade, which reaches the
-agent as the verdict alone -- correct yes/no and the request id; everything else is an oracle for
-the recorded answer.
-"""
+"""The example cluster judge router forwards grading unchanged (method, path, body, query; answers and refusals
+as they are) and serves search itself; only a /submit grade is reduced to its verdict."""
 
 import json
 import pathlib
@@ -24,6 +16,7 @@ from urllib.parse import urlparse
 import pytest
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Language, Preset, Residency
 from hpcagent_bench.harness.judge_wire import RecordedAnswer
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.service import grade_answer
@@ -60,9 +53,9 @@ GRADE = grade_answer(
         oracle="numba",
     ),
     "gemm",
-    "c",
-    "S",
-    "host",
+    Language.C,
+    Preset.S,
+    Residency.HOST,
     RecordedAnswer(skipped="record.enabled is false"),
     "rid1",
 ).to_json()
@@ -378,13 +371,13 @@ def test_a_read_route_the_router_does_not_declare_is_relayed_to_the_judge(client
 
 @pytest.mark.parametrize(
     ("method", "path", "status"),
-    [("GET", "/submit", 405), ("GET", "/search", 405), ("POST", "/verify", 404), ("POST", "/nope", 404)],
+    [("GET", "/submit", 405), ("GET", "/search", 405), ("POST", "/verify", 400), ("POST", "/nope", 400)],
 )
 def test_the_read_relay_leaves_other_methods_answered_by_the_router(
     client: "TestClient", method: str, path: str, status: int
 ) -> None:
-    """A catch-all GET route relayed a GET on a POST route to the judge instead of answering 405, and
-    turned an unmatched POST into a 405. Only a GET no route matches may reach the judge."""
+    """A GET on a POST route is a 405; a POST no route matches is a plugin route's, relayed only with an episode
+    (here none: 400). Neither reaches the judge."""
     response = client.request(method, path)
     assert response.status_code == status
     assert StubJudge.calls == []

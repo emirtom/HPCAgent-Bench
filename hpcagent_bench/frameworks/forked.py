@@ -6,6 +6,7 @@
 import contextlib
 import contextvars
 import ctypes
+import enum
 import multiprocessing
 import multiprocessing.connection
 import multiprocessing.context
@@ -24,7 +25,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, cast
 
 from hpcagent_bench import osinfo
 from hpcagent_bench.isolation import pause_openmp_pools
@@ -47,6 +48,7 @@ __all__ = [
     "ChildQueue",
     "ErrorReader",
     "ErrorWriter",
+    "Message",
     "ProcessContext",
     "ProgressQueue",
     "ResultMessage",
@@ -73,22 +75,30 @@ __all__ = [
     "take_result",
 ]
 
-#: One message on the result queue: the start stamp that arms the parent's deadline, the child's
-#: return value (``None`` when the queue could not take the real one), or its traceback text. ``R`` is
-#: whatever the callable returns; a progress snapshot stands in for that return value (the best-so-far a
-#: killed child would have returned), so it is the same type.
-type ChildMessage[R] = tuple[Literal["started"], None] | tuple[Literal["ok"], R | None] | tuple[Literal["error"], str]
 
-#: The subset of :data:`ChildMessage` that ENDS a run; ``started`` is a clock signal, not an outcome.
-type ResultMessage[R] = tuple[Literal["ok"], R | None] | tuple[Literal["error"], str]
+class Message(enum.Enum):
+    """What a message on the result queue says: the child STARTED (the stamp that arms the parent's
+    deadline), it returned OK, or it raised an ERROR."""
+
+    STARTED = enum.auto()
+    OK = enum.auto()
+    ERROR = enum.auto()
+
+
+#: One message on the result queue: the start stamp, the child's return value (or a progress snapshot of the same
+#: type; ``None`` when the queue could not take it), or its traceback text.
+type ChildMessage[R] = (
+    tuple[Literal[Message.STARTED], None] | tuple[Literal[Message.OK], R | None] | tuple[Literal[Message.ERROR], str]
+)
+
+#: The subset of :data:`ChildMessage` that ENDS a run; :attr:`Message.STARTED` is a clock signal, not an outcome.
+type ResultMessage[R] = tuple[Literal[Message.OK], R | None] | tuple[Literal[Message.ERROR], str]
 
 type ChildQueue[R] = multiprocessing.queues.Queue[ChildMessage[R]]
 type ProgressQueue[R] = multiprocessing.queues.Queue[R]
 
-#: The child's LAST-RESORT report channel: a raw pipe, not a queue. Queue.put needs a feeder
-#: thread, and a child after a refused seal (user namespace, no id map, uid 65534 at its
-#: RLIMIT_NPROC) cannot start one. ``Connection.send_bytes`` writes straight to the fd with no
-#: thread and survives being passed to a spawned child.
+#: The child's LAST-RESORT report channel: a raw pipe needing no feeder thread (a child after a refused seal may be
+#: unable to start one).
 type ErrorWriter = multiprocessing.connection.Connection
 type ErrorReader = multiprocessing.connection.Connection
 
@@ -121,9 +131,7 @@ ARM_GRACE_S = 30.0
 #: How long a SIGTERMed child has to exit before the parent escalates to SIGKILL.
 TERM_GRACE_S = 5.0
 
-#: Extra time granted to a child the kernel says is DUMPING CORE: it already took a fatal signal,
-#: so a SIGKILL would only relabel the crash as a kill. A ``core_pattern`` helper can take seconds
-#: on a loaded node; this only has to exceed one dump.
+#: Extra time for a child the kernel says is DUMPING CORE (a SIGKILL would relabel the crash as a kill).
 COREDUMP_GRACE_S = 60.0
 
 #: Set by a caller once nobody will read this thread's result: every child :func:`run_forked` or
@@ -200,10 +208,8 @@ def is_core_dumping(pid: int) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class RunResult[ResultT]:
-    """Outcome of a forked run (frozen, so a RunResult of a concrete payload type reads as one of any
-    wider type, as forked_failure_reason and the OOM classifier do): ``ok`` is the success signal; on failure ``signal``/``error`` name the
-    cause (see :func:`forked_failure_reason`); ``result`` carries the picklable return value, or the
-    last streamed progress snapshot when the child was killed before returning."""
+    """Outcome of a forked run (frozen): ``ok`` is the success signal; on failure ``signal``/``error`` name the
+    cause; ``result`` is the return value, or the last progress snapshot of a killed child."""
 
     ok: bool
     exit_code: int | None = None
@@ -219,10 +225,8 @@ EXCEPTION_HEADER = re.compile(r"^[A-Za-z_][\w.]*:\s")
 
 
 def exception_header(traceback_text: str) -> str:
-    """The raised exception's ``Type: message`` line out of a :func:`traceback.format_exc` text, or
-    "" if none matches. Not necessarily the LAST line: a chained exception ("... the direct cause of
-    the following exception") prints an earlier header too, so this takes the LAST MATCH, which is
-    the header of the exception that actually propagated."""
+    """The ``Type: message`` line of the exception that propagated (the LAST match, since chained exceptions print
+    earlier headers), or ""."""
     header = ""
     for line in traceback_text.splitlines():
         if EXCEPTION_HEADER.match(line):
@@ -301,13 +305,21 @@ def child_environment(env: Mapping[str, str]) -> Iterator[None]:
                     os.environ[key] = value
 
 
+class ForkServerHandle(Protocol):
+    """The private handle fields of ``multiprocessing.forkserver.ForkServer`` (absent from its type stubs)."""
+
+    _forkserver_pid: int | None
+    _forkserver_address: str | None
+    _forkserver_alive_fd: int | None
+
+
 def forget_inherited_forkserver() -> None:
-    """A forked child inherits its parent's forkserver handle, but that server is not ITS child: the first
-    forkserver start in the child would ``waitpid`` a stranger and raise ``ChildProcessError``. Forgetting the
-    handle makes the child start a server of its own. CPython keeps no public reset for this."""
-    # The module's one ForkServer instance; its handle fields are private and absent from the type stubs.
-    server = multiprocessing.forkserver._forkserver
-    vars(server).update(_forkserver_pid=None, _forkserver_address=None, _forkserver_alive_fd=None)
+    """Forget the parent's forkserver handle inherited by a forked child, so its first forkserver start spawns its
+    own server instead of ``waitpid``-ing a stranger."""
+    server = cast("ForkServerHandle", multiprocessing.forkserver._forkserver)  # the module's one ForkServer
+    server._forkserver_pid = None
+    server._forkserver_address = None
+    server._forkserver_alive_fd = None
 
 
 os.register_at_fork(after_in_child=forget_inherited_forkserver)
@@ -347,25 +359,25 @@ def child_main[ResultT](
         report_without_a_thread(err_w, traceback.format_exc())
         return
     # First act, before any work: this is what arms the parent's deadline (see run_forked).
-    q.put(("started", None))
+    q.put((Message.STARTED, None))
     try:
         out = fn(*args, **kwargs)
         try:
             # put() only enqueues; pickling runs in the feeder thread, so an unpicklable or oversized
             # payload surfaces in the parent as "child exited 0 with no result" (large payloads
             # spill to disk: native_call.spill_outputs). This except covers put() itself failing.
-            q.put(("ok", out))
+            q.put((Message.OK, out))
         except Exception:  # noqa: BLE001 -- queue unusable -> success without a payload
-            q.put(("ok", None))
+            q.put((Message.OK, None))
     except BaseException:  # noqa: BLE001 -- surface EVERY failure, never swallow it
         tb = traceback.format_exc()
         sys.stdout.write(tb)
         sys.stdout.flush()
-        q.put(("error", tb))
+        q.put((Message.ERROR, tb))
 
 
 def take_result[ResultT](q: ChildQueue[ResultT], timeout: float) -> ResultMessage[ResultT] | None:
-    """Next item from ``q`` that is a RESULT, or None within ``timeout``; steps past ``started``,
+    """Next item from ``q`` that is a RESULT, or None within ``timeout``; steps past :attr:`Message.STARTED`,
     which a child that starts and finishes inside one poll leaves queued."""
     end = time.monotonic() + timeout
     while True:
@@ -373,7 +385,7 @@ def take_result[ResultT](q: ChildQueue[ResultT], timeout: float) -> ResultMessag
             item = q.get(timeout=max(0.0, end - time.monotonic()))
         except queue.Empty:
             return None
-        if item[0] != "started":
+        if item[0] is not Message.STARTED:
             return item
 
 
@@ -458,7 +470,7 @@ def finished_result[ResultT](
             ),
             result=last_progress,
         )
-    if result_item[0] == "ok":
+    if result_item[0] is Message.OK:
         return RunResult(ok=True, exit_code=ec, result=result_item[1])
     return RunResult(ok=False, exit_code=ec, error=result_item[1], result=last_progress)
 
@@ -476,16 +488,12 @@ def run_forked[ResultT](
     held_s: Callable[[], float] | None = None,
     **kwargs: object,
 ) -> RunResult[ResultT]:
-    """Run ``fn(*args, **kwargs)`` in a forked child; the options after ``*args`` are this function's own, which
-    a ParamSpec cannot express, so ``fn``'s arguments are typed loosely. Returns a failed RunResult (cause logged to stdout) on
-    a fatal signal, exception, or timeout overrun, else ``ok=True`` with the picklable return value.
-    ``stream_progress=True`` preserves the child's last ``progress`` snapshot even if it is later killed.
-    ``seal`` runs the child sealed (:func:`hpcagent_bench.seal.enter`) before ``fn`` sees it. A non-empty
-    ``env`` is the child's environment ENTRIES, and forces the ``spawn`` start method whatever
-    ``mp_context`` says: only a fresh interpreter reads ``LD_LIBRARY_PATH`` again, and a forked child
-    keeps the libraries its parent mapped (:func:`child_environment`). ``on_start`` gets the child's pid once
-    it started. ``held_s`` answers the seconds the caller has held the child stopped so far (a check of its
-    outputs between its reps): the deadline measures the child's own runtime, so they extend it."""
+    """Run ``fn(*args, **kwargs)`` in a forked child; a failed RunResult (cause logged) on a fatal signal, exception
+    or timeout overrun, else ``ok=True`` with the picklable return value.
+
+    ``stream_progress`` keeps the last ``progress`` snapshot of a killed child; ``seal`` seals the child first; a
+    non-empty ``env`` forces ``spawn`` (only a fresh interpreter rereads ``LD_LIBRARY_PATH``); ``on_start`` gets
+    the pid; ``held_s`` reports seconds the caller held the child stopped, which extend the deadline."""
     tag = f"[{label}] " if label else ""
     abandoned = ABANDONED.get()
     if abandoned is not None and abandoned.is_set():
@@ -545,7 +553,7 @@ def run_forked[ResultT](
             p.join(poll)
             continue
         item = poll_queue(q, poll)
-        if item is not None and item[0] == "started":
+        if item is not None and item[0] is Message.STARTED:
             limit = None if timeout is None else time.monotonic() + timeout
         elif item is not None:
             result_item = item

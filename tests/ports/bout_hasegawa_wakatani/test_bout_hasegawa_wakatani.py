@@ -54,18 +54,29 @@ ARRAYS = (
 SCALARS = {"Dn": 0.001, "Dvort": 0.001, "alpha": 1.0, "kappa": 0.5}
 
 
-def inputs(NX, NY, NZ):
+def inputs(NX: int, NY: int, NZ: int) -> dict[str, np.ndarray]:
     return dict(zip(ARRAYS, initialize(NX, NY, NZ), strict=False))
 
 
-def run(args, NX, NY, NZ, **overrides) -> None:
+def run(args: dict[str, np.ndarray], NX: int, NY: int, NZ: int, **overrides: float) -> None:
     scalars = dict(SCALARS, **overrides)
     # Canonical order: every array first, in ARRAYS order, then the scalars -- the same order the
     # C reference's entry takes, so this call and the ABI read the same left to right.
     kernel(*[args[a] for a in ARRAYS], scalars["Dn"], scalars["Dvort"], NX, NY, NZ, scalars["alpha"], scalars["kappa"])
 
 
-def hw_independent(a, NX, NY, NZ, alpha, kappa, Dn, Dvort, ddt_n, ddt_vort) -> None:
+def hw_independent(
+    a: dict[str, np.ndarray],
+    NX: int,
+    NY: int,
+    NZ: int,
+    alpha: float,
+    kappa: float,
+    Dn: float,
+    Dvort: float,
+    ddt_n: np.ndarray,
+    ddt_vort: np.ndarray,
+) -> None:
     """Per-point transcription of hw.cxx HW::rhs and the operators it calls."""
     n, vort, phi = a["n"], a["vort"], a["phi"]
     dx, dy, dz = a["dx"], a["dy"], a["dz"]
@@ -73,14 +84,14 @@ def hw_independent(a, NX, NY, NZ, alpha, kappa, Dn, Dvort, ddt_n, ddt_vort) -> N
     G1, G3, d1_dx = a["G1"], a["G3"], a["d1_dx"]
     pmn = phi - n
 
-    def div_par_grad_par(f, jx, jy, jz):
+    def div_par_grad_par(f: np.ndarray, jx: int, jy: int, jz: int) -> np.float64:
         upper = 2.0 * (f[jx, jy + 1, jz] - f[jx, jy, jz]) / (dy[jx, jy] + dy[jx, jy + 1])
         flux_upper = upper * (J[jx, jy] + J[jx, jy + 1]) / (g_22[jx, jy] + g_22[jx, jy + 1])
         lower = 2.0 * (f[jx, jy, jz] - f[jx, jy - 1, jz]) / (dy[jx, jy] + dy[jx, jy - 1])
         flux_lower = lower * (J[jx, jy] + J[jx, jy - 1]) / (g_22[jx, jy] + g_22[jx, jy - 1])
         return (flux_upper - flux_lower) / (dy[jx, jy] * J[jx, jy])
 
-    def bracket(f, g, jx, jy, jz):
+    def bracket(f: np.ndarray, g: np.ndarray, jx: int, jy: int, jz: int) -> np.float64:
         zp, zm = (jz + 1) % NZ, (jz - 1) % NZ
         xp, xm = jx + 1, jx - 1
         Jpp = (f[jx, jy, zp] - f[jx, jy, zm]) * (g[xp, jy, jz] - g[xm, jy, jz]) - (f[xp, jy, jz] - f[xm, jy, jz]) * (
@@ -100,10 +111,10 @@ def hw_independent(a, NX, NY, NZ, alpha, kappa, Dn, Dvort, ddt_n, ddt_vort) -> N
         )
         return (Jpp + Jpx + Jxp) / (12 * dx[jx, jy] * dz[jx, jy])
 
-    def ddz(f, jx, jy, jz):
+    def ddz(f: np.ndarray, jx: int, jy: int, jz: int) -> np.float64:
         return 0.5 * (f[jx, jy, (jz + 1) % NZ] - f[jx, jy, (jz - 1) % NZ]) / dz[jx, jy]
 
-    def delp2(f, jx, jy, jz):
+    def delp2(f: np.ndarray, jx: int, jy: int, jz: int) -> np.float64:
         zp, zm = (jz + 1) % NZ, (jz - 1) % NZ
         xp, xm = jx + 1, jx - 1
         return (
@@ -131,7 +142,7 @@ def hw_independent(a, NX, NY, NZ, alpha, kappa, Dn, Dvort, ddt_n, ddt_vort) -> N
 
 
 @pytest.mark.parametrize(("NX", "NY", "NZ"), [(24, 4, 16), (12, 3, 8), (9, 5, 4)])
-def test_port_matches_an_independent_transcription(NX, NY, NZ) -> None:
+def test_port_matches_an_independent_transcription(NX: int, NY: int, NZ: int) -> None:
     a = inputs(NX, NY, NZ)
     want_n = np.zeros((NX, NY, NZ))
     want_vort = np.zeros((NX, NY, NZ))

@@ -52,7 +52,7 @@ def test_what_the_backends_drop_the_classifier_accepts() -> None:
 
 
 @pytest.mark.parametrize("src", [RETURNING_SRC, VOID_SRC], ids=["returning", "void"])
-def test_a_helper_guarded_by_an_assert_still_reaches_every_backend(src) -> None:
+def test_a_helper_guarded_by_an_assert_still_reaches_every_backend(src: str) -> None:
     """End to end, because the inlining is only half the claim: the spliced assert then has to
     LEAVE, or each native backend fails to compile a Python statement it cannot express."""
     x = np.arange(8.0)

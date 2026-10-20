@@ -12,12 +12,10 @@ which is where the defaults are applied, so it produces exactly the half-built o
 trying to avoid.
 """
 
-from typing import Any
-
 from hpcagent_bench.spec import BenchSpec
 
 
-def grading_spec(*output_args: str, **overrides: Any) -> BenchSpec:
+def grading_spec(*output_args: str, **overrides: object) -> BenchSpec:
     """A spec that names ``output_args`` and takes the real defaults for everything else."""
     fields = {
         "short_name": "stub",

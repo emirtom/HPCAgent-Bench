@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The scaling grade of a worklist item (hpcagent_bench/harness/scaling_grade.py, grade_under.Scaling).
-
-``grade-under`` replays each scaling item's submission at rank counts the agent job never ran, under
-its laws, so a replay that drops the requests (layout, catalog libraries) grades a different
-submission than the one the agent sent -- and a curve spliced from two jobs is not one curve. Every
-row it writes names its law, and a gang grades only the sweeps it can place.
-"""
+"""The scaling grade of a worklist item: replays keep the submission's requests, curves come from one job, every
+row names its law, and a gang grades only the sweeps it can place."""
 
 import contextlib
 import dataclasses
@@ -18,9 +13,11 @@ import pytest
 
 from hpcagent_bench import protocols
 from hpcagent_bench.anticheat import Judgement
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import grade_under, metric, recording, scaling_grade, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.outcomes import GradeStatus
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
@@ -55,7 +52,7 @@ def verified_score() -> Score:
 
 def hip_submission(host: str = "// host", distribution: dict | None = None) -> Submission:
     return Submission(
-        language="hip",
+        language=Language.HIP,
         source=host,
         device_source="// device",
         requests=Requests.from_plan(DISTRIBUTION if distribution is None else distribution, libraries=("rccl",)),
@@ -79,7 +76,7 @@ def record(db: pathlib.Path, submission: Submission, episode_id: str = "r0") -> 
     recording.record(
         verified_score(),
         submission,
-        Task(KERNEL, "restricted", "hip"),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.HIP),
         judgement=Judgement(),
         episode_id=episode_id,
         path=str(db),
@@ -118,7 +115,7 @@ def test_a_recorded_submission_keeps_its_requests_and_scratch_request(judge_db: 
     assert (Requests.validate(json.loads(requests)), workspace) == (hip_submission().requests, "4096")
 
 
-def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib.Path, tmp_path) -> None:
+def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib.Path, tmp_path: pathlib.Path) -> None:
     record(judge_db, hip_submission())
     items, problems = grade_under.build_owed_worklist([judge_db], setup_env_dir(tmp_path))
     assert problems == []
@@ -132,18 +129,20 @@ def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib
 
 def test_a_scaling_item_survives_the_worklist_file(tmp_path: pathlib.Path) -> None:
     """The laws are enums: the worklist line spells them by value and reads them back as the same sweep."""
-    item = grade_under.Item("db", 1, "r", KERNEL, 0, SETUP, "hip", "restricted", True, {}, scaling=SWEEP)
+    item = grade_under.Item("db", 1, "r", KERNEL, 0, SETUP, "hip", SourceMode.RESTRICTED, True, {}, scaling=SWEEP)
     path = tmp_path / "worklist.jsonl"
     grade_under.write_items(path, [item])
     assert grade_under.read_worklist(path) == [item]
 
 
 def test_a_single_node_kernel_gets_no_sweep() -> None:
-    item = grade_under.Item("db", 1, "r", "tsvc_2_s212", 0, "llr40-qwen38-c", "c", "restricted", True, {})
+    item = grade_under.Item("db", 1, "r", "tsvc_2_s212", 0, "llr40-qwen38-c", "c", SourceMode.RESTRICTED, True, {})
     assert grade_under.scaled(item, SWEEP.rank_counts).scaling is None
 
 
-def test_a_submission_without_a_recorded_layout_is_reported_not_guessed(judge_db: pathlib.Path, tmp_path) -> None:
+def test_a_submission_without_a_recorded_layout_is_reported_not_guessed(
+    judge_db: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
     """A manifest-default layout is not the agent's layout; replaying it would grade other code."""
     submission = hip_submission()
     submission.requests = Requests.of(libraries=("rccl",))
@@ -164,7 +163,7 @@ def test_the_replayed_envelope_is_the_recorded_one(judge_db: pathlib.Path) -> No
 def test_the_setups_launch_shape_never_reaches_the_sweep() -> None:
     """The setup's one-node rank counts would silently cap the curve at P=4."""
     item = grade_under.Item(
-        "db", 1, "r", KERNEL, 0, SETUP, "hip", "restricted", True,
+        "db", 1, "r", KERNEL, 0, SETUP, "hip", SourceMode.RESTRICTED, True,
         {"HPCAGENT_BENCH_MPI_RANK_COUNTS": "[1,2,4]", "HPCAGENT_BENCH_MPI_MODE": "strong", "HPCAGENT_BENCH_X": "1"},
     )  # fmt: skip
     assert scaling_grade.grading_env(item) == {"HPCAGENT_BENCH_X": "1"}
@@ -201,7 +200,7 @@ def fake_graded() -> scaling_grade.Graded:
     strong = metric.LawCurve(ScalingLaw.STRONG, curve, ("P=16: mpi run failed (x)",), dropped, {"mode": "strong"})
     holes = tuple(metric.ScalingDrop(ranks=p, note="weak curve invalid") for p in (1, 2, 4, 8, 16))
     weak = metric.LawCurve(ScalingLaw.WEAK, None, ("weak curve invalid",), holes, {"mode": "weak"})
-    return scaling_grade.Graded(scaling_grade.GradeStatus.GRADED, "", (strong, weak))
+    return scaling_grade.Graded(GradeStatus.GRADED, "", (strong, weak))
 
 
 def shard_items(tmp_path: pathlib.Path) -> list[grade_under.Item]:
@@ -289,7 +288,9 @@ def test_a_real_recorder_keeps_both_laws_of_one_grade(tmp_path: pathlib.Path, mo
     assert sorted(points) == [("strong", 5), ("weak", 5)]
 
 
-def test_a_replay_that_raises_is_an_error_row_not_a_dead_gang(tmp_path: pathlib.Path, monkeypatch) -> None:
+def test_a_replay_that_raises_is_an_error_row_not_a_dead_gang(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv(scaling_grade.GANG_NODELIST_ENV, GANG)
 
     def broken(item: grade_under.Item) -> scaling_grade.Graded:
@@ -349,13 +350,15 @@ def test_outside_a_gang_no_rank_is_placeable(monkeypatch: pytest.MonkeyPatch) ->
     assert scaling_grade.placeable_ranks() == 0
 
 
-def test_a_layout_the_live_route_refuses_is_refused_on_replay_before_any_build(judge_db, monkeypatch) -> None:
+def test_a_layout_the_live_route_refuses_is_refused_on_replay_before_any_build(
+    judge_db: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """dist_softmax allowlists no replicated array; the route answers 400 for this layout, so a
     replay that graded it would accept a submission the judge never could."""
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "1")
     item = stored_item(judge_db, hip_submission(distribution={"grid": [4], "arrays": {"out": SPLIT}}))
     graded = scaling_grade.grade(item)
-    assert (graded.status, graded.curves) == (scaling_grade.GradeStatus.REFUSED, ())
+    assert (graded.status, graded.curves) == (GradeStatus.REFUSED, ())
     assert "replicate 'x'" in graded.detail, graded.detail
 
 
@@ -382,7 +385,13 @@ def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol
         asked.append((len(inputs), repeat))
         cells = tuple(
             scoring.TimedCell(
-                str(cell["label"]), "{}", 2000.0, 1000.0, 2.0, baseline="torch-autotune", timing_reduction="mwd-v2"
+                str(cell["label"]),
+                "{}",
+                2000.0,
+                1000.0,
+                2.0,
+                baseline="torch-autotune",
+                timing_reduction="mwd-v2",
             )
             for cell in inputs
         )
@@ -393,7 +402,7 @@ def test_grade_under_run_grades_strong_and_weak_scaling_under_the_named_protocol
                 metric.scaling_score(KERNEL, law, 100_000, times, work_exponent=1),
                 (),
                 (),
-                {"mode": law.value},
+                {"mode": law.text},
                 str(inputs[0]["label"]),
             )
             for law, times in measured.items()

@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The extractor puts every submission the final grade (mw4x5) re-timed on that FINAL grade.
-
-``hpcagent-bench grade-under run`` re-times every final and promoted submission on m inputs
-x n runs a side and writes one ``final`` grade per submission. An extraction that read only the
-run-mode regrades would still report the ONE-input speedup the recorded grade took.
-Every fixture here is written by the regrade module's own per-cell pass (``grade_under.run_cells_shard``
-over ``grade_under.grade_cells``) with a scripted scorer, so the rows the extractor reads are the rows a
-wave writes: a re-timed row takes S_i, a promotion keeps its run-mode verdict, a judge fault is
-flagged (never read as unsolved, never as re-timed), an older per-cell stamp is not the final
-grade, and the newest measurement wins.
-"""
+"""The extractor puts every submission the final grade (mw4x5) re-timed on that FINAL grade, on fixtures written
+by the regrade module's own per-cell pass."""
 
 import csv
 import functools
@@ -22,6 +13,7 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import observations_extract as extract
+from hpcagent_bench.categories import SourceMode
 from hpcagent_bench.harness import grade_under, recording, results_db, timing
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.stats import score_rule
@@ -67,7 +59,7 @@ def item(tmp_path: pathlib.Path, ts: int, kind: str = "submit") -> grade_under.I
             values["call_index"] = 1
         grade_id = results_seed.grade(db, RUN, "k1", kind, ts, job=JOB, source="void k(void) {}\n", **values)
     return grade_under.Item(
-        str(db), grade_id, RUN, "k1", ts, SETUP, "c", "restricted", True, {}, job=str(JOB), speedup=9.0,
+        str(db), grade_id, RUN, "k1", ts, SETUP, "c", SourceMode.RESTRICTED, True, {}, job=str(JOB), speedup=9.0,
         reduction="mwd-v3",
     )  # fmt: skip
 
@@ -84,7 +76,7 @@ def answering(*outcomes: float | str) -> Callable[..., Score]:
     ratio flagged implausible)."""
     remaining = iter(outcomes)
 
-    def scorer(*_args: Any, **_kwargs: Any) -> Score:
+    def scorer(*positional: object, **options: object) -> Score:
         outcome = next(remaining)
         if outcome in ("crash", "fault"):
             return Score(False, 0.0, 0, False, harness_fault=outcome == "fault", timing_reduction="mwd-v3")

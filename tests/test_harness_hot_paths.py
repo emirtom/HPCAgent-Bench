@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The harness's hot paths: what must stay cheap, and why.
-
-Each test here pins a property that a plausible refactor silently undoes -- an eager import
-creeping back into the framework registry, a repeat going back to one fork each, a cache
-losing its key. They are written to FAIL on that regression, not merely to pass on the
-current behaviour.
-"""
+"""The harness's hot paths stay cheap: no eager imports in the framework registry, no fork per repeat, cache keys
+kept. Each test fails on the regression."""
 
 import functools
 import os
@@ -15,12 +10,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable, Iterator
 
 import numpy as np
 import pytest
 
-from hpcagent_bench import languages, osinfo, spec
+from hpcagent_bench import languages, modules, osinfo, spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
+from hpcagent_bench.frameworks.forked import RunResult
 from hpcagent_bench.harness import native_call, timing
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
@@ -57,7 +55,7 @@ def test_every_lazily_exported_name_actually_resolves() -> None:
     from hpcagent_bench import frameworks
 
     for name, module in frameworks._LAZY_EXPORTS.items():
-        assert name in vars(importlib.import_module(f"hpcagent_bench.frameworks.{module}")), name
+        assert modules.defines(importlib.import_module(f"hpcagent_bench.frameworks.{module}"), name), name
         assert frameworks.__getattr__(name) is not None, name
 
 
@@ -91,7 +89,7 @@ def test_a_star_import_still_reaches_every_backend() -> None:
         assert name in ns, f"{name} vanished from a star-import"
 
 
-def test_a_map_entry_its_module_does_not_define_raises_attribute_error(monkeypatch) -> None:
+def test_a_map_entry_its_module_does_not_define_raises_attribute_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """getattr(..., default) and hasattr() absorb only AttributeError, so a KeyError from a
     stale map entry blows past every caller's fallback."""
     from hpcagent_bench import frameworks
@@ -103,13 +101,13 @@ def test_a_map_entry_its_module_does_not_define_raises_attribute_error(monkeypat
 
 
 # one child per measurement
-def test_a_whole_measurement_runs_in_one_child(monkeypatch) -> None:
+def test_a_whole_measurement_runs_in_one_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """A fork per repeat (~21ms round trip, plus a cdef and a dlopen) dwarfs a fast kernel. ``reps``
     must reach the child, not the fork loop."""
     forks = []
     real = native_call.run_forked
 
-    def counting(fn, *args, **kwargs):
+    def counting(fn: Callable[..., object], *args: object, **kwargs: object) -> RunResult:
         forks.append(kwargs.get("reps"))
         return real(fn, *args, **kwargs)
 
@@ -119,7 +117,7 @@ def test_a_whole_measurement_runs_in_one_child(monkeypatch) -> None:
         kernel,
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=("kern", ("x",), ("y",)),
@@ -130,14 +128,14 @@ def test_a_whole_measurement_runs_in_one_child(monkeypatch) -> None:
     assert forks == [8], f"expected a single fork carrying all 8 reps, got {forks}"
 
 
-def test_a_warmup_rep_skips_the_output_marshalling(monkeypatch) -> None:
+def test_a_warmup_rep_skips_the_output_marshalling(monkeypatch: pytest.MonkeyPatch) -> None:
     """sampled_reps passes ``warming`` so the callee can drop work whose result is discarded.
     On the device path that output map is a real D2H copy of every output, per warmup rep."""
     from hpcagent_bench.harness import grading
 
     real, calls = grading.bind_kernel_outputs, []
 
-    def counting(*args, **kwargs):
+    def counting(*args: list[np.ndarray] | np.ndarray | tuple[str], **kwargs: object) -> dict[str, np.ndarray]:
         calls.append(1)
         return real(*args, **kwargs)
 
@@ -149,7 +147,7 @@ def test_a_warmup_rep_skips_the_output_marshalling(monkeypatch) -> None:
     assert len(calls) == 3, f"the 2 warmup reps still marshalled their outputs ({len(calls)} calls, want 3)"
 
 
-def test_the_warmup_reps_are_discarded_not_returned(monkeypatch) -> None:
+def test_the_warmup_reps_are_discarded_not_returned(monkeypatch: pytest.MonkeyPatch) -> None:
     """timing.sampled_reps stays the one owner of the warmup rule even though the loop moved
     into the child; a warmup rep that leaked into the samples would bias every measurement
     toward its cold first-touch time."""
@@ -159,7 +157,7 @@ def test_the_warmup_reps_are_discarded_not_returned(monkeypatch) -> None:
             kernel,
             _BINDING,
             {"x": np.zeros(4)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=30,
             py_meta=("kern", ("x",), ("y",)),
@@ -169,7 +167,7 @@ def test_the_warmup_reps_are_discarded_not_returned(monkeypatch) -> None:
         assert len(samples) == 3
 
 
-def test_every_rep_sees_the_reference_inputs(tmp_path) -> None:
+def test_every_rep_sees_the_reference_inputs(tmp_path: pathlib.Path) -> None:
     """A kernel writes its outputs in place. Hoisting the input copy out of the rep loop would
     feed rep N+1 rep N's results -- a different computation, timed and graded as if it were
     the same one."""
@@ -179,7 +177,7 @@ def test_every_rep_sees_the_reference_inputs(tmp_path) -> None:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=("kern", ("x",), ("y",)),
@@ -190,7 +188,7 @@ def test_every_rep_sees_the_reference_inputs(tmp_path) -> None:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=30,
         py_meta=("kern", ("x",), ("y",)),
@@ -202,13 +200,13 @@ def test_every_rep_sees_the_reference_inputs(tmp_path) -> None:
     assert len(samples) == 5
 
 
-def test_the_timeout_reaches_the_child_as_a_per_rep_bound(monkeypatch) -> None:
+def test_the_timeout_reaches_the_child_as_a_per_rep_bound(monkeypatch: pytest.MonkeyPatch) -> None:
     """The outer bound alone would let a hang run 101x its allowance, so the per-rep one has
     to reach the child too."""
     seen = {}
     real = native_call.run_forked
 
-    def capture(fn, *args, **kwargs):
+    def capture(fn: Callable[..., object], *args: object, **kwargs: object) -> RunResult:
         seen.update(timeout=kwargs.get("timeout"), rep_timeout=kwargs.get("rep_timeout"))
         return real(fn, *args, **kwargs)
 
@@ -218,7 +216,7 @@ def test_the_timeout_reaches_the_child_as_a_per_rep_bound(monkeypatch) -> None:
         kernel,
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=2.0,
         py_meta=("kern", ("x",), ("y",)),
@@ -230,7 +228,7 @@ def test_the_timeout_reaches_the_child_as_a_per_rep_bound(monkeypatch) -> None:
 
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="the per-rep guard uses SIGALRM, which is POSIX-only")
-def test_one_hung_rep_dies_at_the_per_rep_bound_not_the_batch_budget(tmp_path) -> None:
+def test_one_hung_rep_dies_at_the_per_rep_bound_not_the_batch_budget(tmp_path: pathlib.Path) -> None:
     """At the defaults the batch budget is 300s x 101 = 8.4h -- a judge slot held most of a
     day. A Python SIGALRM handler cannot fix it: it never runs inside a spinning kernel."""
     kernel = tmp_path / "hang.py"
@@ -241,7 +239,7 @@ def test_one_hung_rep_dies_at_the_per_rep_bound_not_the_batch_budget(tmp_path) -
             str(kernel),
             _BINDING,
             {"x": np.zeros(4)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=2.0,
             py_meta=("kern", ("x",), ("y",)),
@@ -253,7 +251,7 @@ def test_one_hung_rep_dies_at_the_per_rep_bound_not_the_batch_budget(tmp_path) -
 
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="the per-rep guard uses SIGALRM, which is POSIX-only")
-def test_a_slow_but_finite_run_is_not_killed_by_the_per_rep_guard(tmp_path) -> None:
+def test_a_slow_but_finite_run_is_not_killed_by_the_per_rep_guard(tmp_path: pathlib.Path) -> None:
     """Per REP, not cumulative: a measurement whose TOTAL exceeds one rep's allowance must
     survive, or every slow kernel is a false timeout."""
     kernel = tmp_path / "slow.py"
@@ -262,7 +260,7 @@ def test_a_slow_but_finite_run_is_not_killed_by_the_per_rep_guard(tmp_path) -> N
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=1.0,
         py_meta=("kern", ("x",), ("y",)),
@@ -284,7 +282,7 @@ def test_the_guillotine_bounds_the_kernel_not_its_argument_copies(tmp_path: path
         str(kernel),
         _BINDING,
         {"x": np.zeros(40_000_000)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60.0,
         py_meta=("kern", ("x",), ("y",)),
@@ -319,7 +317,7 @@ def test_the_cold_first_call_gets_its_own_alarm(tmp_path: pathlib.Path) -> None:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=0.5,
         py_meta=("kern", ("x",), ("y",)),
@@ -350,7 +348,7 @@ def cold_call(tmp_path: pathlib.Path, cold_rep_s: float) -> list[int]:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=REP_S,
         py_meta=("kern", ("x",), ("y",)),
@@ -388,7 +386,7 @@ def test_a_slow_input_draw_is_not_charged_to_the_rep_it_feeds(tmp_path: pathlib.
             str(kernel),
             _BINDING,
             {"x": np.zeros(4)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=0.5,
             py_meta=("kern", ("x",), ("y",)),
@@ -421,7 +419,7 @@ def test_the_reference_emit_is_memoized_per_kernel_and_language() -> None:
     to five times."""
     from hpcagent_bench.harness.agent import emit_reference_source
 
-    assert emit_reference_source("gemm", "c") is emit_reference_source("gemm", "c")
+    assert emit_reference_source("gemm", Language.C) is emit_reference_source("gemm", Language.C)
 
 
 def test_flipping_the_committed_reference_knob_is_not_served_from_the_stale_cache() -> None:
@@ -433,11 +431,11 @@ def test_flipping_the_committed_reference_knob_is_not_served_from_the_stale_cach
     from hpcagent_bench.harness.agent import emit_reference_source
 
     kernel = "loop_level_reasoning/wf_north_west/wf_north_west"
-    emitted = emit_reference_source(kernel, "c")
+    emitted = emit_reference_source(kernel, Language.C)
     with config.overridden("references.prefer_committed", True):
-        committed = emit_reference_source(kernel, "c")
+        committed = emit_reference_source(kernel, Language.C)
     assert committed != emitted, "the knob served the emitted text after being turned on"
-    assert emit_reference_source(kernel, "c") == emitted, "the knob leaked into the default path"
+    assert emit_reference_source(kernel, Language.C) == emitted, "the knob leaked into the default path"
 
 
 def test_refreshing_the_registry_drops_the_reference_emit_too() -> None:
@@ -445,9 +443,9 @@ def test_refreshing_the_registry_drops_the_reference_emit_too() -> None:
     built from the OLD spec, with nothing about it looking stale."""
     from hpcagent_bench.harness.agent import emit_reference_source
 
-    first = emit_reference_source("gemm", "c")
+    first = emit_reference_source("gemm", Language.C)
     spec.KERNELS.refresh()
-    assert emit_reference_source("gemm", "c") is not first
+    assert emit_reference_source("gemm", Language.C) is not first
 
 
 # ccache
@@ -459,7 +457,7 @@ FAKE_CCACHE = "/usr/bin/ccache"
 
 
 @pytest.fixture
-def pretend_ccache(monkeypatch):
+def pretend_ccache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Detect ccache whether or not the host has it -- skipping would leave the feature
     untested on exactly the hosts lacking it, CI included. Only ``shutil.which`` is faked."""
     monkeypatch.setattr(languages.shutil, "which", lambda name: FAKE_CCACHE if name == "ccache" else None)
@@ -471,10 +469,10 @@ def pretend_ccache(monkeypatch):
     languages.resolve_compiler.cache_clear()
 
 
-def test_ccache_prefixes_the_compile_step_but_not_the_link(tmp_path, pretend_ccache) -> None:
+def test_ccache_prefixes_the_compile_step_but_not_the_link(tmp_path: pathlib.Path, pretend_ccache: None) -> None:
     """A link is not cacheable; prefixing it would only add a process to every build."""
     compile_argv, link_argv = languages.build_shared_lib_commands(
-        "c", tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
+        Language.C, tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
     )
     launcher = languages.compiler_launcher()
     assert launcher == (FAKE_CCACHE,), "the fixture must make ccache detectable, or this asserts nothing"
@@ -482,28 +480,32 @@ def test_ccache_prefixes_the_compile_step_but_not_the_link(tmp_path, pretend_cca
     assert FAKE_CCACHE not in link_argv
 
 
-def test_ccache_is_namespaced_by_cpu(pretend_ccache) -> None:
+def test_ccache_is_namespaced_by_cpu(pretend_ccache: None) -> None:
     """The baseline flags carry -march=native, which ccache hashes literally. Two hosts sharing
     a CCACHE_DIR would otherwise trade objects built for the wrong microarchitecture."""
     assert languages.compiler_launcher() == (FAKE_CCACHE,)
     assert os.environ.get("CCACHE_NAMESPACE") == osinfo.cpu_model()
 
 
-def test_the_config_gate_turns_ccache_off(tmp_path, pretend_ccache, monkeypatch) -> None:
+def test_the_config_gate_turns_ccache_off(
+    tmp_path: pathlib.Path, pretend_ccache: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``build.ccache: false`` must beat detection -- the escape hatch for a host where a
     cache hit would be wrong."""
     languages.config.set_override("build.ccache", False)
     languages.compiler_launcher.cache_clear()
     assert languages.compiler_launcher() == ()
-    argv = languages.build_shared_lib_commands("c", tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE)[0]
+    argv = languages.build_shared_lib_commands(
+        Language.C, tmp_path / "k.c", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
+    )[0]
     assert FAKE_CCACHE not in argv
 
 
-def test_a_language_ccache_does_not_support_compiles_directly(tmp_path) -> None:
+def test_a_language_ccache_does_not_support_compiles_directly(tmp_path: pathlib.Path) -> None:
     """Fortran cache hits skip the .mod side-effect, so gfortran must stay unwrapped even when
     ccache is available."""
     argv = languages.build_shared_lib_commands(
-        "fortran", tmp_path / "k.f90", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
+        Language.FORTRAN, tmp_path / "k.f90", tmp_path / "libk.so", mode=Mode.SINGLE_CORE
     )[0]
     assert FAKE_CCACHE not in argv
 

@@ -378,7 +378,13 @@ def run_and_count(counters, category, name, inputs, production_invariants=False)
         counters.failed += 1
         raise
 
-    vars(counters)[category] += 1
+    match category:
+        case "fixed":
+            counters.fixed += 1
+        case "edge":
+            counters.edge += 1
+        case "randomized":
+            counters.randomized += 1
     counters.passed += 1
 
 

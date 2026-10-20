@@ -202,7 +202,7 @@ class CurveFitRewriter(ast.NodeTransformer):
                 sub.slice = ast.parse(f"{nexpr} - {sub.slice.operand.value}", mode="eval").body
         ast.fix_missing_locations(fdef)
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         call = curve_fit_call(node.value)
         if call is None or len(node.targets) != 1:
             return node
@@ -261,7 +261,7 @@ class NegParamIndexFold(ast.NodeTransformer):
         self.name = name
         self.nexpr = nexpr
 
-    def visit_Subscript(self, node: ast.Subscript):
+    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
         self.generic_visit(node)
         if (
             isinstance(node.value, ast.Name)

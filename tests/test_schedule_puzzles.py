@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The SYNTHETIC schedule-puzzle kernels of ``loop_level_reasoning``: a layout pair of column scans, a
-fusion puzzle, a distance-K scan ladder and a range-tail predicate.
-
-Each kernel's NumPy reference is the unscheduled form of a computation whose schedule is the task, so
-what these tests pin is that the schedules a solution would pick compute the same numbers: the transposed
-layout, the fused loop, the split range, the independent chains of a distance-K scan. Every comparison is
-bit for bit, since a schedule does not change an operation, only where it runs. The scalar loops are written
-independently of the kernels, and the ``nsteps`` loop of each kernel is checked against hand-written steps.
-"""
+"""The synthetic schedule-puzzle kernels of ``loop_level_reasoning``: the schedules a solution would pick
+(transposed layout, fused loop, split range, independent scan chains) compute the same numbers, bit for bit."""
 
 import importlib
 from types import ModuleType
@@ -16,7 +9,7 @@ from types import ModuleType
 import numpy as np
 import pytest
 
-from hpcagent_bench import config, fuzz, sizing
+from hpcagent_bench import config, fuzz, modules, sizing
 from hpcagent_bench.spec import BenchSpec
 
 PACKAGE = "hpcagent_bench.benchmarks.loop_level_reasoning"
@@ -31,7 +24,7 @@ def module(kernel: str, suffix: str = "") -> ModuleType:
 
 
 def run(kernel: str, buffers: list[np.ndarray], *sizes: int) -> None:
-    vars(module(kernel, "numpy"))[kernel](*buffers, *sizes)
+    modules.member(module(kernel, "numpy"), kernel)(*buffers, *sizes)
 
 
 # the layout pair

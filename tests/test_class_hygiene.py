@@ -44,7 +44,8 @@ def defines_all(tree: ast.Module) -> bool:
     return any(
         isinstance(node, (ast.Assign, ast.AnnAssign))
         and any(
-            getattr(t, "id", "") == "__all__" for t in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            isinstance(t, ast.Name) and t.id == "__all__"
+            for t in (node.targets if isinstance(node, ast.Assign) else [node.target])
         )
         for node in tree.body
     )
@@ -79,7 +80,7 @@ def test_every_base_less_class_declares_slots() -> None:
             if not isinstance(node, ast.ClassDef) or node.bases or node.decorator_list or node.keywords:
                 continue
             slotted = any(
-                isinstance(s, ast.Assign) and any(getattr(t, "id", "") == "__slots__" for t in s.targets)
+                isinstance(s, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__slots__" for t in s.targets)
                 for s in node.body
             )
             if not slotted and node.name not in DICT_CLASSES:

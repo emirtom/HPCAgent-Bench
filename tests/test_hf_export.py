@@ -16,7 +16,8 @@ import pytest
 
 from hpcagent_bench import hf_export
 from hpcagent_bench.hf_export import ExportRow
-from hpcagent_bench.spec import KERNELS
+from hpcagent_bench.spec import KERNELS, BenchSpec
+from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.helpers.sparse.abi import FORMATS
 from tests.optional_imports import import_or_skip
 
@@ -129,7 +130,7 @@ def test_sparse_kernel_is_one_row_per_layout() -> None:
         assert cfg in r.instructions, f"{cid}: layout not named in the prompt"
 
     # the per-layout ABIs differ in BUFFER SHAPES, not merely the config-named symbol
-    def shapes(r):
+    def shapes(r: ExportRow) -> dict[str, list[str] | None]:
         return {a["name"]: a.get("shape") for a in json.loads(r.signature)["args"]}
 
     assert shapes(rows["cg[csr]"]) != shapes(rows["cg[bsr]"]), "csr/bsr buffers must differ in shape"
@@ -151,7 +152,7 @@ def test_binding_failure_is_isolated_to_its_own_row(monkeypatch: pytest.MonkeyPa
 
     real = H.binding_from_spec
 
-    def flaky(s, config=None):
+    def flaky(s: BenchSpec, config: str | None = None) -> Binding:
         if config == "coo":
             raise RuntimeError("boom-coo")
         return real(s, config=config)
@@ -181,10 +182,10 @@ def test_build_rows_uses_select_keys_not_stem_select(monkeypatch: pytest.MonkeyP
     """Regression guard: build_rows must resolve via the collision-proof ``select_keys``, not the
     deduped-stem ``select`` -- poison ``select`` and prove build_rows never touches it."""
 
-    def _poison(*_a, **_k) -> None:
+    def poison(*positional: object, **kwargs: object) -> None:
         raise AssertionError("build_rows must use select_keys (path-keys), not select")
 
-    monkeypatch.setattr(type(KERNELS), "select", _poison)  # the registry has __slots__: patch the class
+    monkeypatch.setattr(type(KERNELS), "select", poison)  # the registry has __slots__: patch the class
     rows = hf_export.build_rows("loop_level_reasoning", commit="")
     assert rows  # resolved purely through select_keys; select was never called
 
@@ -321,18 +322,18 @@ def test_validate_reports_missing_rows_references_manifests_and_secrets() -> Non
 def test_columns_use_the_release_vocabulary() -> None:
     """``languages`` lists the Language values a task accepts (never an empty "no restriction"),
     ``allowed_precisions`` is the manifest's own key, and ``parameters`` is keyed by Preset names."""
+    from hpcagent_bench.categories import Preset
     from hpcagent_bench.harness.task import DEFAULT_LANGUAGES
     from hpcagent_bench.languages import Language
-    from hpcagent_bench.spec import Preset
 
     assert "allowed_precisions" in hf_export.FIELDS
     assert "datatypes" not in hf_export.FIELDS
     for row in hf_export.build_rows("cg", commit="") + hf_export.build_rows("tsvc_2_s212", commit=""):
         languages = json.loads(row.languages)
-        assert languages == list(DEFAULT_LANGUAGES), f"{row.id}: languages {languages}"
-        assert set(languages) <= {language.value for language in Language}
+        assert languages == [language.text for language in DEFAULT_LANGUAGES], f"{row.id}: languages {languages}"
+        assert set(languages) <= set(Language.texts())
         assert set(json.loads(row.allowed_precisions)) <= {"fp64", "fp32", "fp16", "bf16"}
-        assert set(json.loads(row.parameters)) <= {preset.value for preset in Preset} | {"paper"}
+        assert set(json.loads(row.parameters)) <= set(Preset.texts()) | {"paper"}
 
 
 def test_validate_refuses_a_row_outside_the_vocabulary() -> None:

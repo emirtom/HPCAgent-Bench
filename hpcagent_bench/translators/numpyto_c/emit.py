@@ -13,7 +13,7 @@ from typing import NamedTuple, TypeGuard
 from hpcagent_bench.cache_files import write_atomic
 from hpcagent_bench.translators.numpyto_c.pluto_predicate import if_convert
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, line_of, name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -439,6 +439,8 @@ def emit_signature(kir: KernelIR, fn_name: str, order: list[str] | None = None) 
 # Operator tables live in numpyto_common.operators, keyed by target; local aliases keep existing call sites.
 BINOP_ = operators.BINOP["c"]
 CMPOP_ = operators.CMPOP["c"]
+#: Kernel float dtypes whose literals carry a narrow suffix; their compare-side constants are folded in double.
+NARROW_FLOAT_DTYPES = frozenset({"float32", "float16"})
 BOOLOP_ = operators.BOOLOP["c"]
 
 # cpp_isopar: loop shapes that have a faithful <algorithm> / <numeric> spelling
@@ -509,7 +511,9 @@ def isopar_elem_ok(dtype: str | None) -> TypeGuard[str]:
     return not (is_narrow_int(dtype) or fp8_functions(dtype, C_FP8_NAMES) is not None or "_Complex" in ct)
 
 
-def join_offset(inner: tuple[ast.expr | None, int], node: ast.expr, op) -> tuple[ast.expr | None, int]:
+def join_offset(
+    inner: tuple[ast.expr | None, int], node: ast.expr, op: type[ast.operator]
+) -> tuple[ast.expr | None, int]:
     """Fold one more ``+ node`` / ``- node`` term into an ``(offset, const)`` split."""
     off, const = inner
     if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
@@ -521,7 +525,7 @@ def join_offset(inner: tuple[ast.expr | None, int], node: ast.expr, op) -> tuple
     return ast.copy_location(term, node), const
 
 
-def unit_stride_offset(expr: ast.expr, idx: str):
+def unit_stride_offset(expr: ast.expr, idx: str) -> tuple[ast.expr | None, int] | None:
     """``(offset, const)`` when ``expr`` is ``idx + offset + const`` with ``offset`` free of ``idx``,
     else None.
 
@@ -568,7 +572,7 @@ class ElementSubst(ast.NodeTransformer):
     def __init__(self, by_id: dict[int, str]) -> None:
         self.by_id = by_id
 
-    def visit_Subscript(self, node: ast.Subscript):
+    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
         name = self.by_id.get(id(node))
         if name is None:
             return node
@@ -930,7 +934,7 @@ class CBodyEmitter(BaseEmitter):
         key = "|".join((*head, "" if off is None else ast.dump(off)))
         return IsoparRef(name, ptr, f"{name}[{flat_(-1)}]", key, const, dtype)
 
-    def isopar_sources(self, expr: ast.expr, idx: str, lo: str):
+    def isopar_sources(self, expr: ast.expr, idx: str, lo: str) -> list[tuple[ast.Subscript, IsoparRef]] | None:
         """``[(node, ref)]`` for every ``idx``-varying element read in ``expr``, in source order, or
         None when one of them is not a contiguous range -- or when ``idx`` is read as a VALUE, which
         no algorithm can supply (it hands the callable elements, not indices)."""
@@ -1059,7 +1063,9 @@ class CBodyEmitter(BaseEmitter):
             f"{dst.ptr}, {lam});"
         )
 
-    def isopar_scan(self, dst: IsoparRef, rhs: ast.expr, found, indent: str, lo: str, hi: str) -> str | None:
+    def isopar_scan(
+        self, dst: IsoparRef, rhs: ast.expr, found: list[tuple[ast.Subscript, IsoparRef]], indent: str, lo: str, hi: str
+    ) -> str | None:
         """``dst[j] = dst[j-1] <+|*> src[j]`` -> ``std::inclusive_scan``.
 
         Only the bare associative combine converts: ``dst[j-1]*0.9 + src[j]`` is a first-order
@@ -1440,7 +1446,7 @@ class CBodyEmitter(BaseEmitter):
             return "(" + f" {op} ".join(parts) + ")"
         if isinstance(node, ast.Compare):
             # Python chained comparison (a < b < c) means (a<b) and (b<c); C has no chaining, so emit an explicit conjunction.
-            operands = [self.emit_expr(node.left)] + [self.emit_expr(c) for c in node.comparators]
+            operands = [self.emit_compare_operand(node.left)] + [self.emit_compare_operand(c) for c in node.comparators]
             terms = [f"({operands[i]} {CMPOP_[type(op)]} {operands[i + 1]})" for i, op in enumerate(node.ops)]
             return terms[0] if len(terms) == 1 else "(" + " && ".join(terms) + ")"
         if isinstance(node, ast.Subscript):
@@ -1450,9 +1456,15 @@ class CBodyEmitter(BaseEmitter):
         if isinstance(node, ast.IfExp):
             return f"({self.emit_expr(node.test)} ? {self.emit_expr(node.body)} : {self.emit_expr(node.orelse)})"
         # A bare z.real/z.imag never reaches emit: native_desugar rewrites it to np.real(z)/np.imag(z) at parse time.
-        raise NotImplementedError(
-            f"expression {type(node).__name__} (line {vars(node).get('lineno', '?')}): {ast.unparse(node)[:120]}"
-        )
+        raise NotImplementedError(f"expression {type(node).__name__} (line {line_of(node)}): {ast.unparse(node)[:120]}")
+
+    def emit_compare_operand(self, node: ast.expr) -> str:
+        """A comparison operand; in a narrow kernel a float constant expression is folded and compared in double, as
+        the references compare it (:func:`operators.folded_float_constant`)."""
+        value = operators.folded_float_constant(node)
+        if value is not None and default_float_dtype(self.kir) in NARROW_FLOAT_DTYPES:
+            return f"({value!r})" if value < 0 else repr(value)
+        return self.emit_expr(node)
 
     def emit_constant(self, v: object) -> str:
         """A literal: bool as 0/1, float with the float32 ``f`` suffix, inf/nan as the <math.h> macros."""
@@ -1619,7 +1631,7 @@ class CBodyEmitter(BaseEmitter):
         return self.promote_read(node, f"{base}[{self.flatten_indices(shape, indices)}]")
 
     @staticmethod
-    def flatten_indices(shape, indices: list[str]) -> str:
+    def flatten_indices(shape: list[str], indices: list[str]) -> str:
         """Row-major flat index over already-emitted per-axis index texts: ((i0)*d1 + i1)*d2 + i2 ..."""
         flat = indices[0]
         for k in range(1, len(indices)):
@@ -1643,7 +1655,7 @@ class CBodyEmitter(BaseEmitter):
             return f"(({c_type_('int')})({access}))"
         return access
 
-    def name_dtype(self, name: str):
+    def name_dtype(self, name: str) -> str | None:
         """dtype of a bare Name -- a local, an array, or a scalar param (dtype_for_name alone misses by-value scalars)."""
         dt = self.dtype_for_name(name)
         if dt is None:
@@ -2187,7 +2199,7 @@ class CBodyEmitter(BaseEmitter):
         """True when node's element dtype is complex; delegates to walk_complex so a real-returning accessor stays real."""
         return walk_complex(node, self.dtype_for_name) is not None
 
-    def is_float_operand(self, node: ast.expr, scalars_=None) -> bool:
+    def is_float_operand(self, node: ast.expr, scalars_: set[str] | None = None) -> bool:
         """True when node is provably floating-point (float Constant or float-dtype array/local); unknown -> False.
 
         Integer-cast subtrees are PRUNED: ``int(a[i])`` is an integer however float ``a``
@@ -2250,7 +2262,7 @@ class CBodyEmitter(BaseEmitter):
             return fn + "f"
         return fn
 
-    def dtype_for_name(self, name: str):
+    def dtype_for_name(self, name: str) -> str | None:
         # An isopar lambda parameter stands in for an array element and carries that element's dtype.
         param = self.isopar_param_dtypes.get(name)
         if param is not None:
@@ -2284,7 +2296,7 @@ class CBodyEmitter(BaseEmitter):
 # Top-level emitters
 
 
-def negative_const_k(node: ast.expr):
+def negative_const_k(node: ast.expr) -> int | None:
     """If node is a negative integer index constant, return its magnitude k > 0 (the index is -k), else None."""
     k = const_int(node)
     return -k if k is not None and k < 0 else None
@@ -2531,7 +2543,7 @@ def zero_fill_stmt(name: str, size: str, c_type: str, kind: str, indent: str) ->
     return f"{indent}memset({name}, 0, {byte_count(size, c_type)});"
 
 
-def fill_loop_stmt(name: str, dims, size: str, value: str, indent: str) -> str:
+def fill_loop_stmt(name: str, dims: Sequence[str], size: str, value: str, indent: str) -> str:
     """Affine loop nest writing ``value`` into every element of ``name`` -- the pluto desugar of a
     memset, so a fill between compute nests need not split their region. ``dims`` are a
     pointer-to-array local's extents (its subscript stays multidimensional); empty means flat."""
@@ -2546,7 +2558,7 @@ def fill_loop_stmt(name: str, dims, size: str, value: str, indent: str) -> str:
     return "\n".join(lines)
 
 
-def md_trailing_(shape) -> str:
+def md_trailing_(shape: Sequence[str]) -> str:
     """[d1][d2]... trailing dimensions of a pointer-to-array view (leading dim implicit); empty for rank<2."""
     return "".join(f"[{c_shape_token(d)}]" for d in shape[1:])
 
@@ -3340,7 +3352,7 @@ def arith_header_source(lang: str) -> str:
     )
 
 
-def write_arith_header(out_dir, lang: str) -> pathlib.Path:
+def write_arith_header(out_dir: str | pathlib.Path, lang: str) -> pathlib.Path:
     """Write :func:`arith_header_source` into ``out_dir`` and return the path."""
     path = pathlib.Path(out_dir) / ARITH_HEADER_NAME[lang]
     write_atomic(path, arith_header_source(lang).encode())
@@ -3463,7 +3475,7 @@ def helper_return_ctype(hkir: KernelIR) -> str:
     return c_type_("int") if helper_returns_int(hkir) else c_type_("float64")
 
 
-def helper_param_table(helpers) -> dict[str, tuple[list[str], set[str]]]:
+def helper_param_table(helpers: list[KernelIR]) -> dict[str, tuple[list[str], set[str]]]:
     """``{helper name: (ABI parameter order, the array parameters among them)}``."""
     return {h.kernel_name: (h.abi_param_order(), {a.name for a in h.arrays}) for h in helpers}
 
@@ -3970,7 +3982,7 @@ def pinned_const_block(kir: KernelIR) -> str:
 FLOAT_LITERAL_SUFFIX = {"float": "f", "_Float16": "f16"}
 
 
-def c_literal(value, ctype: str = "double") -> str:
+def c_literal(value: float, ctype: str = "double") -> str:
     """A pinned knob's value as a C literal of its own kind (``true`` / ``100`` / ``1e-06f``)."""
     if isinstance(value, bool):
         return "true" if value else "false"

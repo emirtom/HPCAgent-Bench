@@ -5,6 +5,7 @@ Entry point: :func:`desugar_for_python_backend`. Each submodule owns one family 
 
 import ast
 
+from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc, KernelIR, ScalarDesc
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     AUG_OP_SRC,
     REDUCE_FNS,
@@ -85,10 +86,14 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.matmul import (
     noncontig_names,
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.numba import (
+    CUMULATIVE_AXIS_HOIST,
+    BroadcastAugAssignSpellOut,
     NdimFold,
+    NonePlaceholderDrop,
     NumbaDtypeFixups,
     OuterBroadcastPeel,
     ReshapeFortranOrderInline,
+    RollInline,
     SliceObjectInline,
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.pad import PadInline
@@ -173,7 +178,7 @@ __all__ = [
 ]
 
 
-def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> str:
+def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None = None) -> str:
     """Rewrite ``source`` so numba/pythran/dace can compile it.
 
     Expands numpy ops they don't support (batched ``@``/``np.matmul``, ``np.pad``, ``np.einsum``,
@@ -203,11 +208,15 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             inline = SliceObjectInline(func)
             inline.visit(func)
             changed = changed or inline.changed
+            placeholders = NonePlaceholderDrop(func)
+            placeholders.visit(func)
+            changed = changed or placeholders.changed
     kir_seed: dict[str, int] = {a.name: len(a.shape) for a in kir.arrays}
     kir_dtype_seed: dict[str, str] = {}
     # Scalar parameters too: an unknown ``dtime`` is contagious, so ``zc * dtime / h`` and every reduction of it
     # fell back to an explicit loop nest (velocity_tendencies' masked vcfl max ran serially on the GPU host).
-    for a in [*kir.arrays, *kir.scalars]:
+    descs: list[ArrayDesc | ScalarDesc] = [*kir.arrays, *kir.scalars]
+    for a in descs:
         kind = kind_of_dtype_str(a.dtype)
         if kind:
             kir_dtype_seed[a.name] = kind
@@ -256,6 +265,8 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             # Before every temp-minting pass: an ``or`` clones its if-body, and clones sharing a hoisted
             # temp would redeclare it per branch. After the const folds, whose bound-once table clones stale.
             BoolOpIfToChain(),
+            # Before NormalizeNegativeAxis, which pins a negative scan axis to one rank of a helper.
+            *([ValueHoist(CUMULATIVE_AXIS_HOIST, tables)] if backend == "numba" else []),
             NormalizeNegativeAxis(ranks),
             IxWriteToLoop(ranks, dtypes, fn),
             FancySliceStoreToLoop(ranks, dtypes),
@@ -293,7 +304,11 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             ComplexAccessorToFunc(conjugate_only=True),
             ElementalUfuncToPrimitive(),
             # numba only, last rewrite: it peels an outer-product broadcast into a loop later passes can't see through.
-            *([OuterBroadcastPeel(ranks)] if backend == "numba" else []),
+            *(
+                [RollInline(ranks), BroadcastAugAssignSpellOut(ranks), OuterBroadcastPeel(ranks)]
+                if backend == "numba"
+                else []
+            ),
             # Last: every pass above looks names up in tables built before the loop (ranks / dtypes /
             # consts / noncontig / masked_gathers); renaming earlier would silently turn them all off.
             SsaRename(fn, set(kir_seed)),

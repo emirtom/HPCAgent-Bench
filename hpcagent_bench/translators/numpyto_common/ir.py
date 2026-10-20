@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from hpcagent_bench.translators.numpyto_common.ast_build import attach, attached
 from hpcagent_bench.translators.numpyto_common import dtypes
 
 __all__ = [
@@ -350,7 +351,8 @@ def stamp_symbol_assumptions(kir: "KernelIR") -> None:
             sym.assumption = "positive"
 
 
-#: AST-node attribute carrying the numpy expression a lowered statement came from.
+#: The :func:`~hpcagent_bench.translators.numpyto_common.ast_build.attach` key carrying the numpy expression a
+#: lowered statement came from.
 NUMPY_NOTE = "npb_numpy_note"
 
 #: Longest note rendered, so an emitted comment cannot push a line past the 120-column budget.
@@ -389,9 +391,9 @@ def tag_numpy_origin(stmts: Sequence[ast.stmt], text: str) -> None:
     text = " ".join(text.split())
     if len(text) > NUMPY_NOTE_CHARS:
         text = text[: NUMPY_NOTE_CHARS - 3] + "..."
-    vars(target)[NUMPY_NOTE] = text
+    attach(target, NUMPY_NOTE, text)
 
 
 def numpy_origin(stmt: ast.stmt) -> str | None:
     """The numpy expression ``stmt`` was lowered from, or ``None`` when it was not."""
-    return vars(stmt).get(NUMPY_NOTE)
+    return attached(stmt, NUMPY_NOTE)

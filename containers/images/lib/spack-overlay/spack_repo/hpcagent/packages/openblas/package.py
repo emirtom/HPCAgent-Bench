@@ -22,7 +22,7 @@ class Openblas(BuiltinOpenblas):
 
 class MakefileBuilder(BuiltinMakefileBuilder):
     @property
-    def make_defs(self):
+    def make_defs(self) -> list[str]:
         defs = super().make_defs
         if self.spec.satisfies("+dynamic_dispatch"):
             defs = [d for d in defs if d != "NO_AVX512=1"]

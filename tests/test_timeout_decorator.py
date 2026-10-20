@@ -11,6 +11,7 @@ overruns really does raise ``KeyboardInterrupt``.
 
 import time
 import types
+from collections.abc import Callable, Iterator
 from typing import ClassVar
 
 import pytest
@@ -23,7 +24,7 @@ class _FakeTimer:
 
     instances: ClassVar[list["_FakeTimer"]] = []
 
-    def __init__(self, interval, function, args=None) -> None:
+    def __init__(self, interval: int, function: Callable[..., object], args: list[str] | None = None) -> None:
         self.interval = interval
         self.function = function
         self.args = args or []
@@ -39,19 +40,19 @@ class _FakeTimer:
 
 
 @pytest.fixture(autouse=True)
-def _reset_fake_timer():
+def reset_fake_timer() -> Iterator[None]:
     _FakeTimer.instances.clear()
     yield
     _FakeTimer.instances.clear()
 
 
-def test_fast_call_returns_its_value_and_cancels_the_watchdog(monkeypatch) -> None:
+def test_fast_call_returns_its_value_and_cancels_the_watchdog(monkeypatch: pytest.MonkeyPatch) -> None:
     # Rebind the NAME the module looks up, not an attribute on the real (process-wide, shared)
     # threading module -- mutating threading.Timer itself would leak into every other thread.
     monkeypatch.setattr(timeout_decorator, "threading", types.SimpleNamespace(Timer=_FakeTimer))
 
     @timeout_decorator.exit_after(30)
-    def quick():
+    def quick() -> int:
         return 42
 
     assert quick() == 42
@@ -61,7 +62,7 @@ def test_fast_call_returns_its_value_and_cancels_the_watchdog(monkeypatch) -> No
     assert timer.cancelled
 
 
-def test_exception_from_the_wrapped_call_still_cancels_the_watchdog(monkeypatch) -> None:
+def test_exception_from_the_wrapped_call_still_cancels_the_watchdog(monkeypatch: pytest.MonkeyPatch) -> None:
     # The finally-cancel must run on the exception path too, or a raise inside the wrapped
     # function would leak a live timer that fires later, into an unrelated caller.
     monkeypatch.setattr(timeout_decorator, "threading", types.SimpleNamespace(Timer=_FakeTimer))
@@ -75,7 +76,9 @@ def test_exception_from_the_wrapped_call_still_cancels_the_watchdog(monkeypatch)
     assert _FakeTimer.instances[0].cancelled
 
 
-def test_cdquit_reports_the_function_name_and_interrupts_the_main_thread(monkeypatch, capsys) -> None:
+def test_cdquit_reports_the_function_name_and_interrupts_the_main_thread(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     # Same rebind-the-name reasoning as above: `_thread` is the process-wide C module, so patch
     # the reference `timeout_decorator` looks up rather than the shared module's attribute.
     calls = []
@@ -91,7 +94,7 @@ def test_a_call_that_overruns_the_deadline_raises_keyboard_interrupt() -> None:
     # Real timer, real overrun -- deadline well under the wrapped sleep so this is not a race,
     # and both numbers stay small enough that the test finishes in well under a second either way.
     @timeout_decorator.exit_after(0.05)
-    def slow():
+    def slow() -> str:
         time.sleep(0.4)
         return "unreachable"
 

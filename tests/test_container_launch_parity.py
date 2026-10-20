@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Golden parity: the pure-bash launcher (helpers/scripts/run_agent_in_container.sh --print) and
-the Python factory (containers.local_run_command) fold the SAME launch argv, byte for byte,
-because both read hpcagent_bench/container_backends.txt. This is what makes the single source
-real rather than a hand-kept mirror -- if the two folds ever drift, this test fails.
-
-Runs `bash --print` in a controlled environment (no ambient HPCAGENT_BENCH_* leakage) and
-compares token-for-token against local_run_command over every backend x hardware."""
+"""The bash launcher (``run_agent_in_container.sh --print``) and ``containers.local_run_command`` fold the same
+launch argv byte for byte over every backend x hardware (both read ``container_backends.txt``)."""
 
 import os
 import pathlib
@@ -16,6 +11,7 @@ import subprocess
 import pytest
 
 from hpcagent_bench import containers
+from hpcagent_bench.config import Hardware
 
 REPO_ROOT = pathlib.Path(containers.__file__).resolve().parent.parent
 LAUNCHER = REPO_ROOT / "helpers" / "scripts" / "run_agent_in_container.sh"
@@ -26,7 +22,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def controlled_env(backend):
+def controlled_env(backend: containers.ContainerRuntime) -> dict[str, str]:
     """A reproducible environment: the ambient PATH etc., every HPCAGENT_BENCH_*/passthrough var
     stripped, then a FIXED set both folds will see identically (incl. a passthrough var and
     two out-of-order dynamic HPCAGENT_BENCH_* vars to exercise the pinned env ordering)."""
@@ -35,7 +31,7 @@ def controlled_env(backend):
         for k, v in os.environ.items()
         if not k.startswith("HPCAGENT_BENCH_") and k not in ("ANTHROPIC_API_KEY", "HPCAGENT_BENCH_LOCAL_MODEL")
     }
-    env["HPCAGENT_BENCH_RUNTIME_BACKEND"] = backend
+    env["HPCAGENT_BENCH_RUNTIME_BACKEND"] = backend.text
     env["ANTHROPIC_API_KEY"] = "sk-test"  # a passthrough (non-HPCAGENT_BENCH) var
     env["HPCAGENT_BENCH_ZED"] = "z"  # dynamic HPCAGENT_BENCH_*, must sort after ABC
     env["HPCAGENT_BENCH_ABC"] = "a"  # dynamic HPCAGENT_BENCH_*, must sort before ZED
@@ -45,13 +41,15 @@ def controlled_env(backend):
 # Driven off EXEC_BACKENDS, not a hand-written list: a wrapper backend added to the spelling
 # file without a parity check is exactly how the two folds drift. `ce` is excluded on
 # purpose -- it has no wrapper argv to compare, and the bash launcher rejects it outright.
-@pytest.mark.parametrize("backend", containers.EXEC_BACKENDS)
-@pytest.mark.parametrize("hardware", ["cpu", "nvidia", "amd"])
-def test_bash_and_python_fold_identical_argv(backend, hardware, monkeypatch) -> None:
+@pytest.mark.parametrize("backend", containers.EXEC_BACKENDS, ids=lambda backend: backend.text)
+@pytest.mark.parametrize("hardware", list(Hardware), ids=lambda hardware: hardware.text)
+def test_bash_and_python_fold_identical_argv(
+    backend: containers.ContainerRuntime, hardware: Hardware, monkeypatch: pytest.MonkeyPatch
+) -> None:
     env = controlled_env(backend)
     # bash: --print emits one token per line, no exec/probe.
     proc = subprocess.run(
-        ["bash", str(LAUNCHER), hardware, "--print", "--", *AGENT_ARGS],
+        ["bash", str(LAUNCHER), hardware.text, "--print", "--", *AGENT_ARGS],
         env=env,
         capture_output=True,
         text=True,

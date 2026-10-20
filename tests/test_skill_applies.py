@@ -1,21 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``applies:`` frontmatter block, and the packet keys that resolve through it.
-
-``*`` (the ``lang-skills`` packet, and ``--skills``) stages every shipped page that
-:func:`hpcagent_bench.packets.applies_to` admits for the setup, so that one block decides whether a
-page reaches an agent at all. It is read by name -- an unknown key, a misspelled language or an
-image name the resolver does not know is not an error anywhere in the resolve path, it just does
-not restrict, and the page silently rides on every setup again.
-
-The other half is the packet table: :func:`hpcagent_bench.packets.resolve` raises on a page that
-does not exist, so resolving every registered key over every setup shape is what turns a typo in
-``envs/registry.yaml`` into a test failure instead of a launch-time ``SystemExit`` after the
-allocation is held.
-
-Sibling files: tests/test_packets.py pins what individual keys resolve to, test_skill_triggers.py
-pins the ``when:`` line, test_skill_content.py pins page CONTENT. This file pins only the routing.
-"""
+"""The ``applies:`` frontmatter block routes pages to setups, and every registered packet key resolves over
+every setup shape."""
 
 import functools
 import itertools
@@ -25,6 +11,7 @@ import re
 import pytest
 import yaml
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench import packets, paths
 from hpcagent_bench import study_tags as tags
 
@@ -36,7 +23,7 @@ KNOWN_KEYS: frozenset[str] = frozenset({"languages", "images", "multinode", "exp
 
 #: The image vocabulary, from the resolver rather than a second list: ``cpu`` plus every GPU vendor
 #: that owns a device language.
-IMAGES: tuple[str, ...] = ("cpu", *sorted(packets.DEVICE_LANGUAGES))
+IMAGES: tuple[str, ...] = ("cpu", *sorted(device.text for device in packets.DEVICE_LANGUAGES))
 
 #: Every setup shape a page can be selected for. ``omp`` is a registered language for a FRAMEWORK
 #: column and no page is written for it, so it is dropped rather than demanding a ``lang-omp``.
@@ -120,14 +107,15 @@ def test_every_registered_packet_resolves_or_refuses_by_device(key: str) -> None
 
 
 @pytest.mark.parametrize("key", sorted(tags.registry().packet_defs))
-def test_a_method_packet_names_a_directory_that_ships(key: str) -> None:
-    """``method:`` is an AGENT_PACKET directory the container loads tool modules from by path. A
-    name with no directory behind it is a packet whose whole treatment is absent at runtime."""
+def test_a_method_packet_names_a_method_a_plugin_ships(key: str) -> None:
+    """A method no plugin ships is a packet whose whole treatment is absent at runtime."""
+    from hpcagent_agent import plugins as agent_plugins
+
     method = tags.registry().packet_defs[key].method
     if not method:
         return
-    directory = paths.ROOT / "agent" / "hpcagent_agent" / "packets" / method
-    assert directory.is_dir(), f"{key}: method {method!r} has no directory under agent/hpcagent_agent/packets/"
+    found = agent_plugins.find(agent_plugins.plugin_dirs())
+    assert any(plugin.method(method) for plugin in found), f"{key}: no plugin ships methods/{method}/method.md"
 
 
 def test_the_pages_a_packet_tool_owns_are_the_ones_kept_out_of_the_wildcard() -> None:
@@ -197,7 +185,11 @@ def test_the_amd_tracer_page_applies_to_exactly_the_languages_its_route_traces(
     from hpcagent_bench.harness import gpu_profiling
 
     monkeypatch.setenv(languages.OFFLOAD_MODEL_ENV, "openmp")
-    traced = {language for language in LANGUAGES if gpu_profiling.traces_amd(language)}
+    traced = {
+        language
+        for language in LANGUAGES
+        if language in Language.texts() and gpu_profiling.traces_amd(Language.parse(language))
+    }
     assert traced, "no language is AMD-traced; this test is no longer checking anything"
     admitted = set(map(str, applies_block("rocprof").get("languages") or ()))
     assert admitted == traced, f"rocprof applies to {sorted(admitted)}; the route traces {sorted(traced)}"

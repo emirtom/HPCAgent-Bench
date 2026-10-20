@@ -14,6 +14,35 @@ from hpcagent_bench import study_tags
 from hpcagent_bench.stats import population, summary
 from hpcagent_bench.stats.significance import Finding
 
+__all__ = [
+    "COST_SIG_LABEL",
+    "COST_SIG_MARK",
+    "EMPTY_POINT",
+    "JOINT_SIG_LABEL",
+    "NO_SIGNIFICANCE",
+    "SCORE_SIG_LABEL",
+    "SCORE_SIG_MARK",
+    "SIG_MEASURE_NAMES",
+    "SPEEDUP_OVER",
+    "Series",
+    "SetupPoint",
+    "Significance",
+    "UNCHANGED_POINT",
+    "absolute_columns",
+    "any_significance",
+    "axis_significance",
+    "drawn_symbols",
+    "family_size",
+    "interval_note",
+    "leg_labels",
+    "per_kernel_ci",
+    "setup_groups",
+    "setup_point",
+    "skill_halves",
+    "solved_flags",
+    "speedup_mask",
+]
+
 #: What a speedup aggregate is taken over. ``solved``: the kernels BOTH setups answered
 #: correctly -- a wrong answer is no speedup at all, so it is counted by the success rate and not
 #: scored as the baseline, and both setups are timed on the same kernels, so solving only the easy
@@ -181,8 +210,8 @@ def axis_significance(stats: pd.DataFrame) -> dict[tuple[str, str], Significance
         return flags
     legs = leg_labels(stats)
     for (_, row), leg in zip(stats.iterrows(), legs, strict=True):
-        score_sig = str(row.get("score_verdict", "")) == Finding.SIGNIFICANT.value
-        cost_sig = str(row.get("cost_verdict", "")) == Finding.SIGNIFICANT.value
+        score_sig = str(row.get("score_verdict", "")) == Finding.SIGNIFICANT.text
+        cost_sig = str(row.get("cost_verdict", "")) == Finding.SIGNIFICANT.text
         flags[(str(row["model"]), str(leg))] = (score_sig, cost_sig)
     return flags
 

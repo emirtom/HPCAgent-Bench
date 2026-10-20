@@ -24,7 +24,7 @@ from tests.translators.op_oracle import assert_all_ok, run_op
 NATIVE = ("c", "cpp", "fortran")
 
 
-def run_(src, ins, outs, dtypes, n):
+def run_(src: str, ins: dict[str, np.ndarray], outs: list[str], dtypes: dict[str, str], n: int) -> dict[str, str]:
     shapes = dict.fromkeys(list(ins) + list(outs), "(N,)")
     # Every case here overflows its element width on purpose: numpy's scalar ops wrap there and say so.
     with np.errstate(over="ignore"):

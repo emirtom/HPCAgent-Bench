@@ -1,18 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The corpus kernels whose axis crosses the ABI answer for EVERY axis, from ONE compiled artifact.
-
-``test_runtime_axis_dispatch.py`` pins the mechanism on hand-written sources. This file pins the
-corpus kernels that use it, straight off their own manifests, because that is where the claim
-actually has to hold: each declares ``dim`` in ``input_args``, so the binding passes it, and each
-declares ``out`` with the SAME shape as ``x`` -- a scan or a softmax along either axis lands in that
-buffer, so nothing about the artifact pins which one.
-
-Every test emits and compiles ONCE and then calls that single ``.so`` with more than one ``dim``. A
-test that only ever passed the manifest's 1 would pass against a folded constant just as happily,
-which is exactly the bug these kernels were in.
-"""
+"""The corpus kernels whose axis crosses the ABI (``dim`` in ``input_args``) answer for EVERY axis from ONE
+compiled artifact, called with more than one ``dim``."""
 
 import json
 import pathlib
@@ -25,6 +15,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.initialize import parse_shape
 from hpcagent_bench.spec import BenchSpec
 from tests.fresh_module import module_at
@@ -45,7 +36,7 @@ TOLERANCE = {"log_softmax": (1e-9, 1e-9)}
 def reference(spec: BenchSpec) -> Callable[..., None]:
     """The kernel's own numpy body as the oracle, so no hand-written stand-in can drift from it."""
     path = numpy_py_for(spec)
-    return getattr(module_at(path, f"ref_{spec.module_name}"), spec.func_name)
+    return modules.member(module_at(path, f"ref_{spec.module_name}"), spec.func_name)
 
 
 def extents(spec: BenchSpec, name: str, syms: dict[str, int]) -> tuple[int, ...]:
@@ -121,7 +112,7 @@ def test_one_corpus_artifact_answers_for_every_axis(short: str) -> None:
                 call = {name: buf.copy() for name, buf in data.items()}
                 call[output] = np.zeros(want.shape, dtype=np.float64)
                 call["dim"] = axis
-                status = oo.no._invoke_isolated(
+                status = oo.no.invoke_isolated(
                     backend,
                     binding,
                     so,
@@ -175,7 +166,7 @@ def test_an_out_of_range_axis_leaves_the_corpus_output_alone(short: str) -> None
                 call: dict[str, Any] = {name: buf.copy() for name, buf in data.items()}
                 call[output] = sentinel.copy()
                 call["dim"] = axis
-                status = oo.no._invoke_isolated(
+                status = oo.no.invoke_isolated(
                     backend,
                     binding,
                     so,

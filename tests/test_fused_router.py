@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A fused owed wave's ROUTER resolves every request's setup from the worker's token, never its claim.
-
-The router is the one place a worker's token becomes a setup: it forwards the setup to the
-upstream judge on a header only it can reach, refuses a request with no known token before
-anything is graded, and refuses a body whose episode_id belongs to another setup. The judge side of the
-same contract (scoping, golden identity) is tests/test_fused_judge.py.
-"""
+"""A fused owed wave's ROUTER resolves every request's setup from the worker's token (forwarded on a header),
+refusing unknown tokens and foreign episode_ids before grading; the judge side is test_fused_judge.py."""
 
 import json
 import pathlib
@@ -107,9 +102,9 @@ def test_the_router_refuses_a_kernel_the_fused_episode_was_not_assigned(
     single-setup one, before the grade lands in the sibling's cell."""
     problems = tmp_path / "problems.jsonl"
     problems.write_text(
-        json.dumps({"id": 0, "kernel": "other_kernel", "task": "t"})
+        json.dumps({"id": 0, "kernel": "other_kernel", "task": "t", "request_actions": {}})
         + "\n"
-        + json.dumps({"id": 1, "kernel": KERNEL, "task": "t"})
+        + json.dumps({"id": 1, "kernel": KERNEL, "task": "t", "request_actions": {}})
         + "\n"
     )
     monkeypatch.setenv("HPCAGENT_BENCH_SERVICE_WARM_PROBLEMS", str(problems))

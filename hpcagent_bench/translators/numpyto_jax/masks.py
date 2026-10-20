@@ -139,7 +139,7 @@ class MaskToWhere(ast.NodeTransformer):
             return ast.copy_location(total, node)
         return ast.copy_location(ast.BinOp(left=total, op=ast.Div(), right=numpy_call("sum", [deep_copy(m)])), node)
 
-    def visit_Assign(self, node):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt:
         self.generic_visit(node)
         if (
             len(node.targets) == 1
@@ -152,7 +152,7 @@ class MaskToWhere(ast.NodeTransformer):
             return ast.copy_location(ast.Assign(targets=[deep_copy(arr)], value=new), node)
         return node
 
-    def visit_AugAssign(self, node):
+    def visit_AugAssign(self, node: ast.AugAssign) -> ast.stmt:
         self.generic_visit(node)
         if isinstance(node.target, ast.Subscript) and self.is_mask(node.target.slice):
             tgt = node.target
@@ -177,14 +177,14 @@ def mask_reduction_slices(fn: ast.FunctionDef) -> None:
     class Rewriter(ast.NodeTransformer):
         __slots__ = ()
 
-        def visit_BinOp(self, node):
+        def visit_BinOp(self, node: ast.BinOp) -> ast.expr:
             self.generic_visit(node)
             if isinstance(node.op, ast.MatMult):
                 node.left = maybe_mask(node.left, lv)
                 node.right = maybe_mask(node.right, lv)
             return node
 
-        def visit_Call(self, node):
+        def visit_Call(self, node: ast.Call) -> ast.expr:
             self.generic_visit(node)
             if is_np_attr(node.func, "dot") and len(node.args) == 2:
                 node.args = [maybe_mask(a, lv) for a in node.args]
@@ -204,7 +204,7 @@ def dyn_slice_info(node: ast.expr, lv: set[str]) -> tuple[ast.Name, int, ast.exp
     sl = node.slice
     elts = sl.elts if isinstance(sl, ast.Tuple) else [sl]
 
-    def is_dyn(e):
+    def is_dyn(e: ast.expr) -> bool:
         return (
             isinstance(e, ast.Slice)
             and e.step is None
@@ -282,7 +282,7 @@ def widen_dynamic_slices(node: ast.expr, lv: set[str]) -> ast.expr:
     class Walker(ast.NodeTransformer):
         __slots__ = ()
 
-        def visit_Subscript(self, node):
+        def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
             self.generic_visit(node)
             info = dyn_slice_info(node, lv)
             if info is None:
@@ -309,7 +309,7 @@ def mask_dynamic_writes(fn: ast.FunctionDef) -> None:
     class Rewriter(ast.NodeTransformer):
         __slots__ = ()
 
-        def rewrite(self, target, value):
+        def rewrite(self, target: ast.expr, value: ast.expr) -> ast.Assign | None:
             info = dyn_slice_info(target, lv)
             if info is None:
                 return None
@@ -324,7 +324,7 @@ def mask_dynamic_writes(fn: ast.FunctionDef) -> None:
             )
             return ast.Assign(targets=[full], value=where)
 
-        def visit_AugAssign(self, node):
+        def visit_AugAssign(self, node: ast.AugAssign) -> ast.stmt:
             self.generic_visit(node)
             if dyn_slice_info(node.target, lv) is None:
                 return node
@@ -333,7 +333,7 @@ def mask_dynamic_writes(fn: ast.FunctionDef) -> None:
             out = self.rewrite(node.target, rhs)
             return ast.copy_location(out, node) if out else node
 
-        def visit_Assign(self, node):
+        def visit_Assign(self, node: ast.Assign) -> ast.stmt:
             self.generic_visit(node)
             if len(node.targets) != 1 or dyn_slice_info(node.targets[0], lv) is None:
                 return node
@@ -354,7 +354,7 @@ def rewrite_flip_prefix(fn: ast.FunctionDef) -> None:
     class Rewriter(ast.NodeTransformer):
         __slots__ = ()
 
-        def visit_Call(self, node):
+        def visit_Call(self, node: ast.Call) -> ast.expr:
             self.generic_visit(node)
             if not (is_np_attr(node.func, "flip") and len(node.args) == 1):
                 return node
@@ -403,7 +403,7 @@ def mask_slice_reads(fn: ast.FunctionDef) -> None:
     class Rewriter(ast.NodeTransformer):
         __slots__ = ()
 
-        def visit_Assign(self, node):
+        def visit_Assign(self, node: ast.Assign) -> ast.stmt:
             self.generic_visit(node)
             if (
                 len(node.targets) == 1
@@ -425,7 +425,7 @@ def dynamic_window_slices(fn: ast.FunctionDef) -> None:
     the residual int/full/newaxis indices apply afterwards."""
     lv = loop_vars(fn)
 
-    def window(s):
+    def window(s: ast.expr) -> tuple[ast.expr, ast.expr] | None:
         # ``lo:lo+W`` with lo dynamic and W static -> (lo, W); else None.
         if not (isinstance(s, ast.Slice) and s.lower is not None and s.upper is not None and s.step is None):
             return None
@@ -442,16 +442,16 @@ def dynamic_window_slices(fn: ast.FunctionDef) -> None:
     class Rewriter(ast.NodeTransformer):
         __slots__ = ()
 
-        def visit_Subscript(self, node):
+        def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
             self.generic_visit(node)
             if not isinstance(node.value, ast.Name):
                 return node
             elts = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
-            wins = [(k, window(e)) for k, e in enumerate(elts)]
-            wins = [(k, w) for k, w in wins if w is not None]
+            windows = [(k, window(e)) for k, e in enumerate(elts)]
+            wins = [(k, w) for k, w in windows if w is not None]
             if not wins:
                 return node
-            arr = node.value
+            arr: ast.expr = node.value
             for k, (start, width) in wins:
                 arr = ast.Call(
                     func=ast.Attribute(value=name_("lax"), attr="dynamic_slice_in_dim", ctx=ast.Load()),

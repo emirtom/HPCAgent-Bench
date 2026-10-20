@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""An OpenMP shared library must still LOAD after it links.
-
-LLVM 17 and later park ``libomp.so`` under a target-triple libdir
-(``lib/x86_64-unknown-linux-gnu``) that no loader searches, and clang links it by absolute path
-while writing no RUNPATH. The .so builds clean, reports success, and then dies at ``dlopen`` with
-``libomp.so: cannot open shared object file``. Measured on spack clang 22.1.8, where it took the
-REFERENCE build down and voided every graded call of four experiment setups -- a whole column of zeros
-behind a build line that said OK.
-
-The hermetic tests drive :func:`languages.driver_library_dir` with stub drivers, so the three
-answers a driver can give are all covered on a host with no compiler at all. The build test is the
-one that would have caught it: it links and then loads.
-"""
+"""An OpenMP shared library still LOADS after it links (LLVM >= 17 keeps ``libomp.so`` in a triple libdir with no
+RUNPATH): :func:`languages.driver_library_dir` with stub drivers, plus a link-and-load test."""
 
 import ctypes
 import pathlib
@@ -21,6 +10,7 @@ import stat
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from tests.own_process import isolated
 
 #: A translation unit that references the OpenMP runtime and nothing else, so a load failure can
@@ -104,7 +94,7 @@ def test_an_openmp_shared_library_loads_after_it_links(tmp_path: pathlib.Path, b
     src = tmp_path / "omp_probe.c"
     src.write_text(OMP_TU)
     lib = tmp_path / "libomp_probe.so"
-    cmds = languages.build_shared_lib_commands("c", src, lib, compiler=block)
+    cmds = languages.build_shared_lib_commands(Language.C, src, lib, compiler=block)
     failed, log = languages.run_build_commands(cmds, tmp_path)
     assert not failed, log
     assert lib.exists(), log
@@ -119,7 +109,9 @@ def test_the_link_line_carries_the_flag_and_its_runtime() -> None:
     cc = languages.compiler_driver("clang")
     if languages.resolve_compiler(cc) is None:
         pytest.skip(f"{cc} is not installed on this host")
-    cmds = languages.build_shared_lib_commands("c", pathlib.Path("k.c"), pathlib.Path("libk.so"), compiler="clang")
+    cmds = languages.build_shared_lib_commands(
+        Language.C, pathlib.Path("k.c"), pathlib.Path("libk.so"), compiler="clang"
+    )
     link = cmds[-1]
     flag = next((t for t in link if t in languages.OPENMP_BASELINE_FLAGS), None)
     assert flag is not None, link

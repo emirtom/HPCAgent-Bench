@@ -1,13 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Replace or disable any built-in prompt section from config or the environment.
-
-Each template under ``harness/prompts/`` (and each ``tools/<tool>.md`` fragment) is a section with a key:
-the path without its extension, ``sections/`` dropped and every other separator turned into ``_``
-(``sections/build_flags.j2`` is ``build_flags``, ``lang/cpp.j2`` is ``lang_cpp``, ``tools/web-search.md``
-is ``tools_web_search``). A section's value is ``off`` to render nothing, or a template name on the
-search path, or a file path, to render that instead. The ``prompt.sections`` config key (a map) and
-``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`` in the environment set it, the environment winning."""
+"""Replace or disable any built-in prompt section (key: template path without extension, ``sections/`` dropped,
+separators as ``_``) with ``off``, a template name or a file path, via ``prompt.sections`` or
+``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`` (the environment wins)."""
 
 import functools
 import re
@@ -80,11 +75,8 @@ def parse_value(raw: object) -> SectionValue | None:
 
 
 def pick_sections(given: Mapping[str, SectionValue] | None = None) -> tuple[tuple[str, SectionValue], ...]:
-    """Every section that is not the built-in one, as sorted ``(key, value)`` pairs.
-
-    Precedence, strongest first: ``given`` (a caller or a variant), the section's environment variable,
-    then ``prompt.sections`` (the config block, which a ``HPCAGENT_BENCH_PROMPT_SECTIONS`` JSON object or
-    a runtime override replaces whole). An unknown key is an error that lists the known ones."""
+    """Every non-built-in section as sorted ``(key, value)`` pairs: ``given`` over the environment over
+    ``prompt.sections``; an unknown key is an error listing the known ones."""
     known = section_templates()
     block = config.current().prompt.sections
     chosen: dict[str, SectionValue] = {}

@@ -46,7 +46,7 @@ KERNEL_TIMEOUT_S = 60
 WORKERS = min(16, os.cpu_count() or 1)
 
 
-def kernelbench_stems():
+def kernelbench_stems() -> list[str]:
     stems = []
     for key in sorted(KERNELS):
         stem = key.rsplit("/", 1)[-1]
@@ -67,7 +67,8 @@ def translates(stem: str) -> bool:
             "-c",
             (
                 "import sys, hpcagent_bench.numerical_oracle as no;"
-                f"sys.stdout.write(no.run_kernel({stem!r}, 'S', only_backends={{'c'}}).get('c', 'no-result'))"
+                "from hpcagent_bench.categories import Preset;"
+                f"sys.stdout.write(no.run_kernel({stem!r}, Preset.S, only_backends={{'c'}}).get('c', 'no-result'))"
             ),
         ],
         capture_output=True,
@@ -90,7 +91,7 @@ def test_the_subtrack_is_still_registered() -> None:
 def test_at_least_the_pinned_number_of_ports_translate() -> None:
     stems = kernelbench_stems()
 
-    def probe(stem):
+    def probe(stem: str) -> tuple[str, bool]:
         try:
             return stem, translates(stem)
         except subprocess.TimeoutExpired:

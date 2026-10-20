@@ -1,29 +1,15 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A manifest's declared array dtype must be the dtype the run actually materialises.
-
-The declaration is not documentation: it is what the emitters type the C/Fortran parameter with.
-When the two disagree the buffer still binds -- ctypes hands over an address and nothing checks
-what is behind it -- so the kernel reads one width through a pointer of another and returns
-numbers rather than an error. floyd_warshall handed a float64 ``path`` through ``int32_t *``;
-needleman_wunsch and smith_waterman did the same with their base-code sequences.
-
-The disagreement only appears at a precision the initializer was not written for: each of those
-three honours its ``datatype`` argument for an array the manifest pins, so they agree at the
-initializer's own default and diverge the moment a run asks for fp64. That is why this test pins
-the REALISED dtype at an explicit precision rather than trusting the default.
-
-``int4`` is declared and stored as ``int8`` (numpy has no int4), so the comparison is against
-:func:`hpcagent_bench.dtypes.storage_dtype`, which is the same rule ``sizing.working_bytes`` uses
-to weigh the buffer.
-"""
+"""A manifest's declared array dtype is the dtype the run materialises (compared via ``storage_dtype``), at an
+explicit precision rather than the initializer's default."""
 
 import numpy as np
 import pytest
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.dtypes import storage_dtype
 from hpcagent_bench.frameworks.benchmark import Benchmark
-from hpcagent_bench.spec import KERNELS
+from hpcagent_bench.spec import KERNELS, BenchSpec
 
 #: The precision the check runs at where the kernel supports it: fp64, the precision a job submission
 #: asks for, so it is the precision a disagreement is reached at in practice.
@@ -39,7 +25,7 @@ KERNEL_NAMES = sorted(KERNELS.select_keys("all"))
 SPECS = KERNELS.specs()
 
 
-def declared_dtypes(spec) -> dict[str, str]:
+def declared_dtypes(spec: BenchSpec) -> dict[str, str]:
     """``{array: dtype}`` the manifest declares, from either spelling of the init block."""
     out: dict[str, str] = {}
     if spec.init is None:
@@ -52,7 +38,7 @@ def declared_dtypes(spec) -> dict[str, str]:
     return out
 
 
-def check_precision(spec) -> str:
+def check_precision(spec: BenchSpec) -> str:
     """The precision to materialise ``spec`` at: :data:`PRECISION` where the manifest declares
     fp64, else the first precision it DOES declare.
 
@@ -69,7 +55,7 @@ def disagreements(key: str) -> list[tuple[str, str, str]]:
     declared = declared_dtypes(spec)
     if not declared:
         return []
-    data = Benchmark(key).get_data("S", datatype=check_precision(spec))
+    data = Benchmark(key).get_data(Preset.S, datatype=check_precision(spec))
     bad = []
     for name, want in declared.items():
         value = data.get(name)
@@ -96,7 +82,7 @@ def undeclared_integer_arrays(key: str) -> list[tuple[str, str]]:
     if spec.init is None:
         return []
     declared = declared_dtypes(spec)
-    data = Benchmark(key).get_data("S", datatype=PRECISION)
+    data = Benchmark(key).get_data(Preset.S, datatype=PRECISION)
     bad = []
     for name in spec.array_args:
         value = data.get(name)

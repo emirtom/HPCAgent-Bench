@@ -24,7 +24,9 @@ CONTAINER_RUNTIME = paths.ROOT / "hpcagent_bench" / "cluster" / "container_runti
 PAYLOAD_MOUNT = "/opt/hpcagent-bench-agent"
 
 
-def render(tmp_path, role, container_mounts: str = "", extra_env: dict[str, str] | None = None):
+def render(
+    tmp_path: pathlib.Path, role: str, container_mounts: str = "", extra_env: dict[str, str] | None = None
+) -> str:
     """Run derived_edf for one role against a stand-in registered EDF, return the rendered TOML."""
     edf_dir = tmp_path / "edf"
     for sub in (
@@ -85,7 +87,7 @@ def mounts(rendered: str) -> list[str]:
     return [line.strip().rstrip(",").strip('"') for line in rendered.splitlines() if line.strip().startswith('"')]
 
 
-def test_agent_edf_does_not_mount_the_repo(tmp_path) -> None:
+def test_agent_edf_does_not_mount_the_repo(tmp_path: pathlib.Path) -> None:
     rendered = render(tmp_path, "agent-node")
     repo = str(tmp_path / "repo")
     # The tools subtree and the launch venv's pins (containers/images/lib/launch_venv.sh) are allowed; the tree that
@@ -103,7 +105,7 @@ def test_the_agent_never_mounts_studies(tmp_path: pathlib.Path) -> None:
     assert not [mount for mount in mounts(render(tmp_path, "agent-node")) if experiments in mount]
 
 
-def test_agent_edf_keeps_what_the_agent_actually_needs(tmp_path) -> None:
+def test_agent_edf_keeps_what_the_agent_actually_needs(tmp_path: pathlib.Path) -> None:
     rendered = render(tmp_path, "agent-node")
     launch = tmp_path / "runs" / ".agent-launch" / "1"
     assert f"{tmp_path / 'run' / 'shared'}:/shared" in mounts(rendered)
@@ -124,7 +126,7 @@ def test_an_agent_cannot_write_its_tools_or_its_launch_directory(tmp_path: pathl
     assert all(mount.endswith(":ro") for mount in bound), bound
 
 
-def test_the_generated_reference_cache_reaches_the_judge_and_not_the_agent(tmp_path) -> None:
+def test_the_generated_reference_cache_reaches_the_judge_and_not_the_agent(tmp_path: pathlib.Path) -> None:
     """emit_reference_source lowers the reference into the target language.
 
     materialize_shared.sh:13 is explicit that those lowerings reach no agent -- copyable material
@@ -148,7 +150,7 @@ def test_the_judge_disk_store_reaches_the_judge_and_not_the_agent(tmp_path: path
     assert not [mount for mount in mounts(render(tmp_path, "agent-node", extra_env=env)) if store in mount]
 
 
-def test_judge_edf_still_gets_the_tree(tmp_path) -> None:
+def test_judge_edf_still_gets_the_tree(tmp_path: pathlib.Path) -> None:
     """The judge needs the checkout; it does not need the filesystem the checkout sits on.
 
     A wholesale "/scratchfs/:/scratchfs/" lets a submission-written cupy reach the judge's
@@ -164,7 +166,7 @@ def test_judge_edf_still_gets_the_tree(tmp_path) -> None:
     assert PAYLOAD_MOUNT not in rendered, "only an agent step reads the agent tools"
 
 
-def test_explicit_container_mounts_override_the_policy(tmp_path) -> None:
+def test_explicit_container_mounts_override_the_policy(tmp_path: pathlib.Path) -> None:
     rendered = render(tmp_path, "agent-node", container_mounts="/opt/site-data")
     assert "/opt/site-data:/opt/site-data" in rendered
 

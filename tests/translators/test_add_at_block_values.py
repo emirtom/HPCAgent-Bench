@@ -18,7 +18,7 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar import AddAtInline,
 from tests.translators.source_module import run_source
 
 
-def apply(pass_obj, src: str) -> str:
+def apply(pass_obj: ast.NodeTransformer, src: str) -> str:
     body: list = []
     for stmt in ast.parse(src).body:
         res = pass_obj.visit(stmt)

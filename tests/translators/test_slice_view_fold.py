@@ -1,28 +1,19 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``fold_slice_view_aliases`` -- fold a name bound to a partial/strided VIEW of
-an array into every subscripted use, composing offsets/strides.
-
-``x_g = padded[:, g*ipg:(g+1)*ipg]`` then ``x_g[:, :, iy0:iy0+h:s]`` (grouped
-conv's per-group input slab) left a bare ``:`` reaching the C/Fortran emitter as
-a value expression -- ``NotImplementedError: expression Slice`` -- across ~32
-machine_learning benchmarks. :func:`fold_subarray_aliases` already folds a
-SCALAR index prefix plus dropped trailing full slices (xsbench's ``low = A[i,
-j]``); this pass handles a Slice with real bounds/step at ANY axis position,
-including a chain of views (``window = x_g[...]`` where ``x_g`` is itself a
-view), and refuses to fold whenever it cannot prove the fold is sound.
-"""
+"""``fold_slice_view_aliases``: a name bound to a partial/strided VIEW is folded into every subscripted use
+(offsets and strides composed, chains included), and refused when the fold cannot be proven sound."""
 
 import ast
 
 import numpy as np
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.translators.numpyto_common.lowering import fold_slice_view_aliases
 from hpcagent_bench.translators.numpyto_common.ordered import OrderedSet
 from tests.translators.op_oracle import run_op
 
 
-def fold_(src: str, shapes) -> str:
+def fold_(src: str, shapes: dict[str, tuple[str, ...]]) -> str:
     tree = ast.parse(src).body[0]
     fold_slice_view_aliases(tree, {k: list(v) for k, v in shapes.items()})
     ast.fix_missing_locations(tree)
@@ -154,7 +145,7 @@ def test_conv2d_batch_norm_scaling_c_matches_numpy() -> None:
     # compiled and run.
     from hpcagent_bench import numerical_oracle as no
 
-    status = no.run_kernel("conv2d_batch_norm_scaling", preset="S", precision="fp64", seed=0, only_backends={"c"})
+    status = no.run_kernel("conv2d_batch_norm_scaling", preset=Preset.S, precision="fp64", seed=0, only_backends={"c"})
     assert status.get("c") == "ok", status
 
 

@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``POST /submit`` grades under the final grade's own protocol (mw4x5) and is recorded as that grade.
-
-The credited grade of a submission is the final one (``grade-under run``: m inputs x n runs a side,
-each input credited by its Mann-Whitney test). The judge's /submit runs that same code path
-(:func:`grade_under.submit_grade`) under the same settings (:func:`grade_under.final_settings`), so a correct
-answer is its own final grade: one ``final`` row beside the ``submit`` row, written with it, no second
-timing. ``grade-under run`` stays for the submissions an older /submit protocol graded.
-
-The first half drives :func:`grade_under.submit_grade` and :func:`recording.record` with a fake scorer that
-logs what the judge's request would have seen. The second half is the real judge (``make_server``)
-grading a real C kernel on this host.
-"""
+"""``POST /submit`` grades under the final grade's protocol (mw4x5, :func:`grade_under.submit_grade`) and records
+a ``final`` row beside the ``submit`` row; checked with a fake scorer and with the real judge on a C kernel."""
 
 import contextlib
 import dataclasses
@@ -33,6 +23,8 @@ import pytest
 
 from hpcagent_bench import config, experiments, fuzz, observations_extract, paths, protocols
 from hpcagent_bench.anticheat import Effect, Finding, Judgement
+from hpcagent_bench.categories import Language, Preset, SourceMode
+from hpcagent_bench.config import MpContext, Statistic
 from hpcagent_bench.harness import grade_under, recording, results_db, scoring, service, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
@@ -66,7 +58,7 @@ class Seen:
     repeat: int
     inputs: int
     warmup: int
-    backend: str
+    backend: Statistic
     kwargs: dict[str, Any]
 
 
@@ -78,7 +70,7 @@ def fake_result(ratio: float, **changes: object) -> Score:
         baseline_ns=80.0,
         native_ns=80.0 / ratio,
         ratio=ratio,
-        timing_reduction=timing.REDUCTIONS_VARIED["mannwhitney_delta"],
+        timing_reduction=timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY],
         baseline="c",
         baseline_candidates="c+numba",
     )
@@ -94,7 +86,7 @@ def fake_result(ratio: float, **changes: object) -> Score:
         "public_correct": True,
         "hidden_correct": True,
         "cells": (cell,),
-        "timing_reduction": timing.REDUCTIONS_VARIED["mannwhitney_delta"],
+        "timing_reduction": timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY],
         "seed_nonce": 7,
         "grading_protocol": "sealed-nonce-v1+host-monotonic",
     }
@@ -108,7 +100,7 @@ class Scorer:
         self.remaining = iter(results)
         self.calls: list[Seen] = []
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Score:
+    def __call__(self, *args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         names = grade_under.final_settings({})
         self.calls.append(
             Seen(
@@ -137,12 +129,14 @@ def cells_fixture(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 def real_submission() -> Submission:
-    return NoOpOptimizer().solve(Task(kernel=KERNEL, language="c"))
+    return NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C))
 
 
 def submitted(scorer: Scorer) -> tuple[Score, recording.FinalRecord | None]:
     """``grade_under.submit_grade`` of the scaled_add reference under the judge's own :class:`RunConfig`."""
-    return grade_under.submit_grade(real_submission(), Task(KERNEL, "restricted", "c"), service.from_config(), scorer)
+    return grade_under.submit_grade(
+        real_submission(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), service.from_config(), scorer
+    )
 
 
 def test_a_submit_is_timed_under_the_final_grades_own_settings(cells: list[dict[str, Any]]) -> None:
@@ -160,7 +154,7 @@ def test_a_submit_is_timed_under_the_final_grades_own_settings(cells: list[dict[
             grade_under.FINAL.repeat,
             grade_under.FINAL.inputs,
             1,
-            "mannwhitney_delta",
+            Statistic.MANNWHITNEY,
         )
         assert seen.kwargs["repeat"] == seen.repeat
         assert seen.kwargs["hidden"] is True
@@ -228,9 +222,9 @@ def test_a_correct_submit_answers_the_final_grade_and_carries_its_rows(cells: li
     assert [row["ratio"] for row in final.cells] == ratios
     # the same rows grade-under run would write for the same measurements
     graded = grade_under.final_grade(
-        real_submission(), Task(KERNEL, "restricted", "c"), Scorer(*[fake_result(r) for r in ratios])
+        real_submission(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), Scorer(*[fake_result(r) for r in ratios])
     )
-    rows, values = grade_under.final_rows(graded, Task(KERNEL, "restricted", "c"), KERNEL)
+    rows, values = grade_under.final_rows(graded, Task(KERNEL, SourceMode.RESTRICTED, Language.C), KERNEL)
     assert (list(final.cells), dict(final.values)) == (rows, values)
 
 
@@ -269,9 +263,9 @@ def record_db(tmp_path: pathlib.Path) -> str:
 def record_submit(tmp_path: pathlib.Path, episode_id: str, scorer: Scorer) -> int:
     """One /submit graded by ``scorer`` and recorded as the judge records it; the submit grade's id."""
     result, final = submitted(scorer)
-    task = Task(KERNEL, "restricted", "c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     recorded = recording.record(
-        result, real_submission(), task, episode_id=episode_id, preset="S", path=record_db(tmp_path), final=final
+        result, real_submission(), task, episode_id=episode_id, preset=Preset.S, path=record_db(tmp_path), final=final
     )
     assert recorded.outcome == "submission"
     assert recorded.grade_id is not None
@@ -318,7 +312,7 @@ def test_a_submit_the_verify_leg_rejects_records_no_final_grade(
     recorded = recording.record(
         result,
         real_submission(),
-        Task(KERNEL, "restricted", "c"),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=rejected,
         episode_id=RUN,
         path=record_db(tmp_path),
@@ -338,7 +332,11 @@ def test_only_a_submission_of_an_older_protocol_is_owed_a_final_grade(
     old_run = f"{SETUP}.n0.p1.w0"
     old = fake_result(2.0, timing_reduction="mwd-v3")
     recording.record(
-        old, real_submission(), Task(KERNEL, "restricted", "c"), episode_id=old_run, path=record_db(tmp_path)
+        old,
+        real_submission(),
+        Task(KERNEL, SourceMode.RESTRICTED, Language.C),
+        episode_id=old_run,
+        path=record_db(tmp_path),
     )
     db = pathlib.Path(record_db(tmp_path))
     listed, problems = grade_under.build_worklist([db], [])
@@ -397,7 +395,7 @@ class Judge:
 
 
 def correct_source() -> str:
-    return NoOpOptimizer().solve(Task(kernel=KERNEL, language="c")).source
+    return NoOpOptimizer().solve(Task(kernel=KERNEL, language=Language.C)).source
 
 
 def wrong_source() -> str:
@@ -416,7 +414,7 @@ def judge_fixture(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Judge]:
     job = runs / "llr-root" / JOB
     seen: list[dict[str, Any]] = []
 
-    def logged(*args: Any, **kwargs: Any) -> Score:
+    def logged(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         seen.append(
             {
                 "repeat": kwargs["repeat"],
@@ -429,7 +427,7 @@ def judge_fixture(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Judge]:
         )
         return scoring.score(*args, **kwargs)
 
-    with pytest.MonkeyPatch.context() as env, config.overridden("runtime.mp_context", "forkserver"):
+    with pytest.MonkeyPatch.context() as env, config.overridden("runtime.mp_context", MpContext.FORKSERVER):
         for name in RANK_ENV_VARS:
             env.delenv(name, raising=False)
         env.setenv(recording.JOB_ENV, JOB)
@@ -479,7 +477,7 @@ def test_the_judge_times_a_submit_on_mw4x5s_inputs_and_repeats(graded: Graded) -
     ran = graded.ran
     assert len(ran) == grade_under.FINAL.inputs
     assert {(one["repeat"], one["inputs"], one["backend"]) for one in ran} == {
-        (grade_under.FINAL.repeat, grade_under.FINAL.inputs, "mannwhitney_delta")
+        (grade_under.FINAL.repeat, grade_under.FINAL.inputs, Statistic.MANNWHITNEY)
     }
     assert [one["hidden_cases"] is None for one in ran] == [True, False, False, False]
 
@@ -497,7 +495,7 @@ def test_the_judges_score_route_times_the_mw2x5_preview_of_the_final_grade(judge
     inputs = grade_under.SCORE.inputs
     assert len(ran) == inputs == 2
     assert {(one["repeat"], one["hidden"], one["inputs"], one["backend"]) for one in ran} == {
-        (grade_under.SCORE.repeat, False, inputs, "mannwhitney_delta")
+        (grade_under.SCORE.repeat, False, inputs, Statistic.MANNWHITNEY)
     }
     submit_cells = [cell["params"] for cell in grade_under.protocol_cells(KERNEL, grade_under.FINAL)]
     assert not [one["params"] for one in ran if one["params"] in submit_cells], "/score times /submit's sizes"
@@ -553,7 +551,7 @@ def test_the_submits_final_row_is_the_row_regrade_finalize_writes_for_the_same_s
     assert not problems
     item = next(one for one in items if one.episode_id == RUN)
     worklist = tmp_path / "worklist.jsonl"
-    worklist.write_text(json.dumps(dataclasses.asdict(item)) + "\n", encoding="utf-8")
+    worklist.write_text(item.as_json() + "\n", encoding="utf-8")
     wave = tmp_path / "wave"
     command = [sys.executable, "-m", "hpcagent_bench.harness.grade_under", "run", "--worklist", str(worklist)]
     command += ["--shard", "0", "--shards", "1", "--out-dir", str(wave)]
@@ -606,26 +604,26 @@ def test_regrade_finalize_grades_a_submission_the_older_protocol_recorded(
     """An older /submit graded ONE input under ``mwd-v3`` and left no final row: its submission is
     owed one, ``run`` grades it into a shard, ``apply`` merges it back, and it is no longer owed."""
     episode_id = f"{SETUP}.n0.p4.w0"
-    task = Task(KERNEL, "restricted", "c")
+    task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     db = tmp_path / "old" / "judge" / "rank-0" / "hpcagent_bench.db"
     cfg = service.from_config()
-    with config.overridden("measurement.timing_backend", "mannwhitney_delta"):
+    with config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY):
         old = scoring.score(
             real_submission(),
             task,
-            preset="S",
+            preset=Preset.S,
             repeat=timing.measurement_repeat(),
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             hidden=True,
         )
     assert old.timing_reduction == "mwd-v3", "an older /submit's stamp: one input, a live reduction"
-    recorded = recording.record(old, real_submission(), task, episode_id=episode_id, preset="S", path=str(db))
+    recorded = recording.record(old, real_submission(), task, episode_id=episode_id, preset=Preset.S, path=str(db))
     assert recorded.outcome == "submission"
     owed, _ = grade_under.build_owed_worklist([db], [])
     assert [item.episode_id for item in owed] == [episode_id]
     worklist = tmp_path / "owed.jsonl"
-    worklist.write_text("".join(json.dumps(dataclasses.asdict(item)) + "\n" for item in owed), encoding="utf-8")
+    worklist.write_text("".join(item.as_json() + "\n" for item in owed), encoding="utf-8")
     wave = tmp_path / "owed-wave"
     command = [sys.executable, "-m", "hpcagent_bench.harness.grade_under", "run", "--worklist", str(worklist)]
     command += ["--shard", "0", "--shards", "1", "--out-dir", str(wave)]

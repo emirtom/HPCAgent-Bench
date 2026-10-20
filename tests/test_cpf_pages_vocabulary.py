@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The CPF skill pages and the pinned dace agree on every loop verdict the rendered form can carry.
-
-An agent reads a CPF form's loop comments through its page's table. A verdict dace emits that no table
-row explains is a comment the agent has to guess at; a row naming a verdict dace no longer emits teaches a
-comment the agent will never see. Both directions are checked against the strings dace itself writes.
-"""
+"""The CPF skill pages and the pinned dace agree on every loop verdict string, in both directions."""
 
 import re
 
@@ -15,7 +10,7 @@ from dace.transformation.passes.canonicalize import annotate_loop_kinds as kinds
 from dace.transformation.passes.cpu_specialization import sequentialize_unprofitable_parallel_scopes as cpu_costs
 from dace.transformation.passes.gpu_specialization import block_tile_kernels, promote_warp_tiles
 
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 
 SKILLS = paths.ROOT / "hpcagent_bench" / "skills"
 
@@ -35,7 +30,7 @@ COMMON = (
 GPU_ONLY = (
     *(
         gen.SCOPE_HINT
-        for gen in vars(scope_strategies).values()
+        for gen in modules.members(scope_strategies).values()
         if isinstance(gen, type) and vars(gen).get("SCOPE_HINT")
     ),
     block_tile_kernels.BLOCK_TILE_HINT,

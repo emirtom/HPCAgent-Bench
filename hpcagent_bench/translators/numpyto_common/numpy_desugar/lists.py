@@ -351,7 +351,7 @@ def statement_blocks(node: ast.AST) -> list[list[ast.stmt]]:
     for sub in ast.walk(node):
         blocks.extend(
             value
-            for value in vars(sub).values()
+            for _field, value in ast.iter_fields(sub)
             if isinstance(value, list) and any(isinstance(v, ast.stmt) for v in value)
         )
     return blocks

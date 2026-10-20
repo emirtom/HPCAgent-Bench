@@ -1,21 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A DaCe GPU measurement waits for the device before it reads the clock.
-
-A compiled DaCe GPU program returns before its kernel finishes, so a host clock read without a
-synchronize times the LAUNCH. Measured on one kernel: 11.0 ms unsynchronised against 24.3 ms
-synchronised -- a 2.2x undercount, reported as a speedup. It also leaves the device busy into the
-next setup's sample, so an A/B between two setups mixes them.
-
-The test drives the two timer entry points with a fake device module, because the property under
-test is "was the device waited for", which is observable without a GPU. The CPU direction is asserted too: a synchronize there would import a device module on
-a host-only run, which is its own failure.
-"""
+"""A DaCe GPU measurement synchronizes the device before reading the clock (checked with a fake device module),
+and a CPU measurement imports no device module."""
 
 import types
 
 import pytest
 
+from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks import dace_framework
 
 
@@ -37,7 +29,7 @@ def fake_device_module(log: list[str]) -> types.SimpleNamespace:
 
 def make_framework(arch: str, log: list[str], monkeypatch: pytest.MonkeyPatch) -> dace_framework.DaceFramework:
     fw = dace_framework.DaceFramework.__new__(dace_framework.DaceFramework)
-    fw.info = {"arch": arch}
+    fw.column = FRAMEWORKS.entries[f"dace_{arch}"]
     monkeypatch.setattr(
         "hpcagent_bench.harness.native_call.import_device_array_module",
         lambda: fake_device_module(log),
@@ -123,7 +115,7 @@ def test_the_base_timer_synchronizes(monkeypatch: pytest.MonkeyPatch) -> None:
 
     log = []
     fw = Framework.__new__(Framework)
-    fw.info = {"arch": "gpu"}
+    fw.column = FRAMEWORKS.entries["dace_gpu"]
     monkeypatch.setattr(
         "hpcagent_bench.harness.native_call.import_device_array_module",
         lambda: fake_device_module(log),

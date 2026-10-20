@@ -1,27 +1,12 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Two ways a whole-array REBIND can compile clean and return wrong numbers.
-
-Both live in ``numpyto_common/lowering/`` and both are invisible to every compile gate: the
-emitted C builds without a diagnostic (or, for the second, with one C rejects but Fortran does
-not), so only the numbers say whether the lowering kept the kernel's meaning.
-
-* ``LiftFreshArrayFromSlices`` must not stamp a BARE ``__hpcagent_bench_zeros__()`` marker when the
-  target is a LIVE buffer being rebound. The emitters read a bare marker as a genuine ``np.zeros``
-  reset, so ``_conv3d``'s ``out = out + bias.reshape(..)`` would memset the convolution result
-  immediately before the loop that reads it, and the bias-add would see zeros.
-* A strided slice whose span is a MULTIPLE of its stride must not get the extent
-  ``(out * stride + stride - 1) // stride``: the same number as ``out``, spelled so that the token
-  comparison in ``rhs_is_whole_array`` cannot see it, so ``out = np.maximum(out, window)`` is
-  declined as a shape mismatch and the emitters render a scalar ``max`` of two POINTERS.
-
-Structural assertions plus the numbers, because each mechanism has a distinct signature in the
-lowered IR and neither signature alone proves the arithmetic came out right.
-"""
+"""Two whole-array REBIND lowerings that compile clean and could return wrong numbers: no bare zeros marker on a
+live buffer, and a strided slice's extent spelled so the whole-array comparison sees it."""
 
 import ast
 
 from hpcagent_bench import numerical_oracle as no
+from hpcagent_bench.categories import Preset
 from tests.translators.bench_yaml import kir_for
 
 _NATIVE = frozenset({"c", "cpp", "fortran"})
@@ -37,7 +22,7 @@ def _lowered_tree(short: str) -> ast.AST:
     return kir.tree
 
 
-def _bare_marker_name(stmt):
+def bare_marker_name(stmt: ast.stmt) -> str | None:
     """The buffer a BARE ``X = __hpcagent_bench_zeros__()`` marker resets, or ``None``."""
     if not (
         isinstance(stmt, ast.Assign)
@@ -52,18 +37,17 @@ def _bare_marker_name(stmt):
     return stmt.targets[0].id
 
 
-def _source_order(tree):
+def source_order(tree: ast.AST) -> list[ast.stmt]:
     """Every Assign / AugAssign of the kernel body in SOURCE order -- ``ast.walk`` is breadth
     first, which cannot answer "was this buffer already filled when the marker ran"."""
     out = []
 
-    def walk(block) -> None:
+    def walk(block: list[ast.stmt]) -> None:
         for stmt in block:
             if isinstance(stmt, (ast.Assign, ast.AugAssign)):
                 out.append(stmt)
-            for field in ("body", "orelse", "finalbody"):
-                nested = vars(stmt).get(field)
-                if isinstance(nested, list):
+            for field, nested in ast.iter_fields(stmt):
+                if field in ("body", "orelse", "finalbody") and isinstance(nested, list):
                     walk(nested)
 
     walk(tree.body)
@@ -78,7 +62,7 @@ def test_a_rebound_conv_output_is_not_reset_before_the_loop_that_reads_it() -> N
     convolution came back as the bias alone.
     """
     tree = _lowered_tree(_REBIND_KERNEL)
-    ordered = _source_order(tree)
+    ordered = source_order(tree)
     written: set = set()
     offenders = []
     for index, stmt in enumerate(ordered):
@@ -89,7 +73,7 @@ def test_a_rebound_conv_output_is_not_reset_before_the_loop_that_reads_it() -> N
         )
         if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
             written.add(target.value.id)
-        name = _bare_marker_name(stmt)
+        name = bare_marker_name(stmt)
         # A marker on a name nothing has stored into yet is an ALLOCATION, and the zero it writes
         # is the identity a following ``+=`` accumulates from -- reading it is correct. A marker on
         # a buffer already filled is the reset this test exists to catch.
@@ -144,7 +128,7 @@ def test_both_kernels_agree_with_numpy_on_every_native_backend() -> None:
     """
     failures = {}
     for short in (_REBIND_KERNEL, _STRIDED_KERNEL):
-        status = no.run_kernel(short, preset="S", only_backends=_NATIVE)
+        status = no.run_kernel(short, preset=Preset.S, only_backends=_NATIVE)
         bad = {backend: value for backend, value in status.items() if value.startswith("FAIL")}
         if bad:
             failures[short] = bad

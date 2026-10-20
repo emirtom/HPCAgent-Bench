@@ -86,17 +86,17 @@ class DTypeInfo:
 
 
 def row_(
-    numpy,
-    c,
-    fortran,
-    scalar_kind,
-    ptr_kind,
-    ctype,
-    compute=None,
-    storage=None,
-    value_range=None,
+    numpy: str,
+    c: str,
+    fortran: str | None,
+    scalar_kind: str,
+    ptr_kind: str,
+    ctype: type | None,
+    compute: str | None = None,
+    storage: str | None = None,
+    value_range: tuple[int, int] | None = None,
     size_multiple: int = 1,
-):
+) -> DTypeInfo:
     return DTypeInfo(numpy, c, fortran, scalar_kind, ptr_kind, ctype, compute, storage, value_range, size_multiple)
 
 

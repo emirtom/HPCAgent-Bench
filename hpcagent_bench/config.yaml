@@ -55,12 +55,12 @@ inputs:
 # /profile and /baseline. The speedup denominator is measurement.baseline; the timed-rep count is
 # measurement.repeat.
 service:
-  oracle: auto             # auto | compiled | numba | c | torch (api.Oracle). Correctness reference.
+  oracle: auto             # auto | compiled | numba | c | torch (categories.Oracle). Correctness reference.
                            #   auto: loop_level_reasoning and scientific_computing -> compiled (the
                            #   best-of(numba, c) references, race leader first, the other when the leader
                            #   cannot answer; loop_level_reasoning starts from c); machine_learning -> torch
                            #   (the torch.compile max-autotune reference). Read by service.from_config.
-  input_mode: source       # py-binding | source | library | any (api.InputMode). What POST /submit accepts:
+  input_mode: source       # py-binding | source | library | any (categories.InputMode). What POST /submit accepts:
                            #   source = code the judge compiles; py-binding = a Python submission called
                            #   in-process; library = a prebuilt .so; any = all three.
   submit_feedback: verdict # verdict | full. verdict: /submit answers correct yes|no and request_id (plus the
@@ -95,7 +95,7 @@ measurement:
                            #   Env: HPCAGENT_BENCH_MEASUREMENT_DENOMINATOR_<TRACK>.
     loop_level_reasoning: best-of(numba,c)
     scientific_computing: best-of(numba,c)
-    machine_learning: torch-autotune
+    machine_learning: torch-autotune # the only value: the ML track has no numba or C reference
   baseline_race: leader-first # leader-first | complete. Order of timing for best-of(numba,c). leader-first: the
                            #   expected winner first (this judge's last winner of the kernel at the preset and
                            #   datatype, else harness/baseline_leaders.yaml, else numba); the other is cut by the
@@ -322,8 +322,8 @@ record:
                                   # cpu or cpu-multinode makes task.setup_declared_host_only refuse device submissions.
   packet: ""                      # str. Skill packets, any separator; stored sorted and '+'-joined.
   setup: ""                       # str. Setup name; provenance only.
-  harness: ""                     # claude | miniswe | openhands | "". Agent harness of the setup; "" is stored
-                                  # NULL.
+  harness: ""                     # claude | miniswe | openhands | optimas | anthropic | openai | "". Agent
+                                  # harness of the setup; "" is stored NULL.
   temperature: 1.0                # float. Sampling temperature of the serving engine (INFERENCE_TEMPERATURE).
   commit: ""                      # str. hpcagent_bench commit the setup was submitted from; "" = unknown.
   tag_version: ""                 # str. Version of what the setup's kernel tag resolved to at submit

@@ -5,6 +5,7 @@
 """Probe the host for the compilers + libraries hpcagent_bench/agent-bench can use; stdlib-only detection."""
 
 import argparse
+import enum
 import functools
 import json
 import os
@@ -15,20 +16,22 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, TypedDict
 
 import pydantic
 import yaml
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import paths
+from hpcagent_bench.config import Hardware
 
 __all__ = [
     "DETECTORS",
     "TARGETS",
     "TOOLSET",
     "TOOLSET_ADAPTER",
-    "Target",
     "VERSION_RE",
+    "Detector",
     "DetectResult",
     "Evidence",
     "NameList",
@@ -55,8 +58,7 @@ __all__ = [
 
 TOOLSET = paths.ENVS_DIR / "toolset.yaml"
 #: The platforms a tool can be required on.
-type Target = Literal["cpu", "nvidia", "amd"]
-TARGETS: tuple[Target, ...] = ("cpu", "nvidia", "amd")
+TARGETS: tuple[Hardware, ...] = tuple(Hardware)
 VERSION_RE = re.compile(r"\d+(?:\.\d+)+")
 
 
@@ -69,13 +71,20 @@ def as_names(raw: object) -> object:
 NameList = Annotated[tuple[str, ...], pydantic.BeforeValidator(as_names)]
 
 
+class Detector(Coded):
+    """How a tool of :data:`TOOLSET` is found (:data:`DETECTORS`)."""
+
+    BINARY = enum.auto()
+    LIBRARY = enum.auto()
+    HEADER = enum.auto()
+
+
 class ToolSpec(pydantic.BaseModel):
-    """One tool of :data:`TOOLSET`: how it is detected, the names a detector looks for, and the targets
-    that require it."""
+    """One tool of :data:`TOOLSET`: how it is detected, the names looked for, and the targets requiring it."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    detect: Literal["binary", "library", "header"]
+    detect: Detector
     #: Binary names in prefer-latest order, and the flags tried for a version.
     names: NameList = ()
     version_arg: NameList = ()
@@ -83,7 +92,7 @@ class ToolSpec(pydantic.BaseModel):
     pkgconfig: NameList = ()
     soname: NameList = ()
     header: NameList = ()
-    required_on: tuple[Target, ...] = ()
+    required_on: tuple[Hardware, ...] = ()
 
 
 #: :data:`TOOLSET`'s schema: category -> tool -> its spec.
@@ -108,11 +117,7 @@ class PlatformInfo(TypedDict):
 
 
 class Evidence(TypedDict, total=False):
-    """What a positive detection carries beyond the yes/no; a miss carries none of it.
-
-    ``path`` and ``version`` come from a binary, ``via`` names the strategy that resolved a
-    library, ``variants`` lists every name a binary answered to.
-    """
+    """What a positive detection carries beyond the yes/no (path, version, resolving strategy, variants)."""
 
     path: str
     version: str | None
@@ -141,7 +146,7 @@ class Report(TypedDict):
 
 
 def detect_platform() -> PlatformInfo:
-    sysname = platform.system()  # Linux / Darwin / Windows
+    sysname = platform.system()
     info: PlatformInfo = {"system": sysname.lower(), "machine": platform.machine(), "wsl": False, "distro": ""}
     if sysname == "Darwin":
         info["distro"] = "macos " + platform.mac_ver()[0]
@@ -280,13 +285,13 @@ def detect_library(spec: ToolSpec) -> DetectResult:
 
 def detect_header(spec: ToolSpec) -> DetectResult:
     """A header-only tool: found by its header alone, whatever else the entry names."""
-    return detect_library(ToolSpec(detect="header", header=spec.header))
+    return detect_library(ToolSpec(detect=Detector.HEADER, header=spec.header))
 
 
-DETECTORS: dict[str, Callable[[ToolSpec], DetectResult]] = {
-    "binary": detect_binary,
-    "library": detect_library,
-    "header": detect_header,
+DETECTORS: dict[Detector, Callable[[ToolSpec], DetectResult]] = {
+    Detector.BINARY: detect_binary,
+    Detector.LIBRARY: detect_library,
+    Detector.HEADER: detect_header,
 }
 
 
@@ -296,18 +301,18 @@ def discover() -> Report:
         out: dict[str, ToolEntry] = {}
         for tool, spec in tools.items():
             res = DETECTORS[spec.detect](spec)
-            req_on: list[str] = list(spec.required_on)
+            req_on = [hardware.text for hardware in spec.required_on]
             entry: ToolEntry = {**res, "required_on": req_on, "optional": not req_on}
             out[tool] = entry
         report["categories"][cat] = out
     return report
 
 
-def missing_for_target(report: Report, target: str) -> list[str]:
+def missing_for_target(report: Report, target: Hardware) -> list[str]:
     miss: list[str] = []
     for cat in report["categories"].values():
         for tool, res in cat.items():
-            if target in res.get("required_on", []) and not res["found"]:
+            if target.text in res.get("required_on", []) and not res["found"]:
                 miss.append(tool)
     return miss
 
@@ -332,7 +337,7 @@ def print_human(report: Report) -> None:
     for target in TARGETS:
         miss = missing_for_target(report, target)
         status = "complete" if not miss else f"MISSING {', '.join(miss)}"
-        print(f"target {target:7}: {status}")
+        print(f"target {target.text:7}: {status}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -340,7 +345,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="emit JSON")
     ap.add_argument("--yaml", action="store_true", help="emit YAML")
     ap.add_argument("-o", "--out", help="write machine output to a file")
-    ap.add_argument("--require", choices=TARGETS, help="exit non-zero if a tool required for this target is missing")
+    ap.add_argument(
+        "--require", choices=Hardware.texts(), help="exit non-zero if a tool required for this target is missing"
+    )
     args = ap.parse_args(argv)
 
     report = discover()
@@ -360,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
         print_human(report)
 
     if args.require:
-        miss = missing_for_target(report, args.require)
+        miss = missing_for_target(report, Hardware.parse(args.require))
         if miss:
             print(f"\nERROR: target {args.require} missing required tools: {', '.join(miss)}", file=sys.stderr)
             return 1

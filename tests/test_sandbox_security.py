@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The sandbox anti-cheat boundary: a submission's ``build`` list may name an
-external dependency (-I/-D/-l/-L) but must NOT (a) smuggle optimization flags
-into the timed build, nor (b) inject an absolute/relative library the judge
-would then dlopen. Regressions here mean unfair scoring or arbitrary code load,
-so both are pinned here."""
+"""The sandbox anti-cheat boundary: a submission's ``build`` list may name dependencies (-I/-D/-l/-L) but may not
+smuggle optimization flags or inject a library path the judge would dlopen."""
 
 import json
 import pathlib
@@ -12,6 +9,7 @@ import shutil
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.sandbox import agent_flags_allowed, safe_link, split_build
 
 
@@ -62,16 +60,16 @@ def test_split_build_rejects_library_injection() -> None:
 
 
 @pytest.mark.parametrize("token", ["-lm", "-lpthread", "-L/usr/lib", "-L/x", "-lopenblas"])
-def test_safe_link_allows_system_libs_and_search_paths(token) -> None:
+def test_safe_link_allows_system_libs_and_search_paths(token: str) -> None:
     assert safe_link(token) is True
 
 
 @pytest.mark.parametrize("token", ["-l:libfoo.so", "-l:/abs/evil.so", "-l/abs/x", "-l../evil", "-l"])
-def test_safe_link_rejects_injection_forms(token) -> None:
+def test_safe_link_rejects_injection_forms(token: str) -> None:
     assert safe_link(token) is False
 
 
-def test_the_sandbox_goes_to_ram_only_where_ram_is_not_the_measurement(tmp_path) -> None:
+def test_the_sandbox_goes_to_ram_only_where_ram_is_not_the_measurement(tmp_path: pathlib.Path) -> None:
     """A submission's build is write-heavy and entirely disposable, so RAM is the right medium --
     but only where the RAM is not the thing under measurement.
 
@@ -143,7 +141,9 @@ def test_a_full_memory_filesystem_is_declined_rather_than_filled() -> None:
                 os.environ[key] = value
 
 
-def test_a_prebuilt_library_is_read_from_the_shared_folder_only(tmp_path, monkeypatch) -> None:
+def test_a_prebuilt_library_is_read_from_the_shared_folder_only(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The judge ``dlopen``s what a REMOTE submission's ``library`` names, so that path is a
     code-execution channel: the two containers share exactly one directory, and an object outside
     it is either a path that means nothing here or one the agent picked off the judge's own
@@ -163,7 +163,9 @@ def test_a_prebuilt_library_is_read_from_the_shared_folder_only(tmp_path, monkey
             resolve_shared(escape)
 
 
-def test_a_submitted_source_file_is_read_from_the_shared_folder_only(tmp_path, monkeypatch) -> None:
+def test_a_submitted_source_file_is_read_from_the_shared_folder_only(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``source_file`` is the same code-execution channel as ``library``, one step earlier: the judge
     COMPILES what the path names and then ``dlopen``s the result, so it goes through the same
     boundary. A file the agent picked off the judge's own filesystem, reached with ``..``, or aimed
@@ -219,7 +221,9 @@ def test_a_submitted_path_is_confined_to_the_episodes_own_folder(
     assert resolve_shared(str(shared / "agent-0" / "gemm.c"), "adhoc") == shared / "agent-0" / "gemm.c"
 
 
-def test_the_installed_libraries_are_read_from_the_mount_not_declared(tmp_path, monkeypatch) -> None:
+def test_the_installed_libraries_are_read_from_the_mount_not_declared(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """What an agent may link with a bare ``-l<name>`` is whatever it installed into the mount, so
     the listing is a directory read -- a declared list would need updating in a second place and
     would go stale in the direction that reads as "not installed"."""
@@ -250,9 +254,9 @@ def test_unresolvable_libraries_closes_the_linker_probe_fallback(
     (shared / "lib" / "libmine.so").touch()
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(shared))
 
-    assert unresolvable_libraries(["-lmine", "-lm", "-lpthread", "-lnotalib"], "c") == ["notalib"]
+    assert unresolvable_libraries(["-lmine", "-lm", "-lpthread", "-lnotalib"], Language.C) == ["notalib"]
     # No -l tokens at all -> nothing to diagnose, not "everything is missing".
-    assert unresolvable_libraries(["-Ifoo", "-L/x"], "c") == []
+    assert unresolvable_libraries(["-Ifoo", "-L/x"], Language.C) == []
 
 
 def test_build_link_refusal_rejects_a_name_off_the_shared_folder_and_the_catalog(
@@ -264,7 +268,7 @@ def test_build_link_refusal_rejects_a_name_off_the_shared_folder_and_the_catalog
     from hpcagent_bench.harness.sandbox import build_link_refusal
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path / "empty-shared"))
-    refusal = build_link_refusal(["-lnotalib"], "c")
+    refusal = build_link_refusal(["-lnotalib"], Language.C)
     assert refusal is not None
     assert "notalib" in refusal
 
@@ -279,7 +283,7 @@ def test_build_link_refusal_allows_toolchain_basics_and_shared_folder_names(
     (shared / "lib" / "libmine.so").touch()
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(shared))
 
-    assert build_link_refusal(["-lm", "-lpthread", "-lmine"], "c") is None
+    assert build_link_refusal(["-lm", "-lpthread", "-lmine"], Language.C) is None
 
 
 def test_build_link_refusal_is_off_when_the_outer_switch_is_off(
@@ -292,7 +296,7 @@ def test_build_link_refusal_is_off_when_the_outer_switch_is_off(
 
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path / "empty-shared"))
     with config.overridden("grading.allow_agent_build_tokens", False):
-        assert build_link_refusal(["-lnotalib"], "c") is None
+        assert build_link_refusal(["-lnotalib"], Language.C) is None
 
 
 def test_the_outer_switch_makes_the_whole_build_list_inert() -> None:

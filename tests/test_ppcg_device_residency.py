@@ -1,32 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``ppcg_hip`` GPU comparator column has to follow the same residency contract as every other
-GPU column (docs/abi_contract.md Sec. 10): every array argument arrives on the device BEFORE the
-timed call, the timed region is kernel launches + a device wait, and nothing inside it copies.
-
-ppcg's own generated host code does not do that: ``--target=cuda`` output always allocates a
-``dev_X`` mirror per array, ``hipMemcpy``s the caller's ``X`` INTO it (H2D), launches against the
-mirror, ``hipMemcpy``s the result back OUT (D2H), then frees it -- all inside the perf_counter
-bracket ``Framework.measure`` puts around the call, so the reported time would include two
-PCIe/Infinity-Fabric transfers and a malloc/free pair that every sibling column pays for OUTSIDE
-its sample.
-
-Residency has two independently-testable halves:
-
-1. :func:`hpcagent_bench.ppcg_transform.device_resident_host` -- a textual rewrite of ppcg's
-   hipified host code that aliases each PARAMETER's mirror to the parameter itself and drops its
-   malloc/copy/free. ppcg is not installed on this host (see ``tests/conftest.py``'s ``ppcg``
-   hardware group), so this is proven against strings in ppcg's own output shape -- the first two
-   hand-written, ``PPCG_VLA_TRANSIENT_HOST`` trimmed from a real ppcg 0.09.3 + ``hipify-perl`` run.
-2. The .so that rewritten code compiles to needs a DEVICE pointer, not a host array --
-   :func:`hpcagent_bench.frameworks.native_runtime._is_device_array` / ``_to_ctypes`` recognize a
-   cupy argument and hand the .so its raw ``.data.ptr`` instead of ``.ctypes.data_as``. Proven with
-   a duck-typed stand-in for ``cupy.ndarray`` first (no cupy needed), then end to end against a
-   REAL hand-written HIP kernel ``.so`` and real cupy where both are installed -- this repo's own
-   login node has hipcc and an MI250X but ships no cupy in the pinned venv, so that half is gated
-   behind ``pytest.importorskip("cupy")`` the same way ``tests/test_compare_arrays.py`` gates its
-   own real-cupy pin.
-"""
+"""``ppcg_hip`` follows the GPU residency contract (docs/abi_contract.md Sec. 10): the host-code rewrite drops
+ppcg's per-array device mirrors (checked on ppcg-shaped strings), and the .so receives cupy device pointers
+(duck-typed, then end to end where cupy and hipcc exist)."""
 
 import ctypes
 import pathlib
@@ -38,6 +14,8 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import ppcg_transform
+from hpcagent_bench.columns import FRAMEWORKS
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks import native_runtime, pluto_framework
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.ppcg_transform import device_resident_host
@@ -255,21 +233,22 @@ def test_a_passthrough_is_published_and_declined_not_crashed_on(
     monkeypatch.setattr(ppcg_transform, "assert_affine", lambda *a, **k: None)
     monkeypatch.setattr(ppcg_transform, "scop_inputs", lambda *a, **k: [scop])
 
-    proc = ppcg_transform.run_ppcg(scop, "hip")[1]
+    proc = ppcg_transform.run_ppcg(scop, Language.HIP)[1]
     assert proc.returncode == 0, proc.stderr
-    assert all(p.is_file() for p in ppcg_transform.transformed_paths(scop, "hip"))
+    assert all(p.is_file() for p in ppcg_transform.transformed_paths(scop, Language.HIP))
     with pytest.raises(NotSupportedByFramework, match="offloaded nothing"):
-        ppcg_transform.transformed_sources(cpp_backend, "red", "hip")
+        ppcg_transform.transformed_sources(cpp_backend, "red", Language.HIP)
 
 
 # ctypes device pointers
 
 
 class FakeCupyArray:
-    """Duck-types ``cupy.ndarray`` down to the two attributes ``_is_device_array``/``_to_ctypes``
-    read (``dtype`` and ``data.ptr``): a distinct type from ``np.ndarray``, with no
-    ``__array_interface__``, and a ``.data.ptr`` integer address -- backed by a real numpy buffer
+    """Stands in for ``cupy.ndarray``: a type of the ``cupy`` package (what ``_is_device_array`` reads) with
+    the ``dtype`` and ``.data.ptr`` integer address ``to_ctypes`` reads -- backed by a real numpy buffer
     so the "device" pointer is dereferenceable and the round trip through ctypes is checkable."""
+
+    __module__ = "cupy._core.core"
 
     def __init__(self, host: np.ndarray) -> None:
         self._host = host
@@ -297,7 +276,7 @@ def test_to_ctypes_reads_the_device_arrays_own_pointer() -> None:
     -- proof this does not fall back to copying anything."""
     host = np.arange(4, dtype=np.float64)
     fake = FakeCupyArray(host)
-    ptr = native_runtime._to_ctypes(fake, ctypes.c_double, ctypes.c_int64)
+    ptr = native_runtime.to_ctypes(fake, ctypes.c_double, ctypes.c_int64)
     # ctypes.cast gives a POINTER(c_double); reading through it must see the backing array's data.
     values = [ptr[i] for i in range(4)]
     assert values == list(host), values
@@ -306,7 +285,7 @@ def test_to_ctypes_reads_the_device_arrays_own_pointer() -> None:
 
 def test_ctype_arg_picks_a_pointer_type_for_a_device_array() -> None:
     fake = FakeCupyArray(np.zeros(1, dtype=np.float32))
-    argtype = native_runtime._ctype_arg(fake, ctypes.c_float, ctypes.c_int64)
+    argtype = native_runtime.ctype_arg(fake, ctypes.c_float, ctypes.c_int64)
     assert argtype is ctypes.POINTER(ctypes.c_float)
 
 
@@ -370,7 +349,7 @@ def fake_cupy_module(log: list[str]) -> object:
 def make_pluto(fname: str) -> pluto_framework.PlutoFramework:
     fw = pluto_framework.PlutoFramework.__new__(pluto_framework.PlutoFramework)
     fw.fname = fname
-    fw.info = {"arch": "gpu" if fname != "pluto" else "cpu"}
+    fw.column = FRAMEWORKS.entries[fname]
     return fw
 
 
@@ -489,8 +468,8 @@ def test_a_device_pointer_call_runs_a_real_hip_so(tmp_path: pathlib.Path) -> Non
         ctypes.c_int,
     ]
     lib.axpy.restype = None
-    c_a = native_runtime._to_ctypes(dev_a, ctypes.c_double, ctypes.c_int64)
-    c_b = native_runtime._to_ctypes(dev_b, ctypes.c_double, ctypes.c_int64)
+    c_a = native_runtime.to_ctypes(dev_a, ctypes.c_double, ctypes.c_int64)
+    c_b = native_runtime.to_ctypes(dev_b, ctypes.c_double, ctypes.c_int64)
 
     start, stop = cupy.cuda.Event(), cupy.cuda.Event()
     start.record()

@@ -54,7 +54,7 @@ class DropGuards(RewritePass):
 
     __slots__ = ()
 
-    def visit_Raise(self, node: ast.Raise | ast.Assert):
+    def visit_Raise(self, node: ast.Raise | ast.Assert) -> ast.stmt:
         self.changed = True
         return ast.copy_location(ast.Pass(), node)
 
@@ -69,7 +69,7 @@ class DropValidationGuards(ast.NodeTransformer):
 
     __slots__ = ()
 
-    def visit_If(self, node: ast.If):
+    def visit_If(self, node: ast.If) -> ast.stmt | None:
         self.generic_visit(node)
         if not node.orelse and node.body and all(isinstance(s, (ast.Raise, ast.Assert, ast.Pass)) for s in node.body):
             return None
@@ -102,7 +102,7 @@ class IssubdtypeFold(ast.NodeTransformer):
         self.dtypes = dtypes
         self.changed = False
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if numpy_call_attr(node) != "issubdtype" or len(node.args) != 2:
             return node
@@ -128,7 +128,7 @@ class DeadBranchElim(RewritePass):
 
     __slots__ = ()
 
-    def const_bool(self, node: ast.expr):
+    def const_bool(self, node: ast.expr) -> bool | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, bool):
             return node.value
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
@@ -141,7 +141,7 @@ class DeadBranchElim(RewritePass):
             return True if any(v is True for v in vals) else (False if all(v is False for v in vals) else None)
         return None
 
-    def visit_If(self, node: ast.If):
+    def visit_If(self, node: ast.If) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         taken = self.const_bool(node.test)
         if taken is True:

@@ -72,7 +72,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 # The runtime counter: hpcagent_bench/openmp_runtimes.py, verbatim from here to the END marker.
 #: Runtime library files by basename: GNU ``libgomp`` (wheels bundle it as ``libgomp-<hash>.so.1.0.0``),
@@ -380,7 +380,7 @@ def run_probe(probe: Probe, lib: ctypes.CDLL) -> str:
     return f"{probe.name}: teams {teams}"
 
 
-def cpu_over_wall(work) -> float:
+def cpu_over_wall(work: Callable[[], object]) -> float:
     """Process CPU seconds per wall second while ``work()`` runs: above 1 only if threads really ran."""
     cpu0, wall0 = time.process_time(), time.perf_counter()
     work()

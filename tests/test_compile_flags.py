@@ -7,10 +7,12 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
+from typing import Any
 
 import pytest
 
-from hpcagent_bench import flags, languages
+from hpcagent_bench import flags, languages, modules
+from hpcagent_bench.categories import Language
 
 # A trivial program per language whose result depends on an FP loop, so the optimizer can't delete it.
 _C_SRC = "int main(void){double x=1.0;for(int i=0;i<1000;i++)x*=1.0000001;return x>1e9;}\n"
@@ -41,7 +43,7 @@ _FORTRAN_CASES = [
 
 
 @pytest.mark.parametrize(("name", "exe", "baseline", "ext", "src"), _CC_CASES, ids=[c[0] for c in _CC_CASES])
-def test_cpu_baseline_compiles_and_runs(name, exe, baseline, ext, src) -> None:
+def test_cpu_baseline_compiles_and_runs(name: str, exe: str, baseline: str, ext: str, src: str) -> None:
     if shutil.which(exe) is None:
         pytest.skip(f"{exe} not installed")
     with tempfile.TemporaryDirectory() as d:
@@ -57,7 +59,7 @@ def test_cpu_baseline_compiles_and_runs(name, exe, baseline, ext, src) -> None:
 
 
 @pytest.mark.parametrize(("name", "baseline"), _FORTRAN_CASES, ids=[c[0] for c in _FORTRAN_CASES])
-def test_fortran_baseline_compiles_and_runs(name, baseline) -> None:
+def test_fortran_baseline_compiles_and_runs(name: str, baseline: str) -> None:
     exe = languages.resolve_compiler(name)
     if exe is None:
         pytest.skip(f"{name} not installed")
@@ -76,7 +78,7 @@ def test_fortran_baseline_compiles_and_runs(name, baseline) -> None:
 # No dead config: every declaration must be reachable and agree (these read the real files)
 
 
-def _compiler_blocks():
+def compiler_blocks() -> dict[str, Any]:
     from hpcagent_bench.languages import _load_compilers
 
     return _load_compilers()
@@ -84,9 +86,9 @@ def _compiler_blocks():
 
 def test_every_compilers_yaml_ref_resolves() -> None:
     """A baseline_ref / autopar_ref naming a nonexistent constant is dead config."""
-    flag_vars = vars(flags)
+    flag_vars = modules.members(flags)
     bad = []
-    for name, block in _compiler_blocks().items():
+    for name, block in compiler_blocks().items():
         for key, ref in (("baseline_ref", block.baseline_ref), ("autopar_ref", block.autopar_ref)):
             if ref is not None and ref not in flag_vars:
                 bad.append(f"{name}.{key} -> {ref!r}")
@@ -113,7 +115,7 @@ def test_every_shared_library_block_compiles_position_independent(monkeypatch: p
     # A hip block appends the GPU's arch, which a GPU-less host does not guess; PIC does not depend on it.
     monkeypatch.setenv("HPCAGENT_BENCH_GFX", "gfx942")
     missing = []
-    for name, block in _compiler_blocks().items():
+    for name, block in compiler_blocks().items():
         if block.mpi:
             continue
         line = " ".join(block.compile)
@@ -134,7 +136,7 @@ def test_every_shared_library_block_compiles_position_independent(monkeypatch: p
 
 def test_flang_uses_the_flang_baseline_not_the_clang_one() -> None:
     """flang must not inherit the C/C++ clang baseline; pinned by name since the toolchain may be absent."""
-    block = _compiler_blocks()["flang"]
+    block = compiler_blocks()["flang"]
     assert block.baseline_ref == "FLANG_BASELINE", (
         f"flang resolves {block.baseline_ref}; FLANG_BASELINE exists for this compiler and is otherwise unreferenced"
     )
@@ -153,7 +155,7 @@ def test_every_native_flavor_is_wired_end_to_end() -> None:
     from hpcagent_bench.columns import FRAMEWORKS
     from hpcagent_bench.frameworks.native_runtime import FRAMEWORK_LANG
 
-    built = {n for n, meta in FRAMEWORKS.entries.items() if meta["base"] in ("native", "pluto")}
+    built = {n for n, column in FRAMEWORKS.entries.items() if column.base in ("native", "pluto")}
     assert {"cc", "pluto", "ppcg_cuda", "ppcg_hip"} <= built, "the check would pass vacuously"
     assert not (built - set(FRAMEWORK_LANG)), (
         f"missing from native_runtime.FRAMEWORK_LANG: {built - set(FRAMEWORK_LANG)}"
@@ -170,8 +172,8 @@ def test_a_cpp_flavor_names_its_compiler_explicitly() -> None:
 
     unset = sorted(
         n
-        for n, meta in FRAMEWORKS.entries.items()
-        if meta["base"] == "native" and FRAMEWORK_LANG.get(n) == "cpp" and n not in FRAMEWORK_COMPILER
+        for n, column in FRAMEWORKS.entries.items()
+        if column.base == "native" and FRAMEWORK_LANG.get(n) is Language.CPP and n not in FRAMEWORK_COMPILER
     )
     assert not unset, (
         f"cpp flavor(s) {unset} name no compiler and would fall through to g++; "
@@ -223,7 +225,7 @@ def make_fake_driver(directory: pathlib.Path, name: str) -> None:
 
 
 @pytest.fixture
-def fake_path(tmp_path, monkeypatch):
+def fake_path(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
     """PATH holding only ``tmp_path``, so a real toolchain cannot mask the assertion."""
     monkeypatch.setenv("PATH", str(tmp_path))
     languages.resolve_compiler.cache_clear()
@@ -231,7 +233,7 @@ def fake_path(tmp_path, monkeypatch):
     languages.resolve_compiler.cache_clear()
 
 
-def test_a_driver_below_its_floor_is_not_resolved(fake_path) -> None:
+def test_a_driver_below_its_floor_is_not_resolved(fake_path: pathlib.Path) -> None:
     """A too-old driver must MISS, not be handed a flag its release cannot parse.
 
     Each floor in COMPILER_MIN_MAJOR is a flag the block pins: gcc 14 for -std=c23 (gcc-13 answers
@@ -248,21 +250,21 @@ def test_a_driver_below_its_floor_is_not_resolved(fake_path) -> None:
         )
 
 
-def test_resolve_compiler_prefers_the_highest_version_numerically(fake_path) -> None:
+def test_resolve_compiler_prefers_the_highest_version_numerically(fake_path: pathlib.Path) -> None:
     """A lexical sort picks ``zzc-9`` and silently pins the suite to an ancient toolchain."""
     for name in ("zzc-9", "zzc-14", "zzc-21"):
         make_fake_driver(fake_path, name)
     assert languages.resolve_compiler("zzc") == str(fake_path / "zzc-21")
 
 
-def test_resolve_compiler_prefers_the_unversioned_driver(fake_path) -> None:
+def test_resolve_compiler_prefers_the_unversioned_driver(fake_path: pathlib.Path) -> None:
     """The unversioned driver is the distro's chosen default; a higher sibling must not win."""
     make_fake_driver(fake_path, "zzc")
     make_fake_driver(fake_path, "zzc-21")
     assert languages.resolve_compiler("zzc") == str(fake_path / "zzc")
 
 
-def test_resolve_compiler_follows_the_flang_rename(fake_path) -> None:
+def test_resolve_compiler_follows_the_flang_rename(fake_path: pathlib.Path) -> None:
     """LLVM renamed ``flang-new`` to ``flang``; either spelling must find what is installed.
 
     The 22 is load-bearing: flang carries a COMPILER_MIN_MAJOR of 20 (the release that
@@ -273,7 +275,7 @@ def test_resolve_compiler_follows_the_flang_rename(fake_path) -> None:
     assert languages.resolve_compiler("flang") == str(fake_path / "flang-new-22")
 
 
-def test_resolve_compiler_reports_a_genuinely_absent_driver(fake_path) -> None:
+def test_resolve_compiler_reports_a_genuinely_absent_driver(fake_path: pathlib.Path) -> None:
     """None, not a guess -- a fabricated path turns a clean skip into a confusing exec failure."""
     assert languages.resolve_compiler("zzc") is None
 

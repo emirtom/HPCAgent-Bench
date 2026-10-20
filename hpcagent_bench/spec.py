@@ -1,24 +1,12 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Schema-validated kernel descriptor.
-
-:class:`BenchSpec` is the parsed form of a kernel's ``<stem>.yaml`` manifest, which sits next to the
-kernel's sources and is its single source of truth (:meth:`BenchSpec.from_yaml`). Kernels stay
-data-described rather than registered by a Python decorator, which keeps the contribution barrier
-low: no import side effects, and language-agnostic introspection.
-
-* Typo detection at load time -- :meth:`BenchSpec.from_dict` raises a :class:`ValueError` naming the
-  offending field and the kernel, instead of letting the typo surface as an opaque
-  :class:`NameError` deep in the harness.
-* Derivable fields (``level`` from ``kind``) resolve from what the manifest states, so a manifest
-  declares intent and not bookkeeping. Validation tolerance derives from the run precision
-  (:data:`hpcagent_bench.precision.TOLERANCE_MATRIX`), so a per-kernel ``rtol`` / ``atol`` is rejected at
-  load time. The exceptions are ``conditioning_rtol`` / ``conditioning_atol``, floors for a kernel whose
-  answer is ill-conditioned at the band (:attr:`BenchSpec.conditioning_rtol`).
-"""
+"""Schema-validated kernel descriptor: :class:`BenchSpec` is the parsed ``<stem>.yaml`` manifest beside the kernel's
+sources, its single source of truth. Typos fail at load naming the field; derivable fields are derived, never
+declared; tolerances come from the run precision (only ``conditioning_*`` floors are per kernel)."""
 
 import ast
 import difflib
+import enum
 import functools
 import hashlib
 import itertools
@@ -28,18 +16,14 @@ import pathlib
 import re
 from collections.abc import Callable, Iterator, KeysView, Mapping
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, NamedTuple, TypeGuard, cast
 
 import yaml
+from hpcagent_agent.coded import Coded
 from pydantic import BaseModel, ConfigDict, Field, InstanceOf
 
-#: The loader :func:`load_yaml` parses manifests with. ``CSafeLoader`` is PyYAML's libyaml-backed
-#: implementation of the SAME YAML 1.1 safe subset ``yaml.safe_load`` uses -- a faster parser, not a
-#: different dialect (``tests.test_bench_info_surface`` pins that over the whole corpus). It only exists
-#: when PyYAML was built against libyaml, which a wheel is and a bare source build is not, so the
-#: fallback is an ImportError away rather than a flag anyone has to set. Worth having: every registry
-#: walk parses every manifest, roughly 8x faster through libyaml.
+#: The loader :func:`load_yaml` parses manifests with: libyaml's ``CSafeLoader`` (the same YAML 1.1 safe subset,
+#: ~8x faster) when PyYAML was built against it, else ``SafeLoader``.
 try:
     from yaml import CSafeLoader as MANIFEST_LOADER  # noqa: N814 -- the module's loader constant
 except ImportError:  # PyYAML built without libyaml
@@ -47,6 +31,7 @@ except ImportError:  # PyYAML built without libyaml
 
 from hpcagent_bench import config, fuzz, manifest_schema, paths
 from hpcagent_bench import dtypes as dtype_registry
+from hpcagent_bench.categories import Language, Preset, Track
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.manifest_schema import Number, Value
@@ -84,7 +69,6 @@ __all__ = [
     "LEVELS",
     "MANIFEST_DERIVED_CACHES",
     "MANIFEST_INIT_KEYS",
-    "PRESET_CHOICES",
     "RESERVED_BACKEND_NAMES",
     "RUNGS",
     "SCENARIO_KEYS",
@@ -103,7 +87,6 @@ __all__ = [
     "KernelRegistry",
     "LayoutChoice",
     "MpiDecomposition",
-    "Preset",
     "PresetTable",
     "PresetToken",
     "ResolvedBench",
@@ -111,7 +94,6 @@ __all__ = [
     "SparseConfiguration",
     "SparseLayout",
     "SparseLayoutVariant",
-    "Track",
     "as_block",
     "as_domain",
     "as_list",
@@ -189,20 +171,13 @@ __all__ = [
     "value_of",
 ]
 
-#: One complete config: every ``config:`` symbol bound to one value. What
-#: :attr:`BenchSpec.config_space` enumerates and what a ``constraints:`` expression is evaluated
-#: over. Values are spelled as ``fuzz.FuzzValue`` because a row is handed to the same evaluator the
-#: fuzzer resolves its draws with (:func:`hpcagent_bench.fuzz.safe_eval`).
+#: One complete config: every ``config:`` symbol bound to one value (what ``constraints:`` are evaluated over).
 ConfigRow = dict[str, FuzzValue]
 
-#: ``{preset: {symbol: value}}`` -- the size table a manifest declares under ``parameters:``.
-#: A concrete rung holds numbers; the ``fuzzed`` preset holds the ``[lo, hi]`` /
-#: ``{set: ...}`` / ``{construct: ...}`` specs the fuzzer resolves, which is why the value type is
-#: the fuzz vocabulary and not ``int``.
+#: ``{preset: {symbol: value}}``, the ``parameters:`` size table; ``fuzzed`` holds fuzz specs, hence ``FuzzValue``.
 PresetTable = dict[str, dict[str, FuzzValue]]
 
-#: One array declaration as a manifest's ``args`` spells it: a bare shape string, or the shape plus
-#: whatever else that array declares.
+#: One array declaration as a manifest's ``args`` spells it: a bare shape string, or a mapping.
 ArrayEntry = str | dict[str, str | bool | domain_mod.RawDomain]
 
 #: The sparse FORMAT one configuration emits an array in.
@@ -220,13 +195,8 @@ def is_list(raw: object) -> TypeGuard[list[object]]:
 
 
 def as_block(raw: object) -> dict[str, object]:
-    """One YAML mapping, keyed by text, with the weakest TRUE statement about its values.
-
-    ``isinstance(raw, dict)`` proves it is a mapping and nothing about what is in it, so every value
-    stays ``object`` until it is converted. Keys are forced to text because YAML 1.1 reads an
-    unquoted ``on`` as a bool and a bare version as a float, and a field name that is not text
-    matches nothing the schema knows. A node that is not a mapping reads as empty; the callers that
-    must REJECT one say so themselves (:func:`block_of`)."""
+    """One YAML mapping keyed by text, its values still ``object`` (YAML 1.1 reads ``on`` as a bool, so keys are
+    forced to text); a non-mapping reads as empty, and callers that must reject one use :func:`block_of`."""
     return {str(k): v for k, v in cast("dict[object, object]", raw).items()} if isinstance(raw, dict) else {}
 
 
@@ -241,9 +211,7 @@ def as_tuple(result: object) -> tuple[Any, ...]:
 
 
 def block_of(raw: object, field_name: str, source: str) -> dict[str, object]:
-    """One manifest block that MUST be a mapping. Absent (``None``) is empty; anything else is a
-    load error naming the field, so a mistyped block fails here instead of as an attribute error
-    deep in the harness."""
+    """One manifest block that MUST be a mapping: absent is empty, anything else a load error naming the field."""
     block = as_block(raw)
     if raw is not None and not isinstance(raw, dict):
         raise ValueError(f"{source}: {field_name}: expected a mapping (got {type(raw).__name__})")
@@ -256,19 +224,13 @@ def list_block_of(raw: object, field_name: str, source: str) -> dict[str, list[s
     for key, value in block_of(raw, field_name, source).items():
         if not isinstance(value, list):
             raise ValueError(f"{source}: {field_name}.{key}: expected a list (got {type(value).__name__})")
-        # isinstance proves it is a list and nothing about its members, which is what the cast says
         out[key] = [str(item) for item in cast("list[object]", value)]
     return out
 
 
 def as_value(raw: object) -> "FuzzValue | None":
-    """One parsed node as a declared value, or ``None`` when it is not one (a YAML null, a
-    timestamp).
-
-    A mapping or sequence is handed on WHOLE: the vocabulary is recursive, and ``isinstance`` proves
-    only the outermost node, so its members are narrowed where they are read (``fuzz.as_block`` /
-    ``fuzz.as_list`` / ``fuzz.is_set``). This is the one place a parsed node crosses into the value
-    vocabulary, and the reason the node keeps its identity instead of being rebuilt."""
+    """One parsed node as a declared value, or ``None`` (a YAML null, a timestamp); mappings and sequences pass
+    whole and are narrowed where read."""
     if isinstance(raw, (bool, int, float, str)):
         return raw
     if isinstance(raw, (dict, list, tuple)):
@@ -277,8 +239,7 @@ def as_value(raw: object) -> "FuzzValue | None":
 
 
 def value_of(raw: object, field_name: str, source: str) -> FuzzValue:
-    """One declared value. A node outside the vocabulary (a YAML timestamp, a null) is a load error
-    naming the field, not a value every consumer has to carry."""
+    """One declared value; a node outside the vocabulary is a load error naming the field."""
     value = as_value(raw)
     if value is None:
         raise ValueError(f"{source}: {field_name}: expected a scalar, a list, or a mapping (got {type(raw).__name__})")
@@ -286,8 +247,7 @@ def value_of(raw: object, field_name: str, source: str) -> FuzzValue:
 
 
 def number_of(raw: object, field_name: str, source: str) -> float:
-    """One declared number, keeping the manifest's own spelling: an int stays an int, which is what
-    the ABI then carries."""
+    """One declared number, keeping the manifest's own spelling (an int stays an int for the ABI)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise ValueError(f"{source}: {field_name}: expected a number (got {type(raw).__name__})")
     return raw
@@ -301,64 +261,34 @@ def int_of(raw: object, field_name: str, source: str) -> int:
 
 
 def as_domain(raw: object, field_name: str, source: str) -> domain_mod.RawDomain:
-    """One array's ``domain`` as the manifest states it -- a sign name or a ``[low, high]``
-    pair. :func:`hpcagent_bench.support.distributions.domain.parse` is what decides it is one."""
+    """One array's ``domain`` as the manifest states it (validated by ``distributions.domain.parse``)."""
     if isinstance(raw, str):
         return raw
     return [number_of(v, field_name, source) for v in as_list(raw)]
 
 
 def load_yaml(text: str) -> dict[str, object]:
-    """The manifest in ``text`` as ``{field: unconverted value}``, parsed through libyaml where it
-    is available.
-
-    A document that is not a mapping reads as empty: :meth:`BenchSpec.from_dict`'s required-field
-    check is what reports it, naming the file."""
+    """The manifest in ``text`` as ``{field: unconverted value}`` (libyaml where available); a non-mapping document
+    reads as empty."""
     return as_block(yaml.load(text, Loader=MANIFEST_LOADER))
 
 
-class Track(Enum):
-    """A benchmark track: the top-level directory under ``hpcagent_bench/benchmarks``."""
-
-    LOOP_LEVEL_REASONING = "loop_level_reasoning"
-    SCIENTIFIC_COMPUTING = "scientific_computing"
-    MACHINE_LEARNING = "machine_learning"
-
-
-class Preset(Enum):
-    """Size preset a benchmark runs at (the CLI ``-p`` / ``--preset`` choices). ``fuzzed``
-    is a separate opt-in and may carry a ``:seed`` suffix (see :func:`parse_preset`)."""
-
-    S = "S"
-    M = "M"
-    L = "L"
-    XL = "XL"
-    FUZZED = "fuzzed"
-
-
-#: The preset vocabulary as a tuple; the single source of truth is :class:`Preset`.
-PRESET_CHOICES = tuple(p.value for p in Preset)
-
-#: The SIZE RUNGS -- the presets that name a fixed size, i.e. everything a ``+fuzz`` can
-#: attach to. Derived from :class:`Preset` rather than imported from ``sizing`` because
-#: ``sizing`` imports this module.
-RUNGS = tuple(p.value for p in Preset if p is not Preset.FUZZED)
+#: The SIZE RUNGS: the presets that name a fixed size (what ``+fuzz`` can attach to).
+RUNGS: tuple[Preset, ...] = tuple(p for p in Preset if p.is_rung)
 
 #: The track whose kernels take a configured datatype (``ml.datatype``).
-TRACK_DATATYPE_TRACK = "machine_learning"
+TRACK_DATATYPE_TRACK = Track.MACHINE_LEARNING
 
 
 def declares_storage_precision(allowed_precisions: tuple[str, ...]) -> bool:
-    """Whether a kernel allows exactly one precision and it is storage-only (``bf16``): it crosses the
-    ABI in its own precision, whatever the track's datatype says (the distributed ML operators)."""
+    """Whether a kernel allows exactly one precision and it is storage-only (``bf16``): it crosses the ABI in it."""
     return len(allowed_precisions) == 1 and dtype_registry.is_storage_only(allowed_precisions[0])
 
 
-def track_datatype(track: str, allowed_precisions: tuple[str, ...]) -> str:
-    """The datatype a kernel of ``track`` allowing ``allowed_precisions`` is graded in by its TRACK:
-    ``ml.datatype`` for a machine_learning kernel with no storage precision of its own, else ``""`` (the
-    grade's configured datatype stands)."""
-    if track != TRACK_DATATYPE_TRACK or declares_storage_precision(allowed_precisions):
+def track_datatype(track: Track, allowed_precisions: tuple[str, ...]) -> str:
+    """The datatype a ``track`` kernel is graded in by its track: ``ml.datatype`` for an ML kernel without a storage
+    precision of its own, else ``""``."""
+    if track is not TRACK_DATATYPE_TRACK or declares_storage_precision(allowed_precisions):
         return ""
     return config.current().ml.datatype
 
@@ -366,49 +296,37 @@ def track_datatype(track: str, allowed_precisions: tuple[str, ...]) -> str:
 #: The one preset MODIFIER: ``<rung>+fuzz`` samples sizes around ``<rung>``.
 FUZZ_SUFFIX = "fuzz"
 
-#: What a bare ``fuzzed`` token anchors on. XL is the size the manifests declare as the
-#: production shape, so it is what a submission is graded at unless a caller says otherwise.
-DEFAULT_FUZZ_ANCHOR = "XL"
+#: What a bare ``fuzzed`` token anchors on: XL, the production shape.
+DEFAULT_FUZZ_ANCHOR = Preset.XL
 
 
 class PresetToken(NamedTuple):
     """A parsed preset token: the base preset, the pinned fuzz seed, and the rung fuzzing draws around."""
 
-    base: str
+    base: Preset
     seed: int | None
-    anchor: str
+    anchor: Preset
 
 
 def parse_preset(preset: str) -> PresetToken:
-    """Split a preset token into ``(base, seed, anchor)``.
-
-    Fuzzing is a PROPERTY of a preset, not a preset of its own: ``+fuzz`` samples sizes around
-    the rung it is attached to, so ``XL+fuzz`` draws around XL and ``M+fuzz`` around M. Every
-    rung accepts it. The bare ``fuzzed`` token is the historical spelling of ``XL+fuzz`` and
-    still resolves to exactly that.
-
-    ``S`` / ``M`` / ``L`` / ``XL`` give ``(base, None, base)`` -- a fixed size, anchor unused.
-    ``XL+fuzz`` gives ``("fuzzed", None, "XL")``; ``M+fuzz:42`` gives ``("fuzzed", 42, "M")``.
-    A ``:seed`` suffix pins the sampling RNG and is only meaningful with ``+fuzz``.
-
-    Raises ``ValueError`` on an unknown rung or a non-integer / misplaced seed."""
+    """Split a preset token into ``(base, seed, anchor)``: ``M`` -> ``("M", None, "M")``, ``M+fuzz:42`` ->
+    ``("fuzzed", 42, "M")``; bare ``fuzzed`` means ``XL+fuzz``. Raises ``ValueError`` on an unknown rung or bad seed."""
     head, sep, rest = preset.partition(":")
-    anchor, plus, suffix = head.partition("+")
+    rung, plus, suffix = head.partition("+")
     if plus:
         if suffix != FUZZ_SUFFIX:
             raise ValueError(f"unknown preset modifier {suffix!r} in {preset!r}; only '+{FUZZ_SUFFIX}' exists")
-        if anchor not in RUNGS:
-            raise ValueError(
-                f"'+{FUZZ_SUFFIX}' attaches to a size rung; got {anchor!r}, choose from {', '.join(RUNGS)}"
-            )
-        base = Preset.FUZZED.value
+        anchor = next((p for p in RUNGS if p.text == rung), None)
+        if anchor is None:
+            rungs = ", ".join(p.text for p in RUNGS)
+            raise ValueError(f"'+{FUZZ_SUFFIX}' attaches to a size rung; got {rung!r}, choose from {rungs}")
+        base = Preset.FUZZED
     else:
-        base, anchor = head, (head if head != Preset.FUZZED.value else DEFAULT_FUZZ_ANCHOR)
-        if base not in PRESET_CHOICES:
-            raise ValueError(f"unknown preset {base!r}; choose from {', '.join(PRESET_CHOICES)}")
+        base = Preset.parse(head)
+        anchor = DEFAULT_FUZZ_ANCHOR if base is Preset.FUZZED else base
     if not sep:
         return PresetToken(base, None, anchor)
-    if base != Preset.FUZZED.value:
+    if base is not Preset.FUZZED:
         raise ValueError(f"only a fuzzed preset takes a ':seed' suffix (got {preset!r})")
     try:
         return PresetToken(base, int(rest), anchor)
@@ -417,19 +335,13 @@ def parse_preset(preset: str) -> PresetToken:
 
 
 def preset_arg(preset: str) -> str:
-    """argparse ``type`` that validates a preset token (including ``fuzzed:seed``)
-    and returns it unchanged -- use instead of ``choices=`` so ``fuzzed:42`` passes."""
+    """argparse ``type`` that validates a preset token (``fuzzed:42`` included) and returns it unchanged."""
     parse_preset(preset)
     return preset
 
 
-def resolve_preset(preset: str) -> str:
-    """Parse a preset token, apply its modifiers as process overrides, and return the base
-    preset (``fuzzed``/``S``/...) to run with.
-
-    Two overrides, both set or cleared on EVERY call so no token outlives itself in the process:
-    the token's seed (``fuzz.PRESET_SEED_KEY``, read through :func:`fuzz.base_seed`; a bare token
-    clears it and draws at ``seeds.fuzz``) and the rung the sizes are drawn around (``fuzz.anchor``)."""
+def resolve_preset(preset: str) -> Preset:
+    """Parse a preset token, set (or clear) its seed and anchor overrides on every call, and return the base preset."""
     base, seed, anchor = parse_preset(preset)
     if seed is None:
         config.clear_override(fuzz.PRESET_SEED_KEY)
@@ -505,20 +417,8 @@ def buffer_dtype(buf: LayoutBuffer, dtype: str) -> str:
 
 
 def parse_layouts(raw: dict[str, object], source: str) -> dict[str, "SparseLayout"]:
-    """Parse the ``layouts`` block: every logical sparse array and the formats it may be requested in.
-
-    Shape::
-
-        layouts:
-          A:
-            logical_shape: [N, N]      # rows, cols
-            nnz: nnz                   # the size symbol counting A's stored entries
-            offered: [csr, csc, coo, bsr, dia, ell]   # optional; default: every format
-            default: csr               # optional; default: csr
-
-    Each format's buffers are derived from :data:`~hpcagent_bench.support.helpers.sparse.abi.FORMAT_SPECS`,
-    never written out per manifest. Every sparse array of a kernel shares one format per run, so
-    the arrays must agree on the default."""
+    """Parse the ``layouts`` block: every logical sparse array (``logical_shape``, ``nnz``, ``offered``,
+    ``default``); buffers derive from ``FORMAT_SPECS``, and all arrays must agree on the default."""
     layouts = {str(name): parse_one_layout(str(name), entry, source) for name, entry in raw.items()}
     defaults = sorted({lay.default for lay in layouts.values()})
     if len(defaults) > 1:
@@ -527,20 +427,14 @@ def parse_layouts(raw: dict[str, object], source: str) -> dict[str, "SparseLayou
 
 
 def layout_configurations(layouts: dict[str, "SparseLayout"]) -> dict[str, "SparseConfiguration"]:
-    """``{format: {array: format}}`` for every format all sparse arrays offer, the default first.
-
-    One configuration per format, because the arrays of one kernel share a format per run: the
-    configuration key is that format, which is also the symbol's layout segment
-    (``spmv_csc_fp64``)."""
+    """``{format: {array: format}}`` for every format all sparse arrays offer, the default first (one per format)."""
     first = next(iter(layouts.values()))
     common = [fmt for fmt in first.variants if all(fmt in lay.variants for lay in layouts.values())]
     return {fmt: SparseConfiguration(arrays=dict.fromkeys(layouts, fmt)) for fmt in common}
 
 
 def sparse_alignment_constraints(layouts: dict[str, "SparseLayout"]) -> tuple[str, ...]:
-    """``N % q == 0`` for every logical extent of an array that offers bsr, ``q`` the lcm of
-    ``sparse.bsr_block_sizes``: every block edge an agent may request then divides every graded
-    size. Divisibility constraints are met by snapping the draw (:func:`fuzz.snap_divisible`)."""
+    """``N % q == 0`` for every logical extent of a bsr-offering array (``q`` the lcm of the block sizes)."""
     quantum = math.lcm(*bsr_block_sizes())
     symbols = {
         token
@@ -559,53 +453,15 @@ def bsr_block_sizes() -> tuple[int, ...]:
 
 @dataclass(frozen=True, slots=True)
 class InitSpec:
-    """The ``init`` block of a benchmark manifest: how a kernel's inputs are generated.
+    """The ``init`` block of a manifest: how a kernel's inputs are generated (rules: ``docs/extending/benchmark.md``,
+    "Input data"). Inputs and reference outputs must be finite and bounded for every draw, and the 6 timed draws must
+    differ; a fallback ``initialize`` must accept ``perturbation`` (or an ``rng``).
 
-    ALLOWED INPUT CONDITIONS (the full rules, with examples: ``docs/extending/benchmark.md``,
-    section "Input data"). Every generated input and every reference output must be finite, and
-    the output must stay bounded relative to the input for every draw.
-
-    * Declarative first. An array's ``args`` entry is ``{shape, dtype?, dist?, domain?,
-      index_array?}``. ``dist`` names a registered distribution
-      (:mod:`hpcagent_bench.support.distributions`: ``uniform`` -- the default, on
-      ``[-1000, 1000)`` --, ``normal``, ``lognormal``, ``exponential``, ``gamma``, ``beta``,
-      ``laplace``, and the structural ``well_conditioned``/``near_singular``/``stable``/
-      ``unstable``). ``dtype`` pins a non-precision element type (an integer array gets a
-      valid-subscript fill); every other array follows the run precision (fp64/fp32).
-    * ``domain`` constrains VALUES, and is how a kernel that feeds ``exp``/``log``/``sqrt``/``pow``/a
-      division or a long product/recurrence keeps its inputs where it is defined and bounded:
-      ``positive``/``nonneg``/``negative``/``nonpos`` fold the sample's sign, and a ``[low, high]``
-      interval maps it affinely onto the interval. Every distribution and every hidden-rotation
-      variant is folded onto the domain (:func:`hpcagent_bench.support.distributions.generate`); an
-      interval also pins the magnitude (the rotation's scale is dropped). A domain says what the
-      kernel NEEDS, not what flatters it -- keep it as wide as the kernel allows.
-    * The draws. The correctness gate grades the public seed plus the five hidden-rotation variants
-      (:mod:`hpcagent_bench.support.distributions.hidden`); the timed window cycles over the cell's
-      pool of :data:`hpcagent_bench.harness.rep_variation.POOL_SIZE` (6) seeds
-      (:func:`hpcagent_bench.harness.rep_variation.pool_seeds`), so every kernel needs 6 DISTINCT inputs. A declarative init gets them from the seed.
-    * Fallback ``initialize`` in ``<module>.py`` (:data:`INITIALIZER`; defining it there is what selects
-      this path), only when no shape+distribution+domain can describe the
-      inputs (a well-posed boundary value problem, a structured matrix, a physical initial
-      condition). It must accept ``perturbation`` (a
-      :class:`~hpcagent_bench.support.distributions.perturbation.Perturbation`: the draw's scenario
-      and a small error distribution), or an ``rng`` it draws every value field from, so the 6 timed
-      draws still differ. A PDE/stencil/iterative kernel declares ``scenarios`` (named, physical
-      initial/boundary conditions); the draw with seed ``s`` uses scenario ``s % len(scenarios)`` plus
-      the perturbation's error, and every scenario must keep the scheme stable (CFL etc.).
-
-    :ivar func_name: :data:`INITIALIZER` when ``<module>.py`` defines it, else empty: the declarative
-        path, :func:`hpcagent_bench.initialize.auto_initialize` from ``shapes`` and ``scalars``.
-        Derived by :meth:`BenchSpec.from_yaml`, never declared in a manifest.
-    :ivar input_args: Argument names passed *into* ``initialize``
-        (usually the size symbols ``NI``, ``NJ``, ...).
-    :ivar output_args: Tuple of names returned *from* ``initialize``,
-        in the order they will be unpacked.
-    :ivar shapes: Declarative array shapes -- ``{name: shape_expr_str}``
-        with ``shape_expr_str`` an integer-arithmetic expression over
-        the kernel's parameters (e.g. ``"(N,N)"``, ``"(N//2,)"``).
-    :ivar scalars: Declarative scalar defaults -- ``{name: value}``
-        materialized at the run dtype. Variant ``spec["scalars"]``
-        overrides these per run.
+    :ivar func_name: :data:`INITIALIZER` when ``<module>.py`` defines it, else empty (derived, never declared).
+    :ivar input_args: Names passed into ``initialize``.
+    :ivar output_args: Names returned from ``initialize``, in unpack order.
+    :ivar shapes: ``{name: shape expression}`` over the kernel's parameters.
+    :ivar scalars: ``{name: value}`` defaults at the run dtype.
     """
 
     func_name: str
@@ -613,53 +469,26 @@ class InitSpec:
     output_args: tuple[str, ...]
     shapes: dict[str, str] = field(default_factory=dict[str, str])
     scalars: dict[str, float] = field(default_factory=dict[str, float])
-    #: Compile-time sizes referenced by ``shapes`` that the ABI never passes as arguments
-    #: (cloudsc's ``nclv``). Emitted as a PARAMETER/constexpr in the generated stub.
+    #: Compile-time sizes ``shapes`` reference that the ABI never passes (emitted as constants).
     constants: dict[str, int] = field(default_factory=dict[str, int])
-    #: Per-array dtype overrides -- ``{name: dtype_str}`` (e.g.
-    #: ``{"ip": "int32"}``). An array listed here has a FIXED dtype that
-    #: overrides the global fp64/fp32 precision sweep -- the canonical
-    #: form for integer index arrays whose values are array subscripts
-    #: (the numpy reference stays pure numpy; the dtype that the original
-    #: ``dace.int32`` annotation carried lives here, not in the .py).
-    #: Arrays absent from this map follow the run precision as before.
+    #: Per-array FIXED dtypes (integer index arrays), overriding the precision sweep.
     dtypes: dict[str, str] = field(default_factory=dict[str, str])
-    #: Per-array distribution overrides -- ``{name: dist_name}`` from the
-    #: array's ``args`` entry (each array entry may carry its own
-    #: ``dist``, e.g. a well-conditioned ``spd`` matrix beside a ``uniform``
-    #: rhs). Arrays absent from this map use the run-wide default distribution.
+    #: Per-array distribution overrides from each ``args`` entry's ``dist``.
     dists: dict[str, str] = field(default_factory=dict[str, str])
-    #: ``{array -> value domain}``: what part of the real line the kernel is DEFINED on, as
-    #: declared by the array's ``domain``. A sign name (``positive``/``nonneg``/
-    #: ``negative``/``nonpos``), a ``[low, high]`` interval, or ``any``. The generator folds
-    #: every distribution onto it (``support.distributions.generate``), so the hidden rotation
-    #: can vary sign and magnitude everywhere a kernel has not said it cannot.
+    #: ``{array -> value domain}`` the kernel is DEFINED on; every distribution is folded onto it.
     domains: dict[str, domain_mod.RawDomain] = field(default_factory=dict[str, domain_mod.RawDomain])
-    #: Arrays whose ELEMENTS are subscripts into another array, as declared by
-    #: the array's ``index_array: true``. The numpy reference is the 0-based truth for every
-    #: one of them; the index BASE is then a property of the consuming language, not of the data,
-    #: so the ABI seam rebases the buffer on the way in and out (see
-    #: :func:`hpcagent_bench.support.bindings.contract.index_base`). Declared, never inferred:
-    #: "is this integer buffer a subscript or a measurement?" is a semantic question no scan can
-    #: answer, and guessing it wrong silently shifts every gathered element by one.
+    #: Arrays whose ELEMENTS are subscripts (``index_array: true``), rebased at the ABI per consuming language.
+    #: Declared, never inferred: a wrong guess shifts every gathered element by one.
     index_arrays: frozenset[str] = frozenset()
-    #: Declared floor, in bytes, for scratch/persistent memory this kernel's ``init`` needs (e.g.
-    #: DaCe's library-init transients) -- from ``init.workspace.bytes``. ``None`` when the manifest
-    #: omits the block. Schema + validation only here; the harness reads it, this does not score it.
+    #: Declared floor, in bytes, for scratch this kernel's ``init`` needs (``init.workspace.bytes``); None if omitted.
     workspace_bytes: int | None = None
-    #: ``{scenario name -> description}`` from ``init.scenarios``: the named physical input
-    #: conditions a fallback ``initialize`` builds (a lid-driven cavity, a hot face, ...), in
-    #: declaration order. The draw with input seed ``s`` uses scenario ``s % len(scenarios)``,
-    #: handed to the initializer as ``perturbation.scenario``. Empty for every other kernel.
+    #: ``{scenario name -> description}``: named physical input conditions; seed ``s`` uses scenario
+    #: ``s % len(scenarios)``.
     scenarios: dict[str, str] = field(default_factory=dict[str, str])
-    #: ``{scenario name -> layout labels}``: which sparse layouts each scenario is offered in
-    #: (``csr``; ``bsr`` for every block edge, ``bsr:2`` for one), from the mapping form of ``init.scenarios``. A submission requesting a layout draws from
-    #: every scenario; an input whose scenario does not list it is not run and fails the kernel
-    #: (:func:`hpcagent_bench.support.helpers.sparse.request.uncovered`).
-    #: Empty when the manifest declares none (every scenario serves every layout).
+    #: ``{scenario name -> layout labels}`` it is offered in; an input whose scenario lacks the requested layout
+    #: fails the kernel. Empty: every scenario serves every layout.
     scenario_layouts: dict[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
-    #: ``init.revalue``: the initializer module's function that redraws a sparse matrix's VALUES on
-    #: its pattern, ``revalue(A, rng) -> A'`` -- what varies a timed repeat of a sparse kernel.
+    #: ``init.revalue``: the function redrawing a sparse matrix's values on its pattern, ``revalue(A, rng) -> A'``.
     revalue: str = ""
 
 
@@ -672,10 +501,7 @@ SCENARIO_KEYS = manifest_schema.field_keys(manifest_schema.ScenarioEntry)
 #: A logical sparse array is a matrix: rows and columns.
 SPARSE_RANK = 2
 
-#: Closed set of HPC dwarf tags (Berkeley "13 dwarfs"). A kernel carries
-#: EXACTLY ONE -- the single dominant dwarf by runtime/FLOP majority;
-#: secondary dwarfs go in a manifest comment. This frozenset is the single
-#: source of truth; :func:`validate_dwarf` rejects any off-vocabulary value.
+#: Closed set of HPC dwarf tags (Berkeley "13 dwarfs"); a kernel carries exactly one.
 SUPPORTED_DWARFS = frozenset(
     {
         "dense_linear_algebra",
@@ -694,20 +520,13 @@ SUPPORTED_DWARFS = frozenset(
     }
 )
 
-#: Everything one array declaration may carry. Closed on purpose: a key outside this set
-#: is a load error, not a silently ignored line.
+#: Everything one array declaration may carry; a key outside this set is a load error.
 ARRAY_ENTRY_KEYS = frozenset({"shape", "dtype", "dist", "domain", "index_array"})
 
 
 def init_arrays_raw(init: "InitSpec") -> dict[str, ArrayEntry]:
-    """``init.arrays`` as a manifest spells it, rebuilt from the per-property maps the parser
-    split it into.
-
-    The exact inverse of the ``init.arrays`` loop in :meth:`BenchSpec.from_dict`, and it lives
-    beside that loop so the two cannot drift: the bench_info document
-    (:func:`hpcagent_bench.emit_bridge.bench_info_document`) must emit the ONE declaration surface,
-    never the internal maps. A bare string is used where the entry declares
-    nothing but a shape, matching the shorthand the parser accepts."""
+    """``init.arrays`` as a manifest spells it, rebuilt from the per-property maps: the exact inverse of the parse
+    loop in :meth:`BenchSpec.from_dict` (bench_info must emit the declaration surface)."""
     out: dict[str, ArrayEntry] = {}
     for name, shape in init.shapes.items():
         entry: dict[str, str | bool | domain_mod.RawDomain] = {"shape": shape}
@@ -723,9 +542,7 @@ def init_arrays_raw(init: "InitSpec") -> dict[str, ArrayEntry]:
     return out
 
 
-#: What kind of execution-path decision a ``config:`` knob makes (its optional ``selects:``).
-#: Purely descriptive today -- nothing branches on it -- but a closed vocabulary catches a typo
-#: at load time instead of letting it pass through silently.
+#: What kind of execution-path decision a ``config:`` knob makes (descriptive; a closed set catches typos).
 CONFIG_SELECTS = frozenset({"branch", "tile", "iteration", "tolerance", "seed", "physical"})
 
 #: Keys a single ``config:`` entry may declare (see :func:`_parse_config_knob`).
@@ -733,17 +550,8 @@ CONFIG_KNOB_KEYS = manifest_schema.field_keys(manifest_schema.ConfigKnobEntry)
 
 
 class ConfigKnob(BaseModel):
-    """One execution-path selector declared under a manifest's ``config:`` block -- a branch flag,
-    a tile size, an iteration cap, ... NEVER scaled by a size preset; that is what distinguishes it
-    from a ``parameters:`` entry (see the module docstring's motivation).
-
-    :ivar domain: The knob's fuzzable value set (e.g. tile sizes ``[32, 64]``), or ``None`` when the
-        knob is pinned. Mutually exclusive with :attr:`value`.
-    :ivar value: The knob's single fixed value (e.g. ``max_iter: 200``), or ``None`` when the knob is
-        a fuzzable axis. Mutually exclusive with :attr:`domain`.
-    :ivar selects: What kind of execution-path decision this knob makes -- one of
-        :data:`CONFIG_SELECTS`, or ``None`` if undeclared.
-    """
+    """One execution-path selector under ``config:`` (branch flag, tile size, iteration cap); NEVER scaled by a size
+    preset. Exactly one of ``domain`` (fuzzable) and ``value`` (pinned) is set; ``selects`` is optional."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -753,8 +561,7 @@ class ConfigKnob(BaseModel):
 
     @property
     def representative(self) -> FuzzValue:
-        """One concrete value standing in for this knob in the merged ``parameters`` view and in
-        constraint evaluation: the pinned :attr:`value`, or else the first :attr:`domain` entry."""
+        """The value standing in for this knob in ``parameters`` and constraints: ``value``, else the first entry."""
         if self.domain is not None:
             return self.domain[0]
         if self.value is None:
@@ -763,12 +570,8 @@ class ConfigKnob(BaseModel):
 
 
 def _parse_config_knob(raw: object, kernel: str, sym: str, source: str) -> ConfigKnob:
-    """Parse + validate one ``config:`` entry.
-
-    Exactly one of ``domain:`` (a non-empty list -- ``sym`` is a fuzzable axis) or ``value:`` (a
-    scalar -- ``sym`` is explicitly pinned, never fuzzed) is required; declaring both, neither, an
-    unknown key, or an off-vocabulary ``selects:`` all raise here, naming the kernel and symbol.
-    """
+    """Parse + validate one ``config:`` entry: exactly one of ``domain:`` and ``value:``, known keys, a known
+    ``selects:``."""
     blk = as_block(raw)
     if not isinstance(raw, dict):
         raise ValueError(f"{source}: {kernel}: config.{sym} must be a mapping (got {type(raw).__name__})")
@@ -804,14 +607,7 @@ def _parse_config_knob(raw: object, kernel: str, sym: str, source: str) -> Confi
 
 
 def parse_config_list(raw: list[object], kernel: str, source: str) -> tuple[ConfigRow, ...]:
-    """Parse + validate the CURATED composition of ``config:`` -- a list of complete configs.
-
-    Use it when the space is hand-picked (a baseline row, one-hot rows, the key combinations), NOT
-    a cartesian product minus the impossible corners; that is what the mapping composition plus
-    ``constraints:`` is for. Every row must declare the SAME key set, because a row missing a key
-    would leave that symbol bound to whatever the preset happened to carry -- the kernel would then
-    be graded on a config nobody declared.
-    """
+    """Parse + validate the CURATED ``config:`` list of complete configs; every row declares the SAME key set."""
     if not raw:
         raise ValueError(
             f"{source}: {kernel}: 'config' is an empty list; declare at least one config, or drop the block"
@@ -845,9 +641,8 @@ def parse_config_list(raw: list[object], kernel: str, source: str) -> tuple[Conf
 
 
 def _config_product(knobs: dict[str, ConfigKnob], constraints: tuple[str, ...]) -> tuple[ConfigRow, ...]:
-    """Enumerate the mapping composition: every ``domain:`` axis crossed, ``value:`` knobs pinned into
-    each row, rows violating ``constraints:`` dropped (that is what makes constraints filter RULES and
-    not just load-time assertions)."""
+    """Enumerate the mapping composition: ``domain:`` axes crossed, ``value:`` knobs pinned, ``constraints:``
+    filtering rows."""
     axes = [(sym, knob.domain) for sym, knob in knobs.items() if knob.domain is not None]
     pinned: ConfigRow = {sym: knob.representative for sym, knob in knobs.items() if knob.domain is None}
     if not axes:
@@ -856,8 +651,7 @@ def _config_product(knobs: dict[str, ConfigKnob], constraints: tuple[str, ...]) 
     rows: list[ConfigRow] = [
         {**pinned, **dict(zip(names, combo, strict=False))} for combo in itertools.product(*(dom for _, dom in axes))
     ]
-    # A constraint naming a symbol this row does not bind (a size dimension) cannot filter the config
-    # space -- it is a cross-preset invariant, already checked by _validate_constraints.
+    # A constraint naming an unbound symbol (a size) is a cross-preset invariant, checked by _validate_constraints.
     return tuple(row for row in rows if all(constraint_holds(expr, row) for expr in constraints))
 
 
@@ -872,7 +666,7 @@ def constraint_holds(expr: str, row: ConfigRow) -> bool:
 def scale_axes_of(raw: object, parameters: PresetTable, config_syms: set[str], source: str) -> tuple[str, ...]:
     """The manifest's ``scale_axes``: size symbols the XL rung declares, never ``config:`` knobs."""
     axes = tuple(str(name) for name in as_list(raw))
-    xl = parameters.get(Preset.XL.value, {})
+    xl = parameters.get(Preset.XL.text, {})
     bad = [name for name in axes if name in config_syms or not isinstance(xl.get(name), int)]
     if bad:
         raise ValueError(f"{source}: scale_axes {bad} are not integer size symbols of the XL rung")
@@ -880,18 +674,10 @@ def scale_axes_of(raw: object, parameters: PresetTable, config_syms: set[str], s
 
 
 def _validate_constraints(constraints: tuple[str, ...], parameters_view: PresetTable, kernel: str, source: str) -> None:
-    """Reject at LOAD any ``constraints:`` expression that is false, or names an undeclared symbol,
-    at any CONCRETE preset. Evaluated by ``fuzz.safe_eval`` -- AST-restricted, never Python ``eval``.
-
-    The ``fuzzed`` preset is skipped: its values are fuzz SPECS (``[lo, hi]`` intervals, ``{set:
-    [...]}``, ``{construct: ...}``), not numbers, so a numeric predicate over them is a type error
-    rather than a false constraint (``'>=' not supported between instances of 'list' and 'dict'``).
-    The fuzzer applies the same constraints to each RESOLVED draw (``fuzz.sample_params``), which is
-    where they bite for that preset."""
-    from hpcagent_bench.fuzz import FUZZED_PRESET
-
+    """Reject at LOAD any ``constraints:`` expression false at, or naming a symbol undeclared in, a CONCRETE preset
+    (``fuzz.safe_eval``); ``fuzzed`` is checked per draw by the fuzzer instead."""
     for preset, names in parameters_view.items():
-        if preset == FUZZED_PRESET:
+        if preset == Preset.FUZZED.text:
             continue
         for expr in constraints:
             try:
@@ -908,29 +694,15 @@ def _validate_constraints(constraints: tuple[str, ...], parameters_view: PresetT
                 )
 
 
-#: Identifier tokenizer for ``init.shapes`` expressions (``"(n_clusters * (n_clusters - 1),)"``,
-#: ``"table_size + 1"``) -- matches numpyto_common.lowering.promote_shape_symbols_to_params and
-#: support.bindings.contract._IDENT_RE exactly, so e.g. ``N`` is never substring-matched inside
-#: ``NITER``.
+#: Identifier tokenizer for ``init.shapes`` expressions (the same regex as the translator's, so ``N`` never
+#: matches inside ``NITER``).
 _SHAPE_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 @functools.lru_cache(maxsize=None, typed=True)
 def module_level_constants(relative_path: str, module_name: str) -> "dict[str, FuzzValue | None]":
-    """``{name: value}`` for the top-level assignments in the kernel's ``<module>_numpy.py``
-    reference (e.g. cloudsc's module-level ``nclv = 5``).
-
-    The translator inlines these as compile-time constants
-    (:func:`numpyto_common.frontend.inline_module_constants`), so a shape token spelling one is not
-    a phantom even though it is neither a parameter nor an input -- which is why
-    :func:`_validate_shape_identifiers` accepts it. Anything downstream that RESOLVES a shape has to
-    read the same source, or the manifest passes validation and then reports "unknown" bytes to
-    every size consumer (see :func:`hpcagent_bench.sizing.shape_namespace`).
-
-    A name whose value is not a literal maps to ``None``: it still resolves as an identifier, but
-    nothing here can say what it evaluates to. Empty (not an error) when the reference file is
-    missing or fails to parse -- this is a permissive extra resolution path, not the primary check.
-    """
+    """``{name: value}`` for the top-level assignments of the kernel's numpy reference (``nclv = 5``), ``None`` for a
+    non-literal; empty when the file is missing or unparsable. The translator inlines these as constants."""
     ref = numpy_reference_path(relative_path, module_name)
     if ref is None:
         return {}
@@ -948,7 +720,7 @@ def module_level_constants(relative_path: str, module_name: str) -> "dict[str, F
             continue
         try:
             value = as_value(ast.literal_eval(node.value)) if node.value is not None else None
-        except (ValueError, SyntaxError):  # a computed constant resolves as a NAME, not as a value
+        except (ValueError, SyntaxError):  # a computed constant resolves as a NAME, not a value
             value = None
         for name in targets:
             out[name] = value
@@ -965,22 +737,10 @@ def _validate_shape_identifiers(
     kernel: str,
     source: str,
 ) -> None:
-    """Reject a manifest whose ``init.shapes`` references an identifier nothing can ever resolve.
+    """Reject a manifest whose ``init.shapes`` references an identifier nothing can resolve: it would be promoted to
+    an emitted C parameter with nothing to pass, shifting every later positional argument (abi_contract.md Sec. 4).
 
-    This is the bug class that shifted every scalar after gromacs_nbnxm's ``n_cj`` / ``n_shifts``
-    and banded_mmt's ``AW`` / ``BW`` (abi_contract.md Sec. 4): a shape token gets promoted to an
-    emitted C parameter (:func:`numpyto_common.lowering.promote_shape_symbols_to_params`) that is
-    neither a declared size symbol, a call-signature input, nor a data-derived value the harness
-    has actually produced by call time -- so ``native_runtime`` never has anything to pass for it and
-    every later positional argument reads out of the wrong register.
-
-    An identifier resolves when it is a declared ``parameters``/``config`` symbol,
-    an ``input_args`` or ``array_args`` name, or a module-level constant in the kernel's numpy
-    reference (``nclv`` in cloudsc) -- the same sources :func:`_shape_identifiers`-driven binding
-    assembly and the translator's own promotion pass can resolve. The module-level-constant lookup
-    is lazy (only parsed once a name fails every other check) so the common manifest with no
-    ``init.shapes`` at all pays nothing.
-    """
+    Resolves: ``parameters``/``config`` symbols, ``input_args``/``array_args`` names, module-level constants."""
     if init_spec is None or not init_spec.shapes:
         return
     known = set(param_syms) | set(input_args) | set(array_args) | set(init_spec.scalars)
@@ -1006,14 +766,8 @@ def _validate_shape_identifiers(
 
 
 def shape_dims(shape_expr: str) -> tuple[str, ...]:
-    """Every axis of ``shape_expr`` as its own source string, in declaration order --
-    ``"(NI, NJ+1)"`` -> ``("NI", "NJ + 1")``, ``"N"`` -> ``("N",)`` (a bare identifier is the
-    1-D shorthand ``init.shapes`` accepts). Empty when the shape does not parse, or declares no
-    axes at all (a 0-d / scalar output's ``"()"``).
-
-    The one tokenizer for "what are this array's axes", shared by :func:`_innermost_dim_expr` and
-    :func:`hpcagent_bench.harness.grading.contracted_extent` -- a shape expression is parsed once.
-    """
+    """Every axis of ``shape_expr`` as its own source string (``"(NI, NJ+1)"`` -> ``("NI", "NJ + 1")``); empty when it
+    does not parse or declares none. The one axis tokenizer."""
     try:
         node = ast.parse(shape_expr, mode="eval").body
     except SyntaxError:
@@ -1024,16 +778,12 @@ def shape_dims(shape_expr: str) -> tuple[str, ...]:
 
 
 def shape_identifiers(shape_expr: str) -> frozenset[str]:
-    """Every distinct identifier ``shape_expr`` references -- the size symbols a dimension (or a
-    whole shape) is written in terms of. Wraps :data:`_SHAPE_IDENT_RE`, the ONE tokenizer this
-    repo uses for a shape expression's identifiers (:func:`_validate_shape_identifiers`,
-    :func:`hpcagent_bench.harness.grading.contracted_extent`)."""
+    """Every distinct identifier ``shape_expr`` references (the one shape-identifier tokenizer)."""
     return frozenset(_SHAPE_IDENT_RE.findall(str(shape_expr)))
 
 
 def _innermost_dim_expr(shape_expr: str) -> str | None:
-    """The source of ``shape_expr``'s LAST (contiguous, row-major) dimension -- ``"(NI, NJ+1)"``
-    -> ``"NJ + 1"``, ``"N"`` -> ``"N"``. ``None`` when the shape does not parse or is empty."""
+    """The source of ``shape_expr``'s LAST (row-major contiguous) dimension; ``None`` when it does not parse."""
     dims = shape_dims(shape_expr)
     return dims[-1] if dims else None
 
@@ -1046,18 +796,8 @@ def _validate_packed_shapes(
     kernel: str,
     source: str,
 ) -> None:
-    """Reject a manifest whose SUB-BYTE array (``int4``) can be sized with an odd innermost extent.
-
-    An int4 element is half a byte, so a packed buffer lands on byte boundaries only when the
-    contiguous (INNERMOST, row-major) extent is a multiple of two -- and an even innermost extent
-    makes the total element count even too, so the flat buffer packs whole either way. That extent
-    is the one checked: it is what a packed layout must byte-align, while the outer dimensions only
-    stride over already-aligned rows.
-
-    Checked per preset against the concrete sizes. An extent the manifest leaves symbolic (a
-    ``derive`` / ``construct`` spec, a name only the runtime resolves) cannot be decided here and is
-    skipped, but a plain ``[lo, hi]`` fuzz RANGE sizing it is rejected: sampling one draws odd sizes.
-    """
+    """Reject a manifest whose sub-byte (``int4``) array can get an odd innermost extent (packed buffers must
+    byte-align); a symbolic extent is skipped, but a ``[lo, hi]`` fuzz range sizing it is rejected."""
     if init_spec is None:
         return
     packed = {
@@ -1066,9 +806,8 @@ def _validate_packed_shapes(
         if name in init_spec.shapes and dtype_registry.size_multiple(dt) > 1
     }
     if not packed:
-        return  # no sub-byte array: every other manifest leaves here having read one dict
-    # A name whose value is not a literal is left OUT of the namespace: it resolves as a name with
-    # no value, which the evaluator reports as unresolvable exactly like an unknown symbol.
+        return
+    # A non-literal constant stays out of the namespace and reports as unresolvable.
     consts = {sym: v for sym, v in module_level_constants(relative_path, module_name).items() if v is not None}
     for name, dtype in sorted(packed.items()):
         mult = dtype_registry.size_multiple(dtype)
@@ -1122,21 +861,8 @@ def _validate_chain_length(
     module_name: str,
     source: str,
 ) -> None:
-    """Reject a ``chain_length:`` block the reassociation floor cannot trust as the accumulation
-    length ``l`` (appendix, reassociation-floor paragraph: ``atol_eff = max(atol,
-    eps_acc*sqrt(l)*||x_ref||inf)``; a sequential scan is exactly the case the general rule cannot
-    reach, so a scan declares ``l`` itself).
-
-    Every key must name a declared output -- the same rule :attr:`BenchSpec.output_extent` already
-    enforces on its keys. Every expression must evaluate to a POSITIVE int at each preset this
-    manifest gives CONCRETE sizes for, resolved through the identical namespace
-    :func:`hpcagent_bench.sizing.shape_namespace` builds at grading time (module-level constants,
-    ``init.scalars``, the preset's own dimension values) -- built by hand here rather than imported,
-    since :mod:`hpcagent_bench.sizing` itself imports this module. A preset a fuzz RANGE or an
-    unresolved symbol leaves symbolic is skipped, same as :func:`_validate_packed_shapes`: there is
-    nothing to check until the size is drawn, but at least one preset must resolve, or the
-    declaration is unchecked everywhere and the typo it exists to catch would pass silently.
-    """
+    """Reject a ``chain_length:`` block the reassociation floor cannot trust as ``l``: keys must name declared
+    outputs, and each expression must be a POSITIVE int at every concretely sized preset (at least one)."""
     unknown = sorted(set(chain_length) - set(output_args))
     if unknown:
         raise ValueError(f"{source}: chain_length names non-outputs {unknown}")
@@ -1153,9 +879,7 @@ def _validate_chain_length(
             except (NameError, ValueError, TypeError, ZeroDivisionError, SyntaxError):
                 continue
             if isinstance(value, (dict, list)):
-                # A bare identifier (no arithmetic around it) passes a fuzz {set: [...]} / [lo, hi]
-                # RANGE spec straight through unresolved -- same "nothing to check yet" case
-                # _validate_packed_shapes skips, not a type error in the expression itself.
+                # A bare identifier passing a fuzz spec through unresolved: nothing to check yet.
                 continue
             whole = (
                 value
@@ -1187,30 +911,20 @@ KNOWN_MANIFEST_KEYS = manifest_schema.field_keys(manifest_schema.Manifest)
 
 
 def validate_dwarf(dwarf: str | None, source: str = "<spec>") -> None:
-    """Raise ``ValueError`` if ``dwarf`` is not in :data:`SUPPORTED_DWARFS`.
-
-    ``None`` is allowed (a not-yet-classified kernel).
-    """
+    """Raise ``ValueError`` if ``dwarf`` is not in :data:`SUPPORTED_DWARFS` (``None`` allowed)."""
     if dwarf is not None and dwarf not in SUPPORTED_DWARFS:
         raise ValueError(
             f"{source}: dwarf {dwarf!r} is not one of the 13 HPC dwarfs; valid values: {sorted(SUPPORTED_DWARFS)}"
         )
 
 
-#: HPC scale classes: ``micro`` = a single small kernel (gemm, jacobi_2d, ...);
-#: ``proxy`` = a larger multi-stage proxy-app / mini-app (cloudsc, graupel,
-#: velocity_tendencies). Only HPC kernels carry a scale (machine_learning/loop_level_reasoning do not, as
-#: with ``dwarf``). An unset HPC scale resolves to ``micro`` (the common case);
-#: proxy-apps must tag themselves explicitly.
+#: HPC scale classes: ``micro`` (single kernel, the default) or ``proxy`` (mini-app, tagged explicitly).
 SUPPORTED_SCALES = frozenset({"micro", "proxy"})
 
-#: The difficulty levels a kernel may declare, and the only ones an ``@lvl<n>`` selector
-#: accepts. One tuple so the validator and the selector parser cannot drift.
+#: The difficulty levels a kernel may declare, and the only ones an ``@lvl<n>`` selector accepts.
 LEVELS = (1, 2, 3)
 
-#: Default input-data distributions a kernel is fuzzed over (the ``fuzzed``
-#: preset cycles these). A manifest omits ``fuzz`` to take this default; only a
-#: kernel that needs a DIFFERENT set spells it out.
+#: Default input-data distributions a kernel is fuzzed over (a manifest omits ``fuzz`` to take it).
 DEFAULT_FUZZ: dict[str, list[str]] = {"data_distributions": ["uniform", "normal", "lognormal"]}
 
 
@@ -1220,10 +934,8 @@ def derive_array_args(
     init: InitSpec | None,
     sparse_layouts: dict[str, "SparseLayout"],
 ) -> tuple[str, ...] | None:
-    """The kernel's array arguments, in signature order: each input ``init.shapes`` materialises,
-    a sparse layout's buffers folded into their logical array, then any graded array the signature
-    does not take (a reference that returns it). Size symbols and scalars are not arrays. Returns
-    ``None`` when there is nothing to infer from (no declarative ``init.shapes``)."""
+    """The kernel's array arguments in signature order (sparse buffers folded in), or ``None`` without
+    ``init.shapes``."""
     if init is None or not init.shapes:
         return None
     owner = {
@@ -1238,9 +950,7 @@ def derive_array_args(
 
 
 def numpy_reference_path(relative_path: str, module_name: str) -> pathlib.Path | None:
-    """The kernel's numpy reference file: ``<module>_numpy.py`` if present, else the
-    bare ``<module>.py`` fallback, else ``None``. The single source of truth for where a
-    kernel's reference lives (used by both arg and func-name derivation)."""
+    """The kernel's numpy reference: ``<module>_numpy.py``, else ``<module>.py``, else ``None``."""
     base = paths.BENCHMARKS / relative_path
     for cand in (base / f"{module_name}_numpy.py", base / f"{module_name}.py"):
         if cand.exists():
@@ -1251,17 +961,8 @@ def numpy_reference_path(relative_path: str, module_name: str) -> pathlib.Path |
 def derive_input_args(
     relative_path: str, module_name: str, func_name: str, bound: frozenset[str]
 ) -> tuple[str, ...] | None:
-    """The kernel's call signature = the NumPy reference's parameter names.
-
-    A Python function already states its inputs in its ``def`` line, so a
-    manifest need not repeat them: we read ``<module>_numpy.py`` and return the
-    reference's positional parameters in order. (The canonical C-ABI ordering is
-    computed separately by ``bindings.contract.binding_from_spec``, so the def
-    order need only match how the reference is called -- which it does by
-    definition.) A parameter with a default that no name in ``bound`` supplies is
-    left to its default, not passed. Returns ``None`` if the source/function can't
-    be found.
-    """
+    """The kernel's call signature: the numpy reference's positional parameter names (a default no name in
+    ``bound`` supplies is left to its default); ``None`` if not found."""
     ref = numpy_reference_path(relative_path, module_name)
     if ref is None:
         return None
@@ -1276,19 +977,15 @@ def derive_input_args(
     return tuple(a.arg for a in params if a.arg not in defaulted or a.arg in bound)
 
 
-#: The fallback initializer's name: a kernel whose ``<module>.py`` defines it builds its inputs with it
-#: (``init.func_name``), every other kernel declaratively from ``init.arrays``.
+#: The fallback initializer's name: a kernel whose ``<module>.py`` defines it builds its inputs with it.
 INITIALIZER = "initialize"
 
-#: Kwargs the harness supplies BY NAME to an initializer that declares them. A positional value
-#: must never land in one of these slots: the same argument would then arrive twice.
+#: Kwargs the harness supplies BY NAME to an initializer (a positional value must never land in one).
 HARNESS_KWARGS = frozenset({"datatype", "rng", "dist", "perturbation", "variant_spec", "xp"})
 
 
 def initializer_inputs(module: pathlib.Path) -> tuple[str, ...]:
-    """``init.input_args``: what the harness passes a fallback initializer positionally -- the
-    parameters of its ``def`` line before the first :data:`HARNESS_KWARGS` name. Like the kernel's
-    own inputs, the function states them; the manifest does not repeat them."""
+    """``init.input_args``: the fallback initializer's parameters before the first :data:`HARNESS_KWARGS` name."""
     tree = ast.parse(module.read_text())
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == INITIALIZER)
     names = (a.arg for a in (*fn.args.posonlyargs, *fn.args.args))
@@ -1296,9 +993,7 @@ def initializer_inputs(module: pathlib.Path) -> tuple[str, ...]:
 
 
 def derive_func_name(relative_path: str, module_name: str) -> str | None:
-    """The kernel's entry function: the sole top-level ``def`` of ``<module>_numpy.py``, else the
-    ``def`` named for the module. ``None`` when neither rule applies; a manifest cannot name it.
-    """
+    """The kernel's entry function: the sole top-level ``def`` of the reference, else the one named for the module."""
     ref = numpy_reference_path(relative_path, module_name)
     if ref is None:
         return None
@@ -1308,28 +1003,24 @@ def derive_func_name(relative_path: str, module_name: str) -> str | None:
     return module_name if module_name in defs else None
 
 
-def validate_scale(scale: str | None, track: str, source: str = "<spec>") -> None:
-    """Raise ``ValueError`` if ``scale`` is off-vocabulary or set on a non-HPC
-    track. ``None`` is allowed (HPC kernels then resolve to ``micro``)."""
+def validate_scale(scale: str | None, track: Track, source: str = "<spec>") -> None:
+    """Raise ``ValueError`` if ``scale`` is off-vocabulary or set on a non-HPC track (``None`` allowed)."""
     if scale is None:
         return
     if scale not in SUPPORTED_SCALES:
         raise ValueError(
             f"{source}: scale {scale!r} is not a valid HPC scale; valid values: {sorted(SUPPORTED_SCALES)}"
         )
-    if track != Track.SCIENTIFIC_COMPUTING.value:
-        raise ValueError(f"{source}: scale is only valid on the scientific_computing track; got track {track!r}")
+    if track is not Track.SCIENTIFIC_COMPUTING:
+        raise ValueError(f"{source}: scale is only valid on the scientific_computing track; got track {track.text!r}")
 
 
-#: A ``small`` size symbol stays below this in every preset and fuzz draw, and a ``big`` one's fuzz range
-#: starts at or above it (``public.scales``).
+#: A ``small`` size symbol stays below this everywhere; a ``big`` one's fuzz range starts at or above it.
 SMALL_LIMIT = 64
 
 
 def fuzz_bounds(value: FuzzValue) -> tuple[int | float, int | float] | None:
-    """The smallest and largest value one parameter spec can take: the number itself, an interval's (or a
-    smooth interval's) ends, a numeric set's extremes; ``None`` for a spec with no static bound (a derived
-    or constructed size)."""
+    """The smallest and largest value one parameter spec can take, or ``None`` without a static bound."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return value, value
     if (bounds := fuzz.range_of(value)) is not None:
@@ -1341,17 +1032,17 @@ def fuzz_bounds(value: FuzzValue) -> tuple[int | float, int | float] | None:
     return None
 
 
-def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str, at_most: int | None = None) -> None:
-    """Raise ``ValueError`` unless ``sym`` is a size symbol of the declared ``scale``: a small one stays below
-    :data:`SMALL_LIMIT` in every preset and its fuzz range, outside ``scale_axes``; a big one's fuzz range
-    (the graded sizes) starts at or above it where the range is static. A small size ``initialize()`` derives
-    has no fuzz range and is bounded by its declared ``at_most`` instead, which every preset respects."""
+def validate_public_scale(
+    spec: "BenchSpec", sym: str, scale: manifest_schema.Scale, source: str, at_most: int | None = None
+) -> None:
+    """Raise ``ValueError`` unless ``sym`` matches its declared ``scale`` (small: below :data:`SMALL_LIMIT`
+    everywhere, or its ``at_most``; big: fuzz range at or above it)."""
     sizes = {name for preset in spec.parameters.values() for name in preset} - spec.config_names
     if sym not in sizes:
         raise ValueError(f"{source}: public scale {sym} is not a size symbol")
     fuzzed = fuzz.resolve_ranges(spec.parameters, config_names=frozenset(spec.config))
     fuzz_range = fuzz_bounds(fuzzed[sym]) if sym in fuzzed else None
-    if scale == manifest_schema.BIG:
+    if scale is manifest_schema.Scale.BIG:
         if fuzz_range is not None and fuzz_range[0] < SMALL_LIMIT:
             raise ValueError(f"{source}: {sym} is declared big, so its fuzz range must start at {SMALL_LIMIT} or above")
         return
@@ -1369,13 +1060,8 @@ def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str, 
 
 
 def validate_public(spec: "BenchSpec", source: str) -> None:
-    """Raise ``ValueError`` unless the ``public`` block states the kernel truthfully.
-
-    A variable is a config knob or an input argument, and its value set holds every value the config
-    space evaluates it at; one shown as a range is numeric and fixed by no configuration (that would
-    state an exact value). A configuration's values name declared variables and come from their sets,
-    and configuration names are unique. Every scale holds (:func:`validate_public_scale`), and a
-    configuration never flips a kernel-wide one."""
+    """Raise ``ValueError`` unless the ``public`` block states the kernel truthfully (variables, value sets,
+    configurations and scales all match what the config space and presets really do)."""
     public = spec.public
     if public is None:
         return
@@ -1387,7 +1073,7 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
         if missing:
             raise ValueError(f"{source}: public.variables.{sym}.values misses {missing}, which the config space uses")
         numeric = all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in variable.values)
-        if variable.shown_as == "range" and not numeric:
+        if variable.shown_as is manifest_schema.ShownAs.RANGE and not numeric:
             raise ValueError(f"{source}: public.variables.{sym} is shown as a range, so its values must be numbers")
     names = [entry.name for entry in public.configurations]
     duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -1399,7 +1085,7 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
         for sym, value in entry.values.items():
             if sym not in public.variables:
                 raise ValueError(f"{source}: public configuration {entry.name!r} fixes {sym}, not a public variable")
-            if public.variables[sym].shown_as == "range":
+            if public.variables[sym].shown_as is manifest_schema.ShownAs.RANGE:
                 raise ValueError(
                     f"{source}: public configuration {entry.name!r} fixes {sym}, which is shown as a range"
                 )
@@ -1409,17 +1095,16 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
                     f"{public.variables[sym].values}"
                 )
         for sym, own in entry.scales.items():
-            if kernel_wide.get(sym, own.scale) != own.scale:
+            if kernel_wide.get(sym, own.scale) is not own.scale:
                 raise ValueError(f"{source}: public configuration {entry.name!r} flips the scale of {sym}")
             scales.add((sym, own.scale))
     bounds = {sym: entry.at_most for sym, entry in public.scales.items()}
-    for sym, scale_name in sorted(scales):
-        validate_public_scale(spec, sym, scale_name, source, bounds.get(sym))
+    for sym, scale in sorted(scales, key=lambda pair: (pair[0], pair[1].text)):
+        validate_public_scale(spec, sym, scale, source, bounds.get(sym))
 
 
 def negative_values(spec: "BenchSpec") -> dict[str, int | float]:
-    """``{name: smallest value}`` for every size, knob or scalar the kernel can see below zero: a preset or its
-    fuzz range, a config-space value, a declared scalar or constant."""
+    """``{name: smallest value}`` for every size, knob or scalar the kernel can see below zero."""
     found: dict[str, int | float] = {}
 
     def note(name: str, value: object) -> None:
@@ -1441,8 +1126,7 @@ def negative_values(spec: "BenchSpec") -> dict[str, int | float]:
 
 
 def validate_negative(spec: "BenchSpec", source: str) -> None:
-    """Raise ``ValueError`` unless ``public.negative`` names exactly the symbols that can be negative
-    (:func:`negative_values`): the prompt states every other size and scalar is non-negative."""
+    """Raise ``ValueError`` unless ``public.negative`` names exactly the symbols that can be negative."""
     declared = set(spec.public.negative) if spec.public is not None else set()
     found = negative_values(spec)
     if missing := sorted(set(found) - declared):
@@ -1454,18 +1138,13 @@ def validate_negative(spec: "BenchSpec", source: str) -> None:
         raise ValueError(f"{source}: public.negative names {extra}, which never go below zero")
 
 
-def validate_level(level: int | None, track: str = "", source: str = "<spec>") -> None:
-    """Raise ``ValueError`` unless ``level`` is ``None`` or one of 1/2/3 (the KernelBench
-    difficulty declared in the manifest; see :attr:`BenchSpec.resolved_level`).
-
-    ``loop_level_reasoning`` is L1/L2 by construction: the track is single loop nests, so the
-    full-application tier has nobody to hold. A level refit that promotes one is a refit bug,
-    and catching it at load time keeps the track's meaning out of the fitting procedure."""
+def validate_level(level: int | None, track: Track | None = None, source: str = "<spec>") -> None:
+    """Raise ``ValueError`` unless ``level`` is ``None`` or 1/2/3; ``loop_level_reasoning`` allows only L1/L2."""
     if level is None:
         return
     if level not in LEVELS:
         raise ValueError(f"{source}: level {level!r} must be 1, 2, or 3 (or omit to leave it unlabeled)")
-    if level == 3 and track == Track.LOOP_LEVEL_REASONING.value:
+    if level == 3 and track is Track.LOOP_LEVEL_REASONING:
         raise ValueError(
             f"{source}: loop_level_reasoning is single loop nests -- level 3 is the "
             f"full-application tier and no kernel on this track is one"
@@ -1474,18 +1153,8 @@ def validate_level(level: int | None, track: str = "", source: str = "<spec>") -
 
 @dataclass(frozen=True, slots=True)
 class SparseBuffer:
-    """One physical buffer inside a sparse-layout variant.
-
-    :ivar role: Role string from :data:`REQUIRED_BUFFER_ROLES`'s value
-        set. Determines whether the buffer is an index, data, or scalar.
-    :ivar name: Physical name in the emitted kernel signature (e.g.
-        ``A_indptr``). Distinct from the logical array name (``A``).
-    :ivar shape: Tuple of symbolic shape tokens (e.g. ``("NI + 1",)``
-        for a CSR indptr; ``("nnz_A",)`` for indices). Tokens reference
-        the kernel's ``parameters`` symbols + per-layout sizing scalars.
-    :ivar dtype: NumPy dtype name (e.g. ``"int64"``, ``"float64"``,
-        ``"complex128"``).
-    """
+    """One physical buffer of a sparse-layout variant: its ``role``, emitted ``name``, symbolic ``shape`` and
+    numpy ``dtype``."""
 
     role: str
     name: str
@@ -1495,12 +1164,7 @@ class SparseBuffer:
 
 @dataclass(frozen=True, slots=True)
 class SparseLayoutVariant:
-    """One sparse-format variant of a logical array.
-
-    Lists the physical buffers the format expands the logical array
-    into. The format string (e.g. ``"csr"`` / ``"jds"``) must be in
-    :data:`SUPPORTED_SPARSE_FORMATS`; the validator rejects unknowns.
-    """
+    """One sparse-format variant of a logical array: the physical buffers the format expands it into."""
 
     format: str
     buffers: tuple[SparseBuffer, ...]
@@ -1508,19 +1172,10 @@ class SparseLayoutVariant:
 
 @dataclass(frozen=True, slots=True)
 class SparseLayout:
-    """One logical sparse array (a manifest ``layouts.<A>`` entry) and the formats it is offered in.
+    """One logical sparse array (a ``layouts.<A>`` entry) and the formats it is offered in.
 
-    :ivar logical_shape: The dense-equivalent ``(rows, cols)`` symbols, e.g. ``("N", "N")``.
-    :ivar default_dtype: Element type of the value buffers (index buffers are ``int64``).
-    :ivar variants: Per-format buffers, keyed by format, the default first; derived from
-        :data:`~hpcagent_bench.support.helpers.sparse.abi.FORMAT_SPECS`, never declared.
-    :ivar nnz: The size symbol counting the stored entries; the harness binds it to the actual
-        count of the generated matrix.
-    :ivar offered: The formats a submission may request, in manifest order.
-    :ivar default: The format a submission gets when it requests none (every baseline's).
-    :ivar pattern: A boolean matrix (a graph): no value buffer, a ``uint8`` mask where a format
-        stores padding (:data:`~hpcagent_bench.support.helpers.sparse.abi.FORMAT_SPECS`).
-    """
+    ``variants`` derive from ``FORMAT_SPECS`` (default first); ``nnz`` is bound to the generated matrix's count;
+    ``pattern`` marks a boolean matrix (no value buffer)."""
 
     logical_shape: tuple[str, ...]
     default_dtype: str
@@ -1533,29 +1188,15 @@ class SparseLayout:
 
 @dataclass(frozen=True, slots=True)
 class SparseConfiguration:
-    """One {logical-array -> format} mapping that yields one emit file.
-
-    A sparse kernel has one per offered format (:func:`layout_configurations`), keyed by the
-    format.
-    """
+    """One {logical-array -> format} mapping that yields one emit file (one per offered format)."""
 
     arrays: dict[str, LayoutChoice]
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedBench:
-    """One concrete sub-benchmark produced by expanding a kernel's layouts.
-
-    A dense kernel expands to exactly one ``ResolvedBench`` (``config_key``
-    ``"dense"``, ``id`` == the bare short name). A sparse kernel expands to
-    one per *configuration* (the emit-distinct unit: a ``{logical-array ->
-    format}`` mapping); each gets a unique ``id`` ``"{short}[{config}]"``.
-
-    :ivar parent: the owning kernel's ``short_name``.
-    :ivar config_key: configuration name (``"dense"`` for dense kernels).
-    :ivar id: globally-unique sub-benchmark id.
-    :ivar arrays: ``{logical_array -> format}`` for the emit (``{}`` dense).
-    """
+    """One concrete sub-benchmark of a kernel's layouts: dense -> one (``config_key`` ``"dense"``, ``id`` the short
+    name), sparse -> one per configuration (``id`` ``"{short}[{config}]"``)."""
 
     parent: str
     config_key: str
@@ -1566,9 +1207,7 @@ class ResolvedBench:
 def parse_array_entries(
     init_raw: dict[str, object], dtypes: dict[str, str], dists: dict[str, str], source: str
 ) -> tuple[dict[str, str], dict[str, domain_mod.RawDomain], list[str]]:
-    """``init.arrays`` -> ``(shapes, domains, index_arrays)``; array dtypes/dists land in ``dtypes``/``dists``.
-
-    A bare string entry is shorthand for ``{shape: <str>}``."""
+    """``init.arrays`` -> ``(shapes, domains, index_arrays)``, dtypes/dists into ``dtypes``/``dists``."""
     shapes: dict[str, str] = {}
     domains: dict[str, domain_mod.RawDomain] = {}
     index_arrays: list[str] = []
@@ -1579,7 +1218,7 @@ def parse_array_entries(
         entry = block_of(raw_entry, f"init.arrays[{name!r}]", source)
         if "shape" not in entry:
             raise ValueError(f"{source}: init.arrays[{name!r}] needs a 'shape' (got keys {sorted(entry)})")
-        # Closed key set, so a misspelt key cannot leave a declared value domain unhonoured.
+        # Closed key set, so a misspelt key cannot leave a declared domain unhonoured.
         unknown_keys = sorted(set(entry) - ARRAY_ENTRY_KEYS)
         if unknown_keys:
             raise ValueError(
@@ -1598,12 +1237,10 @@ def parse_array_entries(
             if flag:
                 index_arrays.append(name)
         if entry.get("domain") is not None:
-            # Parsed at load so a bad domain names the kernel and array, not a worker's traceback.
             declared_domain = as_domain(entry["domain"], f"args.{name}.domain", source)
             domain_mod.parse(declared_domain)
             domains[name] = declared_domain
-    # A float subscript is not a subscript: an index array must pin an integer dtype, or it would
-    # follow the fp64/fp32 precision sweep.
+    # An index array must pin an integer dtype, or it would follow the precision sweep.
     for name in index_arrays:
         declared = dtypes.get(name)
         if declared is None or not declared.lstrip("u").startswith("int"):
@@ -1648,16 +1285,7 @@ RAW_INIT_KEYS = frozenset(
 
 
 def parse_init(raw: object, source: str) -> InitSpec:
-    """The ``init:`` block -> :class:`InitSpec`.
-
-    ``init.arrays`` declares each array once (shape, dtype?, dist?, domain?, index_array?);
-    ``init.dtypes`` types the non-array arguments whose type the loader cannot infer: an int literal
-    (``init.scalars`` value, preset size, config value) is already int64 and a bool literal bool, so
-    in practice it lists the scalars a fallback ``initialize()`` computes;
-    ``init.func_name`` (derived by :meth:`BenchSpec.from_yaml`) names the fallback generation function
-    (see :class:`InitSpec` for when one is allowed and the ``perturbation`` it must accept) and
-    ``init.scenarios`` the named input conditions it builds. ``init.output_args`` defaults to every
-    declared array and scalar."""
+    """The ``init:`` block -> :class:`InitSpec` (``init.output_args`` defaults to every declared array and scalar)."""
     init_raw = block_of(raw, "init", source)
     unknown = sorted(set(init_raw) - RAW_INIT_KEYS)
     if unknown:
@@ -1668,7 +1296,7 @@ def parse_init(raw: object, source: str) -> InitSpec:
         raise ValueError(
             f"{source}: init.dtypes names array(s) {arrays_named}; an array's dtype goes on its init.arrays entry"
         )
-    dists: dict[str, str] = {}  # filled from init.arrays below; a top-level init.dists is refused above
+    dists: dict[str, str] = {}  # filled from init.arrays below
     shapes, domains, index_arrays = parse_array_entries(init_raw, dtypes, dists, source)
     scalars = {
         sym: number_of(v, f"init.scalars.{sym}", source)
@@ -1699,47 +1327,30 @@ def parse_init(raw: object, source: str) -> InitSpec:
     )
 
 
-class ArgFlag(Enum):
-    """A boolean role one ``args`` entry may carry; the member's value is its manifest key."""
+class ArgFlag(Coded):
+    """A boolean role one ``args`` entry may carry; the member's spelling is its manifest key."""
 
-    #: Graded against the reference after the call (``output_args``). Declared, never inferred:
-    #: comparing only the outputs is what keeps grading memory small.
-    OUT = "out"
-    #: ``false``: a fallback ``initialize()`` does not return it -- a scalar seeded from its value, a
-    #: buffer the harness zero-fills. Only a kernel with a fallback initializer can say so.
-    RETURNED = "returned"
+    #: Graded against the reference after the call; declared, never inferred.
+    OUT = enum.auto()
+    #: ``false``: a fallback ``initialize()`` does not return it (fallback initializer only).
+    RETURNED = enum.auto()
     #: Block-partitioned by the default ``mpi.decomposition`` over its shape's axes (``mpi.arrays``).
-    PARTITIONED = "partitioned"
+    PARTITIONED = enum.auto()
 
 
-#: Everything one ``args`` entry in mapping form may declare (:class:`hpcagent_bench.manifest_schema.ArgEntry`):
-#: the :data:`ARRAY_ENTRY_KEYS`, ``value`` and the :class:`ArgFlag` keys.
+#: Everything one ``args`` entry in mapping form may declare.
 ARG_ENTRY_KEYS = manifest_schema.field_keys(manifest_schema.ArgEntry)
 
 #: The entry keys only an array (an entry with a ``shape``) may carry.
-ARRAY_ONLY_KEYS = (ARRAY_ENTRY_KEYS - {"shape", "dtype"}) | {ArgFlag.PARTITIONED.value}
+ARRAY_ONLY_KEYS = (ARRAY_ENTRY_KEYS - {"shape", "dtype"}) | {ArgFlag.PARTITIONED.text}
 
-#: The keys a manifest's ``init`` block may carry (:class:`hpcagent_bench.manifest_schema.InitBlock`): what
-#: the fallback initializer needs beyond ``args``.
+#: The keys a manifest's ``init`` block may carry (what the fallback initializer needs beyond ``args``).
 MANIFEST_INIT_KEYS = manifest_schema.field_keys(manifest_schema.InitBlock)
 
 
 class ArgsBlock(BaseModel):
-    """A manifest's ``args:`` block, expanded into the declarations :meth:`BenchSpec.from_dict` reads.
-
-    ``args`` maps each argument name, in order, to a shape string (an array), a number (a scalar's
-    value) or a mapping: ``shape`` with the :data:`ARRAY_ENTRY_KEYS`, or ``value``, plus the
-    :class:`ArgFlag` roles and an optional ``dtype``. A mapping with neither ``shape`` nor ``value``
-    names a value a fallback ``initialize()`` builds. The order is the data order: the arrays' draw
-    streams, the initializer's return order and the order outputs are graded in.
-
-    :ivar arrays: ``init.arrays``.
-    :ivar scalars: ``init.scalars``.
-    :ivar dtypes: ``init.dtypes``: the declared types of the names that are not arrays.
-    :ivar returned: ``init.output_args``.
-    :ivar outputs: ``output_args``.
-    :ivar partitioned: ``mpi.arrays``: ``{array: its shape's axes}``.
-    """
+    """A manifest's ``args:`` block expanded into the declarations :meth:`BenchSpec.from_dict` reads; ``args`` order
+    is the data order (draw streams, initializer returns, graded outputs)."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -1757,8 +1368,7 @@ def partition_axes(shape: str) -> list[str | int]:
 
 
 def parse_args(entries: Mapping[str, manifest_schema.ArgEntry], fallback: bool, source: str) -> ArgsBlock:
-    """The validated ``args:`` block -> :class:`ArgsBlock`. ``fallback``: the kernel builds its inputs with
-    a fallback ``initialize()``, the only case an entry may name an undeclared value or not be returned."""
+    """The validated ``args:`` block -> :class:`ArgsBlock`; ``fallback`` allows undeclared or unreturned entries."""
     if not entries:
         raise ValueError(f"{source}: 'args' must map each argument to its shape, its value or a declaration")
     arrays: dict[str, str | dict[str, Any]] = {}
@@ -1776,7 +1386,7 @@ def parse_args(entries: Mapping[str, manifest_schema.ArgEntry], fallback: bool, 
         if entry.shape is None and array_only:
             raise ValueError(f"{source}: {where} declares {array_only}, which only an array (a shape) can carry")
         is_returned = entry.returned is not False
-        if not fallback and ((entry.shape is None and entry.value is None) or ArgFlag.RETURNED.value in declared):
+        if not fallback and ((entry.shape is None and entry.value is None) or ArgFlag.RETURNED.text in declared):
             raise ValueError(
                 f"{source}: {where}: only a kernel with a fallback {INITIALIZER}() may name a value it builds "
                 f"or say it does not return one; a declarative init needs a shape or a value"
@@ -1812,10 +1422,8 @@ def parse_args(entries: Mapping[str, manifest_schema.ArgEntry], fallback: bool, 
 def expand_args(
     raw: dict[str, object], entries: Mapping[str, manifest_schema.ArgEntry], module: pathlib.Path | None, source: str
 ) -> None:
-    """Rewrite a validated manifest's ``args:`` block, in place, into the ``output_args`` / ``init`` /
-    ``mpi.arrays`` declarations :meth:`BenchSpec.from_dict` reads. ``entries`` is the validated ``args``
-    block (:attr:`hpcagent_bench.manifest_schema.Manifest.args`). ``module`` is the kernel's ``<module>.py``
-    when it defines the fallback :data:`INITIALIZER` (whose ``def`` line then gives ``init.input_args``)."""
+    """Rewrite a validated manifest's ``args:`` block, in place, into the declarations :meth:`BenchSpec.from_dict`
+    reads (``module`` gives ``init.input_args`` when it defines the initializer)."""
     init_raw = block_of(raw.get("init"), "init", source)
     mpi_raw = block_of(raw.get("mpi"), "mpi", source)
     raw.pop("args", None)
@@ -1836,12 +1444,8 @@ def expand_args(
 
 
 def parse_scenarios(init_raw: dict[str, object], source: str) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
-    """``init.scenarios``: a non-empty ``{name: description}`` mapping, for a fallback initializer
-    only, or ``{name: {description: ..., layouts: [...]}}`` when a sparse kernel's scenarios differ
-    in which layouts they can be stored in. Returns ``(descriptions, layouts)``.
-
-    A declarative init has no function to hand a scenario to, so declaring one there would be a
-    line nothing reads."""
+    """``init.scenarios`` (fallback initializer only) -> ``(descriptions, layouts)``; the mapping form names each
+    scenario's sparse layouts."""
     raw = init_raw.get("scenarios")
     if raw is None:
         return {}, {}
@@ -1870,11 +1474,7 @@ def parse_scenarios(init_raw: dict[str, object], source: str) -> tuple[dict[str,
 
 
 def validate_scenario_layouts(init: "InitSpec | None", layouts: dict[str, "SparseLayout"], source: str) -> None:
-    """A sparse kernel's fallback initializer names its value redraw (unless every sparse array is
-    a pattern: nothing to redraw) and, per scenario, the layouts it serves; every offered format
-    must be served by some scenario (bsr by at least one block edge: a stencil's blocks fill only
-    at the small edges), so no offered format is left with nothing to draw. A request for an edge
-    no scenario serves is refused at request time (``request.served_scenarios``)."""
+    """A sparse kernel's initializer names its value redraw, and every offered format is served by some scenario."""
     if init is None or not init.func_name:
         return
     if not layouts:
@@ -1918,8 +1518,7 @@ def parse_parameters(params_raw: object, source: str) -> PresetTable:
 def parse_config_space(
     config_raw: object, short_name: str, source: str
 ) -> tuple[dict[str, ConfigKnob], tuple[ConfigRow, ...]]:
-    """The ``config:`` block -> ``(knobs, curated rows)``. YAML shape decides: a mapping is per-knob
-    axes, a list is curated whole configs, so one manifest can never declare both."""
+    """The ``config:`` block -> ``(knobs, curated rows)``: a mapping is per-knob axes, a list curated configs."""
     if is_list(config_raw):
         return {}, parse_config_list(as_list(config_raw), short_name, source)
     if is_mapping(config_raw):
@@ -1935,8 +1534,7 @@ def parse_config_space(
 def resolve_input_args(
     bench: dict[str, object], relative_path: str, module_name: str, func_name: str, bound: frozenset[str], source: str
 ) -> tuple[str, ...]:
-    """``input_args`` as declared, else read from the reference function's signature (a defaulted
-    parameter no name in ``bound`` supplies keeps its default)."""
+    """``input_args`` as declared, else from the reference function's signature."""
     declared_inputs = bench.get("input_args")
     if declared_inputs is not None:
         return tuple(str(a) for a in as_list(declared_inputs))
@@ -1958,11 +1556,8 @@ def resolve_array_args(
     known: frozenset[str],
     source: str,
 ) -> tuple[str, ...]:
-    """``array_args`` as declared (trusted as-is), else derived (:func:`derive_array_args`).
-
-    On the derived path every input must be a name the manifest defines (``known``: an array, a
-    scalar, a value the initializer returns, a size symbol or config knob, a sparse buffer), so a
-    forgotten shape cannot silently demote an array to a scalar."""
+    """``array_args`` as declared, else derived; derived inputs must be names the manifest defines (so a forgotten
+    shape cannot demote an array to a scalar)."""
     if declared_arrays is not None:
         return tuple(str(a) for a in as_list(declared_arrays))
     derived_arrays = derive_array_args(input_args, output_args, init_spec, sparse_layouts)
@@ -1979,9 +1574,8 @@ def resolve_array_args(
 
 
 def validate_init_kinds(init_spec: InitSpec | None, param_syms: set[str], source: str) -> None:
-    """A name is exactly one kind: not both a preset dimension and a scalar value (the
-    preset copy would win and be down-scaled as a size), nor both an array and a scalar. Every
-    input of a fallback initializer is a size symbol, a config knob or a scalar value."""
+    """A name is exactly one kind (dimension, scalar or array); a fallback initializer's inputs are sizes, knobs or
+    scalars."""
     if init_spec is None:
         return
     shadowed = sorted(set(init_spec.scalars) & param_syms)
@@ -2024,9 +1618,7 @@ def validate_sparse_layouts(
 
 
 def parse_mpi(raw: object, sparse: bool, source: str) -> dict[str, object]:
-    """The opt-in ``mpi:`` block (absent: arrays replicate multi-node, no scale test). A sparse
-    kernel cannot declare one: a distributed CSR partition is not expressible by the dense
-    ownership descriptor."""
+    """The opt-in ``mpi:`` block (absent: arrays replicate); a sparse kernel cannot declare one."""
     mpi_blk = block_of(raw, "mpi", source)
     if mpi_blk and sparse:
         raise ValueError(
@@ -2039,20 +1631,15 @@ def parse_mpi(raw: object, sparse: bool, source: str) -> dict[str, object]:
 
 @dataclass(frozen=True, slots=True)
 class MpiDecomposition:
-    """The ``mpi.decomposition`` block: the size symbols sizing the block-partitioned axes, and the degree
-    ``k`` of the kernel's work in them (``None`` = strong-only: weak scaling refuses it)."""
+    """The ``mpi.decomposition`` block: the axis size symbols and the work degree ``k`` (``None`` = strong-only)."""
 
     axis: tuple[str, ...]
     work_exponent: int | None
 
 
 class BenchSpec(BaseModel):
-    """Validated descriptor for one kernel.
-
-    Field names map 1:1 onto ``bench_info/<name>.json`` keys. Every field
-    with a default is optional. Construction validates every field strictly (no coercion, unknown
-    fields rejected); the instance is immutable, and :meth:`replace` derives a validated changed copy.
-    """
+    """Validated, immutable descriptor for one kernel (fields map 1:1 onto ``bench_info/<name>.json``); strict
+    validation, :meth:`replace` derives a changed copy."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -2065,160 +1652,88 @@ class BenchSpec(BaseModel):
     input_args: tuple[str, ...]
     array_args: tuple[str, ...]
     output_args: tuple[str, ...]
-    #: Output arrays whose GRADED extent is another output's value: ``{"packed": "out_count"}``
-    #: means only ``packed[:out_count]`` is part of the answer. Grade what the kernel is asked to
-    #: compute -- a compaction leaves the tail past the count undefined, so demanding the
-    #: initializer's bytes back there tests tidiness, not the computation. The bounding output is
-    #: itself graded in full, so a kernel cannot shrink its own comparison by returning a short
-    #: count. Empty (the default) grades every output whole, which is right for every kernel that
-    #: writes all of its output.
+    #: Outputs whose GRADED extent is another output's value (``{"packed": "out_count"}``: only ``packed[:out_count]``
+    #: is the answer); the bounding output is graded in full. Empty: every output whole.
     output_extent: dict[str, str] = Field(default_factory=dict[str, str])
-    #: Output arrays that are a SCAN along their kept axis: ``{"out": "LEN_1D"}`` declares the
-    #: accumulation length ``l`` (number of terms summed into one output element) the reassociation
-    #: floor uses for that output (appendix, reassociation-floor paragraph) -- the one case the
-    #: general contraction rule (:func:`hpcagent_bench.harness.grading.contracted_extent`) cannot
-    #: reach, since a scan's dependence chain runs along a dimension the output KEEPS rather than
-    #: contracts. Each expression is evaluated through the same resolver the sizer uses
-    #: (:func:`hpcagent_bench.sizing.shape_namespace`); see :func:`_validate_chain_length` for what
-    #: it is checked against. Empty (the default) declares no output a scan.
+    #: Outputs that are a SCAN along a kept axis (``{"out": "LEN_1D"}``): the accumulation length ``l`` the
+    #: reassociation floor uses, which the contraction rule cannot see. Empty: none.
     chain_length: dict[str, str] = Field(default_factory=dict[str, str])
     init: InstanceOf[InitSpec] | None = None
     variants: dict[str, dict[str, str]] = Field(default_factory=lambda: {"default": dict[str, str]()})
-    #: Berkeley dwarf. DERIVED from the manifest's own location -- the directory under the track
-    #: IS the dwarf, and it agreed with the declared value on 144 of 144 kernels that declared one,
-    #: so declaring it was a second copy that could disagree. ``None`` for a flat track.
+    #: Berkeley dwarf, DERIVED from the manifest's location (the directory under the track); ``None`` for a flat
+    #: track.
     dwarf: str | None = None
-    #: HPC scale class (``micro`` / ``proxy``); ``None`` for non-HPC kernels and
-    #: for unset HPC kernels (which resolve to ``micro`` via :attr:`scale_class`).
+    #: HPC scale class; ``None`` for non-HPC and unset HPC kernels (which resolve to ``micro``).
     scale: str | None = None
-    #: KernelBench difficulty level (1/2/3), curated per kernel in the manifest. L1 = a
-    #: single primitive op, L2 = fused/composite or data-dependent control, L3 = a full
-    #: application. ``None`` => unlabeled (excluded from ``@lvl`` filters).
+    #: KernelBench difficulty level (1/2/3); ``None`` => unlabeled (excluded from ``@lvl`` filters).
     level: int | None = None
-    #: Optional per-kernel agent wall-clock budget in seconds. Overrides the per-level
-    #: default in ``resolve_kernel_timeout``; ``None`` => use the level / global default.
+    #: Per-kernel agent wall-clock budget (s) overriding the level default.
     timeout_s: Number | None = None
-    #: Optional per-kernel HARD memory cap in GB. ``sizing.kernel_memory_gb`` normally derives the
-    #: cap from the manifest's DECLARED I/O arrays (``max(2 x arrays + workspace, floor)``), which
-    #: undercounts a kernel whose translated C mallocs internal temporaries the manifest never
-    #: declares -- fv3_dycore's ~90 PPM transport scratch buffers dwarf its 13 declared arrays, so
-    #: the derived cap let a run through with room to allocate far more than the node (or this
-    #: field) can hold, and the run SIGSEGV'd on an unchecked malloc past it. A per-kernel FLOOR
-    #: override (``max(derived, this)``) cannot fix that: the derived term can still exceed it and
-    #: raise the cap past what the kernel actually needs to fit in. So this REPLACES the derived
-    #: value outright for the kernel that sets it -- the manifest is asserting "this kernel's sizes
-    #: are chosen so true peak (incl. every temporary) fits under this many GB", which is a claim
-    #: about the kernel, not a suggestion for the formula. ``None`` => the derived/floor rule above,
-    #: unchanged for every other kernel.
+    #: Per-kernel HARD memory cap in GB, REPLACING the derived cap (which undercounts undeclared temporaries); the
+    #: manifest asserts true peak fits under it. ``None`` => the derived rule.
     memory_cap_gb: Number | None = None
-    #: The share of the declared array bytes one correct call must touch, for the bytes/bandwidth
-    #: plausibility floor (:func:`hpcagent_bench.harness.scoring.physical_floor_for`). The floor
-    #: charges every declared byte, which over-states the traffic of a kernel whose loops provably
-    #: visit less: tsvc_2_s1232's triangular nest touches 1/(2*VLEN) of each array, so its floor
-    #: sat above honest times and flagged them suspect. Set only with the loop-bound derivation beside
-    #: it in the manifest; 1.0 (the default) charges every declared byte. Judge-side, never an agent
-    #: signal, like the floor itself.
+    #: Share of the declared array bytes one correct call must touch, for the bandwidth plausibility floor; set
+    #: only with the loop-bound derivation beside it. 1.0 charges every declared byte.
     floor_bytes_fraction: Number = 1.0
-    #: A floor on the grading rtol, for a kernel whose answer the precision band cannot resolve: the
-    #: reference itself moves by more than the band under a 1-ulp input change (an ill-conditioned
-    #: solve), so any reordered implementation fails. Set only with that measurement beside it in the
-    #: manifest. ``None`` => the band alone.
+    #: A floor on the grading rtol for an ill-conditioned answer; set only with the measurement beside it.
     conditioning_rtol: Number | None = None
-    #: The same floor on the grading atol, for an answer whose small components move by an absolute
-    #: amount (an adaptive integrator whose flipped step decision lands within its own tolerance).
+    #: The same floor on the grading atol.
     conditioning_atol: Number | None = None
-    #: The fraction of each output's elements allowed outside the band, for a chaotic answer whose
-    #: every correct implementation flips a few elements (mandelbrot2's escape boundary: a reordered
-    #: z^2 + c moves a boundary pixel's escape step). Set only with that measurement beside it in the
-    #: manifest. ``None`` => every element within the band.
+    #: The fraction of each output's elements allowed outside the band (a chaotic answer); set only with the
+    #: measurement beside it.
     mismatch_fraction: Number | None = None
-    #: The size symbols the XL rung grows along when the kernel is graded in a narrower datatype than
-    #: the fp64 its XL is authored at (:func:`hpcagent_bench.sizing.datatype_rung`: constant bytes). Empty =>
-    #: the leading (batch) dimension of its first array.
+    #: The size symbols the XL rung grows along in a narrower datatype (constant bytes); empty: the leading dim.
     scale_axes: tuple[str, ...] = ()
 
-    track: str = Track.LOOP_LEVEL_REASONING.value
+    track: Track = Track.LOOP_LEVEL_REASONING
     #: The precisions the kernel can run in (manifest ``allowed_precisions``); fp64 and fp32 when omitted.
     allowed_precisions: tuple[str, ...] = ("fp64", "fp32")
 
-    # The ``layouts`` block (optional; absent means a dense kernel): every logical sparse array and
-    # the formats a submission may request it in. ``configurations`` then holds one entry per
-    # offered format (:func:`layout_configurations`).
+    # The ``layouts`` block (absent: dense); ``configurations`` holds one entry per offered format.
     sparse_layouts: dict[str, InstanceOf[SparseLayout]] = Field(default_factory=dict[str, SparseLayout])
     configurations: dict[str, InstanceOf[SparseConfiguration]] = Field(default_factory=dict[str, SparseConfiguration])
 
-    languages: tuple[str, ...] = ()
+    languages: tuple[Language, ...] = ()
     fuzz: dict[str, list[str]] = Field(default_factory=dict[str, list[str]])
 
-    #: The ``mpi:`` block; empty when the kernel is single-node only (multi-node, its arrays replicate).
-    #: The authored keys are :class:`hpcagent_bench.manifest_schema.MpiBlock`; ``arrays``
-    #: (``{array: its shape's axes}``) is derived from the ``partitioned`` ``args`` entries. Read by
-    #: ``mpi_descriptor``, ``mpi_sizing`` and ``harness.scoring``.
+    #: The ``mpi:`` block (empty: single-node only); ``arrays`` derives from the ``partitioned`` args entries.
     mpi: dict[str, object] = Field(default_factory=dict[str, object])
 
-    # SIZE DIMENSIONS vs CONFIG KNOBS. The manifest's 'parameters:' block is what a size preset
-    # actually scales. 'config' is the execution-path selectors a preset must NEVER scale (branch
-    # flags, tile sizes, iteration caps, ...), keyed by symbol -> :class:`ConfigKnob`. 'parameters'
-    # above stays the merged {preset: {symbol: value}} view every existing consumer reads, config
-    # knobs included at their representative value.
-    #
-    # ``config:`` has TWO compositions, told apart by YAML shape and mutually exclusive:
-    #   * a MAPPING (symbol -> {domain|value, selects?}) lands in :attr:`config` -- per-knob axes,
-    #     crossed into a product and filtered by ``constraints:``;
-    #   * a LIST of complete configs lands in :attr:`config_valid` -- a curated space (a baseline
-    #     row, one-hot rows, key combinations) that is deliberately NOT a product minus impossible
-    #     corners, so forcing it into axes would grade combinations nobody chose.
-    # Read the enumerated space through :attr:`config_space`, never either field directly.
+    # 'parameters' is what a size preset scales; 'config' holds the execution-path selectors a preset must NEVER
+    # scale. A mapping ``config:`` lands in :attr:`config` (crossed and filtered by ``constraints:``), a list in
+    # :attr:`config_valid` (curated). Read the space through :attr:`config_space` only.
     config: dict[str, ConfigKnob] = Field(default_factory=dict[str, ConfigKnob])
     config_valid: tuple[dict[str, Value], ...] = ()
-    #: Cross-dimension/config invariants (e.g. ``"lvn <= nproma"``), validated at LOAD for every
-    #: preset via :func:`_validate_constraints` (reuses ``fuzz.safe_eval``). Over the mapping
-    #: composition they double as the FILTER rules that carve the product down (see
-    #: :func:`_config_product`).
+    #: Cross-dimension/config invariants, validated at load per preset; they also filter the mapping product.
     constraints: tuple[str, ...] = ()
-    #: The ``public`` block: the configurations, control-flow values and small sizes the agent is told
-    #: about (:class:`hpcagent_bench.manifest_schema.PublicBlock`, checked by :func:`validate_public`).
-    #: ``None`` when the manifest declares none.
+    #: The ``public`` block (what the agent is told); ``None`` when the manifest declares none.
     public: manifest_schema.PublicBlock | None = None
 
     def replace(self, **changes: object) -> "BenchSpec":
-        """A copy with the fields in ``changes`` replaced, validated like a constructed instance.
-
-        :raises pydantic.ValidationError: When a changed value has the wrong type or names no field.
-        """
+        """A copy with ``changes`` applied, validated; :raises pydantic.ValidationError: on a bad value or field."""
         return type(self).model_validate({**dict(self), **changes})
 
     @property
     def config_names(self) -> frozenset[str]:
-        """Every symbol the ``config:`` block declares, whichever composition declared it. A size
-        preset must never scale these, and ``fuzz.resolve_ranges`` must never fuzz them as sizes."""
+        """Every symbol the ``config:`` block declares (never scaled or fuzzed as a size)."""
         if not self.config_valid:
             return frozenset(self.config)
         return frozenset(self.config).union(*(frozenset(row) for row in self.config_valid))
 
     @property
     def config_space(self) -> tuple[ConfigRow, ...]:
-        """The complete configs to evaluate -- the curated list verbatim, or the mapping's
-        constraint-filtered product. Empty when the kernel declares no config space at all.
-
-        PRESET-INDEPENDENT by construction: nothing here reads a size preset. A kernel's config space
-        is the same at S and at XL; only which subset is TIMED is ever bounded
-        (``fuzz.enumerate_configs``), and the correctness gate enumerates it uncapped.
-        """
+        """The complete configs to evaluate (curated list, or the constraint-filtered product); empty if none.
+        Preset-independent."""
         if self.config_valid:
             return self.config_valid
         return _config_product(self.config, self.constraints)
 
     @classmethod
     def from_dict(cls, raw: dict[str, object], source: str = "<dict>") -> "BenchSpec":
-        """Validate ``raw`` and construct a :class:`BenchSpec`.
+        """Validate ``raw`` (a flat mapping) and construct a :class:`BenchSpec`.
 
-        :param raw: The manifest as a flat mapping (:meth:`from_yaml` derives the location fields first).
-        :param source: Path or label used in error messages.
-        :raises ValueError: When a required field is missing or an
-            unknown field is present; also when a ``config`` entry is malformed,
-            a symbol is both a dimension and a config knob, or a
-            ``constraints`` expression is violated (see :func:`_validate_constraints`).
+        :raises ValueError: a missing or unknown field, a malformed ``config`` entry, a dimension/knob clash, or a
+            violated ``constraints`` expression.
         """
         if "benchmark" in raw:
             raise ValueError(
@@ -2226,8 +1741,7 @@ class BenchSpec(BaseModel):
             )
         bench = raw
 
-        # Only ``output_args`` is a required declaration; ``input_args`` and ``array_args`` are
-        # derived when omitted. ``short_name`` defaults to the last ``relative_path`` component.
+        # Only ``output_args`` is required; ``input_args`` and ``array_args`` are derived when omitted.
         declared_path = bench.get("relative_path")
         if "short_name" not in bench and declared_path:
             bench["short_name"] = pathlib.PurePosixPath(str(declared_path)).name
@@ -2248,11 +1762,10 @@ class BenchSpec(BaseModel):
         sparse_layouts = parse_layouts(block_of(bench.get("layouts"), "layouts", source), source)
         configurations = layout_configurations(sparse_layouts) if sparse_layouts else {}
 
-        # 'parameters' below keeps its one meaning for every consumer, {preset: {symbol: value}},
-        # with each config knob's representative value merged in.
+        # 'parameters' keeps {preset: {symbol: value}}, each config knob's representative value merged in.
         dimensions_map = parse_parameters(bench["parameters"], source)
         # Track loop_level_reasoning when a from_dict caller has no path to derive it from.
-        track = str(bench.get("track", Track.LOOP_LEVEL_REASONING.value))
+        track = Track.validate(bench.get("track", Track.LOOP_LEVEL_REASONING))
         declared_precisions = bench.get("allowed_precisions")
         allowed_precisions = (
             ("fp64", "fp32") if declared_precisions is None else tuple(str(p) for p in as_list(declared_precisions))
@@ -2267,8 +1780,7 @@ class BenchSpec(BaseModel):
                 f"'parameters' and 'config' -- a symbol is a size dimension or "
                 f"a config knob, never both."
             )
-        # Every preset carries ONE concrete config (pinned value / first domain entry, or the first
-        # curated row) so a non-enumerating consumer still has a value for each knob.
+        # Every preset carries ONE concrete config, so a non-enumerating consumer has a value for each knob.
         config_reps: ConfigRow = (
             {sym: knob.representative for sym, knob in config_knobs.items()}
             if not config_valid
@@ -2296,8 +1808,7 @@ class BenchSpec(BaseModel):
             bench.get("array_args"), input_args, output_args, init_spec, sparse_layouts, known, source
         )
         validate_init_kinds(init_spec, param_syms, source)
-        # Keys and values must both name graded outputs, or the extent resolves to nothing at grade
-        # time and silently compares the whole array again.
+        # Keys and values must both name graded outputs, or the extent silently resolves to nothing.
         output_extent = {
             out: str(bound) for out, bound in block_of(bench.get("output_extent"), "output_extent", source).items()
         }
@@ -2347,7 +1858,7 @@ class BenchSpec(BaseModel):
                 f"of symbol -> {{domain: [...]}} when the space really is a product."
             )
         # A config param in the 'fuzzed' size preset would be re-sampled over the chosen config.
-        clash = sorted(set(dimensions_map.get("fuzzed") or {}) & config_syms)
+        clash = sorted(set(dimensions_map.get(Preset.FUZZED.text) or {}) & config_syms)
         if clash:
             raise ValueError(
                 f"{source}: {clash} appear in BOTH the 'fuzzed' size preset and the 'config' "
@@ -2407,7 +1918,7 @@ class BenchSpec(BaseModel):
             allowed_precisions=allowed_precisions,
             sparse_layouts=sparse_layouts,
             configurations=configurations,
-            languages=tuple(str(lang) for lang in as_list(bench.get("languages"))),
+            languages=tuple(Language.validate(lang) for lang in as_list(bench.get("languages"))),
             fuzz=fuzz_blk,
             mpi=mpi_blk,
             config=config_knobs,
@@ -2421,16 +1932,10 @@ class BenchSpec(BaseModel):
 
     @classmethod
     def from_yaml(cls, raw: dict[str, object], source: str = "<yaml>") -> "BenchSpec":
-        """Construct a :class:`BenchSpec` from a co-located ``<stem>.yaml``.
+        """Construct a :class:`BenchSpec` from a co-located ``<stem>.yaml`` (no envelope), schema-checked first;
+        ``track`` and ``dwarf`` derive from its location.
 
-        The YAML is the spec itself (no ``benchmark:`` envelope), validated against
-        :class:`hpcagent_bench.manifest_schema.Manifest` first. ``track`` and ``dwarf`` are
-        DERIVED from the manifest's own location rather than declared; this normalizer fills them
-        in, then delegates to :meth:`from_dict` (so all sparse/init/tol parsing is reused), and
-        finally enforces the dwarf vocabulary on the derived value.
-
-        :raises ValueError: When the manifest violates the schema (every violation listed as
-            ``<key path>: <message>``) or a :meth:`from_dict` check.
+        :raises ValueError: a schema violation (``<key path>: <message>``) or a :meth:`from_dict` check.
         """
         raw = dict(raw)
         for banned in ("rtol", "atol"):
@@ -2445,29 +1950,17 @@ class BenchSpec(BaseModel):
                 f"initializer when it exists; drop the key"
             )
         manifest = manifest_schema.validate_manifest(raw, source)
-        # Identity that the manifest's LOCATION already states need not be
-        # repeated: ``relative_path`` is the folder under ``benchmarks/`` that
-        # holds this manifest, and ``module_name`` defaults to the file stem
-        # (``<stem>_numpy.py`` holds the kernel). Both are still honoured when
-        # explicitly given (e.g. the ``module_name != stem`` cases).
+        # ``relative_path`` and ``module_name`` derive from the manifest's location, still honoured when given.
         p = pathlib.Path(source)
         initializer: pathlib.Path | None = None
         if p.suffix in (".yaml", ".yml"):
-            # Anchored on the corpus root, never on a path component that happens to spell
-            # "benchmarks" -- a checkout living under such a directory matches that scan too.
-            # Same derivation as :func:`_scan_kernels`, which builds the key this fills in for.
+            # Anchored on the corpus root, never on a path component spelling "benchmarks".
             corpus, here = paths.BENCHMARKS.resolve(), p.resolve().parent
             if "relative_path" not in raw and here.is_relative_to(corpus):
                 raw["relative_path"] = here.relative_to(corpus).as_posix()
-            # The stem, unless the manifest names another module. Seven variants share one
-            # reference: gemm_long_k and gemm_tall_skinny both read gemm_numpy.py, and the sparse
-            # solvers likewise. Declaring it is the exception, so it stays optional.
+            # The stem, unless the manifest names another module (variants may share one reference).
             raw.setdefault("module_name", p.stem)
-            # The stem IS the name: it is unique across the corpus and every other identity field
-            # derives from it. Not declarable (KNOWN_MANIFEST_KEYS rejects it), so no second,
-            # shorter identity can disagree with it and hand out a name the harness cannot load
-            # back. A name too long for a backend's symbol rules is shortened at EMISSION, in
-            # ``numpyto_common.naming.entry_symbol``, never here.
+            # The stem IS the name (unique, not declarable); a too-long name is shortened at emission only.
             raw["short_name"] = p.stem
             fn = derive_func_name(str(raw.get("relative_path", "")), str(raw["module_name"]))
             if fn is not None:
@@ -2476,8 +1969,7 @@ class BenchSpec(BaseModel):
             initializer = module if defines_function(module, INITIALIZER) else None
             raw.setdefault("name", raw["short_name"])  # human title, free-form; NOT an identity
         expand_args(raw, manifest.args, initializer, source)
-        # Track and dwarf come from the manifest's LOCATION, never from the manifest: a declared copy
-        # of the path could only drift from it. A two-deep path (``<track>/<kernel>``) has no dwarf.
+        # Track and dwarf come from the manifest's LOCATION; a two-deep path has no dwarf.
         parts = pathlib.PurePosixPath(str(raw.get("relative_path", ""))).parts
         if parts:
             raw.setdefault("track", parts[0])
@@ -2491,29 +1983,22 @@ class BenchSpec(BaseModel):
 
     @property
     def study_tags(self) -> tuple[str, ...]:
-        """The study tags whose ``hpcagent_bench/tags/<tag>.txt`` lists this kernel -- the one
-        source of tag membership (:mod:`hpcagent_bench.tags`, imported late: it imports this module)."""
+        """The study tags whose ``tags/<tag>.txt`` lists this kernel."""
         from hpcagent_bench import tags
 
         return tags.tags_of(self.short_name)
 
     @property
     def scale_class(self) -> str | None:
-        """Resolved HPC scale: the explicit ``scale``, else ``micro`` for an
-        untagged HPC kernel, else ``None`` (machine_learning/loop_level_reasoning have no scale)."""
+        """Resolved HPC scale: ``scale``, else ``micro`` for an HPC kernel, else ``None``."""
         if self.scale is not None:
             return self.scale
-        return "micro" if self.track == Track.SCIENTIFIC_COMPUTING.value else None
+        return "micro" if self.track is Track.SCIENTIFIC_COMPUTING else None
 
     @property
     def pinned_config(self) -> ConfigRow:
-        """``{symbol: value}`` for every ``config:`` knob the manifest PINNED to one value.
-
-        A pinned knob is a compile-time constant, not a runtime argument: it has one value for
-        every preset and every fuzz draw, so the native emitters declare it as a C ``constexpr`` /
-        Fortran ``parameter`` and leave it out of the ABI. A knob with a ``domain:`` is a fuzzable
-        axis and stays a real parameter, as does every entry of a curated ``config:`` LIST.
-        """
+        """``{symbol: value}`` for every ``config:`` knob PINNED to one value: a compile-time constant left out of the
+        ABI (a ``domain:`` knob or a curated row stays a real parameter)."""
         return {sym: knob.representative for sym, knob in self.config.items() if knob.domain is None}
 
     @property
@@ -2528,31 +2013,17 @@ class BenchSpec(BaseModel):
 
     @property
     def resolved_level(self) -> int | None:
-        """The KernelBench difficulty level declared in the manifest (``level:``), or
-        ``None`` if unset. Levels are curated static data, not derived at runtime: L1 =
-        a single primitive op, L2 = a fused/composite sequence or data-dependent control,
-        L3 = a full application (``kind: microapp``)."""
+        """The KernelBench difficulty level declared in the manifest, or ``None``."""
         return int(self.level) if self.level is not None else None
 
     @classmethod
     def load(cls, short_name: str) -> "BenchSpec":
-        """Load and validate a benchmark descriptor by short name.
-
-        The co-located ``<stem>.yaml`` manifest is the single source of truth.
-
-        Memoized by :func:`load_spec`: one load costs ~3ms of YAML parse + validation and
-        the harness re-loads the same manifest many times per task.
-        """
+        """Load and validate a benchmark descriptor by short name (memoized by :func:`load_spec`)."""
         return load_spec(short_name)
 
     def expand_layouts(self) -> list["ResolvedBench"]:
-        """Expand this kernel into its concrete sub-benchmarks, one per emit-distinct configuration.
-
-        * **Dense** kernel -> one ``ResolvedBench`` (``config_key="dense"``, ``id`` == ``short_name``).
-        * **Sparse** kernel (``layouts``) -> one per configuration, ``id`` ``"{short}[{config}]"``; the default layout comes first.
-
-        The grading unit stays the kernel: a submission picks its layout by request (``layout``),
-        and the other configurations exist for the per-format references (``run-sparse``)."""
+        """Expand this kernel into its sub-benchmarks: one for a dense kernel, one per configuration (default first)
+        for a sparse one. The grading unit stays the kernel."""
         if not self.configurations:
             return [ResolvedBench(parent=self.short_name, config_key="dense", id=self.short_name)]
         return [
@@ -2564,37 +2035,24 @@ class BenchSpec(BaseModel):
 
     @property
     def default_layout(self) -> str | None:
-        """The configuration a submission that requests no layout is graded in, and every baseline's:
-        the sparse arrays' shared default format, or ``None`` for a dense kernel. The one authority for that default (binding, emitter, harbor)."""
+        """The configuration a submission requesting no layout is graded in (every baseline's); ``None`` if dense.
+        The one authority for that default."""
         if self.sparse_layouts:
             return next(iter(self.sparse_layouts.values())).default
         return None
 
     def native_base(self, config: str | None = None) -> str:
-        """The native artifact stem for one layout: ``<module>`` (dense) or
-        ``<module>_<config>`` (a sparse configuration). The emitted source, the
-        exported C symbol, and the per-framework ``lib<base>_<fw>.so`` all share
-        this stem -- so each sparse layout is a fully-independent kernel.
-
-        Keyed on ``module_name`` because the emitter derives the stem from the
-        ``<module>_numpy.py`` filename it is handed (``numpyto_c.cli``).
-        """
+        """The native artifact stem for one layout, ``<module>[_<config>]``, shared by source, symbol and library."""
         return self.module_name if config in (None, "dense") else f"{self.module_name}_{config}"
 
 
-# Kernel registry -- lazy filesystem walk of the co-located ``<stem>.yaml``
-# manifests under ``hpcagent_bench/benchmarks/**``. Keyed by **PATH-KEY** (the manifest
-# path relative to benchmarks/, without ``.yaml``, posix -- e.g.
-# ``polybench/gemm/gemm``). The KERNEL NAME is the manifest stem (``gemm``); it is unique across
-# the corpus, enforced here. ``_``-prefixed files are skipped.
+# Kernel registry: a lazy walk of the ``<stem>.yaml`` manifests under ``benchmarks/``, keyed by PATH-KEY
+# (``polybench/gemm/gemm``); the kernel name (the stem) is unique across the corpus. ``_``-prefixed files are skipped.
 
 
 @functools.lru_cache(maxsize=1, typed=True)
 def _scan_kernels() -> dict[str, pathlib.Path]:
-    """Path-key -> manifest path for every kernel.
-
-    :raises ValueError: two manifests share a stem (kernel name); the message names both paths.
-    """
+    """Path-key -> manifest path for every kernel; raises ValueError naming both paths when two share a stem."""
     out: dict[str, pathlib.Path] = {}
     base = paths.BENCHMARKS
     if not base.exists():
@@ -2610,23 +2068,13 @@ def _scan_kernels() -> dict[str, pathlib.Path]:
 
 
 def selector_slug(selector: str) -> str:
-    """A filesystem-/HF-safe name for a selector: ``scientific_computing/dense`` -> ``hpc_dense``,
-    ``scientific_computing@lvl3`` -> ``hpc_lvl3``. Shared by the CLI (HF config name) and the Harbor
-    adapter (task dir + job name) so the flattening rule lives in one place."""
+    """A filesystem-/HF-safe name for a selector (``scientific_computing@lvl3`` -> ``hpc_lvl3``)."""
     return selector.strip("/").replace("/", "_").replace("@", "_") or "all"
 
 
 def _split_suffix(selector: str) -> tuple[str, int | None, str | None]:
-    """Split a ``<selector>@<filter>`` token into ``(selector, level, tag)``.
-
-    Two filters, one syntax, at most one per token:
-
-    * ``@lvl1`` / ``@lvl2`` / ``@lvl3`` -- difficulty level (case-insensitive).
-    * ``@<tag>`` -- a study tag (``@npbench``, :mod:`hpcagent_bench.tags`).
-
-    No suffix -> both ``None``. A ``lvl``-prefixed suffix is still validated as a level rather than
-    falling through to the open tag vocabulary, so ``@lvl4`` stays the error it always was instead
-    of quietly resolving to "no kernel carries the tag lvl4"."""
+    """Split ``<selector>[@lvl<n>|@<tag>]`` into ``(selector, level, tag)``; a ``lvl``-prefixed suffix is always
+    validated as a level."""
     at = selector.rfind("@")
     if at < 0:
         return selector, None, None
@@ -2644,12 +2092,10 @@ def _split_suffix(selector: str) -> tuple[str, int | None, str | None]:
 
 
 def _safe_level(path_key: str) -> int | None:
-    """The resolved difficulty level of a kernel, or ``None`` if its manifest fails to
-    load (a malformed manifest is skipped, never crashing the whole selection). A bug in
-    level classification itself is NOT swallowed -- it surfaces as a real error."""
+    """A kernel's resolved level, or ``None`` when its manifest fails to load (level bugs still raise)."""
     try:
         spec = BenchSpec.load(path_key)
-    except Exception:  # noqa: BLE001 -- a broken manifest just doesn't match a level filter
+    except Exception:  # noqa: BLE001 -- a broken manifest matches no level filter
         return None
     return spec.resolved_level
 
@@ -2661,21 +2107,12 @@ def stem_aliases() -> dict[str, str]:
 
 
 class KernelRegistry:
-    """Dict-like map of kernels keyed by PATH-KEY (e.g. ``polybench/gemm/gemm``).
-
-    Lookups accept a path-key, a kernel name (the manifest stem, unique across the corpus), or a
-    directory relative-path holding exactly one manifest -- so both ``KERNELS["gemm"]``
-    and ``KERNELS["polybench/gemm/gemm"]`` resolve. Iteration/len are over the
-    canonical path-keys.
-    """
+    """Dict-like map of kernels keyed by PATH-KEY; lookups also accept the kernel name or a one-manifest directory."""
 
     __slots__ = ()
 
     def key_for_name(self, name: str) -> str:
-        """The path-key of kernel ``name`` (a manifest stem, nothing else).
-
-        :raises KeyError: no manifest has that stem; the message lists the closest names.
-        """
+        """The path-key of kernel ``name`` (a manifest stem); :raises KeyError: listing the closest names."""
         names = stem_aliases()
         if name in names:
             return names[name]
@@ -2722,31 +2159,10 @@ class KernelRegistry:
         return {k: BenchSpec.from_yaml(load_yaml(p.read_text()), str(p)) for k, p in _scan_kernels().items()}
 
     def select_keys(self, selector: str) -> list[str]:
-        """Resolve a selection token into a sorted list of canonical PATH-KEYS.
+        """Resolve a selection token into a sorted list of PATH-KEYS; ``KeyError`` when nothing matches.
 
-        The core of :meth:`select`: it returns the full path-keys
-        (e.g. ``scientific_computing/dense_linear_algebra/gemm/gemm``). Same granularity as
-        :meth:`select`:
-
-        * ``"all"`` -- every kernel.
-        * a **track** (``machine_learning`` / ``scientific_computing`` /
-          ``loop_level_reasoning``) -- every kernel in it.
-        * a **dwarf** (``dense_linear_algebra`` or ``scientific_computing/dense_linear_algebra``)
-          -- every kernel under that scientific_computing dwarf folder.
-        * a **directory** path-prefix -- every kernel beneath it.
-        * a **single kernel** -- its name (manifest stem) or full path-key.
-
-        An ``@`` suffix further filters the resolved set:
-
-        * ``@lvl<n>`` (n in 1/2/3) -- difficulty level (e.g. ``scientific_computing@lvl3`` = every HPC
-          full-app; ``loop_level_reasoning@lvl2`` = the branchy loop_level_reasoning kernels). See
-          :attr:`BenchSpec.resolved_level`.
-        * ``@<tag>`` -- membership in a study tag's ``hpcagent_bench/tags/<tag>.txt``
-          (``all@npbench`` = every kernel that came from NPBench, across tracks) -- see
-          :mod:`hpcagent_bench.tags`.
-
-        Raises ``KeyError`` when nothing matches.
-        """
+        A token is ``all``, a track, a dwarf, a directory prefix or one kernel, optionally filtered by ``@lvl<n>`` or
+        ``@<tag>`` (a study tag)."""
         selector, level, tag = _split_suffix(selector)
         scan = _scan_kernels()
         base = sorted(scan) if selector == "all" else self._select_group_or_kernel(selector, scan)
@@ -2769,14 +2185,11 @@ class KernelRegistry:
     def _select_group_or_kernel(self, selector: str, scan: dict[str, pathlib.Path]) -> list[str]:
         """The pre-level resolution of a selector to path-keys (track/dwarf/dir/kernel)."""
         s = selector.strip("/")
-        # Group selection: the token names a directory (track / dwarf / subdir).
-        # Try the bare token and an ``scientific_computing/<token>`` shorthand so a dwarf name
-        # alone resolves without the ``scientific_computing/`` prefix.
+        # Group selection; a bare dwarf name also resolves as ``scientific_computing/<token>``.
         for prefix in (s, f"scientific_computing/{s}"):
             group = sorted(k for k in scan if k.startswith(prefix + "/"))
             if group:
                 return group
-        # Single kernel (stem alias / dir-with-one-manifest / full path-key).
         key = self.path_key(selector)
         if key is not None:
             return [key]
@@ -2785,17 +2198,11 @@ class KernelRegistry:
         raise KeyError(f"no benchmark, track, or dwarf matches {selector!r}{hint}")
 
     def select(self, selector: str) -> list[str]:
-        """Resolve a selection token into a sorted list of kernel short-names
-        (bare stems). See :meth:`select_keys` for the path-keys and
-        for the selector granularity. Raises ``KeyError`` when nothing matches."""
+        """Resolve a selection token into sorted kernel short-names (see :meth:`select_keys`)."""
         return sorted({kernel_stem(k) for k in self.select_keys(selector)})
 
     def resolved(self) -> list["ResolvedBench"]:
-        """Every sub-benchmark across the corpus -- one :class:`ResolvedBench`
-        per data layout. A dense kernel contributes one (``id == short_name``);
-        a sparse kernel contributes one per configuration (``id`` ``short[cfg]``),
-        each a full, independently emit/build/run-able kernel. The single source
-        of truth for "one benchmark per data layout" at corpus scope."""
+        """Every sub-benchmark across the corpus: one :class:`ResolvedBench` per data layout."""
         out: list[ResolvedBench] = []
         for key in _scan_kernels():
             try:
@@ -2805,8 +2212,7 @@ class KernelRegistry:
         return out
 
     def refresh(self) -> None:
-        """Drop every manifest-derived cache (after manifests change on disk). A cache left
-        behind keeps serving the old manifests with nothing to show it is stale."""
+        """Drop every manifest-derived cache (after manifests change on disk)."""
         _scan_kernels.cache_clear()
         stem_aliases.cache_clear()
         load_spec.cache_clear()
@@ -2822,24 +2228,15 @@ MANIFEST_DERIVED_CACHES: list[Callable[[], None]] = []
 
 
 def register_manifest_cache(cache_clear: Callable[[], None]) -> None:
-    """Register a cache to drop on :meth:`KernelRegistry.refresh`. The owner registers itself
-    so ``refresh()`` need not import it -- pulling ``harness.agent`` in here would cost 0.5s
-    and invert the layering (``harness`` imports ``spec``, not the reverse)."""
+    """Register a cache to drop on :meth:`KernelRegistry.refresh` (the owner registers itself: layering)."""
     MANIFEST_DERIVED_CACHES.append(cache_clear)
 
 
 @functools.lru_cache(maxsize=None, typed=True)
 def load_spec(short_name: str) -> BenchSpec:
-    """The parsed, validated manifest for ``short_name`` -- what :meth:`BenchSpec.load` returns.
+    """The parsed, validated manifest for ``short_name`` (memoized; ``KERNELS.refresh()`` drops it).
 
-    Memoized because the harness re-loads the same manifest many times per task and each
-    load re-reads and re-validates the YAML (~3ms). ``KERNELS.refresh()`` drops this
-    alongside the path scan.
-
-    Every caller shares ONE instance, so treat it as read-only: ``frozen`` stops attribute
-    rebinding, not mutation of the dicts it holds (``parameters``, ``variants``, ``fuzz``,
-    ...). Copy before mutating, or the change hits every later consumer.
-    """
+    Every caller shares ONE instance: copy before mutating its dicts."""
     path = KERNELS.get(short_name)
     if path is None:
         raise KeyError(f"unknown kernel {short_name!r} (no co-located YAML manifest)")
@@ -2848,8 +2245,7 @@ def load_spec(short_name: str) -> BenchSpec:
     return datatype_sized(BenchSpec.from_yaml(load_yaml(path.read_text()), source=str(path)))
 
 
-#: The manifest blocks :func:`task_fingerprint` covers: the arguments and the configuration space. The size
-#: presets (``parameters``) are left out, so a resized rung is the same task.
+#: The manifest blocks :func:`task_fingerprint` covers (not ``parameters``: a resized rung is the same task).
 FINGERPRINT_MANIFEST_KEYS: tuple[str, ...] = ("args", "config")
 
 
@@ -2868,11 +2264,8 @@ def normalized_ast(path: pathlib.Path) -> str:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def task_fingerprint(short_name: str) -> str:
-    """The sha256 hex digest of ``short_name``'s task as an agent is asked to solve it: the numpy reference
-    (:func:`numpy_reference_path`) and the fallback initializer module (``<module>.py`` when it defines
-    :data:`INITIALIZER`), each as :func:`normalized_ast`, the manifest's :data:`FINGERPRINT_MANIFEST_KEYS`
-    blocks as written, and the entry symbol (:attr:`BenchSpec.func_name`). Raises ``KeyError`` for an
-    unknown kernel."""
+    """The sha256 of ``short_name``'s task as an agent is asked to solve it: the reference and fallback initializer
+    (:func:`normalized_ast`), :data:`FINGERPRINT_MANIFEST_KEYS` and the entry symbol. ``KeyError`` if unknown."""
     manifest = KERNELS[short_name]
     raw = load_yaml(manifest.read_text(encoding="utf-8"))
     spec = load_spec(short_name)
@@ -2890,8 +2283,7 @@ def task_fingerprint(short_name: str) -> str:
 register_manifest_cache(task_fingerprint.cache_clear)
 
 
-#: C and C++ reserved words no backend emitter renames, so a kernel variable spelled like one is a hard
-#: compile error. Fortran is left out: its keywords are context-sensitive (``real`` compiles as a name).
+#: C and C++ reserved words no emitter renames (Fortran's keywords are context-sensitive).
 C_KEYWORDS = frozenset(
     {
         "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum",
@@ -2986,8 +2378,7 @@ def collect_loop_var_reads(
 
 
 def loop_vars_read_outside_loop(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
-    """For-loop iterators ``fn`` reads outside their own loop body. Python leaks the final counter value
-    where Fortran function-scopes it, and the read blocks the SSA iterator rename."""
+    """For-loop iterators ``fn`` reads outside their own loop body (Fortran function-scopes them)."""
     loop_targets: set[str] = set()
     for node in outside_nested_scopes(fn):
         if isinstance(node, ast.For):
@@ -3002,8 +2393,7 @@ def loop_vars_read_outside_loop(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> s
 
 
 def unimportable_module_path(spec: BenchSpec) -> list[str]:
-    """Backends import ``hpcagent_bench.benchmarks.<relative_path>.<module_name>``, so every folder and the
-    module stem must be a Python identifier."""
+    """Every folder and the module stem must be a Python identifier (backends import the module path)."""
     parts = [*pathlib.PurePosixPath(spec.relative_path).parts, spec.module_name]
     module = "hpcagent_bench.benchmarks." + ".".join(parts)
     return [
@@ -3021,8 +2411,7 @@ def missing_level(spec: BenchSpec) -> list[str]:
 
 
 def misplaced_initializer(spec: BenchSpec) -> list[str]:
-    """A custom ``initialize`` lives in ``<module>.py``, never in the ``<module>_numpy.py`` reference the
-    agent is shown."""
+    """A custom ``initialize`` lives in ``<module>.py``, never in the reference the agent is shown."""
     module = spec.module_name
     if defines_function(paths.BENCHMARKS / spec.relative_path / f"{module}_numpy.py", INITIALIZER):
         return [f"{spec.short_name}: {INITIALIZER!r} is defined in {module}_numpy.py; move it to {module}.py"]
@@ -3045,8 +2434,7 @@ def function_parameters(path: pathlib.Path, fn_name: str) -> set[str] | None:
 
 
 def scenarios_without_perturbation(spec: BenchSpec) -> list[str]:
-    """A manifest that declares ``init.scenarios`` hands each draw's scenario to its initializer as
-    ``perturbation.scenario``, so that initializer must accept ``perturbation``."""
+    """A manifest declaring ``init.scenarios`` needs an initializer that accepts ``perturbation``."""
     if spec.init is None or not spec.init.scenarios or not spec.init.func_name:
         return []
     module = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}.py"
@@ -3062,8 +2450,7 @@ def scenarios_without_perturbation(spec: BenchSpec) -> list[str]:
 
 
 def shape_reads_init_scalars(spec: BenchSpec) -> list[str]:
-    """A shape is evaluated before the call that binds the scalar values, so it may only read names
-    that ``parameters:`` or ``config:`` declare."""
+    """A shape may only read ``parameters:`` or ``config:`` names (it is evaluated before scalars are bound)."""
     if spec.init is None or not spec.init.scalars:
         return []
     read = set().union(*(shape_identifiers(shape) for shape in spec.init.shapes.values()))
@@ -3076,12 +2463,8 @@ def shape_reads_init_scalars(spec: BenchSpec) -> list[str]:
 
 
 def validate_kernel(spec: BenchSpec) -> list[str]:
-    """Every per-kernel rule a manifest can break while still passing :meth:`BenchSpec.from_yaml`, as
-    human-readable problems; an empty list means the kernel is valid.
-
-    Corpus-wide rules (unique stems, one directory per ``module_name``) are not here: they compare
-    manifests with each other and read manifests that may not load, so they stay in the corpus tests.
-    """
+    """Every per-kernel rule a manifest can break while passing :meth:`BenchSpec.from_yaml`, as problems (empty:
+    valid); corpus-wide rules stay in the corpus tests."""
     problems = unimportable_module_path(spec) + missing_level(spec) + misplaced_initializer(spec)
     problems += shape_reads_init_scalars(spec) + scenarios_without_perturbation(spec)
     reference = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
@@ -3111,11 +2494,8 @@ BARE_LEVEL = re.compile(r"l(?:vl|evel)?_?(\d)$", re.IGNORECASE)
 
 
 def select_short_names(selector: str) -> list[str]:
-    """Kernel names matched by ``selector``, for filtering the results table (whose ``kernel``
-    column is the kernel name, the manifest stem). Accepts the full :meth:`KernelRegistry.select`
-    grammar (kernel / track / dwarf / ``@lvl<n>``) plus two conveniences a plot user expects: a bare
-    level (``lvl2`` -> ``all@lvl2``) and an underscore in the level suffix
-    (``scientific_computing/structured_grids@lvl_1`` -> ``...@lvl1``)."""
+    """Kernel names matched by ``selector`` (the :meth:`KernelRegistry.select` grammar, plus a bare ``lvl2`` and
+    ``@lvl_1``)."""
     sel = selector.strip()
     bare = BARE_LEVEL.fullmatch(sel)
     sel = f"all@lvl{bare.group(1)}" if bare else re.sub(r"@l(?:vl|evel)?_?(\d)", r"@lvl\1", sel, flags=re.IGNORECASE)

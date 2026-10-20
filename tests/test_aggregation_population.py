@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The POPULATION every published aggregate is over, as properties.
-
-Three defects in the shipped llr40 tables were one shape: a correct statistic applied to a
-population the claim was not about. Each test below states one of the contracts that makes that
-shape unexpressible, so a later simplification cannot quietly restore it.
-"""
+"""The POPULATION every published aggregate is over, as properties: each test states one contract that keeps a
+statistic from being applied to the wrong population."""
 
 import math
 
@@ -47,6 +43,11 @@ def submissions(rows: list[dict[str, object]]) -> pd.DataFrame:
 
 
 # Defect 1: an aggregate refuses a mixed-denominator slice.
+def test_the_kernel_policy_keeps_the_spellings_its_tables_and_flags_carry() -> None:
+    """``--policy`` / ``--speedup-over`` and a family CSV's ``kernel_policy`` column read these spellings."""
+    assert population.KernelPolicy.texts() == ("solved", "served")
+
+
 def test_a_blank_or_adhoc_setup_is_not_a_condition() -> None:
     """A DB-shaped frame keeps a blank setup as a string, where pandas grouping would not drop it."""
     frame = pd.DataFrame({"setup": ["llr40v9-m-c", "adhoc", "", " ", None], "kernel": ["k1"] * 5})

@@ -1,15 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The results database, schema hb-results-v1.0 (``schema.sql``): open, write, read and merge.
+"""The results database (schema ``hb-results-v1.0``): open, write, read and merge by natural key.
 
-One schema serves a judge rank's shard, a job's database, a regrade's output and the whole dataset.
-Rows are written with surrogate ids; every table also has a natural key, and :func:`merge` folds any
-number of results files into one by those keys, remapping the ids. Two copies of a row must agree: a copy
-whose other columns differ is refused (:class:`MergeConflict`), except that an episode's columns still at
-their default are filled from a later copy (its token counts arrive after it opened) and a ``canon`` row
-is replaced by a copy with a later ``ts_ms`` (a re-measurement). A file of any other schema, or holding a
-table outside it, is refused: there is one schema, and no migration.
-"""
+Two copies of a row must agree (:class:`MergeConflict`), except default episode columns filled later and newer
+``canon`` rows; a file of any other schema is refused (no migrations)."""
 
 import contextlib
 import dataclasses
@@ -21,6 +15,7 @@ import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
+from hpcagent_agent.coded import Coded
 from relayout.ops import Action
 from relayout.requests import expr_json, operation_json
 
@@ -30,6 +25,7 @@ from hpcagent_bench.harness import db_json
 from hpcagent_bench.harness.requests_api import Requests
 
 __all__ = [
+    "ADDITIVE_UPGRADES",
     "BUSY_TIMEOUT_S",
     "CALL_KINDS",
     "DEFAULT_HARNESS",
@@ -98,7 +94,17 @@ __all__ = [
 SCHEMA_PATH = paths.ROOT / "hpcagent_bench" / "harness" / "schema.sql"
 #: The schema's name, and its ``PRAGMA user_version``.
 SCHEMA_NAME = "hb-results-v1.0"
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 15
+#: The columns each version added, by the version that added them.
+ADDED: dict[int, tuple[str, ...]] = {
+    14: tuple(f"ALTER TABLE canon ADD COLUMN {phase}_time REAL" for phase in ("transform", "codegen", "compile")),
+    15: ("ALTER TABLE setups ADD COLUMN plugins TEXT DEFAULT NULL",),
+}
+#: Additive steps from an earlier ``user_version``, applied when such a file is opened for writing.
+ADDITIVE_UPGRADES: dict[int, tuple[str, ...]] = {
+    version: tuple(statement for added in range(version + 1, SCHEMA_VERSION + 1) for statement in ADDED[added])
+    for version in (13, 14)
+}
 #: ``episodes.job`` of a run outside Slurm.
 LOCAL_JOB = 0
 #: A judge is threaded and a job's final-grade children write beside it: wait, never fail, on a lock.
@@ -120,20 +126,17 @@ TABLES = (
     "reference_scaling_points",
     "canon",
 )
-#: Grade kinds an agent's request produced (the call trajectory), and those that answer a /submit.
+#: Grade kinds an agent's request produced.
 CALL_KINDS = ("score", "submit")
 SUBMIT_KINDS = ("submit", "promoted", "harvested", "probe")
-#: A grade's natural key, the columns of its UNIQUE index ``grades_key`` (``of_grade_id`` there as
-#: ``COALESCE(of_grade_id, 0)``, so a NULL matches a NULL).
+#: A grade's natural key, the columns of its UNIQUE index ``grades_key`` (``of_grade_id`` COALESCEd to 0).
 GRADE_KEY = ("episode_id", "kernel", "ts_ms", "kind", "of_grade_id")
-#: ``grade_requests.kind`` of a ``startup.load`` library and of the ``startup.grid``; an operation's row is
-#: its relayout action.
+#: ``grade_requests.kind`` of a ``startup.load`` library and of the ``startup.grid``.
 LIBRARY_KIND = "library"
 GRID_KIND = "grid"
 #: Every ``grade_requests.kind``, as the schema's CHECK lists them.
 GRADE_REQUEST_KINDS = (LIBRARY_KIND, GRID_KIND, *(action.value for action in Action))
-#: The operation field a ``grade_requests`` row's ``value`` holds, by action; an operation's other fields
-#: (but ``array``, its own column) are its ``params``.
+#: The operation field a ``grade_requests`` row's ``value`` holds, by action; the other fields are ``params``.
 REQUEST_VALUE_FIELDS: dict[str, str] = {Action.CAST.value: "to", Action.FORMAT.value: "to", Action.PLACE.value: "on"}
 
 type Value = str | int | float | None
@@ -141,8 +144,7 @@ type Value = str | int | float | None
 
 @functools.lru_cache(maxsize=None, typed=True)
 def column_defaults(table: str) -> dict[str, str]:
-    """``table``'s columns and their DEFAULT as SQL text (``'NULL'`` for a column without one), from
-    ``schema.sql``: what :func:`upsert` compares a stored value with to tell an unset column."""
+    """``table``'s columns and their DEFAULT as SQL text (``'NULL'`` when none), from ``schema.sql``."""
     with contextlib.closing(sqlite3.connect(":memory:")) as conn:
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         return {
@@ -163,8 +165,7 @@ class SchemaVersionError(ValueError):
 
 
 class NoResultsError(SchemaVersionError):
-    """A file :func:`open_ro` was asked to read that holds no results tables at all: not a results
-    database, as opposed to one of another schema version."""
+    """A file :func:`open_ro` was asked to read that holds no results tables at all (not another schema version)."""
 
 
 def schema_version(conn: sqlite3.Connection) -> int:
@@ -177,11 +178,18 @@ def table_names(conn: sqlite3.Connection, schema: str = "main") -> set[str]:
     return {str(row[0]) for row in conn.execute(f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table'")}
 
 
-def check_schema(conn: sqlite3.Connection, where: str) -> bool:
-    """Whether ``conn`` holds the current schema; ``False`` for a file with no results tables at all.
-    Raises :class:`SchemaVersionError` for any other version."""
+def check_schema(conn: sqlite3.Connection, where: str, upgrade: bool = False) -> bool:
+    """Whether ``conn`` holds the current schema (upgraded in place when ``upgrade``); ``False`` without results
+    tables. Raises :class:`SchemaVersionError` for any other version."""
     version = schema_version(conn)
     if version == SCHEMA_VERSION:
+        return True
+    if version in ADDITIVE_UPGRADES:
+        if upgrade:
+            with conn:
+                for statement in ADDITIVE_UPGRADES[version]:
+                    conn.execute(statement)
+                conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         return True
     if version or table_names(conn) & set(TABLES):
         raise SchemaVersionError(f"{where} is not an {SCHEMA_NAME} results database (user_version {version})")
@@ -189,15 +197,14 @@ def check_schema(conn: sqlite3.Connection, where: str) -> bool:
 
 
 def open_db(path: str | pathlib.Path) -> sqlite3.Connection:
-    """Open ``path`` for writing, creating the current schema in a new (or results-less) file: WAL, the
-    busy timeout, foreign keys on."""
+    """Open ``path`` for writing (WAL, busy timeout, foreign keys), creating the schema in a new file."""
     target = pathlib.Path(path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     # A URI connection, so :func:`merge` can ATTACH its sources read-only.
     conn = sqlite3.connect(target.as_uri(), uri=True, timeout=BUSY_TIMEOUT_S)
     try:
         conn.execute("PRAGMA journal_mode = WAL")
-        if not check_schema(conn, str(target)):
+        if not check_schema(conn, str(target), upgrade=True):
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         conn.execute("PRAGMA foreign_keys = ON")
     except BaseException:
@@ -212,9 +219,7 @@ def requests_of_row(row: Mapping[str, Value] | sqlite3.Row) -> Requests:
 
 
 def request_rows(requests: Requests) -> list[dict[str, Value]]:
-    """The ``grade_requests`` rows of ``requests`` (without ``grade_id``), in request order: one per
-    library, the grid, then one per operation as relayout writes it (:func:`relayout.requests.operation_json`),
-    its ``array``, its :data:`REQUEST_VALUE_FIELDS` field and the rest as ``params``."""
+    """The ``grade_requests`` rows of ``requests`` (without ``grade_id``), in request order."""
     rows: list[dict[str, Value]] = [{"kind": LIBRARY_KIND, "value": name} for name in requests.startup.load]
     if requests.startup.grid is not None:
         grid = [expr_json(extent) for extent in requests.startup.grid]
@@ -236,8 +241,7 @@ def add_requests(conn: sqlite3.Connection, grade_id: int, requests: Requests) ->
 
 
 def requests_from_rows(conn: sqlite3.Connection, grade_id: int) -> Requests:
-    """The :class:`Requests` ``grade_id``'s ``grade_requests`` rows hold: the inverse of :func:`request_rows`,
-    validated by relayout's models like the JSON column (:func:`requests_of_row`)."""
+    """The :class:`Requests` a grade's ``grade_requests`` rows hold: the inverse of :func:`request_rows`."""
     load: list[str] = []
     grid: list[int | str] | None = None
     operations: list[dict[str, object]] = []
@@ -265,9 +269,7 @@ def requests_from_rows(conn: sqlite3.Connection, grade_id: int) -> Requests:
 def connect_ro(path: str | pathlib.Path, *, timeout: float = BUSY_TIMEOUT_S) -> sqlite3.Connection:
     """A read-only connection to any SQLite file ``path``, with no schema check.
 
-    The URI comes from :meth:`pathlib.Path.as_uri`, which percent-escapes the path: a raw
-    ``file:{path}`` URI reads a ``#`` or ``%xx`` in a directory name as a fragment or an escape and opens
-    a different file."""
+    The URI comes from :meth:`pathlib.Path.as_uri`, which escapes ``#`` and ``%`` in the path."""
     return sqlite3.connect(f"{pathlib.Path(path).resolve().as_uri()}?mode=ro", uri=True, timeout=timeout)
 
 
@@ -295,8 +297,7 @@ def reading(path: str | pathlib.Path) -> Iterator[sqlite3.Connection]:
 
 
 def insert(conn: sqlite3.Connection, table: str, values: Mapping[str, Value]) -> int:
-    """Insert one row of named columns; return its rowid. A ``None`` value is left out, so the column
-    takes its default."""
+    """Insert one row of named columns; return its rowid. A ``None`` value takes the column's default."""
     values = {name: value for name, value in values.items() if value is not None}
     columns = ", ".join(values)
     marks = ", ".join("?" * len(values))
@@ -313,11 +314,10 @@ def upsert(
     *,
     fill: bool = False,
 ) -> int:
-    """Insert ``values`` unless a row already holds its natural key; return that row's rowid. With
-    ``fill``, the existing row's columns still at their default take ``values``' (a counter recorded
-    later); without, the existing row is kept as it is. A ``None`` value is left out (the column keeps its
-    default). ``target`` is the conflict target (the UNIQUE index's columns) and ``key`` the columns in
-    it, never updated."""
+    """Insert ``values`` unless a row already holds its natural key; return that row's rowid.
+
+    With ``fill``, the existing row's columns still at their default take ``values``'; ``target`` is the conflict
+    target and ``key`` its columns, never updated."""
     values = {name: value for name, value in values.items() if value is not None}
     columns = list(values)
     marks = ", ".join("?" * len(columns))
@@ -351,6 +351,8 @@ class Setup:
     packet: str = ""
     temperature: float = 1.0
     tag_version: str = ""
+    #: The plugins the judge loaded; None = not recorded.
+    plugins: str | None = None
 
 
 def ensure_setup(conn: sqlite3.Connection, setup: Setup) -> None:
@@ -359,8 +361,7 @@ def ensure_setup(conn: sqlite3.Connection, setup: Setup) -> None:
 
 
 def ensure_episode(conn: sqlite3.Connection, setup: str, label: str, job: int, slot: int = 1) -> int:
-    """The id of the episode ``(job, label)`` of ``setup``, created on first sight (``job``
-    :data:`LOCAL_JOB` outside Slurm). ``slot`` is the designed agent it is (1 outside a designed repeat)."""
+    """The id of episode ``(job, label)`` of ``setup``, created on first sight; ``slot`` is its designed agent."""
     values: dict[str, Value] = {"setup": setup, "job": job, "label": label, "slot": slot}
     return upsert(conn, "episodes", *NATURAL_KEYS["episodes"], values)
 
@@ -375,11 +376,9 @@ def call_index(conn: sqlite3.Connection, episode_id: int, kernel: str) -> int:
 def add_grade(
     conn: sqlite3.Connection, episode_id: int, kernel: str, kind: str, *, ts_ms: int, values: Mapping[str, Value]
 ) -> tuple[int, int]:
-    """Insert one grade and return ``(grade id, ts_ms)``. Two grades of one run, kernel and kind
-    stamped in the same millisecond (two judge threads) keep both: the later one moves to the next
-    free millisecond. Its ``requests`` (JSON) are validated first (ValueError when they are not a request)
-    and stored as :meth:`Requests.recorded_json` writes them ('' for none) and as its ``grade_requests``
-    rows (:func:`add_requests`), in the caller's transaction."""
+    """Insert one grade and return ``(grade id, ts_ms)``; a same-millisecond twin moves to the next free ms.
+
+    Its ``requests`` are validated first (ValueError) and stored as JSON and ``grade_requests`` rows."""
     requests = requests_of_row(values) if "requests" in values else Requests()
     while True:
         row = {
@@ -432,9 +431,8 @@ def add_scaling(
     law: Mapping[str, Value],
     points: Sequence[Mapping[str, Value]],
 ) -> int:
-    """One scaling law of ``grade_id`` on one input (``law``: ``mode``, ``status`` and the optional
-    ``input``, ``single_rank_ns``, ``disclosure``, ``notes``) and its points, replacing what the grade
-    held for that law and input. Returns the number of points."""
+    """One scaling law of ``grade_id`` on one input and its points, replacing what the grade held for them;
+    returns the number of points."""
     mode, label = law["mode"], law.get("input") or ""
     key = (grade_id, mode, label)
     conn.execute("DELETE FROM scaling_points WHERE grade_id = ? AND mode = ? AND input = ?", key)
@@ -497,8 +495,7 @@ def source_rows(conn: sqlite3.Connection, table: str, order: str = "rowid") -> I
 
 
 class MergeConflict(ValueError):
-    """Two copies of one row (one natural key) that disagree on another column: two different facts under
-    one key, which a merge never picks between."""
+    """Two copies of one row (one natural key) that disagree on another column; a merge never picks."""
 
 
 #: The column a later copy of a row wins by, per table: a ``canon`` re-measurement replaces the older one.
@@ -516,8 +513,7 @@ def stored_row(
 
 
 def conflicts(table: str, stored: Mapping[str, Value], row: Mapping[str, Value]) -> list[str]:
-    """The columns where ``row`` disagrees with the ``stored`` copy of it. An episode column at its default on
-    either side is no conflict (:func:`upsert`'s fill takes the set one)."""
+    """The columns where ``row`` disagrees with ``stored``; a default episode column on either side is no conflict."""
     defaults = default_values(table)
     return [
         name
@@ -527,9 +523,8 @@ def conflicts(table: str, stored: Mapping[str, Value], row: Mapping[str, Value])
 
 
 def merge_rows(conn: sqlite3.Connection, table: str, ids: IdMap) -> int:
-    """Copy the attached source's ``table`` into ``main`` by natural key, remapping its ids. A key already
-    held must hold the same row (:func:`conflicts`, else :class:`MergeConflict`), but where
-    :data:`NEWEST_WINS` names the column a later copy replaces it by."""
+    """Copy the attached source's ``table`` into ``main`` by natural key, remapping its ids (see
+    :func:`conflicts` and :data:`NEWEST_WINS`)."""
     target, key = NATURAL_KEYS[table]
     order = "(of_grade_id IS NOT NULL), id" if table == "grades" else "rowid"
     newest = NEWEST_WINS.get(table)
@@ -569,7 +564,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
         version = int(conn.execute("PRAGMA src.user_version").fetchone()[0])
         copied: dict[str, int] = {}
         ids = IdMap()
-        if version == SCHEMA_VERSION:
+        if version == SCHEMA_VERSION or version in ADDITIVE_UPGRADES:
             copied = {table: merge_rows(conn, table, ids) for table in TABLES}
         elif version or names & set(TABLES):
             raise SchemaVersionError(f"{path} is not an {SCHEMA_NAME} results database (user_version {version})")
@@ -577,8 +572,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
             raise SchemaVersionError(f"{path} holds tables outside {SCHEMA_NAME}: {foreign}")
         conn.commit()
     finally:
-        # A failed step leaves its transaction open, and DETACH of a database it touched raises
-        # "database src is locked" in place of the error that stopped it.
+        # A failed step leaves its transaction open, and DETACH would then raise "database src is locked".
         if conn.in_transaction:
             conn.rollback()
         conn.execute("DETACH DATABASE src")
@@ -586,9 +580,7 @@ def merge_one(conn: sqlite3.Connection, path: pathlib.Path) -> dict[str, int]:
 
 
 def merge(dest: str | pathlib.Path, sources: Sequence[str | pathlib.Path]) -> dict[str, int]:
-    """Fold every file of ``sources`` into ``dest`` (created when absent) by natural key; return the
-    rows copied per table. Idempotent for the results tables: merging a file twice changes nothing the first
-    merge wrote there."""
+    """Fold every file of ``sources`` into ``dest`` by natural key; returns rows copied per table. Idempotent."""
     target = pathlib.Path(dest).resolve()
     totals: dict[str, int] = {}
     with contextlib.closing(open_db(target)) as conn:
@@ -613,10 +605,8 @@ def remove_db(path: pathlib.Path) -> None:
 
 @contextlib.contextmanager
 def rebuilding(dest: str | pathlib.Path) -> Iterator[pathlib.Path]:
-    """Remove ``dest`` and yield a scratch file beside it to build its replacement in, moved onto ``dest``
-    only when the block finishes. A build cut short (a corrupt source, a signal) leaves ``dest`` absent,
-    never holding part of what it should: :func:`merge` commits once per source, and a partial file
-    is newer than every source, so a reader would take it as complete."""
+    """Remove ``dest`` and yield a scratch file to build its replacement in, moved onto ``dest`` only on success,
+    so an interrupted build leaves ``dest`` absent rather than partial."""
     target = pathlib.Path(dest)
     scratch = target.with_name(f"{target.name}.tmp")
     remove_db(target)
@@ -629,9 +619,8 @@ def rebuilding(dest: str | pathlib.Path) -> Iterator[pathlib.Path]:
 
 
 def copy_grade(src: pathlib.Path, grade_id: int, dest: sqlite3.Connection) -> int:
-    """Copy grade ``grade_id`` of the results file ``src`` into ``dest`` with its setup, run, sources and
-    request rows (and, for a final grade or regrade, the grade it re-timed); return its id in ``dest``. How a
-    regrade's own file names the grade it re-times, so the file merges on its own."""
+    """Copy grade ``grade_id`` of ``src`` into ``dest`` with its setup, run, sources, requests and the grade it
+    re-timed; returns its id in ``dest``."""
     with reading(src) as conn:
         chain = [grade_id]
         of = conn.execute("SELECT of_grade_id FROM grades WHERE id = ?", (grade_id,)).fetchone()
@@ -679,22 +668,22 @@ GRADE_CHILDREN: tuple[str, ...] = (
 )
 
 
-class ProtocolChange(enum.Enum):
+class ProtocolChange(Coded):
     """What a regrade under protocol B does to a submission's final grade recorded under protocol A != B."""
 
-    #: Keep the old row and write a new one: rows under two stamps are never pooled; a reader picks the credited one.
-    NEW_ROW = "new-row"
+    SEPARATOR = enum.nonmember("-")
+
+    #: Keep the old row and write a new one (rows under two stamps are never pooled).
+    NEW_ROW = enum.auto()
     #: Delete the old row: the regrade rewrites it.
-    REPLACE = "replace"
+    REPLACE = enum.auto()
 
 
 def final_row_groups(rows: Sequence[tuple[int, str, int]], on_change: ProtocolChange) -> list[list[int]]:
     """One submission's ``final`` rows ``(id, stamp, ts_ms)`` as the groups that each collapse to ONE row.
 
-    Rows under one stamp are one row. A row with no stamp has no protocol to differ by, so it joins the
-    newest stamped row's group. Under :attr:`ProtocolChange.REPLACE` every row is one group; under
-    :attr:`ProtocolChange.NEW_ROW` each stamp keeps its own. Each group is ordered winner first: a
-    stamped row before an unstamped one (a fault, or an unnamed older row), then the newest."""
+    Rows under one stamp group together; an unstamped row joins the newest stamped group; under ``REPLACE`` all rows
+    are one group. Each group is ordered winner first (stamped before unstamped, then newest)."""
     ranked = sorted(rows, key=lambda row: (bool(row[1]), row[2], row[0]), reverse=True)
     if on_change is ProtocolChange.REPLACE or not ranked[0][1]:
         return [[row[0] for row in ranked]]
@@ -705,11 +694,9 @@ def final_row_groups(rows: Sequence[tuple[int, str, int]], on_change: ProtocolCh
 
 
 def move_grade_children(conn: sqlite3.Connection, source: int, target: int) -> None:
-    """Move every :data:`GRADE_CHILDREN` row of grade ``source`` to grade ``target``, which holds none.
+    """Move every :data:`GRADE_CHILDREN` row of grade ``source`` to grade ``target`` (which holds none).
 
-    Copied parents first, then the originals deleted children first: ``scaling_points`` references
-    ``scaling_grades`` by ``(grade_id, mode, input)``, so re-keying either table in place breaks that
-    foreign key until the other one follows."""
+    Copy parents first, then delete children first: re-keying in place would break the scaling foreign key."""
     for table in reversed(GRADE_CHILDREN):
         names = ", ".join(str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})") if row[1] != "grade_id")
         conn.execute(
@@ -723,11 +710,10 @@ def move_grade_children(conn: sqlite3.Connection, source: int, target: int) -> N
 def collapse_finals(
     conn: sqlite3.Connection, apart: Collection[str], on_change: ProtocolChange = ProtocolChange.NEW_ROW
 ) -> int:
-    """Rewrite each submission's ``final`` rows into one row per protocol (:func:`final_row_groups`).
+    """Rewrite each submission's ``final`` rows into one row per protocol; returns the rows removed.
 
-    A group's winner's values (cells and every child included) move into its oldest row id; the group's other
-    rows and their children go. Rows stamped one of ``apart`` (the A/A calibrations, never a grade) are left
-    alone. Returns the rows removed; the caller commits."""
+    A group's winner's values move into its oldest row id. Rows stamped one of ``apart`` are left alone; the caller
+    commits."""
     by_submission: dict[int, list[tuple[int, str, int]]] = {}
     for row_id, of_grade, stamp, ts in conn.execute(
         "SELECT id, of_grade_id, timing_reduction, ts_ms FROM grades WHERE kind = 'final' AND of_grade_id IS NOT NULL"

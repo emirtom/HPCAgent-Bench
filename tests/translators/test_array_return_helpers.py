@@ -16,6 +16,7 @@ gamma branches carry un-lowerable tuples) reduces to its live path.
 import numpy as np
 import pytest
 
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from tests.translators.op_oracle import all_ok, run_op
 
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
@@ -198,7 +199,7 @@ def test_array_helper_emitted_as_outparam_c_function() -> None:
     assert "clamp_row(__hret_tmp_0, __harg_0_0, thr, n);" in c
 
 
-def helper_kir(src: str, precision: str = "", shape: str = "(n,)", params: dict[str, int] | None = None):
+def helper_kir(src: str, precision: str = "", shape: str = "(n,)", params: dict[str, int] | None = None) -> KernelIR:
     """Lower ``src``'s one-array-in/one-array-out kernel ``f`` at ``precision`` (``""`` = fp64).
 
     ``x`` and ``out`` share ``shape``, which every array-helper case here does -- the helper is what

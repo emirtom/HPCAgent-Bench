@@ -21,6 +21,7 @@ import types
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench import languages, opt_reports, paths
 from hpcagent_bench.frameworks import native_runtime
 
@@ -116,7 +117,7 @@ def test_the_report_compile_uses_the_columns_own_compiler_and_flags(
         # reproduce (with -S/asm-out standing in for -c/obj-out, and the report flags appended).
         src = next(pathlib.Path(tok) for tok in argv if tok.endswith(".f90"))
         expected = languages.build_kernel_lib_commands(
-            [("fortran", src)], tmp_path / "throwaway.so", build_dir=tmp_path, compiler=None, extra_flags=""
+            [(Language.FORTRAN, src)], tmp_path / "throwaway.so", build_dir=tmp_path, compiler=None, extra_flags=""
         )[0]
         assert argv[0] == expected[0], "wrong compiler driver"
         # Every flag the timed build passes must appear verbatim (order-independent apart from the

@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``transcendental_approx`` loop-level kernels: their inputs stay inside the declared domain,
-their references are finite, and the grading band tells an accurate polynomial approximation of the
-transcendental from a truncated one.
-
-These kernels exist to credit an agent that replaces ``log``/``sin``/``cos`` in the loop with a
-range-reduced polynomial. That only works if the band the scorer grades with
-(:func:`hpcagent_bench.frameworks.test.tolerances_for`) accepts a correct approximation and rejects
-one that stopped a few terms early; the approximations below are the ones the manifests' puzzles
-describe, written in numpy.
-"""
+"""The ``transcendental_approx`` loop-level kernels: inputs inside the declared domain, finite references, and a
+grading band that accepts an accurate polynomial approximation and rejects a truncated one."""
 
 import importlib
 import math
@@ -18,6 +10,8 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.test import tolerances_for
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.numerical_oracle import outputs_match
@@ -34,13 +28,13 @@ PIO2_LO = 6.077100506506192e-11
 
 def reference(name: str) -> Callable[..., None]:
     module = importlib.import_module(f"hpcagent_bench.benchmarks.loop_level_reasoning.{name}.{name}_numpy")
-    return vars(module)[name]
+    return modules.member(module, name)
 
 
 def run_reference(name: str, precision: Precision, variant: str | None = None) -> dict[str, np.ndarray]:
     """The kernel's own S-preset inputs (domain folding included) and its reference output."""
     spec = BenchSpec.load(name)
-    values = auto_initialize(spec, "S", precision, seed=0, hidden_variant=variant)
+    values = auto_initialize(spec, Preset.S, precision, seed=0, hidden_variant=variant)
     data = dict(zip(spec.init.output_args, values, strict=True))
     data["LEN_1D"] = spec.parameters["S"]["LEN_1D"]
     reference(name)(*(data[arg] for arg in spec.input_args))

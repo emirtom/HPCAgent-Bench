@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""make_problems.py: the PROBLEMS_FILE generator, pinning the lang-skills packet a skills setup carries.
-
-Runs the script as a real subprocess (its own idiom -- an argparse CLI, not an importable
-function) restricted to one kernel, so the check is cheap and exercises the exact path an
-setup's problem generation does.
-"""
+"""make_problems.py, run as a subprocess on one kernel: the PROBLEMS_FILE line and the lang-skills packet."""
 
 import json
 import os
@@ -35,7 +30,9 @@ def stage(problem: dict, tmp_path: pathlib.Path) -> pathlib.Path:
     """``--stage-skills`` over a problems file holding ``problem``; returns the shared folder."""
     problems = tmp_path / "problems.jsonl"
     # A problems line always names its id and kernel (make_problems.ProblemLine); the test cares about the task.
-    problems.write_text(json.dumps({"id": 0, "kernel": "argmax_value", **problem}) + "\n", encoding="utf-8")
+    problems.write_text(
+        json.dumps({"id": 0, "kernel": "argmax_value", "request_actions": {}, **problem}) + "\n", encoding="utf-8"
+    )
     shared = tmp_path / "shared"
     subprocess.run(
         [sys.executable, str(SCRIPT), "--stage-skills", str(problems), str(shared)],

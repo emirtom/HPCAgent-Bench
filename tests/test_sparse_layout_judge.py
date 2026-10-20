@@ -17,6 +17,7 @@ import scipy.sparse as sp
 
 from hpcagent_bench import config, harbor
 from hpcagent_bench.anticheat import Judgement
+from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Preset, Residency
 from hpcagent_bench.harness import grade_under, grading, hidden_tests, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.hidden_seeds import salted, secret_seed_second
@@ -57,7 +58,7 @@ void spmv_csc_fp64(const double *restrict A_data, const int64_t *restrict A_indi
 def judge(make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]) -> Iterator[JudgeClient]:
     """A live judge grading against the compiled references with the speed guillotine off: the translations are naive
     sequential C, and these tests are about the layout, not the speed."""
-    _server, url = make_judge(ServiceConfig(baseline="auto", oracle="auto", input_mode="source", repeat=2))
+    _server, url = make_judge(ServiceConfig(baseline=None, oracle=Oracle.AUTO, input_mode=InputMode.SOURCE, repeat=2))
     with config.overridden("timeouts.guillotine_factor", 0):
         yield JudgeClient(url)
 
@@ -91,13 +92,13 @@ def test_a_translated_layout_scores_correct_through_the_judge(judge: JudgeClient
     source = layout_reference_source(spec, fmt)
     assert source is not None
     submission = Submission(
-        language="c", source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, EDGE))
+        language=Language.C, source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, EDGE))
     )
     assert judge.score(submission, kernel).correct is True
 
 
 def test_an_agents_own_kernel_in_another_layout_scores_correct(judge: JudgeClient) -> None:
-    submission = Submission(language="c", source=SPMV_CSC, requests=Requests.of(sparse={"A": "csc"}))
+    submission = Submission(language=Language.C, source=SPMV_CSC, requests=Requests.of(sparse={"A": "csc"}))
     assert judge.score(submission, "spmv").correct is True
 
 
@@ -107,7 +108,7 @@ def test_a_csr_kernel_submitted_as_csc_grades_wrong(judge: JudgeClient) -> None:
     csr = layout_reference_source(spec, "csr")
     assert csr is not None
     source = csr.replace("bicgstab_csr_fp64", "bicgstab_csc_fp64")
-    submission = Submission(language="c", source=source, requests=Requests.of(sparse={"A": "csc"}))
+    submission = Submission(language=Language.C, source=source, requests=Requests.of(sparse={"A": "csc"}))
     assert judge.score(submission, "bicgstab").correct is False
 
 
@@ -122,7 +123,7 @@ def test_a_csr_kernel_submitted_as_csc_grades_wrong(judge: JudgeClient) -> None:
 def test_a_request_the_kernel_cannot_honour_is_a_400_before_the_build(
     judge: JudgeClient, kernel: str, formats: dict, match: str
 ) -> None:
-    submission = Submission(language="c", source="this does not compile", requests=Requests.of(sparse=formats))
+    submission = Submission(language=Language.C, source="this does not compile", requests=Requests.of(sparse=formats))
     assert match in refusal(judge, submission, kernel)
 
 
@@ -137,10 +138,10 @@ def test_the_conversion_is_never_timed(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(scoring, "apply_layout", slow)
     spec = BenchSpec.load("spmv")
-    submission = Submission(language="c", source=SPMV_CSC, requests=Requests.of(sparse={"A": "csc"}))
+    submission = Submission(language=Language.C, source=SPMV_CSC, requests=Requests.of(sparse={"A": "csc"}))
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
-            submission, Task("spmv", language="c"), preset="S", repeat=2, hidden=False, baseline="auto"
+            submission, Task("spmv", language=Language.C), preset=Preset.S, repeat=2, hidden=False, baseline=None
         )
     assert result.correct
     assert result.layout == "A:csc"
@@ -153,12 +154,12 @@ def test_the_default_layout_converts_nothing() -> None:
     assert source is not None
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
-            Submission(language="c", source=source),
-            Task("spmv", language="c"),
-            preset="S",
+            Submission(language=Language.C, source=source),
+            Task("spmv", language=Language.C),
+            preset=Preset.S,
             repeat=2,
             hidden=False,
-            baseline="auto",
+            baseline=None,
         )
     assert result.correct
     assert result.layout == "A:csr"
@@ -194,11 +195,11 @@ def stored_by_a_grade(fmt: str, inputs: list[dict]) -> tuple[list[dict], dict[st
     source = layout_reference_source(spec, fmt)
     assert source is not None
     submission = Submission(
-        language="c", source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, EDGE))
+        language=Language.C, source=source, requests=Requests.of(sparse=sparse_config_for(spec, fmt, EDGE))
     )
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
-            submission, Task("spmv", language="c"), preset="S", repeat=2, hidden=False, baseline="auto"
+            submission, Task("spmv", language=Language.C), preset=Preset.S, repeat=2, hidden=False, baseline=None
         )
     assert result.correct
     assert result.layout == f"A:{fmt}"
@@ -233,7 +234,7 @@ def test_a_layout_never_reaches_a_stored_input_or_output(monkeypatch: pytest.Mon
 
 
 def test_the_prompt_offers_every_layout_with_its_symbol_and_index_semantics() -> None:
-    context = build_context(Task("bicgstab", language="c"))
+    context = build_context(Task("bicgstab", language=Language.C))
     sparse = context["sparse_layout"]
     assert [f["name"] for f in sparse["formats"]] == list(BenchSpec.load("bicgstab").configurations)
     csc = next(f for f in sparse["formats"] if f["name"] == "csc")
@@ -242,7 +243,7 @@ def test_the_prompt_offers_every_layout_with_its_symbol_and_index_semantics() ->
 
 
 def test_a_dense_kernels_prompt_has_no_sparse_section() -> None:
-    assert build_context(Task("gemm", language="c"))["sparse_layout"] == {}
+    assert build_context(Task("gemm", language=Language.C))["sparse_layout"] == {}
 
 
 def test_harbor_ships_one_request_file_and_names_every_layouts_signature(tmp_path: pathlib.Path) -> None:
@@ -269,24 +270,27 @@ def submit_nonce(spec: BenchSpec, scenario: str) -> int:
 
 def held_out_from(spec: BenchSpec, scenario: str) -> list:
     """Held-out cases drawn from ``scenario``, passed explicitly beside a public input of another."""
-    return hidden_tests.hidden_cases(spec, "S", nonce=submit_nonce(spec, scenario))
+    return hidden_tests.hidden_cases(spec, Preset.S, nonce=submit_nonce(spec, scenario))
 
 
 def dia_spmv() -> Submission:
     """spmv's dia translation, requested as dia: dia holds only the banded scenario of the three."""
     source = layout_reference_source(BenchSpec.load("spmv"), "dia")
     assert source is not None
-    return Submission(language="c", source=source, requests=Requests.of(sparse={"A": "dia"}))
+    return Submission(language=Language.C, source=source, requests=Requests.of(sparse={"A": "dia"}))
 
 
 def graded_at(scenario: str, **kwargs: object) -> scoring.Score:
     """spmv's dia submission graded as /submit does (no held-out cases unless given), its public input
     drawn from ``scenario``."""
     spec = BenchSpec.load("spmv")
-    options: dict = {"preset": "S", "repeat": 2, "hidden": True, "hidden_cases": [], "baseline": "c"}
+    options: dict = {"preset": Preset.S, "repeat": 2, "hidden": True, "hidden_cases": [], "baseline": Baseline.C}
     with config.overridden("timeouts.guillotine_factor", 0):
         return scoring.score(
-            dia_spmv(), Task("spmv", language="c"), seed_nonce=submit_nonce(spec, scenario), **{**options, **kwargs}
+            dia_spmv(),
+            Task("spmv", language=Language.C),
+            seed_nonce=submit_nonce(spec, scenario),
+            **{**options, **kwargs},
         )
 
 
@@ -324,7 +328,7 @@ def test_an_uncovered_input_rejects_a_final_grade_outright() -> None:
     result = graded_at("uniform")
     (cell,) = result.cells
     assert grade_under.input_failed(grade_under.FinalInput("uniform", cell, result))
-    assert grade_under.cell_row(0, "uniform", cell, result, "host")["status"] == UNCOVERED
+    assert grade_under.cell_row(0, "uniform", cell, result, Residency.HOST)["status"] == UNCOVERED
 
 
 def test_an_input_the_layout_holds_runs_and_is_timed() -> None:
@@ -366,13 +370,13 @@ def test_a_public_input_the_layout_cannot_hold_fails_though_the_held_out_cases_f
     assert source is not None
     with config.overridden("timeouts.guillotine_factor", 0):
         result = scoring.score(
-            Submission(language="c", source=source, requests=Requests.of(sparse={"A": "ell"})),
-            Task("spmv", language="c"),
-            preset="S",
+            Submission(language=Language.C, source=source, requests=Requests.of(sparse={"A": "ell"})),
+            Task("spmv", language=Language.C),
+            preset=Preset.S,
             repeat=2,
             hidden=True,
             hidden_cases=cases,
-            baseline="auto",
+            baseline=None,
             seed_nonce=submit_nonce(spec, "diagonal"),
         )
     (cell,) = result.cells
@@ -392,7 +396,7 @@ def test_the_final_grade_is_unsolved_when_an_input_is_uncovered(monkeypatch: pyt
     nonces = iter(submit_nonce(spec, cell["label"]) for cell in cells)
 
     def scorer(submission: Submission, task: Task, **kwargs: object) -> scoring.Score:
-        return scoring.score(submission, task, **{**kwargs, "preset": "S", "seed_nonce": next(nonces)})
+        return scoring.score(submission, task, **{**kwargs, "preset": Preset.S, "seed_nonce": next(nonces)})
 
     with (
         grade_under.environment_scope(),
@@ -400,7 +404,7 @@ def test_the_final_grade_is_unsolved_when_an_input_is_uncovered(monkeypatch: pyt
         config.overridden("timeouts.guillotine_factor", 0),
     ):
         grade_under.apply_env(grade_under.final_settings({}), set())
-        graded = grade_under.final_grade(dia_spmv(), Task("spmv", language="c"), scorer)
+        graded = grade_under.final_grade(dia_spmv(), Task("spmv", language=Language.C), scorer)
     banded, uniform = (one.cell for one in graded.inputs)
     assert banded is not None
     assert uniform is not None
@@ -410,7 +414,9 @@ def test_the_final_grade_is_unsolved_when_an_input_is_uncovered(monkeypatch: pyt
     assert uniform.uncovered
     assert uniform.ratio == 1.0
     assert not graded.solved
-    rows = [grade_under.cell_row(i, one.label, one.cell, one.result, "host") for i, one in enumerate(graded.inputs)]
+    rows = [
+        grade_under.cell_row(i, one.label, one.cell, one.result, Residency.HOST) for i, one in enumerate(graded.inputs)
+    ]
     assert [row["status"] for row in rows] == ["graded", UNCOVERED]
     assert rows[1]["reason"] == uniform.uncovered
     assert rows[1]["correct"] is None

@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Properties the measurement path must hold for a published number to mean what it says.
-
-Written as an ADVERSARIAL AUDIT of everything upstream of the plots: the reduction over
-repeats, how a speedup is formed, what a disclosed timing column is, and whether a ratio is
-paired. Each test states ONE property in its name, documents the failure it prevents, and
-asserts on the observable contract rather than on an implementation detail.
-
-Several of these are expected to FAIL on the tree as it stands -- that is the point of the
-file. Each such test names, in its docstring, the defect it demonstrates and the magnitude
-the defect carries, so a reader can tell a red mark here from a regression.
-"""
+"""An adversarial audit of the measurement path (repeat reduction, speedup formation, timing columns, pairing):
+one property per test. Some are expected to FAIL; each such test names its defect and magnitude."""
 
 import inspect
 
@@ -19,12 +10,13 @@ import pytest
 from hpcagent_bench import harbor
 from hpcagent_bench.harness import metric, timing
 from hpcagent_bench.support.collect import sweep
+from hpcagent_bench.config import Statistic
 from tests.grade_records import host_grade
 
 
 # 1. The disclosed timings must reproduce the credited speedup.
-@pytest.mark.parametrize("backend", ["min_of_k", "mannwhitney_delta"])
-def test_a_credited_speedup_is_reproducible_from_the_timings_it_discloses(backend: str) -> None:
+@pytest.mark.parametrize("backend", [Statistic.MIN, Statistic.MANNWHITNEY])
+def test_a_credited_speedup_is_reproducible_from_the_timings_it_discloses(backend: Statistic) -> None:
     """``ReducedTiming`` publishes ``native_ns``, ``baseline_ns`` and ``speedup`` side by side,
     and ``submissions`` stores all three in one row. A reader who divides the two nanosecond
     columns must land on the credited speedup, or the row carries two incompatible answers to
@@ -43,8 +35,8 @@ def test_a_credited_speedup_is_reproducible_from_the_timings_it_discloses(backen
 
 
 # 2. A measured slow-down must read as a slow-down.
-@pytest.mark.parametrize("backend", ["min_of_k", "mannwhitney_delta"])
-def test_a_timing_backend_reports_a_measured_slowdown_below_one(backend: str) -> None:
+@pytest.mark.parametrize("backend", [Statistic.MIN, Statistic.MANNWHITNEY])
+def test_a_timing_backend_reports_a_measured_slowdown_below_one(backend: Statistic) -> None:
     """A candidate that is unambiguously slower than its baseline on every repeat must reduce to
     a ratio below 1. A backend that floors it at 1.0 makes the published statistic one-sided:
     every setup's distribution is supported on [1, inf) whatever the code did, so "no setup regressed"

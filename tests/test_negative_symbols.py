@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import cpf_canonical
+from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import prompts
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
@@ -49,14 +50,14 @@ def test_a_declared_symbol_that_never_goes_negative_is_refused() -> None:
 
 
 def test_the_prompt_names_the_negative_symbols() -> None:
-    text = " ".join(prompts.build_prompt(Task("smith_waterman", "restricted", "c")).split())
+    text = " ".join(prompts.build_prompt(Task("smith_waterman", SourceMode.RESTRICTED, Language.C)).split())
     assert (
         "scalar argument is non-negative, except `mismatch` (the score of a mismatch), which can be negative." in text
     )
 
 
 def test_a_kernel_without_negatives_states_every_symbol_is_non_negative() -> None:
-    text = " ".join(prompts.build_prompt(Task("jacobi_2d", "restricted", "c")).split())
+    text = " ".join(prompts.build_prompt(Task("jacobi_2d", SourceMode.RESTRICTED, Language.C)).split())
     assert "Every size symbol, configuration knob and scalar argument is non-negative." in text
 
 

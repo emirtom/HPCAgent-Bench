@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The grading child and the /profile child run agent code SEALED (hpcagent_bench.seal).
-
-Each test is a submission doing what a cheating kernel would do from inside the judge -- read the
-seeds, read the run root, name the judge's pid, write where the agent reads, undo the seal -- and
-asserts the attempt fails. The probe kernels are python deliveries through the real
-:func:`native_call._call_isolated`, so the seal under test is the one grading uses.
-"""
+"""The grading and /profile children run agent code SEALED: each probe (a python delivery through the real
+``_call_isolated``) attempts what a cheating kernel would, and must fail."""
 
 import ctypes
 import functools
@@ -24,6 +19,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, harness, languages, seal, spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.support.bindings.contract import binding_from_spec
@@ -96,7 +92,7 @@ def probe_flags(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> dict
         tmp_file=str(tmp_file),
     )
     outputs, _samples, _mem, _extras, _timed = native_call._call_isolated(
-        write_kernel(source), BINDING, {"x": np.zeros(1)}, "python", device=False, timeout=60, py_meta=PY_META
+        write_kernel(source), BINDING, {"x": np.zeros(1)}, Language.PYTHON, device=False, timeout=60, py_meta=PY_META
     )
     return dict(zip(FLAGS, outputs["y"].tolist(), strict=False))
 
@@ -518,7 +514,7 @@ def test_a_refused_seal_is_a_judge_fault_not_a_crash(monkeypatch: pytest.MonkeyP
             write_kernel("def kern(x):\n    return x\n"),
             BINDING,
             {"x": np.zeros(1)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=30,
             py_meta=PY_META,
@@ -609,10 +605,10 @@ def test_a_second_sealed_call_on_one_library_leaves_the_first_calls_outputs_inta
     # Both past native_call.SPILL_BYTES (64 MiB), the second smaller: a shorter rewrite of a shared
     # file is what leaves the first mapping pointing past its end.
     public, *_ = native_call._call_isolated(
-        lib, BINDING, {"x": np.zeros(10_500_000)}, "python", device=False, timeout=120, py_meta=PY_META
+        lib, BINDING, {"x": np.zeros(10_500_000)}, Language.PYTHON, device=False, timeout=120, py_meta=PY_META
     )
     held_out, *_ = native_call._call_isolated(
-        lib, BINDING, {"x": np.full(8_500_000, 5.0)}, "python", device=False, timeout=120, py_meta=PY_META
+        lib, BINDING, {"x": np.full(8_500_000, 5.0)}, Language.PYTHON, device=False, timeout=120, py_meta=PY_META
     )
     assert isinstance(public["y"], np.memmap)
     assert isinstance(held_out["y"], np.memmap)
@@ -645,7 +641,7 @@ def test_outputs_spill_to_a_per_call_directory_when_the_library_directory_is_rea
             str(lib),
             BINDING,
             {"x": np.zeros(elements)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=120,
             py_meta=PY_META,
@@ -730,13 +726,14 @@ RUNTIME_PARENT = """
 import ctypes, os, sys, threading, time
 import numpy as np
 from hpcagent_bench import spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
 ctypes.CDLL(sys.argv[1])
 os.register_at_fork(after_in_child=lambda: threading.Thread(target=time.sleep, args=(60,), daemon=True).start())
 outputs, *_ = native_call._call_isolated(
-    sys.argv[2], binding_from_spec(spec.BenchSpec.load("gemm")), {"x": np.zeros(2)}, "python",
+    sys.argv[2], binding_from_spec(spec.BenchSpec.load("gemm")), {"x": np.zeros(2)}, Language.PYTHON,
     device=False, timeout=60, py_meta=("kern", ("x",), ("y",)),
 )
 print(outputs["y"].tolist())

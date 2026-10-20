@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Canonical C-ABI binding generation: pins the load-bearing guarantees of abi_contract.md."""
 
+from collections.abc import Iterator
+
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import (
     PackedGroup,
@@ -71,7 +74,7 @@ def test_gemm_stub_has_signature_and_todo_not_reference() -> None:
         assert "A[i]" not in stub
         assert "C[i * NJ" not in stub
 
-    c_stub = gen_call_stub(b, "c")
+    c_stub = gen_call_stub(b, Language.C)
     # The canonical C signature shape (Sec. 7 / Sec. 9).
     assert "const double *restrict A" in c_stub
     assert "double *restrict C" in c_stub  # output, non-const
@@ -87,8 +90,8 @@ def test_a_complex_array_is_std_complex_in_every_cxx_parsed_stub() -> None:
     """C++ has no standard spelling of C's ``double _Complex``; CPF renders ``std::complex<double>``, which is
     layout-compatible, so the C++/CUDA/HIP stubs spell it that way and C keeps ``_Complex``."""
     b = binding_from_spec(BenchSpec.load("contour_integral"))
-    assert "double _Complex" in gen_call_stub(b, "c")
-    for lang in ("cpp", "cuda", "hip"):
+    assert "double _Complex" in gen_call_stub(b, Language.C)
+    for lang in (Language.CPP, Language.CUDA, Language.HIP):
         stub = gen_call_stub(b, lang)
         assert "std::complex<double>" in stub, lang
         assert "_Complex" not in stub, lang
@@ -102,11 +105,11 @@ def test_stub_restrict_spelling_is_per_language() -> None:
     it was told not to change."""
     b = binding_from_spec(BenchSpec.load("gemm"))
 
-    c_stub = gen_call_stub(b, "c")
+    c_stub = gen_call_stub(b, Language.C)
     assert "*restrict " in c_stub  # C keeps the C99 keyword
     assert "__restrict__" not in c_stub
 
-    for lang in ("cpp", "cuda", "hip"):
+    for lang in (Language.CPP, Language.CUDA, Language.HIP):
         stub = gen_call_stub(b, lang)
         assert "const double *__restrict__ A" in stub, lang
         assert "double *__restrict__ C" in stub, lang  # output, non-const
@@ -121,7 +124,7 @@ def test_gemm_host_glue_forwards_pure() -> None:
     glue = gen_host_glue(b)
     assert "gemm_pure" in glue
     assert "time_ns" not in glue  # timing is harness-owned externally (Sec. 6)
-    assert b.symbols["c"] in glue
+    assert b.symbols[Language.C] in glue
 
 
 def test_gemm_json_round_trip() -> None:
@@ -136,7 +139,7 @@ def test_gemm_json_round_trip() -> None:
     assert j["workspace"]["dtype"] == "uint8"
     assert j["workspace"]["size_name"] == "workspace_size"
     assert j["workspace"]["nullable"] is True
-    assert set(j["symbols"]) == set(LANGS)
+    assert set(j["symbols"]) == {lang.text for lang in LANGS}
     names = [a["name"] for a in j["args"]]
     assert names == ["A", "B", "C", "NI", "NJ", "NK", "alpha", "beta"]
     # const flags carried through.
@@ -228,7 +231,7 @@ def test_phantom_np_arg_filtered() -> None:
 # invisibly per kernel, so it is asserted corpus-wide.
 
 
-def _declared_value(spec, name):
+def declared_value(spec: BenchSpec, name: str) -> bool | float | None:
     """The value the manifest declares for ``name``, or None if it declares none."""
     for size_class in spec.parameters.values():
         if name in size_class:
@@ -238,7 +241,7 @@ def _declared_value(spec, name):
     return None
 
 
-def _corpus_specs():
+def corpus_specs() -> Iterator[tuple[str, BenchSpec]]:
     from hpcagent_bench.spec import KERNELS, BenchSpec
 
     for key in sorted(KERNELS):
@@ -256,7 +259,7 @@ def test_no_fractional_scalar_is_bound_as_an_integer() -> None:
     from hpcagent_bench.support.bindings.contract import binding_from_spec
 
     offenders = []
-    for stem, spec in _corpus_specs():
+    for stem, spec in corpus_specs():
         try:
             binding = binding_from_spec(spec)
         except Exception:  # noqa: BLE001
@@ -264,7 +267,7 @@ def test_no_fractional_scalar_is_bound_as_an_integer() -> None:
         for arg in binding.args:
             if arg.kind != "scalar":
                 continue
-            value = _declared_value(spec, arg.name)
+            value = declared_value(spec, arg.name)
             if isinstance(value, float) and np.issubdtype(np.dtype(arg.dtype), np.integer):
                 offenders.append(f"{stem}.{arg.name} declared {value!r} but bound {arg.dtype}")
     assert not offenders, "the C ABI would truncate a fractional scalar to an integer:\n  " + "\n  ".join(offenders)
@@ -277,7 +280,7 @@ def test_no_integer_scalar_is_bound_as_a_float() -> None:
     from hpcagent_bench.support.bindings.contract import binding_from_spec
 
     offenders = []
-    for stem, spec in _corpus_specs():
+    for stem, spec in corpus_specs():
         try:
             binding = binding_from_spec(spec)
         except Exception:  # noqa: BLE001
@@ -285,7 +288,7 @@ def test_no_integer_scalar_is_bound_as_a_float() -> None:
         for arg in binding.args:
             if arg.kind != "scalar":
                 continue
-            value = _declared_value(spec, arg.name)
+            value = declared_value(spec, arg.name)
             if isinstance(value, bool) or not isinstance(value, int):
                 continue
             if np.issubdtype(np.dtype(arg.dtype), np.floating):
@@ -326,7 +329,7 @@ def test_every_binding_is_references_then_scalars_each_sorted() -> None:
     from hpcagent_bench.support.bindings.contract import binding_from_spec
 
     offenders = []
-    for stem, spec in _corpus_specs():
+    for stem, spec in corpus_specs():
         try:
             args = binding_from_spec(spec).args
         except Exception:  # noqa: BLE001 -- loadability is the spec suite's job, not this one's

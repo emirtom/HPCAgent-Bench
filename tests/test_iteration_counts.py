@@ -111,7 +111,9 @@ def build_run_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     return run_dir
 
 
-def test_iteration_counts_counts_turns_and_tool_calls(iteration_counts, tmp_path, capsys) -> None:
+def test_iteration_counts_counts_turns_and_tool_calls(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     run_dir = build_run_dir(tmp_path)
     out = tmp_path / "iters.csv"
     assert iteration_counts.main([f"--run-dir={run_dir}", f"--out={out}"]) == 0
@@ -136,7 +138,7 @@ def test_iteration_counts_counts_turns_and_tool_calls(iteration_counts, tmp_path
     assert "problem-1-worker-1" in err
 
 
-def test_iteration_counts_counts_an_absent_tool_as_zero(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_counts_an_absent_tool_as_zero(iteration_counts: ModuleType, tmp_path: pathlib.Path) -> None:
     """A tracked tool the agent never called must read 0, not blank -- the ablation subtracts these
     columns across setups."""
     run_dir = tmp_path / "run"
@@ -150,7 +152,9 @@ def test_iteration_counts_counts_an_absent_tool_as_zero(iteration_counts, tmp_pa
     assert (row["turns"], row["tool_uses"]) == ("2", "6")
 
 
-def test_iteration_counts_turns_are_distinct_message_ids_not_events(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_turns_are_distinct_message_ids_not_events(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     """The CLI emits one assistant event per content BLOCK, so eight events here are two turns.
     Counting events would report roughly double the agent's real iteration count."""
     assert ASSISTANT_EVENT_COUNT == 8
@@ -160,7 +164,7 @@ def test_iteration_counts_turns_are_distinct_message_ids_not_events(iteration_co
     assert read_csv(out)[0]["turns"] == "2"
 
 
-def test_iteration_counts_records_the_result_event(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_records_the_result_event(iteration_counts: ModuleType, tmp_path: pathlib.Path) -> None:
     """The CLI's own verdict: ``error_max_turns`` says the agent ran out of budget rather than
     finishing, which is a different explanation for a missing submission than a crash."""
     run_dir = build_run_dir(tmp_path)
@@ -170,7 +174,9 @@ def test_iteration_counts_records_the_result_event(iteration_counts, tmp_path) -
     assert (row["outcome"], row["num_turns_reported"]) == ("error_max_turns", "41")
 
 
-def test_iteration_counts_leaves_the_result_columns_empty_without_a_result_event(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_leaves_the_result_columns_empty_without_a_result_event(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     run_dir = tmp_path / "run"
     worker = run_dir / "agents" / "node-0" / "problem-0-worker-0"
     worker.mkdir(parents=True)
@@ -182,7 +188,9 @@ def test_iteration_counts_leaves_the_result_columns_empty_without_a_result_event
     assert row["turns"] == "2"
 
 
-def test_iteration_counts_parses_a_transcript_behind_merged_stderr(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_parses_a_transcript_behind_merged_stderr(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     """agent_driver.py merges the container's stderr into claude.log, so JSON can start well below
     line 1. Deciding text mode on the first line alone would throw the whole transcript away."""
     run_dir = tmp_path / "run"
@@ -196,7 +204,9 @@ def test_iteration_counts_parses_a_transcript_behind_merged_stderr(iteration_cou
     assert (row["turns"], row["tool_uses"]) == ("2", "7")
 
 
-def test_iteration_counts_benchmark_column_joins_on_the_kernel_stem(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_benchmark_column_joins_on_the_kernel_stem(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     """``submissions.benchmark`` holds the manifest short_name, which is the kernel path's stem --
     the whole point of the column is that the CSV joins to the results DB."""
     run_dir = build_run_dir(tmp_path)
@@ -216,14 +226,18 @@ def test_iteration_counts_benchmark_column_joins_on_the_kernel_stem(iteration_co
     assert read_csv(out)[0]["kernel"] == "argmax_value"
 
 
-def test_iteration_counts_benchmark_column_is_empty_without_problems(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_benchmark_column_is_empty_without_problems(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     run_dir = build_run_dir(tmp_path)
     out = tmp_path / "iters.csv"
     assert iteration_counts.main([f"--run-dir={run_dir}", f"--out={out}"]) == 0
     assert read_csv(out)[0]["kernel"] == ""
 
 
-def test_iteration_counts_rejects_a_problems_file_that_is_not_a_manifest(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_rejects_a_problems_file_that_is_not_a_manifest(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     run_dir = build_run_dir(tmp_path)
     problems = tmp_path / "problems.jsonl"
     problems.write_text('{"id": 0}\n', encoding="utf-8")
@@ -231,7 +245,9 @@ def test_iteration_counts_rejects_a_problems_file_that_is_not_a_manifest(iterati
         iteration_counts.main([f"--run-dir={run_dir}", f"--out={tmp_path / 'x.csv'}", f"--problems={problems}"])
 
 
-def test_iteration_counts_skips_text_mode_without_crashing(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_skips_text_mode_without_crashing(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     run_dir = tmp_path / "run"
     worker = run_dir / "agents" / "node-0" / "problem-0-worker-0"
     worker.mkdir(parents=True)
@@ -241,7 +257,7 @@ def test_iteration_counts_skips_text_mode_without_crashing(iteration_counts, tmp
     assert read_csv(out) == []
 
 
-def test_iteration_counts_keeps_a_truncated_tail(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_keeps_a_truncated_tail(iteration_counts: ModuleType, tmp_path: pathlib.Path) -> None:
     """A job killed mid-write leaves a half-line; the turns already recorded must survive it."""
     run_dir = tmp_path / "run"
     worker = run_dir / "agents" / "node-0" / "problem-0-worker-0"
@@ -252,7 +268,9 @@ def test_iteration_counts_keeps_a_truncated_tail(iteration_counts, tmp_path) -> 
     assert read_csv(out)[0]["turns"] == "2"
 
 
-def test_iteration_counts_skips_a_worker_with_no_log_at_all(iteration_counts, tmp_path, capsys) -> None:
+def test_iteration_counts_skips_a_worker_with_no_log_at_all(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A worker dir the driver created but never wrote into: skipped and COUNTED, so the short CSV
     cannot be mistaken for a short run."""
     run_dir = tmp_path / "run"
@@ -263,7 +281,7 @@ def test_iteration_counts_skips_a_worker_with_no_log_at_all(iteration_counts, tm
     assert "skipped 1/1" in capsys.readouterr().err
 
 
-def test_iteration_counts_orders_workers_numerically(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_orders_workers_numerically(iteration_counts: ModuleType, tmp_path: pathlib.Path) -> None:
     run_dir = tmp_path / "run"
     for problem in (2, 10, 1):
         worker = run_dir / "agents" / "node-0" / f"problem-{problem}-worker-{problem}"
@@ -274,7 +292,9 @@ def test_iteration_counts_orders_workers_numerically(iteration_counts, tmp_path)
     assert [r["problem"] for r in read_csv(out)] == ["1", "2", "10"]
 
 
-def test_iteration_counts_without_agents_dir_names_the_path(iteration_counts, tmp_path) -> None:
+def test_iteration_counts_without_agents_dir_names_the_path(
+    iteration_counts: ModuleType, tmp_path: pathlib.Path
+) -> None:
     with pytest.raises(SystemExit, match="agents"):
         iteration_counts.main([f"--run-dir={tmp_path}", f"--out={tmp_path / 'x.csv'}"])
 

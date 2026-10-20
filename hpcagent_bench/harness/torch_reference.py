@@ -1,20 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The PyTorch side of the distributed ML-operator track: speed baseline and at-scale shard check.
-
-A kernel joins the track by shipping ``<module>_torch.py`` beside its manifest with
-
-* ``reference(*inputs) -> outputs`` -- one GPU, torch tensors on the device;
-* ``reference_dist(local_inputs, group, rank, world) -> local_outputs`` -- torch.distributed;
-* ``make_inputs(shape_params, seed, device, shard=None, whole=())`` -- counter-based, so any shard
-  ``(rank, world)`` is reproducible alone; inputs named in ``whole`` come back whole on every rank.
-
-The speed denominator of these kernels is :mod:`hpcagent_bench.harness.torch_baseline` (``reference``
-on one device under ``torch.compile(mode=COMPILE_MODE)`` with the GEMM autotune space pinned to
-:data:`GEMM_SEARCH_SPACE` and no graphs). The torch.distributed curve keeps its Inductor/Triton cache
-per image, arch, kernel and shape (:func:`cache_dir`). :func:`rank_verdict` grades each rank's output
-shard against ``reference_dist``'s with :func:`hpcagent_bench.harness.grading._grade`'s rule and the global
-problem's ``l`` (:func:`shard_lengths`); the rank driver calls it."""
+"""The PyTorch side of the distributed ML-operator track: a kernel ships ``<module>_torch.py`` with ``reference``,
+``reference_dist`` and a counter-based ``make_inputs`` (any shard reproducible alone). :func:`rank_verdict` grades
+each rank's output shard against ``reference_dist``'s with the global problem's ``l``."""
 
 import os
 import pathlib
@@ -100,8 +88,7 @@ def int_tuple(values: list[object]) -> tuple[int, ...]:
 
 
 def graded_rank_counts(spec: BenchSpec) -> tuple[int, ...]:
-    """The rank counts this kernel's scaling curve is graded at: ``mpi.rank_counts``, or on the ML track
-    ``ml.rank_counts``. Shared by the grader and the prompt."""
+    """The rank counts this kernel's scaling curve is graded at (``mpi.rank_counts`` or ``ml.rank_counts``)."""
     cfg = config.current()
     counts = cfg.mpi.rank_counts
     if not counts and has_torch_reference(spec):
@@ -117,8 +104,7 @@ def load_torch_module(spec: BenchSpec) -> types.ModuleType:
 
 
 def cache_root() -> pathlib.Path:
-    """The persistent Inductor/Triton cache root: ``ml.torch_cache_root``
-    (``HPCAGENT_BENCH_ML_TORCH_CACHE_ROOT``), else ``$SCRATCH/`` :data:`CACHE_DIRNAME`."""
+    """The persistent Inductor/Triton cache root: ``ml.torch_cache_root``, else ``$SCRATCH/`` :data:`CACHE_DIRNAME`."""
     raw = config.current().ml.torch_cache_root
     return pathlib.Path(raw) if raw else paths.scratch_root(CACHE_DIRNAME)
 
@@ -136,8 +122,7 @@ def image_key(torch_version: str, gpu_runtime: str) -> str:
 
 
 def configure_inductor(cache: pathlib.Path) -> None:
-    """Point Inductor and Triton at ``cache`` and pin the autotune policy; call in the baseline child before
-    the first compile."""
+    """Point Inductor and Triton at ``cache`` and pin the autotune policy; call before the first compile."""
     cache.mkdir(parents=True, exist_ok=True)
     os.environ["TORCHINDUCTOR_CACHE_DIR"] = str(cache / "inductor")
     os.environ["TRITON_CACHE_DIR"] = str(cache / "triton")
@@ -148,10 +133,8 @@ def configure_inductor(cache: pathlib.Path) -> None:
 
 
 def sync_for(device: object, torch: types.ModuleType) -> Callable[[], None]:
-    """The device drain :func:`time_reference_dist` times around: ``torch.cuda.synchronize`` on cuda, a
-    no-op on cpu (gloo is synchronous); the same split the rank driver makes
-    (:func:`~hpcagent_bench.harness.mpi_shard_driver.run`)."""
-    if getattr(device, "type", None) == "cuda":
+    """The device drain around each timed repeat: ``torch.cuda.synchronize`` on cuda, a no-op on cpu."""
+    if str(device).partition(":")[0] == "cuda":  # a torch.device or its spelling
         return cast("Callable[[], None]", torch.cuda.synchronize)
     return lambda: None
 
@@ -170,12 +153,8 @@ def time_reference_dist(
     dist: types.ModuleType,
     compile_mode: str | None = None,
 ) -> list[float]:
-    """This rank's per-repeat seconds of ``module.reference_dist`` on the shared ``group``, max-reduced
-    across ranks each repeat (the rank driver's protocol: untimed warmup, then drain + barrier, time,
-    drain + barrier). The caller takes the median for one (kernel, law, P) point.
-
-    ``compile_mode`` runs ``reference_dist`` under ``torch.compile`` first; omitted, the eager function
-    is timed. Failures raise (the caller records a hole)."""
+    """This rank's per-repeat seconds of ``module.reference_dist``, max-reduced across ranks each repeat (untimed
+    warmup, then drain + barrier around each timed call); ``compile_mode`` compiles it first. Failures raise."""
     local_inputs = as_tuple(module.make_inputs(dict(params), int(seed), device, shard=(rank, world)))
     fn = module.reference_dist
     if compile_mode is not None:
@@ -186,7 +165,7 @@ def time_reference_dist(
         as_tuple(fn(local_inputs, group, rank, world))
 
     dist.barrier(group=group)
-    call()  # untimed warmup: first call compiles (if compile_mode) and builds comm channels
+    call()  # untimed warmup: compiles and builds comm channels
     sync()
     dist.barrier(group=group)
     samples: list[float] = []
@@ -204,9 +183,8 @@ def time_reference_dist(
 
 
 def shard_lengths(spec: BenchSpec, params: Mapping[str, object]) -> dict[str, int]:
-    """Per-output accumulation length ``l`` of the global problem at ``params`` (a shard of a split-K or
-    allreduced output accumulates the whole contraction). Uses zero-stride stand-in inputs; no write
-    probe, so every declared axis counts as written."""
+    """Per-output accumulation length ``l`` of the global problem at ``params`` (a shard accumulates the whole
+    contraction); every declared axis counts as written."""
     names = shape_namespace(spec, params)
     stand_ins: dict[str, object] = dict(params)
     for arg in spec.input_args:
@@ -218,16 +196,14 @@ def shard_lengths(spec: BenchSpec, params: Mapping[str, object]) -> dict[str, in
 
 
 def row_chunks(rows: int, row_elements: int) -> Iterator[tuple[int, int]]:
-    """``[lo, hi)`` row blocks of a shard, each at most :data:`GRADE_CHUNK_ELEMENTS` values (one row when a
-    row is larger)."""
+    """``[lo, hi)`` row blocks of a shard of at most :data:`GRADE_CHUNK_ELEMENTS` values (one row when larger)."""
     per_chunk = max(1, GRADE_CHUNK_ELEMENTS // max(1, row_elements))
     for start in range(0, max(rows, 0), per_chunk):
         yield start, min(rows, start + per_chunk)
 
 
 def chunk_pair(want: object, got: object, lo: int, hi: int) -> "tuple[torch.Tensor, torch.Tensor]":
-    """One row block of both shards as flat tensors on the shard's device, widened to float64 when either
-    shard is float64, else float32."""
+    """One row block of both shards as flat tensors on the device, float64 when either shard is, else float32."""
     import torch
 
     e, a = cast("torch.Tensor", want), cast("torch.Tensor", got)
@@ -240,9 +216,7 @@ def chunk_pair(want: object, got: object, lo: int, hi: int) -> "tuple[torch.Tens
 
 
 def nonfinite_reason(expected: object, actual: object, first_row: int = 0, row_elements: int = 1) -> str:
-    """Why one chunk's NaN / +-Inf positions disagree, or ``""``. Checked before any relative error. A NaN
-    mismatch names the side and the shard row: outputs are NaN-filled before each call, so NaN only in
-    your shard usually marks a region the kernel never wrote."""
+    """Why one chunk's NaN / +-Inf positions disagree, or ``""`` (NaN only in your shard: an unwritten region)."""
     import torch
 
     e, a = cast("torch.Tensor", expected), cast("torch.Tensor", actual)
@@ -267,10 +241,8 @@ def nonfinite_reason(expected: object, actual: object, first_row: int = 0, row_e
 def shard_verdict(
     want: object, got: object, *, rtol: float, atol: float, eps_acc: float, length: int | None
 ) -> tuple[bool, float, str]:
-    """One output shard's ``(ok, max_rel_error, detail)``, reduced on the device in fp32 row chunks with the
-    rule of :func:`~hpcagent_bench.frameworks.utilities.compare_arrays` (a host copy would cost ~96 GB a
-    rank at XL). Pass 1 takes ``||want||_inf`` over elements finite on both sides and checks non-finite
-    positions; pass 2 applies ``atol_eff = max(atol, accumulation_growth(eps_acc, l)*||want||_inf)``."""
+    """One output shard's ``(ok, max_rel_error, detail)``, reduced on the device in row chunks with the
+    :func:`compare_arrays` rule (a host copy would not fit at XL)."""
     import torch
 
     e_all, a_all = cast("torch.Tensor", want), cast("torch.Tensor", got)
@@ -328,9 +300,7 @@ def rank_verdict(
     rtol: float,
     atol: float,
 ) -> tuple[bool, float, str]:
-    """One rank's ``(ok, max_rel_error, detail)``: its output shards (``spec.output_args`` order) against
-    ``reference_dist``'s, graded on the device (:func:`shard_verdict`) with the global ``l`` and the
-    declared precision's accumulation eps."""
+    """One rank's ``(ok, max_rel_error, detail)``: its output shards against ``reference_dist``'s, on the device."""
     names = list(spec.output_args)
     if len(outputs) != len(names) or len(reference) != len(names):
         return False, float("inf"), f"expected {len(names)} output shards {names}, got {len(outputs)}/{len(reference)}"

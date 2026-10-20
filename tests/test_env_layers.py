@@ -108,7 +108,7 @@ def test_every_base_renders_to_a_complete_flat_env(name: str) -> None:
 
 @pytest.mark.parametrize("name", BASES)
 def test_every_base_names_a_known_language(name: str) -> None:
-    assert Language(flat(rendered(name))["LANGUAGE"])
+    assert Language.parse(flat(rendered(name))["LANGUAGE"])
 
 
 def test_rendering_is_deterministic() -> None:

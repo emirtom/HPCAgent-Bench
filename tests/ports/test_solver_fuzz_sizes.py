@@ -1,25 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every solver kernel's ``initialize()`` must survive the sizes the FUZZ sweep draws.
-
-A sweep does not run the S/M/L/XL rungs. It resolves a fuzz spec from the manifest and draws sizes
-from it, so a constraint that only ``initialize()`` knows about -- a grid edge divisible by 8, an
-edge that is a power of two, an even N, a Krylov dimension below the matrix dimension -- is not
-enforced anywhere the draw can see. The default spec is a continuous XL-anchored interval, so such
-a draw is not merely possible but typical: before the ``fuzzed:`` presets went in, the first
-``sgs_pcg`` draw was (164, 130, 174) and ``initialize`` raised on it, which fails the whole fuzz
-cell rather than the one kernel.
-
-This gate draws exactly the way ``frameworks.benchmark`` does and calls the real initializer, so a
-manifest whose ``fuzzed:`` block drifts away from its kernel's constraint is caught here rather
-than in a sweep.
-"""
+"""Every solver kernel's ``initialize()`` survives the sizes the fuzz sweep draws (drawn exactly as
+``frameworks.benchmark`` does), so a ``fuzzed:`` block that drifts from its kernel's constraints fails here."""
 
 import importlib
 
 import pytest
 
-from hpcagent_bench import fuzz
+from hpcagent_bench import fuzz, modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import BenchSpec
 from tests.bench_specs import fuzz_constraints
 from tests.corpus_counts import SOLVER_KERNELS
@@ -70,14 +59,14 @@ DRAWS = 24
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_every_fuzz_draw_initializes(short) -> None:
+def test_every_fuzz_draw_initializes(short: str) -> None:
     spec = BenchSpec.load(short)
     constraints = fuzz_constraints(spec)
     config_names = frozenset(spec.config or {})
     module = importlib.import_module(
         "hpcagent_bench.benchmarks.{p}.{m}".format(p=spec.relative_path.replace("/", "."), m=spec.module_name)
     )
-    initialize = getattr(module, spec.init.func_name)
+    initialize = modules.member(module, spec.init.func_name)
     budget = BUILD_BUDGET[short]
 
     built = 0
@@ -106,14 +95,14 @@ def test_every_fuzz_draw_initializes(short) -> None:
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_fuzz_spec_is_declared_not_inherited(short) -> None:
+def test_fuzz_spec_is_declared_not_inherited(short: str) -> None:
     """The manifest must declare its own ``fuzzed:`` preset.
 
     Without one, ``fuzz.resolve_ranges`` anchors a continuous interval on XL, which is what put a
     non-power-of-two N in front of a power-of-two-only kernel.
     """
     spec = BenchSpec.load(short)
-    assert fuzz.FUZZED_PRESET in spec.parameters, (
+    assert Preset.FUZZED.text in spec.parameters, (
         f"{short}: no 'fuzzed:' preset, so sizes are drawn from an XL-anchored continuous range "
         f"that ignores this kernel's input constraint"
     )

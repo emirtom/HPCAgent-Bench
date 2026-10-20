@@ -1,17 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Inputs are drawn for the format they are graded in, and stay finite in it.
-
-Three rules, each pinned here on the smallest case that shows it:
-
-* a storage-only float (bf16, fp8 e4m3, which numpy reports as kind ``V``) is a float: its declared
-  value domain is honoured and its tolerance floor is its own eps -- before, both were skipped, and
-  the 12 deep-network kernels drew ``[-1000, 1000)`` weights at bf16 and overflowed;
-* an array without a declared domain is scaled as one tensor until no product-sum over its fan-in
-  can leave the format (:func:`distributions.reduction_bound`);
-* a machine_learning array without a declared domain is fed as a network is: a unit activation,
-  fan-in weights (:func:`initialize.ml_default_domain`).
-"""
+"""Inputs are drawn for the format they are graded in and stay finite: storage-only floats honour their domain
+and eps, undeclared arrays are scaled by fan-in (:func:`distributions.reduction_bound`), ML arrays get network
+domains."""
 
 import math
 
@@ -20,6 +11,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import dtypes
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.utilities import compare_arrays
 from hpcagent_bench.initialize import UNIT_HALF_RANGE, ml_default_domain
@@ -42,7 +34,7 @@ def test_every_float_format_is_a_float(dtype: type) -> None:
 
 def test_a_bf16_array_keeps_its_declared_domain() -> None:
     """vgg16's image is declared in [-1, 1] and its first filter in +-0.1925: at bf16 as at fp64."""
-    data = Benchmark(DOMAINED_KERNEL).get_data(preset="S", datatype="bf16", input_seed=SEED)
+    data = Benchmark(DOMAINED_KERNEL).get_data(preset=Preset.S, datatype="bf16", input_seed=SEED)
     image = data["x"].astype(np.float64)
     weight = data["features_0_weight"].astype(np.float64)
     assert data["x"].dtype == np.dtype(ml_dtypes.bfloat16)
@@ -93,7 +85,7 @@ def test_the_ml_default_is_a_unit_activation_and_fan_in_weights() -> None:
 
 def test_an_undomained_ml_kernel_is_fed_as_a_network() -> None:
     """Its first array (the activation) spans [-1, 1]; its filter stays within the fan-in bound."""
-    data = Benchmark(UNDOMAINED_KERNEL).get_data(preset="S", datatype="float64", input_seed=SEED)
+    data = Benchmark(UNDOMAINED_KERNEL).get_data(preset=Preset.S, datatype="float64", input_seed=SEED)
     activation, weight = data["x"], data["conv_weight"]
     assert np.abs(activation).max() <= UNIT_HALF_RANGE
     assert np.abs(weight).max() <= 1.0 / math.sqrt(math.prod(weight.shape[1:])) + 1e-12

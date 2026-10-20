@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build one committed TSVC ``_reference.c`` and run it against the kernel's numpy reference.
-
-Helper for :mod:`tests.test_tsvc_cpp_references`, which drives it as ``python -m`` in a CHILD
-process: a reference that indexes out of bounds takes its process down (two of the C++ originals
-do), and a corpus gate must report that as
-one named kernel rather than as the whole pytest session disappearing. The child appends one JSON
-line per kernel as it finishes, so the kernel it died on is the last name in the report.
-
-The build goes through :func:`hpcagent_bench.languages.build_shared_lib_commands`, so the flags
-are the harness's own (``compilers.yaml`` + :mod:`hpcagent_bench.flags`) rather than a second
-opinion about how a reference is compiled.
-"""
+"""Build one committed TSVC ``_reference.c`` with the harness's own flags and run it against the kernel's numpy
+reference, appending one JSON line per kernel (run as a child of :mod:`tests.test_tsvc_cpp_references`)."""
 
 import argparse
 import ctypes
@@ -19,14 +9,16 @@ import json
 import pathlib
 import subprocess
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 
-from hpcagent_bench import languages, paths
+from hpcagent_bench import languages, modules, paths
+from hpcagent_bench.categories import Language, Preset
+from hpcagent_bench.flags import Mode
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision
-from hpcagent_bench.flags import Mode
 from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.support.bindings.contract import Binding, binding_from_spec
 from tests.fresh_module import module_at
@@ -42,10 +34,10 @@ PRESET = "S"
 SEED = 7
 
 
-def numpy_entry(spec: BenchSpec):
+def numpy_entry(spec: BenchSpec) -> Callable[..., object]:
     """The kernel's numpy reference function, loaded from its co-located module."""
     path = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    return getattr(module_at(path, f"{spec.module_name}_numpy"), spec.func_name)
+    return modules.member(module_at(path, f"{spec.module_name}_numpy"), spec.func_name)
 
 
 def kernel_inputs(spec: BenchSpec) -> dict[str, Any]:
@@ -57,7 +49,11 @@ def kernel_inputs(spec: BenchSpec) -> dict[str, Any]:
     them by name.
     """
     data = dict(
-        zip(list(spec.init.output_args), auto_initialize(spec, PRESET, Precision.FP64, seed=SEED), strict=False)
+        zip(
+            list(spec.init.output_args),
+            auto_initialize(spec, Preset.parse(PRESET), Precision.FP64, seed=SEED),
+            strict=False,
+        )
     )
     for source in (spec.parameters[PRESET], spec.pinned_config, spec.init.scalars):
         data.update({name: value for name, value in source.items() if name not in data})
@@ -72,7 +68,7 @@ def build(source: pathlib.Path, out_so: pathlib.Path) -> str | None:
     to look at even when it links.
     """
     for argv in languages.build_shared_lib_commands(
-        "c",
+        Language.C,
         source,
         out_so,
         mode=Mode.SINGLE_CORE,
@@ -88,7 +84,7 @@ def build(source: pathlib.Path, out_so: pathlib.Path) -> str | None:
 def call_reference(so: pathlib.Path, binding: Binding, data: dict[str, Any]) -> dict[str, Any]:
     """dlopen ``so``, bind ``binding.symbols['c']`` and call it positionally in canonical order."""
     buffers = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in data.items()}
-    entry = getattr(ctypes.CDLL(str(so)), binding.symbols["c"])
+    entry = ctypes.CDLL(str(so))[binding.symbols[Language.C]]
     argtypes, argv = [], []
     for arg in binding.args:
         if arg.kind == "ptr":

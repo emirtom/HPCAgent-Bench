@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Correctness gate for the full LULESH numpy reference, in three layers: (1) per-kernel cross-checks
-against the genuine vendored LULESH Fortran kernels (the corpus ``lulesh_reference.f90``,
-with three serial-path bugs fixed in this copy; see ``baseline/NOTICE.md``) at machine precision; (2)
-bit-exact full-trajectory reference via the genuine ``LagrangeLeapFrog`` on the Sedov ICs; (3)
-end-to-end invariants needing no Fortran (plane-0 energy symmetry, volume positivity, determinism,
-Sedov energy deposition). Skips cleanly when gfortran is unavailable."""
+"""Correctness gate for the LULESH numpy reference: per-kernel cross-checks against the vendored Fortran, a
+bit-exact Sedov trajectory via ``LagrangeLeapFrog``, and Fortran-free invariants (skips without gfortran)."""
 
 import ctypes
 import shutil
@@ -417,10 +413,10 @@ def _mesh_sizes(num_elem: int) -> tuple[int, int]:
 
 def test_presets_are_perfect_cubes_with_derived_sizes() -> None:
     """Every fixed preset names a cubic mesh, and its numNode/numSymm are (edgeElems+1)**3/**2."""
-    from hpcagent_bench.fuzz import FUZZED_PRESET
+    from hpcagent_bench.categories import Preset
     from hpcagent_bench.spec import load_spec
 
-    presets = {k: v for k, v in load_spec("lulesh").parameters.items() if k != FUZZED_PRESET}
+    presets = {k: v for k, v in load_spec("lulesh").parameters.items() if k != Preset.FUZZED.text}
     assert set(presets) == {"S", "M", "L", "XL"}
     for name, row in presets.items():
         assert (row["numNode"], row["numSymm"]) == _mesh_sizes(row["numElem"]), name

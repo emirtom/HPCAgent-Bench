@@ -1,22 +1,15 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Standalone-TU e2e test for the viterbi kernel (graphical-models dwarf).
-
-The emitted kernel is compiled into a SINGLE translation unit with a
-self-checking driver that embeds the canonical inputs (from the kernel's own
-``initialize``) and the numpy-reference ``path`` as the oracle, then run. Float
-inputs are embedded with full ``repr`` precision so the native run is fed
-bit-identical doubles and the decoded path must match exactly.
-
-Covers, end to end: ``V[:, None]`` newaxis broadcast, ``np.argmax(scores,
-axis=0)`` into a 2-D row, the partial-subscript row store, and the
-``log_emit[:, obs[t]]`` column-gather flattening.
-"""
+"""Standalone-TU e2e test for viterbi: the emitted kernel plus a self-checking driver embedding the inputs and the
+numpy ``path`` in one executable (newaxis broadcast, axis argmax, row store, column gather)."""
 
 import importlib.util
 import sys
 import tempfile
 
+import numpy as np
+
+from hpcagent_bench.categories import Language
 from hpcagent_bench.support.bindings.contract import index_base
 from tests.translators import native_tu as tu
 
@@ -28,7 +21,7 @@ NUMPY_PY = VIT_DIR / "viterbi_numpy.py"
 T, K, M = 30, 8, 5
 
 
-def ref():
+def ref() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     spec = importlib.util.spec_from_file_location("viterbi_ref", NUMPY_PY)
     m = importlib.util.module_from_spec(spec)
     # Registered BEFORE exec: dataclasses resolves a string annotation through
@@ -49,7 +42,7 @@ def ref():
 LOG_INIT, LOG_TRANS, LOG_EMIT, OBS, PATH = ref()
 
 
-def c_driver():
+def c_driver() -> str:
     return f"""
 #include <stdio.h>
 int main(void) {{
@@ -73,7 +66,7 @@ int main(void) {{
 """
 
 
-def f_driver():
+def f_driver() -> str:
     # Fortran storage is column-major; reshaping the numpy C-order ravel into the
     # REVERSED dims reproduces the exact flat buffer the bind(C) kernel indexes
     # (same bytes a C-contiguous pointer would pass).
@@ -107,8 +100,8 @@ program test_viterbi
     log_emit  = reshape([{tu.fortran_real_list(LOG_EMIT.ravel("C"))}], [M, K])
     log_init  = [{tu.fortran_real_list(LOG_INIT.ravel("C"))}]
     log_trans = reshape([{tu.fortran_real_list(LOG_TRANS.ravel("C"))}], [K, K])
-    obs  = [{tu.fortran_int_list(OBS + index_base("fortran"))}]
-    want = [{tu.fortran_int_list(PATH + index_base("fortran"))}]
+    obs  = [{tu.fortran_int_list(OBS + index_base(Language.FORTRAN))}]
+    want = [{tu.fortran_int_list(PATH + index_base(Language.FORTRAN))}]
     path = 0
     call viterbi_fp64(log_emit, log_init, log_trans, obs, path, K, M, T)
     do i = 1, T

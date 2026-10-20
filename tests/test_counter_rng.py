@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The counter-based generator of ``hpcagent_bench/support/counter_rng.py``.
-
-A value is a function of ``(seed, stream, index)`` and nothing else, in integer arithmetic every array library
-wraps the same way. These tests pin the bits (against a textbook splitmix64 and against literal words), hold numpy
-and, where a GPU is present, cupy to the same bits, check the uniform and normal draws by their moments and a
-chi-square, check that blocks equal the whole and that seeds and streams are independent, and time the draw against
-numpy's default generator.
-"""
+"""The counter-based generator (``support/counter_rng.py``): exact bits, numpy == cupy, draw moments, blocks equal
+the whole, independent seeds and streams, and speed against numpy's default generator."""
 
 import importlib
 import math
@@ -41,7 +35,7 @@ PINNED_NORMALS = [-0.845736026763916, -0.4002513885498047, 0.8101696968078613, -
 
 
 def host(array: NDArray[Any]) -> np.ndarray:
-    return array.get() if hasattr(array, "get") else np.asarray(array)
+    return np.asarray(array) if isinstance(array, np.ndarray) else array.get()  # a cupy array copies to the host
 
 
 def textbook_splitmix64(seed: int, count: int) -> list[int]:
@@ -132,7 +126,9 @@ def built_field(
 
 
 @pytest.mark.parametrize("xp", BACKENDS, ids=lambda module: module.__name__)
-@pytest.mark.parametrize(("kind", "dtype"), FIELD_CASES, ids=lambda case: getattr(case, "__name__", str(case)))
+@pytest.mark.parametrize(
+    ("kind", "dtype"), FIELD_CASES, ids=lambda case: case.__name__ if isinstance(case, type) else str(case)
+)
 @pytest.mark.parametrize(("shape", "first"), [((1,), 0), ((7, 13), 5), ((3, 4101), 2**40), ((100_003,), 12345)])
 def test_the_fast_field_builders_equal_the_reference_on_every_element(
     xp: ModuleType, kind: str, dtype: DTypeLike, shape: tuple[int, ...], first: int

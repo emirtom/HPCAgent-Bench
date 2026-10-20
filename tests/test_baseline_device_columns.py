@@ -10,10 +10,11 @@ GPU at all.
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.cluster import baseline
 from hpcagent_bench.frameworks.native_runtime import FRAMEWORK_LANG
 
-DEVICE_LANGUAGES = ("hip", "cuda")
+DEVICE_LANGUAGES = (Language.HIP, Language.CUDA)
 
 
 @pytest.mark.parametrize("column", sorted(c for c, lang in FRAMEWORK_LANG.items() if lang in DEVICE_LANGUAGES))

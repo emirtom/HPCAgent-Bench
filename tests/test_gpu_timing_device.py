@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The half of the GPU measurement contract that only a REAL GPU can answer.
-
-tests/test_gpu_timing_contract.py pins the same contract where a pure function can: the residency
-rule, the bracket stamps, the build refusal, and the probe arithmetic. What it cannot reach is
-whether the harness's own synchronization actually WAITS, whether a grading child actually reaches
-one device, and whether a sample actually excludes the transfer -- each of those is a claim about
-hardware, and a claim about hardware that is only asserted against a fake is not asserted at all.
-
-Nothing here skips on a missing GPU. Every test is in the ``judge_image`` hardware group
-(tests/conftest.py): deselected unless ``-m`` names it, and on a host that is asked for it and has no
-device, a red test rather than a skip. Run it inside the judge image on an mi300 node with
-``-m judge_image``. The properties below are the ones whose failure produces a number that VERIFIES
--- the right answer, rc 0, and the wrong quantity recorded -- so silence about them is the failure
-mode this file exists to remove.
-"""
+"""The GPU measurement contract on a REAL GPU (``-m judge_image``, never skipped on a requested host): the
+harness's synchronization waits, a grading child reaches one device, and samples exclude transfers."""
 
 import pathlib
 from collections.abc import Iterator
@@ -23,6 +10,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import languages
+from hpcagent_bench.categories import Language
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import native_call, timing
 from hpcagent_bench.harness.envelope import Submission
@@ -81,7 +69,7 @@ def python_call(
     """
     path.write_text(source)
     return native_call._call_isolated(
-        path, BINDING, data, "python", device=device, timeout=300, reps=reps, warmup=warmup
+        path, BINDING, data, Language.PYTHON, device=device, timeout=300, reps=reps, warmup=warmup
     )
 
 
@@ -296,7 +284,7 @@ def offload_sample(source: str, data: dict) -> tuple[np.ndarray, list[int], nati
     built ``.so`` lives in, exactly as a real grade's does. It runs in the submission's OpenMP context,
     as scoring's does: the offload toolchain's libomp, never beside the image default's libgomp.
     """
-    submission = Submission(language="c", source=source)
+    submission = Submission(language=Language.C, source=source)
     with Sandbox(BINDING) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
         assert built.ok, built.log
@@ -304,7 +292,7 @@ def offload_sample(source: str, data: dict) -> tuple[np.ndarray, list[int], nati
             built.lib,
             BINDING,
             data,
-            "c",
+            Language.C,
             device=True,
             timeout=300,
             reps=3,
@@ -315,7 +303,7 @@ def offload_sample(source: str, data: dict) -> tuple[np.ndarray, list[int], nati
 
 
 @pytest.mark.integration
-def test_an_offload_kernel_is_timed_without_its_transfers(offload_setup, tmp_path: pathlib.Path) -> None:
+def test_an_offload_kernel_is_timed_without_its_transfers(offload_setup: None, tmp_path: pathlib.Path) -> None:
     """The bug this change exists for, measured: an offload setup's sample must not contain a copy.
 
     The harness places the arrays on the device BEFORE the bracket and reads them back after it, so
@@ -346,7 +334,7 @@ def test_an_offload_kernel_is_timed_without_its_transfers(offload_setup, tmp_pat
 
 
 @pytest.mark.integration
-def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup) -> None:
+def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup: None) -> None:
     """The other half: the transferring shape is not measured differently, it is not built.
 
     On an APU a ``map(to:)`` over a device pointer does not fail -- the runtime copies device
@@ -356,7 +344,7 @@ def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup
     build.
     """
     with Sandbox(BINDING) as sb:
-        built = sb.build(Submission(language="c", source=MAPPING_SOURCE), mode=Mode.SINGLE_CORE)
+        built = sb.build(Submission(language=Language.C, source=MAPPING_SOURCE), mode=Mode.SINGLE_CORE)
         assert not built.ok, "a transferring map over an ABI array built on an offload setup"
         assert built.lib is None
         assert "is_device_ptr" in built.log, built.log
@@ -364,7 +352,7 @@ def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup
 
 
 @pytest.mark.integration
-def test_deferred_offload_work_is_still_inside_the_bracket(offload_setup) -> None:
+def test_deferred_offload_work_is_still_inside_the_bracket(offload_setup: None) -> None:
     """``target ... nowait`` and no ``taskwait`` is the directive spelling of "start it and return".
 
     The submission's own OpenMP runtime is the only thing that can wait for a deferred target task,
@@ -426,7 +414,7 @@ def test_a_hip_grade_is_unchanged() -> None:
     tests/test_gpu_timing_contract.py.
     """
     data = strided_data(BIG // 4)
-    submission = Submission(language="hip", source=HIP_HOST_TU, device_source=HIP_DEVICE_TU)
+    submission = Submission(language=Language.HIP, source=HIP_HOST_TU, device_source=HIP_DEVICE_TU)
     with Sandbox(BINDING) as sb:
         built = sb.build(submission, mode=Mode.SINGLE_CORE)
         assert built.ok, built.log
@@ -434,7 +422,7 @@ def test_a_hip_grade_is_unchanged() -> None:
             built.lib,
             BINDING,
             data,
-            "hip",
+            Language.HIP,
             device=True,
             timeout=300,
             reps=3,

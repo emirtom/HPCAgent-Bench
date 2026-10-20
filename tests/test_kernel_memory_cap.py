@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The per-kernel single-node memory cap: ``sizing.kernel_memory_gb``.
-
-The budget a run gets is DERIVED from the kernel -- its requested workspace plus room for the
-inputs and outputs twice -- rather than taken from one global constant. These pin the formula on a
-kernel whose bytes are computable by hand, the two things that move it (precision and preset), the
-floor/fallback rule, and the property that makes the cap a real limit: a kernel over it is a scored
-failure, not a dead runner.
-"""
+"""The per-kernel single-node memory cap (``sizing.kernel_memory_gb``), derived from the kernel: the formula, its
+precision and preset dependence, the floor, and an over-cap kernel as a scored failure."""
 
 import dataclasses
 import functools
@@ -21,6 +15,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, flags, osinfo, paths, sizing
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, score
@@ -63,10 +58,13 @@ def declared_bytes(preset: str, itemsize: int) -> int:
     return (BenchSpec.load(KERNEL).parameters[preset]["LEN_1D"] + 1) * itemsize
 
 
-def cap_bytes(preset: str, datatype: str = "float64", workspace=None) -> float:
+def cap_bytes(preset: str, datatype: str = "float64", workspace: str | None = None) -> float:
     """The derived cap in BYTES, with the global floor lifted so the derivation is what is read."""
     with config.overridden("limits.kernel_memory_gb", 0):
-        return sizing.kernel_memory_gb(BenchSpec.load(KERNEL), preset, datatype, workspace) * sizing.BYTES_PER_GB
+        return (
+            sizing.kernel_memory_gb(BenchSpec.load(KERNEL), Preset.parse(preset), datatype, workspace)
+            * sizing.BYTES_PER_GB
+        )
 
 
 # the formula
@@ -99,7 +97,7 @@ def test_concrete_params_override_the_preset() -> None:
     """A fuzz draw / sweep cell runs at sizes the preset does not declare; the cap follows THOSE."""
     spec = BenchSpec.load(KERNEL)
     with config.overridden("limits.kernel_memory_gb", 0):
-        derived = sizing.kernel_memory_gb(spec, "S", "float64", None, {"LEN_1D": 4096})
+        derived = sizing.kernel_memory_gb(spec, Preset.S, "float64", None, {"LEN_1D": 4096})
     assert derived * sizing.BYTES_PER_GB == pytest.approx(2 * (4096 + 1) * 8)
 
 
@@ -115,8 +113,8 @@ def test_the_global_budget_is_a_floor_never_a_ceiling() -> None:
     derived_xl = cap_bytes("XL") / sizing.BYTES_PER_GB
     budget = derived_xl / 2
     with config.overridden("limits.kernel_memory_gb", budget):
-        assert sizing.kernel_memory_gb(spec, "S") == budget  # derived is a few KB -> floored
-        assert sizing.kernel_memory_gb(spec, "XL") == pytest.approx(derived_xl)  # the derivation wins
+        assert sizing.kernel_memory_gb(spec, Preset.S) == budget  # derived is a few KB -> floored
+        assert sizing.kernel_memory_gb(spec, Preset.XL) == pytest.approx(derived_xl)  # the derivation wins
 
 
 def test_every_timed_run_gives_openmp_threads_the_configured_stack() -> None:
@@ -215,7 +213,7 @@ HUGE_VLA_BYTES: int = 400 << 20
 HUGE_VLA_STRIDE: int = (1 << 20) // 8
 
 
-def vla_kernel(tmp_path, vla_bytes: int = VLA_BYTES, stride: int = 512) -> pathlib.Path:
+def vla_kernel(tmp_path: pathlib.Path, vla_bytes: int = VLA_BYTES, stride: int = 512) -> pathlib.Path:
     """A python delivery driving :data:`VLA_SOURCE` (``vla_bytes`` per thread, every ``stride``-th element
     written), built with the host compiler and OpenMP."""
     lib = tmp_path / "libvla.so"
@@ -253,7 +251,7 @@ def scalar_input(value: float) -> dict[str, np.ndarray]:
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
-def test_a_kernel_with_large_stack_arrays_on_every_thread_is_graded_not_crashed(tmp_path) -> None:
+def test_a_kernel_with_large_stack_arrays_on_every_thread_is_graded_not_crashed(tmp_path: pathlib.Path) -> None:
     """CPF drop-ins keep column scratch on the stack (CloudSC: 20 x 1 MB per thread at XL). Under a
     default 8 MiB stack that was ``exit -11, SIGSEGV``: a correct kernel scored as a crash."""
     y, samples = fresh_interpreter(call_vla, tmp_path)
@@ -267,7 +265,7 @@ def call_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
         str(vla_kernel(tmp_path)),
         BINDING,
         {"x": np.zeros(4, dtype=np.float64)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=120.0,
         memory_gb=1.0,
@@ -301,7 +299,7 @@ def call_huge_vla(tmp_path: pathlib.Path) -> tuple[np.ndarray, int]:
         str(vla_kernel(tmp_path, HUGE_VLA_BYTES, HUGE_VLA_STRIDE)),
         BINDING,
         {"x": np.zeros(4, dtype=np.float64)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=120.0,
         memory_gb=float(config.current().limits.kernel_memory_gb),
@@ -347,7 +345,7 @@ OVERSIZED_STACK_MB = 512
 PINNED_CORES = 6
 
 
-def oversubscribed_kernel(tmp_path) -> pathlib.Path:
+def oversubscribed_kernel(tmp_path: pathlib.Path) -> pathlib.Path:
     """A python delivery returning the size of the team :data:`OVERSUBSCRIBED_SOURCE` got."""
     lib = tmp_path / "libteam.so"
     subprocess.run(
@@ -363,7 +361,7 @@ def oversubscribed_kernel(tmp_path) -> pathlib.Path:
     return kernel
 
 
-def call_oversubscribed(tmp_path, stack_mb: int = SMALL_STACK_MB) -> np.ndarray:
+def call_oversubscribed(tmp_path: pathlib.Path, stack_mb: int = SMALL_STACK_MB) -> np.ndarray:
     """:func:`oversubscribed_kernel` through the real grading child, under a 0.25 GB cap."""
     # The reserve is exactly the stacks here: the headroom above them would hide a team that cannot map its own
     with config.overridden("limits.thread_stack_mb", stack_mb), config.overridden("limits.thread_reserve_mb", stack_mb):
@@ -371,7 +369,7 @@ def call_oversubscribed(tmp_path, stack_mb: int = SMALL_STACK_MB) -> np.ndarray:
             str(oversubscribed_kernel(tmp_path)),
             BINDING,
             {"x": np.zeros(1, dtype=np.float64)},
-            "python",
+            Language.PYTHON,
             device=False,
             timeout=120.0,
             memory_gb=0.25,
@@ -383,7 +381,7 @@ def call_oversubscribed(tmp_path, stack_mb: int = SMALL_STACK_MB) -> np.ndarray:
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
-def test_a_kernel_that_oversubscribes_the_machine_is_clamped_not_crashed(tmp_path) -> None:
+def test_a_kernel_that_oversubscribes_the_machine_is_clamped_not_crashed(tmp_path: pathlib.Path) -> None:
     """``omp_set_num_threads(4 * ncpu)`` is legal OpenMP. With stacks reserved for fewer threads than the
     kernel starts, every thread past them failed to map and libgomp exited 1. The process is launched
     with ``OMP_THREAD_LIMIT`` = the CPUs it owns, so the runtime clamps the team to it and the kernel
@@ -414,7 +412,7 @@ def call_without_stack_reserve(tmp_path: pathlib.Path) -> np.ndarray:
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="RLIMIT_DATA and the stack grant are Linux-only")
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs the host C compiler with OpenMP")
-def test_a_thread_the_runtime_cannot_create_is_named_as_a_harness_limit(tmp_path) -> None:
+def test_a_thread_the_runtime_cannot_create_is_named_as_a_harness_limit(tmp_path: pathlib.Path) -> None:
     """With no stacks reserved (the shape of the regression), the runtime prints "Thread creation
     failed" and exits 1. The parent sees only the exit code; read back from the child's stderr, the
     reason names the harness limit instead of an opaque ``native call crashed (exit 1)``."""
@@ -438,13 +436,13 @@ def test_an_underivable_kernel_falls_back_to_the_global_budget() -> None:
     spec = real.replace(init=dataclasses.replace(real.init, shapes={}))
     assert spec.init.shapes == {}  # the premise: nothing declarative to size from
     with config.overridden("limits.kernel_memory_gb", 7):
-        assert sizing.kernel_memory_gb(spec, "XL") == 7.0
+        assert sizing.kernel_memory_gb(spec, Preset.XL) == 7.0
 
 
 def test_an_absent_preset_falls_back_to_the_global_budget() -> None:
     """A preset the manifest never declared resolves to no sizes at all -- same fallback."""
     with config.overridden("limits.kernel_memory_gb", 7):
-        assert sizing.kernel_memory_gb(BenchSpec.load(KERNEL), "XXL") == 7.0
+        assert sizing.kernel_memory_gb(BenchSpec.load(KERNEL), Preset.FUZZED) == 7.0
 
 
 def test_an_unresolvable_workspace_request_does_not_break_the_cap() -> None:
@@ -465,7 +463,7 @@ def test_a_pinned_dtype_is_not_narrowed_by_the_run_precision() -> None:
 # the cap is a real limit, enforced in the child
 
 
-def hungry_kernel(tmp_path, gigabytes: float):
+def hungry_kernel(tmp_path: pathlib.Path, gigabytes: float) -> pathlib.Path:
     """A python delivery that asks for ``gigabytes`` of address space in one allocation."""
     kernel = tmp_path / "greedy.py"
     kernel.write_text(
@@ -479,32 +477,34 @@ def hungry_kernel(tmp_path, gigabytes: float):
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="the RLIMIT_DATA cap is Linux-only (see _native_call_worker)")
 @pytest.mark.usefixtures("one_mib_thread_stacks")  # the reserve stays far under the 8 GiB the kernel asks for
-def test_exceeding_the_cap_is_a_scored_failure_not_a_runner_crash(tmp_path) -> None:
+def test_exceeding_the_cap_is_a_scored_failure_not_a_runner_crash(tmp_path: pathlib.Path) -> None:
     """A kernel over its budget dies inside the isolation child and comes back as a RuntimeError the
     scorer records -- and the runner is still alive to score the next one."""
     common = dict(device=False, timeout=60.0, threads=1, py_meta=("kern", ("x",), ("y",)))
     data = {"x": np.zeros(4, dtype=np.float64)}
     with pytest.raises(RuntimeError):
-        native_call._call_isolated(str(hungry_kernel(tmp_path, 8.0)), BINDING, data, "python", memory_gb=0.25, **common)
+        native_call._call_isolated(
+            str(hungry_kernel(tmp_path, 8.0)), BINDING, data, Language.PYTHON, memory_gb=0.25, **common
+        )
     # The runner survived: the very next call, within its budget, still measures.
     outs, samples, _mem, _, _timed = native_call._call_isolated(
-        str(hungry_kernel(tmp_path, 0.01)), BINDING, data, "python", memory_gb=1.0, **common
+        str(hungry_kernel(tmp_path, 0.01)), BINDING, data, Language.PYTHON, memory_gb=1.0, **common
     )
     assert set(outs) == {"y"}
     assert len(samples) == 1
 
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="the RLIMIT_DATA cap is Linux-only (see _native_call_worker)")
-def test_the_derived_cap_admits_the_kernel_it_was_derived_for(tmp_path) -> None:
+def test_the_derived_cap_admits_the_kernel_it_was_derived_for(tmp_path: pathlib.Path) -> None:
     """The derivation feeds the SAME enforcement the scorer uses: a kernel that allocates one copy
     of its own arrays fits inside its own derived budget."""
     spec = BenchSpec.load(KERNEL)
-    memory_gb = sizing.kernel_memory_gb(spec, "M")
+    memory_gb = sizing.kernel_memory_gb(spec, Preset.M)
     outs, samples, _mem, _, _timed = native_call._call_isolated(
         str(hungry_kernel(tmp_path, declared_bytes("M", 8) / sizing.BYTES_PER_GB)),
         BINDING,
         {"x": np.zeros(4, dtype=np.float64)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=60.0,
         memory_gb=memory_gb,
@@ -515,7 +515,7 @@ def test_the_derived_cap_admits_the_kernel_it_was_derived_for(tmp_path) -> None:
 
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="the RLIMIT_DATA cap is Linux-only (see _native_call_worker)")
-def test_arming_the_cap_keeps_the_inherited_hard_limit(monkeypatch) -> None:
+def test_arming_the_cap_keeps_the_inherited_hard_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     """The cap is a SOFT limit. Lowering the hard one needs CAP_SYS_RESOURCE to undo, which would
     make the cap permanent for the child and leave the grading phase no way to get its budget back.
     """
@@ -533,7 +533,7 @@ def test_arming_the_cap_keeps_the_inherited_hard_limit(monkeypatch) -> None:
 
 
 @pytest.mark.skipif(not osinfo.IS_LINUX, reason="the RLIMIT_DATA cap is Linux-only (see _native_call_worker)")
-def test_the_grading_phase_is_not_charged_the_kernels_budget(monkeypatch) -> None:
+def test_the_grading_phase_is_not_charged_the_kernels_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """The comparison against the reference runs in the SAME child as the kernel, and holds several
     full-size numpy temporaries. Charged to the kernel's allowance it fails, which reads as an agent
     submitting a wrong answer rather than as a grade that never happened -- what erased every grade
@@ -553,7 +553,7 @@ def test_the_grading_phase_is_not_charged_the_kernels_budget(monkeypatch) -> Non
         resource.setrlimit(resource.RLIMIT_DATA, before)
 
 
-def test_grading_budget_is_a_no_op_when_no_cap_is_armed(monkeypatch) -> None:
+def test_grading_budget_is_a_no_op_when_no_cap_is_armed(monkeypatch: pytest.MonkeyPatch) -> None:
     """``memory_bytes = 0``, non-Linux, and the in-process ``q`` path never arm a cap, so the
     release must leave the limits exactly as it found them."""
     import resource
@@ -604,7 +604,7 @@ def test_a_followups_build_and_host_copy_do_not_count_against_the_kernel_cap(tmp
     big = (2 * (1 << 30)) // 8  # 2 GiB -- far over the 0.05 GB cap below
     followups = [native_call.Followup(build=functools.partial(ones_input, big))]
     outs, samples, _mem, extras, _timed = native_call._call_isolated(
-        str(cheap_kernel(tmp_path)), BINDING, data, "python", memory_gb=0.05, followups=followups, **common
+        str(cheap_kernel(tmp_path)), BINDING, data, Language.PYTHON, memory_gb=0.05, followups=followups, **common
     )
     assert set(outs) == {"y"}
     assert len(samples) == 1
@@ -627,7 +627,7 @@ def test_a_kernel_that_over_allocates_on_a_held_out_case_still_fails_the_cap(tmp
             str(hungry_on_value_kernel(tmp_path)),
             BINDING,
             data,
-            "python",
+            Language.PYTHON,
             memory_gb=0.05,
             followups=followups,
             **common,
@@ -667,7 +667,7 @@ def test_a_held_out_case_larger_than_the_timed_cell_gets_its_own_budget(tmp_path
         str(temporary_kernel(tmp_path)),
         BINDING,
         {"x": np.zeros(4, dtype=np.float64)},
-        "python",
+        Language.PYTHON,
         memory_gb=0.01,
         followups=followups,
         **common,
@@ -694,7 +694,7 @@ def test_a_reps_input_draw_does_not_take_the_kernels_headroom(tmp_path: pathlib.
         str(temporary_kernel(tmp_path)),
         BINDING,
         data,
-        "python",
+        Language.PYTHON,
         memory_gb=memory_gb,
         reps=2,
         rep_data=functools.partial(drawn_input, LARGE_INPUT_ELEMENTS),
@@ -769,9 +769,9 @@ def test_a_crash_under_an_armed_cap_names_the_cap() -> None:
 def score_memhog_gemm() -> Score:
     """:data:`MEMHOG_GEMM_C` scored through the real judge path, for :func:`fresh_interpreter`."""
     return score(
-        Submission(language="c", source=MEMHOG_GEMM_C),
-        Task("gemm", "restricted", "c"),
-        preset="S",
+        Submission(language=Language.C, source=MEMHOG_GEMM_C),
+        Task("gemm", SourceMode.RESTRICTED, Language.C),
+        preset=Preset.S,
         repeat=1,
         hidden=False,
     )
@@ -826,8 +826,8 @@ def test_memory_cap_gb_replaces_the_derivation_rather_than_flooring_it() -> None
     derived_xl = cap_bytes("XL") / sizing.BYTES_PER_GB
     assert derived_xl > 0.05, "premise: the derived XL budget is bigger than the override"
     with config.overridden("limits.kernel_memory_gb", 20):  # floor bigger than the override too
-        assert sizing.kernel_memory_gb(spec, "XL") == 0.05
-        assert sizing.kernel_memory_gb(spec, "S") == 0.05
+        assert sizing.kernel_memory_gb(spec, Preset.XL) == 0.05
+        assert sizing.kernel_memory_gb(spec, Preset.S) == 0.05
 
 
 def test_memory_cap_gb_wins_even_for_an_undeclarable_kernel() -> None:
@@ -836,7 +836,7 @@ def test_memory_cap_gb_wins_even_for_an_undeclarable_kernel() -> None:
     real = BenchSpec.load(OPAQUE_KERNEL)
     spec = real.replace(init=dataclasses.replace(real.init, shapes={}), memory_cap_gb=3.0)
     with config.overridden("limits.kernel_memory_gb", 7):
-        assert sizing.kernel_memory_gb(spec, "XL") == 3.0
+        assert sizing.kernel_memory_gb(spec, Preset.XL) == 3.0
 
 
 def test_fv3_dycore_declares_a_hard_10gb_cap_at_every_preset() -> None:
@@ -847,7 +847,7 @@ def test_fv3_dycore_declares_a_hard_10gb_cap_at_every_preset() -> None:
     (:func:`hpcagent_bench.fuzz.resolve_ranges`)."""
     spec = BenchSpec.load("fv3_dycore")
     assert spec.memory_cap_gb == 10
-    for preset in ("S", "M", "L", "XL", "fuzzed"):
+    for preset in Preset:
         assert sizing.kernel_memory_gb(spec, preset) == 10
 
 
@@ -873,8 +873,8 @@ def test_fv3_dycore_reference_c_fits_its_own_cap_at_xl() -> None:
     from hpcagent_bench.harness.metric import score_task_fuzzed
     from hpcagent_bench.harness.task import Task
 
-    task = Task("fv3_dycore", "restricted", "c")
-    submission = Submission(language="c", source=emit_reference_source("fv3_dycore", "c"))
+    task = Task("fv3_dycore", SourceMode.RESTRICTED, Language.C)
+    submission = Submission(language=Language.C, source=emit_reference_source("fv3_dycore", Language.C))
     ts = score_task_fuzzed(submission, task, k=1, verify=True, repeat=20)
     assert ts.solved, ts.iterations
 

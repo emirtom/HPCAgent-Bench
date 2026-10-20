@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prompt sections are replaced or turned off by config or environment, and a variant is chosen the same way.
-
-The properties that matter to a person running a study: a section's key is stable and every section the
-top-level templates include has one; the ``prompt.sections`` config key turns a section off or points
-it at their own template; ``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`` wins over that map; a user template
-directory shadows or supplies sections; ``prompt.variant`` (env ``HPCAGENT_BENCH_PROMPT_VARIANT``) picks a
-named variant. The rendered prompt keeps its layout whichever sections are on."""
+"""Prompt sections are replaced or turned off by ``prompt.sections`` or ``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>``,
+user template directories shadow them, and ``prompt.variant`` picks a variant; the layout is kept."""
 
 import contextlib
 import inspect
@@ -19,6 +14,7 @@ from collections.abc import Callable
 import pytest
 
 from hpcagent_bench import config, paths
+from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.cli import main as cli_main
 from hpcagent_bench.harness import prompt_sections
 from hpcagent_bench.harness.prompts import PromptConfig, build_prompt
@@ -26,7 +22,7 @@ from hpcagent_bench.harness.service import service_prompt
 from hpcagent_bench.harness.task import Task
 
 PROMPTS = paths.PROMPTS_DIR
-TASK = Task("gemm", "restricted", "c")
+TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 JUDGE = "http://judge:8000"
 INCLUDE = re.compile(r'\{%-?\s*(?:include|from)\s+"([^"]+)"')
 
@@ -37,17 +33,17 @@ KEY_CASES = (
     ("scoring.j2", "scoring"),
     ("lang/cpp.j2", "lang_cpp"),
     ("partials/source-file-note.j2", "partials_source_file_note"),
-    ("tools/web-search.md", "tools_web_search"),
+    ("tools/search.md", "tools_search"),
 )
 OFF_CASES = ("off", "false", "none", "disabled")
 #: The tool fragments that include partials/source-file-note.j2.
 NOTE_INCLUDERS = ("score", "submit")
 LAYOUT_CASES = (
-    Task("gemm", "restricted", "c"),
-    Task("gemm", "restricted", "cpp"),
-    Task("gemm", "restricted", "fortran"),
-    Task("gemm", "any", "c"),
-    Task("gemm", "restricted", "hip", residency="device"),
+    Task("gemm", SourceMode.RESTRICTED, Language.C),
+    Task("gemm", SourceMode.RESTRICTED, Language.CPP),
+    Task("gemm", SourceMode.RESTRICTED, Language.FORTRAN),
+    Task("gemm", SourceMode.ANY, Language.C),
+    Task("gemm", SourceMode.RESTRICTED, Language.HIP, residency=Residency.DEVICE),
 )
 
 
@@ -136,7 +132,7 @@ def test_a_replacement_reaches_every_include_of_the_section(tmp_path: pathlib.Pa
     mine = write(tmp_path, "flags.j2", "### Flags\nSee the house build page.\n\n")
     prompt_config = PromptConfig.from_config(sections={"build_flags": str(mine)})
     assert "See the house build page." in build_prompt(TASK, prompt_config=prompt_config)
-    service = service_prompt("gemm", "c", JUDGE, prompt_config=prompt_config)
+    service = service_prompt("gemm", Language.C, JUDGE, prompt_config=prompt_config)
     assert "See the house build page." in service
     assert "### Build flags per compiler family" not in service
 
@@ -154,8 +150,10 @@ def test_a_missing_replacement_names_the_template() -> None:
 
 
 def test_a_disabled_tool_fragment_is_dropped_without_a_gap() -> None:
-    off = service_prompt("gemm", "c", JUDGE, prompt_config=PromptConfig.from_config(sections={"tools_baseline": False}))
-    assert "### `baseline`" in service_prompt("gemm", "c", JUDGE)
+    off = service_prompt(
+        "gemm", Language.C, JUDGE, prompt_config=PromptConfig.from_config(sections={"tools_baseline": False})
+    )
+    assert "### `baseline`" in service_prompt("gemm", Language.C, JUDGE)
     assert "### `baseline`" not in off
     assert "\n\n\n" not in off
 
@@ -163,8 +161,8 @@ def test_a_disabled_tool_fragment_is_dropped_without_a_gap() -> None:
 def test_one_partial_switch_removes_its_text_from_every_tool_that_includes_it() -> None:
     needle = "To send a source file instead of inline text"
     off_config = PromptConfig.from_config(sections={"partials_source_file_note": False})
-    assert service_prompt("gemm", "c", JUDGE).count(needle) == len(NOTE_INCLUDERS)
-    assert service_prompt("gemm", "c", JUDGE, prompt_config=off_config).count(needle) == 0
+    assert service_prompt("gemm", Language.C, JUDGE).count(needle) == len(NOTE_INCLUDERS)
+    assert service_prompt("gemm", Language.C, JUDGE, prompt_config=off_config).count(needle) == 0
 
 
 def test_the_debug_header_names_the_sections_that_are_not_built_in() -> None:

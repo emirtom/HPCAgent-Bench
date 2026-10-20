@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the agent prompt PROMISES must be what the judge does -- checked, not remembered.
-
-Four contracts meet here. The submission-naming table must be :data:`SOURCE_EXT` (the judge
-refuses a ``source_file`` whose basename is not ``<kernel>.<ext>``, so a language added on one
-side turns every submission in it into a 400 the agent cannot read its way out of); the tool
-bullets must name tools the MCP server serves and file tools ``--tools`` publishes; and the build
-command must be :func:`~hpcagent_bench.languages.build_shared_lib_commands`, spelled once and
-viewed three ways -- ``GET /build/<language>``, ``agent/build-<language>.md``, and the
-``{{BUILD_COMMAND}}`` slot the driver fills from that fragment. Every one of these drifted while
-it was prose.
-"""
+"""What the agent prompt promises is what the judge does: the naming table is :data:`SOURCE_EXT`, tool bullets
+name served tools, and the build command is ``build_shared_lib_commands`` everywhere it is shown."""
 
 import importlib.util
 import json
@@ -19,12 +10,16 @@ import re
 import shlex
 import sys
 import threading
+import types
 import urllib.error
 import urllib.request
+from http.server import ThreadingHTTPServer
+from typing import Any
 
 import pytest
 
 from hpcagent_bench import languages, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import papi
 from hpcagent_bench.harness.service import SOURCE_EXT, SUBMISSION_BUILD_MODE, ServiceConfig, make_server
 from tests.fresh_module import fresh
@@ -32,7 +27,7 @@ from tests.fresh_module import fresh
 PROMPT = paths.ROOT / "agent/prompt.md"
 
 
-@pytest.mark.parametrize("language", [*SOURCE_EXT, "triton"])
+@pytest.mark.parametrize("language", [*(language.text for language in SOURCE_EXT), "triton"])
 def test_the_files_the_prompt_names_are_the_files_the_judge_reads(
     language: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -46,7 +41,7 @@ def test_the_files_the_prompt_names_are_the_files_the_judge_reads(
     monkeypatch.delenv("RUN_DIR", raising=False)
     graded = service.delivery_language(language, InputMode.PY_BINDING)
     read = service._source_from_file
-    files = delivered_files(language, "gemm")
+    files = delivered_files(graded, "gemm")
     for name in (*files.source, files.device):
         if name:
             (tmp_path / name).write_text("// kernel\n")
@@ -91,7 +86,7 @@ def test_the_prompt_has_a_bullet_for_exactly_the_tools_the_agent_is_served(
     tool_list = driver.fill_mode_slots(registry["prompt"])
     listed = set(TOOL_BULLET_RE.findall(tool_list))
     # What the server SERVES under this environment, not merely every tool module that exists:
-    # ``search`` is off by default (no ``AGENT_SEARCH_TOOL`` here, as in every shipped setup) and a
+    # ``search`` is a packet tool (no ``web-search`` packet here, as in every shipped setup) and a
     # packet tool is served only to a setup carrying its packet.
     served = set(registry["served_tools"])
     assert listed <= served, f"the prompt lists tools the MCP server does not serve: {sorted(listed - served)}"
@@ -130,19 +125,19 @@ def test_the_prompt_promises_only_file_tools_the_driver_can_publish() -> None:
 RANK = 0
 
 
-def judge_service():
+def judge_service() -> tuple[ThreadingHTTPServer, int]:
     """A judge on an OS-assigned port, same shape as ``tests/test_agent_service.py``'s."""
     srv = make_server("127.0.0.1", 0, ServiceConfig())
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, srv.server_address[1]
 
 
-def get_json(port, path):
+def get_json(port: int, path: str) -> tuple[int, dict[str, Any]]:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=60) as r:
         return r.status, json.loads(r.read())
 
 
-def driver_module():
+def driver_module() -> types.ModuleType:
     """``agent_driver`` loaded by path: it lives beside the launch scripts, not in a package, and
     it imports stdlib only -- which is the property the slot test is here to hold."""
     return fresh("agent_driver")
@@ -163,13 +158,13 @@ _spec.loader.exec_module(gen)
 _FOLD_RE = re.compile(r"\\\n\s*")
 
 
-def fragment_flags(language: str) -> list:
+def fragment_flags(language: Language) -> list:
     """Every token of every judge command in ``build-<language>.md``, in order.
 
     Read back out of the emitted markdown rather than off the generator's return value: the file
     is what an agent is handed, so the file is what has to carry the judge's flags.
     """
-    text = (PROMPT.parent / f"build-{language}.md").read_text()
+    text = (PROMPT.parent / f"build-{language.text}.md").read_text()
     # Only the FIRST block is the judge's; the second is the local `-c` check, which deliberately
     # differs (no libm header, object under /tmp, $(nproc) instead of the judge's core count).
     judge_block, _, _ = text.partition("So the local check")
@@ -183,15 +178,15 @@ def fragment_flags(language: str) -> list:
     return [token for line in lines for token in shlex.split(line)]
 
 
-def judge_flags(language: str) -> list:
+def judge_flags(language: Language) -> list:
     """The same list, from the harness -- with the two host-resolved tokens placeheld the way
     :func:`gen_build_fragments.displayed` places them, and nothing else touched."""
     return [token for argv in gen.judge_argv(language) for token in gen.displayed(argv)]
 
 
-@pytest.mark.parametrize("language", gen.CPU_LANGUAGES)
+@pytest.mark.parametrize("language", gen.CPU_LANGUAGES, ids=lambda language: language.text)
 @pytest.mark.judge_image
-def test_the_build_fragment_is_the_judges_own_build_command(language) -> None:
+def test_the_build_fragment_is_the_judges_own_build_command(language: str) -> None:
     """The prompt fragment may not restate the build line -- it must BE it.
 
     ``judge_image``: the build line's link tokens follow what the host installs (-lmimalloc only
@@ -206,20 +201,20 @@ def test_the_build_fragment_is_the_judges_own_build_command(language) -> None:
     prose; this is the check that keeps it from drifting again.
     """
     assert fragment_flags(language) == judge_flags(language), (
-        f"agent/build-{language}.md no longer matches "
-        f"languages.build_shared_lib_commands({language!r}, mode={SUBMISSION_BUILD_MODE.value}); "
+        f"agent/build-{language.text}.md no longer matches "
+        f"languages.build_shared_lib_commands({language!r}, mode={SUBMISSION_BUILD_MODE.text}); "
         f"regenerate it: python helpers/scripts/gen_build_fragments.py agent"
     )
 
 
-@pytest.mark.parametrize("language", gen.CPU_LANGUAGES)
-def test_the_build_endpoint_serves_the_judges_own_build_command(language) -> None:
+@pytest.mark.parametrize("language", gen.CPU_LANGUAGES, ids=lambda language: language.text)
+def test_the_build_endpoint_serves_the_judges_own_build_command(language: Language) -> None:
     """``GET /build/<language>`` is the third view of the one build command, and the only one an
     agent can ask for at run time. It serves raw argv -- no placeholders -- because the judge IS
     the host those tokens resolve on."""
     srv, port = judge_service()
     try:
-        code, body = get_json(port, f"/build/{language}?rank={RANK}")
+        code, body = get_json(port, f"/build/{language.text}?rank={RANK}")
     finally:
         srv.shutdown()
         srv.server_close()
@@ -231,7 +226,7 @@ def test_the_build_endpoint_serves_the_judges_own_build_command(language) -> Non
         mode=SUBMISSION_BUILD_MODE,
     )
     assert body["commands"] == expected, "the /build route composed a command the judge would not run"
-    assert body["mode"] == SUBMISSION_BUILD_MODE.value, "a submission is graded single-core; autopar is the baseline's"
+    assert body["mode"] == SUBMISSION_BUILD_MODE.text, "a submission is graded single-core; autopar is the baseline's"
 
 
 def test_the_build_endpoint_refuses_a_language_the_judge_cannot_build() -> None:
@@ -249,8 +244,8 @@ def test_the_build_endpoint_refuses_a_language_the_judge_cannot_build() -> None:
         srv.server_close()
 
 
-@pytest.mark.parametrize("language", gen.CPU_LANGUAGES)
-def test_the_emitted_fragment_names_nothing_this_host_probed(language) -> None:
+@pytest.mark.parametrize("language", gen.CPU_LANGUAGES, ids=lambda language: language.text)
+def test_the_emitted_fragment_names_nothing_this_host_probed(language: Language) -> None:
     """The fragment is COMMITTED and byte-compared, so it may not be a function of the machine that
     generated it.
 
@@ -278,7 +273,7 @@ def test_the_committed_build_fragments_are_what_the_generator_emits() -> None:
     renders THIS host's build line and catalog, so the check belongs to the judge image (see
     :func:`test_the_build_fragment_is_the_judges_own_build_command`)."""
     for language in gen.CPU_LANGUAGES:
-        path = PROMPT.parent / f"build-{language}.md"
+        path = PROMPT.parent / f"build-{language.text}.md"
         assert path.read_text() == gen.render(language), (
             f"{path.name} was edited by hand; edit helpers/scripts/gen_build_fragments.py and regenerate"
         )
@@ -290,8 +285,8 @@ def test_the_driver_fills_the_build_command_slot_by_language() -> None:
     driver = driver_module()
     for language in gen.CPU_LANGUAGES:
         assert (
-            driver.build_command_text({"language": language})
-            == (PROMPT.parent / f"build-{language}.md").read_text(encoding="utf-8").strip()
+            driver.build_command_text({"language": language.text})
+            == (PROMPT.parent / f"build-{language.text}.md").read_text(encoding="utf-8").strip()
         )
     # A GPU track has no single build line; the slot renders empty and gpu-build.md states it.
     assert driver.build_command_text({"language": "hip"}) == ""
@@ -317,8 +312,8 @@ def test_the_prompt_carries_the_build_command_slot_and_no_build_line_of_its_own(
 GPU_BUILD = PROMPT.parent / "gpu-build.md"
 
 
-@pytest.mark.parametrize("language", sorted(languages.GPU_HOST_LANG))
-def test_the_gpu_build_page_names_the_files_the_judge_accepts(language: str) -> None:
+@pytest.mark.parametrize("language", list(languages.GPU_HOST_LANG), ids=lambda language: language.text)
+def test_the_gpu_build_page_names_the_files_the_judge_accepts(language: Language) -> None:
     """The judge takes a GPU submission's halves as files too, each under ONE basename
     (``service.source_file_ext``); a page that called every GPU ``source_file`` a 400 sent agents
     to paste both halves inline, and one that named no basename left them to guess ``.hip``."""
@@ -367,7 +362,7 @@ def test_the_grade_tool_descriptions_hold_under_every_submission_mode(
     when to submit is the task text's (submission-*.md)."""
     from tests.test_container_agent_tools import load_tools
 
-    description = getattr(load_tools(monkeypatch, "source", "c"), module).DESCRIPTION.lower()
+    description = load_tools(monkeypatch, "source", "c").served[module].description.lower()
     assert not re.search(r"\bonce\b", description), description
     assert not any(promise in description for promise in ("submit again", "resubmit", "something better")), description
 
@@ -399,11 +394,13 @@ def test_single_submission_says_scoring_is_unlimited_and_the_submission_is_one()
     assert "You may `score` as many times as you want, but you get exactly ONE submission." in text
 
 
-def test_the_profile_bullet_explains_every_counter_group() -> None:
+def test_the_profile_bullet_explains_every_counter_group(monkeypatch: pytest.MonkeyPatch) -> None:
     """``counter_group`` is a question, not a label: the agent picks one from what each answers."""
-    from hpcagent_agent.tools import profile_tool
+    from tests.test_container_agent_tools import load_tools
 
+    tools = load_tools(monkeypatch, "source", "c")
+    profile_tool, profile = tools.profile_tool, tools.served["profile"]
     for name, question in profile_tool.COUNTER_GROUP_QUESTIONS.items():
-        assert f"'{name}' {question}" in profile_tool.PROMPT
-        assert f"'{name}' {question}" in profile_tool.PROFILE_PROPERTIES["counter_group"]["description"]
+        assert f"'{name}' {question}" in profile.prompt
+        assert f"'{name}' {question}" in profile.input_schema["properties"]["counter_group"]["description"]
     assert set(profile_tool.COUNTER_GROUP_QUESTIONS) == set(papi.GROUPS)

@@ -63,7 +63,7 @@ DISAGREEING = {
 }
 
 
-def build(call: str):
+def build(call: str) -> tuple[str, pathlib.Path, pathlib.Path]:
     src = f"import numpy as np\ndef f(a, out):\n    s = {call}\n    out[:] = a[:, 0] * s\n"
     d = pathlib.Path(tempfile.mkdtemp())
     npy = d / "f.py"

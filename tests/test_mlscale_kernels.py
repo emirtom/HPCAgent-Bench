@@ -19,7 +19,10 @@ torch = pytest.importorskip("torch")
 dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 
-from hpcagent_bench import sizing
+import types
+
+from hpcagent_bench import modules, sizing
+from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks.utilities import compare_arrays
 from hpcagent_bench.fuzz import safe_eval
 from hpcagent_bench.harness import mpi_shard_driver, mpi_sizing, torch_reference
@@ -97,7 +100,7 @@ def spec_of(stem: str) -> BenchSpec:
     return BenchSpec.load(KEYS[stem])
 
 
-def torch_module(stem: str):
+def torch_module(stem: str) -> types.ModuleType:
     return importlib.import_module(f"hpcagent_bench.benchmarks.machine_learning.{stem}.{stem}_torch")
 
 
@@ -219,7 +222,7 @@ def test_initialize_hands_the_harness_the_torch_inputs_and_numpy_agrees(stem: st
         assert np.array_equal(got, want.float().numpy() if want.is_floating_point() else want.numpy())
     data = dict(zip(spec.init.output_args, arrays, strict=False)) | params | dict(spec.init.scalars)
     numpy_ref = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}_numpy")
-    kernel = getattr(numpy_ref, spec.func_name)
+    kernel = modules.member(numpy_ref, spec.func_name)
     kernel(*[data[a] for a in inspect.signature(kernel).parameters])
     torch_in = [torch.from_numpy(np.asarray(a)) for a in arrays[: len(inputs)]]
     (want,) = torch_module(stem).reference(*torch_in)
@@ -258,7 +261,7 @@ def gloo_worker(rank: int, world: int, store: str) -> None:
 
 
 @pytest.mark.parametrize("world", [1, 2, 3, 4])
-def test_reference_dist_on_a_gloo_group_matches_the_single_device_reference(world: int, tmp_path) -> None:
+def test_reference_dist_on_a_gloo_group_matches_the_single_device_reference(world: int, tmp_path: pathlib.Path) -> None:
     mp.spawn(gloo_worker, args=(world, str(tmp_path / "store")), nprocs=world, join=True)
 
 
@@ -369,7 +372,7 @@ def test_the_harness_tile_is_the_generated_tile(stem: str, ranks: int) -> None:
     spec, module = spec_of(stem), torch_module(stem)
     binding = binding_from_spec(spec)
     submission = Submission(
-        language="c",
+        language=Language.C,
         source="reference_dist",
         requests=Requests.from_plan(distribution_for_kernel(spec.mpi, binding, ranks)),
     )
@@ -386,7 +389,7 @@ def test_the_harness_tile_is_the_generated_tile(stem: str, ranks: int) -> None:
 
 
 @pytest.mark.parametrize("stem", sorted(SOURCES))
-@pytest.mark.parametrize("mode", list(ScalingLaw), ids=lambda law: law.value)
+@pytest.mark.parametrize("mode", list(ScalingLaw), ids=lambda law: law.text)
 def test_every_graded_size_passes_the_bf16_tolerance_guard(stem: str, mode: ScalingLaw) -> None:
     """No graded size is refused as ungradeable (:func:`precision.ungradeable`) at XL and at weak
     P=16 (the batch-mean cross-entropy was, at l = batch * classes, under the fp32 reassociation
@@ -424,7 +427,7 @@ def test_the_rendered_kernel_stub_declares_the_bf16_c_type(stem: str) -> None:
     tiles must reach it as ``__hip_bfloat16 *`` with the header that declares that type."""
     spec = spec_of(stem)
     binding = binding_from_spec(spec)
-    stub = gen_kernel_mpi_stub(binding, "hip")
+    stub = gen_kernel_mpi_stub(binding, Language.HIP)
     assert "#include <hip/hip_bf16.h>" in stub
     assert "double *" not in stub, stub
     for arg in binding.pointers:
@@ -465,7 +468,7 @@ def bf16_band() -> tuple[float, float, float]:
     return band.rtol, band.atol, accumulation_eps(Precision.BF16)
 
 
-def test_the_device_shard_grade_is_the_reference_comparators_verdict(monkeypatch) -> None:
+def test_the_device_shard_grade_is_the_reference_comparators_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
     """Grading an 8 GB bf16 shard through the host path costs ~46 bytes an element (~96 GB a rank
     at XL), so the shard is reduced on the device in chunks. The chunking must not change the
     verdict: at a chunk size that forces several passes it reproduces compare_arrays exactly."""

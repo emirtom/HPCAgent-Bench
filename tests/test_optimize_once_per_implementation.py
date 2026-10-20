@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``Test.run`` optimizes each implementation ONCE: the first/validation execution optimizes it, and
-the timed median execution measures the handle that call returned. Optimizing again in the median
-execution re-ran a DaCe column's whole search (parse, pipeline, compile, reference, verify, score)
-a second time per kernel. The output-only execution (first/validation) runs the kernel once: their timings are never read. Grading that ONE call alone is weaker than grading the third
-call of the handle, as the timed measure did before, so the median run's final capture is graded
-against the same oracle too."""
+"""``Test.run`` optimizes each implementation ONCE and times that handle; the output-only execution runs once, and
+the median run's final capture is graded too."""
 
 import pathlib
 
@@ -13,6 +9,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks import Benchmark, generate_framework
 from hpcagent_bench.frameworks.framework import ArgValue, BenchData, KernelImpl, KernelResult
 
@@ -39,7 +36,7 @@ def test_run_optimizes_each_implementation_once_and_times_the_optimized_handle(m
 
     monkeypatch.setattr(type(frmwrk), "optimize", optimize)  # slotted: patch the class
     test = Test(Benchmark("gemm"), frmwrk)
-    res = test.run(preset="S", validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True)
+    res = test.run(preset=Preset.S, validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True)
 
     ((name, timing),) = res.items()
     assert timing["validated"], (name, timing)
@@ -69,7 +66,9 @@ def gemm_through_numba(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, 
 
     frmwrk = generate_framework("numba")
     monkeypatch.setattr(type(frmwrk), "implementations", lambda self, bench: [(kernel, "default")])
-    res = Test(bench, frmwrk).run(preset="S", validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True)
+    res = Test(bench, frmwrk).run(
+        preset=Preset.S, validate=True, repeat=3, timeout=300.0, datatype=None, ignore_errors=True
+    )
     ((name, timing),) = res.items()
     assert timing["python"], (name, timing)
     assert len(timing["python"]) == 3, (name, timing)

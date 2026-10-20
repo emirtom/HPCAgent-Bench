@@ -1,23 +1,19 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""validate_run.py: the post-run PASS/FAIL checks over a synthetic cluster run directory.
-
-Builds the same tree run_cluster.sh + agent_driver.py + node_monitor.sh leave behind (judge shard
-DBs, shared/agent-*/ write folders, per-worker claude.log files, monitor CSVs) and checks that an
-intact run reports all-PASS while a run missing a log and a submission reports exactly those two
-FAILs, gracefully, with no traceback.
-"""
+"""validate_run.py's post-run checks over a synthetic cluster run directory: an intact run is all-PASS, a run
+missing a log and a submission reports exactly those FAILs, without a traceback."""
 
 import contextlib
 import pathlib
 import sqlite3
 import subprocess
 import sys
+import types
 from types import ModuleType
 
 import pytest
 
-from hpcagent_bench import paths
+from hpcagent_bench import modules, paths
 from hpcagent_bench.harness import results_db
 from tests.fresh_module import fresh
 
@@ -37,12 +33,12 @@ def load_example_module(name: str) -> ModuleType:
 
 
 @pytest.fixture(name="validate_run")
-def validate_run_fixture():
+def validate_run_fixture() -> types.ModuleType:
     return load_example_module("validate_run")
 
 
 @pytest.fixture(name="monitor_report")
-def monitor_report_fixture():
+def monitor_report_fixture() -> types.ModuleType:
     return load_example_module("monitor_report")
 
 
@@ -113,14 +109,16 @@ def build_run_dir(
 
 
 # an intact run: everything PASSes
-def test_intact_run_passes_every_check(tmp_path, validate_run) -> None:
+def test_intact_run_passes_every_check(tmp_path: pathlib.Path, validate_run: types.ModuleType) -> None:
     run_dir = build_run_dir(tmp_path)
     results = validate_run.run_checks(run_dir)
     assert all(r.ok for r in results), results
     assert validate_run.main([str(run_dir)]) == 0
 
 
-def test_db_shards_check_reports_per_shard_and_merged_totals(tmp_path, validate_run) -> None:
+def test_db_shards_check_reports_per_shard_and_merged_totals(
+    tmp_path: pathlib.Path, validate_run: types.ModuleType
+) -> None:
     run_dir = build_run_dir(tmp_path, ranks=3)
     result = validate_run.check_db_shards(run_dir)
     assert result.ok, result.summary
@@ -129,7 +127,9 @@ def test_db_shards_check_reports_per_shard_and_merged_totals(tmp_path, validate_
 
 
 # the exact hole TASK 3 asks for: a missing claude.log + an empty agent dir
-def test_missing_log_and_empty_agent_dir_fail_only_those_checks(tmp_path, validate_run) -> None:
+def test_missing_log_and_empty_agent_dir_fail_only_those_checks(
+    tmp_path: pathlib.Path, validate_run: types.ModuleType
+) -> None:
     run_dir = build_run_dir(tmp_path, drop_log=True, empty_agent=True)
 
     results = validate_run.run_checks(run_dir)
@@ -147,7 +147,9 @@ def test_missing_log_and_empty_agent_dir_fail_only_those_checks(tmp_path, valida
     assert validate_run.main([str(run_dir)]) == 1
 
 
-def test_report_prints_a_pass_fail_line_per_check(tmp_path, validate_run, capsys) -> None:
+def test_report_prints_a_pass_fail_line_per_check(
+    tmp_path: pathlib.Path, validate_run: types.ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
     run_dir = build_run_dir(tmp_path, drop_log=True)
     validate_run.main([str(run_dir)])
     out = capsys.readouterr().out
@@ -167,22 +169,26 @@ def test_report_prints_a_pass_fail_line_per_check(tmp_path, validate_run, capsys
     ],
     ids=["judge", "shared", "agents", "monitor"],
 )
-def test_a_missing_subtree_fails_cleanly(tmp_path, validate_run, check_name, expected_summary) -> None:
+def test_a_missing_subtree_fails_cleanly(
+    tmp_path: pathlib.Path, validate_run: types.ModuleType, check_name: str, expected_summary: str
+) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    result = getattr(validate_run, check_name)(run_dir)
+    result = modules.member(validate_run, check_name)(run_dir)
     assert not result.ok
     assert expected_summary in result.summary
 
 
-def test_a_run_dir_that_does_not_exist_at_all_still_reports_cleanly(tmp_path, validate_run) -> None:
+def test_a_run_dir_that_does_not_exist_at_all_still_reports_cleanly(
+    tmp_path: pathlib.Path, validate_run: types.ModuleType
+) -> None:
     run_dir = tmp_path / "does-not-exist"
     results = validate_run.run_checks(run_dir)
     assert all(not r.ok for r in results)
     assert validate_run.main([str(run_dir)]) == 1
 
 
-def test_monitor_csv_with_no_data_rows_is_flagged(tmp_path, validate_run) -> None:
+def test_monitor_csv_with_no_data_rows_is_flagged(tmp_path: pathlib.Path, validate_run: types.ModuleType) -> None:
     run_dir = build_run_dir(tmp_path)
     (run_dir / "monitor" / "judge-nid002.csv").write_text(MONITOR_HEADER + "\n")  # header only, 0 samples
     result = validate_run.check_monitor(run_dir)
@@ -191,7 +197,7 @@ def test_monitor_csv_with_no_data_rows_is_flagged(tmp_path, validate_run) -> Non
 
 
 # a corrupt shard must fail loudly, not disappear into a partial merge
-def test_merge_results_standalone_reports_corrupt_shard_and_fails_cleanly(tmp_path) -> None:
+def test_merge_results_standalone_reports_corrupt_shard_and_fails_cleanly(tmp_path: pathlib.Path) -> None:
     run_dir = build_run_dir(tmp_path, ranks=2)
     bad_shard = run_dir / "judge" / "rank-1" / "hpcagent_bench.db"
     bad_shard.write_bytes(GARBAGE_BYTES)  # truncated/OOM-killed shard, not a valid sqlite file
@@ -207,7 +213,7 @@ def test_merge_results_standalone_reports_corrupt_shard_and_fails_cleanly(tmp_pa
 
 
 # the per-call trajectory must survive the merge, not just the leaderboard rows
-def test_merge_results_carries_the_call_trajectory(tmp_path) -> None:
+def test_merge_results_carries_the_call_trajectory(tmp_path: pathlib.Path) -> None:
     """The judge records EVERY call as a grade, so the call grades -- not the credited ones -- are
     where a setup's failures-before-success live. A merge that copied only the leaderboard would drop
     the whole history when the run ends."""
@@ -262,7 +268,10 @@ def test_merge_results_never_turns_a_correct_score_into_a_submission(tmp_path: p
 
 # monitor_report must skip a garbage CSV, not lose the good ones with it
 def test_monitor_report_skips_garbage_csv_and_still_reports_the_rest(
-    tmp_path, monitor_report, capsys, monkeypatch
+    tmp_path: pathlib.Path,
+    monitor_report: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monitor_dir = tmp_path / "monitor"
     monitor_dir.mkdir()
@@ -279,7 +288,12 @@ def test_monitor_report_skips_garbage_csv_and_still_reports_the_rest(
     assert "nid002" in err
 
 
-def test_monitor_report_exits_nonzero_when_every_csv_is_bad(tmp_path, monitor_report, capsys, monkeypatch) -> None:
+def test_monitor_report_exits_nonzero_when_every_csv_is_bad(
+    tmp_path: pathlib.Path,
+    monitor_report: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monitor_dir = tmp_path / "monitor"
     monitor_dir.mkdir()
     (monitor_dir / "judge-nid002.csv").write_bytes(GARBAGE_BYTES)

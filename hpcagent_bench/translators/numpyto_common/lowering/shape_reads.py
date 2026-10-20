@@ -2,7 +2,7 @@
 
 import ast
 import copy
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
@@ -82,7 +82,7 @@ class ShapeMidExpressionRewriter(ast.NodeTransformer):
 
     __slots__ = ("arrays_shapes",)
 
-    def __init__(self, arrays_shapes) -> None:
+    def __init__(self, arrays_shapes: Mapping[str, Sequence[str]]) -> None:
         self.arrays_shapes = arrays_shapes
 
     def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
@@ -344,10 +344,6 @@ class ResolveArrShape(ast.NodeTransformer):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         node.body = self.visit_stmt_list(node.body)
-        # After walking the body, write the resolver's updated
-        # zeros_locals back to the tree-attribute the emitter reads.
-        if "zeros_locals" in vars(node):
-            vars(node)["zeros_locals"].update(self.zeros_locals)
         return node
 
     def visit_For(self, node: ast.For) -> ast.AST:

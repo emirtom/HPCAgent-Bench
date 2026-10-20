@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Both CPU MPI drivers at P in {1,2,4} (oversubscribed), correctness vs numpy, timing = max-over-ranks.
-
-The C ``bench`` (``bindings/mpi_driver.py``) and the mpi4py driver (``mpi_py_driver.py``) must
-gather the same result from the same infile, so the metric is identical whichever delivery the agent
-chose; ``tests/test_mpi_correctness_oracle.py`` holds the two byte-identical through the production
-build path. This file covers each driver against numpy and the timing the wire format promises
-(``mpi_wire.py``: "OUTFILE samples: per-repeat MAX-over-ranks kernel seconds"):
-
-1. a P = 1, 2, 4 matrix (oversubscribed): a communication-free ``y = a*x`` kernel, and one that DOES
-   communicate -- a distributed sum via ``MPI_Allreduce`` / ``comm.allreduce`` -- checked against
-   ``numpy.sum`` on the un-split global array;
-2. a direct test that the recorded sample time is the SLOWEST rank's time, not the fastest's, by
-   giving each rank a deterministic rank-proportional delay inside the kernel.
-"""
+"""Both CPU MPI drivers (C and mpi4py) at P in {1, 2, 4}, oversubscribed: correct against numpy with and without
+communication, and each sample is the SLOWEST rank's time."""
 
 import pathlib
 import subprocess
@@ -24,6 +12,7 @@ import numpy as np
 import pytest
 from relayout.ops import Scheme
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
 from hpcagent_bench.harness.mpi_wire import pack_infile, unpack_outfile
 from hpcagent_bench.languages import std_flag
@@ -39,7 +28,7 @@ from tests.mpi_launch_helpers import (
     skip_or_fail,
 )
 
-C_STD = std_flag("c")
+C_STD = std_flag(Language.C)
 RANKS_MATRIX = [1, 2, 4]
 
 

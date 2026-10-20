@@ -17,6 +17,7 @@ import pytest
 
 from hpcagent_bench import anticheat, config, fused
 from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.harness import recording, sandbox, service
 from hpcagent_bench.harness.hidden_tests import seeds
 from hpcagent_bench.harness.sandbox import AGENT_FOLDERS_LOG
@@ -35,7 +36,7 @@ def bare_handler(path: str) -> tuple[service.JudgeHandler, list[tuple[int, dict[
     handler.headers = {}  # type: ignore[assignment] -- only .get is read
     handler.graded_body = None
     sent: list[tuple[int, dict[str, object]]] = []
-    handler._send = lambda code, payload: sent.append((code, payload.to_json()))  # type: ignore[method-assign]
+    handler.reply = lambda code, payload: sent.append((code, payload.to_json()))  # type: ignore[method-assign]
     return handler, sent
 
 
@@ -68,7 +69,9 @@ def test_a_crashed_anticheat_gate_is_a_judge_fault_not_a_silent_pass(monkeypatch
     score = Score(correct=True, max_rel_error=0.0, native_ns=1, build_ok=True)
     body = service.RequestBody.parse(json.dumps({"episode_id": EPISODE}).encode())
     with config.overridden("record.enabled", True):
-        handler.send_submit(score, types.SimpleNamespace(), Task("gemm"), body, "M", "gemm", "c", cfg=RunConfig())
+        handler.send_submit(
+            score, types.SimpleNamespace(), Task("gemm"), body, Preset.M, "gemm", Language.C, cfg=RunConfig()
+        )
     assert [judgement.harness_fault for judgement in recorded] == [True]
     assert "gate bug" in recorded[0].findings[0].text
     assert [(code, payload.get("judge_fault")) for code, payload in sent] == [(200, True)]

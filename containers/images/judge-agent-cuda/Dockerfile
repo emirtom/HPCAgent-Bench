@@ -94,8 +94,8 @@ LABEL org.opencontainers.image.title="hpcagent-bench-judge-agent-cuda" \
 
 ARG DEBIAN_FRONTEND=noninteractive
 # One SASS per GPU generation: a GPU runs the SASS of an older minor of its own major (sm_80 on sm_86/89,
-# sm_120 on sm_121). image.sh passes the list per CPU family: the x86_64 image adds sm_75 (Turing,
-# RTX 2080 Ti). CUDA 13 dropped offline compilation for Volta (sm_70) and older, and spack's
+# sm_120 on sm_121). image.sh passes the list per CPU family: the x86_64 image adds sm_75 (Turing, RTX 2080 Ti)
+# and native sm_86/sm_89 (RTX 30/40, Ampere and Ada workstation cards), so every RTX generation runs its own SASS. CUDA 13 dropped offline compilation for Volta (sm_70) and older, and spack's
 # cuda_arch=70 and older need cuda@:12.9, so Pascal and Volta have no SASS in either image. Spack's
 # comma spelling; the gates check every one.
 ARG CUDA_ARCHS=80,90,100,120
@@ -840,7 +840,7 @@ RUN set -eux; \
 
 # ---------------------------------------------------------------------------------------------
 # 14. The agent side: node, the claude CLI and uv, from the checked-in pins shared with
-# judge-agent-amd (the npm lock carries the linux-arm64 binaries). claude-code stays 2.1.197.
+# judge-agent-amd (the npm lock carries the linux-arm64 binaries). claude-code is 2.1.303.
 COPY agent/harness/node/package.json agent/harness/node/package-lock.json /opt/harness/node/
 RUN set -eux; \
     cd /opt/harness/node; \
@@ -850,17 +850,16 @@ RUN set -eux; \
       ln -sf "/opt/harness/node/node_modules/.bin/${cli}" "/usr/local/bin/${cli}"; \
     done
 
-# 14a. The isolated venvs
-# for the Python harnesses on the base's python${HARNESS_PYTHON}, kept off the system python so their deps
-# cannot displace litellm[proxy]==1.94.0. Each venv is `uv sync --package hpcagent-agent --group
-# harness-<name>` from uv.lock, which carries none of the project's own dependencies and gives the venv the
-# same hook. An agent step binds the submitting checkout's agent/ at /opt/hpcagent-bench-agent, and that is
-# the whole setup (containers/images/lib/package_hook.sh). No agent code is in the image; tool scripts are bound at
-# launch.
+# 14a. The isolated venvs for the Python harnesses (mini-SWE-agent, OpenHands, Optimas, the anthropic and openai SDK
+# runners) on the base's python${HARNESS_PYTHON}, kept off the system python so their deps cannot displace
+# litellm[proxy]==1.94.0. Each venv is `uv sync --package hpcagent-agent --group harness-<name>` from uv.lock: the
+# group's harness plus hpcagent-agent's own dependencies (mcp, pydantic), none of hpcagent-bench's, and the same hook.
+# An agent step binds the submitting checkout's agent/ at /opt/hpcagent-bench-agent, and that is the whole setup
+# (containers/images/lib/package_hook.sh). No agent code is in the image; tool scripts are bound at launch.
 COPY containers/images/lib/package_hook.sh /tmp/package_hook.sh
 RUN set -eux; \
     . /opt/harness/pins.env; \
-    for venv in miniswe openhands; do \
+    for venv in miniswe openhands optimas anthropic openai; do \
       sh /tmp/package_hook.sh /opt/hpcagent-bench /opt/hpcagent-bench-agent/hpcagent_agent "/opt/harness/${venv}" \
         --python "/usr/bin/python${HARNESS_PYTHON}" --package hpcagent-agent --group "harness-${venv}"; \
     done; \
@@ -1027,11 +1026,14 @@ RUN set -eux; \
         || { echo "${cli} --version is '${got}', package.json pins ${package} ${want}" >&2; exit 1; }; \
     done; \
     rm -rf "${cli_home}"; \
-    [ "$(node -p "require('/opt/harness/node/package.json').dependencies['@anthropic-ai/claude-code']")" = 2.1.197 ] \
-      || { echo "claude-code is not 2.1.197, the version every recorded claude setup ran" >&2; exit 1; }; \
+    [ "$(node -p "require('/opt/harness/node/package.json').dependencies['@anthropic-ai/claude-code']")" = 2.1.303 ] \
+      || { echo "claude-code is not 2.1.303, the version agent_driver's claude settings were checked against" >&2; exit 1; }; \
     /opt/harness/miniswe/bin/python -c 'import yaml, minisweagent.agents.default, minisweagent.environments.local, minisweagent.models.litellm_model'; \
     /opt/harness/openhands/bin/python -c 'import openhands.sdk.event.conversation_error, openhands.tools.file_editor, openhands.tools.preset.default, openhands.tools.terminal'; \
-    for venv in miniswe openhands; do \
+    /opt/harness/anthropic/bin/python -c 'import anthropic, anthropic.lib.tools, anthropic.lib.tools.mcp, mcp, mcp.client.stdio'; \
+    /opt/harness/openai/bin/python -c 'import agents, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, openai, openai.types.shared'; \
+    /opt/harness/optimas/bin/python -c 'import agents, agents.exceptions, agents.mcp, agents.models.openai_chatcompletions, agents.run_config, litellm, openai, openai.types.shared, optimas.arch.base, optimas.optim.opro, optimas.wrappers.example'; \
+    for venv in miniswe openhands optimas anthropic openai; do \
       "/opt/harness/${venv}/bin/python" -c "import importlib.util; assert importlib.util.find_spec('hpcagent_bench') is None, \
         '/opt/harness/${venv} can import hpcagent_bench: this image is agent-facing and must not'"; \
     done; \

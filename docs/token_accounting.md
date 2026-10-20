@@ -37,7 +37,7 @@ therefore change no card. The measured engine hit rate is a diagnostic only.
 
 - **Claude harness.** The stream-json transcript. One assistant turn arrives as several events, each
   repeating the turn's usage, so the fold keeps the **last usage per `message.id`**.
-- **Other harnesses** (mini-SWE, OpenHands). `usage.jsonl`, one JSON object per model call
+- **Other harnesses** (mini-SWE, OpenHands, optimas, anthropic, openai). `usage.jsonl`, one JSON object per model call
   with disjoint `input`, `cached_input`, `output`, `reasoning` (`agent/hpcagent_agent/driver/harnesses.py`), read
   through `$HPCAGENT_BENCH_USAGE_PATH`. Contract: [extending/agent-harness.md](extending/agent-harness.md).
 - **Output tiers.** Per-turn assistant events report `output_tokens: 0` on these endpoints, so output

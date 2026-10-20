@@ -1,62 +1,66 @@
 # Adding a packet
 
 A packet is a registered bundle of skill pages, MCP tools and env switches, plus an optional method
-(its own loop text and tools). It is a class in `hpcagent_bench/skill_packets.py`, registered by the
-`@packet` decorator; `hpcagent_bench/packets.py` resolves it. A single skill is its own packet and needs
-no class; a `;`-separated list (`rocprof;nsys`) is an ad-hoc packet. Run commands from the repo root
+(its own loop text and tools). It is a `PacketDef` entry of `vocabulary.PACKETS`, added in
+`hpcagent_bench/skill_packets.py`, in a page's frontmatter or by a plugin; `hpcagent_bench/packets.py` resolves it. A
+single skill is its own packet and needs no entry; a `;`-separated list (`rocprof;nsys`) is an ad-hoc packet. Run commands from the repo root
 with the package installed (`uv sync`) and `. hpcagent_bench/cluster/env.sh` (`PYTHONHASHSEED=0`).
 The mechanism every registered kind shares is in [registry.md](registry.md).
 
 | Kind | Files |
 |---|---|
 | skill bundle | one class in `skill_packets.py` |
-| env or tool switch | the class with `env` (and `tools`); a packet tool also goes in `PACKET_TOOL_SWITCH` in `agent/hpcagent_agent/tools/mcp_server.py` |
-| method | the class with `method`, plus `agent/hpcagent_agent/packets/<name>/packet.md`, optional `<stem>.py` MCP tools (stdlib only), `SOURCE` and `LICENSE` when adapted from upstream |
+| env or tool switch | the class (or the page's `packet:` block) with `env` and `tools`; a listed tool is a `@tool(core=False)`, served only where `HPCAGENT_BENCH_PACKET_TOOLS` names it |
+| method | a plugin ([plugins.md](plugins.md)): `methods/<name>/method.md`, its tools under `tools/`, and the packet in `plugin.toml` naming both |
 
 ## Examples (from `skill_packets.py`)
 
 ```python
-@packet("perf-playbook-cpu", order=13)  # skill bundle, CPU languages only
-class PerfPlaybookCpu:
-    name = "Performance Toolkit (CPU)"
-    device = "cpu"
-    skills = ("divide-and-conquer", "profiling", "opt-reports")
-
-
-@packet("cpf-tool-cpu", order=1, aliases=("cpf-tool",))  # page + packet-only tool, switched on by env
-class CpfToolCpu:
-    name = "Canonical Parallel Form Tool, CPU"
-    skills = ("cpf-tool-cpu",)
-    tools = ("canonical_parallel_form",)
-    env = {"HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR": "${CPF_VIEW}"}
-
-
-@packet("all-in-cpu", order=16)  # composition
-class AllInCpu:
-    name = "All-in (CPU)"
-    packets = ("cpf-cpu-src", "perf-playbook-cpu", "lang")
+PACKETS.add(  # skill bundle, CPU languages only
+    "perf-playbook-cpu",
+    PacketDef(
+        name="Performance Toolkit (CPU)",
+        skills=("divide-and-conquer", "profiling", "opt-reports"),
+        device=PacketDevice.CPU,
+    ),
+)
+PACKETS.add(  # composition
+    "all-in-cpu",
+    PacketDef(name="All-in (CPU)", packets=("cpf-cpu-src", "perf-playbook-cpu", "lang")),
+)
 ```
 
-## What a packet class provides
+A packet that is one page plus a name, tools or env switches declares itself in that page's frontmatter instead
+(the CPF and tracer pages), so a new skill with its packet is one file:
 
-The decorator is `@packet(key, order=<slot>, aliases=(...))`. The class attributes are:
+```yaml
+packet:
+  order: 1            # a plugin's page leaves it out and takes the next free slot
+  name: Canonical Parallel Form Tool, CPU
+  aliases: [cpf-tool]
+  tools: [canonical_parallel_form]
+  env: {HPCAGENT_BENCH_SERVICE_CANONICAL_PARALLEL_FORM_DIR: "${CPF_VIEW}"}
+```
 
-| Attribute | Meaning |
+## What a packet holds
+
+`PACKETS.add(key, PacketDef(...), aliases=(...))`. The fields are:
+
+| Field | Meaning |
 |---|---|
 | `name` | display name (required) |
 | `skills` | page directories to stage; `lang` expands to the language pages for the setup, `*` to every shipped page except packet-tool manuals |
 | `packets` | registered keys to compose, resolved recursively; each must exist |
-| `env` | a dict of `KEY: value` switches; `${VAR}` is filled from the caller's environment |
-| `method` | a directory under `agent/hpcagent_agent/packets/`, at most one per resolved packet |
+| `env` | `(KEY, value)` switches; `${VAR}` is filled from the caller's environment |
+| `method` | a method a plugin ships (its `method.md` is the prompt's `{{HINTS}}`), at most one per resolved packet |
 | `tools` | MCP tools served only in this packet's setups; its `skills` pages become their manual |
-| `device` | `cpu`, `amd` or `nvidia`; resolving for a language that device does not run is refused |
+| `device` | `PacketDevice.CPU`, `.AMD` or `.NVIDIA`; resolving for a language that device does not run is refused |
 | `frozen` | reason a recorded key takes no new submissions; it still resolves for old records |
 | `marker` | the shape the packet wears instead of the shape pool's next free one |
 | `short` | a figure's short spelling |
 
-Anything else is refused at import, and so is a wrong type, a missing `name`, a taken key, alias or
-`order`, a composed key that is not registered and a `device` that is not one of the three. The key `""`
-is the no-packet control: it takes `order=None`.
+Anything else is refused at import, and so is a wrong type, a missing `name`, a taken key or alias, a composed key that is not registered and a `device` that is not one of the three. The key `""`
+is the no-packet control: it takes `slotted=False`.
 
 A packet that stages a file rather than a page announces it in the task text through `packet_note`
 in `hpcagent_bench/cluster/make_problems.py`.
@@ -79,10 +83,9 @@ setup does not serve.
 
 ## Rules
 
-- `order` is the slot. It sets the packet's hue and, unless it names a `marker`, its shape, and the packet
-  with the lowest slot is a composition's lead. Give a new packet the next free order
-  (`vocabulary.PACKETS.next_order()`) and never renumber one: that repaints existing figures.
-  `tests/test_vocabulary.py` pins every slot; add yours there.
+- The registration position is the slot. It sets the packet's hue and, unless it names a `marker`, its shape,
+  and the packet with the lowest slot is a composition's lead. Add a new packet last; `tests/test_vocabulary.py`
+  pins the order, so append yours there.
 - A recorded key is immutable: changing its skills, env or method needs a new key. A rename with the
   same meaning is an alias (`aliases=("old-name",)`).
 - `packets.canonical` names a registered composite only when the staged pages and switches match it

@@ -1,32 +1,20 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A figure may only colour an entity the registry can also NAME.
-
-Sibling of ``tests/test_display_names.py``, which checks the identity a setup RECORDS. This checks
-the identity a figure DRAWS, which is the other half and fails differently: an unregistered value
-still draws, in a stable hash colour, under a raw-string label, so the plot looks finished and the
-legend quietly says ``cpf-src`` where every other entry says a sentence.
-
-The fallback is deliberate -- a new experiment must never break a plot -- so it is loud rather than
-absent, and these are what stop the loudness from being the only thing between a hash colour and a
-paper.
-"""
+"""A figure may only colour an entity the registry can also NAME (the hash-colour fallback is loud, not absent);
+the drawing-side sibling of ``tests/test_display_names.py``."""
 
 import logging
 import pathlib
-from types import ModuleType
 
 import matplotlib as mpl
 
 mpl.use("Agg")
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from hpcagent_bench import paths, studies, study_tags
+from hpcagent_bench import studies, study_tags
 from hpcagent_bench.stats import palette
-from tests.fresh_module import module_at
 
 
 def test_every_packet_the_palette_hues_is_named() -> None:

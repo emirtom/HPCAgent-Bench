@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The stdlib-only agent runtime writes JSON by hand; the host reads it through pydantic models.
-
-Each test runs the REAL agent-side writer on sample input and validates what it wrote with the HB model that
-reads it, so a rename on either side fails here and not in a multi-hour job: tokens.json against
-``EpisodeRecord``, ``agent-folders.jsonl`` against ``AgentFolderLine``, the submit tool's request against the
-judge's ``RequestBody`` and its marker against the driver's reader, the problems line against the driver's key
-constants, and the cause strings the tool branches on against the ones the judge and router send.
-"""
+"""The stdlib agent runtime's hand-written JSON validates against the host's pydantic models (tokens.json,
+agent-folders.jsonl, the submit request and marker, the problems line, cause strings)."""
 
 import json
 import pathlib
@@ -22,6 +16,7 @@ from hpcagent_bench.harness.episodes import EpisodeRecord, RecordIdentity
 from hpcagent_bench.harness.judge_wire import JudgeError, RouterError, RouterFault, SubmitVerdict
 from hpcagent_bench.harness.sandbox import AgentFolderLine
 from hpcagent_bench.problem_file import ProblemLine, dump_line
+from hpcagent_bench.harness.judge_wire import Correct
 from tests.fresh_module import fresh
 
 IDENTITY = {
@@ -136,7 +131,7 @@ def test_the_spent_marker_is_always_valid_json_the_driver_reads_as_a_grade(
 ) -> None:
     """A failed build's long compiler log used to cut the marker mid-string and hide its ``correct``."""
     submit = load_submit(monkeypatch, tmp_path)
-    verdict = SubmitVerdict(correct="no", request_id="r1", build_log="error: " + "x" * 5000).to_json()
+    verdict = SubmitVerdict(correct=Correct.NO, request_id="r1", build_log="error: " + "x" * 5000).to_json()
     monkeypatch.setattr(submit.http_json, "post_judge", lambda _route, _body: verdict)
     submit.run({"kernel": "k", "source": "x"})
     text = submit.SPENT_MARKER.read_text(encoding="utf-8")

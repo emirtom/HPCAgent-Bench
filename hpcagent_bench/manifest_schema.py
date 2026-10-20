@@ -1,30 +1,23 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The schema of an authored ``<stem>.yaml`` kernel manifest, as strict pydantic v2 models.
-
-:func:`validate_manifest` checks one parsed manifest against :class:`Manifest`: an unknown key, a
-value of the wrong type or a missing required block raises a :class:`ValueError` that names the
-manifest file and the dotted key path of every violation. Validation is strict: no value is coerced
-(``"3"`` is not an int, ``true`` is not a number), and a mapping key is text.
-
-The models check structure and value types only. What a value means (a shape names declared
-symbols, a constraint holds at every preset, a dwarf is in the vocabulary) is checked by
-:meth:`hpcagent_bench.spec.BenchSpec.from_dict`, which also serves dictionaries that are not authored
-manifests.
-"""
+"""The schema of an authored ``<stem>.yaml`` kernel manifest as strict pydantic models (no coercion, text keys):
+:func:`validate_manifest` names the file and the key path of every violation. Meaning (symbols, constraints, dwarf)
+is checked by :meth:`BenchSpec.from_dict`."""
 
 import difflib
+import enum
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, cast
+from typing import Annotated, cast
 
+from hpcagent_agent.coded import Coded
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, PlainValidator, Tag, ValidationError, model_validator
 from pydantic_core import ErrorDetails, PydanticCustomError
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.fuzz import FuzzValue
 
 __all__ = [
     "ArgEntry",
-    "BIG",
     "ConfigKnobEntry",
     "InitBlock",
     "LayoutEntry",
@@ -35,9 +28,10 @@ __all__ = [
     "PublicConfiguration",
     "PublicScale",
     "PublicVariable",
-    "SMALL",
     "Scalar",
+    "Scale",
     "ScenarioEntry",
+    "ShownAs",
     "Value",
     "field_keys",
     "validate_manifest",
@@ -45,10 +39,7 @@ __all__ = [
 
 
 def checked_number(raw: object) -> int | float:
-    """``raw`` unchanged when it is an ``int`` or a ``float``; raises ``PydanticCustomError`` otherwise.
-
-    A ``bool`` is rejected. An ``int`` stays an ``int``: the ABI passes a scalar in the type the
-    manifest spells it in."""
+    """``raw`` unchanged when an ``int`` or ``float`` (never ``bool``; an int stays an int); else a pydantic error."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise PydanticCustomError("number_type", "expected a number (got {kind})", {"kind": type(raw).__name__})
     return raw
@@ -64,9 +55,7 @@ def checked_scalar(raw: object) -> bool | int | float | str:
 
 
 def checked_value(raw: object) -> FuzzValue:
-    """``raw`` unchanged when it is a :data:`~hpcagent_bench.fuzz.FuzzValue`: a scalar, a list of
-    values or a text-keyed mapping of values, checked recursively; raises ``PydanticCustomError`` naming the
-    first offending node's type otherwise (a YAML null or timestamp, a non-text mapping key)."""
+    """``raw`` unchanged when it is a :data:`FuzzValue` (checked recursively); else an error naming the node's type."""
     if isinstance(raw, Mapping):
         for key, member in cast("Mapping[object, object]", raw).items():
             if not isinstance(key, str):
@@ -128,8 +117,7 @@ class ArgEntry(ManifestBlock):
     @model_validator(mode="before")
     @classmethod
     def expand_shorthand(cls, raw: object) -> object:
-        """``{shape: raw}`` for a string, ``{value: raw}`` for a non-bool number, ``raw`` for a mapping;
-        raises ``PydanticCustomError`` for anything else."""
+        """``{shape: raw}`` for a string, ``{value: raw}`` for a number, ``raw`` for a mapping; else an error."""
         if isinstance(raw, str):
             return {"shape": raw}
         if isinstance(raw, (int, float)) and not isinstance(raw, bool):
@@ -177,23 +165,34 @@ ConfigBlock = Annotated[
 ]
 
 
-#: The two size scales a manifest may declare public. A ``small`` symbol stays below
-#: :data:`hpcagent_bench.spec.SMALL_LIMIT` and far below every ``big`` one; a ``big`` symbol grows with the
-#: problem. The prompt states the scale alone, never a value.
-SMALL = "small"
-BIG = "big"
+class Scale(Coded):
+    """The two size scales a manifest may declare public. The prompt states the scale alone, never a value."""
+
+    #: Stays below :data:`hpcagent_bench.spec.SMALL_LIMIT` and far below every ``big`` symbol.
+    SMALL = enum.auto()
+    #: Grows with the problem.
+    BIG = enum.auto()
+
+
+class ShownAs(Coded):
+    """How the prompt states a public variable's values (:attr:`PublicVariable.shown_as`)."""
+
+    #: The value set.
+    VALUES = enum.auto()
+    #: Only its numeric bounds, for an offset, stride or size whose exact values are not public.
+    RANGE = enum.auto()
 
 
 class PublicScale(ManifestBlock):
     """One ``public.scales.<symbol>`` entry: a size symbol the agent is told is small or big.
 
-    :ivar scale: ``small`` or ``big`` (:data:`SMALL`, :data:`BIG`).
+    :ivar scale: ``small`` or ``big`` (:class:`Scale`).
     :ivar description: What the symbol is, as the prompt states it; never its value.
     :ivar at_most: The largest value a small size takes when ``initialize()`` derives it, so no fuzz range
         bounds it (vexx_k's ``npol`` follows a config flag); ``None`` for a fuzzed size.
     """
 
-    scale: Literal["small", "big"]
+    scale: Scale
     description: str = Field(min_length=1)
     at_most: int | None = Field(default=None, ge=1)
 
@@ -209,7 +208,7 @@ class PublicVariable(ManifestBlock):
 
     values: list[Scalar] = Field(min_length=1)
     description: str = Field(min_length=1)
-    shown_as: Literal["values", "range"] = "values"
+    shown_as: ShownAs = ShownAs.VALUES
 
 
 class PublicConfiguration(ManifestBlock):
@@ -246,13 +245,12 @@ class PublicBlock(ManifestBlock):
     negative: dict[str, Annotated[str, Field(min_length=1)]] = Field(default_factory=dict[str, str])
 
     def small_symbols(self, configuration: str | None = None) -> frozenset[str]:
-        """The small size symbols of ``configuration`` (its own and the kernel-wide ones); the kernel-wide
-        ones alone for ``None``. Raises ``KeyError`` for a name no configuration has."""
+        """The small size symbols of ``configuration`` plus the kernel-wide ones (those alone for ``None``)."""
         scales = dict(self.scales)
         if configuration is not None:
             by_name = {entry.name: entry for entry in self.configurations}
             scales |= by_name[configuration].scales
-        return frozenset(name for name, entry in scales.items() if entry.scale == SMALL)
+        return frozenset(name for name, entry in scales.items() if entry.scale is Scale.SMALL)
 
 
 class ScenarioEntry(ManifestBlock):
@@ -380,7 +378,7 @@ class Manifest(ManifestBlock):
     output_extent: dict[str, str] | None = None
     chain_length: dict[str, str | int] | None = None
     init: InitBlock | None = None
-    languages: list[str] | None = None
+    languages: list[Language] | None = None
     allowed_precisions: list[str] | None = None
     fuzz: dict[str, list[str]] | None = None
     layouts: dict[str, LayoutEntry] | None = None
@@ -417,9 +415,7 @@ def key_path(loc: tuple[int | str, ...]) -> str:
 
 
 def describe_error(error: ErrorDetails) -> str:
-    """One pydantic error as ``<key path>: <message>``; a mapping key of the wrong type as
-    ``<mapping path>: key <key>: <message>``. An unknown top-level key names the closest
-    :class:`Manifest` key when one is close."""
+    """One pydantic error as ``<key path>: <message>``, naming the closest key for an unknown top-level one."""
     loc = error["loc"]
     if loc[-1:] == (KEY_MARKER,):
         return f"{key_path(loc[:-2])}: key {error['input']!r}: {error['msg']}"

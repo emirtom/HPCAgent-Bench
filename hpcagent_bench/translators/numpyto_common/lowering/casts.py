@@ -123,7 +123,7 @@ class TrueDivisionPromoter(ast.NodeTransformer):
 
     __slots__ = ("array_names", "local_dtypes")
 
-    def __init__(self, local_dtypes, array_names) -> None:
+    def __init__(self, local_dtypes: dict[str, str], array_names: set[str]) -> None:
         self.local_dtypes = local_dtypes or {}
         self.array_names = array_names or set()
 

@@ -11,8 +11,12 @@ usage block, an unwritable run dir all cost the sample and nothing else.
 """
 
 import json
+import pathlib
+import types
 import urllib.error
 from types import ModuleType
+from typing import Self
+from urllib.request import Request
 
 import pytest
 
@@ -35,13 +39,13 @@ class FakeResponse:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> bool:
         return False
 
-    def read(self):
+    def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
 
 
@@ -52,13 +56,15 @@ def reply(completion_tokens: int, prompt_tokens: int = 40) -> dict:
     }
 
 
-def test_the_probe_counts_the_servers_tokens_not_its_own_request(driver, monkeypatch) -> None:
+def test_the_probe_counts_the_servers_tokens_not_its_own_request(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """max_tokens is what was ASKED for; completion_tokens is what came back. A model that stops
     early must be scored on what it produced, or every early stop reads as a throughput drop."""
     seen: list[dict] = []
     clock = iter([0.0, 2.0])
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request: Request, timeout: int | None = None) -> FakeResponse:
         seen.append(json.loads(request.data))
         return FakeResponse(reply(completion_tokens=100))
 
@@ -77,11 +83,13 @@ def test_the_probe_counts_the_servers_tokens_not_its_own_request(driver, monkeyp
     assert body["max_tokens"] == driver.PROBE_MAX_TOKENS
 
 
-def test_the_probe_posts_to_the_chat_route_of_the_replica_it_was_given(driver, monkeypatch) -> None:
+def test_the_probe_posts_to_the_chat_route_of_the_replica_it_was_given(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The replica URL already ends in /v1 -- the probe must not rebuild it or invent a host."""
     urls: list[str] = []
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request: Request, timeout: int | None = None) -> FakeResponse:
         urls.append(request.full_url)
         assert request.get_method() == "POST"
         return FakeResponse(reply(completion_tokens=10))
@@ -93,12 +101,14 @@ def test_the_probe_posts_to_the_chat_route_of_the_replica_it_was_given(driver, m
     assert urls == ["http://nid002994:8000/v1/chat/completions"]
 
 
-def test_a_failing_replica_costs_the_sample_and_not_the_run(driver, monkeypatch) -> None:
+def test_a_failing_replica_costs_the_sample_and_not_the_run(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A probe that raises would kill the driver before a single agent started -- the exact trade
     the measurement is not worth. The bad request is dropped and the good ones still land."""
     calls = {"n": 0}
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request: Request, timeout: int | None = None) -> FakeResponse:
         calls["n"] += 1
         if calls["n"] == 1:
             raise urllib.error.URLError("connection refused")
@@ -114,7 +124,12 @@ def test_a_failing_replica_costs_the_sample_and_not_the_run(driver, monkeypatch)
     assert samples[0]["completion_tokens"] == 60
 
 
-def test_the_report_takes_the_median_and_writes_the_raw_samples(driver, monkeypatch, tmp_path, capsys) -> None:
+def test_the_report_takes_the_median_and_writes_the_raw_samples(
+    driver: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Median, not mean: the first request after readiness pays for whatever is still cold, and one
     such outlier moves a five-sample mean enough to argue about. The raw samples are kept so the
     outlier stays visible instead of being averaged away."""
@@ -134,7 +149,12 @@ def test_the_report_takes_the_median_and_writes_the_raw_samples(driver, monkeypa
     assert "median=41.00 tok/s" in capsys.readouterr().out
 
 
-def test_an_unwritable_run_dir_does_not_raise(driver, monkeypatch, tmp_path, capsys) -> None:
+def test_an_unwritable_run_dir_does_not_raise(
+    driver: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Reporting is the last thing between readiness and the agents; a bad path must not stop them."""
     monkeypatch.setenv("RUN_DIR", str(tmp_path / "does" / "not" / "exist"))
     driver.report_throughput(
@@ -143,7 +163,12 @@ def test_an_unwritable_run_dir_does_not_raise(driver, monkeypatch, tmp_path, cap
     assert "could not write" in capsys.readouterr().out
 
 
-def test_no_samples_reports_nothing_and_writes_nothing(driver, monkeypatch, tmp_path, capsys) -> None:
+def test_no_samples_reports_nothing_and_writes_nothing(
+    driver: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Every request failing is a real outcome. It must be SAID, not silently written as a zero that
     later reads as a measured throughput of zero."""
     monkeypatch.setenv("RUN_DIR", str(tmp_path))

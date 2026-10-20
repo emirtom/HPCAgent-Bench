@@ -1,18 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The include list cupy hands HIPRTC, and the one directory that must not be on it.
-
-cupy flattens hipcc's ordered, KINDED search list into plain ``-I`` when it drives HIPRTC,
-which puts clang's ``cuda_wrappers`` -- a directory the driver keeps to itself -- onto an RTC
-command line. With it there every ``_GLIBCXX_*`` macro ends up undefined and a device grade dies
-inside ``<initializer_list>``; without it cupy works on the image's own gcc 16 + LLVM 22.
-
-The rule is MEASURED, not derived (reordering the list does not help, only removal does), so what
-is locked here is the rule itself and the guard that fires when the cupy hook it hangs on moves.
-"""
+"""The include list cupy hands HIPRTC must not carry clang's ``cuda_wrappers`` directory (a measured rule), and
+a guard fires when the cupy hook moves."""
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.harness.native_call import CLANG_CUDA_WRAPPERS, hiprtc_include_dirs, repair_hiprtc_include_path
 
 # The list as cupy really scraped it on MI300A (ROCm 7.2.3, gcc 16), wrapper dir at index 1.
@@ -50,12 +43,12 @@ def test_a_clean_list_is_left_alone() -> None:
 
 
 class FakeRuntime:
-    def __init__(self, is_hip) -> None:
+    def __init__(self, is_hip: bool) -> None:
         self.is_hip = is_hip
 
 
 class FakeCupy:
-    def __init__(self, is_hip) -> None:
+    def __init__(self, is_hip: bool) -> None:
         self.cuda = type("cuda", (), {"runtime": FakeRuntime(is_hip)})
 
 
@@ -68,7 +61,7 @@ def test_missing_cupy_hook_raises_rather_than_skipping_silently() -> None:
     # The repair hangs on a cupy PRIVATE name. If it disappears, a silent skip would come back
     # as an inscrutable HIPRTC error hours later inside a device grade, so it must fail loudly.
     environment = pytest.importorskip("cupy._environment", reason="needs a cupy install")
-    saved = vars(environment).get("_get_hipcc_include_dirs")
+    saved = modules.optional(environment, "_get_hipcc_include_dirs")
     if saved is None:
         pytest.skip("cupy build has no _get_hipcc_include_dirs to remove")
     del environment._get_hipcc_include_dirs

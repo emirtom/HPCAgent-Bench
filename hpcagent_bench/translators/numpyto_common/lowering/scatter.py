@@ -73,7 +73,7 @@ class ScatterAtRewriter(ast.NodeTransformer):
         self._n = 0
 
     @staticmethod
-    def is_ufunc_at(func: ast.AST):
+    def is_ufunc_at(func: ast.AST) -> str | None:
         # Attribute chain ``np.<op>.at`` -> Attribute(Attribute(Name('np'), op), 'at')
         if (
             isinstance(func, ast.Attribute)

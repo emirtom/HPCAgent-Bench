@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A single-setup judge grades only its own setup: a body whose ``episode_id`` names another is refused.
-
-Every mlscale setup runs its own judge, and rows are attributed by ``episode_id``. A request that reaches
-the wrong setup's judge (a stale ``JUDGE_URL``, a copied curl line) must not be graded and recorded
-in that setup's DB under a foreign identity. The router refuses, before anything is graded, a POST
-whose ``episode_id`` does not start with ``"$SETUP."`` of the job it serves. A fused judge keeps
-its own per-worker check (``fused.check_episode_id``) and never reads the job's ``SETUP``; a judge
-with no ``SETUP`` (a local ``serve``) checks nothing.
-
-The accept cases drive every legitimate caller through its REAL client code: the agent tools, the
-harness's ``JudgeClient``, the teardown promotion, and -- by showing
-they never go through the router at all -- the grade job and the regrade replay.
-"""
+"""A single-setup judge router refuses a POST whose ``episode_id`` names another setup (not ``"$SETUP."``),
+before grading; every legitimate caller passes through its real client code."""
 
 import json
 import pathlib
@@ -26,9 +15,11 @@ import pytest
 from hpcagent_agent.tools import http_json
 
 from hpcagent_bench import fused
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import grade_under, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.tools import JudgeClient
+from hpcagent_bench.harness.judge_wire import Correct
 from tests import test_grade_under, test_scaling_grade
 from tests.fresh_module import fresh
 from tests.judge_router_stub import GRADE, REPORT, SCORE, StubJudge, load_router, stub_judge, through_router
@@ -99,7 +90,10 @@ def test_a_body_naming_another_kernel_than_its_episodes_is_refused_before_the_ju
     recorded against someone else's cell. Problem 1 of the job's problems file is dist_softmax."""
     problems = tmp_path / "problems.jsonl"
     problems.write_text(
-        "\n".join(json.dumps({"id": i, "kernel": k, "task": "t"}) for i, k in enumerate(("gemm", "ml/dist_softmax")))
+        "\n".join(
+            json.dumps({"id": i, "kernel": k, "task": "t", "request_actions": {}})
+            for i, k in enumerate(("gemm", "ml/dist_softmax"))
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -119,7 +113,7 @@ def test_a_setup_whose_name_merely_starts_with_this_one_is_another_setup(router:
 
 
 def test_a_profile_without_a_episode_id_is_still_relayed(router: "TestClient") -> None:
-    """``tools/counters.md`` shows agents a curl ``/profile`` without one; a missing id is no other setup's."""
+    """``tools/profile.md`` shows agents a curl ``/profile`` without one; a missing id is no other setup's."""
     reply = router.post("/profile", json={"kernel": "dist_softmax", "language": "c", "source": "x", "rank": 0})
     assert reply.status_code == 200
     assert upstream_routes() == ["/profile"]
@@ -189,10 +183,10 @@ def test_the_harness_judge_client_is_accepted(router: "TestClient", monkeypatch:
     monkeypatch.setattr(urllib.request, "urlopen", through_router(router))
     monkeypatch.setenv("HPCAGENT_BENCH_EPISODE_ID", f"{SETUP}.n0.p2.w1")
     client = JudgeClient("http://judge.test:8800", rank=0)
-    submission = Submission(language="c", source="void k(void){}")
+    submission = Submission(language=Language.C, source="void k(void){}")
     StubJudge.replies.extend([(200, SCORE), (200, GRADE), (200, REPORT)])  # what each route answers
     assert client.score(submission, "dist_softmax").correct is True
-    assert client.submit(submission, "dist_softmax").correct == "yes"
+    assert client.submit(submission, "dist_softmax").correct is Correct.YES
     assert client.profile(submission, "dist_softmax").root.build_ok is True
     assert upstream_routes() == ["/score", "/submit", "/profile"]
 

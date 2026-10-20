@@ -13,7 +13,8 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from hpcagent_bench import flags, languages, paths
+from hpcagent_bench import flags, languages, modules, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 
 KERNEL = "tsvc_2_s212"  # 1-D: a,b outputs; c,d inputs; LEN_1D symbol
@@ -76,7 +77,7 @@ def test_emit_native_resolves_the_manifest_by_stem() -> None:
     for stale in cppdir.glob("arc_distance_fp*.c"):
         stale.unlink()
 
-    status = emit_native(spec, ["c"])
+    status = emit_native(spec, [Language.C])
 
     assert status, "emit_native reported nothing at all"
     bad = {k: v for k, v in status.items() if v.startswith("fail")}
@@ -111,7 +112,7 @@ def test_emit_names_and_marker() -> None:
 
 @pytest.mark.skipif(not _emitter_present(), reason="translators absent")
 @pytest.mark.parametrize("kernel", [CONFIGURED, KERNEL])
-def test_emitted_symbol_matches_the_binding(kernel, tmp_path) -> None:
+def test_emitted_symbol_matches_the_binding(kernel: str, tmp_path: pathlib.Path) -> None:
     """The symbol the emitter DEFINES and the symbol the harness BINDS have to be one name.
 
     Emitting without naming a configuration is the agent-facing path (the reference source a task
@@ -130,7 +131,7 @@ def test_emitted_symbol_matches_the_binding(kernel, tmp_path) -> None:
     assert emit_kernel(spec, numpy_py, tmp_path, target="c") == 0
 
     binding = binding_from_spec(spec)
-    symbol = binding.symbols["c"]
+    symbol = binding.symbols[Language.C]
     hits = sorted(tmp_path.glob("*_fp64.c"))
     assert len(hits) == 1, f"expected one fp64 C source, got {[p.name for p in hits]}"
     assert hits[0].stem == f"{spec.native_base(binding.config)}_fp64", "file stem desynced from the loader"
@@ -154,11 +155,11 @@ _WRAP_FRAMEWORKS = ["cc", "llvm", "fortran", "polly"]
 
 @pytest.mark.parametrize("framework", _WRAP_FRAMEWORKS)
 @pytest.mark.parametrize(("dtype", "fptype"), [(np.float64, "fp64"), (np.float32, "fp32")])
-def test_wrap_kernel_matches_numpy(framework, dtype, fptype) -> None:
+def test_wrap_kernel_matches_numpy(framework: str, dtype: type, fptype: str) -> None:
     if not _emitter_present() or not shutil.which(_COMPILER[framework]):
         pytest.skip(f"translators or {_COMPILER[framework]} absent")
     if framework == "polly" and _POLLY.verdict is not flags.AutoparVerdict.OK:
-        pytest.skip(f"this host's polly is {_POLLY.verdict.value}: {_POLLY.detail}")
+        pytest.skip(f"this host's polly is {_POLLY.verdict.text}: {_POLLY.detail}")
     from hpcagent_bench.emit_bridge import emit_kernel
     from hpcagent_bench.frameworks import native_runtime
 
@@ -170,7 +171,7 @@ def test_wrap_kernel_matches_numpy(framework, dtype, fptype) -> None:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[sm.name] = mod
     sm.loader.exec_module(mod)
-    ref = vars(mod)[spec.func_name]
+    ref = modules.member(mod, spec.func_name)
 
     with tempfile.TemporaryDirectory() as d:
         cpp = pathlib.Path(d) / "cpp_backend"
@@ -199,7 +200,7 @@ def test_wrap_kernel_matches_numpy(framework, dtype, fptype) -> None:
 # A sparse kernel is emitted ONE source per configuration; the layout IS the sub-benchmark.
 @pytest.mark.parametrize("framework", ["cc", "llvm"])
 @pytest.mark.parametrize(("dtype", "fptype"), [(np.float64, "fp64"), (np.float32, "fp32")])
-def test_sparse_layout_is_a_subbenchmark(framework, dtype, fptype) -> None:
+def test_sparse_layout_is_a_subbenchmark(framework: str, dtype: type, fptype: str) -> None:
     if not _emitter_present() or not shutil.which(_COMPILER[framework]):
         pytest.skip(f"translators or {_COMPILER[framework]} absent")
     import scipy.sparse as sp
@@ -221,7 +222,7 @@ def test_sparse_layout_is_a_subbenchmark(framework, dtype, fptype) -> None:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[sm.name] = mod
     sm.loader.exec_module(mod)
-    ref = vars(mod)[spec.func_name]
+    ref = modules.member(mod, spec.func_name)
 
     ensure_native("spmv")
     cpp = paths.BENCHMARKS / spec.relative_path / "cpp_backend"
@@ -296,7 +297,9 @@ def test_pluto_emits_multidim_for_rank2_arrays() -> None:
         assert names.index("NI") < names.index("A"), "pluto binding: size symbols must precede array params"
 
 
-def test_pluto_call_order_is_polyccs_not_the_canonical_abi(tmp_path, monkeypatch) -> None:
+def test_pluto_call_order_is_polyccs_not_the_canonical_abi(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The pluto column must resolve polycc's argument ORDER from the emitted binding, and that
     order must differ from the canonical one.
 
@@ -385,7 +388,7 @@ _INT32_BENCH = {
         ("fortran", "fortran", "gfortran", "f90"),
     ],
 )
-def test_int32_array_promoted_on_read(framework, target, compiler, ext) -> None:
+def test_int32_array_promoted_on_read(framework: str, target: str, compiler: str, ext: str) -> None:
     """A user-supplied int32 array is promoted to int64 on read, so a mixed-width op stays single-width;
     without it the Fortran build fails outright (mixed integer kinds)."""
     import ctypes
@@ -438,7 +441,7 @@ def test_int32_array_promoted_on_read(framework, target, compiler, ext) -> None:
                 "-O2",
                 "-ffree-form",
                 "-ffree-line-length-none",
-                languages.std_flag("fortran"),
+                languages.std_flag(Language.FORTRAN),
                 "-fPIC",
                 "-shared",
                 str(src),
@@ -446,7 +449,7 @@ def test_int32_array_promoted_on_read(framework, target, compiler, ext) -> None:
                 str(so),
             ]
         else:
-            std = languages.std_flag("cpp" if ext == "cpp" else "c")
+            std = languages.std_flag(Language.CPP if ext == "cpp" else Language.C)
             cmd = [compiler, "-O2", std, "-D_POSIX_C_SOURCE=199309L", "-fPIC", "-shared", str(src), "-o", str(so)]
         rc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         assert rc.returncode == 0, rc.stderr

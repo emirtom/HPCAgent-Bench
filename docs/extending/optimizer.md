@@ -14,7 +14,7 @@ A new PyPI dependency goes in a `pyproject.toml` extra, the only dependency list
 
 The shipped optimizers are `noop` (the NumpyToX reference unchanged), `blas-reduction` (C, `tsvc_2_vdotr` and
 `gesummv` only), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels) and the Alloy flavors
-`dace_<cpu|gpu>_<canon|parallel>_alloy_<profile|heuristic>`, of which only the CPU `profile` ones are built
+`dace_<cpu|gpu>_<canon|parallel|autoopt>_alloy_<profile|heuristic>`, of which only the CPU `profile` ones are built
 (`--extra alloy`, [jobs.md](../jobs.md#baseline)); all are in `hpcagent_bench/harness/optimizers.py`
 (`optimizer_registry()`). Grading needs the OpenMP launch environment before Python starts (the numpy import
 fixes it once): `hpcagent_bench/cluster/env.sh` exports `OMP_STACKSIZE=512M` and `OMP_THREAD_LIMIT` (the cores the
@@ -87,12 +87,13 @@ runs compare row by row; the CLI's closing line prints the geometric mean.
 
 ## A. Add an optimizer
 
-One class in `hpcagent_bench/harness/optimizers.py`: every `Agent` subclass there that declares its own `name`
-is registered (`optimizer_registry()`), and `cli.agent_registry()` merges them, so neither the registry nor the
+One class in `hpcagent_bench/harness/optimizers.py`: `@optimizer` on an `Agent` subclass with its own `name`
+registers it (`optimizer_registry()`), and `cli.agent_registry()` merges them, so neither the registry nor the
 CLI needs an edit. `LibraryOptimizer` fits a tool that produces source: `_deliver` returns the source in
 `restricted` mode and builds and submits a `.so` in `any` mode. The smallest one, as shipped:
 
 ```python
+@optimizer
 class NoOpOptimizer(LibraryOptimizer):
     __slots__ = ()
 
@@ -105,7 +106,7 @@ class NoOpOptimizer(LibraryOptimizer):
 - `task` carries `kernel`, `language`, `source_mode` and `residency`. Symbol and argument order come from
   `binding_from_spec(BenchSpec.load(task.kernel))` and `gen_call_stub`.
 - An unsupported kernel or language raises `NotImplementedError` with the reason (`PlutoOptimizer.solve`); the
-  row becomes `status="agent_error"`.
+  row becomes `status=RunStatus.AGENT_ERROR` (`"agent_error"` in the JSONL row).
 - Extra `-I`/`-D`/`-L`/`-l` go in `Submission.build`; the judge owns `-O3` and the target flags.
 - `name` is the recorded identity (JSONL `agent`, DB `optimizer`). Choose it once.
 
@@ -129,20 +130,23 @@ is correct (it is 0 otherwise).
 The registration of Pythran:
 
 ```python
-@framework("pythran", order=6)
-class Pythran:
-    display = "Pythran"
-    adapter = "hpcagent_bench.frameworks.pythran_framework:PythranFramework"
-    base = "pythran"
-    full_name = "Pythran"
-    postfix = "pythran"
-    arch = "cpu"
-    sweep_deterministic = False
-    precisions = IEEE_PRECISIONS
+FRAMEWORKS.add(
+    "pythran",
+    Column(
+        display="Pythran",
+        adapter="hpcagent_bench.frameworks.pythran_framework:PythranFramework",
+        base="pythran",
+        full_name="Pythran",
+        postfix="pythran",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+    ),
+)
 ```
 
-`@framework` validates the class when it is applied; the attributes are listed in [registry.md](registry.md). A
-new column takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on every figure, append only.
+A `Column` validates itself when it is built; its fields are listed in [registry.md](registry.md). A new column
+is added last: its registration position is its slot (hue and marker) on every figure.
 
 - `display` is the compiler or library a figure prints; `full_name` the long name a table prints.
 - `adapter` is `package.module:Class`, imported on first use, so registering a column never imports its backend.

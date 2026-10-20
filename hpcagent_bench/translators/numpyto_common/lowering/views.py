@@ -2,7 +2,7 @@
 
 import ast
 import copy
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import iter_extent_of
@@ -211,7 +211,7 @@ def aliases_with_rebound_base(tree: ast.AST, aliases: dict[str, tuple]) -> set[s
     the alias captured. (Reassignment BEFORE the alias is fine.)"""
     unsafe: set = set()
 
-    def scan(stmts) -> None:
+    def scan(stmts: list[ast.stmt]) -> None:
         for i, s in enumerate(stmts):
             if (
                 isinstance(s, ast.Assign)
@@ -277,7 +277,7 @@ class SubarrayAliasFold(AliasFold):
         return node
 
 
-def child_blocks_of(stmt: ast.stmt):
+def child_blocks_of(stmt: ast.stmt) -> Iterator[list[ast.stmt]]:
     if isinstance(stmt, (ast.For, ast.While, ast.If)):
         yield stmt.body
         yield stmt.orelse

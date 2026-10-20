@@ -9,6 +9,8 @@ serialises, an in-process ``numpy`` "kernel" stands in for the driver, and the g
 reconstruct the global array bit-for-bit -- the same round-trip the C / mpi4py drivers perform.
 """
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 from relayout.ops import Scheme
@@ -19,13 +21,13 @@ from hpcagent_bench.support.bindings.contract import Arg, Binding
 from hpcagent_bench.support.bindings.stubs import LANGS
 
 
-def _binding(*args) -> Binding:
+def binding(*args: Arg) -> Binding:
     return Binding(kernel="k", config="dense", args=tuple(args), symbols=dict.fromkeys(LANGS, "k_fp64"))
 
 
 def _yax_binding() -> Binding:
     # y = a*x : pointers x (in), y (out) ; symbol N ; value scalar a. Canonical order already.
-    return _binding(
+    return binding(
         Arg(name="x", kind="ptr", dtype="float64", is_const=True),
         Arg(name="y", kind="ptr", dtype="float64", is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
@@ -33,7 +35,7 @@ def _yax_binding() -> Binding:
     )
 
 
-def _block0(nranks: int, arrays) -> Descriptor:
+def block0(nranks: int, arrays: tuple[str, str]) -> Descriptor:
     ad = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(grid=Grid((nranks,)), arrays=dict.fromkeys(arrays, ad), symbol_axes={"N": [("x", 0)]})
 
@@ -41,7 +43,7 @@ def _block0(nranks: int, arrays) -> Descriptor:
 # Infile: tiles, localised scalars, per-rank workspace
 def test_infile_roundtrip_localises_symbol_and_workspace() -> None:
     N, R = 10, 4  # ragged: 10 over 4 -> 3,3,2,2
-    b, desc = _yax_binding(), _block0(4, ("x", "y"))
+    b, desc = _yax_binding(), block0(4, ("x", "y"))
     x = np.arange(N, dtype=np.float64) + 1.0
     raw = pack_infile(b, desc, {"x": x, "y": np.zeros(N)}, {"N": N, "a": 2.5}, k_repeats=3, workspace_expr="8*N")
     p = unpack_infile(raw)
@@ -60,7 +62,7 @@ def test_infile_roundtrip_localises_symbol_and_workspace() -> None:
 
 
 def test_infile_no_workspace_is_zero_per_rank() -> None:
-    b, desc = _yax_binding(), _block0(2, ("x", "y"))
+    b, desc = _yax_binding(), block0(2, ("x", "y"))
     raw = pack_infile(b, desc, {"x": np.arange(6.0), "y": np.zeros(6)}, {"N": 6, "a": 1.0}, k_repeats=1)
     p = unpack_infile(raw)
     assert p.workspace_bytes == [0, 0]  # no request -> 0 bytes everywhere (ABI Sec. 11)
@@ -68,7 +70,7 @@ def test_infile_no_workspace_is_zero_per_rank() -> None:
 
 def test_infile_replicated_array_full_copy_each_rank() -> None:
     # A replicated pointer: every rank gets the whole array (scalars/length-1 rule + explicit).
-    b = _binding(
+    b = binding(
         Arg(name="w", kind="ptr", dtype="float64", is_const=True),
         Arg(name="y", kind="ptr", dtype="float64", is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
@@ -87,7 +89,7 @@ def test_infile_replicated_array_full_copy_each_rank() -> None:
 
 
 def test_infile_2d_block_rows() -> None:
-    b = _binding(
+    b = binding(
         Arg(name="A", kind="ptr", dtype="float64", is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
     )
@@ -104,8 +106,8 @@ def test_infile_2d_block_rows() -> None:
 
 
 @pytest.mark.parametrize("dtype", ["float64", "float32", "int64", "int32"])
-def test_infile_dtypes_roundtrip(dtype) -> None:
-    b = _binding(
+def test_infile_dtypes_roundtrip(dtype: str) -> None:
+    b = binding(
         Arg(name="A", kind="ptr", dtype=dtype, is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
     )
@@ -122,7 +124,7 @@ def test_infile_dtypes_roundtrip(dtype) -> None:
 
 
 def test_infile_rejects_unserialisable_dtype() -> None:
-    b = _binding(Arg(name="A", kind="ptr", dtype="complex128", is_const=False, role="output"))
+    b = binding(Arg(name="A", kind="ptr", dtype="complex128", is_const=False, role="output"))
     desc = Descriptor(grid=Grid((1,)), arrays={"A": ArrayDist(replicated=True)})
     with pytest.raises(ValueError, match="not wire-serialisable"):
         pack_infile(b, desc, {"A": np.zeros(3, dtype="complex128")}, {}, k_repeats=1)
@@ -146,7 +148,16 @@ def test_outfile_roundtrip() -> None:
     assert np.array_equal(got[1], tiles[1])
 
 
-def _full_roundtrip(b, desc, data, scalars, N, kernel, expected, dtype=np.float64) -> None:
+def full_roundtrip(
+    b: Binding,
+    desc: Descriptor,
+    data: dict[str, np.ndarray],
+    scalars: dict[str, float],
+    N: int,
+    kernel: Callable[[dict[str, np.ndarray], dict[str, float]], dict[str, np.ndarray]],
+    expected: dict[str, np.ndarray],
+    dtype: type = np.float64,
+) -> None:
     """scatter (pack_infile) -> per-rank numpy kernel -> gather (pack/unpack_outfile) -> global."""
     p = unpack_infile(pack_infile(b, desc, data, scalars, k_repeats=2))
     out_names = [a.name for a in b.pointers if a.role == "output"]
@@ -171,9 +182,9 @@ def _full_roundtrip(b, desc, data, scalars, N, kernel, expected, dtype=np.float6
 
 def test_full_roundtrip_yax_block() -> None:
     N = 13
-    b, desc = _yax_binding(), _block0(4, ("x", "y"))
+    b, desc = _yax_binding(), block0(4, ("x", "y"))
     x = np.arange(N, dtype=np.float64) + 1.0
-    _full_roundtrip(
+    full_roundtrip(
         b,
         desc,
         {"x": x, "y": np.zeros(N)},
@@ -186,7 +197,7 @@ def test_full_roundtrip_yax_block() -> None:
 
 def test_full_roundtrip_replicated_reduction_reads_rank0() -> None:
     # A length-1 (replicated) output: every rank computes it; gather reads rank 0's copy.
-    b = _binding(
+    b = binding(
         Arg(name="x", kind="ptr", dtype="float64", is_const=True),
         Arg(name="s", kind="ptr", dtype="float64", is_const=False, role="output"),
         Arg(name="N", kind="scalar", dtype="int64", is_const=True, role="symbol"),
@@ -199,7 +210,7 @@ def test_full_roundtrip_replicated_reduction_reads_rank0() -> None:
     x = np.arange(8.0) + 1.0
     # Each rank writes the GLOBAL sum into its replicated s (coherent across ranks); gather
     # takes rank 0's -> the global reduction. (dist_for coerces length-1 s to replicated too.)
-    _full_roundtrip(
+    full_roundtrip(
         b,
         desc,
         {"x": x, "s": np.zeros(1)},

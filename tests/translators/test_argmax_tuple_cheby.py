@@ -1,31 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Native numerical checks for the two lvl-2 spectral-kernel constructs fixed in
-this batch, plus the end-to-end benchmarks they unblock (c / c++ / fortran must
-reproduce numpy bit-close):
-
-* **an argmax Call as ONE element of a multi-index tuple subscript** --
-  ``v[np.argmax(np.abs(w)), col]`` (rayleigh_ritz_rotation's eigenvector sign
-  gauge ``U[np.argmax(absU[:, j]), j]``). ``ComputedIndexCallHoister`` spills the
-  index Call to a fresh Name AND materialises the argmax's non-Name operand
-  (a nested Call / slice) into its own temp so the reduction expander -- which
-  needs a bare-Name operand -- can lower it.
-
-* **a simultaneous in-loop 3-way rebind mixing whole arrays and a scalar** --
-  ``av, bv, acc = bv, bnew, accnew`` (chebyshev_filter_subspace's
-  ``X, Y, sigma = Y, Ynew, sigma_new``): the tuple binds every target from the
-  OLD state, so the copy-through must stage each aliased RHS into a temp buffer.
-
-The end-to-end benchmarks additionally exercise the eigh-on-a-local-operand shape
-resolution (rayleigh) and the helper-inline loop-variable rename (chebyshev's
-``_hpsi`` stencil index ``m`` vs the kernel's degree parameter ``m``).
-
-The spec requires c + fortran; c++ rides along (native, free). A wrong answer on
-any native backend is a real bug, so each must validate bit-close to numpy.
-"""
+"""An argmax Call as one element of a tuple subscript, and a simultaneous in-loop rebind of arrays and a scalar,
+on c / c++ / fortran against numpy, plus the rayleigh_ritz_rotation and chebyshev_filter_subspace kernels."""
 
 import numpy as np
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.numerical_oracle import run_kernel
 from tests.translators.op_oracle import assert_backends_ok, native, run_op
 
@@ -93,11 +73,11 @@ def test_inloop_three_way_array_scalar_swap() -> None:
 
 def test_rayleigh_ritz_rotation_benchmark() -> None:
     native()
-    status = run_kernel("rayleigh_ritz_rotation", preset="S", only_backends=set(NATIVE))
+    status = run_kernel("rayleigh_ritz_rotation", preset=Preset.S, only_backends=set(NATIVE))
     assert_backends_ok(status, NATIVE, "rayleigh_ritz_rotation")
 
 
 def test_chebyshev_filter_subspace_benchmark() -> None:
     native()
-    status = run_kernel("chebyshev_filter_subspace", preset="S", only_backends=set(NATIVE))
+    status = run_kernel("chebyshev_filter_subspace", preset=Preset.S, only_backends=set(NATIVE))
     assert_backends_ok(status, NATIVE, "chebyshev_filter_subspace")

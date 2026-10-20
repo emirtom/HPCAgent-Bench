@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The counting control flow of :mod:`hpcagent_bench.harness.papi`, driven through a scripted libpapi.
-
-No PAPI, no PMU and no kernel: the ctypes library is a fake whose ``PAPI_read`` answers from a
-script keyed on how many times the fake kernel has run, and the native call is a loop over the
-timed-call seam. What is left is exactly the code between those two boundaries -- arming, the read
-bracket, the rep selection, the thread bookkeeping and the reports built from them.
-"""
+"""The counting control flow of :mod:`hpcagent_bench.harness.papi` through a scripted fake libpapi: arming, read
+brackets, rep selection, thread bookkeeping and reports."""
 
 import ctypes
 import os
@@ -16,6 +11,7 @@ from collections.abc import Callable, Sequence
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import papi
 from hpcagent_bench.harness.native_call import RepTiming
 
@@ -153,11 +149,11 @@ def install(monkeypatch: pytest.MonkeyPatch, lib: ScriptedPapi, *, slow_first_re
 
 
 def count(metric: str = "cycles", *, reps: int = 2, warmup: int = 1) -> papi.MetricRow:
-    return papi.counting_worker("/fake.so", None, {}, "c", None, metric, reps, warmup, 1.0, 0)
+    return papi.counting_worker("/fake.so", None, {}, Language.C, None, metric, reps, warmup, 1.0, 0)
 
 
 def per_thread(*, reps: int = 2, warmup: int = 1) -> papi.PerThreadReport:
-    return papi.per_thread_report("/fake.so", None, {}, "c", None, reps, warmup, 1.0, 0)
+    return papi.per_thread_report("/fake.so", None, {}, Language.C, None, reps, warmup, 1.0, 0)
 
 
 def transient_worker(lib: ScriptedPapi) -> Callable[[], tuple[int, ...]]:
@@ -169,7 +165,7 @@ def transient_worker(lib: ScriptedPapi) -> Callable[[], tuple[int, ...]]:
     return lambda: (os.getpid(), 101, 102) if lib.calls == 2 else (os.getpid(), 101)
 
 
-def test_a_thread_that_came_and_went_between_the_reps_fails_the_summed_count(monkeypatch) -> None:
+def test_a_thread_that_came_and_went_between_the_reps_fails_the_summed_count(monkeypatch: pytest.MonkeyPatch) -> None:
     """Its work is in no event set, so the sum is short by exactly that thread. Sampling the thread
     list only at setup and at teardown never saw it and returned the short sum as a count."""
     lib = ScriptedPapi(lambda tid, calls: (calls * 10,))
@@ -180,7 +176,9 @@ def test_a_thread_that_came_and_went_between_the_reps_fails_the_summed_count(mon
     assert "1 thread(s) started after the counters armed" in row["missing"], row["missing"]
 
 
-def test_a_thread_that_came_and_went_between_the_reps_refuses_the_per_thread_report(monkeypatch) -> None:
+def test_a_thread_that_came_and_went_between_the_reps_refuses_the_per_thread_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The distribution would be missing exactly the thread it is about, so the report is absent
     with the cause that says so rather than balanced over the threads that were attached."""
     lib = ScriptedPapi(lambda tid, calls: (calls * 10, calls * 20))
@@ -198,7 +196,9 @@ def one_two_three_four(tid: int, calls: int) -> tuple[int, int]:
     return 1000 * share * calls, 2000 * share * calls
 
 
-def test_a_known_one_two_three_four_split_comes_back_as_its_rows_and_its_imbalance(monkeypatch) -> None:
+def test_a_known_one_two_three_four_split_comes_back_as_its_rows_and_its_imbalance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The distribution is the one number a summed count discards. 1:2:3:4 has a mean of 2.5 and a
     max of 4, so the report must say 1.6 and name the fourth thread, on any host."""
     lib = ScriptedPapi(one_two_three_four)
@@ -239,7 +239,7 @@ def test_every_counted_rep_reaches_the_native_call_as_a_rep_timing(monkeypatch: 
     assert all(isinstance(rep, RepTiming) for rep in seen), seen
 
 
-def test_a_summed_count_is_one_rep_s_delta_on_every_attached_thread(monkeypatch) -> None:
+def test_a_summed_count_is_one_rep_s_delta_on_every_attached_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     """The metric is the kernel's total work, so it is every thread's after-minus-before for one
     call, added -- not the cumulative reading, and not the calling thread's share."""
     lib = ScriptedPapi(one_two_three_four)
@@ -251,7 +251,7 @@ def test_a_summed_count_is_one_rep_s_delta_on_every_attached_thread(monkeypatch)
     assert "fallback" not in row, row
 
 
-def test_a_refused_attach_counts_the_calling_thread_alone_and_says_why(monkeypatch) -> None:
+def test_a_refused_attach_counts_the_calling_thread_alone_and_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
     """A worker nothing is attached to makes the sum wrong without a symptom, so the fallback is the
     calling thread's own count with the refusal attached, never a silent fraction of the work."""
     lib = ScriptedPapi(one_two_three_four, attach_rc=-1)
@@ -263,7 +263,7 @@ def test_a_refused_attach_counts_the_calling_thread_alone_and_says_why(monkeypat
     assert "simulated refusal" in row["fallback"], row
 
 
-def test_a_refused_attach_refuses_the_per_thread_report_by_cause(monkeypatch) -> None:
+def test_a_refused_attach_refuses_the_per_thread_report_by_cause(monkeypatch: pytest.MonkeyPatch) -> None:
     """The calling thread alone has no distribution, so the per-thread answer is absent, not balanced."""
     lib = ScriptedPapi(one_two_three_four, attach_rc=-1)
     install(monkeypatch, lib)

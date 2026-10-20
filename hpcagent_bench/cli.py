@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Single CLI surface for hpcagent-bench.
-
-``agent`` grades an optimizer (an LLM backend or a non-AI optimizer, :func:`agent_registry`) over tasks;
-``run-framework`` / ``run-benchmark`` time a framework column over a kernel selection; the rest are judge,
-collection and job verbs.
-
-Both the per-framework metadata (name list, supported precisions) and
-the execution come from the :mod:`hpcagent_bench.frameworks` harness:
-:data:`~hpcagent_bench.columns.FRAMEWORKS` is the
-registry of framework columns and
-:func:`~hpcagent_bench.frameworks.generate_framework` builds the runnable
-adapter.
-"""
+"""Single CLI surface for hpcagent-bench: ``agent`` grades an optimizer over tasks, ``run-framework`` /
+``run-benchmark`` time a framework column over a kernel selection, and the rest are judge, collection and job verbs."""
 
 import argparse
 import dataclasses
@@ -25,12 +14,24 @@ import sys
 import tempfile
 import weakref
 from collections.abc import Callable
-from enum import Enum
 from typing import IO, TYPE_CHECKING, Any
 
 import hpcagent_bench
 from hpcagent_bench import osinfo
-from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS
+from hpcagent_bench.categories import (
+    AUTO_BASELINE,
+    BASELINE_OPTIONS,
+    InputMode,
+    Language,
+    Oracle,
+    Residency,
+    SourceMode,
+    Track,
+    parse_baseline,
+    spelled,
+)
+from hpcagent_bench.config import Execution, PromptStrategy
+from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HintDetail, RenderVerdict, Target
 from hpcagent_bench.paths import RESULTS_DIR
 from hpcagent_bench.precision import DATATYPE_CHOICES
 from hpcagent_bench.spec import BenchSpec, preset_arg, resolve_preset
@@ -38,7 +39,6 @@ from hpcagent_bench.spec import BenchSpec, preset_arg, resolve_preset
 __all__ = [
     "FORWARDED",
     "SPARSE_SWEEP_REPEAT",
-    "Execution",
     "add_grade_options",
     "add_sweep_options",
     "add_task_selection",
@@ -86,13 +86,8 @@ if TYPE_CHECKING:
 
 
 def agent_registry() -> dict[str, Any]:
-    """Available agents for the ``agent`` subcommand (auto-tuner implementations).
-
-    An "agent" is any optimizer: an LLM backend OR a non-AI optimizer, all sharing the
-    Agent.solve(task) contract: the LLM backends (:data:`hpcagent_bench.harness.agent.BACKENDS`), ``local``
-    (in-process Qwen-Coder) and the non-AI noop / noop-mpi / blas-reduction plus the autotuning framework flavors
-    (hpcagent_bench.harness.optimizers).
-    """
+    """Available agents for the ``agent`` subcommand: the LLM backends, ``local`` and the non-AI optimizers, all
+    sharing the ``Agent.solve(task)`` contract."""
     from hpcagent_bench.harness.agent import BACKENDS, LocalHFAgent
     from hpcagent_bench.harness.optimizers import optimizer_registry
 
@@ -105,16 +100,8 @@ def csv_or_none(value: str) -> list[str] | None:
 
 
 def resolve_prompt_variants(value: str | None) -> list[str | None]:
-    """``--prompt-variant`` -> the list of variants to run, one run each.
-
-    Variants are OPTIONAL. Unset -> ``[None]``: one run on the plain ``task.j2``, with no
-    variant recorded -- that is the default, not a variant named "default". ``"all"`` -> every
-    registered variant (every ``task_var<N>.j2`` on the search path, every ``prompt.variants``
-    config entry, and the built-in presets) EXCEPT ``default``, which renders the same
-    ``task.j2`` as the no-variant run and would only duplicate it. Otherwise a comma-separated
-    list, validated here so an unknown name is a clean CLI error rather than a traceback X runs
-    deep.
-    """
+    """``--prompt-variant`` -> the variants to run, one run each: unset -> ``[None]`` (plain ``task.j2``), ``"all"``
+    -> every registered variant but ``default`` (a duplicate of the plain run), else a validated comma list."""
     if not value:
         return [None]
     from hpcagent_bench.harness.prompts import available_variants
@@ -127,25 +114,31 @@ def resolve_prompt_variants(value: str | None) -> list[str | None]:
     return list(names)
 
 
-def residencies_arg(value: str) -> tuple[str, ...]:
-    """Parse + validate ``--residency`` (host / device / 'host,device').
+def languages_arg(value: str) -> list[Language] | None:
+    """Parse ``--languages`` ('c,cuda' / 'all' = each kernel's own set)."""
+    tokens = csv_or_none(value)
+    if tokens is None:
+        return None
+    try:
+        return [Language.parse(token) for token in tokens]
+    except ValueError as exc:
+        raise SystemExit(f"--languages: {exc}") from None
 
-    The only two options are all-host and all-device (abi_contract Sec. 10); reject
-    anything else so a typo is a hard error rather than a silently-empty sweep.
-    """
-    from hpcagent_bench.harness.task import RESIDENCIES
 
+def residencies_arg(value: str) -> tuple[Residency, ...]:
+    """Parse + validate ``--residency`` (host / device / 'host,device'); anything else is a hard error."""
     tokens = tuple(v for v in value.split(",") if v)
-    bad = [t for t in tokens if t not in RESIDENCIES]
-    if bad or not tokens:
-        raise SystemExit(f"--residency must be from {RESIDENCIES}; got {value!r}")
-    return tokens
+    try:
+        if tokens:
+            return tuple(Residency.parse(token) for token in tokens)
+    except ValueError:
+        pass
+    raise SystemExit(f"--residency must be from {Residency.texts()}; got {value!r}")
 
 
 def kernel_selection(value: str) -> list[str] | None:
-    """``--kernels`` as kernel names: ``"all"`` -> None; a kernel name stays as given, and any other token
-    is a selector (a track, dwarf, ``@lvl<n>``/``@<tag>`` filter, or a tag) resolved to its path-keys by
-    :func:`hpcagent_bench.tags.selected`. A token that matches nothing exits naming it."""
+    """``--kernels`` as kernel names: ``"all"`` -> None, a name as given, any other token a selector resolved to
+    path-keys; a token matching nothing exits naming it."""
     tokens = csv_or_none(value)
     if tokens is None:
         return None
@@ -170,8 +163,8 @@ def expand_cli_tasks(args: argparse.Namespace) -> "list[Task]":
 
     return expand_tasks(
         kernels=kernel_selection(args.kernels),
-        source_modes=(args.source_mode,),
-        languages=csv_or_none(args.languages),
+        source_modes=(SourceMode.parse(args.source_mode),),
+        languages=languages_arg(args.languages),
         residencies=residencies_arg(args.residency),
     )
 
@@ -182,8 +175,8 @@ def grade_params_of(args: argparse.Namespace) -> dict[str, Any]:
         "preset": args.preset,
         "datatype": args.datatype,
         "repeat": args.repeat,
-        "oracle": args.oracle,
-        "baseline": args.baseline,
+        "oracle": Oracle.parse(args.oracle),
+        "baseline": parse_baseline(args.baseline),
         "max_rounds": args.repair_rounds,
     }
 
@@ -191,16 +184,8 @@ def grade_params_of(args: argparse.Namespace) -> dict[str, Any]:
 def agent_summary(rows: "list[RunRow]") -> tuple[int, float]:
     """Correct-count + geomean speedup for a finished agent run.
 
-    Correctness is counted by ``row.correct`` -- the judge's numeric verdict -- NOT by
-    ``status == "ok"``: a kernel whose run was cut short by the per-kernel timeout but
-    whose best-so-far attempt was correct (``status == "timeout"``, ``correct=True``,
-    with a real ``speedup``) is a genuine success and MUST count toward the geomean.
-    ``geomean`` already skips the ``speedup <= 0`` (unscored) rows.
-
-    The empty case is ``geomean``'s own answer (:data:`~hpcagent_bench.harness.metric.UNMEASURED`)
-    and never a local literal: this line PRINTS the number the grading path computes, and a summary
-    that reads an absence differently from the grader tells two stories about one run.
-    """
+    Counted by ``row.correct``, not ``status == "ok"``: a timed-out run whose best attempt was correct counts. The
+    empty case is ``geomean``'s own answer, never a local literal."""
     from hpcagent_bench.harness.metric import geomean
 
     correct = [r for r in rows if r.correct]
@@ -208,26 +193,17 @@ def agent_summary(rows: "list[RunRow]") -> tuple[int, float]:
 
 
 def write_agent_row(f: IO[str], row: "RunRow") -> None:
-    """Append one agent :class:`RunRow` to the JSONL sink, dropping ``prompt`` (it lives in
-    the content-addressed store, not the row). Shared by the serial and pipeline write paths
-    so the on-disk row shape is single-sourced."""
+    """Append one agent :class:`RunRow` to the JSONL sink without ``prompt`` (one writer for both paths)."""
     dumped = dataclasses.asdict(row)
     dumped.pop("prompt", None)
-    f.write(json.dumps(dumped) + "\n")
+    f.write(json.dumps(dumped, default=spelled) + "\n")
 
 
 def make_agent_builder(registry: dict[str, Any], agent_name: str) -> Callable[[str | None], Any]:
-    """A ``base_url -> agent`` factory: OpenAI/vLLM agents take the endpoint URL, others ignore it.
-    Used by the `hpcagent-bench agent` static path.
+    """A ``base_url -> agent`` factory for the static HTTP path (OpenAI/vLLM agents take the URL).
 
-    Every consumer of this factory grades over HTTP (:func:`~hpcagent_bench.harness.pipeline.run_static`),
-    and a library named over HTTP is read from the ONE filesystem both containers see -- the judge
-    refuses any other path (:func:`~hpcagent_bench.harness.sandbox.resolve_shared`), because a path in
-    the agent's container means nothing in its own. So an optimizer that can submit a prebuilt ``.so``
-    builds it under the shared folder instead of a judge-invisible temp dir. With no shared folder (a
-    local run without the mount) the optimizer keeps its own throwaway dir, unchanged -- the folder is
-    never created here. The serial in-process path builds its agent itself and is untouched.
-    """
+    An optimizer that submits a prebuilt ``.so`` builds it under the shared folder (the judge reads paths only there);
+    without one it keeps its own throwaway dir."""
     from hpcagent_bench.harness.optimizers import LibraryOptimizer, agent_class
     from hpcagent_bench.harness.sandbox import shared_dir
 
@@ -245,13 +221,11 @@ def make_agent_builder(registry: dict[str, Any], agent_name: str) -> Callable[[s
             return construct(base_url=base_url)
         if builds is None:
             return construct()
-        # One dir per agent (= per task): concurrent workers can hold the same kernel+language under
-        # different prompt variants, and the built .so name keys on nothing else.
+        # One dir per agent: concurrent workers can hold the same kernel+language under different variants.
         return construct(workdir=pathlib.Path(tempfile.mkdtemp(dir=builds)))
 
     if builds is not None:
-        # The FACTORY owns the builds -- run_static holds it for the whole sweep, so every .so
-        # outlives its grade and the shared mount is left as it was found.
+        # The FACTORY owns the builds, so every .so outlives its grade and the mount is left as found.
         weakref.finalize(agent_builder, shutil.rmtree, builds, ignore_errors=True)
     return agent_builder
 
@@ -285,33 +259,24 @@ def run_static_and_write(
     return rows
 
 
-class Execution(Enum):
-    """Where ``hpcagent-bench agent`` runs the agent (config ``agent.execution``)."""
-
-    NATIVE = "native"
-    CONTAINER = "container"
-    HARBOR = "harbor"
-
-
 def execution_mode(args: argparse.Namespace) -> Execution:
     """The run mode: ``--native``, else ``--execution``, else config ``agent.execution``. Sets ``args.native``."""
     from hpcagent_bench import config
 
-    execution = Execution.NATIVE if args.native else Execution(args.execution or config.current().agent.execution)
+    execution = Execution.NATIVE if args.native else args.execution or config.current().agent.execution
     args.native = execution is Execution.NATIVE
     return execution
 
 
 def agent_under_harbor(args: argparse.Namespace) -> int:
-    """``agent --execution harbor``: Harbor runs the matching Harbor agent per kernel, one container
-    per trial, and the task verifier grades with the same judge; rows go to ``--output``."""
+    """``agent --execution harbor``: Harbor runs the matching agent per kernel and the task verifier grades it."""
     from hpcagent_bench import harbor
 
     out = pathlib.Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    language = args.languages.split(",")[0]
+    language = Language.parse(args.languages.split(",")[0])
     rc, grades = harbor.run_agent(args.agent, args.kernels, out.parent / f"harbor-{args.episode_id}", language=language)
-    run = {"agent": args.agent, "episode_id": args.episode_id, "execution": "harbor"}
+    run = {"agent": args.agent, "episode_id": args.episode_id, "execution": Execution.HARBOR.text}
     with out.open("a") as f:
         for g in grades:
             f.write(json.dumps({**g.model_dump(), **run}) + "\n")
@@ -330,36 +295,28 @@ def cmd_agent_entry(args: argparse.Namespace) -> int:
 def cmd_agent(args: argparse.Namespace) -> int:
     """Run one agent over the task cross-product, grading each (JSONL out).
 
-    Each task is one end-to-end optimization: the agent proposes an implementation, the harness
-    compiles + validates it against ``--oracle`` and times it against ``--baseline``; with
-    ``--repair-rounds > 1`` a build/numeric failure is fed back for repair. ``--save-submissions``
-    writes each task's winning source out.
-
-    ``--native`` runs agent and grader in-process (no containers), with the same per-kernel process
-    isolation, stashes every submission under ``native_runs/<episode_id>/<kernel>/`` in the scratch directory
-    (``$HPCAGENT_BENCH_SCRATCH``, default ``<repo>/.scratch``), and host-frames the prompt.
-    """
+    ``--repair-rounds > 1`` feeds failures back; ``--native`` runs agent and grader in-process (same per-kernel
+    isolation), stashes submissions under the scratch ``native_runs/`` and host-frames the prompt."""
     from hpcagent_bench import config
     from hpcagent_bench.harness import timing
     from hpcagent_bench.harness.pipeline import agent_workers, judge_endpoints, static_enabled, vllm_endpoints
 
     execution_mode(args)  # normalizes args.native from --execution / config
-    timing.pin_threads()  # measure under the SAME thread pinning the Harbor verifier uses (parity)
+    timing.pin_threads()  # pin like the Harbor verifier does (parity)
     registry = agent_registry()
     if args.agent not in registry:
         raise SystemExit(f"unknown agent {args.agent!r}; choices: {sorted(registry)}")
     agent = registry[args.agent]()
     args.preset = resolve_preset(args.preset)
     grade_params = grade_params_of(args)
-    # One run per (task, prompt variant), expanded once so the serial and distributed paths agree.
+    # One run per (task, prompt variant), expanded once so both paths agree.
     tasks = expand_cli_tasks(args)
     variants = resolve_prompt_variants(args.prompt_variant)
     runs = [(t, v) for t in tasks for v in variants]
     out = pathlib.Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Distributed static path: W workers, each statically assigned one vLLM + one judge endpoint.
-    # --native, and a single box with no endpoints, keep the serial loop.
+    # Distributed static path: each worker bound to one vLLM and one judge endpoint; else the serial loop.
     vllm_urls = vllm_endpoints()
     judge_urls = judge_endpoints()
     workers = agent_workers(vllm_urls, judge_urls)
@@ -369,11 +326,10 @@ def cmd_agent(args: argparse.Namespace) -> int:
             print(
                 "[static] --save-submissions / --record are not wired in the distributed path; writing graded rows only"
             )
-        # The judge files rows under the identity the launcher exports (harness.tools.identity_fields);
-        # an identity an outer launcher already exported wins.
+        # The judge files rows under the identity the launcher exports; an outer launcher's wins.
         if args.episode_id != "adhoc":
             os.environ.setdefault("HPCAGENT_BENCH_EPISODE_ID", args.episode_id)
-        os.environ.setdefault("HPCAGENT_BENCH_OPTIMIZER", agent.name)  # the SAME label the serial path records
+        os.environ.setdefault("HPCAGENT_BENCH_OPTIMIZER", agent.name)  # the label the serial path records
         rows = run_static_and_write(
             make_agent_builder(registry, args.agent),
             [task for task, variant in runs],
@@ -394,7 +350,7 @@ def cmd_agent(args: argparse.Namespace) -> int:
             if args.native:
                 config.clear_override("prompt.native")
 
-    n_correct, gm = agent_summary(rows)  # geomean over CORRECT rows (incl. timed-out-but-correct)
+    n_correct, gm = agent_summary(rows)  # geomean over CORRECT rows
     rounds = max((r.rounds for r in rows), default=1)
     print(
         f"agentbench {args.agent}{' [native]' if args.native else ''}: {n_correct}/{len(rows)} correct, "
@@ -411,9 +367,7 @@ def run_serial(
     grade_params: dict[str, Any],
     out: pathlib.Path,
 ) -> "list[RunRow]":
-    """The in-process path of :func:`cmd_agent`: solve each ``(task, prompt variant)`` in turn
-    (:func:`~hpcagent_bench.harness.runner.solve_task`), append its row to ``out`` and persist what the
-    flags ask for."""
+    """The in-process path of :func:`cmd_agent`: solve each ``(task, variant)`` in turn and append its row."""
     from hpcagent_bench.harness import native
     from hpcagent_bench.harness.runner import solve_task
 
@@ -453,14 +407,19 @@ def record_calls(args: argparse.Namespace, task: "Task", row: "RunRow") -> None:
 
 
 def save_submission_file(
-    save_dir: pathlib.Path, task: "Task", row: "RunRow", language: str, source: str, prompt_variant: str | None
+    save_dir: pathlib.Path,
+    task: "Task",
+    row: "RunRow",
+    language: Language,
+    source: str | None,
+    prompt_variant: str | None,
 ) -> None:
     """``--save-submissions``: write the returned optimization (winning, else last attempt)."""
     from hpcagent_bench.languages import LANG_EXT
 
-    ext = LANG_EXT.get(language, language)
+    ext = LANG_EXT.get(language, language.text)
     tag = f"__{prompt_variant}" if prompt_variant else ""
-    (save_dir / f"{task.kernel}__{task.language}{tag}__{row.status}.{ext}").write_text(source)
+    (save_dir / f"{task.kernel}__{task.language.text}{tag}__{row.status.text}.{ext}").write_text(source or "")
 
 
 def cmd_tasks(args: argparse.Namespace) -> int:
@@ -473,14 +432,13 @@ def cmd_tasks(args: argparse.Namespace) -> int:
 
 
 def variant_diff(cfg: "PromptConfig") -> str:
-    """One-line ``field=value`` summary of how a resolved ``PromptConfig`` differs
-    from the config-default baseline (empty when identical, e.g. the ``default``
-    variant). Used by ``--list-variants`` to show what each preset actually changes."""
+    """One-line ``field=value`` summary of how a resolved ``PromptConfig`` differs from the defaults."""
     from hpcagent_bench.harness.prompts import PromptConfig
 
     base = dataclasses.asdict(PromptConfig.resolve())
     cur = dataclasses.asdict(cfg)
-    return ", ".join(f"{k}={cur[k]!r}" for k in cur if cur[k] != base[k])
+    shown = {k: v.text if isinstance(v, PromptStrategy) else repr(v) for k, v in cur.items()}
+    return ", ".join(f"{k}={shown[k]}" for k in cur if cur[k] != base[k])
 
 
 def print_sections(prompt_config: "PromptConfig") -> int:
@@ -496,14 +454,8 @@ def print_sections(prompt_config: "PromptConfig") -> int:
 
 
 def cmd_prompt(args: argparse.Namespace) -> int:
-    """Print the leak-free prompt for one (kernel, language) task.
-
-    ``--service`` prints the judge-driven prompt (how to call the /baseline +
-    /score + /submit ports) for an external agent like mini-swe-agent; otherwise the
-    in-process prompt (the kernel returns its source in the reply). ``--variant``
-    applies a named prompt preset, ``--list-variants`` lists them, and
-    ``--all-variants`` renders the prompt under every variant (A/B batch render).
-    """
+    """Print the leak-free prompt for one (kernel, language) task: ``--service`` the judge-driven prompt, else the
+    in-process one; ``--variant`` / ``--list-variants`` / ``--all-variants`` select presets."""
     from hpcagent_bench import config
     from hpcagent_bench.harness.prompts import PromptConfig, available_variants, build_prompt
     from hpcagent_bench.harness.task import Task
@@ -525,14 +477,13 @@ def cmd_prompt(args: argparse.Namespace) -> int:
     if args.service:
         from hpcagent_bench.harness.service import service_prompt
 
-        print(service_prompt(args.kernel, args.language, args.judge_url, judge_rank=args.judge_rank))
+        print(service_prompt(args.kernel, Language.parse(args.language), args.judge_url, judge_rank=args.judge_rank))
         return 0
 
-    task = Task(args.kernel, "restricted", args.language)
+    task = Task(args.kernel, SourceMode.RESTRICTED, Language.parse(args.language))
 
     def config_for(variant_name: str) -> PromptConfig:
-        # Explicit CLI kwargs win over the variant, which wins over config defaults;
-        # an unknown variant is a clean CLI error (not a traceback).
+        # Explicit CLI kwargs win over the variant, which wins over config defaults.
         try:
             return PromptConfig.variant(
                 variant_name,
@@ -557,28 +508,18 @@ def cmd_prompt(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Run the judge service (oracle + baseline as HTTP ports).
-
-    The SERVICES instance of the two-container topology: it holds the hidden
-    tests + references + timer and exposes /task, /baseline, /score, /submit
-    and /profile. A second
-    instance of the SAME image runs the agent and calls these ports.
-
-    ``--rank`` is this judge's index in the deployment's judge list; every request must
-    name it or the judge refuses to answer, so a mis-routed agent fails loudly instead of
-    being graded by the wrong (but live) judge.
-    """
+    """Run the judge service (``/baseline``, ``/score``, ``/submit``, ``/profile``), holding hidden tests,
+    references and the timer; ``--rank`` is this judge's index, which every request must name."""
     from hpcagent_bench.harness import timing
     from hpcagent_bench.harness.service import ServiceConfig, from_config, serve
 
-    timing.pin_threads()  # the judge service times submissions -> pin like every other measurement session
+    timing.pin_threads()  # pin like every other measurement session
     base = from_config()
     cfg = ServiceConfig(
-        oracle=args.oracle or base.oracle,
-        baseline=args.baseline or base.baseline,
-        input_mode=args.input_mode or base.input_mode,
-        # resolve_preset maps 'fuzzed:seed' -> base 'fuzzed' AND applies the token's seed;
-        # passing args.preset raw (as before) dropped the pinned seed silently.
+        oracle=base.oracle if args.oracle is None else Oracle.parse(args.oracle),
+        baseline=base.baseline if args.baseline is None else parse_baseline(args.baseline),
+        input_mode=base.input_mode if args.input_mode is None else InputMode.parse(args.input_mode),
+        # resolve_preset maps 'fuzzed:seed' to 'fuzzed' AND applies the seed.
         preset=resolve_preset(args.preset) if args.preset else base.preset,
         datatype=args.datatype or base.datatype,
         repeat=args.repeat if args.repeat is not None else base.repeat,
@@ -592,11 +533,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def cmd_export_hf(args: argparse.Namespace) -> int:
-    """Build, validate and (with ``--push``) publish the HuggingFace dataset folder.
-
-    The rows are built once: the validated folder written to ``--out`` is exactly what is uploaded.
-    Exit codes: 1 validation failed, 2 bad selector or missing HF_TOKEN, 3 push failed.
-    """
+    """Build, validate and (``--push``) publish the HuggingFace dataset folder; the validated folder is what is
+    uploaded. Exit 1 invalid, 2 bad selector or missing HF_TOKEN, 3 push failed."""
     import os
     import sys
 
@@ -641,15 +579,10 @@ def cmd_harbor(args: argparse.Namespace) -> int:
     return harbor_main(args.harbor_args)
 
 
-# collection + reporting verbs
-# Each defers its heavy import (the framework stack / matplotlib) until the command
-# actually runs, so `--help` never pulls them in.
+# collection + reporting verbs (each defers its heavy import, so `--help` stays light)
 def cmd_run_benchmark(args: argparse.Namespace) -> int:
-    """Run a kernel selection under one framework, sequentially; its rows go to this process's results shard
-    (the ``canon`` table).
-
-    Exits 1 when any kernel's forked child failed: a crash, an error, or a failed validation, which
-    raises in the child because this path never ignores errors."""
+    """Run a kernel selection under one framework sequentially (rows to the ``canon`` table); exit 1 when any
+    kernel's child failed."""
     from hpcagent_bench.support.collect.sweep import CanonTarget, run_benchmark_sweep
 
     preset = resolve_preset(args.preset)
@@ -673,21 +606,16 @@ def parse_shard(spec: str) -> tuple[int, int]:
 
 
 def cmd_run_framework(args: argparse.Namespace) -> int:
-    """Run a kernel selection under one framework, forking EACH kernel (writes hpcagent_bench.db).
+    """Run a kernel selection under one framework, forking EACH kernel.
 
-    ``--canon-db`` records one row per (kernel, framework) into that canon DB as each kernel finishes;
-    ``--summarize`` reports on such a DB instead of running anything (narrowed to ``--canon-run`` when
-    given). Its exit code is a three-way verdict, not the raw failure count: 0 every row is green, 1 at
-    least one row crashed/failed/disagreed with the compiled reference (a real measurement with known
-    failures), 2 no row at all -- the sweep produced nothing and a caller must never tolerate that as if it
-    were case 1.
-    """
+    ``--canon-db`` records a row per (kernel, framework); ``--summarize`` reports on such a DB instead. Exit 0 all
+    green, 1 some row failed, 2 no row at all (never to be tolerated as 1)."""
     if args.summarize:
         from hpcagent_bench.harness import recording
         from hpcagent_bench.support.collect import canon_db
         from hpcagent_bench.support.collect.sweep import NO_ROWS, summarize
 
-        # The rollup invocation is the end of the distributed run, so the per-rank results DBs merge here too.
+        # The rollup ends the distributed run, so the per-rank results DBs merge here too.
         merged = recording.aggregate()
         if merged:
             print(
@@ -717,14 +645,12 @@ def cmd_run_framework(args: argparse.Namespace) -> int:
         canon=canon,
         opt_reports_dir=args.opt_reports,
     )
-    # A sweep in which every kernel died is a failure to any wrapper reading the status; ``--ignore-errors``
-    # is the opt-out.
+    # A sweep in which every kernel died is a failure; ``--ignore-errors`` opts out.
     return 1 if failed and not args.ignore_errors else 0
 
 
 def cmd_run_sparse(args: argparse.Namespace) -> int:
-    """Grade every (sparse kernel, offered layout)'s reference translation through the judge's own
-    grading path (docs/sparse_abi.md); nonzero when one is wrong or crashes."""
+    """Grade every (sparse kernel, offered layout)'s reference through the judge's grading path; nonzero on error."""
     from hpcagent_bench.spec import bsr_block_sizes
     from hpcagent_bench.support.collect.sweep import run_sparse_sweep
 
@@ -740,16 +666,10 @@ def cmd_run_sparse(args: argparse.Namespace) -> int:
 
 
 def cmd_aggregate_db(args: argparse.Namespace) -> int:
-    """Merge the per-rank shard DBs into one aggregate.
-
-    Rarely needed by hand: every reader goes through ``recording.ensure_aggregated``, and a
-    ``run-framework --summarize`` rollup aggregates as part of closing the run. This exists for the
-    case where the merge should happen NOW (archiving a run, or copying one DB off the cluster)."""
+    """Merge the per-rank shard DBs into one aggregate now (readers aggregate on their own)."""
     from hpcagent_bench.harness import recording
 
-    # A cluster run does not leave its shards beside anything: each judge rank writes into its own
-    # <run>/judge/rank-N/ directory, so the default sibling scan finds nothing and the run looks
-    # empty. --source names them explicitly, which is what recording.aggregate already accepts.
+    # Cluster shards live under <run>/judge/rank-N/, not beside the DB, so --source names them.
     shards = list(args.source) if args.source else recording.shard_paths(args.db)
     if not shards:
         print(f"no shard DBs beside {args.db or recording.base_db_path()}; nothing to aggregate")
@@ -770,17 +690,14 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         tools_only=args.tools_only,
     )
     for line in report:
-        print(line, file=sys.stderr)  # stdout is what the caller EVALS; a diagnostic there would run
+        print(line, file=sys.stderr)  # stdout is what the caller EVALS
     for line in env:
         print(line)
     return code
 
 
 def cmd_grade_under(args: argparse.Namespace) -> int:
-    """Grade what the results DBs hold no grade under the final protocol of (mw4x5).
-
-    Forwards to :mod:`hpcagent_bench.harness.grade_under`, which owns the ``worklist``/``run``/``apply``
-    subcommands -- see ``hpcagent-bench grade-under worklist --help``, or docs/measurement_statistics.md."""
+    """Grade what the results DBs hold no final-protocol grade of (forwards to :mod:`harness.grade_under`)."""
     from hpcagent_bench.harness.grade_under import main as regrade_main
 
     return regrade_main(args.grade_under_args)
@@ -814,6 +731,20 @@ def cmd_owed(args: argparse.Namespace) -> int:
     return owed_main(args.forwarded)
 
 
+def cmd_canon_times(args: argparse.Namespace) -> int:
+    """Print each column's build time by phase over a canon DB's kernels: p50, p90, max and the slowest kernel."""
+    from hpcagent_bench.stats import canon
+    from hpcagent_bench.support.collect import canon_db
+
+    rows = canon_db.read(pathlib.Path(args.db), run=args.run, column=args.column)
+    summary = canon.build_times(rows)
+    if not summary:
+        print(f"{args.db}: no canon row carries a build time (a run before results schema 14?)", file=sys.stderr)
+        return 1
+    print(canon.format_build_times(summary))
+    return 0
+
+
 def cmd_job(args: argparse.Namespace) -> int:
     """Run this Slurm task's share of a helper job (:mod:`hpcagent_bench.cluster.jobs`)."""
     from hpcagent_bench.cluster.jobs import main as job_main
@@ -825,14 +756,15 @@ def cmd_cpf(args: argparse.Namespace) -> int:
     """Render kernels as self-contained C/C++ translation units through DaCe's CPF."""
     from hpcagent_bench import cpf_bridge
 
+    target, hints = Target.parse(args.target), HintDetail.parse(args.hints)
     if args.track:
         records = cpf_bridge.render_track(
-            args.track,
+            Track.parse(args.track),
             args.out,
             language=args.language,
             precision=args.precision,
-            target=args.target,
-            hints=args.hints,
+            target=target,
+            hints=hints,
             jsonl=args.jsonl,
         )
     else:
@@ -842,20 +774,17 @@ def cmd_cpf(args: argparse.Namespace) -> int:
                 args.out,
                 language=args.language,
                 precision=args.precision,
-                target=args.target,
-                hints=args.hints,
+                target=target,
+                hints=hints,
             )
         ]
         print(records[0].line(indent=2))
-    # A refusal is a result, not a failure: CPF names the construct it cannot render and a sweep is
-    # measuring exactly that. Only a crash or a wedge makes the command itself fail.
-    return 1 if any(r.verdict in ("fail", "timeout") for r in records) else 0
+    # A refusal is a result (CPF names what it cannot render); only a crash or a wedge fails the command.
+    return 1 if any(r.verdict in (RenderVerdict.FAIL, RenderVerdict.TIMEOUT) for r in records) else 0
 
 
 def add_task_selection(p: argparse.ArgumentParser) -> None:
     """The task-selection arguments ``agent``, ``launch`` and ``tasks`` share (:func:`expand_cli_tasks`)."""
-    from hpcagent_bench.harness.task import SOURCE_MODES  # the vocabulary is Task's own, not a CLI copy
-
     p.add_argument(
         "--kernels",
         default="all",
@@ -867,13 +796,13 @@ def add_task_selection(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--residency",
-        default="host",
+        default=Residency.HOST.text,
         help="buffer residency: host (default) or device (GPU-resident, cuda/hip only); comma-separated to sweep both",
     )
     p.add_argument(
         "--source-mode",
-        default="restricted",
-        choices=list(SOURCE_MODES),
+        default=SourceMode.RESTRICTED.text,
+        choices=SourceMode.texts(),
         help="delivery: restricted (default; a source file in the task's language, the "
         "harness compiles it) or any (a prebuilt C-ABI .so, written in any language)",
     )
@@ -881,8 +810,6 @@ def add_task_selection(p: argparse.ArgumentParser) -> None:
 
 def add_grade_options(p: argparse.ArgumentParser) -> None:
     """The grading arguments ``agent`` and ``launch`` share (:func:`grade_params_of`)."""
-    from hpcagent_bench.harness.grading import BASELINE_OPTIONS, ORACLE_OPTIONS
-
     p.add_argument(
         "--preset",
         default="fuzzed",
@@ -900,16 +827,16 @@ def add_grade_options(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--oracle",
-        default="auto",
-        choices=list(ORACLE_OPTIONS),
+        default=Oracle.AUTO.text,
+        choices=Oracle.texts(),
         help="correctness reference (default auto = the per-track default: loop_level_reasoning and "
         "scientific_computing -> compiled, the best-of(numba, c) references; machine_learning -> torch, the "
         "torch.compile max-autotune reference; numba | c = that one compiled reference)",
     )
     p.add_argument(
         "--baseline",
-        default="auto",
-        choices=list(BASELINE_OPTIONS),
+        default=AUTO_BASELINE,
+        choices=BASELINE_OPTIONS,
         help="speedup denominator (default auto = the per-track default: loop_level_reasoning and "
         "scientific_computing -> the faster of c and numba, machine_learning -> torch-autotune; "
         "c = sequential C; *-autopar = the multi-core auto-parallelized reference; "
@@ -949,9 +876,6 @@ def add_sweep_options(p: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argparse parser."""
-    from hpcagent_bench.harness.grading import BASELINE_OPTIONS, ORACLE_OPTIONS
-    from hpcagent_bench.harness.prompts import STRATEGIES
-    from hpcagent_bench.harness.service import INPUT_MODES
     from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 
     p = argparse.ArgumentParser(prog="hpcagent-bench")
@@ -992,7 +916,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "--execution",
         default=None,
-        choices=[e.value for e in Execution],
+        type=Execution.parse,
+        metavar="|".join(Execution.texts()),
         help="where the agent runs: native (in-process, = --native), container (default; the "
         "container launcher / judge endpoints), or harbor (Harbor runs the matching Harbor agent "
         "in one container per trial, graded by the same judge). Default: config agent.execution",
@@ -1027,7 +952,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("prompt", help="print the leak-free prompt for one task")
     pr.add_argument("kernel", nargs="?", default=None, help="kernel key (e.g. gemm); optional with --list-variants")
-    pr.add_argument("--language", default="c", help="implementation language (default c)")
+    pr.add_argument("--language", default=Language.C.text, choices=Language.texts(), help="implementation language")
     pr.add_argument(
         "--variant",
         default=None,
@@ -1072,7 +997,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument(
         "--strategy",
         default=None,
-        choices=sorted(STRATEGIES),
+        choices=PromptStrategy.texts(),
         help="named optimization strategy shaping the how-to section "
         "(default from config prompt.strategy; overrides the --variant's strategy)",
     )
@@ -1109,19 +1034,19 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument(
         "--oracle",
         default=None,
-        choices=list(ORACLE_OPTIONS),
+        choices=Oracle.texts(),
         help="correctness reference (default from config service.oracle)",
     )
     sv.add_argument(
         "--baseline",
         default=None,
-        choices=list(BASELINE_OPTIONS),
+        choices=BASELINE_OPTIONS,
         help="speedup denominator (default from config measurement.baseline)",
     )
     sv.add_argument(
         "--input-mode",
         default=None,
-        choices=list(INPUT_MODES),
+        choices=InputMode.texts(),
         help="what a submission may carry (default from config service.input_mode)",
     )
     sv.add_argument(
@@ -1291,22 +1216,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     target = mp.add_mutually_exclusive_group(required=True)
     target.add_argument("--kernel", help="registry key / manifest stem of ONE kernel")
-    target.add_argument("--track", help="render every kernel on this track instead")
+    target.add_argument("--track", choices=Track.texts(), help="render every kernel on this track instead")
     mp.add_argument("--out", required=True, help="directory the translation units and bindings are written to")
     mp.add_argument("--language", default="c++", choices=("c++", "c"))
     mp.add_argument("--precision", default="", help="fp64 (default) / fp32 / fp16")
     mp.add_argument(
         "--target",
-        default="cpu",
-        choices=("cpu", "gpu"),
+        default=Target.CPU.text,
+        choices=Target.texts(),
         help="which specialization to render: cpu parallel regions, or the offloaded device form. "
         "Write the two into DIFFERENT --out directories: the rendered file names are the same, and "
         "the judge serves whichever directory it is pointed at.",
     )
     mp.add_argument(
         "--hints",
-        default=DEFAULT_HINTS,
-        choices=HINT_DETAILS,
+        default=DEFAULT_HINTS.text,
+        choices=HintDetail.texts(),
         help="proofs: every loop's whole hint and the header contract; kinds: one par, seq or unknown per loop",
     )
     mp.add_argument("--jsonl", default=None, help="append one verdict per line here (--track)")
@@ -1353,6 +1278,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ow.set_defaults(func=cmd_owed)
 
+    ct = sub.add_parser("canon-times", help="build time by phase (transform/codegen/compile) per canon column")
+    ct.add_argument("db", help="a canon results DB (the baseline sweep's)")
+    ct.add_argument("--run", default=None, help="only this run")
+    ct.add_argument("--column", default=None, help="only this framework column")
+    ct.set_defaults(func=cmd_canon_times)
+
     jb = sub.add_parser("job", help="a helper job whose tasks split the work over SLURM_PROCID / SLURM_NTASKS")
     jb.add_argument(
         "forwarded",
@@ -1379,7 +1310,7 @@ FORWARDED = {"collect": cmd_collect, "extract": cmd_extract, "job": cmd_job, "ow
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    osinfo.unblock_sigchld()  # before any verb: everything that builds is downstream of here
+    osinfo.unblock_sigchld()  # before any verb: everything that builds is downstream
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv and argv[0] in FORWARDED:
         return FORWARDED[argv[0]](argparse.Namespace(forwarded=argv[1:]))

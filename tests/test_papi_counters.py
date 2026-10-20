@@ -1,21 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The PAPI counting wrapper: what it resolves, what it refuses, and what a crash costs.
-
-Most of this runs on ANY host, because the parts that can be wrong on a host without PAPI are
-pure: the metric -> event ladder, the sign arithmetic of a derived expression, and the rule that
-an unexpressible metric is reported missing rather than filled with a different quantity.
-
-The handful of tests that genuinely need counters are gated on EXPLICIT predicates -- Linux +
-``find_library("papi")`` + ``papi.perf_event_reason()`` -- rather than a swallowed import error,
-so a skip here always means "this host cannot count" and never "something changed and the guard
-stopped noticing".
-
-A host with libpapi and no countable event is NOT one of those, though a hosted runner is exactly
-that host: an absent event is a thing this module promises to degrade over, by name, so the tests
-that measure something assert the refusal on such a machine rather than skipping it, and simulate
-one (``available_events`` patched empty) on a machine that can count.
-"""
+"""The PAPI counting wrapper: event resolution, derived-metric arithmetic and missing-metric reporting run
+anywhere; counter tests are gated on explicit predicates, and a host without countable events asserts the
+refusal."""
 
 import ctypes
 import faulthandler
@@ -24,10 +11,12 @@ import os
 import pathlib
 import signal
 import subprocess
+from collections.abc import Callable, Sequence
 
 import pytest
 
 from hpcagent_bench import flags, osinfo
+from hpcagent_bench.categories import Language, Preset, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import papi, profiling
 from tests.papi_probe import CAN_COUNT, PAPI_LIBRARY, armable
@@ -289,7 +278,7 @@ def test_the_rendered_ratios_carry_the_formula_and_the_reasons() -> None:
     assert "no count for stalled_cycles" in text
 
 
-def segfaulting_worker(*args, **kwargs) -> None:
+def segfaulting_worker(*args: object, **kwargs: object) -> None:
     """Stand-in for :func:`papi.counting_worker` that dies the way an agent's kernel dies."""
     # Deliberate: this child is proving the harness survives a fatal signal. pytest enables
     # faulthandler by default and the fork inherits it, so without this the child dumps a
@@ -298,23 +287,23 @@ def segfaulting_worker(*args, **kwargs) -> None:
     os.kill(os.getpid(), signal.SIGSEGV)
 
 
-def raising_worker(*args, **kwargs) -> None:
+def raising_worker(*args: object, **kwargs: object) -> None:
     raise RuntimeError("PAPI_start failed: no such event")
 
 
-def test_a_segfaulting_counted_run_costs_one_metric_not_the_process(monkeypatch) -> None:
+def test_a_segfaulting_counted_run_costs_one_metric_not_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """The isolation contract: metric k's child dying is metric k's number lost, the parent alive,
     and the signal NAMED -- not an exception the caller has to guess the meaning of."""
     monkeypatch.setattr(papi, "counting_worker", segfaulting_worker)
-    row = papi.count_metric("/nonexistent.so", None, {}, "c", "instructions", rep_timeout=5.0)
+    row = papi.count_metric("/nonexistent.so", None, {}, Language.C, "instructions", rep_timeout=5.0)
     assert row["count"] is None
     assert "SIGSEGV" in row["missing"]
     assert os.getpid()  # the parent is still here to run metric k+1
 
 
-def test_a_papi_failure_inside_the_child_is_reported_as_that_metric_s_reason(monkeypatch) -> None:
+def test_a_papi_failure_inside_the_child_is_reported_as_that_metric_s_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(papi, "counting_worker", raising_worker)
-    row = papi.count_metric("/nonexistent.so", None, {}, "c", "fp_ops", rep_timeout=5.0)
+    row = papi.count_metric("/nonexistent.so", None, {}, Language.C, "fp_ops", rep_timeout=5.0)
     assert row["metric"] == "fp_ops"
     assert row["count"] is None
     assert "PAPI_start failed" in row["missing"]
@@ -339,12 +328,12 @@ def counted_line(metric: str) -> str:
     )
 
 
-def test_one_wedged_metric_does_not_cost_the_others(monkeypatch, tmp_path) -> None:
+def test_one_wedged_metric_does_not_cost_the_others(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The sweep must survive a metric that hangs. subprocess signals a deadline overrun by
     RAISING, so without a catch here the first wedge takes down every metric after it -- and the
     call graph the profile already paid for."""
 
-    def fake_run(argv, **kwargs):
+    def fake_run(argv: list[str], **kwargs: dict[str, str] | float | str) -> subprocess.CompletedProcess:
         metric = argv[argv.index("--metric") + 1]
         if metric == "fp_ops":
             raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs["timeout"])
@@ -360,11 +349,13 @@ def test_one_wedged_metric_does_not_cost_the_others(monkeypatch, tmp_path) -> No
     assert all(rows[m]["count"] == 7 for m in papi.METRICS if m != "fp_ops")
 
 
-def test_a_dead_counting_process_is_decoded_into_that_metric_s_reason(monkeypatch, tmp_path) -> None:
+def test_a_dead_counting_process_is_decoded_into_that_metric_s_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """No result line means the process never got that far; its exit status and stderr are the
     reason, not a silent zero."""
 
-    def fake_run(argv, **kwargs):
+    def fake_run(argv: list[str], **kwargs: dict[str, str] | float | str) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(argv, -11, stdout="", stderr="Segmentation fault")
 
     monkeypatch.setattr(profiling, "run_command", fake_run)
@@ -468,25 +459,25 @@ class FakeLib:
     def __init__(self, add: int = papi.PAPI_OK, start: int = papi.PAPI_OK) -> None:
         self.add, self.start, self.destroyed = add, start, 0
 
-    def PAPI_create_eventset(self, ref) -> int:
+    def PAPI_create_eventset(self, ref: object) -> int:
         return papi.PAPI_OK
 
-    def PAPI_assign_eventset_component(self, eventset, component) -> int:
+    def PAPI_assign_eventset_component(self, eventset: ctypes.c_int, component: int) -> int:
         return papi.PAPI_OK
 
-    def PAPI_add_event(self, eventset, code) -> int:
+    def PAPI_add_event(self, eventset: ctypes.c_int, code: int) -> int:
         return self.add
 
-    def PAPI_start(self, eventset) -> int:
+    def PAPI_start(self, eventset: ctypes.c_int) -> int:
         return self.start
 
-    def PAPI_stop(self, eventset, values) -> int:
+    def PAPI_stop(self, eventset: ctypes.c_int, values: "ctypes.Array[ctypes.c_long]") -> int:
         return papi.PAPI_OK
 
-    def PAPI_cleanup_eventset(self, eventset) -> int:
+    def PAPI_cleanup_eventset(self, eventset: ctypes.c_int) -> int:
         return papi.PAPI_OK
 
-    def PAPI_destroy_eventset(self, ref) -> int:
+    def PAPI_destroy_eventset(self, ref: object) -> int:
         self.destroyed += 1
         return papi.PAPI_OK
 
@@ -514,7 +505,7 @@ def test_the_counter_budget_is_reported_so_multiplexing_stays_checkable() -> Non
     assert max(len(c) for cands in papi.METRICS.values() for c in cands) <= budget
 
 
-def test_feature_set_is_the_intersection_of_what_we_want_and_what_the_cpu_has(monkeypatch) -> None:
+def test_feature_set_is_the_intersection_of_what_we_want_and_what_the_cpu_has(monkeypatch: pytest.MonkeyPatch) -> None:
     """The query an agent, a test and the skill all start from -- answerable without a workload."""
     monkeypatch.setattr(papi, "available_events", lambda: ZEN4_AVAILABLE)
     monkeypatch.setattr(papi, "hardware_counters", lambda: 5)
@@ -528,7 +519,7 @@ def test_feature_set_is_the_intersection_of_what_we_want_and_what_the_cpu_has(mo
     assert features["hardware_counters"] == 5
 
 
-def test_feature_set_answers_for_a_subset_when_asked(monkeypatch) -> None:
+def test_feature_set_answers_for_a_subset_when_asked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(papi, "available_events", lambda: ZEN4_AVAILABLE)
     monkeypatch.setattr(papi, "hardware_counters", lambda: 5)
     features = papi.feature_set(("instructions", "integer_instructions"))
@@ -552,7 +543,7 @@ def test_thread_ids_put_the_calling_thread_first() -> None:
 
 
 @requires_papi
-def test_the_count_covers_the_timed_call_and_nothing_else(monkeypatch) -> None:
+def test_the_count_covers_the_timed_call_and_nothing_else(monkeypatch: pytest.MonkeyPatch) -> None:
     """The assertion this whole module exists for: gemm at preset S does 2*NI*NJ*NK multiply-adds,
     so a correctly bracketed fp-op count lands ON that number. A count that also swept up
     interpreter start-up, the seeded input generation or the per-rep buffer copies would not --
@@ -576,17 +567,17 @@ def test_the_count_covers_the_timed_call_and_nothing_else(monkeypatch) -> None:
     sizes = spec.parameters["S"]
     expected = 2 * sizes["NI"] * sizes["NJ"] * sizes["NK"]
     binding = binding_from_spec(spec)
-    task = Task("gemm", "restricted", "c")
+    task = Task("gemm", SourceMode.RESTRICTED, Language.C)
     # Read off the REAL machine, before the patch below empties its event set.
     have_fp_ops, absent = armable("fp_ops"), unarmable_events("fp_ops")
     with Sandbox(binding) as sandbox:
-        built = sandbox.build(Submission(language="c", source=reference_source(task)), debug=True)
+        built = sandbox.build(Submission(language=Language.C, source=reference_source(task)), debug=True)
         assert built.ok, built.log[-2000:]
-        data = _data_seeded("gemm", "S", "float64", 42)
-        row = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=2, rep_timeout=300.0)
+        data = _data_seeded("gemm", Preset.S, "float64", 42)
+        row = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=2, rep_timeout=300.0)
         # A machine with no countable event at all, forced. The patch crosses count_metric's fork.
         monkeypatch.setattr(papi, "available_events", lambda: ())
-        starved = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=1, rep_timeout=300.0)
+        starved = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=1, rep_timeout=300.0)
     assert starved["count"] is None
     assert "PAPI_FP_OPS" in starved["missing"]
 
@@ -630,14 +621,18 @@ void gemm_fp64(double *A, double *B, double *C, int64_t NI, int64_t NJ, int64_t 
 SERIAL_GEMM = OPENMP_GEMM.replace("    #pragma omp parallel for\n", "")
 
 
-def refusing_open_counter(original):
+def refusing_open_counter(
+    original: Callable[..., tuple[ctypes.c_int, str | None]],
+) -> Callable[..., tuple[ctypes.c_int, str | None]]:
     """A host that will not attach: the calling thread opens, every worker is refused.
 
     Closes over the REAL function -- reading it back off the module would find this stand-in and
     recurse forever, which is the shape of a patch that tests nothing.
     """
 
-    def refuse(lib, tid: int, codes, multiplex: bool = False):
+    def refuse(
+        lib: ctypes.CDLL, tid: int, codes: Sequence[ctypes.c_int], multiplex: bool = False
+    ) -> tuple[ctypes.c_int, str | None]:
         if tid == os.getpid():
             return original(lib, tid, codes, multiplex)
         return ctypes.c_int(papi.PAPI_NULL), f"cannot attach to thread {tid}: simulated refusal"
@@ -646,7 +641,7 @@ def refusing_open_counter(original):
 
 
 @requires_papi
-def test_a_threaded_kernel_is_counted_on_every_thread_and_degrades_out_loud(monkeypatch) -> None:
+def test_a_threaded_kernel_is_counted_on_every_thread_and_degrades_out_loud(monkeypatch: pytest.MonkeyPatch) -> None:
     """The headline of the multithreaded path: an OpenMP kernel's fp-op count must equal
     2*NI*NJ*NK whatever the thread count, because the WORK does not change.
 
@@ -678,14 +673,14 @@ def test_a_threaded_kernel_is_counted_on_every_thread_and_degrades_out_loud(monk
     sizes = spec.parameters["S"]
     expected = 2 * sizes["NI"] * sizes["NJ"] * sizes["NK"]
     binding = binding_from_spec(spec)
-    data = _data_seeded("gemm", "S", "float64", 42)
+    data = _data_seeded("gemm", Preset.S, "float64", 42)
     with Sandbox(binding) as sandbox:
-        built = sandbox.build(Submission(language="c", source=OPENMP_GEMM), debug=True)
+        built = sandbox.build(Submission(language=Language.C, source=OPENMP_GEMM), debug=True)
         assert built.ok, built.log[-2000:]
-        counted = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
+        counted = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
         # The patch is inherited across the fork count_metric does, so it reaches the worker.
         monkeypatch.setattr(papi, "open_counter", refusing_open_counter(papi.open_counter))
-        refused = papi.count_metric(built.lib, binding, data, "c", "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
+        refused = papi.count_metric(built.lib, binding, data, Language.C, "fp_ops", reps=1, warmup=1, rep_timeout=300.0)
 
     absent = unarmable_events("fp_ops")
     if not armable("fp_ops"):
@@ -730,7 +725,7 @@ def test_open_counter_names_a_thread_it_cannot_attach_to() -> None:
 SMT_TOPOLOGY = {cpu: f"{cpu % 8},{cpu % 8 + 8}" for cpu in range(16)}
 
 
-def thread_row(tid: int, cycles: int, instructions: int, *, cpus=(0, 8)) -> dict:
+def thread_row(tid: int, cycles: int, instructions: int, *, cpus: tuple[int, int] = (0, 8)) -> dict:
     """One :func:`papi.per_thread_rows` row, as the caveats and the render consume it."""
     return {
         "tid": tid,
@@ -755,7 +750,7 @@ def test_a_wide_affinity_mask_is_never_read_as_one_cpu() -> None:
     assert papi.cpu_list("") == ()
 
 
-def test_pinning_is_confinement_to_ONE_CORE_not_to_one_cpu(monkeypatch) -> None:
+def test_pinning_is_confinement_to_ONE_CORE_not_to_one_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
     """Measured, not hypothetical: PINNED_ENV sets OMP_PLACES=cores, so on an SMT box each
     OpenMP thread's place is a whole core -- TWO cpus. A one-cpu test calls that unpinned and
     warns about a migration that cannot happen, while missing the mask that spans two cores."""
@@ -771,14 +766,14 @@ def test_pinning_is_confinement_to_ONE_CORE_not_to_one_cpu(monkeypatch) -> None:
     assert papi.placement(9)["core"] is None
 
 
-def test_an_unreadable_thread_has_no_placement_rather_than_a_guessed_one(monkeypatch) -> None:
+def test_an_unreadable_thread_has_no_placement_rather_than_a_guessed_one(monkeypatch: pytest.MonkeyPatch) -> None:
     """A thread that exited between the run and the probe must not come back pinned to cpu 0."""
     monkeypatch.setattr(papi, "TASK_DIR", pathlib.Path("/nonexistent/task"))
     assert papi.thread_cpus(1) == ()
     assert papi.placement(1) == {"cpus": [], "pinned": False, "core": None}
 
 
-def test_cpi_and_ipc_are_reciprocals_and_both_are_labelled(monkeypatch) -> None:
+def test_cpi_and_ipc_are_reciprocals_and_both_are_labelled(monkeypatch: pytest.MonkeyPatch) -> None:
     """The arithmetic the deliverable is about. CPI = cycles/instructions, IPC its reciprocal;
     a reader who inverts the wrong one gets a plausible number and no way to notice."""
     monkeypatch.setattr(papi, "placement", lambda tid: {"cpus": [0], "pinned": True, "core": "0,8"})
@@ -790,7 +785,7 @@ def test_cpi_and_ipc_are_reciprocals_and_both_are_labelled(monkeypatch) -> None:
     assert [row["cycle_share"] for row in rows] == [0.4, 0.6]
 
 
-def test_a_thread_that_counted_nothing_gets_no_ratio_rather_than_zero(monkeypatch) -> None:
+def test_a_thread_that_counted_nothing_gets_no_ratio_rather_than_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     """0.0 is a measurement and this is not one: an undefined ratio must stay None all the way
     into the rendered table, where it is '--'."""
     monkeypatch.setattr(papi, "placement", lambda tid: {"cpus": [0], "pinned": True, "core": "0,8"})
@@ -802,7 +797,7 @@ def test_a_thread_that_counted_nothing_gets_no_ratio_rather_than_zero(monkeypatc
     assert papi.fmt(0.0) == "0.0000"
 
 
-def test_a_derived_candidate_does_not_shift_the_instruction_slice(monkeypatch) -> None:
+def test_a_derived_candidate_does_not_shift_the_instruction_slice(monkeypatch: pytest.MonkeyPatch) -> None:
     """The two metrics share one event set, so the row's values are one flat vector. Slicing it
     at a hardcoded 1 instead of len(cycle_terms) would silently read a cycle count as an
     instruction count on any CPU whose cycle metric resolved to a derivation."""
@@ -825,7 +820,7 @@ def test_imbalance_is_max_over_mean_and_reads_as_wasted_span() -> None:
     assert papi.imbalance([]) is None
 
 
-def test_an_idle_thread_is_excluded_from_the_imbalance_denominator(monkeypatch) -> None:
+def test_an_idle_thread_is_excluded_from_the_imbalance_denominator(monkeypatch: pytest.MonkeyPatch) -> None:
     """A measured regression: the counted set is every thread of the PROCESS, which includes
     threads that are not in the OpenMP pool. Averaging four balanced workers with one idle
     stranger reported a perfectly balanced kernel as 1.25x imbalanced."""
@@ -838,7 +833,7 @@ def test_an_idle_thread_is_excluded_from_the_imbalance_denominator(monkeypatch) 
     assert papi.imbalance([row["cycles"] for row in rows])["max_over_mean"] == 1.25, "the bug this rules out"
 
 
-def test_every_trap_that_fired_is_named_and_no_other(monkeypatch, tmp_path) -> None:
+def test_every_trap_that_fired_is_named_and_no_other(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Each of these changes what the numbers mean and none of them is visible IN the numbers:
     an unpinned thread's CPI looks exactly like a pinned one's."""
     monkeypatch.setattr(flags, "smt_enabled", lambda: True)
@@ -868,7 +863,7 @@ def test_every_trap_that_fired_is_named_and_no_other(monkeypatch, tmp_path) -> N
     assert "MULTIPLEX" in text.upper()
 
 
-def test_an_unreadable_governor_is_stated_rather_than_assumed_pinned(monkeypatch) -> None:
+def test_an_unreadable_governor_is_stated_rather_than_assumed_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     """A container without sysfs must not read as 'the clock was fixed'."""
     monkeypatch.setattr(papi, "GOVERNOR_SYSFS", pathlib.Path("/nonexistent/scaling_governor"))
     monkeypatch.setattr(flags, "smt_enabled", lambda: False)
@@ -877,7 +872,7 @@ def test_an_unreadable_governor_is_stated_rather_than_assumed_pinned(monkeypatch
     assert any("no cpufreq governor is readable" in note for note in notes)
 
 
-def test_the_perf_event_gate_is_reported_by_name(monkeypatch, tmp_path) -> None:
+def test_the_perf_event_gate_is_reported_by_name(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """PAPI counts through perf_event_open, so the sysctl that stops perf sampling stops counting
     too -- and PAPI's own error for it is PAPI_ESYS at PAPI_start, which reads like a broken
     install. Same two causes perf_reports uses, so one handler covers both."""
@@ -897,7 +892,9 @@ def test_the_perf_event_gate_is_reported_by_name(monkeypatch, tmp_path) -> None:
     assert {"no_perf_events", "perf_event_paranoid"} <= set(papi.CAUSES)
 
 
-def test_an_open_gate_with_no_countable_event_is_still_refused_by_name(monkeypatch, tmp_path) -> None:
+def test_an_open_gate_with_no_countable_event_is_still_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """The gate must answer for the MACHINE, not just the sysctl.
 
     A hosted runner passes every check above -- perf_event present, paranoid <= 2 -- and then has
@@ -921,7 +918,7 @@ def test_an_open_gate_with_no_countable_event_is_still_refused_by_name(monkeypat
 
 def test_a_python_submission_is_refused_by_cause_before_anything_runs() -> None:
     """No native call to bracket, and its threads are not the parallelism to measure."""
-    report = papi.count_per_thread("/nonexistent.so", None, {}, "python")
+    report = papi.count_per_thread("/nonexistent.so", None, {}, Language.PYTHON)
     assert report["cause"] == "not_native"
     assert report["aggregate"] is None
     assert report["threads"] == []
@@ -929,11 +926,11 @@ def test_a_python_submission_is_refused_by_cause_before_anything_runs() -> None:
     assert report["missing"] in report["text"]
 
 
-def test_a_dead_per_thread_child_is_decoded_into_a_cause(monkeypatch) -> None:
+def test_a_dead_per_thread_child_is_decoded_into_a_cause(monkeypatch: pytest.MonkeyPatch) -> None:
     """The isolation contract, per-thread edition: the child dying is a named cause, not an
     exception the caller has to guess the meaning of, and not an empty table."""
     monkeypatch.setattr(papi, "per_thread_worker", segfaulting_worker)
-    report = papi.count_per_thread("/nonexistent.so", None, {}, "c", rep_timeout=5.0)
+    report = papi.count_per_thread("/nonexistent.so", None, {}, Language.C, rep_timeout=5.0)
     assert report["cause"] == "run_failed"
     assert "SIGSEGV" in report["missing"]
     assert report["imbalance"] is None
@@ -1009,7 +1006,7 @@ SKEWED_GEMM = OPENMP_GEMM.replace(
 )
 
 
-def openmp_threads(monkeypatch) -> int:
+def openmp_threads(monkeypatch: pytest.MonkeyPatch) -> int:
     """Put this process in the counted configuration: N threads, pinned, env set BEFORE the .so
     loads (which is when the OpenMP runtime reads it). Returns the thread count."""
     threads = min(4, flags.ncores())
@@ -1019,7 +1016,7 @@ def openmp_threads(monkeypatch) -> int:
 
 
 @requires_counters
-def test_the_per_thread_report_recovers_a_KNOWN_work_distribution(monkeypatch) -> None:
+def test_the_per_thread_report_recovers_a_KNOWN_work_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
     """The headline: a process-wide count cannot tell these two kernels apart, and this can.
 
     Both do the same gemm on the same data; one spreads it evenly and one gives its four static
@@ -1043,13 +1040,15 @@ def test_the_per_thread_report_recovers_a_KNOWN_work_distribution(monkeypatch) -
     if threads < 4:
         pytest.skip(f"only {flags.ncores()} physical core(s); the 1:2:3:4 schedule needs 4 threads")
     binding = binding_from_spec(BenchSpec.load("gemm"))
-    data = _data_seeded("gemm", "S", "float64", 42)
+    data = _data_seeded("gemm", Preset.S, "float64", 42)
     reports = {}
     for name, source in (("balanced", OPENMP_GEMM), ("skewed", SKEWED_GEMM)):
         with Sandbox(binding) as sandbox:
-            built = sandbox.build(Submission(language="c", source=source), debug=True)
+            built = sandbox.build(Submission(language=Language.C, source=source), debug=True)
             assert built.ok, built.log[-2000:]
-            reports[name] = papi.count_per_thread(built.lib, binding, data, "c", reps=1, warmup=1, rep_timeout=300.0)
+            reports[name] = papi.count_per_thread(
+                built.lib, binding, data, Language.C, reps=1, warmup=1, rep_timeout=300.0
+            )
 
     for name, report in reports.items():
         assert report.get("missing") is None, f"{name}: {report.get('missing')}"
@@ -1083,7 +1082,9 @@ def test_the_per_thread_report_recovers_a_KNOWN_work_distribution(monkeypatch) -
 
 
 @requires_papi
-def test_a_serial_kernel_is_refused_as_not_openmp_rather_than_reported_balanced(monkeypatch) -> None:
+def test_a_serial_kernel_is_refused_as_not_openmp_rather_than_reported_balanced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A single thread has no distribution. Reporting 1.00x for it would be a perfectly balanced
     parallel kernel and a serial one rendered identically.
 
@@ -1107,13 +1108,15 @@ def test_a_serial_kernel_is_refused_as_not_openmp_rather_than_reported_balanced(
     have_cpi = armable(*papi.PER_THREAD_METRICS)  # before the patch below empties the event set
     binding = binding_from_spec(BenchSpec.load("gemm"))
     with Sandbox(binding) as sandbox:
-        built = sandbox.build(Submission(language="c", source=SERIAL_GEMM), debug=True)
+        built = sandbox.build(Submission(language=Language.C, source=SERIAL_GEMM), debug=True)
         assert built.ok, built.log[-2000:]
-        data = _data_seeded("gemm", "S", "float64", 42)
-        report = papi.count_per_thread(built.lib, binding, data=data, lang="c", reps=1, warmup=1, rep_timeout=300.0)
+        data = _data_seeded("gemm", Preset.S, "float64", 42)
+        report = papi.count_per_thread(
+            built.lib, binding, data=data, lang=Language.C, reps=1, warmup=1, rep_timeout=300.0
+        )
         # A machine with no countable event at all, forced. The patch crosses the fork.
         monkeypatch.setattr(papi, "available_events", lambda: ())
-        starved = papi.count_per_thread(built.lib, binding, data=data, lang="c", reps=1, rep_timeout=300.0)
+        starved = papi.count_per_thread(built.lib, binding, data=data, lang=Language.C, reps=1, rep_timeout=300.0)
     assert starved["cause"] == "events_unsupported"
     assert starved["imbalance"] is None
     assert "[events_unsupported]" in starved["text"]

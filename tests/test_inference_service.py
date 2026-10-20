@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A setup whose inference comes from a hosted service rather than a server the job starts.
-
-``hpcagent_bench/cluster/inference_service.py`` is the one place that reads a setup's ``INFERENCE_SERVICE_*``
-block. It resolves that block into the three values every consumer downstream already reads (the
-base URL, the served model name, the key), decides which variable the claude CLI's key belongs in,
-refuses a harness that cannot speak the service's wire shape, and writes the run's inference
-provenance. The fake-server cases below drive the repo's own HTTP poster and usage parsers against
-that resolved endpoint, so a service setup's request shape and its token accounting are both proven
-against a server that records what it received.
-
-The secret itself never crosses this boundary: the setup names the VARIABLE its key lives in, and the
-launcher copies it by indirection. The cases that matter most here are the ones asserting a key
-value reaches the worker and reaches nothing else.
-"""
+"""A setup whose inference comes from a hosted service: the ``INFERENCE_SERVICE_*`` block resolves to URL, model
+and key variable, harnesses are matched to the wire shape, and the key value reaches the worker and nothing
+else."""
 
 import http.server
 import json
@@ -23,6 +12,7 @@ import types
 from collections.abc import Iterator
 from typing import ClassVar
 
+import pydantic
 import pytest
 
 from hpcagent_bench import paths
@@ -119,8 +109,8 @@ def muse_setup(**overrides: str) -> dict[str, str]:
 
 def test_a_setup_that_names_no_source_still_starts_its_own_server(service: types.ModuleType) -> None:
     """Every setup written before this mode existed declares no source and must keep its server."""
-    assert service.source({}) == service.SOURCE_NODE
-    assert service.source({"INFERENCE_SOURCE": "node"}) == service.SOURCE_NODE
+    assert service.source({}) == service.Source.NODE
+    assert service.source({"INFERENCE_SOURCE": "node"}) == service.Source.NODE
 
 
 def test_an_unknown_source_is_refused_rather_than_read_as_a_server_setup(service: types.ModuleType) -> None:
@@ -183,9 +173,9 @@ def test_an_openai_shaped_service_refuses_the_claude_harness(service: types.Modu
 
 def test_meta_serves_both_shapes_so_the_setup_chooses(service: types.ModuleType) -> None:
     """Muse Spark answers on both surfaces; the setup's declared shape is what picks one."""
-    assert service.from_environ(muse_setup()).api == service.API_ANTHROPIC
+    assert service.from_environ(muse_setup()).api == service.Api.ANTHROPIC
     assert (
-        service.from_environ(muse_setup(INFERENCE_SERVICE_API="openai", HARNESS="openhands")).api == service.API_OPENAI
+        service.from_environ(muse_setup(INFERENCE_SERVICE_API="openai", HARNESS="openhands")).api == service.Api.OPENAI
     )
 
 
@@ -348,14 +338,13 @@ def serve(handler: type[RecordingHandler]) -> Iterator[tuple[str, type[Recording
         thread.join(timeout=5)
 
 
-class FakeUsage:
-    """What the Anthropic SDK hands :func:`anthropic_usage`: counters as instance attributes."""
+class FakeUsage(pydantic.BaseModel):
+    """What the Anthropic SDK hands :func:`anthropic_usage`: its ``Usage``, a pydantic model of the counters."""
 
-    def __init__(self, counts: dict[str, int]) -> None:
-        self.input_tokens = counts["input_tokens"]
-        self.output_tokens = counts["output_tokens"]
-        self.cache_read_input_tokens = counts["cache_read_input_tokens"]
-        self.cache_creation_input_tokens = counts["cache_creation_input_tokens"]
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
 
 
 def test_an_openai_service_setup_sends_its_key_and_its_model(
@@ -393,7 +382,7 @@ def test_an_anthropic_service_setup_sends_the_key_header_the_launcher_chose(
     body = http_chat_json(
         f"{messages_url(exported['VLLM_BASE_URL'])}",
         {"model": exported["VLLM_SERVED_MODEL"], "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]},
-        {AUTH_HEADERS[resolved.auth]: SECRET, "anthropic-version": ANTHROPIC_VERSION},
+        {AUTH_HEADERS[resolved.auth.text]: SECRET, "anthropic-version": ANTHROPIC_VERSION},
         10.0,
         "fake service unreachable",
     )
@@ -401,7 +390,7 @@ def test_an_anthropic_service_setup_sends_the_key_header_the_launcher_chose(
     assert handler.seen["headers"]["x-api-key"] == SECRET
     assert handler.seen["payload"]["model"] == "claude-fable-5-1"
     # The Messages API reports the prompt as three disjoint counts; the fold must keep all three.
-    folded = anthropic_usage(FakeUsage(body["usage"]))
+    folded = anthropic_usage(FakeUsage(**body["usage"]))
     assert folded.input_tokens == 1050
     assert folded.cached_tokens == 900
     assert folded.cache_creation_tokens == 50
@@ -415,7 +404,7 @@ def test_the_muse_spark_setup_reaches_metas_messages_surface_with_a_bearer_key(
     x-api-key, which is why the auth spelling is per service and not per shape."""
     root, handler = fake_anthropic
     resolved = service.from_environ(muse_setup(INFERENCE_SERVICE_BASE_URL=f"{root}/v1"))
-    assert AUTH_HEADERS[resolved.auth] == "Authorization"
+    assert AUTH_HEADERS[resolved.auth.text] == "Authorization"
     exported = service.launcher_env(resolved)
     http_chat_json(
         messages_url(exported["VLLM_BASE_URL"]),

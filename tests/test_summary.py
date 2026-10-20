@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The one definition of each statistic every figure in this repo reports.
-
-These are the properties a figure relies on without restating them: the signed axis is odd about
-no change, the geometric mean is taken in log space and refuses what is not a ratio, a set with no
-spread gets an interval that says so rather than one that pretends to bound something, and the
-paired estimate, its interval and its p value all describe the same quantity.
-"""
+"""The one definition of each reported statistic: the signed axis is odd, the geomean is log-space and refuses
+non-ratios, no-spread intervals say so, and the paired estimate, interval and p agree."""
 
 import math
 
@@ -56,7 +51,7 @@ def test_geomean_refuses_what_is_not_a_set_of_ratios(bad: list[float]) -> None:
 
 
 def test_geomean_asked_to_drop_skips_missing_measurements_and_has_none_for_an_empty_set() -> None:
-    """``unusable="drop"`` is the caller saying a zero, a negative or a non-finite entry is a missing
+    """``Unusable.DROP`` is the caller saying a zero, a negative or a non-finite entry is a missing
     measurement. What is left is averaged; nothing left has no geometric mean, which is NaN rather
     than the 0.0 of a collapse or the 1.0 of no change."""
     assert summary.geomean([2.0, 0.0, -1.0, math.nan, 8.0], unusable=summary.Unusable.DROP) == pytest.approx(4.0)

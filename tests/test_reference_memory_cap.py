@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The memory cap of a JUDGE-OWNED reference: ``sizing.reference_memory_gb``.
-
-A kernel's own budget (``sizing.kernel_memory_gb``) counts the manifest's declared arrays twice.
-The emitted references allocate whatever their lowering needs on top: xsbench's C gathers every
-(sample, nuclide) lookup at once, ~50 GiB at XL, and under the 20 GiB budget its sequential C
-crashed (SIGSEGV on the unchecked malloc) and its c-autopar aborted (no memory left for an OpenMP
-thread stack) in every grade of one experiment. A reference is capped at a fraction of its
-rank's share of the node instead, never below the kernel's budget.
-"""
+"""The memory cap of a judge-owned reference (``sizing.reference_memory_gb``): a fraction of its rank's node
+share, never below the kernel's own budget."""
 
 import pathlib
 from collections.abc import Iterator
@@ -17,6 +10,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, flags, osinfo, sizing
+from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.harness import grading, native_call
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
@@ -111,7 +105,7 @@ def test_the_compiled_references_run_under_the_reference_cap(
         grading, "build_reference_lib", lambda root, *_a, **_k: BuildResult(True, tmp_path / "lib.so", "")
     )
     spec = BenchSpec.load(KERNEL)
-    data = grading._data_seeded(KERNEL, "S", "float64", 1)
+    data = grading._data_seeded(KERNEL, Preset.S, "float64", 1)
     grading.run_compiled_reference(spec, Task(kernel=KERNEL), binding_from_spec(spec), data, [], 2, 60.0, 20.0)
     assert caps == [sizing.reference_memory_gb(20.0)]
     assert caps[0] > 20.0
@@ -120,7 +114,7 @@ def test_the_compiled_references_run_under_the_reference_cap(
 def test_the_numba_reference_runs_under_the_reference_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     caps = capture_caps(monkeypatch)
     spec = BenchSpec.load(KERNEL)
-    data = grading._data_seeded(KERNEL, "S", "float64", 1)
+    data = grading._data_seeded(KERNEL, Preset.S, "float64", 1)
     grading.time_numba_isolated(spec, binding_from_spec(spec), data, 2, 60.0, 20.0)
     assert caps == [sizing.reference_memory_gb(20.0)]
 
@@ -149,7 +143,7 @@ def call_scratch(tmp_path: pathlib.Path, memory_gb: float) -> np.ndarray:
         str(kernel),
         BINDING,
         {"x": np.zeros(1, dtype=np.float64)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=120.0,
         memory_gb=memory_gb,

@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Regression test for the compiler-baseline sweep: the ranks of a sweep share one canon DB, and four of them
-racing the FIRST write to a not-yet-existing file must all record (cholesky, the first kernel a fresh rank is
-handed, was the one caught when two ranks both created the schema). Also: cholesky's numpy reference itself is
-innocent (finite output, no DB code).
-"""
+"""Sweep ranks racing the first write to a not-yet-existing canon DB all record; cholesky's numpy reference is
+finite and DB-free."""
 
 import multiprocessing
 import multiprocessing.queues
@@ -16,6 +13,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import osinfo
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 
 
@@ -27,7 +25,7 @@ def test_cholesky_numpy_reference_produces_finite_output_at_the_fuzzed_preset() 
     so ``real_fuzz`` is not needed to reach it."""
     from hpcagent_bench.benchmarks.scientific_computing.dense_linear_algebra.cholesky.cholesky_numpy import kernel
 
-    data = Benchmark("cholesky").get_data("fuzzed", "float64", fuzz_iteration=0)
+    data = Benchmark("cholesky").get_data(Preset.FUZZED, "float64", fuzz_iteration=0)
     n = data["N"]
     a = data["A"]
 
@@ -51,7 +49,7 @@ def run_framework_worker(
     start.wait()
     try:
         canon = CanonTarget(pathlib.Path(canon_path), "race")
-        failed = run_framework_sweep("cholesky", "numba", "S", True, 1, 60.0, True, None, canon=canon)
+        failed = run_framework_sweep("cholesky", "numba", Preset.S, True, 1, 60.0, True, None, canon=canon)
         outcome.put("failed:" + ",".join(failed) if failed else "ok")
     except Exception as exc:  # noqa: BLE001 -- ANY exception here is the race under test
         outcome.put(f"{type(exc).__name__}: {exc}")

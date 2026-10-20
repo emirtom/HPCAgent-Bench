@@ -2,7 +2,7 @@
 
 import ast
 import copy
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_, range_for, store_
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import shape_exprs_equal
@@ -44,7 +44,7 @@ __all__ = [
 ]
 
 
-def strided_trip_count(start: ast.expr, stop: ast.expr, step) -> ast.expr:
+def strided_trip_count(start: ast.expr, stop: ast.expr, step: ast.expr | int) -> ast.expr:
     """Element count of ``start:stop:step`` for a POSITIVE step: ``ceil((stop - start) / step)``.
 
     Folded to a literal when both bounds AND the step are constants, so the common ``a[0:2 * n:2]``
@@ -268,13 +268,21 @@ class SliceFusion(ast.NodeTransformer):
             return binop(self.axis_length(array_name, axis), ast.Sub(), const_(k))
         return bound
 
-    def scalar_slice(self, lhs_dims, iter_vars, ranges, name) -> ast.expr:
+    def scalar_slice(
+        self,
+        lhs_dims: Sequence[ast.expr],
+        iter_vars: Sequence[ast.Name | None],
+        ranges: Sequence[tuple[ast.expr, ast.expr, ast.expr | int, ast.expr]],
+        name: str,
+    ) -> ast.expr:
         """Build the LHS scalar subscript: iter vars per slice dim,
         original (negative-resolved) index per non-slice dim."""
         idx_nodes: list[ast.expr] = []
         for axis, d in enumerate(lhs_dims):
             if isinstance(d, ast.Slice):
-                ivar = name_(iter_vars[axis].id)
+                iter_var = iter_vars[axis]
+                assert iter_var is not None
+                ivar = name_(iter_var.id)
                 step, slice_start = ranges[axis][2], ranges[axis][3]
                 if step == 1:
                     idx_nodes.append(ivar)
@@ -483,7 +491,7 @@ class LiftFreshArrayFromSlices(ast.NodeTransformer):
         slice_assign = ast.Assign(targets=[slice_lhs], value=node.value)
         return [marker, slice_assign]
 
-    def is_array_binop(self, expr):
+    def is_array_binop(self, expr: ast.expr) -> bool:
         """``True`` for a BinOp / UnaryOp whose tree contains at least
         one bare-Name reference to an array of rank >= 1 in
         ``self.shapes``. Recognises forms like ``__cb1 = mass * vel``

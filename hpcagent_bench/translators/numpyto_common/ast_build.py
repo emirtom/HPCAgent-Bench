@@ -8,6 +8,8 @@ from types import EllipsisType
 
 __all__ = [
     "ALL_BLOCK_FIELDS",
+    "attach",
+    "attached",
     "NESTED_BLOCK_FIELDS",
     "ConstantValue",
     "InlineDefinitions",
@@ -24,7 +26,9 @@ __all__ = [
     "nested_blocks",
     "numpy_attribute",
     "numpy_call",
+    "line_of",
     "range_for",
+    "set_field",
     "store_",
 ]
 
@@ -156,13 +160,43 @@ def nested_blocks(node: ast.AST, fields: tuple[str, ...] = ALL_BLOCK_FIELDS) -> 
     return [value for field, value in ast.iter_fields(node) if field in fields and isinstance(value, list)]
 
 
+def line_of(node: ast.AST) -> int | str:
+    """``node``'s source line for an error message; ``"?"`` for a synthesized node that carries none."""
+    if not isinstance(node, ast.expr | ast.stmt):
+        return "?"
+    try:
+        return node.lineno
+    except AttributeError:  # built by a pass and never given a location
+        return "?"
+
+
+def attach(node: ast.AST, key: str, value: str) -> None:
+    """Attach metadata ``key`` to ``node``, the way the ``ast`` module keeps a node's location: it rides on the
+    node, so every ``copy.deepcopy`` a later pass makes keeps it (a side table keyed by node would lose it)."""
+    setattr(node, key, value)
+
+
+def attached(node: ast.AST, key: str) -> str | None:
+    """The metadata :func:`attach` put on ``node`` under ``key``, or None."""
+    value = vars(node).get(key)
+    return value if isinstance(value, str) else None
+
+
+def set_field(node: ast.AST, field: str, value: object) -> None:
+    """Replace ``node``'s field ``field`` by ``value``: the one place a pass writes an AST field it found by name
+    (walking ``ast.iter_fields``). KeyError for a name that is not one of the node's fields."""
+    if field not in node._fields:
+        raise KeyError(f"{type(node).__name__} has no field {field!r}")
+    setattr(node, field, value)
+
+
 def map_blocks(
     stmt: ast.AST, rewrite: Callable[[list[ast.stmt]], list[ast.stmt]], fields: tuple[str, ...] = NESTED_BLOCK_FIELDS
 ) -> None:
     """Replace each statement list ``stmt`` holds under ``fields`` by ``rewrite`` of it, in place."""
     for field, value in ast.iter_fields(stmt):
         if field in fields and isinstance(value, list):
-            setattr(stmt, field, rewrite(value))
+            set_field(stmt, field, rewrite(value))
 
 
 def map_statement_lists(root: ast.AST, rewrite: Callable[[list[ast.stmt]], list[ast.stmt]]) -> None:
@@ -170,4 +204,4 @@ def map_statement_lists(root: ast.AST, rewrite: Callable[[list[ast.stmt]], list[
     for node in ast.walk(root):
         for field, value in ast.iter_fields(node):
             if isinstance(value, list) and any(isinstance(v, ast.stmt) for v in value):
-                setattr(node, field, rewrite(value))
+                set_field(node, field, rewrite(value))

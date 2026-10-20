@@ -1,23 +1,20 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""An agent episode's record, ``tokens.json`` (written by ``agent/hpcagent_agent/driver/agent_driver.py`` beside the
-worker's transcript), as the episode columns of its ``episodes`` row. :func:`ingest` folds a finished job's records
-into the job's results DB. The agent runtime has no pydantic: the driver writes the record with ``json``, and
-:class:`EpisodeRecord` names every key it writes, so a renamed key is refused here instead of read as missing.
-"""
+"""An agent episode's ``tokens.json`` record as its ``episodes`` row; :func:`ingest` folds a job's records into its
+results DB. :class:`EpisodeRecord` names every key the driver writes, so a renamed key is refused, not read missing."""
 
 import contextlib
 import pathlib
 import sqlite3
 from collections.abc import Mapping
-from typing import Annotated, Literal
+from typing import Annotated
 
 import pydantic
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
 
 from hpcagent_bench import config, fused
+from hpcagent_bench.categories import RecordDevice
 from hpcagent_bench.harness import recording, results_db
-from hpcagent_bench.harness.task import RecordDevice
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.run_layout import TOKENS_NAME, WORKER_GLOB
 
@@ -34,14 +31,15 @@ __all__ = [
 
 #: Every worker's record under a job directory: ``agents/node-<n>/problem-<p>-worker-<w>/tokens.json``.
 RECORD_GLOB = f"{WORKER_GLOB}/{TOKENS_NAME}"
-#: The driver's own exit codes (agent_driver.py RC_*) -> ``result``. The record's ``result`` is the agent CLI's closing
-#: subtype, which an episode the driver ended (a budget, a submission) never reaches, so it arrives empty.
+#: The driver's own exit codes -> ``result`` (an episode the driver ended never reaches the agent CLI's subtype).
 ENDED_BY: dict[int, str] = {
     123: "submitted",
     124: "timeout",
     125: "budget",
     126: "context",
     127: "api_timeout",
+    128: "output_cap",
+    129: "model_error",
 }
 
 
@@ -49,17 +47,21 @@ ENDED_BY: dict[int, str] = {
 Count = Annotated[int, pydantic.BeforeValidator(lambda raw: int(raw) if isinstance(raw, float) else raw)]
 
 
+def blank_as_none(raw: object) -> object:
+    """``None`` for an empty field, else ``raw`` unchanged."""
+    return raw or None
+
+
 class RecordIdentity(pydantic.BaseModel):
-    """The setup identity the driver ran under (``tokens.json`` ``identity``): its ``HPCAGENT_BENCH_RECORD_*``
-    environment, '' where unset. What an episode that never reached the judge records its setup as, whatever
-    the merging process's own environment holds."""
+    """The setup identity the driver ran under (its ``HPCAGENT_BENCH_RECORD_*`` env, '' where unset)."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
     study: str
     model: str
     language: str
-    device: Literal["", "cpu", "gpu", "cpu-multinode", "gpu-multinode"]
+    #: '' (unset) reads as None.
+    device: Annotated[RecordDevice | None, pydantic.BeforeValidator(blank_as_none)]
     packet: str
     harness: str
     tag_version: str
@@ -72,7 +74,7 @@ class RecordIdentity(pydantic.BaseModel):
             study=self.study or None,
             model=self.model or None,
             language=self.language or None,
-            device=RecordDevice(self.device or RecordDevice.CPU.value),
+            device=self.device or RecordDevice.CPU,
             packet=recording.packet_key(self.packet),
             setup=setup or None,
             harness=self.harness or None,
@@ -82,9 +84,7 @@ class RecordIdentity(pydantic.BaseModel):
 
 
 class EpisodeRecord(pydantic.BaseModel):
-    """``tokens.json`` as ``agent_driver.write_cost_record`` writes it: every key named, an unknown one
-    refused. The driver's own bookkeeping (problem, worker, the per-turn ``tokens`` sum, the token breakdown's
-    provenance) is read and not stored."""
+    """``tokens.json`` as the driver writes it: every key named, an unknown one refused."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -126,9 +126,7 @@ def read_record(path: pathlib.Path) -> EpisodeRecord | None:
 
 
 def episode_values(record: EpisodeRecord, cancelled: bool = False) -> dict[str, results_db.Value]:
-    """The ``episodes`` columns a record fills: how the episode ended (``cancelled``: the job took it down,
-    the driver's :data:`CANCELLED_MARKER` beside the record), its token counts, the kernel it was assigned,
-    how often it was relaunched and when its final attempt began."""
+    """The ``episodes`` columns a record fills: how it ended, token counts, kernel, relaunches and final start."""
     result = record.result or (ENDED_BY.get(record.returncode) if record.returncode is not None else None)
     if cancelled:
         result = CANCELLED_MARKER
@@ -163,12 +161,9 @@ def fill(conn: sqlite3.Connection, episode_id: int, values: Mapping[str, results
 
 
 def ingest(conn: sqlite3.Connection, job_dir: pathlib.Path) -> tuple[int, int]:
-    """Fold every worker record under ``job_dir`` into ``conn``'s runs of its job
-    (:func:`recording.job_of_dir`; created, with the setup's identity, for an episode that never reached the
-    judge); returns ``(filled, unattributed)``. A record naming no ``episode_id`` is unattributed. The setup's
-    identity is the one the record carries (:class:`RecordIdentity`), else this process's own, scoped to the
-    setup a fused wave's record names (which needs the job's fused setups: a fused record carrying no identity
-    merges only inside its job)."""
+    """Fold every worker record under ``job_dir`` into its job's runs; returns ``(filled, unattributed)``.
+
+    The setup identity is the record's own, else this process's (scoped to a fused wave's setup)."""
     filled = unattributed = 0
     job = recording.job_of_dir(job_dir)
     for path in sorted(job_dir.glob(RECORD_GLOB)):
@@ -189,9 +184,7 @@ def ingest(conn: sqlite3.Connection, job_dir: pathlib.Path) -> tuple[int, int]:
                 episode_id = recording.open_episode_in_job(conn, record.episode_id, job)
         fill(conn, episode_id, episode_values(record, (path.parent / CANCELLED_MARKER).exists()))
         filled += 1
-    # An episode cut off before its driver wrote a record (the job died) still names its kernel in its grades.
-    # A grade may name another kernel than the assigned one: the kernel graded most often is taken, the one
-    # graded last on a tie.
+    # An episode cut off before its record still names its kernel in its grades: the most-graded kernel wins.
     conn.execute(
         "UPDATE episodes SET kernel = (SELECT g.kernel FROM grades g WHERE g.episode_id = episodes.id"
         " GROUP BY g.kernel ORDER BY COUNT(*) DESC, MAX(g.ts_ms) DESC, g.kernel LIMIT 1)"

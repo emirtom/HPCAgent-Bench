@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build + run a single standalone TRANSLATION UNIT for an emitted kernel.
-
-A native e2e test for a ported kernel concatenates the emitted kernel source
-with a self-checking driver (a C ``main`` / Fortran ``program``) that embeds a
-reference oracle, compiles the whole thing to ONE executable, runs it, and
-checks the exit code. The program verifies its own output against the embedded
-reference and exits nonzero on any mismatch -- so the test proves the emitted
-code both compiles AND computes correctly, with no ctypes ABI guesswork.
-
-Helpers here are kernel-agnostic: emit the source, format reference literals,
-build the TU, run it. Each kernel's test supplies its own driver + oracle.
-"""
+"""Build and run one standalone translation unit: an emitted kernel plus a self-checking driver that exits
+nonzero on mismatch (kernel-agnostic helpers; each test supplies its driver and oracle)."""
 
 import os
 import pathlib
@@ -23,6 +13,7 @@ from collections.abc import Iterable
 import pytest
 
 from hpcagent_bench import languages, paths
+from hpcagent_bench.categories import Language
 
 REPO = paths.ROOT
 
@@ -112,7 +103,7 @@ def build_run_c(
     because an optimiser free to delete an unused allocation would answer the wrong question.
     """
     cc = "g++" if cpp else "gcc"
-    std = languages.std_flag("cpp" if cpp else "c")
+    std = languages.std_flag(Language.CPP if cpp else Language.C)
     ext = "cpp" if cpp else "c"
     opt = ["-O1", "-g", "-fsanitize=address", "-fno-omit-frame-pointer"] if sanitize else ["-O2"]
     with tempfile.TemporaryDirectory() as tmp:
@@ -132,7 +123,7 @@ def build_run_c_include(
     ``#include``s -- so it must carry its own system includes and compile with nothing else
     around it, which is the whole claim a shipped header makes."""
     cc = "g++" if cpp else "gcc"
-    std = languages.std_flag("cpp" if cpp else "c")
+    std = languages.std_flag(Language.CPP if cpp else Language.C)
     ext = "cpp" if cpp else "c"
     with tempfile.TemporaryDirectory() as tmp:
         d = pathlib.Path(tmp)
@@ -149,7 +140,7 @@ def build_run_fortran(kernel_src: str, driver_src: str) -> subprocess.CompletedP
         # program first, the emitted subroutine after -- one TU, the program
         # calls the bind(C) subroutine through its explicit interface.
         (d / "tu.f90").write_text(driver_src + "\n\n" + kernel_src)
-        comp = run_(["gfortran", "-O2", languages.std_flag("fortran"), "tu.f90", "-o", "tu"], d)
+        comp = run_(["gfortran", "-O2", languages.std_flag(Language.FORTRAN), "tu.f90", "-o", "tu"], d)
         assert comp.returncode == 0, f"gfortran failed:\n{comp.stderr}"
         return run_(["./tu"], d)
 

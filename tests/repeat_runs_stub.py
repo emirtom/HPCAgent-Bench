@@ -136,7 +136,7 @@ def stub_observations(seed: int = 0) -> pd.DataFrame:
             plan = PLAN[(setup, kernel)]
             credited = {
                 "timing_reduction": timing.FINAL_GRADE_REDUCTION,
-                "denominator": denominator.for_kernel(kernel).value,
+                "denominator": denominator.for_kernel(kernel).text,
             }
             order = rng.permutation(RUNS - plan.owed)
             solved = set(order[: plan.solved].tolist())

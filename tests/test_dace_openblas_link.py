@@ -161,7 +161,7 @@ def test_source_built_openblas_is_openmp_threaded() -> None:
 @pytest.mark.timeout(BUILD_TIMEOUT)
 @requires_dace
 @requires_build_tools
-def test_dace_links_the_source_built_openblas(tmp_path) -> None:
+def test_dace_links_the_source_built_openblas(tmp_path: pathlib.Path) -> None:
     """``OPENBLAS_DIR`` at the from-source build makes DaCe link exactly that library."""
     library = build_openblas_openmp()
     report = run_probe(
@@ -187,7 +187,7 @@ def test_dace_links_the_source_built_openblas(tmp_path) -> None:
 @pytest.mark.integration
 @requires_dace
 @requires_system_openblas
-def test_dace_links_the_system_openblas(tmp_path) -> None:
+def test_dace_links_the_system_openblas(tmp_path: pathlib.Path) -> None:
     """With no override, DaCe links the apt-installed OpenBLAS behind the distro alternatives."""
     report = run_probe("openblas_gemm_system", tmp_path / "dacecache", hide_system=False)
 

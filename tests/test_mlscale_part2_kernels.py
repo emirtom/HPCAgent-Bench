@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The second ten distributed bf16 ML kernels of ``@mlscale20``: manifests, counter-based shards, the
-torch.distributed references on a gloo CPU group, the XL / weak-P=16 sizes, and the grading
-sensitivity of their planted inputs (a kernel that skips its collective must fail the bf16 band).
-
-The same contract as ``tests/test_mlscale_kernels.py`` holds for the first ten; these kernels are
-new math (no KernelBench source), so the 8x-source-XL check has no counterpart here.
-"""
+"""The second ten distributed bf16 ML kernels of ``@mlscale20``: manifests, counter-based shards, torch.distributed
+references on gloo, XL / weak-P=16 sizes, and grading sensitivity to a skipped collective."""
 
 import importlib
 import inspect
@@ -26,7 +21,8 @@ torch = pytest.importorskip("torch")
 dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 
-from hpcagent_bench import sizing
+from hpcagent_bench import modules, sizing
+from hpcagent_bench.categories import Language
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.harness import mpi_sizing, torch_reference
 from hpcagent_bench.harness.envelope import Submission
@@ -241,7 +237,7 @@ def test_initialize_hands_the_harness_the_torch_inputs_and_numpy_agrees(stem: st
         assert np.array_equal(got, want.float().numpy() if want.is_floating_point() else want.numpy())
     data = dict(zip(init_of(spec).output_args, arrays, strict=True)) | params | dict(init_of(spec).scalars)
     numpy_ref = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}_numpy")
-    kernel = getattr(numpy_ref, spec.func_name)
+    kernel = modules.member(numpy_ref, spec.func_name)
     kernel(*[data[a] for a in inspect.signature(kernel).parameters])
     torch_in = [torch.from_numpy(np.asarray(a)) for a in arrays[: len(inputs)]]
     (want,) = torch_module(stem).reference(*torch_in)
@@ -255,7 +251,7 @@ def test_the_torch_constants_are_the_manifest_scalars(stem: str) -> None:
     the submission from ``init.scalars`` and the torch references from a module constant: equal."""
     module = torch_module(stem)
     for name, value in init_of(spec_of(stem)).scalars.items():
-        assert getattr(module, name.upper()) == value, (name, value)
+        assert modules.member(module, name.upper()) == value, (name, value)
 
 
 def test_moe_router_top1_is_planted_and_the_capacity_drops_tokens() -> None:
@@ -417,7 +413,7 @@ def test_every_graded_rank_count_splits_into_nonempty_balanced_tiles(stem: str, 
 
 
 @pytest.mark.parametrize("stem", STEMS)
-@pytest.mark.parametrize("mode", list(ScalingLaw), ids=lambda law: law.value)
+@pytest.mark.parametrize("mode", list(ScalingLaw), ids=lambda law: law.text)
 def test_every_graded_size_passes_the_bf16_tolerance_guard(stem: str, mode: ScalingLaw) -> None:
     """No graded size is refused as ungradeable (:func:`precision.ungradeable`) at XL and at weak P=16."""
     spec = spec_of(stem)
@@ -437,7 +433,7 @@ def test_the_harness_tile_is_the_generated_tile(stem: str, ranks: int) -> None:
     spec, module = spec_of(stem), torch_module(stem)
     binding = binding_from_spec(spec)
     submission = Submission(
-        language="c",
+        language=Language.C,
         source="reference_dist",
         requests=Requests.from_plan(distribution_for_kernel(mpi_of(spec), binding, ranks)),
     )
@@ -466,7 +462,7 @@ def test_every_declared_array_pins_its_element_dtype(stem: str) -> None:
 def test_the_rendered_kernel_stub_declares_the_bf16_c_type(stem: str) -> None:
     spec = spec_of(stem)
     binding = binding_from_spec(spec)
-    stub = gen_kernel_mpi_stub(binding, "hip")
+    stub = gen_kernel_mpi_stub(binding, Language.HIP)
     assert "#include <hip/hip_bf16.h>" in stub
     assert "double *" not in stub, stub
     for arg in binding.pointers:

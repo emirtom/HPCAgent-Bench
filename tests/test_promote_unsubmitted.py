@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""promote_unsubmitted.py: recovering a verified kernel an agent was killed before submitting.
-
-Every judge request must name the rank it is addressed to, and an absent rank is refused with a
-400 before anything is graded (``service.rank_error``). This script never sent one, so every
-promotion it ever attempted was refused: one setup reported "refused 400" on all three of its lines
-and another on its one, while 18 verified-correct-and-faster kernels across the two setups -- one of
-them 76.6x -- reached no submissions table at all. Nothing downstream noticed, because a refused
-promotion prints a word and exits 0.
-
-The device half matters for the same reason: a hip submission is two translation units, so a GPU
-promotion carrying only the host unit would be refused for what looks like the agent's mistake.
-"""
+"""promote_unsubmitted.py recovers a verified kernel an agent was killed before submitting: every request names
+its rank, and a GPU promotion carries both translation units."""
 
 import io
 import json
@@ -19,7 +9,11 @@ import pathlib
 import sqlite3
 import sys
 import time
+import types
+from collections.abc import Callable
 from types import ModuleType
+from typing import Self
+from urllib.request import Request
 
 import pytest
 from hpcagent_agent.driver.agent_driver import write_cost_record
@@ -39,18 +33,18 @@ def promoter_fixture() -> ModuleType:
     return load_example_module("promote_unsubmitted")
 
 
-def fake_urlopen(captured: list, health: dict | None = None, body: dict | None = None):
+def fake_urlopen(captured: list, health: dict | None = None, body: dict | None = None) -> Callable[..., io.BytesIO]:
     """Stand-in for urllib.request.urlopen recording every request it is handed."""
 
     class Response(io.BytesIO):
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, *exc):
+        def __exit__(self, *exc: object) -> bool:
             self.close()
             return False
 
-    def opener(req, timeout=None):
+    def opener(req: Request, timeout: float | None = None) -> io.BytesIO:
         url = req if isinstance(req, str) else req.full_url
         captured.append(req)
         if url.endswith("/health"):
@@ -60,7 +54,7 @@ def fake_urlopen(captured: list, health: dict | None = None, body: dict | None =
     return opener
 
 
-def test_a_promotion_names_the_judge_rank(promoter, monkeypatch) -> None:
+def test_a_promotion_names_the_judge_rank(promoter: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     """The whole bug: without this the judge refuses with a 400 and nothing is ever recovered."""
     captured: list = []
     monkeypatch.setattr(promoter.urllib.request, "urlopen", fake_urlopen(captured))
@@ -72,6 +66,25 @@ def test_a_promotion_names_the_judge_rank(promoter, monkeypatch) -> None:
     assert outcome.startswith("SUBMITTED")
 
 
+def test_a_promotion_proves_the_episode_it_submits_for(
+    promoter: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Once the drivers issued episode tokens, the router refuses a recorded request whose token does not prove its
+    episode: the driver promoting an episode derives that episode's token from the job secret."""
+    from hpcagent_agent.tools import http_json
+
+    (tmp_path / http_json.EPISODE_SECRET_NAME).write_text("job-secret", encoding="utf-8")
+    monkeypatch.setenv("RUN_DIR", str(tmp_path))
+    monkeypatch.delenv(http_json.EPISODE_TOKEN_ENV, raising=False)
+    captured: list = []
+    monkeypatch.setattr(promoter.urllib.request, "urlopen", fake_urlopen(captured))
+    item = {"kernel": "gemm", "episode_id": "setup.n0.p1.w1", "language": "c", "source": "void gemm(void){}"}
+    promoter.promote("http://judge:8800", item, dry_run=False, rank=3)
+    sent = dict(captured[-1].header_items())
+    expected = http_json.episode_token(b"job-secret", "setup.n0.p1.w1")
+    assert sent[http_json.EPISODE_TOKEN_HEADER.capitalize()] == expected
+
+
 @pytest.mark.parametrize(
     ("health", "expected_rank"),
     [
@@ -80,15 +93,19 @@ def test_a_promotion_names_the_judge_rank(promoter, monkeypatch) -> None:
     ],
     ids=["judge_rank-key", "rank-key"],
 )
-def test_the_rank_is_asked_of_the_judge_itself(promoter, monkeypatch, health, expected_rank) -> None:
+def test_the_rank_is_asked_of_the_judge_itself(
+    promoter: ModuleType, monkeypatch: pytest.MonkeyPatch, health: dict[str, int], expected_rank: int
+) -> None:
     monkeypatch.setattr(promoter.urllib.request, "urlopen", fake_urlopen([], health=health))
     assert promoter.judge_rank("http://judge:8800") == expected_rank
 
 
-def test_an_unreachable_judge_falls_back_rather_than_skipping(promoter, monkeypatch) -> None:
+def test_an_unreachable_judge_falls_back_rather_than_skipping(
+    promoter: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A promotion attempted with the default rank still beats one never attempted."""
 
-    def boom(req, timeout=None) -> None:
+    def boom(req: Request, timeout: float | None = None) -> None:
         raise OSError("no route to host")
 
     monkeypatch.setattr(promoter.urllib.request, "urlopen", boom)
@@ -98,7 +115,7 @@ def test_an_unreachable_judge_falls_back_rather_than_skipping(promoter, monkeypa
     assert promoter.judge_rank("http://judge:8800") == 5
 
 
-def test_a_gpu_promotion_carries_both_translation_units(promoter, monkeypatch) -> None:
+def test_a_gpu_promotion_carries_both_translation_units(promoter: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     captured: list = []
     monkeypatch.setattr(promoter.urllib.request, "urlopen", fake_urlopen(captured))
     item = {
@@ -129,7 +146,7 @@ def make_run_dir(
     return tmp_path
 
 
-def test_the_device_row_is_never_submitted_as_the_host_source(promoter, tmp_path) -> None:
+def test_the_device_row_is_never_submitted_as_the_host_source(promoter: ModuleType, tmp_path: pathlib.Path) -> None:
     """Both halves sort together by ts, so an unfiltered 'newest wins' picks the device unit."""
     run_dir = make_run_dir(tmp_path, "/* host */", "/* __global__ */", setup=HIP)
     (item,) = promoter.candidates(run_dir)
@@ -138,7 +155,7 @@ def test_the_device_row_is_never_submitted_as_the_host_source(promoter, tmp_path
     assert item["device_source"] == "/* __global__ */"
 
 
-def test_a_host_only_setup_promotes_without_a_device_unit(promoter, tmp_path) -> None:
+def test_a_host_only_setup_promotes_without_a_device_unit(promoter: ModuleType, tmp_path: pathlib.Path) -> None:
     run_dir = make_run_dir(tmp_path, "void gemm(void){}")
     (item,) = promoter.candidates(run_dir)
     assert item["source"] == "void gemm(void){}"
@@ -152,20 +169,22 @@ def make_run_dir_many(tmp_path: pathlib.Path, kernels: list[tuple[str, float]]) 
     return tmp_path
 
 
-def test_the_biggest_win_is_promoted_first(promoter, tmp_path) -> None:
+def test_the_biggest_win_is_promoted_first(promoter: ModuleType, tmp_path: pathlib.Path) -> None:
     """The budget can cut this list short, so order has to follow WORTH. Alphabetically, `alpha`
     at 1.1x would outrank `zeta` at 76.6x and be the one that survived a truncation."""
     run_dir = make_run_dir_many(tmp_path, [("alpha", 1.1), ("zeta", 76.6), ("mid", 4.0)])
     assert [item["kernel"] for item in promoter.candidates(run_dir)] == ["zeta", "mid", "alpha"]
 
 
-def test_the_budget_stops_the_pass_and_names_what_it_cut(promoter, tmp_path, monkeypatch, capsys) -> None:
+def test_the_budget_stops_the_pass_and_names_what_it_cut(
+    promoter: ModuleType, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Teardown runs inside the job's remaining wall clock: a pass that outlives it is killed with
     the allocation, losing even the promotions it already landed."""
     run_dir = make_run_dir_many(tmp_path, [("alpha", 1.1), ("zeta", 76.6), ("mid", 4.0)])
     attempted: list[str] = []
 
-    def slow(judge, item, dry_run, rank, timeout: float = 0.0):
+    def slow(judge: str, item: dict[str, str], dry_run: bool, rank: int, timeout: float = 0.0) -> str:
         attempted.append(item["kernel"])
         return "SUBMITTED speedup=1.00x"
 
@@ -185,7 +204,9 @@ def test_the_budget_stops_the_pass_and_names_what_it_cut(promoter, tmp_path, mon
     assert "alpha" in out
 
 
-def test_a_lone_candidate_gets_the_whole_budget_not_a_fixed_slice(promoter, tmp_path, monkeypatch) -> None:
+def test_a_lone_candidate_gets_the_whole_budget_not_a_fixed_slice(
+    promoter: ModuleType, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The case that lost tsvc_2_s2233 on all four v11w2 fortran setups.
 
     Each had exactly ONE unsubmitted kernel and 1800s of budget, and each cut the grade at a fixed
@@ -194,7 +215,7 @@ def test_a_lone_candidate_gets_the_whole_budget_not_a_fixed_slice(promoter, tmp_
     run_dir = make_run_dir_many(tmp_path, [("tsvc_2_s2233", 3.0)])
     handed: list[float] = []
 
-    def record_timeout(judge, item, dry_run, rank, timeout: float = 0.0):
+    def record_timeout(judge: str, item: dict[str, str], dry_run: bool, rank: int, timeout: float = 0.0) -> str:
         handed.append(timeout)
         return "SUBMITTED speedup=3.00x"
 
@@ -208,7 +229,9 @@ def test_a_lone_candidate_gets_the_whole_budget_not_a_fixed_slice(promoter, tmp_
     assert handed[0] > 900.0, f"a lone candidate must get more than the old fixed slice, got {handed}"
 
 
-def test_one_workers_submission_does_not_suppress_anothers_on_the_same_kernel(promoter, tmp_path) -> None:
+def test_one_workers_submission_does_not_suppress_anothers_on_the_same_kernel(
+    promoter: ModuleType, tmp_path: pathlib.Path
+) -> None:
     """Two agents handed the same kernel are two EPISODES, so they are two promotable rows.
 
     Keyed by kernel, any submission of `gemm` would remove `gemm` from the candidate list, so a
@@ -232,7 +255,7 @@ def test_one_workers_submission_does_not_suppress_anothers_on_the_same_kernel(pr
     )
 
 
-def test_a_kernel_spelled_as_its_full_key_is_its_short_name(promoter) -> None:
+def test_a_kernel_spelled_as_its_full_key_is_its_short_name(promoter: ModuleType) -> None:
     """The prompt tells the agent to send the FULL registry key; the judge records the short name,
     which is what every promotion key is matched on."""
     full = "scientific_computing/dense_linear_algebra/gemm/gemm"
@@ -240,7 +263,7 @@ def test_a_kernel_spelled_as_its_full_key_is_its_short_name(promoter) -> None:
     assert promoter.short_name("gemm") == "gemm"
 
 
-def test_a_submission_under_either_spelling_suppresses_promotion(promoter, tmp_path) -> None:
+def test_a_submission_under_either_spelling_suppresses_promotion(promoter: ModuleType, tmp_path: pathlib.Path) -> None:
     """A worker that DID submit must not be promoted again just because the spellings differ."""
     full = "scientific_computing/dense_linear_algebra/gemm/gemm"
     results_seed.score(tmp_path / SHARD, "setup.n0.p1.w1", "gemm", 1, 4.0, source="void gemm_fp64(void){}")
@@ -277,7 +300,7 @@ def workspace_run(tmp_path: pathlib.Path, name: str, body: str) -> pathlib.Path:
     return tmp_path
 
 
-def test_workspace_candidate_reads_the_file_the_agent_left(promoter, tmp_path) -> None:
+def test_workspace_candidate_reads_the_file_the_agent_left(promoter: ModuleType, tmp_path: pathlib.Path) -> None:
     run = workspace_run(tmp_path, "argmax_with_index.c", "void argmax(void) {}\n")
     item = promoter.workspace_candidate(run, "llrblind-oss120b-c.n0.p7.w7", "loop_level_reasoning/argmax_with_index")
     assert item["language"] == "c"
@@ -288,7 +311,9 @@ def test_workspace_candidate_reads_the_file_the_agent_left(promoter, tmp_path) -
     assert promoter.HARVESTED_TAG != promoter.PROMOTED_TAG
 
 
-def test_workspace_candidate_reads_the_folder_of_the_episodes_last_attempt(promoter, tmp_path) -> None:
+def test_workspace_candidate_reads_the_folder_of_the_episodes_last_attempt(
+    promoter: ModuleType, tmp_path: pathlib.Path
+) -> None:
     """Every attempt gets a fresh folder, so the driver's record names it: the episode's LAST line wins, and an
     episode with no line has no folder."""
     run = workspace_run(tmp_path, "kernel.f90", "subroutine k\nend subroutine\n")
@@ -298,7 +323,7 @@ def test_workspace_candidate_reads_the_folder_of_the_episodes_last_attempt(promo
     assert promoter.workspace_dir(run, "setup.n0.p9.w9") is None
 
 
-def test_workspace_candidate_pairs_the_device_unit(promoter, tmp_path) -> None:
+def test_workspace_candidate_pairs_the_device_unit(promoter: ModuleType, tmp_path: pathlib.Path) -> None:
     """A hip delivery is two translation units and the host half alone does not build, so a harvest
     that sent only `source` would be refused for a reason that looks like the agent's fault."""
     run = workspace_run(tmp_path, "stencil.cpp", "// host\n")
@@ -308,21 +333,25 @@ def test_workspace_candidate_pairs_the_device_unit(promoter, tmp_path) -> None:
     assert item["device_source"] == "// device\n"
 
 
-def test_workspace_candidate_is_absent_when_the_agent_wrote_nothing(promoter, tmp_path) -> None:
+def test_workspace_candidate_is_absent_when_the_agent_wrote_nothing(
+    promoter: ModuleType, tmp_path: pathlib.Path
+) -> None:
     run = workspace_run(tmp_path, "unrelated.txt", "")
     (run / "shared" / WORKSPACE_FOLDER / "unrelated.txt").unlink()
     assert promoter.workspace_candidate(run, "setup.n0.p7.w7", "track/kernel") is None
 
 
 @pytest.mark.parametrize(("mode", "harvests"), [("", False), ("multi", False), ("single", False), ("blind", True)])
-def test_only_blind_harvests_the_workspace(promoter, monkeypatch, mode: str, harvests: bool) -> None:
+def test_only_blind_harvests_the_workspace(
+    promoter: ModuleType, monkeypatch: pytest.MonkeyPatch, mode: str, harvests: bool
+) -> None:
     """Every other mode's promotion path only ever offers the judge an answer the agent VERIFIED, and
     harvesting unverified files there would silently add rows to setups whose numbers are published."""
     monkeypatch.setenv("AGENT_SUBMISSION_MODE", mode)
     assert promoter.harvest_enabled() is harvests
 
 
-def test_promote_sends_the_items_own_tag(promoter, monkeypatch) -> None:
+def test_promote_sends_the_items_own_tag(promoter: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     """The judge is told WHICH recovery this is, because `submissions.optimizer` is the only place
     an analysis can hold a harvest and a submission apart."""
     captured: list = []
@@ -559,7 +588,9 @@ def test_the_teardown_sweep_ignores_a_submission_from_before_the_workers_cut(
         ({"correct": "no", "request_id": "ab12", "judge_fault": True}, "not a submission -- built but incorrect"),
     ],
 )
-def test_a_promotion_reads_the_routers_verdict(promoter, monkeypatch, verdict: dict, expected: str) -> None:
+def test_a_promotion_reads_the_routers_verdict(
+    promoter: types.ModuleType, monkeypatch: pytest.MonkeyPatch, verdict: dict, expected: str
+) -> None:
     """The router answers /submit with the verdict alone (correct "yes"/"no", build_log on a failed
     build). Read as a full grade, a correct "yes" had no build_ok and every promotion printed
     "build failed: judge gave no detail" over a recorded correct row."""

@@ -6,8 +6,9 @@ The base URL is `$JUDGE_URL`.
     GET  /build/<language>?rank=<n>    the compile and link commands the judge runs
 {{MODE:routes}}
 
-Send `Content-Type: application/json` on every request, and whenever `$HPCAGENT_BENCH_WORKER_TOKEN` is
-set, the header `X-HPCAgent-Bench-Worker-Token: $HPCAGENT_BENCH_WORKER_TOKEN`. Every POST route takes the
+Send `Content-Type: application/json` on every request, the header
+`X-HPCAgent-Bench-Episode-Token: $HPCAGENT_BENCH_EPISODE_TOKEN` whenever that variable is set, and whenever
+`$HPCAGENT_BENCH_WORKER_TOKEN` is set, the header `X-HPCAgent-Bench-Worker-Token: $HPCAGENT_BENCH_WORKER_TOKEN`. Every POST route takes the
 same body, filled from your environment:
 
     {"kernel": "$HPCAGENT_BENCH_KERNEL", "language": "$LANGUAGE", "build": [], "rank": $JUDGE_RANK,

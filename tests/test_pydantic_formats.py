@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The file and wire formats the repo writes and reads are pydantic models: each shipped file parses, a
-record survives a round trip, and a malformed one is refused where it is read instead of being half-read.
-
-One test per format that has no test module of its own to carry it (the cpf cache manifests, the cost
-cards, the registry and studies files, the grading tables, the systems file, the library and toolset
-catalogs, the binding document, the cpf render child's lines, the agent-folder log, the results database's JSON
-columns, a profiled child's result line, and the formats read but not owned: PEP 610 records, canon log lines and
-chat completions)."""
+"""The file and wire formats are pydantic models: each shipped file parses, a record round-trips, and a malformed
+one is refused where it is read (one test per format without its own module)."""
 
 import json
 import os
@@ -19,6 +13,7 @@ import pydantic
 import pytest
 import yaml
 
+from hpcagent_bench.categories import Baseline, Preset
 from hpcagent_bench import (
     cpf_bridge,
     cpf_cache,
@@ -50,7 +45,7 @@ def test_a_canonical_manifest_of_another_layout_or_with_an_unknown_field_is_a_mi
     """A manifest is read only when it is exactly this reader's layout and fields; anything else renders again."""
     good = {"key": "k", "layout": cpf_cache.LAYOUT, "verdict": "fail", "error": "boom"}
     assert cpf_cache.CanonicalManifest.model_validate(good).error == "boom"
-    for bad in ({**good, "layout": cpf_cache.LAYOUT - 1}, {**good, "seconds": 1.0}, {"key": "k", "verdict": "ok"}):
+    for bad in ({**good, "layout": cpf_cache.LAYOUT - 1}, {**good, "unknown": 1.0}, {"key": "k", "verdict": "ok"}):
         with pytest.raises(pydantic.ValidationError):
             cpf_cache.CanonicalManifest.model_validate(bad)
 
@@ -60,7 +55,7 @@ def test_an_entry_manifest_without_its_source_and_binding_is_refused() -> None:
     artefact = {"name": "k.c", "sha256": "0" * 64}
     base = {"key": "k", "layout": cpf_cache.LAYOUT, "kernel": "k", "entry": "k_fp64"}
     whole = {**base, "artefacts": {"source": artefact, "binding": artefact}}
-    assert cpf_cache.EntryManifest.model_validate(whole).artefacts["binding"].name == "k.c"
+    assert cpf_cache.EntryManifest.model_validate(whole).artefacts[cpf_cache.Role.BINDING].name == "k.c"
     for artefacts in ({"source": artefact}, {"source": artefact, "binding": artefact, "object": artefact}):
         with pytest.raises(pydantic.ValidationError):
             cpf_cache.EntryManifest.model_validate({**base, "artefacts": artefacts})
@@ -120,7 +115,7 @@ def test_a_yaml_tag_read_as_a_flag_or_a_number_is_text_and_an_unknown_block_is_r
 
 def test_the_grading_tables_parse_and_refuse_a_malformed_entry() -> None:
     """The leader hints, the grading cuts and the KernelBench map are read once and typed; a bad entry fails the load."""
-    assert grading.LEADERS_ADAPTER.validate_python({"gemm": {"XL": "c"}}) == {"gemm": {"XL": "c"}}
+    assert grading.LEADERS_ADAPTER.validate_python({"gemm": {"XL": "c"}}) == {"gemm": {Preset.XL: Baseline.C}}
     with pytest.raises(pydantic.ValidationError):
         grading.LEADERS_ADAPTER.validate_python({"gemm": "c"})
     cut = {"since": "2026-10-11T16:07:33+02:00", "why": "abc123 moved the reference"}
@@ -183,7 +178,7 @@ def test_the_binding_document_round_trips_and_writes_shape_for_pointers_only() -
 
 def test_a_render_childs_lines_are_its_plan_and_its_verdict_and_a_foreign_line_is_skipped() -> None:
     """The parent reads the plan and the last verdict a child printed; a library's own ``{`` line is not one."""
-    outcome = cpf_bridge.RenderOutcome(key="k1", verdict="ok", cached=True)
+    outcome = cpf_bridge.RenderOutcome(key="k1", verdict=cpf_cache.RenderVerdict.OK, cached=True)
     record = cpf_bridge.RenderRecord(kernel="gemm", target="cpu", results={"c": outcome})
     stdout = "\n".join(
         [

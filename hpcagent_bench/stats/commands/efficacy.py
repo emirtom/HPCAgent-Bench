@@ -29,9 +29,58 @@ import numpy as np
 import pandas as pd
 
 from hpcagent_bench import packets, paths, studies, study_tags
-from hpcagent_bench.stats import cost, population, score_rule, significance
+from hpcagent_bench.observation_columns import RowKind
+from hpcagent_bench.stats import choices, cost, population, score_rule, significance
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures import efficacy as efficacy_figures
+from hpcagent_bench.stats.figures import marks
+
+__all__ = [
+    "HARNESS_INTERVENTION",
+    "KERNEL_POLICY_COLUMN",
+    "PACKETS_INTERVENTION",
+    "POINT_COLUMNS",
+    "ROW_WIDTHS",
+    "build_comparison",
+    "build_multi_comparison",
+    "build_parser",
+    "comparator_entries",
+    "compare_slice",
+    "comparison_panel",
+    "complete_side_setups",
+    "control_rows",
+    "corrected",
+    "dot_measures",
+    "family_pairs",
+    "family_stats",
+    "figure_config",
+    "figure_from_comparisons",
+    "figure_from_pairs",
+    "figure_from_treatments",
+    "load_all",
+    "main",
+    "one_treatment_panel",
+    "pair_frame",
+    "pair_leg_label",
+    "parse_spec",
+    "points",
+    "report",
+    "safe_pairs_table",
+    "same_card",
+    "same_policy",
+    "same_rule",
+    "setup_languages",
+    "shared_spelling",
+    "spec_column",
+    "spec_comparators",
+    "spec_experiment",
+    "spec_observations",
+    "treated_harness",
+    "treatment_frame",
+    "write_dot_rows",
+    "write_panel_tables",
+    "write_row",
+]
 
 #: :func:`points`' row shape, so an empty family still carries these columns for ``.dropna`` to use.
 POINT_COLUMNS: tuple[str, ...] = (
@@ -59,7 +108,7 @@ def compare_slice(
     """One comparison's two geomean ratios (treated over control) and their raw significance p
     values, over the kernels :func:`~hpcagent_bench.stats.figures.efficacy.paired_kernels` covers."""
     graded = pd.concat([control, treated])
-    graded = graded.loc[graded.row_kind == "submission"]
+    graded = graded.loc[graded.row_kind == RowKind.SUBMISSION.text]
     population.rows_denominator(graded, label=f"{model}/{leg}")
     paired = efficacy_figures.paired_kernels(control, treated, card)
     if paired.empty:
@@ -91,8 +140,8 @@ def points(
     """One row per (model, language) present in both sides, with the flags corrected. A setup that ran
     but never had a graded submission is absent rather than entered at zero."""
     graded_control, graded_treated = (
-        control.loc[control.row_kind == "submission"],
-        treated.loc[treated.row_kind == "submission"],
+        control.loc[control.row_kind == RowKind.SUBMISSION.text],
+        treated.loc[treated.row_kind == RowKind.SUBMISSION.text],
     )
     keys = sorted(
         set(map(tuple, graded_control[["model", "language"]].drop_duplicates().to_numpy()))
@@ -124,8 +173,8 @@ def corrected(rows: Sequence[dict[str, float | str | int]]) -> pd.DataFrame:
     return frame.assign(
         score_p_adjusted=[v.adjusted for v in verdicts[0::2]],
         cost_p_adjusted=[v.adjusted for v in verdicts[1::2]],
-        score_verdict=[v.finding.value for v in verdicts[0::2]],
-        cost_verdict=[v.finding.value for v in verdicts[1::2]],
+        score_verdict=[v.finding.text for v in verdicts[0::2]],
+        cost_verdict=[v.finding.text for v in verdicts[1::2]],
         correction=[v.correction for v in verdicts[0::2]],
         family_size=sum(1 for v in verdicts if math.isfinite(v.adjusted)),
     )
@@ -202,12 +251,7 @@ def shared_spelling(pair: tuple[str, str], packet: str) -> str:
 
 
 def setup_languages(frame: pd.DataFrame) -> dict[str, str]:
-    """``{setup: recorded language}``.
-
-    The language column is the identity the extractor STAMPED; the setup name is a fallback for rows
-    that predate it. gitscicomp10's setups are ``git-scicomp-<model>-repo`` and carry no language token
-    at all, so reading the name there gives an empty leg -- a blank tick and an unnamed shape.
-    """
+    """``{setup: recorded language}``: the extractor's stamp, the setup name only for rows predating it."""
     if "setup" not in frame.columns or "language" not in frame.columns:
         return {}
     known = frame[["setup", "language"]].dropna().astype(str)
@@ -294,11 +338,12 @@ def same_policy(table: pd.DataFrame, source: pathlib.Path, over: population.Kern
     """Refuse a family CSV whose speedup leg was taken over another kernel population: its stars
     would test failures-at-1x while the marks leave failures out, or the reverse. A CSV written
     before the column existed was taken over every served kernel."""
-    recorded = set(table[KERNEL_POLICY_COLUMN].dropna().astype(str)) if KERNEL_POLICY_COLUMN in table else set()
-    if (recorded or {"served"}) != {over.value}:
+    texts = set(table[KERNEL_POLICY_COLUMN].dropna().astype(str)) if KERNEL_POLICY_COLUMN in table else set()
+    recorded = {population.KernelPolicy.parse(text) for text in texts} or {population.KernelPolicy.SERVED}
+    if recorded != {over}:
         raise SystemExit(
-            f"{source} took its speedup over {sorted(recorded or {'served'})}, the figure over {over.value!r}; "
-            f"rebuild it with statistics/paired_setups.py --policy {over.value}"
+            f"{source} took its speedup over {sorted(policy.text for policy in recorded)}, the figure over "
+            f"{over.text!r}; rebuild it with statistics/paired_setups.py --policy {over.text}"
         )
 
 
@@ -310,11 +355,6 @@ def family_pairs(table: pd.DataFrame) -> list[tuple[str, str]]:
     return list(seen)
 
 
-#: What ``statistics/paired_setups.py`` calls each leg of a pair in the family CSV it writes.
-SPEEDUP_LEG: str = "speedup"
-TOKENS_LEG: str = "tokens"
-
-
 def family_stats(table: pd.DataFrame, intervention: str, languages: dict[str, str] | None = None) -> pd.DataFrame:
     """The family CSV's OWN corrected verdicts, as the stats table the figure stars from -- NEVER
     recomputed here (see module docstring)."""
@@ -322,7 +362,8 @@ def family_stats(table: pd.DataFrame, intervention: str, languages: dict[str, st
     known = languages or {}
     rows: list[dict[str, float | str | int]] = []
     for pair in family_pairs(table):
-        score, cost = verdicts.get((*pair, SPEEDUP_LEG)), verdicts.get((*pair, TOKENS_LEG))
+        score = verdicts.get((*pair, significance.Leg.SPEEDUP.text))
+        cost = verdicts.get((*pair, significance.Leg.TOKENS.text))
         recorded = known.get(pair[0], "") or known.get(pair[1], "")
         rows.append(
             {
@@ -363,9 +404,13 @@ def pair_frame(frame_all: pd.DataFrame, pairs: Sequence[tuple[str, str]], interv
     return pd.concat(parts, ignore_index=True) if parts else frame_all.iloc[0:0].assign(leg="", skills=False)
 
 
-def dot_measures(args: argparse.Namespace) -> tuple[str, ...]:
+def dot_measures(args: argparse.Namespace) -> tuple[efficacy_figures.Measure, ...]:
     """The stacked rows ``--success-row`` asks for, in :data:`efficacy_figures.MEASURES` order."""
-    return tuple(measure for measure in efficacy_figures.MEASURES if args.success_row or measure != "success")
+    return tuple(
+        measure
+        for measure in efficacy_figures.MEASURES
+        if args.success_row or measure is not efficacy_figures.Measure.SUCCESS
+    )
 
 
 def write_dot_rows(
@@ -384,8 +429,8 @@ def write_dot_rows(
         config=config, differences=args.difference, over=args.speedup_over, measures=dot_measures(args), card=card,
         row_height_in=args.dots_row_height or efficacy_figures.SETUP_DOTS_ROW_HEIGHT_IN,
         labels={
-            "speedup": efficacy_figures.speedup_row_label(args.speedup_over),
-            "cost": efficacy_figures.cost_row_label(card.key),
+            efficacy_figures.Measure.SPEEDUP: efficacy_figures.speedup_row_label(args.speedup_over),
+            efficacy_figures.Measure.COST: efficacy_figures.cost_row_label(card.key),
         },
     )  # fmt: skip
 
@@ -407,8 +452,8 @@ def write_row(
         row_height_in=args.dots_row_height or efficacy_figures.DOT_ROW_HEIGHT_IN,
         over=args.speedup_over, measures=dot_measures(args), card=card, comparators=comparators,
         labels={
-            "speedup": efficacy_figures.speedup_row_label(args.speedup_over),
-            "cost": efficacy_figures.cost_row_label(card.key),
+            efficacy_figures.Measure.SPEEDUP: efficacy_figures.speedup_row_label(args.speedup_over),
+            efficacy_figures.Measure.COST: efficacy_figures.cost_row_label(card.key),
         },
         **columns,
     )  # fmt: skip
@@ -450,11 +495,8 @@ def safe_pairs_table(
     over: population.KernelPolicy = efficacy_figures.SPEEDUP_OVER,
     card: cost.CostModel | None = None,
 ) -> pd.DataFrame:
-    """:func:`~hpcagent_bench.stats.figures.efficacy.pairs_table`, but a raw-row population that
-    mixes timing-reduction stamps is named on stderr
-    and skipped -- an extraction issue in the SOURCE data, never this figure's to silently paper
-    over. The drawn marks are unaffected: they come from the caller's own pre-corrected ``stats``
-    table, never from this recompute, which exists only for the informational per-point CSV."""
+    """:func:`~hpcagent_bench.stats.figures.efficacy.pairs_table` for the informational per-point CSV; a
+    population mixing timing-reduction stamps is named on stderr and skipped (drawn marks are unaffected)."""
     try:
         return efficacy_figures.pairs_table(frame, over, card)
     except population.MixedPopulationError as error:
@@ -502,9 +544,9 @@ def report(treatment: str, stats: pd.DataFrame) -> None:
     if stats.empty or "score_verdict" not in stats.columns:
         print(f"{treatment or '(stub)'}: placeholder panel, nothing drawn")
         return
-    score_hits = int((stats.score_verdict == significance.Finding.SIGNIFICANT.value).sum())
-    cost_hits = int((stats.cost_verdict == significance.Finding.SIGNIFICANT.value).sum())
-    withheld = int((stats.score_verdict == significance.Finding.UNDERPOWERED.value).sum())
+    score_hits = int((stats.score_verdict == significance.Finding.SIGNIFICANT.text).sum())
+    cost_hits = int((stats.cost_verdict == significance.Finding.SIGNIFICANT.text).sum())
+    withheld = int((stats.score_verdict == significance.Finding.UNDERPOWERED.text).sum())
     correction = str(stats.correction.iloc[0]) if "correction" in stats else "corrected"
     of_test = f" ({stats.test.iloc[0]})" if "test" in stats else ""
     print(
@@ -552,11 +594,8 @@ def build_multi_comparison(
     card: cost.CostModel,
     over: population.KernelPolicy = efficacy_figures.SPEEDUP_OVER,
 ) -> tuple[str, Sequence[str], dict[str, pd.DataFrame], dict[str, pd.DataFrame]] | None:
-    """``treatments=a,b,c`` as ONE panel of several packets against their shared no-packet
-    control -- every llr40 skill packet against C at once, say, instead of a row of one-packet
-    panels. Packet-suffix only:
-    an explicit ``pairs=`` figure is already one panel per pair list, and mixing the two routes in
-    one panel would need a control this function has no way to reconcile."""
+    """``treatments=a,b,c`` as ONE panel of several packets against their shared no-packet control (packet-suffix
+    route only)."""
     treatments = [t.strip() for t in spec["treatments"].split(",") if t.strip()]
     title = spec.get("title") or " / ".join(study_tags.packet_name(t) for t in treatments)
     loaded = spec_experiment(spec, default_observations, default_experiment, card)
@@ -588,9 +627,7 @@ def build_comparison(
     :func:`build_multi_comparison`), or a single packet-suffix split (``treatment=``) of its own or
     the default experiment. ``treatment`` is the registry key(s) the panel is SHAPED by."""
     if spec.get("stub", "").lower() in ("1", "true", "yes"):
-        # A PLACEHOLDER panel: the box, the axes and the caption, with nothing plotted. It keeps a
-        # slot in the row for a comparison that has not finished running, so the figure can go into
-        # the paper at its final width and the panel fills in later without re-laying out the page.
+        # A PLACEHOLDER panel (box, axes, caption, nothing plotted) keeps the row's final layout.
         return spec.get("title", ""), spec.get("intervention", ""), pd.DataFrame(), pd.DataFrame()
     if "treatments" in spec:
         return build_multi_comparison(spec, default_observations, default_experiment, include_incomplete, card, over)
@@ -696,8 +733,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--speedup-over",
         default=efficacy_figures.SPEEDUP_OVER,
-        type=population.KernelPolicy,
-        choices=population.POLICIES,
+        type=population.KernelPolicy.parse,
+        metavar="|".join(population.KernelPolicy.texts()),
         help="solved (default): speedup over the kernels both setups answered correctly, failures shown as "
         "the success-rate row; served: every kernel, a failure at 1x (the fallback reading)",
     )
@@ -727,13 +764,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--table", type=pathlib.Path, default=None, help="stats table (default: the figure's path with .csv)"
     )
-    parser.add_argument(
-        "--mode",
-        choices=("absolute", "relative"),
-        default="absolute",
-        help="absolute: each setup against the experiment baseline, the control hollow beside it; relative: each "
-        "LLM's no-packet control is its 1x, the treated mark its change, the control's own level in a baseline band",
-    )
+    choices.add_argument(
+        parser, "--mode", marks.Mode, marks.Mode.ABSOLUTE,
+        "absolute: each setup against the experiment baseline, the control hollow beside it; relative: each LLM's "
+        "no-packet control is its 1x, the treated mark its change, the control's own level in a baseline band",
+    )  # fmt: skip
+    choices.add_argument(
+        parser, "--mark", marks.Mark, marks.Mark.SCATTER,
+        "scatter: a marker at each estimate; bar: a bar to each estimate; both with the same 95%% interval",
+    )  # fmt: skip
     cost.add_arguments(parser)
     return parser
 
@@ -752,7 +791,9 @@ def figure_config(args: argparse.Namespace, row_width: float | None) -> efficacy
     """The figure's config from the command line. A ``--row-width`` is a promise to drop the figure
     in at scale 1.0, so it is drawn at its printed size under the two-column type convention."""
     config = efficacy_figures.PAPER_CONFIG if row_width is not None else efficacy_figures.DEFAULT_CONFIG
-    return dataclasses.replace(config, mark_pending=bool(args.mark_pending) or config.mark_pending, mode=args.mode)
+    return dataclasses.replace(
+        config, mark_pending=bool(args.mark_pending) or config.mark_pending, mode=args.mode, mark=args.mark
+    )
 
 
 def comparison_panel(

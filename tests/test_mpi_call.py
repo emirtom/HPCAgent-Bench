@@ -10,6 +10,7 @@ import pytest
 from relayout.ops import Location, Scheme
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import mpi_call
 from hpcagent_bench.harness import sandbox as sandbox_module
 from hpcagent_bench.harness.envelope import Submission
@@ -42,14 +43,14 @@ def _yax_binding() -> Binding:
     return Binding(kernel="yax", config="dense", args=args, symbols=dict.fromkeys(LANGS, "yax_fp64"))
 
 
-def _descriptor(locations=None) -> Descriptor:
+def descriptor(locations: dict[str, Location] | None = None) -> Descriptor:
     block0 = ArrayDist(axes=(AxisDist(grid_dim=0, scheme=Scheme.BLOCK),))
     return Descriptor(
         grid=Grid((RANKS,)), arrays={"x": block0, "y": block0}, symbol_axes={"N": [("x", 0)]}, locations=locations or {}
     )
 
 
-def _driver(cmd) -> str:
+def driver(cmd: list[str]) -> str:
     """The compiler a command runs. resolve_compiler returns an ABSOLUTE path when the driver is
     on PATH, so assert on the basename -- these tests are about WHICH wrapper, not how it is spelled."""
     return Path(cmd[0]).name
@@ -57,13 +58,13 @@ def _driver(cmd) -> str:
 
 # build_mpi_executable_commands: pure command shape (no compiler needed)
 def test_build_commands_compile_each_source_and_link_executable() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.C, Path("k.c"))], Path("d.c"), Path("bench"))
     assert len(cmds) == 3  # compile kernel, compile driver, link
     # the MPICH C wrapper is the default; each source compiles to an object.
-    assert _driver(cmds[0]) == "mpicc.mpich"
+    assert driver(cmds[0]) == "mpicc.mpich"
     assert "-c" in cmds[0]
     assert str(Path("k.c")) in cmds[0]
-    assert _driver(cmds[1]) == "mpicc.mpich"
+    assert driver(cmds[1]) == "mpicc.mpich"
     assert str(Path("d.c")) in cmds[1]
     # the link produces an EXECUTABLE (never -shared) and names the exe.
     link = cmds[-1]
@@ -73,20 +74,22 @@ def test_build_commands_compile_each_source_and_link_executable() -> None:
 
 
 def test_build_commands_cc_override_swaps_wrapper() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"), cc_override={"c": "mpicc"})
-    assert all(_driver(argv) == "mpicc" for argv in cmds)  # OpenMPI wrapper for a matching launcher
+    cmds = build_mpi_executable_commands(
+        [(Language.C, Path("k.c"))], Path("d.c"), Path("bench"), cc_override={Language.C: "mpicc"}
+    )
+    assert all(driver(argv) == "mpicc" for argv in cmds)  # OpenMPI wrapper for a matching launcher
 
 
 def test_build_commands_fortran_kernel_links_with_fortran_driver() -> None:
     # A Fortran kernel + the always-C driver -> link with the Fortran wrapper (pulls libgfortran).
-    cmds = build_mpi_executable_commands([("fortran", Path("k.f90"))], Path("d.c"), Path("bench"))
-    assert _driver(cmds[0]) == "mpifort.mpich"  # kernel compiled with the Fortran wrapper
-    assert _driver(cmds[1]) == "mpicc.mpich"  # driver always C
-    assert _driver(cmds[-1]) == "mpifort.mpich"  # link driver = Fortran
+    cmds = build_mpi_executable_commands([(Language.FORTRAN, Path("k.f90"))], Path("d.c"), Path("bench"))
+    assert driver(cmds[0]) == "mpifort.mpich"  # kernel compiled with the Fortran wrapper
+    assert driver(cmds[1]) == "mpicc.mpich"  # driver always C
+    assert driver(cmds[-1]) == "mpifort.mpich"  # link driver = Fortran
 
 
 def test_build_commands_baseline_flows_from_matrix_no_literal_flags() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.C, Path("k.c"))], Path("d.c"), Path("bench"))
     # -O3/-march come from the matrix baseline, never hard-coded in the yaml template.
     assert any("-O3" in tok for tok in cmds[0])
 
@@ -98,12 +101,14 @@ def test_build_commands_empty_sources_raises() -> None:
 
 def test_build_commands_device_routes_driver_and_link_to_gpu_compiler() -> None:
     # Device residency: CUDA kernel + driver both compile with nvcc; the link is nvcc too, not the C wrapper.
-    cmds = build_mpi_executable_commands([("cuda", Path("k.cu"))], Path("d.cu"), Path("bench"), driver_lang="cuda")
-    assert _driver(cmds[0]) == "nvcc"
+    cmds = build_mpi_executable_commands(
+        [(Language.CUDA, Path("k.cu"))], Path("d.cu"), Path("bench"), driver_lang=Language.CUDA
+    )
+    assert driver(cmds[0]) == "nvcc"
     assert str(Path("k.cu")) in cmds[0]
-    assert _driver(cmds[1]) == "nvcc"
+    assert driver(cmds[1]) == "nvcc"
     assert str(Path("d.cu")) in cmds[1]
-    assert _driver(cmds[-1]) == "nvcc"
+    assert driver(cmds[-1]) == "nvcc"
     assert "-shared" not in " ".join(cmds[-1])
 
 
@@ -113,9 +118,9 @@ def test_build_commands_kernel_lib_links_the_kernel_objects_alone_as_a_pic_share
     """The sharded rank driver dlopens this next to an mpi4py that owns MPI_Init: a second main
     or non-PIC objects would make it unloadable."""
     monkeypatch.setenv("HPCAGENT_BENCH_GFX", "gfx942")  # the hip line names an arch; no rocminfo here
-    kernels = [("cpp", Path("k.cpp")), ("hip", Path("k.hip"))]
+    kernels = [(Language.CPP, Path("k.cpp")), (Language.HIP, Path("k.hip"))]
     cmds = build_mpi_executable_commands(
-        kernels, Path("d.hip"), Path("bench"), driver_lang="hip", kernel_lib=Path("bench.kernel.so")
+        kernels, Path("d.hip"), Path("bench"), driver_lang=Language.HIP, kernel_lib=Path("bench.kernel.so")
     )
     compiles, exe_link, lib_link = cmds[:-2], cmds[-2], cmds[-1]
     assert all(c[-1] == "-fPIC" for c in compiles)
@@ -128,7 +133,7 @@ def test_build_commands_kernel_lib_links_the_kernel_objects_alone_as_a_pic_share
 
 
 def test_build_commands_without_kernel_lib_are_unchanged() -> None:
-    cmds = build_mpi_executable_commands([("c", Path("k.c"))], Path("d.c"), Path("bench"))
+    cmds = build_mpi_executable_commands([(Language.C, Path("k.c"))], Path("d.c"), Path("bench"))
     assert len(cmds) == 3
     assert not any("-shared" in c for c in cmds)
     assert all(c[-1] != "-fPIC" for c in cmds[:2])  # no PIC appended after the matrix flags
@@ -198,18 +203,18 @@ def test_oversubscribe_leaves_srun_to_the_scheduler() -> None:
 # Sandbox.build_mpi: delivery handling
 def test_build_mpi_any_delivery_unsupported() -> None:
     b = _yax_binding()
-    sub = Submission(language="c", library="/tmp/does-not-matter.so")
+    sub = Submission(language=Language.C, library="/tmp/does-not-matter.so")
     with Sandbox(b) as sb:
-        res = sb.build_mpi(sub, _descriptor())
+        res = sb.build_mpi(sub, descriptor())
     assert not res.ok
     assert "not supported" in res.log
 
 
 def test_build_mpi_python_delivery_stashes_module() -> None:
     b = _yax_binding()
-    sub = Submission(language="python", source="def kernel_mpi(*a, **k): pass\n")
+    sub = Submission(language=Language.PYTHON, source="def kernel_mpi(*a, **k): pass\n")
     with Sandbox(b) as sb:
-        res = sb.build_mpi(sub, _descriptor())
+        res = sb.build_mpi(sub, descriptor())
         assert res.ok
         assert res.exe is None
         assert res.lib is not None
@@ -219,9 +224,9 @@ def test_build_mpi_python_delivery_stashes_module() -> None:
 def test_build_mpi_device_rejects_non_gpu_kernel() -> None:
     # A GPU-located array delivers device pointers, so a plain C kernel_mpi is a clean build failure.
     b = _yax_binding()
-    sub = Submission(language="c", source=_C_KERNEL)
+    sub = Submission(language=Language.C, source=_C_KERNEL)
     with Sandbox(b) as sb:
-        res = sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
+        res = sb.build_mpi(sub, descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
     assert not res.ok
     assert "cuda/hip" in res.log
 
@@ -238,10 +243,10 @@ def test_build_mpi_writes_both_gpu_translation_units() -> None:
     the GPU-less runner saw a green job while the distributed device track could not build at all.
     """
     b = _yax_binding()
-    sub = Submission(language="cuda", source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
+    sub = Submission(language=Language.CUDA, source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
     stem = mpi_symbol(b)
     with Sandbox(b) as sb:
-        sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
+        sb.build_mpi(sub, descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
         names = {path.name for path in sb.root.iterdir() if path.is_file()}
         host_tu, device_tu = sb.root / f"{stem}.cpp", sb.root / f"{stem}.cu"
         assert names >= {host_tu.name, device_tu.name}, f"only {sorted(names)} reached the build"
@@ -250,7 +255,9 @@ def test_build_mpi_writes_both_gpu_translation_units() -> None:
 
 
 @pytest.mark.parametrize(("language", "compiler"), [("hip", "hipcc"), ("cuda", "nvcc")])
-def test_build_mpi_compiles_the_gpu_host_unit_with_the_gpu_compiler(monkeypatch, language, compiler) -> None:
+def test_build_mpi_compiles_the_gpu_host_unit_with_the_gpu_compiler(
+    monkeypatch: pytest.MonkeyPatch, language: str, compiler: str
+) -> None:
     """The kernel_mpi stub of a GPU setup types its tiles with the vendor's own types in the HOST unit
     (``#include <hip/hip_bf16.h>``, ``__hip_bfloat16 *``). The host MPI C++ wrapper wraps g++, which
     cannot compile that header (no ``__HIP_PLATFORM_AMD__``, no ``_Float16``), so a submission that
@@ -260,7 +267,7 @@ def test_build_mpi_compiles_the_gpu_host_unit_with_the_gpu_compiler(monkeypatch,
     monkeypatch.setenv("HPCAGENT_BENCH_GFX", "gfx942")  # the hip line names an arch; no rocminfo here
     seen: list[list[str]] = []
 
-    def capture(cmds, *_args, **_kwargs):
+    def capture(cmds: list[list[str]], *rest: Path, **kwargs: bool) -> sandbox_module.BuildResult:
         seen.extend(cmds)
         return sandbox_module.BuildResult(False, None, "captured")
 
@@ -269,20 +276,20 @@ def test_build_mpi_compiles_the_gpu_host_unit_with_the_gpu_compiler(monkeypatch,
     sub = Submission(language=language, source=_CUDA_HOST_TU, device_source=_CUDA_DEVICE_TU)
     stem = mpi_symbol(b)
     with Sandbox(b) as sb:
-        sb.build_mpi(sub, _descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
+        sb.build_mpi(sub, descriptor(locations={"x": Location.DEVICE, "y": Location.DEVICE}))
     compiles = {Path(cmd[cmd.index("-c") + 1]).name: Path(cmd[0]).name for cmd in seen if "-c" in cmd}
     assert compiles.get(f"{stem}.cpp") == compiler, compiles
     assert set(compiles.values()) == {compiler}, compiles
 
 
 # End to end: build -> scatter -> launch -> gather (gated on a working MPI toolchain)
-def test_build_mpi_and_run_round_trip(tmp_path) -> None:
+def test_build_mpi_and_run_round_trip(tmp_path: Path) -> None:
     tc = c_toolchain()
     if tc is None:
         pytest.skip(f"no working MPI C compiler + launcher in this environment: {c_toolchain_diagnosis()}")
     cc, launch = tc
-    b, desc = _yax_binding(), _descriptor()
-    sub = Submission(language="c", source=_C_KERNEL)
+    b, desc = _yax_binding(), descriptor()
+    sub = Submission(language=Language.C, source=_C_KERNEL)
     N = 20
     x = np.arange(N, dtype=np.float64) + 1.0
     data = {"x": x, "y": np.zeros(N), "N": N, "a": 3.0}
@@ -300,12 +307,12 @@ def test_build_mpi_and_run_round_trip(tmp_path) -> None:
     assert min(samples_ns) >= 0
 
 
-def test_run_nonzero_exit_is_scored_runtimeerror(tmp_path) -> None:
+def test_run_nonzero_exit_is_scored_runtimeerror(tmp_path: Path) -> None:
     tc = c_toolchain()
     if tc is None:
         pytest.skip(f"no working MPI launcher in this environment: {c_toolchain_diagnosis()}")
     _cc, launch = tc
-    b, desc = _yax_binding(), _descriptor()
+    b, desc = _yax_binding(), descriptor()
     data = {"x": np.arange(8.0), "y": np.zeros(8), "N": 8, "a": 2.0}
     # A nonexistent executable -> the launcher exits non-zero -> a scored RuntimeError.
     with pytest.raises(RuntimeError):

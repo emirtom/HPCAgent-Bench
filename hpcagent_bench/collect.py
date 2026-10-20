@@ -1,23 +1,11 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Collect an experiment's recorded data into one self-describing directory, verify it, archive it.
+"""Collect an experiment's recorded data into one self-describing directory, verify it, archive it (copy-only:
+sources read-only, overlapping outputs refused, DBs copied as consistent snapshots).
 
     hpcagent-bench collect copy --out $DATA          # run roots + their DBs
     hpcagent-bench collect verify $DATA              # re-hash every file, quick_check every DB
     hpcagent-bench collect archive $DATA             # verify, then $DATA.tar.zst (or .tar.gz)
-
-Copy-only: sources are opened read-only, nothing is moved or deleted, and an output that overlaps
-a source is refused (:func:`hpcagent_bench.data_guard.check_output`). Deleting the sources after a
-verified archive is a separate, manual step.
-
-Two kinds of source (:class:`DataSource`), each copied under ``<out>/<kind>/<root name>/``:
-
-* ``episodes``        experiment run roots: run metadata (setup env, prompts, token files, JSON/JSONL/CSV
-                  records, mlscale observations) and every SQLite DB, agent homes and caches skipped;
-* ``db``          directories whose SQLite DBs are wanted alone (regrade shards, mlscale grades).
-
-A DB is copied with SQLite's online backup API, so a DB a job is still writing arrives as one
-consistent snapshot. ``<out>/env.sh`` points the extractor at the copy.
 """
 
 import argparse
@@ -33,6 +21,8 @@ import subprocess
 import sys
 import tarfile
 from collections.abc import Iterable, Iterator, Sequence
+
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import data_guard, experiments, paths
 from hpcagent_bench.cache_files import file_sha256
@@ -68,11 +58,11 @@ __all__ = [
 ]
 
 
-class DataSource(enum.Enum):
-    """Which kind of source a collected root is; the value is its directory under ``<out>``."""
+class DataSource(Coded):
+    """Which kind of source a collected root is; its spelling is its directory under ``<out>``."""
 
-    RUNS = "runs"
-    DB = "db"
+    RUNS = enum.auto()
+    DB = enum.auto()
 
 
 #: Directory names never descended into: agent homes, model and build caches.
@@ -81,8 +71,7 @@ SKIP_DIRS = frozenset({"home", ".cache", "vllm", "dacecache", "__pycache__", ".g
 SKIP_DIR_GLOBS = ("rocprof_out*", "dacecache-*", "dbg*")
 #: SQLite database files (their -wal/-shm sidecars are folded in by the backup).
 DB_SUFFIXES = frozenset({".db", ".sqlite"})
-#: Run-root files kept besides the DBs. A job's :data:`~hpcagent_bench.run_layout.MERGE_FAILED_NAME` marker
-#: too: without it a copy reads a partial ``results.db`` as merged and skips the judge shards it lacks.
+#: Run-root files kept besides the DBs (the merge-failed marker too, or a partial ``results.db`` reads as merged).
 RUN_FILE_GLOBS = (".env", ".env.*", "*.resolved", "*.json", "*.jsonl", "*.csv", "prompt.txt", MERGE_FAILED_NAME)
 
 SUMS = "SHA256SUMS"
@@ -98,7 +87,7 @@ class Root:
 
     @property
     def dest(self) -> pathlib.PurePosixPath:
-        return pathlib.PurePosixPath(self.kind.value, self.path.name)
+        return pathlib.PurePosixPath(self.kind.text, self.path.name)
 
 
 def is_db(rel: pathlib.PurePath) -> bool:
@@ -133,10 +122,7 @@ def walk(root: Root) -> Iterator[pathlib.PurePosixPath]:
 
 
 def copy_db(src: pathlib.Path, dst: pathlib.Path) -> None:
-    """A consistent snapshot of ``src`` at ``dst``, read-only on the source.
-
-    Falls back to copying the file with its -wal/-shm sidecars when SQLite cannot open the source
-    read-only (a WAL DB in a directory the reader cannot write)."""
+    """A consistent snapshot of ``src`` at ``dst`` (read-only), else a copy with its -wal/-shm sidecars."""
     try:
         with (
             contextlib.closing(results_db.connect_ro(src, timeout=60)) as source,
@@ -171,7 +157,7 @@ def check_roots(roots: Sequence[Root], out: pathlib.Path) -> None:
     seen: dict[pathlib.PurePosixPath, pathlib.Path] = {}
     for root in roots:
         if not root.path.is_dir():
-            raise SystemExit(f"{root.kind.value} root {root.path} is not a directory")
+            raise SystemExit(f"{root.kind.text} root {root.path} is not a directory")
         if root.dest in seen:
             raise SystemExit(f"{root.path} and {seen[root.dest]} both land on {root.dest}; collect them separately")
         seen[root.dest] = root.path
@@ -199,7 +185,7 @@ def copy(roots: Sequence[Root], out: pathlib.Path, *, threads: int = 8) -> int:
     jobs = [(r.path.absolute() / rel, out / r.dest / rel) for r in roots for rel in walk(r)]
     with concurrent.futures.ThreadPoolExecutor(threads) as pool:
         list(pool.map(lambda job: copy_file(*job), jobs))
-    (out / SOURCES).write_text("".join(f"{r.kind.value}\t{r.dest}\t{r.path.resolve()}\n" for r in roots))
+    (out / SOURCES).write_text("".join(f"{r.kind.text}\t{r.dest}\t{r.path.resolve()}\n" for r in roots))
     (out / "env.sh").write_text(env_script(roots))
     commit = paths.git_head(paths.repo_root())
     (out / "COMMIT").write_text(f"{commit or 'unknown'}\n")

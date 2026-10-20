@@ -1,23 +1,14 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""End-to-end scipy-oracle validation for every sparse kernel.
-
-Unlike ``test_sparse_matvec`` (which exec's individual dispatcher loop
-nests in-process), this drives the FULL pipeline per kernel:
-emit C -> gcc -shared -> ctypes call, then compares the compiled
-output against the numpy reference run with scipy.sparse inputs.
-
-The kernel list is discovered from bench_info (any benchmark with a
-``sparse_layouts`` block), so new sparse kernels are covered with no
-edit here. Each kernel runs under several seeds to shake out
-density/structure-dependent bugs.
-"""
+"""End-to-end scipy-oracle validation for every sparse kernel (discovered from bench_info), under several
+seeds."""
 
 import pathlib
 import sys
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.spec import BenchSpec
 from tests.translators import sparse_oracle as so
 from tests.translators.source_module import evaluate
@@ -132,12 +123,12 @@ def test_gmres_dace_early_convergence_matches_reference() -> None:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
-    sdfg = vars(mod)[gmres.info["func_name"]].to_sdfg(simplify=True)
+    sdfg = modules.member(mod, gmres.info["func_name"]).to_sdfg(simplify=True)
     sdfg.build_folder = str(d / "build")  # isolate from the shared .dacecache (see _run_dace)
     compiled = sdfg.compile()
     # Bind the promoted workspace symbols from their recorded recipe (n = N, m = min(...)).
     syms = {"nnz": A.nnz, "N": N, "max_iter": max_iter}
-    for name, expr in vars(mod).get("__hpcagent_bench_symbol_defs__", []):
+    for name, expr in modules.optional(mod, "__hpcagent_bench_symbol_defs__", list) or []:
         syms[name] = int(evaluate(expr, {"__builtins__": {}, "min": min, "max": max, **syms}))
     x_dace = np.zeros(N)
     ret = compiled(

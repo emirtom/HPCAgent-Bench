@@ -13,6 +13,7 @@ import threading
 
 import pytest
 
+from hpcagent_bench.categories import Language, Oracle, SourceMode
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.service import ServiceConfig, make_server
 from hpcagent_bench.harness.task import Task
@@ -27,8 +28,8 @@ KERNEL = "argmax_value"
 def test_the_stdlib_call_is_graded_by_a_real_judge(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_SHARED_DIR", str(tmp_path))
     monkeypatch.delenv("RUN_DIR", raising=False)
-    (tmp_path / f"{KERNEL}.c").write_text(reference_source(Task(KERNEL, "restricted", "c")))
-    server = make_server("127.0.0.1", 0, ServiceConfig(oracle="auto", baseline="auto", repeat=2))
+    (tmp_path / f"{KERNEL}.c").write_text(reference_source(Task(KERNEL, SourceMode.RESTRICTED, Language.C)))
+    server = make_server("127.0.0.1", 0, ServiceConfig(oracle=Oracle.AUTO, baseline=None, repeat=2))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         for name, value in {
