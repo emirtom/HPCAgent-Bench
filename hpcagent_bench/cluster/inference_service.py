@@ -31,6 +31,7 @@ __all__ = [
     "Provenance",
     "Service",
     "ServiceProvenance",
+    "TunerProvenance",
     "Source",
     "check_free",
     "claude_key_variable",
@@ -54,6 +55,8 @@ class Source(Coded):
     NODE = enum.auto()
     #: A hosted endpoint (the ``INFERENCE_SERVICE_*`` block).
     SERVICE = enum.auto()
+    #: No model: a tuner setup (``TUNER`` names the optimizer).
+    NONE = enum.auto()
 
 
 class Api(Coded):
@@ -290,14 +293,26 @@ class ServiceProvenance(pydantic.BaseModel):
     key_env: str
 
 
-#: ``inference.json``, either source (told apart by ``source``).
-Provenance = NodeProvenance | ServiceProvenance
+class TunerProvenance(pydantic.BaseModel):
+    """``inference.json`` of a tuner setup: no model, the optimizer ``TUNER`` names."""
+
+    model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
+
+    source: Source = Source.NONE
+    tuner: str
+
+
+#: ``inference.json``, any source (told apart by ``source``).
+Provenance = NodeProvenance | ServiceProvenance | TunerProvenance
 
 
 def provenance(environ: Mapping[str, str]) -> Provenance:
     """What produced this run's tokens: engine, image and checkpoint, or provider, model id and TIER (unrecoverable
     afterwards)."""
-    if source(environ) is Source.NODE:
+    declared = source(environ)
+    if declared is Source.NONE:
+        return TunerProvenance(tuner=environ.get("TUNER", "").strip())
+    if declared is Source.NODE:
         return NodeProvenance(
             engine=environ.get("INFERENCE_ENGINE", "").strip() or "vllm",
             ce_env=environ.get("INFERENCE_CE_ENV", "").strip(),
