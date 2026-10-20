@@ -177,7 +177,7 @@ stage_setup() {
         [[ "${harness}" == claude ]] || args+=(--harness "${harness}")
         if [[ -n "${KERNELS_FILE}" ]]; then args+=(--kernels-file "${KERNELS_FILE}"); else args+=(--select "all@${TAG}"); fi
         [[ "$(base_value "${flat}" HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED)" != true ]] || args+=(--multinode)
-        mapfile -t grading < <(grep -E '^HPCAGENT_BENCH_(MPI|GRADING|MEASUREMENT|REQUESTS)_[A-Z0-9_]+=' <<<"${flat}" || true)
+        mapfile -t grading < <(grep -E '^HPCAGENT_BENCH_(MPI|GRADING|MEASUREMENT|REQUESTS|FUZZ)_[A-Z0-9_]+=' <<<"${flat}" || true)
         env "${grading[@]}" "${HPCAGENT_BENCH_HOST_PYTHON}" "${CLUSTER_DIR}/make_problems.py" "${args[@]}" >"${problems}.tmp" || return 2
         mv -f "${problems}.tmp" "${problems}" || return 2
     fi

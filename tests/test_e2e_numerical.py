@@ -169,6 +169,11 @@ REQUIRE_OK = frozenset(
 )
 
 
+#: Kernels whose generated numba the sweep skips: numba's ``parallel=True`` compile of it runs from minutes to
+#: most of an hour (cloudsc 2578 s), past a CI leg's budget. Faster-compiling generated numba is v0.3 work.
+NUMBA_SLOW_COMPILE = frozenset({"bout_elm_pb", "cloudsc", "cloudsc_monolith", "fv3_dycore"})
+
+
 def _ungated_stems() -> list[str]:
     """Corpus kernels the sweep deliberately does not assert on, by study tag."""
     stems = []
@@ -303,7 +308,10 @@ def _params() -> Iterator[ParameterSet]:
             # worker and rebuilds all of them -- the same compile done up to len(E2E_BACKENDS)
             # times, and two workers building one stem at once. The marker is inert without
             # ``--dist loadgroup`` and inert without xdist, so a serial run is unchanged.
-            yield pytest.param(stem, backend, id=f"{stem}-{backend}", marks=pytest.mark.xdist_group(name=stem))
+            marks = [pytest.mark.xdist_group(name=stem)]
+            if backend == "numba" and stem in NUMBA_SLOW_COMPILE:
+                marks.append(pytest.mark.skip(reason="skip:numba-slow-compile"))
+            yield pytest.param(stem, backend, id=f"{stem}-{backend}", marks=marks)
 
 
 def test_a_kernel_is_swept_only_at_a_precision_its_manifest_declares() -> None:
@@ -385,6 +393,12 @@ def test_the_override_swaps_the_level_and_nothing_else() -> None:
         assert "-O2" not in overridden
         assert [p for p in overridden if p != NATIVE_LOW_OPT[listed]] == [p for p in base if p != "-O2"]
         assert compile_command(backend, "no_such_kernel_declares_an_override") == base
+
+
+def test_a_slow_numba_compile_is_never_a_required_pair() -> None:
+    """A skipped slow compile must not hide a pair REQUIRE_OK holds to ``ok``."""
+    assert NUMBA_SLOW_COMPILE <= set(_gated_stems())
+    assert not {(stem, "numba") for stem in NUMBA_SLOW_COMPILE} & REQUIRE_OK
 
 
 def test_a_numba_opt_override_still_grades_the_kernel() -> None:

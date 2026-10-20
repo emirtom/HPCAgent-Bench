@@ -143,6 +143,15 @@ llrblind:
   env:
     AGENT_SUBMISSION_MODE: single
 
+# Behavioural smoke (BASE=smoke, e.g. HARNESSES=tuner MODELS=noop): the launch, grade and record path at the S
+# size, so a serial or unoptimised submission grades in minutes instead of hours at XL.
+smoke:
+  extends: experiment
+  env:
+    HPCAGENT_BENCH_SERVICE_PRESET: S+fuzz
+    HPCAGENT_BENCH_FUZZ_ANCHOR: S
+    HPCAGENT_BENCH_FUZZ_HIDDEN_CORRECTNESS_PRESETS: '[]'
+
 # The harness comparison (HARNESSES="claude miniswe openhands"): one serving base and one
 # judge sizing, so the harness is the only variable.
 harness:
