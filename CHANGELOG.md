@@ -104,6 +104,11 @@ Bug fixes and optimizations only; canonicalized programs compute the same values
   no longer emit a serial build; an overlapping `@=` or a starred unsafe call still does.
 - Every llr40 and solvers kernel's generated numba (overrides bypassed) compiles and matches the C reference
   at S (the llr40 kernels also at M and L).
+- Generated numba lowers more broadcasts under `parallel=True`: an in-place broadcast (`data -= mean`,
+  `A[k + 1:, k:] -= m[:, None] * A[k, k:]`) becomes a plain store the outer-product peel takes; the peel sees
+  through `.astype`, `np.maximum`-style ufuncs and matrix-product operands and accepts arithmetic slice bounds;
+  `np.roll` along a literal axis is two concatenated pieces; method-form reductions and `np.outer` are ranked.
+  covariance, correlation, gaussian, kmeans and poisson_cg_3d now emit numba that runs and matches C.
 - The Anthropic harness answers a tool call cut off at `max_tokens` as an error instead of running it with
   truncated input; Optimas reads its reward and usage from the Agents SDK's actual result shapes.
 - The phase clock is per context, so a judge thread rendering a CPF form does not bill another thread's span.

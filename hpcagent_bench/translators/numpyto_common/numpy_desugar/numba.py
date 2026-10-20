@@ -6,7 +6,7 @@ import copy
 from collections.abc import Sequence
 from typing import TypeGuard
 
-from hpcagent_bench.translators.numpyto_common.ast_build import const_int, expr_of, name_, range_for, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, expr_of, name_, range_for, set_field, store_
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module, numpy_call_attr
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     RankedRewritePass,
@@ -19,6 +19,9 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.ranks import expr_r
 from hpcagent_bench.translators.numpyto_common.subscripts import is_full_slice, is_newaxis
 
 __all__ = [
+    "ARITHMETIC_NODES",
+    "BINARY_UFUNCS",
+    "BroadcastAugAssignSpellOut",
     "CUMULATIVE_AXIS_HOIST",
     "ONE",
     "NdimFold",
@@ -26,7 +29,9 @@ __all__ = [
     "NumbaDtypeFixups",
     "OuterBroadcastPeel",
     "ReshapeFortranOrderInline",
+    "RollInline",
     "SliceObjectInline",
+    "astype_receiver",
     "bcast_tokens",
     "cast_like",
     "one_slice_index",
@@ -39,6 +44,14 @@ __all__ = [
 
 #: Extent token for an axis pinned to one element (a newaxis or a 1-long slice).
 ONE = "1"
+
+#: Two-operand numpy ufuncs that broadcast like an arithmetic operator.
+BINARY_UFUNCS = frozenset(
+    {"maximum", "minimum", "fmax", "fmin", "add", "subtract", "multiply", "divide", "true_divide"}
+)
+
+#: Nodes a slice bound may be built of to be re-evaluated per peeled row: names, constants, arithmetic.
+ARITHMETIC_NODES = (ast.Name, ast.Constant, ast.BinOp, ast.UnaryOp, ast.operator, ast.unaryop, ast.expr_context)
 
 
 def bcast_tokens(a: list[str], b: list[str]) -> list[str]:
@@ -113,6 +126,20 @@ def scalar_index(e: ast.expr, ranks: dict[str, int]) -> bool:
     return isinstance(e, ast.Name) and ranks.get(e.id, 0) == 0
 
 
+def astype_receiver(expr: ast.expr) -> ast.expr | None:
+    """``x`` of ``x.astype(dtype)``: an elementwise cast that keeps ``x``'s shape; None for anything else."""
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr == "astype"
+        and len(expr.args) == 1
+        and not expr.keywords
+        and not is_numpy_module(expr.func.value)
+    ):
+        return expr.func.value
+    return None
+
+
 class OuterBroadcastPeel(RankedRewritePass):
     """Peel an OUTER-PRODUCT broadcast's outermost axis into an explicit loop (numba only).
 
@@ -143,6 +170,14 @@ class OuterBroadcastPeel(RankedRewritePass):
             and not node.keywords
         ):
             return list(node.args)
+        if (
+            isinstance(node, ast.Call)
+            and numpy_call_attr(node) in BINARY_UFUNCS
+            and len(node.args) == 2
+            and not node.keywords
+            and is_numpy_module(node.func.value if isinstance(node.func, ast.Attribute) else node.func)
+        ):
+            return list(node.args)
         return None
 
     def combine(self, nodes: Sequence[ast.expr]) -> list[str] | None:
@@ -170,6 +205,9 @@ class OuterBroadcastPeel(RankedRewritePass):
             return None if axes is None else [ext for unused, unused, ext in axes]
         if numpy_call_attr(expr) == "arange":
             return [f"({ast.unparse(expr)}).shape[0]"]  # always 1-D, so it only ever broadcasts
+        receiver = astype_receiver(expr)
+        if receiver is not None:
+            return self.extents_(receiver)
         return None
 
     def axes_(self, sub: ast.Subscript):
@@ -246,6 +284,13 @@ class OuterBroadcastPeel(RankedRewritePass):
             return ast.Subscript(value=expr, slice=expr_of(idx), ctx=ast.Load())
         if isinstance(expr, ast.Subscript):
             return self.peel_subscript(expr, idx)
+        receiver = astype_receiver(expr)
+        if receiver is not None and isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute):
+            inner = self.peel(receiver, idx, rank)
+            if inner is None:
+                return None
+            method = ast.Attribute(value=inner, attr="astype", ctx=ast.Load())
+            return ast.Call(func=method, args=list(expr.args), keywords=list(expr.keywords))
         return None
 
     def leaf_extents(self, expr: ast.expr) -> list[list[str]] | None:
@@ -341,7 +386,7 @@ class OuterBroadcastPeel(RankedRewritePass):
                 repl = e.lower if e.lower is not None else ast.Constant(value=0)
             elif e.lower is None or const_int(e.lower) == 0:
                 repl = expr_of(idx)
-            elif isinstance(e.lower, (ast.Name, ast.Constant)):
+            elif all(isinstance(n, ARITHMETIC_NODES) for n in ast.walk(e.lower)):
                 repl = ast.BinOp(left=copy.deepcopy(e.lower), op=ast.Add(), right=expr_of(idx))
             else:
                 return None
@@ -445,6 +490,43 @@ class OuterBroadcastPeel(RankedRewritePass):
         ast.fix_missing_locations(view)
         return [*peeled, view]
 
+    def hoist_matmul_operands(self, node: ast.Assign) -> list[ast.stmt] | None:
+        """``c = (a @ b) / n[:, None]`` -> ``t = a @ b`` then ``c = t / n[:, None]`` peeled: a product has no
+        extents this pass can place, a bound temp of known rank has. None when no product operand of the
+        elementwise value has a known rank, or the rewritten statement still does not peel."""
+        ops = self.operands_(node.value)
+        if ops is None:
+            return None
+        products = [
+            o for o in ops if isinstance(o, ast.BinOp) and isinstance(o.op, ast.MatMult) and expr_rank(o, self.ranks)
+        ]
+        if not products:
+            return None
+        value = copy.deepcopy(node.value)
+        binds: list[ast.stmt] = []
+        temps: list[str] = []
+        for product in products:
+            temp = f"__ob{self._ctr}_m{len(temps)}"
+            rank = expr_rank(product, self.ranks)
+            if rank is None:
+                return None
+            self.ranks[temp] = rank
+            temps.append(temp)
+            binds.append(ast.copy_location(ast.Assign(targets=[store_(temp)], value=product), node))
+            for parent in ast.walk(value):
+                for field, child in ast.iter_fields(parent):
+                    if isinstance(child, ast.AST) and ast.dump(child) == ast.dump(product):
+                        set_field(parent, field, name_(temp))
+        rest = ast.copy_location(ast.Assign(targets=node.targets, value=value), node)
+        peeled = self.visit_Assign(rest)
+        if not isinstance(peeled, list):
+            for temp in temps:
+                del self.ranks[temp]
+            return None
+        for b in binds:
+            ast.fix_missing_locations(b)
+        return [*binds, *peeled]
+
     def visit_Assign(self, node: ast.Assign) -> ast.AST | list[ast.stmt]:
         if len(node.targets) != 1:
             return node
@@ -452,6 +534,10 @@ class OuterBroadcastPeel(RankedRewritePass):
         hoisted = self.hoist_view_base(node)
         if hoisted is not None:
             return hoisted
+        if self.extents_(node.value) is None:
+            lifted = self.hoist_matmul_operands(node)
+            if lifted is not None:
+                return lifted
         ext = self.extents_(node.value)
         if ext is None or len(ext) < 2 or ext[0] == ONE or not self.outer_product(node.value, len(ext)):
             return node
@@ -702,6 +788,77 @@ class ReshapeFortranOrderInline(RewritePass):
         return ast.copy_location(
             expr_of(f"np.ascontiguousarray(({ast.unparse(f.value)}).T).reshape(({shape},)).T"), node
         )
+
+
+class BroadcastAugAssignSpellOut(RankedRewritePass):
+    """``t op= v`` where ``v`` broadcasts (lower rank, or a newaxis) -> ``t[...] = t op v`` (numba only).
+
+    numba's parfor lowering refuses an in-place broadcast; the plain store it lowers, and an outer-shaped one
+    is then peeled by :class:`OuterBroadcastPeel`. A whole-array target is stored through full slices."""
+
+    __slots__ = ()
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> ast.AST:
+        target = node.target
+        if not isinstance(target, (ast.Name, ast.Subscript)) or isinstance(node.op, ast.MatMult):
+            return node
+        rank = expr_rank(target, self.ranks)
+        value_rank = expr_rank(node.value, self.ranks)
+        if rank is None or rank < 2 or value_rank is None or value_rank < 1:
+            return node
+        newaxis = any(
+            isinstance(n, ast.Subscript) and any(is_newaxis(e) for e in ast.walk(n.slice)) for n in ast.walk(node.value)
+        )
+        if value_rank >= rank and not newaxis:
+            return node
+        if isinstance(target, ast.Name):
+            full = ast.Tuple(elts=[ast.Slice() for _ in range(rank)], ctx=ast.Load())
+            store: ast.expr = ast.Subscript(value=name_(target.id), slice=full, ctx=ast.Store())
+            load: ast.expr = name_(target.id)
+        else:
+            store = copy.deepcopy(target)
+            load = copy.deepcopy(target)
+            load.ctx = ast.Load()
+        value = ast.BinOp(left=load, op=node.op, right=node.value)
+        self.changed = True
+        return ast.fix_missing_locations(ast.copy_location(ast.Assign(targets=[store], value=value), node))
+
+
+class RollInline(RankedRewritePass):
+    """``np.roll(x, s, axis=k)`` with a literal axis -> the two wrapped pieces concatenated (numba only).
+
+    numba's ``np.roll`` takes no axis. ``x`` must be a name or a sliced view of one, re-read once per piece."""
+
+    __slots__ = ()
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        self.generic_visit(node)
+        if numpy_call_attr(node) != "roll" or not is_numpy_module(
+            node.func.value if isinstance(node.func, ast.Attribute) else node.func
+        ):
+            return node
+        kw = {k.arg: k.value for k in node.keywords}
+        if len(node.args) < 2 or set(kw) - {"axis"} or (len(node.args) > 2 and "axis" in kw):
+            return node
+        axis_node = node.args[2] if len(node.args) > 2 else kw.get("axis")
+        axis = const_int(axis_node)
+        x, shift = node.args[0], node.args[1]
+        rank = expr_rank(x, self.ranks)
+        pure = isinstance(x, ast.Name) or (
+            isinstance(x, ast.Subscript)
+            and isinstance(x.value, ast.Name)
+            and all(isinstance(n, ARITHMETIC_NODES + (ast.Slice, ast.Tuple)) for n in ast.walk(x.slice))
+        )
+        if axis is None or rank is None or not pure or not 0 <= (axis % rank if rank else -1) < rank:
+            return node
+        axis %= rank
+        text, extent = ast.unparse(x), f"({ast.unparse(x)}).shape[{axis}]"
+        cut = f"{extent} - ({ast.unparse(shift)}) % {extent}"
+        lead = ", ".join([":"] * axis)
+        lead = f"{lead}, " if lead else ""
+        tail, head = f"({text})[{lead}{cut}:]", f"({text})[{lead}:{cut}]"
+        self.changed = True
+        return ast.copy_location(expr_of(f"np.concatenate(({tail}, {head}), axis={axis})"), node)
 
 
 class NumbaDtypeFixups(ast.NodeTransformer):

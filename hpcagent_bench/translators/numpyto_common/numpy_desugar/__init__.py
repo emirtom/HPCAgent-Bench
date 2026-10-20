@@ -86,11 +86,13 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.matmul import (
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.numba import (
     CUMULATIVE_AXIS_HOIST,
+    BroadcastAugAssignSpellOut,
     NdimFold,
     NonePlaceholderDrop,
     NumbaDtypeFixups,
     OuterBroadcastPeel,
     ReshapeFortranOrderInline,
+    RollInline,
     SliceObjectInline,
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.pad import PadInline
@@ -300,7 +302,11 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
             ComplexAccessorToFunc(conjugate_only=True),
             ElementalUfuncToPrimitive(),
             # numba only, last rewrite: it peels an outer-product broadcast into a loop later passes can't see through.
-            *([OuterBroadcastPeel(ranks)] if backend == "numba" else []),
+            *(
+                [RollInline(ranks), BroadcastAugAssignSpellOut(ranks), OuterBroadcastPeel(ranks)]
+                if backend == "numba"
+                else []
+            ),
             # Last: every pass above looks names up in tables built before the loop (ranks / dtypes /
             # consts / noncontig / masked_gathers); renaming earlier would silently turn them all off.
             SsaRename(fn, set(kir_seed)),

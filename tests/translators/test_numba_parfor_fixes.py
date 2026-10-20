@@ -32,7 +32,9 @@ def load(tmp_path: pathlib.Path, name: str, source: str) -> ModuleType:
     return module
 
 
-def run_both(tmp_path: pathlib.Path, src: str, args: tuple[np.ndarray, ...]) -> tuple[list[np.ndarray], list[np.ndarray]]:
+def run_both(
+    tmp_path: pathlib.Path, src: str, args: tuple[np.ndarray, ...]
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
     """``f`` of the numba emit of ``src`` and of ``src`` itself, each on fresh copies of ``args``."""
     import numba
 

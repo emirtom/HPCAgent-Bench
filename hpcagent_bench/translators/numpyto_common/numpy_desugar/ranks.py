@@ -39,6 +39,7 @@ __all__ = [
     "diag_rank",
     "drop_rank_conflicts",
     "einsum_rank",
+    "outer_rank",
     "expand_dims_rank",
     "expr_rank",
     "extent_tokens",
@@ -277,6 +278,11 @@ def method_call_rank(value: ast.Call, ranks: dict[str, int]) -> int | None:
         return 1
     if func.attr == "reshape" and value.args:
         return reshape_args_rank(value, lambda: None)
+    if func.attr in REDUCE_FNS:
+        # ``x.sum(axis=0)`` is ``np.sum(x, axis=0)`` with the receiver first.
+        return reduce_call_rank(
+            ast.Call(func=func, args=[func.value, *value.args], keywords=value.keywords), func.attr, ranks
+        )
     return None
 
 
@@ -395,6 +401,11 @@ def tensordot_rank(value: ast.Call, attr: str, ranks: dict[str, int]) -> int | N
     return None if la is None or lb is None or n is None else la + lb - 2 * n
 
 
+def outer_rank(value: ast.Call, attr: str, ranks: dict[str, int]) -> int | None:
+    """``np.outer(a, b)`` flattens both operands: always a matrix."""
+    return 2
+
+
 def einsum_rank(value: ast.Call, attr: str, ranks: dict[str, int]) -> int | None:
     """``np.einsum('gai,ai->ga', ...)`` has its OUTPUT subscripts' rank, not its largest operand's.
 
@@ -421,6 +432,7 @@ NP_CALL_RANKS: dict[str, Callable[[ast.Call, str, dict[str, int]], int | None]] 
     "squeeze": squeeze_rank,
     "matmul": matmul_call_rank,
     "tensordot": tensordot_rank,
+    "outer": outer_rank,
 }
 
 
