@@ -258,6 +258,9 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["hpcagent_bench*"]
+# Build and cache trees are not packages: a kernel's cpp_backend/build holds private temporary directories that
+# appear and vanish while other jobs build, and an editable install that discovered one fails when it is gone.
+exclude = ["*.build", "*.build.*", "*.__pycache__", "*.__pycache__.*"]
 
 # Listed explicitly: the judge image builds the wheel from hpcagent_bench/ and pyproject.toml alone
 # (no MANIFEST.in, no VCS file finder).
