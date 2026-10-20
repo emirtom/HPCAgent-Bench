@@ -113,7 +113,7 @@ def stored_fingerprint(artifact: pathlib.Path) -> str | None:
         return None
 
 
-# Generated framework SIBLING sources (dace/jax/cupy/numba/pythran)
+# Generated framework SIBLING sources (dace/cupy/numba)
 
 
 def load_generated(cache_dir: pathlib.Path, canonical: pathlib.Path, fingerprint: str) -> bool:

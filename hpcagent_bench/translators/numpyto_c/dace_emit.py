@@ -4446,7 +4446,7 @@ def render_program(
         dace_dtype(s.dtype) == "dc_complex_float" for s in kir.scalars
     )
 
-    # Desugar the body with the same pass numba/pythran use for feature parity; falls back to verbatim on parse failure.
+    # Desugar the body with the same pass numba uses for feature parity; falls back to verbatim on parse failure.
     fn_ast = desugared_function(kir)
     # Rewrite leaked np_float/np_complex tokens to the dace precision global the module binds.
     framework_dtype = RewriteFrameworkDtype()
@@ -4707,7 +4707,7 @@ def body_extent_names(tree: ast.FunctionDef) -> set[str]:
 
 
 def desugared_function(kir: KernelIR) -> ast.FunctionDef:
-    """The body desugared with the same pass numba/pythran use for feature parity; the verbatim
+    """The body desugared with the same pass numba uses for feature parity; the verbatim
     body when that pass fails."""
     fn_ast = copy.deepcopy(kir.tree)
     fn_ast.name = kir.kernel_name

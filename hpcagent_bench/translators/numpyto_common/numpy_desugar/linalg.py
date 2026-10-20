@@ -185,11 +185,10 @@ def hoist_linalg(node: ast.expr, hoist: ValueHoist) -> ast.expr | None:
 LINALG_LOWERABLE = {"cholesky", "solve", "inv"}
 
 
-#: numpy.linalg ops each backend compiles natively (left in place); pythran has no numpy.linalg.
+#: numpy.linalg ops each backend compiles natively (left in place).
 NATIVE_LINALG: dict[str | None, set] = {
     "numba": {"cholesky", "solve", "inv"},
     "dace": {"cholesky", "solve", "inv"},
-    "pythran": set(),
 }
 
 
@@ -200,7 +199,7 @@ LOWER_SOLVE_RHS_RANKS: dict[str | None, frozenset] = {"dace": frozenset({1})}
 
 
 def lowers_linalg(tables: HoistTables) -> bool:
-    """Whether the backend lowers any ``np.linalg`` call at all (pythran every op, dace a ``solve`` rhs rank)."""
+    """Whether the backend lowers any ``np.linalg`` call at all (dace: a ``solve`` rhs rank)."""
     return bool(tables.lower_ops or tables.solve_rhs_ranks)
 
 

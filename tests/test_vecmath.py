@@ -104,7 +104,6 @@ def test_the_vecmath_header_ships_with_the_package() -> None:
 #: ``device``  device code, where libmvec (a host glibc library) does not apply at all.
 VECLIB_ROUTE = {
     "CPU_BASELINE_GCC": "header",
-    "PYTHRAN_BASELINE": "header",
     "CPU_BASELINE_CLANG": "flag",
     "CPU_BASELINE_CLANG_PLUTO": "flag",
     "FLANG_BASELINE": "block",

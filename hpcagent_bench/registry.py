@@ -36,6 +36,15 @@ class Kind[Entry]:
         self.aliases.update(dict.fromkeys(names, key))
         return entry
 
+    def retire(self, key: str, *, aliases: Iterable[str] = ()) -> None:
+        """Hold the next slot for ``key`` with no entry: a removed entry keeps its look (and its ``aliases`` their
+        spelling) on old rows, and no later entry repaints. A retired key is not registered (``in`` is False);
+        :meth:`slot` and :meth:`canonical` still answer."""
+        if key in self.entries or key in self.orders or key in self.aliases:
+            raise RegistryError(f"{self.name}: {key!r} is registered twice")
+        self.orders[key] = sum(order is not None for order in self.orders.values())
+        self.aliases.update(dict.fromkeys(aliases, key))
+
     def register(self, key: str, *, aliases: Iterable[str] = ()) -> Callable[[Entry], Entry]:
         """A decorator adding the decorated object itself as the entry: for kinds whose entries are code."""
 

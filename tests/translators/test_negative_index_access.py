@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Negative CONSTANT index ``a[-k]`` -> explicit ``a[N-k]`` for the C / C++ ABI.
 
-numpy (and fortran / numba / pythran / jax) wrap a negative index from the end
+numpy (and fortran / numba) wrap a negative index from the end
 (``a[-1]`` is the last element), but C has no negative indexing -- ``a[-1]``
 underflows the pointer and reads garbage. The C emitter therefore normalizes a
 negative constant index against the array's known dimension size, at both read
@@ -17,7 +17,7 @@ import numpy as np
 from hpcagent_bench.translators.numpyto_c.emit import negative_const_k
 from tests.translators.op_oracle import all_ok, parse_source, run_op
 
-ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
+ALL = ("c", "cpp", "fortran", "numba")
 
 
 # negative_const_k: -1 is a UnaryOp, not a Constant                          #

@@ -17,10 +17,8 @@ lowering sits in `numpyto_common`:
 | C / C++ / Pluto | `numpyto_c/`           |
 | DaCe            | `numpyto_c/dace_emit.py` |
 | Fortran         | `numpyto_fortran/`     |
-| JAX             | `numpyto_jax/`         |
 | Numba           | `numpyto_numba/`       |
 | CuPy            | `numpyto_cupy/`        |
-| Pythran         | `numpyto_pythran/`     |
 
 ## Frontend and Python-backend desugars
 
@@ -86,8 +84,7 @@ in `lib_nodes/extents.py`.
   <base>_pluto_binding.json    # Pluto's own (symbols-first) signature
 ```
 
-``--parallel`` writes ``<base>_omp.{c,cpp}`` + ``<base>_omp_binding.json`` instead;
-``--isopar`` writes ``<base>_isopar.cpp`` + ``<base>_isopar_binding.json``.
+``--parallel`` writes ``<base>_omp.{c,cpp}`` + ``<base>_omp_binding.json`` instead.
 
 ## CLI
 

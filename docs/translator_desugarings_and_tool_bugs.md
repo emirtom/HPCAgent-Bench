@@ -8,7 +8,7 @@ for C, C++ and pluto input, `numpyto_fortran`, `numpyto_numba`, `numpyto_pythran
 
 ## Emit one kernel
 
-`numpyto --target {c,c_omp,cpp_isopar,cpp_omp,cupy,fortran,fortran_omp,numba,pluto,polly,pythran}`
+`numpyto --target {c,c_omp,cpp_omp,cupy,fortran,fortran_omp,numba,pluto,polly}`
 is the console entry; it takes a bench-info JSON that the harness synthesizes from the manifest.
 From Python:
 

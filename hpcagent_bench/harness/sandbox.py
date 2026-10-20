@@ -244,7 +244,6 @@ class BuildResult:
 JIT_FRAMEWORKS: dict[str, str] = {
     "triton": "triton",
     "numba": "numba",
-    "jax": "jax",
     "cupy": "cupy",
     Language.PYTHON.text: "numpy",
 }

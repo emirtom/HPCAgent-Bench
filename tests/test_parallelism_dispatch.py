@@ -182,7 +182,7 @@ extern "C" int stub_probe(void) {
 }
 """
 
-CPP_ISOPAR = """\
+CPP_STDPAR = """\
 #include <algorithm>
 #include <execution>
 #include <vector>
@@ -616,7 +616,7 @@ SKILL_TAUGHT = (
     TaughtConstruct("openmp-c", Language.C, "omp-parallel-for", "openmp", C_OMP_PARALLEL_FOR),
     TaughtConstruct("openmp-c", Language.C, "omp-simd", None, C_OMP_SIMD),
     TaughtConstruct("openmp-cpp", Language.CPP, "omp-parallel-for", "openmp", CPP_OMP_PARALLEL_FOR),
-    TaughtConstruct("lang-cpp", Language.CPP, "execution-par-unseq", "stdpar", CPP_ISOPAR),
+    TaughtConstruct("lang-cpp", Language.CPP, "execution-par-unseq", "stdpar", CPP_STDPAR),
 )
 
 TAUGHT_IDS = [f"{case.page}:{case.lang.text}:{case.name}" for case in SKILL_TAUGHT]
@@ -672,7 +672,7 @@ def test_skill_taught_parallelism_dispatches_into_its_runtime(case: TaughtConstr
     agents failing to beat their baseline.
     """
     taught_block(case)
-    if case.runtime == "stdpar" and languages.isopar_capability().verdict is not flags.AutoparVerdict.OK:
+    if case.runtime == "stdpar" and languages.stdpar_capability().verdict is not flags.AutoparVerdict.OK:
         pytest.skip(
             "environment cannot build this construct: this host's <execution> backend is "
             "not parallel (no TBB headers), so a runtime call is not expected here"

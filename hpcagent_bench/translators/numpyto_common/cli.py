@@ -9,18 +9,9 @@ passed straight through to that backend's ``emit`` sub-command. So
     numpyto --target fortran  --kernel ... --bench-info ... --out ...
     numpyto --target cupy     --kernel ... --out ... [--sanitize]
     numpyto --target numba    --kernel ... --out ... [--fastmath] [--sanitize]
-    numpyto --target pythran  --kernel ... --bench-info ... --out ... [--precision ...]
-    numpyto --target cpp_isopar --kernel ... --bench-info ... --out ...
 
 are equivalent to invoking each per-package CLI directly (the regen scripts call
 those); this is the single front door over them.
-
-``cpp_isopar`` is the C++ backend spelled over ``<algorithm>``/``<numeric>``: a
-map is a ``std::transform``, a reduction a ``std::reduce``, a prefix recurrence
-a ``std::inclusive_scan``, and anything with no faithful algorithm stays the
-loop it already was. Same symbol and same ABI as ``c``/``cpp`` -- only the body
-differs, so the source states the STRUCTURE and the toolchain picks the
-schedule.
 
 ``polly`` and ``pluto`` are the C-family polyhedral targets: a single
 ``numpyto_c`` emit already writes the C source, the C++ source, AND the
@@ -36,7 +27,7 @@ import importlib
 import sys
 from collections.abc import Sequence
 
-__all__ = ["ISOPAR_TARGETS", "PARALLEL_TARGETS", "TARGETS", "main"]
+__all__ = ["PARALLEL_TARGETS", "TARGETS", "main"]
 
 #: target name -> backend CLI module exposing ``main(argv)``. The C backend
 #: backs three targets -- ``c`` / ``polly`` / ``pluto`` -- because one emit
@@ -48,24 +39,16 @@ TARGETS = {
     "fortran": "hpcagent_bench.translators.numpyto_fortran.cli",
     "cupy": "hpcagent_bench.translators.numpyto_cupy.cli",
     "numba": "hpcagent_bench.translators.numpyto_numba.cli",
-    "pythran": "hpcagent_bench.translators.numpyto_pythran.cli",
     # OpenMP parallel-scope variants: same backend, ``--parallel`` injected. One C
     # emit produces both the C and C++ OpenMP sources, so ``c_omp`` and ``cpp_omp``
     # share the C backend (like ``c``/``polly``/``pluto``).
     "c_omp": "hpcagent_bench.translators.numpyto_c.cli",
     "cpp_omp": "hpcagent_bench.translators.numpyto_c.cli",
     "fortran_omp": "hpcagent_bench.translators.numpyto_fortran.cli",
-    # ISO standard-algorithm C++: same backend, ``--isopar`` injected.
-    "cpp_isopar": "hpcagent_bench.translators.numpyto_c.cli",
 }
 
 #: Targets that inject ``--parallel`` into the backend emit (OpenMP variants).
 PARALLEL_TARGETS = {"c_omp", "cpp_omp", "fortran_omp"}
-
-#: Targets that inject ``--isopar``: C++ over <algorithm>/<numeric> instead of hand-written loops,
-#: so the SOURCE states the map / reduce / scan and the toolchain picks the schedule. No execution
-#: policy is emitted, so this is a statement of structure, not a request for threads.
-ISOPAR_TARGETS = {"cpp_isopar"}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -78,8 +61,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     mod = importlib.import_module(TARGETS[args.target])
     if args.target in PARALLEL_TARGETS and "--parallel" not in rest:
         rest = ["--parallel", *rest]
-    if args.target in ISOPAR_TARGETS and "--isopar" not in rest:
-        rest = ["--isopar", *rest]
     return mod.main(["emit", *rest])
 
 

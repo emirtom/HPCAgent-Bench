@@ -37,7 +37,6 @@ AUTOPAR_PROBES = {
     "polly": flags.polly_capability,
     "cc_autopar": flags.gcc_autopar_capability,
     "fortran_autopar": flags.gcc_autopar_capability,
-    "cpp_isopar": languages.isopar_capability,
 }
 
 

@@ -46,19 +46,6 @@ def test_sparse_kernel_matches_scipy(kernel: "so.SparseKernel", config: str, see
 
 @pytest.mark.skipif(not KERNELS, reason="no sparse kernels discovered")
 @pytest.mark.parametrize("kernel", KERNELS, ids=IDS)
-@pytest.mark.parametrize("seed", [0, 1])
-def test_sparse_kernel_jax_matches_scipy(kernel: "so.SparseKernel", seed: int) -> None:
-    """Every sparse kernel also validates under JAX. jax runs EAGERLY, so the
-    sparse products execute directly on concrete arrays -- no sparse-specific desugaring
-    needed. The physical storage layout is a C-ABI concern jax never sees, so jax
-    validates once per kernel, not once per layout."""
-    pytest.importorskip("jax")
-    res = so.run_kernel(kernel, seed=seed, backend="jax")
-    assert res.ok, f"{kernel.short} jax (seed={seed}): {res.detail}"
-
-
-@pytest.mark.skipif(not KERNELS, reason="no sparse kernels discovered")
-@pytest.mark.parametrize("kernel", KERNELS, ids=IDS)
 def test_sparse_kernel_dace_matches_scipy(kernel: "so.SparseKernel") -> None:
     """dace validates -- via a real SDFG build + run -- every sparse kernel, incl. gmres.
     Every kernel builds from the LOWERED kir: a logical ``A @ x`` is

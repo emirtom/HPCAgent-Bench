@@ -1,4 +1,4 @@
-"""Desugar numpy forms the verbatim Python backends (numba / pythran / dace) cannot compile.
+"""Desugar numpy forms the verbatim Python backends (numba / dace) cannot compile.
 
 Entry point: :func:`desugar_for_python_backend`. Each submodule owns one family of rewrites.
 """
@@ -179,7 +179,7 @@ __all__ = [
 
 
 def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None = None) -> str:
-    """Rewrite ``source`` so numba/pythran/dace can compile it.
+    """Rewrite ``source`` so numba/dace can compile it.
 
     Expands numpy ops they don't support (batched ``@``/``np.matmul``, ``np.pad``, ``np.einsum``,
     ``np.fft.*``, ``np.mgrid``, axis reductions, ufunc.outer, multi-array fancy gather, ``np.ix_``
@@ -190,7 +190,7 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
     when none fire.
 
     ``backend`` selects the target's native-``np.linalg`` capability: an op it implements natively
-    (numba/dace do cholesky/solve/inv) is left verbatim; one it lacks (pythran has no np.linalg) is
+    (numba/dace do cholesky/solve/inv) is left verbatim; one it lacks is
     lowered to explicit loops. ``None`` lowers no linalg. A capability can be partial:
     :data:`LOWER_SOLVE_RHS_RANKS` lowers the ``solve`` right-hand-side ranks a nominally-native
     backend cannot expand."""

@@ -1,19 +1,13 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Numpy-faithfulness regression tests for the numba / pythran / cupy emitters.
+"""Numpy-faithfulness regression tests for the numba / cupy emitters.
 
-Three semantic rules -- one per backend -- are pinned here:
+Two semantic rules -- one per backend -- are pinned here:
 
 1. numba: a ``range`` for-loop is never rewritten to ``nb.prange``, so a
    loop-carried scan (``a[i] = a[i-1] + x[i]``) runs in order.
 
-2. pythran: an ``#pythran export`` type never defaults an unknown param /
-   dtype to ``float64`` (that type-puns a bool / int argument in the oracle's
-   positional call); unknown dtypes fail loudly. Separately, pythran's
-   ``np.maximum`` / ``np.minimum`` / ``np.sign`` SUPPRESS NaN (unlike numpy);
-   they are rewritten to NaN-propagating forms.
-
-3. cupy: ``import numpy`` (no alias) is rebound to ``import cupy as cp``, so
+2. cupy: ``import numpy`` (no alias) is rebound to ``import cupy as cp``, so
    bare ``numpy.`` refs must bind to ``cp`` too -- a ``cupy.foo`` raises
    ``NameError``.
 
@@ -32,7 +26,6 @@ import pytest
 
 from hpcagent_bench.translators.numpyto_cupy.emit import emit_cupy
 from hpcagent_bench.translators.numpyto_numba.emit import emit_numba
-from hpcagent_bench.translators.numpyto_pythran.export import pythran_scalar_type
 from tests.translators import op_oracle
 from tests.translators.source_module import run_source
 
@@ -133,70 +126,6 @@ def test_numba_parallel_scan_stays_correct() -> None:
         a = np.zeros_like(x)
         m.scan(x.copy(), a)
     np.testing.assert_allclose(a, np.cumsum(x))
-
-
-# 2. pythran: dtype fail-loud + NaN-propagating max/min/sign.                  #
-def test_pythran_scalar_type_resolves_int_bool() -> None:
-    # Known non-float dtypes map to their pythran spelling (not float64).
-    assert pythran_scalar_type("int", "x") == "int"
-    assert pythran_scalar_type("int32", "x") == "int32"
-    assert pythran_scalar_type("bool", "x") == "bool"
-
-
-def test_pythran_scalar_type_unknown_fails_loud() -> None:
-    # An unmappable dtype must raise, NOT silently become float64 (a wrong
-    # element type type-puns the oracle's positional call).
-    with pytest.raises(ValueError, match="cannot map dtype"):
-        pythran_scalar_type("float128", "array 'q'")
-
-
-def test_pythran_int_param_roundtrips() -> None:
-    # ``k`` (used only as a ``range`` bound) is declared ``int`` and drives the
-    # loop count; the result must match numpy on the pythran backend.
-    no = op_oracle.native()
-    src = "import numpy as np\ndef f(x, k, out):\n    for i in range(k):\n        out[i] = x[i] * 2.0\n"
-    st = no.run_op(
-        src,
-        "f",
-        {"x": np.arange(5.0), "k": 3},
-        {"out": (5,)},
-        {"N": 5},
-        shapes={"x": "(N,)", "out": "(N,)"},
-        backends=("pythran",),
-    )
-    assert_ok(st, "pythran", "pythran-int-param")
-
-
-def test_pythran_maximum_propagates_nan() -> None:
-    # numpy's np.maximum propagates NaN; pythran's suppresses it. The rewrite
-    # restores propagation -- checked with equal_nan comparison in the oracle.
-    no = op_oracle.native()
-    src = "import numpy as np\ndef f(a, b, out):\n    out[:] = np.maximum(a, b)\n"
-    st = no.run_op(
-        src,
-        "f",
-        {"a": np.array([np.nan, 1.0, 3.0]), "b": np.array([2.0, np.nan, 1.0])},
-        {"out": (3,)},
-        {"N": 3},
-        shapes={"a": "(N,)", "b": "(N,)", "out": "(N,)"},
-        backends=("pythran",),
-    )
-    assert_ok(st, "pythran", "pythran-maximum-nan")
-
-
-def test_pythran_sign_propagates_nan() -> None:
-    no = op_oracle.native()
-    src = "import numpy as np\ndef f(a, out):\n    out[:] = np.sign(a)\n"
-    st = no.run_op(
-        src,
-        "f",
-        {"a": np.array([np.nan, -2.0, 0.0, 5.0])},
-        {"out": (4,)},
-        {"N": 4},
-        shapes={"a": "(N,)", "out": "(N,)"},
-        backends=("pythran",),
-    )
-    assert_ok(st, "pythran", "pythran-sign-nan")
 
 
 # 3. cupy: consistent ``cp`` binding + import-form handling.                   #

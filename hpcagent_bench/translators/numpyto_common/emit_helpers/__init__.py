@@ -1,4 +1,4 @@
-"""Helpers shared by several backend emitters (C, Fortran, DaCe, JAX, Numba, Pythran, CuPy).
+"""Helpers shared by several backend emitters (C, Fortran, DaCe, Numba, CuPy).
 
 One module per concern:
 

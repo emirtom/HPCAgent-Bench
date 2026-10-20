@@ -61,7 +61,6 @@ __all__ = [
     "POLLY_OUTLINE_PATTERN",
     "POLLY_PAR",
     "POLYGEIST_PAR",
-    "PYTHRAN_BASELINE",
     "ROCMINFO_GFX_NAME",
     "ROCMINFO_TIMEOUT",
     "SIBLINGS",
@@ -172,9 +171,6 @@ NVHPC_OPT_REPORT = "-Minfo=all"
 #: Appended to a PROFILED build so perf can name symbols: ``-g`` only (codegen-neutral; perf unwinds with DWARF).
 DEBUG_SYMBOLS: list[str] = ["-g"]
 
-#: Pythran's libmvec route: the decl header as one ``-Wp,`` token (pythran's CLI misreads a bare ``-include``).
-_VECLIB_PYTHRAN = f" -Wp,-include,{VECMATH_H}" if osinfo.IS_LINUX else ""
-PYTHRAN_BASELINE = f"-DUSE_XSIMD -fopenmp {ARCH_NATIVE} {_FP_RELAX} {_FP_ASSOC} {_FP_CONTRACT} -fPIC{_VECLIB_PYTHRAN}"
 
 #: flang's reassociation licence needs ``-fno-signed-zeros`` beside it (LLVM vectorizes a reduction only with both).
 FP_ASSOC_FLANG = f"{_FP_ASSOC} -fno-signed-zeros" if _FP_ASSOC else ""

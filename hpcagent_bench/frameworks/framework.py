@@ -97,7 +97,7 @@ np_float, np_complex = float_complex_for(None)
 
 
 class ArrayLike(Protocol):
-    """A dense array the harness moves between initializer and kernel (numpy, cupy, jax, torch): shaped,
+    """A dense array the harness moves between initializer and kernel (numpy, cupy, torch): shaped,
     self-copying, convertible to numpy. See :class:`SparseArray` for the non-convertible case."""
 
     @property

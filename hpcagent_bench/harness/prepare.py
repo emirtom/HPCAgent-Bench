@@ -203,7 +203,7 @@ def parse(argv: Sequence[str] | None) -> argparse.Namespace:
         help="the setup's baseline (default: measurement.baseline)",
     )
     parser.add_argument(
-        "--frameworks", default="", help="comma-separated framework columns (e.g. dace_cpu_parallel,jax)"
+        "--frameworks", default="", help="comma-separated framework columns (e.g. dace_cpu_parallel,numba)"
     )
     parser.add_argument(
         "--steps",

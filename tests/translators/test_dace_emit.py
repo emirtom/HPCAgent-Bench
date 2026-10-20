@@ -280,7 +280,7 @@ def test_known_kernels_discovered() -> None:
 
 
 # dace feature lowering: the @dc.program body is desugared by the SAME pass    #
-# numba / pythran use, so dace gains feature parity -- np.fft, fancy multi-    #
+# numba use, so dace gains feature parity -- np.fft, fancy multi-    #
 # index gather, np.add.at scatter, np.histogram, np.mgrid, ufunc.outer and     #
 # reshape-batched @ all lower to the plain loops a @dc.program traces. dace's   #
 # JIT is too slow to run per-kernel here (see the module docstring), so this    #
@@ -328,7 +328,7 @@ def test_dace_keeps_native_linalg() -> None:
 def test_dace_feature_kernels_desugared(kernel: str) -> None:
     """Each desugar-requiring kernel emits parseable ``@dc.program``s with size symbols module-level
     (not parameters) and NO residual construct dace cannot trace -- the same np.add.at / np.mgrid /
-    np.histogram / ufunc.outer lowering numba and pythran get. ``np.fft`` is the exception: dace
+    np.histogram / ufunc.outer lowering numba get. ``np.fft`` is the exception: dace
     compiles it natively, to its FFT library nodes, so the fft kernels must KEEP the call.
 
     The kernel program is LAST: a kept helper is emitted as its own ``@dc.program`` above it rather

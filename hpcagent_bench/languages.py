@@ -122,7 +122,7 @@ __all__ = [
     "family_report_flags",
     "gpu_backend",
     "grading_ncores",
-    "isopar_capability",
+    "stdpar_capability",
     "library_build_flags",
     "library_compiles",
     "library_linkable",
@@ -1533,11 +1533,11 @@ def library_build_flags(
     return tuple(compile_out), tuple(link_out)
 
 
-def isopar_capability() -> flags.AutoparProbe:
+def stdpar_capability() -> flags.AutoparProbe:
     """Do THIS host's ``<execution>`` policies genuinely run in parallel, or only compile?
 
-    libstdc++ picks the backend per TU from ``__has_include(<tbb/tbb.h>)``, so a missing header silently times serial
-    work under ``cpp_isopar``'s name; probed like every autopar column, with the real C++ flags."""
+    libstdc++ picks the backend per TU from ``__has_include(<tbb/tbb.h>)``, so a missing header silently runs a C++
+    submission's parallel algorithms serially; probed like every autopar column, with the real C++ flags."""
     block = _compiler_for_lang(_load_compilers(), Language.CPP).block
     composed = f"{baseline_flags(Language.CPP)} {std_flag(Language.CPP)}"
     return flags.probe_autopar(

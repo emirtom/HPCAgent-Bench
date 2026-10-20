@@ -133,8 +133,6 @@ BASE_CLASS_NAMES = {
     "numpy": "Framework",
     "numba": "NumbaFramework",
     "cupy": "CupyFramework",
-    "jax": "JaxFramework",
-    "pythran": "PythranFramework",
     "dace": "DaceFramework",
     "native": "NativeFramework",
     "pluto": "PlutoFramework",

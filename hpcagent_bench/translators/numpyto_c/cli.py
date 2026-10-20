@@ -8,7 +8,6 @@ from hpcagent_bench.translators.numpyto_c.emit import (
     emit_c,
     emit_c_omp,
     emit_cpp,
-    emit_cpp_isopar,
     emit_cpp_omp,
     emit_pluto,
 )
@@ -41,12 +40,6 @@ def emit_once(args: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
     short, base, sym = native_names(args)
     src = f"{short}_numpy.py"
-    if args.isopar:
-        # C++ only (C has no <algorithm>), same symbol as sequential.
-        write_generated(out / f"{base}_isopar.cpp", emit_cpp_isopar(kir, fn_name=sym), line_comment="// ", source=src)
-        emit_binding(kir, out / f"{base}_isopar_binding.json", base_name=base, symbol=sym)
-        print(f"numpyto_c: emitted {base}_isopar.cpp (ISO algorithms) + {base}_isopar_binding.json")
-        return 0
     if args.parallel:
         # Same symbol as sequential; no Pluto (sequential-only track).
         write_generated(out / f"{base}_omp.c", emit_c_omp(kir, fn_name=sym), line_comment="// ", source=src)
@@ -78,13 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit the OpenMP variant (<base>_omp.{c,cpp}); compile with -fopenmp. Refuses (nonzero exit) a "
         "kernel with no sound parallel form (colliding scatter).",
-    )
-    variant.add_argument(
-        "--isopar",
-        action="store_true",
-        help="emit the ISO standard-algorithm C++ variant (<base>_isopar.cpp): a loop with a faithful "
-        "<algorithm>/<numeric> spelling becomes that call (transform / reduce / inclusive_scan), the rest "
-        "stay loops. Never refuses a kernel.",
     )
     add_precision(emit)
     emit.set_defaults(func=with_inline_fallback(emit_once))

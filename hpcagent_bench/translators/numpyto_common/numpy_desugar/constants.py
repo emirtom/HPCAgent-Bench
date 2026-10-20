@@ -475,7 +475,7 @@ class ListCompUnroll(ast.NodeTransformer):
 
 #: Backends whose kernel is called positionally through ``kir.input_args`` and nothing else, so a
 #: defaulted parameter outside that list is a constant -- the fold the native frontend already does.
-DEFAULT_FOLDING_BACKENDS = frozenset({"numba", "pythran"})
+DEFAULT_FOLDING_BACKENDS = frozenset({"numba"})
 
 
 def has_defaulted_parameters(fn: ast.FunctionDef) -> bool:

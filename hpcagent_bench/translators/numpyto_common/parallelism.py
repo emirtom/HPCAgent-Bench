@@ -3,8 +3,7 @@
 A *source-form* judgement (not a dependence analysis): a ``for t in
 range(TSTEPS)`` loop steps time -- each iteration depends on the last -- so it
 must stay rolled (never unrolled or vectorized). The imperative backends
-(C / Fortran) emit loops regardless; JAX consults this so a timestep loop lowers
-to ``lax.fori_loop`` / ``while_loop`` and never unrolls.
+(C / Fortran) emit loops regardless.
 """
 
 import ast

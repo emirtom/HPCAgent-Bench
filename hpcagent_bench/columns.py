@@ -18,7 +18,7 @@ __all__ = [
     "dace_column",
 ]
 
-#: The IEEE pair every non-ml_dtypes-aware framework can execute (C/C++/Fortran, Numba, Pythran).
+#: The IEEE pair every non-ml_dtypes-aware framework can execute (C/C++/Fortran, Numba).
 IEEE_PRECISIONS = frozenset({Precision.FP32, Precision.FP64})
 
 #: The full precision matrix (IEEE + fp16/bf16/fp8), for frameworks carrying low precision end to end.
@@ -181,19 +181,8 @@ FRAMEWORKS.add(
 )
 
 
-FRAMEWORKS.add(
-    "pythran",
-    Column(
-        display="Pythran",
-        adapter="hpcagent_bench.frameworks.pythran_framework:PythranFramework",
-        base="pythran",
-        full_name="Pythran",
-        postfix="pythran",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
-    ),
-)
+# Retired in v0.3.0: old rows keep their slot and colour; nothing runs it.
+FRAMEWORKS.retire("pythran")
 
 
 # gcc's auto-parallelizer, the GCC half of the autopar axis.
@@ -276,20 +265,8 @@ FRAMEWORKS.add(
 )
 
 
-FRAMEWORKS.add(
-    "jax",
-    Column(
-        display="JAX",
-        adapter="hpcagent_bench.frameworks.jax_framework:JaxFramework",
-        base="jax",
-        full_name="Jax",
-        postfix="jax",
-        arch=Arch.CPU,
-        sweep_deterministic=False,
-        precisions=ALL_PRECISIONS,
-    ),
-    aliases=("jax_cpu", "jax_gpu"),
-)
+# Retired in v0.3.0: old rows keep their slot and colour; nothing runs it.
+FRAMEWORKS.retire("jax", aliases=("jax_cpu", "jax_gpu"))
 
 
 # One base, two hardware flavors sharing the unified ``<kernel>_tvm.py`` (``tvm_build.active_kernel``).

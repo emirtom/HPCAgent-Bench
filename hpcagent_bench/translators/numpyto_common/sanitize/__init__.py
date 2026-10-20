@@ -7,8 +7,8 @@ the hpcagent_bench application.
   string literals AND a leading license / attribution header intact so a ported
   kernel's CC-BY notice survives redistribution.
 * :func:`sanitize` (below) -- ast-based ``#``-comment + docstring strip for the
-  EMITTED Python of the textual-passthrough backends (CuPy / Numba / Pythran, and
-  later JAX / DaCe).
+  EMITTED Python of the textual-passthrough backends (CuPy / Numba, and
+  later DaCe).
   ``ast.parse`` -> ``ast.unparse`` drops comments (not in the AST); docstrings
   survive unparse as string-expression statements, so they are removed explicitly.
 """
