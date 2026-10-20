@@ -375,5 +375,5 @@ def canonical_sdfg(
         return {"verdict": manifest.verdict, "error": manifest.error}, cached
     # Produced by the prerender (or an earlier run), the canonicalize is still this run's work: its time counts.
     if cached:
-        phase_clock.credit(manifest.seconds, "transform")
+        phase_clock.credit(manifest.seconds, phase_clock.Phase.TRANSFORM)
     return SDFG.from_file(str(stored)), cached

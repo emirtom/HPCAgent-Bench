@@ -7,6 +7,7 @@ answer they are checked against."""
 
 import contextlib
 import ctypes
+import enum
 import inspect
 import os
 import pathlib
@@ -20,10 +21,11 @@ import sys
 import tempfile
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pydantic
+from hpcagent_agent.coded import Coded
 
 if TYPE_CHECKING:
     from hpcagent_bench import config
@@ -1583,8 +1585,17 @@ def _run_pluto(
     return result
 
 
-#: What one ``dace_numeric_probe`` child concluded about its kernel.
-ProbeVerdict = Literal["ok", "mismatch", "parse_fail", "noprogram", "compile_fail", "run_fail", "unbound_symbols"]
+class ProbeVerdict(Coded):
+    """What one ``dace_numeric_probe`` child concluded about its kernel; spelled on the child's JSON line and as
+    the second field of a ``FAIL:`` status, which the ratchet keys on."""
+
+    OK = enum.auto()
+    MISMATCH = enum.auto()
+    PARSE_FAIL = enum.auto()
+    NOPROGRAM = enum.auto()
+    COMPILE_FAIL = enum.auto()
+    RUN_FAIL = enum.auto()
+    UNBOUND_SYMBOLS = enum.auto()
 
 
 class ProbeRecord(pydantic.BaseModel):
@@ -1656,11 +1667,13 @@ def run_dace_backend(short, bench: BenchSpec, by, syms, expected, compare, rtol,
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("{"):
             rec = ProbeRecord.model_validate_json(line)
+            if rec.verdict is None:
+                break  # a child prints a line only once it has a verdict: this one did not finish
             # The verdict NAME is what the ratchet keys on, so it stays the second field verbatim.
             # The detail arrives already filtered to its decisive lines and bounded by the probe
             # (dace_numeric_probe.DETAIL_CHARS); clipping it to 160 here threw the compiler's own
             # error away and left "CompilationError: Compiler failure:" as the whole diagnosis.
-            return "ok" if rec.verdict == "ok" else f"FAIL:{rec.verdict}:{rec.detail[:3200]}"
+            return "ok" if rec.verdict is ProbeVerdict.OK else f"FAIL:{rec.verdict.text}:{rec.detail[:3200]}"
     return "FAIL:crash:" + (proc.stderr or proc.stdout)[-160:].replace("\n", " ")
 
 

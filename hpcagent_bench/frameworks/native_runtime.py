@@ -154,7 +154,7 @@ def _ensure_built(cpp_backend: pathlib.Path, short: str, framework: str) -> path
     # Objects and the link land in a private directory and the .so is renamed into place: two
     # processes building the same column otherwise interleave writes, and one dlopens a half-linked
     # file ("file too short").
-    with tempfile.TemporaryDirectory(dir=bd) as private, phase_clock.phase("compile"):
+    with tempfile.TemporaryDirectory(dir=bd) as private, phase_clock.phase(phase_clock.Phase.COMPILE):
         staged = pathlib.Path(private) / so_name
         for cmd in build_kernel_lib_commands(
             sources,

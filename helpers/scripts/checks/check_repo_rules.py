@@ -34,6 +34,7 @@ Python files are read as live text: string literals that are not docstrings, nev
 """
 
 import ast
+import enum
 import functools
 import getpass
 import pathlib
@@ -408,15 +409,24 @@ SITE_ALLOW = {
 }
 
 
-def comment_style(rel: str, text: str) -> str:
-    """``py``, ``hash`` or ``verbatim``: how ``rel``'s comments are told from its live text."""
+class CommentStyle(enum.Enum):
+    """How a file's comments are told from its live text: PY (python strings and comments), HASH (``#`` to the
+    end of a line), or VERBATIM (no comments: every line is live)."""
+
+    PY = enum.auto()
+    HASH = enum.auto()
+    VERBATIM = enum.auto()
+
+
+def comment_style(rel: str, text: str) -> CommentStyle:
+    """How ``rel``'s comments are told from its live text."""
     name = rel.rsplit("/", 1)[-1]
     first = text.split("\n", 1)[0]
     if name.endswith(".py") or (first.startswith("#!") and "python" in first):
-        return "py"
+        return CommentStyle.PY
     if name.endswith(HASH_COMMENT_EXTS) or name.startswith(HASH_COMMENT_NAMES) or first.startswith("#!"):
-        return "hash"
-    return "verbatim"
+        return CommentStyle.HASH
+    return CommentStyle.VERBATIM
 
 
 def matches(text: str, rel: str, patterns: Patterns, line_of: int | None = None) -> list[tuple[str, str]]:
@@ -436,13 +446,13 @@ def site_hits(rel: str, text: str) -> list[tuple[str, str]]:
     lockfile = rel.endswith(".lock")  # resolver output: dotted version strings read as addresses
     patterns = SITE_PATTERNS | ({} if test or lockfile else NON_TEST_PATTERNS)
     if not test:
-        patterns |= PROSE_PATTERNS if style == "verbatim" else CODE_PATTERNS
+        patterns |= PROSE_PATTERNS if style is CommentStyle.VERBATIM else CODE_PATTERNS
     hits = matches(text, rel, RAW_PATTERNS)
-    if style == "py":
+    if style is CommentStyle.PY:
         strings = live_strings(text)
         if strings is not None:
             return hits + [hit for node in strings for hit in matches(node.value, rel, patterns, node.lineno)]
-    if style != "verbatim":
+    if style is not CommentStyle.VERBATIM:
         text = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
     return hits + matches(text, rel, patterns)
 
@@ -546,14 +556,14 @@ def hardcoded_paths(files: list[str]) -> list[str]:
         if text is None:
             continue
         style = comment_style(rel, text)
-        if style == "py" and rel not in FILE_ROOT_ALLOW and not rel.startswith(FILE_ROOT_EXEMPT_PREFIXES):
+        if style is CommentStyle.PY and rel not in FILE_ROOT_ALLOW and not rel.startswith(FILE_ROOT_EXEMPT_PREFIXES):
             out += [
                 f"{hit}: repo root from __file__ (hpcagent_bench.paths)"
                 for hit in line_hits(rel, text, FILE_ROOT_CLIMB)
             ]
         if in_package(rel) and rel not in PACKAGE_LITERAL_ALLOW:
             out += package_literals(rel, text)
-        if style == "hash" and not rel.endswith((".md", ".yaml", ".yml", ".toml")):
+        if style is CommentStyle.HASH and not rel.endswith((".md", ".yaml", ".yml", ".toml")):
             live = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
             climbs = line_hits(rel, live, SHELL_ROOT_CLIMB)
             if len(climbs) > 1:

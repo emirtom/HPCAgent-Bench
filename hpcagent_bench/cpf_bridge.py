@@ -950,7 +950,7 @@ def prerender_sdfg(
             for language in todo:
                 key, options = plan[language]
                 try:
-                    with phase_clock.phase("codegen"):
+                    with phase_clock.phase(phase_clock.Phase.CODEGEN):
                         form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
                     results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})

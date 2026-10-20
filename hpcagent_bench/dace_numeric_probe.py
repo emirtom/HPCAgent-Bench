@@ -110,9 +110,9 @@ def main() -> int:
         module = importlib.import_module(module_path)
         prog = program_of(module, case["func_name"], case["module_name"])
     except BaseException as exc:  # noqa: BLE001 -- every failure mode is a verdict, including SystemExit
-        return report(rec, "parse_fail", exc)
+        return report(rec, ProbeVerdict.PARSE_FAIL, exc)
     if prog is None:
-        rec.verdict, rec.detail = "noprogram", f"no @dace.program in {module_path}"
+        rec.verdict, rec.detail = ProbeVerdict.NOPROGRAM, f"no @dace.program in {module_path}"
         print(rec.line(), flush=True)
         return 0
 
@@ -122,14 +122,14 @@ def main() -> int:
     try:
         sdfg = prog.to_sdfg(simplify=True)
     except BaseException as exc:  # noqa: BLE001
-        return report(rec, "parse_fail", exc)
+        return report(rec, ProbeVerdict.PARSE_FAIL, exc)
     rec.timing["to_sdfg"] = round(time.perf_counter() - t0, 3)
 
     t0 = time.perf_counter()
     try:
         csdfg = sdfg.compile()
     except BaseException as exc:  # noqa: BLE001
-        return report(rec, "compile_fail", exc)
+        return report(rec, ProbeVerdict.COMPILE_FAIL, exc)
     rec.timing["compile"] = round(time.perf_counter() - t0, 3)
 
     # Private copies: the in-place outputs are read back out of exactly these arrays.
@@ -145,7 +145,7 @@ def main() -> int:
             # Real type, never int()-cast: a float parameter truncated to 0 is a phantom mismatch.
             kwargs[renames.get(name, name)] = case["syms"][name]
         else:
-            rec.verdict, rec.detail = "run_fail", f"unresolved argument {name!r}"
+            rec.verdict, rec.detail = ProbeVerdict.RUN_FAIL, f"unresolved argument {name!r}"
             print(rec.line(), flush=True)
             return 0
     # A PROMOTED RETURN is an output PARAMETER of the emitted program but not a manifest input: the
@@ -181,7 +181,7 @@ def main() -> int:
         bound_arrays = {renames.get(k, k): v for k, v in call.items()} if renames else call
         kwargs.update(dace_framework.bind_free_symbols(sdfg, recipes, args, bound_arrays, kwargs))
     except BaseException as exc:  # noqa: BLE001
-        return report(rec, "unbound_symbols", exc)
+        return report(rec, ProbeVerdict.UNBOUND_SYMBOLS, exc)
     # A closure array DaCe lifted out of the program is an ARGUMENT of the compiled signature that
     # no manifest names; the resolver values it (see bind_closure_arrays).
     kwargs.update(dace_framework.bind_closure_arrays(prog, set(sdfg.arglist())))
@@ -189,7 +189,7 @@ def main() -> int:
     if unbound:
         # Reported BEFORE the call so this never arrives as a bare "Missing program argument"
         # run_fail, which is indistinguishable from a real defect at a glance.
-        rec.verdict, rec.detail = "unbound_symbols", f"free symbols nothing binds: {unbound}"
+        rec.verdict, rec.detail = ProbeVerdict.UNBOUND_SYMBOLS, f"free symbols nothing binds: {unbound}"
         print(rec.line(), flush=True)
         return 0
 
@@ -197,7 +197,7 @@ def main() -> int:
     try:
         returned = csdfg(**kwargs)
     except BaseException as exc:  # noqa: BLE001
-        return report(rec, "run_fail", exc)
+        return report(rec, ProbeVerdict.RUN_FAIL, exc)
     rec.timing["run"] = round(time.perf_counter() - t0, 3)
 
     # Output mapping mirrors the oracle's python-backend path: an in-place output is read back from
@@ -224,7 +224,7 @@ def main() -> int:
             outputs[name] = "ok"
     rec.outputs = outputs
     bad = [d for d in outputs.values() if d != "ok"]
-    rec.verdict = "mismatch" if bad else "ok"
+    rec.verdict = ProbeVerdict.MISMATCH if bad else ProbeVerdict.OK
     rec.detail = "; ".join(bad)
     print(rec.line(), flush=True)
     return 0
