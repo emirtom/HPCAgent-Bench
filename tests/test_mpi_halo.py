@@ -155,7 +155,14 @@ def run_halo(
         artifact = built.lib if language is Language.PYTHON else built.exe
         assert artifact is not None
         launched = mpi_call.run(
-            artifact, binding, desc, data, is_python=language is Language.PYTHON, launcher=launcher, k_repeats=2, timeout=120
+            artifact,
+            binding,
+            desc,
+            data,
+            is_python=language is Language.PYTHON,
+            launcher=launcher,
+            k_repeats=2,
+            timeout=120,
         )
         outputs, samples_ns = launched.outputs, launched.samples_ns
     assert len(samples_ns) == 2

@@ -52,6 +52,7 @@ __all__ = [
     "NATIVE_LOW_OPT",
     "NO_SCALE",
     "NUMBA_LOW_OPT",
+    "NUMBA_SERIAL_EMIT",
     "ONE_THREAD_SETTERS",
     "ORACLE_NUMBA_ENV",
     "PLUTO",
@@ -927,6 +928,10 @@ def coerce_to_dtype(v: object, dt: type | None) -> object:
 #: two the default pipeline costs ~20 minutes against ~1 at NUMBA_OPT=0, with identical outputs.
 NUMBA_LOW_OPT: dict[str, str] = {"cloudsc": "0", "cloudsc_monolith": "0"}
 
+#: Kernels whose generated numba is checked as a serial build: numba's parfor compile of their body alone outlasts
+#: the sweep (S, NUMBA_OPT=0: cloudsc 2578 s parallel vs 53 s serial, cloudsc_monolith 919 s vs 51 s).
+NUMBA_SERIAL_EMIT: frozenset[str] = frozenset({"cloudsc", "cloudsc_monolith"})
+
 #: numba's pool in the oracle's child: two threads still race every prange, without waking a whole node's pool per
 #: parfor; the workqueue layer, since a libgomp pool does not survive the fork.
 ORACLE_NUMBA_ENV = {"NUMBA_NUM_THREADS": "2", "NUMBA_THREADING_LAYER": "workqueue"}
@@ -1014,6 +1019,8 @@ def py_backend_compute(
             cmd += ["--precision", emit_prec]
         if backend == "numba" and oracle_config().fastmath(short):
             cmd += ["--fastmath"]
+        if backend == "numba" and short in NUMBA_SERIAL_EMIT:
+            cmd += ["--serial"]
         if backend == "cupy":  # cupy CLI takes no bench-info
             cmd = [sys.executable, "-m", cli, "emit", "--kernel", str(npy), "--out", str(tdp)]
         emit = subprocess.run(cmd, capture_output=True, text=True, cwd=str(paths.ROOT), check=False)

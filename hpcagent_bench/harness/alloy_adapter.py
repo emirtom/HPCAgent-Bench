@@ -203,7 +203,10 @@ def optimize(task: Task, pipeline: str, deliver: Deliver, profile: Profile | Non
     verification = result.verification
     if verification is None:
         raise RuntimeError(f"Alloy verified nothing for {spec.short_name}")
-    linker, judge = Linker(result.program, matrix, out), JudgeClient(judge_endpoints()[0], rank=judge_rank(), timeout=judge_timeout())
+    linker, judge = (
+        Linker(result.program, matrix, out),
+        JudgeClient(judge_endpoints()[0], rank=judge_rank(), timeout=judge_timeout()),
+    )
     size = fast_size(config.current().service.preset)
     measure = profile or (lambda submission: judge.profile(submission, task.kernel, reps=PROFILE_REPS, size=size))
 
