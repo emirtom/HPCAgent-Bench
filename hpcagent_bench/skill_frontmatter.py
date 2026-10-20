@@ -32,12 +32,10 @@ class Applies(pydantic.BaseModel):
 class PacketBlock(pydantic.BaseModel):
     """A page's ``packet:`` frontmatter block: the page registers itself as the packet of its directory's name
     (:mod:`hpcagent_bench.skill_packets`), staging the page plus what the block adds. The fields are the packet
-    registry's (``docs/extending/registry.md``); ``order`` is the packet's hue slot, append-only."""
+    registry's (``docs/extending/registry.md``)."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    #: The packet's slot; a plugin's page leaves it out and takes the next free one.
-    order: int | None = None
     name: str
     aliases: tuple[str, ...] = ()
     #: A plugin manifest's packet: the pages it stages (a page's own block always stages the page itself).

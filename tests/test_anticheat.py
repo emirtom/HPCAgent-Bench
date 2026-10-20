@@ -20,26 +20,25 @@ from hpcagent_bench.registry import RegistryError
 REPO = paths.ROOT
 
 #: The gates in the order a submission meets them. Adding one is an edit here and in docs/anti_cheat.md.
-PINNED_GATES = {
-    "isolated_agent": 0,
-    "link_allowlist": 1,
-    "device_residency": 2,
-    "sealed_child": 3,
-    "fresh_buffers": 4,
-    "rep_variation": 5,
-    "size_class_sweep": 6,
-    "device_runtime": 7,
-    "quiescence": 8,
-    "plausibility": 9,
-    "independent_verify": 10,
-    "sanitizers": 11,
-    "final_grade": 12,
-}
+PINNED_GATES = (
+    "isolated_agent",
+    "link_allowlist",
+    "device_residency",
+    "sealed_child",
+    "fresh_buffers",
+    "rep_variation",
+    "size_class_sweep",
+    "device_runtime",
+    "quiescence",
+    "plausibility",
+    "independent_verify",
+    "sanitizers",
+    "final_grade",
+)
 
 
 def test_the_gates_are_the_pinned_ones_in_the_order_they_are_met() -> None:
-    assert ANTICHEAT.orders == PINNED_GATES
-    assert ANTICHEAT.keys() == tuple(PINNED_GATES)
+    assert ANTICHEAT.keys() == PINNED_GATES
 
 
 def test_every_gate_names_enforcement_that_exists() -> None:
@@ -55,7 +54,7 @@ def test_every_gate_names_enforcement_that_exists() -> None:
 def test_the_docs_table_lists_the_registered_gates_in_order() -> None:
     rows = re.findall(r"^\| (\d+) \| ([^|]+?) \|", (REPO / "docs" / "anti_cheat.md").read_text(), re.MULTILINE)
     assert [(int(number), title) for number, title in rows] == [
-        (order + 1, gate.title) for order, gate in zip(PINNED_GATES.values(), ANTICHEAT.entries.values(), strict=True)
+        (number, gate.title) for number, gate in enumerate(ANTICHEAT.entries.values(), start=1)
     ]
 
 
@@ -96,7 +95,7 @@ def test_post_run_gate_registers_its_check_at_the_next_slot() -> None:
     def check(context: Context) -> tuple[Found, ...]:
         return ()
 
-    slot = ANTICHEAT.next_order()
+    slot = len(ANTICHEAT.entries)
     try:
         registered = anticheat.post_run_gate(
             "probe_post_run", title="Probe", catches="x", verdict=Verdict.FLAG, where=("a.py",)

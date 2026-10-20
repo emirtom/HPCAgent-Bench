@@ -9,8 +9,7 @@ registers one under the :data:`ENTRY_POINT_GROUP` entry point::
     [project.entry-points."hpcagent_bench.plugins"]
     nestforge = "nestforge.hpcagent_plugin"     # a package whose directory is the plugin
 
-A plugin's packet without an ``order`` takes the next free slot when it is registered; a shipped one states its
-slot like any shipped packet. :func:`roots` is what a launcher binds into every role's container and exports as
+A plugin's packets take the next slots when they are registered. :func:`roots` is what a launcher binds into every role's container and exports as
 ``HPCAGENT_BENCH_PLUGIN_DIRS``, so the agent serves the same plugins' tools.
 """
 
@@ -25,7 +24,6 @@ from collections.abc import Mapping
 from hpcagent_agent import plugins as agent_plugins
 from hpcagent_agent.plugins import Plugin
 
-from hpcagent_bench.registry import Slot
 from hpcagent_bench.skill_frontmatter import PacketBlock
 from hpcagent_bench.vocabulary import PACKETS, PacketDef
 
@@ -81,21 +79,20 @@ def packet_definition(plugin: Plugin, key: str, block: PacketBlock) -> PacketDef
 
 
 def register_packets(found: tuple[Plugin, ...]) -> None:
-    """Add every plugin's packets to the vocabulary: stated slots in slot order, then the rest at the next free
-    slots in plugin and key order. A method a packet names must be shipped by a plugin."""
+    """Add every plugin's packets to the vocabulary, in plugin and key order. A method a packet names must be shipped
+    by a plugin."""
     blocks = [
         (plugin, key, PacketBlock.model_validate(raw))
         for plugin in found
         for key, raw in sorted(plugin.manifest.packets.items())
     ]
     methods = {name.parent.name for plugin in found for name in (plugin.root / "methods").glob("*/method.md")}
-    for plugin, key, block in sorted(blocks, key=lambda item: (item[2].order is None, item[2].order or 0)):
+    for plugin, key, block in blocks:
         if block.method and block.method not in methods:
             raise ValueError(
                 f"plugin {plugin.name!r}: packet {key!r} runs method {block.method!r}, which no plugin ships"
             )
-        order = Slot.NEXT if block.order is None else block.order
-        PACKETS.add(key, packet_definition(plugin, key, block), order=order, aliases=block.aliases)
+        PACKETS.add(key, packet_definition(plugin, key, block), aliases=block.aliases)
 
 
 @functools.lru_cache(maxsize=1, typed=True)

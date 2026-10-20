@@ -156,7 +156,7 @@ def registrar[F](kind: Kind[Registered[F]]) -> Callable[..., Callable[[F], F]]:
 
     def decorator(name: str, *, version: str = "1") -> Callable[[F], F]:
         def apply(run: F) -> F:
-            kind.add(name, Registered(name, version, run), order=None)
+            kind.add(name, Registered(name, version, run), slotted=False)
             return run
 
         return apply

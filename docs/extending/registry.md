@@ -5,8 +5,8 @@ module that owns the kind. An entry is a typed value: a frozen dataclass that va
 (`ModelEntry`, `PacketDef`, `Column`, `anticheat.Gate`), or a display name (`str`) for kinds that are only a name.
 
 ```python
-MODELS.add("qwen38", ModelEntry("Qwen3.8-27B", "Qwen/Qwen3.8-27B-FP8"), order=0)
-HARNESSES.add("claude", "Claude Code", order=0)
+MODELS.add("qwen38", ModelEntry("Qwen3.8-27B", "Qwen/Qwen3.8-27B-FP8"))
+HARNESSES.add("claude", "Claude Code")
 ```
 
 A kind whose entries are code takes a decorator instead: `Kind.register(key)` adds the decorated object
@@ -17,7 +17,7 @@ itself, and a few kinds wrap it with the fields they need (`anticheat.post_run_g
 - An entry checks its own fields when it is built: a `Column` refuses an adapter that is not
   `package.module:Class`, an empty precision set and a flavor without its column; a `Gate` refuses an empty
   `where`, a malformed `symbol`, `reruns` without a check and a check on a gate enforced in place.
-- `Kind.add` refuses a key, an alias or a stated `order` that is already taken, and leaves the kind as it was.
+- `Kind.add` refuses a key or an alias that is already taken, and leaves the kind as it was.
 - The rules that span entries run once everything is registered (`vocabulary.check_vocabulary()`, called by
   `study_tags.registry()`): every entry but the no-packet control has a slot, a composed packet exists, and the
   columns of one framework `base` name one `Framework` adapter (autotuning flavors name an `Agent`). Exactly one
@@ -32,28 +32,23 @@ Closed categories inside an entry are enums (`vocabulary.Arch`, `DaceStage`, `Da
 
 ## The slot
 
-`order` is an entry's slot within its kind: the colour and marker it is drawn with, the position a column is
-listed at.
-
-- A **shipped** entry states its slot. An existing entry's slot never changes and a deleted entry's slot is never
-  reused, so no published figure repaints; a packet that recorded rows still name stays registered and `frozen`.
-- An entry a **plugin** brings states none (`Slot.NEXT`, the default) and takes the next free slot when the plugin
-  is loaded, so a plugin never fails to load over a colour.
-- `order=None` is the one entry with no slot: the no-packet control.
+An entry's slot is its registration position within its kind: the colour and marker it is drawn with, the position
+a column is listed at. Nobody states one. A new entry is added last (a plugin's after every shipped one), so it never
+repaints another; `slotted=False` is the one entry with no slot, the no-packet control.
 
 What a slot decides (`hpcagent_bench/stats/palette.py` reads it; nothing else carries a colour):
 
 | Kind | Slot decides |
 |---|---|
-| model | marker `order` of the marker pool; hue `order` of the tab20 ramp where a figure colours models |
-| optimizer | marker `order` counted from the END of the pool, so a new model never repaints it; hue `order` |
-| harness | the clearest shapes of the treatment pool, in slot order, ahead of every packet; hue `order` |
-| packet | hue `order` (a combination wears its lead part's hue, lightened one step per extra part, and the lead is the part with the lowest slot) and the shape: the next free one of the treatment pool unless the packet names a `marker` |
-| language, device | hue `order` |
-| framework | hue `order` |
+| model | marker `slot` of the marker pool; hue `slot` of the tab20 ramp where a figure colours models |
+| optimizer | marker `slot` counted from the END of the pool, so a new model never repaints it; hue `slot` |
+| harness | the clearest shapes of the treatment pool, in slot order, ahead of every packet; hue `slot` |
+| packet | hue `slot` (a combination wears its lead part's hue, lightened one step per extra part, and the lead is the part with the lowest slot) and the shape: the next free one of the treatment pool unless the packet names a `marker` |
+| language, device | hue `slot` |
+| framework | hue `slot` |
 
 The colour ramp, the marker pools and the lightness step are the only data left in
-`hpcagent_bench/envs/registry.yaml`. `tests/test_vocabulary.py` pins every shipped slot by value and
+`hpcagent_bench/envs/registry.yaml`. `tests/test_vocabulary.py` pins each kind's order and
 `tests/test_palette.py` pins the resolved colours, so a change that would repaint a published figure fails naming
 the entity.
 
@@ -68,7 +63,7 @@ the entity.
 | `vocabulary.DEVICES` | `hpcagent_bench/models.py` | the display name | the `device` column value |
 | `vocabulary.PACKETS` | `hpcagent_bench/skill_packets.py`, a page's `packet:` frontmatter, a plugin | `PacketDef(name, skills=, packets=, env=, method=, tools=, device=, frozen=, marker=, short=)` | the `packet` column value; see [packets.md](packets.md) |
 | `vocabulary.FRAMEWORKS` | `hpcagent_bench/columns.py` | `Column(display, adapter, base, full_name, postfix, arch, sweep_deterministic, precisions, ...)`; the DaCe family is built by `columns.dace_column(arch, stage, tuner)` | a framework column: the CLI name and the `framework` column value; see [optimizer.md](optimizer.md) |
-| `anticheat.ANTICHEAT` | `hpcagent_bench/anticheat.py` | `Gate(title, catches, verdict, where, symbol=, reruns=, check=)`; a post-run gate is its check function under `@post_run_gate(key, title=, catches=, verdict=, where=, ...)`, returning `anticheat.Found(effect, text)` per finding | an anti-cheat gate; `order` is the position a submission meets it, and the table of [anti_cheat.md](../anti_cheat.md) lists the same gates in the same order (`tests/test_anticheat.py`). A gate without a `check` is enforced in the module `where` names; one that `reruns` the submission is skipped once the grade is rejected |
+| `anticheat.ANTICHEAT` | `hpcagent_bench/anticheat.py` | `Gate(title, catches, verdict, where, symbol=, reruns=, check=)`; a post-run gate is its check function under `@post_run_gate(key, title=, catches=, verdict=, where=, ...)`, returning `anticheat.Found(effect, text)` per finding | an anti-cheat gate; its slot is the position a submission meets it, and the table of [anti_cheat.md](../anti_cheat.md) lists the same gates in the same order (`tests/test_anticheat.py`). A gate without a `check` is enforced in the module `where` names; one that `reruns` the submission is skipped once the grade is rejected |
 | `grading_protocol(stamp, role, statistic, inputs=, repeat=)` (a call) | `hpcagent_bench/protocols.py` | one line per stamp, see [protocol.md](protocol.md#defining-a-grading-protocol) | a `timing_reduction` stamp; the one grade protocol `measurement.credited_protocol` names is credited |
 | `@paired_test(name, version=)`, `@proportion_test`, `@paired_proportion_test`, `@correction`, `@timing_test` | `hpcagent_bench/stats/significance.py` | a FUNCTION returning a `significance.Result` (a correction: the adjusted p values); no slot | a statistical test: a reporting one the configuration picks by name (`statistics.*`), a timing test a grading protocol names (`timing_test`); see [the test registry](../measurement_statistics.md#the-test-registry) |
 
@@ -78,9 +73,9 @@ recorded it; a changed meaning goes under a new key.
 
 ## Adding one
 
-1. Add the entry with `order=` the next free slot (`vocabulary.MODELS.next_order()` and so on).
-2. Add its slot to the matching table in `tests/test_vocabulary.py`, in the same commit.
+1. Add the entry after the existing ones of its kind.
+2. Append its key to the matching tuple in `tests/test_vocabulary.py`, in the same commit.
 3. For a model, add its serving layer (see [inference.md](inference.md)); for a packet, its pages
    (see [packets.md](packets.md)).
 
-A plugin adds entries the same way, without an `order`.
+A plugin adds entries the same way.

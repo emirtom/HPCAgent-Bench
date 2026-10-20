@@ -7,7 +7,7 @@ import itertools
 import pytest
 
 from hpcagent_bench import models
-from hpcagent_bench.columns import DACE_SLOTS, FRAMEWORKS, dace_column
+from hpcagent_bench.columns import FRAMEWORKS, dace_column
 from hpcagent_bench.vocabulary import OPTIMIZERS, Arch, DaceStage, DaceTuner
 
 DACE_FLAVORS = list(itertools.product(Arch, DaceStage, (None, *DaceTuner)))
@@ -29,7 +29,9 @@ def test_every_dace_stage_and_tuner_is_a_flavor_on_both_devices(
 
 
 def test_every_dace_entry_has_a_slot() -> None:
-    assert len(DACE_SLOTS) == len(Arch) * (1 + len(DaceStage) * (1 + len(DaceTuner)))
+    dace = [key for key in FRAMEWORKS.keys() if FRAMEWORKS.entries[key].base == "dace"]
+    assert len(dace) == len(Arch) * (1 + len(DaceStage) * (1 + len(DaceTuner)))
+    assert all(FRAMEWORKS.slot(key) is not None for key in dace)
 
 
 def test_dace_columns_name_no_stage() -> None:

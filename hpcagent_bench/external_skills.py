@@ -155,4 +155,4 @@ def register() -> None:
             if PACKETS.entries[key] != definition:
                 raise ValueError(f"skills.external: packet {key!r} is a shipped packet")
             continue
-        PACKETS.add(key, definition, order=PACKETS.next_order(), aliases=())
+        PACKETS.add(key, definition)

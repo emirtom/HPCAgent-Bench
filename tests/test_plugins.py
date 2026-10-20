@@ -94,14 +94,14 @@ def test_a_plugin_tool_is_served_only_where_its_packet_carries_it(probe: pathlib
     assert served.run({})["ok"] is False
 
 
-def test_a_plugin_packet_takes_the_next_free_slot_and_names_its_method(
+def test_a_plugin_packet_takes_the_next_slot_and_names_its_method(
     probe: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     kind: Kind[PacketDef] = Kind("packets")
-    kind.add("shipped", PacketDef(name="Shipped"), order=41)
+    kind.add("shipped", PacketDef(name="Shipped"))
     monkeypatch.setattr(plugins, "PACKETS", kind)
     plugins.register_packets(agent_plugins.find([probe]))
-    assert kind.slot("probeplugin") == 42
+    assert kind.slot("probeplugin") == 1
     assert kind["probeplugin"] == PacketDef(
         name="Probe", skills=("probeplugin-page",), method="probeplugin", tools=("probe_echo",)
     )
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         patch.setenv(agent_plugins.USER_PLUGIN_DIRS_ENV, str(root / "user"))
         test_a_user_plugin_is_found_beside_the_shipped_ones(folder)
         test_a_plugin_tool_is_served_only_where_its_packet_carries_it(folder)
-        test_a_plugin_packet_takes_the_next_free_slot_and_names_its_method(folder, patch)
+        test_a_plugin_packet_takes_the_next_slot_and_names_its_method(folder, patch)
         test_a_packet_naming_a_method_no_plugin_ships_is_refused(root / "nomethod", patch)
         test_two_plugins_of_one_name_are_refused(root / "twins")
         (root / "bad").mkdir()

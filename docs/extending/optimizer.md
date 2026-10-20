@@ -142,12 +142,11 @@ FRAMEWORKS.add(
         sweep_deterministic=False,
         precisions=IEEE_PRECISIONS,
     ),
-    order=6,
 )
 ```
 
 A `Column` validates itself when it is built; its fields are listed in [registry.md](registry.md). A new column
-takes `order=FRAMEWORKS.next_order()`: the order is its hue slot on every figure, append only.
+is added last: its registration position is its slot (hue and marker) on every figure.
 
 - `display` is the compiler or library a figure prints; `full_name` the long name a table prints.
 - `adapter` is `package.module:Class`, imported on first use, so registering a column never imports its backend.

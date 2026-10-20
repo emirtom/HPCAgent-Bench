@@ -8,11 +8,8 @@ The entries are added in :mod:`hpcagent_bench.models`, :mod:`hpcagent_bench.colu
 :mod:`hpcagent_bench.skill_packets` (and by plugins, :mod:`hpcagent_bench.plugins`). ``docs/extending/registry.md``
 is the author's guide.
 
-THE SLOTS. ``order`` is the slot of an entry. The colour ramp and the marker pool are indexed by it
-(:mod:`hpcagent_bench.stats.palette`): a model takes marker ``order`` of the pool, an optimizer ``order`` counted
-from its end, a harness and a packet the next free shape of the treatment pool in slot order, and every kind takes
-hue ``order`` of the ramp. A shipped entry states its slot, so its colour and marker never change when another
-entry is added; a plugin's entry takes the next free one. ``tests/test_vocabulary.py`` pins every shipped slot.
+An entry's slot is its registration position (:class:`~hpcagent_bench.registry.Kind`); :mod:`hpcagent_bench.stats.palette`
+derives its colour and marker from it.
 """
 
 import dataclasses
@@ -220,7 +217,7 @@ def check_vocabulary() -> None:
     for kind in KINDS.values():
         slotless = sorted(key for key, order in kind.orders.items() if order is None and (kind is not PACKETS or key))
         if slotless:
-            raise RegistryError(f"{kind.name}: {slotless} have no order, so no colour or marker slot")
+            raise RegistryError(f"{kind.name}: {slotless} have no slot, so no colour or marker")
     for base in {column.base for column in FRAMEWORKS.entries.values()}:
         adapters = {
             column.adapter for column in FRAMEWORKS.entries.values() if column.base == base and not column.optimizer
@@ -230,7 +227,7 @@ def check_vocabulary() -> None:
                 f"frameworks: base {base!r} names Framework adapters {sorted(adapters)}; it needs exactly one"
             )
     if PACKETS.orders.get("", 0) is not None or "" not in PACKETS.entries:
-        raise RegistryError("packets: the no-packet control (key '') must be registered with order=None")
+        raise RegistryError("packets: the no-packet control (key '') must be registered with slotted=False")
     for key, definition in PACKETS.entries.items():
         for part in definition.packets:
             if PACKETS.canonical(part) not in PACKETS.entries:

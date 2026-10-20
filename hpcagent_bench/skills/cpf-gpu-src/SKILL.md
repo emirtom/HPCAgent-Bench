@@ -6,7 +6,6 @@ applies: {explicit: true, languages: [hip]}
 packet:
   # The kernel's source IS its GPU canonical parallel form: the HIP host unit and device unit replace the
   # hand-written reference (``CPF_DROPIN_DIR``). ``cpf-src`` names it on a GPU setup.
-  order: 24
   name: "Canonical Parallel Form as Source, GPU"
   env:
     CPF_DROPIN_DIR: "${CPF_VIEW}"

@@ -4,7 +4,6 @@ description: What the AMD device trace from profile returns for a hip or OpenMP-
 when: "you profile ANYTHING on an AMD GPU -- a HIP or OpenMP-offload submission: ALWAYS read this page before you tune a kernel, and whenever a profile came back with a cause or null fields"
 applies: {images: [amd], languages: [c, cpp, fortran, hip]}
 packet:
-  order: 7
   name: "ROCm Profiler"
 ---
 

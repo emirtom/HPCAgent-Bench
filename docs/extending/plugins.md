@@ -25,16 +25,16 @@ method, its ledger tool and the packet that runs both.
 name = "nestforge"
 description = "Whole-program DaCe optimization by legal moves, scoped kernels and per-kernel placement."
 
-[packets.nestforge]             # a packet key; a figure gives it the next free colour slot
+[packets.nestforge]             # a packet key; it takes the next colour slot
 name = "NestForge"
 skills = ["nestforge-moves", "nestforge-scopes"]
 method = "nestforge"            # methods/nestforge/method.md
 tools = ["list_moves", "apply_move", "define_scope", "place", "set_kernel_source", "metrics"]
 ```
 
-A packet's fields are those of [packets.md](packets.md). A plugin's packet states no `order`: it takes the next free
-slot when the plugin is loaded, so loading a plugin never fails over a colour. Names are one namespace: a packet,
-page or tool another plugin (or the repository) already registered is refused.
+A packet's fields are those of [packets.md](packets.md). A plugin's packets take the next slots when it is
+loaded. Names are one namespace: a packet, page or tool another plugin (or the repository) already registered is
+refused.
 
 ## Agent tools
 
