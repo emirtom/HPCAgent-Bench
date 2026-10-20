@@ -23,14 +23,18 @@ KERNEL = "tsvc_2_vpv"
 
 
 def test_every_region_gets_several_verified_screened_variants(tmp_path: pathlib.Path) -> None:
-    from alloy import bench, configuration_matrix  # noqa: PLC0415 -- the optional extra
+    # Deferred: both import the optional alloy extra.
+    from alloy import configuration_matrix
+
+    from hpcagent_bench.harness import alloy_adapter as bench
 
     spec = BenchSpec.load(KERNEL)
     sdfg = bench.pipeline_sdfg(spec, "parallel_cpu", Precision.FP64)
 
     sut = bench.generated(sdfg, spec, Precision.FP64, configuration_matrix.load(), tmp_path)
 
-    assert sut.regions and sut.timings is not None
+    assert sut.regions
+    assert sut.timings is not None
     for rep in sut.regions:
         screened = bench.screened(rep, sut.timings.regions[rep.region.symbol].screen, bench.TOP)
         assert len(screened) >= 2, f"{rep.region.symbol}: {[b.name for b in screened]}"

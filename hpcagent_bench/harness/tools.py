@@ -179,6 +179,7 @@ class JudgeClient:
         per_thread: bool = False,
         residency: Residency | None = None,
         device_kernel: str | None = None,
+        size: Preset | None = None,
     ) -> "ProfileAnswer":
         """The diagnostic route; ``tool`` picks the instrument. Never scored.
 
@@ -208,6 +209,8 @@ class JudgeClient:
           ``compiler``, ``driver``, ``version``, ``report_flags``, ``report``). Python or ``library``
           deliveries are a 400; a toolchain without report flags is a 503.
 
+        ``size`` measures at a rung no larger than the run's preset (a fast profile); a larger one is a 400.
+
         The answer's ``root`` is the report of the tool that ran, as its model
         (:mod:`hpcagent_bench.harness.profile_wire`, or :class:`~hpcagent_bench.harness.judge_wire.OptReportAnswer`)."""
         body: dict[str, JsonValue] = {"kernel": kernel, "min_percent": min_percent, **submission.to_json()}
@@ -227,6 +230,8 @@ class JudgeClient:
             body["residency"] = residency.text
         if device_kernel is not None:
             body["device_kernel"] = device_kernel
+        if size is not None:
+            body["size"] = size.text
         # Imported here: the report models load the profilers, which this module's importers do not need.
         from hpcagent_bench.harness.profile_wire import ProfileAnswer
 
