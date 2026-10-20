@@ -1,28 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Global hpcagent_bench configuration: ``config.yaml`` validated by one typed pydantic model tree.
-
-Read a value by attribute: ``config.current().measurement.repeat``. :func:`current` returns the
-:class:`Settings` this context resolves, validated and frozen. Resolution of key ``a.b_c``, first match wins:
-
-1. a runtime override (:func:`set_override`, :func:`overridden`), process-global;
-2. ``$HPCAGENT_BENCH_A_B_C`` in the active :func:`scoped_environment` (a name scoped to ``None`` is unset);
-3. ``$HPCAGENT_BENCH_A_B_C`` in ``os.environ``;
-4. ``hpcagent_bench/config.yaml`` (:data:`CONFIG_YAML`), the only place defaults and their meaning are written.
-
-Env name of a key: ``HPCAGENT_BENCH_`` + the dotted key upper-cased with ``.`` replaced by ``_``
-(:func:`env_name`). Every key has exactly one name; a map-valued key (``mpi.env``, ``oracle.overrides``,
-``*_by_level``) is set whole by a JSON object in its own name. Env text is converted by the field type
-(:func:`parse_env`): ``""``, ``null`` and ``none`` are ``None`` for a nullable field; a ``str`` field gets the
-text unchanged; a sequence field takes a JSON array or a comma-separated list; a map field takes a JSON object;
-``bool``/``int``/``float``/``Literal`` fields use pydantic's lax parsing (``true/false/1/0/yes/no/on/off``); an
-enum field (:class:`~hpcagent_agent.coded.Coded`) takes its member's spelling.
-
-Unknown keys are errors: ``config.yaml`` must name every key of the models below and no other;
-:func:`set_override` raises ``KeyError`` on an unknown key and ``ValidationError`` on a
-value of the wrong type; :func:`current` raises :class:`UnknownConfigEnvError` when a ``HPCAGENT_BENCH_<SECTION>_*``
-name is neither a key's env name nor listed in :data:`NON_CONFIG_ENV`.
-"""
+"""Global configuration: ``config.yaml`` validated by one typed pydantic tree, read as ``config.current().a.b_c``.
+Key ``a.b_c`` resolves from a runtime override, then ``$HPCAGENT_BENCH_A_B_C`` (scoped, then ``os.environ``), then
+``config.yaml``; unknown keys and unknown ``HPCAGENT_BENCH_<SECTION>_*`` names are errors."""
 
 import contextlib
 import contextvars
@@ -102,7 +82,7 @@ ENV_PREFIX = "HPCAGENT_BENCH_"
 NULL_SPELLINGS = frozenset({"", "null", "none"})
 #: Separator of a non-JSON sequence value in the environment.
 LIST_SEPARATOR = ","
-#: Maximum number of resolved :class:`Settings` kept, one per distinct (environment, overrides) state.
+#: Maximum number of resolved :class:`Settings` kept, one per (environment, overrides) state.
 RESOLVED_CACHE_SIZE = 64
 
 #: Seconds, >= 0.
@@ -125,8 +105,8 @@ Fraction = Annotated[float, Gt(0), Le(1)]
 
 
 def single_node_residency(residency: Residency) -> Residency:
-    """``residency`` when it is where one rank's buffers live (``host`` / ``device``); ValueError for
-    ``distributed``, which is the track, not a place."""
+    """``residency`` when it is a place one rank's buffers live (``host`` / ``device``); ValueError for
+    ``distributed``."""
     if residency is Residency.DISTRIBUTED:
         raise ValueError(f"mpi.residency is host or device; got {residency.text!r}")
     return residency
@@ -166,13 +146,11 @@ class BaselineRace(Coded):
 
 
 class Statistic(Coded):
-    """How one input's runs reduce to its credited ratio (``measurement.timing_backend``,
-    :data:`hpcagent_bench.harness.timing.REDUCTIONS`; a protocol's per-input statistic)."""
+    """How one input's runs reduce to its credited ratio (``measurement.timing_backend``)."""
 
     SPELLINGS = enum.nonmember({"MANNWHITNEY": "mannwhitney_delta", "MEDIAN": "median_of_k", "MIN": "min_of_k"})
 
-    #: Ratio of the medians, credited only when the one-sided Mann-Whitney U test at ``alpha`` agrees with
-    #: its direction; else exactly 1.0.
+    #: Ratio of the medians, credited only when the one-sided Mann-Whitney test at ``alpha`` agrees; else 1.0.
     MANNWHITNEY = enum.auto()
     #: Ratio of the medians, no test.
     MEDIAN = enum.auto()
@@ -199,8 +177,7 @@ class PromptStrategy(Coded):
 
 
 class Hardware(Coded):
-    """A hardware target: the ``images.<hardware>`` pair, the GPU a container is given, the platform a tool
-    is required on (``envs/toolset.yaml``)."""
+    """A hardware target: the ``images.<hardware>`` pair, the container's GPU, a tool's required platform."""
 
     CPU = enum.auto()
     AMD = enum.auto()
@@ -223,18 +200,15 @@ class VectCostModel(Coded):
 
 
 class ScalingLaw(Coded):
-    """How a distributed problem is sized across P ranks (``mpi.mode``, ``scaling_laws.mode``).
-
-    ``STRONG`` holds the total problem at the preset (Amdahl); ``WEAK`` holds the per-rank problem and
-    grows it along the manifest's ``work_exponent`` (Gustafson)."""
+    """How a distributed problem is sized across P ranks: ``STRONG`` holds the total (Amdahl), ``WEAK`` the per-rank
+    problem along ``work_exponent`` (Gustafson)."""
 
     STRONG = enum.auto()
     WEAK = enum.auto()
 
 
 class ContainerRuntime(Coded):
-    """``runtime.backend``: a container runtime family (resolved to an installed implementation by
-    :func:`hpcagent_bench.containers.resolve_backend`) or one implementation."""
+    """``runtime.backend``: a container runtime family or one implementation."""
 
     OCI = enum.auto()
     SIF = enum.auto()
@@ -459,8 +433,7 @@ class ImagePair(Section):
 
 
 class Images(Section):
-    """``images``: container images per hardware target (harbor.images_for). ``mpi`` is the distributed
-    (multi-node MPI) track's."""
+    """``images``: container images per hardware target; ``mpi`` is the distributed track's."""
 
     cpu: ImagePair
     amd: ImagePair
@@ -669,22 +642,19 @@ class Oracle(Section):
 
 
 class RequestCapability(Coded):
-    """One thing a submission's ``requests`` may ask the judge for (``requests.allow``; the actions each
-    enables: :class:`hpcagent_bench.harness.requests_api.RequestAllowances`)."""
+    """One thing a submission's ``requests`` may ask the judge for (``requests.allow``)."""
 
     #: ``startup.load``: catalog libraries the judge links.
     LOAD = enum.auto()
     #: ``cast``: an array's element type, to one of ``requests.precisions``.
     CAST = enum.auto()
-    #: Without a grid: the digit operations (``permute``, ``block``, ``split``, ``pad``, ``shuffle``,
-    #: ``linear_shuffle`` and their inverses) on dense arrays; with or without one: ``zip`` / ``unzip``.
+    #: The digit operations on dense arrays without a grid, and ``zip`` / ``unzip`` either way.
     LAYOUT = enum.auto()
     #: ``format``: a sparse array's storage format among the kernel's offered ones.
     SPARSE_FORMAT = enum.auto()
     #: ``place``: an array's memory (host or device) on a distributed grade, instead of ``mpi.residency``.
     PLACE = enum.auto()
-    #: A distributed grade's layout: ``startup.grid`` (per ``requests.grid``), ``distribute``, ``replicate`` and
-    #: the digit operations over the grid. Implied by ``mpi.grade_distributed``.
+    #: A distributed grade's layout operations; implied by ``mpi.grade_distributed``.
     DISTRIBUTE = enum.auto()
 
 
@@ -698,8 +668,7 @@ class GridChooser(Coded):
 
 
 class Requests(Section):
-    """``requests``: what a submission's ``requests`` may ask the judge for
-    (:class:`hpcagent_bench.harness.requests_api.RequestAllowances`)."""
+    """``requests``: what a submission's ``requests`` may ask the judge for."""
 
     allow: tuple[RequestCapability, ...]
     precisions: tuple[str, ...]
@@ -771,10 +740,8 @@ class Settings(Section):
     @model_validator(mode="before")
     @classmethod
     def distributed_grades_allow_distribute(cls, data: object) -> object:
-        """``mpi.grade_distributed`` implies ``distribute`` in ``requests.allow``: a distributed grade refuses a
-        submission without its layout, so the resolved allowance every reader sees (the judge, the prompt, the
-        agent tools, the recorded setup) carries it. Without the switch ``distribute`` is inert: no task grades
-        distributed."""
+        """``mpi.grade_distributed`` implies ``distribute`` in ``requests.allow`` (a distributed grade refuses a
+        submission without its layout), so every reader sees it."""
         if not isinstance(data, dict):
             return data
         mpi, requests = data.get("mpi"), data.get("requests")
@@ -815,9 +782,7 @@ def env_name(dotted: str) -> str:
 #: Env name -> dotted key, for every leaf.
 ENV_KEYS: dict[str, str] = {env_name(dotted): dotted for dotted in FIELDS}
 
-#: ``HPCAGENT_BENCH_*`` names under a section prefix that are not configuration keys: read directly by the
-#: code that owns them, or (``HPCAGENT_BENCH_JUDGE_SIF``) only by a test: tests/test_container_launch.py
-#: finds its judge SIF there, and nothing in production reads it. :func:`check_env` accepts them.
+#: ``HPCAGENT_BENCH_*`` names under a section prefix that are not configuration keys (read by their owners).
 NON_CONFIG_ENV = frozenset(
     {
         "HPCAGENT_BENCH_AGENT_DIR",
@@ -840,7 +805,7 @@ NON_CONFIG_ENV = frozenset(
         "HPCAGENT_BENCH_SEEDS_SECOND",
     }
 )
-#: Prefixes of per-entry names read outside this module (``prompt.sections``, harness/prompt_sections.py).
+#: Prefixes of per-entry names read outside this module.
 NON_CONFIG_ENV_PREFIXES = (ENV_PREFIX + "PROMPT_SECTIONS_",)
 
 if collisions := set(ENV_KEYS) & NON_CONFIG_ENV:
@@ -854,8 +819,7 @@ class UnknownConfigEnvError(KeyError):
 
 
 def check_env(env: Mapping[str, str]) -> None:
-    """Raise :class:`UnknownConfigEnvError` for every name in ``env`` under a section prefix
-    (``HPCAGENT_BENCH_<SECTION>_``) that is no key's env name and is not in :data:`NON_CONFIG_ENV`."""
+    """Raise :class:`UnknownConfigEnvError` for every section-prefixed name in ``env`` that is no key's env name."""
     section_prefixes = tuple(env_name(section) + "_" for section in Settings.sections)
     unknown = sorted(
         name
@@ -910,8 +874,7 @@ def parse_env(dotted: str, text: str) -> object:
 
 
 def env_raw(annotation: object, nullable: bool, text: str) -> object:
-    """Env text as the plain value :func:`parse_env` validates: null, a string, a list (JSON ``[...]`` or
-    separated items), a JSON object, or the stripped text."""
+    """Env text as the plain value :func:`parse_env` validates (null, string, list, JSON object, stripped text)."""
     origin = get_origin(annotation)
     raw: object
     if nullable and text.strip().lower() in NULL_SPELLINGS:
@@ -939,9 +902,8 @@ override_version = [0]
 
 
 def set_override(dotted: str, value: object) -> None:
-    """Override leaf ``dotted`` with ``value`` for the whole process.
-
-    Raises ``KeyError`` for an unknown key and ``pydantic.ValidationError`` for a value of the wrong type."""
+    """Override leaf ``dotted`` with ``value`` for the whole process; ``KeyError`` for an unknown key,
+    ``pydantic.ValidationError`` for a wrong type."""
     if dotted not in FIELDS:
         raise KeyError(f"unknown config key {dotted!r}")
     OVERRIDES[dotted] = adapter(dotted).validate_python(value)
@@ -990,8 +952,7 @@ def reload() -> Settings:
     return current()
 
 
-#: Environment of ONE request of a fused judge (:mod:`hpcagent_bench.fused`): a name mapped to None is unset
-#: for the scope. Context-local: each request thread starts without one.
+#: Environment of ONE request of a fused judge (a name mapped to None is unset); context-local.
 SCOPED_ENVIRONMENT: contextvars.ContextVar[Mapping[str, str | None] | None] = contextvars.ContextVar(
     "hpcagent_bench_scoped_environment", default=None
 )
@@ -999,8 +960,7 @@ SCOPED_ENVIRONMENT: contextvars.ContextVar[Mapping[str, str | None] | None] = co
 
 @contextlib.contextmanager
 def scoped_environment(values: Mapping[str, str | None]) -> Generator[None]:
-    """Resolve the names in ``values`` from ``values`` instead of ``os.environ`` for the block, in this context;
-    names ``values`` does not set keep the enclosing scope's value."""
+    """Resolve the names in ``values`` from ``values`` instead of ``os.environ`` for the block, in this context."""
     token = SCOPED_ENVIRONMENT.set({**(SCOPED_ENVIRONMENT.get() or {}), **values})
     try:
         yield
@@ -1017,8 +977,7 @@ def env_value(name: str) -> str | None:
 
 
 def environment() -> dict[str, str]:
-    """``os.environ`` with the :func:`scoped_environment` applied (a scoped None removes the name): what a
-    child process must inherit to resolve the configuration this context resolves."""
+    """``os.environ`` with the :func:`scoped_environment` applied: what a child process must inherit."""
     merged = dict(os.environ)
     for name, value in (SCOPED_ENVIRONMENT.get() or {}).items():
         if value is None:
@@ -1030,9 +989,7 @@ def environment() -> dict[str, str]:
 
 @functools.lru_cache(maxsize=RESOLVED_CACHE_SIZE, typed=True)
 def resolve(env_items: tuple[tuple[str, str], ...], version: int) -> Settings:
-    """The :class:`Settings` of one (``HPCAGENT_BENCH_*`` environment, override version) state: :data:`CONFIG_YAML`,
-    then every key's env name (a map key is replaced whole), then :data:`OVERRIDES`. The arguments are the cache key
-    only; the values are read from :func:`environment` and :data:`OVERRIDES`."""
+    """The :class:`Settings` of one (environment, override version) state; the arguments are the cache key only."""
     del env_items, version
     tree = copy.deepcopy(yaml_defaults())
     env = environment()
@@ -1053,9 +1010,7 @@ def current() -> Settings:
 
 
 def get(dotted: str) -> object:
-    """The value of key ``dotted`` in :func:`current`; a block key returns the block as a dict.
-
-    Raises ``KeyError`` for an unknown key. Typed attribute access (``current().a.b``) is preferred."""
+    """The value of key ``dotted`` (a block key returns a dict); ``KeyError`` when unknown. Prefer attributes."""
     node: object = current().model_dump()
     for part in dotted.split("."):
         if not isinstance(node, dict) or part not in node:

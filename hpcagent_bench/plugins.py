@@ -1,17 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge's side of the plugins (:mod:`hpcagent_agent.plugins` has the layout): their packets join the packet
-vocabulary, their skill pages the page lookup, and their routes the judge.
-
-The plugins are every folder :func:`hpcagent_agent.plugins.plugin_dirs` names plus every installed package that
-registers one under the :data:`ENTRY_POINT_GROUP` entry point::
-
-    [project.entry-points."hpcagent_bench.plugins"]
-    nestforge = "nestforge.hpcagent_plugin"     # a package whose directory is the plugin
-
-A plugin's packets take the next slots when they are registered. :func:`roots` is what a launcher binds into every role's container and exports as
-``HPCAGENT_BENCH_PLUGIN_DIRS``, so the agent serves the same plugins' tools.
-"""
+"""The judge's side of the plugins (:mod:`hpcagent_agent.plugins` has the layout): their packets join the vocabulary,
+their skill pages the page lookup, their routes the judge. Plugins are the agent-side folders plus installed packages
+under :data:`ENTRY_POINT_GROUP`; :func:`roots` is what a launcher exports to every role."""
 
 import functools
 import importlib
@@ -56,14 +47,12 @@ def entry_point_dirs() -> tuple[pathlib.Path, ...]:
 
 
 def roots(environ: Mapping[str, str] = os.environ) -> tuple[pathlib.Path, ...]:
-    """Every plugin directory: the folders (:func:`hpcagent_agent.plugins.plugin_dirs`), then the installed ones,
-    each once."""
+    """Every plugin directory: the folders, then the installed ones, each once."""
     return tuple(dict.fromkeys((*agent_plugins.plugin_dirs(environ), *entry_point_dirs())))
 
 
 def packet_definition(plugin: Plugin, key: str, block: PacketBlock) -> PacketDef:
-    """The packet ``key`` a plugin's manifest declares; its ``skills`` default to the page of the same name when the
-    plugin ships one."""
+    """The packet ``key`` a plugin's manifest declares (``skills`` default to the same-named page if shipped)."""
     skills = block.skills or ((key,) if (plugin.root / "skills" / key / "SKILL.md").is_file() else ())
     return PacketDef(
         name=block.name,
@@ -80,8 +69,7 @@ def packet_definition(plugin: Plugin, key: str, block: PacketBlock) -> PacketDef
 
 
 def register_packets(found: tuple[Plugin, ...]) -> None:
-    """Add every plugin's packets to the vocabulary, in plugin and key order. A method a packet names must be shipped
-    by a plugin."""
+    """Add every plugin's packets to the vocabulary in plugin and key order; a packet's method must be shipped."""
     blocks = [
         (plugin, key, PacketBlock.model_validate(raw))
         for plugin in found
@@ -107,7 +95,7 @@ def register() -> tuple[Plugin, ...]:
 @functools.lru_cache(maxsize=1, typed=True)
 def load() -> tuple[Plugin, ...]:
     """:func:`register`, and every plugin's judge routes, once per process (the judge)."""
-    from hpcagent_bench.harness import routes  # deferred: the judge's machinery, which a figure never needs
+    from hpcagent_bench.harness import routes  # deferred: a figure never needs the judge's machinery
 
     found = register()
     for plugin in found:
@@ -120,8 +108,7 @@ def load() -> tuple[Plugin, ...]:
 
 @functools.lru_cache(maxsize=1, typed=True)
 def recorded() -> str:
-    """What a results row records of the plugins this process loads: ``name:sha256`` of each, sorted and
-    ``,``-joined (:func:`hpcagent_agent.plugins.digest`); ``""`` when there are none."""
+    """The loaded plugins as a results row records them: sorted ``name:sha256`` joined by ``,``; ``""`` if none."""
     return ",".join(sorted(f"{plugin.name}:{agent_plugins.digest(plugin.root)}" for plugin in register()))
 
 

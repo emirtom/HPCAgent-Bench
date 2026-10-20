@@ -1,26 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Skill pages and packets kept outside the repository: a study's own treatment, run without committing it.
-
-``skills.external`` (``HPCAGENT_BENCH_SKILLS_EXTERNAL``) lists folders. Each holds a :data:`CONFIG_NAME` naming its
-packets and, for each, the page files it stages, as paths relative to the folder::
-
-    packets:
-      preconditioner-v4-single:
-        name: Solver preconditioners v4, one page
-        pages: [single/solver-preconditioners.md]
-      preconditioner-v4-split:
-        name: Solver preconditioners v4, five pages
-        pages: [split/solver-preconditioners-verdict.md, split/solver-preconditioners-frozen.md]
-
-A page is a markdown file with the shipped pages' frontmatter (``name``, ``description``, ``when``); its ``name``
-is the page's identity, the name the task lists it under and the file it is staged as. An external packet stages
-pages and nothing else: it carries no tools, env switches or methods, since a tool runs code beside the judge and
-an external one could read what grading hides. A packet may compose shipped packets and pages (``packets``).
-
-Names are one namespace with the shipped ones: an external page or packet that reuses a shipped name, or another
-folder's, is refused, so a study never silently replaces a page another study measured.
-"""
+"""Skill pages and packets kept outside the repository (``skills.external``): each folder's :data:`CONFIG_NAME`
+names its packets and their page files. External packets stage pages only (no tools), and may not reuse a shipped or
+another folder's name."""
 
 import dataclasses
 import functools
@@ -48,8 +30,7 @@ CONFIG_NAME = "skills.yaml"
 
 
 class ExternalPacket(pydantic.BaseModel):
-    """One packet of an external folder: its display name and the pages it stages. No ``tools``, ``env`` or
-    ``method``: :mod:`pydantic` refuses any field this model does not declare."""
+    """One packet of an external folder: its display name and the pages it stages (no other field is accepted)."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -145,8 +126,8 @@ def page_path(page: str) -> pathlib.Path | None:
 
 
 def register() -> None:
-    """Add every external packet to the packet vocabulary, after the shipped ones in key order, so a figure gives
-    it a slot of its own. A key the vocabulary already holds is refused unless it is the same definition."""
+    """Add every external packet to the packet vocabulary after the shipped ones; a held key is refused unless
+    identical."""
     shipped_pages = shipped_page_names()
     for key, definition in sorted(load().packets.items()):
         if key in shipped_pages:

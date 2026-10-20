@@ -1,28 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The anti-cheat gates: what keeps a submitted kernel from scoring without doing the work, one :class:`Gate` each,
-and :func:`judge`, the one loop that runs the gates a finished grade still has to pass.
-
-A gate is registered in :data:`ANTICHEAT` (a post-run gate by :func:`post_run_gate` on its check); ``order`` is the
-position at which a submission meets it, so the
-table in ``docs/anti_cheat.md`` and the order here are one list (``tests/test_anticheat.py`` pins both).
-Two kinds of gate:
-
-* **Construction and measurement gates** (no ``check``) are code woven into the build, the sealed child or
-  the timed call: a callback the grader could skip would be no gate. The registry names where each lives
-  (``where``, ``symbol``), and the tests resolve those names.
-* **Post-run gates** carry a ``check``: given the finished grade (:class:`Context`) it returns what it
-  found, each finding a rejection, a flag, a judge fault or the tolerance floor's refusal. :func:`judge`
-  runs them in registry order and records every finding. A gate that ``reruns`` the submission (a rebuild,
-  another call) is skipped once the grade is already rejected.
-
-A rejection reaches the results DB as ``reason``, ``"<gate key>: <what it found>"``, ``"; "``-joined when
-several gates reject (:attr:`Judgement.reason`).
-
-A :class:`Gate` names its ``title``, the cheat it ``catches``, its ``verdict`` and ``where`` it is enforced (repo-relative
-paths); it may name a ``symbol`` (``package.module:attr`` or ``package.module``: the entry point a test resolves) and,
-as a post-run gate, ``reruns``.
-"""
+"""The anti-cheat gates, one :class:`Gate` each in :data:`ANTICHEAT` in the order a submission meets them (the same
+list as ``docs/anti_cheat.md``), and :func:`judge`, which runs the post-run gates on a finished grade. A rejection
+is recorded as ``"<gate key>: <what it found>"`` (``"; "``-joined)."""
 
 import dataclasses
 import enum
@@ -77,7 +57,7 @@ class Verdict(Coded):
     REJECT = enum.auto()
     #: Credited and marked for review.
     FLAG = enum.auto()
-    #: Either, by what the gate saw (the sanitizers: a memory error rejects, undefined behaviour flags).
+    #: Either, by what the gate saw (a sanitizer memory error rejects, undefined behaviour flags).
     REJECT_OR_FLAG = enum.auto()
     #: The final grade itself: the rule that decides the credited number.
     FINAL = enum.auto()
@@ -98,7 +78,7 @@ class Effect(Coded):
     FAULT = enum.auto()
     #: The tolerance floor refused it.
     UNGRADEABLE = enum.auto()
-    #: Credited as it was; the row's ``detail`` discloses it (a gate that could not run on this grade).
+    #: Credited as it was; the row's ``detail`` discloses it (a gate that could not run).
     NOTE = enum.auto()
 
 
@@ -118,9 +98,8 @@ SYMBOL = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*(:[A-Za-z_]\w*)?$")
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Context:
-    """What a post-run gate reads: the submission, its task and grade, the preset and datatype it was
-    graded at. ``verifier`` replaces :func:`scoring.independent_verify` (looked up at call time when
-    None); ``rtol`` / ``atol`` override the datatype's tolerance band for it."""
+    """What a post-run gate reads: submission, task, grade, preset and datatype; ``verifier`` replaces
+    :func:`scoring.independent_verify`, ``rtol`` / ``atol`` override the tolerance band."""
 
     submission: Submission
     task: Task
@@ -193,8 +172,8 @@ class Judgement:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Gate:
-    """One anti-cheat gate, as documented in ``docs/anti_cheat.md``. Every path in ``where`` and the ``symbol`` must
-    exist (``tests/test_anticheat.py`` resolves them); add the gate to ``docs/anti_cheat.md`` in the same commit."""
+    """One anti-cheat gate, as documented in ``docs/anti_cheat.md`` (same commit); every ``where`` path and the
+    ``symbol`` must exist."""
 
     #: The gate's name in docs/anti_cheat.md.
     title: str
@@ -240,8 +219,7 @@ def post_run_gate(
     symbol: str = "",
     reruns: bool = False,
 ) -> Callable[[Check], Check]:
-    """Register the decorated function as the check of the post-run gate ``key``: :func:`judge` runs it on every
-    finished grade, in slot order."""
+    """Register the decorated function as the check of post-run gate ``key``, run by :func:`judge` in slot order."""
 
     def register(check: Check) -> Check:
         ANTICHEAT.add(key, Gate(title, catches, verdict, where, symbol, reruns, check))
@@ -253,10 +231,8 @@ def post_run_gate(
 def judge(context: Context, *, rerun: bool = True) -> Judgement:
     """Run every post-run gate on ``context`` in registry order and return what they found.
 
-    A grade that did not build or grade correct starts rejected (its own reason comes from the grade). A
-    gate that ``reruns`` the submission is skipped once the grade is rejected and when ``rerun`` is False
-    (a caller that only reads the grade, :func:`recording.record` without a judgement).
-    One stderr line gives the seconds each re-running gate took."""
+    A grade that did not build or grade correct starts rejected; a gate that ``reruns`` the submission is skipped
+    once rejected or without ``rerun``."""
     rejected = not (context.score.build_ok and context.score.correct)
     findings: list[Finding] = []
     seconds: list[GateTime] = []

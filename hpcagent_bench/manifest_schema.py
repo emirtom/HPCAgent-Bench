@@ -1,17 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The schema of an authored ``<stem>.yaml`` kernel manifest, as strict pydantic v2 models.
-
-:func:`validate_manifest` checks one parsed manifest against :class:`Manifest`: an unknown key, a
-value of the wrong type or a missing required block raises a :class:`ValueError` that names the
-manifest file and the dotted key path of every violation. Validation is strict: no value is coerced
-(``"3"`` is not an int, ``true`` is not a number), and a mapping key is text.
-
-The models check structure and value types only. What a value means (a shape names declared
-symbols, a constraint holds at every preset, a dwarf is in the vocabulary) is checked by
-:meth:`hpcagent_bench.spec.BenchSpec.from_dict`, which also serves dictionaries that are not authored
-manifests.
-"""
+"""The schema of an authored ``<stem>.yaml`` kernel manifest as strict pydantic models (no coercion, text keys):
+:func:`validate_manifest` names the file and the key path of every violation. Meaning (symbols, constraints, dwarf)
+is checked by :meth:`BenchSpec.from_dict`."""
 
 import difflib
 import enum
@@ -48,10 +39,7 @@ __all__ = [
 
 
 def checked_number(raw: object) -> int | float:
-    """``raw`` unchanged when it is an ``int`` or a ``float``; raises ``PydanticCustomError`` otherwise.
-
-    A ``bool`` is rejected. An ``int`` stays an ``int``: the ABI passes a scalar in the type the
-    manifest spells it in."""
+    """``raw`` unchanged when an ``int`` or ``float`` (never ``bool``; an int stays an int); else a pydantic error."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise PydanticCustomError("number_type", "expected a number (got {kind})", {"kind": type(raw).__name__})
     return raw
@@ -67,9 +55,7 @@ def checked_scalar(raw: object) -> bool | int | float | str:
 
 
 def checked_value(raw: object) -> FuzzValue:
-    """``raw`` unchanged when it is a :data:`~hpcagent_bench.fuzz.FuzzValue`: a scalar, a list of
-    values or a text-keyed mapping of values, checked recursively; raises ``PydanticCustomError`` naming the
-    first offending node's type otherwise (a YAML null or timestamp, a non-text mapping key)."""
+    """``raw`` unchanged when it is a :data:`FuzzValue` (checked recursively); else an error naming the node's type."""
     if isinstance(raw, Mapping):
         for key, member in cast("Mapping[object, object]", raw).items():
             if not isinstance(key, str):
@@ -131,8 +117,7 @@ class ArgEntry(ManifestBlock):
     @model_validator(mode="before")
     @classmethod
     def expand_shorthand(cls, raw: object) -> object:
-        """``{shape: raw}`` for a string, ``{value: raw}`` for a non-bool number, ``raw`` for a mapping;
-        raises ``PydanticCustomError`` for anything else."""
+        """``{shape: raw}`` for a string, ``{value: raw}`` for a number, ``raw`` for a mapping; else an error."""
         if isinstance(raw, str):
             return {"shape": raw}
         if isinstance(raw, (int, float)) and not isinstance(raw, bool):
@@ -260,8 +245,7 @@ class PublicBlock(ManifestBlock):
     negative: dict[str, Annotated[str, Field(min_length=1)]] = Field(default_factory=dict[str, str])
 
     def small_symbols(self, configuration: str | None = None) -> frozenset[str]:
-        """The small size symbols of ``configuration`` (its own and the kernel-wide ones); the kernel-wide
-        ones alone for ``None``. Raises ``KeyError`` for a name no configuration has."""
+        """The small size symbols of ``configuration`` plus the kernel-wide ones (those alone for ``None``)."""
         scales = dict(self.scales)
         if configuration is not None:
             by_name = {entry.name: entry for entry in self.configurations}
@@ -431,9 +415,7 @@ def key_path(loc: tuple[int | str, ...]) -> str:
 
 
 def describe_error(error: ErrorDetails) -> str:
-    """One pydantic error as ``<key path>: <message>``; a mapping key of the wrong type as
-    ``<mapping path>: key <key>: <message>``. An unknown top-level key names the closest
-    :class:`Manifest` key when one is close."""
+    """One pydantic error as ``<key path>: <message>``, naming the closest key for an unknown top-level one."""
     loc = error["loc"]
     if loc[-1:] == (KEY_MARKER,):
         return f"{key_path(loc[:-2])}: key {error['input']!r}: {error['msg']}"

@@ -1,22 +1,10 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Render canonical parallel forms into the content-addressed cache and pin a view.
-
-The one render path for an experiment's forms, used two ways: ahead of time over a tag (this module's
-CLI, an optional warm-up run as one Slurm step), and on a kernel's first request
-by the judge (:func:`render_on_demand`, from ``harness/service.py``). Per kernel it forks
-:func:`hpcagent_bench.cpf_bridge.prerender_kernel`, which renders the form (a drop-in that takes the C
-ABI) for every language whose key is not already a hit, from the cached canonical SDFG; this process then
-points the view at the keys. A rerun over unchanged inputs renders nothing.
-
-The dace commit is read before and after the shard: a HEAD that moves mid-run would file text from
-one dace under another's key, so a moved commit withdraws every entry this run published. Children
-write their temporaries under the cache root, never /tmp, and the directory goes when the run does.
+"""Render canonical parallel forms into the content-addressed cache and pin a view: ahead of time (this CLI) or on
+a kernel's first request (:func:`render_on_demand`). A dace commit that moves mid-run withdraws what the run
+published; temporaries live under the cache root.
 
     python3 -m hpcagent_bench.cpf_prerender --cache C --view V --kernels a,b --target cpu [--hints kinds]
-
-``--hints`` is the setup's hint detail (:data:`hpcagent_bench.cpf_cache.HintDetail`): one view holds both
-details side by side, each under its own keys and pointers.
 """
 
 import argparse
@@ -67,16 +55,7 @@ def toolchain_error() -> str:
 
 
 def require_toolchain() -> None:
-    """Refuse a shell with no real compiler or no BLAS: continuing on whichever one the system
-    happens to default to is how a setup that silently failed still renders, on the system gcc and
-    a stray dace.
-
-    The render runs inside the agent image (the warm-up step),
-    whose EDF exports its own ``CXX`` (``/opt/gcc/bin/g++``). The check is that a compiler was
-    configured on purpose rather than left to resolve against the bare system default, and that a
-    BLAS root is set; the caller maps the image's BLAS root (``OPENBLAS_ROOT``) onto
-    ``OPENBLAS_DIR`` before this runs, so nothing here names a literal path.
-    """
+    """Refuse a shell whose compiler (``CXX``) or BLAS root (``OPENBLAS_DIR``) was not configured on purpose."""
     if problem := toolchain_error():
         raise SystemExit(problem)
 
@@ -127,12 +106,8 @@ def render_kernel(
     timeout: float | None,
     scratch: pathlib.Path,
 ) -> tuple[str, dict[str, cpf_bridge.RenderOutcome]]:
-    """Render one kernel into ``cache`` and point ``view`` at every outcome, a failure included.
-
-    Returns ``(short name, results[language])``. An unloadable name is a recorded ``fail``
-    verdict for every dialect, like a render that fails. The child writes its temporaries under
-    ``scratch``, never /tmp.
-    """
+    """Render one kernel into ``cache`` and point ``view`` at every outcome (an unloadable name is ``fail``);
+    returns ``(short name, results[language])``."""
     languages = target_languages(target)
     fptype = fptype_tag(precision)
     try:
@@ -188,8 +163,8 @@ def settled(
     fptype: str,
     hints: cpf_cache.HintDetail,
 ) -> bool:
-    """Whether ``view`` already records every dialect of ``kernel`` at ``hints``: a failing verdict for good, an
-    ``ok`` only while its entries are still in the cache (a lost entry renders again)."""
+    """Whether ``view`` records every dialect of ``kernel`` at ``hints``: a failing verdict for good, ``ok`` only
+    while its entries are cached."""
     for dialect in target_languages(target):
         pointer = cpf_cache.recorded(view, kernel, dialect, fptype, hints)
         if pointer is None:
@@ -209,17 +184,11 @@ def render_on_demand(
     hints: cpf_cache.HintDetail,
     timeout: float | None = None,
 ) -> str:
-    """Render ``kernel`` into ``view`` at the hint detail ``hints`` on its first request, the judge's path to a form no prerender
-    covered. Returns "" once the view records an outcome for it (a failing verdict included), else why
-    nothing could be rendered.
+    """Render ``kernel`` into ``view`` at ``hints`` on its first request; returns "" once an outcome is recorded,
+    else why nothing could be rendered.
 
-    A missing view is created pinned to ``cache``, ``target`` and the live dace commit; a view pinned
-    to anything else is refused. One render per (view, kernel, precision) runs at a time
-    (:func:`hpcagent_bench.cpf_cache.render_lock`): a concurrent request waits and then finds the
-    outcome, and an outcome already recorded is never rendered again. The budget is the prerender's
-    (``timeouts.cpf_render_s`` unless ``timeout``), and a dace commit that moves during the render
-    withdraws what it published, as a prerender does.
-    """
+    A missing view is created pinned to ``cache``/``target``; one pinned elsewhere is refused. Renders are serialized
+    per (view, kernel, precision) (:func:`hpcagent_bench.cpf_cache.render_lock`) and never repeated."""
     if problem := toolchain_error():
         return problem
     try:
@@ -277,8 +246,7 @@ def prerender(
     target: cpf_cache.Target,
     hints: cpf_cache.HintDetail,
 ) -> int:
-    """Render this rank's shard of ``args.kernels`` for ``target`` at ``hints`` and point the view at every
-    outcome. Returns the exit status."""
+    """Render this rank's shard of ``args.kernels`` and point the view at every outcome; returns the exit status."""
     kernels = shard([k.strip() for k in args.kernels.split(",") if k.strip()], args.rank, args.ranks)
     print(f"rank {args.rank}/{args.ranks}: {len(kernels)} kernels, dace {package} commit {before[:12]}", flush=True)
     rendered: list[str] = []
@@ -312,9 +280,7 @@ def prerender(
         )
         return 3
     print(f"rank {args.rank}: {len(rendered)} rendered, {failed} not rendered", flush=True)
-    # A per-kernel fail is a recorded verdict, not a rank failure: the tag-wide check after every
-    # shard is what judges coverage. Only an internal error (uncaught above, or the withdrawal below)
-    # leaves this rank's exit status nonzero.
+    # A per-kernel fail is a recorded verdict; only an internal error makes this rank fail.
     return 0
 
 

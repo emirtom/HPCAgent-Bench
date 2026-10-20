@@ -1,36 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Container launch factory + the unprivileged Apptainer installer.
-
-One factory (:func:`local_run_command`) turns a ``(backend, image, command)`` into a launch
-argv. There is ONE image and it is OCI; the four backends differ only in how they consume it.
-``podman`` and ``docker`` run the OCI tag directly, ``apptainer`` builds a SIF from it, and
-``ce`` (the CSCS Alps container engine) is podman again -- SquashFS layers plus Cray-tuned OCI
-hooks -- reached through Slurm rather than a wrapper. Shipping OCI is what lets a laptop, a
-cloud VM and an HPC site start from the same artifact and the same runtime.
-
-The default is ``podman``, not ``docker``: docker needs a running daemon and membership of a
-root-equivalent group, neither of which an HPC login node grants, so it cannot be the thing a
-user falls back to. podman is the OCI runtime that is rootless and daemonless and therefore
-runs in both places. :func:`detect_backend` probes PATH when the answer should come from the
-machine rather than from a default.
-
-``ce`` is a different SHAPE of backend, not just different flags: it has no wrapper argv at
-all. The container is selected by ``srun --environment=<edf>`` and the command runs unwrapped, which is why
-:func:`local_run_command` returns it untouched.
-
-The per-backend flag SPELLINGS live in the language-neutral ``container_backends.txt`` (this
-directory), read here by Python and by ``helpers/scripts/run_agent_in_container.sh`` in pure bash --
-one source of truth for both the Python callers and the python-less HPC login host.
-
-Harbor is an orchestrator, not a wrapper; :func:`harbor_env_for` only supplies its provider
-name (apptainer -> singularity, docker -> docker, podman -> podman; ce has no Harbor provider).
-
-Apptainer itself is a Go binary (not pip-installable); :func:`install_apptainer` runs its
-official unprivileged install into a user prefix, exposed as the ``hpcagent-bench-install-apptainer``
-entry point.
-"""
+"""Container launch factory (:func:`local_run_command`) and the unprivileged Apptainer installer. One OCI image, four
+backends (podman default: rootless, daemonless; docker; apptainer via SIF; ``ce`` selected by ``srun
+--environment``); flag spellings live in ``container_backends.txt``, shared byte-for-byte with the bash launcher."""
 
 import contextlib
 import os
@@ -75,23 +48,15 @@ APPTAINER_INSTALLER = "https://raw.githubusercontent.com/apptainer/apptainer/mai
 #: The single-source spelling file, read by BOTH this module and the bash launcher.
 BACKENDS_PATH = pathlib.Path(__file__).parent / "container_backends.txt"
 
-#: The FAMILIES the benchmark supports, in preference order. A family is an image form plus a
-#: launch contract, NOT a program: ``oci`` is a standard that docker and podman each implement,
-#: so selecting it means "any OCI-compliant runtime this machine has" and always resolves to one
-#: of them. CSCS Alps' container engine is podman underneath -- SquashFS layers plus the Cray
-#: OCI hooks that give correct GPU and NIC access -- so ``ce`` is very nearly ``oci``. It is kept
-#: SEPARATE deliberately: ``oci`` must never resolve to the one implementation with no local
-#: launch form, which fails without an EDF and only inside an allocation. The runtime is shared;
-#: the contract is not, and the contract is what a caller has to get right. ``native`` is a real
-#: member, not the absence of one -- a site with no runtime installed still has to run.
+#: The FAMILIES the benchmark supports, in preference order (an image form plus a launch contract). ``ce`` stays
+#: separate from ``oci`` so ``oci`` never resolves to the one runtime with no local launch form.
 FAMILIES: tuple[ContainerRuntime, ...] = (
     ContainerRuntime.OCI,
     ContainerRuntime.SIF,
     ContainerRuntime.CE,
     ContainerRuntime.NATIVE,
 )
-#: The concrete implementations, in preference order within the whole set. docker leads: it is
-#: the OCI implementation most users have, and ``oci`` resolves to it wherever it is installed.
+#: The concrete implementations in preference order; ``oci`` resolves to the first installed.
 KNOWN_BACKENDS: tuple[ContainerRuntime, ...] = (
     ContainerRuntime.DOCKER,
     ContainerRuntime.PODMAN,
@@ -99,14 +64,11 @@ KNOWN_BACKENDS: tuple[ContainerRuntime, ...] = (
     ContainerRuntime.CE,
     ContainerRuntime.NATIVE,
 )
-#: Names accepted from a user: a concrete implementation, or a FAMILY name that resolves to
-#: whichever of its implementations is installed. Selecting ``oci`` is the honest way to say
-#: "any OCI runtime" -- it names a standard, and the resolution names the program.
+#: Names accepted from a user: an implementation, or a FAMILY resolving to whichever member is installed.
 SELECTABLE: tuple[ContainerRuntime, ...] = tuple(ContainerRuntime)
 #: The hardware whose GPU a launch passes through: the spelling file's ``<backend>.gpu.<hardware>`` rows.
 GPU_HARDWARE: tuple[Hardware, ...] = (Hardware.NVIDIA, Hardware.AMD)
-#: Backends launched by WRAPPING the command (``docker run ... image cmd``). Everything outside
-#: this set selects its image by another mechanism and contributes no wrapper prefix.
+#: Backends launched by WRAPPING the command; others contribute no wrapper prefix.
 EXEC_BACKENDS: tuple[ContainerRuntime, ...] = (
     ContainerRuntime.DOCKER,
     ContainerRuntime.PODMAN,
@@ -121,13 +83,8 @@ def family_members(family: ContainerRuntime) -> tuple[ContainerRuntime, ...]:
 
 @dataclass(frozen=True, slots=True)
 class WrapperSpelling:
-    """How one backend spells its launch flags (one row of the file).
-
-    Two shapes share this record. An ``exec`` backend wraps the command and every flag field is
-    meaningful. An ``srun_env`` backend (CSCS Alps' container engine) has no wrapper argv at all:
-    it contributes :attr:`srun_flag` to the ``srun`` line and the command runs unwrapped, so its
-    flag fields are empty and reading them would be a category error.
-    """
+    """How one backend spells its launch flags (one row of the file); an ``srun_env`` backend has no wrapper argv,
+    so its flag fields are empty."""
 
     name: ContainerRuntime
     family: ContainerRuntime  # OCI (the shipped image, unconverted) | SIF | CE (conversions of it) | NATIVE
@@ -152,10 +109,7 @@ class Backends(NamedTuple):
 
 
 def load_backends(path: pathlib.Path = BACKENDS_PATH) -> Backends:
-    """Parse the spelling file.
-
-    Both the Python fold and the bash fold read this one file, so the launch argv is
-    byte-identical across the language boundary."""
+    """Parse the spelling file (also read by the bash launcher, so argv is byte-identical)."""
     rows: dict = {}
     passthrough: tuple[str, ...] = ()
     for raw in path.read_text().splitlines():
@@ -204,13 +158,7 @@ def resolve_backend(explicit: ContainerRuntime | None = None) -> ContainerRuntim
 
 
 def detect_backend(candidates: Sequence[ContainerRuntime] = KNOWN_BACKENDS) -> ContainerRuntime | None:
-    """The first backend in ``candidates`` whose launcher is actually on PATH, or ``None``.
-
-    Probing beats assuming: a login node has podman and no dockerd, a laptop usually has the
-    reverse, and an Alps allocation has neither but does have ``srun``. Only the CLI's presence
-    is checked, never whether an image is built -- that is the caller's error to report, and it
-    is a different error.
-    """
+    """The first backend in ``candidates`` whose launcher is on PATH, or ``None`` (the image is not checked)."""
     for name in candidates:
         if name not in SPELLINGS:
             continue
@@ -244,12 +192,9 @@ def default_image(backend: ContainerRuntime, hardware: Hardware = Hardware.CPU, 
 
 
 def collect_env(hardware: Hardware) -> list[tuple[str, str]]:
-    """The ``(key, value)`` env pairs to forward into the image, in a PINNED order so the
-    bash fold matches byte-for-byte: ``HPCAGENT_BENCH_IMAGE=<hw>`` first, then
-    :data:`PASSTHROUGH_ENV` (present, in file order), then every other ``HPCAGENT_BENCH_*`` var
-    sorted (Python's str sort == ``LC_ALL=C sort``). Reads only the environment -- there is no
-    caller-supplied extra, because the bash fold has no such channel and any divergence would
-    silently break the byte-for-byte parity."""
+    """The env pairs forwarded into the image, in the PINNED order the bash fold matches byte-for-byte:
+    ``HPCAGENT_BENCH_IMAGE`` first, :data:`PASSTHROUGH_ENV`, then other ``HPCAGENT_BENCH_*`` sorted. Environment
+    only (the bash fold has no extra channel)."""
     pairs: list[tuple[str, str]] = [("HPCAGENT_BENCH_IMAGE", hardware.text)]
     seen = {"HPCAGENT_BENCH_IMAGE"}
     for key in PASSTHROUGH_ENV:
@@ -262,9 +207,7 @@ def collect_env(hardware: Hardware) -> list[tuple[str, str]]:
         if value:
             pairs.append((key, value))
             seen.add(key)
-    # Invariant (container_backends.txt): the fold is newline-delimited on the bash side, so a
-    # value with a newline would split into extra argv tokens there while staying one token here
-    # -- a silent parity break. Fail loud rather than emit a corrupt launch.
+    # The bash fold is newline-delimited: a value with a newline would split there; fail loud.
     for key, value in pairs:
         if "\n" in value:
             raise ValueError(
@@ -282,17 +225,8 @@ def local_run_command(
     image: str | None = None,
     repo_root: str | None = None,
 ) -> list[str]:
-    """THE factory: the full launch argv for running ``inner`` inside the image under an
-    exec-wrapper backend -- ``prefix + [image] + inner`` in the fixed fold order the bash
-    launcher mirrors. ``backend`` defaults to :func:`resolve_backend`.
-
-    Two kinds return ``inner`` UNCHANGED, for the same reason: there is no wrapper argv to build.
-    An ``srun_env`` backend (CSCS Alps' container engine) has its container chosen by the
-    ``--environment`` flag on the ``srun`` line, and a ``none``
-    backend (``native``) is not a container at all. Returning the bare command is the honest
-    answer -- synthesising a wrapper a backend does not have would produce an argv that cannot
-    run.
-    """
+    """THE factory: the launch argv ``prefix + [image] + inner`` for an exec-wrapper backend (default
+    :func:`resolve_backend`); ``inner`` UNCHANGED for an ``srun_env`` or ``native`` backend (no wrapper exists)."""
     chosen = resolve_backend(backend)
     spelling = SPELLINGS[chosen]
     if spelling.kind in ("srun_env", "none"):
@@ -321,15 +255,10 @@ def harbor_env_for(backend: ContainerRuntime | None = None) -> str:
 
 
 def install_apptainer(prefix: str = "~/.local", attempts: int = 4) -> int:
-    """Install Apptainer unprivileged (no sudo) into ``prefix`` via its official installer;
-    returns the installer's return code.
+    """Install Apptainer unprivileged into ``prefix`` via its official installer; returns its return code.
 
-    The installer is piped to ``bash`` on stdin with ``prefix`` as a real argv element, never
-    interpolated into a shell string. The whole script is retried in a FRESH process with backoff:
-    it scrapes an EPEL listing behind the ``download.fedoraproject.org`` redirector, its own retry
-    loop never sleeps, and it caches the listing per process, so only a new process can land on a
-    different mirror. Each failed attempt's partial tree is removed first
-    (:func:`clean_partial_install`), because the installer refuses a non-empty ``<prefix>/<arch>``."""
+    ``prefix`` is an argv element, never interpolated. Each retry runs a FRESH process (only that reaches a different
+    mirror) after :func:`clean_partial_install`."""
     prefix = str(pathlib.Path(prefix).expanduser())
     preexisting = {entry.name for entry in pathlib.Path(prefix).iterdir()} if pathlib.Path(prefix).is_dir() else set()
     returncode = 1
@@ -355,10 +284,8 @@ def install_apptainer(prefix: str = "~/.local", attempts: int = 4) -> int:
 
 
 def clean_partial_install(prefix: str, preexisting: Collection[str]) -> None:
-    """Remove what a failed :func:`install_apptainer` attempt left in ``prefix`` -- and ONLY that.
-
-    ``preexisting`` is the prefix's entries from before the first attempt, left alone: ``prefix``
-    defaults to ``~/.local``, and a blanket wipe would delete a user's unrelated installs."""
+    """Remove what a failed :func:`install_apptainer` attempt left in ``prefix``, sparing the ``preexisting``
+    entries (``prefix`` defaults to ``~/.local``)."""
     if not pathlib.Path(prefix).is_dir():
         return
     for path in pathlib.Path(prefix).iterdir():

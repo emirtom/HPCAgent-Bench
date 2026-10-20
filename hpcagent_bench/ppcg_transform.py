@@ -1,27 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Running ``ppcg``: the ONE place the PPCG column's source-to-source step is spelled.
-
-PPCG (Verdoolaege et al., TACO 2013, doi 10.1145/2400682.2400713) is the GPU sibling of Pluto:
-same polyhedral front end (pet + isl), same ``#pragma scop`` input, CUDA out instead of tiled
-OpenMP C. The two columns are the polyhedral pair -- Pluto on CPU, PPCG on GPU -- so the scop
-selection and the affine guard are IMPORTED from :mod:`hpcagent_bench.pluto_transform` rather than
-restated: a scop one column refuses is a scop the other cannot legally transform either.
-
-PPCG emits TWO files per input (``<stem>_host.cu`` carrying the driver and ``<stem>_kernel.cu``
-carrying the kernels) plus a ``<stem>_kernel.hu`` header they share. Both .cu files compile; the
-header does not, so it is not returned.
-
-PPCG HAS NO AMD TARGET -- ``--target`` takes ``c``, ``cuda`` or ``opencl`` and nothing else -- so a
-HIP build translates what it wrote with ROCm's own ``hipify-perl`` and compiles that with hipcc. Same
-polyhedral transform, same measurement; only the GPU it lands on differs.
-
-Three columns share this one transform, differing only in which vendor they hand its output to:
-``ppcg_cuda`` and ``ppcg_hip`` NAME theirs, so a result row says which GPU produced it without the
-reader having to know what was installed on the node; bare ``ppcg`` names none and follows the local
-toolchain (:func:`hpcagent_bench.languages.gpu_backend`). A named column that the host cannot build
-declines through :class:`NotSupportedByFramework` rather than quietly measuring the other vendor.
-"""
+"""Running ``ppcg`` (the GPU sibling of Pluto): scop selection and the affine guard are imported from
+:mod:`hpcagent_bench.pluto_transform`. ppcg has no AMD target, so a HIP build hipifies its CUDA output; ``ppcg_cuda``
+/ ``ppcg_hip`` name their vendor (declining when it is absent), bare ``ppcg`` follows the local toolchain."""
 
 import os
 import pathlib
@@ -74,24 +55,16 @@ __all__ = [
 #: The framework name this module transforms for -- used in every decline message.
 FRAMEWORK = "ppcg"
 
-#: How ``ppcg`` is invoked. ``--target=cuda`` is the whole point of the column; the two tile-size
-#: knobs are ppcg's own defaults spelled out, so a host that changes them cannot silently change
-#: what this column measures.
+#: How ``ppcg`` is invoked; the tile knobs are ppcg's defaults spelled out so a host cannot change what is measured.
 PPCG_ARGS: tuple[str, ...] = ("--target=cuda", "--tile", "--tile-size=32")
 
-#: ROCm's CUDA-to-HIP source translator, run on ppcg's output on an AMD host (see the module
-#: docstring). Named once so the decline message and the call cannot disagree about the tool.
+#: ROCm's CUDA-to-HIP source translator, run on ppcg's output on an AMD host.
 HIPIFY = "hipify-perl"
 
-#: Direct override: a specific ``ppcg`` prefix (the directory holding ``bin/ppcg``), for a host
-#: that built it somewhere :func:`ppcg_exe` would not otherwise look.
+#: Direct override: a ``ppcg`` prefix (the directory holding ``bin/ppcg``).
 PPCG_HOME_ENV = "HPCAGENT_BENCH_PPCG_HOME"
 
-#: Where a build script installs tools this image does not ship (see ``helpers/scripts/cache_env.sh``).
-#: ``ppcg`` is not in the agent/judge image yet -- it needs building from source -- so this is the
-#: env-var indirection the module docstring's "honour a prefix rather than a hardcoded path" means:
-#: a cache path lives in ONE place (a shell resolver, keyed by ``$SCRATCH``, never a literal in this
-#: file, which the no-hardcoded-user-paths lint would refuse anyway) and this file only reads it.
+#: Where a build script installs tools the image does not ship (``helpers/scripts/cache_env.sh``); never a literal path.
 TOOLS_DIR_ENV = "HPCAGENT_BENCH_TOOLS_DIR"
 
 
@@ -104,24 +77,10 @@ def exe_under_prefix(prefix: str | None, name: str) -> str | None:
 
 
 def _ppcg_run_env(exe: str) -> dict[str, str] | None:
-    """The environment ``ppcg`` must run under: its OWN ``lib`` dir prepended to
-    ``LD_LIBRARY_PATH``, or ``None`` when that directory does not exist (an ordinary system
-    install, where the default environment is already correct and this would be a no-op anyway).
+    """``ppcg``'s run environment: its own ``lib`` dir prepended to ``LD_LIBRARY_PATH`` (``None`` when absent).
 
-    ppcg links pet and isl by an absolute RPATH into its own install prefix -- correct, and
-    verified with ``readelf -d`` on the binaries this built -- but RPATH/RUNPATH is the THIRD
-    place the dynamic linker looks, after ``LD_LIBRARY_PATH``. This image's own EDF sets
-    ``LD_LIBRARY_PATH`` to include ``/usr/lib/x86_64-linux-gnu`` (needed for the CXI hook's
-    libcurl -- see the EDF's own comment), which is exactly where Ubuntu packages ``libisl23`` as
-    a build dependency of gcc's Graphite pass. That copy shares ppcg's isl's SONAME
-    (``libisl.so.23``) but predates ``isl_id_set_alloc``, so with LD_LIBRARY_PATH left alone the
-    loader finds the OLDER system isl first and ppcg dies at startup: ``ppcg: symbol lookup
-    error: .../libpet.so.10: undefined symbol: isl_id_set_alloc``. The
-    same clash exists whether ppcg lives in the shared tools cache or is baked into the image
-    (containers/images/judge-agent-amd/Dockerfile's PPCG stage) -- it is a property of
-    the SEARCH ORDER, not of where ppcg was installed -- so this runs unconditionally rather than
-    only for a cache build.
-    """
+    RPATH ranks below ``LD_LIBRARY_PATH``, which the image points at an older system ``libisl.so.23`` lacking
+    ``isl_id_set_alloc``; this holds wherever ppcg is installed, so it applies unconditionally."""
     lib = pathlib.Path(exe).resolve().parent.parent / "lib"
     if not lib.is_dir():
         return None
@@ -132,29 +91,12 @@ def _ppcg_run_env(exe: str) -> dict[str, str] | None:
 
 
 def ppcg_lookup() -> tuple[str | None, str]:
-    """The ``ppcg`` this host will actually run, as ``(exe, "")`` -- or ``(None, why not)``.
+    """The ``ppcg`` this host will run, as ``(exe, "")``, or ``(None, why not)``.
 
-    Candidates in order: :data:`PPCG_HOME_ENV`, ``<tools dir>/ppcg/bin/ppcg``, PATH. The first two
-    never fire on a host that has not built ppcg, so a host that installs ``ppcg`` onto PATH the
-    ordinary way is unaffected; what they add is that a ppcg built into
-    ``$HPCAGENT_BENCH_TOOLS_DIR/ppcg-<version>`` (a ``<tool>`` symlink pointed at the current build,
-    see ``helpers/scripts/cache_env.sh``) is found WITHOUT the image's EDF ``PATH`` -- re-declared
-    absolutely at run time, and not including that cache -- ever naming the directory.
-
-    A candidate has to RUN, not merely exist, and that is what makes the ORDER safe. The cache
-    outranks the image on purpose (a host pinning a build to test it must win), so an executable
-    there that dies at startup would otherwise shadow the pinned ppcg the image carries and take
-    the column down with it -- measured: a cache build left over from a scratch
-    migration still has its executable bit and still fails with ``libLLVM-17.so.1: cannot open
-    shared object file``. Probed with the tool's own ``--version``, under exactly the environment
-    :func:`run_ppcg` gives it (see :func:`_ppcg_run_env`), so what this accepts is the call the
-    column actually makes. Every refusal is kept and reported together: "installed but broken" and
-    "not here at all" are different faults and only one of them is fixed by installing anything.
-    """
+    Candidates in order: :data:`PPCG_HOME_ENV`, ``<tools dir>/ppcg/bin/ppcg``, PATH. Each must RUN ``--version``
+    under :func:`_ppcg_run_env` (a broken cache build must not shadow the image's); every refusal is reported."""
     tools_dir = os.environ.get(TOOLS_DIR_ENV)
-    # Each candidate is a THUNK, so a source further down the order is never even consulted once an
-    # earlier one answers: an explicit override exists precisely to stop the host's own PATH being
-    # searched, and building the tuple eagerly searched it anyway.
+    # THUNKS: a later source is never consulted once an earlier one answers (an override must stop the PATH search).
     sources: tuple[Callable[[], str | None], ...] = (
         lambda: exe_under_prefix(os.environ.get(PPCG_HOME_ENV), "ppcg"),
         lambda: exe_under_prefix(f"{tools_dir}/ppcg" if tools_dir else None, "ppcg"),
@@ -193,11 +135,7 @@ def ppcg_problem() -> str:
 
 
 def hipify_exe() -> str | None:
-    """``hipify-perl`` on PATH, or under ``$ROCM_PATH/bin`` when PATH omits it, or ``None`` when
-    this host has neither. The image already ships ``hipify-perl`` under ``$ROCM_PATH/bin`` and
-    puts that directory on PATH, so the fallback exists for a host or launch mode where PATH does
-    not carry the image's own declaration -- never a hardcoded ROCm path, since ``ROCM_PATH`` is
-    the same env var the rest of this image's tooling (``compilers.yaml``'s hipcc block) reads."""
+    """``hipify-perl`` on PATH, else under ``$ROCM_PATH/bin``, else ``None``."""
     exe = shutil.which(HIPIFY)
     if exe is not None:
         return exe
@@ -205,13 +143,8 @@ def hipify_exe() -> str | None:
 
 
 def missing_tool(backend: Language | None = None) -> str:
-    """``""`` when this host can build the ppcg column for ``backend``, else why not.
-
-    The ONE answer to "is this column's compiler here", asked per kernel by
-    :func:`transformed_sources` and once per job by ``hpcagent_bench.harness.preflight`` -- so a
-    preflight cannot pass on a toolchain the build would then decline, and the job log and the
-    per-kernel row cannot give two different reasons for one absence.
-    """
+    """``""`` when this host can build the ppcg column for ``backend``, else why not (shared by the build and
+    preflight, so they cannot disagree)."""
     problem = ppcg_problem()
     if problem:
         return problem
@@ -221,12 +154,7 @@ def missing_tool(backend: Language | None = None) -> str:
 
 
 def resolve_backend(backend: Language | None) -> Language:
-    """The GPU vendor a ppcg column builds for: the one it NAMES, or the local toolchain's.
-
-    The ``ppcg_cuda`` / ``ppcg_hip`` columns name theirs, so they measure the vendor they are
-    labelled with on every host. Bare ``ppcg`` names none and keeps following whatever is installed
-    (:func:`hpcagent_bench.languages.gpu_backend`), which is what it has always done.
-    """
+    """The GPU vendor a ppcg column builds for: the one it NAMES, or the local toolchain's (bare ``ppcg``)."""
     if backend is None:
         return gpu_backend()
     if backend not in GPU_HOST_LANG:
@@ -235,23 +163,17 @@ def resolve_backend(backend: Language | None) -> Language:
 
 
 def transformed_paths(scop: pathlib.Path, backend: Language | None = None) -> list[pathlib.Path]:
-    """The two GPU sources ppcg's transform of ``scop`` compiles to, in compile order.
-
-    ``.hip`` for a ROCm build rather than the ``.cu`` ppcg wrote: the extension is what makes hipcc
-    build them for an AMD device instead of reading them as CUDA for an NVIDIA one.
-    """
+    """The two GPU sources ppcg's transform of ``scop`` compiles to, in compile order (``.hip`` on ROCm, so hipcc
+    builds them for AMD)."""
     stem, ext = scop.stem, LANG_EXT[resolve_backend(backend)]
     return [scop.with_name(f"{stem}_host.{ext}"), scop.with_name(f"{stem}_kernel.{ext}")]
 
 
 def hipify(scratch: pathlib.Path, stem: str) -> None:
-    """Rewrite ppcg's CUDA output in ``scratch`` as HIP, before anything is moved next to the scop.
-
-    The shared ``<stem>_kernel.hu`` is translated IN PLACE and keeps its name: ppcg has already
-    written the ``#include`` that names it into both halves and offers no way to rename it.
-    """
+    """Rewrite ppcg's CUDA output in ``scratch`` as HIP; the shared ``<stem>_kernel.hu`` keeps its name (both halves
+    include it)."""
     exe = hipify_exe()
-    if exe is None:  # transformed_sources already declines for this; here it keeps the argv typed
+    if exe is None:  # declined in transformed_sources; keeps the argv typed
         raise ToolMissing(FRAMEWORK, stem, f"{HIPIFY} is not installed on this host")
     for half in ("host", "kernel"):
         cu = scratch / f"{stem}_{half}.cu"
@@ -271,13 +193,9 @@ DEV_DECL_RE = re.compile(r"^([ \t]*)([A-Za-z_][\w \t]*?)\s*\*\s*dev_(\w+)\s*;[ \
 
 
 def entry_params(host: str, entry: str) -> list[str]:
-    """The parameter NAMES of ``entry``'s definition in ``host``, in order; ``[]`` if it is not there.
+    """The parameter NAMES of ``entry``'s definition in ``host``, in order; ``[]`` if absent.
 
-    A name is the last identifier before any ``[``: a rank>=2 array arrives as a VLA parameter
-    (``double aa[restrict N][N]``) or a pointer to a VLA row (``double (*restrict A)[N]``, the scop
-    form), whose brackets hold no comma, so splitting on commas is exact. The list is read to its
-    BALANCED closing parenthesis: the pointer form's own ``)`` does not end it.
-    """
+    A name is the last identifier before any ``[`` (VLA brackets hold no comma); the list runs to its BALANCED ``)``."""
     for match in re.finditer(rf"\b{re.escape(entry)}\s*\(", host):
         depth, end = 1, match.end()
         while depth and end < len(host):
@@ -292,33 +210,12 @@ def entry_params(host: str, entry: str) -> list[str]:
 
 
 def device_resident_host(host: str, entry: str) -> str:
-    """ppcg's hipified host code, rewritten to use ``entry``'s own array PARAMETERS as device
-    pointers directly, instead of allocating a device mirror for each and copying through it.
+    """ppcg's hipified host code using ``entry``'s array PARAMETERS as device pointers instead of device mirrors.
 
-    ppcg's ``--target=cuda`` output always shapes a GPU array the same way: declare ``T *dev_X;``,
-    ``hipMalloc`` it, ``hipMemcpy`` the caller's ``X`` into it (H2D), launch every kernel against
-    ``dev_X``, ``hipMemcpy`` the result back into ``X`` (D2H, live-out arrays only), then ``hipFree``
-    it. The harness's GPU contract puts every array argument on the device BEFORE the timed call
-    (docs/abi_contract.md Sec. 10; ``ppcg_hip``'s own ``copy_func`` stages it, see
-    :meth:`hpcagent_bench.frameworks.pluto_framework.PlutoFramework.copy_func`), so a parameter ``X``
-    already IS a device pointer: its mirror is redundant, and left in place it is timed INSIDE the
-    bracket -- a malloc/H2D/D2H/free no other GPU column's number includes.
-
-    Each parameter mirror's declaration becomes an ALIAS, ``T *dev_X = (T *) X;``, and its three
-    calls are dropped; the launches keep reading ``dev_X``. The alias (rather than renaming ``dev_X``
-    to ``X``) is what keeps the launch well-typed for a rank>=2 array: ``X`` is then a VLA parameter
-    of type ``T (*)[N]``, which C++ will not pass to the kernel's ``T *``. The cast is the flat view
-    of the same contiguous row-major buffer ppcg's own mirror was.
-
-    ONLY parameters. A mirror of an array LOCAL to the entry (a translator transient, ``T *tmp =
-    malloc(...)``) is a HOST buffer: aliasing it would hand the kernel a host pointer. It keeps
-    ppcg's own malloc/copy/free, which is ppcg's code and ppcg's cost.
-
-    Loud rather than quietly wrong: raises if it finds no parameter mirror, since a ppcg host that
-    does not match the shape above would otherwise compile and measure something this rewrite never
-    looked at. Call it only on an OFFLOADED transform (:func:`offloaded`): a passthrough has no
-    mirror by construction and is declined by the offload gate instead.
-    """
+    The harness puts array arguments on the device before the timed call, so each parameter mirror's declaration
+    becomes an alias ``T *dev_X = (T *) X;`` (well-typed for a VLA parameter) and its malloc/copy/free calls are
+    dropped. Mirrors of LOCAL arrays are host buffers and stay. Raises when no parameter mirror is found; call it only
+    on an :func:`offloaded` transform."""
     params = set(entry_params(host, entry))
     aliased: list[str] = []
 
@@ -333,70 +230,42 @@ def device_resident_host(host: str, entry: str) -> str:
     if not aliased:
         raise ValueError(f"no ppcg-style 'dev_<arg>' device mirror of a parameter of {entry!r} found to strip")
     for name in aliased:
-        # Replaced by an EMPTY STATEMENT, not deleted: ppcg guards a copy with a brace-less
-        # ``if (N >= 2)``, and deleting its body makes the next statement the guarded one -- or,
-        # before a ``}``, a syntax error.
+        # An EMPTY STATEMENT, not a deletion: ppcg guards a copy with a brace-less ``if``.
         rewritten = re.sub(HIP_MIRROR_CALL.format(mirror=f"dev_{name}"), r"\1;", rewritten, flags=re.MULTILINE)
     return rewritten
 
 
-#: Prepended to ppcg's host output. ppcg copies everything OUTSIDE the scop through verbatim, so
-#: what reaches nvcc/hipcc is the translator's C11 prelude -- and both drivers compile a .cu/.hip as
-#: C++, where ``restrict`` is not a keyword at all. Spelled as a define in the SOURCE rather than as
-#: a ``-Drestrict=`` in compilers.yaml because that file is shared with every other GPU column, and
-#: none of the others compiles C.
+#: Prepended to ppcg's host output: nvcc/hipcc compile the C prelude as C++, where ``restrict`` is no keyword (not
+#: a ``-D`` in compilers.yaml, which every other GPU column shares).
 CXX_COMPAT_PROLOGUE: str = (
     "/* hpcagent_bench: ppcg emits C and the GPU drivers compile it as C++. */\n#define restrict __restrict__\n"
 )
 
-#: The prelude's ``__npb_conj`` calls C99 ``conj`` on a ``double _Complex``. In C++ that name is
-#: ``std::conj``, a template over ``std::complex<T>`` which no ``_Complex`` argument matches, so the
-#: helper fails to compile even for the many kernels that never call it. Rewritten at its ONE call
-#: site rather than by defining ``conj`` away: a define at the top of the file would also rewrite the
-#: declarations ``<complex.h>`` itself pulls in.
+#: The prelude's ``__npb_conj`` calls C99 ``conj``, which no C++ overload matches for ``_Complex``; rewritten at its
+#: one call site (defining ``conj`` away would also hit ``<complex.h>``).
 CONJ_CALL_RE = re.compile(r"(__npb_conj\(double _Complex z\)\s*\{\s*return\s+)conj(\s*\(z\);)")
 
-#: A translator transient's allocation, ``T (*X)[E] = (T (*)[E])malloc(...)``. In C++ every spelling of a
-#: variably-modified type is a type of its own, so hipcc and nvcc refuse to initialize ``X`` from the cast ("cannot
-#: initialize a variable of type 'float (*)[NJ]' with an rvalue of type 'float (*)[NJ]'"). The cast is respelled
-#: as ``X``'s own type. Group 1 is the declaration through ``=``, group 2 the variable.
+#: A transient's ``T (*X)[E] = (T (*)[E])malloc(...)``: C++ refuses the VLA cast, so it is respelled as ``X``'s own
+#: type. Group 1 is the declaration through ``=``, group 2 the variable.
 VLA_CAST_RE = re.compile(
     r"^(\s*[\w ]+\(\*\s*(\w+)\)(?:\[[^\]\n]*\])+\s*=\s*)\([\w ]+\(\*\)(?:\[[^\]\n]*\])+\)", re.MULTILINE
 )
 
 
 def cxx_compat(host: str, entry: str) -> str:
-    """ppcg's host output, rewritten into the C++ subset nvcc and hipcc actually accept.
-
-    Four edits, all forced by the same fact -- ppcg's input is C and its output is compiled as C++:
-    the ``restrict`` qualifier, the ``conj`` call in the prelude, a transient's VLA cast
-    (:data:`VLA_CAST_RE`), and the entry point's LINKAGE. That
-    last one is not cosmetic: the harness resolves this symbol by name through ctypes, so a C++
-    -mangled definition builds and links fine and is then simply not found at call time.
-    ``extern "C"`` is also what the translator's own C++ emitter wraps the entry in, so this makes
-    ppcg's output agree with the sibling column rather than inventing a convention.
-    """
+    """ppcg's host output rewritten into C++ nvcc/hipcc accept: ``restrict``, the prelude's ``conj``, a transient's
+    VLA cast, and ``extern "C"`` on the entry (ctypes resolves it by its unmangled name)."""
     host = CXX_COMPAT_PROLOGUE + VLA_CAST_RE.sub(r"\1(__typeof__(\2))", CONJ_CALL_RE.sub(r"\1__builtin_conj\2", host))
     return re.sub(rf"^(void\s+{re.escape(entry)}\s*\()", r'extern "C" \1', host, count=1, flags=re.MULTILINE)
 
 
-#: A translator prelude helper's definition head, ``static inline NPB_HD <ret> <name>(``: exactly the
-#: helpers the translator marked host+device (``__npb_mod_i``, ``python_fmod``, ...); group 1 is the
-#: name. Its body runs to the matching close brace (see :func:`device_helpers`).
+#: A prelude helper's definition head, ``static inline NPB_HD <ret> <name>(``; group 1 is the name.
 PRELUDE_HELPER_RE = re.compile(r"^static inline NPB_HD [^(\n]*?\b(\w+)\(", re.MULTILINE)
 
 
 def device_helpers(prelude: str, kernel_src: str) -> str:
-    """The translator's prelude helpers that ``kernel_src`` calls, for ppcg's device half.
-
-    ppcg moves a scop statement into the device half verbatim, including a call the translator made
-    to one of its own ``static inline NPB_HD`` helpers (``python_mod`` resolves to ``__npb_mod_i``).
-    The prelude stays in the HOST half, so the device half has no definition to call ("use of
-    undeclared identifier '__npb_mod_i'"). The translator already declares every helper host+device
-    (``NPB_HD``, see ``numpyto_c.emit.NPB_HD_GUARD``); ppcg's split into two translation units is the
-    only gap, so the definitions are copied verbatim from the scop's own prelude, callees first, behind
-    the same ``NPB_HD`` guard. ``""`` when the kernel calls none.
-    """
+    """The translator's prelude helpers ``kernel_src`` calls, copied verbatim (callees first, behind the ``NPB_HD``
+    guard) for ppcg's device half, which otherwise lacks their definitions; ``""`` when none."""
     bodies: dict[str, str] = {}
     for match in PRELUDE_HELPER_RE.finditer(prelude):
         open_brace = prelude.index("{", match.end())
@@ -421,12 +290,7 @@ def device_helpers(prelude: str, kernel_src: str) -> str:
 
 
 def with_device_helpers(prelude: str, kernel_src: str) -> str:
-    """ppcg's device half with the :func:`device_helpers` it calls, unchanged when it calls none.
-
-    Inserted after ppcg's own first line, the ``#include`` of the shared ``_kernel.hu`` (which pulls
-    in the GPU runtime that defines ``__host__``/``__device__``), with the two system headers the
-    helpers' types and libm calls need.
-    """
+    """ppcg's device half with the :func:`device_helpers` it calls, inserted after its ``_kernel.hu`` include."""
     helpers = device_helpers(prelude, kernel_src)
     if not helpers:
         return kernel_src
@@ -435,25 +299,13 @@ def with_device_helpers(prelude: str, kernel_src: str) -> str:
 
 
 def entry_symbol(scop: pathlib.Path) -> str:
-    """The exported kernel symbol in ``scop``: its stem without the translator's ``_pluto_input`` tag, or an
-    override's (:data:`hpcagent_bench.pluto_transform.OVERRIDE_INPUT_SUFFIX`), which names the same symbol."""
+    """The exported kernel symbol in ``scop``: its stem without the ``_pluto_input`` (or override) tag."""
     return scop.stem.removesuffix(pathlib.Path(OVERRIDE_INPUT_SUFFIX).stem).removesuffix("_pluto_input")
 
 
 def drop_const_params(scop_src: str, entry: str) -> str:
-    """The scop with ``const`` dropped from the entry point's parameters, for ppcg to read instead.
-
-    ppcg gives each device pointer the qualifiers its host counterpart had, then passes that pointer
-    to ``cudaMalloc``/``cudaMemcpy``/``cudaFree``, whose parameters are ``void *``. C allows the
-    implicit cast away from ``const``; the C++ that nvcc and hipcc actually compile does not, so a
-    read-only input array is enough to make the generated host half unbuildable ("no matching
-    function for call to 'hipFree'").
-
-    Applied to a COPY handed to ppcg, never to the file on disk: that file is the Pluto column's
-    input too, and it is also what :func:`scop_inputs` freshness-checks against. ``const`` is a
-    compile-time qualifier over a positional ctypes call, so dropping it changes no semantics --
-    only which overload the GPU driver's headers will accept.
-    """
+    """The scop with ``const`` dropped from the entry's parameters (C++ will not pass a const device pointer to
+    ``cudaFree``); applied to ppcg's COPY, never the shared file on disk."""
     match = re.search(rf"^(void\s+{re.escape(entry)}\s*\()([^)]*)(\))", scop_src, flags=re.MULTILINE)
     if match is None:
         return scop_src
@@ -461,38 +313,18 @@ def drop_const_params(scop_src: str, entry: str) -> str:
 
 
 def offloaded(kernel_src: str) -> bool:
-    """Whether ppcg actually put a kernel on the GPU, i.e. its device half declares a ``__global__``.
-
-    ppcg does NOT fail on a scop it cannot handle. It writes the input back out with the loop nest
-    untouched, an empty ``_kernel`` file, exit status 0, and nothing on stderr, so a
-    "returncode == 0 and both files exist" check would accept it: the build then runs the ORIGINAL
-    serial loop on the host and records the result as a polyhedral GPU number.
-    """
+    """Whether ppcg put a kernel on the GPU (its device half declares a ``__global__``): on a scop it cannot handle,
+    ppcg exits 0 and writes the serial loop back out."""
     return "__global__" in kernel_src
 
 
 def run_ppcg(
     scop: pathlib.Path, backend: Language | None = None, args: Sequence[str] = PPCG_ARGS, timeout: float | None = None
 ) -> tuple[list[str], subprocess.CompletedProcess]:
-    """Transform one scop with ``ppcg``. Returns ``(argv, result)``.
+    """Transform one scop with ``ppcg``; returns ``(argv, result)``.
 
-    ppcg names its outputs after the INPUT and writes them into the current directory, with no
-    ``-o`` for the pair, so it runs in a throwaway cwd and the results are moved next to ``scop``
-    only on success -- a failed run leaves no half-written .cu for the build to pick up.
-
-    That cwd is made BESIDE THE SCOP, not in ``$TMPDIR``. Publication is one ``os.replace`` per
-    file, which is atomic and which therefore cannot cross a filesystem boundary: with the default
-    temporary directory this raised ``OSError: [Errno 18] Invalid cross-device link`` for every
-    kernel on a cluster node, where ``$TMPDIR`` is node-local and the checkout is on Lustre.
-    ``shutil.move`` would paper over it by
-    copying, and copying is not atomic: a concurrent build would be free to pick up a half-written
-    ``.hip``. Same rule as the Pluto column, which puts its temporary OUTPUT beside the destination
-    for exactly this reason (:func:`pluto_transform.run_polycc`).
-
-    What it reads is a copy in that same cwd (:func:`drop_const_params`), not ``scop`` itself. The
-    returned argv names ``scop``, which is the file a reader can re-run this on and the only one that
-    outlives the call; the copy differs from it by qualifiers that change nothing about the transform.
-    """
+    Runs in a throwaway cwd BESIDE the scop (``os.replace`` publication is atomic only within a filesystem) on a
+    :func:`drop_const_params` copy; outputs are moved next to ``scop`` only on success."""
     exe = ppcg_exe()
     vendor = resolve_backend(backend)
     entry = entry_symbol(scop)
@@ -500,8 +332,7 @@ def run_ppcg(
     with tempfile.TemporaryDirectory(dir=scop.parent, prefix=f".{FRAMEWORK}_transform_") as scratch:
         # ppcg names its outputs after the input's STEM, so the copy has to keep it.
         readable = pathlib.Path(scratch) / scop.name
-        # pet's step/constant/induction defects apply to ppcg as to polycc (pluto_normalize); the
-        # Pluto-only pointer-cell and helper-rename rewrites are left out, see normalize_ppcg_input.
+        # pet's normalizations apply to ppcg as to polycc; the Pluto-only rewrites are left out (normalize_ppcg_input).
         readable.write_text(drop_const_params(normalize_ppcg_input(scop.read_text()), entry))
         proc = subprocess.run(
             [str(exe), *args, str(readable)],
@@ -523,8 +354,7 @@ def run_ppcg(
                 hipify(pathlib.Path(scratch), scop.stem)
                 host_hip = pathlib.Path(scratch) / f"{scop.stem}_host.hip"
                 kernel_hip = pathlib.Path(scratch) / f"{scop.stem}_kernel.hip"
-                # A passthrough has no mirror to strip; it is published as is and declined by the
-                # offload gate in transformed_sources, not crashed on here.
+                # A passthrough has no mirror: published as is, declined by the offload gate.
                 if host_hip.is_file() and kernel_hip.is_file() and offloaded(kernel_hip.read_text()):
                     host_hip.write_text(device_resident_host(host_hip.read_text(), entry))
             for produced in transformed_paths(scop, vendor):
@@ -538,15 +368,10 @@ def run_ppcg(
 
 
 def transformed_sources(cpp_backend: pathlib.Path, base: str, backend: Language | None = None) -> list[pathlib.Path]:
-    """The ppcg-transformed CUDA the ``ppcg`` column compiles, generated on demand.
-
-    Mirrors :func:`pluto_transform.transformed_sources`: regenerate when stale, reuse when fresh,
-    and DECLINE rather than fall back to untransformed source -- a PPCG column built from the
-    emitted C would be an nvcc column wearing PPCG's label.
-    """
+    """The ppcg-transformed GPU sources the ``ppcg`` column compiles, regenerated when stale; DECLINES rather than
+    falling back to untransformed source."""
     vendor = resolve_backend(backend)
-    # THE TOOL BEFORE THE KERNEL. A host with no ppcg has nothing to say about any kernel; asking
-    # the scop question first would decline rows as "no #pragma scop" when the image lacks ppcg.
+    # The tool before the kernel: without ppcg, no row should decline as "no #pragma scop".
     problem = missing_tool(vendor)
     if problem:
         raise ToolMissing(FRAMEWORK, base, problem)
@@ -563,9 +388,7 @@ def transformed_sources(cpp_backend: pathlib.Path, base: str, backend: Language 
                 raise NotSupportedByFramework(
                     FRAMEWORK, base, f"ppcg rejected {scop.name}: {proc.stderr.strip()[-500:]}"
                 )
-        # Re-read rather than trusting the run above: a passthrough that was published by an EARLIER
-        # call is fresh against its scop, so a gate that only fired on a fresh transform would let
-        # the second run of the same kernel time the serial host loop.
+        # Re-read: a fresh passthrough published by an EARLIER call must still be declined.
         if not offloaded(produced[1].read_text()):
             raise NotSupportedByFramework(
                 FRAMEWORK,

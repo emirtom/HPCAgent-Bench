@@ -1,21 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Export the kernel suite as a HuggingFace Dataset.
-
-Every row is regenerated from the manifest tree; nothing is cached in the repo. One row per
-sub-benchmark (``ResolvedBench``, the unit the judge scores): a dense kernel is one row
-(``id == kernel``), a sparse kernel one row per data layout (``cg[csr]``, ``cg[bcsr]``), each
-carrying the C-ABI of that layout.
-
-Rows ship only public artifacts: the comment-stripped numpy reference, the C-ABI signature, the
-taxonomy, the ``parameters``/``fuzz`` blocks the judge samples from, and the study tags.
-Hidden tests, reference outputs, timings and the fuzz seed stay with the judge. Nested values
-are JSON strings so the parquet schema is flat.
-
-    ds = build_dataset("all", "hf_dataset/")   # write + validate + load back
-    push_folder("hf_dataset/", "org/hpcagent_bench", token=os.environ["HF_TOKEN"])
-"""
+"""Export the kernel suite as a HuggingFace Dataset, regenerated from the manifests: one row per sub-benchmark (a
+sparse kernel per layout), public artifacts only (hidden tests, outputs, timings, seeds stay with the judge); nested
+values are JSON strings so the parquet schema is flat."""
 
 import importlib.util
 import json
@@ -64,8 +52,7 @@ DEFAULT_SOURCE_MODE = SourceMode.RESTRICTED
 SPLIT = "test"
 #: Row fields carrying a JSON document.
 JSON_FIELDS = ("languages", "allowed_precisions", "parameters", "fuzz", "signature", "warnings", "tags")
-#: What must never reach a public row: judge-side secrets and held-out data. (A kernel input
-#: parameter may be named ``seed``; the judge's fuzz seed is ``seeds.fuzz``.)
+#: What must never reach a public row: judge-side secrets and held-out data (the fuzz seed is ``seeds.fuzz``).
 FORBIDDEN = re.compile(
     r"hidden_test|reference_output|host_timing|independent_verify|seeds?\.fuzz|fuzz_seed|judge_secret|secret|digest",
     re.IGNORECASE,
@@ -140,11 +127,7 @@ def _instructions(spec: BenchSpec, rb: ResolvedBench, symbol: str) -> str:
 
 
 def resolved_row(spec: BenchSpec, rb: ResolvedBench, commit: str = "") -> ExportRow:
-    """The row for one sub-benchmark.
-
-    A binding that cannot be rendered still yields a row, with an empty signature and a warning,
-    so validation tells "missing" from "present but not bindable".
-    """
+    """The row for one sub-benchmark; an unbindable one gets an empty signature and a warning."""
     warnings: list[str] = []
     signature = symbol = abi = ""
     try:
@@ -243,12 +226,8 @@ def row_problems(r: ExportRow) -> list[str]:
 
 
 def validate(rows: Sequence[ExportRow], selector: str = "all") -> list[str]:
-    """Release checks for ``rows`` exported from ``selector``; returns the problems (empty = valid).
-
-    Unique ids, one row per sub-benchmark of every selected kernel, and per row (every field is a
-    string by construction, :class:`ExportRow`): JSON fields parse, a reference + manifest + signature, no export warnings, and no
-    judge-side secret.
-    """
+    """Release checks for ``rows`` exported from ``selector``; returns the problems (empty = valid): unique ids, every
+    sub-benchmark present, JSON fields parse, required fields set, no warnings and no judge-side secret."""
     problems: list[str] = []
     ids = [r.id for r in rows]
     if len(set(ids)) != len(ids):
@@ -304,10 +283,7 @@ def _card(configs: dict[str, str], commit: str) -> str:
 
 
 def write_dataset(selector: str, rows: Sequence[ExportRow], out_dir: str | pathlib.Path) -> dict[str, int]:
-    """Write a loadable dataset folder: ``data/<config>.jsonl`` (+ ``.parquet`` with pyarrow) and README.md.
-
-    Returns ``{config: row_count}``. The card points each config at parquet when written, else jsonl.
-    """
+    """Write ``data/<config>.jsonl`` (+ ``.parquet`` with pyarrow) and README.md; returns ``{config: row_count}``."""
     out = pathlib.Path(out_dir)
     (out / "data").mkdir(parents=True, exist_ok=True)
     parquet = importlib.util.find_spec("pyarrow") is not None
@@ -324,11 +300,8 @@ def write_dataset(selector: str, rows: Sequence[ExportRow], out_dir: str | pathl
 
 
 def load_back(out_dir: str | pathlib.Path, counts: dict[str, int]) -> list[str] | None:
-    """Load every config with ``datasets`` and compare rows and columns; None when it is not installed.
-
-    Loads through a throwaway cache: the user's cache keys a local folder by its basename and config,
-    so it would answer with whatever an earlier export to a folder of the same name wrote.
-    """
+    """Load every config with ``datasets`` (throwaway cache) and compare rows and columns; None without
+    ``datasets``."""
     if importlib.util.find_spec("datasets") is None:
         return None
     import datasets  # pyright: ignore[reportMissingImports]
@@ -345,10 +318,7 @@ def load_back(out_dir: str | pathlib.Path, counts: dict[str, int]) -> list[str] 
 
 
 def push_folder(out_dir: str | pathlib.Path, repo_id: str, *, token: str, private: bool | None = None) -> None:
-    """Upload a validated dataset folder to the Hub (needs ``huggingface_hub``).
-
-    ``private=None`` keeps an existing repo's visibility (a new one is public).
-    """
+    """Upload a validated dataset folder to the Hub; ``private=None`` keeps an existing repo's visibility."""
     from huggingface_hub import HfApi  # pyright: ignore[reportMissingImports]
 
     api = HfApi(token=token)

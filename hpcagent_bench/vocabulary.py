@@ -1,16 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The vocabulary of a figure and a results database: LLMs, standalone optimizers, agent harnesses, languages,
-devices, skill packets and framework columns -- one :class:`~hpcagent_bench.registry.Kind` each, and the entry
-types they hold.
-
-The entries are added in :mod:`hpcagent_bench.models`, :mod:`hpcagent_bench.columns` and
-:mod:`hpcagent_bench.skill_packets` (and by plugins, :mod:`hpcagent_bench.plugins`). ``docs/extending/registry.md``
-is the author's guide.
-
-An entry's slot is its registration position (:class:`~hpcagent_bench.registry.Kind`); :mod:`hpcagent_bench.stats.palette`
-derives its colour and marker from it.
-"""
+"""The vocabulary of a figure and a results database (LLMs, optimizers, harnesses, languages, devices, packets,
+columns): one :class:`~hpcagent_bench.registry.Kind` each and their entry types. Entries are added in
+:mod:`models`, :mod:`columns`, :mod:`skill_packets` and by plugins; ``docs/extending/registry.md``."""
 
 import dataclasses
 import enum
@@ -79,10 +71,7 @@ class PacketDevice(Coded):
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ModelEntry:
-    """A model's display name and the checkpoint it is expected to serve.
-
-    The checkpoint is recorded so an experiment that swaps one cannot silently keep the old name on an axis;
-    ``tests/test_display_names.py`` checks it against what the setups really ran."""
+    """A model's display name and the checkpoint it is expected to serve (checked against what setups ran)."""
 
     name: str
     serves: str
@@ -90,11 +79,9 @@ class ModelEntry:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PacketDef:
-    """One packet's definition, before ``${VAR}`` placeholders are filled or ``lang``/``*`` are expanded into
-    concrete skill pages -- see :mod:`hpcagent_bench.packets`, the resolver that reads this.
+    """One packet's definition before placeholders are filled and ``lang``/``*`` expanded (:mod:`packets`).
 
-    A registered key's definition is immutable once a results database has recorded it (the ``packets`` table in
-    :mod:`hpcagent_bench.harness.recording`): a changed meaning goes under a NEW key."""
+    Immutable once a results database recorded the key: a changed meaning goes under a NEW key."""
 
     #: The display name.
     name: str
@@ -104,11 +91,9 @@ class PacketDef:
     packets: tuple[str, ...] = ()
     #: ``KEY=value`` switches, in order; a value may hold ``${VAR}``.
     env: tuple[tuple[str, str], ...] = ()
-    #: The method this packet runs: a method directory a plugin ships (its ``method.md`` fills ``{{HINTS}}``);
-    #: resolving it exports ``AGENT_METHOD`` (:data:`hpcagent_bench.packets.METHOD_ENV`). At most one per packet.
+    #: The method directory this packet runs (its ``method.md`` fills ``{{HINTS}}``); at most one per packet.
     method: str = ""
-    #: MCP tools this packet CARRIES, served only in its setups; its ``skills`` are then that tool's manual, which
-    #: ``*`` does not expand to (:func:`hpcagent_bench.packets.tool_pages`).
+    #: MCP tools this packet CARRIES, served only in its setups; its ``skills`` are then that tool's manual.
     tools: tuple[str, ...] = ()
     #: Whose tools the pages teach; None for a device-neutral packet.
     device: PacketDevice | None = None
@@ -122,8 +107,7 @@ class PacketDef:
 
 #: ``package.module:Class``.
 ADAPTER_PATTERN = re.compile(r"^[a-z_][a-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
-#: The module whose :class:`~hpcagent_bench.harness.agent.Agent` classes an autotuning flavor's ``adapter`` names;
-#: every other adapter is a :class:`~hpcagent_bench.frameworks.framework.Framework` subclass.
+#: The module whose Agent classes an autotuning flavor's ``adapter`` names (other adapters are Frameworks).
 OPTIMIZER_ADAPTER_MODULE = "hpcagent_bench.harness.optimizers"
 
 
@@ -134,8 +118,7 @@ def is_optimizer_adapter(adapter: str) -> bool:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Column:
-    """One framework column (or flavor of one): what runs it, where, and how a figure names it
-    (:mod:`hpcagent_bench.columns` has the naming scheme)."""
+    """One framework column (or flavor of one): what runs it, where, and how a figure names it."""
 
     #: The name a figure prints: the compiler or library, not the flavor.
     display: str
@@ -191,8 +174,8 @@ class Column:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class TunerEntry:
-    """An autotuner a column can run after its framework's stage: how a figure names it and the
-    :class:`~hpcagent_bench.harness.agent.Agent` that runs it (``package.module:Class``)."""
+    """An autotuner a column can run after its framework's stage: its display name and Agent
+    (``package.module:Class``)."""
 
     display: str
     full_name: str
@@ -226,8 +209,8 @@ KINDS: dict[str, Kind[ModelEntry] | Kind[str] | Kind[PacketDef] | Kind[Column]] 
 
 
 def check_vocabulary() -> None:
-    """The rules that span entries, run once the whole vocabulary is registered: every entry but the no-packet
-    control has a slot, columns sharing a base share one Framework adapter, and a composed packet exists."""
+    """The cross-entry rules, run once the vocabulary is registered: slots, one adapter per base, composed packets
+    exist."""
     for kind in KINDS.values():
         slotless = sorted(key for key, order in kind.orders.items() if order is None and (kind is not PACKETS or key))
         if slotless:
