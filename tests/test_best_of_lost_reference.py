@@ -131,7 +131,7 @@ def test_a_lost_compiled_reference_is_a_judge_fault_never_a_credited_grade(
     assert result.speedup == 0
     assert not result.cells
     named = result.detail.split("lost its compiled reference(s) ")[1].split(" ")[0]
-    assert set(named.split("+")) == lost & grading.COMPILED_BEST_OF_KINDS, result.detail
+    assert set(named.split("+")) == lost & {kind.text for kind in grading.COMPILED_BEST_OF_KINDS}, result.detail
     assert "judge-side fault" in result.detail
 
 

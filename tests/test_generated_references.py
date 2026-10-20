@@ -240,7 +240,7 @@ def test_no_emitted_reference_carries_a_timer(emitted: dict[tuple[str, str], str
     """The score DIVIDES by these sources. A clock read inside one is counted as kernel work, which
     inflates the measured baseline and hands every submission graded against it a free speedup."""
     offenders = []
-    for (key, language), source in sorted(emitted.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+    for (key, language), source in sorted(emitted.items(), key=lambda kv: (kv[0][0], kv[0][1].text)):
         if isinstance(source, Exception):
             continue
         hits = [token for token in TIMING_TOKENS if token in source.lower()]
@@ -258,7 +258,7 @@ def test_every_emitted_fortran_reference_is_the_loadable_abi_shape(
     Fortran teaches the exact mistake the skill page spends a section warning about."""
     bad = []
     for key, _spec in foundation_specs():
-        source = emitted[(key, "fortran")]
+        source = emitted[(key, Language.FORTRAN)]
         if isinstance(source, Exception):
             continue
         # Comments only ever start a line in an emitted file, so dropping them needs no parser.
@@ -340,7 +340,7 @@ def test_the_three_languages_emit_one_abi_per_kernel(emitted: dict[tuple[str, st
         bad.extend(missing)
         if len(parsed) != len(LANGUAGES):
             continue
-        fortran = parsed["fortran"]
+        fortran = parsed[Language.FORTRAN]
         symbols = {lang: sig["symbol"] for lang, sig in parsed.items()}
         if len(set(symbols.values())) != 1:
             bad.append(f"{key}: symbol differs {symbols}")
@@ -348,13 +348,13 @@ def test_the_three_languages_emit_one_abi_per_kernel(emitted: dict[tuple[str, st
             bad.append(f"{key}: bind(C, name={fortran['bound']!r}) != subroutine {fortran['symbol']}")
         if fortran["undeclared"]:
             bad.append(f"{key}: Fortran dummies never declared {fortran['undeclared']}")
-        if not parsed["cpp"]["extern_c"]:
+        if not parsed[Language.CPP]["extern_c"]:
             bad.append(f'{key}: the C++ entry point is not extern "C"')
         names = {lang: [a["name"] for a in sig["args"]] for lang, sig in parsed.items()}
         if len(set(map(tuple, names.values()))) != 1:
             bad.append(f"{key}: argument order differs {names}")
             continue
-        for index, name in enumerate(names["c"]):
+        for index, name in enumerate(names[Language.C]):
             for field in ("ptr", "const", "dtype"):
                 seen = {lang: parsed[lang]["args"][index][field] for lang in LANGUAGES}
                 if len(set(map(str, seen.values()))) != 1:
@@ -381,7 +381,7 @@ def test_every_emitted_scalar_parameter_is_const(emitted: dict[tuple[str, str], 
     """
     bad = []
     for key, _spec in foundation_specs():
-        for language in ("c", "cpp"):
+        for language in (Language.C, Language.CPP):
             source = emitted[(key, language)]
             if isinstance(source, Exception):
                 continue
