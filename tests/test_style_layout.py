@@ -191,9 +191,9 @@ def ruled_axis(kind: style.MinorKind, majors: Locator, view: tuple[float, float]
     """An axes whose Y is on ``kind``'s scale with ``majors`` over ``view``, ruled by
     :func:`~hpcagent_bench.stats.style.minor_ticks`."""
     fig, ax = plt.subplots()
-    if kind == "ratio":
+    if kind is style.MinorKind.RATIO:
         ax.set_yscale("log", base=2.0)
-    elif kind == "token":
+    elif kind is style.MinorKind.TOKEN:
         ax.set_yscale("log")
     ax.yaxis.set_major_locator(majors)
     ax.set_ylim(*view)
@@ -246,7 +246,7 @@ def test_no_minor_tick_lands_on_a_major(
 def test_a_count_step_no_whole_part_divides_gets_no_minor_ticks() -> None:
     """A count is a whole number of tasks: matplotlib's own rule split a 0/7 axis at 1.75, 3.5 and
     5.25 tasks, lines that mark no count at all."""
-    fig, ax = ruled_axis("count", FixedLocator([0.0, 7.0]), (-0.5, 7.5))
+    fig, ax = ruled_axis(style.MinorKind.COUNT, FixedLocator([0.0, 7.0]), (-0.5, 7.5))
     assert list(ax.yaxis.get_minorticklocs()) == []
     plt.close(fig)
 
@@ -261,7 +261,7 @@ def test_a_count_step_no_whole_part_divides_gets_no_minor_ticks() -> None:
 def test_a_minor_tick_mark_is_a_fixed_share_of_a_major_one(measure: Callable[[Line2D], float], share: float) -> None:
     """The minor marks subdivide the labelled reference: 0.55x the major's length, 0.6x its width.
     matplotlib's own minors are already smaller, so only the exact share shows the rule is applied."""
-    fig, ax = ruled_axis("ratio", FixedLocator([1.0, 2.0, 4.0]), (1.0, 4.0))
+    fig, ax = ruled_axis(style.MinorKind.RATIO, FixedLocator([1.0, 2.0, 4.0]), (1.0, 4.0))
     fig.canvas.draw()
     major, minor = ax.yaxis.get_major_ticks()[0].tick1line, ax.yaxis.get_minor_ticks()[0].tick1line
     assert measure(minor) == pytest.approx(share * measure(major))
@@ -271,7 +271,7 @@ def test_a_minor_tick_mark_is_a_fixed_share_of_a_major_one(measure: Callable[[Li
 def test_minors_follow_majors_and_limits_set_after_the_axis_was_ruled() -> None:
     """A figure pins its majors and snaps its limits AFTER styling the axis; minors frozen at styling
     time would sit at the old spacing."""
-    fig, ax = ruled_axis("ratio", FixedLocator([1.0, 2.0, 4.0]), (1.0, 4.0))
+    fig, ax = ruled_axis(style.MinorKind.RATIO, FixedLocator([1.0, 2.0, 4.0]), (1.0, 4.0))
     ax.set_yticks([1.0, 4.0, 16.0])
     ax.set_ylim(1.0, 16.0)
     assert list(ax.yaxis.get_minorticklocs()) == pytest.approx([2.0, 8.0])

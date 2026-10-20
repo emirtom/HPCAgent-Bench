@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from hpcagent_bench import flags, languages, modules
+from hpcagent_bench.categories import Language
 
 # A trivial program per language whose result depends on an FP loop, so the optimizer can't delete it.
 _C_SRC = "int main(void){double x=1.0;for(int i=0;i<1000;i++)x*=1.0000001;return x>1e9;}\n"
@@ -172,7 +173,7 @@ def test_a_cpp_flavor_names_its_compiler_explicitly() -> None:
     unset = sorted(
         n
         for n, column in FRAMEWORKS.entries.items()
-        if column.base == "native" and FRAMEWORK_LANG.get(n) == "cpp" and n not in FRAMEWORK_COMPILER
+        if column.base == "native" and FRAMEWORK_LANG.get(n) is Language.CPP and n not in FRAMEWORK_COMPILER
     )
     assert not unset, (
         f"cpp flavor(s) {unset} name no compiler and would fall through to g++; "

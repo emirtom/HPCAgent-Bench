@@ -321,7 +321,7 @@ def test_an_unknown_ppcg_vendor_is_refused_rather_than_guessed() -> None:
     from hpcagent_bench import ppcg_transform
 
     with pytest.raises(KeyError, match="unknown GPU backend"):
-        ppcg_transform.resolve_backend("rocm")
+        ppcg_transform.resolve_backend(Language.C)
 
 
 def test_a_scop_ppcg_passed_through_is_declined_rather_than_timed(

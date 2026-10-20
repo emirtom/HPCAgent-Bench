@@ -1251,8 +1251,11 @@ role_srun() {
             --cpus-per-task="${SLURM_CPUS_ON_NODE:-$(nproc)}"
             --cpu-bind="mask_cpu:${mask}")
     fi
-    # role_flag is "--judge-node"/"--agent-node"/...; strip the dashes for the role tag.
-    container_wrap "${role_flag#--}" "${ce_env}" "${image}" || exit 2
+    # role_flag is "--judge-node"/"--agent-node"/...; strip the dashes for the role tag. A tuner's agent node runs the
+    # benchmark's own optimizers in the judge image, so it gets the judge's mounts (tuner-node), not the agent's.
+    local role_tag="${role_flag#--}"
+    [[ "${role_tag}" != agent-node || "${HARNESS:-}" != tuner ]] || role_tag=tuner-node
+    container_wrap "${role_tag}" "${ce_env}" "${image}" || exit 2
     srun_args+=("${CONTAINER_SRUN_ARGS[@]}")
     wrap=("${CONTAINER_WRAP[@]}")
     if [[ "${COLOCATE:-0}" == 1 && "${DRY_RUN:-0}" == 1 ]]; then

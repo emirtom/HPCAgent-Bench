@@ -122,7 +122,7 @@ def test_a_prerender_caches_the_form_and_a_rerun_renders_nothing(spec: BenchSpec
     assert first_record.results is not None, first_record
     assert first_record.canonical is not None, first_record
     first = first_record.results["c"]
-    assert (first.verdict, first.cached) == ("ok", False), first
+    assert (first.verdict, first.cached) == (RenderVerdict.OK, False), first
 
     second_record = cpf_bridge.prerender_kernel(spec, cache, languages=["c"], **prerender_kwargs())
     assert second_record.results is not None, second_record
@@ -412,8 +412,8 @@ def test_a_dropin_refuses_a_returned_value_no_argument_holds(tmp_path: pathlib.P
             canonical_program(RETURNING_PROGRAM_SOURCE, "returns_computed", tmp_path),
             "c",
             "fp64",
-            "cpu",
-            "proofs",
+            Target.CPU,
+            HintDetail.PROOFS,
         )
 
 

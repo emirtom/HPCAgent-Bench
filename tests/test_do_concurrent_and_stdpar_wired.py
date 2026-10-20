@@ -6,6 +6,7 @@ silently when missing), MPI wrappers included."""
 import pytest
 
 from hpcagent_bench import flags, languages, modules
+from hpcagent_bench.categories import Language
 
 #: Blocks exempt from a `doconcurrent_ref`, each with the reason it needs no second flag. An
 #: exemption is a claim about the compiler, so it is spelled out here rather than inferred from
@@ -14,11 +15,11 @@ DO_CONCURRENT_EXEMPT: dict[str, str] = {}
 
 
 def fortran_blocks() -> dict:
-    return {name: block for name, block in languages._load_compilers().items() if block.lang == "fortran"}
+    return {name: block for name, block in languages._load_compilers().items() if block.lang is Language.FORTRAN}
 
 
 def cpp_blocks() -> dict:
-    return {name: block for name, block in languages._load_compilers().items() if block.lang == "cpp"}
+    return {name: block for name, block in languages._load_compilers().items() if block.lang is Language.CPP}
 
 
 def test_every_fortran_block_threads_do_concurrent() -> None:

@@ -102,7 +102,7 @@ def test_build_commands_empty_sources_raises() -> None:
 def test_build_commands_device_routes_driver_and_link_to_gpu_compiler() -> None:
     # Device residency: CUDA kernel + driver both compile with nvcc; the link is nvcc too, not the C wrapper.
     cmds = build_mpi_executable_commands(
-        [("cuda", Path("k.cu"))], Path("d.cu"), Path("bench"), driver_lang=Language.CUDA
+        [(Language.CUDA, Path("k.cu"))], Path("d.cu"), Path("bench"), driver_lang=Language.CUDA
     )
     assert driver(cmds[0]) == "nvcc"
     assert str(Path("k.cu")) in cmds[0]

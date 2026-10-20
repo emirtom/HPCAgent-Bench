@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from hpcagent_bench import paths
-from hpcagent_bench.categories import Language, Preset, Residency, SourceMode, Track
+from hpcagent_bench.categories import Baseline, Language, Preset, Residency, SourceMode, Track
 from hpcagent_bench.harness.agent import Agent, ClaudeAgent, StubAgent, reference_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.outcomes import RunStatus
@@ -202,7 +202,7 @@ def test_score_stub_agent_gemm_correct() -> None:
     # perf-vs-baseline: the fastest of the track's compiled candidates, speedup = baseline / native.
     candidates = set(grading.track_baseline_set(Track.SCIENTIFIC_COMPUTING))
     assert result.baseline_ns > 0, result.baseline
-    assert result.baseline in candidates, result.baseline
+    assert Baseline.parse(result.baseline) in candidates, result.baseline
     assert result.speedup > 0
     assert abs(result.speedup - result.baseline_ns / result.native_ns) < 1e-6
     # public + held-out both pass for a correct kernel
@@ -300,9 +300,9 @@ def test_submission_requests_grid_selects_the_distributed_track() -> None:
 
 def test_reference_source_multitarget_renames_symbol() -> None:
     """The auto path emits via the unified driver for c/cpp/fortran and renames to the canonical symbol."""
-    for lang, sym in (("c", "gemm_fp64"), ("cpp", "gemm_fp64"), ("fortran", "gemm_fp64")):
+    for lang in (Language.C, Language.CPP, Language.FORTRAN):
         src = reference_source(Task("gemm", SourceMode.RESTRICTED, lang))
-        assert sym in src, f"{lang}: canonical symbol {sym} missing"
+        assert "gemm_fp64" in src, f"{lang.text}: canonical symbol gemm_fp64 missing"
 
 
 def test_score_stub_agent_gemm_fortran() -> None:
@@ -680,7 +680,11 @@ def test_expand_device_only_for_gpu_langs() -> None:
     ``host`` resolves to ``device`` rather than producing a second task, because a GPU submission
     handed host pointers still runs on an APU and silently measures the wrong thing. A host
     language has no device form either, so the cross-product collapses both ways."""
-    tasks = expand_tasks(kernels=["gemm"], languages=["c", "cuda"], residencies=["host", "device"])
+    tasks = expand_tasks(
+        kernels=["gemm"],
+        languages=[Language.C, Language.CUDA],
+        residencies=[Residency.HOST, Residency.DEVICE],
+    )
     ids = {t.id for t in tasks}
     assert "gemm::restricted::c::fp64::host" in ids
     assert "gemm::restricted::cuda::fp64::device" in ids
