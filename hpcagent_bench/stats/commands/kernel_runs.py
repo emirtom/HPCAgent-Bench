@@ -21,7 +21,7 @@ import argparse
 import pathlib
 
 from hpcagent_bench import studies, tags
-from hpcagent_bench.stats import cost, population, reliability
+from hpcagent_bench.stats import choices, cost, population, reliability
 from hpcagent_bench.stats.figures import efficacy, kernel_runs, per_kernel
 
 __all__ = [
@@ -44,12 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
         "(e.g. t0,default); all when unset",
     )
     parser.add_argument("--allow-owed", action="store_true", help="draw owed runs (final grade or rerun) as '?'")
-    parser.add_argument(
-        "--style",
-        choices=[mode.value for mode in kernel_runs.Mode],
-        default=kernel_runs.Mode.BOX.value,
-        help="box: median, quartiles, whiskers to min/max; violin: run density and the median's bootstrap interval",
-    )
+    choices.add_argument(
+        parser, "--style", kernel_runs.Mode, kernel_runs.Mode.BOX,
+        "box: median, quartiles, whiskers to min/max; violin: run density and the median's bootstrap interval",
+    )  # fmt: skip
     parser.add_argument("--title", default="")
     parser.add_argument(
         "--width",
@@ -82,7 +80,7 @@ def main(argv: list[str] | None = None) -> None:
             args.width,
             args.allow_owed,
             efficacy.cost_axis_label(card),
-            kernel_runs.Mode(args.style),
+            args.style,
             args.conditions,
         )
         table = reliability.reliability_table(reliability.cell_reliability(runs)) if args.table else None

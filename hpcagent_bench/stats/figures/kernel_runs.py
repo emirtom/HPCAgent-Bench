@@ -66,8 +66,8 @@ class Mode(enum.Enum):
     """How a cell's runs are summarized under their dots: a box (median, quartiles, whiskers to the
     extremes), or a violin of their density with the median's 95% bootstrap interval."""
 
-    BOX = "box"
-    VIOLIN = "violin"
+    BOX = enum.auto()
+    VIOLIN = enum.auto()
 
 
 #: ``-t<T>`` closing a setup name: the temperature the job served.

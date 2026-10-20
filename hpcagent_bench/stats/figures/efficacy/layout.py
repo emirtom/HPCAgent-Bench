@@ -8,7 +8,6 @@ import itertools
 import math
 import textwrap
 from collections.abc import Sequence
-from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -20,6 +19,7 @@ from matplotlib.typing import LineStyleType
 from hpcagent_bench import packets, study_tags
 from hpcagent_bench.stats import cost as cost_models
 from hpcagent_bench.stats import palette, population, rules, style, summary
+from hpcagent_bench.stats.figures.marks import Mark, Mode
 from hpcagent_bench.stats.figures.efficacy.reduce import (
     COST_SIG_MARK,
     EMPTY_POINT,
@@ -185,11 +185,17 @@ class FigureConfig:
     #: (``legend_pt``). One of :mod:`~hpcagent_bench.stats.style`'s scales, so two figures of one
     #: page print at one size.
     type_: style.TypeScale = style.AUTHOR_SCALE
-    #: ``absolute``: each setup where it sits against the experiment baseline, the no-packet control a hollow mark
-    #: beside its treated one. ``relative``: each LLM's no-packet control is that LLM's 1x and the treated mark is
-    #: its change over it (speedup: geomean of paired ratios; tokens: ratio of arithmetic means), the control's own
-    #: absolute level printed in a baseline band at the foot of the row (:func:`draw_baseline_band`).
-    mode: Literal["absolute", "relative"] = "absolute"
+    #: :data:`Mode.ABSOLUTE`: each setup where it sits against the experiment baseline, the no-packet control a
+    #: hollow mark beside its treated one. :data:`Mode.RELATIVE`: each LLM's no-packet control is that LLM's 1x and
+    #: the treated mark is its change over it (speedup: geomean of paired ratios; tokens: ratio of arithmetic
+    #: means), the control's own absolute level printed in a baseline band at the foot of the row
+    #: (:func:`draw_baseline_band`).
+    mode: Mode = Mode.ABSOLUTE
+    #: How a speedup or token estimate is drawn: a marker (:data:`Mark.SCATTER`) or a bar from the row's reference
+    #: (:data:`Mark.BAR`), either with the same 95% interval.
+    mark: Mark = Mark.SCATTER
+    #: A bar's width under :data:`Mark.BAR`, in category units: at most ``2 * dodge`` so a pair never overlaps.
+    bar_width: float = 0.24
     #: A legend SWATCH's own size, points, and how far matplotlib scales it past that. At paper
     #: type a swatch drawn for authoring scale is taller than the row it sits in and the rows
     #: collide.
@@ -243,7 +249,7 @@ class FigureConfig:
     #: How far past the outermost MARK of a dot-row panel an interval is drawn, as a factor (4 = two
     #: octaves). A few-kernel interval reaching 0.004x stretched its panel over twenty octaves, the
     #: ticks read 0.00391x and every mark sat in a sliver; the interval is cut at this reach instead,
-    #: with an arrowhead where it continues (:func:`draw_interval`).
+    #: with an arrowhead where it continues (:func:`~hpcagent_bench.stats.figures.marks.draw_interval`).
     interval_reach: float = 4.0
     #: The fewest kernels a dot-row mark's interval is drawn from. Three kernels put the 95% log-t
     #: critical value at 4.3 and the interval over three decades, cut at both ends; below this the
@@ -784,7 +790,7 @@ def relative_rows(
     over: population.KernelPolicy = SPEEDUP_OVER,
     card: cost_models.CostModel | None = None,
 ) -> list[SetupRow]:
-    """:func:`setup_rows` for ``mode="relative"``: each LLM's control is its own 1x (:data:`UNCHANGED_POINT`, keeping
+    """:func:`setup_rows` for :data:`Mode.RELATIVE`: each LLM's control is its own 1x (:data:`UNCHANGED_POINT`, keeping
     its solved count), the treated point its change over it (:func:`relative_point`), and :attr:`SetupRow.baseline`
     the control's absolute point for the baseline band."""
     rows: list[SetupRow] = []
@@ -1154,7 +1160,7 @@ RELATIVE_LABELS: dict[str, str] = {"speedup": "Speedup Change", "cost": "Token C
 
 def mode_labels(config: FigureConfig) -> dict[str, str]:
     """The row names ``config.mode`` overrides: :data:`RELATIVE_LABELS` in relative mode, none otherwise."""
-    return dict(RELATIVE_LABELS) if config.mode == "relative" else {}
+    return dict(RELATIVE_LABELS) if config.mode is Mode.RELATIVE else {}
 
 
 def baseline_text(point: SetupPoint, measure: str) -> str:
@@ -1265,11 +1271,11 @@ def panel_rows(
     frame: pd.DataFrame | dict[str, pd.DataFrame],
     over: population.KernelPolicy,
     card: cost_models.CostModel | None = None,
-    mode: Literal["absolute", "relative"] = "absolute",
+    mode: Mode = Mode.ABSOLUTE,
 ) -> list[SetupRow]:
     """A panel's drawn categories (:func:`relative_rows` in relative ``mode``); none for a STUB panel."""
     if isinstance(frame, pd.DataFrame) and not frame.empty:
-        return relative_rows(frame, over, card) if mode == "relative" else setup_rows(frame, over, card)
+        return relative_rows(frame, over, card) if mode is Mode.RELATIVE else setup_rows(frame, over, card)
     return []
 
 
@@ -1303,7 +1309,7 @@ def dot_columns(
     over: population.KernelPolicy = SPEEDUP_OVER,
     pending: Sequence[str] = (),
     card: cost_models.CostModel | None = None,
-    mode: Literal["absolute", "relative"] = "absolute",
+    mode: Mode = Mode.ABSOLUTE,
 ) -> list[DotColumn]:
     """Each panel of a joined row reduced to its own :class:`DotColumn`. ``pending[i]`` names, comma
     separated, the models panel ``i`` keeps an empty category for (:func:`pending_rows`)."""
