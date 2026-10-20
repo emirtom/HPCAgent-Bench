@@ -8,9 +8,10 @@ Numba types a large subset of numpy plus plain loops, so a dense kernel keeps it
 * a default-cutoff ``np.linalg.lstsq(a, b, rcond=None)`` gets numpy's cutoff as an explicit float
   (:mod:`numpyto_numba.lstsq`), the only ``rcond`` numba types;
 * a 1-D ``np.fft.fft``/``ifft`` runs in ``objmode`` (:mod:`numpyto_numba.objmode_fft`);
-* ``parallel=True`` is dropped for a body numba's parfor pass would answer differently from numpy,
-  and at most one provably independent ``range`` loop becomes ``nb.prange``
-  (:mod:`numpyto_numba.parfor`). A loop that cannot be proven independent stays serial;
+* a ``max`` / ``min`` / ``eye`` call runs through a serial module function and an overlapping slice store
+  stores a copy (:mod:`numpyto_numba.parfor`); ``parallel=True`` is dropped only for a form neither fix
+  takes (an overlapping ``@=``, a starred unsafe call);
+* every loop stays a ``range``: the emit never writes ``nb.prange``;
 * an augmented store of a reshaped operand is spelled out as a plain store, which numba's parfor
   pass broadcasts correctly (:func:`numpyto_numba.parfor.spell_out_reshape_augassigns`);
 * a ``functools.lru_cache`` / ``cache`` decorator is dropped (:func:`without_memo_decorators`).
@@ -25,15 +26,16 @@ from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_numba.lstsq import rewrite_lstsq_rcond
 from hpcagent_bench.translators.numpyto_numba.objmode_fft import rewrite_fft_to_objmode
 from hpcagent_bench.translators.numpyto_numba.parfor import (
-    calls_a_parfor_unsafe_op,
-    has_inplace_slice_self_dependency,
+    has_unmaterializable_overlap,
+    has_unroutable_unsafe_call,
+    materialize_overlapping_stores,
+    route_parfor_unsafe_calls,
     spell_out_overlapping_augassigns,
-    parallelize_one_range_loop,
     spell_out_reshape_augassigns,
 )
 from hpcagent_bench.translators.numpyto_numba.sparse import rewrite_sparse_matmuls
 
-__all__ = ["emit_numba", "without_memo_decorators", "without_sparse_dispatch"]
+__all__ = ["emit_numba", "emits_parallel", "njit_decorator", "without_memo_decorators", "without_sparse_dispatch"]
 
 
 def without_sparse_dispatch(source: str) -> str:
@@ -90,6 +92,20 @@ def without_memo_decorators(source: str) -> str:
     return "".join(text for i, text in enumerate(source.splitlines(keepends=True), 1) if i not in drop)
 
 
+def emits_parallel(source: str) -> bool:
+    """Whether the build of ``source`` (overlapping augmented stores already spelled out) keeps ``parallel=True``."""
+    return not (has_unroutable_unsafe_call(source) or has_unmaterializable_overlap(source))
+
+
+def njit_decorator(parallel: bool, fastmath: bool) -> str:
+    """The ``@nb.njit(...)`` line of one function."""
+    opts = ["parallel=True"] if parallel else []
+    if fastmath:
+        opts.append("fastmath=True")
+    opts.append("cache=True")
+    return f"@nb.njit({', '.join(opts)})"
+
+
 def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None = None) -> str:
     """Translate one numpy kernel source into its Numba sibling.
 
@@ -112,15 +128,14 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
             numpy_source, sparse = unpacked, True
     numpy_source = rewrite_lstsq_rcond(numpy_source)
     numpy_source, uses_objmode = rewrite_fft_to_objmode(numpy_source)
-    parallel = not (calls_a_parfor_unsafe_op(numpy_source) or has_inplace_slice_self_dependency(numpy_source))
     numpy_source = spell_out_overlapping_augassigns(numpy_source)
-    opts = ["parallel=True"] if parallel else []
+    parallel = emits_parallel(numpy_source)
+    copier = None
+    routed: frozenset[str] = frozenset()
     if parallel:
+        numpy_source, copier = materialize_overlapping_stores(numpy_source)
+        numpy_source, routed = route_parfor_unsafe_calls(numpy_source)
         numpy_source = spell_out_reshape_augassigns(numpy_source)
-    if fastmath:
-        opts.append("fastmath=True")
-    opts.append("cache=True")
-    decorator = f"@nb.njit({', '.join(opts)})"
 
     # 1. Make sure ``import numba as nb`` is present, and silence the one warning that
     #    ALWAYS emitting parallel=True guarantees: numba raises NumbaPerformanceWarning on a
@@ -139,8 +154,8 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
         )
     if uses_objmode:
         preamble = "from numba import objmode\n" + preamble
-    # The sparse rewrite allocates its result temps with np.zeros; spmm's reference imports nothing.
-    if sparse and "import numpy" not in out:
+    # The sparse rewrite allocates with np.zeros and the copier calls np.copy; spmm imports nothing.
+    if (sparse and "import numpy" not in out) or (copier is not None and "import numpy as np" not in out):
         preamble = "import numpy as np\n" + preamble
 
     # 2. Inject the decorator on EVERY top-level ``def`` (``(?m)^`` anchors to
@@ -150,18 +165,11 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
     #    kernel as plain numpy, a false pass. numba's njit is lazy, so an unused
     #    helper is never compiled; a called one must be njit to be callable from
     #    nopython code, so decorating all top-level defs is both correct and free.
-    out = re.sub(r"(?m)^(def\s+\w+\()", f"{decorator}\n\\1", out)
-
-    # 3. Rewrite ONE ``range`` loop to ``nb.prange`` -- the
-    #    first (in source order) that ``parallelism.loop_is_parallel_safe`` (the
-    #    shared source-of-truth predicate the C / Fortran OpenMP emitters use too)
-    #    proves carries no cross-iteration dependency. A loop that fails the check (scan,
-    #    scalar/same-cell reduction, index-shifted stencil, data-dependent
-    #    scatter) stays serial: prange would reorder its iterations and read a
-    #    not-yet-written / already-overwritten cell -> silent miscompile.
-    #    The rewrite splices only the ``range`` identifier of the chosen loop
-    #    (located via the AST) so the body is otherwise preserved verbatim.
-    out = parallelize_one_range_loop(out)
+    #    The helpers the parfor fixes add must run serial, so they get no ``parallel=True``.
+    serial = routed | ({copier} if copier is not None else set())
+    out = re.sub(
+        r"(?m)^def\s+(\w+)\(", lambda m: f"{njit_decorator(parallel and m[1] not in serial, fastmath)}\n{m[0]}", out
+    )
 
     body = "sparse operands lowered onto the unpacked buffer ABI" if sparse else "body preserved verbatim"
     header = (

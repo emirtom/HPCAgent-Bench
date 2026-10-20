@@ -1,54 +1,149 @@
-"""When the numba build may run in parallel: which bodies keep ``parallel=True`` and which one
-``range`` loop becomes ``nb.prange``."""
+"""Constructs numba's parfor pass (``parallel=True``) answers differently from numpy, and the body rewrites
+that keep ``parallel=True`` despite them."""
 
 import ast
 
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
-from hpcagent_bench.translators.numpyto_common.parallelism import index_exprs, loop_is_parallel_safe
+from hpcagent_bench.translators.numpyto_common.parallelism import index_exprs
 from hpcagent_bench.translators.numpyto_common.subscripts import base_name, is_full_slice
 
 __all__ = [
-    "MUTATING_METHODS",
     "PARFOR_UNSAFE_CALLS",
+    "RouteUnsafeCalls",
     "REORDERING_OPS",
-    "WRITING_FUNCTIONS",
+    "MATERIALIZE_BASE",
     "abs_offset",
-    "calls_a_mutating_helper",
     "calls_a_parfor_unsafe_op",
-    "handed_to_written_params",
     "has_inplace_slice_self_dependency",
+    "has_unmaterializable_overlap",
+    "has_unroutable_unsafe_call",
     "is_reshape_call",
-    "names_written_by_call",
-    "names_written_in",
-    "parallelize_one_range_loop",
+    "materializable_store",
+    "materialize_overlapping_stores",
+    "numpy_aliases",
     "provably_disjoint",
     "reordered",
     "reshape_bound_names",
     "reshape_operand",
+    "routable_call",
+    "route_parfor_unsafe_calls",
+    "overlapping_reads",
     "overlapping_slice_store",
+    "parfor_unsafe_calls",
     "spell_out_overlapping_augassigns",
     "spell_out_reshape_augassigns",
     "spelled_out_augassign",
-    "unit_step",
-    "writes_first_argument",
-    "written_parameters",
 ]
 
-#: Whole-array numpy calls numba's parfor rewriter -- what ``parallel=True`` turns on -- answers
-#: differently from numpy, each measured on numba 0.65.1: ``max`` / ``min`` (also spelled ``amax`` /
-#: ``amin``) SUPPRESS NaN where numpy propagates it, and a rectangular ``eye(m, n)`` fused with a
-#: following prange is read back as if square, so ``eye(3, 5)`` copies rows 0, 3 and 6 of its own
-#: flat buffer. A body calling one loses ``parallel=True``, the trade ``fastmath`` already makes.
+#: Whole-array calls the parfor pass answers differently from numpy (numba 0.65+): ``max`` / ``min`` drop
+#: NaN, and a rectangular ``eye(m, n)`` fused with a following parallel loop is read back as square.
 PARFOR_UNSAFE_CALLS = frozenset({"max", "min", "amax", "amin", "eye", "identity"})
 
 
+def parfor_unsafe_calls(tree: ast.AST) -> list[ast.Call]:
+    """The :data:`PARFOR_UNSAFE_CALLS` calls under ``tree``, spelled ``np.max(a)`` or ``a.max()``."""
+    return [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in PARFOR_UNSAFE_CALLS
+    ]
+
+
 def calls_a_parfor_unsafe_op(src: str) -> bool:
-    """True if ``src`` calls a :data:`PARFOR_UNSAFE_CALLS` name, in either the ``np.max(a)`` or the
-    ``a.max()`` spelling -- both reach the same numba implementation."""
-    return any(
-        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in PARFOR_UNSAFE_CALLS
-        for n in ast.walk(ast.parse(src))
-    )
+    """True if ``src`` calls a :data:`PARFOR_UNSAFE_CALLS` name (:func:`parfor_unsafe_calls`)."""
+    return bool(parfor_unsafe_calls(ast.parse(src)))
+
+
+def numpy_aliases(tree: ast.Module) -> set[str]:
+    """The names ``numpy`` is imported as at module level (``import numpy as np`` -> ``np``)."""
+    return {
+        alias.asname or alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "numpy"
+    }
+
+
+def routable_call(call: ast.Call) -> bool:
+    """A call :func:`route_parfor_unsafe_calls` can hand to a function: no ``*args`` and no ``**kwargs``."""
+    return not any(isinstance(a, ast.Starred) for a in call.args) and all(k.arg is not None for k in call.keywords)
+
+
+def has_unroutable_unsafe_call(src: str) -> bool:
+    """True if ``src`` calls a :data:`PARFOR_UNSAFE_CALLS` name in a form :func:`routable_call` refuses."""
+    return any(not routable_call(c) for c in parfor_unsafe_calls(ast.parse(src)))
+
+
+class RouteUnsafeCalls(ast.NodeTransformer):
+    """Each :data:`PARFOR_UNSAFE_CALLS` call as a call of a module function doing the same (``x.max()`` ->
+    ``serial_max(x)``), one function per spelling (call form, positional count, keyword names)."""
+
+    def __init__(self, numpy_names: set[str], taken: set[str]) -> None:
+        self.numpy_names = numpy_names
+        self.taken = taken
+        #: spelling -> (function name, its source)
+        self.helpers: dict[tuple[str, str, int, tuple[str, ...]], tuple[str, str]] = {}
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        self.generic_visit(node)
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr in PARFOR_UNSAFE_CALLS and routable_call(node)):
+            return node
+        module = func.value.id if isinstance(func.value, ast.Name) and func.value.id in self.numpy_names else ""
+        keywords = tuple(k.arg for k in node.keywords if k.arg is not None)
+        spelling = (module, func.attr, len(node.args), keywords)
+        if spelling not in self.helpers:
+            name = f"serial_{func.attr}"
+            k = 1
+            while name in self.taken:
+                name = f"serial_{func.attr}_{k}"
+                k += 1
+            self.taken.add(name)
+            positional = [f"a{i}" for i in range(len(node.args))]
+            params = ([] if module else ["obj"]) + positional + list(keywords)
+            passed = ", ".join(positional + [f"{kw}={kw}" for kw in keywords])
+            callee = f"{module}.{func.attr}" if module else f"obj.{func.attr}"
+            self.helpers[spelling] = (
+                name,
+                f"\n\ndef {name}({', '.join(params)}):\n    return {callee}({passed})\n",
+            )
+        args = ([] if module else [func.value]) + list(node.args) + [k.value for k in node.keywords]
+        return ast.copy_location(
+            ast.Call(func=ast.Name(id=self.helpers[spelling][0], ctx=ast.Load()), args=args, keywords=[]), node
+        )
+
+
+def route_parfor_unsafe_calls(src: str) -> tuple[str, frozenset[str]]:
+    """``src`` with every routable unsafe call made through a module function appended to it, and those
+    functions' names. The caller must compile them without ``parallel=True``: a call is opaque to the parfor
+    pass, so the helper runs numba's serial implementation."""
+    tree = ast.parse(src)
+    outermost: list[ast.Call] = []
+    inner: set[int] = set()
+    for call in sorted(parfor_unsafe_calls(tree), key=lambda c: (c.lineno, c.col_offset)):
+        if id(call) in inner or not routable_call(call):
+            continue
+        outermost.append(call)
+        inner |= {id(n) for n in ast.walk(call) if n is not call}
+    if not outermost:
+        return src, frozenset()
+    taken = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+        n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+    }
+    router = RouteUnsafeCalls(numpy_aliases(tree), taken)
+    edits: list[tuple[int, int, str]] = []
+    for call in outermost:
+        if call.end_lineno is None or call.end_col_offset is None:
+            continue
+        routed = router.visit(ast.parse(ast.unparse(call), mode="eval")).body
+        start = abs_offset(src, call.lineno, call.col_offset)
+        end = abs_offset(src, call.end_lineno, call.end_col_offset)
+        edits.append((start, end, ast.unparse(routed)))
+    for start, end, text in sorted(set(edits), reverse=True):
+        src = src[:start] + text + src[end:]
+    helpers = "".join(helper[1] for helper in router.helpers.values())
+    return src.rstrip("\n") + "\n" + helpers, frozenset(helper[0] for helper in router.helpers.values())
 
 
 #: Ops that REORDER the elements they are handed. Under one of these, an RHS subscript that is
@@ -98,7 +193,7 @@ def has_inplace_slice_self_dependency(src: str) -> bool:
     ``a[i, 1:-1] += a[i, 2:]`` is the canonical case: numba's parfor pass turns the
     whole-array update into a parallel loop, but the LHS and RHS slices overlap, so
     the read races the write. A scalar subscript like ``a[i] = a[i - 1] + x[i]`` is
-    NOT caught here; that dependency is handled by the prange-rewrite check instead.
+    NOT caught here: loops stay serial ``range`` loops.
 
     Two same-array reads are NOT a dependency and do not lose the kernel its ``parallel=True``:
 
@@ -115,14 +210,17 @@ def has_inplace_slice_self_dependency(src: str) -> bool:
 
 
 def overlapping_slice_store(stmt: ast.AST) -> bool:
-    """True if ``stmt`` stores through a slice of an array its right-hand side may read at
-    OTHER cells -- the per-statement test :func:`has_inplace_slice_self_dependency` applies.
+    """True if ``stmt`` stores through a slice of an array its right-hand side may read at other cells."""
+    return bool(overlapping_reads(stmt))
 
-    A bare read of the whole array counts unless every target axis is a full ``:`` (then it is the
-    elementwise ``a[:] += a``)."""
+
+def overlapping_reads(stmt: ast.AST) -> list[ast.expr]:
+    """The right-hand-side reads that may name other cells of the array ``stmt`` stores a slice of. A bare
+    read of the whole array counts unless every target axis is a full ``:`` (the elementwise ``a[:] += a``)."""
     if not isinstance(stmt, (ast.AugAssign, ast.Assign)):
-        return False
+        return []
     targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+    reads: list[ast.expr] = []
     for target in targets:
         if not isinstance(target, ast.Subscript) or not any(isinstance(c, ast.Slice) for c in ast.walk(target)):
             continue
@@ -134,15 +232,61 @@ def overlapping_slice_store(stmt: ast.AST) -> bool:
         subscript_bases = {id(node.value) for node in ast.walk(stmt.value) if isinstance(node, ast.Subscript)}
         for rhs in ast.walk(stmt.value):
             if isinstance(rhs, ast.Name) and rhs.id == lhs_name and not whole_target and id(rhs) not in subscript_bases:
-                return True
+                reads.append(rhs)
+                continue
             if not isinstance(rhs, ast.Subscript) or base_name(rhs) != lhs_name:
                 continue
             if provably_disjoint(target, rhs):
                 continue
             if ast.dump(target.slice) == ast.dump(rhs.slice) and not reordered(stmt, rhs):
                 continue
-            return True
-    return False
+            reads.append(rhs)
+    return reads
+
+
+def materializable_store(stmt: ast.AST) -> bool:
+    """True if ``stmt`` is an overlapping slice store with one target and a plain ``=``."""
+    return isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and overlapping_slice_store(stmt)
+
+
+def has_unmaterializable_overlap(src: str) -> bool:
+    """True if some overlapping slice store of ``src`` is not a :func:`materializable_store`."""
+    return any(overlapping_slice_store(s) and not materializable_store(s) for s in ast.walk(ast.parse(src)))
+
+
+#: Base name of the module function returning a copy of an overlapping store's right-hand side.
+MATERIALIZE_BASE = "materialized"
+
+
+def materialize_overlapping_stores(src: str) -> tuple[str, str | None]:
+    """``src`` with the right-hand side of every :func:`materializable_store` passed through an appended
+    function returning a copy of it, and that function's name (``None`` when no store needs it). The parfor
+    pass may store ``a[1:] = a[:-1]`` straight from the array it writes; the opaque copy restores numpy's
+    evaluate-then-store order."""
+    tree = ast.parse(src)
+    stores = [s for s in ast.walk(tree) if isinstance(s, ast.Assign) and materializable_store(s)]
+    if not stores:
+        return src, None
+    taken = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+        n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+    }
+    name = MATERIALIZE_BASE
+    k = 1
+    while name in taken:
+        name = f"{MATERIALIZE_BASE}_{k}"
+        k += 1
+    edits: list[tuple[int, int, str]] = []
+    for stmt in stores:
+        value = stmt.value
+        if value.end_lineno is None or value.end_col_offset is None:
+            continue
+        start = abs_offset(src, value.lineno, value.col_offset)
+        end = abs_offset(src, value.end_lineno, value.end_col_offset)
+        edits.append((start, end, f"{name}({src[start:end]})"))
+    for start, end, text in sorted(set(edits), reverse=True):
+        src = src[:start] + text + src[end:]
+    helper = f"\n\ndef {name}(x):\n    return np.copy(x)\n"
+    return src.rstrip("\n") + "\n" + helper, name
 
 
 def spell_out_overlapping_augassigns(src: str) -> str:
@@ -177,153 +321,6 @@ def abs_offset(src: str, lineno: int, col: int) -> int:
     source is ASCII, so ``col_offset`` (a UTF-8 byte offset) equals the char offset."""
     lines = src.splitlines(keepends=True)
     return sum(len(line) for line in lines[: lineno - 1]) + col
-
-
-def unit_step(call: ast.Call) -> bool:
-    """True when ``range(...)``'s step is the literal ``1`` (or omitted): numba's parfor pass lowers
-    only that prange, and raises ``UnsupportedRewriteError`` on any other step -- a negative
-    literal (``range(n - 1, -1, -1)``) or a runtime one (``range(k, n, m)``) alike."""
-    if len(call.args) < 3:
-        return True
-    step = call.args[2]
-    return isinstance(step, ast.Constant) and type(step.value) is int and step.value == 1
-
-
-#: Array methods that write into the array they are called on (``a.fill(0.0)``).
-MUTATING_METHODS = frozenset({"fill", "sort", "put", "partition", "itemset"})
-
-
-#: ``np.<name>(a, ...)`` functions that write into their FIRST argument, and ufunc methods (``np.add.at(a, ...)``).
-WRITING_FUNCTIONS = frozenset({"copyto", "put", "putmask", "place", "fill_diagonal", "put_along_axis"})
-
-
-def writes_first_argument(call: ast.Call) -> bool:
-    """``np.copyto(a, b)``-style functions and ``np.add.at(a, i, v)``: ``a`` is written in place."""
-    fn = call.func
-    if not isinstance(fn, ast.Attribute):
-        return False
-    if fn.attr in WRITING_FUNCTIONS:
-        return True
-    return fn.attr == "at" and isinstance(fn.value, ast.Attribute)
-
-
-def handed_to_written_params(call: ast.Call, params: list[str], written: frozenset[str]) -> set[str]:
-    """Names of the arrays ``call`` hands to a helper parameter in ``written``, positionally or by
-    keyword."""
-    handed = [(params[i], a) for i, a in enumerate(call.args) if i < len(params)]
-    handed += [(k.arg, k.value) for k in call.keywords if k.arg is not None]
-    return {name for p, a in handed if p in written and (name := base_name(a)) is not None}
-
-
-def names_written_by_call(call: ast.Call, mutates: dict[str, frozenset[str]], params: dict[str, list[str]]) -> set[str]:
-    """Names of the arrays ``call`` writes into: through a helper in ``mutates``, an ``out=``
-    argument, or a :data:`MUTATING_METHODS` method."""
-    fn = call.func
-    if isinstance(fn, ast.Name) and fn.id in mutates:
-        return handed_to_written_params(call, params[fn.id], mutates[fn.id])
-    names = {name for k in call.keywords if k.arg == "out" and (name := base_name(k.value)) is not None}
-    if call.args and writes_first_argument(call) and (name := base_name(call.args[0])) is not None:
-        names.add(name)
-    if isinstance(fn, ast.Attribute) and fn.attr in MUTATING_METHODS and (name := base_name(fn.value)) is not None:
-        names.add(name)
-    return names
-
-
-def names_written_in(fn: ast.FunctionDef, mutates: dict[str, frozenset[str]], params: dict[str, list[str]]) -> set[str]:
-    """Names of the arrays ``fn`` writes into, closed over views: ``row = p[i]; row[j] = 0.0``
-    writes ``p``."""
-    stored = {
-        name
-        for n in ast.walk(fn)
-        if isinstance(n, (ast.Assign, ast.AugAssign))
-        for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
-        if isinstance(t, ast.Subscript) and (name := base_name(t)) is not None
-    }
-    # ``p += expr`` on a whole array writes into the caller's buffer, like a subscript store does.
-    stored |= {n.target.id for n in ast.walk(fn) if isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name)}
-    for n in ast.walk(fn):
-        if isinstance(n, ast.Call):
-            stored |= names_written_by_call(n, mutates, params)
-    views = [
-        (t.id, base)
-        for n in ast.walk(fn)
-        if isinstance(n, ast.Assign) and (base := base_name(n.value)) is not None
-        for t in n.targets
-        if isinstance(t, ast.Name)
-    ]
-    while grown := {base for view, base in views if view in stored and base not in stored}:
-        stored |= grown
-    return stored
-
-
-def written_parameters(tree: ast.Module) -> tuple[dict[str, frozenset[str]], dict[str, list[str]]]:
-    """Module-level function name -> the names of the parameters a call to it writes into, and
-    name -> its parameter list.
-
-    A write counts through a subscript store (``p[...] = ...``, ``p[...] += ...``), an in-place ``p += ...``, a view of the
-    parameter (``row = p[i]; row[j] = ...``), an ``out=`` argument or a mutating method, and a call
-    to another helper that writes the parameter it is handed -- iterated to a fixed point, so a
-    wrapper around a writing helper writes too."""
-    fns = [fn for fn in tree.body if isinstance(fn, ast.FunctionDef)]
-    params = {fn.name: [a.arg for a in fn.args.args] for fn in fns}
-    mutates: dict[str, frozenset[str]] = {fn.name: frozenset() for fn in fns}
-    while True:
-        grown = {fn.name: frozenset(params[fn.name]) & names_written_in(fn, mutates, params) for fn in fns}
-        if grown == mutates:
-            return mutates, params
-        mutates = grown
-
-
-def calls_a_mutating_helper(loop: ast.For, mutates: dict[str, frozenset[str]], params: dict[str, list[str]]) -> bool:
-    """True if ``loop``'s body hands an array to a module helper that writes into it: the write
-    happens in the callee, where the loop's own dependence check cannot see it (rb_sor's time loop
-    calls its half-sweep, which updates ``u`` in place for the next step to read)."""
-    return any(
-        isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Name)
-        and n.func.id in mutates
-        and handed_to_written_params(n, params[n.func.id], mutates[n.func.id])
-        for n in ast.walk(ast.Module(body=list(loop.body), type_ignores=[]))
-    )
-
-
-def parallelize_one_range_loop(src: str) -> str:
-    """Rewrite the ``range`` identifier of the first (source-order) provably
-    independent unit-step (:func:`unit_step`) ``range`` for-loop to ``nb.prange``. If none qualify, return
-    ``src`` unchanged (fully serial -- correct, just not parallel)."""
-    tree = ast.parse(src)
-    range_fors = sorted(
-        (
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.For)
-            and isinstance(n.iter, ast.Call)
-            and isinstance(n.iter.func, ast.Name)
-            and n.iter.func.id == "range"
-        ),
-        key=lambda n: (n.lineno, n.col_offset),
-    )
-    mutates, params = written_parameters(tree)
-    target = next(
-        (
-            f
-            for f in range_fors
-            if isinstance(f.iter, ast.Call)
-            and unit_step(f.iter)
-            and loop_is_parallel_safe(f, tree)
-            and not calls_a_mutating_helper(f, mutates, params)
-        ),
-        None,
-    )
-    if target is None:
-        return src
-    if not isinstance(target.iter, ast.Call):
-        return src
-    fn = target.iter.func
-    off = abs_offset(src, fn.lineno, fn.col_offset)
-    if src[off : off + 5] != "range":
-        return src  # position drift (should not happen); leave serial rather than corrupt.
-    return src[:off] + "nb.prange" + src[off + 5 :]
 
 
 def is_reshape_call(node: ast.expr) -> bool:

@@ -94,6 +94,16 @@ Bug fixes and optimizations only; canonicalized programs compute the same values
   `finally` that may reset it keeps it); `np.cumsum` / `np.cumprod` with a constant `axis` lower to a slice scan
   in numpy's order and dtype; `functools` memo decorators are dropped. force_lj, gem, warpx_field_gather and
   fragment_patch_density now emit numba that runs.
+- **Generated numba is one `@nb.njit(parallel=True)` build without `prange`.** The emit no longer turns a
+  `range` loop into `nb.prange` (it took the first provably independent one, and the sparse matvec's row
+  loop): a loop-level task asks the agent to find that parallelism, so the generated baseline keeps every
+  loop serial and its parallelism is numba's parfors. Hand-written `*_numba.py` references keep theirs.
+- A body numba's parfor pass answers differently from numpy keeps `parallel=True`: an overlapping slice store
+  (`a[1:] = a[:-1]`, which the parfor pass raced) stores a copy, and `max` / `min` / `eye` run through serial
+  helper functions (the parfor `max` dropped NaN). bdf_newton_krylov and mixed_precision_ir, among others,
+  no longer emit a serial build; an overlapping `@=` or a starred unsafe call still does.
+- Every llr40 and solvers kernel's generated numba (overrides bypassed) compiles and matches the C reference
+  at S (the llr40 kernels also at M and L).
 - The Anthropic harness answers a tool call cut off at `max_tokens` as an error instead of running it with
   truncated input; Optimas reads its reward and usage from the Agents SDK's actual result shapes.
 - The phase clock is per context, so a judge thread rendering a CPF form does not bill another thread's span.
