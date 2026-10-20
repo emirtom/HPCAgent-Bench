@@ -1,28 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A counter-based random generator written against the array API, for kernel initializers.
-
-A value is a pure function of ``(seed, stream, element index)``: the splitmix64 finalizer applied to
-``key(seed, stream) + (index + 1) * GAMMA``, in uint64 arithmetic. No generator state exists, so
-
-* the same call gives the same bits on numpy and on cupy (``xp`` is either): integer add, multiply,
-  shift and xor wrap identically on every array library, and the float conversions below are exact;
-* an array can be built in blocks, on threads, or one column at a time, and equals the array built whole;
-* arrays and streams are independent of each other by construction: adding a draw shifts nothing.
-
-The normal draw is a sum of twelve uniforms (Irwin-Hall) because a Gaussian's logarithm and cosine round
-differently in glibc and in a GPU's math library, which would break the bit-identity; the sum uses integer
-arithmetic and one exact conversion. Its tails end at +-6 and its kurtosis is 2.9, which is what an input
-distribution needs and nothing more.
-
-Indices are arrays (a 0-d array or a scalar would warn on the intended uint64 wraparound). ``xp.arange``
-gives them; :func:`counter` gives the flat index of every element of a shape. :func:`uniform_field`,
-:func:`normal_field` and :func:`integers_field` build a whole array of a shape, from the flat index ``first``
-(a column block of a larger array is a call with ``first`` set), on the fast backend of the array library:
-:mod:`counter_rng_numba` (parallel numba kernels) for numpy and :mod:`counter_rng_cupy` (elementwise GPU
-kernels) for cupy. The functions of indices are the reference they must equal, bit for bit.
-"""
+"""A counter-based random generator over the array API: a value is a pure function of ``(seed, stream, element
+index)`` (splitmix64 in uint64), so numpy and cupy give the same bits and arrays may be built in blocks. Normals are
+Irwin-Hall sums (no libm); the ``*_field`` builders use fast backends that must equal the reference bit for bit."""
 
 import math
 from collections.abc import Callable
@@ -81,8 +62,8 @@ NORMAL_WORDS = 4
 PIECE_BITS = 21
 PIECE_MASK = (1 << PIECE_BITS) - 1
 PIECES = 12
-#: Elements per block of the reference ``*_field`` builder on numpy when no fast backend loads: the temporaries of
-#: one block stay in cache, which is 2.5 to 3 times faster than one pass over a large array.
+#: Elements per block of the reference ``*_field`` builder on numpy without a fast backend (temporaries stay in
+#: cache).
 BLOCK = 1 << 16
 
 
