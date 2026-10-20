@@ -19,6 +19,7 @@ from hpcagent_bench.config import MpContext
 from hpcagent_bench.harness import native
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
+from hpcagent_bench.harness.judge_wire import Correct
 from hpcagent_bench.harness.task import Task
 from tests.port_toolchain import gcc_available
 
@@ -112,7 +113,7 @@ def test_concurrent_judge_keeps_each_agents_result_separate(
         ref = reference_source(TASK)
         items = [(0, ref, True), (1, WRONG_GEMM_C, False), (2, ref, True), (3, ref, True)]
 
-        def worker(item: tuple[int, Any]) -> tuple[int, bool, bool]:
+        def worker(item: tuple[int, Any]) -> tuple[int, Correct, bool]:
             index, source, expect = item
             result = client.submit(Submission(language=Language.C, source=source), "gemm")
             return index, result.correct, expect
@@ -123,5 +124,5 @@ def test_concurrent_judge_keeps_each_agents_result_separate(
         config.clear_override("runtime.mp_context")
 
     for index, got, expect in out:
-        # /submit answers the verdict alone: "yes"/"no", not a bool.
-        assert got == ("yes" if expect else "no"), f"agent {index}: judge returned correct={got}, expected {expect}"
+        # /submit answers the verdict alone (yes/no), not a bool.
+        assert got is Correct.of(expect), f"agent {index}: judge returned correct={got}, expected {expect}"

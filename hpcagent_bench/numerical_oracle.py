@@ -164,6 +164,7 @@ from hpcagent_bench import (  # noqa: E402 -- after the thread-count environment
     pluto_transform,
 )
 from hpcagent_bench.frameworks.forked import die_with_parent, run_forked  # noqa: E402
+from hpcagent_bench.harness import disk_cache  # noqa: E402
 from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
@@ -1022,6 +1023,10 @@ def py_backend_compute(
         if not mods:
             return "FAIL:no-module"
         modfile = mods[0]
+        if backend == "numba":
+            # A content-addressed copy: numba's cache=True keys on the source path, so every call of the same
+            # emitted bytes reuses one compile instead of recompiling from a fresh temporary directory.
+            modfile = disk_cache.shared_source(modfile)
         export_dtypes = None
         if backend == "pythran":
             export_dtypes = pythran_export_dtypes(modfile.read_text())

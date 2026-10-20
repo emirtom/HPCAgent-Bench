@@ -3,19 +3,27 @@
 
 import inspect
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Protocol, cast
 
 from hpcagent_bench import autogen
 from hpcagent_bench.frameworks import Benchmark, Framework
-from hpcagent_bench.frameworks.framework import load_impl
+from hpcagent_bench.frameworks.framework import BenchData, CallPlan, KernelImpl, load_impl
 
-__all__ = ["IMPL_NAME", "NumbaFramework"]
+__all__ = ["IMPL_NAME", "NumbaDispatcher", "NumbaFramework"]
 
 
 #: The implementation name of the parallel (``np``) ``@nb.njit`` build in ``<module>_numba.py`` (a
 #: hand-written file at that name overrides the generated one). It is one reference of the configured
 #: speedup denominator (``measurement.denominator``, best-of(numba,c) by default).
 IMPL_NAME = "nopython-mode-parallel"
+
+
+class NumbaDispatcher(Protocol):
+    """The parts of an ``@njit`` dispatcher (numba ships no type stubs) :meth:`NumbaFramework.build_call` uses."""
+
+    py_func: Callable[..., object]
+
+    def compile(self, sig: tuple[object, ...]) -> object: ...
 
 
 class NumbaFramework(Framework):
@@ -60,6 +68,28 @@ class NumbaFramework(Framework):
             else:
                 return super().call_args(bench, impl, resolved, bdata)
         return [], bound
+
+    def build_call(self, bench: Benchmark, impl: KernelImpl, bdata: BenchData) -> CallPlan:
+        """The call plan, with the njit dispatcher compiled for its argument types: numba builds on the first call,
+        which would leave its build outside the measured span. numba reports no optimize/codegen split, so the whole
+        build is :attr:`~hpcagent_bench.phase_clock.Phase.TRANSFORM` (a cache hit is its load)."""
+        # The numba column is the only importer of the optional numba stack.
+        from numba import typeof  # noqa: PLC0415
+        from numba.core.dispatcher import Dispatcher  # noqa: PLC0415
+
+        plan = super().build_call(bench, impl, bdata)
+        if isinstance(impl, Dispatcher):
+            dispatcher = cast("NumbaDispatcher", impl)
+            plan.before_each()
+            args, kwargs = plan.bound()
+            call = inspect.signature(dispatcher.py_func).bind(*args, **kwargs)
+            call.apply_defaults()
+            try:
+                types = tuple(typeof(value) for value in call.arguments.values())
+            except ValueError:  # an argument numba types only at the call (it compiles there instead)
+                return plan
+            dispatcher.compile(types)
+        return plan
 
     def implementations(self, bench: Benchmark) -> Sequence[tuple[Callable, str]]:
         """The ``<module>_numba.py`` kernel (generated when missing); none when it cannot be generated, and

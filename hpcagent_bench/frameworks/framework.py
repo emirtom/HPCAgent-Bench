@@ -292,6 +292,10 @@ class CallPlan:
         resolved.update({a: self._mutable[a] for a in self.output_args if a in self._mutable})
         return resolved
 
+    def bound(self) -> tuple[Sequence[ArgValue], dict[str, ArgValue]]:
+        """The ``(args, kwargs)`` :meth:`before_each` bound for the next :meth:`run`."""
+        return self._call
+
     def run(self) -> KernelResult:
         """One kernel call inside the timed bracket: invoke the impl and apply post_call (arguments are bound
         in :meth:`before_each`)."""

@@ -19,7 +19,7 @@ from alloy.evaluate.link import Linker, execution_order  # pyright: ignore[repor
 from alloy.evaluate.verify import Verdict  # pyright: ignore[reportMissingImports]
 from alloy.frontend import inputs, regions  # pyright: ignore[reportMissingImports]
 from dace.frontend.python.parser import DaceProgram
-from hpcagent_agent.tools.http_json import judge_rank
+from hpcagent_agent.tools.http_json import judge_rank, judge_timeout
 
 from hpcagent_bench import config, paths
 from hpcagent_bench.categories import Language, Preset, SourceMode
@@ -203,7 +203,7 @@ def optimize(task: Task, pipeline: str, deliver: Deliver, profile: Profile | Non
     verification = result.verification
     if verification is None:
         raise RuntimeError(f"Alloy verified nothing for {spec.short_name}")
-    linker, judge = Linker(result.program, matrix, out), JudgeClient(judge_endpoints()[0], rank=judge_rank())
+    linker, judge = Linker(result.program, matrix, out), JudgeClient(judge_endpoints()[0], rank=judge_rank(), timeout=judge_timeout())
     size = fast_size(config.current().service.preset)
     measure = profile or (lambda submission: judge.profile(submission, task.kernel, reps=PROFILE_REPS, size=size))
 
