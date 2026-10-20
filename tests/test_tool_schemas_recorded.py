@@ -48,7 +48,7 @@ def test_tools_list_shows_the_recorded_schemas_byte_for_byte(monkeypatch: pytest
     server = fresh("mcp_server")
     listed = {
         tool.name: json.dumps(tool.model_dump(mode="json", by_alias=True)["inputSchema"])
-        for tool in server.tool_definitions()
+        for tool in server.tool_definitions(server.tools())
     }
     monkeypatch.delenv("HPCAGENT_BENCH_PACKET_TOOLS")
     fresh("mcp_server")  # back to the control state: the module outlives this test in sys.modules

@@ -38,7 +38,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config, languages, paths
-from hpcagent_bench.categories import Baseline, Language, Preset, Residency, SourceMode
+from hpcagent_bench.categories import BASELINE_OPTIONS, Baseline, Language, Preset, Residency, SourceMode, Track
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.frameworks.forked import RunResult
 from hpcagent_bench.frameworks.test import tolerances_for
@@ -118,9 +118,9 @@ def test_the_two_torch_kinds_are_two_denominators() -> None:
     assert torch_baseline.baseline_device(GPU_KIND) == "cuda"
     assert set(grading.TORCH_BASELINES) == {CPU_KIND, GPU_KIND}
     with pytest.raises(ValueError):
-        torch_baseline.baseline_device("numpy")
+        torch_baseline.baseline_device(Baseline.NUMBA)
     with pytest.raises(ValueError):
-        torch_baseline.baseline_device(grading.TORCH_AUTOTUNE)
+        torch_baseline.baseline_device(Baseline.TORCH_AUTOTUNE)
 
 
 def test_every_knob_surface_offers_the_token_and_both_kinds() -> None:
@@ -128,22 +128,21 @@ def test_every_knob_surface_offers_the_token_and_both_kinds() -> None:
     for a kind one layer knows and another rejects. The token is an option, never a recorded kind."""
     for kind in torch_baseline.TORCH_BASELINES:
         assert kind in grading.BASELINE_CHOICES
-        assert kind in grading.BASELINE_OPTIONS
-        assert kind in set(Baseline.texts())
+        assert kind.text in BASELINE_OPTIONS
         assert grading.baseline_uses_torch(kind)
-    assert grading.TORCH_AUTOTUNE in grading.BASELINE_OPTIONS
-    assert grading.TORCH_AUTOTUNE not in grading.BASELINE_CHOICES
-    assert Baseline(grading.TORCH_AUTOTUNE) is Baseline.TORCH_AUTOTUNE
-    assert not grading.baseline_uses_torch("numpy")
-    assert not grading.baseline_uses_torch(grading.TORCH_AUTOTUNE)
+    assert Baseline.TORCH_AUTOTUNE.text in BASELINE_OPTIONS
+    assert Baseline.TORCH_AUTOTUNE not in grading.BASELINE_CHOICES
+    assert Baseline.parse("torch-autotune") is Baseline.TORCH_AUTOTUNE
+    assert not grading.baseline_uses_torch(Baseline.NUMBA)
+    assert not grading.baseline_uses_torch(Baseline.TORCH_AUTOTUNE)
 
 
 def test_the_token_resolves_to_the_kind_of_the_grades_device() -> None:
     """``torch-autotune`` is what a config names; the grade records the kind of the device it ran on."""
     spec = BenchSpec.load(WEIGHTED_KERNEL)
-    assert grading.resolve_baseline(grading.TORCH_AUTOTUNE, spec, on_gpu=False) == CPU_KIND
-    assert grading.resolve_baseline(grading.TORCH_AUTOTUNE, spec, on_gpu=True) == GPU_KIND
-    assert grading.resolve_baseline_set(grading.TORCH_AUTOTUNE, spec, on_gpu=True) == (GPU_KIND,)
+    assert grading.resolve_baseline(Baseline.TORCH_AUTOTUNE, spec, on_gpu=False) == CPU_KIND
+    assert grading.resolve_baseline(Baseline.TORCH_AUTOTUNE, spec, on_gpu=True) == GPU_KIND
+    assert grading.resolve_baseline_set(Baseline.TORCH_AUTOTUNE, spec, on_gpu=True) == (GPU_KIND,)
 
 
 def test_the_machine_learning_default_is_torch_autotune_on_the_grades_device() -> None:
@@ -161,9 +160,9 @@ def test_the_machine_learning_default_is_torch_autotune_on_the_grades_device() -
         assert grading.resolve_baseline(None, spec, on_gpu=host.on_gpu) == CPU_KIND
         assert grading.resolve_baseline(None, spec, on_gpu=device.on_gpu) == GPU_KIND
         assert grading.resolve_baseline_set(None, spec, on_gpu=device.on_gpu) == (GPU_KIND,)
-    for track in ("loop_level_reasoning", "scientific_computing", "machine_learning", None):
-        named = set(grading.track_baseline_set(track)) & {grading.TORCH_AUTOTUNE, *grading.TORCH_BASELINES}
-        assert named == ({grading.TORCH_AUTOTUNE} if track == "machine_learning" else set()), track
+    for track in (*Track, None):
+        named = set(grading.track_baseline_set(track)) & {Baseline.TORCH_AUTOTUNE, *grading.TORCH_BASELINES}
+        assert named == ({Baseline.TORCH_AUTOTUNE} if track is Track.MACHINE_LEARNING else set()), track
 
 
 def test_a_distributed_grade_takes_the_device_of_its_language() -> None:
@@ -180,15 +179,15 @@ def test_an_explicit_torch_kind_is_one_kind() -> None:
     for kind in torch_baseline.TORCH_BASELINES:
         assert grading.resolve_baseline(kind, spec) == kind
         assert grading.resolve_baseline_set(kind, spec) == (kind,)
-        assert grading.baseline_policy_stamp((kind,)) == f"{grading.SINGLE_BASELINE_POLICY}:{kind}"
+        assert grading.baseline_policy_stamp((kind,)) == f"{grading.SINGLE_BASELINE_POLICY}:{kind.text}"
         assert grading.baseline_compiled(kind) is None
 
 
 def test_torch_is_credited_before_numpy_when_both_were_timed() -> None:
     """``primary_baseline`` walks :data:`scoring.PYTHON_BASELINES` in order, so the requested
     denominator wins over any fallback that also happened to be measured."""
-    assert scoring.primary_baseline({"numba": 1, CPU_KIND: 2}) == CPU_KIND
-    assert scoring.primary_baseline({"c": 1, "numba": 2}) == "numba"
+    assert scoring.primary_baseline({Baseline.NUMBA: 1, CPU_KIND: 2}) == CPU_KIND
+    assert scoring.primary_baseline({Baseline.C: 1, Baseline.NUMBA: 2}) == Baseline.NUMBA
 
 
 def test_the_weights_are_frozen_on_the_cpu_only() -> None:
@@ -453,7 +452,7 @@ def test_the_timed_calls_are_the_candidates_own_draws(tmp_path: pathlib.Path, mo
     assert len(measured.samples) == 3
     assert all(sample > 0 for sample in measured.samples)
     assert drawn == [0, 0, 1, 2, 3, 4]
-    assert list((tmp_path / "archives").glob(f"{CPU_KIND}-*{torch_baseline.ARCHIVE_SUFFIX}"))
+    assert list((tmp_path / "archives").glob(f"{CPU_KIND.text}-*{torch_baseline.ARCHIVE_SUFFIX}"))
 
 
 def test_a_kernels_own_torch_reference_is_timed_on_the_grades_inputs(
@@ -561,8 +560,8 @@ def test_a_default_grade_on_the_machine_learning_track_credits_the_cpu_kind() ->
     task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
     result = scoring.score(numpy_submission(PLAIN_KERNEL), task, preset=PRESET, repeat=2, baseline=None)
     assert result.correct, result.detail
-    assert result.baseline == CPU_KIND
-    assert result.baselines.keys() == {CPU_KIND}
+    assert result.baseline == CPU_KIND.text
+    assert result.baselines.keys() == {CPU_KIND.text}
     assert result.speedup > 0
 
 
@@ -576,7 +575,7 @@ def test_a_kernel_without_a_reference_is_a_judge_fault_on_the_row_it_asked_for()
     )
     assert result.harness_fault
     assert not result.correct
-    assert result.baseline == CPU_KIND
+    assert result.baseline == CPU_KIND.text
     assert "no PyTorch reference" in result.detail
 
 
@@ -585,15 +584,15 @@ def test_the_advisory_baseline_route_reports_the_torch_kind_or_nothing() -> None
     """``GET /baseline`` (``measure_baselines``) shows the agent the torch time it will be graded
     against, and a kernel with no reference simply has no entry -- as its grade scores it."""
     covered = scoring.measure_baselines(
-        Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C), preset=PRESET, repeat=2, baseline=grading.TORCH_AUTOTUNE
+        Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C), preset=PRESET, repeat=2, baseline=Baseline.TORCH_AUTOTUNE
     )
-    assert covered.keys() == {CPU_KIND}
-    assert covered[CPU_KIND] > 0
+    assert covered.keys() == {CPU_KIND.text}
+    assert covered[CPU_KIND.text] > 0
     uncovered = scoring.measure_baselines(
         Task(UNCOVERED_KERNEL, SourceMode.RESTRICTED, Language.C),
         preset=PRESET,
         repeat=2,
-        baseline=grading.TORCH_AUTOTUNE,
+        baseline=Baseline.TORCH_AUTOTUNE,
     )
     assert uncovered == {}
 
@@ -642,7 +641,7 @@ def test_a_final_grade_input_of_an_ml_kernel_is_reduced_against_torch_autotune()
             hidden_cases=[],
         )
     assert result.correct, result.detail
-    assert result.baseline == CPU_KIND
+    assert result.baseline == CPU_KIND.text
     assert [cell.timing_reduction for cell in result.cells] == [timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY]]
 
 
@@ -682,7 +681,7 @@ def test_warm_compiles_a_setups_ml_kernels_and_names_the_refused(
         metric,
         "timed_cells_for",
         lambda kernel, _anchored=False: [
-            {"label": PRESET, "params": dict(BenchSpec.load(kernel).parameters[PRESET]), "timed": True}
+            {"label": PRESET.text, "params": dict(BenchSpec.load(kernel).parameters[PRESET.text]), "timed": True}
         ],
     )
     problems = tmp_path / "problems.jsonl"
@@ -695,9 +694,9 @@ def test_warm_compiles_a_setups_ml_kernels_and_names_the_refused(
         encoding="utf-8",
     )
     code = torch_baseline.main(
-        ["warm", "--problems", str(problems), "--language", "c", "--preset", PRESET, "--datatype", "float64"]
+        ["warm", "--problems", str(problems), "--language", "c", "--preset", PRESET.text, "--datatype", "float64"]
     )
     assert code == 0
     refused = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
-    assert [(row["kernel"], row["kind"]) for row in refused] == [(UNCOVERED_KERNEL, CPU_KIND)]
-    assert list((tmp_path / "archives").glob(f"{CPU_KIND}-*{torch_baseline.ARCHIVE_SUFFIX}"))
+    assert [(row["kernel"], row["kind"]) for row in refused] == [(UNCOVERED_KERNEL, CPU_KIND.text)]
+    assert list((tmp_path / "archives").glob(f"{CPU_KIND.text}-*{torch_baseline.ARCHIVE_SUFFIX}"))

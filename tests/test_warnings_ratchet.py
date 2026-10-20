@@ -18,6 +18,7 @@ import subprocess
 
 import pytest
 
+from hpcagent_bench.categories import Language
 from hpcagent_bench import paths
 from hpcagent_bench.autogen import ensure_native
 from hpcagent_bench.flags import Mode
@@ -48,10 +49,10 @@ _KERNELS: tuple[str, ...] = (
 #: native_runtime.FRAMEWORK_LANG / FRAMEWORK_COMPILER for the 3 native flavors a real sweep
 #: builds: cc -> gcc (first "c" block, unforced), llvm -> clangpp (forced, matches the
 #: real "llvm" flavor), fortran -> gfortran (first "fortran" block, unforced).
-_FLAVORS: tuple[tuple[str, str, str, str | None], ...] = (
-    ("cc", "c", "c", None),
-    ("llvm", "cpp", "cpp", "clangpp"),
-    ("fortran", "fortran", "f90", None),
+_FLAVORS: tuple[tuple[str, Language, str, str | None], ...] = (
+    ("cc", Language.C, "c", None),
+    ("llvm", Language.CPP, "cpp", "clangpp"),
+    ("fortran", Language.FORTRAN, "f90", None),
 )
 
 #: KNOWN-BAD COUNT -- measured on this dev box (gcc 15.2.0, clang 21.1.8,

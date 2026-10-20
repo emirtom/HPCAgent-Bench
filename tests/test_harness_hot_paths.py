@@ -320,7 +320,7 @@ def test_the_cold_first_call_gets_its_own_alarm(tmp_path: pathlib.Path) -> None:
         str(kernel),
         _BINDING,
         {"x": np.zeros(4)},
-        "python",
+        Language.PYTHON,
         device=False,
         timeout=0.5,
         py_meta=("kern", ("x",), ("y",)),
@@ -422,7 +422,7 @@ def test_the_reference_emit_is_memoized_per_kernel_and_language() -> None:
     to five times."""
     from hpcagent_bench.harness.agent import emit_reference_source
 
-    assert emit_reference_source("gemm", Language.C) is emit_reference_source("gemm", "c")
+    assert emit_reference_source("gemm", Language.C) is emit_reference_source("gemm", Language.C)
 
 
 def test_flipping_the_committed_reference_knob_is_not_served_from_the_stale_cache() -> None:

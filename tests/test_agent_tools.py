@@ -23,7 +23,7 @@ from hpcagent_bench.harness.judge_wire import GradeAnswer, SubmitVerdict
 from hpcagent_bench.harness.service import ServiceConfig
 
 
-def _reference_submission(kernel: str = "gemm", language: str = "c") -> Submission:
+def _reference_submission(kernel: str = "gemm", language: Language = Language.C) -> Submission:
     from hpcagent_bench.harness.agent import reference_source
     from hpcagent_bench.harness.task import Task
 

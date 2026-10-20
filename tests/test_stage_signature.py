@@ -35,8 +35,10 @@ def stage(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, language: str
     return StagedSignature.model_validate_json((dest / "signature.json").read_bytes())
 
 
-@pytest.mark.parametrize(("language", "staged"), [("c", "c"), ("fortran", "fortran"), ("triton", "c")])
-def test_a_language_without_a_stub_of_its_own_is_staged_the_c_abi(language: str, staged: str) -> None:
+@pytest.mark.parametrize(
+    ("language", "staged"), [("c", Language.C), ("fortran", Language.FORTRAN), ("triton", Language.C)]
+)
+def test_a_language_without_a_stub_of_its_own_is_staged_the_c_abi(language: str, staged: Language) -> None:
     assert load_stager().abi_language(language) == staged
 
 

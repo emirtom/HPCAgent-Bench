@@ -113,7 +113,7 @@ def build_run_c(
     because an optimiser free to delete an unused allocation would answer the wrong question.
     """
     cc = "g++" if cpp else "gcc"
-    std = languages.std_flag("cpp" if cpp else "c")
+    std = languages.std_flag(Language.CPP if cpp else Language.C)
     ext = "cpp" if cpp else "c"
     opt = ["-O1", "-g", "-fsanitize=address", "-fno-omit-frame-pointer"] if sanitize else ["-O2"]
     with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +133,7 @@ def build_run_c_include(
     ``#include``s -- so it must carry its own system includes and compile with nothing else
     around it, which is the whole claim a shipped header makes."""
     cc = "g++" if cpp else "gcc"
-    std = languages.std_flag("cpp" if cpp else "c")
+    std = languages.std_flag(Language.CPP if cpp else Language.C)
     ext = "cpp" if cpp else "c"
     with tempfile.TemporaryDirectory() as tmp:
         d = pathlib.Path(tmp)

@@ -457,7 +457,7 @@ def test_a_pkg_config_less_variant_puts_its_own_directory_on_the_link_line(
     assert link[0] == f"-L{lib}"
     assert f"-Wl,-rpath,{lib}" in link
     assert "-lhpcagentvariant" in link
-    _compile, plain = languages.library_tokens("variant", "c", "")
+    _compile, plain = languages.library_tokens("variant", Language.C, "")
     assert plain == ("-lhpcagentvariant",), "the default context is untouched"
 
 

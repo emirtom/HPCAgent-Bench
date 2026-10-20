@@ -80,7 +80,7 @@ def test_every_cell_is_compiled_once_a_refused_kernel_is_dropped_and_the_end_pub
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     compiled: list[tuple[str, object]] = []
-    published: list[str] = []
+    published: list[Baseline] = []
     monkeypatch.setattr(
         torch_baseline,
         "warm_cell",
@@ -89,7 +89,8 @@ def test_every_cell_is_compiled_once_a_refused_kernel_is_dropped_and_the_end_pub
     monkeypatch.setattr(torch_baseline, "publish_warm", published.append)
     slots = [DeviceSlot("cpu", 0), DeviceSlot("cpu", 1)]
     pool = service.SlotPool(slots)
-    cells = [Cell("a", "k", {"n": 1}), Cell("b", "k", {"n": 1}), Cell("b", "k", None), Cell("a", "k", None)]
+    kind = Baseline.TORCH_AUTOTUNE_CPU
+    cells = [Cell("a", kind, {"n": 1}), Cell("b", kind, {"n": 1}), Cell("b", kind, None), Cell("a", kind, None)]
 
     def acquire(priority: int) -> DeviceSlot:
         slot = pool.acquire(priority, threading.Event())
@@ -100,7 +101,7 @@ def test_every_cell_is_compiled_once_a_refused_kernel_is_dropped_and_the_end_pub
     for thread in warmer.start(1):
         thread.join(WAIT_S)
     assert compiled == [("a", {"n": 1}), ("b", {"n": 1}), ("a", None)]
-    assert published == ["k"]
+    assert published == [kind]
     assert len(pool.free) == len(slots)
 
 
@@ -109,7 +110,7 @@ def test_the_tag_is_its_ml_kernels_cells(tmp_path: pathlib.Path) -> None:
     cells = judge_warmup.tag_cells(problems_file(tmp_path, [SCICOMP_KERNEL, ML_KERNEL, ML_KERNEL]), "c")
     assert {cell.kernel for cell in cells} == {ML_KERNEL}
     assert [cell.params for cell in cells] == torch_baseline.warm_cells(ML_KERNEL)
-    assert {cell.kind for cell in cells} == {"torch-autotune-cpu"}
+    assert {cell.kind for cell in cells} == {Baseline.TORCH_AUTOTUNE_CPU}
 
 
 def test_no_tag_no_warm_up_and_an_unreadable_one_never_stops_the_judge(tmp_path: pathlib.Path) -> None:

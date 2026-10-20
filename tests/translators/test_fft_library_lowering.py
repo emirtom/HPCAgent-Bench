@@ -91,7 +91,7 @@ def test_fortran_emit_renders_the_fftw_block_not_a_bare_call() -> None:
 
 
 def fft_library_available(lang: str) -> bool:
-    return bool(languages.library_build_flags(lang, ["fftw"])[1])
+    return bool(languages.library_build_flags(Language.parse(lang), ["fftw"])[1])
 
 
 #: 8388608 (fft_1d's own "M" preset, 2**23): a standalone (non-pytest) ctypes call into this
@@ -146,10 +146,12 @@ def test_fftw_library_group_sits_after_the_objects_on_the_shared_backend_link_li
     under ``--as-needed`` -- the link reports success and the .so fails ``dlopen`` with
     ``undefined symbol: fftw_plan_dft_1d``, same failure mode BLAS hit (test_blas_link_order.py)."""
     ext = {"c": "k.c", "cpp": "k.cpp", "fortran": "k.f90"}[lang]
-    cmds = languages.build_kernel_lib_commands([(lang, tmp_path / ext)], tmp_path / "libk.so", build_dir=tmp_path)
+    cmds = languages.build_kernel_lib_commands(
+        [(Language.parse(lang), tmp_path / ext)], tmp_path / "libk.so", build_dir=tmp_path
+    )
     link = cmds[-1]
     last_obj = max(i for i, t in enumerate(link) if t.endswith(".o"))
-    fftw = languages.library_build_flags(lang, languages.FFT_LINKED_LIBRARIES)[1]
+    fftw = languages.library_build_flags(Language.parse(lang), languages.FFT_LINKED_LIBRARIES)[1]
     assert fftw, f"the {lang} build must resolve an FFTW library group at all"
     missing = [t for t in fftw if t not in link]
     assert not missing, f"FFTW tokens absent from the {lang} link line: {missing} not in {link}"

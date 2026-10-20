@@ -731,13 +731,14 @@ RUNTIME_PARENT = """
 import ctypes, os, sys, threading, time
 import numpy as np
 from hpcagent_bench import spec
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 
 ctypes.CDLL(sys.argv[1])
 os.register_at_fork(after_in_child=lambda: threading.Thread(target=time.sleep, args=(60,), daemon=True).start())
 outputs, *_ = native_call._call_isolated(
-    sys.argv[2], binding_from_spec(spec.BenchSpec.load("gemm")), {"x": np.zeros(2)}, "python",
+    sys.argv[2], binding_from_spec(spec.BenchSpec.load("gemm")), {"x": np.zeros(2)}, Language.PYTHON,
     device=False, timeout=60, py_meta=("kern", ("x",), ("y",)),
 )
 print(outputs["y"].tolist())

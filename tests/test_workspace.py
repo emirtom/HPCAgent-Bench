@@ -138,10 +138,10 @@ def test_stub_and_glue_carry_workspace_trailing() -> None:
     assert glue.count("workspace_size") >= 2
 
 
-def entry_parameter_names(source: str, symbol: str, lang: str) -> list[str]:
+def entry_parameter_names(source: str, symbol: str, lang: Language) -> list[str]:
     """The names the generated entry declares, in order (C-family ``void f(...)``, Fortran
     ``subroutine f(...)``)."""
-    opener = f"subroutine {symbol}(" if lang == "fortran" else f"void {symbol}("
+    opener = f"subroutine {symbol}(" if lang is Language.FORTRAN else f"void {symbol}("
     start = source.index(opener) + len(opener)
     params = source[start : source.index(")", start)].split(",")
     return [re.sub(r"[^A-Za-z0-9_]", " ", p).split()[-1] for p in params if p.strip()]

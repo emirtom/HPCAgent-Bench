@@ -96,11 +96,11 @@ def test_generated_source_cache_hit_restore_and_invalidation(tmp_path) -> None:
 
 def _widget_kernel(benchmarks_root):
     """Write a minimal valid kernel (manifest + numpy reference) under a tmp benchmarks root."""
-    kdir = benchmarks_root / "widget"
+    kdir = benchmarks_root / "loop_level_reasoning" / "widget"
     kdir.mkdir(parents=True)
     (kdir / "widget.yaml").write_text(
         "name: widget\n"
-        "relative_path: widget\n"
+        "relative_path: loop_level_reasoning/widget\n"
         "parameters:\n"
         "  S:\n"
         "    N: 8\n"

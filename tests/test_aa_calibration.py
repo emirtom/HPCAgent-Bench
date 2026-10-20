@@ -126,7 +126,7 @@ def test_an_own_build_baseline_is_re_timed_with_the_compiler_that_won(monkeypatc
     monkeypatch.setattr(scoring, "run_compiled_reference", compiled)
     samples = scoring.retime_baseline(
         Baseline.C_AUTOPAR,
-        {"c-autopar": ("c", "clang", Mode.MULTI_CORE)},
+        {Baseline.C_AUTOPAR: (Language.C, "clang", Mode.MULTI_CORE)},
         isolated_numba=True,
         spec=None,
         task=None,
@@ -141,13 +141,13 @@ def test_an_own_build_baseline_is_re_timed_with_the_compiler_that_won(monkeypatc
         guillotine_s=0.0,
     )
     assert samples == [5, 6]
-    assert (seen[0]["language"], seen[0]["compiler"], seen[0]["mode"]) == ("c", "clang", Mode.MULTI_CORE)
+    assert (seen[0]["language"], seen[0]["compiler"], seen[0]["mode"]) == (Language.C, "clang", Mode.MULTI_CORE)
 
 
 def test_a_baseline_with_no_second_timer_is_refused_not_faked() -> None:
     with pytest.raises(RuntimeError, match="no second timer"):
         scoring.retime_baseline(
-            "vendored",
+            Baseline.FORTRAN_AUTOPAR,
             {},
             isolated_numba=False,
             spec=None,

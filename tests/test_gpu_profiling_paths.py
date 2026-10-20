@@ -179,13 +179,13 @@ def test_a_rocprofv3_trace_is_read_into_the_same_run_shape_with_unmeasured_volum
     ]
 
 
-@pytest.mark.parametrize(("language", "setup"), [("cuda", "nvidia"), ("hip", "amd")])
+@pytest.mark.parametrize(("language", "setup"), [(Language.CUDA, "nvidia"), (Language.HIP, "amd")])
 def test_the_language_alone_picks_the_vendor_setup(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, language: str, setup: str
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, language: Language, setup: str
 ) -> None:
     """nsys cannot see an AMD queue and rocprof cannot see a CUDA one, so a wrong branch is an empty
     trace reported as a device that did nothing."""
-    taken: list[tuple[str, str | None]] = []
+    taken: list[tuple[str, Language | None]] = []
     monkeypatch.setattr(
         gpu_profiling,
         "profile_nvidia_once",
@@ -300,7 +300,7 @@ def test_a_traced_submission_answers_with_the_payload_of_the_run_it_asked_for(
         min_percent=2.5,
     )
     assert (payload["build_ok"], payload["kernel"], payload["preset"], payload["reps"]) == (True, "gemm", "M", 3)
-    assert (traced["language"], traced["min_percent"]) == ("cuda", 2.5), traced
+    assert (traced["language"], traced["min_percent"]) == (Language.CUDA, 2.5), traced
     request = traced["request"]
     assert isinstance(request, dict)
     assert (request["preset"], request["reps"], request["lib"], request["device"]) == ("M", 3, str(lib), True)

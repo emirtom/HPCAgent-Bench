@@ -9,6 +9,7 @@ arrays: npbench bicgstab died on every call with ``'numpy.ndarray' object has no
 '__cuda_array_interface__'``.
 """
 
+import types
 from typing import ClassVar
 
 import dace
@@ -16,6 +17,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench.frameworks import dace_framework
+from hpcagent_bench.vocabulary import Arch
 
 
 class StagedArray:
@@ -70,7 +72,7 @@ class FakeBench:
 class FakeFramework:
     """The members ``DaceFramework.call_args`` reads, for a GPU flavor."""
 
-    info: ClassVar[dict[str, str]] = {"arch": "gpu"}
+    column: ClassVar[types.SimpleNamespace] = types.SimpleNamespace(arch=Arch.GPU)
 
     def arg_renames(self, bench: FakeBench) -> dict[str, str]:
         return {}

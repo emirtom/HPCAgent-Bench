@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import config
-from hpcagent_bench.categories import Language, Oracle, Preset, Residency, SourceMode
+from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
@@ -855,7 +855,7 @@ def mock_mpi_runners(monkeypatch: pytest.MonkeyPatch, *, native: list[int], base
     monkeypatch.setattr(
         S,
         "single_node_samples",
-        lambda kinds, spec, task, binding, data, repeat, **kw: ("numba", (baseline * repeat)[:repeat]),
+        lambda kinds, spec, task, binding, data, repeat, **kw: (Baseline.NUMBA, (baseline * repeat)[:repeat]),
     )
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
