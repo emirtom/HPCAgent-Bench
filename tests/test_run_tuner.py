@@ -22,17 +22,20 @@ def test_a_tuner_solves_the_kind_of_submission_its_judge_takes() -> None:
     assert run_tuner.task_of("gemm", "c", InputMode.ANY).source_mode is SourceMode.ANY
 
 
+@pytest.mark.parametrize("kernel", ["gemm", "scientific_computing/dense_linear_algebra/gemm/gemm"])
 def test_a_tuner_episode_submits_to_its_judge_and_records_its_end(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
     make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+    kernel: str,
 ) -> None:
+    """The driver names a problem by its registry key; the tuner solves and submits its kernel."""
     url = make_judge(RunConfig())[1]
     monkeypatch.setenv(run_tuner.TUNER_ENV, "noop")
     monkeypatch.setenv("JUDGE_URL", url)
     monkeypatch.setenv("JUDGE_RANK", "0")
     monkeypatch.setenv("JUDGE_INPUT_MODE", "source")
-    assert run_tuner.main(["--workdir", str(tmp_path), "--kernel", "gemm", "--language", "c"]) == 0
+    assert run_tuner.main(["--workdir", str(tmp_path), "--kernel", kernel, "--language", "c"]) == 0
     end = json.loads((tmp_path / harnesses.END_FILE).read_text())
     assert end["reason"] == "finished"
     assert (tmp_path / harnesses.USAGE_FILE).is_file()
@@ -62,5 +65,6 @@ if __name__ == "__main__":
     test_a_tuner_solves_the_kind_of_submission_its_judge_takes()
     test_the_driver_launches_a_tuner_as_a_runner()
     test_a_tuner_setup_renders_without_inference_and_names_its_tuner()
-    with pytest.MonkeyPatch.context() as patch, tempfile.TemporaryDirectory() as scratch, judge_factory() as make:
-        test_a_tuner_episode_submits_to_its_judge_and_records_its_end(pathlib.Path(scratch), patch, make)
+    for kernel in ("gemm", "scientific_computing/dense_linear_algebra/gemm/gemm"):
+        with pytest.MonkeyPatch.context() as patch, tempfile.TemporaryDirectory() as scratch, judge_factory() as make:
+            test_a_tuner_episode_submits_to_its_judge_and_records_its_end(pathlib.Path(scratch), patch, make, kernel)

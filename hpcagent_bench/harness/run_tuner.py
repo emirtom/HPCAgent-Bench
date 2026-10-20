@@ -18,6 +18,7 @@ from hpcagent_bench.categories import InputMode, Language, SourceMode
 from hpcagent_bench.harness.optimizers import optimizer_registry
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.tools import JudgeClient
+from hpcagent_bench.kernel_key import kernel_stem
 
 __all__ = ["TUNER_ENV", "main", "task_of"]
 
@@ -37,14 +38,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--kernel", required=True)
     parser.add_argument("--language", required=True)
     args = parser.parse_args(argv)
-    tuner = os.environ[TUNER_ENV]
+    tuner, kernel = os.environ[TUNER_ENV], kernel_stem(args.kernel)
     (args.workdir / USAGE_FILE).touch()
     try:
         input_mode = InputMode.parse(os.environ.get("JUDGE_INPUT_MODE", "").strip() or InputMode.SOURCE.text)
-        submission = optimizer_registry()[tuner]().solve(task_of(args.kernel, args.language, input_mode))
+        submission = optimizer_registry()[tuner]().solve(task_of(kernel, args.language, input_mode))
         judge = JudgeClient(os.environ["JUDGE_URL"], rank=judge_rank())
-        answer = judge.submit(submission, args.kernel)
-        print(f"tuner {tuner}: {args.kernel} submitted, correct={answer.correct}", flush=True)
+        answer = judge.submit(submission, kernel)
+        print(f"tuner {tuner}: {kernel} submitted, correct={answer.correct}", flush=True)
     except Exception as exc:  # noqa: BLE001 -- the end record names the failure
         traceback.print_exc()
         return runner_common.write_end(args.workdir, EndReason.ERROR, 1, runner_common.exception_detail(exc))
