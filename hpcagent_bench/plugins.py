@@ -98,7 +98,9 @@ def register_packets(found: tuple[Plugin, ...]) -> None:
 
 @functools.lru_cache(maxsize=1, typed=True)
 def register() -> tuple[Plugin, ...]:
-    """Find every plugin and register its packets, once per process (:func:`hpcagent_bench.study_tags.registry`)."""
+    """Find every plugin and register its packets, once per process (:func:`hpcagent_bench.study_tags.registry`),
+    after the shipped ones (:mod:`hpcagent_bench.skill_packets`) whichever module imported first."""
+    importlib.import_module("hpcagent_bench.skill_packets")
     found = agent_plugins.find(roots())
     register_packets(found)
     return found
