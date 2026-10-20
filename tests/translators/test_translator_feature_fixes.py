@@ -1,25 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for the translator feature/bug fixes in this work batch.
-
-Grouped by feature so a regression points straight at the cause:
-
-* ``shape_from_constructor`` -- ``rng.integers(size=...)`` shape recovery
-  (dfa) and the ``np.full(N, fill)`` fix (the fill value must NOT be read as
-  a second axis -- bellman_ford's ``INF`` leak).
-* ``expand_arange`` -- ``np.arange`` value emission (iota loop).
-* ``AstypeRewriter`` -- ``<expr>.astype(dtype)`` on ANY receiver.
-* variadic ``max``/``min`` folding in the C/C++ emitter (needleman_wunsch).
-* ``np.var`` is classified as a SCALAR reduction so it can nest in an
-  expression (srad's ``np.var(J) / (mean*mean)``).
-* Fortran ABI: the emitted subroutine's parameter order matches the binding
-  (the matvec-cluster fix) and synthesized return outputs carry no leading
-  ``__`` (``ret_arr`` -- valid in every backend).
-
-The end-to-end correctness of these on the real kernels is asserted by the corpus gate,
-``tests/test_e2e_numerical.py`` (native leg on every gated kernel), via the numerical oracle; conv2d's
-wider backend matrix is ``test_feature_kernels_e2e``.
-"""
+"""Unit tests for translator features, grouped by feature (constructor shapes, ``np.arange``, ``astype``,
+variadic ``max``/``min``, ``np.var`` as a scalar reduction, Fortran ABI order); corpus numerics are
+``tests/test_e2e_numerical.py``'s."""
 
 import ast
 

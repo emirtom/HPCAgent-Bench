@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The generated-reference cache (``references.generated_cache_dir``) is keyed on the translator.
-
-A key over ``<module>_numpy.py`` alone keeps serving stale output after a translator change (e.g.
-naive-DFT C after an FFT lowering lands). A translator source edit must miss and re-emit; an
-unchanged translator must hit.
-"""
+"""The generated-reference cache is keyed on the translator too: a translator edit misses, an unchanged one
+hits."""
 
 import pathlib
 from collections.abc import Iterator

@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge's background warm-up of the ML denominator: behind every request, one cell per slot hold.
-
-No torch here: ``torch_baseline.warm_cell`` and ``publish_warm`` are faked to record what the warm-up
-asks for, and the slot pool is the judge's own (:class:`service.SlotPool`).
-"""
+"""The judge's background warm-up of the ML denominator: behind every request, one cell per slot (warm functions
+faked, the judge's own :class:`service.SlotPool`)."""
 
 import json
 import pathlib

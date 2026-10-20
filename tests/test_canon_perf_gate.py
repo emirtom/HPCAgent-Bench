@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Canon must stay within 2x of the compiled baseline on the kernels where it has regressed before.
-
-Correctness is the ordinary CI's job; this is the speed half, run by the CI perf steps (:data:`PERF_JOBS`) one test at a
-time (no xdist), with ``OMP_NUM_THREADS`` at the runner's core count. Each kernel is timed at preset M (big
-enough to amortize the thread team, small enough for a CI runner; KERNEL_PRESETS names the exceptions) as the median of 3 runs, under
-``dace_cpu_canon`` and under the compiled baselines (both, unless KERNEL_BASELINES narrows them); the gate is canon <= 2x the faster baseline.
-
-The list is curated, not the corpus: each entry is a case canon has been slow on.
-"""
+"""Canon stays within 2x of the faster compiled baseline (median of 3 at M) on a curated list of past
+regressions; run by the CI perf steps (:data:`PERF_JOBS`) without xdist."""
 
 import pathlib
 

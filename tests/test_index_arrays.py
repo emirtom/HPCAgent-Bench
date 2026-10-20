@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``index_array`` declares that an integer buffer holds SUBSCRIPTS, and the seam rebases it.
-
-The numpy reference is the 0-based truth for every such table. The index BASE is then a property
-of the consuming language, not of the data, so the ABI seam adds the language's base on the way in
-and takes it off index OUTPUTS on the way back. That is what lets a Fortran submission write
-``a(ip(j))`` -- the way Fortran is written -- instead of the ``a(ip(j) + 1)`` a 0-based delivery
-would force on it.
-
-These pin the contract end to end: the declaration is well-formed, the binding carries it, the
-seam moves by the right amount, and the language page tells a reader the same story.
-"""
+"""``index_array`` buffers hold SUBSCRIPTS, rebased at the ABI seam to the consuming language's base (and back
+on outputs): declaration, binding, seam arithmetic and the language page agree."""
 
 import re
 

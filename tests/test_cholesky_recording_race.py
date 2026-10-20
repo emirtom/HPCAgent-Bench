@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Regression test for the compiler-baseline sweep: the ranks of a sweep share one canon DB, and four of them
-racing the FIRST write to a not-yet-existing file must all record (cholesky, the first kernel a fresh rank is
-handed, was the one caught when two ranks both created the schema). Also: cholesky's numpy reference itself is
-innocent (finite output, no DB code).
-"""
+"""Sweep ranks racing the first write to a not-yet-existing canon DB all record; cholesky's numpy reference is
+finite and DB-free."""
 
 import multiprocessing
 import multiprocessing.queues

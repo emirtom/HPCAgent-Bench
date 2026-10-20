@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The scaling grade of a worklist item (hpcagent_bench/harness/scaling_grade.py, grade_under.Scaling).
-
-``grade-under`` replays each scaling item's submission at rank counts the agent job never ran, under
-its laws, so a replay that drops the requests (layout, catalog libraries) grades a different
-submission than the one the agent sent -- and a curve spliced from two jobs is not one curve. Every
-row it writes names its law, and a gang grades only the sweeps it can place.
-"""
+"""The scaling grade of a worklist item: replays keep the submission's requests, curves come from one job, every
+row names its law, and a gang grades only the sweeps it can place."""
 
 import contextlib
 import dataclasses

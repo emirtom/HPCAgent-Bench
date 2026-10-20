@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``fold_slice_view_aliases`` -- fold a name bound to a partial/strided VIEW of
-an array into every subscripted use, composing offsets/strides.
-
-``x_g = padded[:, g*ipg:(g+1)*ipg]`` then ``x_g[:, :, iy0:iy0+h:s]`` (grouped
-conv's per-group input slab) left a bare ``:`` reaching the C/Fortran emitter as
-a value expression -- ``NotImplementedError: expression Slice`` -- across ~32
-machine_learning benchmarks. :func:`fold_subarray_aliases` already folds a
-SCALAR index prefix plus dropped trailing full slices (xsbench's ``low = A[i,
-j]``); this pass handles a Slice with real bounds/step at ANY axis position,
-including a chain of views (``window = x_g[...]`` where ``x_g`` is itself a
-view), and refuses to fold whenever it cannot prove the fold is sound.
-"""
+"""``fold_slice_view_aliases``: a name bound to a partial/strided VIEW is folded into every subscripted use
+(offsets and strides composed, chains included), and refused when the fold cannot be proven sound."""
 
 import ast
 

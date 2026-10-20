@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every solver kernel is discoverable AS a solver.
-
-The family is selected by the ``solvers`` study tag, so a kernel that lands without it is in
-the corpus but outside every solver sweep -- present, graded, and invisible to the thing it was built for.
-That failure is silent in every other gate, which is why it gets its own.
-"""
+"""Every solver kernel carries the ``solvers`` study tag, so no solver sweep misses it."""
 
 import pytest
 

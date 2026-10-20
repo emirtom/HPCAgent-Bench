@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prompt sections are replaced or turned off by config or environment, and a variant is chosen the same way.
-
-The properties that matter to a person running a study: a section's key is stable and every section the
-top-level templates include has one; the ``prompt.sections`` config key turns a section off or points
-it at their own template; ``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`` wins over that map; a user template
-directory shadows or supplies sections; ``prompt.variant`` (env ``HPCAGENT_BENCH_PROMPT_VARIANT``) picks a
-named variant. The rendered prompt keeps its layout whichever sections are on."""
+"""Prompt sections are replaced or turned off by ``prompt.sections`` or ``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>``,
+user template directories shadow them, and ``prompt.variant`` picks a variant; the layout is kept."""
 
 import contextlib
 import inspect

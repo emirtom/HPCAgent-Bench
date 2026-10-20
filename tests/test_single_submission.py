@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Single-submission mode: ONE recorded grade, it ends the episode, and never nothing.
-
-Three rules, each enforced rather than asked for -- a prompt that merely requests one submission
-answers nothing, because agents were measured ignoring page-level instructions they were holding:
-
-* exactly one submission (``tools/submit.py`` and its spent marker),
-* submitting ENDS the run (``agent_driver.watch_submission``), since the grade is already recorded
-  and every turn after it spends inference the setup is sized against,
-* an agent that never submits has its last correct ``score`` promoted to a submission
-  (``promote_unsubmitted.py``).
-
-The third is why ``score`` is OFFERED here. Withdrawing it leaves an agent no way to know whether
-its answer works and nothing to fall back on -- and the killed agents are the ones this matters
-for: verified-but-unsubmitted kernels come from workers that were killed, not ones that chose to stop.
-"""
+"""Single-submission mode, enforced: exactly one submission, submitting ends the run, and an agent that never
+submits has its last correct ``score`` promoted."""
 
 import importlib
 import pathlib

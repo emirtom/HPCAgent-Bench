@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The per-kernel single-node memory cap: ``sizing.kernel_memory_gb``.
-
-The budget a run gets is DERIVED from the kernel -- its requested workspace plus room for the
-inputs and outputs twice -- rather than taken from one global constant. These pin the formula on a
-kernel whose bytes are computable by hand, the two things that move it (precision and preset), the
-floor/fallback rule, and the property that makes the cap a real limit: a kernel over it is a scored
-failure, not a dead runner.
-"""
+"""The per-kernel single-node memory cap (``sizing.kernel_memory_gb``), derived from the kernel: the formula, its
+precision and preset dependence, the floor, and an over-cap kernel as a scored failure."""
 
 import dataclasses
 import functools

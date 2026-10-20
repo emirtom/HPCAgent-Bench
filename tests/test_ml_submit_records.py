@@ -1,19 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""An ML-scaling ``/submit`` at the mlscale setups' REAL judge config leaves its whole record.
-
-The setups' judge grades at ``service.preset`` = XL+fuzz (``fuzzed``: size RANGES), hip, ``mpi.ranks``
-4, ``mpi.rank_counts`` [1, 2, 4], device residency, recording on and harden on. Every other ML test
-pins the ``S`` preset (conftest), so three bugs of one class -- a range-valued preset sized where a
-concrete one was needed -- reached a GPU smoke before anything failed, and the last one only as a
-``recorded: {"error": ...}`` the agent never sees: no correct ML ``/submit`` was recorded at all.
-
-Driven through an in-process judge with the body the agent tool builds
-(``http_json.submission_body``). Faked: only the GPU build (``scoring.Sandbox``), the rank launch
-(``mpi_call.launch``, which answers the rank driver's result file from the plan it was handed), the
-torch baseline child, and the host probe for the judge image's ``mpi`` / ``rccl`` catalog entries. The descriptor, the fuzz cells, every launch plan, both laws' sizing, the
-re-verify and the recorder all run for real on the kernel's own manifest.
-"""
+"""An ML-scaling ``/submit`` at the mlscale setups' real judge config (fuzzed XL, hip, 4 ranks, device
+residency) leaves its whole record; only the GPU build, rank launch, torch baseline child and library probe are
+faked."""
 
 import contextlib
 import json

@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""make_problems.py: the PROBLEMS_FILE generator, pinning the lang-skills packet a skills setup carries.
-
-Runs the script as a real subprocess (its own idiom -- an argparse CLI, not an importable
-function) restricted to one kernel, so the check is cheap and exercises the exact path an
-setup's problem generation does.
-"""
+"""make_problems.py, run as a subprocess on one kernel: the PROBLEMS_FILE line and the lang-skills packet."""
 
 import json
 import os

@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Emitted C and C++ must state every conversion, the way the emitted Fortran already does.
-
-Fortran gets this for free -- a kind mismatch is a compile error, so the emitter has always written
-its conversions out. C and C++ do not: an ``int64_t`` extent flows into ``malloc``'s ``size_t``
-silently, and the compiler says nothing unless asked. Asking is what this file does.
-
-The gate is a compile with the conversion diagnostics as ERRORS. It is deliberately not a substring
-search for ``(size_t)``: the property that matters is that no conversion is left implicit, and only
-the compiler can decide that. A new emit path that reintroduces one fails here even if nobody thought
-to look for it.
-
-``-Wunused-parameter`` is NOT in the set. The ABI fixes the parameter list, so a kernel that ignores
-one of its declared parameters is conforming, not sloppy -- see hpcagent_bench/docs/abi_contract.md.
-"""
+"""Emitted C and C++ state every conversion: they compile with the conversion diagnostics as ERRORS
+(``-Wunused-parameter`` excluded: the ABI fixes the parameter list)."""
 
 import pathlib
 import shutil

@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The release smoke suite (``pytest -m smoke``): one end-to-end pass per user-facing
-path on a CPU host, without a GPU or SLURM.
-
-Covered: prompt render (a C and a triton setup), judge ``/score`` and ``/submit`` of reference-equivalent
-submissions (C, numba through a py-binding judge, Fortran when ``gfortran`` is on ``PATH``), a regrade through
-``grade-under worklist|run|apply`` on a temporary results DB, dataset extraction from that DB and one figure drawn
-from the extraction, config load and validation, and a ``submit.sh`` dry run.
-"""
+"""The release smoke suite (``pytest -m smoke``): one end-to-end pass per user-facing path on a CPU host,
+without a GPU or SLURM."""
 
 import contextlib
 import json

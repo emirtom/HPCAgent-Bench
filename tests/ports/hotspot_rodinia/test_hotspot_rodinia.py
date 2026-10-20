@@ -1,26 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Validate the standalone kernel extraction in this directory.
-
-These tests compare the NumPy adaptation with the standalone C/C++/Fortran
-reference implementation built as a shared library. They also cross-check
-against an independent Python reference implementation when present.
-Deterministic, edge-case, invalid-input, and randomized cases are included
-where applicable.
-
-The independent Python reference here is written from upstream's EXPLICIT
-corner/edge/interior branch chain (hotspot_openmp.cpp:79-145) over flat
-row-major indices, while the NumPy adaptation and the C++ reference both use
-the clamped-neighbour form. Agreement between the two therefore establishes
-that the clamped form reproduces upstream's hand-written boundary cases rather
-than merely that two transcriptions of the same expression agree.
-
-A fourth path, ``hotspot_rodinia_blocked_*_ref``, transcribes upstream's 16x16
-blocked traversal verbatim INCLUDING its missing ``else`` (defect D1). It is
-what :func:`test_original_application_matches_the_blocked_reference` compares
-against the original Rodinia binary, and what
-:func:`test_upstream_boundary_block_defect_is_real_and_excluded` pins.
-"""
+"""Validate the hotspot_rodinia extraction: the NumPy adaptation against the C/C++/Fortran reference, an
+independent branch-chain Python reference, and a verbatim blocked transcription (with upstream defect D1)."""
 
 import ctypes
 import functools

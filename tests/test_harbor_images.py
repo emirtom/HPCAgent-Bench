@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Harbor images and the compose files a task ships, per ``--hardware``.
-
-config.yaml ``images.<hw>`` is the one place the Harbor image references are written; the registry
-table (containers/images/images.env) must name the same repository and tags, or `generate` points
-tasks at images the build scripts never push. Each generated compose file is what Harbor merges
-over its own base: the checks below are the properties a reviewer would otherwise read by eye.
-"""
+"""The Harbor images per ``--hardware``: ``images.<hw>`` in config.yaml agrees with ``images.env``, and each
+generated compose file has the reviewed properties."""
 
 import getpass
 import pathlib

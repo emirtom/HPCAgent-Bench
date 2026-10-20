@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The scaling figures: eta from known times, the geomean over P, the holes, and the axes.
-
-A SYNTHETIC frame throughout -- no cluster data, no judge database. Every number below is one a
-reader can check by hand against the formula in the docstring of
-:func:`hpcagent_bench.harness.metric.scaling_point`, which is the point: the figure module must not
-have a second definition of eta, and these tests fail if it grows one.
-"""
+"""The scaling figures on a synthetic frame: eta from known times through :func:`metric.scaling_point` (no second
+definition), the geomean over P, holes, and axes."""
 
 import math
 from collections.abc import Callable

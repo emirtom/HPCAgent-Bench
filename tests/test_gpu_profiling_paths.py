@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The GPU profiler's trace-and-read paths (:mod:`hpcagent_bench.harness.gpu_profiling`) end to end.
-
-Runs on a host with no GPU, no ``nsys`` and no ROCm: the subprocess boundaries answer with the real
-CSV fixtures ``tests/test_gpu_profiling.py`` carries, so everything between the profiler's exit and
-the ``/profile`` payload is the production code.
-"""
+"""The GPU profiler's trace-and-read paths end to end on a host without GPU tools (real CSV fixtures at the
+subprocess boundary)."""
 
 import json
 import os

@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Properties the measurement path must hold for a published number to mean what it says.
-
-Written as an ADVERSARIAL AUDIT of everything upstream of the plots: the reduction over
-repeats, how a speedup is formed, what a disclosed timing column is, and whether a ratio is
-paired. Each test states ONE property in its name, documents the failure it prevents, and
-asserts on the observable contract rather than on an implementation detail.
-
-Several of these are expected to FAIL on the tree as it stands -- that is the point of the
-file. Each such test names, in its docstring, the defect it demonstrates and the magnitude
-the defect carries, so a reader can tell a red mark here from a regression.
-"""
+"""An adversarial audit of the measurement path (repeat reduction, speedup formation, timing columns, pairing):
+one property per test. Some are expected to FAIL; each such test names its defect and magnitude."""
 
 import inspect
 

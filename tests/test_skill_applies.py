@@ -1,21 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``applies:`` frontmatter block, and the packet keys that resolve through it.
-
-``*`` (the ``lang-skills`` packet, and ``--skills``) stages every shipped page that
-:func:`hpcagent_bench.packets.applies_to` admits for the setup, so that one block decides whether a
-page reaches an agent at all. It is read by name -- an unknown key, a misspelled language or an
-image name the resolver does not know is not an error anywhere in the resolve path, it just does
-not restrict, and the page silently rides on every setup again.
-
-The other half is the packet table: :func:`hpcagent_bench.packets.resolve` raises on a page that
-does not exist, so resolving every registered key over every setup shape is what turns a typo in
-``envs/registry.yaml`` into a test failure instead of a launch-time ``SystemExit`` after the
-allocation is held.
-
-Sibling files: tests/test_packets.py pins what individual keys resolve to, test_skill_triggers.py
-pins the ``when:`` line, test_skill_content.py pins page CONTENT. This file pins only the routing.
-"""
+"""The ``applies:`` frontmatter block routes pages to setups, and every registered packet key resolves over
+every setup shape."""
 
 import functools
 import itertools

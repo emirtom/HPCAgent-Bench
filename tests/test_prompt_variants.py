@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prompt variants: discovery from ``task_var<N>.j2``, and X variants -> X runs.
-
-Pins that variants are OPTIONAL (no flag = one plain ``task.j2`` run, no variant recorded),
-that dropping a ``task_var<N>.j2`` registers a variant with no config or code edit, and that
-a sweep runs each kernel once per variant with one prompt each.
-"""
+"""Prompt variants are optional, discovered from ``task_var<N>.j2`` without config edits, and a sweep runs each
+kernel once per variant."""
 
 import pytest
 

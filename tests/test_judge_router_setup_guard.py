@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A single-setup judge grades only its own setup: a body whose ``episode_id`` names another is refused.
-
-Every mlscale setup runs its own judge, and rows are attributed by ``episode_id``. A request that reaches
-the wrong setup's judge (a stale ``JUDGE_URL``, a copied curl line) must not be graded and recorded
-in that setup's DB under a foreign identity. The router refuses, before anything is graded, a POST
-whose ``episode_id`` does not start with ``"$SETUP."`` of the job it serves. A fused judge keeps
-its own per-worker check (``fused.check_episode_id``) and never reads the job's ``SETUP``; a judge
-with no ``SETUP`` (a local ``serve``) checks nothing.
-
-The accept cases drive every legitimate caller through its REAL client code: the agent tools, the
-harness's ``JudgeClient``, the teardown promotion, and -- by showing
-they never go through the router at all -- the grade job and the regrade replay.
-"""
+"""A single-setup judge router refuses a POST whose ``episode_id`` names another setup (not ``"$SETUP."``),
+before grading; every legitimate caller passes through its real client code."""
 
 import json
 import pathlib

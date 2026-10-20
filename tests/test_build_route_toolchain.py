@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``GET /build/<language>`` names the toolchain :meth:`Sandbox.build` really compiles with.
-
-Both resolve through :func:`languages.submission_toolchain`, so a requested family or an offload
-setup's own driver cannot show one compiler on the route and grade with another.
-"""
+"""``GET /build/<language>`` names the toolchain :meth:`Sandbox.build` compiles with (both via
+:func:`languages.submission_toolchain`)."""
 
 import json
 import pathlib

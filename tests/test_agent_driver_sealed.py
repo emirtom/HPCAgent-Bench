@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sealed workers: what one agent process can see of the run it is part of.
-
-Every worker of every harness is launched inside a user + mount + PID namespace built by
-``agent/hpcagent_agent/driver/seal_worker.py``. It keeps its own workdir at its own absolute path, a private HOME
-inside it, its shared write folder, its own kernel's material and the experiment-wide shared files;
-it loses the judge databases, the launch directory with the setup's .env and problems file, the other
-workers' directories, the other agents' write folders and the other kernels' tasks.
-
-The run directory is what the seal exists for: RUN_DIR is mounted into the agent container at its own
-path, so without it one `ls ../..` reaches every other worker's transcript, and `sqlite3
-judge/rank-0/*.db` the grades of the whole node.
-"""
+"""Sealed workers: what one agent process sees of its run (own workdir, private HOME, shared write folder, its
+kernel's material) and what it loses (judge DBs, launch dir, other workers and kernels)."""
 
 import os
 import pathlib

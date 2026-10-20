@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The container agent's MCP tools speak the judge's real API.
-
-``agent/tools`` ships in the agent image with no ``hpcagent_bench`` on its path, so it
-carries its OWN copy of the submission contract -- and a copy is exactly what drifts. These tools were
-first written against an imagined service (``{"code", "language", "kernel", "metadata"}``) that the
-judge refuses every field of, and nothing failed until a run burned its attempts on 400s.
-
-So this file pins the copy to the original: the body the tools build is diffed field-for-field against
-``Submission.to_json()`` (the reference ``JudgeClient`` sends nothing else), and the calls are driven
-at the REAL in-process judge for the refusals a wrong body earns -- the rank the judge validates on
-every route, and the ``source_file`` basename rule.
-"""
+"""The container agent's MCP tools build exactly ``Submission.to_json()``'s body and earn the real judge's
+refusals (rank, ``source_file`` basename) when wrong."""
 
 import json
 import os

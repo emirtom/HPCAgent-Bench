@@ -1,21 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""fp8 (E4M3 / E5M2) support -- the ML-mode precisions.
-
-fp8 is already wired end to end (:mod:`hpcagent_bench.precision` maps it to the ``ml_dtypes``
-float8 types, the uniform data generator draws it, the CLI accepts ``--datatype fp8_*``,
-and the framework Test path runs it) but nothing exercised it, so a regression could
-silently break it. This is the fp8 sibling of ``test_fp16.py``.
-
-fp8 is ML-MODE ONLY, deliberately: C / C++ / Fortran have no native fp8 type, so the static
-native backends are excluded exactly as they already are for fp16 (see
-``test_fp16.NON_FP16_FRAMEWORKS``). The ML / JIT frameworks carry it via ``ml_dtypes``; a GPU
-framework would use its own device fp8 type. Nothing here needs a GPU.
-
-E4M3 (more mantissa, less range) and E5M2 (more range, less mantissa) are both OCP formats and
-both must round-trip -- a kernel emitted at the wrong one is a silent accuracy bug, so the
-dtype identity is asserted, not just "some 8-bit thing".
-"""
+"""fp8 (E4M3 / E5M2), the ML-mode precisions: both round-trip with the exact dtype identity on the ML/JIT
+frameworks; native backends are excluded as for fp16."""
 
 import numpy as np
 import pytest

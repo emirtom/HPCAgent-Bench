@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The one definition of each statistic every figure in this repo reports.
-
-These are the properties a figure relies on without restating them: the signed axis is odd about
-no change, the geometric mean is taken in log space and refuses what is not a ratio, a set with no
-spread gets an interval that says so rather than one that pretends to bound something, and the
-paired estimate, its interval and its p value all describe the same quantity.
-"""
+"""The one definition of each reported statistic: the signed axis is odd, the geomean is log-space and refuses
+non-ratios, no-spread intervals say so, and the paired estimate, interval and p agree."""
 
 import math
 

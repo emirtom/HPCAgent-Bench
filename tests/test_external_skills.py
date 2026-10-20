@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""External skill packets (``skills.external``): a study's pages, read from a folder outside the repository.
-
-- a folder's ``skills.yaml`` names packets and the page files each stages; a page is known by its frontmatter name;
-- an external packet resolves like a shipped one, its pages in the order the folder lists them;
-- it carries pages only (no tools, env or method), every page lies inside its folder and carries the frontmatter
-  the task index needs, and no external name replaces a shipped one or another folder's.
-"""
+"""External skill packets (``skills.external``): ``skills.yaml`` names packets and pages, packets resolve like
+shipped ones, carry pages only (inside their folder, with frontmatter), and never replace another name."""
 
 import pathlib
 from collections.abc import Iterator

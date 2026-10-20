@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``extract_llr40.py --db`` writes the observations table the figures read.
-
-The reproducibility artifact commits this database instead of the CSV, so the database the extractor
-writes has to read back through :func:`hpcagent_bench.studies.read_observations` as exactly the
-rows the CSV holds.
-"""
+"""``extract_llr40.py --db`` writes a database that reads back through ``read_observations`` as exactly the CSV's
+rows."""
 
 import pathlib
 

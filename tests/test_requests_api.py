@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``requests`` hb reads against a kernel: the request relayout parses, the distribution plan it
-lowers to at a rank count, and the arrays it leaves unplaced.
-
-The operations themselves (their JSON, effects, lowering) are relayout's (``relayout.ops``,
-``relayout.requests``, tested there); here they are exercised through the envelope an agent sends.
-"""
+"""The ``requests`` hb reads against a kernel: relayout's parse, the distribution plan at a rank count, and the
+unplaced arrays, through the envelope an agent sends."""
 
 import pydantic
 import pytest

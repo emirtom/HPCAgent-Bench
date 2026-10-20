@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The configs x shapes performance protocol primitives in :mod:`hpcagent_bench.fuzz`:
-config enumeration and timed large shapes.
-
-See docs/measurement_statistics.md. These are pure resolvers (no
-emitter / FFI), so they run everywhere.
-"""
+"""The configs x shapes performance protocol primitives in :mod:`hpcagent_bench.fuzz` (config enumeration, timed
+large shapes). Pure."""
 
 import pytest
 

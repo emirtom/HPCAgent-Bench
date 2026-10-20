@@ -1,17 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Inputs are drawn for the format they are graded in, and stay finite in it.
-
-Three rules, each pinned here on the smallest case that shows it:
-
-* a storage-only float (bf16, fp8 e4m3, which numpy reports as kind ``V``) is a float: its declared
-  value domain is honoured and its tolerance floor is its own eps -- before, both were skipped, and
-  the 12 deep-network kernels drew ``[-1000, 1000)`` weights at bf16 and overflowed;
-* an array without a declared domain is scaled as one tensor until no product-sum over its fan-in
-  can leave the format (:func:`distributions.reduction_bound`);
-* a machine_learning array without a declared domain is fed as a network is: a unit activation,
-  fan-in weights (:func:`initialize.ml_default_domain`).
-"""
+"""Inputs are drawn for the format they are graded in and stay finite: storage-only floats honour their domain
+and eps, undeclared arrays are scaled by fan-in (:func:`distributions.reduction_bound`), ML arrays get network
+domains."""
 
 import math
 

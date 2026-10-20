@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``POST /submit`` grades under the final grade's own protocol (mw4x5) and is recorded as that grade.
-
-The credited grade of a submission is the final one (``grade-under run``: m inputs x n runs a side,
-each input credited by its Mann-Whitney test). The judge's /submit runs that same code path
-(:func:`grade_under.submit_grade`) under the same settings (:func:`grade_under.final_settings`), so a correct
-answer is its own final grade: one ``final`` row beside the ``submit`` row, written with it, no second
-timing. ``grade-under run`` stays for the submissions an older /submit protocol graded.
-
-The first half drives :func:`grade_under.submit_grade` and :func:`recording.record` with a fake scorer that
-logs what the judge's request would have seen. The second half is the real judge (``make_server``)
-grading a real C kernel on this host.
-"""
+"""``POST /submit`` grades under the final grade's protocol (mw4x5, :func:`grade_under.submit_grade`) and records
+a ``final`` row beside the ``submit`` row; checked with a fake scorer and with the real judge on a C kernel."""
 
 import contextlib
 import dataclasses

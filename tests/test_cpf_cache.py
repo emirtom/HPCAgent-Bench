@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The CPF cache serves exactly the form rendered for the exact question asked, or refuses by name.
-
-Every consumer of a canonical parallel form -- the judge's route, the drop-in staging, the launch
-gates -- reads through a view into the content-addressed cache. The failure modes these tests pin
-are the ones a flat directory had: a key that drifts so a hit is never found or a stale one is, a
-prefix match that hands one kernel another's source, a modified or half-written file served as ok,
-and a miss that nobody can trace back to what was missing.
-"""
+"""The CPF cache serves exactly the form rendered for the question asked, or refuses by name: stable keys, exact
+pointer names, verified files, and traceable misses."""
 
 import contextlib
 import io

@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A canonical parallel form carves its host transients from the caller's workspace (CPF's
-``Rendering.workspace_bytes``), so every submission of it must request that much scratch.
-
-- ``cpf_bridge`` spells CPF's size expression over the binding's scalar names, which is what the judge binds;
-- the cache keeps it beside the form, and ``cpf_verify`` grades the form with it;
-- the ``canonical_parallel_form`` answer states it, and ``make_problems`` writes it as the line's
-  ``default_workspace_bytes``, which the driver exports and the agent tools request when a submission names none.
-"""
+"""A canonical parallel form's ``workspace_bytes`` flows through: spelled over the binding's scalars, cached with
+the form, graded by ``cpf_verify``, stated by the tool, and requested by default via ``make_problems``."""
 
 import pathlib
 import types

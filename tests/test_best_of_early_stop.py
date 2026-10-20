@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""best-of-v3: numba is raced first and a compiled candidate already slower than it is cut early.
-
-No configured denominator races numba first today (``measurement.denominator``; best-of(numba,c)
-races c first); these tests drive the race through a track set that does
-(:func:`numba_first`).
-
-xsbench spent 707 s of an 811 s /score timing a sequential C at 7-8 s a call while numba took
-0.08 s. The cut must leave the winner of every race whose loser really is slower unchanged, and a
-cut candidate is "not fastest", never a lost reference: it must never turn into a score_error.
-"""
+"""best-of-v3: numba is raced first and a compiled candidate already slower is cut early, without changing any
+race's winner and never turning a cut into a score_error."""
 
 import pathlib
 from collections.abc import Callable

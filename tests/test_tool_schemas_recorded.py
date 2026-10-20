@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A tool moved onto a pydantic input model shows the agent the bytes its hand-written schema did.
-
-``tools/list`` is part of every recorded setup's context, so the ``canonical_parallel_form`` and ``search``
-schemas are pinned against the dicts the hand-written versions declared (123060f79), key order included: an
-optional field is its plain type, with no ``null`` branch and no ``default``. The models still validate, and
-the CPF dialect still takes the spellings the hand-written tool read (``C++``, ``cpp``).
-"""
+"""Tools on pydantic input models show the agent the same ``tools/list`` bytes as their hand-written schemas
+(key order included), still validate, and accept the old CPF dialect spellings."""
 
 import json
 from typing import Any

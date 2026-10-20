@@ -1,22 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every level-3 kernel's generated DaCe port lowers to an SDFG -- or is on the list.
-
-Lowering is ``to_sdfg()`` with simplification, and it is the port's structural check. The ports
-are generated and gitignored, so the kernels are chosen from the MANIFESTS and each test emits its
-own port with :func:`tests.test_dace_frontend_validity.ensure_dace_program`: collection generates
-nothing. Parametrizing over ports already on disk would collect an empty list on a CI checkout and
-skip the whole file; and a lowering error or timeout is a failure, not a ``pytest.skip``.
-
-A frontend refusal is :data:`REFUSED`'s business, and those kernels are not selected here. A port
-that parses and still does not lower FAILS, unless :data:`LOWERING_REFUSED` records how it fails:
-that entry is a strict xfail, so it fails again the day the port lowers. A port in :data:`DESELECTED`
-is not lowered at all until its recorded blocker is fixed.
-
-Each lowering runs in a spawned child under :data:`LOWER_TIMEOUT_S`: a wedged frontend holds the
-GIL, so an in-process timeout could not interrupt it. CI deals the kernels over the
-``dace-frontend`` matrix with :func:`tests.test_dace_frontend_validity.shard_of`.
-"""
+"""Every level-3 kernel's generated DaCe port lowers with ``to_sdfg()``, or is a strict xfail in
+:data:`LOWERING_REFUSED`; each lowering runs in a spawned child under :data:`LOWER_TIMEOUT_S`."""
 
 import functools
 import multiprocessing as mp

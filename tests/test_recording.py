@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge credits a submission ONLY when it is independently verified.
-
-Two layers:
-* **gate** (always on, no toolchain) -- :func:`recording.record` credits a /submit grade
-  (``credited_speedup``) iff the judge's verdict is correct AND the independent re-verify passed;
-  everything else keeps no credit and names its failed gate. The agent's own claims are never
-  consulted.
-* **end-to-end** (gated on emitter+gcc) -- score a real reference submission, run the independent
-  re-verify, and confirm it lands on the leaderboard.
-"""
+"""The judge credits a submission ONLY when its verdict is correct AND the independent re-verify passed (gate
+always on; end to end gated on emitter + gcc)."""
 
 import json
 import pathlib

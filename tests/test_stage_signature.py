@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""stage_signature.py writes the C-ABI every setup's agent reads, triton setups included.
-
-materialize_shared.sh refuses a launch that staged kernels and not one signature.json, and it passes
-the setup's language. A python-delivered language has no stub of its own, so a triton setup must get the
-C-ABI entry it implements rather than stop the whole setup in prepare.
-"""
+"""stage_signature.py writes the C-ABI ``signature.json`` every setup's agent reads, triton setups included."""
 
 import pathlib
 import sys

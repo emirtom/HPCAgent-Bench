@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Python-delivered submissions: numba and triton go through the harness, not just the envelope.
-
-A `python` delivery is source-carrying but compiles nothing the harness owns, so its whole path --
-import, JIT, call, time, grade -- is exercised only by actually scoring one. numba runs on CPU CI;
-triton needs a device, so the tests here assert its CONTRACT (a scored verdict, never an exception)
-which holds with or without one.
-"""
+"""Python-delivered submissions go through the harness: numba is scored on CPU; triton's contract (a scored
+verdict, never an exception) holds with or without a device."""
 
 import pytest
 

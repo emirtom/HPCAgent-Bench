@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""WHO produced a grade is one row of ``setups`` (the condition) and one of ``episodes`` (the episode),
-reached from the grade by ``episode_id``.
-
-``study``, ``model``, ``language``, ``device``, ``packet`` and ``harness`` are what a query and a
-figure group by. They live on ``setups`` rather than on every grade because they are one fact per
-condition: written onto every grade they were the same fact many times over and free to disagree.
-``packet`` is canonical: sorted and ``+``-joined, so ``a+b`` and
-``b+a`` are one condition.
-"""
+"""WHO produced a grade is one ``setups`` row and one ``episodes`` row, reached by ``episode_id``; ``packet`` is
+canonical (sorted, ``+``-joined)."""
 
 import contextlib
 import pathlib

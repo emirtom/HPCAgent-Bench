@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The timed inputs: input ``i`` pairs round-robin with config ``i % #configs`` and draws every free
-size dimension in ``fuzz.SIZE_CLASSES[i % 4]`` (``metric._timed_cells``).
-
-The prompt promises "each [timed shape] paired with one configuration": with 2 configs and 4 timed
-inputs both branches are timed twice, all four size classes are timed once, and the whole set is a
-function of the seed alone."""
+"""Timed input ``i`` pairs with config ``i % #configs`` and size class ``fuzz.SIZE_CLASSES[i % 4]``
+(``metric._timed_cells``), as a function of the seed alone."""
 
 from pathlib import Path
 

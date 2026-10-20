@@ -1,32 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``ppcg_hip`` GPU comparator column has to follow the same residency contract as every other
-GPU column (docs/abi_contract.md Sec. 10): every array argument arrives on the device BEFORE the
-timed call, the timed region is kernel launches + a device wait, and nothing inside it copies.
-
-ppcg's own generated host code does not do that: ``--target=cuda`` output always allocates a
-``dev_X`` mirror per array, ``hipMemcpy``s the caller's ``X`` INTO it (H2D), launches against the
-mirror, ``hipMemcpy``s the result back OUT (D2H), then frees it -- all inside the perf_counter
-bracket ``Framework.measure`` puts around the call, so the reported time would include two
-PCIe/Infinity-Fabric transfers and a malloc/free pair that every sibling column pays for OUTSIDE
-its sample.
-
-Residency has two independently-testable halves:
-
-1. :func:`hpcagent_bench.ppcg_transform.device_resident_host` -- a textual rewrite of ppcg's
-   hipified host code that aliases each PARAMETER's mirror to the parameter itself and drops its
-   malloc/copy/free. ppcg is not installed on this host (see ``tests/conftest.py``'s ``ppcg``
-   hardware group), so this is proven against strings in ppcg's own output shape -- the first two
-   hand-written, ``PPCG_VLA_TRANSIENT_HOST`` trimmed from a real ppcg 0.09.3 + ``hipify-perl`` run.
-2. The .so that rewritten code compiles to needs a DEVICE pointer, not a host array --
-   :func:`hpcagent_bench.frameworks.native_runtime._is_device_array` / ``_to_ctypes`` recognize a
-   cupy argument and hand the .so its raw ``.data.ptr`` instead of ``.ctypes.data_as``. Proven with
-   a duck-typed stand-in for ``cupy.ndarray`` first (no cupy needed), then end to end against a
-   REAL hand-written HIP kernel ``.so`` and real cupy where both are installed -- this repo's own
-   login node has hipcc and an MI250X but ships no cupy in the pinned venv, so that half is gated
-   behind ``pytest.importorskip("cupy")`` the same way ``tests/test_compare_arrays.py`` gates its
-   own real-cupy pin.
-"""
+"""``ppcg_hip`` follows the GPU residency contract (docs/abi_contract.md Sec. 10): the host-code rewrite drops
+ppcg's per-array device mirrors (checked on ppcg-shaped strings), and the .so receives cupy device pointers
+(duck-typed, then end to end where cupy and hipcc exist)."""
 
 import ctypes
 import pathlib

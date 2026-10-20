@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every ``/profile`` report is typed by its tool's model (:mod:`hpcagent_bench.harness.profile_wire`), and
-the judge still sends it byte for byte as its producer built it.
-
-Each report here is built by the producer's own code where that code is pure (``profile_payload``,
-``gpu_payload``, ``compute_payload``, the row parsers, ``papi.derive``), and by the producer's own literal key
-order where it is not. The checks: the report validates as its tool's model, the bytes sent are the bytes
-``json.dumps`` gave before the reports were typed (tuples as lists, ``NaN`` kept), and the client reads them
-back into the same model.
-"""
+"""Every ``/profile`` report validates as its tool's model (:mod:`hpcagent_bench.harness.profile_wire`), is sent
+byte for byte as its producer built it, and reads back into the same model."""
 
 import json
 import math

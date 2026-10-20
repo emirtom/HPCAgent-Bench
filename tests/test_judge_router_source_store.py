@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The judge keeps the source behind a PASSING /score grade, however it was delivered.
-
-The tools advertise two spellings of the same delivery -- inline ``source`` and ``source_file``, a
-path in the shared mount. An agent that delivers by path and is then killed holding a verified
-answer must leave something for promote_unsubmitted.py to promote, so the judge records the grade
-itself, from the delivery it resolved and graded, and both spellings store the same text.
-
-Both halves of a two-unit GPU delivery are kept, each as its own unit of the grade.
-"""
+"""The judge keeps the source behind a PASSING /score grade whether delivered inline or by ``source_file``, both
+units of a GPU delivery included."""
 
 import json
 import pathlib

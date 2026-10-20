@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``requests.precisions()``: the judge converts the requested arrays around every call, outside the score.
-
-The harness's casts are bit-exact against the ml_dtypes/numpy conversions; the judge refuses a request
-that changes nothing or that this delivery cannot take; a grade records the conversion time beside the
-kernel time it never enters; and the MPI driver and its wire carry the same casts per rank.
-"""
+"""``requests.precisions()``: bit-exact casts around every call outside the score, refusals of no-op or
+unsupported requests, recorded conversion time, and the same casts per MPI rank."""
 
 import shutil
 

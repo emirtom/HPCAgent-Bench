@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""promote_unsubmitted.py: recovering a verified kernel an agent was killed before submitting.
-
-Every judge request must name the rank it is addressed to, and an absent rank is refused with a
-400 before anything is graded (``service.rank_error``). This script never sent one, so every
-promotion it ever attempted was refused: one setup reported "refused 400" on all three of its lines
-and another on its one, while 18 verified-correct-and-faster kernels across the two setups -- one of
-them 76.6x -- reached no submissions table at all. Nothing downstream noticed, because a refused
-promotion prints a word and exits 0.
-
-The device half matters for the same reason: a hip submission is two translation units, so a GPU
-promotion carrying only the host unit would be refused for what looks like the agent's mistake.
-"""
+"""promote_unsubmitted.py recovers a verified kernel an agent was killed before submitting: every request names
+its rank, and a GPU promotion carries both translation units."""
 
 import io
 import json

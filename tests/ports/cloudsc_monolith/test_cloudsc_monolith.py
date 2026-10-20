@@ -1,17 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Port-fidelity gate: the cloudsc_monolith numba reference and the NumPy task program vs the vendored Fortran.
-
-The numba leg is the one the harness runs: the hand-written column-wise parallel ``cloudsc_monolith_numba.py``,
-which follows the NumPy reference's operation order. The reference is ``cloudsc_monolith_reference.f90``
-(dace-fortran's ``cloudsc.F90`` verbatim) built with gfortran strictly -- -O2, no contraction, no fast math, no
-vectorization, the build the kernel's own cross-check uses -- and called at ``cloudscouter_``.
-
-NumPy evaluates ``exp`` and ``**`` with its own vectorized kernels, not libm one element at a time, so the task
-program itself sits a few ULPs from the Fortran (11 on ``tendency_loc_t`` at 90x64x16). The numba reference is held
-to the task program: on every output it may be no further from the Fortran than NumPy is, plus :data:`ULP_BUDGET`
-for an LLVM that reorders a sum, and exactly equal on :data:`EXACT`, the outputs that are copies, scalings or sums
-of inputs and ``ZLNEG`` with no transcendental upstream.
+"""Port-fidelity gate: the cloudsc_monolith numba reference and NumPy task program against the vendored Fortran
+(strict gfortran build); numba may be no further from Fortran than NumPy plus :data:`ULP_BUDGET`, exact on
+:data:`EXACT`.
 
     python -m tests.ports.cloudsc_monolith.test_cloudsc_monolith
 """

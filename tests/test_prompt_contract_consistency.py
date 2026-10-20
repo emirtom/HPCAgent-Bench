@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the agent prompt PROMISES must be what the judge does -- checked, not remembered.
-
-Four contracts meet here. The submission-naming table must be :data:`SOURCE_EXT` (the judge
-refuses a ``source_file`` whose basename is not ``<kernel>.<ext>``, so a language added on one
-side turns every submission in it into a 400 the agent cannot read its way out of); the tool
-bullets must name tools the MCP server serves and file tools ``--tools`` publishes; and the build
-command must be :func:`~hpcagent_bench.languages.build_shared_lib_commands`, spelled once and
-viewed three ways -- ``GET /build/<language>``, ``agent/build-<language>.md``, and the
-``{{BUILD_COMMAND}}`` slot the driver fills from that fragment. Every one of these drifted while
-it was prose.
-"""
+"""What the agent prompt promises is what the judge does: the naming table is :data:`SOURCE_EXT`, tool bullets
+name served tools, and the build command is ``build_shared_lib_commands`` everywhere it is shown."""
 
 import importlib.util
 import json

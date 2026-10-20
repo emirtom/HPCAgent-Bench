@@ -1,18 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Faithfulness of newly ported NumPy references to their upstream algorithm.
-
-Each ported kernel's vectorized NumPy reference is checked against an
-*independent, standalone* transcription of the original source algorithm
-(miniMD ``ForceLJ``, NPB FT, OpenDwarfs ``nw``) on the benchmark's own
-``initialize()`` data -- so a faithfulness regression in the port is caught
-end to end, without depending on the optimized form under test.
-
-The ported kernels follow the in-place ABI: ``initialize`` allocates the input
-arrays AND the output buffer(s), and the kernel writes its result into the
-trailing buffer(s) rather than returning them. Each test therefore computes the
-independent reference from the pristine inputs first, then runs the in-place
-kernel, then compares the written output buffer to the reference.
+"""Ported NumPy references (miniMD ForceLJ, NPB FT, OpenDwarfs nw) against independent transcriptions of the
+upstream algorithm, on the benchmark's own in-place ``initialize()`` data.
 
     pytest tests/test_ported_references.py
 """

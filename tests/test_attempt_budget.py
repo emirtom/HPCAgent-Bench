@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The attempt budget: a round cap, a wall-clock cap, a token cap, or any combination.
-
-Pins which bound ends the loop, that an explicit override beats config, that the per-attempt
-wall-clock lands on the trajectory, and that the token allowance rises with the kernel's level.
-Pure: no agent, no compile, no LLM.
-"""
+"""The attempt budget (rounds, wall clock, tokens, or any combination): which bound ends the loop, overrides beat
+config, per-attempt wall clock on the trajectory, token allowance rising with level. Pure."""
 
 from hpcagent_bench import config
 from hpcagent_bench.categories import Language, SourceMode

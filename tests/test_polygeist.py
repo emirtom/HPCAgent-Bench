@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Polygeist columns compile what cgeist + polygeist-opt made of the emitted scop, or they decline.
-
-The shim and entry-point tests pin the ABI glue without a toolchain: a descriptor stride that is wrong reads the
-wrong element and computes a plausible number, and a scalar passed through an unprototyped call is promoted
-(fp32 -> double) without a diagnostic. The end-to-end tests run the real pipeline through the harness and check
-every implementation against the compiled reference, each in a process of its own (the library maps LLVM's OpenMP runtime, and the
-GPU column needs HSA_XNACK set before HIP starts); they skip where the Polygeist tools are not on PATH (the judge
-image has them).
-"""
+"""The Polygeist columns compile cgeist + polygeist-opt's output or decline: the ABI shim without a toolchain,
+and end to end against the compiled reference where the tools are on PATH."""
 
 import pathlib
 

@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build one committed TSVC ``_reference.c`` and run it against the kernel's numpy reference.
-
-Helper for :mod:`tests.test_tsvc_cpp_references`, which drives it as ``python -m`` in a CHILD
-process: a reference that indexes out of bounds takes its process down (two of the C++ originals
-do), and a corpus gate must report that as
-one named kernel rather than as the whole pytest session disappearing. The child appends one JSON
-line per kernel as it finishes, so the kernel it died on is the last name in the report.
-
-The build goes through :func:`hpcagent_bench.languages.build_shared_lib_commands`, so the flags
-are the harness's own (``compilers.yaml`` + :mod:`hpcagent_bench.flags`) rather than a second
-opinion about how a reference is compiled.
-"""
+"""Build one committed TSVC ``_reference.c`` with the harness's own flags and run it against the kernel's numpy
+reference, appending one JSON line per kernel (run as a child of :mod:`tests.test_tsvc_cpp_references`)."""
 
 import argparse
 import ctypes

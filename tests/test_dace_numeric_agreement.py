@@ -1,31 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The DaCe column computes what the numpy reference computes -- or is on the list.
-
-:mod:`tests.test_dace_frontend_validity` proves the frontend READS the generated corpus. That is
-not correctness: a program can parse, lower, compile and still return a different answer, and every
-one of those states grades submissions against a DaCe baseline nobody checked. Measured over the
-331 gated kernels on the day this landed, 19 of them parse clean and are still not usable --
-``channel_flow`` and ``cp2k_grid_integrate`` returned wrong numbers (both fixed, in the
-generator), ``fft_1d`` emitted C++ that did not compile (fixed, in the generator),
-``nbody`` could not be called at all (fixed, in the generator and the probe). The parse
-gate is green for every one of them.
-
-So the two gates ask different questions and neither subsumes the other. This one lowers with
-``to_sdfg(simplify=True)`` -- the graph a run actually executes, library nodes expanded -- and
-compares against the numpy reference with the SAME comparison the c/cpp/fortran legs use
-(:func:`hpcagent_bench.numerical_oracle.outputs_match`: exact for integer outputs, ``allclose`` for float),
-on the SAME S-preset inputs (:func:`hpcagent_bench.numerical_oracle.run_kernel` builds them).
-
-Every gated kernel must agree. There is no waiver list: shrink a disagreement by fixing the
-GENERATOR (a desugar in ``dace_emit``) or DaCe -- never by hand-editing a ``*_dace.py``, which is
-regenerated from the numpy reference on the next miss.
-
-WHICH kernels are gated is a registry question (:func:`gated_kernels`) and each one's ``*_dace.py``
-is emitted inside its own test. Collection therefore generates nothing at all, which is the point:
-a ``parametrize`` argument runs at import, so selecting on "has a generated program" would emit the
-whole corpus before pytest applies a single ``-m`` filter.
-"""
+"""Every gated kernel's DaCe column (``to_sdfg(simplify=True)``) agrees with the numpy reference through the
+c/cpp/fortran legs' comparison, on the same S-preset inputs. No waiver list: fix the generator or DaCe.
+Collection generates nothing; each test emits its own ``*_dace.py``."""
 
 import functools
 import os

@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The closing skill reminder, checked against the packet ``make_problems.py`` really emits.
-
-This exists because the reminder BROKE SILENTLY. It matched a "Skill pages for this task: a, b."
-line; the packet stopped emitting that line when the pages moved from inlined text to files on
-disk, and the reminder then returned "" for every skills setup -- the setup still ran, still recorded,
-and simply lost the treatment's closing half with nothing to say so.
-
-So these tests do not pin the wording. They pin the JOIN: the packet's page paths and the
-reminder's page paths have to be the same strings, and the reminder has to be non-empty exactly
-when the packet is.
-"""
+"""The closing skill reminder names the same page paths the packet ``make_problems.py`` emits, and is non-empty
+exactly when the packet is."""
 
 import json
 import subprocess

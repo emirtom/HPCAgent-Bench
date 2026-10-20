@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The per-track correctness oracle, and the reference-output cache the judge reuses across rounds.
-
-There is no NumPy oracle: ``loop_level_reasoning`` and ``scientific_computing`` grade against their
-compiled best-of(numba, c) references and ``machine_learning`` against the compiled PyTorch one
-(tests/test_grading_never_numpy.py pins that no oracle kind names numpy). These tests pin the
-resolution per track and drive real loop-track grades through the compiled references.
-"""
+"""The per-track correctness oracle (compiled references only) and the reference-output cache the judge reuses
+across rounds."""
 
 import pathlib
 import shutil

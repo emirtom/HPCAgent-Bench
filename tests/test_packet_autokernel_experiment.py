@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""AutoKernel's experiment ledger tool, loaded the way the packet-aware MCP server loads it: by file
-path with ``importlib.util``, not as a package import. It is STDLIB ONLY (no ``http_json``, no
-``hpcagent_bench``), so every fixture here builds a real ledger under a tmp directory rather than
-mocking the module -- the behaviour under test IS the filesystem state machine.
-"""
+"""AutoKernel's stdlib-only experiment ledger tool, loaded by file path as the MCP server does, against real
+ledgers in a tmp directory."""
 
 import pathlib
 import types

@@ -1,9 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The validation band must track the ACTUAL data precision, not the caller's ``--datatype`` default of
-``None``: many legacy ``initialize`` functions default to float32, and resolving tolerances off ``None``
-maps to the tight fp64 band, spuriously failing native backends (misread as a compiler bug). The
-tolerance follows the detected dtype (:func:`hpcagent_bench.frameworks.test.tolerance_datatype`)."""
+"""The validation band follows the detected data precision
+(:func:`hpcagent_bench.frameworks.test.tolerance_datatype`), not the ``--datatype`` default of ``None``."""
 
 import shutil
 

@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The grading child holds itself to one OpenMP runtime.
-
-A python delivery through the real :func:`native_call._call_isolated`, in a child that finds two
-runtimes mapped: where the host has contexts the parent reports a judge fault, elsewhere the grade stands
-and the child names the runtimes on stderr. NVHPC's libnvomp as the ONLY extra runtime is let through with a loud note, in
-the child's stderr and in the grade's detail. Every family has a context that matches its runtime
-(hpcagent_bench/omp_context.py), so two runtimes are an image fault and never a submission's. The counter
-itself is tests/test_one_openmp_runtime.py, the contexts tests/test_omp_context.py.
-"""
+"""The grading child holds itself to one OpenMP runtime: two mapped runtimes are a judge fault where contexts
+exist (else named on stderr); NVHPC's libnvomp alone passes with a loud note."""
 
 import pathlib
 import textwrap

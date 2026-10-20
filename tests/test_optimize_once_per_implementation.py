@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``Test.run`` optimizes each implementation ONCE: the first/validation execution optimizes it, and
-the timed median execution measures the handle that call returned. Optimizing again in the median
-execution re-ran a DaCe column's whole search (parse, pipeline, compile, reference, verify, score)
-a second time per kernel. The output-only execution (first/validation) runs the kernel once: their timings are never read. Grading that ONE call alone is weaker than grading the third
-call of the handle, as the timed measure did before, so the median run's final capture is graded
-against the same oracle too."""
+"""``Test.run`` optimizes each implementation ONCE and times that handle; the output-only execution runs once, and
+the median run's final capture is graded too."""
 
 import pathlib
 

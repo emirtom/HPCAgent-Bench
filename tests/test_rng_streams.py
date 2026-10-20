@@ -1,12 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The per-array RNG stream policy.
-
-The property that matters is INDEPENDENCE: array *k*'s values are a function of the seed and *k*,
-and of nothing else. A single shared stream does not have it -- there, array *k* depends on how
-many draws arrays *0..k-1* made, so materialising a subset, reordering the declaration, or filling
-on threads all change the data.
-"""
+"""The per-array RNG stream policy: array *k*'s values depend on the seed and *k* alone."""
 
 import numpy as np
 import pytest

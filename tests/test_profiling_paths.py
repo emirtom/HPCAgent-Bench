@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The host profiler's failure paths and route contract (:mod:`hpcagent_bench.harness.profiling`).
-
-Runs on a host with no ``perf`` and no PAPI: ``perf`` is a fake executable name whose record and
-script calls are answered at the subprocess boundary, so what runs is the production code between
-the tool's exit and the ``/profile`` payload.
-"""
+"""The host profiler's failure paths and route contract, with ``perf`` faked at the subprocess boundary."""
 
 import contextlib
 import inspect

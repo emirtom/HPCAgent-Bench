@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The `search` tool's own docs must tell the model when to use it and how to read a refusal.
-
-Two things drift together and this file pins each one:
-
-* ``agent/hpcagent_agent/tools/search.py``'s ``DESCRIPTION`` -- what the model reads at tool-selection
-  time -- must carry a trigger and a way to act on a refusal, not one flat sentence. It also
-  reaches the real internet, so a run that must not have one needs it off by default.
-* ``hpcagent_bench/tools/search.md`` must not tell a DIFFERENT set of agents (the HTTP-loop
-  harnesses, via ``service_task.j2``) to use "your own web-search capability", which does not exist
-  on that surface any more than Claude Code's own browsing does on the MCP one.
-"""
+"""The `search` tool's ``DESCRIPTION`` carries a trigger and a refusal reading (and is off by default), and
+``tools/search.md`` does not point HTTP-loop harnesses at a web search they lack."""
 
 from types import ModuleType
 

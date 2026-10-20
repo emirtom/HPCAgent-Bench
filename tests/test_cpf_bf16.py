@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The canonical parallel form of a bf16-graded kernel is rendered in native bfloat16.
-
-The judge grades the machine_learning kernels in bf16 and passes their arrays as 16-bit storage
-(``typedef uint16_t __npb_bf16;``). DaCe's CPF renders ``dace::bfloat16`` as the dialect's own bfloat16
-(``__hip_bfloat16`` / ``__nv_bfloat16`` / ``__bf16``), so the form is parsed at the graded datatype, keeps the
-stub's spelling of each parameter, and names ``__npb_bf16`` as that native type -- two bytes in the same bit
-layout, so the storage pointers the judge passes are what the unit reads.
-"""
+"""A bf16-graded kernel's canonical parallel form is rendered in the dialect's native bfloat16, typedef'd as the
+stub's ``__npb_bf16`` storage type."""
 
 import pathlib
 import shutil

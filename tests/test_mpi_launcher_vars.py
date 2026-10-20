@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The framework sweep must not let DaCe bootstrap MPI in a forked child.
-
-DaCe calls ``ensure_mpi_initialized()`` when it is imported and a launcher variable is set. Slurm's
-pmix plugin sets one (``PMIX_RANK``) for every step, MPI or not, so a per-kernel child of the sweep
-imported DaCe, called ``MPI_Init``, and hung -- the whole GPU track produced zero rows for a day.
-The variables are stripped before the first framework import; these tests pin that, and pin the two
-things about it that are easy to break by tidying.
-"""
+"""The framework sweep strips the MPI launcher variables (Slurm sets ``PMIX_RANK`` on every step) before the first
+framework import, so DaCe never bootstraps MPI in a forked child."""
 
 import os
 

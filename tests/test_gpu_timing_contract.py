@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The GPU measurement contract: device residency, what a sample contains, and who enforces it.
-
-Every test here pins a property whose failure produces a NUMBER THAT VERIFIES -- the right answer,
-rc 0, a recorded speedup, and the wrong quantity measured. That is the class of failure the
-harness refuses rather than records, so each one fails on the wrong shape: an offload setup graded
-host-resident with its ``map`` clauses inside the timed section, a wait resolved only through whatever
-the submission links, or every GPU on the node reachable from a child whose event pair covers one.
-"""
+"""The GPU measurement contract (device residency, sample contents, enforcement), pinned where pure functions can:
+each failure here would record a verified number of the wrong quantity."""
 
 import ast
 import json

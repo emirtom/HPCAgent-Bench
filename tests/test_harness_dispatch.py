@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""HARNESS dispatch in the cluster agent driver: one launch path, every harness.
-
-``agent_driver.py`` keeps every budget and watcher for itself -- the wall clock, the token cap, the
-submission marker, crash relaunch -- and asks a harness only for its command, its environment and
-the files it leaves behind (``agent/hpcagent_agent/driver/harnesses.py``). Every experiment recorded so far is a claude
-setup with HARNESS unset, so the claude command is pinned here literally: a change to it changes every
-experiment, and has to show up as a red test rather than as a quiet difference between waves.
-"""
+"""HARNESS dispatch in the cluster agent driver: the driver keeps budgets and watchers, a harness supplies only
+command, environment and output files; the claude command is pinned literally."""
 
 import json
 import os

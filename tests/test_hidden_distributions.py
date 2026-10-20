@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The hidden correctness rotation and the per-array domain requests.
-
-The rotation exists so a kernel cannot be correct only on the distribution it was tuned against.
-These tests pin the two properties that makes true: the rotation really does span sign and
-magnitude, and a declared domain is honoured by EVERY base the rotation can pick -- otherwise a
-kernel that needs positive inputs would fail on a variant for reasons that are not its fault.
-"""
+"""The hidden correctness rotation spans sign and magnitude, and every base it can pick honours a declared
+domain."""
 
 from typing import Any
 

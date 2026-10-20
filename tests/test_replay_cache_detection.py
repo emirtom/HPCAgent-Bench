@@ -1,27 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A submission that caches its first answer and replays it must be CAUGHT by the held-out cases.
-
-The exploit is not hypothetical. A submission
-holding its result in its own file-scope storage scores at the speedup ceiling with no honest work
-in any credited sample:
-
-* the image is loaded ONCE per child and every rep runs through it, so the kernel's own ``static`` /
-  module-level storage survives from rep to rep;
-* the first rep is the warmup, and warmup reps are DISCARDED, so the one honest call is thrown away;
-* every kept sample is a memcpy, and min-of-k takes the minimum of those replays;
-* the graded output is the last rep's, which is bitwise correct because every rep is handed the same
-  input VALUES.
-
-No across-run defence touches this. A secret seed and unseen held-out inputs defeat MEMORIZATION --
-knowledge carried in from before the run -- but a cache filled during rep 1 and read in rep 2 needs
-no prior knowledge at all. What kills it is running the held-out cases through the SAME loaded
-image, AFTER the timed reps, when the cache is hot: the kernel replays the public answer onto inputs
-it never saw, and grading fails it.
-
-These tests are written to fail if that ordering breaks -- :func:`test_a_fresh_child_per_case_is
-_blind_to_the_replay` pins exactly why forking once per held-out case cannot work.
-"""
+"""A submission that caches its first answer and replays it is caught: the held-out cases run through the SAME
+loaded image after the timed reps, while the cache is hot."""
 
 import copy
 import functools

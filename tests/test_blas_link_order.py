@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The BLAS library group must sit AFTER the source/objects on every native build line.
-
-``ld`` resolves left to right and Debian/Ubuntu default to ``--as-needed``, so a ``-l`` that
-precedes the translation unit needing it is dropped: the link succeeds, and the .so then fails
-``dlopen`` with ``undefined symbol: cblas_dgemm``. That is not a hypothetical -- it is what took
-every GEMM-lowering kernel's c and cpp legs to ``FAIL:OSError`` and the framework baselines to
-``runtime_error``, on a link line that reported success.
-
-Both native build paths are covered: the oracle's one-source ``.so`` and the shared-cpp_backend
-compile+link chain.
-"""
+"""The BLAS library group sits AFTER the sources/objects on every native build line (``--as-needed`` drops an
+earlier ``-l`` silently), for the oracle's one-source build and the shared cpp_backend chain."""
 
 import ctypes
 import pathlib

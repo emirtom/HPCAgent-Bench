@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Members are static: production code reads and writes an attribute by its declared name (``obj.field``,
-``isinstance(obj, Class)``), never by a name held in a variable through ``getattr`` / ``hasattr`` / ``setattr`` /
-``delattr`` / ``vars``.
-
-Where a name is data the exception is one audited function, listed in :data:`AUDITED`:
-:mod:`hpcagent_bench.modules` reads a module member a manifest or a config names, ``ast_build.set_field`` writes
-an AST field ``ast.iter_fields`` found, and
-:mod:`hpcagent_bench.cluster.systems` turns an argparse namespace into its option dict.
-"""
+"""Members are static: production code never reaches an attribute through a name held in a variable
+(``getattr``/``hasattr``/``setattr``/``delattr``/``vars``), except the audited functions in :data:`AUDITED`."""
 
 import ast
 import pathlib

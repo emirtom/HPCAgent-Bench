@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A size the fuzzed preset does not sample still has to reach the kernel call.
-
-A fixed preset lists every size symbol the signature takes. The fuzzed preset samples the
-independent knobs only, and leaves the rest to ``initialize()``, which computes them and returns
-arrays. Nothing then wrote those sizes back into the benchmark data, so binding the call raised
-``KeyError: 'numNode'`` on lulesh and ``KeyError: 'maxbox'`` on vexx_k, and every fuzzed cell of
-both kernels died before the kernel ran, on every framework column including DaCe canonicalize.
-
-:func:`hpcagent_bench.initialize.bind_shape_params` reads such a size off the array whose declared
-shape is that one symbol. A shape that multiplies several symbols pins none of them, so vexx_k's
-``nrxxs`` and ``npol`` are derived in the manifest instead; this test holds both routes.
-"""
+"""A size the fuzzed preset does not sample still reaches the kernel call: bound from the array shaped by that one
+symbol (:func:`hpcagent_bench.initialize.bind_shape_params`), or derived in the manifest."""
 
 import numpy as np
 import pytest

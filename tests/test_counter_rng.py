@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The counter-based generator of ``hpcagent_bench/support/counter_rng.py``.
-
-A value is a function of ``(seed, stream, index)`` and nothing else, in integer arithmetic every array library
-wraps the same way. These tests pin the bits (against a textbook splitmix64 and against literal words), hold numpy
-and, where a GPU is present, cupy to the same bits, check the uniform and normal draws by their moments and a
-chi-square, check that blocks equal the whole and that seeds and streams are independent, and time the draw against
-numpy's default generator.
-"""
+"""The counter-based generator (``support/counter_rng.py``): exact bits, numpy == cupy, draw moments, blocks equal
+the whole, independent seeds and streams, and speed against numpy's default generator."""
 
 import importlib
 import math

@@ -1,13 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The file and wire formats the repo writes and reads are pydantic models: each shipped file parses, a
-record survives a round trip, and a malformed one is refused where it is read instead of being half-read.
-
-One test per format that has no test module of its own to carry it (the cpf cache manifests, the cost
-cards, the registry and studies files, the grading tables, the systems file, the library and toolset
-catalogs, the binding document, the cpf render child's lines, the agent-folder log, the results database's JSON
-columns, a profiled child's result line, and the formats read but not owned: PEP 610 records, canon log lines and
-chat completions)."""
+"""The file and wire formats are pydantic models: each shipped file parses, a record round-trips, and a malformed
+one is refused where it is read (one test per format without its own module)."""
 
 import json
 import os

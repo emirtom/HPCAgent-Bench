@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The CPF cache is not mandatory: the judge renders a kernel the setup's view lacks on its first request.
-
-A view that was never prerendered (the directory does not exist) or misses kernels does not stop the
-setup: the judge renders the kernel with the prerender's own code path
-(cpf_prerender.render_kernel), caches it, and every later request reads the cache. The properties
-that matter: a miss is served after one render; two concurrent requests render once; a recorded
-failure is answered, never rendered again; the setup gate lets a miss through but still refuses a
-view no render can land in. The renderer is faked at its one seam, cpf_bridge.prerender_kernel.
-"""
+"""The judge renders a kernel the setup's CPF view lacks on its first request (once, even when concurrent), a
+recorded failure is never re-rendered, and the gate refuses a view no render can land in."""
 
 import json
 import pathlib

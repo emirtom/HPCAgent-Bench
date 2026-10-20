@@ -1,18 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The corpus kernels whose axis crosses the ABI answer for EVERY axis, from ONE compiled artifact.
-
-``test_runtime_axis_dispatch.py`` pins the mechanism on hand-written sources. This file pins the
-corpus kernels that use it, straight off their own manifests, because that is where the claim
-actually has to hold: each declares ``dim`` in ``input_args``, so the binding passes it, and each
-declares ``out`` with the SAME shape as ``x`` -- a scan or a softmax along either axis lands in that
-buffer, so nothing about the artifact pins which one.
-
-Every test emits and compiles ONCE and then calls that single ``.so`` with more than one ``dim``. A
-test that only ever passed the manifest's 1 would pass against a folded constant just as happily,
-which is exactly the bug these kernels were in.
-"""
+"""The corpus kernels whose axis crosses the ABI (``dim`` in ``input_args``) answer for EVERY axis from ONE
+compiled artifact, called with more than one ``dim``."""
 
 import json
 import pathlib

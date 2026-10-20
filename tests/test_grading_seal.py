@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The grading child and the /profile child run agent code SEALED (hpcagent_bench.seal).
-
-Each test is a submission doing what a cheating kernel would do from inside the judge -- read the
-seeds, read the run root, name the judge's pid, write where the agent reads, undo the seal -- and
-asserts the attempt fails. The probe kernels are python deliveries through the real
-:func:`native_call._call_isolated`, so the seal under test is the one grading uses.
-"""
+"""The grading and /profile children run agent code SEALED: each probe (a python delivery through the real
+``_call_isolated``) attempts what a cheating kernel would, and must fail."""
 
 import ctypes
 import functools

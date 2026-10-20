@@ -1,36 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Guards for the ext_break_* family's data-dependent break.
-
-These three TSVC kernels break out of the loop on a data condition:
-  * ext_break_find_first (s481): `if d[i] < 0: break` BEFORE the body a[i]+=b[i]*c[i]
-  * ext_break_post_body  (s482): body, then `if c[i] > b[i]: break`
-  * ext_break_capture    (s332): `if a[i] > K: capture i, a[i]; break`
-
-Under the harness default fill -- uniform[-1000, 1000), symmetric about zero -- the break
-condition is a coin flip per element, so it fires at index ~1. Two failures follow:
-  1. find_first has a SCORING HOLE: the guard is checked before the body, so an early break
-     leaves the graded buffer `a` unchanged, and a do-nothing submission (a == input) matches
-     the oracle on ~half the seeds.
-  2. All three have an INERT LADDER: the break index is ~1 regardless of LEN_1D, so S..XL do
-     the same ~1 iteration and the size axis measures nothing.
-
-So each kernel has its own initialize() (in <kernel>.py) that plants the exit at a size-scaled
-index. find_first and post_body draw from a band the seed picks -- [0.40N, 0.60N] or
-[0.50N, 0.70N] -- so the score and submit routes, which draw from different seeds, get
-different bands and a submission cannot precompute the crossing or assume it sits at the
-midpoint. ext_break_capture draws the crossing CONTINUOUSLY over the same [0.40N, 0.70N)
-union instead: an agent that read the two-literal-band source hardcoded that union and scanned
-only its fixed 30% (14.9x-35.8x CPU C, 275.9x HIP); a continuous draw removes the two
-guessable band constants, though the union's own bound is unchanged and stays a knowable safe
-scan window. These tests pin both properties so the fill cannot silently regress to the
-symmetric default.
-
-The window is kept centred for a third reason. Each kernel plants ONE crossing, so first ==
-last and a backwards scan is graded correct; out of [N/2, N) a backwards scan also reached the
-crossing in ~25% of the array against a forward scan's ~75%, and a Fortran submission took
-27.75x for that. A near-centred cut leaves neither direction much work to save.
-"""
+"""The ext_break_* kernels plant their data-dependent break at a size-scaled, seed-varied index (never the
+symmetric default fill, which breaks at ~1): no scoring hole for a do-nothing submission, a live size ladder, and
+no guessable window constant."""
 
 import importlib
 

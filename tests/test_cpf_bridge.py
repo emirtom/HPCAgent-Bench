@@ -1,24 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A kernel renders through :mod:`hpcagent_bench.cpf_bridge` into a drop-in that BUILDS and runs.
-
-The bridge's claim is end-to-end -- numpy reference in, one self-contained C/C++ file out, same
-numbers -- and each link is checked here rather than only the last one, because the intermediate
-failures all still produce a file:
-
-* the entry is the canonical native symbol and its signature is the prompt's required signature
-  (array pointers by name, scalars and size symbols by name, then the workspace pair);
-* the binding is the native one;
-* the unit compiles with a bare compiler in an empty directory, with warnings on -- no ``-I``, so a
-  leaked runtime header fails here instead of at link time in some later consumer;
-* it carries an OpenMP region, because a correct but entirely SEQUENTIAL rendering is the failure
-  mode this whole path exists to avoid and numbers alone would not catch it;
-* the numbers the harness's own caller reads back match the numpy reference.
-
-``arc_distance`` is the kernel because it is small enough to render in seconds and still exercises
-the parts that matter: a symbolic extent, a real maths lowering (``atan2``/``sqrt``), and an output
-buffer written through a map.
-"""
+"""A kernel renders through :mod:`hpcagent_bench.cpf_bridge` into a drop-in (``arc_distance``): canonical
+symbol and signature, native binding, a bare warning-clean compile, an OpenMP region, and numpy-equal numbers."""
 
 import importlib
 import importlib.util

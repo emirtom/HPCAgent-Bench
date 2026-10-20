@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Skills, the layered template search path, debug provenance, and the one-prompt-per-run split.
-
-Pins that skills are discovered from ``skills/<name>/SKILL.md`` and overridable from a user
-root, that the reference is pointed at rather than inlined by default, that ``prompt.debug``
-names the file every template and skill resolved to, and that a repair round appends to an
-unchanged body instead of re-rendering it. All pure: no compile, no hidden tests.
-"""
+"""Skills discovery (``skills/<name>/SKILL.md``, user overrides), referenced rather than inlined, ``prompt.debug``
+provenance, and repair rounds appending to an unchanged body. Pure."""
 
 import pathlib
 import re

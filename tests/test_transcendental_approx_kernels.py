@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``transcendental_approx`` loop-level kernels: their inputs stay inside the declared domain,
-their references are finite, and the grading band tells an accurate polynomial approximation of the
-transcendental from a truncated one.
-
-These kernels exist to credit an agent that replaces ``log``/``sin``/``cos`` in the loop with a
-range-reduced polynomial. That only works if the band the scorer grades with
-(:func:`hpcagent_bench.frameworks.test.tolerances_for`) accepts a correct approximation and rejects
-one that stopped a few terms early; the approximations below are the ones the manifests' puzzles
-describe, written in numpy.
-"""
+"""The ``transcendental_approx`` loop-level kernels: inputs inside the declared domain, finite references, and a
+grading band that accepts an accurate polynomial approximation and rejects a truncated one."""
 
 import importlib
 import math

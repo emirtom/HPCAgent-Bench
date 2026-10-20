@@ -1,22 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Per-kernel framework-autogen cache + its freshness guard (hpcagent_bench.framework_cache).
-
-Four features, one contract -- a cache entry is served ONLY for the source it was built from:
-
-* the autogen SOURCE cache: :func:`hpcagent_bench.autogen.ensure` emits a sibling once, reuses it on the
-  next call WITHOUT re-emitting, and REGENERATES it the moment the numpy reference changes (the
-  emit-counter test -- the whole point, since a stale sibling would silently miscompile a graded run);
-* the DaCe SDFG cache: a base SDFG round-trips through a compressed ``.sdfgz`` (save + release-agnostic
-  ``from_file``), a hit reloads the byte-identical graph, a fingerprint mismatch or a corrupt file MISSES
-  (degrades to a rebuild, never a crash);
-* the base-class hook: :meth:`Framework.build_with_cache` is a clean no-op default -- it just calls the
-  builder, caching nothing -- so the interface is uniform while only DaCe persists anything;
-* the ``.gitkeep``/gitignore rule: each kernel's ``.cache/`` dir is kept but its contents are ignored.
-
-The DaCe tests skip via :func:`tests.optional_imports.import_or_skip` (a broken dace wheel must
-skip, not FAIL); the rest are pure pathlib/hashlib and always run.
-"""
+"""The per-kernel framework-autogen cache serves an entry ONLY for the source it was built from: autogen
+sources, DaCe SDFGs (a mismatch or corrupt file is a miss), the no-op base hook, and the ``.gitkeep`` rule."""
 
 import pathlib
 import subprocess

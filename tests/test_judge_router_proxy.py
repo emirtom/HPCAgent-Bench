@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The example cluster judge router forwards grading and still serves search itself.
-
-The router sits between an untrusted agent and the real judge, so what is tested here is that it
-DOES NOT interpret: the method, the path, the body (``rank`` included) and the query string reach
-the upstream judge unchanged, and the judge's answer -- a refusal as much as a grade -- comes back
-as itself. A proxy that swallowed a 400 into a 500, or that re-encoded a body, would grade nothing
-and say so wrongly. The ONE thing it reshapes is a /submit grade, which reaches the
-agent as the verdict alone -- correct yes/no and the request id; everything else is an oracle for
-the recorded answer.
-"""
+"""The example cluster judge router forwards grading unchanged (method, path, body, query; answers and refusals
+as they are) and serves search itself; only a /submit grade is reduced to its verdict."""
 
 import json
 import pathlib

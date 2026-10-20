@@ -1,19 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Numerical validation of the elementwise transcendental / math ufuncs.
-
-The NumpyToX emitters lower ``out = np.<fn>(a)`` (and the 2-arg forms)
-to a per-element loop. This proves every supported ufunc computes the
-same answer as numpy across all three compiled backends (C / C++ /
-Fortran) -- catching name-mapping gaps (``arctan2``->``atan2``,
-``rint``->``ANINT``, ``copysign``->``SIGN``), promotion collisions, and
-the inline-expression forms (``square``/``reciprocal``/``sign``/
-``degrees``/``radians``) that must read identically in C and Fortran.
-
-Each case builds a tiny kernel, emits it, compiles a shared library and
-calls it via ctypes (the binding JSON drives the argument order, exactly
-like the numerical oracle). Skips a backend whose compiler is absent.
-"""
+"""Every supported elementwise math ufunc computes numpy's answer on C, C++ and Fortran (tiny kernels emitted,
+built and called via ctypes; a backend without its compiler skips)."""
 
 import ctypes
 import json

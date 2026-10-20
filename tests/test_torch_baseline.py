@@ -1,32 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The compiled-PyTorch denominator: where it comes from, what it refuses, what its bracket holds.
-
-``torch-autotune`` times a machine_learning kernel against its PyTorch reference under
-``torch.compile`` max-autotune: the UPSTREAM KernelBench model it was ported from, vendored at
-``third_party/KernelBench`` and bound to this corpus's flat parameter list by
-:mod:`hpcagent_bench.harness.kernelbench_adapter`, or the kernel's own ``_torch.py``. It is the ML
-track's DEFAULT denominator, resolved per grade to the kind of the grade's device. Nothing is
-hand-written per kernel, which is what these tests are mostly about: the binding is a set of rules
-over names and shapes, so the rules are what has to be pinned, plus the one thing no rule can prove
-on its own -- that the bound model computes the same function the kernel's compiled references do.
-
-Needs CPU torch and the KernelBench submodule, so CI runs it beside
-``tests/test_kernelbench_torch_agreement.py`` (Phase 8b), not in the unit sweep.
-
-Five groups:
-
-* IDENTITY -- two stored kinds, one token that resolves per device, the ML track's default, and a
-  torch denominator never degrades to another reference;
-* THE TABLE -- every ML kernel has a row, every row names a file that exists, and the table agrees
-  with the provenance the reference collector resolves;
-* THE RULES -- init arguments from our manifest, parameters by ``state_dict`` name and shape, the
-  two repairs, the positional fallback, and a refusal where none of it reaches;
-* THE NUMBERS -- the compiled reference against the eager one at the harness's own
-  tolerance (the ML track has no numba or C reference), and the per-repeat rebind that keeps the denominator on the candidate's inputs;
-* THE CHILD -- the timing runs in a spawned child on the candidate's own draw indices, and its
-  working cache round-trips through one archive per key.
-"""
+"""The compiled-PyTorch denominator (``torch-autotune``): its identity, the reference table, the KernelBench
+binding rules, compiled-vs-eager numbers and the timing child. Needs CPU torch and the KernelBench submodule
+(CI Phase 8b)."""
 
 import importlib
 import pathlib

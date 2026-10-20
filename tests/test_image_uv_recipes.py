@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The image recipes and the tooling around them install Python only through uv sync from uv.lock.
-
-uv.lock decides every version. An image installs only what it builds from source (the image-python groups); every
-other locked package is installed when a job starts (containers/images/lib/launch_venv.sh). Static: the checks read files.
-"""
+"""Image recipes install Python only through uv sync from uv.lock (source-built groups in the image, the rest at
+job start). Static."""
 
 import pathlib
 import re

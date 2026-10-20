@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""prepare_job.sh's generated-source step, run as written: the heredoc it hands the container.
-
-A call such as ``agent.emit_reference_source.cache_clear()`` (a memo the function does not have)
-raises AttributeError on every kernel, which reads as "unavailable" by exception type alone and
-leaves the cache the judge reads through unfilled on every setup.
-"""
+"""prepare_job.sh's generated-source step, run exactly as the heredoc it hands the container."""
 
 import json
 import pathlib

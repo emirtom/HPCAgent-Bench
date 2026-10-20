@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The memory cap of a JUDGE-OWNED reference: ``sizing.reference_memory_gb``.
-
-A kernel's own budget (``sizing.kernel_memory_gb``) counts the manifest's declared arrays twice.
-The emitted references allocate whatever their lowering needs on top: xsbench's C gathers every
-(sample, nuclide) lookup at once, ~50 GiB at XL, and under the 20 GiB budget its sequential C
-crashed (SIGSEGV on the unchecked malloc) and its c-autopar aborted (no memory left for an OpenMP
-thread stack) in every grade of one experiment. A reference is capped at a fraction of its
-rank's share of the node instead, never below the kernel's budget.
-"""
+"""The memory cap of a judge-owned reference (``sizing.reference_memory_gb``): a fraction of its rank's node
+share, never below the kernel's own budget."""
 
 import pathlib
 from collections.abc import Iterator

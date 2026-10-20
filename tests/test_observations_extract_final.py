@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The extractor puts every submission the final grade (mw4x5) re-timed on that FINAL grade.
-
-``hpcagent-bench grade-under run`` re-times every final and promoted submission on m inputs
-x n runs a side and writes one ``final`` grade per submission. An extraction that read only the
-run-mode regrades would still report the ONE-input speedup the recorded grade took.
-Every fixture here is written by the regrade module's own per-cell pass (``grade_under.run_cells_shard``
-over ``grade_under.grade_cells``) with a scripted scorer, so the rows the extractor reads are the rows a
-wave writes: a re-timed row takes S_i, a promotion keeps its run-mode verdict, a judge fault is
-flagged (never read as unsolved, never as re-timed), an older per-cell stamp is not the final
-grade, and the newest measurement wins.
-"""
+"""The extractor puts every submission the final grade (mw4x5) re-timed on that FINAL grade, on fixtures written
+by the regrade module's own per-cell pass."""
 
 import csv
 import functools

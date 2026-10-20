@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``requests.startup.load``: named requests against the advertised catalog (envs/libraries.yaml),
-distinct from ``build``'s free-form ``-l<name>`` (a library the agent built itself). Covers the
-end-to-end wiring this module adds -- Submission.requests.startup.load -> Sandbox.build /
-service._submission_from_body -- not the catalog's own resolution logic, which
-tests/test_library_requests.py already pins.
-"""
+"""``requests.startup.load`` wiring from ``Submission`` to ``Sandbox.build`` and the service body (catalog
+resolution itself is tests/test_library_requests.py)."""
 
 import json
 import threading

@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Token-usage accounting + the (tokens, score) trajectory.
-
-Covers the cost axis: :class:`TokenUsage` arithmetic/pricing, an agent accumulating
-usage across calls, and the runner snapshotting cumulative tokens at each score call
-into ``RunRow.trajectory`` (the performance-vs-tokens history).
-"""
+"""Token-usage accounting: :class:`TokenUsage` arithmetic and pricing, accumulation across calls, and the
+(tokens, score) trajectory in ``RunRow.trajectory``."""
 
 import pydantic
 

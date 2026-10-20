@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every timed rep is checked as it returns, in one shared region per output, with the child stopped
-(``_call_isolated(checks=...)``, :class:`native_call.RepCheckServer`).
-
-Spilling every timed rep's outputs to the node-local temp directory and grading them all at the end held
-reps x output bytes of tmpfs, which is memory: job 683329's shards were OOM-killed at 68 GB of shmem. The
-check gives the same verdicts as grading the spilled reps, holds one rep's outputs at a time, hands each
-rep the in-place outputs' fresh initial values, and the code under test cannot change a rep's outputs
-while they are checked.
-"""
+"""Every timed rep is checked as it returns, in one shared region per output with the child stopped
+(``_call_isolated(checks=...)``): same verdicts as grading spilled reps, one rep's outputs held at a time."""
 
 import collections
 import os

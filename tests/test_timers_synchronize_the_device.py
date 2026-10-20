@@ -1,16 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A DaCe GPU measurement waits for the device before it reads the clock.
-
-A compiled DaCe GPU program returns before its kernel finishes, so a host clock read without a
-synchronize times the LAUNCH. Measured on one kernel: 11.0 ms unsynchronised against 24.3 ms
-synchronised -- a 2.2x undercount, reported as a speedup. It also leaves the device busy into the
-next setup's sample, so an A/B between two setups mixes them.
-
-The test drives the two timer entry points with a fake device module, because the property under
-test is "was the device waited for", which is observable without a GPU. The CPU direction is asserted too: a synchronize there would import a device module on
-a host-only run, which is its own failure.
-"""
+"""A DaCe GPU measurement synchronizes the device before reading the clock (checked with a fake device module),
+and a CPU measurement imports no device module."""
 
 import types
 

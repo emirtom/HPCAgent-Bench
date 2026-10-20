@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Scratch-workspace ABI (abi_contract.md Sec. 11).
-
-Covers the reserved ``workspace`` / ``workspace_size`` pair end to end:
-
-* the pure resolvers -- ``workspace_bytes_of`` (expression over the run's size
-  symbols) and ``alloc_workspace`` (256-byte alignment; NULL for 0 bytes);
-* the ABI surface -- every stub + the host glue carry the pair as the trailing args,
-  the binding JSON describes it, and it is never mixed into ``args``;
-* the TRAILING POSITION itself -- the pair is the last two arguments, which is what keeps a
-  callee that never declared it callable through the same ABI;
-* the envelope round-trip -- ``workspace_bytes`` survives ``Submission`` parse;
-* a real native round-trip -- a tiny C kernel that uses the buffer only when it is
-  passed and large enough, proving the harness allocates it (untimed), scales the
-  size with the sampled shape, and passes NULL when unrequested.
-"""
+"""Scratch-workspace ABI (abi_contract.md Sec. 11): resolvers, the trailing pair on every stub and the glue,
+the binding JSON, the envelope, and a native round trip."""
 
 import pathlib
 import re

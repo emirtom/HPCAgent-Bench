@@ -1,25 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``chain_length:`` manifest key -- a scan's declared accumulation length ``l`` for the
-reassociation floor (appendix, reassociation-floor paragraph: ``atol_eff = max(atol,
-eps_acc*sqrt(l)*||x_ref||inf)``; "a sequential scan ... declares its chain length in its manifest").
-
-Two layers, matching the two places the key is read:
-
-* :func:`hpcagent_bench.spec._validate_chain_length`, exercised here through
-  :meth:`hpcagent_bench.spec.BenchSpec.from_dict` on small hermetic manifests -- an unknown output,
-  a non-positive value, and an unresolvable symbol must each be rejected at PARSE time, not surface
-  later as a bad tolerance.
-* :func:`hpcagent_bench.harness.grading.declared_chain_length`, exercised on every corpus manifest
-  that declares ``chain_length`` -- it must resolve to a positive int at every concrete preset, and
-  (where the expression shares an identifier with the output's own declared shape) never fall below
-  that axis's own extent.
-
-The second half resolves against ``spec.parameters[preset]`` directly rather than materializing
-data through :class:`~hpcagent_bench.frameworks.benchmark.Benchmark` -- ``shape_namespace`` reads a
-preset's dimension values as a plain mapping, so nothing here needs a real (and, at XL, multi-GB)
-array to check the declaration.
-"""
+"""The ``chain_length:`` manifest key (a scan's accumulation length for the reassociation floor): rejected at
+parse time when invalid, and positive (never below the output axis) at every preset of every corpus manifest."""
 
 from typing import Any
 

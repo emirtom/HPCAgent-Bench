@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Docs must not drift from the implementation.
-
-Prose goes stale silently: a knob is renamed, a template moves, an endpoint changes shape,
-and the doc keeps confidently describing the old world. These check the claims that are
-mechanically checkable, so drift fails a test instead of misleading a reader.
-"""
+"""Docs must not drift from the implementation: mechanically checkable claims are checked."""
 
 import argparse
 import dataclasses

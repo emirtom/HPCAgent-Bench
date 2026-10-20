@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""packet_env.py: a setup's packet env as KEY=VALUE lines, for a launcher to pin without hard-coding
-AGENT_METHOD or a CPF dir itself.
-
-Every predefined packet with an env entry is checked against hpcagent_bench.packets.resolve
-directly, so a drift between the CLI and the resolver it wraps shows up here rather than at a
-launcher's first submit.
-"""
+"""packet_env.py prints a setup's packet env as KEY=VALUE lines identical to ``packets.resolve`` for every
+predefined packet."""
 
 import os
 import subprocess

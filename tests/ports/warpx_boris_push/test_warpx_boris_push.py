@@ -1,17 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Port-fidelity gate: the WarpX Boris pusher NumPy reference vs the ORIGINAL C++.
-
-``warpx_boris_push_reference.cpp`` (kept next to the NumPy reference for provenance)
-is a faithful standalone transcription of the upstream WarpX kernel
-``UpdateMomentumBoris``. This test compiles it and checks that, on the benchmark's
-own ``initialize()`` data, it reproduces the NumPy port bit-for-a-few-ulps across
-every ``MomentumPushType`` path -- so a divergence between the port under test and
-the original algorithm is caught end to end.
-
-The C++ is built on demand with ``g++`` (``-ffp-contract=off`` so no fused
-multiply-add reorders the arithmetic away from the NumPy op order). The whole test
-SKIPS where no C++ compiler is available.
+"""Port-fidelity gate: the WarpX Boris pusher NumPy reference against the original C++ transcription on every
+``MomentumPushType`` path (skips without a C++ compiler).
 
     pytest tests/ports/warpx_boris_push/
 """

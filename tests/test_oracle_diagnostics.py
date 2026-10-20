@@ -1,11 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A FAIL status must carry the compiler / emitter's own message, not just the phase name.
-
-``FAIL:compile`` alone says a kernel did not build but not why, so every investigation started by
-monkeypatching ``subprocess.run`` to recover a message the oracle had already been handed and
-thrown away. These pin the suffix so it cannot silently regress to a bare phase name again.
-"""
+"""A FAIL status carries the compiler / emitter's own message, not just the phase name."""
 
 import contextlib
 import io

@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The single-kernel workflow through the agent ``tools`` client.
-
-Spins up the judge in-process (the same server the container topology runs) and
-drives one kernel end-to-end through :mod:`hpcagent_bench.harness.tools` -- the
-client an optimizer uses: read the task, then ``submit`` (the verdict) and
-``score`` (speedup against the in-judge C baseline) over HTTP.
-"""
+"""The single-kernel workflow through the agent ``tools`` client against an in-process judge: read the task,
+``submit`` and ``score``."""
 
 from collections.abc import Callable
 from http.server import ThreadingHTTPServer

@@ -1,12 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``hpcagent_bench/stats/commands/efficacy.py`` -- the efficacy figure and the stars on it.
-
-The load-bearing assertions are about MULTIPLICITY (a raw threshold does not survive the BH
-correction, a real effect does) and about the DOT-ROW CONTRACT: one column per (LLM, delivery), the
-control hollow beside the packet setup, each row carrying only its own axis's star, and the drawing
-itself lives in :mod:`hpcagent_bench.stats.figures.efficacy` -- this script only wires the data.
-"""
+"""The efficacy command: stars survive the BH correction only for real effects, and the dot-row contract holds
+(one column per (LLM, delivery), hollow control, per-row stars)."""
 
 import argparse
 import dataclasses

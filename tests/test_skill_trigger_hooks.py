@@ -1,15 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The trigger HOOK, end to end: a page's `when:` -> the index line in the task text -> the file the
-line points at -> the always-on hints block that frames the index.
-
-tests/test_skill_triggers.py pins what each trigger SAYS. This file pins that what it says reaches
-the agent, for every packet a setup can name. The trigger is a page's only appearance in the prompt,
-so each break below removes the page from the setup while the setup still records itself as a skills
-setup: a staged page with no line is never opened, a line for an unstaged page sends the agent to a
-file that is not there, and a hints block that describes a different packet tells the agent to
-ignore the index it was given.
-"""
+"""The trigger HOOK end to end for every packet: a page's ``when:`` -> its index line in the task text -> the
+staged file -> the hints block framing the index."""
 
 import json
 import pathlib

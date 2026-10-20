@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The references a test holds a computation to: a kernel's compiled references, never its ``_numpy.py``.
-
-A kernel's ``<module>_numpy.py`` is the task program; its references are ``<module>_numba.py``,
-``<module>_reference.<c|cpp|f90|cu|hip>`` and, on ``machine_learning``, its PyTorch model.
-:func:`compiled_outputs` runs the grade's own road to them (:func:`scoring.first_oracle`), so a test
-compares against exactly what a grade would; :func:`torch_eager_outputs` runs the ML reference eagerly,
-the function the compiled torch-autotune reference compiles, for a test that cannot pay a
-``torch.compile`` per kernel.
-"""
+"""The references a test holds a computation to, never ``_numpy.py``: :func:`compiled_outputs` takes the grade's
+own road (:func:`scoring.first_oracle`), :func:`torch_eager_outputs` runs the ML reference eagerly."""
 
 from collections.abc import Mapping, Sequence
 from typing import Any

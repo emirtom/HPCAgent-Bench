@@ -1,10 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A canonical SDFG is produced once per (generated program, dace commit), and a raised error is remembered.
-
-lulesh canonicalizes for more than half an hour, so each property below is either a way that time is
-paid again for nothing or a way a stale SDFG is served under a key that no longer describes it.
-"""
+"""A canonical SDFG is produced once per (generated program, dace commit), a raised error is remembered, and a
+stale SDFG is never served under a new key."""
 
 import pathlib
 import subprocess

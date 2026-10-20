@@ -1,11 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""End-to-end tests for the judge service (oracle + baseline HTTP ports).
-
-Every request here is raw HTTP, so it spells out what the wire contract requires: the task
-identifier AND ``rank`` (the judge these calls are addressed to). ``_server`` runs at the
-default rank 0, so ``rank=0`` is what a conforming client sends -- omitting it is refused,
-which is :mod:`tests.test_judge_routing`'s subject."""
+"""End-to-end tests for the judge service over raw HTTP; every request names the task and ``rank`` (0 here), as
+the wire contract requires."""
 
 import json
 import pathlib

@@ -1,22 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Every machine_learning kernel has a PyTorch reference, and it runs.
-
-The ML track's torch denominator and oracle is a kernel's PyTorch reference, which is one of two things:
-the kernel's own ``<module>_torch.py`` (:func:`torch_reference.has_torch_reference`: the ``dist_*``
-ports, and the kernels no upstream model computes), else the upstream KernelBench model bound to
-the kernel's flat arrays (:mod:`hpcagent_bench.harness.kernelbench_adapter`). This file holds the
-WHOLE track to that, kernel by kernel: each resolves to a reference, and at preset ``S`` the
-reference returns every output the manifest declares, finite. The ML track has no numba or C
-reference, so nothing here checks the values against one. A kernel that stops resolving or running
-fails with its name. Nothing is skipped: a skip and a pass look identical in a summary.
-
-The second half pins the adapter's binding rules, one representative kernel each, so a rule that
-stops working fails with the reason attached rather than as one kernel moving in the sweep.
-
-Needs CPU torch, einops (a declared dependency: the two Mamba-2 upstream files import it) and the
-KernelBench submodule, so CI runs it in Phase 8b beside ``tests/test_torch_baseline.py``.
-"""
+"""Every machine_learning kernel resolves to a PyTorch reference that returns every declared output, finite, at
+S, plus the adapter's binding rules. Needs CPU torch, einops and KernelBench (CI Phase 8b)."""
 
 from typing import Any, NamedTuple
 

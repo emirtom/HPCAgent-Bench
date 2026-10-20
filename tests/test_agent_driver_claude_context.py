@@ -1,20 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The context window claude-code 2.1.197 is told about, and where it compacts inside it.
-
-Left alone the CLI never compacts: for a model it does not know it assumes a 200000 window,
-leaves proactive compaction off while that window's source is "auto", and waits for Anthropic's
-"prompt is too long" to compact reactively -- vLLM and SGLang say "maximum context length" instead,
-so an episode grows past the window and dies on the 400. agent_driver.claude_context_env
-names the window (CLAUDE_CODE_MAX_CONTEXT_TOKENS, CLAUDE_CODE_AUTO_COMPACT_WINDOW) and places the
-trigger (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).
-
-the limit L is min(served window, 262144) for every model; the reply reserve R is
-min(CLAUDE_CODE_MAX_OUTPUT_TOKENS, L // 8) and is exported as the reply cap; the trigger leaves R plus
-one turn of growth, round(0.12 * L), under L -- ~198k at 256k, ~99k at 128k. The window comes from
-keys every setup snapshot ALREADY carries -- CONTEXT_LENGTH and the engine's --context-length /
---max-model-len -- so a pending job picks the window up at start without being re-rendered.
-"""
+"""The context window claude-code is told about and where it compacts: L = min(served window, 262144), reply
+reserve R = min(max output, L // 8), trigger R + round(0.12 * L) below L, read from the setup's existing keys."""
 
 import math
 import pathlib

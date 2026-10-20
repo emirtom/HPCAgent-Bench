@@ -1,14 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The OpenBLAS reduction optimizer, verified + scored both submission ways.
-
-:class:`BlasReductionOptimizer` lowers the TSVC ``vdotr`` dot-product reduction
-to ``cblas_ddot`` and ``gesummv`` to ``cblas_dgemv``. The judge must grade it
-correct and score a speedup for BOTH options the harness accepts -- the
-*language* option (judge compiles the source, OpenBLAS linked via the
-submission's ``build`` tokens) and the *ABI* option (the optimizer prebuilds the
-``.so`` and submits the library). The baseline is always the in-judge C reference.
-"""
+"""The OpenBLAS reduction optimizer (``vdotr`` -> ``cblas_ddot``, ``gesummv`` -> ``cblas_dgemv``) grades correct
+and scores a speedup as a language submission and as an ABI submission."""
 
 import pytest
 
