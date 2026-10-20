@@ -79,18 +79,18 @@ ALIVE = "relay.alive"
 SLURM_CALL_S = 30.0
 
 
-def touch(path):
+def touch(path: str | pathlib.Path) -> None:
     """Create or refresh the mtime of ``path``."""
     pathlib.Path(path).touch()
 
 
-def finish(base, rc):
+def finish(base: str, rc: int) -> None:
     """Publish the exit status atomically: the judge reads ``.rc`` only once it is complete."""
     pathlib.Path(base + ".rc.tmp").write_text(f"{rc}\n")
     pathlib.Path(base + ".rc.tmp").rename(base + ".rc")
 
 
-def claim(directory, name):
+def claim(directory: str, name: str) -> str | None:
     """Rename ``<id>.req`` to ``<id>.run``; None when it was already taken."""
     ident = name[: -len(".req")]
     try:
@@ -100,7 +100,7 @@ def claim(directory, name):
     return ident
 
 
-def start(directory, ident):
+def start(directory: str, ident: str) -> subprocess.Popen[bytes] | None:
     """Launch one claimed request; None (with its rc already written) when it cannot start.
 
     The judge already named the step after the request (``--job-name``), which is how
@@ -116,7 +116,7 @@ def start(directory, ident):
     return None
 
 
-def step_id(ident):
+def step_id(ident: str) -> str | None:
     """``<jobid>.<stepid>`` of the step started for ``ident``, or None when it cannot be resolved."""
     job = os.environ.get("SLURM_JOB_ID", "")
     if not job:
@@ -134,13 +134,13 @@ def step_id(ident):
     return None
 
 
-def signal_group(proc, sig):
+def signal_group(proc: subprocess.Popen[bytes], sig: signal.Signals) -> None:
     """Send ``sig`` to the step's whole process group; a group already gone is not an error."""
     with contextlib.suppress(OSError):
         os.killpg(proc.pid, sig)
 
 
-def kill(ident, proc):
+def kill(ident: str, proc: subprocess.Popen[bytes]) -> int:
     """End an abandoned launch and return its exit status.
 
     ``scancel`` on the step id first, because killing the local srun client leaves the ranks it
@@ -169,14 +169,14 @@ def stale(base: str, now: float, watching_since: float = 0.0) -> bool:
     return True
 
 
-def step(directory: str, running: dict, watching_since: float = 0.0) -> None:
+def step(directory: str, running: dict[str, subprocess.Popen[bytes]], watching_since: float = 0.0) -> None:
     """One pass: start new requests, reap finished or abandoned steps, publish the heartbeat.
     ``watching_since`` is when the relay last resumed from a stall of its own (:data:`STALL_S`)."""
     for name in sorted(entry.name for entry in pathlib.Path(directory).iterdir()):
         if name.endswith(".req"):
             ident = claim(directory, name)
             proc = start(directory, ident) if ident is not None else None
-            if proc is not None:
+            if ident is not None and proc is not None:
                 running[ident] = proc
     touch(pathlib.Path(directory, ALIVE))
     now = time.time()
@@ -191,10 +191,10 @@ def step(directory: str, running: dict, watching_since: float = 0.0) -> None:
             del running[ident]
 
 
-def serve(directory, parent):
+def serve(directory: str, parent: int) -> None:
     """Relay until the parent process is gone; kill whatever is still running then."""
     pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
-    running = {}
+    running: dict[str, subprocess.Popen[bytes]] = {}
     watching_since = last = time.time()
     try:
         while os.getppid() == parent:
@@ -212,7 +212,7 @@ def serve(directory, parent):
             pathlib.Path(directory, ALIVE).unlink()
 
 
-def main(argv):
+def main(argv: list[str]) -> int:
     if len(argv) != 1:
         sys.stderr.write("usage: gang_relay.py <request dir>\n")
         return 2

@@ -76,7 +76,7 @@ def answering(*outcomes: float | str) -> Callable[..., Score]:
     ratio flagged implausible)."""
     remaining = iter(outcomes)
 
-    def scorer(*_args: Any, **_kwargs: Any) -> Score:
+    def scorer(*positional: object, **options: object) -> Score:
         outcome = next(remaining)
         if outcome in ("crash", "fault"):
             return Score(False, 0.0, 0, False, harness_fault=outcome == "fault", timing_reduction="mwd-v3")

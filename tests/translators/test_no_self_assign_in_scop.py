@@ -14,6 +14,7 @@ on the emitted text rather than on the AST.
 import re
 
 from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_pluto
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from tests.translators.op_oracle import parse_source
 
@@ -21,7 +22,7 @@ from tests.translators.op_oracle import parse_source
 SELF_ASSIGN = re.compile(r"^\s*([A-Za-z_]\w*) = ([A-Za-z_]\w*);$", re.MULTILINE)
 
 
-def lower_shape_unpack_fixture():
+def lower_shape_unpack_fixture() -> KernelIR:
     """The minimal kernel that mints the self-assigns: a 2-D unpack whose targets ARE
     the declared shape symbols, so both resolve back to their own names."""
     src = (
@@ -35,7 +36,7 @@ def lower_shape_unpack_fixture():
     return lower(parse_source(src, "shape_op", ["a"], ["out"], {"a": "(H, W)", "out": "(H, W)"}, {"H": 4, "W": 5}))
 
 
-def self_assigns(text: str):
+def self_assigns(text: str) -> list[str]:
     return [m.group(0).strip() for m in SELF_ASSIGN.finditer(text) if m.group(1) == m.group(2)]
 
 

@@ -63,7 +63,7 @@ class MgridInline(RewritePass):
 
     __slots__ = ()
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         val = node.value
         if not (
@@ -172,13 +172,13 @@ class ScalarizeMask(ast.NodeTransformer):
     def sub_(self, value_node: ast.expr) -> ast.Subscript:
         return ast.Subscript(value=value_node, slice=copy.deepcopy(self.idx_slice), ctx=ast.Load())
 
-    def visit_Subscript(self, node: ast.Subscript):
+    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
         if isinstance(node.ctx, ast.Load) and ast.dump(node.slice) == self.maskdump:
             return self.sub_(node.value)  # X[mask] -> X[idx]; do not recurse into it
         self.generic_visit(node)
         return node
 
-    def visit_Name(self, node: ast.Name):
+    def visit_Name(self, node: ast.Name) -> ast.expr:
         if isinstance(node.ctx, ast.Load) and self.ranks.get(node.id) == self.arank:
             return self.sub_(node)
         return node
@@ -202,7 +202,7 @@ class MaskedAssignToLoop(ast.NodeTransformer):
         self.changed = False
         self._ctr = 0
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         if len(node.targets) != 1:
             return node

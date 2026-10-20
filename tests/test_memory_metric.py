@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The EffiBench-style memory disclosure metric: pure MU/NMU functions + the aggregate() wiring."""
 
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -17,7 +19,7 @@ from tests.optional_imports import import_or_skip
 _BINDING = binding_from_spec(BenchSpec.load("gemm"))
 
 
-def _ts(peak_bytes, baseline_peak_bytes, solved: bool = True, s_i: float = 1.0):
+def task_score(peak_bytes: int, baseline_peak_bytes: int, solved: bool = True, s_i: float = 1.0) -> M.TaskScore:
     """A TaskScore stub carrying only the fields the memory metric reads through `aggregate`."""
     return M.TaskScore(
         kernel="k",
@@ -42,7 +44,7 @@ def _ts(peak_bytes, baseline_peak_bytes, solved: bool = True, s_i: float = 1.0):
     ],
     ids=["mean-of-increments", "excludes-unmeasured-peak"],
 )
-def test_max_memory_is_the_mean_of_measured_increments(increments, expected) -> None:
+def test_max_memory_is_the_mean_of_measured_increments(increments: list[int], expected: float) -> None:
     """MU is the plain mean over tasks of the kernel-attributable increments; a task with no
     measured peak (every run crashed) is excluded, not averaged in as a spurious 0."""
     assert max_memory(increments) == pytest.approx(expected)
@@ -65,7 +67,9 @@ def test_max_memory_empty_is_zero() -> None:
     ],
     ids=["reciprocal-ratios-cancel", "geometric-not-arithmetic", "excludes-missing-baseline"],
 )
-def test_norm_memory_is_the_geometric_mean_ratio_over_tasks_with_a_baseline(pairs, expected) -> None:
+def test_norm_memory_is_the_geometric_mean_ratio_over_tasks_with_a_baseline(
+    pairs: list[tuple[int, int]], expected: float
+) -> None:
     """NMU aggregates ratios, so a halving and a doubling must cancel; a task with no baseline peak
     (denominator 0) is excluded, not averaged in as a spurious ratio."""
     assert norm_memory(pairs) == pytest.approx(expected)
@@ -97,17 +101,19 @@ def test_norm_memory_unmeasured_reads_as_unmeasured() -> None:
     ],
     ids=["every-task-has-a-baseline", "a-task-missing-its-baseline-is-excluded-from-nmu"],
 )
-def test_aggregate_exposes_mu_and_nmu(task_scores, expected_max_memory, expected_norm_memory) -> None:
+def test_aggregate_exposes_mu_and_nmu(
+    task_scores: list[tuple[int, int]], expected_max_memory: float, expected_norm_memory: float
+) -> None:
     """``SuiteScore`` carries MU (mean increment, every task) and NMU (mean ratio, tasks with a
     baseline only) -- a task lacking a baseline peak still counts toward MU but is dropped from NMU."""
-    s = M.aggregate([_ts(peak, baseline) for peak, baseline in task_scores])
+    s = M.aggregate([task_score(peak, baseline) for peak, baseline in task_scores])
     assert s.max_memory_bytes == pytest.approx(expected_max_memory)
     assert s.norm_memory == pytest.approx(expected_norm_memory)
 
 
 def test_memory_metric_is_additive_not_replacing_the_ranked_score() -> None:
     """MU/NMU are reported alongside the geomean; the ranked score and solve_rate are unchanged."""
-    ts = [_ts(100, 50, s_i=4.0), _ts(200, 100, s_i=9.0)]
+    ts = [task_score(100, 50, s_i=4.0), task_score(200, 100, s_i=9.0)]
     s = M.aggregate(ts)
     assert s.hpcagent_bench_score == pytest.approx((4 * 9) ** 0.5)  # geomean untouched
     assert s.solve_rate == 1.0
@@ -125,7 +131,7 @@ def test_aggregate_empty_memory_is_well_defined() -> None:
 # the child capture: increment BELOW the raw peak
 
 
-def _hungry_kernel(tmp_path):
+def hungry_kernel(tmp_path: pathlib.Path) -> pathlib.Path:
     """A kernel whose ~64 MB scratch is freed before it returns -- ru_maxrss is a high-water
     mark, so the allocation is still captured."""
     kernel = tmp_path / "mem_kernel.py"
@@ -138,7 +144,7 @@ def _hungry_kernel(tmp_path):
     return kernel
 
 
-def test_child_reports_increment_below_absolute_peak(tmp_path) -> None:
+def test_child_reports_increment_below_absolute_peak(tmp_path: pathlib.Path) -> None:
     """The isolation child reports both the raw ru_maxrss peak and the kernel-attributable increment.
 
     Driven through ``_call_isolated`` so the worker runs FORKED, as in production: in-process
@@ -146,7 +152,7 @@ def test_child_reports_increment_below_absolute_peak(tmp_path) -> None:
     allocated more would leave it at 0 -- order-dependent, unrelated to this code.
     """
     _, samples, mem, _, _timed = native_call._call_isolated(
-        str(_hungry_kernel(tmp_path)),
+        str(hungry_kernel(tmp_path)),
         _BINDING,
         {"x": np.zeros(4, dtype=np.float64)},
         Language.PYTHON,
@@ -161,7 +167,7 @@ def test_child_reports_increment_below_absolute_peak(tmp_path) -> None:
     )  # the raw peak additionally carries the inherited footprint
 
 
-def test_the_increment_is_per_call_not_per_batch(tmp_path) -> None:
+def test_the_increment_is_per_call_not_per_batch(tmp_path: pathlib.Path) -> None:
     """MU/NMU are per CALL, so batching must not multiply them. ``ru_maxrss`` is monotonic
     with no reset, so reading it only at the end would charge this kernel -- which retains
     ~32 MB per call -- up to ``reps`` x its real footprint."""
@@ -216,7 +222,7 @@ def test_device_free_bytes_tracks_a_real_device_allocation() -> None:
     assert before - after >= nbytes, f"a {nbytes} byte device allocation moved free bytes by {before - after}"
 
 
-def test_the_host_path_reports_no_device_memory(tmp_path) -> None:
+def test_the_host_path_reports_no_device_memory(tmp_path: pathlib.Path) -> None:
     """A host kernel must report 0 rather than a stale or fabricated device number: MU/NMU treat 0
     as "not measured", and a nonzero value here would be attributed to a kernel that never ran on
     the GPU."""
@@ -237,13 +243,13 @@ def test_the_host_path_reports_no_device_memory(tmp_path) -> None:
 
 
 @pytest.mark.amd
-def test_device_free_bytes_answers_zero_instead_of_raising(monkeypatch) -> None:
+def test_device_free_bytes_answers_zero_instead_of_raising(monkeypatch: pytest.MonkeyPatch) -> None:
     """A driver error must DEGRADE the disclosure number, never fail the measurement: the memory
     metric is disclosure only, so a raise here would cost a submission a real score over a number
     nothing is graded on."""
     cp = import_or_skip("cupy")
 
-    def boom(*_args, **_kwargs) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
         raise RuntimeError("driver went away")
 
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", boom)

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Canonical C-ABI binding generation: pins the load-bearing guarantees of abi_contract.md."""
 
+from collections.abc import Iterator
+
 from hpcagent_bench.categories import Language
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import (
@@ -229,7 +231,7 @@ def test_phantom_np_arg_filtered() -> None:
 # invisibly per kernel, so it is asserted corpus-wide.
 
 
-def _declared_value(spec, name):
+def declared_value(spec: BenchSpec, name: str) -> bool | float | None:
     """The value the manifest declares for ``name``, or None if it declares none."""
     for size_class in spec.parameters.values():
         if name in size_class:
@@ -239,7 +241,7 @@ def _declared_value(spec, name):
     return None
 
 
-def _corpus_specs():
+def corpus_specs() -> Iterator[tuple[str, BenchSpec]]:
     from hpcagent_bench.spec import KERNELS, BenchSpec
 
     for key in sorted(KERNELS):
@@ -257,7 +259,7 @@ def test_no_fractional_scalar_is_bound_as_an_integer() -> None:
     from hpcagent_bench.support.bindings.contract import binding_from_spec
 
     offenders = []
-    for stem, spec in _corpus_specs():
+    for stem, spec in corpus_specs():
         try:
             binding = binding_from_spec(spec)
         except Exception:  # noqa: BLE001
@@ -265,7 +267,7 @@ def test_no_fractional_scalar_is_bound_as_an_integer() -> None:
         for arg in binding.args:
             if arg.kind != "scalar":
                 continue
-            value = _declared_value(spec, arg.name)
+            value = declared_value(spec, arg.name)
             if isinstance(value, float) and np.issubdtype(np.dtype(arg.dtype), np.integer):
                 offenders.append(f"{stem}.{arg.name} declared {value!r} but bound {arg.dtype}")
     assert not offenders, "the C ABI would truncate a fractional scalar to an integer:\n  " + "\n  ".join(offenders)
@@ -278,7 +280,7 @@ def test_no_integer_scalar_is_bound_as_a_float() -> None:
     from hpcagent_bench.support.bindings.contract import binding_from_spec
 
     offenders = []
-    for stem, spec in _corpus_specs():
+    for stem, spec in corpus_specs():
         try:
             binding = binding_from_spec(spec)
         except Exception:  # noqa: BLE001
@@ -286,7 +288,7 @@ def test_no_integer_scalar_is_bound_as_a_float() -> None:
         for arg in binding.args:
             if arg.kind != "scalar":
                 continue
-            value = _declared_value(spec, arg.name)
+            value = declared_value(spec, arg.name)
             if isinstance(value, bool) or not isinstance(value, int):
                 continue
             if np.issubdtype(np.dtype(arg.dtype), np.floating):
@@ -327,7 +329,7 @@ def test_every_binding_is_references_then_scalars_each_sorted() -> None:
     from hpcagent_bench.support.bindings.contract import binding_from_spec
 
     offenders = []
-    for stem, spec in _corpus_specs():
+    for stem, spec in corpus_specs():
         try:
             args = binding_from_spec(spec).args
         except Exception:  # noqa: BLE001 -- loadability is the spec suite's job, not this one's

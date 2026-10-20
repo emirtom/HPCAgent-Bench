@@ -61,7 +61,15 @@ GFORTRAN_IMPLICIT_NONE = [
 ALLOCATE = re.compile(r"allocate\(([A-Za-z_][A-Za-z0-9_]*)\((.*?)\)\)$", re.MULTILINE)
 
 
-def build(src: str, func: str, inputs, outputs, shapes, syms, level=None):
+def build(
+    src: str,
+    func: str,
+    inputs: list[str],
+    outputs: list[str],
+    shapes: dict[str, str],
+    syms: dict[str, int],
+    level: int | None = None,
+) -> tuple[pathlib.Path, pathlib.Path]:
     d = pathlib.Path(tempfile.mkdtemp())
     npy = d / f"{func}_numpy.py"
     npy.write_text(src)
@@ -73,7 +81,16 @@ def build(src: str, func: str, inputs, outputs, shapes, syms, level=None):
     return npy, bi
 
 
-def fortran(src, func, inputs, outputs, shapes, syms, precision=None, level=None) -> str:
+def fortran(
+    src: str,
+    func: str,
+    inputs: list[str],
+    outputs: list[str],
+    shapes: dict[str, str],
+    syms: dict[str, int],
+    precision: str | None = None,
+    level: int | None = None,
+) -> str:
     npy, bi = build(src, func, inputs, outputs, shapes, syms, level=level)
     kir = lower(parse_kernel(npy, bi), native_call=renders_natively)
     if precision:
@@ -184,14 +201,14 @@ HELPER_SYMS = {"N": 6}
 RESULT_KIND = {None: "real(c_double)", "float32": "real(c_float)"}
 
 
-def helper_ret_fortran(precision) -> str:
+def helper_ret_fortran(precision: str | None) -> str:
     return fortran(
         HELPER_RET, "f", ["x", "y", "bonus"], ["out"], HELPER_SHAPES, HELPER_SYMS, precision=precision, level=3
     )
 
 
 @pytest.mark.parametrize("precision", [None, "float32"])
-def test_the_helper_result_dummy_carries_the_kernels_float_kind(precision) -> None:
+def test_the_helper_result_dummy_carries_the_kernels_float_kind(precision: str | None) -> None:
     text = helper_ret_fortran(precision)
     if "intent(out) :: hret_" not in text:
         pytest.skip("the fixture helper is no longer kept as a contained subroutine")
@@ -205,7 +222,7 @@ def test_the_helper_result_dummy_carries_the_kernels_float_kind(precision) -> No
 
 
 @pytest.mark.parametrize("precision", [None, "float32"])
-def test_the_helper_call_typechecks_at_both_precisions(precision) -> None:
+def test_the_helper_call_typechecks_at_both_precisions(precision: str | None) -> None:
     """The wrong kind is not a warning: gfortran refuses the CALL, so the kernel does not build."""
     diag = compiles_with_implicit_none(helper_ret_fortran(precision))
     assert not diag, f"precision={precision}:\n{diag}"

@@ -17,12 +17,12 @@ from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import grade_under, metric, recording, scaling_grade, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.outcomes import GradeStatus
 from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings.contract import graded_datatype
-from hpcagent_bench.harness.outcomes import GradeStatus
 
 KERNEL = "dist_softmax"
 SWEEP = grade_under.Scaling((ScalingLaw.STRONG, ScalingLaw.WEAK), (1, 2, 4, 8, 16))
@@ -115,7 +115,7 @@ def test_a_recorded_submission_keeps_its_requests_and_scratch_request(judge_db: 
     assert (Requests.validate(json.loads(requests)), workspace) == (hip_submission().requests, "4096")
 
 
-def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib.Path, tmp_path) -> None:
+def test_the_worklist_item_carries_everything_the_replay_needs(judge_db: pathlib.Path, tmp_path: pathlib.Path) -> None:
     record(judge_db, hip_submission())
     items, problems = grade_under.build_owed_worklist([judge_db], setup_env_dir(tmp_path))
     assert problems == []
@@ -140,7 +140,9 @@ def test_a_single_node_kernel_gets_no_sweep() -> None:
     assert grade_under.scaled(item, SWEEP.rank_counts).scaling is None
 
 
-def test_a_submission_without_a_recorded_layout_is_reported_not_guessed(judge_db: pathlib.Path, tmp_path) -> None:
+def test_a_submission_without_a_recorded_layout_is_reported_not_guessed(
+    judge_db: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
     """A manifest-default layout is not the agent's layout; replaying it would grade other code."""
     submission = hip_submission()
     submission.requests = Requests.of(libraries=("rccl",))
@@ -286,7 +288,9 @@ def test_a_real_recorder_keeps_both_laws_of_one_grade(tmp_path: pathlib.Path, mo
     assert sorted(points) == [("strong", 5), ("weak", 5)]
 
 
-def test_a_replay_that_raises_is_an_error_row_not_a_dead_gang(tmp_path: pathlib.Path, monkeypatch) -> None:
+def test_a_replay_that_raises_is_an_error_row_not_a_dead_gang(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv(scaling_grade.GANG_NODELIST_ENV, GANG)
 
     def broken(item: grade_under.Item) -> scaling_grade.Graded:
@@ -346,7 +350,9 @@ def test_outside_a_gang_no_rank_is_placeable(monkeypatch: pytest.MonkeyPatch) ->
     assert scaling_grade.placeable_ranks() == 0
 
 
-def test_a_layout_the_live_route_refuses_is_refused_on_replay_before_any_build(judge_db, monkeypatch) -> None:
+def test_a_layout_the_live_route_refuses_is_refused_on_replay_before_any_build(
+    judge_db: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """dist_softmax allowlists no replicated array; the route answers 400 for this layout, so a
     replay that graded it would accept a submission the judge never could."""
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GRADE_DISTRIBUTED", "1")

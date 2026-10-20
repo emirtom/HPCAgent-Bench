@@ -32,7 +32,7 @@ __all__ = [
 ]
 
 
-def program_of(module: Any, func_name: str, module_name: str) -> Any:
+def program_of(module: Any, func_name: str, module_name: str) -> Any:  # noqa: ANN401
     """The kernel's ``@dace.program`` (named by ``__hpcagent_bench_program__``, else the sole program), or ``None``."""
     members = modules.members(module)
     prog = (
@@ -46,7 +46,7 @@ def program_of(module: Any, func_name: str, module_name: str) -> Any:
     return programs[0] if len(programs) == 1 else None
 
 
-def marshal(name: str, value: Any, sdfg: Any) -> Any:
+def marshal(name: str, value: Any, sdfg: Any) -> Any:  # noqa: ANN401
     """``value``, VALUE-cast to the dtype the SDFG declares for ``name`` (a private copy either way).
 
     DaCe REINTERPRETS a mismatched array's bytes rather than converting it; the c/cpp/fortran legs value-cast against

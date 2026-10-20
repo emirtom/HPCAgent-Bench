@@ -38,7 +38,7 @@ def drawn_speedup_row(mark: marks.Mark) -> tuple[list[efficacy.SetupRow], plt.Ax
     """The speedup row of :func:`synthetic_rows` drawn under ``mark``, intervals never cut."""
     rows = synthetic_rows()
     config = dataclasses.replace(efficacy.DEFAULT_CONFIG, mark=mark, interval_reach=2.0**20)
-    _fig, ax = plt.subplots()
+    unused_fig, ax = plt.subplots()
     efficacy.draw_measure_row(ax, rows, "speedup", "s", {}, config)
     return rows, ax, config
 
@@ -48,7 +48,7 @@ def expected_intervals(rows: list[efficacy.SetupRow], config: efficacy.FigureCon
     out: list[tuple[float, ...]] = []
     for x, row in zip(efficacy.column_x(rows), rows, strict=True):
         for point, dodge in ((row.control, -config.dodge), (row.treated, config.dodge)):
-            _value, low, high = efficacy.measure_value(point, "speedup")
+            unused_value, low, high = efficacy.measure_value(point, "speedup")
             out.append((x + dodge, low, high))
     return sorted(out)
 
@@ -67,11 +67,11 @@ def flat(pairs: list[tuple[float, ...]]) -> list[float]:
 def test_the_scatter_form_draws_a_marker_at_each_estimate_and_its_ci_as_the_error_bar() -> None:
     rows, ax, config = drawn_speedup_row(marks.Mark.SCATTER)
     expected = expected_intervals(rows, config)
-    assert all(high > low for _x, low, high in expected), expected
+    assert all(high > low for unused_x, low, high in expected), expected
     assert flat(drawn_intervals(ax)) == pytest.approx(flat(expected))
     values = sorted(efficacy.measure_value(point, "speedup")[0] for row in rows for point in (row.control, row.treated))
     offsets = [tuple(o) for c in ax.collections if isinstance(c, PathCollection) for o in c.get_offsets()]
-    assert sorted({y for _x, y in offsets}) == pytest.approx(values)
+    assert sorted({y for unused_x, y in offsets}) == pytest.approx(values)
     assert not [patch for patch in ax.patches if isinstance(patch, Rectangle) and patch.get_width() < 1.0]
     plt.close(ax.figure)
 

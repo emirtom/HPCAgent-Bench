@@ -5,6 +5,8 @@
 import dataclasses
 import math
 import pathlib
+import types
+from collections.abc import Callable
 
 import pandas as pd
 import pytest
@@ -13,7 +15,7 @@ from hpcagent_bench import paths
 from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.harness import metric
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.scoring import Score
+from hpcagent_bench.harness.scoring import CellScore, Score
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.stats import population, score_rule
 from hpcagent_bench.stats.commands import efficacy as efficacy_command
@@ -79,11 +81,12 @@ def test_the_reward_is_the_rule_over_one_measurement(speedup: float) -> None:
     assert metric.reward(correct(speedup)) == score_rule.credit([speedup], solved=True).score
 
 
-def fake_cells(speedups: tuple[float, ...]):
+def fake_cells(speedups: tuple[float, ...]) -> Callable[..., list[CellScore]]:
     """score_cells stand-in: every correctness cell passes, timed cells credit ``speedups`` in turn."""
-    from hpcagent_bench.harness.scoring import CellScore
 
-    def fake(submission, task, cells, **kw):
+    def fake(
+        submission: Submission, task: Task, cells: list[dict[str, bool | dict[str, int] | str]], **kw: int | str | None
+    ) -> list[CellScore]:
         out, timed = [], iter(speedups * 8)
         for c in cells:
             is_timed = bool(c.get("timed"))
@@ -161,7 +164,7 @@ def test_an_answer_scores_by_its_suspect_flag(suspect: object, want: float) -> N
     assert population.answer_score(3.0, suspect) == want
 
 
-def load_plot_script():
+def load_plot_script() -> types.ModuleType:
     return efficacy_command
 
 

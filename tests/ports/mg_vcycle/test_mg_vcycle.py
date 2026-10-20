@@ -19,6 +19,7 @@ buffer and explicit index arithmetic, so a slip in the offset table shows up as 
     pytest tests/ports/mg_vcycle/
 """
 
+import types
 from pathlib import Path
 
 import numpy as np
@@ -37,11 +38,11 @@ MAX_CYCLE_SPREAD = 1
 
 
 @pytest.fixture(scope="module")
-def kernel():
+def kernel() -> types.ModuleType:
     return module_at(_BENCH / "mg_vcycle_numpy.py")
 
 
-def apply_operator(v):
+def apply_operator(v: np.ndarray) -> np.ndarray:
     """7-point Laplacian with the cell-centered odd-reflection Dirichlet ghost the kernel uses."""
     n = v.shape[0]
     h2 = 1.0 / (n * n)
@@ -52,10 +53,10 @@ def apply_operator(v):
     s[:, :-1, :] += v[:, 1:, :]
     s[:, :, 1:] += v[:, :, :-1]
     s[:, :, :-1] += v[:, :, 1:]
-    return ((6.0 + _missing(n)) * v - s) / h2
+    return ((6.0 + missing(n)) * v - s) / h2
 
 
-def _missing(n):
+def missing(n: int) -> np.ndarray:
     """Per-cell count of faces on the domain boundary -- one extra diagonal entry each."""
     m = np.zeros((n, n, n))
     m[0, :, :] += 1
@@ -67,20 +68,20 @@ def _missing(n):
     return m
 
 
-def smooth(u, f, sweeps, omega=6.0 / 7.0):
+def smooth(u: np.ndarray, f: np.ndarray, sweeps: int, omega: float = 6.0 / 7.0) -> np.ndarray:
     n = u.shape[0]
-    d = (6.0 + _missing(n)) / (1.0 / (n * n))
+    d = (6.0 + missing(n)) / (1.0 / (n * n))
     for _ in range(sweeps):
         u = u + omega * (f - apply_operator(u)) / d
     return u
 
 
-def restrict(r):
+def restrict(r: np.ndarray) -> np.ndarray:
     nc = r.shape[0] // 2
     return r.reshape(nc, 2, nc, 2, nc, 2).mean(axis=(1, 3, 5))
 
 
-def prolong(e):
+def prolong(e: np.ndarray) -> np.ndarray:
     """Cell-centered trilinear, 27/9/3/1 over 64, odd reflection off the edge."""
     nc = e.shape[0]
     nf = 2 * nc
@@ -89,7 +90,7 @@ def prolong(e):
     parent = idx // 2
     lean = 2 * (idx % 2) - 1
 
-    def axis(c):
+    def axis(c: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         return np.clip(c, 0, nc - 1), np.where((c < 0) | (c > nc - 1), -1.0, 1.0)
 
     for di in (0, 1):
@@ -103,7 +104,7 @@ def prolong(e):
     return out
 
 
-def vcycle(u, f, nu: int = 3, ncoarse: int = 4, coarse_sweeps: int = 40):
+def vcycle(u: np.ndarray, f: np.ndarray, nu: int = 3, ncoarse: int = 4, coarse_sweeps: int = 40) -> np.ndarray:
     if u.shape[0] <= ncoarse:
         return smooth(u, f, coarse_sweeps)
     u = smooth(u, f, nu)
@@ -111,13 +112,13 @@ def vcycle(u, f, nu: int = 3, ncoarse: int = 4, coarse_sweeps: int = 40):
     return smooth(u + prolong(coarse), f, nu)
 
 
-def broadband_rhs(n, seed: int = 0):
+def broadband_rhs(n: int, seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     f = rng.standard_normal((n, n, n))
     return f - f.mean()
 
 
-def _cycles_to_tolerance(n, tol: float = 1.0e-8, cap: int = 40):
+def cycles_to_tolerance(n: int, tol: float = 1.0e-8, cap: int = 40) -> int:
     f = broadband_rhs(n)
     u = np.zeros((n, n, n))
     r0 = np.linalg.norm(f)
@@ -136,7 +137,7 @@ def test_grid_must_be_a_power_of_two() -> None:
         init.initialize(4)
 
 
-def test_kernel_matches_the_vectorized_reference(kernel) -> None:
+def test_kernel_matches_the_vectorized_reference(kernel: types.ModuleType) -> None:
     """The flat buffer and its offset table must reproduce the array-shaped formulation."""
     n = 16
     f = broadband_rhs(n)
@@ -152,7 +153,7 @@ def test_kernel_matches_the_vectorized_reference(kernel) -> None:
     )
 
 
-def test_residual_drops_at_least_five_times_per_cycle(kernel) -> None:
+def test_residual_drops_at_least_five_times_per_cycle(kernel: types.ModuleType) -> None:
     """Gate (a), measured on the shipped kernel rather than on the reference."""
     n = 16
     f = broadband_rhs(n)
@@ -178,7 +179,7 @@ def test_cycle_count_is_grid_independent() -> None:
     smoother. Measured 9 cycles at 32^3, 10 at 128^3 and 10 at 256^3; 256^3 is left out of the
     default run only because it takes ~140 s, not because it disagrees.
     """
-    counts = {n: _cycles_to_tolerance(n) for n in (32, 128)}
+    counts = {n: cycles_to_tolerance(n) for n in (32, 128)}
     print("\ncycles to 1e-8: " + "  ".join(f"{n}^3={c}" for n, c in counts.items()))
     assert all(c > 0 for c in counts.values()), f"a grid never reached the tolerance: {counts}"
     spread = max(counts.values()) - min(counts.values())

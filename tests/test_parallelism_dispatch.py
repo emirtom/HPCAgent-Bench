@@ -195,7 +195,7 @@ extern "C" int stub_probe(void) {
 """
 
 
-def cpp_blocks():
+def cpp_blocks() -> list[tuple[str, languages.CompilerBlock]]:
     """``compilers.yaml``'s single-node C++ blocks, as ``(name, block)``. Read from the table
     rather than listed here, so a new C++ toolchain is gated the day it is added."""
     return [
@@ -205,14 +205,14 @@ def cpp_blocks():
     ]
 
 
-def resolved_cc(block) -> str:
+def resolved_cc(block: languages.CompilerBlock) -> str:
     """The driver ``block`` really invokes -- through :func:`languages.resolve_compiler`, the same
     resolution :func:`languages.subst_map` applies, so a toolchain installed only as ``g++-14`` is
     probed under the name it will actually be built with."""
     return languages.resolve_compiler(block.cc) or block.cc
 
 
-def require_compiler(block) -> str:
+def require_compiler(block: languages.CompilerBlock) -> str:
     """Case 1: no such driver on this host -> DEFERRED."""
     exe = languages.resolve_compiler(block.cc)
     if exe is None:
@@ -220,7 +220,7 @@ def require_compiler(block) -> str:
     return exe
 
 
-def require_compiles(block, source: str, suffix: str, extra: str = "") -> None:
+def require_compiles(block: languages.CompilerBlock, source: str, suffix: str, extra: str = "") -> None:
     """Case 2: the driver exists but cannot build ``source`` at the harness's own standard ->
     DEFERRED, quoting the compiler and its version so the log says WHICH environment declined."""
     exe = require_compiler(block)
@@ -235,7 +235,7 @@ def require_compiles(block, source: str, suffix: str, extra: str = "") -> None:
         )
 
 
-def compile_complaint(argv, source: str, suffix: str):
+def compile_complaint(argv: list[str], source: str, suffix: str) -> str | None:
     """``None`` when ``argv`` compiles ``source``, else the last line of the compiler's complaint."""
     with tempfile.TemporaryDirectory(prefix="hpcagent_bench_dispatch_probe_") as workdir:
         src = pathlib.Path(workdir) / f"probe{suffix}"
@@ -249,7 +249,14 @@ def compile_complaint(argv, source: str, suffix: str):
         return tail[-1] if tail else f"exit {proc.returncode}"
 
 
-def build_probe_lib(lang: Language, source: str, out_dir: pathlib.Path, *, compiler=None, mode=Mode.SINGLE_CORE):
+def build_probe_lib(
+    lang: Language,
+    source: str,
+    out_dir: pathlib.Path,
+    *,
+    compiler: str | None = None,
+    mode: Mode = Mode.SINGLE_CORE,
+) -> tuple[pathlib.Path, list[list[str]], str]:
     """Build ``source`` into a ``.so`` down the judge's own path, returning ``(lib, cmds, log)``.
 
     :func:`languages.build_shared_lib_commands` is what ``Sandbox.build`` calls for a restricted
@@ -321,7 +328,9 @@ def call_probe(lib: pathlib.Path, symbol: str) -> int:
 @pytest.mark.integration
 @pytest.mark.parametrize(("name", "block"), cpp_blocks())
 @isolated
-def test_execution_policies_dispatch_into_tbb(name, block, tmp_path) -> None:
+def test_execution_policies_dispatch_into_tbb(
+    name: str, block: languages.CompilerBlock, tmp_path: pathlib.Path
+) -> None:
     """A C++ submission using ``std::execution::par_unseq`` must LINK the parallel runtime and
     CALL it -- built exactly the way the judge builds one.
 
@@ -366,7 +375,7 @@ def test_execution_policies_dispatch_into_tbb(name, block, tmp_path) -> None:
     assert call_probe(lib, "stdpar_dispatch_probe") == 0, "the par_unseq transform computed the wrong result"
 
 
-def test_cpp_link_line_carries_the_stdpar_runtime(monkeypatch, tmp_path) -> None:
+def test_cpp_link_line_carries_the_stdpar_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Wiring, asserted without a compiler: when the backend IS TBB, the judge's C++ link argv
     carries its library.
 
@@ -381,7 +390,9 @@ def test_cpp_link_line_carries_the_stdpar_runtime(monkeypatch, tmp_path) -> None
     assert flags.STDPAR_LINK_TBB in cmds[-1], f"C++ link argv lost the stdpar runtime: {cmds[-1]}"
 
 
-def test_cpp_link_line_omits_the_stdpar_runtime_without_the_backend(monkeypatch, tmp_path) -> None:
+def test_cpp_link_line_omits_the_stdpar_runtime_without_the_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """The other direction, which is why the flag cannot simply be pinned into ``compilers.yaml``'s
     ``link:`` line: on a host without the TBB headers, ``-ltbb`` is a hard ``cannot find -ltbb``
     link error, so every C++ submission would fail to build."""
@@ -391,7 +402,9 @@ def test_cpp_link_line_omits_the_stdpar_runtime_without_the_backend(monkeypatch,
 
 
 @pytest.mark.parametrize("lang", [Language.C, Language.FORTRAN])
-def test_non_cpp_link_lines_never_carry_the_stdpar_runtime(lang, monkeypatch, tmp_path) -> None:
+def test_non_cpp_link_lines_never_carry_the_stdpar_runtime(
+    lang: Language, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """TBB is the C++ ``<execution>`` runtime and nothing else's. A C or Fortran link that grew
     ``-ltbb`` would be linking a library the object never calls -- and on a host without it, a
     build failure for a language that never asked."""
@@ -402,7 +415,9 @@ def test_non_cpp_link_lines_never_carry_the_stdpar_runtime(lang, monkeypatch, tm
 
 
 @pytest.mark.parametrize("lang", [Language.C, Language.CPP])
-def test_graded_c_and_cpp_link_mimalloc_when_the_host_has_it(lang, monkeypatch, tmp_path) -> None:
+def test_graded_c_and_cpp_link_mimalloc_when_the_host_has_it(
+    lang: Language, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """The allocator is part of the graded C/C++ build, not only an
     LD_PRELOAD the launcher might drop."""
     monkeypatch.setattr(languages, "_mimalloc_links", lambda cc, tokens, offload: True)
@@ -412,7 +427,9 @@ def test_graded_c_and_cpp_link_mimalloc_when_the_host_has_it(lang, monkeypatch, 
 
 
 @pytest.mark.parametrize("lang", [Language.C, Language.CPP, Language.FORTRAN])
-def test_the_link_line_omits_mimalloc_when_the_host_lacks_it(lang, monkeypatch, tmp_path) -> None:
+def test_the_link_line_omits_mimalloc_when_the_host_lacks_it(
+    lang: Language, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """Same reason ``-ltbb`` is probe-gated, but worse: an unresolvable ``-lmimalloc`` fails EVERY
     build, including submissions that never allocate. Fortran is never given it at all."""
     # ``lang is Language.FORTRAN``, not ``lang == "never"`` (which is False for every parametrized value):
@@ -436,7 +453,7 @@ def test_the_link_line_omits_mimalloc_when_the_host_lacks_it(lang, monkeypatch, 
 @pytest.mark.integration
 @pytest.mark.parametrize("lang", list(OPENMP_SOURCES))
 @isolated
-def test_openmp_pragmas_dispatch_into_a_runtime(lang, tmp_path) -> None:
+def test_openmp_pragmas_dispatch_into_a_runtime(lang: str, tmp_path: pathlib.Path) -> None:
     """An OpenMP submission in ``lang`` must reach an OpenMP runtime through the judge's build.
 
     ``#pragma omp parallel for`` without ``-fopenmp`` is a COMMENT -- it compiles, it runs, it is
@@ -462,7 +479,7 @@ def test_openmp_pragmas_dispatch_into_a_runtime(lang, tmp_path) -> None:
 
 
 @pytest.mark.parametrize("lang", [Language.C, Language.CPP, Language.FORTRAN])
-def test_openmp_is_unconditional_in_every_submission_baseline(lang) -> None:
+def test_openmp_is_unconditional_in_every_submission_baseline(lang: Language) -> None:
     """OpenMP is not an opt-in column: it is in the baseline of every language an agent may submit,
     in EVERY mode, so a submission never has to ask for it (and could not -- ``sandbox.split_build``
     drops any flag that is not ``-I``/``-D``/``-l``/``-L``)."""
@@ -480,7 +497,7 @@ def test_openmp_is_unconditional_in_every_submission_baseline(lang) -> None:
 
 
 @pytest.mark.parametrize("lang", [Language.C, Language.CPP, Language.FORTRAN])
-def test_autopar_delta_is_reachable_and_mode_gated(lang) -> None:
+def test_autopar_delta_is_reachable_and_mode_gated(lang: Language) -> None:
     """Each language's ``autopar_ref`` resolves and lands in the MULTI_CORE line -- and in no
     other. A delta that silently stopped resolving would turn an autopar column into a relabelled
     ``-O3`` run, which is the failure :func:`flags.probe_autopar` exists for."""
@@ -605,7 +622,7 @@ SKILL_TAUGHT = (
 TAUGHT_IDS = [f"{case.page}:{case.lang.text}:{case.name}" for case in SKILL_TAUGHT]
 
 
-def taught_block(case: TaughtConstruct):
+def taught_block(case: TaughtConstruct) -> languages.CompilerBlock:
     """The compilers.yaml block ``case`` will really be graded with, after the case-1 skip."""
     _cname, block = languages._compiler_for_lang(languages._load_compilers(), case.lang)
     require_compiler(block)
@@ -615,7 +632,7 @@ def taught_block(case: TaughtConstruct):
 @pytest.mark.integration
 @pytest.mark.parametrize("case", SKILL_TAUGHT, ids=TAUGHT_IDS)
 @isolated
-def test_skill_taught_parallelism_compiles_in_a_graded_build(case, tmp_path) -> None:
+def test_skill_taught_parallelism_compiles_in_a_graded_build(case: TaughtConstruct, tmp_path: pathlib.Path) -> None:
     """Every construct a skill page teaches must BUILD through the judge's own line.
 
     This is the gate that a page and ``compilers.yaml`` cannot drift apart silently. It is not a
@@ -646,7 +663,7 @@ def test_skill_taught_parallelism_compiles_in_a_graded_build(case, tmp_path) -> 
     [c for c in SKILL_TAUGHT if c.runtime],
     ids=[i for i, c in zip(TAUGHT_IDS, SKILL_TAUGHT, strict=False) if c.runtime],
 )
-def test_skill_taught_parallelism_dispatches_into_its_runtime(case, tmp_path) -> None:
+def test_skill_taught_parallelism_dispatches_into_its_runtime(case: TaughtConstruct, tmp_path: pathlib.Path) -> None:
     """A page that says a construct THREADS must be able to point at the runtime call.
 
     ``do concurrent`` is the reason this exists. It compiles and validates identically whether or
@@ -736,7 +753,7 @@ def autopar_pool_size(exe: str, graded: str, n: int, workdir: pathlib.Path, omp_
     return int(found.group(1))
 
 
-def test_gcc_autopar_thread_count_has_no_ceiling(tmp_path) -> None:
+def test_gcc_autopar_thread_count_has_no_ceiling(tmp_path: pathlib.Path) -> None:
     """Every rung of the ladder must produce a pool of exactly that many threads."""
     _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
     if "gfortran" not in block.cc:
@@ -760,7 +777,7 @@ def test_gcc_autopar_thread_count_has_no_ceiling(tmp_path) -> None:
     )
 
 
-def test_omp_num_threads_cannot_widen_a_baked_autopar_count(tmp_path) -> None:
+def test_omp_num_threads_cannot_widen_a_baked_autopar_count(tmp_path: pathlib.Path) -> None:
     """The environment must not move the baked count -- grading_ncores() is only sound if it holds."""
     _cname, block = languages._compiler_for_lang(languages._load_compilers(), Language.FORTRAN)
     if "gfortran" not in block.cc:

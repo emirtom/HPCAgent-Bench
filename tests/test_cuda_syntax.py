@@ -42,7 +42,7 @@ _CUDA_CASES = [
 ]
 
 
-def _nvcc_include_flags():
+def nvcc_include_flags() -> list[str]:
     """The MPI include flags nvcc needs (it is not an MPI wrapper, so the wrapper's -I must be
     injected -- the same thing ``languages.mpi_wrapper_flags`` does for the real build)."""
     for wrapper in ("mpicc", "mpicc.mpich", "mpicc.openmpi"):
@@ -56,7 +56,7 @@ def _nvcc_include_flags():
 
 @pytest.mark.nvcc
 @pytest.mark.parametrize(("kernel", "grid", "device_idx"), _CUDA_CASES, ids=str)
-def test_cuda_mpi_driver_compiles(kernel, grid, device_idx) -> None:
+def test_cuda_mpi_driver_compiles(kernel: str, grid: list[int], device_idx: tuple[int, ...]) -> None:
     """The emitted device-residency driver is VALID CUDA -- compile-only, no GPU."""
     binding = binding_from_spec(BenchSpec.load(kernel))
     src = gen_mpi_driver(binding, grid, device_arrays=device_idx)
@@ -66,7 +66,7 @@ def test_cuda_mpi_driver_compiles(kernel, grid, device_idx) -> None:
         cu = pathlib.Path(td) / f"{kernel}_driver.cu"
         cu.write_text(src)
         res = subprocess.run(
-            ["nvcc", "-c", str(cu), "-o", str(pathlib.Path(td) / "drv.o"), *_nvcc_include_flags()],
+            ["nvcc", "-c", str(cu), "-o", str(pathlib.Path(td) / "drv.o"), *nvcc_include_flags()],
             capture_output=True,
             text=True,
             timeout=300,

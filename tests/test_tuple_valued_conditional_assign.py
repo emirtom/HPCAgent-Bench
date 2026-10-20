@@ -12,11 +12,14 @@ way; the helper below is their ``_tap_span`` in miniature.
 """
 
 import json
+import pathlib
+from collections.abc import Callable
 
 import pytest
 
 from hpcagent_bench.translators.numpyto_c.emit import emit_c
 from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from hpcagent_bench.translators.numpyto_fortran.emit import emit_fortran
 
@@ -65,13 +68,13 @@ UNPACKED = ("lo", "hi", "p", "q")
 
 
 @pytest.fixture(name="kir")
-def _kir(tmp_path):
+def kir_fixture(tmp_path: pathlib.Path) -> KernelIR:
     (tmp_path / "k_numpy.py").write_text(TUPLE_HELPER_KERNEL)
     (tmp_path / "k.json").write_text(json.dumps(BENCH_INFO))
     return lower(parse_kernel(tmp_path / "k_numpy.py", tmp_path / "k.json"))
 
 
-def _bindings(src, name):
+def bindings(src: str, name: str) -> list[str]:
     """Every emitted statement that binds ``name``; declarations and comparisons excluded."""
     out = []
     for line in src.splitlines():
@@ -84,10 +87,10 @@ def _bindings(src, name):
 
 
 @pytest.mark.parametrize("emit", [emit_c, emit_fortran], ids=["c", "fortran"])
-def test_every_unpacked_target_is_bound_exactly_once(emit, kir) -> None:
+def test_every_unpacked_target_is_bound_exactly_once(emit: Callable[[KernelIR], str], kir: KernelIR) -> None:
     """The whole point of the unpack: four names, four bindings, in either language."""
     src = emit(kir)
-    bound = {name: _bindings(src, name) for name in UNPACKED}
+    bound = {name: bindings(src, name) for name in UNPACKED}
     assert all(len(v) == 1 for v in bound.values()), (
         f"each of {list(UNPACKED)} must be bound exactly once; got { {k: len(v) for k, v in bound.items()} }"
     )
@@ -96,11 +99,11 @@ def test_every_unpacked_target_is_bound_exactly_once(emit, kir) -> None:
     assert len(set(values)) == len(values), f"unpacked targets share a value: {values}"
 
 
-def test_the_c_emit_projects_each_element_through_the_conditional(kir) -> None:
+def test_the_c_emit_projects_each_element_through_the_conditional(kir: KernelIR) -> None:
     """Element ``i`` must come from element ``i`` of BOTH setups, and from no other element."""
     src = emit_c(kir)
-    p_line = _bindings(src, "p")[0]
-    q_line = _bindings(src, "q")[0]
+    p_line = bindings(src, "p")[0]
+    q_line = bindings(src, "q")[0]
     assert "700" in p_line, f"p lost a setup: {p_line}"
     assert "900" in p_line, f"p lost a setup: {p_line}"
     assert "800" not in p_line, f"p picked up q's element: {p_line}"

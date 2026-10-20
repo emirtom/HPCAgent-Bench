@@ -13,6 +13,8 @@ import importlib.util
 import sys
 import tempfile
 
+import numpy as np
+
 from tests.translators import native_tu as tu
 
 DIR = tu.REPO / "hpcagent_bench" / "benchmarks" / "scientific_computing" / "graph_traversal" / "pagerank"
@@ -21,7 +23,7 @@ NUMPY_PY = DIR / "pagerank_numpy.py"
 N = 16
 
 
-def ref():
+def ref() -> tuple[np.ndarray, np.ndarray, float, int]:
     sp = importlib.util.spec_from_file_location("pr", NUMPY_PY)
     m = importlib.util.module_from_spec(sp)
     # Registered BEFORE exec: dataclasses resolves a string annotation through
@@ -43,7 +45,7 @@ def ref():
 TRANS, WANT, DAMPING, MAX_ITER = ref()
 
 
-def c_driver():
+def c_driver() -> str:
     return f"""
 #include <stdio.h>
 #include <math.h>
@@ -64,7 +66,7 @@ int main(void) {{
 """
 
 
-def f_driver():
+def f_driver() -> str:
     return f"""
 program test_pagerank
     use, intrinsic :: iso_c_binding

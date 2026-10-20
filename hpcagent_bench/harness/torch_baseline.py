@@ -455,7 +455,7 @@ def child_result(job: Job) -> Measured:
     return run.result
 
 
-def slot_job(spec: BenchSpec, baseline: Baseline, **fields: Any) -> Job:
+def slot_job(spec: BenchSpec, baseline: Baseline, **fields: Any) -> Job:  # noqa: ANN401
     """A :class:`Job` for the calling grade's device slot and cores (a kernel with no reference refused first)."""
     from hpcagent_bench.harness.native_call import assigned_device, grading_cpus
 

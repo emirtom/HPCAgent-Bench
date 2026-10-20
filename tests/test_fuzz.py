@@ -5,8 +5,7 @@
 import pytest
 
 from hpcagent_bench import config, fuzz
-from hpcagent_bench.config import PerfMode
-from hpcagent_bench.config import SizeDistribution
+from hpcagent_bench.config import PerfMode, SizeDistribution
 
 # Validates the REAL size ranges/distributions -> opt out of the suite-wide small-size
 # cap (the autouse _cap_fuzz_sizes fixture in conftest). No speed cost: pure sampler.
@@ -127,7 +126,7 @@ def test_construct_cube_always_perfect_cube() -> None:
 _BIG = {"L": {"NI": 7000, "NJ": 8000}, "XL": {"NI": 12000, "NJ": 13000}}
 
 
-def test_apply_size_cap_explicit_arg_overrides_global(monkeypatch) -> None:
+def test_apply_size_cap_explicit_arg_overrides_global(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "5000")  # the global clamp
     capped = fuzz.resolve_ranges(_BIG, size_cap=256)  # an explicit arg wins over it
     # A range whose both ends exceed the cap keeps a sub-cap SPREAD (not a collapsed [256, 256]),
@@ -138,7 +137,7 @@ def test_apply_size_cap_explicit_arg_overrides_global(monkeypatch) -> None:
     assert glob["NI"] == [2500, 5000]
 
 
-def test_size_cap_keeps_distinct_dim_constraint_satisfiable(monkeypatch) -> None:
+def test_size_cap_keeps_distinct_dim_constraint_satisfiable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: an oversized range clamped to a single point makes `NI != NJ` unsatisfiable, which
     silently drops every fuzz cell. The sub-cap spread keeps it satisfiable."""
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "0")
@@ -156,7 +155,7 @@ def test_size_cap_keeps_distinct_dim_constraint_satisfiable(monkeypatch) -> None
     assert resolved["NJ"] <= 256
 
 
-def test_correctness_size_cap_bounds_only_the_correctness_fuzz(monkeypatch) -> None:
+def test_correctness_size_cap_bounds_only_the_correctness_fuzz(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP", "1024")
     # Stage-1 correctness fuzz shapes are clamped to the cap per dimension...
     for j in range(3):
@@ -169,7 +168,7 @@ def test_correctness_size_cap_bounds_only_the_correctness_fuzz(monkeypatch) -> N
     assert all(s["NI"] > 1024 for _, s in larges)
 
 
-def test_large_shapes_warns_when_all_seeds_dropped(caplog) -> None:
+def test_large_shapes_warns_when_all_seeds_dropped(caplog: pytest.LogCaptureFixture) -> None:
     """An over-constrained config yields zero timed shapes; that must be SURFACED
     (a WARNING naming the config), never silently returned as an empty list."""
     import logging
@@ -182,14 +181,14 @@ def test_large_shapes_warns_when_all_seeds_dropped(caplog) -> None:
     )
 
 
-def test_correctness_size_cap_off_leaves_fuzz_uncapped(monkeypatch) -> None:
+def test_correctness_size_cap_off_leaves_fuzz_uncapped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP", "0")  # 0 = legacy uncapped
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "0")  # and no global clamp either
     s = fuzz.fuzzed_shape(_BIG, 0)
     assert s["NI"] > 1024  # the full fuzz range, no correctness clamp
 
 
-def test_correctness_cap_respects_a_tighter_global(monkeypatch) -> None:
+def test_correctness_cap_respects_a_tighter_global(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_CORRECTNESS_SIZE_CAP", "1024")
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "64")  # global is tighter -> bounds correctness too
     s = fuzz.fuzzed_shape(_BIG, 0)
@@ -197,7 +196,7 @@ def test_correctness_cap_respects_a_tighter_global(monkeypatch) -> None:
     assert s["NJ"] <= 64
 
 
-def test_sample_params_honors_size_cap(monkeypatch) -> None:
+def test_sample_params_honors_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     """sample_params (the microkernel/legacy correctness draw) accepts the correctness cap, so a
     correct-but-slow reference is not drawn a shape it cannot finish inside the timeout. Uncapped by
     default (the general sampler is unchanged)."""
@@ -272,7 +271,7 @@ def test_classed_large_shapes_never_perturb_a_declared_config_knob() -> None:
         assert sample["multrec_limit"] == 512
 
 
-def test_size_cap_does_not_clamp_a_declared_config_knob(monkeypatch) -> None:
+def test_size_cap_does_not_clamp_a_declared_config_knob(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_FUZZ_SIZE_CAP", "10")  # far below multrec_limit's 512
     capped = fuzz.resolve_ranges(CONFIG_AND_DIM_PARAMS, config_names=CONFIG_NAMES)
     assert capped["multrec_limit"] == 512  # exempt from the size cap entirely

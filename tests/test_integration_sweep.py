@@ -90,7 +90,7 @@ def rows_for(db: pathlib.Path, framework: str) -> list[dict[str, object]]:
 
 
 @pytest.fixture(scope="module")
-def sweep(tmp_path_factory) -> pathlib.Path:
+def sweep(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """Drive the whole pipeline once: both sweeps, in one tmp cwd. Module-scoped since the
     two legs must land in the same ``hpcagent_bench.db`` for a speedup to exist."""
     cwd = tmp_path_factory.mktemp("integration_sweep")
@@ -101,7 +101,7 @@ def sweep(tmp_path_factory) -> pathlib.Path:
     return cwd
 
 
-def test_results_db_carries_the_shipped_schema(sweep) -> None:
+def test_results_db_carries_the_shipped_schema(sweep: pathlib.Path) -> None:
     """The sweep wrote an hb-results database whose ``canon`` columns ARE the shipped table."""
     db = sweep / "hpcagent_bench.db"
     assert db.exists(), f"no hpcagent_bench.db in {sweep}"
@@ -111,7 +111,7 @@ def test_results_db_carries_the_shipped_schema(sweep) -> None:
     assert columns == canon_db.COLUMNS
 
 
-def test_numpy_leg_records_every_selected_kernel(sweep) -> None:
+def test_numpy_leg_records_every_selected_kernel(sweep: pathlib.Path) -> None:
     """One validated row per kernel in the selection; counted against the selector, not against
     whatever landed in the DB, so a silently-shrunk sweep can't pass by agreeing with itself."""
     expected = short_names_for(NUMPY_SELECTOR)
@@ -127,7 +127,7 @@ def test_numpy_leg_records_every_selected_kernel(sweep) -> None:
 
 
 @requires_polly
-def test_native_autopar_leg_validates(sweep) -> None:
+def test_native_autopar_leg_validates(sweep: pathlib.Path) -> None:
     """The auto-generated native kernels were emitted, built, ran, and validated: the C++ source was
     generated from the numpy reference, compiled, dlopened, and agreed with NumPy."""
     expected = short_names_for(NATIVE_SELECTOR)
@@ -149,7 +149,7 @@ AUTOPAR_FRAMEWORKS = [
 
 
 @pytest.mark.parametrize(("framework", "want_flag"), AUTOPAR_FRAMEWORKS)
-def test_native_leg_requests_autopar(framework, want_flag, monkeypatch) -> None:
+def test_native_leg_requests_autopar(framework: str, want_flag: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     """The autopar delta reaches the REAL compile, observed where the build path composes it (asserted
     on the compile command, not a runtime speedup, since clang accepts ``-mllvm -polly`` with only a
     warning when its LLVM has no Polly). Spies on ``_ensure_built`` for real rather than re-deriving
@@ -162,7 +162,7 @@ def test_native_leg_requests_autopar(framework, want_flag, monkeypatch) -> None:
 
     seen: list[dict] = []
 
-    def spy(sources, out_so, **kwargs):
+    def spy(sources: list[pathlib.Path], out_so: pathlib.Path, **kwargs: object) -> list[list[str]]:
         seen.append(dict(kwargs))
         return build_kernel_lib_commands(sources, out_so, **kwargs)
 
@@ -186,7 +186,7 @@ def test_native_leg_requests_autopar(framework, want_flag, monkeypatch) -> None:
 
 
 @requires_polly
-def test_speedup_against_numpy_is_computable(sweep) -> None:
+def test_speedup_against_numpy_is_computable(sweep: pathlib.Path) -> None:
     """Both legs are in one db, so every native kernel has a numpy baseline to divide. No speedup value
     is asserted (CI runners are noisy); only that the comparison exists and is finite."""
     db = sweep / "hpcagent_bench.db"

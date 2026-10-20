@@ -36,7 +36,7 @@ HEAD_ITEMS = 1
 MAX_TURNS = sys.maxsize
 
 
-def agents_usage(usage: Any) -> dict[str, int]:
+def agents_usage(usage: Any) -> dict[str, int]:  # noqa: ANN401
     """One ``ModelResponse.usage`` (``agents.usage.Usage``) as a usage line."""
     return runner_common.usage_line(
         runner_common.token_count(usage.input_tokens),
@@ -83,17 +83,17 @@ async def run_agent(
 
         sent: Sequence[Any] = ()
 
-        async def on_llm_start(self, context: Any, agent: Any, system_prompt: Any, input_items: list[Any]) -> None:
+        async def on_llm_start(self, context: Any, agent: Any, system_prompt: Any, input_items: list[Any]) -> None:  # noqa: ANN401
             self.sent = list(input_items)
 
-        async def on_llm_end(self, context: Any, agent: Any, response: Any) -> None:
+        async def on_llm_end(self, context: Any, agent: Any, response: Any) -> None:  # noqa: ANN401
             line = agents_usage(response.usage)
             usage_log.append(line)
             if window is not None:
                 window.calibrate(self.sent, line["input"] + line["cached_input"])
             write_line(transcript, {"output": [item.model_dump(mode="json") for item in response.output]})
 
-        async def on_tool_end(self, context: Any, agent: Any, tool: Any, result: Any) -> None:
+        async def on_tool_end(self, context: Any, agent: Any, tool: Any, result: Any) -> None:  # noqa: ANN401
             write_line(transcript, {"tool": tool.name, "result": result})
             if on_tool_result is not None:
                 on_tool_result(tool.name, result)
@@ -103,7 +103,7 @@ async def run_agent(
             return data.model_data
         return ModelInputData(input=window.view(data.model_data.input), instructions=data.model_data.instructions)
 
-    async def shell(_context: Any, arguments: str) -> str:
+    async def shell(tool_context: Any, arguments: str) -> str:  # noqa: ANN401
         try:
             parsed = json.loads(arguments or "{}")
         except json.JSONDecodeError:

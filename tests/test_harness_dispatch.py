@@ -3,6 +3,7 @@
 """HARNESS dispatch in the cluster agent driver: the driver keeps budgets and watchers, a harness supplies only
 command, environment and output files; the claude command is pinned literally."""
 
+import io
 import json
 import os
 import pathlib
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import time
 import types
+from collections.abc import Callable
 
 import pytest
 
@@ -61,12 +63,12 @@ CALLS = (
 )
 
 
-def load(path: pathlib.Path, name: str):
+def load(path: pathlib.Path, name: str) -> types.ModuleType:
     return module_at(path, name)
 
 
 @pytest.fixture(name="driver")
-def driver_fixture(monkeypatch, tmp_path):
+def driver_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> types.ModuleType:
     """``agent_driver.py`` under an environment holding only what these tests set."""
     for key in list(os.environ):
         if key.startswith(LEAKY_PREFIXES) or key in LEAKY_NAMES:
@@ -91,7 +93,11 @@ def driver_fixture(monkeypatch, tmp_path):
     return module
 
 
-def launcher(monkeypatch, driver, *attempts):
+def launcher(
+    monkeypatch: pytest.MonkeyPatch,
+    driver: types.ModuleType,
+    *attempts: Callable[[pathlib.Path, dict[str, str], io.TextIOWrapper], int | None] | None,
+) -> list[dict[str, object]]:
     """Replace Popen with a harness whose n-th launch runs ``attempts[n]``; returns every launch.
 
     An attempt is ``act(cwd, env, log) -> exit code``, or ``None`` for a harness that runs until the
@@ -99,16 +105,23 @@ def launcher(monkeypatch, driver, *attempts):
     launches: list[dict[str, object]] = []
 
     class FakeHarness:
-        def __init__(self, command, cwd=None, env=None, stdout=None, stderr=None) -> None:
+        def __init__(
+            self,
+            command: list[str],
+            cwd: pathlib.Path | None = None,
+            env: dict[str, str] | None = None,
+            stdout: io.TextIOWrapper | None = None,
+            stderr: int | None = None,
+        ) -> None:
             self.returncode = None
             launches.append({"argv": list(command), "cwd": pathlib.Path(cwd), "env": dict(env)})
             act = attempts[min(len(launches) - 1, len(attempts) - 1)]
             self.exit_code = act(pathlib.Path(cwd), dict(env), stdout)
 
-        def poll(self):
+        def poll(self) -> int | None:
             return self.returncode
 
-        def wait(self, timeout=None):
+        def wait(self, timeout: float | None = None) -> int:
             if self.exit_code is None:
                 give_up = time.monotonic() + 20
                 while self.returncode is None:
@@ -133,7 +146,7 @@ def launcher(monkeypatch, driver, *attempts):
     return launches
 
 
-def claude_run(cwd, env, log):
+def claude_run(cwd: pathlib.Path, env: dict[str, str], log: io.TextIOWrapper) -> int:
     for event in (
         {"type": "system", "subtype": "init", "mcp_servers": [{"name": "hpcagent_bench", "status": "connected"}]},
         {"type": "result", "subtype": "success", "num_turns": 3},
@@ -143,10 +156,17 @@ def claude_run(cwd, env, log):
     return 0
 
 
-def runner_run(code=0, calls=(), end=None, submits=False, until_killed=False, log_text="runner output\n"):
+def runner_run(
+    code: int = 0,
+    calls: list[dict[str, int]] | tuple[dict[str, int], ...] = (),
+    end: dict[str, int | str] | None = None,
+    submits: bool = False,
+    until_killed: bool = False,
+    log_text: str = "runner output\n",
+) -> Callable[[pathlib.Path, dict[str, str], io.TextIOWrapper], int | None]:
     """A runner that honours the contract: usage lines to $HPCAGENT_BENCH_USAGE_PATH, then its end file."""
 
-    def act(cwd, env, log):
+    def act(cwd: pathlib.Path, env: dict[str, str], log: io.TextIOWrapper) -> int | None:
         log.write(log_text)
         log.flush()
         with pathlib.Path(env["HPCAGENT_BENCH_USAGE_PATH"]).open("a", encoding="utf-8") as usage:
@@ -165,7 +185,7 @@ def runner_run(code=0, calls=(), end=None, submits=False, until_killed=False, lo
 FINISHED = {"reason": "finished", "turns": 5, "detail": ""}
 
 
-def run(driver, tmp_path):
+def run(driver: types.ModuleType, tmp_path: pathlib.Path) -> tuple[int, pathlib.Path]:
     """Problem 7 on worker 2 of node 1: judge rank 7 % 2 = 1, replica 7 % 3 = 1."""
     node_dir = tmp_path / "node-1"
     node_dir.mkdir(exist_ok=True)
@@ -173,12 +193,14 @@ def run(driver, tmp_path):
     return rc, node_dir / "problem-7-worker-2"
 
 
-def tokens_record(workdir):
+def tokens_record(workdir: pathlib.Path) -> dict[str, dict[str, str] | float | str]:
     return json.loads((workdir / "tokens.json").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("harness", ["", "claude"])
-def test_the_claude_setup_launches_the_command_every_recorded_experiment_ran(driver, monkeypatch, tmp_path, harness):
+def test_the_claude_setup_launches_the_command_every_recorded_experiment_ran(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str
+) -> None:
     """Snapshotted from the driver before the dispatch existed. HARNESS unset is every running setup.
 
     This is the CONTROL setup's command: it carries no packet, so ``canonical_parallel_form`` is not
@@ -245,7 +267,9 @@ def test_every_allowed_mcp_tool_survives_the_gpt_oss_name_rewrite(
 
 
 @pytest.mark.parametrize("harness", ["", "claude"])
-def test_the_claude_setup_environment_and_files_carry_nothing_of_the_runners(driver, monkeypatch, tmp_path, harness):
+def test_the_claude_setup_environment_and_files_carry_nothing_of_the_runners(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str
+) -> None:
     """The claude-only variables -- the endpoint, the transcript, the ones that set the context
     window and compaction trigger (agent_driver.claude_context_env) and the switch that turns the
     CLI's background tasks off (agent_driver.CLAUDE_BACKGROUND_TASKS_OFF) -- stay right after everything
@@ -340,7 +364,9 @@ def expected_runner_argv(harness: str, workdir: pathlib.Path) -> list[str]:
 
 
 @pytest.mark.parametrize("harness", RUNNERS)
-def test_a_runner_is_launched_with_its_contract_command_in_its_folder(driver, monkeypatch, tmp_path, harness):
+def test_a_runner_is_launched_with_its_contract_command_in_its_folder(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str
+) -> None:
     monkeypatch.setenv("HARNESS", harness)
     monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "3600")
     launches = launcher(monkeypatch, driver, runner_run(end=FINISHED))
@@ -354,7 +380,7 @@ def test_a_runner_is_launched_with_its_contract_command_in_its_folder(driver, mo
 
 @pytest.mark.parametrize("harness", RUNNERS)
 def test_a_runner_gets_the_claude_environment_minus_claudes_own_plus_the_runner_contract(
-    driver, monkeypatch, tmp_path, harness
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str
 ) -> None:
     """Judge, rank, identity and budgets are the fairness invariant between setups: a runner may differ
     from claude only by the variables the contract names."""
@@ -524,7 +550,9 @@ def test_the_anthropic_runner_keeps_the_key_the_launcher_exports_for_the_claude_
     assert "ANTHROPIC_BASE_URL" not in env
 
 
-def test_a_runner_without_a_replica_key_sends_empty(driver, monkeypatch, tmp_path) -> None:
+def test_a_runner_without_a_replica_key_sends_empty(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """``${VLLM_API_KEY:-EMPTY}``: an OpenAI client refuses to start with no key at all."""
     monkeypatch.setenv("HARNESS", "miniswe")
     launches = launcher(monkeypatch, driver, runner_run(end=FINISHED))
@@ -532,7 +560,9 @@ def test_a_runner_without_a_replica_key_sends_empty(driver, monkeypatch, tmp_pat
     assert launches[0]["env"]["OPENAI_API_KEY"] == "EMPTY"
 
 
-def test_an_unknown_harness_stops_the_driver_before_it_waits_on_anything(driver, monkeypatch) -> None:
+def test_an_unknown_harness_stops_the_driver_before_it_waits_on_anything(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A typo in a setup's .env must not launch that setup as claude, nor hold nodes waiting on
     services first. With no replica configured, reaching the service wait would raise KeyError."""
     monkeypatch.setenv("HARNESS", "claude-code")
@@ -541,7 +571,9 @@ def test_an_unknown_harness_stops_the_driver_before_it_waits_on_anything(driver,
         driver.main()
 
 
-def test_the_token_cap_folds_a_runners_usage_file_and_ends_it_with_rc_125(driver, monkeypatch, tmp_path) -> None:
+def test_the_token_cap_folds_a_runners_usage_file_and_ends_it_with_rc_125(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     monkeypatch.setenv("HARNESS", "openhands")
     monkeypatch.setenv("AGENT_MAX_TOKENS", "250")
     launches = launcher(monkeypatch, driver, runner_run(calls=CALLS, until_killed=True))
@@ -569,7 +601,9 @@ def test_an_image_whose_cli_lacks_a_flag_launches_without_it_rather_than_dying(
     assert "--output-format" in launches[0]["argv"], "the rest of the command is untouched"
 
 
-def test_a_runner_is_charged_its_usage_file_and_not_what_its_log_resembles(driver, monkeypatch, tmp_path) -> None:
+def test_a_runner_is_charged_its_usage_file_and_not_what_its_log_resembles(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """A runner's log is free text; a line in it shaped like a claude usage event must not bill it."""
     monkeypatch.setenv("HARNESS", "miniswe")
     monkeypatch.setenv("AGENT_MAX_TOKENS", "1000")
@@ -595,7 +629,9 @@ def test_a_runner_is_charged_its_usage_file_and_not_what_its_log_resembles(drive
 
 
 @pytest.mark.parametrize("harness", RUNNERS)
-def test_a_runners_single_submission_ends_it_with_rc_123(driver, monkeypatch, tmp_path, harness) -> None:
+def test_a_runners_single_submission_ends_it_with_rc_123(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, harness: str
+) -> None:
     monkeypatch.setenv("HARNESS", harness)
     monkeypatch.setenv("AGENT_SUBMISSION_MODE", "single")
     launcher(monkeypatch, driver, runner_run(submits=True, until_killed=True))
@@ -605,7 +641,9 @@ def test_a_runners_single_submission_ends_it_with_rc_123(driver, monkeypatch, tm
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
-def test_a_runner_that_records_a_context_overflow_ends_with_rc_126(driver, monkeypatch, tmp_path, exit_code) -> None:
+def test_a_runner_that_records_a_context_overflow_ends_with_rc_126(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, exit_code: int
+) -> None:
     """Whatever the runner exits with: its end file is the only place the overflow is stated."""
     monkeypatch.setenv("HARNESS", "miniswe")
     end = {"reason": "context_overflow", "turns": 31, "detail": "exceeds model's maximum context length"}
@@ -625,10 +663,10 @@ SGLANG_OVERFLOW = (
 VLLM_OVERFLOW = "API Error: 500 Input length (132226) exceeds model's maximum context length (131072)."
 
 
-def claude_overflow_run(text: str, code: int):
+def claude_overflow_run(text: str, code: int) -> Callable[[pathlib.Path, dict[str, str], io.TextIOWrapper], int]:
     """claude-code closing a run on the served refusal: subtype success, is_error, exit ``code``."""
 
-    def act(cwd, env, log):
+    def act(cwd: pathlib.Path, env: dict[str, str], log: io.TextIOWrapper) -> int:
         for event in (
             {"type": "system", "subtype": "init", "mcp_servers": [{"name": "hpcagent_bench", "status": "connected"}]},
             {"type": "result", "subtype": "success", "is_error": True, "num_turns": 112, "result": text},
@@ -654,7 +692,9 @@ def test_a_claude_run_the_server_refused_as_too_long_ends_with_rc_126(
     assert tokens_record(workdir)["returncode"] == driver.RC_CONTEXT
 
 
-def test_a_runner_api_timeout_is_relaunched_as_claudes_is_and_ends_with_rc_127(driver, monkeypatch, tmp_path) -> None:
+def test_a_runner_api_timeout_is_relaunched_as_claudes_is_and_ends_with_rc_127(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     monkeypatch.setenv("HARNESS", "openhands")
     monkeypatch.setattr(driver, "AGENT_CRASH_ATTEMPTS", 2)
     end = {"reason": "api_timeout", "turns": 12, "detail": "The operation timed out."}
@@ -665,7 +705,9 @@ def test_a_runner_api_timeout_is_relaunched_as_claudes_is_and_ends_with_rc_127(d
     assert (workdir / "harness-end.attempt1.json").is_file()
 
 
-def test_a_runner_that_dies_without_an_end_file_is_relaunched_and_its_attempt_kept(driver, monkeypatch, tmp_path):
+def test_a_runner_that_dies_without_an_end_file_is_relaunched_and_its_attempt_kept(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """A crash is a fault, not a spent budget; the relaunch is charged only for its own calls."""
     monkeypatch.setenv("HARNESS", "miniswe")
     crash = runner_run(code=1, calls=[{"input": 500, "output": 50}])
@@ -678,7 +720,9 @@ def test_a_runner_that_dies_without_an_end_file_is_relaunched_and_its_attempt_ke
     assert tokens_record(workdir)["tokens"] == 110
 
 
-def test_a_runner_that_fails_after_writing_its_end_file_is_not_relaunched(driver, monkeypatch, tmp_path) -> None:
+def test_a_runner_that_fails_after_writing_its_end_file_is_not_relaunched(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """The end file is the runner's own verdict, as claude's result event is: relaunching would
     overwrite it."""
     monkeypatch.setenv("HARNESS", "openhands")
@@ -689,7 +733,9 @@ def test_a_runner_that_fails_after_writing_its_end_file_is_not_relaunched(driver
     assert tokens_record(workdir)["result"] == "error"
 
 
-def test_a_stale_usage_file_from_an_earlier_run_is_not_billed_to_this_one(driver, monkeypatch, tmp_path) -> None:
+def test_a_stale_usage_file_from_an_earlier_run_is_not_billed_to_this_one(
+    driver: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     monkeypatch.setenv("HARNESS", "openhands")
     stale = tmp_path / "node-1" / "problem-7-worker-2"
     stale.mkdir(parents=True)
@@ -699,7 +745,9 @@ def test_a_stale_usage_file_from_an_earlier_run_is_not_billed_to_this_one(driver
     assert tokens_record(workdir)["tokens"] == 280
 
 
-def materialize_prompts(tmp_path, monkeypatch, prompt: pathlib.Path = AGENT / "prompt.md") -> pathlib.Path:
+def materialize_prompts(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, prompt: pathlib.Path = AGENT / "prompt.md"
+) -> pathlib.Path:
     monkeypatch.delenv("KERNELS", raising=False)
     repo = tmp_path / "repo"
     (repo / "agent").mkdir(parents=True)
@@ -727,7 +775,9 @@ def swapped_prompt(fragment: str, cli: bool) -> str:
     return head + (AGENT / fragment).read_text(encoding="utf-8") + tail
 
 
-def test_the_claude_setup_still_reads_prompt_md_byte_for_byte(tmp_path, monkeypatch) -> None:
+def test_the_claude_setup_still_reads_prompt_md_byte_for_byte(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     shared = materialize_prompts(tmp_path, monkeypatch)
     assert (shared / "prompt.md").read_bytes() == (AGENT / "prompt.md").read_bytes()
 
@@ -740,14 +790,18 @@ def test_the_claude_setup_still_reads_prompt_md_byte_for_byte(tmp_path, monkeypa
         ("prompt-native.md", "tools-native.md", False),
     ],
 )
-def test_a_harness_prompt_is_prompt_md_with_only_the_file_tools_swapped(tmp_path, monkeypatch, variant, fragment, cli):
+def test_a_harness_prompt_is_prompt_md_with_only_the_file_tools_swapped(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, variant: str, fragment: str, cli: bool
+) -> None:
     """Everything but the tool access stays single-sourced in prompt.md, so the setups read one text."""
     shared = materialize_prompts(tmp_path, monkeypatch)
     assert (shared / variant).read_text(encoding="utf-8") == swapped_prompt(fragment, cli)
 
 
 @pytest.mark.parametrize("variant", ["prompt-cli.md", "prompt-openhands.md", "prompt-native.md"])
-def test_a_harness_prompt_names_no_claude_file_tool(tmp_path, monkeypatch, variant) -> None:
+def test_a_harness_prompt_names_no_claude_file_tool(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, variant: str
+) -> None:
     """Told its file tools are Read and Edit, a harness that has neither spends turns calling them."""
     text = (materialize_prompts(tmp_path, monkeypatch) / variant).read_text(encoding="utf-8")
     offenders = [line for line in text.splitlines() if "`Read`" in line or "`Edit`" in line]
@@ -766,7 +820,9 @@ def test_the_cli_prompt_names_every_tool_bullet_as_its_shell_command(
     assert "- `hpcagent-bench-tool score '<json>'` --" in bullets
 
 
-def test_a_prompt_without_the_file_tools_paragraph_writes_no_variant(tmp_path, monkeypatch) -> None:
+def test_a_prompt_without_the_file_tools_paragraph_writes_no_variant(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Better a setup that fails resolving its prompt at launch than one that reads claude's tools."""
     bare = tmp_path / "bare-prompt.md"
     bare.write_text("base rules\n{{HINTS}}\n\nTask:\n\n{{TASK}}\n", encoding="utf-8")
@@ -782,7 +838,7 @@ def usage_file(path: pathlib.Path) -> pathlib.Path:
     return path
 
 
-def test_a_runners_grades_report_its_usage_file_spend(tmp_path, monkeypatch) -> None:
+def test_a_runners_grades_report_its_usage_file_spend(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The per-grade ``tokens`` column comes from the tool process, which finds the spend by env."""
     tools = load(AGENT / "hpcagent_agent" / "tools" / "http_json.py", "harness_dispatch_http_json")
     transcript = tmp_path / "claude.log"
@@ -795,7 +851,9 @@ def test_a_runners_grades_report_its_usage_file_spend(tmp_path, monkeypatch) -> 
     assert tools.transcript_tokens() == 280
 
 
-def test_a_claude_grade_still_reports_its_transcript_spend(tmp_path, monkeypatch) -> None:
+def test_a_claude_grade_still_reports_its_transcript_spend(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tools = load(AGENT / "hpcagent_agent" / "tools" / "http_json.py", "harness_dispatch_http_json")
     transcript = tmp_path / "claude.log"
     transcript.write_text(

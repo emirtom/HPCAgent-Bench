@@ -33,7 +33,7 @@ A12 = np.arange(1.0, 13.0)
 ZERO6 = np.zeros(6)
 
 
-def index_of(expr: str, shape) -> str:
+def index_of(expr: str, shape: tuple[str]) -> str:
     """Render ``expr`` at a single iter ``i`` and return the unparsed index text."""
     node = ast.parse(expr, mode="eval").body
     out = scalarize_at_iters(node, [ast.Name(id="i", ctx=ast.Load())], {"a": shape})

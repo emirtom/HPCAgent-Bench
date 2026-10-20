@@ -28,7 +28,7 @@ INT_PAIRS = [(7, 2), (-7, 2), (7, -2), (-7, -2), (8, 4), (-8, 4), (8, -4), (-8, 
 FLT_PAIRS = [(7.5, 2.0), (-7.5, 2.0), (7.5, -2.0), (-7.5, -2.0), (1.0, 0.25), (-1.0, 0.25)]
 
 
-def driver():
+def driver() -> str:
     """A main() printing each helper's result, one value per line, in a fixed order."""
     lines = ["int main(void) {"]
     for a, b in INT_PAIRS:
@@ -43,7 +43,7 @@ def driver():
     return "\n".join(lines)
 
 
-def expected_():
+def expected_() -> list[float]:
     out = []
     for a, b in INT_PAIRS:
         out.append(float(a // b))
@@ -56,7 +56,7 @@ def expected_():
     return out
 
 
-def check(cpp) -> None:
+def check(cpp: bool) -> None:
     src = (CPP_HEADER + CPP_FOOTER + "#include <cstdio>\n") if cpp else (C_HEADER + "#include <stdio.h>\n")
     run = build_run_c(src, driver(), cpp=cpp)
     assert run.returncode == 0, run.stderr

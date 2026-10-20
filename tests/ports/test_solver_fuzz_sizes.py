@@ -59,7 +59,7 @@ DRAWS = 24
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_every_fuzz_draw_initializes(short) -> None:
+def test_every_fuzz_draw_initializes(short: str) -> None:
     spec = BenchSpec.load(short)
     constraints = fuzz_constraints(spec)
     config_names = frozenset(spec.config or {})
@@ -95,7 +95,7 @@ def test_every_fuzz_draw_initializes(short) -> None:
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_fuzz_spec_is_declared_not_inherited(short) -> None:
+def test_fuzz_spec_is_declared_not_inherited(short: str) -> None:
     """The manifest must declare its own ``fuzzed:`` preset.
 
     Without one, ``fuzz.resolve_ranges`` anchors a continuous interval on XL, which is what put a

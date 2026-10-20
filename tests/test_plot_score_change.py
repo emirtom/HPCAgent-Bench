@@ -816,7 +816,7 @@ def test_several_treatments_of_one_experiment_draw_one_dot_row(
     drawn: list[list[str]] = []
     real = efficacy_figures.figure_dot_row
 
-    def record(panels, *args: object, **kwargs: object) -> object:
+    def record(panels: object, *args: object, **kwargs: object) -> object:
         drawn.append([treatment for _, treatment, _, _ in panels])
         return real(panels, *args, **kwargs)  # pyright: ignore[reportArgumentType]
 

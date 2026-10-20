@@ -45,7 +45,7 @@ def test_take_flat_1d() -> None:
     assert ok, res
 
 
-def take_axis(axis, out_shape, out_sym):
+def take_axis(axis: int, out_shape: tuple[int, int], out_sym: str) -> dict[str, str]:
     a = np.arange(12, dtype=np.float64).reshape(3, 4)
     idx = np.array([0, 2, 1], dtype=np.int64)
     src = (

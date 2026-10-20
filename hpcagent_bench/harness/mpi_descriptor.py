@@ -515,7 +515,7 @@ class Descriptor:
         """Reconstruct global array name from per-rank owned-interior tiles, the exact inverse of scatter."""
         return gather(tiles, self.dist_for(name, global_shape), self.grid, global_shape, dtype)
 
-    def local_size_scalars(self, global_scalars: dict[str, int], rank: int) -> dict[str, int]:
+    def local_size_scalars(self, global_scalars: Mapping[str, float], rank: int) -> dict[str, float]:
         """Each size symbol -> value at rank: the local extent only when EVERY axis it sizes is decomposed
         the same way, the global value otherwise; raises when the decompositions themselves conflict.
 

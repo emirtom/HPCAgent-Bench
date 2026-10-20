@@ -21,6 +21,7 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import scipy.sparse as sp
 
 from hpcagent_bench.paths import ROOT
@@ -128,7 +129,7 @@ def cache_dir() -> Path:
     return d
 
 
-def random_values(rng: CounterGenerator, count: int, dtype=np.float64) -> np.ndarray:
+def random_values(rng: CounterGenerator, count: int, dtype: npt.DTypeLike = np.float64) -> np.ndarray:
     """``count`` entry values, uniform in ``[-VALUE_SPAN/2, VALUE_SPAN/2)``."""
     return (rng.random(count, dtype=dtype) * VALUE_SPAN - VALUE_SPAN / 2).astype(dtype)
 
@@ -140,7 +141,9 @@ def mirrored(rows: np.ndarray, cols: np.ndarray, vals: np.ndarray, shape: tuple[
     )
 
 
-def make_uniform(n, nnz, dtype=np.float64, symmetric: bool = False, seed: int = DEFAULT_SEED):
+def make_uniform(
+    n: int, nnz: int, dtype: npt.DTypeLike = np.float64, symmetric: bool = False, seed: int = DEFAULT_SEED
+) -> sp.coo_matrix:
     """About nnz uniformly random entries on an n x n grid (a symmetric one mirrors its strictly lower half)."""
     rng = CounterGenerator(seed)
     rows, cols = uniform_pattern(rng, n, n, nnz)
@@ -204,7 +207,14 @@ def default_bandwidth(rows: int, nnz: int) -> int:
     return max(1, -(-int(nnz) // max(1, int(rows))))
 
 
-def make_banded(n, nnz, dtype=np.float64, bandwidth=None, symmetric: bool = False, seed: int = DEFAULT_SEED):
+def make_banded(
+    n: int,
+    nnz: int,
+    dtype: npt.DTypeLike = np.float64,
+    bandwidth: int | None = None,
+    symmetric: bool = False,
+    seed: int = DEFAULT_SEED,
+) -> sp.coo_matrix:
     """Uniformly random entries restricted to |i - j| <= bandwidth; unset ``bandwidth`` picks
     :func:`default_bandwidth` so the band has roughly enough room for the requested ``nnz``."""
     rng = CounterGenerator(seed)
@@ -218,13 +228,13 @@ def make_banded(n, nnz, dtype=np.float64, bandwidth=None, symmetric: bool = Fals
 
 
 def make_diagonal(
-    n,
-    nnz,
-    dtype=np.float64,
+    n: int,
+    nnz: int,
+    dtype: npt.DTypeLike = np.float64,
     off_diagonal_fraction: float = OFF_DIAGONAL_FRACTION,
     symmetric: bool = False,
     seed: int = DEFAULT_SEED,
-):
+) -> sp.coo_matrix:
     """Diagonally-dominant matrix: full diagonal plus a few off-diagonal entries
     (``off_diagonal_fraction * nnz`` of them) scattered uniformly."""
     rng = CounterGenerator(seed)
@@ -239,7 +249,7 @@ def make_diagonal(
 
 
 def square_system(
-    scenario: str, n: int, nnz: int, dtype, rng: CounterGenerator, symmetric: bool = False
+    scenario: str, n: int, nnz: int, dtype: npt.DTypeLike, rng: CounterGenerator, symmetric: bool = False
 ) -> sp.csr_matrix:
     """A diagonally dominant ``n x n`` Krylov system matrix of about ``nnz`` entries, drawn from
     ``scenario`` (:data:`SCENARIOS`) with a pattern seed taken from ``rng``: canonical CSR."""
@@ -254,7 +264,9 @@ def square_system(
     return make_diag_dominant(builders[scenario](), dtype=dtype)
 
 
-def rect_matrix(scenario: str, rows: int, cols: int, nnz: int, dtype, rng: CounterGenerator) -> sp.csr_matrix:
+def rect_matrix(
+    scenario: str, rows: int, cols: int, nnz: int, dtype: npt.DTypeLike, rng: CounterGenerator
+) -> sp.csr_matrix:
     """A ``rows x cols`` operand of about ``nnz`` entries drawn from ``scenario`` with ``rng``:
     canonical CSR. The ``diagonal`` scenario's diagonal runs to the smaller extent."""
     if scenario == "uniform":
@@ -363,7 +375,7 @@ def reweight_edges(m: sp.csr_matrix, rng: CounterGenerator) -> sp.csr_matrix:
     return with_values(m, values.astype(m.dtype, copy=False))
 
 
-def canonical(m) -> sp.csr_matrix:
+def canonical(m: sp.spmatrix | sp.sparray | np.ndarray) -> sp.csr_matrix:
     """``m`` as canonical CSR: duplicates summed, column indices ascending within each row."""
     out = sp.csr_matrix(m)
     out.sum_duplicates()
@@ -421,32 +433,36 @@ def fetch_suitesparse(matrix_name: str) -> Path:
     return mtx_path
 
 
-def make_suitesparse(matrix_name: str, dtype=np.float64):
+def make_suitesparse(matrix_name: str, dtype: npt.DTypeLike = np.float64) -> sp.coo_matrix:
     """Load a SuiteSparse matrix by ``Group/Name`` (e.g. ``"HB/orsreg_1"``, ``"Boeing/bcsstk16"``) and
     return COO; downloaded once and cached under ``.hpcagent_bench_cache/suitesparse/``."""
     import scipy.io as sio
 
     mtx = fetch_suitesparse(matrix_name)
     m = sio.mmread(mtx, spmatrix=False)
-    return sp.coo_matrix(m).astype(dtype)
+    return sp.coo_matrix(m).astype(dtype)  # pyright: ignore[reportReturnType]  # astype returns Self, which pyright cannot bind through scipy's _data_matrix
 
 
-def make_diag_dominant(A, factor: float = DOMINANCE_FACTOR, dtype=None):
+def make_diag_dominant(
+    A: sp.coo_matrix | sp.csr_matrix, factor: float = DOMINANCE_FACTOR, dtype: npt.DTypeLike | None = None
+) -> sp.csr_matrix:
     """``A + factor*max_row_sum(|A|)*I`` -- strictly diagonally dominant, so the
     Krylov solvers stay non-singular and fp32 converges. Sparsity pattern kept."""
     if dtype is None:
         dtype = A.dtype
-    n = A.shape[0]
     A_csr = sp.csr_matrix(A)
+    n = shape_of(A_csr)[0]
     abs_A = A_csr.copy()
     abs_A.data = np.abs(abs_A.data)
     max_row_sum = float(np.asarray(abs_A.sum(axis=1)).max())
     shift = np.asarray(max_row_sum * factor, dtype=dtype).item()
-    eye = sp.eye(n, dtype=dtype, format="csr") * shift
+    eye = sp.eye(n, dtype=dtype, format="csr") * shift  # pyright: ignore[reportArgumentType]  # scipy types eye's dtype as a Python scalar type
     return canonical((A_csr + eye).astype(dtype))
 
 
-def make_stencil_3d(nx: int, ny: int, nz: int, dtype=np.float64, seed: int = DEFAULT_SEED):
+def make_stencil_3d(
+    nx: int, ny: int, nz: int, dtype: npt.DTypeLike = np.float64, seed: int = DEFAULT_SEED
+) -> sp.csr_matrix:
     """27-point variable-coefficient finite-difference operator on an ``nx x ny x nz`` grid, in CSR.
 
     Edge weights are log-uniform on [1, 100] and symmetric in (i, j); ``A_ii = sum_j w_ij`` and
@@ -474,7 +490,7 @@ def make_stencil_3d(nx: int, ny: int, nz: int, dtype=np.float64, seed: int = DEF
     diag = np.zeros((nx, ny, nz), dtype=np.float64)
     vals: list[np.ndarray] = []
 
-    def span(d: int, extent: int):
+    def span(d: int, extent: int) -> tuple[slice, slice]:
         """Source and destination slices along one axis for a shift of ``d``."""
         if d == 0:
             return slice(0, extent), slice(0, extent)
@@ -509,10 +525,12 @@ def make_stencil_3d(nx: int, ny: int, nz: int, dtype=np.float64, seed: int = DEF
     )
     A.sum_duplicates()
     A.sort_indices()
-    return A.astype(dtype)
+    return A.astype(dtype)  # pyright: ignore[reportReturnType]  # astype returns Self, which pyright cannot bind through scipy's _data_matrix
 
 
-def make_suitesparse_csr(matrix_name: str, dtype=np.float64, lower: bool = False):
+def make_suitesparse_csr(
+    matrix_name: str, dtype: npt.DTypeLike = np.float64, lower: bool = False
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """A cached SuiteSparse matrix as PLAIN NUMPY CSR arrays ``(indptr, indices, data)``.
 
     ``lower=True`` returns the lower triangle including the diagonal, which is the operand an

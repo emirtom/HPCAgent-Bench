@@ -172,6 +172,6 @@ def row_meta_for(short_names: Sequence[str]) -> list[RowMeta]:
     return out
 
 
-def structural_group(spec, track: str | None = None) -> str | None:
+def structural_group(spec: BenchSpec, track: str | None = None) -> str | None:
     """The group a figure bands ``spec``'s row under (also recorded as ``domain``): the dwarf for HPC, else ``None``."""
     return spec.dwarf if (track or spec.track.text) == TRACK_SCIENTIFIC_COMPUTING else None

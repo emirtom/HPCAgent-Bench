@@ -17,6 +17,7 @@ that includes it cannot be compiling against different semantics than the graded
 """
 
 import pathlib
+from subprocess import CompletedProcess
 
 import pytest
 
@@ -33,7 +34,7 @@ from tests.translators.native_tu import build_run_c_include, have_gcc, have_gpp
 PAIRS = [(7, 2), (-7, 2), (7, -2), (-7, -2), (8, 4), (-8, 4), (0, 5)]
 
 
-def driver(header):
+def driver(header: str) -> str:
     """Print int_floor / int_ceil / python_mod per pair, then the NaN-propagating min/max.
 
     The header is included TWICE: a shipped header that breaks on re-inclusion is unusable from
@@ -51,7 +52,7 @@ def driver(header):
     return "\n".join(lines)
 
 
-def expected_():
+def expected_() -> list[str]:
     out = []
     for a, b in PAIRS:
         out.append(str(a // b))
@@ -61,7 +62,7 @@ def expected_():
     return out
 
 
-def check(result) -> None:
+def check(result: CompletedProcess[str]) -> None:
     assert result.returncode == 0, result.stderr
     got = result.stdout.split()
     exp = expected_()
@@ -83,7 +84,7 @@ def test_cpp_header_compiles_standalone_and_floors_toward_negative_infinity() ->
 
 
 @pytest.mark.parametrize(("lang", "inlined"), [("c", C_HEADER), ("cpp", CPP_ARITH)])
-def test_header_is_the_text_the_emitter_inlines(lang, inlined) -> None:
+def test_header_is_the_text_the_emitter_inlines(lang: str, inlined: str) -> None:
     """A drift here means an included kernel and an emitted one compute differently."""
     src = arith_header_source(lang)
     assert inlined in src
@@ -91,7 +92,7 @@ def test_header_is_the_text_the_emitter_inlines(lang, inlined) -> None:
         assert name in src, name
 
 
-def test_header_is_guarded_and_written_under_its_documented_name(tmp_path) -> None:
+def test_header_is_guarded_and_written_under_its_documented_name(tmp_path: pathlib.Path) -> None:
     path = write_arith_header(tmp_path, "c")
     assert path == pathlib.Path(tmp_path) / "npb_arith.h"
     text = path.read_text()

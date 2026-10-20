@@ -9,6 +9,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -55,13 +56,13 @@ def repo_fixture(tmp_path: pathlib.Path) -> pathlib.Path:
     return tmp_path
 
 
-def materialize(repo: pathlib.Path, shared, problems: str = ""):
+def materialize(repo: pathlib.Path, shared: pathlib.Path, problems: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(SCRIPT), str(repo), str(shared), str(problems)], capture_output=True, text=True, check=True
     )
 
 
-def problems_file(path, kernels):
+def problems_file(path: pathlib.Path, kernels: list[str]) -> pathlib.Path:
     path.write_text(
         "".join(
             json.dumps({"id": i, "kernel": k, "task": "opt", "request_actions": {}}) + "\n"
@@ -389,7 +390,7 @@ def test_the_launcher_materializes_before_it_starts_any_role() -> None:
     assert SCRIPT.stat().st_mode & 0o111, f"{SCRIPT} is invoked directly and must be executable"
 
 
-def agent_driver():
+def agent_driver() -> types.ModuleType:
     return fresh("agent_driver")
 
 

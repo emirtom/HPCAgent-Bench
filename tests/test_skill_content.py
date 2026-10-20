@@ -862,7 +862,7 @@ def test_no_fortran_page_teaches_a_2023_spelling() -> None:
 REASSOCIATING_FLAGS = ("-ffast-math", "-funsafe-math-optimizations", "-Ofast", "--use_fast_math")
 
 
-def fenced_blocks(body: str):
+def fenced_blocks(body: str) -> list[str]:
     """The fenced code blocks in ``body`` -- what a page presents as a literal command line."""
     out, inside, buf = [], False, []
     for line in body.splitlines():

@@ -17,6 +17,8 @@ operand still compiles in all three backends, so only the numbers say whether th
 contracts the axis it was supposed to.
 """
 
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -91,7 +93,7 @@ def test_batched_matmul_with_a_batched_right_operand() -> None:
         ),
     ],
 )
-def test_the_conv_transpose2d_family_gets_past_the_matmul(kernel) -> None:
+def test_the_conv_transpose2d_family_gets_past_the_matmul(kernel: str) -> None:
     """Three corpus kernels LOWER past the matmul guard.
 
     They do NOT emit yet, and this test deliberately does not claim they do. Behind the matmul sits
@@ -115,7 +117,7 @@ UNPROVEN_SRC = (
 )
 
 
-def test_a_declined_batched_matmul_is_refused_not_scalarised(tmp_path) -> None:
+def test_a_declined_batched_matmul_is_refused_not_scalarised(tmp_path: pathlib.Path) -> None:
     """Scalarising the declined ``@`` into ``x[i, j, k] * w[j, k]`` gives an elementwise product
     that compiles and returns wrong numbers (the corpus conv tap, whose ``in_per_group`` no alias
     ties to the weight's ``in_channels // groups``). It is refused instead."""

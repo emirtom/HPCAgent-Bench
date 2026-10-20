@@ -264,7 +264,7 @@ def setup_admitted(setup: str, setup_prefix: str, excluded: frozenset[str]) -> b
     return setup.startswith(setup_prefix) and excluded.isdisjoint(setup.split("-"))
 
 
-def blank(value: Any) -> Any:
+def blank(value: Any) -> Any:  # noqa: ANN401
     """A NULL column as the CSV's empty cell."""
     return "" if value is None else value
 
@@ -494,7 +494,7 @@ def platform_rows(
     return found, counts
 
 
-def sql_value(value: Any, column: str = "") -> Any:
+def sql_value(value: Any, column: str = "") -> Any:  # noqa: ANN401
     """A cell SQLite stores as itself, else its CSV text; a missing NUMERIC cell is NULL (same dtype as the CSV)."""
     if column in NUMERIC_COLUMNS and (value is None or value == ""):
         return None

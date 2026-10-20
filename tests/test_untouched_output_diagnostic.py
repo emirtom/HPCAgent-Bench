@@ -11,6 +11,8 @@ whether or not the kernel has a seed. Saying it in the failure message costs not
 actually fails that way.
 """
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -52,7 +54,7 @@ def test_the_count_covers_every_untouched_position() -> None:
 
 
 @pytest.mark.parametrize("initial", [None, np.zeros(3)])
-def test_a_shape_mismatch_or_missing_initial_is_silent(initial) -> None:
+def test_a_shape_mismatch_or_missing_initial_is_silent(initial: np.ndarray | None) -> None:
     """The note is a diagnostic, never a verdict: it must never raise on data it cannot read."""
     expected, actual = np.zeros(4), np.ones(4)
     assert untouched_note(expected, actual, initial) == ""
@@ -61,7 +63,9 @@ def test_a_shape_mismatch_or_missing_initial_is_silent(initial) -> None:
 class Spec:
     """Enough BenchSpec for the mask: the output names (the reference is passed to the probe)."""
 
-    def __init__(self, output_args, func_name: str = "k", relative_path: str = "t", module_name: str = "m") -> None:
+    def __init__(
+        self, output_args: tuple[str], func_name: str = "k", relative_path: str = "t", module_name: str = "m"
+    ) -> None:
         self.output_args = output_args
         self.func_name = func_name
         self.relative_path = relative_path
@@ -75,13 +79,13 @@ def test_the_probe_finds_a_seed_a_single_comparison_cannot() -> None:
     written with the value it already held; two runs with different initializers can."""
     from hpcagent_bench.harness import grading
 
-    def reference(y, c, x, n) -> None:
+    def reference(y: np.ndarray, c: np.ndarray, x: np.ndarray, n: int) -> None:
         for i in range(1, n):
             y[i] = c[i] * y[i - 1] + x[i]  # y[0] is a SEED: read, never written
 
     spec = Spec(("y",))
 
-    def run(fn, d):
+    def run(fn: Callable[..., object], d: dict[str, int | np.ndarray]) -> np.ndarray:
         y = d["y"].copy()
         fn(y, d["c"], d["x"], d["n"])
         return y
@@ -96,7 +100,7 @@ def test_the_probe_marks_a_never_written_tail() -> None:
     """A compaction leaves the space past its count alone; that space is not part of the answer."""
     from hpcagent_bench.harness import grading
 
-    def run(d):
+    def run(d: dict[str, int | np.ndarray]) -> np.ndarray:
         packed = d["y"].copy()
         packed[:2] = [10.0, 20.0]  # writes a prefix only
         return packed

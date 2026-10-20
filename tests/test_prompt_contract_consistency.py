@@ -10,8 +10,11 @@ import re
 import shlex
 import sys
 import threading
+import types
 import urllib.error
 import urllib.request
+from http.server import ThreadingHTTPServer
+from typing import Any
 
 import pytest
 
@@ -122,19 +125,19 @@ def test_the_prompt_promises_only_file_tools_the_driver_can_publish() -> None:
 RANK = 0
 
 
-def judge_service():
+def judge_service() -> tuple[ThreadingHTTPServer, int]:
     """A judge on an OS-assigned port, same shape as ``tests/test_agent_service.py``'s."""
     srv = make_server("127.0.0.1", 0, ServiceConfig())
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, srv.server_address[1]
 
 
-def get_json(port, path):
+def get_json(port: int, path: str) -> tuple[int, dict[str, Any]]:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=60) as r:
         return r.status, json.loads(r.read())
 
 
-def driver_module():
+def driver_module() -> types.ModuleType:
     """``agent_driver`` loaded by path: it lives beside the launch scripts, not in a package, and
     it imports stdlib only -- which is the property the slot test is here to hold."""
     return fresh("agent_driver")
@@ -183,7 +186,7 @@ def judge_flags(language: Language) -> list:
 
 @pytest.mark.parametrize("language", gen.CPU_LANGUAGES, ids=lambda language: language.text)
 @pytest.mark.judge_image
-def test_the_build_fragment_is_the_judges_own_build_command(language) -> None:
+def test_the_build_fragment_is_the_judges_own_build_command(language: str) -> None:
     """The prompt fragment may not restate the build line -- it must BE it.
 
     ``judge_image``: the build line's link tokens follow what the host installs (-lmimalloc only
@@ -205,7 +208,7 @@ def test_the_build_fragment_is_the_judges_own_build_command(language) -> None:
 
 
 @pytest.mark.parametrize("language", gen.CPU_LANGUAGES, ids=lambda language: language.text)
-def test_the_build_endpoint_serves_the_judges_own_build_command(language) -> None:
+def test_the_build_endpoint_serves_the_judges_own_build_command(language: Language) -> None:
     """``GET /build/<language>`` is the third view of the one build command, and the only one an
     agent can ask for at run time. It serves raw argv -- no placeholders -- because the judge IS
     the host those tokens resolve on."""
@@ -242,7 +245,7 @@ def test_the_build_endpoint_refuses_a_language_the_judge_cannot_build() -> None:
 
 
 @pytest.mark.parametrize("language", gen.CPU_LANGUAGES, ids=lambda language: language.text)
-def test_the_emitted_fragment_names_nothing_this_host_probed(language) -> None:
+def test_the_emitted_fragment_names_nothing_this_host_probed(language: Language) -> None:
     """The fragment is COMMITTED and byte-compared, so it may not be a function of the machine that
     generated it.
 

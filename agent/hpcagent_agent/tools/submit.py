@@ -111,7 +111,7 @@ MARKER_LIMIT = 2000
 MARKER_FIELD_LIMIT = 200
 
 
-def shortened(value: Any) -> Any:
+def shortened(value: Any) -> Any:  # noqa: ANN401
     """``value`` with every string cut to :data:`MARKER_FIELD_LIMIT` characters, containers kept."""
     if isinstance(value, str):
         return value[:MARKER_FIELD_LIMIT]

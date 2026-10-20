@@ -46,7 +46,7 @@ def unparse_(node: ast.AST) -> str:
 # structural: chained subscript collapses to a single subscript
 
 
-def collapse(expr: str, shapes) -> str:
+def collapse(expr: str, shapes: dict[str, tuple[str, ...]]) -> str:
     # The pre-harvest configuration: every base axis the rank names is spelled out.
     node = ast.parse(expr, mode="eval").body
     table = {k: tuple(v) for k, v in shapes.items()}
@@ -455,7 +455,7 @@ def test_shape_of_complex_array_is_integer_bound() -> None:
 # ``.shape`` the C / Fortran backends cannot lower).
 
 
-def rewrite_shape(expr: str, shapes) -> str:
+def rewrite_shape(expr: str, shapes: dict[str, tuple[str, ...]]) -> str:
     node = expr_(expr)
     new = lowering.ShapeMidExpressionRewriter({k: tuple(v) for k, v in shapes.items()}).visit(node)
     return unparse_(new)
@@ -519,7 +519,7 @@ def test_reads_complex_still_detects_a_genuine_complex_value_read() -> None:
 # trailing implicit-axis pad reads at the LOCAL slice offset (iter - start)
 
 
-def pad_trailing(rhs_expr: str, start, source_shape):
+def pad_trailing(rhs_expr: str, start: int, source_shape: tuple[str, str, str]) -> str:
     # Drive SliceToScalarRewriter for a single-slice LHS assignment whose slice
     # starts at ``start``, on a partial-scalar RHS of a higher-rank source.
     iv = ast.Name(id="si", ctx=ast.Load())

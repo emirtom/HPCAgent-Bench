@@ -40,7 +40,7 @@ CPP_SOURCE = HERE / "srad_ref.cpp"
 pytestmark = pytest.mark.skipif(gxx() is None, reason="no g++ that builds -std=c++20")
 
 
-def run_argtypes():
+def run_argtypes() -> list[type]:
     """ABI of srad_run_ref / srad_ref. Shared because ``CDLL.__getitem__`` returns a fresh,
     unconfigured pointer every lookup, so a by-name resolution must re-declare the signature."""
     f64 = ndpointer(np.float64, flags="C_CONTIGUOUS")
@@ -63,7 +63,7 @@ def run_argtypes():
     ]
 
 
-def load_cpp_reference():
+def load_cpp_reference() -> ctypes.CDLL:
     lib = ctypes.CDLL(str(shared_library(gxx(), [CPP_SOURCE], ["-O3", "-std=c++20", "-shared", "-fPIC"])))
     f64 = ndpointer(np.float64, flags="C_CONTIGUOUS")
     i32 = ndpointer(np.int32, flags="C_CONTIGUOUS")
@@ -134,18 +134,18 @@ def load_cpp_reference():
     return lib
 
 
-def assert_status(status, name) -> None:
+def assert_status(status: int, name: str) -> None:
     if status != OK:
         raise AssertionError(f"{name} returned status {status}")
 
 
-def assert_finite(name, *arrays) -> None:
+def assert_finite(name: str, *arrays: np.ndarray) -> None:
     for array in arrays:
         if not np.all(np.isfinite(array)):
             raise AssertionError(f"{name} contains NaN or Inf")
 
 
-def independent_initialize(I):
+def independent_initialize(I: np.ndarray) -> np.ndarray:
     rows, cols = I.shape
     out = np.empty((rows, cols), dtype=np.float64)
     in_flat = I.ravel()
@@ -155,7 +155,7 @@ def independent_initialize(I):
     return np.ascontiguousarray(out)
 
 
-def independent_neighbors(rows, cols):
+def independent_neighbors(rows: int, cols: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     iN = np.empty(rows, dtype=np.int32)
     iS = np.empty(rows, dtype=np.int32)
     jW = np.empty(cols, dtype=np.int32)
@@ -173,7 +173,7 @@ def independent_neighbors(rows, cols):
     return iN, iS, jW, jE
 
 
-def independent_q0sqr(J, r1, r2, c1, c2):
+def independent_q0sqr(J: np.ndarray, r1: int, r2: int, c1: int, c2: int) -> tuple[float, np.float64, np.float64]:
     rows, cols = J.shape
     flat = J.ravel()
     total = 0.0
@@ -193,7 +193,9 @@ def independent_q0sqr(J, r1, r2, c1, c2):
     return q0sqr, mean_roi, var_roi
 
 
-def independent_diffusion(J, iN, iS, jW, jE, q0sqr):
+def independent_diffusion(
+    J: np.ndarray, iN: np.ndarray, iS: np.ndarray, jW: np.ndarray, jE: np.ndarray, q0sqr: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     rows, cols = J.shape
     J_flat = J.ravel()
     dN = np.zeros_like(J)
@@ -247,7 +249,17 @@ def independent_diffusion(J, iN, iS, jW, jE, q0sqr):
     return dN, dS, dW, dE, c
 
 
-def independent_update(J, iS, jE, lam, dN, dS, dW, dE, c):
+def independent_update(
+    J: np.ndarray,
+    iS: np.ndarray,
+    jE: np.ndarray,
+    lam: float,
+    dN: np.ndarray,
+    dS: np.ndarray,
+    dW: np.ndarray,
+    dE: np.ndarray,
+    c: np.ndarray,
+) -> np.ndarray:
     out = np.ascontiguousarray(J.copy())
     rows, cols = out.shape
     J_flat = out.ravel()
@@ -270,7 +282,9 @@ def independent_update(J, iS, jE, lam, dN, dS, dW, dE, c):
     return out
 
 
-def independent_run(inputs):
+def independent_run(
+    inputs: tuple[float | np.ndarray, ...],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     validate_srad_inputs(*inputs)
     J = np.ascontiguousarray(inputs[1].copy())
     iN, iS, jW, jE = independent_neighbors(*J.shape)
@@ -288,14 +302,14 @@ def independent_run(inputs):
     return J, dN, dS, dW, dE, c
 
 
-def cpp_initialize(lib, I):
+def cpp_initialize(lib: ctypes.CDLL, I: np.ndarray) -> np.ndarray:
     J = np.zeros_like(I)
     status = lib.srad_initialize_ref(I, J, I.shape[0], I.shape[1])
     assert_status(status, "srad_initialize_ref")
     return J
 
 
-def cpp_neighbors(lib, rows, cols):
+def cpp_neighbors(lib: ctypes.CDLL, rows: int, cols: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     iN = np.empty(rows, dtype=np.int32)
     iS = np.empty(rows, dtype=np.int32)
     jW = np.empty(cols, dtype=np.int32)
@@ -305,7 +319,7 @@ def cpp_neighbors(lib, rows, cols):
     return iN, iS, jW, jE
 
 
-def cpp_q0sqr(lib, J, r1, r2, c1, c2):
+def cpp_q0sqr(lib: ctypes.CDLL, J: np.ndarray, r1: int, r2: int, c1: int, c2: int) -> tuple[float, float, float]:
     q0sqr = ctypes.c_double()
     mean_roi = ctypes.c_double()
     var_roi = ctypes.c_double()
@@ -325,7 +339,9 @@ def cpp_q0sqr(lib, J, r1, r2, c1, c2):
     return q0sqr.value, mean_roi.value, var_roi.value
 
 
-def cpp_diffusion(lib, J, iN, iS, jW, jE, q0sqr):
+def cpp_diffusion(
+    lib: ctypes.CDLL, J: np.ndarray, iN: np.ndarray, iS: np.ndarray, jW: np.ndarray, jE: np.ndarray, q0sqr: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     dN = np.zeros_like(J)
     dS = np.zeros_like(J)
     dW = np.zeros_like(J)
@@ -350,7 +366,18 @@ def cpp_diffusion(lib, J, iN, iS, jW, jE, q0sqr):
     return dN, dS, dW, dE, c
 
 
-def cpp_update(lib, J, iS, jE, lam, dN, dS, dW, dE, c):
+def cpp_update(
+    lib: ctypes.CDLL,
+    J: np.ndarray,
+    iS: np.ndarray,
+    jE: np.ndarray,
+    lam: float,
+    dN: np.ndarray,
+    dS: np.ndarray,
+    dW: np.ndarray,
+    dE: np.ndarray,
+    c: np.ndarray,
+) -> np.ndarray:
     out = np.ascontiguousarray(J.copy())
     status = lib.srad_update_image_ref(
         out,
@@ -369,7 +396,9 @@ def cpp_update(lib, J, iS, jE, lam, dN, dS, dW, dE, c):
     return out
 
 
-def cpp_run(lib, inputs, symbol: str = "srad_run_ref", from_raw: bool = False):
+def cpp_run(
+    lib: ctypes.CDLL, inputs: tuple[float | np.ndarray, ...], symbol: str = "srad_run_ref", from_raw: bool = False
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if from_raw:
         J = np.ascontiguousarray(inputs[0].copy())
         apply_exp = 1
@@ -405,7 +434,7 @@ def cpp_run(lib, inputs, symbol: str = "srad_run_ref", from_raw: bool = False):
     return J, dN, dS, dW, dE, c
 
 
-def assert_generator_invariants(inputs) -> None:
+def assert_generator_invariants(inputs: tuple[float | np.ndarray, ...]) -> None:
     validate_srad_inputs(*inputs)
     assert inputs[0].dtype == np.float64
     assert inputs[1].dtype == np.float64
@@ -449,7 +478,7 @@ def assert_repeatability() -> None:
     assert not np.array_equal(a[1], c[1])
 
 
-def make_uniform_case(rows: int = 8, cols: int = 8, niter: int = 2, lam: float = 0.5):
+def make_uniform_case(rows: int = 8, cols: int = 8, niter: int = 2, lam: float = 0.5) -> tuple[float | np.ndarray, ...]:
     base = generate_random_srad_inputs(rows=rows, cols=cols, niter=niter, lam=lam, seed=7)
     I = np.full((rows, cols), 0.5, dtype=np.float64)
     J = np.ascontiguousarray(np.exp(I), dtype=np.float64)
@@ -474,7 +503,7 @@ def make_uniform_case(rows: int = 8, cols: int = 8, niter: int = 2, lam: float =
     )
 
 
-def make_boundary_case():
+def make_boundary_case() -> tuple[float | np.ndarray, ...]:
     base = generate_random_srad_inputs(rows=3, cols=4, niter=3, lam=0.4, seed=17)
     J = np.array(
         [
@@ -507,7 +536,7 @@ def make_boundary_case():
     )
 
 
-def assert_phase_level(lib, inputs) -> None:
+def assert_phase_level(lib: ctypes.CDLL, inputs: tuple[float | np.ndarray, ...]) -> None:
     rows, cols = inputs[1].shape
     J_init_cpp = cpp_initialize(lib, inputs[0])
     J_init_ref = independent_initialize(inputs[0])
@@ -569,7 +598,9 @@ def assert_phase_level(lib, inputs) -> None:
     assert_finite("update phase", J_upd_np, J_upd_cpp, J_upd_ind)
 
 
-def validate_case(lib, name, inputs, phase_checks: bool = False) -> None:
+def validate_case(
+    lib: ctypes.CDLL, name: str, inputs: tuple[float | np.ndarray, ...], phase_checks: bool = False
+) -> None:
     assert_generator_invariants(inputs)
     if phase_checks:
         assert_phase_level(lib, inputs)
@@ -630,7 +661,7 @@ def assert_default_generator() -> None:
     assert_generator_invariants(inputs)
 
 
-def assert_invalid_cpp_statuses(lib) -> None:
+def assert_invalid_cpp_statuses(lib: ctypes.CDLL) -> None:
     inputs = generate_random_srad_inputs(rows=8, cols=8, niter=1, lam=0.5, seed=3)
     J = np.ascontiguousarray(inputs[1].copy())
     dN = np.zeros_like(J)
@@ -674,7 +705,7 @@ def assert_invalid_cpp_statuses(lib) -> None:
 
 
 @pytest.fixture(scope="module")
-def lib():
+def lib() -> ctypes.CDLL:
     return load_cpp_reference()
 
 
@@ -723,9 +754,9 @@ def test_repeatability() -> None:
 
 
 @pytest.mark.parametrize(("name", "inputs", "phase_checks"), CASES, ids=[case[0] for case in CASES])
-def test_validate_case(lib, name, inputs, phase_checks) -> None:
+def test_validate_case(lib: ctypes.CDLL, name: str, inputs: tuple[float | np.ndarray, ...], phase_checks: bool) -> None:
     validate_case(lib, name, inputs, phase_checks=phase_checks)
 
 
-def test_invalid_cpp_statuses(lib) -> None:
+def test_invalid_cpp_statuses(lib: ctypes.CDLL) -> None:
     assert_invalid_cpp_statuses(lib)

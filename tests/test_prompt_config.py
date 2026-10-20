@@ -7,6 +7,7 @@ import pytest
 
 from hpcagent_bench import config, languages
 from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.config import PromptStrategy
 from hpcagent_bench.harness.prompts import (
     PROMPT_VARIANTS,
     STRATEGIES,
@@ -16,7 +17,6 @@ from hpcagent_bench.harness.prompts import (
     build_prompt,
 )
 from hpcagent_bench.harness.task import Task
-from hpcagent_bench.config import PromptStrategy
 
 TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
 
@@ -159,7 +159,7 @@ def test_available_variants_includes_builtins() -> None:
     assert {"default", "loopnest", "profile_first", "language_native", "minimal"} <= set(merged)
 
 
-def test_cli_list_variants_and_all_variants(capsys) -> None:
+def test_cli_list_variants_and_all_variants(capsys: pytest.CaptureFixture[str]) -> None:
     """CLI: --list-variants prints every built-in name; --all-variants renders one
     separator-headed block per variant, most of them distinct."""
     from hpcagent_bench.cli import main
@@ -264,7 +264,7 @@ def test_build_flags_are_shown_per_compiler_family_from_the_matrix() -> None:
 
 
 @pytest.mark.parametrize("language", [Language.C, Language.CPP])
-def test_the_allocator_sentence_follows_the_link_probe(language, monkeypatch) -> None:
+def test_the_allocator_sentence_follows_the_link_probe(language: Language, monkeypatch: pytest.MonkeyPatch) -> None:
     """mimalloc is named in the prompt only when the graded link line really carries it. The
     probe is a real link, so a host without the library must produce NO sentence -- a prompt that
     promises an allocator the judge did not link is a lie the agent optimizes against."""

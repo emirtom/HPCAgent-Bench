@@ -18,9 +18,8 @@ from typing import ClassVar
 import pytest
 
 from hpcagent_bench.harness import recording
-from hpcagent_bench.harness.judge_wire import RouterHealthAnswer, SubmitVerdict
+from hpcagent_bench.harness.judge_wire import Correct, RouterHealthAnswer, SubmitVerdict
 from hpcagent_bench.harness.service import RequestBody, rank_error
-from hpcagent_bench.harness.judge_wire import Correct
 from tests import results_seed
 from tests.fresh_module import fresh
 
@@ -42,7 +41,7 @@ class Judge(http.server.BaseHTTPRequestHandler):
 
     posted: ClassVar[list[dict]] = []
 
-    def log_message(self, *args) -> None:  # keep pytest output readable
+    def log_message(self, *args: object) -> None:  # keep pytest output readable
         pass
 
     def reply(self, status: int, payload: dict) -> None:
@@ -64,7 +63,7 @@ class Judge(http.server.BaseHTTPRequestHandler):
         )
         self.reply(200, health.to_json())
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         # THE judge's own body contract: an unknown field or a wrongly typed one is a 400 here, as there.
         try:
             parsed = RequestBody.parse(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
@@ -82,7 +81,7 @@ class Judge(http.server.BaseHTTPRequestHandler):
 
 
 @pytest.fixture(name="judge")
-def judge_fixture():
+def judge_fixture() -> Iterator[str]:
     Judge.posted.clear()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Judge)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -99,7 +98,13 @@ def run_dir_with_one_verified_kernel(tmp_path: pathlib.Path) -> pathlib.Path:
     return tmp_path
 
 
-def test_a_promotion_is_accepted_by_a_real_judge(promoter, judge, tmp_path, capsys, monkeypatch) -> None:
+def test_a_promotion_is_accepted_by_a_real_judge(
+    promoter: ModuleType,
+    judge: str,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """End to end through main(): discover the kernel, discover the rank, land the submission."""
     run_dir = run_dir_with_one_verified_kernel(tmp_path)
     monkeypatch.setattr(sys, "argv", ["promote_unsubmitted.py", str(run_dir), "--judge", judge])
@@ -114,14 +119,16 @@ def test_a_promotion_is_accepted_by_a_real_judge(promoter, judge, tmp_path, caps
     assert posted["optimizer"] == "promoted-unsubmitted"
 
 
-def test_the_same_judge_refuses_a_body_that_names_no_rank(promoter, judge, tmp_path, capsys) -> None:
+def test_the_same_judge_refuses_a_body_that_names_no_rank(
+    promoter: ModuleType, judge: str, tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The control. Without this the test above would pass against a judge that checks nothing,
     which is exactly how a promoter that never sent a rank looked green for its whole life."""
     run_dir = run_dir_with_one_verified_kernel(tmp_path)
     (item,) = promoter.candidates(run_dir)
     original = promoter.promote
 
-    def rankless(judge_url, entry, dry_run, rank):
+    def rankless(judge_url: str, entry: dict[str, str], dry_run: bool, rank: int | None) -> str:
         return original(judge_url, entry, dry_run, rank=None)
 
     promoter.promote = rankless
@@ -166,7 +173,9 @@ def add_worker(rank_dir: pathlib.Path, episode_id: str, bench: str, speedup: flo
         results_seed.submission(shard, episode_id, bench, 2)
 
 
-def test_a_worker_that_never_submitted_is_promoted_at_its_own_exit(promoter, judge, tmp_path) -> None:
+def test_a_worker_that_never_submitted_is_promoted_at_its_own_exit(
+    promoter: ModuleType, judge: str, tmp_path: pathlib.Path
+) -> None:
     """The rule the experiment runs on: exit without submitting -> the last correct score IS the
     submission. This is the agent_driver path, which no test reached before."""
     rank_dir = tmp_path / "judge" / "rank-0"
@@ -181,7 +190,7 @@ def test_a_worker_that_never_submitted_is_promoted_at_its_own_exit(promoter, jud
     assert posted["optimizer"] == "promoted-unsubmitted"
 
 
-def test_a_worker_that_did_submit_is_left_alone(promoter, judge, tmp_path) -> None:
+def test_a_worker_that_did_submit_is_left_alone(promoter: ModuleType, judge: str, tmp_path: pathlib.Path) -> None:
     """Promoting over a deliberate answer would replace it with an older one, so a worker holding
     a submission must produce no candidate at all."""
     rank_dir = tmp_path / "judge" / "rank-0"
@@ -192,7 +201,7 @@ def test_a_worker_that_did_submit_is_left_alone(promoter, judge, tmp_path) -> No
     assert Judge.posted == [], "a worker that submitted must not be promoted over"
 
 
-def test_a_worker_promotes_only_its_own_run(promoter, judge, tmp_path) -> None:
+def test_a_worker_promotes_only_its_own_run(promoter: ModuleType, judge: str, tmp_path: pathlib.Path) -> None:
     """Scoring is per EPISODE, so two workers in one shard are two data points. A promoter that
     ignored episode_id would hand this worker its neighbour's kernel."""
     rank_dir = tmp_path / "judge" / "rank-0"

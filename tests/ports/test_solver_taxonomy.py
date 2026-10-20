@@ -10,7 +10,7 @@ from tests.corpus_counts import SOLVER_KERNELS, SOLVER_TAG
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_solver_kernel_is_a_scientific_computing_kernel(short) -> None:
+def test_solver_kernel_is_a_scientific_computing_kernel(short: str) -> None:
     spec = BenchSpec.load(short)
     assert spec.track is Track.SCIENTIFIC_COMPUTING, f"{short}: track is {spec.track!r}"
     assert spec.dwarf, f"{short}: no dwarf declared"

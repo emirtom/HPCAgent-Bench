@@ -44,7 +44,7 @@ SHAPES3 = {"a": "(N, M, K)", "out": "(N,)"}
 SYMS3 = {"N": 6, "M": 4, "K": 3}
 
 
-def build(body: str, shapes, syms):
+def build(body: str, shapes: dict[str, str], syms: dict[str, int]) -> tuple[str, pathlib.Path, pathlib.Path]:
     src = "import numpy as np\ndef f(a, out):\n" + body
     d = pathlib.Path(tempfile.mkdtemp())
     npy = d / "f.py"
@@ -54,7 +54,7 @@ def build(body: str, shapes, syms):
     return src, npy, bi
 
 
-def fortran(body: str, shapes=None, syms=None) -> str:
+def fortran(body: str, shapes: dict[str, str] | None = None, syms: dict[str, int] | None = None) -> str:
     unused, npy, bi = build(body, shapes or SHAPES3, syms or SYMS3)
     return emit_fortran(lower(parse_kernel(npy, bi), native_call=renders_natively), fn_name="f")
 

@@ -107,7 +107,7 @@ def reduce_axis_stmts(
     jv = {ax: f"{p}_j{ax}" for ax in axes}
     count = " * ".join(d[ax] for ax in axes)
 
-    def elem(seed: bool = False):
+    def elem(seed: bool = False) -> str:
         # Reduced axes take their loop var, or 0 for the comparison seed.
         return f"{sname}[{', '.join(('0' if seed else jv[i]) if i in axset else o[i] for i in range(rank))}]"
 

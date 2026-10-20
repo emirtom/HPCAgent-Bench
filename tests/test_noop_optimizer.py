@@ -4,30 +4,34 @@
 and both source options."""
 
 import pathlib
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
+
+import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, SourceMode
+from hpcagent_bench.config import SubmitFeedback
 from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.judge_wire import GradeAnswer
 from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
-from hpcagent_bench.config import SubmitFeedback
 
 KERNEL = "gemm"
 
 
-def _cfg():
+def cfg() -> ServiceConfig:
     return ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2)
 
 
-def test_language_option(make_judge) -> None:
+def test_language_option(make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]) -> None:
     """restricted mode: the reference source, compiled by the judge."""
     sub = NoOpOptimizer().solve(Task(KERNEL, SourceMode.RESTRICTED, Language.C))
     assert sub.source is not None
     assert sub.library is None
 
-    _srv, url = make_judge(_cfg())
+    unused_srv, url = make_judge(cfg())
     with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer)
@@ -37,7 +41,9 @@ def test_language_option(make_judge) -> None:
     assert r.speedup > 0.0
 
 
-def test_abi_option(make_judge, tmp_path, monkeypatch) -> None:
+def test_abi_option(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """any mode: the optimizer prebuilds the reference .so and submits it.
 
     Built INTO the shared folder (``workdir``), because a library named over HTTP is read from the
@@ -48,7 +54,7 @@ def test_abi_option(make_judge, tmp_path, monkeypatch) -> None:
     assert sub.library is not None
     assert sub.source is None
 
-    _srv, url = make_judge(_cfg())
+    unused_srv, url = make_judge(cfg())
     with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(r, GradeAnswer)

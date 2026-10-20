@@ -6,7 +6,7 @@ applies); both return the same typed :class:`~hpcagent_bench.harness.scoring.Sco
 
 import enum
 from dataclasses import dataclass, field, fields, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from hpcagent_agent.coded import Coded
 
@@ -14,7 +14,7 @@ from hpcagent_bench.categories import Baseline, InputMode, Language, Oracle, Pre
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.timing import measurement_repeat
-from hpcagent_bench.harness.tools import DEFAULT_RANK
+from hpcagent_bench.harness.tools import DEFAULT_RANK, JudgeClient
 
 __all__ = [
     "Baseline",
@@ -114,7 +114,7 @@ class Kernel:
     def baseline(self) -> dict:
         """``{kernel, preset, baselines: {name: ns}}``: the reference time(s) to beat, in this mode's environment."""
         if self.config.mode is RunMode.CONTAINER:
-            return self._client().baseline(self.task.kernel, self.task.language, self.config.preset).to_json()
+            return self.client().baseline(self.task.kernel, self.task.language, self.config.preset).to_json()
         from hpcagent_bench.harness.scoring import measure_baselines
 
         bl = measure_baselines(
@@ -146,7 +146,7 @@ class Kernel:
         """Finalize: the terminal grade, returned as the full :class:`Score`."""
         return self.grade(source, library, workspace_bytes)
 
-    def grade(self, source, library, workspace_bytes) -> "Score":
+    def grade(self, source: str | Submission | None, library: str | None, workspace_bytes: str | None) -> "Score":
         submission = (
             source
             if isinstance(source, Submission)
@@ -155,7 +155,7 @@ class Kernel:
             )
         )
         if self.config.mode is RunMode.CONTAINER:
-            payload = self._client().submit(submission, self.task.kernel)
+            payload = self.client().submit(submission, self.task.kernel)
             return score_from_payload(payload)
         from hpcagent_bench.harness.scoring import score as _score
 
@@ -173,7 +173,7 @@ class Kernel:
             hidden=c.hidden,
         )
 
-    def _client(self):
+    def client(self) -> JudgeClient:
         from hpcagent_bench.harness import tools
 
         return tools.JudgeClient(self.config.judge_url, rank=self.config.judge_rank)
@@ -193,7 +193,7 @@ def init(
     source_mode: SourceMode = SourceMode.RESTRICTED,
     residency: Residency = Residency.HOST,
     config: RunConfig | None = None,
-    **overrides,
+    **overrides: Any,  # noqa: ANN401 -- RunConfig fields of every type
 ) -> Kernel:
     """Open a :class:`Kernel` handle on ``kernel``; ``**overrides`` apply on top of ``config``."""
     task = Task(kernel, source_mode=source_mode, language=language, residency=residency)
@@ -222,7 +222,7 @@ def score(
     *,
     library: str | None = None,
     workspace_bytes: str | None = None,
-    **overrides,
+    **overrides: Any,  # noqa: ANN401 -- RunConfig fields of every type
 ) -> "Score":
     """Grade ``source`` for ``kernel`` and return the :class:`Score` (speedup slice)."""
     return _handle(kernel, overrides).score(source, library=library, workspace_bytes=workspace_bytes)
@@ -234,7 +234,7 @@ def submit(
     *,
     library: str | None = None,
     workspace_bytes: str | None = None,
-    **overrides,
+    **overrides: Any,  # noqa: ANN401 -- RunConfig fields of every type
 ) -> "Score":
     """Finalize ``source`` for ``kernel``: the full :class:`Score` from one build."""
     return _handle(kernel, overrides).submit(source, library=library, workspace_bytes=workspace_bytes)

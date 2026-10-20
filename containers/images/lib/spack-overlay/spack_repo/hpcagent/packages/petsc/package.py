@@ -13,7 +13,7 @@ from spack_repo.builtin.packages.petsc.package import Petsc as BuiltinPetsc
 
 
 class Petsc(BuiltinPetsc):
-    def configure_options(self):
+    def configure_options(self) -> list[str]:
         options = super().configure_options()
         if self.spec.satisfies("^openblas~ilp64"):
             options.append("--known-64-bit-blas-indices=0")

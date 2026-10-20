@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import math
 import sys
+import types
 from collections.abc import Sequence
 from typing import NamedTuple
 
 import numpy as np
+import numpy.typing as npt
 
 from hpcagent_bench.dtypes import is_float_dtype
 from hpcagent_bench.frameworks.framework import AnyArray, KernelResult, OutputValue
@@ -70,7 +72,7 @@ def resolve_outputs(
     return supplied if len(supplied) == len(bound) else returned + list(inplace_values)
 
 
-def array_module(*arrays):
+def array_module(*arrays: object) -> types.ModuleType:
     """The array module the comparison runs in: ``cupy`` when any operand is already a device array (the
     host side moves), else ``numpy``. Read from ``sys.modules``, never imported."""
     cupy = sys.modules.get("cupy")
@@ -118,7 +120,7 @@ def reassociation_growth(n: int) -> float:
     return math.sqrt(max(n, 1))
 
 
-def nonfinite_mismatch(e, a, xp=np) -> str | None:
+def nonfinite_mismatch(e: np.ndarray, a: np.ndarray, xp: types.ModuleType = np) -> str | None:
     """Why ``e`` and ``a`` disagree on where their NaN / +-Inf are, or ``None``. Checked before any relative
     error, which would otherwise drop the mismatched element and report 0.0."""
     nan_e, nan_a = xp.isnan(e), xp.isnan(a)
@@ -138,7 +140,9 @@ def nonfinite_mismatch(e, a, xp=np) -> str | None:
     return None
 
 
-def lapack_test_ratio(reference, value, xp=np, growth: float | None = None) -> float:
+def lapack_test_ratio(
+    reference: npt.ArrayLike, value: npt.ArrayLike, xp: types.ModuleType = np, growth: float | None = None
+) -> float:
     """LAPACK's normwise test ratio: ``max|value - reference| / (eps * f(n) * ||reference||_inf)``.
 
     A residual over ``eps`` times a norm, expected O(1) against a threshold of 30, which stays
@@ -175,7 +179,7 @@ def lapack_test_ratio(reference, value, xp=np, growth: float | None = None) -> f
     return residual / denominator
 
 
-def reassociation_agrees(reference, value, n: int) -> ArrayVerdict:
+def reassociation_agrees(reference: npt.ArrayLike, value: npt.ArrayLike, n: int) -> ArrayVerdict:
     """Are ``reference`` and ``value`` two orderings of the same arithmetic over ``n`` terms? Returns an
     :class:`ArrayVerdict` whose ``error`` is the LAPACK test ratio.
 
@@ -212,7 +216,7 @@ def reassociation_agrees(reference, value, n: int) -> ArrayVerdict:
     )
 
 
-def format_operand(value) -> str:
+def format_operand(value: complex | np.number) -> str:
     """One comparison operand for a failure message; complex values keep both components."""
     scalar = complex(value)
     if scalar.imag:
@@ -225,8 +229,8 @@ COMPARE_CHUNK = 1 << 22
 
 
 def compare_arrays(
-    ref,
-    val,
+    ref: object,
+    val: object,
     rtol: float = DEFAULT_RTOL,
     atol: float = DEFAULT_ATOL,
     accum_length: int | None = None,
@@ -265,7 +269,7 @@ def compare_arrays(
             float(err),
             (f"integer mismatch: {off_count} of {bad.size} elements, max rel error {float(err):.3e}"),
         )
-    cx = np.iscomplexobj(ref) or np.iscomplexobj(val)
+    cx = np.iscomplexobj(ri) or np.iscomplexobj(vi)
     dt = np.complex128 if cx else np.float64
     e = xp.asarray(ref, dtype=dt)
     a = xp.asarray(val, dtype=dt)
@@ -345,27 +349,25 @@ def compare_arrays(
 
 
 def validate(
-    ref,
-    val,
+    ref: object,
+    val: object,
     framework: str = "Unknown",
     rtol: float = DEFAULT_RTOL,
     atol: float = DEFAULT_ATOL,
     mismatch_fraction: float = 0.0,
-):
+) -> bool:
     """NaN/Inf/complex-aware validator: every array pair goes through :func:`compare_arrays` (with the
     kernel's ``mismatch_fraction``), no relative-L2 escape hatch."""
     valid = True
-    if not isinstance(ref, (tuple, list)):
-        ref = [ref]
-    if not isinstance(val, (tuple, list)):
-        val = [val]
-    if len(ref) != len(val):
+    refs: list[object] = list(ref) if isinstance(ref, (tuple, list)) else [ref]
+    vals: list[object] = list(val) if isinstance(val, (tuple, list)) else [val]
+    if len(refs) != len(vals):
         # Too few -> a missing return; too many -> extra/garbage buffers zip() would leave unchecked.
-        print(f"{framework} returned {len(val)} arrays, expected {len(ref)}.")
+        print(f"{framework} returned {len(vals)} arrays, expected {len(refs)}.")
         valid = False
-    for r, returned in zip(ref, val, strict=False):
+    for r, returned in zip(refs, vals, strict=False):
         v = (
-            returned.cpu().numpy()
+            returned.cpu().numpy()  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]  # a torch.Tensor, checked by name
             if f"{type(returned).__module__}.{type(returned).__name__}" == "torch.Tensor"
             else returned
         )

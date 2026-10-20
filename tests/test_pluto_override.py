@@ -69,7 +69,7 @@ def _generated(cpp_backend: pathlib.Path, base: str) -> pathlib.Path:
     return scop
 
 
-def test_override_replaces_the_generated_scop_and_never_touches_it(tmp_path) -> None:
+def test_override_replaces_the_generated_scop_and_never_touches_it(tmp_path: pathlib.Path) -> None:
     """A ``<base>_pluto_reference.c`` beside the kernel wins over the generated ``fp64`` scop, and the
     generated file is neither read into a copy nor overwritten -- it is not even opened.
 
@@ -94,7 +94,7 @@ def test_override_replaces_the_generated_scop_and_never_touches_it(tmp_path) -> 
     assert generated.read_text() == before_text, "the generated scop's content changed"
 
 
-def test_the_override_file_itself_is_never_written_to(tmp_path) -> None:
+def test_the_override_file_itself_is_never_written_to(tmp_path: pathlib.Path) -> None:
     """Resolving an override materializes its retyped copies and leaves the TRACKED file alone --
     byte-identical and mtime-identical. It lives in the repo, so a build that touched it would show
     up as a dirty ``git status`` on every run."""
@@ -111,7 +111,7 @@ def test_the_override_file_itself_is_never_written_to(tmp_path) -> None:
     assert (override.read_bytes(), override.stat().st_mtime_ns) == before
 
 
-def test_scop_inputs_falls_back_to_generated_without_an_override(tmp_path) -> None:
+def test_scop_inputs_falls_back_to_generated_without_an_override(tmp_path: pathlib.Path) -> None:
     """A kernel with no tracked override still resolves to the translator's generated scop."""
     bench_dir = tmp_path / "kern2"
     cpp_backend = bench_dir / "cpp_backend"
@@ -122,7 +122,7 @@ def test_scop_inputs_falls_back_to_generated_without_an_override(tmp_path) -> No
     assert resolved == [generated]
 
 
-def test_override_transform_output_stays_out_of_the_tracked_source_dir(tmp_path) -> None:
+def test_override_transform_output_stays_out_of_the_tracked_source_dir(tmp_path: pathlib.Path) -> None:
     """polycc's output for an override lands under the kernel's gitignored ``cpp_backend``, not
     beside the tracked ``_pluto_reference.c`` -- a build artifact must never dirty ``git status``."""
     bench_dir = tmp_path / "kern3"
@@ -139,7 +139,7 @@ def test_override_transform_output_stays_out_of_the_tracked_source_dir(tmp_path)
 
 @pytest.mark.parametrize(("fptype", "expect_symbol"), [("fp64", "gemm_fp64"), ("fp32", "gemm_fp32")])
 def test_oracle_pluto_leg_transforms_the_override_path_not_a_generated_copy(
-    tmp_path, monkeypatch, fptype, expect_symbol
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, fptype: str, expect_symbol: str
 ) -> None:
     """The numerical oracle's pluto leg feeds polycc a scop derived from the OVERRIDE -- captured off
     the real ``run_polycc`` call -- never the translator's generated one, at either precision.
@@ -158,14 +158,14 @@ def test_oracle_pluto_leg_transforms_the_override_path_not_a_generated_copy(
     (tmp_path / "gemm_fp32_pluto_input.c").write_text("#pragma scop\ntranslator_emitted = 1;\n#pragma endscop\n")
     seen = {}
 
-    def capture(scop, out, **kwargs):
+    def capture(scop: pathlib.Path, out: pathlib.Path, **kwargs: float) -> tuple[list[str], object]:
         seen["scop"] = scop
         return [], type("R", (), {"returncode": 1, "stderr": "stop-here"})()
 
     monkeypatch.setattr(oracle.pluto_transform, "run_polycc", capture)
     monkeypatch.setattr(oracle.pluto_transform, "polycc_exe", lambda: "/nonexistent/polycc")
 
-    oracle._run_pluto(tmp_path, "gemm", fptype, {}, {}, {}, {}, (), 0.0, 0.0, "ok", bench_dir, "gemm", frozenset())
+    oracle.run_pluto(tmp_path, "gemm", fptype, {}, {}, {}, {}, (), 0.0, 0.0, "ok", bench_dir, "gemm", frozenset())
 
     scop = seen["scop"]
     assert scop.name == f"gemm_{fptype}_pluto_override_input.c"
@@ -183,7 +183,7 @@ def test_oracle_pluto_leg_transforms_the_override_path_not_a_generated_copy(
 # kernels (gemm, seidel_2d, syrk, trmm), none of them a Pluto transformation failure.
 
 
-def test_the_fp32_specialization_retypes_and_renames_nothing_else(tmp_path) -> None:
+def test_the_fp32_specialization_retypes_and_renames_nothing_else(tmp_path: pathlib.Path) -> None:
     """The retype touches exactly the symbol, the data type and the libm macros -- and leaves the
     scop body, which is what polycc reads, character for character alone."""
     fp32 = pluto_transform.specialize_override(OVERRIDE, "mm", "fp32")
@@ -201,14 +201,14 @@ def test_the_fp32_specialization_retypes_and_renames_nothing_else(tmp_path) -> N
     )
 
 
-def test_an_unknown_precision_is_refused_rather_than_silently_fp64(tmp_path) -> None:
+def test_an_unknown_precision_is_refused_rather_than_silently_fp64(tmp_path: pathlib.Path) -> None:
     """`native_runtime` dispatches fp64/fp32 only. A request for anything else is a caller bug, and
     answering it with the fp64 text would build a library whose symbol nobody asked for."""
     with pytest.raises(ValueError):
         pluto_transform.specialize_override(OVERRIDE, "mm", "fp16")
 
 
-def test_override_resolves_to_one_scop_per_precision(tmp_path) -> None:
+def test_override_resolves_to_one_scop_per_precision(tmp_path: pathlib.Path) -> None:
     """Both precisions the harness can dispatch, each derived from the override."""
     bench_dir = tmp_path / "kern"
     override = write_override(bench_dir, "mm")
@@ -220,7 +220,7 @@ def test_override_resolves_to_one_scop_per_precision(tmp_path) -> None:
     assert resolved[1].read_text() == override.read_text()
 
 
-def test_fp32_and_fp64_artifacts_cannot_overwrite_each_other(tmp_path) -> None:
+def test_fp32_and_fp64_artifacts_cannot_overwrite_each_other(tmp_path: pathlib.Path) -> None:
     """Separate scop inputs AND separate transform outputs, none of them colliding with the
     translator's generated names. Publishing the fp64 override output onto `<base>_fp64_pluto.c`
     -- the generated fp64 name -- would make one file for two producers."""
@@ -237,7 +237,7 @@ def test_fp32_and_fp64_artifacts_cannot_overwrite_each_other(tmp_path) -> None:
     assert not generated & {p.name for p in scops + outs}, "an override artifact took a generated name"
 
 
-def test_rematerializing_an_unchanged_override_does_not_bump_mtimes(tmp_path) -> None:
+def test_rematerializing_an_unchanged_override_does_not_bump_mtimes(tmp_path: pathlib.Path) -> None:
     """Freshness in `transformed_sources` is an mtime compare, so rewriting identical bytes every
     build would re-run polycc on every kernel forever."""
     bench_dir = tmp_path / "kern"
@@ -250,7 +250,7 @@ def test_rematerializing_an_unchanged_override_does_not_bump_mtimes(tmp_path) ->
     assert [p.stat().st_mtime_ns for p in again] == stamps
 
 
-def test_editing_the_override_does_republish_the_derived_scops(tmp_path) -> None:
+def test_editing_the_override_does_republish_the_derived_scops(tmp_path: pathlib.Path) -> None:
     """The other half of the same rule: a CHANGED override must reach the build. The derived scop is
     content-addressed against it, so this does not depend on the tracked file's mtime -- which never
     moves in a checkout."""
@@ -264,7 +264,7 @@ def test_editing_the_override_does_republish_the_derived_scops(tmp_path) -> None
     assert all("2.0 * A[i][k]" in p.read_text() for p in again)
 
 
-def test_a_kernel_without_an_override_is_unaffected(tmp_path) -> None:
+def test_a_kernel_without_an_override_is_unaffected(tmp_path: pathlib.Path) -> None:
     """The generated path keeps resolving to the translator's own scops, under their own names."""
     cpp_backend = tmp_path / "kern" / "cpp_backend"
     cpp_backend.mkdir(parents=True)
@@ -282,7 +282,7 @@ def test_a_kernel_without_an_override_is_unaffected(tmp_path) -> None:
     [("fp64", ctypes.c_double, np.float64, 1e-12), ("fp32", ctypes.c_float, np.float32, 1e-4)],
 )
 def test_an_override_backed_library_exports_and_computes_both_precisions(
-    tmp_path, fptype, ctype, npdtype, rtol
+    tmp_path: pathlib.Path, fptype: str, ctype: str, npdtype: type, rtol: float
 ) -> None:
     """The end-to-end claim, with nothing faked: an override-backed kernel builds ONE library that
     exports both `mm_fp64` and `mm_fp32`, and each symbol -- called with buffers of its own dtype --
@@ -326,7 +326,9 @@ for _mark in needs_toolchain:
 
 
 @pytest.mark.parametrize(("npdtype", "rtol"), [(np.float64, 1e-12), (np.float32, 1e-4)])
-def test_the_production_dispatch_path_resolves_both_precisions(tmp_path, npdtype, rtol) -> None:
+def test_the_production_dispatch_path_resolves_both_precisions(
+    tmp_path: pathlib.Path, npdtype: type, rtol: float
+) -> None:
     """The fp32 override, on the production dispatch path.
 
     `native_runtime.wrap_kernel` is what the generated wrapper modules call, and its closure picks the

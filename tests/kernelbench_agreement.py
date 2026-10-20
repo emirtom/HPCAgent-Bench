@@ -7,14 +7,19 @@ with an absolute floor."""
 import ast
 import inspect
 import pathlib
+import types
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from hpcagent_bench import modules, paths
 from hpcagent_bench.harness import kernelbench_adapter
+from hpcagent_bench.spec import BenchSpec
 from tests.fresh_module import module_at
+
+if TYPE_CHECKING:
+    import torch
 
 #: Warnings the upstream KernelBench models raise when run (third_party/KernelBench), filtered only in the
 #: tests that execute them: SwinTransformerV2 calls torch.meshgrid without ``indexing=``, the ViT models
@@ -51,7 +56,7 @@ class Agreement:
     positional: list[str] = field(default_factory=list)
 
 
-def load_module(path: pathlib.Path, name: str):
+def load_module(path: pathlib.Path, name: str) -> types.ModuleType:
     """Import a file by path under a private name (upstream models are not importable packages)."""
     return module_at(path, name)
 
@@ -62,7 +67,7 @@ def assigned_names(node: ast.stmt) -> set:
     return {sub.id for tgt in targets for sub in ast.walk(tgt) if isinstance(sub, ast.Name)}
 
 
-def patch_sizes(module, preset: dict[str, Any]) -> list[str]:
+def patch_sizes(module: types.ModuleType, preset: dict[str, Any]) -> list[str]:
     """Pin every preset key that names a module global, then RE-DERIVE the rest.
 
     The re-derivation is the load-bearing half: a derived constant was evaluated at import from the
@@ -86,7 +91,7 @@ def patch_sizes(module, preset: dict[str, Any]) -> list[str]:
     return errors
 
 
-def init_positional(module) -> tuple:
+def init_positional(module: types.ModuleType) -> tuple:
     """``get_init_inputs()`` normalised to ``(positional, keyword)`` -- upstream spells it 3 ways."""
     raw = module.get_init_inputs()
     if isinstance(raw, dict):
@@ -101,17 +106,17 @@ def init_positional(module) -> tuple:
     return list(raw), {}
 
 
-def init_parameters(model_cls) -> list:
+def init_parameters(model_cls: "type[torch.nn.Module]") -> list:
     sig = inspect.signature(model_cls.__init__)
     return [p for p in list(sig.parameters.values())[1:] if p.kind in (p.POSITIONAL_OR_KEYWORD, p.POSITIONAL_ONLY)]
 
 
-def forward_parameters(model) -> list[str]:
+def forward_parameters(model: "torch.nn.Module") -> list[str]:
     sig = inspect.signature(type(model).forward)
     return [p.name for p in list(sig.parameters.values())[1:] if p.kind in (p.POSITIONAL_OR_KEYWORD, p.POSITIONAL_ONLY)]
 
 
-def manifest_knobs(spec, preset: dict[str, Any]) -> dict[str, Any]:
+def manifest_knobs(spec: BenchSpec, preset: dict[str, Any]) -> dict[str, Any]:
     """Every manifest value that can name one submodule's hyperparameter, under one view.
 
     A knob is spelled in ``config:`` or in ``init.scalars`` depending on whether a declared shape
@@ -128,7 +133,9 @@ def manifest_knobs(spec, preset: dict[str, Any]) -> dict[str, Any]:
     return knobs
 
 
-def init_kwargs(module, preset: dict[str, Any], knobs: dict[str, Any], largest_dim: int) -> dict[str, Any]:
+def init_kwargs(
+    module: types.ModuleType, preset: dict[str, Any], knobs: dict[str, Any], largest_dim: int
+) -> dict[str, Any]:
     """Init arguments resolved BY NAME: manifest preset, then manifest knobs, then upstream.
 
     Upstream's ``get_init_inputs()`` returns only the hyperparameters IT chose to vary -- a level1
@@ -170,7 +177,9 @@ def init_kwargs(module, preset: dict[str, Any], knobs: dict[str, Any], largest_d
     return resolved
 
 
-def submodule_overrides(model, model_cls, bound: dict[str, Any], knobs: dict[str, Any]) -> dict[str, Any]:
+def submodule_overrides(
+    model: "torch.nn.Module", model_cls: "type[torch.nn.Module]", bound: dict[str, Any], knobs: dict[str, Any]
+) -> dict[str, Any]:
     """Init overrides from ``<submodule>_<param>`` manifest knobs, e.g. ``avg_pool_kernel_size``.
 
     The port names a knob after the submodule it belongs to, which only becomes resolvable once the
@@ -198,7 +207,7 @@ def submodule_overrides(model, model_cls, bound: dict[str, Any], knobs: dict[str
     return overrides
 
 
-def audit_hyperparameters(model, knobs: dict[str, Any]) -> list[str]:
+def audit_hyperparameters(model: "torch.nn.Module", knobs: dict[str, Any]) -> list[str]:
     """Every ``<submodule>_<attr>`` knob must match what the built model actually holds.
 
     The one check that catches a port computing a DIFFERENT function: a manifest that says
@@ -221,7 +230,7 @@ def audit_hyperparameters(model, knobs: dict[str, Any]) -> list[str]:
     return drift
 
 
-def map_parameters(model, wanted: list[str], shapes: dict[str, list[int]]) -> tuple:
+def map_parameters(model: "torch.nn.Module", wanted: list[str], shapes: dict[str, list[int]]) -> tuple:
     """``({numpy arg: tensor}, positional_notes, zero_filled)`` for the port's parameter arguments.
 
     Rule A is the name (``a.b.weight`` -> ``a_b_weight``) and covers most of the corpus. Rule B
@@ -256,7 +265,7 @@ def map_parameters(model, wanted: list[str], shapes: dict[str, list[int]]) -> tu
     return mapping, positional, leftover_args
 
 
-def resolved_shapes(spec, preset: dict[str, Any]) -> dict[str, list[int]]:
+def resolved_shapes(spec: BenchSpec, preset: dict[str, Any]) -> dict[str, list[int]]:
     """The manifest's declared array shapes, evaluated at this preset."""
     out: dict[str, list[int]] = {}
     for name, expr in (spec.init.shapes if spec.init else {}).items():
@@ -264,7 +273,9 @@ def resolved_shapes(spec, preset: dict[str, Any]) -> dict[str, list[int]]:
     return out
 
 
-def compare(spec, kernel: str, upstream: pathlib.Path, preset_name: str = "S", train: bool = False) -> Agreement:
+def compare(
+    spec: BenchSpec, kernel: str, upstream: pathlib.Path, preset_name: str = "S", train: bool = False
+) -> Agreement:
     """Build the upstream model at the manifest's sizes, run both, and compare.
 
     Raises nothing for a numerical disagreement -- that is a RESULT. It raises only when the port

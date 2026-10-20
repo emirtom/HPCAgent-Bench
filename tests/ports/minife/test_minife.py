@@ -122,7 +122,7 @@ def assert_status(status: int, name: str) -> None:
         raise AssertionError(f"{name} returned status {status}")
 
 
-def independent_spmv(row_offsets, cols, values, x):
+def independent_spmv(row_offsets: np.ndarray, cols: np.ndarray, values: np.ndarray, x: np.ndarray) -> np.ndarray:
     y = np.zeros(row_offsets.shape[0] - 1, dtype=np.float64)
     for row in range(y.shape[0]):
         total = 0.0
@@ -132,21 +132,21 @@ def independent_spmv(row_offsets, cols, values, x):
     return y
 
 
-def independent_dot(x, y):
+def independent_dot(x: np.ndarray, y: np.ndarray) -> float:
     total = 0.0
     for i in range(min(x.shape[0], y.shape[0])):
         total += float(x[i]) * float(y[i])
     return total
 
 
-def independent_dot_r2(x):
+def independent_dot_r2(x: np.ndarray) -> float:
     total = 0.0
     for value in x:
         total += float(value) * float(value)
     return total
 
 
-def independent_daxpby(alpha, x, beta, y):
+def independent_daxpby(alpha: float, x: np.ndarray, beta: float, y: np.ndarray) -> np.ndarray:
     out = np.array(y, dtype=np.float64, copy=True)
     n = min(x.shape[0], out.shape[0])
     for i in range(n):
@@ -163,7 +163,7 @@ def independent_daxpby(alpha, x, beta, y):
     return out
 
 
-def independent_waxpby(alpha, x, beta, y):
+def independent_waxpby(alpha: float, x: np.ndarray, beta: float, y: np.ndarray) -> np.ndarray:
     n = min(x.shape[0], y.shape[0])
     out = np.zeros(n, dtype=np.float64)
     for i in range(n):
@@ -176,7 +176,15 @@ def independent_waxpby(alpha, x, beta, y):
     return out
 
 
-def independent_cg(row_offsets, cols, values, b, x, max_iter: int = 60, tolerance: float = 1.0e-12):
+def independent_cg(
+    row_offsets: np.ndarray,
+    cols: np.ndarray,
+    values: np.ndarray,
+    b: np.ndarray,
+    x: np.ndarray,
+    max_iter: int = 60,
+    tolerance: float = 1.0e-12,
+) -> tuple[np.ndarray, int, float]:
     x = np.array(x, dtype=np.float64, copy=True)
     p = np.array(x, dtype=np.float64, copy=True)
     ap = independent_spmv(row_offsets, cols, values, p)
@@ -211,13 +219,15 @@ def independent_cg(row_offsets, cols, values, b, x, max_iter: int = 60, toleranc
     return x, num_iters, normr
 
 
-def assert_finite(name, *arrays) -> None:
+def assert_finite(name: str, *arrays: np.ndarray) -> None:
     for array in arrays:
         if not np.all(np.isfinite(array)):
             raise AssertionError(f"{name} contains NaN or Inf")
 
 
-def assert_structural_validity(inputs, dims) -> None:
+def assert_structural_validity(
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray], dims: tuple[int, int, int]
+) -> None:
     row_offsets, cols, values, x, y, b = inputs
     nrows = row_offsets.shape[0] - 1
     num_cols = x.shape[0]
@@ -256,7 +266,9 @@ def assert_structural_validity(inputs, dims) -> None:
         assert int(row_lengths.max()) < 27
 
 
-def cpp_validate(cpp, row_offsets, cols, values, x, y):
+def cpp_validate(
+    cpp: ctypes.CDLL, row_offsets: np.ndarray, cols: np.ndarray, values: np.ndarray, x: np.ndarray, y: np.ndarray
+) -> int:
     return cpp.minife_validate_csr(
         row_offsets,
         cols,
@@ -269,7 +281,9 @@ def cpp_validate(cpp, row_offsets, cols, values, x, y):
     )
 
 
-def cpp_spmv(cpp, row_offsets, cols, values, x):
+def cpp_spmv(
+    cpp: ctypes.CDLL, row_offsets: np.ndarray, cols: np.ndarray, values: np.ndarray, x: np.ndarray
+) -> np.ndarray:
     y = np.zeros(row_offsets.shape[0] - 1, dtype=np.float64)
     status = cpp.minife_matvec_std(
         row_offsets,
@@ -285,28 +299,28 @@ def cpp_spmv(cpp, row_offsets, cols, values, x):
     return y
 
 
-def cpp_dot(cpp, x, y):
+def cpp_dot(cpp: ctypes.CDLL, x: np.ndarray, y: np.ndarray) -> float:
     result = ctypes.c_double()
     status = cpp.minife_dot(x, y, min(x.shape[0], y.shape[0]), ctypes.byref(result))
     assert_status(status, "minife_dot")
     return result.value
 
 
-def cpp_dot_r2(cpp, x):
+def cpp_dot_r2(cpp: ctypes.CDLL, x: np.ndarray) -> float:
     result = ctypes.c_double()
     status = cpp.minife_dot_r2(x, x.shape[0], ctypes.byref(result))
     assert_status(status, "minife_dot_r2")
     return result.value
 
 
-def cpp_daxpby(cpp, alpha, x, beta, y):
+def cpp_daxpby(cpp: ctypes.CDLL, alpha: float, x: np.ndarray, beta: float, y: np.ndarray) -> np.ndarray:
     out = np.array(y, dtype=np.float64, copy=True)
     status = cpp.minife_daxpby(alpha, x, beta, out, min(x.shape[0], out.shape[0]))
     assert_status(status, "minife_daxpby")
     return out
 
 
-def cpp_waxpby(cpp, alpha, x, beta, y):
+def cpp_waxpby(cpp: ctypes.CDLL, alpha: float, x: np.ndarray, beta: float, y: np.ndarray) -> np.ndarray:
     out = np.zeros(min(x.shape[0], y.shape[0]), dtype=np.float64)
     status = cpp.minife_waxpby(alpha, x, beta, y, out, out.shape[0])
     assert_status(status, "minife_waxpby")
@@ -314,8 +328,15 @@ def cpp_waxpby(cpp, alpha, x, beta, y):
 
 
 def cpp_cg(
-    cpp, row_offsets, cols, values, b, max_iter: int = 60, tolerance: float = 1.0e-12, guess: np.ndarray | None = None
-):
+    cpp: ctypes.CDLL,
+    row_offsets: np.ndarray,
+    cols: np.ndarray,
+    values: np.ndarray,
+    b: np.ndarray,
+    max_iter: int = 60,
+    tolerance: float = 1.0e-12,
+    guess: np.ndarray | None = None,
+) -> tuple[np.ndarray, int, float]:
     x = np.zeros(row_offsets.shape[0] - 1, dtype=np.float64) if guess is None else np.array(guess, dtype=np.float64)
     num_iters = ctypes.c_int32()
     normr = ctypes.c_double()
@@ -337,7 +358,9 @@ def cpp_cg(
     return x, int(num_iters.value), float(normr.value)
 
 
-def assert_case(cpp, nx, ny, nz, seed):
+def assert_case(
+    cpp: ctypes.CDLL, nx: int, ny: int, nz: int, seed: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     inputs = mfe.generate_random_minife_inputs(nx, ny, nz, seed=seed)
     row_offsets, cols, values, x, y0, b = inputs
 
@@ -432,7 +455,7 @@ def assert_repeatability() -> None:
     assert not np.array_equal(first[3], different[3])
 
 
-def assert_invalid_cpp_statuses(cpp) -> None:
+def assert_invalid_cpp_statuses(cpp: ctypes.CDLL) -> None:
     row_offsets, cols, values, x, _, _ = mfe.generate_random_minife_inputs(2, 2, 2, seed=5)
     nrows = row_offsets.shape[0] - 1
     num_cols = x.shape[0]
@@ -497,7 +520,7 @@ def assert_invalid_cpp_statuses(cpp) -> None:
 
 
 @pytest.fixture(scope="module")
-def cpp():
+def cpp() -> ctypes.CDLL:
     return bind_cpp_reference()
 
 
@@ -515,11 +538,11 @@ def test_repeatability() -> None:
 
 
 @pytest.mark.parametrize(("nx", "ny", "nz", "seed"), CASES)
-def test_case(cpp, nx, ny, nz, seed) -> None:
+def test_case(cpp: ctypes.CDLL, nx: int, ny: int, nz: int, seed: int) -> None:
     assert_case(cpp, nx, ny, nz, seed)
 
 
-def test_invalid_cpp_statuses(cpp) -> None:
+def test_invalid_cpp_statuses(cpp: ctypes.CDLL) -> None:
     assert_invalid_cpp_statuses(cpp)
 
 

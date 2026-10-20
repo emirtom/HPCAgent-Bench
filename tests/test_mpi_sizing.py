@@ -67,7 +67,9 @@ def test_weak_does_not_mutate_the_caller_dict() -> None:
     ],
     ids=["exponent-2-square", "exponent-3-cube", "exponent-1-linear", "exponent-2-square-large-m"],
 )
-def test_weak_at_p_equal_m_to_the_k_multiplies_each_axis_symbol_by_m(ranks, work_exponent, m, expected_n) -> None:
+def test_weak_at_p_equal_m_to_the_k_multiplies_each_axis_symbol_by_m(
+    ranks: int, work_exponent: int, m: int, expected_n: int
+) -> None:
     params = {"N": 100}
     out = mpi_sizing.weak(params, ["N"], ranks=ranks, work_exponent=work_exponent)
     assert out == {"N": expected_n}
@@ -82,7 +84,9 @@ def test_weak_at_p_equal_m_to_the_k_multiplies_each_axis_symbol_by_m(ranks, work
     ],
     ids=["not-a-perfect-square", "not-a-perfect-cube"],
 )
-def test_weak_at_a_non_perfect_kth_power_p_rounds_each_axis_symbol(ranks, work_exponent, expected_n) -> None:
+def test_weak_at_a_non_perfect_kth_power_p_rounds_each_axis_symbol(
+    ranks: int, work_exponent: int, expected_n: int
+) -> None:
     """A rank count that is not P = m**k is still sized (pending a paper
     edit): each axis symbol is scaled by the real ``P**(1/k)`` and rounded to the nearest integer."""
     out = mpi_sizing.weak({"N": 100}, ["N"], ranks=ranks, work_exponent=work_exponent)
@@ -172,7 +176,7 @@ def test_weak_rounding_note_names_p_k_m_sizes_and_the_realized_work_ratio() -> N
 
 # A manifest without work_exponent is strong-only: weak refuses it, never defaults k to 1
 @pytest.mark.parametrize("ranks", [1, 4])
-def test_weak_without_a_declared_work_exponent_is_refused_as_strong_only(ranks) -> None:
+def test_weak_without_a_declared_work_exponent_is_refused_as_strong_only(ranks: int) -> None:
     """Absence of ``mpi.decomposition.work_exponent`` marks a strong-only kernel (paper
     app:distributed: an N log N FFT has no integer growth that multiplies its work by exactly P),
     so weak refuses it at every P -- even P=1 -- with a reason naming the missing key."""
@@ -183,7 +187,7 @@ def test_weak_without_a_declared_work_exponent_is_refused_as_strong_only(ranks) 
 
 
 @pytest.mark.parametrize("work_exponent", [0, -2])
-def test_weak_refuses_a_nonpositive_work_exponent(work_exponent) -> None:
+def test_weak_refuses_a_nonpositive_work_exponent(work_exponent: int) -> None:
     """A declared k < 1 is refused with the value named, not floored to k=1."""
     with pytest.raises(ValueError, match=f"k={work_exponent}"):
         mpi_sizing.weak({"N": 100}, ["N"], ranks=4, work_exponent=work_exponent)
@@ -283,7 +287,7 @@ def mpi_manifests() -> dict[str, BenchSpec]:
     return {stem: spec for stem, spec in specs.items() if spec.mpi}
 
 
-def test_every_mpi_manifest_declares_a_list_axis_present_in_every_preset(mpi_manifests) -> None:
+def test_every_mpi_manifest_declares_a_list_axis_present_in_every_preset(mpi_manifests: dict[str, BenchSpec]) -> None:
     """``mpi.decomposition.axis`` is a list even when d=1, and weak scaling multiplies every one of
     its symbols by m -- so each must be a size parameter of every preset, or that preset's grown
     problem would silently carry less than P times the work."""
@@ -301,7 +305,7 @@ def test_every_mpi_manifest_declares_a_list_axis_present_in_every_preset(mpi_man
     assert not bad, bad
 
 
-def test_every_mpi_manifest_declares_its_own_work_exponent(mpi_manifests) -> None:
+def test_every_mpi_manifest_declares_its_own_work_exponent(mpi_manifests: dict[str, BenchSpec]) -> None:
     """Every MPI-eligible manifest declares its own ``work_exponent`` k >= 1 rather than inheriting
     one; a missing k would make the kernel strong-only (weak refuses it), which no shipped MPI
     kernel is meant to be."""
@@ -313,7 +317,9 @@ def test_every_mpi_manifest_declares_its_own_work_exponent(mpi_manifests) -> Non
     assert not bad, bad
 
 
-def test_the_work_exponent_split_and_the_one_two_symbol_tuple_match_the_paper(mpi_manifests) -> None:
+def test_the_work_exponent_split_and_the_one_two_symbol_tuple_match_the_paper(
+    mpi_manifests: dict[str, BenchSpec],
+) -> None:
     """Paper app:distributed: 57 MPI-eligible kernels, 36 with k=1, 9 with k=2, 12 with k=3, and
     ``mat_scaled_add`` (M, N) the only decomposition tuple with more than one symbol. A manifest
     change that moves these numbers must move the paper with it. The ``mlscale20``

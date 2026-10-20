@@ -8,6 +8,8 @@ The CLI closes such a run with subtype ``success`` and exit 0 (2.1.197: exit 1) 
 death as a finished run and the setup reads as complete.
 """
 
+import pathlib
+import types
 from types import ModuleType
 
 import pytest
@@ -40,7 +42,9 @@ def driver_fixture() -> ModuleType:
 
 
 @pytest.mark.parametrize("closing", [OVERFLOW, SGLANG_OVERFLOW], ids=["vllm", "sglang"])
-def test_a_context_overflow_death_is_not_a_success(driver, tmp_path, closing) -> None:
+def test_a_context_overflow_death_is_not_a_success(
+    driver: types.ModuleType, tmp_path: pathlib.Path, closing: str
+) -> None:
     log = tmp_path / "claude.log"
     log.write_text(
         '{"type":"assistant","message":{"id":"a","usage":{"output_tokens":5}}}\n' + closing, encoding="utf-8"
@@ -59,7 +63,7 @@ def test_a_context_overflow_death_is_not_a_success(driver, tmp_path, closing) ->
         "",
     ],
 )
-def test_every_other_ending_is_left_alone(driver, tmp_path, closing) -> None:
+def test_every_other_ending_is_left_alone(driver: types.ModuleType, tmp_path: pathlib.Path, closing: str) -> None:
     """A finished run, the turn cap, and an agent that merely WROTE about context lengths."""
     log = tmp_path / "claude.log"
     log.write_text(

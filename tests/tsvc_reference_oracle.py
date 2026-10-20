@@ -9,6 +9,7 @@ import json
 import pathlib
 import subprocess
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -33,7 +34,7 @@ PRESET = "S"
 SEED = 7
 
 
-def numpy_entry(spec: BenchSpec):
+def numpy_entry(spec: BenchSpec) -> Callable[..., object]:
     """The kernel's numpy reference function, loaded from its co-located module."""
     path = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
     return modules.member(module_at(path, f"{spec.module_name}_numpy"), spec.func_name)

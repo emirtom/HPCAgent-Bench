@@ -3,6 +3,7 @@
 """fp8 (E4M3/E5M2) native emission for C/C++/Fortran: promote-on-read, round-on-op, demote-on-write."""
 
 import ctypes
+import pathlib
 import shutil
 import subprocess
 
@@ -32,17 +33,17 @@ _TOOL = {"c": "gcc", "cpp": "g++", "fortran": "gfortran"}
 _EXT = {"c": ".c", "cpp": ".cpp", "fortran": ".f90"}
 
 
-def _emit_fp8(tmp_path, precision):
+def emit_fp8(tmp_path: pathlib.Path, precision: str) -> pathlib.Path:
     """Emit `KERNEL` at `precision` into `tmp_path` via the same CLI path the numerical oracle uses."""
     from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load(KERNEL)
-    ok, diag = no._emit(KERNEL, info, tmp_path, precision=precision)
+    ok, diag = no.emit_kernel(KERNEL, info, tmp_path, precision=precision)
     assert ok, f"{KERNEL}: fp8 emit failed at {precision}{diag}"
     return tmp_path
 
 
-def _src(tmp_path, precision, backend):
+def emitted_source(tmp_path: pathlib.Path, precision: str, backend: str) -> pathlib.Path:
     """The single emitted source for ``backend`` at ``precision``."""
     hits = sorted(tmp_path.glob(f"{KERNEL}_{precision}{_EXT[backend]}"))
     assert len(hits) == 1, f"expected one {backend} source for {precision}, got {hits}"
@@ -53,7 +54,7 @@ def _src(tmp_path, precision, backend):
 
 
 @pytest.mark.parametrize(("cli", "canon", "mlname"), FP8_FORMATS)
-def test_registry_resolves_fp8_to_one_byte(cli, canon, mlname) -> None:
+def test_registry_resolves_fp8_to_one_byte(cli: str, canon: str, mlname: str) -> None:
     """Both formats resolve, through every spelling, to a 1-byte storage type in C/Fortran and ml_dtypes."""
     info = dtypes.info(cli)
     assert dtypes.canonical(cli) == canon
@@ -88,12 +89,12 @@ def test_fp8_registry_does_not_disturb_other_dtypes() -> None:
 
 @pytest.mark.parametrize("backend", ["c", "cpp", "fortran"])
 @pytest.mark.parametrize(("cli", "canon", "mlname"), FP8_FORMATS)
-def test_fp8_emits_and_compiles(tmp_path, cli, canon, mlname, backend) -> None:
+def test_fp8_emits_and_compiles(tmp_path: pathlib.Path, cli: str, canon: str, mlname: str, backend: str) -> None:
     """`--precision fp8_*` emits a source whose element type is the 1-byte fp8 storage type, and it compiles."""
     if shutil.which(_TOOL[backend]) is None:
         pytest.skip(f"{_TOOL[backend]} not installed")
-    _emit_fp8(tmp_path, cli)
-    src = _src(tmp_path, cli, backend)
+    emit_fp8(tmp_path, cli)
+    src = emitted_source(tmp_path, cli, backend)
     text = src.read_text()
 
     # The signature carries the storage type -- not a silently-promoted float.
@@ -118,10 +119,10 @@ def test_fp8_emits_and_compiles(tmp_path, cli, canon, mlname, backend) -> None:
 
 
 @pytest.mark.parametrize(("cli", "canon", "mlname"), FP8_FORMATS)
-def test_fp8_prelude_only_when_used(tmp_path, cli, canon, mlname) -> None:
+def test_fp8_prelude_only_when_used(tmp_path: pathlib.Path, cli: str, canon: str, mlname: str) -> None:
     """The fp8 prelude is injected only into an fp8 kernel; an fp64 emit carries no dead helpers."""
-    _emit_fp8(tmp_path / "f8", cli)
-    _emit_fp8(tmp_path / "f64", "")
+    emit_fp8(tmp_path / "f8", cli)
+    emit_fp8(tmp_path / "f64", "")
     suffix = canon.removeprefix("float8_")
     assert f"__npb_rn_{suffix}" in (tmp_path / "f8" / f"{KERNEL}_{cli}.c").read_text()
     fp64_c = min((tmp_path / "f64").glob(f"{KERNEL}_fp64.c")).read_text()
@@ -132,7 +133,7 @@ def test_fp8_prelude_only_when_used(tmp_path, cli, canon, mlname) -> None:
 # 4. Numeric: the compiled kernel vs the ml_dtypes fp8 reference
 
 
-def _run_scaled_add(so, symbol, x8, y8, alpha8):
+def run_scaled_add(so: pathlib.Path, symbol: str, x8: np.ndarray, y8: np.ndarray, alpha8: np.generic) -> np.ndarray:
     """Call the compiled fp8 scaled_add over raw 1-byte storage; return the mutated `y` bytes."""
     lib = ctypes.CDLL(str(so))
     fn = lib[symbol]
@@ -151,13 +152,15 @@ def _run_scaled_add(so, symbol, x8, y8, alpha8):
 
 @pytest.mark.parametrize("backend", ["c", "cpp", "fortran"])
 @pytest.mark.parametrize(("cli", "canon", "mlname"), FP8_FORMATS)
-def test_fp8_numeric_matches_numpy_oracle(tmp_path, cli, canon, mlname, backend) -> None:
+def test_fp8_numeric_matches_numpy_oracle(
+    tmp_path: pathlib.Path, cli: str, canon: str, mlname: str, backend: str
+) -> None:
     """The compiled fp8 kernel reproduces the numpy ml_dtypes reference EXACTLY (bit-equality, no tolerance)."""
     if shutil.which(_TOOL[backend]) is None:
         pytest.skip(f"{_TOOL[backend]} not installed")
     f8 = modules.member(ml_dtypes, mlname)
-    _emit_fp8(tmp_path, cli)
-    src = _src(tmp_path, cli, backend)
+    emit_fp8(tmp_path, cli)
+    src = emitted_source(tmp_path, cli, backend)
     so = tmp_path / f"num_{backend}.so"
     r = subprocess.run(no.native_build_command(backend, src, so), capture_output=True, text=True, check=False)
     assert r.returncode == 0, f"{backend} {cli} compile failed:\n{r.stderr[:1500]}"
@@ -170,7 +173,7 @@ def test_fp8_numeric_matches_numpy_oracle(tmp_path, cli, canon, mlname, backend)
     alpha = f8(1.5)
 
     want = y + alpha * x  # the numpy oracle: rounds to fp8 after EACH op
-    got = _run_scaled_add(so, f"{KERNEL}_{cli}", x, y, alpha).view(f8)
+    got = run_scaled_add(so, f"{KERNEL}_{cli}", x, y, alpha).view(f8)
 
     exact = got.view(np.uint8) == np.ascontiguousarray(want).view(np.uint8)
     if not exact.all():
@@ -182,22 +185,25 @@ def test_fp8_numeric_matches_numpy_oracle(tmp_path, cli, canon, mlname, backend)
 
 
 @pytest.mark.parametrize(("cli", "canon", "mlname"), FP8_FORMATS)
-def test_fp8_conversions_cover_every_code(tmp_path, cli, canon, mlname) -> None:
+def test_fp8_conversions_cover_every_code(tmp_path: pathlib.Path, cli: str, canon: str, mlname: str) -> None:
     """Drive all 256 fp8 codes (subnormals, zeros, Inf, NaN) through promote/demote and match ml_dtypes."""
     if shutil.which("gcc") is None:
         pytest.skip("gcc not installed")
     f8 = modules.member(ml_dtypes, mlname)
-    _emit_fp8(tmp_path, cli)
+    emit_fp8(tmp_path, cli)
     so = tmp_path / "rt.so"
     r = subprocess.run(
-        no.native_build_command("c", _src(tmp_path, cli, "c"), so), capture_output=True, text=True, check=False
+        no.native_build_command("c", emitted_source(tmp_path, cli, "c"), so),
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert r.returncode == 0, r.stderr[:1500]
 
     vals = np.arange(256, dtype=np.uint8).view(f8)
     zeros = np.zeros(256, dtype=f8)
     want = vals + f8(0.0) * zeros
-    got = _run_scaled_add(so, f"{KERNEL}_{cli}", zeros, vals, f8(0.0))
+    got = run_scaled_add(so, f"{KERNEL}_{cli}", zeros, vals, f8(0.0))
 
     bad = np.where(got != np.ascontiguousarray(want).view(np.uint8))[0]
     assert not len(bad), (

@@ -36,7 +36,7 @@ class _MeteredStub(StubAgent):
 
     name = "metered"
 
-    def solve(self, task, prompt: str = "", budget=None):
+    def solve(self, task: Task, prompt: str = "", budget: object = None) -> Submission:
         self.record_usage(input_tokens=10, output_tokens=5)
         return super().solve(task, prompt=prompt, budget=budget)
 
@@ -131,7 +131,7 @@ class _RepairStub(StubAgent):
         super().__init__()
         self._calls = 0
 
-    def solve(self, task, prompt: str = "", budget=None):
+    def solve(self, task: Task, prompt: str = "", budget: object = None) -> Submission:
         self.record_usage(input_tokens=10, output_tokens=5)
         self._calls += 1
         if self._calls == 1:

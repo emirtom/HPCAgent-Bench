@@ -15,6 +15,7 @@ import copy
 
 import pytest
 
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import (
     INVARIANT_ENV,
     LoweringContext,
@@ -26,11 +27,11 @@ from tests.translators.op_oracle import parse_source
 SRC = "import numpy as np\ndef f(x, out):\n s = np.zeros((6,))\n for i in range(6):\n  s[i] = x[i] * 2.0\n out[:] = s\n"
 
 
-def parsed_kir():
+def parsed_kir() -> KernelIR:
     return parse_source(SRC, "f", ["x"], ["out"], {"x": "(N,)", "out": "(N,)"}, {"N": 6})
 
 
-def fresh_ctx():
+def fresh_ctx() -> LoweringContext:
     """A structurally-valid context over a freshly lowered kir (aliasing holds)."""
     lowered = lower(parsed_kir())
     ctx = LoweringContext(lowered, lowered)
@@ -38,7 +39,7 @@ def fresh_ctx():
     return ctx
 
 
-def test_lower_with_flag_on_does_not_false_trip(monkeypatch) -> None:
+def test_lower_with_flag_on_does_not_false_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     # The checker must accept every intermediate state of a real lowering.
     monkeypatch.setenv(INVARIANT_ENV, "1")
     kir = lower(parsed_kir())

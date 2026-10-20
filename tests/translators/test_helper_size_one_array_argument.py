@@ -28,7 +28,7 @@ def scale_demo(x, cutsq, out, N):
 """
 
 
-def emit_(target):
+def emit_(target: str) -> str:
     from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_cpp
     from hpcagent_bench.translators.numpyto_common.lowering import lower
 
@@ -39,7 +39,7 @@ def emit_(target):
     return emit_cpp(kir, fn_name="scale_demo") if target == "cpp" else emit_c(kir, fn_name="scale_demo")
 
 
-def call_args(src, callee):
+def call_args(src: str, callee: str) -> list[str]:
     """The argument texts of the one call to ``callee`` in the emitted body."""
     calls = [line for line in src.splitlines() if f"{callee}(" in line and not line.lstrip().startswith("static")]
     assert len(calls) == 1, calls

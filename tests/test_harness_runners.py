@@ -45,7 +45,9 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
 # launch arguments
 
 
-def test_the_driver_argv_parses_into_absolute_paths_and_a_bare_base_url(harness, tmp_path: pathlib.Path) -> None:
+def test_the_driver_argv_parses_into_absolute_paths_and_a_bare_base_url(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     args = harness.common.parse_args(
         [
             "--workdir",
@@ -101,7 +103,9 @@ def test_a_runner_told_no_effort_or_context_sends_neither(
     assert args.max_output_tokens == harness.common.DEFAULT_MAX_OUTPUT_TOKENS
 
 
-def test_the_openhands_runner_refuses_to_start_without_an_mcp_config(harness, tmp_path: pathlib.Path) -> None:
+def test_the_openhands_runner_refuses_to_start_without_an_mcp_config(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     """Without the MCP server an OpenHands agent has no benchmark tools and still runs to exit 0."""
     argv = ["--workdir", str(tmp_path), "--prompt", "p", "--base-url", "u", "--model", "m", "--usage", "u.jsonl"]
     with pytest.raises(SystemExit) as refused:
@@ -117,17 +121,19 @@ def test_the_openhands_runner_refuses_to_start_without_an_mcp_config(harness, tm
         ("openai/gpt-oss-120b", "openai/openai/gpt-oss-120b"),
     ],
 )
-def test_the_litellm_name_always_prefixes_the_served_name(harness, served: str, litellm: str) -> None:
+def test_the_litellm_name_always_prefixes_the_served_name(
+    harness: types.SimpleNamespace, served: str, litellm: str
+) -> None:
     """A served name that itself starts with ``openai/`` must not be mistaken for a LiteLLM route."""
     assert harness.common.litellm_model(served) == litellm
 
 
-def test_a_missing_api_key_fails_loudly_instead_of_sending_an_empty_one(harness) -> None:
+def test_a_missing_api_key_fails_loudly_instead_of_sending_an_empty_one(harness: types.SimpleNamespace) -> None:
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         harness.common.api_key({})
 
 
-def test_a_judge_call_outlives_the_judge_timeout(harness) -> None:
+def test_a_judge_call_outlives_the_judge_timeout(harness: types.SimpleNamespace) -> None:
     """Killing an ``hpcagent-bench-tool score`` client mid-grade leaves the grade holding a judge slot."""
     assert harness.common.judge_call_timeout({"JUDGE_TIMEOUT_SECONDS": "1800"}) > 1800
     assert harness.common.judge_call_timeout({}) > harness.common.DEFAULT_JUDGE_TIMEOUT_SECONDS
@@ -146,7 +152,7 @@ class TerminalExecutor:
         self.timeout = 300.0
 
 
-def test_every_mcp_tool_waits_past_the_judges_own_deadline(harness) -> None:
+def test_every_mcp_tool_waits_past_the_judges_own_deadline(harness: types.SimpleNamespace) -> None:
     """OpenHands gives up on a /score after the SDK's 300 s while the judge keeps grading for up to
     its 1800 s, and the busy stdio server then times out every later call too. The runner sets each MCP executor's wait to the judge call's wait, and
     leaves every other tool's executor alone."""
@@ -188,7 +194,7 @@ def test_a_miniswe_command_keeps_its_quoting_and_exit_code(harness: types.Simple
     assert (result.returncode, result.stdout) == (3, "a b|it's|tab\there|")
 
 
-def test_the_miniswe_config_sets_no_budget_of_its_own(harness) -> None:
+def test_the_miniswe_config_sets_no_budget_of_its_own(harness: types.SimpleNamespace) -> None:
     """The driver owns wall clock and tokens; a limit here would end episodes the driver thinks are live."""
     config = yaml.safe_load(harness.miniswe.CONFIG.read_text(encoding="utf-8"))
     budgets = {key: config["agent"][key] for key in ("step_limit", "cost_limit", "wall_time_limit_seconds")}
@@ -217,7 +223,7 @@ def test_the_runners_import_without_loading_any_harness_package() -> None:
 
 
 def test_the_openhands_terminal_shell_stays_in_the_workdir_whatever_the_rc_file_does(
-    harness, tmp_path: pathlib.Path
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
 ) -> None:
     """OpenHands starts ``<shell> -i`` in the workdir; an interactive bash that read a ``.bashrc`` doing
     ``cd $HOME`` wrote the whole episode into HOME on the login-node smoke."""
@@ -285,7 +291,7 @@ def fake_openhands(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_openhands_agent_carries_the_default_presets_condenser_on_a_copy_of_its_llm(
-    harness, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    harness: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     """OpenHands runs as shipped, and its shipped agent compacts history the way Claude Code autocompacts;
     an agent built without the preset's condenser dies on context overflow instead."""
@@ -397,7 +403,9 @@ def test_an_openhands_agent_told_no_trigger_keeps_the_presets_condenser_untouche
     assert harness.openhands.build_agent(args, {"OPENAI_API_KEY": "k"}).fields["condenser"].max_tokens is None
 
 
-def test_the_request_timeout_parses_for_every_runner_and_defaults_to_none(harness, tmp_path: pathlib.Path) -> None:
+def test_the_request_timeout_parses_for_every_runner_and_defaults_to_none(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     argv = ["--workdir", str(tmp_path), "--prompt", "p", "--base-url", "u/v1", "--model", "m", "--usage", "u.jsonl"]
     assert harness.common.parse_args(argv, with_mcp_config=False).request_timeout is None
     told = harness.common.parse_args([*argv, "--request-timeout", "3600"], with_mcp_config=False)
@@ -425,7 +433,9 @@ def test_an_openhands_llm_waits_the_request_timeout_it_was_handed(
     assert "timeout" not in harness.openhands.build_agent(untold, {"OPENAI_API_KEY": "k"}).fields["llm"].fields
 
 
-def test_the_compaction_trigger_parses_for_every_runner_and_defaults_to_none(harness, tmp_path: pathlib.Path) -> None:
+def test_the_compaction_trigger_parses_for_every_runner_and_defaults_to_none(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     argv = ["--workdir", str(tmp_path), "--prompt", "p", "--base-url", "u/v1", "--model", "m", "--usage", "u.jsonl"]
     assert harness.common.parse_args(argv, with_mcp_config=False).compaction_trigger is None
     told = harness.common.parse_args([*argv, "--compaction-trigger", "98959"], with_mcp_config=False)
@@ -462,27 +472,27 @@ def estimate(harness: types.SimpleNamespace, window: HistoryWindow, messages: li
     return sum(harness.common.message_chars(message) for message in messages) * window.tokens_per_char
 
 
-def test_a_messages_size_is_what_the_request_carries(harness) -> None:
+def test_a_messages_size_is_what_the_request_carries(harness: types.SimpleNamespace) -> None:
     """mini-SWE drops ``extra`` before sending; the retained reasoning is sent and counts."""
     sent = {key: value for key, value in step(0)[0].items() if key != "extra"}
     assert harness.common.message_chars(step(0)[0]) == len(json.dumps(sent))
 
 
-def test_a_history_under_the_trigger_is_sent_whole(harness) -> None:
+def test_a_history_under_the_trigger_is_sent_whole(harness: types.SimpleNamespace) -> None:
     window = harness.common.HistoryWindow(head=2, trigger=100_000, tokens_per_char=0.25)
     messages = history(5)
     assert window.view(messages) is messages
     assert window.dropped == 0
 
 
-def test_nothing_is_cut_before_the_server_has_counted_a_request(harness) -> None:
+def test_nothing_is_cut_before_the_server_has_counted_a_request(harness: types.SimpleNamespace) -> None:
     """The ratio comes from the server's own count; before the first reply there is none."""
     window = harness.common.HistoryWindow(head=2, trigger=10)
     messages = history(50)
     assert window.view(messages) is messages
 
 
-def test_past_the_trigger_the_request_is_the_task_a_note_and_the_newest_steps(harness) -> None:
+def test_past_the_trigger_the_request_is_the_task_a_note_and_the_newest_steps(harness: types.SimpleNamespace) -> None:
     """Cut to half the trigger, whole steps only: every tool result still follows the call it answers."""
     window = harness.common.HistoryWindow(head=2, trigger=20_000, tokens_per_char=0.25)
     messages = history(40)
@@ -501,7 +511,7 @@ def test_past_the_trigger_the_request_is_the_task_a_note_and_the_newest_steps(ha
     assert all(message["tool_call_id"] in calls for message in kept if message["role"] == "tool")
 
 
-def test_the_cut_holds_until_the_history_grows_back_past_the_trigger(harness) -> None:
+def test_the_cut_holds_until_the_history_grows_back_past_the_trigger(harness: types.SimpleNamespace) -> None:
     """Between cuts each request is the previous one plus the new step, so the prefix cache holds."""
     window = harness.common.HistoryWindow(head=2, trigger=20_000, tokens_per_char=0.25)
     messages = history(40)
@@ -515,7 +525,7 @@ def test_the_cut_holds_until_the_history_grows_back_past_the_trigger(harness) ->
     assert second == [*first, *step(40)]
 
 
-def test_the_newest_step_is_sent_even_when_it_alone_passes_the_target(harness) -> None:
+def test_the_newest_step_is_sent_even_when_it_alone_passes_the_target(harness: types.SimpleNamespace) -> None:
     window = harness.common.HistoryWindow(head=2, trigger=1_000, tokens_per_char=0.25)
     messages = [*history(3), *step(3, reasoning=40_000)]
     sent = window.view(messages)
@@ -523,7 +533,7 @@ def test_the_newest_step_is_sent_even_when_it_alone_passes_the_target(harness) -
     assert window.dropped == 3
 
 
-def test_the_window_calibrates_on_the_servers_count_of_what_it_sent(harness) -> None:
+def test_the_window_calibrates_on_the_servers_count_of_what_it_sent(harness: types.SimpleNamespace) -> None:
     window = harness.common.HistoryWindow(head=2, trigger=1_000)
     messages = history(2)
     window.calibrate(messages, 1_000)
@@ -778,7 +788,9 @@ def test_a_messages_api_history_is_cut_at_whole_steps_so_every_tool_use_keeps_it
         ),
     ],
 )
-def test_a_usage_line_splits_a_call_into_disjoint_counts(harness, usage: dict, line: dict) -> None:
+def test_a_usage_line_splits_a_call_into_disjoint_counts(
+    harness: types.SimpleNamespace, usage: dict, line: dict
+) -> None:
     """The watcher SUMS the four fields, so a count that includes another would be charged twice."""
     assert harness.common.openai_usage(usage) == line
 
@@ -827,7 +839,9 @@ def test_an_agents_sdk_usage_splits_a_call_into_disjoint_counts(harness: types.S
     assert harness.openai.agents_usage(usage) == {"input": 60, "cached_input": 40, "output": 15, "reasoning": 5}
 
 
-def test_the_usage_log_appends_one_complete_line_per_call(harness, tmp_path: pathlib.Path) -> None:
+def test_the_usage_log_appends_one_complete_line_per_call(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     """The token watcher polls the file while the runner writes it and must see whole lines only."""
     log = harness.common.UsageLog(tmp_path / "usage.jsonl")
     first = {"input": 1, "cached_input": 2, "output": 3, "reasoning": 4}
@@ -847,7 +861,7 @@ def test_the_usage_log_appends_one_complete_line_per_call(harness, tmp_path: pat
     ("reason", "status"), [("finished", 0), ("context_overflow", 1), ("api_timeout", 1), ("error", 1)]
 )
 def test_the_end_record_is_written_and_only_a_finish_exits_zero(
-    harness, tmp_path: pathlib.Path, reason: str, status: int
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path, reason: str, status: int
 ) -> None:
     assert harness.common.write_end(tmp_path, harness.common.EndReason.parse(reason), 7, "why", "high") == status
     assert json.loads((tmp_path / "harness-end.json").read_text(encoding="utf-8")) == {
@@ -863,7 +877,9 @@ def test_the_end_reasons_keep_the_spellings_the_driver_reads(harness: types.Simp
     assert harness.common.EndReason.texts() == ("finished", "context_overflow", "api_timeout", "error")
 
 
-def test_an_oversized_detail_is_truncated_in_the_end_record(harness, tmp_path: pathlib.Path) -> None:
+def test_an_oversized_detail_is_truncated_in_the_end_record(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     harness.common.write_end(tmp_path, harness.common.EndReason.ERROR, 0, "x" * 100_000)
     record = json.loads((tmp_path / "harness-end.json").read_text(encoding="utf-8"))
     assert record["detail"] == "x" * harness.common.DETAIL_LIMIT
@@ -908,13 +924,15 @@ def wrapped(inner: Exception) -> Exception:
         (RuntimeError("OPENAI_API_KEY is not set"), "error"),
     ],
 )
-def test_an_exception_maps_to_the_end_reason_it_stands_for(harness, exc: Exception, reason: str) -> None:
+def test_an_exception_maps_to_the_end_reason_it_stands_for(
+    harness: types.SimpleNamespace, exc: Exception, reason: str
+) -> None:
     """Served servers refuse an over-long prompt with a plain 400, and an MCP start-up timeout is not
     an API timeout; either mislabel sends the episode to the wrong bucket."""
     assert harness.common.end_reason(exc) is harness.common.EndReason.parse(reason)
 
 
-def test_a_subclass_of_a_context_window_error_is_still_a_context_overflow(harness) -> None:
+def test_a_subclass_of_a_context_window_error_is_still_a_context_overflow(harness: types.SimpleNamespace) -> None:
     parent = type("ContextWindowExceededError", (Exception,), {})
     child = type("ProviderContextError", (parent,), {})
     assert harness.common.end_reason(child("x")) is harness.common.EndReason.CONTEXT_OVERFLOW
@@ -928,7 +946,9 @@ def write_mcp_json(path: pathlib.Path, servers: object) -> pathlib.Path:
     return path
 
 
-def test_an_mcp_server_gets_the_whole_environment_under_its_declared_env(harness, tmp_path: pathlib.Path) -> None:
+def test_an_mcp_server_gets_the_whole_environment_under_its_declared_env(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     """OpenHands starts a stdio server with PATH/HOME and little else; Claude Code passes everything,
     so a variable only the process environment carries (LANGUAGE, AGENT_SUBMISSION_MODE) must reach it."""
     config = write_mcp_json(
@@ -953,21 +973,27 @@ def test_an_mcp_server_gets_the_whole_environment_under_its_declared_env(harness
     }
 
 
-def test_an_mcp_server_without_an_env_still_gets_the_environment(harness, tmp_path: pathlib.Path) -> None:
+def test_an_mcp_server_without_an_env_still_gets_the_environment(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     config = write_mcp_json(tmp_path / "mcp.json", {"hpcagent-bench": {"command": "python3", "args": ["s.py"]}})
     servers = harness.common.mcp_servers(config, {"KERNEL": "gemm"}, tmp_path)
     assert servers["hpcagent-bench"]["env"] == {"KERNEL": "gemm"}
 
 
 @pytest.mark.parametrize("servers", [{}, None, ["hpcagent-bench"]])
-def test_an_mcp_json_without_servers_is_refused(harness, tmp_path: pathlib.Path, servers: object) -> None:
+def test_an_mcp_json_without_servers_is_refused(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path, servers: object
+) -> None:
     """An empty server map would start an agent with no benchmark tools."""
     with pytest.raises(ValueError, match="no mcpServers"):
         harness.common.mcp_servers(write_mcp_json(tmp_path / "mcp.json", servers), {}, tmp_path)
 
 
 @pytest.mark.parametrize("server", ["python3", {"command": "python3", "env": ["JUDGE_RANK=3"]}])
-def test_a_malformed_mcp_server_entry_is_refused(harness, tmp_path: pathlib.Path, server: object) -> None:
+def test_a_malformed_mcp_server_entry_is_refused(
+    harness: types.SimpleNamespace, tmp_path: pathlib.Path, server: object
+) -> None:
     config = write_mcp_json(tmp_path / "mcp.json", {"hpcagent-bench": server})
     with pytest.raises(TypeError, match="hpcagent-bench"):
         harness.common.mcp_servers(config, {}, tmp_path)
@@ -1048,7 +1074,7 @@ def run_tool(
     )
 
 
-def test_score_reaches_the_judge_with_rank_and_identity(tool_env, tmp_path: pathlib.Path) -> None:
+def test_score_reaches_the_judge_with_rank_and_identity(tool_env: dict[str, str], tmp_path: pathlib.Path) -> None:
     """Run as a script, the CLI finds its sibling tool modules in its own directory."""
     done = run_tool(["score", '{"kernel": "gemm", "source": "int x;"}'], tool_env, tmp_path)
     assert done.returncode == 0, done.stderr
@@ -1066,13 +1092,13 @@ def test_score_reaches_the_judge_with_rank_and_identity(tool_env, tmp_path: path
     }
 
 
-def test_the_payload_can_arrive_on_stdin(tool_env, tmp_path: pathlib.Path) -> None:
+def test_the_payload_can_arrive_on_stdin(tool_env: dict[str, str], tmp_path: pathlib.Path) -> None:
     done = run_tool(["score"], tool_env, tmp_path, stdin='{"kernel": "gemm", "source": "int y;"}')
     assert done.returncode == 0, done.stderr
     assert FakeJudge.requests[0][1]["source"] == "int y;"
 
 
-def test_a_judge_refusal_prints_the_reason_and_exits_one(tool_env, tmp_path: pathlib.Path) -> None:
+def test_a_judge_refusal_prints_the_reason_and_exits_one(tool_env: dict[str, str], tmp_path: pathlib.Path) -> None:
     done = run_tool(["score", '{"kernel": "unknown", "source": "int x;"}'], tool_env, tmp_path)
     assert done.returncode == 1, done.stdout
     result = json.loads(done.stdout)
@@ -1080,7 +1106,9 @@ def test_a_judge_refusal_prints_the_reason_and_exits_one(tool_env, tmp_path: pat
     assert "unknown kernel" in result["error"]
 
 
-def test_the_single_submission_marker_lands_in_the_working_directory(tool_env, tmp_path: pathlib.Path) -> None:
+def test_the_single_submission_marker_lands_in_the_working_directory(
+    tool_env: dict[str, str], tmp_path: pathlib.Path
+) -> None:
     """The driver ends the episode when this marker appears in the agent's workdir."""
     tool_env["AGENT_SUBMISSION_MODE"] = "single"
     first = run_tool(["submit", '{"kernel": "gemm", "source": "int x;"}'], tool_env, tmp_path)
@@ -1103,7 +1131,7 @@ def test_the_single_submission_marker_lands_in_the_working_directory(tool_env, t
     ],
 )
 def test_a_usage_error_exits_two_and_calls_no_judge(
-    tool_env, tmp_path: pathlib.Path, args: list[str], stdin: str | None, message: str
+    tool_env: dict[str, str], tmp_path: pathlib.Path, args: list[str], stdin: str | None, message: str
 ) -> None:
     done = run_tool(args, tool_env, tmp_path, stdin=stdin)
     assert done.returncode == 2, done.stdout
@@ -1112,7 +1140,9 @@ def test_a_usage_error_exits_two_and_calls_no_judge(
 
 
 @pytest.mark.parametrize("mode", ["single", "blind"])
-def test_the_listed_tools_are_exactly_the_mcp_servers_tools(tool_env, tmp_path: pathlib.Path, mode: str) -> None:
+def test_the_listed_tools_are_exactly_the_mcp_servers_tools(
+    tool_env: dict[str, str], tmp_path: pathlib.Path, mode: str
+) -> None:
     """The CLI setup must be offered the same tools as the MCP setups, including the blind setup's missing score."""
     tool_env["AGENT_SUBMISSION_MODE"] = mode
     listed = run_tool(["--list"], tool_env, tmp_path)
@@ -1134,21 +1164,21 @@ def test_the_listed_tools_are_exactly_the_mcp_servers_tools(tool_env, tmp_path: 
     assert ("score" in names) is (mode != "blind")
 
 
-def test_a_withdrawn_score_tool_cannot_be_called_from_the_cli(tool_env, tmp_path: pathlib.Path) -> None:
+def test_a_withdrawn_score_tool_cannot_be_called_from_the_cli(tool_env: dict[str, str], tmp_path: pathlib.Path) -> None:
     tool_env["AGENT_SUBMISSION_MODE"] = "blind"
     done = run_tool(["score", '{"kernel": "gemm", "source": "int x;"}'], tool_env, tmp_path)
     assert done.returncode == 2
     assert FakeJudge.requests == []
 
 
-def test_describe_shows_the_schema_an_mcp_setup_sees(tool_env, tmp_path: pathlib.Path) -> None:
+def test_describe_shows_the_schema_an_mcp_setup_sees(tool_env: dict[str, str], tmp_path: pathlib.Path) -> None:
     done = run_tool(["--describe", "syntax_check"], tool_env, tmp_path)
     assert done.returncode == 0, done.stderr
     assert '"source_file"' in done.stdout
     assert "LOCAL compiler" in done.stdout
 
 
-def test_the_bin_wrapper_finds_the_tools_from_any_directory(tool_env, tmp_path: pathlib.Path) -> None:
+def test_the_bin_wrapper_finds_the_tools_from_any_directory(tool_env: dict[str, str], tmp_path: pathlib.Path) -> None:
     """The shell reaches the CLI as ``hpcagent-bench-tool`` on PATH, from whatever directory the agent is in."""
     shim_bin = tmp_path / "python-bin"
     shim_bin.mkdir()

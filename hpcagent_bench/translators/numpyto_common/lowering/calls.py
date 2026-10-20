@@ -99,7 +99,7 @@ class AstypeRewriter(ast.NodeTransformer):
         )
 
 
-def match_reshape(node: ast.expr):
+def match_reshape(node: ast.expr) -> tuple[ast.expr, list[ast.expr]] | None:
     """If ``node`` is a reshape call (method ``X.reshape(shape...)`` OR func
     ``np.reshape(X, shape)``), return ``(base_expr, shape_elts)`` -- the array
     being reshaped and the list of shape AST elements. Else ``None``.
@@ -155,7 +155,7 @@ class ReshapeMethodRewriter(ast.NodeTransformer):
 FFT_FNS = {"fftn": (False, True), "ifftn": (True, True), "fft": (False, False), "ifft": (True, False)}
 
 
-def match_fft(node: ast.expr):
+def match_fft(node: ast.expr) -> tuple[str, ast.expr, list[ast.keyword]] | None:
     """If ``node`` is ``np.fft.{fftn,ifftn,fft,ifft}(arg, ...)``, return
     ``(fn_name, arg, keywords)``; else ``None``."""
     if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in FFT_FNS):
@@ -285,7 +285,9 @@ class ScalarTimesMatmulRewriter(ast.NodeTransformer):
 
     __slots__ = ("counter", "pre_stmts", "shape_table", "temps")
 
-    def __init__(self, shape_table: dict[str, tuple[str, ...]], temps: dict[str, tuple[str, ...]], counter) -> None:
+    def __init__(
+        self, shape_table: dict[str, tuple[str, ...]], temps: dict[str, tuple[str, ...]], counter: list[int]
+    ) -> None:
         self.shape_table = shape_table
         self.temps = temps
         self.counter = counter
@@ -424,7 +426,7 @@ class TransposeRewriter(ast.NodeTransformer):
 
     __slots__ = ("sparse_names",)
 
-    def __init__(self, sparse_names=None) -> None:
+    def __init__(self, sparse_names: set[str] | None = None) -> None:
         #: Logical sparse matrices whose ``A.T`` / ``A.transpose()`` must stay a
         #: transpose ATTRIBUTE/method -- the sparse matmul hoister turns ``A.T @
         #: x`` into a transpose SpMV on A's own buffers (CSR<->CSC). Densifying it

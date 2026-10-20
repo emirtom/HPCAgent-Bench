@@ -59,12 +59,12 @@ def run_episode(
         #: The messages the last request carried, which its usage counts.
         sent: Sequence[dict[str, Any]] = ()
 
-        def query(self, messages: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        def query(self, messages: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
             sent = window.view(messages) if window is not None else messages
             self.sent = sent
             return super().query(sent, **kwargs)
 
-        def _calculate_cost(self, response: Any) -> dict[str, float]:
+        def _calculate_cost(self, response: Any) -> dict[str, float]:  # noqa: ANN401
             usage = response.model_dump().get("usage")
             line = runner_common.openai_usage(usage if isinstance(usage, dict) else {})
             usage_log.append(line)

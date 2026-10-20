@@ -27,7 +27,7 @@ def test_a_module_with_the_real_shape_is_accepted() -> None:
 
 
 @pytest.mark.parametrize("missing", native_call.DEVICE_MODULE_MARKERS)
-def test_a_module_missing_any_marker_is_refused(missing) -> None:
+def test_a_module_missing_any_marker_is_refused(missing: str) -> None:
     mod = real_shaped_module(without=missing)
     with pytest.raises(RuntimeError, match="not the real library"):
         native_call.reject_impostor_device_module(mod)
@@ -40,7 +40,7 @@ def test_the_agent_written_stub_is_refused() -> None:
 
     class Cuda:
         @staticmethod
-        def get_elapsed_time(start, stop):
+        def get_elapsed_time(start: object, stop: object) -> float:
             return 0.0
 
     stub.cuda = Cuda()

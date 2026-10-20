@@ -4,6 +4,7 @@
 the contracted extent ``l``, ``eps_acc``, the ungradeable-tolerance guard, the replay leg and the write probe."""
 
 import math
+import pathlib
 import types
 
 import numpy as np
@@ -617,7 +618,10 @@ def test_an_ungradeable_grade_is_scored_not_a_crash(monkeypatch: pytest.MonkeyPa
         ),
     )
 
-    def refuse(*_args, **_kwargs):
+    def refuse(
+        *args: object,
+        **kwargs: object,
+    ) -> None:
         raise UngradeableTolerance("eps_acc*sqrt(l) >= rtol -- ungradeable")
 
     monkeypatch.setattr(scoring, "_grade_against", refuse)
@@ -630,7 +634,7 @@ def test_an_ungradeable_grade_is_scored_not_a_crash(monkeypatch: pytest.MonkeyPa
     assert "ungradeable" in result.detail
 
 
-def test_the_recorded_reason_is_ungradeable_not_incorrect_or_score_error(tmp_path) -> None:
+def test_the_recorded_reason_is_ungradeable_not_incorrect_or_score_error(tmp_path: pathlib.Path) -> None:
     """The DB-facing half of the same guard: Score.ungradeable / VerifyResult.ungradeable must
     reach the ``attempts`` row's ``reason`` column as its own bucket, not fall through to
     "incorrect" or "score_error" the way a bare RuntimeError message would."""

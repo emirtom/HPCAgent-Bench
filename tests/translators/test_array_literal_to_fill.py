@@ -25,7 +25,14 @@ from hpcagent_bench.translators.numpyto_common.lowering import lower
 from tests.translators.op_oracle import parse_source, run_op
 
 
-def emit_c_for(src: str, func: str, shapes=None, syms=None, inputs=("src",), outputs=("out",)) -> str:
+def emit_c_for(
+    src: str,
+    func: str,
+    shapes: dict[str, str] | None = None,
+    syms: dict[str, int] | None = None,
+    inputs: tuple[str, ...] = ("src",),
+    outputs: tuple[str, ...] = ("out",),
+) -> str:
     shapes = shapes or {"src": "(N, M)", "out": "(N, M)"}
     syms = syms or {"N": 8, "M": 4}
     return emit_c(lower(parse_source(src, func, list(inputs), list(outputs), shapes, syms)), fn_name=func)

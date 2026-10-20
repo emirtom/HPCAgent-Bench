@@ -65,7 +65,7 @@ def _count(path: str, table: str) -> int:
         conn.close()
 
 
-def test_shard_paths_order_numerically(tmp_path) -> None:
+def test_shard_paths_order_numerically(tmp_path: pathlib.Path) -> None:
     """Shard 10 must merge after shard 9, which a lexical sort gets wrong."""
     base = str(tmp_path / "hpcagent_bench.db")
     for shard in (0, 2, 9, 10):
@@ -73,7 +73,7 @@ def test_shard_paths_order_numerically(tmp_path) -> None:
     assert recording.shard_paths(base) == [recording.shard_db_path(s, base) for s in (0, 2, 9, 10)]
 
 
-def test_shard_paths_ignores_the_base_and_unrelated_files(tmp_path) -> None:
+def test_shard_paths_ignores_the_base_and_unrelated_files(tmp_path: pathlib.Path) -> None:
     base = str(tmp_path / "hpcagent_bench.db")
     pathlib.Path(base).open("w").close()
     pathlib.Path(str(tmp_path / "hpcagent_benchX.db")).open("w").close()
@@ -82,7 +82,7 @@ def test_shard_paths_ignores_the_base_and_unrelated_files(tmp_path) -> None:
     assert recording.shard_paths(base) == [recording.shard_db_path(1, base)]
 
 
-def test_aggregate_merges_every_table_and_reassigns_ids(tmp_path) -> None:
+def test_aggregate_merges_every_table_and_reassigns_ids(tmp_path: pathlib.Path) -> None:
     base = str(tmp_path / "hpcagent_bench.db")
     seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm", "jacobi_2d"], language="c")
     seed_shard(recording.shard_db_path(1, base), run="r1", kernels=["gemm", "spmv"], language="fortran", timestamp=2)
@@ -127,7 +127,7 @@ def test_two_ranks_of_one_run_merge_instead_of_colliding(tmp_path: pathlib.Path)
         assert [r[0] for r in conn.execute("SELECT language FROM setups")] == ["c"]
 
 
-def test_aggregate_merges_a_episode_id_shared_by_multiple_shards(tmp_path) -> None:
+def test_aggregate_merges_a_episode_id_shared_by_multiple_shards(tmp_path: pathlib.Path) -> None:
     """A run served by several ranks writes the SAME run into every rank's own shard, so the second
     shard's row for it must not collide with the first's -- it is the same fact."""
     base = str(tmp_path / "hpcagent_bench.db")
@@ -144,7 +144,7 @@ def test_aggregate_merges_a_episode_id_shared_by_multiple_shards(tmp_path) -> No
     assert len(submissions(base)) == 2
 
 
-def test_aggregate_refuses_a_shard_holding_a_table_outside_the_schema(tmp_path) -> None:
+def test_aggregate_refuses_a_shard_holding_a_table_outside_the_schema(tmp_path: pathlib.Path) -> None:
     """There is one schema: a shard carrying any other table (an older writer's) is refused, never folded in."""
     base = str(tmp_path / "hpcagent_bench.db")
     current, other = recording.shard_db_path(0, base), recording.shard_db_path(1, base)
@@ -157,7 +157,7 @@ def test_aggregate_refuses_a_shard_holding_a_table_outside_the_schema(tmp_path) 
         recording.aggregate(base)
 
 
-def test_aggregate_is_idempotent(tmp_path) -> None:
+def test_aggregate_is_idempotent(tmp_path: pathlib.Path) -> None:
     """Rebuilt from scratch, never appended to -- re-merging must not double the rows."""
     base = str(tmp_path / "hpcagent_bench.db")
     seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
@@ -186,7 +186,7 @@ def test_a_failed_merge_step_raises_its_own_error(tmp_path: pathlib.Path, monkey
         results_db.merge(tmp_path / "merged.db", [shard])
 
 
-def test_aggregate_carries_the_sources_inside_the_db(tmp_path) -> None:
+def test_aggregate_carries_the_sources_inside_the_db(tmp_path: pathlib.Path) -> None:
     """A source is a row of the DB, so the merged file holds the text itself: no store beside it."""
     base = str(tmp_path / "hpcagent_bench.db")
     shard = recording.shard_db_path(0, base)
@@ -203,7 +203,7 @@ def test_aggregate_carries_the_sources_inside_the_db(tmp_path) -> None:
     assert not list(tmp_path.glob("*_prompts"))
 
 
-def test_ensure_aggregated_builds_when_the_aggregate_is_missing(tmp_path) -> None:
+def test_ensure_aggregated_builds_when_the_aggregate_is_missing(tmp_path: pathlib.Path) -> None:
     base = str(tmp_path / "hpcagent_bench.db")
     seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
     assert not pathlib.Path(base).exists()
@@ -212,7 +212,7 @@ def test_ensure_aggregated_builds_when_the_aggregate_is_missing(tmp_path) -> Non
     assert len(submissions(base)) == 1
 
 
-def test_ensure_aggregated_rebuilds_when_a_shard_is_newer(tmp_path) -> None:
+def test_ensure_aggregated_rebuilds_when_a_shard_is_newer(tmp_path: pathlib.Path) -> None:
     """A shard that landed after the last merge must not be read through a stale aggregate."""
     base = str(tmp_path / "hpcagent_bench.db")
     seed_shard(recording.shard_db_path(0, base), run="r0", kernels=["gemm"])
@@ -274,7 +274,7 @@ def test_merge_results_without_shards_still_records_the_episodes(tmp_path: pathl
         assert conn.execute("SELECT kernel, result, turns FROM episodes").fetchall() == [("gemm", "timeout", 10)]
 
 
-def test_ensure_aggregated_is_a_noop_without_shards(tmp_path) -> None:
+def test_ensure_aggregated_is_a_noop_without_shards(tmp_path: pathlib.Path) -> None:
     """A single-writer run keeps working untouched -- no aggregate is invented for it."""
     base = str(tmp_path / "hpcagent_bench.db")
     seed_shard(base, run="solo", kernels=["gemm"])
@@ -284,7 +284,7 @@ def test_ensure_aggregated_is_a_noop_without_shards(tmp_path) -> None:
     assert len(submissions(base)) == 1
 
 
-def test_a_single_writer_run_still_writes_a_shard(monkeypatch, tmp_path) -> None:
+def test_a_single_writer_run_still_writes_a_shard(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Nothing writes the base file. It is BOTH authoritative and derived otherwise -- the next
     merge erases it, and its mtime makes a stale aggregate look fresh."""
     from hpcagent_bench import config
@@ -300,26 +300,26 @@ def test_a_single_writer_run_still_writes_a_shard(monkeypatch, tmp_path) -> None
         config.clear_override("record.allow_memory_db")
 
 
-def test_db_shard_prefers_the_explicit_override(monkeypatch) -> None:
+def test_db_shard_prefers_the_explicit_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SLURM_PROCID", "7")
     monkeypatch.setenv("HPCAGENT_BENCH_DB_SHARD", "2")
     assert recording.db_shard() == 2
 
 
-def test_db_shard_falls_back_to_the_launcher_rank(monkeypatch) -> None:
+def test_db_shard_falls_back_to_the_launcher_rank(monkeypatch: pytest.MonkeyPatch) -> None:
     """A job that forgets the explicit variable still shards, rather than sharing one file."""
     monkeypatch.delenv("HPCAGENT_BENCH_DB_SHARD", raising=False)
     monkeypatch.setenv("SLURM_PROCID", "7")
     assert recording.db_shard() == 7
 
 
-def test_db_shard_is_none_when_single_writer(monkeypatch) -> None:
+def test_db_shard_is_none_when_single_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("HPCAGENT_BENCH_DB_SHARD", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK", "PMI_RANK"):
         monkeypatch.delenv(name, raising=False)
     assert recording.db_shard() is None
 
 
-def test_memory_backed_storage_is_refused(tmp_path) -> None:
+def test_memory_backed_storage_is_refused(tmp_path: pathlib.Path) -> None:
     """Results on tmpfs vanish with the allocation and steal RAM from the kernel being measured."""
     from hpcagent_bench import config
 

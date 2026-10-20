@@ -303,7 +303,7 @@ def offload_sample(source: str, data: dict) -> tuple[np.ndarray, list[int], nati
 
 
 @pytest.mark.integration
-def test_an_offload_kernel_is_timed_without_its_transfers(offload_setup, tmp_path: pathlib.Path) -> None:
+def test_an_offload_kernel_is_timed_without_its_transfers(offload_setup: None, tmp_path: pathlib.Path) -> None:
     """The bug this change exists for, measured: an offload setup's sample must not contain a copy.
 
     The harness places the arrays on the device BEFORE the bracket and reads them back after it, so
@@ -334,7 +334,7 @@ def test_an_offload_kernel_is_timed_without_its_transfers(offload_setup, tmp_pat
 
 
 @pytest.mark.integration
-def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup) -> None:
+def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup: None) -> None:
     """The other half: the transferring shape is not measured differently, it is not built.
 
     On an APU a ``map(to:)`` over a device pointer does not fail -- the runtime copies device
@@ -352,7 +352,7 @@ def test_the_build_refuses_the_mapping_variant_on_an_offload_setup(offload_setup
 
 
 @pytest.mark.integration
-def test_deferred_offload_work_is_still_inside_the_bracket(offload_setup) -> None:
+def test_deferred_offload_work_is_still_inside_the_bracket(offload_setup: None) -> None:
     """``target ... nowait`` and no ``taskwait`` is the directive spelling of "start it and return".
 
     The submission's own OpenMP runtime is the only thing that can wait for a deferred target task,

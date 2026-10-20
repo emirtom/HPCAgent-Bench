@@ -167,12 +167,12 @@ class OuterBroadcastPeel(RankedRewritePass):
             return self.combine(ops)
         if isinstance(expr, ast.Subscript):
             axes = self.axes_(expr)
-            return None if axes is None else [ext for unused, unused, ext in axes]
+            return None if axes is None else [axis[2] for axis in axes]
         if numpy_call_attr(expr) == "arange":
             return [f"({ast.unparse(expr)}).shape[0]"]  # always 1-D, so it only ever broadcasts
         return None
 
-    def axes_(self, sub: ast.Subscript):
+    def axes_(self, sub: ast.Subscript) -> list[tuple[int | None, str, str]] | None:
         """``(entry index or None, kind, extent token)`` per OUTPUT axis of a subscript."""
         if not isinstance(sub.value, (ast.Name, ast.Subscript)):
             return None  # a computed base would need peeling through

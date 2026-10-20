@@ -157,7 +157,10 @@ class MathRewriter(ast.NodeTransformer):
     ARRAY_CAPABLE = frozenset({"maximum", "minimum"})
 
     def __init__(
-        self, array_names=None, defer_array_capable: bool = False, user_functions: set[str] | None = None
+        self,
+        array_names: set[str] | None = None,
+        defer_array_capable: bool = False,
+        user_functions: set[str] | None = None,
     ) -> None:
         self.array_names = array_names or set()
         #: Functions the kernel module defines. One of them may be named ``round``, and a call to it is
@@ -169,7 +172,7 @@ class MathRewriter(ast.NodeTransformer):
         # correctly, so leave these two alone until then.
         self.defer_array_capable = defer_array_capable
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> ast.expr:
         self.generic_visit(node)
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
             mod = node.func.value.id

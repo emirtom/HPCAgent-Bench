@@ -19,7 +19,9 @@ from tests.translators.op_oracle import all_ok, run_op
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
 
 
-def run_(src, ins, outs, syms, shapes):
+def run_(
+    src: str, ins: dict[str, np.ndarray], outs: dict[str, tuple[int, ...]], syms: dict[str, int], shapes: dict[str, str]
+) -> tuple[bool, dict[str, str]]:
     return all_ok(run_op(src, "f", ins, outs, syms, shapes=shapes, backends=ALL))
 
 

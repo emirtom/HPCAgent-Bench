@@ -32,7 +32,7 @@ HDR2 = "import numpy as np\ndef pick(src, out):\n    ia = np.zeros(2, dtype=np.i
 HDR3 = HDR2.replace("def pick(", "def pick3(")
 
 
-def run2(body, **kw):
+def run2(body: str, **kw: object) -> dict[str, str]:
     rng = np.random.default_rng(0)
     return run_op(
         HDR2 + body,
@@ -46,7 +46,7 @@ def run2(body, **kw):
     )
 
 
-def run3(body):
+def run3(body: str) -> dict[str, str]:
     rng = np.random.default_rng(0)
     return run_op(
         HDR3 + body,
@@ -59,7 +59,7 @@ def run3(body):
     )
 
 
-def ok_(res) -> None:
+def ok_(res: dict[str, str]) -> None:
     # Both keys asserted: ``all()`` over an empty result is vacuously true, so a harness that
     # returned nothing would read as a pass.
     assert set(res) == {"c", "fortran"}, res

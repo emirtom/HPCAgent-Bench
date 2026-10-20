@@ -122,7 +122,7 @@ async def open_tools(
     return tools
 
 
-async def tool_result(block: Any, tools: Mapping[str, Any]) -> dict[str, Any]:
+async def tool_result(block: Any, tools: Mapping[str, Any]) -> dict[str, Any]:  # noqa: ANN401
     """The ``tool_result`` answering one ``tool_use`` block; a failed call is an error the model reads."""
     from anthropic.lib.tools import ToolError
 
@@ -139,7 +139,7 @@ async def tool_result(block: Any, tools: Mapping[str, Any]) -> dict[str, Any]:
     return answer
 
 
-async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, Any]]:
+async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, Any]]:  # noqa: ANN401
     """The ``tool_result`` blocks for every ``tool_use`` of one reply; a call cut off at ``max_tokens`` is answered
     with :data:`CUT_OFF_NOTE`, never run."""
     calls = [block for block in reply.content if block.type == "tool_use"]

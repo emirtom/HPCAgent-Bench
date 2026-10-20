@@ -5,6 +5,7 @@
 
 import math
 import os
+import pathlib
 from types import SimpleNamespace
 
 import pytest
@@ -49,7 +50,7 @@ def test_native_prompt_is_host_framed_and_default_is_container_framed() -> None:
         assert "rtol=" in p
 
 
-def test_native_prompt_via_cli_variant(capsys) -> None:
+def test_native_prompt_via_cli_variant(capsys: pytest.CaptureFixture[str]) -> None:
     from hpcagent_bench.cli import main
 
     assert main(["prompt", "gemm", "--variant", "native"]) == 0
@@ -83,7 +84,9 @@ def test_native_run_dir_and_submission_layout() -> None:
     assert dev.name == "submission.device.cu"
 
 
-def test_save_submission_writes_source_under_native_runs(tmp_path, monkeypatch) -> None:
+def test_save_submission_writes_source_under_native_runs(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(native, "NATIVE_RUNS", tmp_path / "native_runs")
     dest = native.save_submission("run9", TASK, Submission(language=Language.C, source="void gemm_fp64(){/* hi */}"))
     assert dest == tmp_path / "native_runs" / "run9" / "gemm" / "submission.c"
@@ -160,7 +163,7 @@ def test_failure_feedback_still_renders_the_repair_branch() -> None:
     assert "Make it faster" not in p
 
 
-def _correct_score(submission, task, **kwargs):
+def correct_score(submission: Submission, task: Task, **kwargs: object) -> Score:
     """A correct :class:`Score` with a fixed speedup, replacing runner.score to exercise control flow
     without a real compile."""
     return Score(
@@ -188,16 +191,16 @@ class _PromptCapturingAgent(StubAgent):
         super().__init__()
         self.prompts = []
 
-    def solve(self, task, prompt: str = "", budget=None):
+    def solve(self, task: Task, prompt: str = "", budget: object = None) -> Submission:
         self.prompts.append(prompt)
         self.record_usage(input_tokens=1, output_tokens=1)
         return Submission(language=task.language, source="/* v */")
 
 
-def test_solve_rounds_reprompts_go_faster_after_correct(monkeypatch) -> None:
+def test_solve_rounds_reprompts_go_faster_after_correct(monkeypatch: pytest.MonkeyPatch) -> None:
     """Once round 1 is correct, round 2's prompt is the go-faster message, not the failure-framed
     repair prompt. Driven directly against _solve_rounds (in-process) so the prompt is inspectable."""
-    monkeypatch.setattr(runner, "score", _correct_score)
+    monkeypatch.setattr(runner, "score", correct_score)
     agent = _PromptCapturingAgent()
     row, sub = runner._solve_rounds(agent, TASK, max_rounds=2)
     assert len(agent.prompts) == 2
@@ -211,7 +214,7 @@ def test_solve_rounds_reprompts_go_faster_after_correct(monkeypatch) -> None:
 # Part A: native end-to-end (submission stashed)
 
 
-def test_native_run_records_and_saves_submission(tmp_path, monkeypatch) -> None:
+def test_native_run_records_and_saves_submission(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A full native CLI run: submissions land under native_runs and the grade is recorded."""
     if not gcc_available():
         pytest.skip("gcc absent")
@@ -260,7 +263,9 @@ def test_native_run_records_and_saves_submission(tmp_path, monkeypatch) -> None:
 # Part D: the distributed path hands its identity to the JudgeClient's env channel
 
 
-def test_distributed_pipeline_sets_the_episode_identity_from_the_cli_args(monkeypatch, tmp_path) -> None:
+def test_distributed_pipeline_sets_the_episode_identity_from_the_cli_args(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """On the distributed static path (``--pipeline on``) the JUDGE writes the graded rows, not
     this process -- so ``cmd_agent`` has to hand the identity over the one channel
     :func:`hpcagent_bench.harness.tools.identity_fields` reads: the process environment. Without
@@ -299,7 +304,9 @@ def test_distributed_pipeline_sets_the_episode_identity_from_the_cli_args(monkey
     assert os.environ["HPCAGENT_BENCH_OPTIMIZER"] == "stub"
 
 
-def test_distributed_pipeline_never_overwrites_an_already_exported_identity(monkeypatch, tmp_path) -> None:
+def test_distributed_pipeline_never_overwrites_an_already_exported_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """An outer launcher (``start_agents.sh`` / ``agent_driver.py``) may have already exported
     ``HPCAGENT_BENCH_EPISODE_ID`` / ``HPCAGENT_BENCH_OPTIMIZER`` before this process starts -- ``cmd_agent`` must
     not clobber that with the CLI's own ``--episode-id``/agent name, or a per-agent identity set by the
@@ -334,7 +341,9 @@ def test_distributed_pipeline_never_overwrites_an_already_exported_identity(monk
     assert os.environ["HPCAGENT_BENCH_OPTIMIZER"] == "already-exported-optimizer"
 
 
-def test_distributed_pipeline_leaves_the_default_episode_id_unset(monkeypatch, tmp_path) -> None:
+def test_distributed_pipeline_leaves_the_default_episode_id_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """``--episode-id`` defaults to ``adhoc`` (an explicit label, not "unset"). Writing ``adhoc`` into
     ``HPCAGENT_BENCH_EPISODE_ID`` would be indistinguishable from a real setup named 'adhoc', and would also
     shadow whatever an outer launcher exports later in the same environment -- so a caller that

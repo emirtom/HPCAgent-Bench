@@ -53,7 +53,7 @@ class SubscriptifyNames(ast.NodeTransformer):
 
     __slots__ = ("iters", "shape_table")
 
-    def __init__(self, shape_table, iters) -> None:
+    def __init__(self, shape_table: dict[str, tuple[str, ...]], iters: list[str]) -> None:
         self.shape_table = shape_table
         self.iters = iters
 

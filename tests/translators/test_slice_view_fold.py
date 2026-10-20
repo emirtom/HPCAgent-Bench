@@ -13,7 +13,7 @@ from hpcagent_bench.translators.numpyto_common.ordered import OrderedSet
 from tests.translators.op_oracle import run_op
 
 
-def fold_(src: str, shapes) -> str:
+def fold_(src: str, shapes: dict[str, tuple[str, ...]]) -> str:
     tree = ast.parse(src).body[0]
     fold_slice_view_aliases(tree, {k: list(v) for k, v in shapes.items()})
     ast.fix_missing_locations(tree)

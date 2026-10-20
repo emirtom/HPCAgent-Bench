@@ -11,5 +11,5 @@ from spack_repo.builtin.packages.superlu.package import Superlu as BuiltinSuperl
 
 
 class Superlu(BuiltinSuperlu):
-    def cmake_args(self):
+    def cmake_args(self) -> list[str]:
         return [*super().cmake_args(), self.define("BUILD_SHARED_LIBS", True)]

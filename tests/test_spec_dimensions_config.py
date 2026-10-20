@@ -15,7 +15,7 @@ import pytest
 from hpcagent_bench.spec import BenchSpec, ConfigKnob
 
 
-def _raw(short_name: str = "dimtest", **overrides: Any) -> dict[str, Any]:
+def raw_manifest(short_name: str = "dimtest", **overrides: object) -> dict[str, Any]:
     """A minimal, hermetic manifest dict: every field the caller doesn't override is either
     required-and-supplied or optional-and-omitted, so ``from_dict`` never touches the filesystem
     (input_args/array_args/func_name are given explicitly, not derived from a numpy reference)."""
@@ -44,7 +44,7 @@ def _dimensions(spec: BenchSpec) -> dict[str, dict[str, Any]]:
 def test_a_manifest_without_config_exposes_parameters() -> None:
     """A manifest with only a 'parameters:' block: the size symbols mirror it verbatim and 'config'
     stays empty."""
-    raw = _raw(parameters={"S": {"N": 16}, "M": {"N": 32}})
+    raw = raw_manifest(parameters={"S": {"N": 16}, "M": {"N": 32}})
     spec = BenchSpec.from_dict(raw, source="<test>")
     assert spec.parameters == {"S": {"N": 16}, "M": {"N": 32}}
     assert _dimensions(spec) == {"S": {"N": 16}, "M": {"N": 32}}
@@ -56,7 +56,7 @@ def test_parameters_and_config_stay_apart() -> None:
     """A manifest declaring 'parameters:' + 'config:' keeps them apart as size symbols/.config,
     while .parameters merges each config knob's representative value into every preset -- the
     view frameworks/benchmark.py, support/bindings/contract.py, and initialize.py already read."""
-    raw = _raw(
+    raw = raw_manifest(
         parameters={"S": {"N": 16}, "M": {"N": 32}},
         config={
             "lvn_only": {"domain": [0, 1], "selects": "branch"},
@@ -78,14 +78,14 @@ def test_parameters_and_config_stay_apart() -> None:
 
 def test_config_domain_and_value_raises() -> None:
     """A config entry declaring BOTH 'domain' and 'value' is ambiguous: is it an axis or pinned?"""
-    raw = _raw(parameters={"S": {"N": 16}}, config={"lvn": {"domain": [32, 64], "value": 32}})
+    raw = raw_manifest(parameters={"S": {"N": 16}}, config={"lvn": {"domain": [32, 64], "value": 32}})
     with pytest.raises(ValueError, match="both 'domain' and 'value'"):
         BenchSpec.from_dict(raw, source="<test>")
 
 
 def test_config_neither_domain_nor_value_raises() -> None:
     """A config entry declaring NEITHER 'domain' nor 'value' has no concrete or fuzzable value."""
-    raw = _raw(parameters={"S": {"N": 16}}, config={"lvn": {"selects": "tile"}})
+    raw = raw_manifest(parameters={"S": {"N": 16}}, config={"lvn": {"selects": "tile"}})
     with pytest.raises(ValueError, match="neither 'domain'"):
         BenchSpec.from_dict(raw, source="<test>")
 
@@ -93,7 +93,7 @@ def test_config_neither_domain_nor_value_raises() -> None:
 def test_dimension_and_config_overlap_raises() -> None:
     """A symbol cannot be declared in BOTH 'parameters' and 'config' -- the merge in .parameters
     would let the config value silently clobber the dimension value."""
-    raw = _raw(parameters={"S": {"N": 16}}, config={"N": {"value": 16}})
+    raw = raw_manifest(parameters={"S": {"N": 16}}, config={"N": {"value": 16}})
     with pytest.raises(ValueError, match="declared in BOTH"):
         BenchSpec.from_dict(raw, source="<test>")
 
@@ -101,7 +101,7 @@ def test_dimension_and_config_overlap_raises() -> None:
 def test_violated_constraint_raises() -> None:
     """A 'constraints:' expression is evaluated at LOAD against every preset's merged dimension +
     config-representative values; a violated one raises immediately, naming the expression."""
-    raw = _raw(
+    raw = raw_manifest(
         parameters={"S": {"nproma": 16}},
         config={"lvn": {"value": 32}},
         constraints=["lvn <= nproma"],
@@ -112,7 +112,7 @@ def test_violated_constraint_raises() -> None:
 
 def test_satisfied_constraint_loads() -> None:
     """A constraint that holds for every preset is a no-op at load time and survives on the spec."""
-    raw = _raw(
+    raw = raw_manifest(
         parameters={"S": {"nproma": 64}},
         config={"lvn": {"value": 32}},
         constraints=["lvn <= nproma"],
@@ -126,7 +126,7 @@ def test_a_knob_in_both_a_preset_and_init_scalars_is_rejected() -> None:
     """The preset copy wins (numerical_oracle's ``syms.setdefault``), so the init.scalars value is
     dead -- and the preset copy is then handed to the e2e size down-scaler as if it were a
     dimension. Both effects are silent, so the loader refuses the manifest instead."""
-    raw = _raw(
+    raw = raw_manifest(
         input_args=["x", "N", "max_iter"],
         parameters={"S": {"N": 16, "max_iter": 50}, "M": {"N": 32, "max_iter": 200}},
         init={"scalars": {"max_iter": 100}},
@@ -137,7 +137,7 @@ def test_a_knob_in_both_a_preset_and_init_scalars_is_rejected() -> None:
 
 def test_a_knob_only_in_init_scalars_loads() -> None:
     """The same manifest with the preset copies dropped: 'parameters' is dimensions-only."""
-    raw = _raw(
+    raw = raw_manifest(
         input_args=["x", "N", "max_iter"],
         parameters={"S": {"N": 16}, "M": {"N": 32}},
         init={"scalars": {"max_iter": 100}},
@@ -150,7 +150,7 @@ def test_a_knob_only_in_init_scalars_loads() -> None:
 # The TWO compositions of ``config:``, told apart by YAML shape.
 def test_a_mapping_config_crosses_its_domains_into_a_product() -> None:
     spec = BenchSpec.from_dict(
-        _raw(
+        raw_manifest(
             parameters={"S": {"N": 16}},
             config={
                 "lower": {"domain": [False, True]},
@@ -168,7 +168,7 @@ def test_a_mapping_config_crosses_its_domains_into_a_product() -> None:
 def test_constraints_filter_the_product_they_do_not_just_assert_on_it() -> None:
     """The impossible corner is carved out of the space, not merely rejected at load."""
     spec = BenchSpec.from_dict(
-        _raw(
+        raw_manifest(
             parameters={"S": {"N": 16}},
             config={
                 "okvan": {"domain": [False, True]},
@@ -185,7 +185,7 @@ def test_constraints_filter_the_product_they_do_not_just_assert_on_it() -> None:
 def test_a_list_config_is_a_curated_space_taken_verbatim() -> None:
     """A curated list is NOT a product: two flags, three rows, and no fourth row invented."""
     rows = [{"a": 0, "b": 0}, {"a": 1, "b": 0}, {"a": 1, "b": 1}]
-    spec = BenchSpec.from_dict(_raw(parameters={"S": {"N": 16}}, config=rows), source="<test>")
+    spec = BenchSpec.from_dict(raw_manifest(parameters={"S": {"N": 16}}, config=rows), source="<test>")
     assert list(spec.config_space) == rows
     assert spec.config == {}
     assert spec.config_names == {"a", "b"}
@@ -194,7 +194,9 @@ def test_a_list_config_is_a_curated_space_taken_verbatim() -> None:
 def test_a_curated_row_missing_a_symbol_is_rejected() -> None:
     """A short row would leave that symbol bound to whatever the preset carried."""
     with pytest.raises(ValueError, match="same symbols"):
-        BenchSpec.from_dict(_raw(parameters={"S": {"N": 16}}, config=[{"a": 0, "b": 0}, {"a": 1}]), source="<test>")
+        BenchSpec.from_dict(
+            raw_manifest(parameters={"S": {"N": 16}}, config=[{"a": 0, "b": 0}, {"a": 1}]), source="<test>"
+        )
 
 
 def test_a_curated_row_violating_a_constraint_is_rejected_not_dropped() -> None:
@@ -202,7 +204,7 @@ def test_a_curated_row_violating_a_constraint_is_rejected_not_dropped() -> None:
     shrink the graded space without saying so."""
     with pytest.raises(ValueError, match="violates constraint"):
         BenchSpec.from_dict(
-            _raw(
+            raw_manifest(
                 parameters={"S": {"N": 16}},
                 config=[{"okvan": False, "okpaw": False}, {"okvan": False, "okpaw": True}],
                 constraints=["okpaw <= okvan"],
@@ -214,7 +216,7 @@ def test_a_curated_row_violating_a_constraint_is_rejected_not_dropped() -> None:
 def test_a_curated_config_pins_a_representative_into_every_preset() -> None:
     """A plain ``-p M`` run still has a concrete value for every knob."""
     spec = BenchSpec.from_dict(
-        _raw(parameters={"S": {"N": 16}, "M": {"N": 32}}, config=[{"a": 7}, {"a": 9}]), source="<test>"
+        raw_manifest(parameters={"S": {"N": 16}, "M": {"N": 32}}, config=[{"a": 7}, {"a": 9}]), source="<test>"
     )
     assert spec.parameters == {"S": {"N": 16, "a": 7}, "M": {"N": 32, "a": 7}}
     assert _dimensions(spec) == {"S": {"N": 16}, "M": {"N": 32}}
@@ -223,7 +225,8 @@ def test_a_curated_config_pins_a_representative_into_every_preset() -> None:
 def test_the_config_space_does_not_depend_on_the_size_preset() -> None:
     """Configs are orthogonal to size: S and XL evaluate the SAME space."""
     spec = BenchSpec.from_dict(
-        _raw(parameters={"S": {"N": 16}, "XL": {"N": 4096}}, config={"mode": {"domain": [0, 1, 2]}}), source="<test>"
+        raw_manifest(parameters={"S": {"N": 16}, "XL": {"N": 4096}}, config={"mode": {"domain": [0, 1, 2]}}),
+        source="<test>",
     )
     assert len(spec.config_space) == 3
     assert set(spec.parameters) == {"S", "XL"}
@@ -233,7 +236,9 @@ def test_fuzz_configs_is_rejected_with_a_pointer_to_the_new_block() -> None:
     """``fuzz.configs`` reads as 'only the fuzzed preset explores configs'; two homes for one space
     is how a kernel gets graded on a space it did not declare."""
     with pytest.raises(ValueError, match=re.escape("fuzz.configs")):
-        BenchSpec.from_dict(_raw(parameters={"S": {"N": 16}}, fuzz={"configs": {"valid": [{"a": 1}]}}), source="<test>")
+        BenchSpec.from_dict(
+            raw_manifest(parameters={"S": {"N": 16}}, fuzz={"configs": {"valid": [{"a": 1}]}}), source="<test>"
+        )
 
 
 def test_a_pinned_knob_is_a_compile_time_constant_a_fuzzed_one_is_not() -> None:
@@ -244,7 +249,7 @@ def test_a_pinned_knob_is_a_compile_time_constant_a_fuzzed_one_is_not() -> None:
     unroll a loop whose trip count it is only handed at run time. A knob with a ``domain:`` is a
     real axis the harness varies, so it stays a parameter."""
     spec = BenchSpec.from_dict(
-        _raw(parameters={"S": {"N": 16}}, config={"max_iter": {"value": 100}, "mode": {"domain": [0, 1]}}),
+        raw_manifest(parameters={"S": {"N": 16}}, config={"max_iter": {"value": 100}, "mode": {"domain": [0, 1]}}),
         source="<test>",
     )
     assert spec.pinned_config == {"max_iter": 100}
@@ -257,6 +262,7 @@ def test_a_curated_config_list_pins_nothing() -> None:
     """A curated list is a SPACE the harness picks a row from, so no member is a constant --
     even though each row states one value, the next row states a different one."""
     spec = BenchSpec.from_dict(
-        _raw(parameters={"S": {"N": 16}}, config=[{"mode": 0, "tile": 32}, {"mode": 1, "tile": 64}]), source="<test>"
+        raw_manifest(parameters={"S": {"N": 16}}, config=[{"mode": 0, "tile": 32}, {"mode": 1, "tile": 64}]),
+        source="<test>",
     )
     assert spec.pinned_config == {}

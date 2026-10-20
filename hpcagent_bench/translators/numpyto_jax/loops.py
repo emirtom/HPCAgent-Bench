@@ -4,7 +4,7 @@
 import ast
 import copy
 import enum
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from collections.abc import Set as AbstractSet
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_, name_ids, numpy_attribute, store_
@@ -176,7 +176,7 @@ def carried_vars(body: list[ast.stmt], extra_live: set[str], cond_names: Abstrac
     carried: set[str] = set()
     written: set[str] = set()
 
-    def cond_reads(names) -> None:
+    def cond_reads(names: Iterable[str]) -> None:
         # A condition read before write is a genuine cross-iteration carry
         # (s318's ``if v > maxv`` reads ``maxv`` before the branch updates it).
         for nm in names:
@@ -185,7 +185,7 @@ def carried_vars(body: list[ast.stmt], extra_live: set[str], cond_names: Abstrac
 
     cond_reads(cond_names)  # the loop's own test is evaluated before the body
 
-    def walk(stmts) -> None:
+    def walk(stmts: Sequence[ast.stmt]) -> None:
         # Recurse into compound stmts so a temp written-then-read inside an
         # if/loop (scattering's dHG/dHD) reads as local, not carried.
         for s in stmts:
@@ -521,7 +521,9 @@ def sole_return_value(body: Sequence[ast.stmt]) -> ast.expr | None:
     return only.value if isinstance(only, ast.Return) else None
 
 
-def split_on_break(body: Sequence[ast.stmt]):
+def split_on_break(
+    body: Sequence[ast.stmt],
+) -> tuple[Sequence[ast.stmt], ast.expr | None, list[ast.stmt], Sequence[ast.stmt]]:
     """Split the loop body around the ``if`` whose branch ENDS in ``break``.
 
     Returns ``(before, cond, on_break, after)``:
@@ -539,7 +541,7 @@ def split_on_break(body: Sequence[ast.stmt]):
     return body, None, [], []
 
 
-def parse_range(rng: ast.Call):
+def parse_range(rng: ast.Call) -> tuple[str, str, bool, str]:
     """``range`` -> ``(lo_expr, hi_expr, backward, stride)``.
 
     ``backward`` is True for a ``-1`` step (``range(a, b, -1)`` iterates a,
@@ -708,7 +710,7 @@ def expand_parallel_assigns(stmts: Sequence[ast.stmt]) -> list[ast.stmt]:
     return [ast.fix_missing_locations(x) for x in out]
 
 
-def emit_while_break(node, carried, lo, hi, i, indent):
+def emit_while_break(node: ast.For, carried: list[str], lo: str, hi: str, i: str, indent: str) -> list[str]:
     before, cond, on_break, after = split_on_break(node.body)
     if cond is None:
         raise EmitError("break loop without an `if cond: ... break` guard")
@@ -728,7 +730,7 @@ def emit_while_break(node, carried, lo, hi, i, indent):
     lines.append(f"{inner}_conv = ({cond_str(cond)})")
     cset = set(carried)
 
-    def frozen(stmts, when_conv) -> None:
+    def frozen(stmts: Sequence[ast.stmt], when_conv: bool) -> None:
         # Freeze a carried var with jnp.where so it updates only on the
         # intended branch; a local temp (minres's ``beta``) emits plainly.
         # ``when_conv``: the in-guard capture takes the new value WHEN

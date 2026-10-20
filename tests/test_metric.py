@@ -3,7 +3,10 @@
 """The HPCAgent-Bench Score (hpcagent_bench.harness.metric): pure aggregation, plus the seeded fuzz sweep."""
 
 import inspect
+import pathlib
+from collections.abc import Callable, Sequence
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -28,16 +31,16 @@ _FUZZ_KERNEL = "tsvc_2_s212"  # real, fuzzable LEN_1D, O(N) -> cheap C reference
 # pure aggregation
 
 
-def _ts(kernel, dwarf, solved, s_i, suspect: int = 0):
+def task_score(kernel: str, dwarf: str, solved: bool, s_i: float, suspect: int = 0) -> M.TaskScore:
     return M.TaskScore(kernel=kernel, dwarf=dwarf, iterations=(), solved=solved, s_i=s_i, suspect_count=suspect)
 
 
 def test_hpcagent_bench_score_is_geomean_over_all_tasks() -> None:
     ts = [
-        _ts("a", "dense", True, 4.0),
-        _ts("b", "dense", True, 1.0),
-        _ts("c", "spectral", False, 1.0),
-        _ts("d", "unclassified", True, 9.0),
+        task_score("a", "dense", True, 4.0),
+        task_score("b", "dense", True, 1.0),
+        task_score("c", "spectral", False, 1.0),
+        task_score("d", "unclassified", True, 9.0),
     ]
     s = M.aggregate(ts)
     assert s.hpcagent_bench_score == pytest.approx((4 * 1 * 1 * 9) ** 0.25)  # 36**0.25
@@ -53,8 +56,10 @@ def test_hpcagent_bench_score_is_geomean_over_all_tasks() -> None:
 
 def test_failure_is_neutral_not_catastrophic() -> None:
     """An unsolved task floors at 1.0: it lowers the geomean but never zeroes it."""
-    solved_only = M.aggregate([_ts("a", "d", True, 4.0), _ts("b", "d", True, 4.0)])
-    with_failure = M.aggregate([_ts("a", "d", True, 4.0), _ts("b", "d", True, 4.0), _ts("c", "d", False, 1.0)])
+    solved_only = M.aggregate([task_score("a", "d", True, 4.0), task_score("b", "d", True, 4.0)])
+    with_failure = M.aggregate(
+        [task_score("a", "d", True, 4.0), task_score("b", "d", True, 4.0), task_score("c", "d", False, 1.0)]
+    )
     assert with_failure.hpcagent_bench_score > 1.0  # not collapsed
     assert with_failure.hpcagent_bench_score < solved_only.hpcagent_bench_score  # but penalized
 
@@ -110,7 +115,7 @@ def test_fuzz_iteration_draws_distinct_sizes() -> None:
     d0 = _data_seeded(_FUZZ_KERNEL, Preset.FUZZED, "float64", 42, fuzz_iteration=0)
     d1 = _data_seeded(_FUZZ_KERNEL, Preset.FUZZED, "float64", 42, fuzz_iteration=1)
 
-    def total_elems(d):
+    def total_elems(d: dict[str, Any]) -> int:
         import numpy as np
 
         return sum(int(v.size) for v in d.values() if isinstance(v, np.ndarray))
@@ -239,7 +244,7 @@ def test_score_task_fuzzed_failure_floors_at_one() -> None:
     assert ts.s_i == 1.0
 
 
-def _mpi_submission():
+def mpi_submission() -> Submission:
     """A distributed submission with a minimal valid 1-D distribution."""
     return Submission(
         language=Language.C,
@@ -248,16 +253,16 @@ def _mpi_submission():
     )
 
 
-def _run_distributed(
-    monkeypatch,
+def run_distributed(
+    monkeypatch: pytest.MonkeyPatch,
     *,
-    rank_counts,
+    rank_counts: Sequence[int],
     anchor: str = "serial",
-    runs=None,
+    runs: Sequence[object] | None = None,
     mode: ScalingLaw = ScalingLaw.STRONG,
     speedup: float = 4.0,
-    suspect_above=None,
-):
+    suspect_above: float | None = None,
+) -> M.TaskScore:
     """Mock config + the two runners so score_task_distributed runs without a cluster; returns TaskScore.
 
     ``suspect_above`` overrides ``record.speedup_suspect_above_host`` (else the real config default
@@ -286,7 +291,7 @@ def _run_distributed(
     )
     monkeypatch.setattr(M, "score_scaling", lambda *a, **k: runs)
     return M.score_task_distributed(
-        _mpi_submission(),
+        mpi_submission(),
         Task("jacobi_2d", SourceMode.ANY, Language.C, residency=Residency.DISTRIBUTED),
         verify=True,
         datatype="float64",
@@ -297,19 +302,19 @@ def _run_distributed(
     )
 
 
-def test_distributed_attaches_scaling_curve(monkeypatch) -> None:
+def test_distributed_attaches_scaling_curve(monkeypatch: pytest.MonkeyPatch) -> None:
     """A configured P-sweep + a single-node anchor populates TaskScore.scaling; scalar S_i is unchanged."""
-    ts = _run_distributed(monkeypatch, rank_counts=[1, 2, 4])
+    ts = run_distributed(monkeypatch, rank_counts=[1, 2, 4])
     assert ts.scaling is not None
     assert [p.ranks for p in ts.scaling.points] == [1, 2, 4]
     assert ts.s_i == 4.0  # the curve never changes S_i
 
 
-def test_distributed_superlinear_curve_is_uncapped(monkeypatch) -> None:
+def test_distributed_superlinear_curve_is_uncapped(monkeypatch: pytest.MonkeyPatch) -> None:
     """Integration check that the uncapped efficiency reaches TaskScore.scaling through the wiring."""
     from hpcagent_bench.harness.scoring import ScalingRuns
 
-    ts = _run_distributed(
+    ts = run_distributed(
         monkeypatch,
         rank_counts=[4],
         runs=ScalingRuns(measured_ns={4: 500}, single_rank_ns=4000, notes=()),
@@ -317,13 +322,13 @@ def test_distributed_superlinear_curve_is_uncapped(monkeypatch) -> None:
     assert ts.scaling.points[0].efficiency == 2.0  # 8x on 4 nodes, not floored to 1
 
 
-def test_distributed_every_p_refused_keeps_the_reasons_on_task_score(monkeypatch) -> None:
+def test_distributed_every_p_refused_keeps_the_reasons_on_task_score(monkeypatch: pytest.MonkeyPatch) -> None:
     """A weak sweep whose every P was refused yields no curve (scaling None), yet the refusal
     reasons survive on TaskScore.scaling_notes -- the paper's "refused ... and records why"."""
     from hpcagent_bench.harness.scoring import ScalingRuns
 
     notes = ("P=2: unsizable (R=2 is not a perfect 2-th power)", "P=8: unsizable (R=8 is not a perfect 2-th power)")
-    ts = _run_distributed(
+    ts = run_distributed(
         monkeypatch,
         rank_counts=[2, 8],
         mode=ScalingLaw.WEAK,
@@ -333,12 +338,12 @@ def test_distributed_every_p_refused_keeps_the_reasons_on_task_score(monkeypatch
     assert ts.scaling_notes == notes
 
 
-def test_distributed_sweep_notes_ride_alongside_a_curve(monkeypatch) -> None:
+def test_distributed_sweep_notes_ride_alongside_a_curve(monkeypatch: pytest.MonkeyPatch) -> None:
     """A partly-refused sweep keeps both: the surviving curve and the notes for the dropped P."""
     from hpcagent_bench.harness.scoring import ScalingRuns
 
     notes = ("P=2: unsizable (R=2 is not a perfect 2-th power)",)
-    ts = _run_distributed(
+    ts = run_distributed(
         monkeypatch,
         rank_counts=[2, 4],
         mode=ScalingLaw.WEAK,
@@ -350,7 +355,7 @@ def test_distributed_sweep_notes_ride_alongside_a_curve(monkeypatch) -> None:
     assert ts.scaling_notes == notes
 
 
-def test_distributed_weak_curve_folds_the_realized_work_ratio_into_eta(monkeypatch) -> None:
+def test_distributed_weak_curve_folds_the_realized_work_ratio_into_eta(monkeypatch: pytest.MonkeyPatch) -> None:
     """The sweep's per-P realized work ratio reaches the curve: a rounded P=2 (r=1.96) scores
     eta = r * T_i(1) / (P * T_i(P)); the exact P=4 (r=4) scores T_i(1)/T_i(P)."""
     from hpcagent_bench.harness.scoring import ScalingRuns
@@ -363,12 +368,12 @@ def test_distributed_weak_curve_folds_the_realized_work_ratio_into_eta(monkeypat
         work_exponent=2,
         work_ratio={2: 1.96, 4: 4.0},
     )
-    ts = _run_distributed(monkeypatch, rank_counts=[2, 4], mode=ScalingLaw.WEAK, runs=runs)
+    ts = run_distributed(monkeypatch, rank_counts=[2, 4], mode=ScalingLaw.WEAK, runs=runs)
     assert [p.efficiency for p in ts.scaling.points] == [pytest.approx(1.96 / 2), 1.0]
     assert ts.scaling_notes == runs.notes
 
 
-def test_distributed_every_p_refused_keeps_each_hole_per_rank_count(monkeypatch) -> None:
+def test_distributed_every_p_refused_keeps_each_hole_per_rank_count(monkeypatch: pytest.MonkeyPatch) -> None:
     """With no curve left (scaling None) the per-P holes are the only record of the sweep: each
     requested P keeps its own reason and sized problem, so a persisted curve shows every hole."""
     from hpcagent_bench.harness.scoring import ScalingRuns
@@ -382,13 +387,13 @@ def test_distributed_every_p_refused_keeps_each_hole_per_rank_count(monkeypatch)
         shapes={2: {"N": 64}, 4: {"N": 64}},
         nodes={2: 1, 4: 1},
     )
-    ts = _run_distributed(monkeypatch, rank_counts=[2, 4], runs=runs)
+    ts = run_distributed(monkeypatch, rank_counts=[2, 4], runs=runs)
     assert ts.scaling is None
     got = [(d.ranks, d.note, d.nodes, d.shape) for d in ts.scaling_dropped]
     assert got == [(2, "mpi build failed", 1, {"N": 64}), (4, "mpi run failed (exit 1)", 1, {"N": 64})], got
 
 
-def test_distributed_partial_curve_carries_its_holes_on_the_curve(monkeypatch) -> None:
+def test_distributed_partial_curve_carries_its_holes_on_the_curve(monkeypatch: pytest.MonkeyPatch) -> None:
     from hpcagent_bench.harness.scoring import ScalingRuns
 
     runs = ScalingRuns(
@@ -397,64 +402,64 @@ def test_distributed_partial_curve_carries_its_holes_on_the_curve(monkeypatch) -
         notes=("P=2: mpi build failed",),
         rank_notes={2: "mpi build failed"},
     )
-    ts = _run_distributed(monkeypatch, rank_counts=[1, 2, 4], runs=runs)
+    ts = run_distributed(monkeypatch, rank_counts=[1, 2, 4], runs=runs)
     assert [d.ranks for d in ts.scaling.dropped] == [2]
     assert ts.scaling_dropped == ts.scaling.dropped
 
 
-def test_distributed_no_anchor_leaves_scaling_none(monkeypatch) -> None:
+def test_distributed_no_anchor_leaves_scaling_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """No single-node anchor => no curve, even with a configured sweep (never fabricate T_i(1))."""
-    ts = _run_distributed(monkeypatch, rank_counts=[1, 2, 4], anchor=None)
+    ts = run_distributed(monkeypatch, rank_counts=[1, 2, 4], anchor=None)
     assert ts.scaling is None
     assert ts.s_i == 4.0  # scalar path still scores
 
 
-def test_distributed_no_sweep_leaves_scaling_none(monkeypatch) -> None:
+def test_distributed_no_sweep_leaves_scaling_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty rank_counts (the default) leaves the curve off; only the scalar S_i is produced."""
-    ts = _run_distributed(monkeypatch, rank_counts=[])
+    ts = run_distributed(monkeypatch, rank_counts=[])
     assert ts.scaling is None
 
 
 # suspect flag reads record.speedup_suspect_above_host/_device instead of a bare 1000.0 literal
 
 
-def test_distributed_suspect_default_threshold_flags_an_unreachable_speedup(monkeypatch) -> None:
+def test_distributed_suspect_default_threshold_flags_an_unreachable_speedup(monkeypatch: pytest.MonkeyPatch) -> None:
     """No override: the shipped default still flags a speedup no real kernel reaches.
 
     Read off the config rather than pinned to a literal. The default moved from 1000.0 to 6000.0
     once the flag stopped being a saturation test, and a test that hardcodes the number reports the
     move as a regression."""
     over_default = scoring.suspect_threshold() * 2.0
-    ts = _run_distributed(monkeypatch, rank_counts=[], speedup=over_default)
+    ts = run_distributed(monkeypatch, rank_counts=[], speedup=over_default)
     assert ts.suspect_count == 1
     assert ts.iterations[0].suspect is True
 
 
-def test_distributed_suspect_lowered_threshold_flags_previously_ok_speedup(monkeypatch) -> None:
+def test_distributed_suspect_lowered_threshold_flags_previously_ok_speedup(monkeypatch: pytest.MonkeyPatch) -> None:
     """A speedup that clears the default 1000.0 bound (4.0x) gets flagged once the config
     threshold is lowered below it -- proves the compare reads the config value, not a constant."""
-    ts = _run_distributed(monkeypatch, rank_counts=[], speedup=4.0, suspect_above=2.0)
+    ts = run_distributed(monkeypatch, rank_counts=[], speedup=4.0, suspect_above=2.0)
     assert ts.suspect_count == 1
     assert ts.iterations[0].suspect is True
 
 
-def test_distributed_suspect_raised_threshold_stops_flagging(monkeypatch) -> None:
+def test_distributed_suspect_raised_threshold_stops_flagging(monkeypatch: pytest.MonkeyPatch) -> None:
     """A speedup flagged at the default 1000.0 bound (5000x) clears once the config threshold is
     raised above it -- the high side must also read config, not just short-circuit past it."""
-    ts = _run_distributed(monkeypatch, rank_counts=[], speedup=5000.0, suspect_above=10000.0)
+    ts = run_distributed(monkeypatch, rank_counts=[], speedup=5000.0, suspect_above=10000.0)
     assert ts.suspect_count == 0
     assert ts.iterations[0].suspect is False
 
 
-def test_distributed_suspect_nonfinite_ignores_threshold(monkeypatch) -> None:
+def test_distributed_suspect_nonfinite_ignores_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
     """A non-finite speedup stays suspect even under an enormous configured threshold -- the
     isfinite check must keep short-circuiting ahead of the config-sourced compare."""
-    ts = _run_distributed(monkeypatch, rank_counts=[], speedup=float("inf"), suspect_above=1e18)
+    ts = run_distributed(monkeypatch, rank_counts=[], speedup=float("inf"), suspect_above=1e18)
     assert ts.suspect_count == 1
     assert ts.iterations[0].suspect is True
 
 
-def test_grade_surfaces_scaling_dict(monkeypatch) -> None:
+def test_grade_surfaces_scaling_dict(monkeypatch: pytest.MonkeyPatch) -> None:
     """harbor.grade serializes an attached curve into the grade, alongside the scalar reward."""
     from hpcagent_bench import harbor as HG
 
@@ -498,7 +503,7 @@ def test_grade_surfaces_scaling_dict(monkeypatch) -> None:
     assert "scaling_notes" not in out.model_dump()  # nothing dropped, nothing to disclose
 
 
-def test_grade_surfaces_scaling_notes_without_a_curve(monkeypatch) -> None:
+def test_grade_surfaces_scaling_notes_without_a_curve(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every P refused => no curve, but the refusal reasons still reach the harbor grade."""
     from hpcagent_bench import harbor as HG
 
@@ -526,7 +531,7 @@ def test_grade_surfaces_scaling_notes_without_a_curve(monkeypatch) -> None:
     assert out.scaling_notes == notes
 
 
-def test_grade_items_delivers_harness_anchor_source(monkeypatch, tmp_path) -> None:
+def test_grade_items_delivers_harness_anchor_source(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The harness supplies the best single-node solution as a file; grade_items threads it as the anchor."""
     from hpcagent_bench import harbor as HG
 
@@ -534,11 +539,11 @@ def test_grade_items_delivers_harness_anchor_source(monkeypatch, tmp_path) -> No
     anchor_file.write_text("void scaled_add(){/* best single-node */}")
     captured = {}
 
-    def _capture(submission, task, **kw):
+    def capture(submission: Submission, task: Task, **kw: object) -> M.TaskScore:
         captured["anchor"] = kw.get("single_rank_anchor")
         return M.TaskScore(kernel=task.kernel, dwarf="d", iterations=(), solved=True, s_i=1.0, suspect_count=0)
 
-    monkeypatch.setattr(HG, "score_task_fuzzed", _capture)
+    monkeypatch.setattr(HG, "score_task_fuzzed", capture)
     HG.grade_items(
         ["scaled_add"],
         [None],
@@ -555,17 +560,17 @@ def test_grade_items_delivers_harness_anchor_source(monkeypatch, tmp_path) -> No
     assert not anchor.requests.distributed  # the anchor is a SINGLE-NODE submission, no MPI layout
 
 
-def test_grade_items_anchor_library_and_absent(monkeypatch, tmp_path) -> None:
+def test_grade_items_anchor_library_and_absent(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """The anchor may instead be a prebuilt .so; absent both, no anchor is passed (curve stays off)."""
     from hpcagent_bench import harbor as HG
 
     seen = []
 
-    def _capture(submission, task, **kw):
+    def capture(submission: Submission, task: Task, **kw: object) -> M.TaskScore:
         seen.append(kw.get("single_rank_anchor"))
         return M.TaskScore(kernel=task.kernel, dwarf="d", iterations=(), solved=True, s_i=1.0, suspect_count=0)
 
-    monkeypatch.setattr(HG, "score_task_fuzzed", _capture)
+    monkeypatch.setattr(HG, "score_task_fuzzed", capture)
     HG.grade_items(
         ["scaled_add", "jacobi_2d"],
         [None, None],
@@ -580,7 +585,7 @@ def test_grade_items_anchor_library_and_absent(monkeypatch, tmp_path) -> None:
     assert seen[1] is None  # no anchor for the second kernel => no fabricated T_i(1)
 
 
-def test_grade_items_anchor_ignored_on_host_residency(monkeypatch, tmp_path) -> None:
+def test_grade_items_anchor_ignored_on_host_residency(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """An anchor is only for the distributed curve; on the host path (the final grade) it is not even read."""
     from hpcagent_bench import harbor as HG
 
@@ -606,7 +611,7 @@ def test_grade_items_anchor_ignored_on_host_residency(monkeypatch, tmp_path) -> 
     assert out.solved is True  # the missing anchor did not tank the host grade
 
 
-def test_grade_one_both_anchor_source_and_library_is_neutral(monkeypatch) -> None:
+def test_grade_one_both_anchor_source_and_library_is_neutral(monkeypatch: pytest.MonkeyPatch) -> None:
     """Supplying both an anchor source and library is a caller error; caught as a neutral reward, never
     a crash, matching Submission's exactly-one contract."""
     from hpcagent_bench import harbor as HG
@@ -632,12 +637,12 @@ def test_grade_one_both_anchor_source_and_library_is_neutral(monkeypatch) -> Non
 # Stage-2 correctness folds into `solved` (large-size-only bug)
 
 
-def _fake_cells(large_correct: bool):
+def fake_cells(large_correct: bool) -> Callable[..., list[scoring.CellScore]]:
     """A score_cells stand-in: every capped Stage-1 cell passes; every timed cell is correct iff
     ``large_correct``."""
     from hpcagent_bench.harness.scoring import CellScore
 
-    def fake(submission, task, cells, **kw):
+    def fake(submission: Submission, task: Task, cells: list[dict[str, Any]], **kw: object) -> list[scoring.CellScore]:
         out = []
         for c in cells:
             timed = bool(c.get("timed"))
@@ -651,10 +656,12 @@ def _fake_cells(large_correct: bool):
 
 
 @pytest.mark.parametrize(("large_correct", "expect_solved"), [(True, True), (False, False)])
-def test_large_size_only_bug_is_not_marked_solved(monkeypatch, large_correct, expect_solved) -> None:
+def test_large_size_only_bug_is_not_marked_solved(
+    monkeypatch: pytest.MonkeyPatch, large_correct: bool, expect_solved: bool
+) -> None:
     """A submission correct at Stage-1 sizes but wrong at the uncapped timed size must not be graded
     solved -- timed-cell correctness folds into `solved`."""
-    monkeypatch.setattr(M, "score_cells", _fake_cells(large_correct))
+    monkeypatch.setattr(M, "score_cells", fake_cells(large_correct))
     ts = M.score_task_fuzzed(
         Submission(language=Language.C, source="x"),
         Task(_FUZZ_KERNEL, SourceMode.RESTRICTED, Language.C),
@@ -674,7 +681,7 @@ def test_large_size_only_bug_is_not_marked_solved(monkeypatch, large_correct, ex
 # score parity: native aggregate and the Harbor reward use ONE method
 
 
-def test_harbor_reward_equals_the_metric_score(monkeypatch) -> None:
+def test_harbor_reward_equals_the_metric_score(monkeypatch: pytest.MonkeyPatch) -> None:
     """The Harbor reward IS ``TaskScore.s_i``, not a re-derivation, so container grade and native
     aggregate compute the same value by construction; the spread rides along as a disclosure."""
     from hpcagent_bench import harbor as HG
@@ -690,12 +697,12 @@ def test_harbor_reward_equals_the_metric_score(monkeypatch) -> None:
     assert r.score_rule == score_rule.SCORE_RULE
 
 
-def test_ungraded_timed_cell_does_not_mark_unsolved(monkeypatch) -> None:
+def test_ungraded_timed_cell_does_not_mark_unsolved(monkeypatch: pytest.MonkeyPatch) -> None:
     """A timed cell with no oracle available at the large shape is inconclusive, not a mismatch, and
     must not flip a Stage-1-correct submission to unsolved."""
     from hpcagent_bench.harness.scoring import CellScore
 
-    def fake(submission, task, cells, **kw):
+    def fake(submission: Submission, task: Task, cells: list[dict[str, Any]], **kw: object) -> list[scoring.CellScore]:
         out = []
         for c in cells:
             if bool(c.get("timed")):  # no oracle -> correct=False but graded=False (inconclusive)
@@ -740,7 +747,7 @@ def test_correctness_gate_grades_every_declared_config() -> None:
     assert len({c["label"].split(":", 1)[0] for c in timed}) <= fuzz.CONFIG_POOL
 
 
-def test_suspect_threshold_follows_config_at_call_time(monkeypatch) -> None:
+def test_suspect_threshold_follows_config_at_call_time(monkeypatch: pytest.MonkeyPatch) -> None:
     """The key must be read when scoring runs, not when the module is imported."""
     config.set_override("record.speedup_suspect_above_host", 7.5)
     assert scoring.suspect_threshold() == 7.5
@@ -758,7 +765,7 @@ def test_suspect_threshold_reads_the_host_or_device_key_by_the_device_flag() -> 
     assert scoring.suspect_threshold(device=True) == 16000.0
 
 
-def test_suspect_threshold_device_follows_its_own_config_key(monkeypatch) -> None:
+def test_suspect_threshold_device_follows_its_own_config_key(monkeypatch: pytest.MonkeyPatch) -> None:
     config.set_override("record.speedup_suspect_above_device", 4321.0)
     assert scoring.suspect_threshold(device=True) == 4321.0
     assert scoring.suspect_threshold(device=False) == 2000.0  # the host key is untouched
@@ -789,7 +796,7 @@ def test_device_plausibility_row_matches_residency_and_language(residency: str, 
 
 
 def test_suspect_timing_flags_a_ratio_between_the_host_and_device_bounds_only_on_device(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The whole point of the split: a ratio the host bound would flag (say 4000x) is a plainly
     believable, plausible device-bandwidth ratio and must NOT cost a legitimate GPU submission its

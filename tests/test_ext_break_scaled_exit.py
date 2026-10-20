@@ -49,7 +49,7 @@ FAMILY = {
 }
 
 
-def run_family(name, seed):
+def run_family(name: str, seed: int) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """Materialize preset-S inputs for ``name`` at ``seed`` and run its numpy reference.
 
     Returns (before, after): the graded buffers snapshotted before and after the kernel.

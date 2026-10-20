@@ -26,7 +26,7 @@ from tests.translators.op_oracle import all_ok, run_op
 ALL = ("c", "cpp", "fortran", "numba", "pythran", "jax")
 
 
-def boxes(nat, K, N, seed):
+def boxes(nat: int, K: int, N: int, seed: int) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return np.stack([np.sort(rng.choice(N, size=K, replace=False)).astype(np.int64) for unused in range(nat)])
 

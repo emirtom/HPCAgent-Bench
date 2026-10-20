@@ -126,7 +126,7 @@ _OUTPUT_NAMES = (
 # The names come from the manifest rather than being restated, so tagging or untagging a table
 # cannot leave the test disagreeing with the contract it is meant to pin.
 _INDEX_TABLES = tuple(sorted(BenchSpec.load("velocity_tendencies").init.index_arrays))
-_FORTRAN_BASE = index_base(Language.FORTRAN)
+FORTRAN_BASE = index_base(Language.FORTRAN)
 
 
 def _rebase(bufs: dict[str, np.ndarray], delta: int) -> None:
@@ -264,7 +264,7 @@ def test_numpy_matches_fortran_baseline(caller_lib: ctypes.CDLL, grid: tuple[int
     # is ICON's own Fortran, so it fills the connectivity in Fortran's base; numpy wants 0-based.
     # Fortran is column-major: the numpy reference reads each buffer reversed, as its C-order ``.T``.
     bufs_np = {k: v.copy(order="F").T for k, v in bufs.items()}
-    _rebase(bufs_np, -_FORTRAN_BASE)
+    _rebase(bufs_np, -FORTRAN_BASE)
 
     zr = {k: np.zeros(bufs["p_diag_vt"].shape if k != "z_vt_ie" else (nproma, nlevp1, nblks_e), order="F") for k in _Z}
     nrd = np.full(10, nrdmax, dtype=np.int32, order="F")
@@ -391,7 +391,7 @@ def test_initialize_numpy_matches_fortran(
     bufs_np = {k: gen[k].copy() for k in _INIT_ARRAY_ORDER}
     znp = {k: gen[k].copy() for k in _Z}
     # initialize() is the 0-based truth; only the Fortran side is rebased, after the numpy copy.
-    _rebase(bufs, _FORTRAN_BASE)
+    _rebase(bufs, FORTRAN_BASE)
 
     nrd = np.full(10, nrdmax, dtype=np.int32, order="F")
     nfl = np.full(10, nflat, dtype=np.int32, order="F")

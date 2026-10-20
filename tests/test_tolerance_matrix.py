@@ -50,7 +50,7 @@ def test_every_band_is_satisfiable() -> None:
 
 
 @pytest.mark.parametrize("precision", list(Precision), ids=lambda p: p.value)
-def test_a_one_ulp_disagreement_passes_the_band(precision) -> None:
+def test_a_one_ulp_disagreement_passes_the_band(precision: Precision) -> None:
     """The end the invariant exists for: perturb a value by one ULP of its own format and the
     band still accepts it. Asserted on the WORST case for a relative tolerance -- a reference of
     exactly zero, where only ``atol`` can reach."""

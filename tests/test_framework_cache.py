@@ -5,18 +5,20 @@ sources, DaCe SDFGs (a mismatch or corrupt file is a miss), the no-op base hook,
 
 import pathlib
 import subprocess
+from collections.abc import Sequence
 
 import pytest
 
 from hpcagent_bench import framework_cache as fc
 from hpcagent_bench import phase_clock
 from hpcagent_bench.cache_files import sha256_hex
+from hpcagent_bench.spec import BenchSpec
 from tests.optional_imports import import_or_skip
 
 # freshness key
 
 
-def test_source_fingerprint_tracks_source_and_bench_info(tmp_path) -> None:
+def test_source_fingerprint_tracks_source_and_bench_info(tmp_path: pathlib.Path) -> None:
     numpy_py = tmp_path / "x_numpy.py"
     numpy_py.write_text("def kernel(A):\n    return A\n")
     base = fc.source_fingerprint(numpy_py, b"bench-info-1")
@@ -26,7 +28,7 @@ def test_source_fingerprint_tracks_source_and_bench_info(tmp_path) -> None:
     assert fc.source_fingerprint(numpy_py, b"bench-info-2") != fc.source_fingerprint(numpy_py, b"bench-info-1")
 
 
-def test_source_fingerprint_folds_in_the_translator_tree(tmp_path) -> None:
+def test_source_fingerprint_folds_in_the_translator_tree(tmp_path: pathlib.Path) -> None:
     """An emitter edit must move the key even when the reference and bench_info are untouched --
     otherwise every generated sibling is a false HIT against the PREVIOUS emitter's output, and a
     sweep run right after a translator change reports a confident, wrong number."""
@@ -45,7 +47,7 @@ def test_dace_tree_fingerprint_is_memoized_and_well_defined() -> None:
     assert fc.dace_tree_fingerprint() == fc.dace_tree_fingerprint()  # memoized, one git call per process
 
 
-def test_kernel_cache_dir_creates_dir_with_gitkeep(tmp_path) -> None:
+def test_kernel_cache_dir_creates_dir_with_gitkeep(tmp_path: pathlib.Path) -> None:
     kdir = tmp_path / "kern"
     kdir.mkdir()
     cache = fc.kernel_cache_dir(kdir)
@@ -57,7 +59,7 @@ def test_kernel_cache_dir_creates_dir_with_gitkeep(tmp_path) -> None:
 # autogen SOURCE cache: hit / restore / INVALIDATE
 
 
-def test_generated_source_cache_hit_restore_and_invalidation(tmp_path) -> None:
+def test_generated_source_cache_hit_restore_and_invalidation(tmp_path: pathlib.Path) -> None:
     kdir = tmp_path / "k"
     kdir.mkdir()
     cache = fc.kernel_cache_dir(kdir)
@@ -79,7 +81,7 @@ def test_generated_source_cache_hit_restore_and_invalidation(tmp_path) -> None:
     assert fc.load_generated(cache, canonical, sha256_hex(b"source-v2")) is False
 
 
-def _widget_kernel(benchmarks_root):
+def widget_kernel(benchmarks_root: pathlib.Path) -> pathlib.Path:
     """Write a minimal valid kernel (manifest + numpy reference) under a tmp benchmarks root."""
     kdir = benchmarks_root / "loop_level_reasoning" / "widget"
     kdir.mkdir(parents=True)
@@ -97,7 +99,9 @@ def _widget_kernel(benchmarks_root):
     return kdir
 
 
-def test_ensure_emits_once_reuses_then_reemits_on_source_change(tmp_path, monkeypatch) -> None:
+def test_ensure_emits_once_reuses_then_reemits_on_source_change(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The maintainer's autogen-cache proof: first ensure() emits + caches, a second reuses the cache
     WITHOUT re-emitting (emit counter unchanged), and mutating the numpy source re-emits (invalidation)."""
     from hpcagent_bench import autogen, paths
@@ -105,11 +109,11 @@ def test_ensure_emits_once_reuses_then_reemits_on_source_change(tmp_path, monkey
     from hpcagent_bench.translators.numpyto_common.emit_io import write_generated
 
     benchmarks = tmp_path / "benchmarks"
-    kdir = _widget_kernel(benchmarks)
+    kdir = widget_kernel(benchmarks)
 
     emits = {"n": 0}
 
-    def fake_emit_targets(spec, targets):
+    def fake_emit_targets(spec: BenchSpec, targets: Sequence[str]) -> dict[str, str]:
         emits["n"] += 1
         out = {}
         for t in targets:
@@ -141,7 +145,9 @@ def test_ensure_emits_once_reuses_then_reemits_on_source_change(tmp_path, monkey
         KERNELS.refresh()
 
 
-def test_ensure_removes_a_stale_canonical_whose_emit_failed(tmp_path, monkeypatch) -> None:
+def test_ensure_removes_a_stale_canonical_whose_emit_failed(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A broken generator must not serve yesterday's file. The emit only runs because the
     fingerprint says the bytes are wrong for the current source, so on a failure the stale
     canonical is DELETED and its cache entry left un-refreshed -- the caller's import then raises
@@ -151,10 +157,10 @@ def test_ensure_removes_a_stale_canonical_whose_emit_failed(tmp_path, monkeypatc
     from hpcagent_bench.translators.numpyto_common.emit_io import write_generated
 
     benchmarks = tmp_path / "benchmarks"
-    kdir = _widget_kernel(benchmarks)
+    kdir = widget_kernel(benchmarks)
     canonical = kdir / "widget_dace.py"
 
-    def fake_ok(spec, targets):
+    def fake_ok(spec: BenchSpec, targets: Sequence[str]) -> dict[str, str]:
         for t in targets:
             write_generated(
                 paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_{t}.py",
@@ -163,7 +169,7 @@ def test_ensure_removes_a_stale_canonical_whose_emit_failed(tmp_path, monkeypatc
             )
         return dict.fromkeys(targets, "ok")
 
-    def fake_fail(spec, targets):
+    def fake_fail(spec: BenchSpec, targets: Sequence[str]) -> dict[str, str]:
         return dict.fromkeys(targets, "fail: RuntimeError: the generator broke")
 
     original_root = paths.BENCHMARKS
@@ -189,19 +195,19 @@ def test_ensure_removes_a_stale_canonical_whose_emit_failed(tmp_path, monkeypatc
         KERNELS.refresh()
 
 
-def test_ensure_never_touches_a_hand_override(tmp_path, monkeypatch) -> None:
+def test_ensure_never_touches_a_hand_override(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A hand-written override (no autogen marker) is never emitted and never cached -- left byte-for-byte."""
     from hpcagent_bench import autogen, paths
     from hpcagent_bench.spec import KERNELS
 
     benchmarks = tmp_path / "benchmarks"
-    kdir = _widget_kernel(benchmarks)
+    kdir = widget_kernel(benchmarks)
     override = kdir / "widget_dace.py"
     override.write_text("# my own hand impl\nX = 42\n")
 
     called = {"n": 0}
 
-    def fake_emit_targets(spec, targets):
+    def fake_emit_targets(spec: BenchSpec, targets: Sequence[str]) -> dict[str, str]:
         called["n"] += 1
         return dict.fromkeys(targets, "ok")
 
@@ -230,7 +236,7 @@ def test_ensure_never_restores_a_stale_cache_entry_over_a_hand_override(
     from hpcagent_bench.spec import KERNELS, BenchSpec
 
     benchmarks = tmp_path / "benchmarks"
-    kdir = _widget_kernel(benchmarks)
+    kdir = widget_kernel(benchmarks)
     override = kdir / "widget_numba.py"
     hand = "# hand-written parallel numba reference\nX = 42\n"
     override.write_text(hand)
@@ -265,7 +271,7 @@ def test_base_framework_cache_hook_is_a_noop() -> None:
 
     calls = {"n": 0}
 
-    def build():
+    def build() -> str:
         calls["n"] += 1
         return "ARTIFACT"
 
@@ -279,7 +285,9 @@ def test_base_framework_cache_hook_is_a_noop() -> None:
 # DaCe SDFG cache: .sdfgz round-trip, invalidation, corruption tolerance
 
 
-def test_sdfg_cache_roundtrip_invalidation_and_corruption(tmp_path, monkeypatch) -> None:
+def test_sdfg_cache_roundtrip_invalidation_and_corruption(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import_or_skip("dace")
     from hpcagent_bench.frameworks import Benchmark, generate_framework
 
@@ -315,7 +323,9 @@ def test_sdfg_cache_roundtrip_invalidation_and_corruption(tmp_path, monkeypatch)
     assert fc.load_sdfg(cache, "gemm", "cpu", fp) is None
 
 
-def test_dace_build_with_cache_bypasses_build_on_hit_and_invalidates_on_precision(tmp_path, monkeypatch) -> None:
+def test_dace_build_with_cache_bypasses_build_on_hit_and_invalidates_on_precision(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import_or_skip("dace")
     from hpcagent_bench.frameworks import Benchmark, generate_framework
 
@@ -331,7 +341,7 @@ def test_dace_build_with_cache_bypasses_build_on_hit_and_invalidates_on_precisio
 
     builds = {"n": 0}
 
-    def build():
+    def build() -> object:
         builds["n"] += 1
         return ct_impl.to_sdfg(simplify=False)
 
@@ -374,7 +384,7 @@ def test_cache_tree_is_fully_gitignored() -> None:
 
     base = "hpcagent_bench/benchmarks/scientific_computing/dense_linear_algebra/gemm/.cache"
 
-    def ignored(rel):
+    def ignored(rel: str) -> bool:
         return (
             subprocess.run(
                 ["git", "-C", str(repo), "check-ignore", "-q", rel], capture_output=True, check=False

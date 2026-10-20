@@ -3,6 +3,8 @@
 """``run-sparse`` exits with the verdict: a wrong or crashing case fails the sweep; an untranslated or refused
 layout is reported and passes."""
 
+from collections.abc import Callable
+
 import pytest
 
 from hpcagent_bench.categories import Preset
@@ -15,7 +17,7 @@ from hpcagent_bench.support.helpers.sparse.abi import FORMATS
 BLOCK = 2
 
 
-def fake_grader(outcomes: dict[tuple[str, str], str]):
+def fake_grader(outcomes: dict[tuple[str, str], str]) -> Callable[..., sweep.SparseCase]:
     """A ``grade_sparse_case`` stand-in answering ``outcomes[(kernel, format)]`` (default graded)."""
 
     def grade(kernel: str, fmt: str, preset: str, datatype: str, repeat: int, block_size: int) -> sweep.SparseCase:

@@ -16,6 +16,8 @@ the loop runs cannot disagree. A step > 1 is here too: ``stop - start`` over-all
 ``(stop - start) / step`` elements, wasteful rather than wrong.
 """
 
+import ast
+
 import numpy as np
 import pytest
 
@@ -25,7 +27,7 @@ from tests.translators.source_module import evaluate
 NATIVE = ("c", "cpp", "fortran")
 
 
-def run_(expr, n) -> None:
+def run_(expr: str, n: int) -> None:
     """``t = <expr>`` copied element-wise into an ``n``-long int64 output, on every native backend."""
     src = f"import numpy as np\ndef f(out):\n    t = {expr}\n    for i in range(out.shape[0]):\n        out[i] = t[i]\n"
     res = run_op(
@@ -43,7 +45,7 @@ def run_(expr, n) -> None:
         ("np.arange(-3, -9, -3)", 2),
     ],
 )
-def test_negative_step_arange_matches_numpy(expr, n) -> None:
+def test_negative_step_arange_matches_numpy(expr: str, n: int) -> None:
     assert len(evaluate(expr, {"np": np})) == n, "test's own expectation disagrees with numpy"
     run_(expr, n)
 
@@ -57,7 +59,7 @@ def test_negative_step_arange_matches_numpy(expr, n) -> None:
         ("np.arange(7)", 7),
     ],
 )
-def test_positive_step_arange_still_matches_numpy(expr, n) -> None:
+def test_positive_step_arange_still_matches_numpy(expr: str, n: int) -> None:
     assert len(evaluate(expr, {"np": np})) == n, "test's own expectation disagrees with numpy"
     run_(expr, n)
 
@@ -65,11 +67,10 @@ def test_positive_step_arange_still_matches_numpy(expr, n) -> None:
 def test_count_is_folded_for_literal_bounds() -> None:
     """A literal arange must size its array with a plain integer: an expression there has to be
     evaluable in a Fortran declaration, where ``/`` truncates instead of flooring."""
-    import ast
 
     from hpcagent_bench.translators.numpyto_common.lib_nodes import arange_count
 
-    def count(text):
+    def count(text: str) -> ast.expr:
         return arange_count(ast.parse(text, mode="eval").body.args)
 
     for text, want in [
@@ -88,7 +89,6 @@ def test_count_is_folded_for_literal_bounds() -> None:
 def test_symbolic_bounds_keep_a_sign_correct_expression() -> None:
     """With a runtime bound there is nothing to fold, so the emitted form must be the ceil that
     holds for either sign -- not the positive-step-only identity."""
-    import ast
 
     from hpcagent_bench.translators.numpyto_common.lib_nodes import arange_count
 

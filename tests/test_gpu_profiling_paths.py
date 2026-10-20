@@ -48,7 +48,7 @@ def without_share_column(text: str) -> str:
     ],
     ids=["nsys", "rocprofv3"],
 )
-def test_a_kernel_report_without_a_share_column_is_refused_rather_than_read_as_zero(rows) -> None:
+def test_a_kernel_report_without_a_share_column_is_refused_rather_than_read_as_zero(rows: list[dict[str, str]]) -> None:
     """Read as 0.0, every kernel fell below min_percent: the profile came back with no kernels,
     every one counted as omitted, and the empty-trace check let it through as a measurement."""
     with pytest.raises(gpu_profiling.GpuProfilerUnavailable) as caught:
@@ -84,7 +84,9 @@ def nsys_records_then_stats_wedge(monkeypatch: pytest.MonkeyPatch) -> None:
     ],
     ids=["nsys-record", "nsys-stats", "rocprof-record"],
 )
-def test_a_wedged_gpu_profiler_is_a_timed_out_refusal_not_a_raw_timeout(tmp_path, monkeypatch, language, stage) -> None:
+def test_a_wedged_gpu_profiler_is_a_timed_out_refusal_not_a_raw_timeout(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, language: str, stage: Callable[[pytest.MonkeyPatch], None]
+) -> None:
     """subprocess signals a deadline by raising, and the route turned that raw exception into a 500
     with no cause, which an agent cannot tell apart from a broken judge."""
     monkeypatch.setattr(gpu_profiling, "nsys_check", lambda language: "/fake/bin/nsys")

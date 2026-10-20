@@ -2,6 +2,7 @@
 
 import ast
 import copy
+from collections.abc import Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import const_int
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import numpy_call_attr
@@ -10,7 +11,7 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.ranks import expr_r
 __all__ = ["PadInline", "const_pair_widths", "pad_constant_inline_stmts", "pad_inline_stmts", "widths_all_literal"]
 
 
-def const_pair_widths(pad_width: ast.expr, rank: int):
+def const_pair_widths(pad_width: ast.expr, rank: int) -> list[tuple[ast.expr, ast.expr]] | None:
     """Per-axis ``(lo, hi)`` exprs from a scalar ``R`` or a ``((lo, hi), ...)`` ``pad_width``, else None."""
     if isinstance(pad_width, (ast.Name, ast.Constant)):
         return [(pad_width, copy.deepcopy(pad_width)) for unused in range(rank)]
@@ -25,7 +26,9 @@ def const_pair_widths(pad_width: ast.expr, rank: int):
     return None
 
 
-def pad_inline_stmts(target: str, arr: ast.expr, widths, rank: int, ctr: int) -> list[ast.stmt]:
+def pad_inline_stmts(
+    target: str, arr: ast.expr, widths: list[tuple[ast.expr, ast.expr]], rank: int, ctr: int
+) -> list[ast.stmt]:
     """``<target> = np.pad(arr, ..., mode="edge")`` as a clamped-index copy loop nest.
 
     Inlined rather than a helper call: numba needs an ``@njit`` callee, pythran a plain def."""
@@ -45,12 +48,14 @@ def pad_inline_stmts(target: str, arr: ast.expr, widths, rank: int, ctr: int) ->
     return ast.parse("\n".join(src)).body
 
 
-def widths_all_literal(widths) -> bool:
+def widths_all_literal(widths: Sequence[tuple[ast.expr, ast.expr]]) -> bool:
     """True iff every (lo, hi) pair is a compile-time int (dace's own ``np.pad`` handles those)."""
     return all(const_int(lo) is not None and const_int(hi) is not None for lo, hi in widths)
 
 
-def pad_constant_inline_stmts(target: str, arr: ast.expr, widths, fill: ast.expr, ctr: int) -> list[ast.stmt]:
+def pad_constant_inline_stmts(
+    target: str, arr: ast.expr, widths: Sequence[tuple[ast.expr, ast.expr]], fill: ast.expr, ctr: int
+) -> list[ast.stmt]:
     """``<target> = np.pad(arr, ..., mode="constant")`` as ``np.full`` plus an interior slice copy.
 
     For symbolic widths: dace's own ``np.pad`` casts every width through ``int()`` and fails, while
@@ -82,7 +87,7 @@ class PadInline(ast.NodeTransformer):
         self.changed = False
         self._ctr = 0
 
-    def visit_Assign(self, node: ast.Assign):
+    def visit_Assign(self, node: ast.Assign) -> ast.stmt | list[ast.stmt]:
         self.generic_visit(node)
         call = node.value
         if (

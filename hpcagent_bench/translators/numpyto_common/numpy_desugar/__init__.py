@@ -5,6 +5,7 @@ Entry point: :func:`desugar_for_python_backend`. Each submodule owns one family 
 
 import ast
 
+from hpcagent_bench.translators.numpyto_common.ir import ArrayDesc, KernelIR, ScalarDesc
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.common import (
     AUG_OP_SRC,
     REDUCE_FNS,
@@ -175,7 +176,7 @@ __all__ = [
 ]
 
 
-def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> str:
+def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None = None) -> str:
     """Rewrite ``source`` so numba/pythran/dace can compile it.
 
     Expands numpy ops they don't support (batched ``@``/``np.matmul``, ``np.pad``, ``np.einsum``,
@@ -212,7 +213,8 @@ def desugar_for_python_backend(source: str, kir, backend: str | None = None) -> 
     kir_dtype_seed: dict[str, str] = {}
     # Scalar parameters too: an unknown ``dtime`` is contagious, so ``zc * dtime / h`` and every reduction of it
     # fell back to an explicit loop nest (velocity_tendencies' masked vcfl max ran serially on the GPU host).
-    for a in [*kir.arrays, *kir.scalars]:
+    descs: list[ArrayDesc | ScalarDesc] = [*kir.arrays, *kir.scalars]
+    for a in descs:
         kind = kind_of_dtype_str(a.dtype)
         if kind:
             kir_dtype_seed[a.name] = kind

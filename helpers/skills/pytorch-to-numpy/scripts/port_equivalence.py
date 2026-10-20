@@ -27,6 +27,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -69,7 +70,7 @@ def kernel_dir(spec: BenchSpec) -> pathlib.Path:
     return REPO / "hpcagent_bench" / "benchmarks" / spec.relative_path
 
 
-def load_fn(path: pathlib.Path, func_name: str, tag: str):
+def load_fn(path: pathlib.Path, func_name: str, tag: str) -> Callable[..., object]:
     """Import one kernel file under a unique module name, so old and new coexist in one process."""
     spec = importlib.util.spec_from_file_location(f"kern_{tag}", path)
     mod = importlib.util.module_from_spec(spec)
@@ -110,7 +111,7 @@ def build_inputs(spec: BenchSpec, preset: Preset, seed: int) -> tuple[dict[str, 
     return by, syms
 
 
-def call(fn, spec: BenchSpec, by: dict[str, Any], syms: dict[str, Any]) -> dict[str, np.ndarray]:
+def call(fn: Callable[..., object], spec: BenchSpec, by: dict[str, Any], syms: dict[str, Any]) -> dict[str, np.ndarray]:
     """Run one kernel on private copies; return every output it produced, by name.
 
     The argument list comes from THIS function's own ``def`` line, not from the manifest, because a

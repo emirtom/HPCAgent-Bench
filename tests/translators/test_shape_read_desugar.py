@@ -24,15 +24,15 @@ from hpcagent_bench.translators.numpyto_common.frontend import (
 )
 
 
-def fn_(src):
+def fn_(src: str) -> ast.FunctionDef:
     return ast.parse(src).body[0]
 
 
-def env(**shapes):
+def env(**shapes: str) -> dict[str, ArrayDesc]:
     return {n: ArrayDesc(name=n, dtype="float64", shape=parse_shape_expression(s)) for n, s in shapes.items()}
 
 
-def axes_(dims, expr):
+def axes_(dims: tuple[str, ...], expr: str) -> list[str]:
     """Result dims of subscripting ``dims`` with the subscript written in ``expr``."""
     return apply_subscript_axes(list(dims), ast.parse(expr, mode="eval").body.slice)
 

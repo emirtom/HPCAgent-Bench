@@ -465,7 +465,7 @@ def grading_env(environment: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def as_float(value: Any) -> float:
+def as_float(value: Any) -> float:  # noqa: ANN401
     """``value`` as a float; 0.0 for the empty / non-numeric cells a CSV column carries."""
     try:
         return float(value)

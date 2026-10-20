@@ -31,6 +31,7 @@ import ast
 import numpy as np
 
 from hpcagent_bench.translators.numpyto_common.frontend import bare_index_list
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 from tests.translators import op_oracle
 from tests.translators.op_oracle import all_ok, run_op
@@ -39,7 +40,9 @@ BACKENDS = ("c", "fortran")
 TOL = 1e-12
 
 
-def lowered(src: str, func: str, inputs, outputs, shapes, syms):
+def lowered(
+    src: str, func: str, inputs: list[str], outputs: list[str], shapes: dict[str, str], syms: dict[str, int]
+) -> KernelIR:
     """The lowered KernelIR for a throwaway source, via the real file-reading entry point."""
     return lower(op_oracle.parse_source(src, func, inputs, outputs, shapes, syms))
 

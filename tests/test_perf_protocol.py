@@ -25,7 +25,7 @@ def test_enumerate_configs_valid_list_verbatim() -> None:
     assert fuzz.enumerate_configs(configs) == [{"mode": "a"}, {"mode": "b"}]
 
 
-def test_enumerate_configs_caps_at_max(caplog) -> None:
+def test_enumerate_configs_caps_at_max(caplog: pytest.LogCaptureFixture) -> None:
     # a valid list of 12 configs is capped to a deterministic seeded subset of 5
     configs = [{"i": i} for i in range(12)]
     got = fuzz.enumerate_configs(configs, max_configs=5, seed=1)

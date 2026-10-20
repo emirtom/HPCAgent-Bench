@@ -7,6 +7,8 @@ import importlib.util
 import sys
 import tempfile
 
+import numpy as np
+
 from hpcagent_bench.categories import Language
 from hpcagent_bench.support.bindings.contract import index_base
 from tests.translators import native_tu as tu
@@ -19,7 +21,7 @@ NUMPY_PY = VIT_DIR / "viterbi_numpy.py"
 T, K, M = 30, 8, 5
 
 
-def ref():
+def ref() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     spec = importlib.util.spec_from_file_location("viterbi_ref", NUMPY_PY)
     m = importlib.util.module_from_spec(spec)
     # Registered BEFORE exec: dataclasses resolves a string annotation through
@@ -40,7 +42,7 @@ def ref():
 LOG_INIT, LOG_TRANS, LOG_EMIT, OBS, PATH = ref()
 
 
-def c_driver():
+def c_driver() -> str:
     return f"""
 #include <stdio.h>
 int main(void) {{
@@ -64,7 +66,7 @@ int main(void) {{
 """
 
 
-def f_driver():
+def f_driver() -> str:
     # Fortran storage is column-major; reshaping the numpy C-order ravel into the
     # REVERSED dims reproduces the exact flat buffer the bind(C) kernel indexes
     # (same bytes a C-contiguous pointer would pass).

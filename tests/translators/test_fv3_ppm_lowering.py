@@ -25,12 +25,12 @@ import numpy as np
 from tests.translators.op_oracle import run_op
 
 
-def ok_(res, expect=("c", "fortran")) -> None:
+def ok_(res: dict[str, str], expect: tuple[str, str] = ("c", "fortran")) -> None:
     assert set(res) == set(expect), res
     assert all(v == "ok" for v in res.values()), res
 
 
-def run_(body, decls: str = "", n: int = 9, m: int = 4, k: int = 3):
+def run_(body: str, decls: str = "", n: int = 9, m: int = 4, k: int = 3) -> dict[str, str]:
     rng = np.random.default_rng(0)
     src = "import numpy as np\ndef ppm(q, out):\n    lo = 2\n    hi = 6\n" + decls + body
     return run_op(

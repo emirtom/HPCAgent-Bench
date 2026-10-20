@@ -11,6 +11,7 @@ import ast
 
 import pytest
 
+from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.parallelism import (
     UnsupportedParallelError,
     any_parallelizable_loop,
@@ -24,11 +25,11 @@ from hpcagent_bench.translators.numpyto_common.parallelism import (
 from tests.translators.op_oracle import parse_source
 
 
-def stmt_(src):
+def stmt_(src: str) -> ast.Assign | ast.For:
     return ast.parse(src).body[0]
 
 
-def sub_(src):
+def sub_(src: str) -> ast.Subscript:
     return ast.parse(src).body[0].value
 
 
@@ -207,7 +208,13 @@ def test_any_parallelizable_false_for_scatter_only() -> None:
 
 
 # emit_c_omp (end to end: parse -> lower -> emit)
-def kir_(src, args, shapes, dtypes=None, params=None):
+def kir_(
+    src: str,
+    args: list[str],
+    shapes: dict[str, str],
+    dtypes: dict[str, str] | None = None,
+    params: dict[str, int] | None = None,
+) -> KernelIR:
     from hpcagent_bench.translators.numpyto_common.lowering import lower
 
     return lower(parse_source(src, "f", args[:-1], args[-1:], shapes, params or {"N": 16}, dtypes))

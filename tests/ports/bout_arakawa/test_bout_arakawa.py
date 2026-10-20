@@ -32,7 +32,9 @@ numpy_port = module_at(BENCH_DIR / "bout_arakawa_numpy.py")
 arakawa_bracket = numpy_port.arakawa_bracket
 
 
-def arakawa_independent(f, g, dx, dz, NX, NY, NZ, out) -> None:
+def arakawa_independent(
+    f: np.ndarray, g: np.ndarray, dx: np.ndarray, dz: np.ndarray, NX: int, NY: int, NZ: int, out: np.ndarray
+) -> None:
     """Per-point transcription of BOUT++ src/mesh/difops.cxx BRACKET_ARAKAWA."""
     for jx in range(1, NX - 1):
         xm = jx - 1
@@ -61,7 +63,7 @@ def arakawa_independent(f, g, dx, dz, NX, NY, NZ, out) -> None:
 
 
 @pytest.mark.parametrize(("NX", "NY", "NZ"), [(68, 4, 64), (12, 1, 16), (9, 3, 4), (5, 2, 3)])
-def test_port_matches_an_independent_transcription(NX, NY, NZ) -> None:
+def test_port_matches_an_independent_transcription(NX: int, NY: int, NZ: int) -> None:
     dx, dz, f, g, result = initialize(NX, NY, NZ)
     expected = np.zeros((NX, NY, NZ))
     arakawa_bracket(dx, dz, f, g, result, NX, NY, NZ)

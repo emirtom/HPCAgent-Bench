@@ -53,7 +53,9 @@ def block_tiles(n: int, parts: int) -> list[list[int]]:
         (7, 1, Scheme.CYCLIC, 1),
     ],
 )
-def test_a_scheme_that_realizes_the_block_partition_is_accepted(n, parts, scheme, block_size) -> None:
+def test_a_scheme_that_realizes_the_block_partition_is_accepted(
+    n: int, parts: int, scheme: Scheme, block_size: int
+) -> None:
     """Accepted exactly when the owned index SETS equal the contiguous blocks -- the predicate is
     checked against the index sets themselves, not re-derived from the same arithmetic."""
     axis = AxisDist(grid_dim=0, scheme=scheme, block_size=block_size)
@@ -73,7 +75,7 @@ def test_a_scheme_that_realizes_the_block_partition_is_accepted(n, parts, scheme
         (9, 3, Scheme.BLOCK_CYCLIC, 2),
     ],
 )
-def test_a_decorative_scheme_is_named_and_refused(n, parts, scheme, block_size) -> None:
+def test_a_decorative_scheme_is_named_and_refused(n: int, parts: int, scheme: Scheme, block_size: int) -> None:
     """block_cyclic(1024) at 8192 over 4 ranks deals the same COUNT as a block split (2048 rows
     each) out of DIFFERENT global rows -- the tile-shape check downstream cannot see it, so the
     declaration was decorative. The refusal names the array, the axis and the scheme."""
@@ -167,7 +169,7 @@ def split_symbols(spec: BenchSpec) -> frozenset[str]:
 
 
 @pytest.mark.parametrize("kernel", ["dist_softmax", "dist_matmul_large_k", "dist_sdpa", "dist_moe_dispatch"])
-def test_every_split_symbol_of_an_ml_cell_clears_the_largest_rank_count(kernel) -> None:
+def test_every_split_symbol_of_an_ml_cell_clears_the_largest_rank_count(kernel: str) -> None:
     """Sharding a draw smaller than the rank count over 16 ranks leaves ranks owning nothing and
     aborts the whole grade, so every split symbol clears the largest P."""
     spec = BenchSpec.load(kernel)

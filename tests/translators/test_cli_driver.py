@@ -3,6 +3,8 @@
 """Unified `numpyto --target` driver (directive #1). The cupy cases are
 self-contained (write their own kernel to tmp)."""
 
+import pathlib
+
 from hpcagent_bench.translators.numpyto_common.cli import TARGETS
 from hpcagent_bench.translators.numpyto_common.cli import main as driver_main
 from hpcagent_bench.translators.numpyto_cupy.cli import main as cupy_main
@@ -10,13 +12,13 @@ from hpcagent_bench.translators.numpyto_cupy.cli import main as cupy_main
 KERNEL = "import numpy as np\n\n\ndef foo(a, out):\n    out[:] = np.sqrt(a)  # note\n"
 
 
-def write_kernel(d):
+def write_kernel(d: pathlib.Path) -> pathlib.Path:
     p = d / "foo_numpy.py"
     p.write_text(KERNEL)
     return p
 
 
-def test_driver_dispatches_same_as_direct(tmp_path) -> None:
+def test_driver_dispatches_same_as_direct(tmp_path: pathlib.Path) -> None:
     k = write_kernel(tmp_path)
     via = tmp_path / "via_driver"
     direct = tmp_path / "direct"
@@ -27,7 +29,7 @@ def test_driver_dispatches_same_as_direct(tmp_path) -> None:
     assert "cupy" in (via / out).read_text()
 
 
-def test_driver_passes_through_flags(tmp_path) -> None:
+def test_driver_passes_through_flags(tmp_path: pathlib.Path) -> None:
     # --sanitize is a backend flag; the driver forwards unknown args verbatim.
     k = write_kernel(tmp_path)
     d = tmp_path / "san"

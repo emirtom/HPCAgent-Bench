@@ -4,7 +4,10 @@
 order, numpy-equal results (checked in a child, :mod:`tests.tsvc_reference_oracle`, since a bad port segfaults),
 and reachable behind ``references.prefer_committed`` in both settings."""
 
+import pathlib
 import re
+
+import pytest
 
 from hpcagent_bench import paths
 from hpcagent_bench.categories import Language
@@ -38,7 +41,7 @@ DEFN = re.compile(
 _COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
 
 
-def committed():
+def committed() -> list[tuple[str, pathlib.Path]]:
     """``(registry_key, path)`` for every committed loop_level_reasoning ``_reference.c``."""
     out = []
     for key, spec in sorted(KERNELS.specs().items()):
@@ -50,7 +53,7 @@ def committed():
     return out
 
 
-def signature(text: str):
+def signature(text: str) -> tuple[str, list[str]]:
     """``(symbol, [param declarations])`` for the reference's entry point."""
     match = ENTRY.search(_COMMENT.sub(" ", text))
     assert match is not None, "no entry-point definition found"
@@ -182,7 +185,9 @@ def test_the_committed_references_are_reachable_from_the_harness_but_only_on_req
     assert chosen == path.read_text(), f"{key}: the knob is on and the harness still did not use {path}"
 
 
-def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(tmp_path, monkeypatch) -> None:
+def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The knob selects on ``emit_io.is_override``, not on the file merely existing. A
     ``_reference.c`` that DOES carry the autogen marker is generator output the emitter would
     rewrite anyway, so preferring it would pin a stale emit as the baseline -- worse than emitting,
@@ -205,7 +210,7 @@ def test_a_generated_sidecar_is_never_mistaken_for_a_hand_port(tmp_path, monkeyp
     )
 
 
-def test_the_numeric_gate_can_fail(tmp_path) -> None:
+def test_the_numeric_gate_can_fail(tmp_path: pathlib.Path) -> None:
     """A build-and-compare gate that silently graded nothing would look identical to a clean corpus.
     Perturbing one reference must make the oracle report exactly that kernel as wrong."""
     from tests import tsvc_reference_oracle as oracle

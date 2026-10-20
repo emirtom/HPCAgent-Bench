@@ -26,7 +26,7 @@ from tests.optional_imports import import_or_skip
 LAUNCHERS = ("OMPI_COMM_WORLD_RANK", "PMI_RANK", "SLURM_PROCID", "MV2_COMM_WORLD_RANK")
 
 
-def fake_config(monkeypatch, *, native: bool, folder: str = ".dacecache") -> dict[str, object]:
+def fake_config(monkeypatch: pytest.MonkeyPatch, *, native: bool, folder: str = ".dacecache") -> dict[str, object]:
     """Install a fake ``dace.Config`` whose schema has ``cache_distaware`` only when ``native``.
 
     Returns the backing dict, so a test reads what was set rather than what was asked for."""
@@ -46,14 +46,14 @@ def fake_config(monkeypatch, *, native: bool, folder: str = ".dacecache") -> dic
 
 
 @pytest.fixture(autouse=True)
-def no_inherited_rank(monkeypatch) -> None:
+def no_inherited_rank(monkeypatch: pytest.MonkeyPatch) -> None:
     """The test process may itself have been launched by mpirun; start from a clean slate."""
     for name in (*dace_framework.RANK_ENV, "DACE_BUILD_CACHE_DIR"):
         monkeypatch.delenv(name, raising=False)
 
 
 @pytest.mark.parametrize("launcher", LAUNCHERS)
-def test_every_launcher_s_rank_variable_is_read(monkeypatch, launcher) -> None:
+def test_every_launcher_s_rank_variable_is_read(monkeypatch: pytest.MonkeyPatch, launcher: str) -> None:
     """Open MPI, MPICH/PMI, Slurm and MVAPICH each publish the rank under a different name; missing
     one silently returns the whole job to a single shared build folder."""
     monkeypatch.setenv(launcher, "3")
@@ -66,14 +66,14 @@ def test_a_single_process_run_is_not_a_rank() -> None:
     assert dace_framework.mpi_rank() is None
 
 
-def test_a_rank_gets_its_own_build_folder(monkeypatch) -> None:
+def test_a_rank_gets_its_own_build_folder(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "2")
     values = fake_config(monkeypatch, native=False)
     dace_framework.pin_per_rank_build_dirs()
     assert values["default_build_folder"] == str(pathlib.Path(".dacecache/rank2"))
 
 
-def test_dace_s_own_per_rank_folders_are_not_suffixed_again(monkeypatch) -> None:
+def test_dace_s_own_per_rank_folders_are_not_suffixed_again(monkeypatch: pytest.MonkeyPatch) -> None:
     """``cache_distaware`` already appends the rank inside DaCe. Appending ours on top nests a
     second level (``.dacecache/rank2_rank2``), which hits no cache and re-splits an already split
     one -- hiding, not fixing, a real collision."""
@@ -84,7 +84,7 @@ def test_dace_s_own_per_rank_folders_are_not_suffixed_again(monkeypatch) -> None
     assert values["cache_distaware"] is True
 
 
-def test_dace_s_own_per_rank_folders_are_pinned_on(monkeypatch) -> None:
+def test_dace_s_own_per_rank_folders_are_pinned_on(monkeypatch: pytest.MonkeyPatch) -> None:
     """DaCe suffixes the folder only while the knob is on, so a ~/.dace.conf that turned it off
     would put every rank of a graded run back into one shared folder."""
     monkeypatch.setenv("SLURM_PROCID", "4")
@@ -96,7 +96,7 @@ def test_dace_s_own_per_rank_folders_are_pinned_on(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_a_rank_gets_its_own_precompiled_header_cache(monkeypatch, native) -> None:
+def test_a_rank_gets_its_own_precompiled_header_cache(monkeypatch: pytest.MonkeyPatch, native: bool) -> None:
     """The PCH is ~110 MB per entry and keyed by compiler+flags, so two ranks share one entry unless
     the ROOT differs -- and that entry is written, not just read. #2466 partitions the build folder
     only; ``build_cache.cache_root`` is still one root per node, so this stays ours either way."""
@@ -109,7 +109,9 @@ def test_a_rank_gets_its_own_precompiled_header_cache(monkeypatch, native) -> No
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_a_cache_dir_already_naming_a_rank_is_left_alone(monkeypatch, tmp_path, native) -> None:
+def test_a_cache_dir_already_naming_a_rank_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, native: bool
+) -> None:
     """A job that already PARTITIONED the cache itself must not have that decision re-taken.
 
     Recognised by the leaf naming this rank, which is the only thing in the path that says
@@ -124,7 +126,9 @@ def test_a_cache_dir_already_naming_a_rank_is_left_alone(monkeypatch, tmp_path, 
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_an_explicit_cache_dir_is_a_root_and_is_still_partitioned(monkeypatch, tmp_path, native) -> None:
+def test_an_explicit_cache_dir_is_a_root_and_is_still_partitioned(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, native: bool
+) -> None:
     """Naming a root RELOCATES the cache; it does not partition it, and the two are not the same
     decision. Leaving a relocated root alone put four ranks in one PCH cache while their build
     folders split -- the half-partitioned state that shows up as a rank failing to load the library
@@ -139,7 +143,9 @@ def test_an_explicit_cache_dir_is_a_root_and_is_still_partitioned(monkeypatch, t
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_two_ranks_never_share_an_explicit_cache_root(monkeypatch, tmp_path, native) -> None:
+def test_two_ranks_never_share_an_explicit_cache_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, native: bool
+) -> None:
     """The invariant the PCH partition exists for, stated over the operands that actually race."""
     roots = []
     for rank in ("0", "1"):
@@ -152,7 +158,7 @@ def test_two_ranks_never_share_an_explicit_cache_root(monkeypatch, tmp_path, nat
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_pinning_twice_does_not_nest_the_rank_folder(monkeypatch, native) -> None:
+def test_pinning_twice_does_not_nest_the_rank_folder(monkeypatch: pytest.MonkeyPatch, native: bool) -> None:
     """optimize() runs per kernel; appending each time would give kernel 2 ``rank1/rank1``, a fresh
     empty cache that rebuilds everything and never hits."""
     monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "1")
@@ -163,7 +169,7 @@ def test_pinning_twice_does_not_nest_the_rank_folder(monkeypatch, native) -> Non
     assert values["default_build_folder"] == expected
 
 
-def test_the_native_probe_reads_the_config_key_not_a_version(monkeypatch) -> None:
+def test_the_native_probe_reads_the_config_key_not_a_version(monkeypatch: pytest.MonkeyPatch) -> None:
     """The knob landed on a branch, so no released version number tells the two DaCes apart. A
     DaCe whose schema lacks the key must fall back to our suffix, whatever it calls itself."""
     monkeypatch.setenv("PMI_RANK", "7")
