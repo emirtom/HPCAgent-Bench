@@ -9,7 +9,8 @@ import tempfile
 import pandas as pd
 import pytest
 
-from hpcagent_bench.stats import cost, population
+from hpcagent_bench.observation_columns import RowKind
+from hpcagent_bench.stats import cost
 from tests.fresh_module import fresh
 
 
@@ -17,7 +18,7 @@ def episode_rows(fresh: float, cached: float, output: float) -> pd.DataFrame:
     """One task row and one judge row, the shape an extraction writes."""
     return pd.DataFrame(
         {
-            "row_kind": [population.EPISODE_RECORD, "submission"],
+            "row_kind": [RowKind.EPISODE.text, RowKind.SUBMISSION.text],
             "tokens": [fresh + output, 5.0],
             "tokens_fresh_input": [fresh, None],
             "tokens_cached_input": [cached, None],
@@ -50,12 +51,12 @@ def test_a_judge_row_keeps_its_own_tokens() -> None:
 
 
 def test_effective_card_leaves_the_frame_untouched_even_without_components() -> None:
-    frame = pd.DataFrame({"row_kind": [population.EPISODE_RECORD], "tokens": [42.0]})
+    frame = pd.DataFrame({"row_kind": [RowKind.EPISODE.text], "tokens": [42.0]})
     assert cost.priced(frame, cost.resolve("effective")) is frame
 
 
 def test_a_card_that_needs_missing_components_refuses_instead_of_mispricing() -> None:
-    frame = pd.DataFrame({"row_kind": [population.EPISODE_RECORD], "tokens": [42.0]})
+    frame = pd.DataFrame({"row_kind": [RowKind.EPISODE.text], "tokens": [42.0]})
     with pytest.raises(ValueError, match="re-extract"):
         cost.priced(frame, cost.resolve("billed"))
 

@@ -61,7 +61,13 @@ from hpcagent_bench import config, data_guard, recorded_rows
 from hpcagent_bench.cache_files import sha256_hex
 from hpcagent_bench.harness import db_json, denominator, recording, results_db, scoring, timing
 from hpcagent_bench.harness.native_call import TimingProbe
-from hpcagent_bench.observation_columns import CANON_FIELDS, NUMERIC_COLUMNS, OBSERVATION_FIELDS, SOURCE_FIELDS
+from hpcagent_bench.observation_columns import (
+    CANON_FIELDS,
+    NUMERIC_COLUMNS,
+    OBSERVATION_FIELDS,
+    SOURCE_FIELDS,
+    RowKind,
+)
 from hpcagent_bench.run_layout import AGENT_DIR_PREFIX, JUDGE_DIRNAME, SHARED_DIRNAME, TASKS_DIRNAME
 from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.stats import population, score_rule
@@ -88,7 +94,6 @@ __all__ = [
     "REQUEST_KINDS",
     "RETIMED",
     "ROW_IDENTITY",
-    "SCALING_RECORD",
     "SCALING_ROWS",
     "SOURCE_SUFFIX",
     "TORCH_DIST_SETUP",
@@ -310,10 +315,6 @@ def setup_admitted(setup: str, setup_prefix: str, excluded: frozenset[str]) -> b
     return setup.startswith(setup_prefix) and excluded.isdisjoint(setup.split("-"))
 
 
-#: ``row_kind`` of a per-P scaling row (hpcagent_bench.stats.figures.scaling reads this value).
-SCALING_RECORD = "scaling"
-
-
 def blank(value: Any) -> Any:
     """A NULL column as the CSV's empty cell."""
     return "" if value is None else value
@@ -406,7 +407,7 @@ RETIMED: str = "graded"
 
 #: The verdict rows a final grade decides (:func:`apply_final_regrades`): a credited answer, and an
 #: answer the live grade refused that the grade-under worklist re-timed anyway.
-VERDICT_KINDS: tuple[str, ...] = ("submission", "attempt")
+VERDICT_KINDS: tuple[str, ...] = (RowKind.SUBMISSION.text, RowKind.ATTEMPT.text)
 
 
 #: The reason the LIVE grade gave a verdict row the final grade then decided, kept for audit.
@@ -711,7 +712,7 @@ def results_database(path: pathlib.Path) -> bool:
         return False
 
 
-def identity_row(db: Database, row: Mapping[str, Any], record: str) -> dict[str, Any]:
+def identity_row(db: Database, row: Mapping[str, Any], record: RowKind) -> dict[str, Any]:
     """The columns every row of one episode carries."""
     episode_id = str(row["label"])
     setup = str(row["setup"])
@@ -719,7 +720,7 @@ def identity_row(db: Database, row: Mapping[str, Any], record: str) -> dict[str,
         "run_root": db.run_root,
         "job": job_of(row["episode_job"]),
         "judge_db": str(db.path),
-        "row_kind": record,
+        "row_kind": record.text,
         "episode_id": episode_id,
         "setup": setup,
         "harness": row["setup_harness"] or "",
@@ -759,7 +760,7 @@ def call_row(db: Database, grade: Mapping[str, Any]) -> dict[str, Any]:
     """The ``call`` row of one request: what the agent asked and what the grade said."""
     kind = str(grade["kind"])
     return (
-        identity_row(db, grade, "call")
+        identity_row(db, grade, RowKind.CALL)
         | grade_columns(grade)
         | {
             "attempt_index": grade["call_index"],
@@ -780,7 +781,7 @@ def verdict_row(db: Database, grade: Mapping[str, Any], index: int) -> dict[str,
     speedup and its void reason, until :func:`apply_final_regrades` re-times it."""
     credited = grade["credited_speedup"] != 0
     return (
-        identity_row(db, grade, "submission" if credited or awaits_final(grade) else "attempt")
+        identity_row(db, grade, RowKind.SUBMISSION if credited or awaits_final(grade) else RowKind.ATTEMPT)
         | grade_columns(grade)
         | {
             "attempt_index": index,
@@ -816,7 +817,7 @@ def graded_rows(
     source behind each (``graded_attempt`` candidates)."""
     observations: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
-    ordinals: collections.Counter[tuple[str, str, str]] = collections.Counter()
+    ordinals: collections.Counter[tuple[RowKind, str, str]] = collections.Counter()
     for grade in conn.execute(GRADE_ROWS):
         if not setup_admitted(grade["setup"], *setup_selection) or before_the_c_fix(grade, c_fix_ms):
             continue
@@ -826,7 +827,7 @@ def graded_rows(
             and not grade["disqualified"]
             and (grade["credited_speedup"] != 0 or grade["reason"] != "")
         ):
-            record = "submission" if grade["credited_speedup"] != 0 or awaits_final(grade) else "attempt"
+            record = RowKind.SUBMISSION if grade["credited_speedup"] != 0 or awaits_final(grade) else RowKind.ATTEMPT
             ordinals[(record, grade["label"], grade["kernel"])] += 1
             rows.append(verdict_row(db, grade, ordinals[(record, grade["label"], grade["kernel"])]))
         observations.extend(rows)
@@ -871,7 +872,7 @@ def episode_rows(
         if not setup_admitted(run["setup"], *setup_selection):
             continue
         row: dict[str, Any] = dict.fromkeys(OBSERVATION_FIELDS, "")
-        row |= identity_row(db, {**dict(run), "episode_job": run["job"]}, "episode")
+        row |= identity_row(db, {**dict(run), "episode_job": run["job"]}, RowKind.EPISODE)
         start = run["final_attempt_start_ms"]
         row |= {
             "kernel": run["kernel"],
@@ -900,7 +901,7 @@ def scaling_rows(
         if not setup_admitted(row["setup"], *setup_selection):
             continue
         out.append(
-            identity_row(db, row, SCALING_RECORD)
+            identity_row(db, row, RowKind.SCALING)
             | {
                 "kernel": row["kernel"],
                 "language": row["setup_language"] or "",
@@ -935,7 +936,7 @@ def baseline_rows(conn: sqlite3.Connection, db: Database) -> list[dict[str, Any]
             "run_root": db.run_root,
             "job": db.job,
             "judge_db": str(db.path),
-            "row_kind": SCALING_RECORD,
+            "row_kind": RowKind.SCALING.text,
             "episode_id": f"{TORCH_DIST_SETUP}:{row['arch']}:{row['image']}",
             "setup": TORCH_DIST_SETUP,
             "kernel": row["kernel"] or "",
@@ -1227,13 +1228,11 @@ def apply_promotions(
     kept = list(rows)
     episode = promotion_episode
     spent = {
-        episode(row)
-        for row in kept
-        if row.get("row_kind") in ("submission", "attempt") and not recorded_rows.is_judge_fault(row)
+        episode(row) for row in kept if row.get("row_kind") in VERDICT_KINDS and not recorded_rows.is_judge_fault(row)
     }
     calls: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in kept:
-        if row.get("row_kind") == "call" and (
+        if row.get("row_kind") == RowKind.CALL.text and (
             episode(row) not in calls or int(row["ts_ms"]) > int(calls[episode(row)]["ts_ms"])
         ):
             calls[episode(row)] = row
@@ -1252,7 +1251,7 @@ def apply_promotions(
                 **template,
                 "judge_db": new["db"],
                 "ts_ms": key[3],
-                "row_kind": "submission" if verified else "attempt",
+                "row_kind": (RowKind.SUBMISSION if verified else RowKind.ATTEMPT).text,
                 "optimizer": PROMOTED_TAG,
                 "correct": blank(new.get("correct")),
                 "build_ok": blank(new.get("build_ok")),
@@ -1307,10 +1306,11 @@ def apply_final_regrades(
     for row in rows:
         new = final.get(final_key(row)) if row.get("row_kind") in VERDICT_KINDS else None
         if new is None:
-            counts["not_retimed"] += row.get("row_kind") == "submission"
+            counts["not_retimed"] += row.get("row_kind") == RowKind.SUBMISSION.text
             voided = str(row.get("reason") or "").startswith(recorded_rows.RERUN_PREFIXES)
             # a voided answer no final grade re-timed stays the voided attempt it was: owed, never credited
-            kept.append({**row, "row_kind": "attempt"} if voided and row.get("row_kind") == "submission" else row)
+            submitted = row.get("row_kind") == RowKind.SUBMISSION.text
+            kept.append({**row, "row_kind": RowKind.ATTEMPT.text} if voided and submitted else row)
             continue
         matched.add(final_key(row))
         status = new["regrade_status"]
@@ -1318,7 +1318,7 @@ def apply_final_regrades(
         if status == ERRORED:
             # an errored re-timing decided nothing: an attempt keeps the live verdict it was (a judge fault
             # or an operator's void stays one, never read as a refusal); a submission names the fault
-            reason = new["regrade_reason"] if row.get("row_kind") == "submission" else live_reason
+            reason = new["regrade_reason"] if row.get("row_kind") == RowKind.SUBMISSION.text else live_reason
             kept.append({**row, "grade_final_status": status, "reason": reason, LIVE_REASON_COLUMN: live_reason})
             counts["errored"] += 1
             counts["fallback"] += new["regrade_reason"] == FALLBACK_REASON
@@ -1341,10 +1341,10 @@ def apply_final_regrades(
         if status == RETIMED:
             # a row-level anti-cheat flag (judgement_flagged) is no timing fact: the re-timing keeps it
             suspect = bool(row.get("judgement_suspect")) or not new.get("n_credited")
-            changed.update(row_kind="submission", reason="", speedup=new["s_i"], timing_suspect=int(suspect))
+            changed.update(row_kind=RowKind.SUBMISSION.text, reason="", speedup=new["s_i"], timing_suspect=int(suspect))
             counts["replaced"] += 1
         else:
-            changed.update(row_kind="attempt", speedup="", reason=new["regrade_reason"])
+            changed.update(row_kind=RowKind.ATTEMPT.text, speedup="", reason=new["regrade_reason"])
             counts["unsolved"] += 1
         kept.append(changed)
     unmatched = final.keys() - matched

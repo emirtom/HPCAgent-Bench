@@ -415,14 +415,14 @@ def ratio_label(value: float) -> str:
     return f"{value:.1f}x" if value >= 1.0 else f"1/{1.0 / value:.1f}x"
 
 
-#: What a value axis holds, for minor-tick purposes (:func:`minor_ticks`): ``ratio`` (log2 axis in
-#: ratio units, majors at powers of two), ``log2`` (linear ``log2(ratio)`` axis, majors at whole
-#: exponents), ``token`` (log10 axis), ``count`` (linear count 0..N).
+#: What a value axis holds, for minor-tick purposes (:func:`minor_ticks`): ``RATIO`` (log2 axis in
+#: ratio units, majors at powers of two), ``LOG2`` (linear ``log2(ratio)`` axis, majors at whole
+#: exponents), ``TOKEN`` (log10 axis), ``COUNT`` (linear count 0..N).
 class MinorKind(enum.Enum):
-    RATIO = "ratio"
-    LOG2 = "log2"
-    TOKEN = "token"
-    COUNT = "count"
+    RATIO = enum.auto()
+    LOG2 = enum.auto()
+    TOKEN = enum.auto()
+    COUNT = enum.auto()
 
 
 #: Minor positions inside one octave of a ratio axis, as multiples of the lower major (the

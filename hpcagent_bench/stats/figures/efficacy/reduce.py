@@ -210,8 +210,8 @@ def axis_significance(stats: pd.DataFrame) -> dict[tuple[str, str], Significance
         return flags
     legs = leg_labels(stats)
     for (_, row), leg in zip(stats.iterrows(), legs, strict=True):
-        score_sig = str(row.get("score_verdict", "")) == Finding.SIGNIFICANT.value
-        cost_sig = str(row.get("cost_verdict", "")) == Finding.SIGNIFICANT.value
+        score_sig = str(row.get("score_verdict", "")) == Finding.SIGNIFICANT.text
+        cost_sig = str(row.get("cost_verdict", "")) == Finding.SIGNIFICANT.text
         flags[(str(row["model"]), str(leg))] = (score_sig, cost_sig)
     return flags
 

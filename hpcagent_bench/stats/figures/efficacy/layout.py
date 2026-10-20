@@ -3,15 +3,16 @@
 """The efficacy figure's LAYOUT: its config, category positions, labels and the key's columns."""
 
 import dataclasses
+import enum
 import functools
 import itertools
 import math
 import textwrap
 from collections.abc import Sequence
-from typing import Literal
 
 import numpy as np
 import pandas as pd
+from hpcagent_agent.coded import Coded
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
@@ -60,6 +61,8 @@ __all__ = [
     "LABEL_CHARS_PER_PT",
     "LINE_BAND",
     "MAX_X_TICKS",
+    "Measure",
+    "Mode",
     "MEASURES",
     "MEASURE_HEIGHT",
     "MEASURE_LABELS",
@@ -173,6 +176,24 @@ __all__ = [
 ]
 
 
+class Mode(Coded):
+    """Where a mark sits (:attr:`FigureConfig.mode`), spelled as the ``--mode`` argument:
+    :attr:`ABSOLUTE` against the experiment baseline, :attr:`RELATIVE` as the change over the LLM's own
+    no-packet control."""
+
+    ABSOLUTE = enum.auto()
+    RELATIVE = enum.auto()
+
+
+class Measure(enum.Enum):
+    """One stacked row of a dot-row figure: what each setup REACHED over the experiment baseline
+    (``SPEEDUP``), how many of its kernels it got RIGHT (``SUCCESS``), and what it SPENT (``COST``)."""
+
+    SPEEDUP = enum.auto()
+    SUCCESS = enum.auto()
+    COST = enum.auto()
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class FigureConfig:
     """Every knob a reader of this figure might want to change by hand, in one place. Pass a
@@ -185,11 +206,11 @@ class FigureConfig:
     #: (``legend_pt``). One of :mod:`~hpcagent_bench.stats.style`'s scales, so two figures of one
     #: page print at one size.
     type_: style.TypeScale = style.AUTHOR_SCALE
-    #: ``absolute``: each setup where it sits against the experiment baseline, the no-packet control a hollow mark
-    #: beside its treated one. ``relative``: each LLM's no-packet control is that LLM's 1x and the treated mark is
+    #: ``ABSOLUTE``: each setup where it sits against the experiment baseline, the no-packet control a hollow mark
+    #: beside its treated one. ``RELATIVE``: each LLM's no-packet control is that LLM's 1x and the treated mark is
     #: its change over it (speedup: geomean of paired ratios; tokens: ratio of arithmetic means), the control's own
     #: absolute level printed in a baseline band at the foot of the row (:func:`draw_baseline_band`).
-    mode: Literal["absolute", "relative"] = "absolute"
+    mode: Mode = Mode.ABSOLUTE
     #: A legend SWATCH's own size, points, and how far matplotlib scales it past that. At paper
     #: type a swatch drawn for authoring scale is taller than the row it sits in and the rows
     #: collide.
@@ -673,16 +694,20 @@ def flat_treatments(spec: str | Sequence[str]) -> list[str]:
 #: The measures a dot-row figure stacks, top to bottom: what each setup REACHED over the experiment
 #: baseline, how many of its kernels it got RIGHT, and what it SPENT. One row each, over one shared
 #: categorical X.
-MEASURES: tuple[str, ...] = ("speedup", "success", "cost")
+MEASURES: tuple[Measure, ...] = tuple(Measure)
 
 #: Each measure's default axis label.
-MEASURE_LABELS: dict[str, str] = {"speedup": "Speedup", "success": "Solved Rate", "cost": "Token Cost"}
+MEASURE_LABELS: dict[Measure, str] = {
+    Measure.SPEEDUP: "Speedup",
+    Measure.SUCCESS: "Solved Rate",
+    Measure.COST: "Token Cost",
+}
 
 #: Each measure's row height as a fraction of ``row_height_in``. A count out of N needs no ladder of
 #: ratios, so the success row is the shortest; the speedup and cost rows are 0.7 of one and the
 #: success row 0.45 (15% and 10% below the earlier 0.82 and 0.5); the speedup row
 #: 25% taller, 0.875 (speedup differences were hard to see).
-MEASURE_HEIGHT: dict[str, float] = {"speedup": 0.875, "success": 0.45, "cost": 0.7}
+MEASURE_HEIGHT: dict[Measure, float] = {Measure.SPEEDUP: 0.875, Measure.SUCCESS: 0.45, Measure.COST: 0.7}
 
 #: The height ``MEASURE_HEIGHT`` is a fraction of, inches: a dot row placed at a paper's text width.
 DOT_ROW_HEIGHT_IN: float = 0.98
@@ -696,7 +721,7 @@ SERVED_SPEEDUP_LABEL: str = "Speedup (1x Fallback)"
 
 def speedup_row_label(over: population.KernelPolicy) -> str:
     """The speedup row's Y label under ``over``."""
-    return SERVED_SPEEDUP_LABEL if over == population.KernelPolicy.SERVED else MEASURE_LABELS["speedup"]
+    return SERVED_SPEEDUP_LABEL if over == population.KernelPolicy.SERVED else MEASURE_LABELS[Measure.SPEEDUP]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -784,7 +809,7 @@ def relative_rows(
     over: population.KernelPolicy = SPEEDUP_OVER,
     card: cost_models.CostModel | None = None,
 ) -> list[SetupRow]:
-    """:func:`setup_rows` for ``mode="relative"``: each LLM's control is its own 1x (:data:`UNCHANGED_POINT`, keeping
+    """:func:`setup_rows` for :attr:`Mode.RELATIVE`: each LLM's control is its own 1x (:data:`UNCHANGED_POINT`, keeping
     its solved count), the treated point its change over it (:func:`relative_point`), and :attr:`SetupRow.baseline`
     the control's absolute point for the baseline band."""
     rows: list[SetupRow] = []
@@ -1043,18 +1068,18 @@ def parse_differences(spec: str) -> frozenset[DifferenceKey]:
     return frozenset(keys)
 
 
-def difference_factor(control_value: float, treated_value: float, measure: str) -> float:
+def difference_factor(control_value: float, treated_value: float, measure: Measure) -> float:
     """The factor between one comparison's two marks, in the measure's own units: the speedup row
     holds ``log2(ratio)``, so its factor is a power of two, while the cost row holds counts."""
-    if measure == "cost":
+    if measure is Measure.COST:
         return treated_value / control_value if control_value > 0.0 else math.nan
     return 2.0 ** (treated_value - control_value)
 
 
-def difference_middle(control_value: float, treated_value: float, measure: str) -> float:
+def difference_middle(control_value: float, treated_value: float, measure: Measure) -> float:
     """Where the arrow's label sits: halfway along the arrow AS DRAWN, which is the geometric
     middle on the cost row's log axis and the arithmetic one on the log2 speedup row."""
-    if measure == "cost":
+    if measure is Measure.COST:
         return math.sqrt(control_value * treated_value) if control_value > 0.0 else math.nan
     return (control_value + treated_value) / 2.0
 
@@ -1075,20 +1100,20 @@ def interval_bounds(values: Sequence[float], cost: bool, config: FigureConfig) -
     return low, max(marks) + reach
 
 
-def interval_kernels(point: SetupPoint, measure: str) -> int:
+def interval_kernels(point: SetupPoint, measure: Measure) -> int:
     """How many kernels one setup's interval on ``measure`` is taken over: every served kernel for cost,
     the kernels both setups solved for speedup."""
-    return point.token_kernels if measure == "cost" else point.kernels
+    return point.token_kernels if measure is Measure.COST else point.kernels
 
 
 #: The key's note for a mark drawn without its interval (:attr:`FigureConfig.min_interval_kernels`).
 FEW_KERNELS_NOTE: str = "No interval: fewer than {} kernels"
 
 
-def measure_value(point: SetupPoint, measure: str) -> tuple[float, float, float]:
+def measure_value(point: SetupPoint, measure: Measure) -> tuple[float, float, float]:
     """``(value, low, high)`` of one setup on one measure: the speedup in ``log2(ratio)``, or the
     token count as a count. The success row draws its count alone (:func:`draw_success_row`)."""
-    if measure == "cost":
+    if measure is Measure.COST:
         return point.y, point.y_low, point.y_high
     return point.x, point.x_low, point.x_high
 
@@ -1129,15 +1154,15 @@ def verdicts_of(significance: dict[tuple[str, str], Significance], row: SetupRow
     return significance.get((row.model, language), NO_SIGNIFICANCE)
 
 
-def row_verdict(row: SetupRow, measure: str, significance: dict[tuple[str, str], Significance]) -> bool:
+def row_verdict(row: SetupRow, measure: Measure, significance: dict[tuple[str, str], Significance]) -> bool:
     """Whether ``row`` is starred on ``measure``'s row. Each row carries only ITS OWN verdict: a star
     on the cost row would test the speedup."""
     score_sig, cost_sig = verdicts_of(significance, row)
-    return {"cost": cost_sig, "success": False}.get(measure, score_sig)
+    return {Measure.COST: cost_sig, Measure.SUCCESS: False}.get(measure, score_sig)
 
 
 #: Each measure's superscript (:func:`draw_verdict`); anything else is the speedup's.
-VERDICT_MARKS: dict[str, str] = {"cost": COST_SIG_MARK}
+VERDICT_MARKS: dict[Measure, str] = {Measure.COST: COST_SIG_MARK}
 
 
 #: How much a relative row grows at its foot for the baseline band, and above its highest value, as shares of
@@ -1149,19 +1174,19 @@ BASELINE_BAND_TYPE: float = 0.85
 
 
 #: Relative mode's row names: each row is a change over the LLM's own baseline, not a level.
-RELATIVE_LABELS: dict[str, str] = {"speedup": "Speedup Change", "cost": "Token Change"}
+RELATIVE_LABELS: dict[Measure, str] = {Measure.SPEEDUP: "Speedup Change", Measure.COST: "Token Change"}
 
 
-def mode_labels(config: FigureConfig) -> dict[str, str]:
+def mode_labels(config: FigureConfig) -> dict[Measure, str]:
     """The row names ``config.mode`` overrides: :data:`RELATIVE_LABELS` in relative mode, none otherwise."""
-    return dict(RELATIVE_LABELS) if config.mode == "relative" else {}
+    return dict(RELATIVE_LABELS) if config.mode is Mode.RELATIVE else {}
 
 
-def baseline_text(point: SetupPoint, measure: str) -> str:
+def baseline_text(point: SetupPoint, measure: Measure) -> str:
     """A control's ABSOLUTE level as the baseline band prints it: its geomean speedup over the experiment
     baseline (``5.4x``) on the speedup row, its arithmetic-mean tokens per kernel (``1.15M``, ``820K``) on the
     token row; "" where it has none."""
-    if measure == "cost":
+    if measure is Measure.COST:
         tokens = point.y
         if not math.isfinite(tokens):
             return ""
@@ -1265,11 +1290,11 @@ def panel_rows(
     frame: pd.DataFrame | dict[str, pd.DataFrame],
     over: population.KernelPolicy,
     card: cost_models.CostModel | None = None,
-    mode: Literal["absolute", "relative"] = "absolute",
+    mode: Mode = Mode.ABSOLUTE,
 ) -> list[SetupRow]:
     """A panel's drawn categories (:func:`relative_rows` in relative ``mode``); none for a STUB panel."""
     if isinstance(frame, pd.DataFrame) and not frame.empty:
-        return relative_rows(frame, over, card) if mode == "relative" else setup_rows(frame, over, card)
+        return relative_rows(frame, over, card) if mode is Mode.RELATIVE else setup_rows(frame, over, card)
     return []
 
 
@@ -1303,7 +1328,7 @@ def dot_columns(
     over: population.KernelPolicy = SPEEDUP_OVER,
     pending: Sequence[str] = (),
     card: cost_models.CostModel | None = None,
-    mode: Literal["absolute", "relative"] = "absolute",
+    mode: Mode = Mode.ABSOLUTE,
 ) -> list[DotColumn]:
     """Each panel of a joined row reduced to its own :class:`DotColumn`. ``pending[i]`` names, comma
     separated, the models panel ``i`` keeps an empty category for (:func:`pending_rows`)."""
@@ -1519,7 +1544,7 @@ NAME_CLEARANCE_IN: float = 0.1
 
 
 def dot_row_heights(
-    measures: Sequence[str], row_height_in: float, config: FigureConfig
+    measures: Sequence[Measure], row_height_in: float, config: FigureConfig
 ) -> tuple[list[float], float, float]:
     """``(height ratios, data box height in inches, hspace)`` of a dot-row grid.
 
@@ -1527,7 +1552,7 @@ def dot_row_heights(
     them. The chrome is measured and added OUTSIDE it, so a taller key grows the canvas instead of
     shrinking the rows, and every dot-row figure of a paper draws rows of one height. hspace is a
     fraction of the MEAN axes height, so it is rescaled to keep the gaps ``row_gap`` rows."""
-    heights = [MEASURE_HEIGHT.get(measure, 1.0) for measure in measures]
+    heights = [MEASURE_HEIGHT[measure] for measure in measures]
     data_height = row_height_in * (sum(heights) + config.row_gap * (len(measures) - 1))
     return heights, data_height, config.row_gap * len(measures) / sum(heights)
 
@@ -1608,7 +1633,7 @@ def pairs_table(
                 "native_ns": series.native_ns,
                 "control_tokens": series.control_tokens,
                 "treated_tokens": series.treated_tokens,
-                "speedup_over": population.KernelPolicy(over).value,
+                "speedup_over": over.text,
                 "served": setups[0].served,
                 "control_solved": setups[0].solved,
                 "treated_solved": setups[1].solved,

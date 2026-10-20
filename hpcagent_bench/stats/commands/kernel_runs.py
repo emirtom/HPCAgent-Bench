@@ -46,8 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-owed", action="store_true", help="draw owed runs (final grade or rerun) as '?'")
     parser.add_argument(
         "--style",
-        choices=[mode.value for mode in kernel_runs.Mode],
-        default=kernel_runs.Mode.BOX.value,
+        type=kernel_runs.Mode.parse,
+        metavar="|".join(kernel_runs.Mode.texts()),
+        default=kernel_runs.Mode.BOX,
         help="box: median, quartiles, whiskers to min/max; violin: run density and the median's bootstrap interval",
     )
     parser.add_argument("--title", default="")
@@ -82,7 +83,7 @@ def main(argv: list[str] | None = None) -> None:
             args.width,
             args.allow_owed,
             efficacy.cost_axis_label(card),
-            kernel_runs.Mode(args.style),
+            args.style,
             args.conditions,
         )
         table = reliability.reliability_table(reliability.cell_reliability(runs)) if args.table else None
@@ -90,7 +91,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(str(refused)) from refused
     args.out.parent.mkdir(parents=True, exist_ok=True)
     per_kernel.save(fig, args.out, print_size=True)
-    states = runs[population.RUN_STATE_COLUMN].map(lambda state: state.value)
+    states = runs[population.RUN_STATE_COLUMN].map(lambda state: state.text)
     drawn = runs.assign(condition=runs["setup"].map(kernel_runs.condition_of), **{population.RUN_STATE_COLUMN: states})
     drawn.to_csv(args.out.with_suffix(".csv"), index=False)
     print(f"{len(runs)} runs -> {args.out} (+ .png, .csv)")

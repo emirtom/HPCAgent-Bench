@@ -48,6 +48,8 @@ from hpcagent_bench.stats.figures.efficacy.layout import (
     DifferenceKey,
     DotColumn,
     FigureConfig,
+    Measure,
+    Mode,
     Panel,
     SetupRow,
     alias_footnotes,
@@ -225,7 +227,7 @@ def control_legend_mark(
     the absence of a packet. The swatch is the hollow :data:`CONTROL_MARKER` every control wears.
     """
     name = f"Baseline ({control_name or packets.control_label(list(control_over))})"
-    if config.mode == "relative":
+    if config.mode is Mode.RELATIVE:
         # The control is the 1x line and, on the solved row, a dash: its key swatch is the dash.
         return Line2D(
             [], [], marker="_", linestyle="none", color=palette.control_color(), markeredgewidth=2.0,
@@ -427,7 +429,7 @@ def draw_panel_letter(ax: Axes, index: int, config: FigureConfig) -> None:
 
 
 def draw_difference_arrow(
-    ax: Axes, x: float, control_value: float, treated_value: float, colour: str, measure: str,
+    ax: Axes, x: float, control_value: float, treated_value: float, colour: str, measure: Measure,
     config: FigureConfig = DEFAULT_CONFIG, top: float = math.nan,
 ) -> None:  # fmt: skip
     """A double-headed arrow spanning one comparison's two marks, labelled with the factor between
@@ -478,7 +480,7 @@ def few_kernel_marks(rows: Sequence[SetupRow], config: FigureConfig) -> bool:
         0 < interval_kernels(point, measure) < config.min_interval_kernels
         for row in rows
         for point in (row.control, row.treated)
-        for measure in ("speedup", "cost")
+        for measure in (Measure.SPEEDUP, Measure.COST)
     )
 
 
@@ -527,7 +529,7 @@ def draw_pending(ax: Axes, rows: Sequence[SetupRow], config: FigureConfig) -> No
 def draw_measure_row(
     ax: Axes,
     rows: Sequence[SetupRow],
-    measure: str,
+    measure: Measure,
     shape: Marker,
     significance: dict[tuple[str, str], Significance],
     config: FigureConfig = DEFAULT_CONFIG,
@@ -544,11 +546,11 @@ def draw_measure_row(
     the packet's effect, in the measure's own units, against a reference a reader already knows
     (1x over the experiment baseline on the speedup row).
     """
-    relative = config.mode == "relative"
+    relative = config.mode is Mode.RELATIVE
     # The token row is a count in absolute mode; in relative mode it is a change, on the speedup's own log2 axis.
-    count = measure == "cost" and not relative
+    count = measure is Measure.COST and not relative
     draw_pending(ax, rows, config)
-    if measure == "success":
+    if measure is Measure.SUCCESS:
         draw_success_row(ax, rows, shape, config, ylabel, significance)
         return
     span = draw_measure_marks(ax, rows, measure, shape, significance, config, differences)
@@ -580,7 +582,7 @@ def setup_marks(
     mark, centred."""
     if row.comparator:
         return ((row.treated, True, 0.0, row.shape, row.colour),)
-    if config.mode == "relative":
+    if config.mode is Mode.RELATIVE:
         # The control IS the 1x line: only the change is a mark.
         return ((row.treated, True, 0.0, row.shape or shape, row.colour),)
     return (
@@ -590,8 +592,8 @@ def setup_marks(
 
 
 def draw_setup(
-    ax: Axes, x: float, point: SetupPoint, measure: str, bounds: tuple[float, float], mark: tuple[bool, Marker, str],
-    config: FigureConfig,
+    ax: Axes, x: float, point: SetupPoint, measure: Measure, bounds: tuple[float, float],
+    mark: tuple[bool, Marker, str], config: FigureConfig,
 ) -> tuple[list[float], float]:  # fmt: skip
     """One setup's mark (``mark`` = filled, shape, colour) and, over enough kernels, its interval.
     Returns the values the axis has to hold and the interval's drawn top (NaN when none is drawn)."""
@@ -602,14 +604,14 @@ def draw_setup(
     top = math.nan
     if np.isfinite(low) and np.isfinite(high):
         low, high = draw_interval(
-            ax, x, low, high, bounds, colour, config.cost_linestyle if measure == "cost" else "-", config
+            ax, x, low, high, bounds, colour, config.cost_linestyle if measure is Measure.COST else "-", config
         )
         top = high
     style.point_mark(ax, x, value, colour, shape, filled, size=config.mark_size)
     return [v for v in (value, low, high) if math.isfinite(v)], top
 
 
-def draw_verdict(ax: Axes, x: float, value: float, measure: str, config: FigureConfig) -> None:
+def draw_verdict(ax: Axes, x: float, value: float, measure: Measure, config: FigureConfig) -> None:
     """The measure's significance mark just above the treated mark at ``(x, value)``: beside it, it ran
     into the next category's control where the categories sit close."""
     ax.annotate(
@@ -623,7 +625,7 @@ def draw_verdict(ax: Axes, x: float, value: float, measure: str, config: FigureC
 def draw_measure_marks(
     ax: Axes,
     rows: Sequence[SetupRow],
-    measure: str,
+    measure: Measure,
     shape: Marker,
     significance: dict[tuple[str, str], Significance],
     config: FigureConfig,
@@ -632,10 +634,10 @@ def draw_measure_marks(
     """Every category's two setups, the faint link between them, its arrow and its star; returns the
     values the Y axis has to hold."""
     span: list[float] = []
-    relative = config.mode == "relative"
+    relative = config.mode is Mode.RELATIVE
     bounds = interval_bounds(
         [measure_value(point, measure)[0] for row in rows for point in (row.control, row.treated)],
-        measure == "cost" and not relative, config,
+        measure is Measure.COST and not relative, config,
     )  # fmt: skip
     for x, row in zip(column_x(rows), rows, strict=True):
         if relative:
@@ -649,7 +651,7 @@ def draw_measure_marks(
             continue
         if row.comparator:
             # A comparator spends no tokens: the cost row keeps its slot empty.
-            if measure != "cost":
+            if measure is not Measure.COST:
                 span += draw_setup(ax, x, row.treated, measure, bounds, (True, row.shape, row.colour), config)[0]
             continue
         top = -math.inf
@@ -673,7 +675,7 @@ def draw_measure_marks(
 
 
 def draw_baseline_band(
-    ax: Axes, rows: Sequence[SetupRow], measure: str, span: Sequence[float], config: FigureConfig
+    ax: Axes, rows: Sequence[SetupRow], measure: Measure, span: Sequence[float], config: FigureConfig
 ) -> None:
     """Relative mode's baseline band: the row's foot widened below its lowest value (``span``, what the marks and
     intervals reach) by :data:`BASELINE_BAND_FRACTION`, and under each category the control's own absolute level
@@ -774,16 +776,16 @@ def draw_success_row(
                 ax, x + dodge, success_rate(point.solved, point.served), colour, mark, filled,
                 size=config.mark_size, clip=False,
             )  # fmt: skip
-        relative = config.mode == "relative"
+        relative = config.mode is Mode.RELATIVE
         if relative and not row.comparator and row.control.served:
             # The control's own rate: a short dash in its lighter shade under the change mark, not a second mark.
             ax.hlines(
                 success_rate(row.control.solved, row.control.served), x - config.dodge, x + config.dodge,
                 color=palette.lighten(row.colour, palette.CONTROL_SHADE), linewidth=2.0, zorder=style.CONNECTOR_Z,
             )  # fmt: skip
-        if not row.comparator and row_verdict(row, "success", significance or {}):
+        if not row.comparator and row_verdict(row, Measure.SUCCESS, significance or {}):
             rate = success_rate(row.treated.solved, row.treated.served)
-            draw_verdict(ax, x if relative else x + config.dodge, rate, "success", config)
+            draw_verdict(ax, x if relative else x + config.dodge, rate, Measure.SUCCESS, config)
     ax.set_yticks(SUCCESS_TICKS)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{100.0 * value:.0f}%"))
     minor_grid(ax, "y", style.MinorKind.COUNT, config)
@@ -869,10 +871,10 @@ def figure_setup_dots(
     out: pathlib.Path,
     control_name: str = "",
     config: FigureConfig = DEFAULT_CONFIG,
-    measures: Sequence[str] = MEASURES,
+    measures: Sequence[Measure] = MEASURES,
     width_in: float = style.DOUBLE_COLUMN_WIDTH,
     row_height_in: float = SETUP_DOTS_ROW_HEIGHT_IN,
-    labels: dict[str, str] | None = None,
+    labels: dict[Measure, str] | None = None,
     reference_name: str = "",
     differences: str = "",
     over: population.KernelPolicy = SPEEDUP_OVER,
@@ -889,7 +891,7 @@ def figure_setup_dots(
     """
     import matplotlib.pyplot as plt
 
-    rows = relative_rows(frame, over, card) if config.mode == "relative" else setup_rows(frame, over, card)
+    rows = relative_rows(frame, over, card) if config.mode is Mode.RELATIVE else setup_rows(frame, over, card)
     if not rows:
         raise ValueError("no (model, leg) pair draws a point")
     texts = {**MEASURE_LABELS, **mode_labels(config), **(labels or {})}
@@ -911,7 +913,7 @@ def figure_setup_dots(
     for index, (ax, measure) in enumerate(zip(axes[:, 0], measures, strict=True)):
         draw_panel_letter(ax, index, config)
         draw_measure_row(
-            ax, rows, measure, shape, significance, rows_config, texts.get(measure, measure), reference_name,
+            ax, rows, measure, shape, significance, rows_config, texts[measure], reference_name,
             differences=parse_differences(differences),
         )  # fmt: skip
     draw_category_axis(axes[-1, 0], rows, config)
@@ -1090,10 +1092,10 @@ def figure_dot_row(
     panels: Sequence[Panel],
     out: pathlib.Path,
     config: FigureConfig = PAPER_CONFIG,
-    measures: Sequence[str] = MEASURES,
+    measures: Sequence[Measure] = MEASURES,
     row_width_in: float = style.ACM_TEXT_WIDTH_IN,
     row_height_in: float = DOT_ROW_HEIGHT_IN,
-    labels: dict[str, str] | None = None,
+    labels: dict[Measure, str] | None = None,
     references: Sequence[str] = (),
     control_names: Sequence[str] = (),
     differences: Sequence[str] = (),
@@ -1115,8 +1117,8 @@ def figure_dot_row(
         card, config.mode,
     )  # fmt: skip
     # A comparator (a compiler) has no no-packet control to be relative to: relative mode draws LLM pairs only.
-    columns = with_comparators(columns, comparators) if config.mode == "absolute" else columns
-    texts = {**MEASURE_LABELS, "speedup": speedup_row_label(over), **mode_labels(config), **(labels or {})}
+    columns = with_comparators(columns, comparators) if config.mode is Mode.ABSOLUTE else columns
+    texts = {**MEASURE_LABELS, Measure.SPEEDUP: speedup_row_label(over), **mode_labels(config), **(labels or {})}
     rows_config = measure_row_config(config, row_height_in)
     title_band = text_band(config.type_.title_pt, 2)
     category_band = text_band(config.type_.tick_pt, 2)
@@ -1156,7 +1158,7 @@ def figure_dot_row(
 
 
 def draw_grid_rows(
-    axes: np.ndarray, columns: Sequence[DotColumn], measures: Sequence[str], texts: dict[str, str],
+    axes: np.ndarray, columns: Sequence[DotColumn], measures: Sequence[Measure], texts: dict[Measure, str],
     config: FigureConfig,
 ) -> None:  # fmt: skip
     """Every panel of the grid: one :func:`draw_measure_row` per (measure, column), the Y label on the
@@ -1165,8 +1167,8 @@ def draw_grid_rows(
         for col_index, column in enumerate(columns):
             draw_measure_row(
                 axes[row_index][col_index], column.rows, measure, column.shape, column.significance, config,
-                texts.get(measure, measure) if col_index == 0 else "",
-                column.reference if measure != "cost" else "", differences=column.differences,
+                texts[measure] if col_index == 0 else "",
+                column.reference if measure is not Measure.COST else "", differences=column.differences,
             )  # fmt: skip
 
 

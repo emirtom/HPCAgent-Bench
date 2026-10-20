@@ -50,7 +50,7 @@ import dataclasses
 import enum
 import math
 import pathlib
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from typing import TypedDict
 
 import matplotlib.axes
@@ -58,19 +58,20 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from hpcagent_agent.coded import Coded
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedFormatter, FixedLocator, FuncFormatter, LogLocator, NullFormatter
 from matplotlib.typing import LineStyleType
 
 from hpcagent_bench import study_tags
 from hpcagent_bench.harness import metric, mpi_sizing
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.stats import palette, population, summary
 from hpcagent_bench.stats import style as plotstyle
 from hpcagent_bench.stats.figures.helpers.series import TORCH_DIST_SETUP, SeriesStyle, series_style, torch_dist_style
 
 __all__ = [
     "AGENT_LINE_SCALE",
-    "BUILDERS",
     "CHROME_IN",
     "EFFICIENCY_RTOL",
     "GEOMEAN_LABEL",
@@ -85,7 +86,6 @@ __all__ = [
     "RANKS_PER_NODE",
     "RANK_MARGIN",
     "REQUIRED_COLUMNS",
-    "SCALING_RECORD",
     "SMALL_MULTIPLE_COLUMNS",
     "SMALL_MULTIPLE_TITLE_PT",
     "SPEEDUP_LABEL",
@@ -152,9 +152,6 @@ __all__ = [
     "type_axes",
 ]
 
-#: ``row_kind`` value of a per-P scaling row in the observations table. A judge grade row keeps its
-#: own ``row_kind`` ("submission" / "attempt"), so the two never mix in one selection.
-SCALING_RECORD: str = "scaling"
 
 #: The two scaling laws, in panel order. Weak first: it is the one the track's ideal (eta = 1 at
 #: every P) is stated for, and a reader meets the harder claim second.
@@ -222,9 +219,9 @@ EFFICIENCY_RTOL: float = 1e-6
 
 
 #: What a figure draws: the efficiency eta(P), or the (work-scaled) speedup sigma(P).
-class Quantity(enum.Enum):
-    EFFICIENCY = "efficiency"
-    SPEEDUP = "speedup"
+class Quantity(Coded):
+    EFFICIENCY = enum.auto()
+    SPEEDUP = enum.auto()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -425,7 +422,8 @@ def scaling_rows(frame: pd.DataFrame) -> pd.DataFrame:
     """
     if frame.empty or not set(REQUIRED_COLUMNS) <= set(frame.columns):
         return frame.iloc[0:0]
-    rows = frame.loc[frame["row_kind"].astype(str) == SCALING_RECORD].copy()
+    # A judge grade row keeps its own row kind (submission / attempt), so the two never mix in one selection.
+    rows = frame.loc[frame["row_kind"].astype(str) == RowKind.SCALING.text].copy()
     if rows.empty:
         return rows
     setups = [str(setup) for setup in rows["setup"].tolist()]
@@ -1187,11 +1185,3 @@ def save(fig: matplotlib.figure.Figure, stem: pathlib.Path, width_in: float = 0.
     """Write the PDF and the PNG under ``stem`` and close the figure; ``width_in`` saves a print-size
     figure at exactly its placed width (:func:`~hpcagent_bench.stats.style.placed_box`)."""
     return plotstyle.save(fig, stem, width_in=width_in)
-
-
-#: The builders a script offers by name, so ``plot_scaling.py --figure`` and the docs share one list.
-BUILDERS: dict[str, Callable[..., matplotlib.figure.Figure | None]] = {
-    "efficiency": figure_efficiency,
-    "speedup": figure_speedup,
-    "summary": figure_summary,
-}

@@ -122,6 +122,13 @@ def test_a_family_verdict_names_its_correction_and_skips_an_untested_member() ->
     assert {v.correction for v in family} == {"benjamini-hochberg"}
 
 
+def test_the_verdict_and_alternative_spellings_are_the_stored_ones() -> None:
+    """A verdict column of a stats table and scipy's ``alternative`` read these spellings; they must not move."""
+    assert significance.Finding.texts() == ("significant", "not-significant", "underpowered")
+    assert significance.Side.texts() == ("less", "greater", "two-sided")
+    assert significance.Leg.texts() == ("speedup", "tokens")
+
+
 def test_two_identical_samples_carry_no_difference() -> None:
     """Every value tied on both sides carries no rank information: p = 1, whether scipy raises or returns NaN."""
     assert significance.two_sample([3.0, 3.0, 3.0], [3.0, 3.0, 3.0]).pvalue == 1.0
@@ -233,6 +240,7 @@ if __name__ == "__main__":
     test_mcnemar_is_exact_on_the_discordant_kernels(9, 1, 0.021484375)
     test_the_corrections_match_the_hand_worked_values()
     test_a_family_verdict_names_its_correction_and_skips_an_untested_member()
+    test_the_verdict_and_alternative_spellings_are_the_stored_ones()
     test_two_identical_samples_carry_no_difference()
     test_the_default_paired_table_is_unchanged()
     test_the_final_grade_keeps_its_timing_test_and_its_stamp()

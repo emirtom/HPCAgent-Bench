@@ -23,6 +23,7 @@ from matplotlib.lines import Line2D
 
 from hpcagent_bench import packets, study_tags
 from hpcagent_bench.harness import denominator
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.stats import canon, palette, population, rules, style
 from hpcagent_bench.stats.figures import per_kernel, setup_names
 from hpcagent_bench.stats.summary import geomean_ci, signed_change, usable_ratios
@@ -331,7 +332,7 @@ def kernel_intervals(
     """Each of ``kernels``' geomean-speedup CI over every graded episode of ``setup``, as (low, high)."""
     ratios_low: dict[str, float] = {}
     ratios_high: dict[str, float] = {}
-    graded = subset.loc[subset["row_kind"] == "submission"] if "row_kind" in subset.columns else subset
+    graded = subset.loc[subset["row_kind"] == RowKind.SUBMISSION.text] if "row_kind" in subset.columns else subset
     episodes = population.graded_episode_rows(graded, population.SUBMISSION_ORDER)
     if episodes.empty:
         return ratios_low, ratios_high

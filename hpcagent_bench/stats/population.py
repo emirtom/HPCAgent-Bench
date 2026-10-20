@@ -37,20 +37,21 @@ from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from hpcagent_agent.coded import Coded
+
 from hpcagent_bench.harness import denominator
+from hpcagent_bench.observation_columns import RowKind
 from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES
 from hpcagent_bench.stats import score_rule, summary
 
 __all__ = [
     "ANSWER_COLUMNS",
-    "ATTEMPT_RECORD",
     "BASELINE_FAMILIES",
     "BASELINE_POLICY_COLUMN",
     "DEFAULT_PLATFORM",
     "DELIVERED_COLUMN",
     "DENOMINATOR_COLUMN",
     "EPISODE_KEY",
-    "EPISODE_RECORD",
     "FINAL_STATUS_COLUMN",
     "FINAL_UNSOLVED",
     "HARNESS_FAULT_REASON",
@@ -132,9 +133,9 @@ EPISODE_KEY: tuple[str, str, str, str] = ("run_root", "job", "episode_id", "kern
 
 #: Which population a number is over. Never a default: a table that does not state one is the
 #: defect this module exists to prevent.
-class KernelPolicy(enum.Enum):
-    SOLVED = "solved"
-    SERVED = "served"
+class KernelPolicy(Coded):
+    SOLVED = enum.auto()
+    SERVED = enum.auto()
 
 
 POLICIES: tuple[KernelPolicy, ...] = tuple(KernelPolicy)
@@ -152,12 +153,6 @@ RAW_SPEEDUP_COLUMN: str = "raw_speedup"
 #: ``"score_error"`` branch) -- the judge's OWN reference failed to build/run, which says nothing
 #: about the agent's code, so a row with this reason is not evidence of a real grade.
 HARNESS_FAULT_REASON: str = "score_error"
-
-#: The ``row_kind`` :mod:`hpcagent_bench.observations_extract` gives an ``attempts``
-#: row (``table[:-1]``): a real ``/submit`` the judge graded and did not accept (wrong answer, build
-#: failure, too slow, timed out, overfit) -- genuine agent work, distinct from :data:`EPISODE_RECORD`
-#: or a ``call`` row.
-ATTEMPT_RECORD: str = "attempt"
 
 #: The judge's implausibility flag on a graded row (``submissions.suspect``), as the observations
 #: table names it.
@@ -223,7 +218,7 @@ def condition_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
 
 #: Records that show a setup RAN a kernel: a graded answer, accepted or not, or a judge call. The call
 #: is the score route on a scored setup; a blind setup has no score tool and calls submit or verify.
-RAN_RECORDS: frozenset[str] = frozenset({"submission", ATTEMPT_RECORD, "call"})
+RAN_RECORDS: frozenset[RowKind] = frozenset({RowKind.SUBMISSION, RowKind.ATTEMPT, RowKind.CALL})
 
 
 def ran_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
@@ -237,7 +232,7 @@ def ran_rows(frame: "pd.DataFrame") -> "pd.DataFrame":
     if not {"row_kind", "setup", "kernel"} <= set(frame.columns):
         return frame
     key = frame["setup"].fillna("").astype(str) + "\x1f" + frame["kernel"].fillna("").astype(str)
-    ran = set(key.loc[frame["row_kind"].isin(list(RAN_RECORDS))])
+    ran = set(key.loc[frame["row_kind"].isin([kind.text for kind in RAN_RECORDS])])
     return frame.loc[key.isin(list(ran))]
 
 
@@ -580,8 +575,8 @@ def valid_submission_rows(frame: "pd.DataFrame") -> "pd.Series":
         return found.astype(str)
 
     record, status = column("row_kind"), column("grade_final_status")
-    stamped = (record == "submission") & credited(frame) & (status != "error")
-    return stamped | (record.isin(("submission", "attempt")) & (status == "unsolved"))
+    stamped = (record == RowKind.SUBMISSION.text) & credited(frame) & (status != "error")
+    return stamped | (record.isin((RowKind.SUBMISSION.text, RowKind.ATTEMPT.text)) & (status == "unsolved"))
 
 
 def latest_episodes(frame: "pd.DataFrame", by: Sequence[str] = ("setup", "kernel")) -> "pd.DataFrame":
@@ -746,7 +741,7 @@ def setup_kernel_answers(frame: "pd.DataFrame", order: Sequence[str] = SUBMISSIO
     count) carrying the median speedup, so its timings are that run's own; with one slot it is that run.
     """
     runs = latest_episodes(frame)
-    graded = runs.loc[runs["row_kind"] == "submission"] if "row_kind" in runs.columns else runs
+    graded = runs.loc[runs["row_kind"] == RowKind.SUBMISSION.text] if "row_kind" in runs.columns else runs
     episodes = graded_episode_rows(graded, order)
     # A final answer the judge flagged suspect solved nothing: the kernel reads as unanswered.
     episodes = episodes.loc[episodes[SUSPECT_COLUMN].map(is_reportable).astype(bool)]
@@ -791,7 +786,7 @@ def kernel_answers(
     """
     import pandas as pd
 
-    graded = frame[frame.row_kind == "submission"]
+    graded = frame[frame.row_kind == RowKind.SUBMISSION.text]
     # the stamp rides with each value
     columns = [c for c in (*ANSWER_COLUMNS, REDUCTION_COLUMN) if c in frame.columns]
     if not graded.empty:
@@ -803,7 +798,7 @@ def kernel_answers(
         answered = graded.set_index("kernel")[columns].assign(
             **{DELIVERED_COLUMN: pd.Series(dtype=bool), SOLVED_COLUMN: pd.Series(dtype=bool)}
         )
-    if KernelPolicy(policy) == KernelPolicy.SOLVED:
+    if policy == KernelPolicy.SOLVED:
         return answered
     served = sorted(set(frame["kernel"].dropna().astype(str)) - set(answered.index.astype(str)))
     if not served:
@@ -828,28 +823,22 @@ def genuinely_attempted(frame: "pd.DataFrame") -> set:
     needed = ("row_kind", "kernel")
     if any(column not in frame.columns for column in needed):
         return set()
-    attempts = frame.loc[frame.row_kind == ATTEMPT_RECORD]
+    attempts = frame.loc[frame.row_kind == RowKind.ATTEMPT.text]
     if "reason" in attempts.columns:
         reasons = attempts["reason"].fillna("").astype(str)
         attempts = attempts.loc[reasons != HARNESS_FAULT_REASON]
     return set(attempts["kernel"].dropna().astype(str))
 
 
-#: The ``row_kind`` a task's token total travels on (spec T3): one row per task, ``tokens`` = the effective
-#: tokens of its FINAL attempt. What the attempts before it spent rides on the separate
-#: ``tokens_crashed`` column and is never added in (docs/token_accounting.md).
-EPISODE_RECORD: str = "episode"
-
-
-class RunState(enum.Enum):
+class RunState(Coded):
     """What one designed run (an episode of a REPEAT>1 setup) delivered: an answer its final grade
     credited and believed; an answer that solved nothing (graded unsolved, refused by the judge, or
     flagged suspect: all score 1x); or no outcome yet -- an answer still owed its final grade, or no
     answer at all, which the owed planner reruns in the same slot."""
 
-    SOLVED = "solved"
-    UNSOLVED = "unsolved"
-    OWED = "owed"
+    SOLVED = enum.auto()
+    UNSOLVED = enum.auto()
+    OWED = enum.auto()
 
 
 #: :func:`designed_runs`' :class:`RunState` of the run.
@@ -870,7 +859,7 @@ def run_states(answers: "pd.DataFrame") -> list[RunState]:
     )
     states: list[RunState] = []
     for kind, final, is_credited, suspect in rows:
-        if kind == ATTEMPT_RECORD or final == FINAL_UNSOLVED:
+        if kind == RowKind.ATTEMPT.text or final == FINAL_UNSOLVED:
             states.append(RunState.UNSOLVED)
         elif is_credited:
             states.append(RunState.SOLVED if is_reportable(suspect) else RunState.UNSOLVED)
@@ -891,7 +880,7 @@ def refused_attempts(rows: "pd.DataFrame") -> "pd.DataFrame":
     judge's own fault (:data:`HARNESS_FAULT_REASON`) nor a grade an operator voided for a rerun
     (:data:`~hpcagent_bench.recorded_rows.RERUN_PREFIXES`)."""
     reasons = rows["reason"].fillna("").astype(str) if "reason" in rows.columns else None
-    attempts = rows["row_kind"] == ATTEMPT_RECORD
+    attempts = rows["row_kind"] == RowKind.ATTEMPT.text
     if reasons is None:
         return rows.loc[attempts]
     voided = (reasons == HARNESS_FAULT_REASON) | reasons.str.startswith(RERUN_PREFIXES)
@@ -927,8 +916,8 @@ def designed_runs(frame: "pd.DataFrame") -> "pd.DataFrame":
     final = rows[FINAL_STATUS_COLUMN].astype(str) if FINAL_STATUS_COLUMN in rows.columns else ""
     speedup = pd.Series(pd.to_numeric(rows["speedup"], errors="coerce"), index=rows.index, dtype=float)
     candidates = rows.loc[
-        ((rows["row_kind"] == "submission") & (speedup > 0))
-        | ((rows["row_kind"] == ATTEMPT_RECORD) & (final == FINAL_UNSOLVED))
+        ((rows["row_kind"] == RowKind.SUBMISSION.text) & (speedup > 0))
+        | ((rows["row_kind"] == RowKind.ATTEMPT.text) & (final == FINAL_UNSOLVED))
     ]
     answers = last_per_episode(candidates, SUBMISSION_ORDER)
     states = run_states(answers)
@@ -972,9 +961,12 @@ def episode_tokens(frame: "pd.DataFrame", by: Sequence[str] = ("kernel",)) -> "p
     empty_columns = list(dict.fromkeys((*EPISODE_KEY, *by, "tokens")))
     if "tokens" not in frame.columns or frame.empty:
         return pd.DataFrame(columns=empty_columns)
-    tasks = frame[frame.row_kind == EPISODE_RECORD]
+    # A task's token total travels on its episode row (spec T3): ``tokens`` = the effective tokens of its FINAL
+    # attempt. What the attempts before it spent rides on ``tokens_crashed`` and is never added in
+    # (docs/token_accounting.md).
+    tasks = frame[frame.row_kind == RowKind.EPISODE.text]
     if tasks.empty:
-        if (frame.row_kind == "call").any():
+        if (frame.row_kind == RowKind.CALL.text).any():
             setups = sorted(frame["setup"].dropna().astype(str).unique()) if "setup" in frame else []
             raise MixedPopulationError(
                 f"no episode records for {', '.join(setups) or 'these rows'}: a task's token cost is its final "
@@ -1099,7 +1091,7 @@ class SetupAggregate:
 
     def label(self) -> str:
         """One-line population statement a table or a caption must carry beside the number."""
-        return f"geomean over {self.n} kernels vs {self.baseline} ({self.policy.value}; {self.n_solved} solved)"
+        return f"geomean over {self.n} kernels vs {self.baseline} ({self.policy.text}; {self.n_solved} solved)"
 
     def restricted_to(self, kernels: Sequence[str]) -> "SetupAggregate":
         """The same setup over exactly ``kernels``, which must all be present."""

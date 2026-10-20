@@ -38,6 +38,7 @@ import matplotlib.patches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import study_tags
 from hpcagent_bench.stats import palette, population, reliability, summary
@@ -62,12 +63,13 @@ __all__ = [
 ]
 
 
-class Mode(enum.Enum):
+class Mode(Coded):
     """How a cell's runs are summarized under their dots: a box (median, quartiles, whiskers to the
-    extremes), or a violin of their density with the median's 95% bootstrap interval."""
+    extremes), or a violin of their density with the median's 95% bootstrap interval. Spelled as the
+    ``--style`` argument of :mod:`hpcagent_bench.stats.commands.kernel_runs`."""
 
-    BOX = "box"
-    VIOLIN = "violin"
+    BOX = enum.auto()
+    VIOLIN = enum.auto()
 
 
 #: ``-t<T>`` closing a setup name: the temperature the job served.
@@ -76,7 +78,7 @@ TEMPERATURE_SUFFIX: re.Pattern[str] = re.compile(r"-t(?P<value>\d+(?:\.\d+)?)$")
 #: model temperature3 runs; the job logs it).
 DEFAULT_TEMPERATURE: float = 1.0
 #: The rows top to bottom, as the efficacy dot row names them.
-MEASURES: tuple[str, ...] = ("speedup", "cost", "success")
+MEASURES: tuple[efficacy.Measure, ...] = (efficacy.Measure.SPEEDUP, efficacy.Measure.COST, efficacy.Measure.SUCCESS)
 #: How far apart a column's outermost two models sit, in columns: close, so one column reads as one group,
 #: and the share of a model's step its box (or violin) takes, so neighbours never touch.
 DODGE_SPAN: float = 0.34
@@ -255,7 +257,7 @@ def style_rate_panel(ax: matplotlib.axes.Axes, columns: Sequence[str], type_: pl
     ax.set_yticks(list(RATE_TICKS))
     ax.tick_params(axis="y", labelsize=type_.tick_pt)
     ax.yaxis.grid(True, color=plotstyle.RULE, linewidth=pk.GRID_LINE_WIDTH, zorder=0)
-    ax.set_ylabel(efficacy.MEASURE_LABELS["success"], fontsize=type_.label_pt)
+    ax.set_ylabel(efficacy.MEASURE_LABELS[efficacy.Measure.SUCCESS], fontsize=type_.label_pt)
     plotstyle.despine(ax)
 
 
@@ -407,7 +409,7 @@ def kernel_runs_figure(
     title: str = "",
     width_in: float | None = None,
     allow_owed: bool = False,
-    cost_label: str = efficacy.MEASURE_LABELS["cost"],
+    cost_label: str = efficacy.MEASURE_LABELS[efficacy.Measure.COST],
     mode: Mode = Mode.BOX,
     conditions: Sequence[str] = (),
 ) -> matplotlib.figure.Figure:
@@ -421,7 +423,7 @@ def kernel_runs_figure(
     groups = list(conditions) or order_conditions([condition_of(str(setup)) for setup in runs["setup"]])
     columns = [column_key(condition, kernel) for condition in groups for kernel in kernels]
     score_series, cost_series = model_series(runs, kernels, groups)
-    score = pk.speedup_series_metric(score_series, efficacy.MEASURE_LABELS["speedup"])
+    score = pk.speedup_series_metric(score_series, efficacy.MEASURE_LABELS[efficacy.Measure.SPEEDUP])
     cost = pk.token_series_metric(cost_series, cost_label)
 
     square = len(groups) <= SQUARE_GROUPS
