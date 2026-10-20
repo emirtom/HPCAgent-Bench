@@ -198,8 +198,11 @@ def test_an_xdist_group_marker_is_never_a_no_op() -> None:
 
 
 def translator_legs() -> list[dict]:
-    """The ``translators`` job's leg matrix."""
-    return list(workflow_jobs()["translators"]["strategy"]["matrix"]["leg"])
+    """The ``translators`` legs that run the integration-marked tree (they name a ``select``); the ``ops`` leg runs
+    the op suite."""
+    legs = list(workflow_jobs()["translators"]["strategy"]["matrix"]["leg"])
+    assert [leg["id"] for leg in legs if "select" not in leg] == ["ops"], legs
+    return [leg for leg in legs if "select" in leg]
 
 
 def test_the_translator_integration_legs_partition_the_tree() -> None:
