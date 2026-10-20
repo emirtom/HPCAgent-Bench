@@ -213,7 +213,7 @@ wheels = [
 [[package]]
 name = "alloy"
 version = "0.0.1"
-source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=b727c50d80f029700056ea88d3818b4d20ed834c#b727c50d80f029700056ea88d3818b4d20ed834c" }
+source = { git = "https://github.com/ThrudPrimrose/alloy.git?rev=d6517881201abb26e169e7e2a5bd29fae30b1e39#d6517881201abb26e169e7e2a5bd29fae30b1e39" }
 dependencies = [
     { name = "dace" },
     { name = "numpy" },
@@ -2746,7 +2746,7 @@ openblas-build = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate" },
-    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=b727c50d80f029700056ea88d3818b4d20ed834c" },
+    { name = "alloy", marker = "extra == 'alloy'", git = "https://github.com/ThrudPrimrose/alloy.git?rev=d6517881201abb26e169e7e2a5bd29fae30b1e39" },
     { name = "anthropic" },
     { name = "apache-tvm", specifier = ">=0.25" },
     { name = "cffi" },

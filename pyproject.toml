@@ -207,7 +207,7 @@ dace = { git = "https://github.com/spcl/dace.git", rev = "baac24733f204d0e992f8c
 relayout = { git = "https://github.com/ThrudPrimrose/relayout.git", rev = "2718b2fee48a0a60b0ed1b65f281d9636e75f0f8" }
 hpcagent-agent = { workspace = true }
 # Moves with the dace pin above: Alloy's own dace pin must be the same commit.
-alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "b727c50d80f029700056ea88d3818b4d20ed834c" }
+alloy = { git = "https://github.com/ThrudPrimrose/alloy.git", rev = "d6517881201abb26e169e7e2a5bd29fae30b1e39" }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "rocm-radeon", extra = "amdgpu" },

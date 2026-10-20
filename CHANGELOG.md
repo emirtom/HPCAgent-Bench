@@ -2,7 +2,7 @@
 
 ## 0.2.1 (2026-10)
 
-Pins: dace extended `baac24733` (overrides Alloy's), Alloy `b727c50`, relayout `2718b2f`. No backwards
+Pins: dace extended `baac24733` (overrides Alloy's), Alloy `d651788`, relayout `2718b2f`. No backwards
 compatibility with 0.2.0 except the results database, which 0.2.1 reads and extends in place.
 
 ### dace extended `0fd6219ce` -> `baac24733`
