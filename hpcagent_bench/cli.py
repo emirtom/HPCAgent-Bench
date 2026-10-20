@@ -460,7 +460,7 @@ def record_calls(args: argparse.Namespace, task: "Task", row: "RunRow") -> None:
         episode_id=args.episode_id,
         preset=args.preset,
         datatype=args.datatype,
-        language=task.language.text,
+        language=task.language,
         source_mode=task.source_mode,
         baseline=row.baseline,
     )

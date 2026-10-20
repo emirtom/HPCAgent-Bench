@@ -142,11 +142,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--ranks", type=int, default=int(os.environ.get("SLURM_NTASKS", "1")))
     args = parser.parse_args(argv)
     hints = cpf_cache.HintDetail.parse(args.hints)
+    language = cpf_bridge.ABI_LANGUAGE[cpf_cache.DIALECT[args.language]]
     native_call.set_assigned_device(0)
     failed = 0
     for kernel in shard([k.strip() for k in args.kernels.split(",") if k.strip()], args.rank, args.ranks):
         try:
-            verdict = grade(args.view, kernel, args.language, args.precision, hints)
+            verdict = grade(args.view, kernel, language, args.precision, hints)
         except Exception as exc:  # noqa: BLE001 -- a crash is this kernel's verdict, not the shard's end
             verdict = cpf_cache.Verification(
                 verdict=cpf_cache.Verified.UNVERIFIED, reason=f"{type(exc).__name__}: {exc}"[:400]

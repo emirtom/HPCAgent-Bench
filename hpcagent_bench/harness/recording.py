@@ -869,7 +869,7 @@ def record_trajectory(
     episode_id: str = ADHOC_EPISODE_ID,
     preset: Preset = Preset.S,
     datatype: str = "float64",
-    language: str = Language.C.text,
+    language: Language = Language.C,
     source_mode: SourceMode = SourceMode.RESTRICTED,
     baseline: Baseline | None = Baseline.C,
     path: str | None = None,
@@ -893,7 +893,7 @@ def record_trajectory(
     stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha(), "task_hash": task_fingerprint(kernel)}
     stamps = trajectory_stamps(points, now_ms())
     with contextlib.closing(connect(path)) as conn:
-        run = open_episode(conn, episode_id, setup_language=language)
+        run = open_episode(conn, episode_id, setup_language=language.text)
         for point, ts in zip(points, stamps, strict=True):
             values = stamp | {
                 "call_index": int(point.round),

@@ -29,6 +29,7 @@ import shlex
 import sys
 
 from hpcagent_bench import config, languages, paths
+from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.service import SUBMISSION_BUILD_MODE
 
 #: What the placeholders stand in for, in the emitted text. Shared with the test, which strips
@@ -51,7 +52,7 @@ LOCAL_PARALLEL_LOOPS = "-ftree-parallelize-loops=$(nproc)"
 #: translation units (host entry + device kernels) and its ``--offload-arch`` / ``-arch`` token is
 #: probed off whatever node ran the generator, so one generated line would mislead on both counts;
 #: ``agent/gpu-build.md`` states that track's contract instead.
-CPU_LANGUAGES = ("c", "cpp", "fortran")
+CPU_LANGUAGES = (Language.C, Language.CPP, Language.FORTRAN)
 
 #: The shared notes, spelled out here rather than composed inline so the emitted line width is
 #: something a reader can see. Each build fragment carries the notes its commands call for.
@@ -67,7 +68,7 @@ They name directories on the judge node and are not shown. Every CPU submission 
 your default search path find it."""
 
 
-def catalog_note(language: str) -> str:
+def catalog_note(language: Language) -> str:
     """Requestable-library note for ``language``, or ``""``.
 
     Off (``""``) when this setup's ``requests.allow`` lacks ``load`` -- the allowance the judge refuses
@@ -97,7 +98,7 @@ LIBRARY = "libkernel.so"
 WRAP_COLUMNS = 96
 
 
-def judge_argv(language: str) -> list:
+def judge_argv(language: Language) -> list:
     """The compile (and, for every current block, link) argv the judge runs for ``language``.
 
     Straight through to the harness: no flag is composed, reordered or filtered here, because the
@@ -216,7 +217,7 @@ what the compiler would have told you.{note_block}
 """
 
 
-def render(language: str) -> str:
+def render(language: Language) -> str:
     """The whole ``build-<language>.md`` fragment for one language."""
     argv = judge_argv(language)
     shown = [displayed(a) for a in argv]
@@ -241,9 +242,9 @@ def main() -> int:
         try:
             text = render(language)
         except Exception as exc:  # noqa: BLE001 -- this image wires no compiler for it; not fatal
-            print(f"gen_build_fragments: no build command for {language!r} here ({exc})", file=sys.stderr)
+            print(f"gen_build_fragments: no build command for {language.text!r} here ({exc})", file=sys.stderr)
             continue
-        (out_dir / f"build-{language}.md").write_text(text, encoding="utf-8")
+        (out_dir / f"build-{language.text}.md").write_text(text, encoding="utf-8")
         written += 1
     print(f"gen_build_fragments: {written} fragment(s) under {out_dir}")
     return 0

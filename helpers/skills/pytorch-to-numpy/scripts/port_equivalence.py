@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 
 from hpcagent_bench import modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.numerical_oracle import custom_initialize
 from hpcagent_bench.precision import Precision
@@ -88,13 +89,13 @@ def baseline_copy(rel: pathlib.Path, rev: str, tmp: pathlib.Path) -> pathlib.Pat
     return dst
 
 
-def build_inputs(spec: BenchSpec, preset: str, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_inputs(spec: BenchSpec, preset: Preset, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(arrays_by_name, symbols)`` -- the oracle's own materialisation, minus the size down-scale.
 
     No down-scale on purpose: this compares two implementations of the SAME kernel, so the preset's
     declared size is both affordable (S) and the shape the manifest actually describes.
     """
-    syms: dict[str, Any] = dict(spec.parameters[preset])
+    syms: dict[str, Any] = dict(spec.parameters[preset.text])
     for name, value in (spec.init.scalars or {}).items():
         syms.setdefault(name, value)
     if spec.init.func_name:
@@ -190,7 +191,7 @@ def compare(old: dict[str, np.ndarray], new: dict[str, np.ndarray], rtol: float,
     return bad
 
 
-def check_one(short: str, preset: str, seed: int, rev: str, tmp: pathlib.Path, rtol: float, atol: float) -> bool:
+def check_one(short: str, preset: Preset, seed: int, rev: str, tmp: pathlib.Path, rtol: float, atol: float) -> bool:
     spec = BenchSpec.load(short)
     new_path = kernel_dir(spec) / f"{spec.module_name}_numpy.py"
     rel = new_path.relative_to(REPO)
@@ -199,12 +200,12 @@ def check_one(short: str, preset: str, seed: int, rev: str, tmp: pathlib.Path, r
     new = call(load_fn(new_path, spec.func_name, "new"), spec, by, syms)
     bad = compare(old, new, rtol, atol)
     if bad:
-        print(f"MISMATCH {short} (preset {preset}, seed {seed}, baseline {rev})")
+        print(f"MISMATCH {short} (preset {preset.text}, seed {seed}, baseline {rev})")
         for line in bad:
             print(f"    {line}")
         return False
     how = "bit-identical" if not (rtol or atol) else f"within rtol={rtol:g} atol={atol:g}"
-    print(f"ok {short}: {len(new)} output(s) {how} to {rev} at preset {preset}, seed {seed}")
+    print(f"ok {short}: {len(new)} output(s) {how} to {rev} at preset {preset.text}, seed {seed}")
     return True
 
 
@@ -236,7 +237,7 @@ def render_cpf(short: str, out_dir: pathlib.Path, language: str) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("kernels", nargs="+", help="short names, e.g. max_pooling_3d")
-    ap.add_argument("--preset", default="S")
+    ap.add_argument("--preset", default=Preset.S.text, choices=Preset.texts())
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--rev", default="HEAD", help="git revision holding the pre-port kernel")
     ap.add_argument("--rtol", type=float, default=0.0, help="only for reduction reassociation")
@@ -247,7 +248,8 @@ def main() -> int:
     args = ap.parse_args()
     with tempfile.TemporaryDirectory() as td:
         results = [
-            check_one(k, args.preset, args.seed, args.rev, pathlib.Path(td), args.rtol, args.atol) for k in args.kernels
+            check_one(k, Preset.parse(args.preset), args.seed, args.rev, pathlib.Path(td), args.rtol, args.atol)
+            for k in args.kernels
         ]
         if args.emit_cpf:
             rendered = [render_cpf(k, pathlib.Path(args.emit_cpf), args.cpf_language) for k in args.kernels]

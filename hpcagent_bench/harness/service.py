@@ -735,8 +735,8 @@ def profile_size(asked: str | None, preset: Preset) -> Preset:
     ``preset``, else the run's own; a larger or unknown rung is a ValueError (400)."""
     if asked is None:
         return preset
-    rung = Preset.parse(asked)
-    if rung not in RUNGS or preset not in RUNGS:
+    rung = {rung.text: rung for rung in RUNGS}.get(asked)
+    if rung is None or preset not in RUNGS:
         raise ValueError(f"size {asked!r} is not one of {', '.join(r.text for r in RUNGS)}")
     if RUNGS.index(rung) > RUNGS.index(preset):
         raise ValueError(
