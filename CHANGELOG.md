@@ -26,7 +26,7 @@ the inliner emits no identity copies; canonicalize is 6-12% faster.
 - Numba references are `njit(parallel=True)` with no `prange` in generated code; the machine_learning track's
   oracle is torch only.
 - Narrow formats (fp16/bf16) are graded against the fp64 reference; `cloudsc` is fp64 only.
-- Canon rows record build time by phase (`transform_time`, `codegen_time`, `compile_time`; schema 14).
+- Canon rows record build time by phase (`transform_time`, `codegen_time`, `compile_time`; schema 14), and `setups.plugins` the digest of every plugin the judge loaded (schema 15); older files gain both when opened for writing.
 - `any`-mode tasks accept one C or Fortran source built with the agent's own flags.
 
 ### Fixed

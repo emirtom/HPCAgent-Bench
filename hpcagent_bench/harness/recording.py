@@ -27,7 +27,7 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple, Protocol
 
-from hpcagent_bench import config, osinfo, paths
+from hpcagent_bench import config, osinfo, paths, plugins
 from hpcagent_bench.anticheat import Context, Judgement, judge
 from hpcagent_bench.categories import Baseline, Denominator, Language, Preset, RecordDevice, SourceMode, baseline_text
 from hpcagent_bench.harness import db_json, denominator, grading, results_db
@@ -531,6 +531,7 @@ def open_episode_in_job(
             packet=who.packet,
             temperature=who.temperature,
             tag_version=who.tag_version,
+            plugins=plugins.recorded(),
         ),
     )
     return results_db.ensure_episode(conn, setup, episode_id, job, slot_of(episode_id))

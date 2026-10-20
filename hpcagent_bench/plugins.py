@@ -34,6 +34,7 @@ __all__ = [
     "main",
     "packet_definition",
     "page_path",
+    "recorded",
     "register",
     "register_packets",
     "roots",
@@ -115,6 +116,13 @@ def load() -> tuple[Plugin, ...]:
             importlib.import_module(f"{plugin.package}.routes.{stem}")
     routes.load()
     return found
+
+
+@functools.lru_cache(maxsize=1, typed=True)
+def recorded() -> str:
+    """What a results row records of the plugins this process loads: ``name:sha256`` of each, sorted and
+    ``,``-joined (:func:`hpcagent_agent.plugins.digest`); ``""`` when there are none."""
+    return ",".join(sorted(f"{plugin.name}:{agent_plugins.digest(plugin.root)}" for plugin in register()))
 
 
 def page_path(page: str) -> pathlib.Path | None:
