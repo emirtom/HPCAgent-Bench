@@ -1,34 +1,9 @@
 #!/usr/bin/env python3
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Where a setup's inference comes from: a server this job starts, or a hosted service.
-
-The launcher runs this file under ``HPCAGENT_BENCH_HOST_PYTHON`` on the batch host, and the tests import it from
-the checkout. The provider's pricing listing is read through :class:`PricingListing` (a format this package does
-not own: fields it does not use are ignored) and the ``inference.json`` record it writes is a
-:data:`Provenance` model (docs/results_db.md#formats).
-
-A setup selects the source with one key in its ``.env``. ``INFERENCE_SOURCE=node`` (default when unset):
-the job starts a vLLM/SGLang server on a GPU node. ``INFERENCE_SOURCE=service``: a hosted endpoint over the
-network, configured by the ``INFERENCE_SERVICE_*`` block below; no inference node, engine or readiness wait.
-
-Both resolve into the three values every consumer reads -- the base URL, the served model name and the key
-(:func:`launcher_env`) -- which the agent driver's replica striping, the runners' ``--base-url``/``--model``
-and the claude CLI's ``ANTHROPIC_BASE_URL`` consume.
-
-THE KEY TRAVELS BY NAME. A setup names the variable its key lives in
-(``INFERENCE_SERVICE_KEY_ENV``), never the key, so a committed setup env holds no secret and a
-rotation is an export in the launching shell. :func:`launcher_env` therefore carries the variable's
-NAME and run_cluster.sh copies the value by indirection; nothing here ever reads it.
-
-Two things the shape decides. The WIRE FORMAT (``INFERENCE_SERVICE_API``) picks which harnesses may
-run: miniswe, openhands, optimas and openai speak ``/v1/chat/completions``, claude and anthropic
-``/v1/messages``, so pairing one with the other service 404s every request and a setup discovers that
-by spending its whole wall clock. The AUTH SPELLING (``INFERENCE_SERVICE_AUTH``) picks which variable the claude
-CLI's key belongs in: the CLI sends ``Authorization: Bearer`` whenever ANTHROPIC_AUTH_TOKEN is set,
-which a first-party Anthropic endpoint answers with 401, while Meta's Messages surface wants exactly
-that bearer. The two are independent, which is why they are two keys.
-"""
+"""Where a setup's inference comes from (``INFERENCE_SOURCE``): a server this job starts (``node``, default) or a
+hosted endpoint (``service``, the ``INFERENCE_SERVICE_*`` block). Both resolve to a base URL, model and key
+(:func:`launcher_env`); the key travels by variable NAME only. Runs on the batch host under the host python."""
 
 import argparse
 import dataclasses
@@ -101,9 +76,7 @@ class Auth(Coded):
     KEY_HEADER = enum.auto()
 
 
-#: Harnesses that can speak each wire format. ``agent/hpcagent_agent/driver/harnesses.py`` owns the runner list;
-#: repeated here by name rather than imported, because this file is also read on the
-#: batch host, where the agent payload is not staged.
+#: Harnesses that speak each wire format (by name: the agent payload is not staged on the batch host).
 HARNESSES_BY_API: dict[Api, tuple[str, ...]] = {
     Api.OPENAI: ("miniswe", "openhands", "optimas", "openai"),
     Api.ANTHROPIC: ("claude", "anthropic"),
@@ -115,11 +88,8 @@ CLAUDE_KEY_VARIABLE: dict[Auth, str] = {Auth.BEARER: "ANTHROPIC_AUTH_TOKEN", Aut
 #: What the run records about its inference, beside the judge databases.
 RECORD_NAME = "inference.json"
 
-#: Every variable through which the claude CLI picks a model on its own: the small/fast model for
-#: its side requests (titles, summaries), the model each tier alias resolves to, and the subagent
-#: model. Unset, the CLI asks the endpoint for a Claude model by its own name. A self-served engine
-#: 404s that, but a router serving many models ANSWERS it -- with a model the setup never declared,
-#: and on OpenRouter one that is billed. A service setup therefore pins every one to its own model.
+#: Every variable through which the claude CLI picks a model on its own; a service setup pins each to its model (a
+#: router would otherwise answer with an undeclared, possibly billed model).
 CLAUDE_MODEL_PINS = (
     "ANTHROPIC_MODEL",
     "ANTHROPIC_SMALL_FAST_MODEL",
@@ -129,12 +99,11 @@ CLAUDE_MODEL_PINS = (
     "CLAUDE_CODE_SUBAGENT_MODEL",
 )
 
-#: ``INFERENCE_SERVICE_FREE_ONLY=1``: the setup may only run while the provider prices its model at
-#: zero. Checked against the provider's own listing at launch, not trusted from the setup env, because
-#: a free (e.g. stealth) model can gain a price or be replaced behind the same id at any time.
+#: ``INFERENCE_SERVICE_FREE_ONLY=1``: run only while the provider's own listing prices the model at zero (checked
+#: at launch; a price can appear at any time).
 FREE_ONLY_KEY = "INFERENCE_SERVICE_FREE_ONLY"
 
-#: The block's keys, all required. Spelled once so a missing one is named rather than read as "".
+#: The block's keys, all required (a missing one is named, not read as "").
 REQUIRED = (
     "INFERENCE_SERVICE_PROVIDER",
     "INFERENCE_SERVICE_BASE_URL",
@@ -187,8 +156,7 @@ def from_environ(environ: Mapping[str, str]) -> Service:
     except ValueError as exc:
         raise SystemExit(f"INFERENCE_SERVICE_AUTH={auth!r} is not an auth spelling: {exc}") from exc
     resolved = Service(provider, base_url, model, tier, wire, spelling, key_env)
-    # A GPU node allocated for a server that is never started, sized by an allocation check that
-    # would happily pass it: the setup has to say it wants none.
+    # A service setup must declare zero inference nodes.
     nodes = environ.get("INFERENCE_NODES", "0").strip() or "0"
     if nodes != "0":
         raise SystemExit(f"a service setup starts no server; set INFERENCE_NODES=0, not {nodes}")
@@ -199,8 +167,7 @@ def from_environ(environ: Mapping[str, str]) -> Service:
             f"HARNESS={harness} cannot speak the {resolved.api.text} wire format this service serves; "
             f"expected one of {accepted}"
         )
-    # Checked here, before any agent starts: a setup that runs its whole wall clock against 401s
-    # leaves no measurement and no obvious cause.
+    # Checked before any agent starts: a run of 401s leaves no measurement.
     if not environ.get(resolved.key_env, "").strip():
         raise SystemExit(f"{resolved.key_env} is not set in the launching environment; export the service key there")
     return resolved
@@ -212,12 +179,8 @@ def claude_key_variable(service: Service) -> str:
 
 
 def launcher_env(service: Service) -> dict[str, str]:
-    """The endpoint values run_cluster.sh exports, in the names every consumer already reads.
-
-    One replica, because a hosted service is one endpoint and its own load balancing is what the
-    replica list exists to replace. VLLM_MASTER_HOST is emptied rather than left behind: no node
-    serves this setup, and a stale hostname is one a probe would still try to reach.
-    """
+    """The endpoint values run_cluster.sh exports, in the names every consumer reads: one replica, and
+    VLLM_MASTER_HOST emptied (no node serves this setup)."""
     pins = dict.fromkeys(CLAUDE_MODEL_PINS, service.model) if service.api is Api.ANTHROPIC else {}
     return {
         **pins,
@@ -261,12 +224,8 @@ def pricing_url(service: Service) -> str:
 
 
 def not_free(listing: PricingListing, model: str) -> str | None:
-    """Why ``listing`` (the body of :func:`pricing_url`) does not show ``model`` as free, or None.
-
-    Free means every endpoint that could serve a request prices EVERY metered unit at zero: a router
-    picks the provider per request, so one paid endpoint is enough to bill the setup. A listing with no
-    endpoints, or one naming a different model, proves nothing and is refused.
-    """
+    """Why ``listing`` does not show ``model`` as free, or None: every endpoint must price EVERY metered unit at
+    zero; no endpoints or another model's listing is refused."""
     data = listing.data
     if data is None or data.id != model:
         return f"the provider's listing does not describe {model}"
@@ -302,8 +261,7 @@ def check_free(service: Service, timeout: float = 30.0) -> None:
 
 
 def shell_block(exported: Mapping[str, str]) -> str:
-    """``exported`` as assignments for the launcher to eval. Quoted through :func:`shlex.quote`, so a
-    value carrying a space or a ``$`` cannot become shell code on the way through."""
+    """``exported`` as :func:`shlex.quote`-d assignments for the launcher to eval."""
     return "\n".join(f"{key}={shlex.quote(value)}" for key, value in exported.items())
 
 
@@ -337,13 +295,8 @@ Provenance = NodeProvenance | ServiceProvenance
 
 
 def provenance(environ: Mapping[str, str]) -> Provenance:
-    """What produced this run's tokens, for either source.
-
-    A server setup records the engine, its image and the checkpoint; a service setup records the
-    provider, the model id and the TIER, which is the one thing about a hosted run that cannot be
-    recovered afterwards -- a contributor-tier run and a standard-tier one are the same bytes on the
-    wire and different data policies.
-    """
+    """What produced this run's tokens: engine, image and checkpoint, or provider, model id and TIER (unrecoverable
+    afterwards)."""
     if source(environ) is Source.NODE:
         return NodeProvenance(
             engine=environ.get("INFERENCE_ENGINE", "").strip() or "vllm",
@@ -362,8 +315,7 @@ def provenance(environ: Mapping[str, str]) -> Provenance:
 
 
 def record(run_dir: pathlib.Path, environ: Mapping[str, str]) -> Provenance:
-    """Write the run's inference provenance and return it. Holds no key, by construction: every
-    value comes from the setup's env block, and the key is only ever named there."""
+    """Write the run's inference provenance and return it (holds no key by construction)."""
     written = provenance(environ)
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / RECORD_NAME).write_text(written.model_dump_json(indent=2) + "\n", encoding="utf-8")
