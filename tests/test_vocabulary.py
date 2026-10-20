@@ -36,6 +36,7 @@ PINNED_HARNESSES = (
     "optimas",
     "anthropic",
     "openai",
+    "tuner",
 )
 
 PINNED_LANGUAGES = (

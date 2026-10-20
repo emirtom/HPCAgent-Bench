@@ -3420,8 +3420,9 @@ def fused_problem_main(argv: Sequence[str]) -> int:
 
 def main() -> int:
     # First, so a misspelled harness ends the step before it waits on any service.
-    harnesses.selected_harness()
-    replicas = vllm_urls()
+    tuning = harnesses.selected_harness() == harnesses.TUNER
+    # A tuner talks to no model: it has no inference node to wait on.
+    replicas = [] if tuning else vllm_urls()
     judges = judge_urls()
     vllm_headers: dict[str, str] = {}
     api_key = os.environ.get("VLLM_API_KEY", "").strip()
@@ -3435,7 +3436,7 @@ def main() -> int:
     # have to speak the service's own auth to learn anything -- GET /v1/models takes x-api-key on
     # an Anthropic-format endpoint, which the bearer header above is not. Waiting anyway turns a
     # working setup into an aborted one on the strength of a probe that never had a chance.
-    if os.environ.get("INFERENCE_SOURCE", "").strip() == "service":
+    if tuning or os.environ.get("INFERENCE_SOURCE", "").strip() == "service":
         ready_replicas = replicas
     else:
         ready_replicas = wait_for_ready_replicas(replicas, vllm_timeout, vllm_headers)
@@ -3445,7 +3446,7 @@ def main() -> int:
     # saturated and a single-stream number is no longer available. Node 0 only -- concurrent probes
     # from several agent nodes would measure each other. 0/unset = off.
     probe_requests = int(os.environ.get("THROUGHPUT_PROBE_REQUESTS", "0") or 0)
-    if probe_requests > 0 and node_rank() == 0:
+    if probe_requests > 0 and node_rank() == 0 and ready_replicas:
         report_throughput(throughput_probe(ready_replicas[0], vllm_headers, probe_requests))
 
     judge_timeout = float(os.environ.get("JUDGE_READY_TIMEOUT_SECONDS", "300"))
@@ -3490,7 +3491,7 @@ def main() -> int:
     aggregate_state: AggregateState = {"samples": [], "missed": 0}
     stop_sampling = threading.Event()
     sampler: threading.Thread | None = None
-    if aggregate_seconds > 0 and node == 0:
+    if aggregate_seconds > 0 and node == 0 and ready_replicas:
         sampler = threading.Thread(
             target=sample_aggregate_throughput,
             args=(ready_replicas, vllm_headers, aggregate_seconds, stop_sampling, aggregate_state),
