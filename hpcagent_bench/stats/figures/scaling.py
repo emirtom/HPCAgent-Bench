@@ -495,7 +495,7 @@ def point_of(row: pd.Series, mode: str) -> Point | None:
         return None
     ratio = cell(row, "scaling_work_ratio")
     work_ratio = None if math.isnan(ratio) or ratio <= 0 else ratio
-    graded = metric.scaling_point(mpi_sizing.ScalingLaw(mode), ranks, int(t1), int(tp), work_ratio=work_ratio)
+    graded = metric.scaling_point(mpi_sizing.ScalingLaw.parse(mode), ranks, int(t1), int(tp), work_ratio=work_ratio)
     nodes = int(cell(row, "scaling_nodes", 0.0)) or -(-ranks // RANKS_PER_NODE)
     return Point(
         ranks=graded.ranks,

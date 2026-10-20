@@ -42,8 +42,8 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, cpf_canonical, languages, phase_clock, paths
-from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS, LANGUAGE_EXT, HintDetail
+from hpcagent_bench import config, cpf_canonical, languages, paths, phase_clock
+from hpcagent_bench.cpf_cache import DEFAULT_HINTS, LANGUAGE_EXT, HintDetail, RenderVerdict, Role, Target
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
     entry_program_name,
@@ -67,14 +67,14 @@ from hpcagent_bench.translators.numpyto_common.naming import fptype_tag, short_f
 __all__ = [
     "ABI_SYMBOL_LOCAL",
     "CHILD_LINE_ADAPTER",
-    "CanonicalOutcome",
-    "ChildRun",
     "DACE_BANNER",
     "DACE_INTEGER_HELPERS",
     "DEVICE_LANGUAGE",
     "GPU_CODEGEN",
-    "PythonIntegerForm",
     "RENDER_TIMEOUT_KEY",
+    "CanonicalOutcome",
+    "ChildRun",
+    "PythonIntegerForm",
     "RenderOutcome",
     "RenderPlan",
     "RenderRecord",
@@ -594,14 +594,14 @@ class RenderedForm(NamedTuple):
     def device_name(self) -> str:
         return f"{pathlib.Path(self.name).stem}.{LANGUAGE_EXT[DEVICE_LANGUAGE]}"
 
-    def artefacts(self) -> tuple[tuple[str, str, str], ...]:
+    def artefacts(self) -> tuple[tuple[Role, str, str], ...]:
         """``(role, file name, text)`` of every file this form is: the source, the device unit on gpu, the binding."""
-        device = (("device", self.device_name, self.device_code),) if self.device_code else ()
-        return (("source", self.name, self.code), *device, ("binding", self.binding_name, self.binding))
+        device = ((Role.DEVICE, self.device_name, self.device_code),) if self.device_code else ()
+        return ((Role.SOURCE, self.name, self.code), *device, (Role.BINDING, self.binding_name, self.binding))
 
 
 def render_canonical(
-    spec: BenchSpec, short: str, canonical: "SDFG", language: str, precision: str, target: str, hints: HintDetail
+    spec: BenchSpec, short: str, canonical: "SDFG", language: str, precision: str, target: Target, hints: HintDetail
 ) -> RenderedForm:
     """Step 4 on a canonical SDFG, which is copied first so one parse serves every language.
 
@@ -636,14 +636,14 @@ def render_canonical(
     sdfg.name = native.symbol  # pyright: ignore[reportAttributeAccessIssue] -- dace's SDFG.name is a Property descriptor the checker sees as read-only
     # The device form is the hip dialect, a host unit and a device unit; --language only picks between the two HOST
     # spellings of a cpu form.
-    emitted = DEVICE_LANGUAGE if target == "gpu" else language
+    emitted = DEVICE_LANGUAGE if target is Target.GPU else language
     try:
         signature = EntrySignature(abi_args, workspace=WORKSPACE_NAME, workspace_size=WORKSPACE_SIZE_NAME)
         with gpu_codegen_pinned(target):
-            if hints == DEFAULT_HINTS:
+            if hints is DEFAULT_HINTS:
                 rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False)
             else:
-                rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False, hints=hints)  # pyright: ignore[reportCallIssue] -- hints= is newer than some dace pins; only a non-default detail needs it
+                rendering = render(sdfg, language=emitted, signature=signature, check_compiles=False, hints=hints.text)  # pyright: ignore[reportCallIssue] -- hints= is newer than some dace pins; only a non-default detail needs it
         code = exact_abi_signature(
             rendering.code, native.symbol, abi_parameters(native, emitted), {v: k for k, v in renames.items()}
         )
@@ -661,7 +661,7 @@ def render_canonical(
         compile_check(unit, native.symbol, dialect_for(emitted), extra_flags=library_flags)
     return RenderedForm(
         # The gpu host unit is the C++ entry the GPU build contract names (agent/gpu-build.md).
-        name=f"{short}_{fptype_tag(precision)}_cpf.{LANGUAGE_EXT['c++' if target == 'gpu' else emitted]}",
+        name=f"{short}_{fptype_tag(precision)}_cpf.{LANGUAGE_EXT['c++' if target is Target.GPU else emitted]}",
         code=clean_form(code, forced),
         binding=native.document().text(indent=2),
         entry=native.symbol,
@@ -735,11 +735,11 @@ def binding_workspace_bytes(expr: str, native: Binding, renames: Mapping[str, st
 
 
 @contextlib.contextmanager
-def gpu_codegen_pinned(target: str) -> Iterator[None]:
-    """For ``target == "gpu"``: ``compiler.cuda.implementation`` is :data:`GPU_CODEGEN` for the block, and a
+def gpu_codegen_pinned(target: Target) -> Iterator[None]:
+    """For the gpu ``target``: ``compiler.cuda.implementation`` is :data:`GPU_CODEGEN` for the block, and a
     ``DACE_compiler_cuda_implementation`` environment value that outranks it is refused (``RuntimeError``).
     Any other target: no change."""
-    if target != "gpu":
+    if target is not Target.GPU:
         yield
         return
     from dace.config import Config, set_temporary
@@ -761,7 +761,7 @@ class RenderOutcome(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
     key: str | None = None
-    verdict: str
+    verdict: RenderVerdict
     cached: bool = False
     error: str = ""
 
@@ -794,8 +794,8 @@ class RenderRecord(pydantic.BaseModel):
     kernel: str
     language: str = ""
     precision: str = ""
-    target: str = ""
-    verdict: str = ""
+    target: Target | None = None
+    verdict: RenderVerdict | None = None
     error: str = ""
     errtype: str = ""
     frame: str = ""
@@ -827,7 +827,7 @@ def render_sdfg(
     out_dir: pathlib.Path,
     language: str,
     precision: str,
-    target: str = "cpu",
+    target: Target = Target.CPU,
     hints: HintDetail = DEFAULT_HINTS,
 ) -> RenderRecord:
     """Steps 1-4 for one kernel, in THIS process, written straight to ``out_dir``. Returns the verdict record.
@@ -837,20 +837,20 @@ def render_sdfg(
     """
     rec = RenderRecord(kernel=spec.short_name, language=language, precision=precision or "fp64", target=target)
     parsed = parse_kernel(spec, numpy_py, precision)
-    if isinstance(parsed, dict):
-        return RenderRecord.model_validate({**rec.model_dump(exclude_unset=True), **parsed})
+    if isinstance(parsed, cpf_canonical.RenderFailure):
+        return RenderRecord.model_validate({**rec.model_dump(exclude_unset=True), **parsed._asdict()})
     canonicalize_for(parsed, target, cpf_canonical.small_symbols(spec), cpf_canonical.nonnegative_symbols(spec))
     form = render_canonical(spec, short_for(numpy_py), parsed, language, precision, target, hints)
     rec.entry = form.entry
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths_by_role: dict[str, str] = {}
+    paths_by_role: dict[Role, str] = {}
     for role, name, text in form.artefacts():
         (out_dir / name).write_text(text)
         paths_by_role[role] = str(out_dir / name)
-    rec.source, rec.binding = paths_by_role["source"], paths_by_role["binding"]
-    if "device" in paths_by_role:
-        rec.device = paths_by_role["device"]
-    rec.verdict = "ok"
+    rec.source, rec.binding = paths_by_role[Role.SOURCE], paths_by_role[Role.BINDING]
+    if Role.DEVICE in paths_by_role:
+        rec.device = paths_by_role[Role.DEVICE]
+    rec.verdict = RenderVerdict.OK
     rec.lines = form.lines
     rec.workspace_bytes = form.workspace_bytes
     rec.libraries = list(form.libraries)
@@ -867,17 +867,19 @@ def bridge_digest() -> str:
     ).hexdigest()
 
 
-def render_options(spec: BenchSpec, language: str, precision: str, target: str, hints: HintDetail) -> dict[str, object]:
+def render_options(
+    spec: BenchSpec, language: str, precision: str, target: Target, hints: HintDetail
+) -> dict[str, object]:
     """Every input besides the SDFG and dace that decides one artefact's text, for its cache key: the hint
     detail among them, so a ``kinds`` form never hits a ``proofs`` entry or the reverse."""
-    dialect = DEVICE_LANGUAGE if target == "gpu" else language
+    dialect = DEVICE_LANGUAGE if target is Target.GPU else language
     native = binding_from_spec(spec)
     return {
         "kernel": spec.short_name,
         "language": dialect,
         "precision": fptype_tag(precision),
-        "target": target,
-        "hints": hints,
+        "target": target.text,
+        "hints": hints.text,
         "bridge": bridge_digest(),
         "dace_env": cpf_canonical.dace_environment(),
         "entry": native.symbol,
@@ -898,7 +900,7 @@ def prerender_sdfg(
     cache_root: pathlib.Path,
     languages: Sequence[str],
     precision: str,
-    target: str,
+    target: Target,
     dace_commit: str,
     expected_root: pathlib.Path,
     hints: HintDetail,
@@ -916,8 +918,8 @@ def prerender_sdfg(
         raise RuntimeError(f"dace imports from {dace_root()}, but its commit was read in {expected_root}")
     base = RenderRecord(kernel=spec.short_name, precision=fptype_tag(precision), target=target)
     impl = cpf_canonical.emit_program(spec)
-    if isinstance(impl, dict):
-        return RenderRecord.model_validate({**base.model_dump(exclude_unset=True), **impl})
+    if isinstance(impl, cpf_canonical.RenderFailure):
+        return RenderRecord.model_validate({**base.model_dump(exclude_unset=True), **impl._asdict()})
     canonical = cpf_canonical.canonical_key(
         impl,
         dace_commit,
@@ -937,15 +939,15 @@ def prerender_sdfg(
     todo: list[str] = []
     for language, (key, _) in plan.items():
         if cpf_cache.is_hit(cache_root, key):
-            results[language] = RenderOutcome(key=key, verdict="ok", cached=True)
+            results[language] = RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=True)
         else:
             todo.append(language)
     if todo:
         sdfg, cached = cpf_canonical.canonical_sdfg(spec, impl, canonical, cache_root, precision, target)
         canonical_rec.cached = cached
-        if isinstance(sdfg, dict):
+        if isinstance(sdfg, cpf_canonical.RenderFailure):
             for language in todo:
-                results[language] = RenderOutcome.model_validate({"key": plan[language][0], **sdfg})
+                results[language] = RenderOutcome(key=plan[language][0], verdict=sdfg.verdict, error=sdfg.error)
         else:
             for language in todo:
                 key, options = plan[language]
@@ -953,7 +955,8 @@ def prerender_sdfg(
                     with phase_clock.phase("codegen"):
                         form = render_canonical(spec, short_for(numpy_py), sdfg, language, precision, target, hints)
                 except Exception as exc:  # noqa: BLE001 -- a refusal of one language must not lose the others
-                    results[language] = RenderOutcome.model_validate({"key": key, **failure(exc)})
+                    failed = failure(exc)
+                    results[language] = RenderOutcome(key=key, verdict=failed.verdict, error=failed.error)
                     continue
                 manifest = {
                     "inputs": {"canonical": canonical, "dace_commit": dace_commit, "options": options},
@@ -963,7 +966,7 @@ def prerender_sdfg(
                     "workspace_bytes": form.workspace_bytes,
                 }
                 cpf_cache.publish(cache_root, key, manifest, form.artefacts())
-                results[language] = RenderOutcome(key=key, verdict="ok", cached=False)
+                results[language] = RenderOutcome(key=key, verdict=RenderVerdict.OK, cached=False)
     return base.model_copy(update={"canonical": canonical_rec, "results": results})
 
 
@@ -998,7 +1001,7 @@ def child_lines(text: str) -> tuple[list[RenderPlan], list[RenderRecord]]:
     return plans, records
 
 
-def run_child(cmd: list[str], target: str, timeout: float | None, extra_env: dict[str, str] | None) -> ChildRun:
+def run_child(cmd: list[str], target: Target, timeout: float | None, extra_env: dict[str, str] | None) -> ChildRun:
     """Run one render child under the render budget.
 
     A CPU rendering must not see a GPU (cupy imports and device probes cost seconds each). A GPU
@@ -1006,7 +1009,7 @@ def run_child(cmd: list[str], target: str, timeout: float | None, extra_env: dic
     host-scheduled.
     """
     env = {**config.environment(), **(extra_env or {})}
-    if target == "cpu":
+    if target is Target.CPU:
         env["CUDA_VISIBLE_DEVICES"] = ""
     budget = render_timeout_s() if timeout is None else timeout
     started = time.monotonic()
@@ -1031,7 +1034,7 @@ def render_kernel(
     *,
     language: str = "c++",
     precision: str = "",
-    target: str = "cpu",
+    target: Target = Target.CPU,
     hints: HintDetail = DEFAULT_HINTS,
     timeout: float | None = None,
     extra_env: dict[str, str] | None = None,
@@ -1053,15 +1056,15 @@ def render_kernel(
     cmd += ["--language", language]
     if precision:
         cmd += ["--precision", precision]
-    if target != "cpu":
-        cmd += ["--target", target]
-    cmd += ["--hints", hints]
+    if target is not Target.CPU:
+        cmd += ["--target", target.text]
+    cmd += ["--hints", hints.text]
     run = run_child(cmd, target, timeout, extra_env)
     if run.timed_out:
         return RenderRecord(
             kernel=spec.short_name,
             language=language,
-            verdict="timeout",
+            verdict=RenderVerdict.TIMEOUT,
             seconds=run.budget,
             error=timeout_error(run.budget),
         )
@@ -1072,7 +1075,7 @@ def render_kernel(
     return RenderRecord(
         kernel=spec.short_name,
         language=language,
-        verdict="fail",
+        verdict=RenderVerdict.FAIL,
         error=f"child exited {run.returncode} with no verdict: {run.tail}"[:400],
         seconds=run.seconds,
     )
@@ -1084,7 +1087,7 @@ def prerender_kernel(
     *,
     languages: Sequence[str],
     precision: str,
-    target: str,
+    target: Target,
     hints: HintDetail,
     dace_package_root: pathlib.Path,
     dace_commit: str,
@@ -1098,7 +1101,8 @@ def prerender_kernel(
     child's environment only (its temp and build directories), never to this process's.
     """
     cmd = [sys.executable, "-m", __spec__.name, "--kernel", spec.short_name, "--cache", str(cache_root)]
-    cmd += ["--dace-commit", dace_commit, "--dace-root", str(dace_package_root), "--target", target, "--hints", hints]
+    cmd += ["--dace-commit", dace_commit, "--dace-root", str(dace_package_root)]
+    cmd += ["--target", target.text, "--hints", hints.text]
     for language in languages:
         cmd += ["--language", language]
     if precision:
@@ -1111,9 +1115,9 @@ def prerender_kernel(
     plan = run.plans[0].plan if run.plans else {}
     last = run.records[-1] if run.records else None
     if run.timed_out:
-        verdict, error = "timeout", timeout_error(run.budget)
+        verdict, error = RenderVerdict.TIMEOUT, timeout_error(run.budget)
     else:
-        verdict = last.verdict if last is not None and last.verdict else "fail"
+        verdict = last.verdict if last is not None and last.verdict is not None else RenderVerdict.FAIL
         error = (last.error if last is not None else "") or f"child exited {run.returncode} with no verdict: {run.tail}"
     results = {
         language: RenderOutcome(key=plan.get(language), verdict=verdict, error=error[:400]) for language in languages
@@ -1148,7 +1152,7 @@ def render_track(
     *,
     language: str = "c++",
     precision: str = "",
-    target: str = "cpu",
+    target: Target = Target.CPU,
     hints: HintDetail = DEFAULT_HINTS,
     timeout: float | None = None,
     jsonl: os.PathLike[str] | None = None,
@@ -1166,7 +1170,7 @@ def render_track(
                 spec, out_dir, language=language, precision=precision, target=target, hints=hints, timeout=timeout
             )
             records.append(rec)
-            print(f"[{index}] {rec.kernel}: {rec.verdict}", flush=True)
+            print(f"[{index}] {rec.kernel}: {rec.verdict.text if rec.verdict else ''}", flush=True)
             if sink is not None:
                 sink.write(rec.line() + "\n")
                 sink.flush()
@@ -1187,9 +1191,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dace-root", default="", help="with --cache: the tree that commit was read in")
     p.add_argument("--language", action="append", choices=sorted(LANGUAGE_EXT), help="repeatable with --cache")
     p.add_argument("--precision", default="", help="fp64 (default) / fp32 / fp16")
-    p.add_argument("--target", default="cpu", choices=("cpu", "gpu"), help="which specialization to render")
-    p.add_argument("--hints", default=DEFAULT_HINTS, choices=HINT_DETAILS, help="how much of each loop hint to write")
+    p.add_argument("--target", default=Target.CPU.text, choices=Target.texts(), help="which specialization to render")
+    p.add_argument(
+        "--hints", default=DEFAULT_HINTS.text, choices=HintDetail.texts(), help="how much of each loop hint to write"
+    )
     args = p.parse_args(argv)
+    target, hints = Target.parse(args.target), HintDetail.parse(args.hints)
     if (args.out is None) == (args.cache is None):
         p.error("give exactly one of --out and --cache")
     if args.cache is not None and not (args.dace_commit and args.dace_root):
@@ -1200,7 +1207,7 @@ def main(argv: list[str] | None = None) -> int:
     numpy_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
     rec = RenderRecord(kernel=spec.short_name, language=languages[0])
     if not numpy_py.exists():
-        rec.verdict = "noemit"
+        rec.verdict = RenderVerdict.NOEMIT
         rec.error = f"no numpy reference at {numpy_py}"
     else:
         try:
@@ -1211,20 +1218,18 @@ def main(argv: list[str] | None = None) -> int:
                     pathlib.Path(args.cache),
                     languages,
                     args.precision,
-                    args.target,
+                    target,
                     args.dace_commit,
                     pathlib.Path(args.dace_root),
-                    args.hints,
+                    hints,
                 )
             else:
-                rec = render_sdfg(
-                    spec, numpy_py, pathlib.Path(args.out), languages[0], args.precision, args.target, args.hints
-                )
+                rec = render_sdfg(spec, numpy_py, pathlib.Path(args.out), languages[0], args.precision, target, hints)
         except NotImplementedError as exc:  # CPF names the construct it cannot render
-            rec.verdict = "refused"
+            rec.verdict = RenderVerdict.REFUSED
             rec.error = str(exc)[:400]
         except BaseException as exc:  # noqa: BLE001 -- every failure mode is a verdict, SystemExit included
-            rec.verdict = "fail"
+            rec.verdict = RenderVerdict.FAIL
             rec.errtype = type(exc).__name__
             rec.error = f"{type(exc).__name__}: {exc}"[:400]
             rec.frame = traceback.format_exc().strip().splitlines()[-3][:200]

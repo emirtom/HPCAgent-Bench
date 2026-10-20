@@ -19,6 +19,7 @@ import yaml
 
 from hpcagent_bench import modules
 from hpcagent_bench import config, languages, omp_context, sizing
+from hpcagent_bench.config import BaselineRace
 from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import ArrayVerdict, compare_arrays, resolve_outputs
@@ -55,7 +56,6 @@ __all__ = [
     "BEST_OF_KINDS",
     "COMPILED_BEST_OF_KINDS",
     "COMPILED_ORACLE",
-    "COMPLETE_RACE",
     "CUT_RETRIES",
     "DEFAULT_ORACLE",
     "EARLY_STOP_BASELINE_POLICY",
@@ -63,7 +63,6 @@ __all__ = [
     "KERNEL_COMPILED_HEAD",
     "LEADER_BY_DEFAULT",
     "LEADER_FIRST_BASELINE_POLICY",
-    "LEADER_FIRST_RACE",
     "LEADER_FROM_CACHE",
     "LEADER_FROM_TABLE",
     "NUMBA_BASELINE_TARGET",
@@ -1000,10 +999,6 @@ EARLY_STOP_BASELINE_POLICY: str = "best-of-v3"
 #: included, is cut once one rep outlasts :func:`early_stop_seconds`. A cut is "not fastest", never
 #: lost; the set is ``best-of-v2``'s, so the denominator is ``best-of(numba,c)`` either way.
 LEADER_FIRST_BASELINE_POLICY: str = "best-of-v4"
-#: ``measurement.baseline_race``: ``leader-first`` (:data:`LEADER_FIRST_BASELINE_POLICY`) or
-#: ``complete`` (``best-of-v2``: every candidate timed in full, numba last under the guillotine).
-LEADER_FIRST_RACE: str = "leader-first"
-COMPLETE_RACE: str = "complete"
 #: The races whose later candidates run under the early stop.
 EARLY_STOP_POLICIES: frozenset[str] = frozenset({EARLY_STOP_BASELINE_POLICY, LEADER_FIRST_BASELINE_POLICY})
 #: Where a race's leader came from (``grade_cells.race_leader_source``).
@@ -1051,7 +1046,7 @@ def baseline_policy(kinds: Sequence[str]) -> str:
         return EARLY_STOP_BASELINE_POLICY
     if tuple(kinds) == NUMBA_C_BASELINE_SET:
         race = config.current().measurement.baseline_race
-        return LEADER_FIRST_BASELINE_POLICY if race == LEADER_FIRST_RACE else NUMBA_C_BASELINE_POLICY
+        return LEADER_FIRST_BASELINE_POLICY if race is BaselineRace.LEADER_FIRST else NUMBA_C_BASELINE_POLICY
     return BEST_OF_BASELINE_POLICY
 
 

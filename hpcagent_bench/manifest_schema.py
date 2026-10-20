@@ -14,9 +14,11 @@ manifests.
 """
 
 import difflib
+import enum
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, cast
+from typing import Annotated, cast
 
+from hpcagent_agent.coded import Coded
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, PlainValidator, Tag, ValidationError, model_validator
 from pydantic_core import ErrorDetails, PydanticCustomError
 
@@ -24,7 +26,6 @@ from hpcagent_bench.fuzz import FuzzValue
 
 __all__ = [
     "ArgEntry",
-    "BIG",
     "ConfigKnobEntry",
     "InitBlock",
     "LayoutEntry",
@@ -35,9 +36,10 @@ __all__ = [
     "PublicConfiguration",
     "PublicScale",
     "PublicVariable",
-    "SMALL",
     "Scalar",
+    "Scale",
     "ScenarioEntry",
+    "ShownAs",
     "Value",
     "field_keys",
     "validate_manifest",
@@ -177,23 +179,34 @@ ConfigBlock = Annotated[
 ]
 
 
-#: The two size scales a manifest may declare public. A ``small`` symbol stays below
-#: :data:`hpcagent_bench.spec.SMALL_LIMIT` and far below every ``big`` one; a ``big`` symbol grows with the
-#: problem. The prompt states the scale alone, never a value.
-SMALL = "small"
-BIG = "big"
+class Scale(Coded):
+    """The two size scales a manifest may declare public. The prompt states the scale alone, never a value."""
+
+    #: Stays below :data:`hpcagent_bench.spec.SMALL_LIMIT` and far below every ``big`` symbol.
+    SMALL = enum.auto()
+    #: Grows with the problem.
+    BIG = enum.auto()
+
+
+class ShownAs(Coded):
+    """How the prompt states a public variable's values (:attr:`PublicVariable.shown_as`)."""
+
+    #: The value set.
+    VALUES = enum.auto()
+    #: Only its numeric bounds, for an offset, stride or size whose exact values are not public.
+    RANGE = enum.auto()
 
 
 class PublicScale(ManifestBlock):
     """One ``public.scales.<symbol>`` entry: a size symbol the agent is told is small or big.
 
-    :ivar scale: ``small`` or ``big`` (:data:`SMALL`, :data:`BIG`).
+    :ivar scale: ``small`` or ``big`` (:class:`Scale`).
     :ivar description: What the symbol is, as the prompt states it; never its value.
     :ivar at_most: The largest value a small size takes when ``initialize()`` derives it, so no fuzz range
         bounds it (vexx_k's ``npol`` follows a config flag); ``None`` for a fuzzed size.
     """
 
-    scale: Literal["small", "big"]
+    scale: Scale
     description: str = Field(min_length=1)
     at_most: int | None = Field(default=None, ge=1)
 
@@ -209,7 +222,7 @@ class PublicVariable(ManifestBlock):
 
     values: list[Scalar] = Field(min_length=1)
     description: str = Field(min_length=1)
-    shown_as: Literal["values", "range"] = "values"
+    shown_as: ShownAs = ShownAs.VALUES
 
 
 class PublicConfiguration(ManifestBlock):
@@ -252,7 +265,7 @@ class PublicBlock(ManifestBlock):
         if configuration is not None:
             by_name = {entry.name: entry for entry in self.configurations}
             scales |= by_name[configuration].scales
-        return frozenset(name for name, entry in scales.items() if entry.scale == SMALL)
+        return frozenset(name for name, entry in scales.items() if entry.scale is Scale.SMALL)
 
 
 class ScenarioEntry(ManifestBlock):

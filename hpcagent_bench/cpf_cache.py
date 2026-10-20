@@ -26,6 +26,7 @@ change to rendering alone renders again without canonicalizing again.
 
 import argparse
 import contextlib
+import enum
 import fcntl
 import json
 import os
@@ -34,9 +35,10 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Generator, Mapping, Sequence
-from typing import Literal, NamedTuple
+from typing import NamedTuple
 
 import pydantic
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench.cache_files import file_sha256, json_digest, sha256_hex, write_atomic
 from hpcagent_bench.kernel_key import kernel_stem
@@ -52,12 +54,10 @@ __all__ = [
     "ENTRIES_NAME",
     "HINTS_CONFIG_KEY",
     "HINTS_ENV",
-    "HINT_DETAILS",
     "LANGUAGE_EXT",
     "LAYOUT",
     "LOCKS_DIR",
     "MANIFEST_NAME",
-    "ROLES",
     "VERIFIED_NAME",
     "VIEW_NAME",
     "Artefact",
@@ -68,8 +68,11 @@ __all__ = [
     "Form",
     "HintDetail",
     "Pointer",
+    "RenderVerdict",
     "Role",
+    "Target",
     "Verification",
+    "Verified",
     "ViewHeader",
     "cache_key",
     "canonical_entry",
@@ -108,24 +111,65 @@ LANGUAGE_EXT = {"c++": "cpp", "c": "c", "hip": "hip"}
 #: A language as a setup or a request spells it -> the CPF dialect.
 DIALECT = {"c": "c", "cpp": "c++", "c++": "c++", "hip": "hip"}
 
-#: How much of each loop's parallelism hint a form spells out: ``proofs`` writes the whole hint (class, reason,
-#: witness or guard), the header contract and the library-node provenance; ``kinds`` writes one ``// par``,
-#: ``// seq`` or ``// unknown`` per loop and map and no other comment. The detail is the setup's
-#: (:data:`HINTS_CONFIG_KEY`), never the agent's, and it is part of every key and pointer name below, so
-#: a form of one detail is never served for the other.
-type HintDetail = Literal["proofs", "kinds"]
-HINT_DETAILS: tuple[HintDetail, ...] = ("proofs", "kinds")
+
+class HintDetail(Coded):
+    """How much of each loop's parallelism hint a form spells out. The detail is the setup's
+    (:data:`HINTS_CONFIG_KEY`), never the agent's, and it is part of every key and pointer name below, so
+    a form of one detail is never served for the other."""
+
+    #: The whole hint (class, reason, witness or guard), the header contract and the library-node provenance.
+    PROOFS = enum.auto()
+    #: One ``// par``, ``// seq`` or ``// unknown`` per loop and map and no other comment.
+    KINDS = enum.auto()
+
+
 #: The detail a setup that names none serves, and the one its pointers keep the unsuffixed name for.
-DEFAULT_HINTS: HintDetail = "proofs"
+DEFAULT_HINTS = HintDetail.PROOFS
 #: The config key a setup's packet sets the detail with, and its env name: the judge reads it per request
 #: (a fused judge serves each setup its own), the agent's ``canonical_parallel_form`` tool and the staging
 #: scripts read the env.
 HINTS_CONFIG_KEY = "cpf.hints"
 HINTS_ENV = "HPCAGENT_BENCH_CPF_HINTS"
 
-#: The files of one cache entry: the source, on the gpu target the device unit, and the binding.
-type Role = Literal["source", "device", "binding"]
-ROLES: tuple[Role, ...] = ("source", "device", "binding")
+
+class Role(Coded):
+    """The files of one cache entry: the source, on the gpu target the device unit, and the binding."""
+
+    SOURCE = enum.auto()
+    DEVICE = enum.auto()
+    BINDING = enum.auto()
+
+
+class Target(Coded):
+    """The device a view's forms are rendered for, and a setup runs on."""
+
+    CPU = enum.auto()
+    GPU = enum.auto()
+
+
+class RenderVerdict(Coded):
+    """How one render ended (a pointer's, a canonical entry's and a render child's ``verdict``)."""
+
+    #: A form (or a canonical SDFG) was produced.
+    OK = enum.auto()
+    #: CPF named a construct it cannot render.
+    REFUSED = enum.auto()
+    #: The kernel's dace program could not be generated.
+    NOEMIT = enum.auto()
+    #: The generated module defines no entry program.
+    NOPROGRAM = enum.auto()
+    #: Any other failure, a crash included.
+    FAIL = enum.auto()
+    #: The render child ran out of time.
+    TIMEOUT = enum.auto()
+
+
+class Verified(Coded):
+    """The judge's grade of a served form (:class:`Verification`): correct, or why not."""
+
+    OK = enum.auto()
+    UNVERIFIED = enum.auto()
+
 
 #: The config key naming the view a run serves forms from (``HPCAGENT_BENCH_SERVICE_CANONICAL_``
 #: ``PARALLEL_FORM_DIR``), unset on every setup whose packet does not carry the tool. It lives here,
@@ -165,7 +209,7 @@ class ViewHeader(pydantic.BaseModel):
 
     layout: int
     cache_root: str
-    target: Literal["cpu", "gpu"]
+    target: Target
     dace_commit: str
 
     @pydantic.field_validator("layout")
@@ -176,7 +220,7 @@ class ViewHeader(pydantic.BaseModel):
         return layout
 
     @classmethod
-    def of(cls, cache_root: pathlib.Path, target: str, dace_commit: str) -> "ViewHeader":
+    def of(cls, cache_root: pathlib.Path, target: Target, dace_commit: str) -> "ViewHeader":
         return cls.model_validate(
             {"layout": LAYOUT, "cache_root": str(cache_root.resolve()), "target": target, "dace_commit": dace_commit}
         )
@@ -196,7 +240,7 @@ class Pointer(pydantic.BaseModel):
     kernel: str
     language: str
     precision: str
-    verdict: str
+    verdict: RenderVerdict
     key: str | None = None
     error: str = ""
     cached: bool = False
@@ -207,8 +251,9 @@ class Verification(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    key: str
-    verdict: Literal["ok", "unverified"]
+    #: The key of the form graded; "" until :func:`record_verification` ties it to one.
+    key: str = ""
+    verdict: Verified
     reason: str = ""
     preset: str = ""
     build_ok: bool = False
@@ -242,11 +287,11 @@ class CanonicalManifest(pydantic.BaseModel):
 
     key: str
     layout: int
-    verdict: str
+    verdict: RenderVerdict
     error: str = ""
     kernel: str = ""
     program: str = ""
-    target: str = ""
+    target: Target | None = None
     precision: str = ""
     sha256: str = ""
     #: Wall seconds parse + canonicalize took; a hit credits them to ``transform`` (:mod:`hpcagent_bench.phase_clock`).
@@ -273,7 +318,7 @@ def canonical_entry(cache_root: pathlib.Path, key: str) -> tuple[CanonicalManife
         return None
     if manifest.key != key:
         return None
-    if manifest.verdict != "ok":
+    if manifest.verdict is not RenderVerdict.OK:
         return manifest, None
     stored = where / CANONICAL_SDFG_NAME
     try:
@@ -380,7 +425,7 @@ class EntryManifest(pydantic.BaseModel):
     @pydantic.field_validator("artefacts")
     @classmethod
     def source_and_binding(cls, artefacts: dict[Role, Artefact]) -> dict[Role, Artefact]:
-        if not {"source", "binding"} <= artefacts.keys():
+        if not {Role.SOURCE, Role.BINDING} <= artefacts.keys():
             raise ValueError("an entry lists its source and its binding")
         return artefacts
 
@@ -405,7 +450,7 @@ def verified_manifest(cache_root: pathlib.Path, key: str) -> EntryManifest:
         try:
             actual = file_sha256(path)
         except OSError as exc:
-            raise CacheMiss(f"cache entry {key} lost its {role} {path.name}") from exc
+            raise CacheMiss(f"cache entry {key} lost its {role.text} {path.name}") from exc
         if actual != artefact.sha256:
             raise CacheMiss(f"cache entry {key}: {path.name} was modified after it was rendered")
     return manifest
@@ -420,11 +465,11 @@ def is_hit(cache_root: pathlib.Path, key: str) -> bool:
 
 
 def publish(
-    cache_root: pathlib.Path, key: str, manifest: Mapping[str, object], files: Sequence[tuple[str, str, str]]
+    cache_root: pathlib.Path, key: str, manifest: Mapping[str, object], files: Sequence[tuple[Role, str, str]]
 ) -> bool:
     """Write one entry atomically. Returns False, writing nothing, when the key is already a hit.
 
-    ``files`` are ``(role, file name, text)``, one per :data:`ROLES` entry the form has. The entry is
+    ``files`` are ``(role, file name, text)``, one per :class:`Role` the form has. The entry is
     assembled in a sibling directory and renamed into place, so a reader sees a whole entry or none;
     an entry that fails verification is replaced, since its key promises the same content.
     """
@@ -434,7 +479,7 @@ def publish(
     final.parent.mkdir(parents=True, exist_ok=True)
     staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{key}.", dir=final.parent))
     staging.chmod(0o755)
-    artefacts: dict[str, Artefact] = {}
+    artefacts: dict[Role, Artefact] = {}
     for role, name, text in files:
         payload = text.encode()
         (staging / name).write_bytes(payload)
@@ -452,7 +497,7 @@ def write_json(path: pathlib.Path, record: pydantic.BaseModel) -> None:
     write_atomic(path, text.encode(), mode=0o644)
 
 
-def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> None:
+def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: Target, dace_commit: str) -> None:
     """Create ``view`` pinned to this cache and target (recording ``dace_commit``), or confirm it already is.
 
     A view that names another cache or target is refused: it would serve a CPU setup a device form, or
@@ -464,7 +509,7 @@ def open_view(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_co
         write_json(view / VIEW_NAME, ViewHeader.of(cache_root, target, dace_commit))
 
 
-def pin_error(view: pathlib.Path, cache_root: pathlib.Path, target: str, dace_commit: str) -> str:
+def pin_error(view: pathlib.Path, cache_root: pathlib.Path, target: Target, dace_commit: str) -> str:
     """Why ``view`` cannot take renders from this cache and target; "" when it is absent (it will be
     created) or pinned to exactly them. ``dace_commit`` is not compared: a dace pin bump keeps serving the
     forms the view records, and a kernel it lacks is rendered by the current dace."""
@@ -496,7 +541,7 @@ def pointer_name(kernel: str, fptype: str, dialect: str, hints: HintDetail) -> s
     """The exact pointer file name. The precision tag is one segment, so no kernel matches another's; a
     detail other than :data:`DEFAULT_HINTS` suffixes the ``cpf`` segment (``_cpf-kinds.``), so one view holds
     both details of a kernel side by side and a ``proofs`` view stays readable as it was rendered."""
-    detail = "" if hints == DEFAULT_HINTS else f"-{hints}"
+    detail = "" if hints is DEFAULT_HINTS else f"-{hints.text}"
     return f"{kernel_stem(kernel)}_{fptype}_cpf{detail}.{LANGUAGE_EXT[dialect]}.json"
 
 
@@ -535,9 +580,9 @@ def render_lock(cache_root: pathlib.Path, view: pathlib.Path, kernel: str, fptyp
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def served_dialect(target: str, language: str) -> str:
+def served_dialect(target: Target, language: str) -> str:
     """The device form is the only dialect a gpu view holds, whatever host dialect was asked for."""
-    return "hip" if target == "gpu" else DIALECT[language]
+    return "hip" if target is Target.GPU else DIALECT[language]
 
 
 def pointer_outcome(
@@ -550,9 +595,9 @@ def pointer_outcome(
         pointer = Pointer.model_validate_json((view / ENTRIES_NAME / name).read_bytes())
     except (OSError, ValueError) as exc:
         raise CacheMiss(f"view {view} has no readable entry {name}: no prerender covered it ({exc})") from exc
-    if pointer.verdict != "ok" or not pointer.key:
+    if pointer.verdict is not RenderVerdict.OK or not pointer.key:
         raise CacheMiss(
-            f"view {view} entry {name} has no form (verdict {pointer.verdict!r}, key {pointer.key}): "
+            f"view {view} entry {name} has no form (verdict {pointer.verdict.text!r}, key {pointer.key}): "
             f"{pointer.error or 'not rendered'}"
         )
     return name, pointer.key, header
@@ -580,11 +625,11 @@ def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: 
     cache_root = pathlib.Path(header.cache_root)
     manifest = verified_manifest(cache_root, key)
     where = entry_path(cache_root, key)
-    device = manifest.artefacts.get("device")
+    device = manifest.artefacts.get(Role.DEVICE)
     return Form(
         manifest.entry,
-        where / manifest.artefacts["source"].name,
-        where / manifest.artefacts["binding"].name,
+        where / manifest.artefacts[Role.SOURCE].name,
+        where / manifest.artefacts[Role.BINDING].name,
         where / device.name if device else None,
         tuple(manifest.libraries),
         manifest.workspace_bytes,
@@ -592,11 +637,12 @@ def resolve(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: 
 
 
 def record_verification(
-    view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail, verdict: Mapping[str, object]
+    view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail, verdict: "Verification"
 ) -> None:
-    """File the judge's ``verdict`` on the form the view serves for this kernel, tied to its key."""
+    """File the judge's ``verdict`` on the form the view serves for this kernel, tied to its key (``verdict``'s
+    own key is replaced)."""
     name, key, _ = pointer_outcome(view, kernel, language, fptype, hints)
-    write_json(view / VERIFIED_NAME / name, Verification.model_validate({**verdict, "key": key}))
+    write_json(view / VERIFIED_NAME / name, verdict.model_copy(update={"key": key}))
 
 
 def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str, hints: HintDetail) -> str:
@@ -608,12 +654,12 @@ def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str, hint
         return f"view {view} form {name} was never graded (run python -m hpcagent_bench.cpf_verify)"
     if verdict.key != key:
         return f"view {view} form {name} was graded as {verdict.key}, it now serves {key}"
-    if verdict.verdict != "ok":
+    if verdict.verdict is not Verified.OK:
         return f"view {view} form {name} is unverified: {verdict.reason}"
     return ""
 
 
-def wrong_target(view: pathlib.Path, target: str) -> str:
+def wrong_target(view: pathlib.Path, target: Target) -> str:
     """Why ``view`` cannot serve a setup on ``target``, or "" when it can or is no view at all.
 
     A cpu view answers a hip setup with C++, and a gpu view stages a .hip file into a C task.
@@ -622,7 +668,9 @@ def wrong_target(view: pathlib.Path, target: str) -> str:
         held = read_view(view).target
     except CacheMiss:
         return ""
-    return "" if held == target else f"view {view} holds {held} forms, not the {target} forms this setup runs on"
+    if held is target:
+        return ""
+    return f"view {view} holds {held.text} forms, not the {target.text} forms this setup runs on"
 
 
 def missing(
@@ -630,7 +678,7 @@ def missing(
     kernels: Sequence[str],
     language: str,
     fptype: str,
-    target: str,
+    target: Target,
     hints: HintDetail,
     verified: bool = False,
 ) -> list[str]:
@@ -656,7 +704,7 @@ def on_demand_plan(
     kernels: Sequence[str],
     language: str,
     fptype: str,
-    target: str,
+    target: Target,
     hints: HintDetail,
     cache_root: pathlib.Path | None,
     dace_commit: str,
@@ -673,8 +721,8 @@ def on_demand_plan(
     for miss in missing(view, kernels, language, fptype, target, hints):
         kernel = miss.split(":", 1)[0]
         pointer = recorded(view, kernel, served_dialect(target, language), fptype, hints)
-        if pointer and pointer.verdict != "ok":
-            lines.append(f"{kernel}: recorded {pointer.verdict!r}, answered unavailable: {pointer.error}")
+        if pointer and pointer.verdict is not RenderVerdict.OK:
+            lines.append(f"{kernel}: recorded {pointer.verdict.text!r}, answered unavailable: {pointer.error}")
         else:
             lines.append(f"{kernel}: rendered by the judge on its first request")
     if not lines:
@@ -691,7 +739,7 @@ def stage(
     fptype: str,
     hints: HintDetail,
     dest: pathlib.Path,
-    target: str,
+    target: Target,
     name: str = "",
 ) -> pathlib.Path:
     """Copy the form for ``kernel`` to ``dest/<name>.<ext>`` (on gpu its device unit beside it, ``<name>.hip``);
@@ -728,19 +776,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     for command in (check, put):
         command.add_argument("--view", required=True, type=pathlib.Path)
         command.add_argument("--language", required=True, choices=sorted(DIALECT))
-        command.add_argument("--target", required=True, choices=("cpu", "gpu"), help="the device the setup runs on")
+        command.add_argument("--target", required=True, choices=Target.texts(), help="the device the setup runs on")
         command.add_argument("--precision", default="fp64", help="fptype tag: fp64 / fp32 / fp16")
         command.add_argument(
-            "--hints", default=DEFAULT_HINTS, choices=HINT_DETAILS, help="the hint detail the setup serves"
+            "--hints", default=DEFAULT_HINTS.text, choices=HintDetail.texts(), help="the hint detail the setup serves"
         )
     args = parser.parse_args(argv)
+    target, hints = Target.parse(args.target), HintDetail.parse(args.hints)
     if args.command == "check" and args.on_demand and args.verified:
         parser.error("--on-demand and --verified exclude each other: a form rendered on request was never graded")
     if args.command == "check" and args.on_demand:
         kernels = [k for k in args.kernels.split(",") if k.strip()]
         cache = args.cache or (pathlib.Path(os.environ[CACHE_ENV]) if os.environ.get(CACHE_ENV) else None)
         lines, error = on_demand_plan(
-            args.view, kernels, args.language, args.precision, args.target, args.hints, cache, args.dace_commit
+            args.view, kernels, args.language, args.precision, target, hints, cache, args.dace_commit
         )
         for line in lines:
             print(line)
@@ -750,14 +799,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "check":
         kernels = [k for k in args.kernels.split(",") if k.strip()]
-        misses = missing(args.view, kernels, args.language, args.precision, args.target, args.hints, args.verified)
+        misses = missing(args.view, kernels, args.language, args.precision, target, hints, args.verified)
         for line in misses:
             print(line)
         return 1 if misses else 0
     try:
-        print(
-            stage(args.view, args.kernel, args.language, args.precision, args.hints, args.dest, args.target, args.name)
-        )
+        print(stage(args.view, args.kernel, args.language, args.precision, hints, args.dest, target, args.name))
     except CacheMiss as exc:
         print(f"cpf_cache: {exc}", file=sys.stderr)
         return 1

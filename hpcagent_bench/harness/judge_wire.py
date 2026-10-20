@@ -17,9 +17,10 @@ an instrument report of :mod:`hpcagent_bench.harness.profile_wire` (or :class:`O
 does not repeat.
 """
 
-from typing import Literal
+import enum
 
 import pydantic
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench.cpf_cache import HintDetail
 
@@ -29,7 +30,9 @@ __all__ = [
     "BuildAnswer",
     "CanonicalFormAnswer",
     "CanonicalFormQuery",
+    "Correct",
     "CrawledPageAnswer",
+    "FormVerdict",
     "GradeAnswer",
     "HealthAnswer",
     "InFlightAnswer",
@@ -51,6 +54,25 @@ __all__ = [
     "SubmitVerdict",
     "TimedCellAnswer",
 ]
+
+
+class FormVerdict(Coded):
+    """Whether ``GET /canonical_parallel_form`` served a form (:class:`CanonicalFormAnswer`)."""
+
+    OK = enum.auto()
+    UNAVAILABLE = enum.auto()
+
+
+class Correct(Coded):
+    """``POST /submit``'s verdict as an agent reads it (:class:`SubmitVerdict`)."""
+
+    YES = enum.auto()
+    NO = enum.auto()
+
+    @classmethod
+    def of(cls, correct: bool) -> "Correct":
+        """The verdict of a grade that was ``correct`` or not."""
+        return cls.YES if correct else cls.NO
 
 
 class RequestFields(pydantic.BaseModel):
@@ -179,7 +201,7 @@ class CanonicalFormAnswer(JudgeAnswer):
     (``unavailable``, with a ``note`` and possibly the ``error``)."""
 
     kernel: str
-    verdict: Literal["ok", "unavailable"]
+    verdict: FormVerdict
     dialect: str | None = None
     entry: str | None = None
     source: str | None = None
@@ -310,7 +332,7 @@ class SubmitVerdict(JudgeAnswer):
     """``POST /submit`` as an agent gets it: correct or not and the recorded row id; the compiler log of a
     failed build (``build_log``) and ``judge_fault`` only when they apply."""
 
-    correct: Literal["yes", "no"]
+    correct: Correct
     request_id: str
     build_log: str | None = None
     judge_fault: bool | None = None

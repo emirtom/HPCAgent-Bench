@@ -21,13 +21,13 @@ import os
 import pathlib
 import sys
 from collections.abc import Callable, Iterable, Sequence
-from enum import Enum
 
 from hpcagent_bench import config
 from hpcagent_bench.harness import db_json, grade_under, results_db, torch_dist_curve
 from hpcagent_bench.harness.grade_under import Item
 from hpcagent_bench.harness.metric import LawCurve
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.outcomes import GradeStatus
 from hpcagent_bench.harness.recording import FinalRecord
 from hpcagent_bench.harness.scoring import ML_LAWS, Score
 from hpcagent_bench.harness.service import distribution_refusal, from_config
@@ -42,7 +42,6 @@ __all__ = [
     "JOB_OWNED_PREFIX",
     "RANK_COUNTS_ENV",
     "BaselineCurve",
-    "GradeStatus",
     "Graded",
     "Recorder",
     "baseline_work",
@@ -66,16 +65,6 @@ RANK_COUNTS_ENV: str = "HPCAGENT_BENCH_MPI_RANK_COUNTS"
 #: Setup-env keys the grade job owns (the sweep's launch shape); a setup's one-node values must not
 #: reach it.
 JOB_OWNED_PREFIX: str = "HPCAGENT_BENCH_MPI_"
-
-
-#: A replay's outcomes: a curve; correct but no valid curve; failed (fuzz gate or leaderboard run);
-#: refused before building (service.distribution_refusal); raised.
-class GradeStatus(Enum):
-    GRADED = "graded"
-    NO_CURVE = "no-curve"
-    INCORRECT = "incorrect"
-    REFUSED = "refused"
-    ERROR = "error"
 
 
 Recorder = Callable[..., int]
@@ -141,7 +130,7 @@ def decided_final(task: Task, result: Score, protocol: Protocol) -> FinalRecord 
 
 def curve_lines(item: Item, graded: Graded) -> list[str]:
     """The printed curves: per law, one line per measured P with its nodes, time and efficiency."""
-    lines = [f"curve {item.setup} {item.kernel} status={graded.status.value}"]
+    lines = [f"curve {item.setup} {item.kernel} status={graded.status.text}"]
     if not graded.curves:
         lines.append(f"  no curve: {graded.detail}"[:2000])
     for law in graded.curves:
@@ -164,7 +153,7 @@ def curve_lines(item: Item, graded: Graded) -> list[str]:
 GRADED_LAWS = f"""
 SELECT r.label, o.kernel, o.ts_ms, s.mode FROM scaling_grades s
 JOIN grades g ON g.id = s.grade_id JOIN grades o ON o.id = g.of_grade_id JOIN episodes r ON r.id = o.episode_id
-WHERE s.status != '{GradeStatus.ERROR.value}'
+WHERE s.status != '{GradeStatus.ERROR.text}'
 """
 
 
@@ -185,7 +174,7 @@ def laws_of(item: Item) -> tuple[ScalingLaw, ...]:
 
 def fully_graded(item: Item, done: set[tuple[object, ...]]) -> bool:
     """Whether every law of ``item`` is in ``done`` (:func:`graded_keys`)."""
-    return all((item.episode_id, item.kernel, item.ts_ms, law.value) in done for law in laws_of(item))
+    return all((item.episode_id, item.kernel, item.ts_ms, law.text) in done for law in laws_of(item))
 
 
 def grade_into(
@@ -205,7 +194,7 @@ def grade_into(
     except Exception as exc:  # noqa: BLE001 -- one broken item must not stop the gang
         reason = f"{type(exc).__name__}: {exc}"[:400]
     status = GradeStatus.ERROR if graded is None else graded.status
-    values = {"status": status.value, "detail": reason if graded is None else graded.detail}
+    values = {"status": status.text, "detail": reason if graded is None else graded.detail}
     curves = graded.curves if graded is not None else ()
     with contextlib.closing(results_db.open_db(path)) as conn:
         grade_id = grade_under.add_regrade(conn, item, grade_under.PROMOTION_KIND, values)
@@ -213,7 +202,7 @@ def grade_into(
             final_id = grade_under.add_regrade(conn, item, grade_under.FINAL_KIND, graded.final.values)
             results_db.add_cells(conn, final_id, graded.final.cells)
         for law in curves:  # one per (law, input): each input is the base of its own sweep
-            law_status = graded.law_status(law).value  # type: ignore[union-attr]
+            law_status = graded.law_status(law) if graded is not None else status
             disclosure = db_json.DISCLOSURE.dumps(law.disclosure)
             notes = db_json.STRINGS.dumps(law.notes)
             # Every law whose sweep ran is recorded with its curve, even with no measured point (all holes).
@@ -230,13 +219,17 @@ def grade_into(
                     label=law.label,
                 )
             else:
-                laws_row = {"mode": law.mode.value, "input": law.label, "status": law_status}
+                laws_row: dict[str, results_db.Value] = {
+                    "mode": law.mode.text,
+                    "input": law.label,
+                    "status": law_status.text,
+                }
                 results_db.add_scaling(conn, grade_id, {**laws_row, "disclosure": disclosure, "notes": notes}, [])
         if not curves:  # no sweep ran: one row per law names why
             for mode in laws_of(item):
                 laws_row = {
-                    "mode": mode.value,
-                    "status": status.value,
+                    "mode": mode.text,
+                    "status": status.text,
                     "disclosure": None,
                     "notes": db_json.STRINGS.dumps(()),
                 }

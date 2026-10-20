@@ -36,6 +36,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from typing import NamedTuple
 
+from hpcagent_agent.coded import Coded
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER, RC_TIMEOUT, RC_TOKEN_BUDGET
 
 from hpcagent_bench import tags
@@ -88,13 +89,13 @@ BUDGET_RETURNCODES = frozenset({RC_TIMEOUT, RC_TOKEN_BUDGET})
 LAUNCH_DIR = ".agent-launch"
 
 
-class OwedClass(enum.Enum):
+class OwedClass(Coded):
     """How an owed kernel reruns."""
 
-    BUDGET = "budget"
-    INFRA = "infra"
+    BUDGET = enum.auto()
+    INFRA = enum.auto()
     #: The kernel's task changed since the run and the submission failed every input: a fresh run as it was.
-    TASK = "task"
+    TASK = enum.auto()
 
 
 class Run(NamedTuple):
@@ -287,7 +288,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     tag_kernels = list(tags.kernels_of(args.tag))
     by_identity, empty = collect_jobs(args.runs, set(args.exclude_job))
     regrades = regrade_dbs(args.regrades)
-    only = OwedClass(args.owed_class) if args.owed_class else None
+    only = OwedClass.parse(args.owed_class) if args.owed_class else None
     print(f"tag {args.tag}: {len(tag_kernels)} kernels")
     if empty:
         print(f"no judge shard: jobs {sorted(empty)}")
@@ -297,10 +298,10 @@ def cmd_collect(args: argparse.Namespace) -> int:
         jobs = sorted(by_identity[name], key=lambda job: int(job.job))
         runs = designed_runs(jobs, tag_kernels)
         classes = owed(jobs, runs, regrades)
-        counts = collections.Counter(owed_class.value for owed_class in classes.values())
+        counts = collections.Counter(classes.values())
         print(
             f"{name} done {len(runs) - len(classes)}/{len(runs)} owed {len(classes)} "
-            f"({', '.join(f'{c.value} {counts[c.value]}' for c in OwedClass)}) newest {jobs[-1].path}"
+            f"({', '.join(f'{c.text} {counts[c]}' for c in OwedClass)}) newest {jobs[-1].path}"
         )
         if args.out:
             write_listing(args.out, name, [run for run, owed_class in classes.items() if only in (None, owed_class)])
@@ -437,7 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument("--out", type=pathlib.Path, help="write <setup>.txt run lists here (<kernel> [<slot>])")
     collect.add_argument(
-        "--class", dest="owed_class", choices=[c.value for c in OwedClass], help="write only this class's kernels"
+        "--class", dest="owed_class", choices=OwedClass.texts(), help="write only this class's kernels"
     )
     collect.set_defaults(func=cmd_collect)
     run = sub.add_parser("run", help="rerun one setup on a kernel list with its recorded job env")

@@ -1341,7 +1341,9 @@ def fuzz_bounds(value: FuzzValue) -> tuple[int | float, int | float] | None:
     return None
 
 
-def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str, at_most: int | None = None) -> None:
+def validate_public_scale(
+    spec: "BenchSpec", sym: str, scale: manifest_schema.Scale, source: str, at_most: int | None = None
+) -> None:
     """Raise ``ValueError`` unless ``sym`` is a size symbol of the declared ``scale``: a small one stays below
     :data:`SMALL_LIMIT` in every preset and its fuzz range, outside ``scale_axes``; a big one's fuzz range
     (the graded sizes) starts at or above it where the range is static. A small size ``initialize()`` derives
@@ -1351,7 +1353,7 @@ def validate_public_scale(spec: "BenchSpec", sym: str, scale: str, source: str, 
         raise ValueError(f"{source}: public scale {sym} is not a size symbol")
     fuzzed = fuzz.resolve_ranges(spec.parameters, config_names=frozenset(spec.config))
     fuzz_range = fuzz_bounds(fuzzed[sym]) if sym in fuzzed else None
-    if scale == manifest_schema.BIG:
+    if scale is manifest_schema.Scale.BIG:
         if fuzz_range is not None and fuzz_range[0] < SMALL_LIMIT:
             raise ValueError(f"{source}: {sym} is declared big, so its fuzz range must start at {SMALL_LIMIT} or above")
         return
@@ -1387,7 +1389,7 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
         if missing:
             raise ValueError(f"{source}: public.variables.{sym}.values misses {missing}, which the config space uses")
         numeric = all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in variable.values)
-        if variable.shown_as == "range" and not numeric:
+        if variable.shown_as is manifest_schema.ShownAs.RANGE and not numeric:
             raise ValueError(f"{source}: public.variables.{sym} is shown as a range, so its values must be numbers")
     names = [entry.name for entry in public.configurations]
     duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -1399,7 +1401,7 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
         for sym, value in entry.values.items():
             if sym not in public.variables:
                 raise ValueError(f"{source}: public configuration {entry.name!r} fixes {sym}, not a public variable")
-            if public.variables[sym].shown_as == "range":
+            if public.variables[sym].shown_as is manifest_schema.ShownAs.RANGE:
                 raise ValueError(
                     f"{source}: public configuration {entry.name!r} fixes {sym}, which is shown as a range"
                 )
@@ -1409,12 +1411,12 @@ def validate_public(spec: "BenchSpec", source: str) -> None:
                     f"{public.variables[sym].values}"
                 )
         for sym, own in entry.scales.items():
-            if kernel_wide.get(sym, own.scale) != own.scale:
+            if kernel_wide.get(sym, own.scale) is not own.scale:
                 raise ValueError(f"{source}: public configuration {entry.name!r} flips the scale of {sym}")
             scales.add((sym, own.scale))
     bounds = {sym: entry.at_most for sym, entry in public.scales.items()}
-    for sym, scale_name in sorted(scales):
-        validate_public_scale(spec, sym, scale_name, source, bounds.get(sym))
+    for sym, scale in sorted(scales, key=lambda pair: (pair[0], pair[1].text)):
+        validate_public_scale(spec, sym, scale, source, bounds.get(sym))
 
 
 def negative_values(spec: "BenchSpec") -> dict[str, int | float]:

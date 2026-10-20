@@ -21,6 +21,7 @@ import pathlib
 import sqlite3
 from collections.abc import Collection, Iterator, Mapping, Sequence
 
+from hpcagent_agent.coded import Coded
 from relayout.ops import Action
 from relayout.requests import expr_json, operation_json
 
@@ -693,13 +694,15 @@ GRADE_CHILDREN: tuple[str, ...] = (
 )
 
 
-class ProtocolChange(enum.Enum):
+class ProtocolChange(Coded):
     """What a regrade under protocol B does to a submission's final grade recorded under protocol A != B."""
 
+    SEPARATOR = enum.nonmember("-")
+
     #: Keep the old row and write a new one: rows under two stamps are never pooled; a reader picks the credited one.
-    NEW_ROW = "new-row"
+    NEW_ROW = enum.auto()
     #: Delete the old row: the regrade rewrites it.
-    REPLACE = "replace"
+    REPLACE = enum.auto()
 
 
 def final_row_groups(rows: Sequence[tuple[int, str, int]], on_change: ProtocolChange) -> list[list[int]]:

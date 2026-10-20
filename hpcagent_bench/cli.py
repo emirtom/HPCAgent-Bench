@@ -25,12 +25,12 @@ import sys
 import tempfile
 import weakref
 from collections.abc import Callable
-from enum import Enum
 from typing import IO, TYPE_CHECKING, Any
 
 import hpcagent_bench
 from hpcagent_bench import osinfo
-from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS
+from hpcagent_bench.config import Execution, PromptStrategy
+from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HintDetail, RenderVerdict, Target
 from hpcagent_bench.paths import RESULTS_DIR
 from hpcagent_bench.precision import DATATYPE_CHOICES
 from hpcagent_bench.spec import BenchSpec, preset_arg, resolve_preset
@@ -38,7 +38,6 @@ from hpcagent_bench.spec import BenchSpec, preset_arg, resolve_preset
 __all__ = [
     "FORWARDED",
     "SPARSE_SWEEP_REPEAT",
-    "Execution",
     "add_grade_options",
     "add_sweep_options",
     "add_task_selection",
@@ -213,6 +212,8 @@ def write_agent_row(f: IO[str], row: "RunRow") -> None:
     so the on-disk row shape is single-sourced."""
     dumped = dataclasses.asdict(row)
     dumped.pop("prompt", None)
+    dumped["status"] = row.status.text
+    dumped["trajectory"] = [{**dataclasses.asdict(point), "status": point.status.text} for point in row.trajectory]
     f.write(json.dumps(dumped) + "\n")
 
 
@@ -285,19 +286,14 @@ def run_static_and_write(
     return rows
 
 
-class Execution(Enum):
-    """Where ``hpcagent-bench agent`` runs the agent (config ``agent.execution``)."""
-
-    NATIVE = "native"
-    CONTAINER = "container"
-    HARBOR = "harbor"
-
-
 def execution_mode(args: argparse.Namespace) -> Execution:
     """The run mode: ``--native``, else ``--execution``, else config ``agent.execution``. Sets ``args.native``."""
     from hpcagent_bench import config
 
-    execution = Execution.NATIVE if args.native else Execution(args.execution or config.current().agent.execution)
+    if args.native:
+        execution = Execution.NATIVE
+    else:
+        execution = Execution.parse(args.execution) if args.execution else config.current().agent.execution
     args.native = execution is Execution.NATIVE
     return execution
 
@@ -311,7 +307,7 @@ def agent_under_harbor(args: argparse.Namespace) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     language = args.languages.split(",")[0]
     rc, grades = harbor.run_agent(args.agent, args.kernels, out.parent / f"harbor-{args.episode_id}", language=language)
-    run = {"agent": args.agent, "episode_id": args.episode_id, "execution": "harbor"}
+    run = {"agent": args.agent, "episode_id": args.episode_id, "execution": Execution.HARBOR.text}
     with out.open("a") as f:
         for g in grades:
             f.write(json.dumps({**g.model_dump(), **run}) + "\n")
@@ -460,7 +456,7 @@ def save_submission_file(
 
     ext = LANG_EXT.get(language, language)
     tag = f"__{prompt_variant}" if prompt_variant else ""
-    (save_dir / f"{task.kernel}__{task.language}{tag}__{row.status}.{ext}").write_text(source)
+    (save_dir / f"{task.kernel}__{task.language}{tag}__{row.status.text}.{ext}").write_text(source)
 
 
 def cmd_tasks(args: argparse.Namespace) -> int:
@@ -480,7 +476,8 @@ def variant_diff(cfg: "PromptConfig") -> str:
 
     base = dataclasses.asdict(PromptConfig.resolve())
     cur = dataclasses.asdict(cfg)
-    return ", ".join(f"{k}={cur[k]!r}" for k in cur if cur[k] != base[k])
+    shown = {k: v.text if isinstance(v, PromptStrategy) else repr(v) for k, v in cur.items()}
+    return ", ".join(f"{k}={shown[k]}" for k in cur if cur[k] != base[k])
 
 
 def print_sections(prompt_config: "PromptConfig") -> int:
@@ -839,14 +836,15 @@ def cmd_cpf(args: argparse.Namespace) -> int:
     """Render kernels as self-contained C/C++ translation units through DaCe's CPF."""
     from hpcagent_bench import cpf_bridge
 
+    target, hints = Target.parse(args.target), HintDetail.parse(args.hints)
     if args.track:
         records = cpf_bridge.render_track(
             args.track,
             args.out,
             language=args.language,
             precision=args.precision,
-            target=args.target,
-            hints=args.hints,
+            target=target,
+            hints=hints,
             jsonl=args.jsonl,
         )
     else:
@@ -856,14 +854,14 @@ def cmd_cpf(args: argparse.Namespace) -> int:
                 args.out,
                 language=args.language,
                 precision=args.precision,
-                target=args.target,
-                hints=args.hints,
+                target=target,
+                hints=hints,
             )
         ]
         print(records[0].line(indent=2))
     # A refusal is a result, not a failure: CPF names the construct it cannot render and a sweep is
     # measuring exactly that. Only a crash or a wedge makes the command itself fail.
-    return 1 if any(r.verdict in ("fail", "timeout") for r in records) else 0
+    return 1 if any(r.verdict in (RenderVerdict.FAIL, RenderVerdict.TIMEOUT) for r in records) else 0
 
 
 def add_task_selection(p: argparse.ArgumentParser) -> None:
@@ -964,7 +962,6 @@ def add_sweep_options(p: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argparse parser."""
     from hpcagent_bench.harness.grading import BASELINE_OPTIONS, ORACLE_OPTIONS
-    from hpcagent_bench.harness.prompts import STRATEGIES
     from hpcagent_bench.harness.service import INPUT_MODES
     from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 
@@ -1006,7 +1003,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "--execution",
         default=None,
-        choices=[e.value for e in Execution],
+        choices=Execution.texts(),
         help="where the agent runs: native (in-process, = --native), container (default; the "
         "container launcher / judge endpoints), or harbor (Harbor runs the matching Harbor agent "
         "in one container per trial, graded by the same judge). Default: config agent.execution",
@@ -1086,7 +1083,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument(
         "--strategy",
         default=None,
-        choices=sorted(STRATEGIES),
+        choices=PromptStrategy.texts(),
         help="named optimization strategy shaping the how-to section "
         "(default from config prompt.strategy; overrides the --variant's strategy)",
     )
@@ -1311,16 +1308,16 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("--precision", default="", help="fp64 (default) / fp32 / fp16")
     mp.add_argument(
         "--target",
-        default="cpu",
-        choices=("cpu", "gpu"),
+        default=Target.CPU.text,
+        choices=Target.texts(),
         help="which specialization to render: cpu parallel regions, or the offloaded device form. "
         "Write the two into DIFFERENT --out directories: the rendered file names are the same, and "
         "the judge serves whichever directory it is pointed at.",
     )
     mp.add_argument(
         "--hints",
-        default=DEFAULT_HINTS,
-        choices=HINT_DETAILS,
+        default=DEFAULT_HINTS.text,
+        choices=HintDetail.texts(),
         help="proofs: every loop's whole hint and the header contract; kinds: one par, seq or unknown per loop",
     )
     mp.add_argument("--jsonl", default=None, help="append one verdict per line here (--track)")

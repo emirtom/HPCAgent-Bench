@@ -23,6 +23,7 @@ accumulates rows run after run and is left exactly as it was.
 import argparse
 import contextlib
 import dataclasses
+import enum
 import os
 import pathlib
 import resource
@@ -31,6 +32,8 @@ import signal
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
+
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import cpf_canonical, flags, paths, run_layout
 from hpcagent_bench.cluster import jobs
@@ -41,8 +44,8 @@ from hpcagent_bench.units import BYTES_PER_KIB, BYTES_PER_MIB
 __all__ = [
     "DEFAULT_KERNEL_MEM_KB",
     "KILL_GRACE_SECONDS",
-    "PHASES",
     "TIMEOUT_CODES",
+    "Phase",
     "Sweep",
     "begin",
     "cache_environment",
@@ -65,7 +68,19 @@ __all__ = [
     "summary_line",
 ]
 
-PHASES = ("begin", "run", "finish", "all")
+
+class Phase(Coded):
+    """One step of a sweep (``--phase``): each is an ``srun`` of the job."""
+
+    #: Drop the column's earlier rows of the run (one task).
+    BEGIN = enum.auto()
+    #: Time this task's share of the kernels (all tasks).
+    RUN = enum.auto()
+    #: Merge and summarize (one task).
+    FINISH = enum.auto()
+    #: The three in order, with one task.
+    ALL = enum.auto()
+
 
 #: A kernel's heap cap in KiB (``CANON_KERNEL_MEM_KB``): 120 GiB, so that 4 ranks x 120 = 480 GB fit the node's 501 GB.
 #: An XL kernel peaks at ~50 GB resident, and RLIMIT_DATA also counts the heap a forked grading child inherits from the
@@ -374,7 +389,10 @@ def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--kernels-file", type=pathlib.Path, default=None, help="the tag as one name per line")
     parser.add_argument("--preset", default="fuzzed", help="the size preset the column is timed at")
     parser.add_argument(
-        "--phase", choices=PHASES, default="all", help="begin (1 task), run (all tasks), finish (1 task)"
+        "--phase",
+        choices=Phase.texts(),
+        default=Phase.ALL.text,
+        help="begin (1 task), run (all tasks), finish (1 task)",
     )
     parser.add_argument(
         "--opt", type=pathlib.Path, default=None, help="the checkout the kernels run from (default this one)"
@@ -439,21 +457,21 @@ def run_action(args: argparse.Namespace, rank: jobs.Rank) -> int:
     """``hpcagent-bench job baseline``: this task's part of the sweep phase named by ``--phase``."""
     opt = (args.opt or paths.ROOT).resolve()
     check_column(args.column)
-    phase = args.phase
-    if phase == "all" and rank.size != 1:
+    phase = Phase.parse(args.phase)
+    if phase is Phase.ALL and rank.size != 1:
         raise SystemExit(
             f"baseline: {rank.size} tasks: run --phase begin (one task), run (all tasks) and finish (one task) as "
             "three steps (hpcagent_bench/cluster/baseline.sbatch)"
         )
-    environ = cache_environment(opt, os.environ) if phase != "run" else dict(os.environ)
-    kernels = resolve_kernels(args.tag, args.kernels, args.kernels_file) if phase != "finish" else ()
+    environ = cache_environment(opt, os.environ) if phase is not Phase.RUN else dict(os.environ)
+    kernels = resolve_kernels(args.tag, args.kernels, args.kernels_file) if phase is not Phase.FINISH else ()
     sweep = Sweep(args.column, args.out_root.resolve(), kernels, args.preset, opt, environ)
-    if phase in ("begin", "all") and rank.index == 0:
+    if phase in (Phase.BEGIN, Phase.ALL) and rank.index == 0:
         begin(sweep)
-    if phase in ("run", "all"):
+    if phase in (Phase.RUN, Phase.ALL):
         status = run(sweep, rank)
         if status != 0:
             return status
-    if phase in ("finish", "all") and rank.index == 0:
+    if phase in (Phase.FINISH, Phase.ALL) and rank.index == 0:
         finish(sweep)
     return 0

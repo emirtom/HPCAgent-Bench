@@ -46,12 +46,13 @@ import tomllib
 import urllib.parse
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any
 
 import yaml
+from hpcagent_agent.coded import Coded
 
 from hpcagent_bench import config, containers, hf_export, languages, paths
+from hpcagent_bench.config import Hardware
 from hpcagent_bench.harbor_grade import (
     BundleGrade,
     DistributedGrade,
@@ -139,7 +140,6 @@ __all__ = [
     "images_for",
     "instruction_md",
     "issue_md",
-    "json_fields",
     "kernel_rows",
     "launch",
     "layout_lines",
@@ -170,33 +170,33 @@ __all__ = [
 ]
 
 
-class Group(Enum):
+class Group(Coded):
     """Task granularity: one task per kernel, or a directory's microkernels bundled into one."""
 
-    KERNEL = "kernel"
-    DIR = "dir"
+    KERNEL = enum.auto()
+    DIR = enum.auto()
 
 
-class Layout(Enum):
+class Layout(Coded):
     """What the agent is handed: an empty submission stub, or a mock git repo with a naive seed."""
 
-    KERNEL = "kernel"
-    REPO = "repo"
+    KERNEL = enum.auto()
+    REPO = enum.auto()
 
 
 type KernelRow = tuple[str, BenchSpec, hf_export.ExportRow]
 
 #: The hardware targets ``--hardware`` selects: the ``images.<hw>`` config pair and the
 #: devices both containers are given (:data:`GPU_ACCESS`).
-HARDWARE: tuple[str, ...] = ("cpu", "amd", "nvidia")
-DEFAULT_HARDWARE = "cpu"
+HARDWARE: tuple[Hardware, ...] = tuple(Hardware)
+DEFAULT_HARDWARE = Hardware.CPU
 #: GPU passthrough per hardware target, as compose service keys. AMD: the KFD compute node and the
 #: DRI render nodes, plus the groups that own them on a ROCm host; NVIDIA: the CDI device the
 #: container toolkit's CDI spec names (podman and docker >= 25 resolve it); cpu: nothing.
-GPU_ACCESS: dict[str, dict[str, list[str]]] = {
-    "cpu": {},
-    "amd": {"devices": ["/dev/kfd", "/dev/dri"], "group_add": ["video", "render"]},
-    "nvidia": {"devices": ["nvidia.com/gpu=all"]},
+GPU_ACCESS: dict[Hardware, dict[str, list[str]]] = {
+    Hardware.CPU: {},
+    Hardware.AMD: {"devices": ["/dev/kfd", "/dev/dri"], "group_add": ["video", "render"]},
+    Hardware.NVIDIA: {"devices": ["nvidia.com/gpu=all"]},
 }
 #: Harbor's service for the agent container (``harbor.environments`` execs every agent and verifier
 #: command in it); a compose file adds services beside it.
@@ -243,9 +243,11 @@ def task_dir_name(task_id: str) -> str:
     return f"hpcagent_bench-{slug(task_id)}"
 
 
-def images_for(hardware: str) -> tuple[str, str]:
-    """``(agent_image, verifier_image)`` of config ``images.<hardware>``; KeyError if unknown."""
-    pair = config.current().images.pair(hardware)
+def images_for(hardware: Hardware, distributed: bool = False) -> tuple[str, str]:
+    """``(agent_image, verifier_image)`` of config ``images.<hardware>``; a distributed cpu task's are
+    ``images.mpi``."""
+    images = config.current().images
+    pair = images.mpi if distributed and hardware is Hardware.CPU else images.pair(hardware)
     return pair.agent, pair.verifier
 
 
@@ -264,7 +266,7 @@ def compose_text(header: str, services: dict[str, dict[str, object]]) -> str:
     return "".join(f"# {line}\n" if line else "#\n" for line in header.splitlines()) + body
 
 
-def agent_compose(agent_image: str, hardware: str) -> str:
+def agent_compose(agent_image: str, hardware: Hardware) -> str:
     """``environment/docker-compose.yaml``: the agent container, built FROM ``agent_image`` with the
     task's ``environment/`` copied to ``/app``.
 
@@ -280,20 +282,20 @@ def agent_compose(agent_image: str, hardware: str) -> str:
         **GPU_ACCESS[hardware],
     }
     header = (
-        f"HPCAgent-Bench agent environment ({hardware}), written by `hpcagent-bench harbor generate`.\n"
+        f"HPCAgent-Bench agent environment ({hardware.text}), written by `hpcagent-bench harbor generate`.\n"
         f"The `{MAIN_SERVICE}` service is the container Harbor runs the agent in; the image carries the\n"
         "toolchain only, never the harness or its references."
     )
     return compose_text(header, {MAIN_SERVICE: main})
 
 
-def verifier_compose(hardware: str) -> str:
+def verifier_compose(hardware: Hardware) -> str:
     """``tests/docker-compose.yaml`` for the separate verifier: the secret seeds, mounted read-only
     from ``$HPCAGENT_BENCH_HIDDEN_TESTS`` (compose refuses to start without it), and on a GPU target
     the devices the grade times on. The image is ``[verifier.environment].docker_image``."""
     service: dict[str, object] = {**GPU_ACCESS[hardware], "volumes": [SEEDS_VOLUME]}
     header = (
-        f"HPCAgent-Bench verifier environment ({hardware}): the secret seeds the hidden-input gate reads, and\n"
+        f"HPCAgent-Bench verifier environment ({hardware.text}): the secret seeds the hidden-input gate reads, and\n"
         "the GPU the grade runs on. Harbor supplies the image ([verifier.environment].docker_image) and\n"
         "copies in only the task's declared artifacts; the seeds never ship in the task."
     )
@@ -570,11 +572,6 @@ def repo_makefile(kt: KernelTask, language: str) -> str:
     )
 
 
-def json_fields(items: list[tuple[str, object]]) -> dict[str, object]:
-    """``dataclasses.asdict`` factory for a JSON reward: an Enum field is written as its value."""
-    return {key: value.value if isinstance(value, enum.Enum) else value for key, value in items}
-
-
 def mpi_binding(kt: KernelTask) -> tuple[BenchSpec, Binding]:
     spec = BenchSpec.load(kt.key)
     return spec, binding_from_spec(spec)
@@ -747,7 +744,7 @@ def task_toml(
     task_id: str,
     kts: list[KernelTask],
     language: str,
-    hardware: str,
+    hardware: Hardware,
     judge_image: str,
     timeout_sec: float,
     residency: Residency = Residency.HOST,
@@ -769,7 +766,7 @@ def task_toml(
     if len(kts) > 1:
         desc = f"Optimize the {len(kts)} {task_id} kernels for speedup over sequential C."
         meta = {
-            "group": "dir",
+            "group": Group.DIR.text,
             "directory": task_id,
             "kernels": ",".join(r.kernel for r in rows),
             "n_kernels": len(rows),
@@ -777,7 +774,7 @@ def task_toml(
             "language": language,
             "baseline": rows[0].baseline,
             "score_rule": score_rule.SCORE_RULE,
-            "hardware": hardware,
+            "hardware": hardware.text,
             "commit": rows[0].commit,
         }
     else:
@@ -795,13 +792,13 @@ def task_toml(
             # A distributed task keeps the fuzzed sweep's rule; every single-node task, the final grade's.
             "score_rule": score_rule.SCORE_RULE,
             "symbol": row.symbol,
-            "hardware": hardware,
+            "hardware": hardware.text,
             "commit": row.commit,
         }
         if distributed and mode is not None:
-            meta.update(residency="distributed", ranks=ranks, mpi_mode=mode.value)
+            meta.update(residency="distributed", ranks=ranks, mpi_mode=mode.text)
         if repo:
-            meta["layout"] = "repo"
+            meta["layout"] = Layout.REPO.text
             if seed_sha:
                 meta["seed_sha"] = seed_sha
 
@@ -862,7 +859,7 @@ def write_task(
     agent_image: str | None = None,
     judge_image: str | None = None,
     timeout_sec: float | None = None,
-    hardware: str = DEFAULT_HARDWARE,
+    hardware: Hardware = DEFAULT_HARDWARE,
 ) -> pathlib.Path:
     """Write one task directory under ``out_dir``.
 
@@ -877,12 +874,12 @@ def write_task(
     """
     default_agent, default_judge = images_for(DEFAULT_HARDWARE)
     agent_image, judge_image = agent_image or default_agent, judge_image or default_judge
-    residency, layout = Residency(residency), Layout(layout)
+    residency = Residency(residency)
     distributed = residency is Residency.DISTRIBUTED
     repo = layout is Layout.REPO
     cfg = config.current()
     ranks = cfg.mpi.ranks if distributed else 0
-    mode = ScalingLaw(cfg.mpi.mode) if distributed else None
+    mode = cfg.mpi.mode if distributed else None
     speedup_min = cfg.repo.speedup_min
     seed_sha: str | None = None
     timeout_sec = PER_KERNEL_TIMEOUT_S * len(kts) if timeout_sec is None else timeout_sec
@@ -1007,10 +1004,10 @@ def generate(
     *,
     selector: str = "all",
     language: str = "c",
-    group: Group | str = Group.KERNEL,
+    group: Group = Group.KERNEL,
     residency: Residency | str = Residency.HOST,
-    layout: Layout | str = Layout.KERNEL,
-    hardware: str | None = None,
+    layout: Layout = Layout.KERNEL,
+    hardware: Hardware = DEFAULT_HARDWARE,
     baseline: str | None = None,
     max_bundle: int = MAX_BUNDLE,
     agent_image: str | None = None,
@@ -1027,14 +1024,11 @@ def generate(
     skips kernels with no NumpyToX translation for ``language``. ``oracle`` also ships a
     ``solution/`` with the reference translation, run by Harbor's ``oracle`` agent (no LLM).
     """
-    group, residency, layout = Group(group), Residency(residency), Layout(layout)
+    residency = Residency(residency)
     check_modes(group, residency, layout, oracle=oracle)
     distributed = residency is Residency.DISTRIBUTED
-    hardware = hardware or DEFAULT_HARDWARE
-    if hardware not in HARDWARE:
-        raise ValueError(f"hardware must be one of {HARDWARE}, got {hardware!r}")
     # A distributed cpu task runs on the mpi image pair (the cpu pair unless overridden).
-    cfg_agent, cfg_judge = images_for("mpi" if distributed and hardware == DEFAULT_HARDWARE else hardware)
+    cfg_agent, cfg_judge = images_for(hardware, distributed)
     baseline = baseline or measurement_baseline()
     commit = paths.git_head() if commit is None else commit
     base = pathlib.Path(out_dir)
@@ -1317,7 +1311,7 @@ def grade(
     # The multi-node scaling curve is disclosed next to the scalar reward, never folded into it.
     curve = None
     if ts.scaling is not None:
-        fields = dataclasses.asdict(ts.scaling, dict_factory=json_fields)
+        fields = dataclasses.asdict(ts.scaling)
         fields.pop("kernel", None)
         curve = ScalingCurve.model_validate(fields)
     # The reward IS the metric's S_i, so the native aggregate and the Harbor reward agree.
@@ -1667,7 +1661,7 @@ def run_agent(
     out_dir: str | pathlib.Path,
     *,
     language: str = "c",
-    hardware: str | None = None,
+    hardware: Hardware = DEFAULT_HARDWARE,
     extra: Sequence[str] = (),
 ) -> tuple[int, list[Grade]]:
     """Run one of our agent backends on ``selector`` under Harbor; return (exit code, grades).
@@ -1708,8 +1702,8 @@ def adapter_metadata() -> dict[str, object]:
         "task_type": "code-optimization",
         "languages": sorted(LANG_EXT),
         "tracks": [track.value for track in Track],
-        "groups": [group.value for group in Group],
-        "layouts": [layout.value for layout in Layout],
+        "groups": list(Group.texts()),
+        "layouts": list(Layout.texts()),
         "residencies": list(RESIDENCIES),
         "images": (
             "config images.<hardware> (cpu, amd, nvidia): an agent image (toolchain only, the "
@@ -1741,14 +1735,14 @@ def add_generate_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--selector", default="all", help="track / dwarf / @tag / kernel or 'all' (default all)")
     p.add_argument(
         "--group",
-        default=Group.KERNEL.value,
-        choices=[g.value for g in Group],
+        default=Group.KERNEL.text,
+        choices=Group.texts(),
         help="one task per kernel, or per directory",
     )
     p.add_argument(
         "--layout",
-        default=Layout.KERNEL.value,
-        choices=[k.value for k in Layout],
+        default=Layout.KERNEL.text,
+        choices=Layout.texts(),
         help="submission stub, or mock git repo",
     )
     p.add_argument(
@@ -1760,8 +1754,8 @@ def add_generate_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--language", default="c", choices=sorted(LANG_EXT), help="implementation language")
     p.add_argument(
         "--hardware",
-        default=DEFAULT_HARDWARE,
-        choices=HARDWARE,
+        default=DEFAULT_HARDWARE.text,
+        choices=Hardware.texts(),
         help="the config images.<hw> pair and the GPU both containers get (default cpu; a "
         "distributed cpu task uses the mpi pair)",
     )
@@ -1831,10 +1825,10 @@ def cmd_generate(args: argparse.Namespace, harbor_extra: list[str]) -> int:
         out,
         selector=args.selector,
         language=args.language,
-        group=args.group,
+        group=Group.parse(args.group),
         residency=args.residency,
-        layout=args.layout,
-        hardware=args.hardware,
+        layout=Layout.parse(args.layout),
+        hardware=Hardware.parse(args.hardware),
         agent_image=args.agent_image,
         judge_image=args.judge_image,
         timeout_sec=args.timeout_sec,

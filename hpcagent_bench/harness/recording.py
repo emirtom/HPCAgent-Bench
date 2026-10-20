@@ -33,6 +33,7 @@ from hpcagent_bench.harness import db_json, denominator, grading, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
+from hpcagent_bench.harness.outcomes import GradeStatus, RunStatus
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.harness.task import RecordDevice, Task
 from hpcagent_bench.run_layout import DB_FILENAME
@@ -53,7 +54,6 @@ __all__ = [
     "MEMORY_FSTYPES",
     "MS_PER_S",
     "ORIGIN_KINDS",
-    "PASSING_STATUS",
     "SHARD_ENV",
     "SNAPSHOT_COMMIT_ENV",
     "STOPPED_REASON",
@@ -405,7 +405,7 @@ class TrajectoryPoint(Protocol):
     def correct(self) -> bool: ...
 
     @property
-    def status(self) -> str: ...
+    def status(self) -> RunStatus: ...
 
     @property
     def timing_reduction(self) -> str | None: ...
@@ -734,7 +734,7 @@ def record(
     path: str | None = None,
     curves: Sequence[LawCurve] = (),
     tokens: int = 0,
-    status: str | None = None,
+    status: RunStatus | None = None,
     final: FinalRecord | None = None,
 ) -> Recorded:
     """Persist one /submit grade, credited on the judge's OWN verdict.
@@ -746,7 +746,7 @@ def record(
     come only from ``score`` and the gates.
 
     ``tokens`` is the agent's cumulative spend when it asked (the request body's claim), ``status``
-    the request's :class:`runner.RunStatus`. ``optimizer`` names a replayed request's origin
+    the request's :class:`~hpcagent_bench.harness.outcomes.RunStatus`. ``optimizer`` names a replayed request's origin
     (:data:`ORIGIN_KINDS`), the grade's kind. The delivered source is stored whatever the verdict,
     the timed inputs of a credited grade, and ``curves`` -- the per-law scaling curves the same grade
     measured -- under the grade (:func:`record_scaling`). ``final``: the grade is timed under mw4x5, so
@@ -757,7 +757,11 @@ def record(
     if outcome != "submission" and not config.current().record.log_attempts:
         return Recorded("skipped", "log_attempts disabled", None)
     values |= stamp_values(task, preset, datatype, score) | measured_values(score) | submission_envelope(submission)
-    values |= {"status": status, "tokens_so_far": int(tokens), "detail": graded_detail(score, judgement) or None}
+    values |= {
+        "status": status.text if status is not None else None,
+        "tokens_so_far": int(tokens),
+        "detail": graded_detail(score, judgement) or None,
+    }
     kind = ORIGIN_KINDS.get(optimizer or "", "submit")
     kernel = BenchSpec.load(task.kernel).short_name
     credited_final = final if outcome == "submission" else None
@@ -806,7 +810,7 @@ def record_call(
     score: Score | None,
     task: Task,
     *,
-    status: str,
+    status: RunStatus,
     route: str,
     episode_id: str = ADHOC_EPISODE_ID,
     optimizer: str | None = None,
@@ -836,7 +840,7 @@ def record_call(
     values = stamp_values(task, preset, datatype, score) | measured_values(score)
     values |= envelope_values(build, requests, workspace_bytes)
     reason = detail or (score.detail if score is not None else "")
-    values |= {"status": status, "tokens_so_far": int(tokens), "detail": cap_detail(reason) or None}
+    values |= {"status": status.text, "tokens_so_far": int(tokens), "detail": cap_detail(reason) or None}
     kind = ORIGIN_KINDS.get(optimizer or "", route) if route == "submit" else route
     kernel = BenchSpec.load(task.kernel).short_name
     with contextlib.closing(connect(path)) as conn:
@@ -845,14 +849,10 @@ def record_call(
         grade_id, _ts = results_db.add_grade(
             conn, run, kernel, kind, ts_ms=now_ms(), values=values | {"call_index": index}
         )
-        if submission is not None and status == PASSING_STATUS:
+        if submission is not None and status is RunStatus.OK:
             store_delivery(conn, grade_id, submission)
         conn.commit()
     return index
-
-
-#: ``runner.RunStatus.OK``: a grade that built and was correct (restated: runner imports this module).
-PASSING_STATUS = "ok"
 
 
 def record_trajectory(
@@ -893,7 +893,7 @@ def record_trajectory(
                 "tokens_so_far": int(point.tokens),
                 "speedup": float(point.speedup),
                 "correct": int(point.correct),
-                "status": point.status,
+                "status": point.status.text,
                 "timing_reduction": point.timing_reduction,
             }
             results_db.add_grade(conn, run, kernel, "score", ts_ms=ts, values=values)
@@ -926,7 +926,7 @@ def record_scaling(
     mode: ScalingLaw,
     *,
     dropped: Sequence[ScalingDrop] | None = None,
-    status: str | None = None,
+    status: GradeStatus | None = None,
     disclosure: str | None = None,
     notes: str | None = None,
     label: str = "",
@@ -941,7 +941,7 @@ def record_scaling(
     hole is still on record. ``status`` defaults to ``graded`` for a curve, ``no-curve`` for none;
     ``disclosure`` and ``notes`` (JSON) are what the law's grade disclosed beside it."""
     if scaling is not None and scaling.mode is not mode:
-        raise ValueError(f"record_scaling: the curve was graded {scaling.mode.value!r}, the caller says {mode.value!r}")
+        raise ValueError(f"record_scaling: the curve was graded {scaling.mode.text!r}, the caller says {mode.text!r}")
     holes = tuple(scaling.dropped if dropped is None and scaling is not None else dropped or ())
     points = scaling.points if scaling is not None else ()
     ranks = [p.ranks for p in points] + [h.ranks for h in holes]
@@ -960,9 +960,9 @@ def record_scaling(
     ]
     rows += [{"ranks": h.ranks, "nodes": h.nodes, "note": h.note} for h in holes]
     law: dict[str, results_db.Value] = {
-        "mode": mode.value,
+        "mode": mode.text,
         "input": label,
-        "status": status or ("graded" if scaling is not None else "no-curve"),
+        "status": (status or (GradeStatus.GRADED if scaling is not None else GradeStatus.NO_CURVE)).text,
         "single_rank_ns": scaling.single_rank_ns if scaling is not None else None,
         "disclosure": disclosure,
         "notes": notes,

@@ -10,7 +10,7 @@ import contextlib
 import pathlib
 import sqlite3
 from collections.abc import Mapping
-from typing import Annotated, Literal
+from typing import Annotated
 
 import pydantic
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
@@ -51,6 +51,10 @@ ENDED_BY: dict[int, str] = {
 Count = Annotated[int, pydantic.BeforeValidator(lambda raw: int(raw) if isinstance(raw, float) else raw)]
 
 
+#: A recorded device; None where the driver's environment named none ('' in the record).
+Device = Annotated[RecordDevice | None, pydantic.BeforeValidator(lambda raw: raw or None)]
+
+
 class RecordIdentity(pydantic.BaseModel):
     """The setup identity the driver ran under (``tokens.json`` ``identity``): its ``HPCAGENT_BENCH_RECORD_*``
     environment, '' where unset. What an episode that never reached the judge records its setup as, whatever
@@ -61,7 +65,7 @@ class RecordIdentity(pydantic.BaseModel):
     study: str
     model: str
     language: str
-    device: Literal["", "cpu", "gpu", "cpu-multinode", "gpu-multinode"]
+    device: Device
     packet: str
     harness: str
     tag_version: str
@@ -74,7 +78,7 @@ class RecordIdentity(pydantic.BaseModel):
             study=self.study or None,
             model=self.model or None,
             language=self.language or None,
-            device=RecordDevice(self.device or RecordDevice.CPU.value),
+            device=self.device or RecordDevice.CPU,
             packet=recording.packet_key(self.packet),
             setup=setup or None,
             harness=self.harness or None,

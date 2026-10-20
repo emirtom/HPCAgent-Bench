@@ -15,7 +15,8 @@ Env name of a key: ``HPCAGENT_BENCH_`` + the dotted key upper-cased with ``.`` r
 ``*_by_level``) is set whole by a JSON object in its own name. Env text is converted by the field type
 (:func:`parse_env`): ``""``, ``null`` and ``none`` are ``None`` for a nullable field; a ``str`` field gets the
 text unchanged; a sequence field takes a JSON array or a comma-separated list; a map field takes a JSON object;
-``bool``/``int``/``float``/``Literal`` fields use pydantic's lax parsing (``true/false/1/0/yes/no/on/off``).
+``bool``/``int``/``float``/``Literal`` fields use pydantic's lax parsing (``true/false/1/0/yes/no/on/off``); an
+enum field (:class:`~hpcagent_agent.coded.Coded`) takes its member's spelling.
 
 Unknown keys are errors: ``config.yaml`` must name every key of the models below and no other;
 :func:`set_override` raises ``KeyError`` on an unknown key and ``ValidationError`` on a
@@ -37,6 +38,7 @@ from typing import Annotated, Any, ClassVar, Literal, Union, get_args, get_origi
 
 import yaml
 from annotated_types import Ge, Gt, Le
+from hpcagent_agent.coded import Coded
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -54,12 +56,25 @@ from hpcagent_bench.cpf_cache import HintDetail
 
 __all__ = [
     "ENV_PREFIX",
-    "GridChooser",
     "NON_CONFIG_ENV",
-    "RequestCapability",
     "SCOPED_ENVIRONMENT",
+    "BaselineRace",
+    "ContainerRuntime",
+    "Execution",
+    "GridChooser",
+    "Hardware",
+    "MpContext",
+    "PerfMode",
+    "PromptStrategy",
+    "RecordExecution",
+    "RequestCapability",
+    "ScalingLaw",
     "Settings",
+    "SizeDistribution",
+    "Statistic",
+    "SubmitFeedback",
     "UnknownConfigEnvError",
+    "VectCostModel",
     "clear_override",
     "current",
     "default_value",
@@ -103,6 +118,130 @@ DenominatorKind = Literal[
 TrackName = Literal["loop_level_reasoning", "scientific_computing", "machine_learning"]
 
 
+class SizeDistribution(Coded):
+    """``fuzz.size_distribution``: how a correctness size is drawn from its interval (fuzz.sample_range)."""
+
+    #: Log-uniform; a lower bound <= 0 draws uniform.
+    LOG_UNIFORM = enum.auto()
+    UNIFORM = enum.auto()
+
+
+class SubmitFeedback(Coded):
+    """``service.submit_feedback``: what ``/submit`` answers (judge_wire.SubmitVerdict or the whole grade)."""
+
+    VERDICT = enum.auto()
+    FULL = enum.auto()
+
+
+class BaselineRace(Coded):
+    """``measurement.baseline_race``: the order a best-of denominator times its candidates."""
+
+    SEPARATOR = enum.nonmember("-")
+
+    #: The leader first; a challenger is cut once it cannot win.
+    LEADER_FIRST = enum.auto()
+    #: Every candidate timed in full.
+    COMPLETE = enum.auto()
+
+
+class Statistic(Coded):
+    """How one input's runs reduce to its credited ratio (``measurement.timing_backend``,
+    :data:`hpcagent_bench.harness.timing.REDUCTIONS`; a protocol's per-input statistic)."""
+
+    SPELLINGS = enum.nonmember({"MANNWHITNEY": "mannwhitney_delta", "MEDIAN": "median_of_k", "MIN": "min_of_k"})
+
+    #: Ratio of the medians, credited only when the one-sided Mann-Whitney U test at ``alpha`` agrees with
+    #: its direction; else exactly 1.0.
+    MANNWHITNEY = enum.auto()
+    #: Ratio of the medians, no test.
+    MEDIAN = enum.auto()
+    #: Ratio of the minima, no test.
+    MIN = enum.auto()
+
+
+class PerfMode(Coded):
+    """``perf.mode``: which (config, shape) cells are timed."""
+
+    #: Every config at its three public shapes.
+    ALL_CONFIGS_3SHAPES = enum.auto()
+    #: Three secret shapes.
+    SECRET_3SHAPES = enum.auto()
+
+
+class PromptStrategy(Coded):
+    """``prompt.strategy``: the optimization strategy the prompt's how-to section steers toward."""
+
+    DEFAULT = enum.auto()
+    LOOPNEST = enum.auto()
+    PROFILE_FIRST = enum.auto()
+    LANGUAGE_NATIVE = enum.auto()
+
+
+class Hardware(Coded):
+    """A hardware target: the ``images.<hardware>`` pair, the GPU a container is given, the platform a tool
+    is required on (``envs/toolset.yaml``)."""
+
+    CPU = enum.auto()
+    AMD = enum.auto()
+    NVIDIA = enum.auto()
+
+
+class RecordExecution(Coded):
+    """``record.execution``: where a recorded runtime was measured."""
+
+    NATIVE = enum.auto()
+    CONTAINER = enum.auto()
+
+
+class VectCostModel(Coded):
+    """``perf_reports.vect_cost_model``: the vectorizer cost model of the ``--opt-reports`` compile."""
+
+    DEFAULT = enum.auto()
+    #: The cost model disabled: every vectorizable loop is vectorized.
+    UNLIMITED = enum.auto()
+
+
+class ScalingLaw(Coded):
+    """How a distributed problem is sized across P ranks (``mpi.mode``, ``scaling_laws.mode``).
+
+    ``STRONG`` holds the total problem at the preset (Amdahl); ``WEAK`` holds the per-rank problem and
+    grows it along the manifest's ``work_exponent`` (Gustafson)."""
+
+    STRONG = enum.auto()
+    WEAK = enum.auto()
+
+
+class ContainerRuntime(Coded):
+    """``runtime.backend``: a container runtime family (resolved to an installed implementation by
+    :func:`hpcagent_bench.containers.resolve_backend`) or one implementation."""
+
+    OCI = enum.auto()
+    SIF = enum.auto()
+    CE = enum.auto()
+    NATIVE = enum.auto()
+    DOCKER = enum.auto()
+    PODMAN = enum.auto()
+    APPTAINER = enum.auto()
+
+
+class MpContext(Coded):
+    """``runtime.mp_context``: the multiprocessing start method of a grading child (osinfo.mp_context)."""
+
+    #: fork on Linux and WSL2, spawn on macOS.
+    AUTO = enum.auto()
+    FORK = enum.auto()
+    SPAWN = enum.auto()
+    FORKSERVER = enum.auto()
+
+
+class Execution(Coded):
+    """``agent.execution``: where ``hpcagent-bench agent`` runs the agent."""
+
+    NATIVE = enum.auto()
+    CONTAINER = enum.auto()
+    HARBOR = enum.auto()
+
+
 class Section(BaseModel):
     """Base of every configuration block: unknown fields are rejected and instances are immutable."""
 
@@ -129,7 +268,7 @@ class Fuzz(Section):
     xl_hi_mult: PositiveFloat
     correctness_size_cap: NonNegativeInt
     hidden_correctness_presets: tuple[str, ...]
-    size_distribution: Literal["log_uniform", "uniform"]
+    size_distribution: SizeDistribution
     data_distribution: str
 
 
@@ -145,7 +284,7 @@ class Service(Section):
 
     oracle: Literal["auto", "compiled", "numba", "c", "torch"]
     input_mode: Literal["py-binding", "source", "library", "any"]
-    submit_feedback: Literal["verdict", "full"]
+    submit_feedback: SubmitFeedback
     preset: str
     datatype: str
     canonical_parallel_form_dir: str
@@ -205,7 +344,7 @@ class Measurement(Section):
         "torch-autotune-gpu",
     ]
     denominator: Denominator
-    baseline_race: Literal["leader-first", "complete"]
+    baseline_race: BaselineRace
     early_stop_factor: NonNegativeFloat
     early_stop_floor_s: Seconds
     repeat: PositiveInt
@@ -214,7 +353,7 @@ class Measurement(Section):
     vary_inputs: bool
     pin_threads: bool
     timing_lock: str
-    timing_backend: Literal["min_of_k", "median_of_k", "mannwhitney_delta"]
+    timing_backend: Statistic
     credited_protocol: str
     quiescence: Quiescence
     mannwhitney: MannWhitney
@@ -233,7 +372,7 @@ class Statistics(Section):
 class Perf(Section):
     """``perf``: which (config, shape) cells are timed."""
 
-    mode: Literal["all_configs_3shapes", "secret_3shapes"]
+    mode: PerfMode
     n_large_shapes: PositiveInt | None
 
 
@@ -261,7 +400,7 @@ class Prompt(Section):
     container_workdir: str
     include_translation: bool
     include_reference: bool
-    strategy: Literal["default", "loopnest", "profile_first", "language_native"]
+    strategy: PromptStrategy
     optimization_guidance: bool
     profiling_guidance: bool
     language_track: bool
@@ -318,18 +457,15 @@ class Images(Section):
     nvidia: ImagePair
     mpi: ImagePair
 
-    def pair(self, target: str) -> ImagePair:
-        """The images of ``target``; KeyError for a target this block does not configure."""
-        match target:
-            case "cpu":
+    def pair(self, hardware: Hardware) -> ImagePair:
+        """The images of ``hardware``."""
+        match hardware:
+            case Hardware.CPU:
                 return self.cpu
-            case "amd":
+            case Hardware.AMD:
                 return self.amd
-            case "nvidia":
+            case Hardware.NVIDIA:
                 return self.nvidia
-            case "mpi":
-                return self.mpi
-        raise KeyError(f"unknown hardware target {target!r}; configured: {list(type(self).model_fields)}")
 
 
 class Grading(Section):
@@ -363,14 +499,14 @@ class Record(Section):
     physical_bandwidth_gbps_host: PositiveFloat
     log_attempts: bool
     log_calls: bool
-    execution: Literal["native", "container"]
+    execution: RecordExecution
     build: str
 
 
 class PerfReports(Section):
     """``perf_reports``: the --opt-reports compile (opt_reports.py)."""
 
-    vect_cost_model: Literal["default", "unlimited"]
+    vect_cost_model: VectCostModel
 
 
 class Flags(Section):
@@ -417,7 +553,7 @@ class Mpi(Section):
     ranks_per_node: PositiveInt
     rank_counts: tuple[PositiveInt, ...]
     leaderboard_preset: Rung
-    mode: Literal["strong", "weak"]
+    mode: ScalingLaw
     k_repeats: PositiveInt
     residency: Literal["host", "device"]
     launch_timeout_s: Seconds
@@ -440,8 +576,8 @@ class Ml(Section):
 class Runtime(Section):
     """``runtime``: process and container runtime."""
 
-    backend: Literal["oci", "sif", "ce", "native", "docker", "podman", "apptainer"]
-    mp_context: Literal["auto", "fork", "spawn", "forkserver"]
+    backend: ContainerRuntime
+    mp_context: MpContext
     omp_context_root: str
     omp_catalog: str
 
@@ -483,7 +619,7 @@ class Agent(Section):
     """``agent``: the distributed static agent run (harness/pipeline.py)."""
 
     workers: PositiveInt | None
-    execution: Literal["native", "container", "harbor"]
+    execution: Execution
 
 
 class OracleOverride(Section):
@@ -522,33 +658,33 @@ class Oracle(Section):
         return self.numba_fastmath if value is None else value
 
 
-class RequestCapability(enum.Enum):
+class RequestCapability(Coded):
     """One thing a submission's ``requests`` may ask the judge for (``requests.allow``; the actions each
     enables: :class:`hpcagent_bench.harness.requests_api.RequestAllowances`)."""
 
     #: ``startup.load``: catalog libraries the judge links.
-    LOAD = "load"
+    LOAD = enum.auto()
     #: ``cast``: an array's element type, to one of ``requests.precisions``.
-    CAST = "cast"
+    CAST = enum.auto()
     #: Without a grid: the digit operations (``permute``, ``block``, ``split``, ``pad``, ``shuffle``,
     #: ``linear_shuffle`` and their inverses) on dense arrays; with or without one: ``zip`` / ``unzip``.
-    LAYOUT = "layout"
+    LAYOUT = enum.auto()
     #: ``format``: a sparse array's storage format among the kernel's offered ones.
-    SPARSE_FORMAT = "sparse_format"
+    SPARSE_FORMAT = enum.auto()
     #: ``place``: an array's memory (host or device) on a distributed grade, instead of ``mpi.residency``.
-    PLACE = "place"
+    PLACE = enum.auto()
     #: A distributed grade's layout: ``startup.grid`` (per ``requests.grid``), ``distribute``, ``replicate`` and
     #: the digit operations over the grid. Implied by ``mpi.grade_distributed``.
-    DISTRIBUTE = "distribute"
+    DISTRIBUTE = enum.auto()
 
 
-class GridChooser(enum.Enum):
+class GridChooser(Coded):
     """Who sets the processor grid of a distributed grade (``requests.grid``)."""
 
     #: The submission's ``startup.grid``.
-    AGENT = "agent"
+    AGENT = enum.auto()
     #: The task's default grid (``mpi_descriptor.default_requests``); a submission names none.
-    TASK = "task"
+    TASK = enum.auto()
 
 
 class Requests(Section):
@@ -565,7 +701,7 @@ class Requests(Section):
         if (RequestCapability.CAST in self.allow) != bool(self.precisions):
             raise ValueError(
                 "requests.precisions lists the precisions a cast may target: set it exactly when requests.allow "
-                f"has 'cast' (allow={[c.value for c in self.allow]}, precisions={list(self.precisions)})"
+                f"has 'cast' (allow={[c.text for c in self.allow]}, precisions={list(self.precisions)})"
             )
         return self
 
@@ -634,7 +770,7 @@ class Settings(Section):
         mpi, requests = data.get("mpi"), data.get("requests")
         if not (isinstance(mpi, dict) and mpi.get("grade_distributed") is True and isinstance(requests, dict)):
             return data
-        allow = [RequestCapability(capability) for capability in requests.get("allow", ())]
+        allow = [RequestCapability.validate(capability) for capability in requests.get("allow", ())]
         if RequestCapability.DISTRIBUTE in allow:
             return data
         return {**data, "requests": {**requests, "allow": [*allow, RequestCapability.DISTRIBUTE]}}

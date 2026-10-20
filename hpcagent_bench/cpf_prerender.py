@@ -109,9 +109,9 @@ def require_submodules(package: pathlib.Path) -> None:
         raise SystemExit(problem)
 
 
-def target_languages(target: str) -> tuple[str, ...]:
+def target_languages(target: cpf_cache.Target) -> tuple[str, ...]:
     """The CPF dialects one render of a kernel produces for ``target``."""
-    return (cpf_bridge.DEVICE_LANGUAGE,) if target == "gpu" else ("c", "c++")
+    return (cpf_bridge.DEVICE_LANGUAGE,) if target is cpf_cache.Target.GPU else ("c", "c++")
 
 
 def render_kernel(
@@ -119,7 +119,7 @@ def render_kernel(
     cache: pathlib.Path,
     view: pathlib.Path,
     *,
-    target: str,
+    target: cpf_cache.Target,
     precision: str,
     hints: cpf_cache.HintDetail,
     package: pathlib.Path,
@@ -138,7 +138,9 @@ def render_kernel(
     try:
         spec = BenchSpec.load(kernel)
     except Exception as exc:  # noqa: BLE001 -- an unloadable tag name is a recorded verdict
-        outcome = cpf_bridge.RenderOutcome(verdict="fail", error=f"{type(exc).__name__}: {exc}"[:400])
+        outcome = cpf_bridge.RenderOutcome(
+            verdict=cpf_cache.RenderVerdict.FAIL, error=f"{type(exc).__name__}: {exc}"[:400]
+        )
         for language in languages:
             cpf_cache.record(view, kernel, language, fptype, hints, outcome.model_dump())
         return kernel_stem(kernel), dict.fromkeys(languages, outcome)
@@ -165,7 +167,11 @@ def render_kernel(
 
 def fresh_keys(results: dict[str, cpf_bridge.RenderOutcome]) -> list[str]:
     """The keys a render published now (not a hit), which a moved dace commit withdraws."""
-    return [str(outcome.key) for outcome in results.values() if outcome.verdict == "ok" and not outcome.cached]
+    return [
+        str(outcome.key)
+        for outcome in results.values()
+        if outcome.verdict is cpf_cache.RenderVerdict.OK and not outcome.cached
+    ]
 
 
 def withdraw(cache: pathlib.Path, keys: Sequence[str]) -> None:
@@ -175,7 +181,12 @@ def withdraw(cache: pathlib.Path, keys: Sequence[str]) -> None:
 
 
 def settled(
-    view: pathlib.Path, cache: pathlib.Path, kernel: str, target: str, fptype: str, hints: cpf_cache.HintDetail
+    view: pathlib.Path,
+    cache: pathlib.Path,
+    kernel: str,
+    target: cpf_cache.Target,
+    fptype: str,
+    hints: cpf_cache.HintDetail,
 ) -> bool:
     """Whether ``view`` already records every dialect of ``kernel`` at ``hints``: a failing verdict for good, an
     ``ok`` only while its entries are still in the cache (a lost entry renders again)."""
@@ -183,7 +194,7 @@ def settled(
         pointer = cpf_cache.recorded(view, kernel, dialect, fptype, hints)
         if pointer is None:
             return False
-        if pointer.verdict == "ok" and not cpf_cache.is_hit(cache, str(pointer.key)):
+        if pointer.verdict is cpf_cache.RenderVerdict.OK and not cpf_cache.is_hit(cache, str(pointer.key)):
             return False
     return True
 
@@ -193,7 +204,7 @@ def render_on_demand(
     cache: pathlib.Path,
     kernel: str,
     *,
-    target: str,
+    target: cpf_cache.Target,
     precision: str,
     hints: cpf_cache.HintDetail,
     timeout: float | None = None,
@@ -258,8 +269,16 @@ def shard(kernels: Sequence[str], rank: int, ranks: int) -> list[str]:
     return [kernel for index, kernel in enumerate(kernels) if index % ranks == rank]
 
 
-def prerender(args: argparse.Namespace, package: pathlib.Path, before: str, scratch: pathlib.Path) -> int:
-    """Render this rank's shard and point the view at every outcome. Returns the exit status."""
+def prerender(
+    args: argparse.Namespace,
+    package: pathlib.Path,
+    before: str,
+    scratch: pathlib.Path,
+    target: cpf_cache.Target,
+    hints: cpf_cache.HintDetail,
+) -> int:
+    """Render this rank's shard of ``args.kernels`` for ``target`` at ``hints`` and point the view at every
+    outcome. Returns the exit status."""
     kernels = shard([k.strip() for k in args.kernels.split(",") if k.strip()], args.rank, args.ranks)
     print(f"rank {args.rank}/{args.ranks}: {len(kernels)} kernels, dace {package} commit {before[:12]}", flush=True)
     rendered: list[str] = []
@@ -269,9 +288,9 @@ def prerender(args: argparse.Namespace, package: pathlib.Path, before: str, scra
             kernel,
             args.cache,
             args.view,
-            target=args.target,
+            target=target,
             precision=args.precision,
-            hints=args.hints,
+            hints=hints,
             package=package,
             before=before,
             timeout=args.timeout,
@@ -279,8 +298,8 @@ def prerender(args: argparse.Namespace, package: pathlib.Path, before: str, scra
         )
         rendered += fresh_keys(results)
         for language, outcome in results.items():
-            ok = outcome.verdict == "ok"
-            state = ("hit" if outcome.cached else "rendered") if ok else outcome.verdict
+            ok = outcome.verdict is cpf_cache.RenderVerdict.OK
+            state = ("hit" if outcome.cached else "rendered") if ok else outcome.verdict.text
             note = "" if ok else f" -- {outcome.error}"
             print(f"rank {args.rank}: {name} {language}: {state} {outcome.key}{note}")
             failed += 0 if ok else 1
@@ -304,27 +323,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--cache", required=True, type=pathlib.Path, help="content-addressed cache root")
     parser.add_argument("--view", required=True, type=pathlib.Path, help="the view a setup points at")
     parser.add_argument("--kernels", required=True, help="comma-separated registry keys")
-    parser.add_argument("--target", choices=("cpu", "gpu"), default="cpu")
+    parser.add_argument("--target", choices=cpf_cache.Target.texts(), default=cpf_cache.Target.CPU.text)
     parser.add_argument("--precision", default="", help="fp64 (default) / fp32 / fp16")
     parser.add_argument(
-        "--hints", default=cpf_cache.DEFAULT_HINTS, choices=cpf_cache.HINT_DETAILS, help="the hint detail to render"
+        "--hints",
+        default=cpf_cache.DEFAULT_HINTS.text,
+        choices=cpf_cache.HintDetail.texts(),
+        help="the hint detail to render",
     )
     parser.add_argument("--rank", type=int, default=int(os.environ.get("SLURM_PROCID", "0")))
     parser.add_argument("--ranks", type=int, default=int(os.environ.get("SLURM_NTASKS", "1")))
     parser.add_argument("--timeout", type=float, default=None, help="seconds per kernel (timeouts.cpf_render_s)")
     args = parser.parse_args(argv)
+    target, hints = cpf_cache.Target.parse(args.target), cpf_cache.HintDetail.parse(args.hints)
 
     require_toolchain()
     package = dace_package()
     require_submodules(package)
     before = cpf_canonical.dace_commit()
-    cpf_cache.open_view(args.view, args.cache, args.target, before)
+    cpf_cache.open_view(args.view, args.cache, target, before)
     scratch = args.cache / ".scratch" / f"{os.environ.get('SLURM_JOB_ID', 'local')}-{os.getpid()}"
     (scratch / "tmp").mkdir(parents=True)
     # SIGTERM (scancel, the wall clock) becomes SystemExit, so the scratch directory still goes.
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
     try:
-        return prerender(args, package, before, scratch)
+        return prerender(args, package, before, scratch, target, hints)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 

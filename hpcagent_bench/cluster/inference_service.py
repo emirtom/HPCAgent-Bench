@@ -32,34 +32,31 @@ that bearer. The two are independent, which is why they are two keys.
 
 import argparse
 import dataclasses
+import enum
 import os
 import pathlib
 import shlex
 import sys
 from collections.abc import Mapping
-from typing import Literal
 
 import pydantic
+from hpcagent_agent.coded import Coded
 
 __all__ = [
-    "API_ANTHROPIC",
-    "API_OPENAI",
-    "AUTH_BEARER",
-    "AUTH_KEY_HEADER",
     "CLAUDE_KEY_VARIABLE",
     "CLAUDE_MODEL_PINS",
     "FREE_ONLY_KEY",
     "HARNESSES_BY_API",
     "RECORD_NAME",
     "REQUIRED",
-    "SOURCES",
-    "SOURCE_NODE",
-    "SOURCE_SERVICE",
+    "Api",
+    "Auth",
     "NodeProvenance",
     "PricingListing",
     "Provenance",
     "Service",
     "ServiceProvenance",
+    "Source",
     "check_free",
     "claude_key_variable",
     "from_environ",
@@ -74,26 +71,46 @@ __all__ = [
     "source",
 ]
 
-SOURCE_NODE = "node"
-SOURCE_SERVICE = "service"
-SOURCES = (SOURCE_NODE, SOURCE_SERVICE)
 
-API_OPENAI = "openai"
-API_ANTHROPIC = "anthropic"
+class Source(Coded):
+    """Where a setup's inference comes from (``INFERENCE_SOURCE``, ``inference.json`` ``source``)."""
 
-AUTH_BEARER = "bearer"
-AUTH_KEY_HEADER = "x-api-key"
+    #: A server this job starts on a GPU node.
+    NODE = enum.auto()
+    #: A hosted endpoint (the ``INFERENCE_SERVICE_*`` block).
+    SERVICE = enum.auto()
+
+
+class Api(Coded):
+    """The wire format a hosted service speaks (``INFERENCE_SERVICE_API``)."""
+
+    #: ``/v1/chat/completions``.
+    OPENAI = enum.auto()
+    #: ``/v1/messages``.
+    ANTHROPIC = enum.auto()
+
+
+class Auth(Coded):
+    """How a hosted service takes its key (``INFERENCE_SERVICE_AUTH``)."""
+
+    SPELLINGS = enum.nonmember({"KEY_HEADER": "x-api-key"})
+
+    #: ``Authorization: Bearer <key>``.
+    BEARER = enum.auto()
+    #: ``x-api-key: <key>``.
+    KEY_HEADER = enum.auto()
+
 
 #: Harnesses that can speak each wire format. ``agent/hpcagent_agent/driver/harnesses.py`` owns the runner list;
 #: repeated here by name rather than imported, because this file is also read on the
 #: batch host, where the agent payload is not staged.
-HARNESSES_BY_API = {
-    API_OPENAI: ("miniswe", "openhands", "optimas", "openai"),
-    API_ANTHROPIC: ("claude", "anthropic"),
+HARNESSES_BY_API: dict[Api, tuple[str, ...]] = {
+    Api.OPENAI: ("miniswe", "openhands", "optimas", "openai"),
+    Api.ANTHROPIC: ("claude", "anthropic"),
 }
 
 #: Which variable the claude CLI's key belongs in, per auth spelling.
-CLAUDE_KEY_VARIABLE = {AUTH_BEARER: "ANTHROPIC_AUTH_TOKEN", AUTH_KEY_HEADER: "ANTHROPIC_API_KEY"}
+CLAUDE_KEY_VARIABLE: dict[Auth, str] = {Auth.BEARER: "ANTHROPIC_AUTH_TOKEN", Auth.KEY_HEADER: "ANTHROPIC_API_KEY"}
 
 #: What the run records about its inference, beside the judge databases.
 RECORD_NAME = "inference.json"
@@ -137,17 +154,18 @@ class Service:
     base_url: str
     model: str
     tier: str
-    api: str
-    auth: str
+    api: Api
+    auth: Auth
     key_env: str
 
 
-def source(environ: Mapping[str, str]) -> str:
+def source(environ: Mapping[str, str]) -> Source:
     """Which source this setup runs against. An unknown spelling ends the launch."""
-    declared = environ.get("INFERENCE_SOURCE", "").strip() or SOURCE_NODE
-    if declared not in SOURCES:
-        raise SystemExit(f"INFERENCE_SOURCE={declared!r} is not a source; expected one of {SOURCES}")
-    return declared
+    declared = environ.get("INFERENCE_SOURCE", "").strip()
+    try:
+        return Source.parse(declared) if declared else Source.NODE
+    except ValueError as exc:
+        raise SystemExit(f"INFERENCE_SOURCE: {exc}") from exc
 
 
 def required_value(environ: Mapping[str, str], key: str) -> str:
@@ -159,13 +177,16 @@ def required_value(environ: Mapping[str, str], key: str) -> str:
 
 def from_environ(environ: Mapping[str, str]) -> Service:
     """The setup's service block, fully checked. Raises SystemExit with the offending key."""
-    resolved = Service(*(required_value(environ, key) for key in REQUIRED))
-    if resolved.api not in HARNESSES_BY_API:
-        raise SystemExit(f"INFERENCE_SERVICE_API={resolved.api!r} is not a wire format; expected openai or anthropic")
-    if resolved.auth not in CLAUDE_KEY_VARIABLE:
-        raise SystemExit(
-            f"INFERENCE_SERVICE_AUTH={resolved.auth!r} is not an auth spelling; expected bearer or x-api-key"
-        )
+    provider, base_url, model, tier, api, auth, key_env = (required_value(environ, key) for key in REQUIRED)
+    try:
+        wire = Api.parse(api)
+    except ValueError as exc:
+        raise SystemExit(f"INFERENCE_SERVICE_API={api!r} is not a wire format: {exc}") from exc
+    try:
+        spelling = Auth.parse(auth)
+    except ValueError as exc:
+        raise SystemExit(f"INFERENCE_SERVICE_AUTH={auth!r} is not an auth spelling: {exc}") from exc
+    resolved = Service(provider, base_url, model, tier, wire, spelling, key_env)
     # A GPU node allocated for a server that is never started, sized by an allocation check that
     # would happily pass it: the setup has to say it wants none.
     nodes = environ.get("INFERENCE_NODES", "0").strip() or "0"
@@ -175,7 +196,7 @@ def from_environ(environ: Mapping[str, str]) -> Service:
     accepted = HARNESSES_BY_API[resolved.api]
     if harness not in accepted:
         raise SystemExit(
-            f"HARNESS={harness} cannot speak the {resolved.api} wire format this service serves; "
+            f"HARNESS={harness} cannot speak the {resolved.api.text} wire format this service serves; "
             f"expected one of {accepted}"
         )
     # Checked here, before any agent starts: a setup that runs its whole wall clock against 401s
@@ -197,7 +218,7 @@ def launcher_env(service: Service) -> dict[str, str]:
     replica list exists to replace. VLLM_MASTER_HOST is emptied rather than left behind: no node
     serves this setup, and a stale hostname is one a probe would still try to reach.
     """
-    pins = dict.fromkeys(CLAUDE_MODEL_PINS, service.model) if service.api == API_ANTHROPIC else {}
+    pins = dict.fromkeys(CLAUDE_MODEL_PINS, service.model) if service.api is Api.ANTHROPIC else {}
     return {
         **pins,
         "VLLM_MASTER_HOST": "",
@@ -291,7 +312,7 @@ class NodeProvenance(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    source: Literal["node"] = "node"
+    source: Source = Source.NODE
     engine: str
     ce_env: str
     model: str
@@ -302,11 +323,11 @@ class ServiceProvenance(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-    source: Literal["service"] = "service"
+    source: Source = Source.SERVICE
     provider: str
     model: str
     tier: str
-    api: str
+    api: Api
     base_url: str
     key_env: str
 
@@ -323,7 +344,7 @@ def provenance(environ: Mapping[str, str]) -> Provenance:
     recovered afterwards -- a contributor-tier run and a standard-tier one are the same bytes on the
     wire and different data policies.
     """
-    if source(environ) == SOURCE_NODE:
+    if source(environ) is Source.NODE:
         return NodeProvenance(
             engine=environ.get("INFERENCE_ENGINE", "").strip() or "vllm",
             ce_env=environ.get("INFERENCE_CE_ENV", "").strip(),

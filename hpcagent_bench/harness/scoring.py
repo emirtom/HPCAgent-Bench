@@ -25,6 +25,7 @@ import numpy as np
 
 from hpcagent_bench import config, flags, languages, sizing
 from hpcagent_bench import dtypes as dtype_registry
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import reassociation_agrees
 from hpcagent_bench.fuzz import FUZZED_PRESET, FuzzValue, initializer_seed
@@ -101,7 +102,7 @@ from hpcagent_bench.harness.hidden_seeds import (
     secret_seed_harden,
     secret_seed_second,
 )
-from hpcagent_bench.harness.judge_wire import SubmitAnswer, SubmitVerdict
+from hpcagent_bench.harness.judge_wire import Correct, SubmitAnswer, SubmitVerdict
 from hpcagent_bench.harness.mpi_descriptor import (
     Descriptor,
     block_partition_mismatch,
@@ -695,7 +696,7 @@ def score_from_answer(answer: SubmitAnswer) -> Score:
     request id dropped), or the verdict, whose error, timing and baseline stay NaN / 0."""
     if isinstance(answer, SubmitVerdict):
         return Score(
-            correct=answer.correct == "yes",
+            correct=answer.correct is Correct.YES,
             max_rel_error=float("nan"),
             native_ns=0,
             build_ok=answer.build_log is None,
@@ -2679,7 +2680,7 @@ def graded_score(
     else:
         speedup = speedups.get(primary, 0.0)
         table = timing.REDUCTIONS_VARIED if rep_data is not None else timing.REDUCTIONS
-        reduction = table["min_of_k"] if speedup > 0 else None
+        reduction = table[Statistic.MIN] if speedup > 0 else None
     # ANTI-CHEAT REFUSAL: a CPU-track grade whose child had a GPU runtime mapped is not a host
     # measurement: credit exactly 1.0, keep correctness and the measured times as evidence. Always
     # empty on device and offload grades (native_call.host_only_grade).
@@ -2954,7 +2955,7 @@ def _mpi_launch_cfg(hidden: bool = True) -> MpiLaunch:
     mpi = config.current().mpi
     return MpiLaunch(
         launcher=list(mpi.launcher),
-        mode=mpi_sizing.ScalingLaw(mpi.mode),
+        mode=mpi.mode,
         k_repeats=mpi.k_repeats,
         timeout=mpi.launch_timeout_s,
         env=dict(mpi.env),
@@ -3369,7 +3370,7 @@ def distributed_score(
     weak_ratio: float | None,
     ranks: int,
     *,
-    backend: str | None,
+    backend: Statistic | None,
     baseline: str,
 ) -> Score:
     """:func:`score_distributed`'s credit from graded, timed samples on both sides; ``baseline`` names

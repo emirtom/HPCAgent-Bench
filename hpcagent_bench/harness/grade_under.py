@@ -967,7 +967,7 @@ def final_settings(base: Mapping[str, str], protocol: Protocol | None = None) ->
     env = dict(base)
     env[VARY_INPUTS_ENV] = "1"
     env[WARMUP_ENV] = str(protocols.WARMUP)
-    env[TIMING_BACKEND_ENV] = protocol.backend
+    env[TIMING_BACKEND_ENV] = protocol.statistic.text
     env[N_INPUTS_ENV] = str(protocol.inputs)
     env[REPEAT_ENV] = str(protocol.repeat)
     env[REPEAT_FLOOR_ENV] = str(protocol.repeat)
@@ -1070,7 +1070,7 @@ def final_grade(
         timed = dataclasses.replace(result.cells[0], label=label) if result.cells else None
         refused = ""
         if timed is not None and not timed.uncovered:  # an uncovered input timed nothing to stamp
-            if timed.timing_reduction == timing.REDUCTIONS_VARIED[protocol.backend]:
+            if timed.timing_reduction == timing.REDUCTIONS_VARIED[protocol.statistic]:
                 timed = dataclasses.replace(timed, timing_reduction=stamp)
             else:
                 refused = f"not the {stamp} reduction: reduced as {timed.timing_reduction}"
@@ -1334,7 +1334,7 @@ def scaling_protocol_grade(
         )
     if not result.correct or len(result.cells) != len(inputs):
         return result, curves, None
-    expected = timing.REDUCTIONS[protocol.backend]
+    expected = timing.REDUCTIONS[protocol.statistic]
     finals = []
     for cell in result.cells:
         if cell.timing_reduction == expected:
@@ -1631,9 +1631,9 @@ def main(argv: list[str] | None = None) -> int:
     applying.add_argument("outputs", nargs="*", type=pathlib.Path, help="shard DBs or their --out-dir")
     applying.add_argument(
         "--on-protocol-change",
-        type=results_db.ProtocolChange,
+        type=results_db.ProtocolChange.parse,
         choices=list(results_db.ProtocolChange),
-        metavar="{" + ",".join(change.value for change in results_db.ProtocolChange) + "}",
+        metavar="{" + ",".join(results_db.ProtocolChange.texts()) + "}",
         default=results_db.ProtocolChange.NEW_ROW,
         help="a regrade under another protocol than the final row it re-timed: new-row (default) keeps both "
         "rows, replace deletes the old one. Same protocol, or an old row with no protocol name: always the same row",

@@ -234,7 +234,7 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
     if "CPF_DROPIN_DIR" not in env:
         return ""
     hints = packet_hints(env)
-    template = CPFSRC_KINDS_NOTE if hints == "kinds" else CPFSRC_NOTE
+    template = CPFSRC_KINDS_NOTE if hints is cpf_cache.HintDetail.KINDS else CPFSRC_NOTE
     dialect = cpf_cache.DIALECT.get(language or DROPIN_DEFAULT_LANGUAGE)
     if dialect is None:
         raise ValueError(
@@ -256,11 +256,13 @@ def packet_note(spec: str, language: str, stem: str, module: str) -> str:
 def packet_hints(env: Mapping[str, str]) -> cpf_cache.HintDetail:
     """The hint detail a packet's resolved ``env`` serves its form at: the one its
     :data:`~hpcagent_bench.cpf_cache.HINTS_ENV` names, else the default (``proofs``)."""
-    named = env.get(cpf_cache.HINTS_ENV, cpf_cache.DEFAULT_HINTS)
-    for detail in cpf_cache.HINT_DETAILS:
-        if named == detail:
-            return detail
-    raise ValueError(f"{cpf_cache.HINTS_ENV}={named!r} is not one of {cpf_cache.HINT_DETAILS}")
+    named = env.get(cpf_cache.HINTS_ENV)
+    if named is None:
+        return cpf_cache.DEFAULT_HINTS
+    try:
+        return cpf_cache.HintDetail.parse(named)
+    except ValueError as exc:
+        raise ValueError(f"{cpf_cache.HINTS_ENV}: {exc}") from exc
 
 
 def setup_form(stem: str, dialect: str, hints: cpf_cache.HintDetail) -> cpf_cache.Form | None:

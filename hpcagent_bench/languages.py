@@ -46,6 +46,7 @@ import yaml
 
 from hpcagent_bench import modules
 from hpcagent_bench import config, flags, omp_context, osinfo, paths, seal
+from hpcagent_bench.config import VectCostModel
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import discover_tools
 from hpcagent_bench.spec import BenchSpec
@@ -2051,7 +2052,7 @@ VECT_UNLIMITED_REFS: Mapping[str, str] = types.MappingProxyType(
 )
 
 
-def vect_cost_model() -> str:
+def vect_cost_model() -> VectCostModel:
     """``perf_reports.vect_cost_model``, read on every call."""
     return config.current().perf_reports.vect_cost_model
 
@@ -2072,7 +2073,7 @@ def family_report_flags(family: str) -> str:
 
     Not cached: the knob is config and may change per run, while :func:`base_report_flags` cannot."""
     report = base_report_flags(family)
-    unlimited = VECT_UNLIMITED_REFS.get(family) if report and vect_cost_model() == "unlimited" else None
+    unlimited = VECT_UNLIMITED_REFS.get(family) if report and vect_cost_model() is VectCostModel.UNLIMITED else None
     return f"{report} {flag_constant(unlimited)}" if unlimited else report
 
 

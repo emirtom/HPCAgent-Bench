@@ -287,7 +287,7 @@ class CanonTarget:
                     "run": self.run,
                     "build": self.build,
                     "node": node,
-                    "execution": execution,
+                    "execution": execution.text,
                     "cpu": cpu,
                     "gpu": gpu if FRAMEWORKS.entries[str(row["column"])]["arch"] == "gpu" else "",
                 }
