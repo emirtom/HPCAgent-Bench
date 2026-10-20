@@ -33,7 +33,7 @@ def test_diag_finds_the_error_line_in_either_compiler_layout() -> None:
     suffix carrying nothing.
     """
     gfortran = "prog.f90:12:7:\n\n   x = not_a_var\n       1\nError: Symbol 'not_a_var' has no IMPLICIT type"
-    assert no._diag(_proc(stderr=gfortran)) == ": Error: Symbol 'not_a_var' has no IMPLICIT type"
+    assert no.process_diag(_proc(stderr=gfortran)) == ": Error: Symbol 'not_a_var' has no IMPLICIT type"
 
     gcc = (
         "t.c: In function 'main':\n"
@@ -41,34 +41,34 @@ def test_diag_finds_the_error_line_in_either_compiler_layout() -> None:
         "    1 | int main(){ nope x; return 0; }\n"
         "      |             ^~~~"
     )
-    assert no._diag(_proc(stderr=gcc)) == ": t.c:1:13: error: unknown type name 'nope'"
+    assert no.process_diag(_proc(stderr=gcc)) == ": t.c:1:13: error: unknown type name 'nope'"
 
     # "fatal error: ... No such file" then "compilation terminated." -- the first is the cause.
     missing = "t.c:1:10: fatal error: nope.h: No such file or directory\ncompilation terminated."
-    assert "No such file" in no._diag(_proc(stderr=missing))
+    assert "No such file" in no.process_diag(_proc(stderr=missing))
 
 
 def test_diag_falls_back_to_the_last_line_when_nothing_announces_an_error() -> None:
     # A python traceback ends on its exception, and that is the line worth reporting.
     tb = "Traceback (most recent call last):\n  File \"x.py\", line 3\n    foo()\nKeyError: 'nope'"
-    assert no._diag(_proc(stderr=tb)) == ": KeyError: 'nope'"
+    assert no.process_diag(_proc(stderr=tb)) == ": KeyError: 'nope'"
 
 
 def test_diag_falls_back_to_stdout_then_exit_code() -> None:
-    assert no._diag(_proc(stdout="only on stdout\n")) == ": only on stdout"
+    assert no.process_diag(_proc(stdout="only on stdout\n")) == ": only on stdout"
     # A compiler killed by a signal can leave both streams empty; the suffix must still not vanish,
     # or the status regresses to the bare phase name this whole change exists to fix.
-    assert no._diag(_proc(returncode=-9)) == ": exit -9"
+    assert no.process_diag(_proc(returncode=-9)) == ": exit -9"
 
 
 def test_diag_is_bounded() -> None:
     # A status string ends up in test output and survey tables; one runaway template error from g++
     # must not flood them.
-    assert len(no._diag(_proc(stderr="x" * 10_000))) <= 242
+    assert len(no.process_diag(_proc(stderr="x" * 10_000))) <= 242
 
 
 def test_diag_ignores_trailing_blank_lines() -> None:
-    assert no._diag(_proc(stderr="real error\n\n   \n")) == ": real error"
+    assert no.process_diag(_proc(stderr="real error\n\n   \n")) == ": real error"
 
 
 def test_emit_returns_the_translator_message(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
@@ -84,7 +84,7 @@ def test_emit_returns_the_translator_message(monkeypatch: pytest.MonkeyPatch, tm
     # Take the layout from the spec rather than hardcoding it, so a moved kernel does not read as
     # a diagnostic regression.
     spec = no.BenchSpec.load("cond_reduce_sum")
-    ok, diag = no._emit("cond_reduce_sum", spec, tmp_path)
+    ok, diag = no.emit_kernel("cond_reduce_sum", spec, tmp_path)
     assert not ok
     assert diag == ": NotImplementedError: shape rebinding is not lowerable"
 

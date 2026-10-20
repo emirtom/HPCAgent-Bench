@@ -719,7 +719,7 @@ def test_harbor_grade_distributed_scores_reference_solved(
 # collision guard: never ship two tasks/kernels that overwrite each other
 
 
-def _kt(kernel, key):
+def kernel_task(kernel: str, key: str) -> A.KernelTask:
     """A minimal KernelTask carrying just what the collision guard reads (subdir + key)."""
     import types
 
@@ -727,20 +727,23 @@ def _kt(kernel, key):
 
 
 def test_unique_layout_guard_passes_for_distinct_kernels() -> None:
-    tasks = [("a", [_kt("gemm", "dense/gemm")]), ("b", [_kt("k2mm", "dense/k2mm")])]
+    tasks = [("a", [kernel_task("gemm", "dense/gemm")]), ("b", [kernel_task("k2mm", "dense/k2mm")])]
     A._assert_unique_layout(tasks)  # no raise
 
 
 def test_unique_layout_guard_rejects_colliding_task_dirs() -> None:
     # Two task ids that slug to the SAME hpcagent_bench-<slug> dir would overwrite each other.
-    tasks = [("scientific_computing/foo", [_kt("a", "x/a")]), ("scientific_computing-foo", [_kt("b", "y/b")])]
+    tasks = [
+        ("scientific_computing/foo", [kernel_task("a", "x/a")]),
+        ("scientific_computing-foo", [kernel_task("b", "y/b")]),
+    ]
     with pytest.raises(ValueError, match="slug identically"):
         A._assert_unique_layout(tasks)
 
 
 def test_unique_layout_guard_rejects_colliding_subdirs_in_a_bundle() -> None:
     # Two kernels in one bundle whose short_name slugs to the same subdir would clobber each other.
-    tasks = [("dir", [_kt("dup", "trackA/dup"), _kt("dup", "trackB/dup")])]
+    tasks = [("dir", [kernel_task("dup", "trackA/dup"), kernel_task("dup", "trackB/dup")])]
     with pytest.raises(ValueError, match="share container subdir"):
         A._assert_unique_layout(tasks)
 

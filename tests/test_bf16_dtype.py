@@ -180,7 +180,7 @@ def test_an_emitted_bf16_kernel_matches_the_ml_dtypes_oracle_exactly(tmp_path: p
     require(TOOL[backend])
 
     info = BenchSpec.load(KERNEL)
-    ok, diag = no._emit(KERNEL, info, tmp_path, precision="bf16")
+    ok, diag = no.emit_kernel(KERNEL, info, tmp_path, precision="bf16")
     assert ok, f"{KERNEL}: bf16 emit failed{diag}"
     src = tmp_path / f"{KERNEL}_bf16{EXT[backend]}"
     so = tmp_path / f"num_{backend}.so"

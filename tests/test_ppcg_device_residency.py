@@ -19,7 +19,7 @@ Residency has two independently-testable halves:
    hardware group), so this is proven against strings in ppcg's own output shape -- the first two
    hand-written, ``PPCG_VLA_TRANSIENT_HOST`` trimmed from a real ppcg 0.09.3 + ``hipify-perl`` run.
 2. The .so that rewritten code compiles to needs a DEVICE pointer, not a host array --
-   :func:`hpcagent_bench.frameworks.native_runtime._is_device_array` / ``_to_ctypes`` recognize a
+   :func:`hpcagent_bench.frameworks.native_runtime._is_device_array` / ``to_ctypes`` recognize a
    cupy argument and hand the .so its raw ``.data.ptr`` instead of ``.ctypes.data_as``. Proven with
    a duck-typed stand-in for ``cupy.ndarray`` first (no cupy needed), then end to end against a
    REAL hand-written HIP kernel ``.so`` and real cupy where both are installed -- this repo's own
@@ -269,7 +269,7 @@ def test_a_passthrough_is_published_and_declined_not_crashed_on(
 
 class FakeCupyArray:
     """Stands in for ``cupy.ndarray``: a type of the ``cupy`` package (what ``_is_device_array`` reads) with
-    the ``dtype`` and ``.data.ptr`` integer address ``_to_ctypes`` reads -- backed by a real numpy buffer
+    the ``dtype`` and ``.data.ptr`` integer address ``to_ctypes`` reads -- backed by a real numpy buffer
     so the "device" pointer is dereferenceable and the round trip through ctypes is checkable."""
 
     __module__ = "cupy._core.core"
@@ -300,7 +300,7 @@ def test_to_ctypes_reads_the_device_arrays_own_pointer() -> None:
     -- proof this does not fall back to copying anything."""
     host = np.arange(4, dtype=np.float64)
     fake = FakeCupyArray(host)
-    ptr = native_runtime._to_ctypes(fake, ctypes.c_double, ctypes.c_int64)
+    ptr = native_runtime.to_ctypes(fake, ctypes.c_double, ctypes.c_int64)
     # ctypes.cast gives a POINTER(c_double); reading through it must see the backing array's data.
     values = [ptr[i] for i in range(4)]
     assert values == list(host), values
@@ -309,7 +309,7 @@ def test_to_ctypes_reads_the_device_arrays_own_pointer() -> None:
 
 def test_ctype_arg_picks_a_pointer_type_for_a_device_array() -> None:
     fake = FakeCupyArray(np.zeros(1, dtype=np.float32))
-    argtype = native_runtime._ctype_arg(fake, ctypes.c_float, ctypes.c_int64)
+    argtype = native_runtime.ctype_arg(fake, ctypes.c_float, ctypes.c_int64)
     assert argtype is ctypes.POINTER(ctypes.c_float)
 
 
@@ -492,8 +492,8 @@ def test_a_device_pointer_call_runs_a_real_hip_so(tmp_path: pathlib.Path) -> Non
         ctypes.c_int,
     ]
     lib.axpy.restype = None
-    c_a = native_runtime._to_ctypes(dev_a, ctypes.c_double, ctypes.c_int64)
-    c_b = native_runtime._to_ctypes(dev_b, ctypes.c_double, ctypes.c_int64)
+    c_a = native_runtime.to_ctypes(dev_a, ctypes.c_double, ctypes.c_int64)
+    c_b = native_runtime.to_ctypes(dev_b, ctypes.c_double, ctypes.c_int64)
 
     start, stop = cupy.cuda.Event(), cupy.cuda.Event()
     start.record()

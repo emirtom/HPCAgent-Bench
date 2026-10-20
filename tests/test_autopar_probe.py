@@ -7,6 +7,7 @@ accepts ``-mllvm -polly-parallel`` and outlines nothing). These tests exercise t
 plus the ``native_runtime`` gate built on it -- not the polly/gcc_autopar frameworks end to end
 (``tests/test_frameworks.py`` covers those)."""
 
+import pathlib
 import shutil
 
 import pytest
@@ -74,7 +75,7 @@ def test_probe_is_lru_cached() -> None:
     assert info.hits >= 1
 
 
-def test_gate_declines_polly_when_the_probe_is_vacuous(monkeypatch) -> None:
+def test_gate_declines_polly_when_the_probe_is_vacuous(monkeypatch: pytest.MonkeyPatch) -> None:
     """``native_runtime.assert_autopar_capable`` must raise :class:`NotSupportedByFramework` --
     the framework's existing "deliberate, correct decline" mechanism -- when the probe is not OK.
 
@@ -89,14 +90,14 @@ def test_gate_declines_polly_when_the_probe_is_vacuous(monkeypatch) -> None:
         native_runtime.assert_autopar_capable("polly", "gemm")
 
 
-def test_gate_allows_polly_when_the_probe_is_ok(monkeypatch) -> None:
+def test_gate_allows_polly_when_the_probe_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     """Symmetric case: an OK verdict must not raise."""
     monkeypatch.setattr(flags, "polly_capability", lambda: flags.AutoparProbe(flags.AutoparVerdict.OK, "forced"))
     native_runtime.assert_autopar_capable("polly", "gemm")  # must not raise
 
 
 @pytest.mark.parametrize("framework", ["cc", "llvm", "fortran", "cc_autopar", "fortran_autopar"])
-def test_gate_is_a_no_op_for_ungated_frameworks(framework) -> None:
+def test_gate_is_a_no_op_for_ungated_frameworks(framework: str) -> None:
     """A flavor absent from :data:`native_runtime.AUTOPAR_GATED` must pass through regardless of any
     probe's verdict.
 
@@ -176,7 +177,9 @@ def test_probe_source_uses_a_parallel_policy() -> None:
     assert "std::execution::par_unseq" in flags.STDPAR_PROBE_SOURCE
 
 
-def test_every_cpp_submission_link_carries_the_stdpar_runtime(tmp_path, monkeypatch) -> None:
+def test_every_cpp_submission_link_carries_the_stdpar_runtime(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The task text tells a C++ agent that ``std::execution::par`` / ``par_unseq`` work and need no
     ``build`` declaration, so the promise has to hold for an ORDINARY submission link, not only for
     the ``cpp_isopar`` emit -- an unresolved ``_ZN3tbb...`` is a build failure the agent cannot fix

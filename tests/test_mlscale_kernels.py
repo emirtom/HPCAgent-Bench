@@ -19,6 +19,8 @@ torch = pytest.importorskip("torch")
 dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 
+import types
+
 from hpcagent_bench import modules, sizing
 from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks.utilities import compare_arrays
@@ -98,7 +100,7 @@ def spec_of(stem: str) -> BenchSpec:
     return BenchSpec.load(KEYS[stem])
 
 
-def torch_module(stem: str):
+def torch_module(stem: str) -> types.ModuleType:
     return importlib.import_module(f"hpcagent_bench.benchmarks.machine_learning.{stem}.{stem}_torch")
 
 
@@ -259,7 +261,7 @@ def gloo_worker(rank: int, world: int, store: str) -> None:
 
 
 @pytest.mark.parametrize("world", [1, 2, 3, 4])
-def test_reference_dist_on_a_gloo_group_matches_the_single_device_reference(world: int, tmp_path) -> None:
+def test_reference_dist_on_a_gloo_group_matches_the_single_device_reference(world: int, tmp_path: pathlib.Path) -> None:
     mp.spawn(gloo_worker, args=(world, str(tmp_path / "store")), nprocs=world, join=True)
 
 
@@ -466,7 +468,7 @@ def bf16_band() -> tuple[float, float, float]:
     return band.rtol, band.atol, accumulation_eps(Precision.BF16)
 
 
-def test_the_device_shard_grade_is_the_reference_comparators_verdict(monkeypatch) -> None:
+def test_the_device_shard_grade_is_the_reference_comparators_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
     """Grading an 8 GB bf16 shard through the host path costs ~46 bytes an element (~96 GB a rank
     at XL), so the shard is reduced on the device in chunks. The chunking must not change the
     verdict: at a chunk size that forces several passes it reproduces compare_arrays exactly."""

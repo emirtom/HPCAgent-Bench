@@ -137,11 +137,11 @@ def run_episode(
             )
             self.rounds = 0
 
-        def forward(self, **inputs: Any) -> dict[str, float]:
+        def forward(self, **inputs: Any) -> dict[str, float]:  # noqa: ANN401
             self.rounds += 1
             rewards: list[float] = []
 
-            def on_tool_result(name: str, result: Any) -> None:
+            def on_tool_result(name: str, result: Any) -> None:  # noqa: ANN401
                 reward = score_reward(result) if name == SCORE_TOOL else None
                 if reward is not None:
                     rewards.append(reward)

@@ -14,8 +14,9 @@ column still looked fine locally.
 """
 
 import dataclasses
+import pathlib
 import types
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 
@@ -48,7 +49,7 @@ EXPECTED = (
 
 
 @pytest.mark.parametrize(("flavor", "scored"), EXPECTED)
-def test_a_flavor_scores_exactly_its_own_pipeline(flavor, scored) -> None:
+def test_a_flavor_scores_exactly_its_own_pipeline(flavor: str, scored: bool) -> None:
     """A column pays for its own pipeline and nothing else: anything extra is work no column asked for."""
     assert FRAMEWORKS.entries[flavor].pipelines == scored
     assert DaceFramework(flavor).scored_pipelines() == scored
@@ -126,7 +127,7 @@ def test_every_dace_flavor_is_a_deterministic_column_unless_it_autotunes() -> No
         ("numpy", ("numpy", None)),
     ],
 )
-def test_the_flat_name_splits_into_framework_and_flavor(flavor, expected) -> None:
+def test_the_flat_name_splits_into_framework_and_flavor(flavor: str, expected: tuple[str, str | None]) -> None:
     """One name on the CLI, two columns in the DB -- so `GROUP BY framework` still gathers every
     DaCe row instead of scattering it across five names."""
     assert split_flavor(flavor) == expected
@@ -158,7 +159,9 @@ def test_the_split_is_declared_not_parsed() -> None:
         ({"adapter": "hpcagent_bench.harness.optimizers:AlloyProfileOptimizer"}, "optimizer a sweep selects"),
     ],
 )
-def test_a_malformed_flavor_entry_is_rejected_at_import(monkeypatch, broken, why) -> None:
+def test_a_malformed_flavor_entry_is_rejected_at_import(
+    monkeypatch: pytest.MonkeyPatch, broken: dict[str, Any], why: str
+) -> None:
     """Each of these writes a wrong GROUP BY key onto every row of a finished sweep: refused when the entry is
     built (:class:`~hpcagent_bench.vocabulary.Column`) or when the registry is checked."""
     with pytest.raises((KeyError, RegistryError)):
@@ -196,7 +199,7 @@ def test_ranks_per_node_splits_the_node() -> None:
     assert preflight.thread_env(ranks_per_node=1) == whole
 
 
-def _canon_row(**overrides):
+def canon_row(**overrides: object) -> dict[str, Any]:
     """One canon row for the summarize tests below, all-green unless overridden."""
     row = dict(
         run="r",
@@ -215,19 +218,21 @@ def _canon_row(**overrides):
     return row
 
 
-def test_summarize_separates_no_rows_from_a_real_failure_count(capsys) -> None:
+def test_summarize_separates_no_rows_from_a_real_failure_count(capsys: pytest.CaptureFixture[str]) -> None:
     """No row and rows with known failures land on DIFFERENT signals: a caller tolerates "56 kernels ran,
     3 are known-broken" (a real count) without also tolerating "nothing ran" (NO_ROWS)."""
     from hpcagent_bench.support.collect.sweep import NO_ROWS, summarize
 
     assert summarize([]) == NO_ROWS
     assert "produced nothing" in capsys.readouterr().out
-    assert summarize([_canon_row()]) == 0
-    assert summarize([_canon_row(), _canon_row(kernel="k2", status="crash", error="signal 11")]) == 1
+    assert summarize([canon_row()]) == 0
+    assert summarize([canon_row(), canon_row(kernel="k2", status="crash", error="signal 11")]) == 1
     assert "1 CRASHES" in capsys.readouterr().out
 
 
-def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(tmp_path, monkeypatch, capsys) -> None:
+def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """The CLI keeps summarize's verdict three-way: 0 all green, 1 a real measurement with known failures,
     2 the sweep produced nothing. A CI gate that tolerates case 1 must never also tolerate case 2."""
     from hpcagent_bench import cli
@@ -236,7 +241,7 @@ def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(tmp_path, monkey
 
     monkeypatch.setattr(recording, "aggregate", lambda *a, **k: 0)
 
-    def verdict(db, run=None) -> int:
+    def verdict(db: str, run: str | None = None) -> int:
         return cli.cmd_run_framework(types.SimpleNamespace(summarize=[db], canon_run=run))
 
     empty = tmp_path / "empty.db"
@@ -244,13 +249,13 @@ def test_cmd_run_framework_summarize_maps_to_the_0_1_2_contract(tmp_path, monkey
     assert "produced nothing" in capsys.readouterr().out
 
     one_crash = tmp_path / "one-crash.db"
-    canon_db.record(one_crash, [_canon_row(), _canon_row(kernel="k2", status="crash", error="signal 11")])
+    canon_db.record(one_crash, [canon_row(), canon_row(kernel="k2", status="crash", error="signal 11")])
     assert verdict(one_crash) == 1
     assert "CRASHES" in capsys.readouterr().out
     assert verdict(one_crash, run="another") == 2
 
     all_green = tmp_path / "all-green.db"
-    canon_db.record(all_green, [_canon_row()])
+    canon_db.record(all_green, [canon_row()])
     assert verdict(all_green) == 0
 
 
@@ -396,7 +401,7 @@ def test_ccache_is_offered_to_cmake_without_depending_on_path_order() -> None:
                 os.environ[key] = value
 
 
-def test_a_minted_size_symbol_is_bound_from_its_recorded_recipe(monkeypatch) -> None:
+def test_a_minted_size_symbol_is_bound_from_its_recorded_recipe(monkeypatch: pytest.MonkeyPatch) -> None:
     """``m = N // 2`` is minted as a dace symbol so the frontend can prove shapes equal, but no
     array carries it and no manifest names it -- shape matching alone leaves it free, and the call
     then dies on ``Missing program argument "m"``. The emitter records the closed form; binding it

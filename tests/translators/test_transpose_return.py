@@ -141,7 +141,7 @@ def validate_native(
         so = d / f"l_{b}.so"
         cc = subprocess.run(no.native_build_command(b, d / f"f{ext}", so), capture_output=True, text=True, check=False)
         assert cc.returncode == 0, f"{b} compile: {cc.stderr[-200:]}"
-        st = no._invoke_isolated(b, binding, so, by, syms, exp, ["ret_arr0"], 1e-9, 1e-9, frozenset())
+        st = no.invoke_isolated(b, binding, so, by, syms, exp, ["ret_arr0"], 1e-9, 1e-9, frozenset())
         assert st == "ok", f"{b}: {st}"
 
 

@@ -165,7 +165,7 @@ def test_oracle_pluto_leg_transforms_the_override_path_not_a_generated_copy(
     monkeypatch.setattr(oracle.pluto_transform, "run_polycc", capture)
     monkeypatch.setattr(oracle.pluto_transform, "polycc_exe", lambda: "/nonexistent/polycc")
 
-    oracle._run_pluto(tmp_path, "gemm", fptype, {}, {}, {}, {}, (), 0.0, 0.0, "ok", bench_dir, "gemm", frozenset())
+    oracle.run_pluto(tmp_path, "gemm", fptype, {}, {}, {}, {}, (), 0.0, 0.0, "ok", bench_dir, "gemm", frozenset())
 
     scop = seen["scop"]
     assert scop.name == f"gemm_{fptype}_pluto_override_input.c"

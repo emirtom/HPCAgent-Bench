@@ -107,7 +107,7 @@ def judge_argv(language: str) -> list:
     return languages.build_shared_lib_commands(language, source, pathlib.Path(LIBRARY), mode=SUBMISSION_BUILD_MODE)
 
 
-def displayed(argv) -> list:
+def displayed(argv: list[str]) -> list:
     """One judge argv rewritten for a reader who is not on the judge node.
 
     A launcher prefix is dropped and ``argv[0]`` becomes the driver's bare name: the absolute path
@@ -161,7 +161,7 @@ def shown_token(token: str) -> str:
     return shlex.quote(token)
 
 
-def wrapped(argv, indent: str = "    ") -> str:
+def wrapped(argv: list[str], indent: str = "    ") -> str:
     """``argv`` as one shell line, backslash-folded to :data:`WRAP_COLUMNS`."""
     lines, current = [], indent
     for token in argv:
@@ -174,7 +174,7 @@ def wrapped(argv, indent: str = "    ") -> str:
     return "\n".join(lines)
 
 
-def local_argv(compile_argv) -> list:
+def local_argv(compile_argv: list[str]) -> list:
     """The compile step an agent can actually run in its own container.
 
     The libm decl header is dropped rather than placeheld: it declares vectorizable libm entry

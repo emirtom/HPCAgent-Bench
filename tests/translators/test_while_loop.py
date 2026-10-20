@@ -157,5 +157,5 @@ def test_scalar_return_is_promoted_to_an_output_buffer() -> None:
             )
             assert cc.returncode == 0, f"{backend} compile: {cc.stderr[-300:]}"
             by = {"egrid": egrid.copy(), "p_energy": float(p_energy), "hpcagent_bench_ret0": np.zeros((1,))}
-            st = no._invoke(backend, binding, so, by, {"N": 64}, expected, ["hpcagent_bench_ret0"], 1e-9, 1e-9)
+            st = no.invoke(backend, binding, so, by, {"N": 64}, expected, ["hpcagent_bench_ret0"], 1e-9, 1e-9)
             assert st == "ok", f"{backend}: {st} (want index {want})"

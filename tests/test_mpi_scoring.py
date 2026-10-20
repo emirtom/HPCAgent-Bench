@@ -5,7 +5,7 @@
 import pathlib
 import shutil
 import types
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Self
 
 import numpy as np
@@ -13,6 +13,7 @@ import pytest
 
 from hpcagent_bench import config
 from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.harness import mpi_call, native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import Descriptor
@@ -26,7 +27,6 @@ from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub
-from hpcagent_bench.config import Statistic
 from tests import mpi_launch_helpers
 from tests.mpi_launch_helpers import c_toolchain, cc_override_for, mpi4py_launcher_diagnosis
 from tests.test_mpi_call import cupy_device_available
@@ -40,7 +40,7 @@ def launched(samples_ns: list[int]) -> mpi_call.MpiRun:
 
 
 @pytest.fixture
-def mpi_c():
+def mpi_c() -> Iterator[tuple[str, list[str]]]:
     """The discovered C MPI toolchain (a real 2-rank launch), wired into the config the scoring path reads."""
     tc = c_toolchain()
     if tc is None:
@@ -67,7 +67,7 @@ def _noop_submission(language: str = "c") -> Submission:
     return NoOpMPIOptimizer().solve(Task(kernel="scaled_add", language=language, residency=Residency.DISTRIBUTED))
 
 
-def test_distributed_scaled_add_scores_solved(mpi_c) -> None:
+def test_distributed_scaled_add_scores_solved(mpi_c: tuple[str, list[str]]) -> None:
     task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
     result = scoring.score(_noop_submission(), task, preset=Preset.S)
 
@@ -94,7 +94,7 @@ def test_distributed_scaled_add_python_delivery_scores_solved() -> None:
     assert result.speedup > 0
 
 
-def test_distributed_independent_verify_passes_for_reference(mpi_c) -> None:
+def test_distributed_independent_verify_passes_for_reference(mpi_c: tuple[str, list[str]]) -> None:
     sub = _noop_submission()
     task = Task(kernel="scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
     result = scoring.score(sub, task, preset=Preset.S)
@@ -156,7 +156,7 @@ def test_verify_distributed_ungradeable_tolerance_is_flagged_not_a_crash(monkeyp
     assert verdict.ungradeable is True
 
 
-def test_distributed_leaderboard_routing_scores_solved(mpi_c) -> None:
+def test_distributed_leaderboard_routing_scores_solved(mpi_c: tuple[str, list[str]]) -> None:
     # score_task_fuzzed must route a distributed task through the MPI scaling protocol, not the
     # single-node sweep. One measured, verified iteration; s_i is S_i of its one ratio.
     from hpcagent_bench.harness.metric import score_task_fuzzed
@@ -176,7 +176,7 @@ def test_distributed_leaderboard_routing_scores_solved(mpi_c) -> None:
     assert isinstance(ts.perf_mode, ScalingLaw)
 
 
-def test_distributed_bad_kernel_is_a_scored_failure_not_a_crash(mpi_c) -> None:
+def test_distributed_bad_kernel_is_a_scored_failure_not_a_crash(mpi_c: tuple[str, list[str]]) -> None:
     # A kernel that does not compile -> a scored Score(correct=False), never a runner death.
     binding = binding_from_spec(BenchSpec.load("scaled_add"))
     stub = gen_kernel_mpi_stub(binding)
@@ -197,7 +197,7 @@ _STENCILS = ["jacobi_2d", "heat_3d"]
 
 
 @pytest.mark.parametrize("kernel", _STENCILS)
-def test_distributed_stencil_scores_solved(kernel, mpi_c) -> None:
+def test_distributed_stencil_scores_solved(kernel: str, mpi_c: tuple[str, list[str]]) -> None:
     # C kernel disables FMA contraction, so the gathered field is bit-exact.
     task = Task(kernel=kernel, language=Language.C, residency=Residency.DISTRIBUTED)
     result = scoring.score(NoOpMPIOptimizer().solve(task), task, preset=Preset.S)
@@ -208,7 +208,7 @@ def test_distributed_stencil_scores_solved(kernel, mpi_c) -> None:
 
 
 @pytest.mark.parametrize("kernel", _STENCILS)
-def test_distributed_stencil_python_delivery_scores_solved(kernel) -> None:
+def test_distributed_stencil_python_delivery_scores_solved(kernel: str) -> None:
     # mpi4py twin of each stencil; override mpi.launcher to match mpi4py's MPI.
     launch = mpi_launch_helpers.mpi4py_launcher()
     if launch is None:
@@ -225,7 +225,7 @@ def test_distributed_stencil_python_delivery_scores_solved(kernel) -> None:
     assert result.speedup > 0
 
 
-def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
+def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c: tuple[str, list[str]]) -> None:
     # jacobi_2d through the ranked-leaderboard path; `solved` folds in the independent re-verify.
     from hpcagent_bench.harness.metric import score_task_fuzzed
 
@@ -246,7 +246,7 @@ def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
 # 2-D block-cyclic distribution (mat_scaled_add): ScaLAPACK-style MxN over a [2,2] hypercube
 
 
-def test_distributed_block_cyclic_2d_scores_solved(mpi_c) -> None:
+def test_distributed_block_cyclic_2d_scores_solved(mpi_c: tuple[str, list[str]]) -> None:
     task = Task(kernel="mat_scaled_add", language=Language.C, residency=Residency.DISTRIBUTED)
     sub = NoOpMPIOptimizer().solve(task)
     assert sub.requests.grid_at(4) == (2, 2)  # the equal-edge 2-D grid for R=4
@@ -328,7 +328,7 @@ extern "C" void scaled_add_mpi(
 """
 
 
-def test_distributed_scaled_add_device_cuda_source_scores_solved(mpi_c) -> None:
+def test_distributed_scaled_add_device_cuda_source_scores_solved(mpi_c: tuple[str, list[str]]) -> None:
     """REAL GPU run of the C/CUDA driver device path: builds, H2D/D2H mirrors each tile, grades bit-exact."""
     if not cupy_device_available():
         pytest.skip("no CUDA device / cupy")
@@ -390,7 +390,7 @@ extern "C" void scaled_add_mpi(
 """
 
 
-def test_distributed_scaled_add_mixed_host_device_scores_solved(mpi_c) -> None:
+def test_distributed_scaled_add_mixed_host_device_scores_solved(mpi_c: tuple[str, list[str]]) -> None:
     """REAL GPU run of a genuine mixed-residency kernel: per-array `location` drives a host+device mix."""
     if not cupy_device_available():
         pytest.skip("no CUDA device / cupy")
@@ -443,7 +443,7 @@ def described(cls: type, submission: object, binding: object, ranks: int, **kw: 
     return types.SimpleNamespace(any_device=lambda binding: False, nranks=ranks)
 
 
-def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) -> None:
+def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strong scaling times the anchor ONCE (size cache, reused across P); a failed run at one P is a note."""
     import contextlib
 
@@ -459,7 +459,15 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )
 
-    def _fake_call_isolated(lib, binding, data, lang, reps: int = 1, followups=(), **kw):
+    def fake_call_isolated(
+        lib: object,
+        binding: object,
+        data: object,
+        lang: object,
+        reps: int = 1,
+        followups: Sequence[object] = (),
+        **kw: object,
+    ) -> native_call.IsolatedCall:
         calls["anchor"] += 1
         # (outputs, samples, mem, followup outputs) -- constant serial anchor time
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
@@ -480,7 +488,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         return launched([1000 * p])  # T_i(P) grows with P here (irrelevant; we assert wiring, not eta)
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
-    monkeypatch.setattr(S, "_call_isolated", _fake_call_isolated)
+    monkeypatch.setattr(S, "_call_isolated", fake_call_isolated)
     monkeypatch.setattr(S, "_build_run_mpi", fake_build_run)
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
@@ -591,7 +599,7 @@ def gang_strong_sweep(
     )
 
 
-def test_score_scaling_keys_a_failed_ps_reason_by_its_rank_count(monkeypatch) -> None:
+def test_score_scaling_keys_a_failed_ps_reason_by_its_rank_count(monkeypatch: pytest.MonkeyPatch) -> None:
     """The flat "P=<n>: ..." notes cannot be joined to a row; the per-P map is what a hole row stores."""
     runs = gang_strong_sweep(monkeypatch, fails_at=4)
     assert runs.rank_notes == {4: "mpi build failed"}, runs.rank_notes
@@ -618,20 +626,20 @@ def test_score_scaling_an_ordinary_run_failure_does_not_end_the_sweep(monkeypatc
     assert runs.rank_notes == {2: "mpi run failed (boom)"}
 
 
-def test_score_scaling_records_the_placement_each_launch_was_given(monkeypatch) -> None:
+def test_score_scaling_records_the_placement_each_launch_was_given(monkeypatch: pytest.MonkeyPatch) -> None:
     """P=8 on 4-GPU nodes spans two nodes; a failed P=4 was still placed (one node) before it failed."""
     runs = gang_strong_sweep(monkeypatch, fails_at=4)
     assert runs.nodes == {1: 1, 2: 1, 4: 1, 8: 2}, runs.nodes
 
 
-def test_score_scaling_keeps_the_sized_problem_of_every_p(monkeypatch) -> None:
+def test_score_scaling_keeps_the_sized_problem_of_every_p(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strong keeps one size across P; the sweep sized it and must not throw that shape away."""
     runs = gang_strong_sweep(monkeypatch, fails_at=4)
     base = dict(BenchSpec.load("scaled_add").parameters["S"])
     assert runs.shapes == {1: base, 2: base, 4: base, 8: base}, runs.shapes
 
 
-def test_score_scaling_a_p_refused_before_launch_has_a_shape_but_no_placement(monkeypatch) -> None:
+def test_score_scaling_a_p_refused_before_launch_has_a_shape_but_no_placement(monkeypatch: pytest.MonkeyPatch) -> None:
     """A P that never reached a launch was placed nowhere, so it records no node count."""
     runs = gang_strong_sweep(monkeypatch, fails_at=0, refused_at=2)
     assert 2 not in runs.nodes
@@ -639,7 +647,7 @@ def test_score_scaling_a_p_refused_before_launch_has_a_shape_but_no_placement(mo
     assert runs.rank_notes[2].startswith("invalid MPI layout"), runs.rank_notes
 
 
-def test_score_scaling_weak_rounding_note_joins_its_p_without_the_prefix(monkeypatch) -> None:
+def test_score_scaling_weak_rounding_note_joins_its_p_without_the_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     runs = weak_jacobi_2d_sweep(monkeypatch, (2, 4))
     assert sorted(runs.rank_notes) == [2]
     assert runs.rank_notes[2].endswith("(not a perfect k-th power; rounded)")
@@ -660,7 +668,15 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
             build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("anchor.so"), log="")
         )
 
-    def _fake_call_isolated(lib, binding, data, lang, reps: int = 1, followups=(), **kw):
+    def fake_call_isolated(
+        lib: object,
+        binding: object,
+        data: object,
+        lang: object,
+        reps: int = 1,
+        followups: Sequence[object] = (),
+        **kw: object,
+    ) -> native_call.IsolatedCall:
         return native_call.IsolatedCall({}, [4000] * max(1, reps), None, [{} for _ in followups], ({},) * max(1, reps))
 
     def fake_build_run(
@@ -677,7 +693,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
         return launched([1000 * p])
 
     monkeypatch.setattr(S, "Sandbox", _fake_sandbox)
-    monkeypatch.setattr(S, "_call_isolated", _fake_call_isolated)
+    monkeypatch.setattr(S, "_call_isolated", fake_call_isolated)
     monkeypatch.setattr(S, "_build_run_mpi", fake_build_run)
     monkeypatch.setattr(S, "_data_seeded", lambda *a, **k: {})
     stub_oracle(monkeypatch)
@@ -721,7 +737,7 @@ def patch_work_exponent(monkeypatch: pytest.MonkeyPatch, exponent: int | None) -
     monkeypatch.setattr(scoring.BenchSpec, "load", staticmethod(patched))
 
 
-def test_score_scaling_weak_rounds_a_non_perfect_kth_power_p_and_notes_it(monkeypatch) -> None:
+def test_score_scaling_weak_rounds_a_non_perfect_kth_power_p_and_notes_it(monkeypatch: pytest.MonkeyPatch) -> None:
     """jacobi_2d declares ``work_exponent=2`` on a single ``N`` axis. P=4 (m=2) grows exactly with
     no note; P=2 and P=3 are not perfect squares, so they are ROUNDED,
     measured like any other P, and each carries a note plus its realized work ratio."""
@@ -737,7 +753,7 @@ def test_score_scaling_weak_rounds_a_non_perfect_kth_power_p_and_notes_it(monkey
     assert runs.work_exponent == 2
 
 
-def test_score_scaling_weak_skips_a_p_whose_rounded_size_is_the_base(monkeypatch) -> None:
+def test_score_scaling_weak_skips_a_p_whose_rounded_size_is_the_base(monkeypatch: pytest.MonkeyPatch) -> None:
     """A weak P > 1 whose sizes land back on the base has no growth to measure: skipped with a note."""
     monkeypatch.setattr(scoring.mpi_sizing, "sized_params", lambda base, mode, axis, p, k: dict(base))
     runs = weak_jacobi_2d_sweep(monkeypatch, (1, 2))
@@ -746,7 +762,9 @@ def test_score_scaling_weak_skips_a_p_whose_rounded_size_is_the_base(monkeypatch
     assert any("P=2" in n and "rounding leaves the size unchanged" in n for n in runs.notes)
 
 
-def test_score_scaling_weak_refuses_every_p_of_a_manifest_without_work_exponent(monkeypatch) -> None:
+def test_score_scaling_weak_refuses_every_p_of_a_manifest_without_work_exponent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A manifest that declares no work_exponent is strong-only: a weak sweep refuses EVERY P,
     P=1 included, each with a note naming the missing key -- never sized as if k were 1."""
     patch_work_exponent(monkeypatch, None)
@@ -759,7 +777,7 @@ def test_score_scaling_weak_refuses_every_p_of_a_manifest_without_work_exponent(
 
 
 @pytest.mark.sealed
-def test_distributed_scaling_curve_e2e(mpi_c) -> None:
+def test_distributed_scaling_curve_e2e(mpi_c: tuple[str, list[str]]) -> None:
     """End-to-end P-sweep: MPI scaled_add timed at P in {1,2,4} against a single-node anchor -> strong-scaling curve."""
     if shutil.which("gcc") is None:
         pytest.skip("single-node C anchor needs gcc")

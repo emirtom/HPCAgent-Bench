@@ -623,7 +623,7 @@ def test_runner_stub_gemm_ok() -> None:
     assert row.hidden_correct
 
 
-def test_cli_tasks_lists_ids(capsys) -> None:
+def test_cli_tasks_lists_ids(capsys: pytest.CaptureFixture[str]) -> None:
     from hpcagent_bench.cli import main
 
     rc = main(["tasks", "--kernels", "gemm", "--languages", "c,cpp"])
@@ -634,7 +634,7 @@ def test_cli_tasks_lists_ids(capsys) -> None:
     assert "# 2 tasks" in out
 
 
-def test_cli_tasks_source_mode_any_reaches_expand_tasks(capsys) -> None:
+def test_cli_tasks_source_mode_any_reaches_expand_tasks(capsys: pytest.CaptureFixture[str]) -> None:
     """`--source-mode any` is the only CLI route to a prebuilt-.so task ("write it in ANY
     language"); nothing else on the path can mint an `::any::` id, so this proves the flag
     reaches `expand_tasks` rather than the `("restricted",)` default."""
@@ -648,7 +648,7 @@ def test_cli_tasks_source_mode_any_reaches_expand_tasks(capsys) -> None:
     assert "# 1 tasks" in out
 
 
-def test_cli_prompt_renders(capsys) -> None:
+def test_cli_prompt_renders(capsys: pytest.CaptureFixture[str]) -> None:
     from hpcagent_bench.cli import main
 
     rc = main(["prompt", "gemm", "--language", "c"])
@@ -716,7 +716,7 @@ def test_prompt_device_residency_section() -> None:
     assert "Memory residency: HOST" not in dev
 
 
-def test_cli_tasks_residency_sweep(capsys) -> None:
+def test_cli_tasks_residency_sweep(capsys: pytest.CaptureFixture[str]) -> None:
     from hpcagent_bench.cli import main
 
     rc = main(["tasks", "--kernels", "gemm", "--languages", "cuda", "--residency", "host,device"])
@@ -744,7 +744,7 @@ def test_score_device_residency_gated() -> None:
     assert row.correct is False
 
 
-def _cuda_available():
+def cuda_available() -> bool:
     """A real NVIDIA device + nvcc + cupy attached to it."""
     import importlib.util
     import shutil
@@ -797,7 +797,7 @@ extern "C" void gemm_fp64(const double *A, const double *B, double *C,
 
 def test_score_device_residency_cuda_e2e() -> None:
     """REAL GPU run: device-resident CUDA gemm -> nvcc compile -> launch on device pointers -> GPU-event time."""
-    if not _cuda_available():
+    if not cuda_available():
         pytest.skip("no CUDA device / nvcc / cupy")
     from hpcagent_bench.harness.scoring import score
 

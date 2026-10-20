@@ -31,6 +31,7 @@ import yaml
 
 from hpcagent_bench import languages, paths, protocols, recorded_rows
 from hpcagent_bench.categories import Language, SourceMode
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.harness import (
     denominator,
     grade_under,
@@ -46,7 +47,6 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, TimedCell, VerifyResult, score
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.stats import score_rule
-from hpcagent_bench.config import Statistic
 from tests.fresh_module import module_at
 from tests.results_rows import cells, grades
 from tests.sqlite_closing import connect
@@ -106,7 +106,7 @@ def add_grade(
     units: tuple[str, ...] = (HOST,),
     language: str = "hip",
     episode: str = RUN,
-    **values: Any,
+    **values: Any,  # noqa: ANN401
 ) -> int:
     """One grade of ``episode`` (slot 1) in ``db`` with its stored source ``units`` (host, then device),
     delivered in ``language``."""
@@ -420,7 +420,7 @@ def test_a_python_delivered_row_is_graded_as_python_like_submit(tmp_path: pathli
     """A promotion retry: all 40 triton rows raised 'language must be one of ...; got triton'."""
     seen: list[tuple[str, str]] = []
 
-    def scorer(submission: Any, task: Any, **_kwargs: Any) -> Score:
+    def scorer(submission: Any, task: Any, **rest_kwargs: Any) -> Score:  # noqa: ANN401
         seen.append((submission.language, task.language))
         return score_result()
 
@@ -434,7 +434,7 @@ def test_a_python_delivered_row_is_graded_as_python_like_submit(tmp_path: pathli
 def test_a_verified_regrade_carries_the_current_reduction_and_its_times(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(scoring, "sanitizer_check", lambda *_args: None)  # k1 has no manifest to sanitize
+    monkeypatch.setattr(scoring, "sanitizer_check", lambda *rest_args: None)  # k1 has no manifest to sanitize
     verdict = types.SimpleNamespace(ok=True, reason="", ungradeable=False, harness_fault=False)
     row = grade_under.grade(
         listed_item(tmp_path), scorer=lambda *a, **k: score_result(), verifier=lambda *a, **k: verdict
@@ -652,7 +652,7 @@ def cell_scorer(ratios: list[float], seen: list[Any] | None = None) -> Callable[
     """A scorer that answers the given ratio per call and (optionally) logs the shape it was given."""
     remaining = iter(ratios)
 
-    def scorer(*_args: Any, **kwargs: Any) -> Score:
+    def scorer(*rest_args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         if seen is not None:
             seen.append(kwargs.get("params_override"))
         return cell_result(next(remaining))
@@ -724,7 +724,7 @@ def test_a_cell_that_never_measured_leaves_the_task_unsolved(
     a submission that did not survive every shape the protocol times."""
     scorer = cell_scorer([2.0, 4.0])
 
-    def failing(*args: Any, **kwargs: Any) -> Score:
+    def failing(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         if len(kwargs.get("params_override") or {}) and kwargs["params_override"]["N"] == 128:
             return score_result(correct=False, build_ok=False, speedup=0.0, cells=())
         return scorer(*args, **kwargs)
@@ -741,7 +741,7 @@ def test_an_ungradeable_cell_reads_as_ungradeable_not_a_blank_reason(
     (``Score.ungradeable``) must report that reason, not an empty one and an "unmeasured" status
     indistinguishable from a plain build/native failure. Mirrors grade()'s own bucket."""
 
-    def refusing(*_args: Any, **_kwargs: Any) -> Score:
+    def refusing(*rest_args: Any, **rest_kwargs: Any) -> Score:  # noqa: ANN401
         return score_result(build_ok=False, correct=False, speedup=0.0, ungradeable=True, detail="ungradeable: x")
 
     rows, _task = grade_under.grade_cells(listed_item(tmp_path), scorer=refusing)
@@ -788,7 +788,7 @@ def test_the_final_grade_draws_fresh_inputs_whatever_the_row_recorded(recorded: 
 def test_device_runtime_survives_a_regrade_as_suspect(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The device_runtime gate must see the re-graded Score -- without it a re-timed GPU-escape row
     is forced to speedup=1.0 (unremarkable) and the suspect flag silently clears."""
-    monkeypatch.setattr(scoring, "sanitizer_check", lambda *_args: None)  # k1 has no manifest to sanitize
+    monkeypatch.setattr(scoring, "sanitizer_check", lambda *rest_args: None)  # k1 has no manifest to sanitize
     row = grade_under.grade(
         listed_item(tmp_path),
         scorer=lambda *a, **k: score_result(speedup=1.0, device_runtime="libamdhip64.so.6"),
@@ -1149,7 +1149,7 @@ def connection_census(monkeypatch: pytest.MonkeyPatch) -> Callable[[], int]:
             live["n"] -= 1
             super().close()
 
-    def counted_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+    def counted_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:  # noqa: ANN401
         conn = real_connect(*args, factory=CountedConnection, **kwargs)
         live["n"] += 1
         return conn
@@ -1213,7 +1213,7 @@ def final_scorer(ratios: list[float], cells: list[dict[str, object]] | None = No
     """One mwd-v3 cell per call at the given credited ratio (and TimedCell changes)."""
     remaining = iter(zip(ratios, cells or [{}] * len(ratios), strict=True))
 
-    def scorer(*args: Any, **kwargs: Any) -> Score:
+    def scorer(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         ratio, changes = next(remaining)
         cell = TimedCell(
             label="XL+fuzz:submit",
@@ -1294,7 +1294,7 @@ def test_an_unmeasured_input_leaves_the_final_task_unsolved(
     measured = final_scorer([3.0] * 3)
     answers = iter([True, False, True, True])
 
-    def scorer(*args: Any, **kwargs: Any) -> Score:
+    def scorer(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         return measured(*args, **kwargs) if next(answers) else score_result(cells=(), detail="native call failed")
 
     rows, task = final_graded(tmp_path, scorer)
@@ -1342,7 +1342,7 @@ def test_a_final_regrade_that_did_not_build_records_build_ok_0(
 ) -> None:
     """A build failure on every input is the submission's own failure: the row must not claim it built."""
 
-    def failing(*_args: object, **_kwargs: object) -> Score:
+    def failing(*rest_args: object, **rest_kwargs: object) -> Score:
         return score_result(correct=False, build_ok=False, speedup=0.0, cells=(), detail="cc: error")
 
     _rows, values = grade_under.grade_cells(listed_item(tmp_path), scorer=failing)
@@ -1448,7 +1448,7 @@ def test_the_aa_calibration_asks_the_scorer_for_aa_and_stamps_every_row_apart(
     seen: list[object] = []
     ratios = final_scorer([1.0] * 8)
 
-    def scorer(*args: Any, **kwargs: Any) -> Score:
+    def scorer(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         seen.append(kwargs.get("aa"))
         return ratios(*args, **kwargs)
 
@@ -1490,7 +1490,7 @@ def test_finalize_grades_mw4x5_on_a_real_kernel(tmp_path: pathlib.Path) -> None:
     item = real_kernel_item(tmp_path)
     repeats: list[int] = []
 
-    def spy(*args: Any, **kwargs: Any) -> Score:
+    def spy(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         repeats.append(kwargs["repeat"])
         return score(*args, **kwargs)
 
@@ -1529,12 +1529,12 @@ def test_a_regrade_hands_the_scratch_the_agent_asked_for_or_a_generous_default(
     (argmax_with_index 263x -> 0.5x). Both grade paths pass the recorded request, else the default."""
     seen: list[str | None] = []
 
-    def scorer(submission: Any, *_args: Any, **_kwargs: Any) -> Score:
+    def scorer(submission: Any, *rest_args: Any, **rest_kwargs: Any) -> Score:  # noqa: ANN401
         seen.append(submission.workspace_bytes)
         return cell_result(2.0)
 
     item = dataclasses.replace(listed_item(tmp_path), workspace_bytes=recorded)
-    monkeypatch.setattr(scoring, "sanitizer_check", lambda *_args: None)  # k1 has no manifest to sanitize
+    monkeypatch.setattr(scoring, "sanitizer_check", lambda *rest_args: None)  # k1 has no manifest to sanitize
     grade_under.grade_cells(item, scorer=scorer)
     verdict = types.SimpleNamespace(ok=True, reason="", ungradeable=False, harness_fault=False)
     grade_under.grade(item, scorer=scorer, verifier=lambda *a, **k: verdict)
@@ -1573,14 +1573,14 @@ def test_the_final_grade_times_fresh_draws_five_a_side_and_grades_the_base_untim
     # Opened HERE: the forked child inherits the descriptor, where it cannot see tmp_path itself.
     sink = log.open("ab")
 
-    def logged(*args: Any, **kwargs: Any) -> Any:
+    def logged(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         os.write(sink.fileno(), (json.dumps([args[5], args[9]]) + "\n").encode())
         return real_variant(*args, **kwargs)
 
     reduced: list[tuple[int, int, float]] = []
     real_reduce = timing.reduce_mannwhitney_delta
 
-    def counted(candidate_ns: Any, baseline_ns: Any, *, p: float) -> timing.ReducedTiming:
+    def counted(candidate_ns: Any, baseline_ns: Any, *, p: float) -> timing.ReducedTiming:  # noqa: ANN401
         reduced.append((len(candidate_ns), len(baseline_ns), p))
         return real_reduce(candidate_ns, baseline_ns, p=p)
 
@@ -1874,7 +1874,7 @@ def test_a_final_regrade_the_submission_failed_on_every_input_is_decided_unsolve
     """A build failure on every input is the submission's answer, not a judge fault: the row is graded under
     the protocol's stamp and rule (unsolved), so a resumed shard and a rebuilt worklist owe it nothing."""
 
-    def failing(*_args: object, **_kwargs: object) -> Score:
+    def failing(*rest_args: object, **rest_kwargs: object) -> Score:
         return score_result(correct=False, build_ok=False, speedup=0.0, cells=(), detail="cc: error")
 
     item = listed_item(tmp_path)
@@ -1899,7 +1899,7 @@ def test_staging_a_setup_ignores_the_callers_temperature_harness_and_tree(
     values would stage another setup, or this one from another checkout."""
     seen: dict[str, str] = {}
 
-    def staged(argv: list[str], env: dict[str, str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def staged(argv: list[str], env: dict[str, str], **rest_kwargs: object) -> subprocess.CompletedProcess[str]:
         seen.update(env)
         out = pathlib.Path(env["ENV_ONLY"])
         (out / ".env.llr40-qwen38-c").write_text("", encoding="utf-8")

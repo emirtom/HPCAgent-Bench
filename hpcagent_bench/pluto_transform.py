@@ -9,7 +9,7 @@ output). Compiling the result is therefore the caller's job, which is what makes
 Pluto column a BUILD PATH and not a flag preset.
 
 Every consumer goes through here, so the timed build (``frameworks.native_runtime``, via
-:func:`transformed_sources`) and the numerical oracle (``hpcagent_bench.numerical_oracle._run_pluto``, via
+:func:`transformed_sources`) and the numerical oracle (``hpcagent_bench.numerical_oracle.run_pluto``, via
 :func:`run_polycc`) cannot time and validate different transforms.
 
 There is no ``plutocc``: this Pluto installs ``clan``, ``pet``, ``pluto`` and ``polycc``,

@@ -3,6 +3,7 @@
 """Unit tests for the container-launch factory: argv assembly, backend resolution, Harbor provider name."""
 
 import os
+import pathlib
 import subprocess
 
 import pydantic
@@ -14,7 +15,7 @@ from hpcagent_bench.config import Hardware
 
 
 @pytest.fixture(autouse=True)
-def clean_backend_env(monkeypatch):
+def clean_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Drop every ambient container/runtime var so a developer's shell cannot skew the argv assertions."""
     for key in list(os.environ):
         if key.startswith("HPCAGENT_BENCH_") or key == "ANTHROPIC_API_KEY":
@@ -56,7 +57,7 @@ def test_oci_is_a_standard_not_a_program() -> None:
     assert not docker.rootless
 
 
-def test_a_family_name_resolves_to_whichever_flavour_is_installed(monkeypatch) -> None:
+def test_a_family_name_resolves_to_whichever_flavour_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Selecting `oci` says WHICH INTERFACE, not which program. It must ask the machine."""
     monkeypatch.setattr(containers.shutil, "which", lambda name: "/usr/bin/" + name if name == "docker" else None)
     assert containers.resolve_backend(R.OCI) == R.DOCKER
@@ -125,7 +126,7 @@ def test_ce_has_no_image_reference_of_its_own() -> None:
         containers.default_image(R.CE, Hardware.CPU)
 
 
-def test_detect_backend_probes_path_rather_than_assuming(monkeypatch) -> None:
+def test_detect_backend_probes_path_rather_than_assuming(monkeypatch: pytest.MonkeyPatch) -> None:
     """A login node has podman and no dockerd; a laptop often has the reverse. Detection asks
     the machine instead of trusting the constant."""
     monkeypatch.setattr(containers.shutil, "which", lambda name: "/usr/bin/" + name if name == "docker" else None)
@@ -134,7 +135,7 @@ def test_detect_backend_probes_path_rather_than_assuming(monkeypatch) -> None:
     assert containers.detect_backend() is None
 
 
-def test_resolve_backend_precedence(monkeypatch) -> None:
+def test_resolve_backend_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     # PATH is pinned so the family fallback is deterministic rather than a property of whichever
     # runtime this developer happens to have installed.
     monkeypatch.setattr(containers.shutil, "which", lambda name: "/usr/bin/" + name)
@@ -211,7 +212,7 @@ def test_harbor_provider_names_docker_podman_and_singularity() -> None:
         containers.harbor_env_for(R.CE)
 
 
-def test_default_image_sif_tag_and_overrides(monkeypatch) -> None:
+def test_default_image_sif_tag_and_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert containers.default_image(R.APPTAINER, Hardware.CPU, repo_root="/r") == "/r/hpcagent_bench-cpu.sif"
     assert containers.default_image(R.PODMAN, Hardware.NVIDIA) == "hpcagent_bench:nvidia"
     monkeypatch.setenv("HPCAGENT_BENCH_SIF", "/scratch/my.sif")
@@ -220,7 +221,7 @@ def test_default_image_sif_tag_and_overrides(monkeypatch) -> None:
     assert containers.default_image(R.PODMAN, Hardware.CPU) == "reg/img:tag"
 
 
-def test_collect_env_order_is_pinned(monkeypatch) -> None:
+def test_collect_env_order_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk")  # a passthrough (non-HPCAGENT_BENCH) var
     monkeypatch.setenv("HPCAGENT_BENCH_ZED", "z")  # dynamic HPCAGENT_BENCH_*, sorts last
     monkeypatch.setenv("HPCAGENT_BENCH_ABC", "a")  # dynamic HPCAGENT_BENCH_*, sorts before ZED
@@ -232,7 +233,7 @@ def test_collect_env_order_is_pinned(monkeypatch) -> None:
     assert keys.count("HPCAGENT_BENCH_IMAGE") == 1  # no duplicate
 
 
-def test_collect_env_rejects_a_newline_value(monkeypatch) -> None:
+def test_collect_env_rejects_a_newline_value(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HPCAGENT_BENCH_BAD", "line1\nline2")
     with pytest.raises(ValueError):
         containers.collect_env(Hardware.CPU)
@@ -247,12 +248,14 @@ def test_harbor_env_for_maps_and_raises() -> None:
 # install_apptainer retry: both fetches are live-network; subprocess/sleep stubbed, stays pure-unit
 
 
-def _stub_installer(monkeypatch, bash_returncodes, curl_error=None):
+def stub_installer(
+    monkeypatch: pytest.MonkeyPatch, bash_returncodes: list[int], curl_error: str | None = None
+) -> tuple[list[list[str]], list[float]]:
     """Stub curl+bash; only intercepts those two argv (patching subprocess.run is process-global)."""
     calls, sleeps, pending = [], [], list(bash_returncodes)
     real_run = subprocess.run
 
-    def fake_run(argv, **kwargs):
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if not argv or argv[0] not in ("curl", "bash"):
             return real_run(argv, **kwargs)  # not ours -- never consume a queued returncode
         calls.append(argv[0])
@@ -272,44 +275,46 @@ def _stub_installer(monkeypatch, bash_returncodes, curl_error=None):
     return calls, sleeps
 
 
-def test_install_apptainer_retries_a_transient_mirror_failure(monkeypatch) -> None:
+def test_install_apptainer_retries_a_transient_mirror_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A mirror blip is retried in a FRESH process; upstream's own loop cannot recover from this."""
-    calls, sleeps = _stub_installer(monkeypatch, bash_returncodes=[2, 2, 0])
+    calls, sleeps = stub_installer(monkeypatch, bash_returncodes=[2, 2, 0])
     assert containers.install_apptainer("/tmp/apptainer-prefix", attempts=4) == 0
     assert calls.count("bash") == 3, "each attempt must re-run the installer in a fresh process"
     assert sleeps == [5, 10], "backoff must grow, and must NOT sleep after the attempt that succeeded"
 
 
-def test_install_apptainer_gives_up_and_reports_the_installer_returncode(monkeypatch) -> None:
+def test_install_apptainer_gives_up_and_reports_the_installer_returncode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Exhausting the attempts still surfaces the real failure -- never a false success."""
-    calls, sleeps = _stub_installer(monkeypatch, bash_returncodes=[2, 2, 2])
+    calls, sleeps = stub_installer(monkeypatch, bash_returncodes=[2, 2, 2])
     assert containers.install_apptainer("/tmp/apptainer-prefix", attempts=3) == 2
     assert calls.count("bash") == 3
     assert sleeps == [5, 10], "no trailing sleep after the final attempt"
 
 
-def test_install_apptainer_retries_a_failed_installer_download(monkeypatch) -> None:
+def test_install_apptainer_retries_a_failed_installer_download(monkeypatch: pytest.MonkeyPatch) -> None:
     """The installer download is live-network too, so a curl failure retries rather than raising."""
-    calls, _ = _stub_installer(monkeypatch, bash_returncodes=[0], curl_error=6)
+    calls, unused = stub_installer(monkeypatch, bash_returncodes=[0], curl_error=6)
     assert containers.install_apptainer("/tmp/apptainer-prefix", attempts=3) == 0
     assert calls.count("curl") == 2, "the failed download must be re-fetched, not raised to the caller"
 
 
-def test_install_apptainer_succeeds_first_try_without_sleeping(monkeypatch) -> None:
+def test_install_apptainer_succeeds_first_try_without_sleeping(monkeypatch: pytest.MonkeyPatch) -> None:
     """The happy path must not pay any backoff (guards against an off-by-one in the loop)."""
-    calls, sleeps = _stub_installer(monkeypatch, bash_returncodes=[0])
+    calls, sleeps = stub_installer(monkeypatch, bash_returncodes=[0])
     assert containers.install_apptainer("/tmp/apptainer-prefix") == 0
     assert calls.count("bash") == 1
     assert sleeps == []
 
 
-def test_install_apptainer_clears_a_partial_tree_between_attempts(monkeypatch, tmp_path) -> None:
+def test_install_apptainer_clears_a_partial_tree_between_attempts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     """A failed attempt's leftovers must be gone before the retry runs, or upstream hard-refuses on retry."""
     prefix = tmp_path / "apptainer"
     prefix.mkdir()
     seen_dirty = []
 
-    def fake_run(argv, **kwargs):
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if argv[0] == "curl":
             return subprocess.CompletedProcess(argv, 0, stdout="#!/bin/bash\ntrue\n")
         # Record whether upstream would refuse, then leave a partial tree as a dead mirror does.
@@ -326,7 +331,7 @@ def test_install_apptainer_clears_a_partial_tree_between_attempts(monkeypatch, t
     )
 
 
-def test_clean_partial_install_never_touches_a_preexisting_path(tmp_path) -> None:
+def test_clean_partial_install_never_touches_a_preexisting_path(tmp_path: pathlib.Path) -> None:
     """Only paths the attempt created may be removed; `prefix` is caller-supplied (often ~/.local)."""
     prefix = tmp_path / "local"
     (prefix / "share").mkdir(parents=True)
@@ -341,7 +346,7 @@ def test_clean_partial_install_never_touches_a_preexisting_path(tmp_path) -> Non
     assert (prefix / "share" / "user_data.txt").read_text() == "do not delete me"
 
 
-def test_clean_partial_install_tolerates_a_missing_prefix(tmp_path) -> None:
+def test_clean_partial_install_tolerates_a_missing_prefix(tmp_path: pathlib.Path) -> None:
     """The very first attempt can fail before the prefix exists at all."""
     containers.clean_partial_install(str(tmp_path / "never-created"), set())
 

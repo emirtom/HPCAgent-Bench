@@ -141,7 +141,9 @@ def run_worker(tmp_path: pathlib.Path, environment: dict[str, str], problem: dic
         transcript = (GOLDEN / "logs" / "success.jsonl").read_text(encoding="utf-8")
         seen: list[tuple[list[str], dict[str, str]]] = []
 
-        def spawn(command, cwd, env, stdout, stderr):  # the Popen signature
+        def spawn(
+            command: list[str], cwd: pathlib.Path, env: dict[str, str], stdout: object, stderr: object
+        ) -> object:  # the Popen signature
             seen.append((list(command), dict(env)))
             stdout.write(transcript)
             stdout.flush()

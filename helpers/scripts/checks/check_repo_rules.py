@@ -489,7 +489,6 @@ FILE_ROOT_ALLOW = {
     "helpers/scripts/checks/check_dockerfile_python.py": "pre-commit runs it without the package installed",
     "helpers/scripts/checks/check_no_hidden_in_image.py": "pre-commit runs it without the package installed",
     "helpers/scripts/checks/check_doc_links.py": "pre-commit runs it without the package installed",
-    "helpers/scripts/checks/check_annotation_ratchet.py": "pre-commit runs it without the package installed",
     "tests/check_yaml_style.py": "pre-commit runs it without the package installed",
     "hpcagent_bench/harness/judge_web_search.py": "loaded by file path (containers/images/tools_launch_check.py)",
     "containers/images/verify_image.py": "runs inside an image, where hpcagent_bench may be absent",

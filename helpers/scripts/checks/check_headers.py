@@ -29,6 +29,7 @@ file is missing the header (the offenders and the fix command are printed).
 """
 
 import argparse
+import pathlib
 import re
 import sys
 
@@ -54,7 +55,7 @@ EXCLUDE_PREFIXES = ("hpcagent_bench/benchmarks/", "hpcagent_bench/translators/")
 CODING_RE = re.compile(r"^[ \t\f]*#.*?coding[:=]")
 
 
-def in_scope(rel):
+def in_scope(rel: str) -> bool:
     posix = rel.replace("\\", "/")
     if not posix.endswith(".py"):
         return False
@@ -63,11 +64,11 @@ def in_scope(rel):
     return any(posix.startswith(p) for p in SCOPE_PREFIXES)
 
 
-def tracked_python():
+def tracked_python() -> list[str]:
     return git_tracked(cwd=paths.ROOT)
 
 
-def prefix_len(lines):
+def prefix_len(lines: list[str]) -> int:
     """Number of leading lines (shebang, then optional coding) the header goes after."""
     idx = 0
     if idx < len(lines) and lines[idx].startswith("#!"):
@@ -77,13 +78,13 @@ def prefix_len(lines):
     return idx
 
 
-def has_header(lines):
+def has_header(lines: list[str]) -> bool:
     idx = prefix_len(lines)
     seg = [line.rstrip("\n") for line in lines[idx : idx + 2]]
     return len(seg) == 2 and COPYRIGHT_RE.match(seg[0]) is not None and seg[1] == SPDX_LINE
 
 
-def insert_header(path):
+def insert_header(path: pathlib.Path) -> bool:
     """Insert the header after any shebang/coding lines. Returns True when it wrote."""
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
@@ -97,7 +98,7 @@ def insert_header(path):
     return True
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fix", action="store_true", help="insert the header in place instead of failing")
     ap.add_argument("files", nargs="*", help="explicit files to check (default: all tracked in-scope .py)")

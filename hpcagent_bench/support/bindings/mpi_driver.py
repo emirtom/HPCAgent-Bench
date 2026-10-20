@@ -402,7 +402,7 @@ def gen_mpi_driver(
         dev_d2h = ""
         ws_free_block = "    free(ws_base);"
 
-    # Per-rank scalar reads: each is packed as an int64/float64 register slot (mpi_wire._scalar8);
+    # Per-rank scalar reads: each is packed as an int64/float64 register slot (mpi_wire.scalar8);
     # read as that class and cast to the declared type, or a float32 arg would read garbage bytes.
     scalar_reads: list[str] = []
     for si, a in enumerate(scalars):

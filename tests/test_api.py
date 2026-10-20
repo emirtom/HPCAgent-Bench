@@ -4,17 +4,20 @@
 your own code, native (in-process) or against a running judge -- the same contract
 the container endpoints expose, plus the enum-typed config dataclass."""
 
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
+
 import pytest
 
 from hpcagent_bench import api, config
 from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode
+from hpcagent_bench.config import SubmitFeedback
 from hpcagent_bench.harness.agent import reference_source
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import RecordedAnswer
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.service import grade_answer
 from hpcagent_bench.harness.task import Task
-from hpcagent_bench.config import SubmitFeedback
 from tests.port_toolchain import gcc_available
 
 TASK = Task("gemm", SourceMode.RESTRICTED, Language.C)
@@ -160,7 +163,7 @@ def test_native_baseline_measures_the_time_to_beat() -> None:
 # container mode: same call, graded by a running judge
 
 
-def test_container_mode_scores_via_a_running_judge(make_judge) -> None:
+def test_container_mode_scores_via_a_running_judge(make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]) -> None:
     if not gcc_available():
         pytest.skip("gcc absent")
     from hpcagent_bench.harness.service import ServiceConfig

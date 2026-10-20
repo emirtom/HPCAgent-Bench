@@ -315,7 +315,7 @@ def storage_and_compute(declared: object) -> tuple[Any, Any]:
     return dtype, np.dtype(DRAW_DTYPE)
 
 
-def demote_to(value: object, compute: Any, storage: Any) -> object:
+def demote_to(value: object, compute: Any, storage: Any) -> object:  # noqa: ANN401
     """An initializer's array drawn in ``compute`` stored as ``storage``; anything else unchanged."""
     if storage is compute or not isinstance(value, np.ndarray) or value.dtype != np.dtype(compute):
         return value

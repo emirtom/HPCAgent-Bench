@@ -27,6 +27,7 @@ import subprocess
 import sys
 import urllib.error
 from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 from urllib.request import Request, urlopen
 
 import numpy as np
@@ -35,12 +36,12 @@ import pytest
 from hpcagent_bench import config, languages, seal, spec
 from hpcagent_bench.api import InputMode
 from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, SourceMode
+from hpcagent_bench.config import SubmitFeedback
 from hpcagent_bench.harness import native_call, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.service import ServiceConfig, gpu_language_refusal, setup_language_refusal
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import binding_from_spec
-from hpcagent_bench.config import SubmitFeedback
 
 #: The exact key set ``POST /score`` may answer with -- FROZEN mid-experiment (an agent calling it
 #: before and after a deploy must see byte-identical shape). ``device_runtime`` is deliberately
@@ -488,7 +489,9 @@ def test_an_honest_host_grade_keeps_its_measured_credit(monkeypatch: pytest.Monk
     assert not any(cell.suspect for cell in result.cells)
 
 
-def test_the_score_route_never_answers_with_device_runtime(make_judge) -> None:
+def test_the_score_route_never_answers_with_device_runtime(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+) -> None:
     """``device_runtime`` reaches the DB (:mod:`hpcagent_bench.harness.recording`) and the internal
     ``Score`` a submitting process's own :meth:`~hpcagent_bench.harness.tools.JudgeClient` reads --
     it must never reach the ``/score`` WIRE payload, whose shape is frozen mid-experiment. Pins the
@@ -522,7 +525,9 @@ def test_the_build_commands_are_recorded_never_answered_even_under_full_feedback
 
 
 def test_the_score_route_redacts_the_refusal_reason_too(
-    make_judge, fake_runtime: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]],
+    fake_runtime: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Same rationale as the key redaction above, on the actual refusal PATH: telling a cheating
     agent it was caught, or by which library, is exactly the feedback it needs to iterate into an
@@ -600,7 +605,9 @@ def test_gpu_language_refusal_fires_only_for_a_gpu_language_on_a_declared_host_o
     assert gpu_language_refusal(Language.HIP) is None, "an undeclared setup keeps its current, unrestricted behaviour"
 
 
-def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(make_judge, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """End to end: the recorded exploit's OTHER shape -- no dlopen trick needed at all, just a
     ``language=hip`` claim on a CPU setup's own /score route -- is a clean 400, before the request
     ever reaches a build or a device slot (no hipcc is on this host; a 200 build failure would
@@ -626,7 +633,9 @@ def test_a_cpu_setup_refuses_a_hip_language_submit_over_http(make_judge, monkeyp
     assert "host-only" in payload["error"]
 
 
-def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(make_judge, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_cpu_setup_still_grades_a_c_language_submit_over_http(
+    make_judge: Callable[..., tuple[ThreadingHTTPServer, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The control for the test above: the SAME declared-host-only setup, a host language -- must
     reach scoring exactly as it always has, never a 400 from the new check."""
     monkeypatch.setenv("HPCAGENT_BENCH_RECORD_DEVICE", "cpu")

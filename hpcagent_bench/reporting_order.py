@@ -218,7 +218,7 @@ def row_meta_for(short_names: Sequence[str]) -> list[RowMeta]:
     return out
 
 
-def structural_group(spec, track: str | None = None) -> str | None:
+def structural_group(spec: BenchSpec, track: str | None = None) -> str | None:
     """The group a figure bands ``spec``'s row under: the dwarf for HPC, ``None`` for every other track.
 
     One rule, one place: the results table records it per row (the framework run's ``domain``) and the

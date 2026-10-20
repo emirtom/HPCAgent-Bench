@@ -20,6 +20,7 @@ import shutil
 import types
 from collections.abc import Callable
 from http.server import ThreadingHTTPServer
+from typing import Any
 
 import pytest
 from hpcagent_agent.tools import http_json, registry
@@ -91,14 +92,14 @@ def load_tools(
 
 
 @pytest.fixture
-def agent_tools(monkeypatch) -> types.SimpleNamespace:
+def agent_tools(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
     """The ENFORCED regime: ``input_mode=source`` pins the language, which is the judge's own default
     and the two language-pinned job variants."""
     return load_tools(monkeypatch, "source", "c")
 
 
 @pytest.fixture
-def free_choice_tools(monkeypatch) -> types.SimpleNamespace:
+def free_choice_tools(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
     """The UNENFORCED regime, as ``.env.llr-any`` ships it: ``JUDGE_INPUT_MODE=any`` and an EMPTY
     ``LANGUAGE`` -- the variant whose whole point is that the agent picks."""
     return load_tools(monkeypatch, "any", "")
@@ -164,7 +165,10 @@ def free_choice_judge(
     ],
 )
 def test_the_body_is_field_for_field_what_the_reference_client_sends(
-    agent_tools, monkeypatch, submission, payload
+    agent_tools: types.SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    submission: dict[str, Any],
+    payload: dict[str, Any],
 ) -> None:
     """The drift guard: same field NAMES, same values, no invented ones.
 
@@ -177,7 +181,9 @@ def test_the_body_is_field_for_field_what_the_reference_client_sends(
     assert agent_tools.http_json.submission_body({"kernel": KERNEL, **payload}) == reference
 
 
-def test_profile_adds_exactly_the_diagnostic_fields(agent_tools, monkeypatch) -> None:
+def test_profile_adds_exactly_the_diagnostic_fields(
+    agent_tools: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``/profile`` is the submission body plus its instrument selection, as
     :meth:`JudgeClient.profile` sends it: ``min_percent`` always, ``counter_group`` only alongside
     ``counters``, and nothing else unless it was asked for -- an omitted field is a judge-side
@@ -253,7 +259,9 @@ def test_the_profile_tool_names_the_offload_tracer_for_exactly_the_languages_the
         assert "the default there" in text, "the judge defaults an offload setup to rocprofv3; the tool must say so"
 
 
-def test_every_route_carries_the_rank_and_a_wrong_one_is_refused(agent_tools, judge, monkeypatch) -> None:
+def test_every_route_carries_the_rank_and_a_wrong_one_is_refused(
+    agent_tools: types.SimpleNamespace, judge: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The rank rides on GET and POST alike, from the environment -- no tool argument writes it.
 
     A judge that answers 421 has READ a rank; a judge that answers 400 ("must name the judge rank")
@@ -272,7 +280,9 @@ def test_every_route_carries_the_rank_and_a_wrong_one_is_refused(agent_tools, ju
         assert "reached the WRONG judge" in answer["error"]  # the reason, not a bare "Misdirected Request"
 
 
-def test_the_episode_identity_rides_on_every_judge_post_and_no_payload_can_write_it(agent_tools, monkeypatch) -> None:
+def test_the_episode_identity_rides_on_every_judge_post_and_no_payload_can_write_it(
+    agent_tools: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Who made the call is the LAUNCHER's to say, and it must reach the body or nothing records it.
 
     ``agent_driver.py`` composes ``$HPCAGENT_BENCH_EPISODE_ID`` / ``$HPCAGENT_BENCH_OPTIMIZER`` per agent; the judge
@@ -295,7 +305,9 @@ def test_the_episode_identity_rides_on_every_judge_post_and_no_payload_can_write
         assert body["optimizer"] == "hpcagent-bench-vllm", body
 
 
-def test_an_unset_episode_identity_is_omitted_rather_than_sent_empty(agent_tools, monkeypatch) -> None:
+def test_an_unset_episode_identity_is_omitted_rather_than_sent_empty(
+    agent_tools: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A run outside the cluster launcher sets neither variable. Sending them empty would record the
     empty string as an identity; omitting them leaves the judge on its own ``adhoc`` default, which
     at least says the row is unattributed."""
@@ -304,7 +316,9 @@ def test_an_unset_episode_identity_is_omitted_rather_than_sent_empty(agent_tools
     assert agent_tools.http_json.identity_fields() == {}
 
 
-def test_a_wrong_source_file_name_comes_back_as_the_judges_own_reason(agent_tools, judge) -> None:
+def test_a_wrong_source_file_name_comes_back_as_the_judges_own_reason(
+    agent_tools: types.SimpleNamespace, judge: str
+) -> None:
     """A 400 must arrive with the sentence that says how to fix it.
 
     stdlib renders the judge's ``{"error": ...}`` as a bare ``HTTP Error 400: Bad Request``; the tool
@@ -319,14 +333,18 @@ def test_a_wrong_source_file_name_comes_back_as_the_judges_own_reason(agent_tool
     assert f"{KERNEL}.c" in answer["body"]["error"]
 
 
-def test_two_spellings_of_the_code_are_refused_by_the_judge_not_repaired(agent_tools, judge) -> None:
+def test_two_spellings_of_the_code_are_refused_by_the_judge_not_repaired(
+    agent_tools: types.SimpleNamespace, judge: str
+) -> None:
     """The tools never pick one delivery over another to make a call succeed."""
     answer = agent_tools.score.run({"kernel": KERNEL, "source": "void k(void) {}", "source_file": f"{KERNEL}.c"})
     assert answer["status"] == 400
     assert "ONE way" in answer["error"]
 
 
-def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(agent_tools, judge) -> None:
+def test_the_mcp_server_advertises_the_judge_routes_and_relays_a_refusal(
+    agent_tools: types.SimpleNamespace, judge: str
+) -> None:
     """What the model actually sees: the tool list, and a failed call as ``isError`` content rather
     than a dead server.
 
@@ -390,7 +408,7 @@ def test_the_launcher_allows_every_tool_the_server_advertises(
     assert not set(allowed) - served, f"allowed but never served: {sorted(set(allowed) - served)}"
 
 
-def test_the_language_enum_is_the_judges_whole_delivery_vocabulary(agent_tools) -> None:
+def test_the_language_enum_is_the_judges_whole_delivery_vocabulary(agent_tools: types.SimpleNamespace) -> None:
     """Offering a subset would withhold a legal choice; offering more would advertise a 400.
 
     The container cannot import ``hpcagent_bench``, so this tuple is a copy of ``DELIVERY_LANGS`` and
@@ -403,7 +421,7 @@ def test_the_language_enum_is_the_judges_whole_delivery_vocabulary(agent_tools) 
     assert registry.schema_of(free)["properties"]["language"]["enum"] == list(DELIVERY_LANGS)
 
 
-def test_the_enforced_input_modes_are_the_ones_the_judge_enforces(agent_tools) -> None:
+def test_the_enforced_input_modes_are_the_ones_the_judge_enforces(agent_tools: types.SimpleNamespace) -> None:
     """The gate reads ``$JUDGE_INPUT_MODE`` because the tools cannot see the judge's config, so the
     two lists must name the same modes: the judge pins a language exactly where ``ENFORCED_LANGUAGES``
     has a row, and ``any`` / ``library`` are absent from it."""
@@ -415,7 +433,9 @@ def test_the_enforced_input_modes_are_the_ones_the_judge_enforces(agent_tools) -
 @pytest.mark.parametrize(
     ("mode", "enforced"), [("source", True), ("py-binding", True), ("any", False), ("library", False), ("", True)]
 )
-def test_language_is_offered_only_where_the_track_pins_none(monkeypatch, mode, enforced) -> None:
+def test_language_is_offered_only_where_the_track_pins_none(
+    monkeypatch: pytest.MonkeyPatch, mode: str, enforced: bool
+) -> None:
     """The schema diff between the two regimes, and nothing else about it changes.
 
     An empty / unset ``JUDGE_INPUT_MODE`` must read as ENFORCED: ``source`` is the judge's own default,
@@ -462,7 +482,7 @@ DISTRIBUTED_ACTIONS = {
 
 @pytest.mark.parametrize(("actions", "offered"), [(None, False), (DISTRIBUTED_ACTIONS, True)])
 def test_the_requests_field_requires_a_layout_exactly_where_the_judge_grades_distributed(
-    monkeypatch, actions, offered
+    monkeypatch: pytest.MonkeyPatch, actions: tuple[str, ...] | None, offered: bool
 ) -> None:
     """A distributed task's problem line offers ``startup.grid`` (``$HPCAGENT_BENCH_REQUEST_ACTIONS``). There
     the judge refuses any submission without ``startup.grid`` and layout operations, so the tool schema
@@ -476,7 +496,7 @@ def test_the_requests_field_requires_a_layout_exactly_where_the_judge_grades_dis
     assert set(tools.served["score"].input_schema["properties"]) - {"language", "requests"} == SUBMISSION_FIELDS
 
 
-def test_a_distributed_submission_reaches_the_judge_with_its_layout(monkeypatch) -> None:
+def test_a_distributed_submission_reaches_the_judge_with_its_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     """What the tool sends is what the judge parses into ``Submission.requests``."""
     tools = load_tools(monkeypatch, "source", "hip", request_actions=DISTRIBUTED_ACTIONS)
     payload = {"kernel": KERNEL, "source": "int x;", "device_source": "int y;", "requests": ROW_SPLIT}
@@ -487,7 +507,7 @@ def test_a_distributed_submission_reaches_the_judge_with_its_layout(monkeypatch)
     assert submission.requests == Requests.validate(ROW_SPLIT)
 
 
-def test_an_enforced_track_ignores_a_language_the_model_sent(agent_tools) -> None:
+def test_an_enforced_track_ignores_a_language_the_model_sent(agent_tools: types.SimpleNamespace) -> None:
     """Do not weaken the enforced path to make the unenforced one simpler.
 
     The field is not in the schema there, but a model can still put one in the arguments. It must not
@@ -498,7 +518,7 @@ def test_an_enforced_track_ignores_a_language_the_model_sent(agent_tools) -> Non
     assert body["language"] == "c"
 
 
-def test_a_free_choice_request_carries_the_language_the_agent_named(free_choice_tools) -> None:
+def test_a_free_choice_request_carries_the_language_the_agent_named(free_choice_tools: types.SimpleNamespace) -> None:
     """Where nothing is pinned, the agent's choice IS the datum -- on every route that builds code."""
     payload = {"kernel": KERNEL, "source": "subroutine gemm()\nend subroutine", "language": "fortran"}
     assert free_choice_tools.http_json.submission_body(payload)["language"] == "fortran"
@@ -509,7 +529,7 @@ def test_a_free_choice_request_carries_the_language_the_agent_named(free_choice_
 
 
 def test_a_free_choice_submission_reaches_the_judge_in_the_language_it_named(
-    free_choice_tools, free_choice_judge
+    free_choice_tools: types.SimpleNamespace, free_choice_judge: str
 ) -> None:
     """The proof that the choice survives the wire, from the judge's OWN answer.
 
@@ -525,7 +545,7 @@ def test_a_free_choice_submission_reaches_the_judge_in_the_language_it_named(
 
 
 def test_the_free_choice_judge_would_have_refused_the_c_fallback_for_fortran_source(
-    free_choice_tools, free_choice_judge
+    free_choice_tools: types.SimpleNamespace, free_choice_judge: str
 ) -> None:
     """The bug this closes, stated as a test: the same Fortran source WITHOUT a language field is
     delivered as ``c`` and cannot build, and the model has nothing it can send to fix that."""
@@ -580,7 +600,7 @@ SNIPPETS = {
 }
 
 
-def compiled(tools, tmp_path, language, extension, text):
+def compiled(tools: types.SimpleNamespace, tmp_path: pathlib.Path, language: str, extension: str, text: str) -> object:
     """One ``syntax_check`` call on a file written for this test."""
     path = tmp_path / f"snippet{extension}"
     path.write_text(text)
@@ -589,7 +609,7 @@ def compiled(tools, tmp_path, language, extension, text):
 
 @pytest.mark.parametrize(("language", "extension", "compiler"), [("c", ".c", "gcc"), ("cpp", ".cpp", "g++")])
 def test_syntax_check_parses_a_good_file_and_reports_a_broken_one(
-    agent_tools, tmp_path, language, extension, compiler
+    agent_tools: types.SimpleNamespace, tmp_path: pathlib.Path, language: str, extension: str, compiler: str
 ) -> None:
     """The whole point of the tool: the agent learns its file does not compile WITHOUT spending a
     judge round-trip on it.
@@ -613,7 +633,9 @@ def test_syntax_check_parses_a_good_file_and_reports_a_broken_one(
     assert "error" in failed["output"].lower(), failed  # the compiler's own words, verbatim
 
 
-def test_syntax_check_parses_openmp_pragmas_for_real(agent_tools, tmp_path) -> None:
+def test_syntax_check_parses_openmp_pragmas_for_real(
+    agent_tools: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     """``-fopenmp`` is not decoration: without it every ``#pragma omp`` is an ignored comment, so a
     malformed clause passes the check and dies at the judge instead -- which is the round-trip this
     tool exists to save."""
@@ -636,7 +658,7 @@ def test_syntax_check_parses_openmp_pragmas_for_real(agent_tools, tmp_path) -> N
 
 
 def test_syntax_check_picks_the_compiler_from_the_extension_then_the_language(
-    agent_tools, monkeypatch, tmp_path
+    agent_tools: types.SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     """Extension first (it is the one the submission is named by), ``$LANGUAGE`` for a scratch file
     that has none -- refusing such a file would only cost the agent the check."""
@@ -680,7 +702,7 @@ def test_syntax_check_parses_a_gpu_host_half_with_the_gpu_compiler(
     assert agent_tools.syntax_check.language_of(pathlib.Path("kernel.cpp")) == "cpp"
 
 
-def test_syntax_check_returns_a_readable_refusal_rather_than_raising(agent_tools) -> None:
+def test_syntax_check_returns_a_readable_refusal_rather_than_raising(agent_tools: types.SimpleNamespace) -> None:
     """A missing path is content the model must READ; an exception would only reach it as a stack
     trace with no instruction in it."""
     assert agent_tools.syntax_check.run({})["ok"] is False
@@ -689,7 +711,9 @@ def test_syntax_check_returns_a_readable_refusal_rather_than_raising(agent_tools
     assert "no such file" in missing["error"]
 
 
-def test_the_mcp_server_serves_syntax_check_as_its_own_tool(agent_tools, tmp_path) -> None:
+def test_the_mcp_server_serves_syntax_check_as_its_own_tool(
+    agent_tools: types.SimpleNamespace, tmp_path: pathlib.Path
+) -> None:
     """What the model actually sees: a tool taking ``source_file`` and no judge fields, whose failed
     parse comes back as ``isError`` content carrying the compiler's message."""
     if shutil.which("gcc") is None:

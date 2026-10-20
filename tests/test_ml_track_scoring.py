@@ -13,12 +13,14 @@ import re
 import statistics
 import types
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from typing import Any
 
 import pytest
 from relayout.ops import Scheme
 
 from hpcagent_bench import config
 from hpcagent_bench.categories import Language, Preset, Residency, SourceMode
+from hpcagent_bench.config import Statistic
 from hpcagent_bench.harness import metric, mpi_call, native_call, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.mpi_descriptor import ArrayDist, AxisDist, Descriptor, Grid
@@ -26,7 +28,7 @@ from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.requests_api import DistributionPlan, Requests
 from hpcagent_bench.harness.sandbox import BuildResult
 from hpcagent_bench.harness.task import Task
-from hpcagent_bench.config import Statistic
+from hpcagent_bench.spec import BenchSpec
 
 TASK = Task("jacobi_2d", SourceMode.RESTRICTED, Language.HIP, residency=Residency.DISTRIBUTED)
 
@@ -50,12 +52,24 @@ def descriptor_for(ranks: int, scheme: Scheme = Scheme.BLOCK, block_size: int = 
 
 
 def fake_ml_track(
-    monkeypatch: pytest.MonkeyPatch, mode: str, verdict=None, scheme: Scheme = Scheme.BLOCK, block_size: int = 1
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    verdict: str | None = None,
+    scheme: Scheme = Scheme.BLOCK,
+    block_size: int = 1,
 ) -> list[tuple[int, int]]:
     """Put jacobi_2d on the ML track with T(P) = 8000/P ns (T_1 = 8000); returns the (P, seed) calls."""
     calls: list[tuple[int, int]] = []
 
-    def fake_sharded(task, binding, sub, descriptor, params, cfg, **kw):
+    def fake_sharded(
+        task: Task,
+        binding: object,
+        sub: Submission,
+        descriptor: object,
+        params: dict[str, Any],
+        cfg: object,
+        **kw: object,
+    ) -> tuple[bool, float, str, list[int]]:
         p = descriptor.grid.nranks
         calls.append((p, cfg.seed))
         ok, detail = verdict(p) if verdict else (True, "")
@@ -96,7 +110,9 @@ def test_score_distributed_credits_the_torch_baseline(monkeypatch: pytest.Monkey
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_RANKS", "4")
     seen = {}
 
-    def fake_baseline(spec, kind, params, seed, repeat, warmup=0):
+    def fake_baseline(
+        spec: BenchSpec, kind: str, params: dict[str, Any], seed: int, repeat: int, warmup: int = 0
+    ) -> list[int]:
         seen["params"], seen["kind"] = params, kind
         return [4000] * repeat
 
@@ -117,7 +133,7 @@ def test_score_distributed_torch_baseline_failure_credits_nothing(monkeypatch: p
     """A crashed baseline child is a judge-side gap: correct stays, speedup is 0, never a fake ratio."""
     fake_ml_track(monkeypatch, "strong")
 
-    def boom(*a, **k):
+    def boom(*a: object, **k: object) -> None:
         raise scoring.TorchBaselineUnavailable("the torch-autotune-gpu child failed")
 
     monkeypatch.setattr(scoring.torch_baseline, "shipped_samples", boom)
@@ -158,7 +174,9 @@ def test_time_scaling_anchor_runs_a_gpu_anchor_on_the_device(monkeypatch: pytest
     def fake_sandbox(binding: object, *, source_mode: str = "restricted") -> Iterator[types.SimpleNamespace]:
         yield types.SimpleNamespace(build=lambda sub, mode=None: BuildResult(ok=True, lib=pathlib.Path("a.so"), log=""))
 
-    def fake_call(lib, binding, data, lang, *, device, reps=1, **kw):
+    def fake_call(
+        lib: object, binding: object, data: object, lang: object, *, device: object, reps: int = 1, **kw: object
+    ) -> native_call.IsolatedCall:
         seen.append(device)
         return native_call.IsolatedCall({}, [700] * reps, None, [], ({},) * reps)
 

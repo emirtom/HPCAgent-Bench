@@ -16,7 +16,7 @@ from spack_repo.builtin.packages.magma.package import Magma as BuiltinMagma
 
 
 class Magma(BuiltinMagma):
-    def patch(self):
+    def patch(self) -> None:
         sort = str(pathlib.Path("magmablas", "sort.cu"))
         if self.spec.satisfies("+cuda") and pathlib.Path(sort).exists():
             filter_file(r"__align__\(sizeof\(T\)\)", "__align__(16)", sort)

@@ -21,7 +21,7 @@ import sys
 import tempfile
 import time
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pydantic
@@ -209,6 +209,8 @@ os.environ.setdefault("BLIS_NUM_THREADS", "1")
 # each preallocate a slice of it. setdefault so a caller can still force JAX_PLATFORMS=cuda.
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
+from collections.abc import Callable, Mapping, Sequence
+
 from hpcagent_bench import dtypes as _dtypes  # noqa: E402
 
 # The polycc invocation the TIMED pluto column builds from -- flags, pet-parse env and process-group
@@ -243,7 +245,7 @@ _CT = {r.scalar_kind: r.ctype for r in _dtypes.REGISTRY.values() if r.ctype is n
 CT_FLOAT = (ctypes.c_double, ctypes.c_float, ctypes.c_longdouble)
 
 
-def _np_dtype_for_kind(kind: str, np_float):
+def np_dtype_for_kind(kind: str, np_float: type) -> type:
     """numpy storage dtype for a binding ``kind``, resolved through the shared dtype registry."""
     try:
         return np.dtype(_dtypes.numpy_for_kind(kind)).type
@@ -361,7 +363,14 @@ def compile_command(backend: str, short: str) -> list[str]:
     return [level if part == "-O2" else part for part in COMPILE[backend]]
 
 
-def native_build_command(backend: str, src, so, short: str = "", extra_compile=(), extra_link=()) -> list[str]:
+def native_build_command(
+    backend: str,
+    src: pathlib.Path,
+    so: pathlib.Path,
+    short: str = "",
+    extra_compile: Sequence[str] = (),
+    extra_link: Sequence[str] = (),
+) -> list[str]:
     """Full argv that builds ``src`` into the loadable shared object ``so``.
 
     The library group goes AFTER the source. ld resolves left to right and the default
@@ -470,7 +479,7 @@ def grading_precision(spec: BenchSpec, precision: str) -> str:
     return PRECISION_BY_WIDTH[min(widths)]
 
 
-def comparison_array(arr) -> np.ndarray:
+def comparison_array(arr: np.ndarray | complex) -> np.ndarray:
     """Normalise an output to a comparison dtype: integers and bools UNCHANGED, complex128 if
     complex (keeps the imaginary part), else float64.
 
@@ -534,7 +543,9 @@ def is_perfect_cube(n: int) -> bool:
     return any(c >= 1 and c * c * c == n for c in (r - 1, r, r + 1))
 
 
-def custom_initialize(spec: BenchSpec, syms, datatype: type[np.floating] = np.float64) -> dict[str, Any]:
+def custom_initialize(
+    spec: BenchSpec, syms: dict[str, Any], datatype: type[np.floating] = np.float64
+) -> dict[str, Any]:
     """Run a kernel's hand-written ``initialize`` and bind its results by ``init.output_args``.
 
     ``datatype`` is passed explicitly since polybench initializers often default to float32.
@@ -589,7 +600,7 @@ def custom_initialize(spec: BenchSpec, syms, datatype: type[np.floating] = np.fl
         # (bf16, fp8) declares a FLOAT, whose width the sweep's precision chooses.
         want = np.dtype(compute_dtype(canonical(declared)))
         if want.kind != val.dtype.kind:
-            by[name] = _coerce_to_dtype(val, want.type)
+            by[name] = coerce_to_dtype(val, want.type)
     return by
 
 
@@ -624,7 +635,7 @@ def compiled_reference(spec: BenchSpec, values: dict[str, Any]) -> dict[str, np.
     return outputs
 
 
-def call_by_name(fn, ordered_names, values):
+def call_by_name(fn: Callable[..., object], ordered_names: Sequence[str], values: Mapping[str, object]) -> object:
     """Invoke a python impl with LABELLED arguments, falling back to ``ordered_names`` positionally.
 
     On the python side the argument ORDER should not be able to matter: the canonical C ABI is
@@ -660,7 +671,7 @@ def exc_status(exc: BaseException, limit: int = 240) -> str:
     return f"FAIL:{type(exc).__name__}" + (f": {text[:limit]}" if text else "")
 
 
-def _diag(proc, limit: int = 240) -> str:
+def process_diag(proc: subprocess.CompletedProcess[str], limit: int = 240) -> str:
     """The shortest decisive line of a failed subprocess, as a ``": ..."`` status suffix.
 
     Neither the first nor the last line is reliably the cause -- the compilers disagree. gcc LEADS
@@ -678,13 +689,16 @@ def _diag(proc, limit: int = 240) -> str:
     return f": exit {proc.returncode}"
 
 
-def _emit(
-    short,
+def emit_kernel(
+    short: str,
     bench: BenchSpec,
     out: pathlib.Path,
     precision: str = "",
-    mods=("hpcagent_bench.translators.numpyto_c.cli", "hpcagent_bench.translators.numpyto_fortran.cli"),
-    extra=(),
+    mods: Sequence[str] = (
+        "hpcagent_bench.translators.numpyto_c.cli",
+        "hpcagent_bench.translators.numpyto_fortran.cli",
+    ),
+    extra: Sequence[str] = (),
 ) -> tuple[bool, str]:
     """``(ok, diagnostic)`` -- the diagnostic is a status suffix, empty when ok.
 
@@ -702,7 +716,7 @@ def _emit(
                 cmd += ["--precision", precision]
             r = subprocess.run(cmd + list(extra), capture_output=True, text=True, cwd=str(paths.ROOT), check=False)
             if r.returncode:
-                return False, _diag(r)
+                return False, process_diag(r)
     return True, ""
 
 
@@ -771,7 +785,7 @@ def run_kernel(
 
             # Small radix/exponent params (v <= 48) are left alone -- scaling would floor them to
             # 10 and blow up a derived size like stockham_fft's N = R**K.
-            def _scale_dim(v):
+            def scale_dim(v: int) -> int:
                 t = max(round(v * f), 10)
                 is_pow2 = v > 1 and (v & (v - 1)) == 0
                 is_cube = is_perfect_cube(v)
@@ -794,7 +808,7 @@ def run_kernel(
                 return t
 
             syms = {
-                k: (_scale_dim(v) if (k in ints and isinstance(v, (int, float)) and v > cap) else v)
+                k: (scale_dim(ints[k]) if (k in ints and isinstance(v, (int, float)) and v > cap) else v)
                 for k, v in syms.items()
             }
     # Scalar params (e.g. crc16's CRC poly) are constants, not dimensions -- merge them only after
@@ -850,7 +864,7 @@ def run_kernel(
         # short-circuit the oracle since jax/py emit independently and may still validate the kernel.
         binding = None
         native_emit_error = None
-        emit_ok, emit_diag = _emit(short, spec, tdp, precision=emit_prec)
+        emit_ok, emit_diag = emit_kernel(short, spec, tdp, precision=emit_prec)
         if not emit_ok:
             # One documented-skip channel: in scope, blocked on a named feature. Any OTHER
             # native-emit failure is an undocumented gap and stays a FAIL.
@@ -934,7 +948,7 @@ def run_kernel(
         for a in ptr_args:
             if a["name"] not in reference_data:
                 reference_data[a["name"]] = np.zeros(
-                    binding_shape(a, syms), dtype=_np_dtype_for_kind(a["kind"], np_float)
+                    binding_shape(a, syms), dtype=np_dtype_for_kind(a["kind"], np_float)
                 )
         try:
             reference = compiled_reference(spec, reference_data)
@@ -966,9 +980,9 @@ def run_kernel(
             # kind, so the imaginary part isn't silently dropped (contour_integral, stockham_fft).
             complex_t = np.complex64 if np_float == np.float32 else np.complex128
             if nm in expected and np.iscomplexobj(expected[nm]):
-                dt = complex_t
+                dt: type = complex_t
             else:
-                dt = _np_dtype_for_kind(a["kind"], np_float)
+                dt = np_dtype_for_kind(a["kind"], np_float)
             by[nm] = np.zeros(shape, dtype=dt)
         if not compare:
             return dict.fromkeys(BACKENDS, "skip:no-output")
@@ -1007,10 +1021,10 @@ def run_kernel(
                 status[backend] = "FAIL:compile-timeout"
                 continue
             if c.returncode:
-                status[backend] = "FAIL:compile" + _diag(c)
+                status[backend] = "FAIL:compile" + process_diag(c)
                 continue
             try:
-                status[backend] = _invoke_isolated(
+                status[backend] = invoke_isolated(
                     backend, binding, so, by, syms, expected, compare, rtol, atol, index_names
                 )
             except Exception as exc:  # noqa: BLE001
@@ -1020,7 +1034,7 @@ def run_kernel(
             status[ISOPAR] = (
                 "skip:native-emit"
                 if native_emit_error is not None
-                else _run_isopar(
+                else run_isopar(
                     short, spec, tdp, fptype, emit_prec, binding, by, syms, expected, compare, rtol, atol, index_names
                 )
             )
@@ -1038,7 +1052,7 @@ def run_kernel(
             status[PLUTO] = (
                 "skip:native-emit"
                 if native_emit_error is not None
-                else _run_pluto(
+                else run_pluto(
                     tdp,
                     short,
                     fptype,
@@ -1106,7 +1120,7 @@ PYTHRAN_BASE_TO_NP = {
 }
 
 
-def _pythran_export_dtypes(src: str):
+def pythran_export_dtypes(src: str) -> list[type | None] | None:
     """Parse ``#pythran export f(t0, t1, ...)`` -> numpy dtypes list, or None if absent/unparseable.
     Splits on top-level commas only, since a 2-D type ``int64[:,:]`` carries an inner comma."""
     line = next((ln for ln in src.splitlines() if ln.startswith("#pythran export")), None)
@@ -1130,7 +1144,7 @@ def _pythran_export_dtypes(src: str):
     return [PYTHRAN_BASE_TO_NP.get(t.strip().split("[")[0].strip()) for t in toks]
 
 
-def _coerce_to_dtype(v, dt):
+def coerce_to_dtype(v: object, dt: type | None) -> object:
     """Coerce ``v`` to numpy dtype ``dt`` (no-op if already that dtype or ``dt`` is None)."""
     if dt is None:
         return v
@@ -1181,7 +1195,16 @@ def dep_available(dep: str) -> bool:
 
 
 def run_py_backend(
-    backend, short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str = ""
+    backend: str,
+    short: str,
+    bench: BenchSpec,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    emit_prec: str = "",
 ) -> str:
     """Validate a Python/JIT backend vs numpy in a forked child (extension modules can't unload)."""
     _cli, _extra, _pattern, dep = PY_BACKENDS[backend]
@@ -1189,14 +1212,23 @@ def run_py_backend(
         return "skip:not-installed"
     if backend == "numba" and omp_context.numba_omp_pool_launched():
         return "FAIL:harness:numba omp pool already launched here; a forked child cannot run a parallel region"
-    return _forked_status(
+    return forked_status(
         lambda: py_backend_compute(backend, short, bench, by, syms, expected, compare, rtol, atol, emit_prec),
         PY_FORK_TIMEOUT_S,
     )
 
 
 def py_backend_compute(
-    backend, short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str = ""
+    backend: str,
+    short: str,
+    bench: BenchSpec,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    emit_prec: str = "",
 ) -> str:
     """Emit + compile + import + run + compare a Python/JIT backend, only in the forked child."""
     import importlib.util
@@ -1236,14 +1268,14 @@ def py_backend_compute(
             cmd = [sys.executable, "-m", cli, "emit", "--kernel", str(npy), "--out", str(tdp)]
         emit = subprocess.run(cmd, capture_output=True, text=True, cwd=str(paths.ROOT), check=False)
         if emit.returncode:
-            return "FAIL:emit" + _diag(emit)
+            return "FAIL:emit" + process_diag(emit)
         mods = sorted(tdp.glob(pattern))
         if not mods:
             return "FAIL:no-module"
         modfile = mods[0]
         export_dtypes = None
         if backend == "pythran":
-            export_dtypes = _pythran_export_dtypes(modfile.read_text())
+            export_dtypes = pythran_export_dtypes(modfile.read_text())
             so = tdp / (modfile.stem + ".so")
             try:
                 cres = subprocess.run(
@@ -1288,7 +1320,7 @@ def py_backend_compute(
                 # pythran's export is dtype-strict; marshal each arg to what it
                 # declares (mirrors the C ABI's declared-dtype marshalling).
                 if export_dtypes is not None and len(args) < len(export_dtypes):
-                    v = _coerce_to_dtype(v, export_dtypes[len(args)])
+                    v = coerce_to_dtype(v, export_dtypes[len(args)])
                 if backend == "cupy" and isinstance(v, np.ndarray):
                     v = xp.asarray(v)  # device copy; mutation lands here
                 if nm in call:
@@ -1340,7 +1372,7 @@ def fork_a_single_threaded_child() -> int:
         return os.fork()
 
 
-def _forked_status(compute, timeout_s: float, expired: str = "skip:too-long") -> str:
+def forked_status(compute: Callable[[], str], timeout_s: float, expired: str = "skip:too-long") -> str:
     """Run ``compute()`` in a forked child (contains RSS growth, segfaults, JAX fork-after-threads
     deadlock); SIGKILLed and reported as ``expired`` past ``timeout_s``."""
     r, w = os.pipe()
@@ -1382,7 +1414,16 @@ def _forked_status(compute, timeout_s: float, expired: str = "skip:too-long") ->
 
 
 def run_jax_backend(
-    short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str = "", timeout_s: int | None = None
+    short: str,
+    bench: BenchSpec,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    emit_prec: str = "",
+    timeout_s: int | None = None,
 ) -> str:
     """Validate the NumpyToJAX emitter vs numpy in a forked child; parent stays jax-free (find_spec only).
 
@@ -1425,7 +1466,17 @@ def run_jax_backend(
     return f"FAIL:{last_line[0].split(':', 1)[0].rsplit('.', 1)[-1] or 'no-result'}"
 
 
-def jax_compute(short, bench: BenchSpec, by, syms, expected, compare, rtol, atol, emit_prec: str) -> str:
+def jax_compute(
+    short: str,
+    bench: BenchSpec,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    emit_prec: str,
+) -> str:
     """Emit + run + compare the jax kernel, only in the forked child. JAX is functional -- outputs are
     read from the return tuple even for an in-place numpy reference."""
     import ast
@@ -1477,7 +1528,7 @@ def jax_compute(short, bench: BenchSpec, by, syms, expected, compare, rtol, atol
         else:
             return f"FAIL:unresolved:{nm}"
     try:
-        ret = call_by_name(fn, bench.input_args, values)
+        ret = call_by_name(cast("Callable[..., object]", fn), bench.input_args, values)
     except Exception as exc:  # noqa: BLE001
         return f"skip:unsupported:{type(exc).__name__}"
     rv = list(ret) if isinstance(ret, tuple) else [ret] if ret is not None else []
@@ -1499,7 +1550,7 @@ def jax_compute(short, bench: BenchSpec, by, syms, expected, compare, rtol, atol
     return "ok"
 
 
-def binding_shape(arg, syms) -> tuple:
+def binding_shape(arg: dict[str, Any], syms: dict[str, Any]) -> tuple:
     """Resolve a binding arg's symbolic ``shape`` tokens to concrete ints."""
     out = []
     for tok in arg.get("shape", []) or []:
@@ -1521,8 +1572,21 @@ def pluto_reject_reason(stderr: str) -> str:
     return ""
 
 
-def _run_pluto(
-    tdp, short, fptype, binding, by, syms, expected, compare, rtol, atol, c_status, bench_dir, base, index_names
+def run_pluto(
+    tdp: pathlib.Path,
+    short: str,
+    fptype: str,
+    binding: dict[str, Any] | None,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    c_status: str | None,
+    bench_dir: pathlib.Path,
+    base: str,
+    index_names: frozenset[str],
 ) -> str:
     """Pluto backend: transform the emitted scop with ``polycc``, compile, and call through the C
     binding. Best effort: a polycc-tiled miscompile against a bit-exact ``c`` result is classified as
@@ -1575,7 +1639,7 @@ def _run_pluto(
     except subprocess.TimeoutExpired:
         return "skip:unsupported:compile-timeout"
     if proc.returncode:
-        result = "FAIL:compile" + _diag(proc)
+        result = "FAIL:compile" + process_diag(proc)
     else:
         # The transformed function keeps the Pluto signature, so marshal via its own binding --
         # looked up beside the SHARED native emit in tdp (not beside src), since a tracked
@@ -1584,7 +1648,7 @@ def _run_pluto(
         pb = tdp / f"{base}_{fptype}_pluto_binding.json"
         pluto_binding = read_binding(pb).model_dump(exclude_none=True) if pb.exists() else binding
         try:
-            result = _invoke_isolated("c", pluto_binding, so, by, syms, expected, compare, rtol, atol, index_names)
+            result = invoke_isolated("c", pluto_binding, so, by, syms, expected, compare, rtol, atol, index_names)
         except Exception as exc:  # noqa: BLE001
             # An exception ESCAPING the invoke is a defect in this harness, not in what polycc
             # produced -- the invoke reports a run failure as a status string. Reported under its
@@ -1630,7 +1694,16 @@ class ProbeRecord(pydantic.BaseModel):
         return self.model_dump_json(exclude_unset=True)
 
 
-def run_dace_backend(short, bench: BenchSpec, by, syms, expected, compare, rtol, atol) -> str:
+def run_dace_backend(
+    short: str,
+    bench: BenchSpec,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+) -> str:
     """Lower + compile + run the generated ``*_dace.py`` in its OWN process; ``ok`` / ``FAIL:...``.
 
     A SUBPROCESS, not the forked child the python backends use: DaCe's parse state is process-global
@@ -1689,14 +1762,26 @@ def run_dace_backend(short, bench: BenchSpec, by, syms, expected, compare, rtol,
     return "FAIL:crash:" + (proc.stderr or proc.stdout)[-160:].replace("\n", " ")
 
 
-def _run_isopar(
-    short, bench: BenchSpec, tdp, fptype, emit_prec, binding, by, syms, expected, compare, rtol, atol, index_names
+def run_isopar(
+    short: str,
+    bench: BenchSpec,
+    tdp: pathlib.Path,
+    fptype: str,
+    emit_prec: str,
+    binding: dict[str, Any] | None,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    index_names: frozenset[str],
 ) -> str:
     """ISO standard-algorithm backend: emit ``<base>_isopar.cpp``, compile it as ordinary C++, and
     call it through the SAME binding as ``cpp`` -- the variant keeps the symbol and the ABI, only the
     body's spelling changes. ``par_unseq`` licenses reassociation, which is why this is graded on the
     same tolerance as every other backend rather than bit-exactly against ``cpp``."""
-    ok, diag = _emit(
+    ok, diag = emit_kernel(
         short, bench, tdp, precision=emit_prec, mods=("hpcagent_bench.translators.numpyto_c.cli",), extra=("--isopar",)
     )
     if not ok:
@@ -1716,9 +1801,9 @@ def _run_isopar(
     except subprocess.TimeoutExpired:
         return "FAIL:compile-timeout"
     if c.returncode:
-        return "FAIL:compile" + _diag(c)
+        return "FAIL:compile" + process_diag(c)
     try:
-        return _invoke_isolated("cpp", binding, so, by, syms, expected, compare, rtol, atol, index_names)
+        return invoke_isolated("cpp", binding, so, by, syms, expected, compare, rtol, atol, index_names)
     except Exception as exc:  # noqa: BLE001
         return exc_status(exc)
 
@@ -1746,18 +1831,41 @@ def pin_one_thread() -> None:
             setter(1)
 
 
-def _invoke_isolated(backend, binding, so, by, syms, expected, compare, rtol, atol, index_names) -> str:
+def invoke_isolated(
+    backend: str,
+    binding: dict[str, Any] | None,
+    so: pathlib.Path,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    index_names: frozenset[str],
+) -> str:
     """Run a compiled backend's ctypes call in a forked child, so a miscompile (heap corruption,
     segfault) reports ``FAIL:crash:SIG<n>`` instead of killing the whole sweep, and one that spins
     forever is killed at :data:`INVOKE_TIMEOUT_S` as ``FAIL:timeout``."""
-    return _forked_status(
-        lambda: _invoke(backend, binding, so, by, syms, expected, compare, rtol, atol, index_names),
+    return forked_status(
+        lambda: invoke(backend, binding, so, by, syms, expected, compare, rtol, atol, index_names),
         INVOKE_TIMEOUT_S,
         expired="FAIL:timeout",
     )
 
 
-def _invoke(backend, binding, so, by, syms, expected, compare, rtol, atol, index_names=frozenset()) -> str:
+def invoke(
+    backend: str,
+    binding: dict[str, Any] | None,
+    so: pathlib.Path,
+    by: dict[str, Any],
+    syms: dict[str, Any],
+    expected: dict[str, np.ndarray],
+    compare: list[str],
+    rtol: float,
+    atol: float,
+    index_names: frozenset[str] = frozenset(),
+) -> str:
+    assert binding is not None
     lib = ctypes.CDLL(str(so))
     fn = lib[binding["symbols"][backend]]
     call = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in by.items()}
@@ -1766,7 +1874,7 @@ def _invoke(backend, binding, so, by, syms, expected, compare, rtol, atol, index
     # Fortran -- which the tag told to subscript with the value as-is -- reads one element low, and
     # a scatter writes one element low, which is an out-of-bounds store rather than a wrong number.
     # ``base`` is 0 for every other backend, so this costs one lookup there and changes nothing.
-    base = index_base(backend)
+    base = index_base(cast("Language", backend))
     if base:
         for nm in index_names:
             buf = call.get(nm)
@@ -1791,7 +1899,7 @@ def _invoke(backend, binding, so, by, syms, expected, compare, rtol, atol, index
                 return f"FAIL:unresolved:{nm}"
             # Value-cast to the binding's declared dtype (not byte-reinterpret), e.g. crc16's
             # uint8 data against an int64 contract.
-            buf = np.ascontiguousarray(buf, dtype=_np_dtype_for_kind(kind, buf.dtype))
+            buf = np.ascontiguousarray(buf, dtype=np_dtype_for_kind(kind, buf.dtype))
             call[nm] = buf
             keep.append(buf)
             cargs.append(buf.ctypes.data_as(ctypes.c_void_p))

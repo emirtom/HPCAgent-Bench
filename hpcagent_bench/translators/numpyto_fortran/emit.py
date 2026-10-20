@@ -2527,7 +2527,7 @@ class FortranBodyEmitter(BaseEmitter):
             return self.nan_minmax(is_max, arg_strs)
         return f"{'max' if is_max else 'min'}({', '.join(arg_strs)})"
 
-    def minmax_arg_list(self, args) -> tuple[bool, list[str]]:
+    def minmax_arg_list(self, args: Sequence[ast.expr]) -> tuple[bool, list[str]]:
         """Emit args to min/max with uniform operand types, promoting integer literals to real when any operand is real."""
         int_uses = self.int_uses_()
         is_int = functools.partial(self.minmax_operand_is_int, int_uses=int_uses)
@@ -2547,9 +2547,14 @@ class FortranBodyEmitter(BaseEmitter):
         out = []
         for a in args:
             s = self.emit_expr(a)
-            is_int_const = isinstance(a, ast.Constant) and isinstance(a.value, int) and not isinstance(a.value, bool)
+            literal = (
+                a.value
+                if isinstance(a, ast.Constant) and isinstance(a.value, int) and not isinstance(a.value, bool)
+                else None
+            )
+            is_int_const = literal is not None
             if not all_int and is_int_const:
-                out.append(f"{a.value}.0_{self._rk}")
+                out.append(f"{literal}.0_{self._rk}")
             elif not all_int and is_int(a):
                 # A mixed call is REAL-typed: wrap an integer-valued expression in REAL() to share
                 # the real kind (-std=f2018).
@@ -2558,7 +2563,7 @@ class FortranBodyEmitter(BaseEmitter):
                 out.append(self.widened_to_int64(a, s, is_int_const))
             elif all_int and int_kind and is_int_const:
                 suf = self.INT_KIND_SUFFIX.get(int_kind, "")
-                out.append(f"{a.value}{suf}" if suf else s)
+                out.append(f"{literal}{suf}" if suf else s)
             else:
                 out.append(s)
         return all_int, out

@@ -46,7 +46,7 @@ __all__ = [
 ]
 
 
-def program_of(module: Any, func_name: str, module_name: str) -> Any:
+def program_of(module: Any, func_name: str, module_name: str) -> Any:  # noqa: ANN401
     """The kernel's ``@dace.program``, or ``None``.
 
     The program's name does not always match the manifest's ``func_name``, so the generator NAMES
@@ -65,7 +65,7 @@ def program_of(module: Any, func_name: str, module_name: str) -> Any:
     return programs[0] if len(programs) == 1 else None
 
 
-def marshal(name: str, value: Any, sdfg: Any) -> Any:
+def marshal(name: str, value: Any, sdfg: Any) -> Any:  # noqa: ANN401
     """``value``, VALUE-cast to the dtype the SDFG declares for ``name`` (a private copy either way).
 
     DaCe REINTERPRETS a mismatched array rather than converting it: ``make_ctypes_argument``

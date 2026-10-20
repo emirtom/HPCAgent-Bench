@@ -428,13 +428,14 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
             i += 1
         return out
 
-    def emit_consumer(self, stmt, arr, mask, op, seq):
+    def emit_consumer(self, stmt: ast.stmt, arr: str | ast.expr, mask: str, op: str, seq: int) -> list[ast.stmt] | None:
         """Emit one masked reduction for consumer ``stmt``, keeping its LHS and any cast wrapper.
 
         A bare ``Name = np.min(tmp)`` computes straight into the target; anything else
         (``res[i] = tmp.mean()``, ``jmin = int(np.min(tmp))``) computes into a scratch that the
         original expression then consumes, so an int cast still truncates where numpy did.
         """
+        assert isinstance(stmt, ast.Assign)
         tgt = stmt.targets[0]
         unused, cast = unwrap_cast(stmt.value)
         if isinstance(tgt, ast.Name) and cast is None:
@@ -443,7 +444,7 @@ class BooleanMaskReductionRewriter(ast.NodeTransformer):
         emitted = self.emit_masked(scratch, arr, mask, op)
         if emitted is None:
             return None
-        value = name_(scratch)
+        value: ast.expr = name_(scratch)
         if cast is not None:
             value = ast.Call(func=cast, args=[value], keywords=[])
         tail = ast.Assign(targets=[tgt], value=value)

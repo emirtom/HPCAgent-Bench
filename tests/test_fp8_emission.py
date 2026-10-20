@@ -38,7 +38,7 @@ def emit_fp8(tmp_path: pathlib.Path, precision: str) -> pathlib.Path:
     from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load(KERNEL)
-    ok, diag = no._emit(KERNEL, info, tmp_path, precision=precision)
+    ok, diag = no.emit_kernel(KERNEL, info, tmp_path, precision=precision)
     assert ok, f"{KERNEL}: fp8 emit failed at {precision}{diag}"
     return tmp_path
 

@@ -232,12 +232,16 @@ def test_native_call_passes_workspace(tmp_path: pathlib.Path) -> None:
     assert np.allclose(outs["y"], 2.0 * x + _MARKER)
 
     # (2) No request -> workspace is NULL, workspace_size 0 -> fallback path.
-    (outs_null,), unused, unused, unused = call_native(str(so), b, {**base, "y": np.zeros(n)}, Language.C, workspace_bytes=None)
+    (outs_null,), unused, unused, unused = call_native(
+        str(so), b, {**base, "y": np.zeros(n)}, Language.C, workspace_bytes=None
+    )
     assert np.allclose(outs_null["y"], 2.0 * x)
 
     # (3) A too-small request (buffer non-NULL but < N*8) -> the kernel sees the
     # real size and declines it: proves workspace_size is delivered accurately.
-    (outs_small,), unused, unused, unused = call_native(str(so), b, {**base, "y": np.zeros(n)}, Language.C, workspace_bytes="8")
+    (outs_small,), unused, unused, unused = call_native(
+        str(so), b, {**base, "y": np.zeros(n)}, Language.C, workspace_bytes="8"
+    )
     assert np.allclose(outs_small["y"], 2.0 * x)
 
 

@@ -754,7 +754,7 @@ def test_body_local_dim_alias_excluded_from_params() -> None:
 
     info = BenchSpec.load("smith_waterman")
     with tempfile.TemporaryDirectory() as td:
-        ok, diag = no._emit("smith_waterman", info, pathlib.Path(td))
+        ok, diag = no.emit_kernel("smith_waterman", info, pathlib.Path(td))
         assert ok, f"smith_waterman emit failed{diag}"
         binding = json.loads(next(pathlib.Path(td).glob("*_binding.json")).read_text())
         names = [a["name"] for a in binding["args"]]
@@ -768,10 +768,10 @@ def test_oracle_output_dtype_for_kind() -> None:
     no = oracle()
     import numpy as np
 
-    assert no._np_dtype_for_kind("ptr_int32", np.float64) == np.int32
-    assert no._np_dtype_for_kind("ptr_double", np.float64) == np.float64
-    assert no._np_dtype_for_kind("ptr_float", np.float32) == np.float32
-    assert no._np_dtype_for_kind("ptr_complex128", np.float64) == np.complex128
+    assert no.np_dtype_for_kind("ptr_int32", np.float64) == np.int32
+    assert no.np_dtype_for_kind("ptr_double", np.float64) == np.float64
+    assert no.np_dtype_for_kind("ptr_float", np.float32) == np.float32
+    assert no.np_dtype_for_kind("ptr_complex128", np.float64) == np.complex128
 
 
 # S. np_float / np_complex dtype aliases never become scalar parameters         #
@@ -834,7 +834,7 @@ def test_fortran_abi_param_order_matches_binding() -> None:
 
     info = BenchSpec.load("gesummv")
     with tempfile.TemporaryDirectory() as td:
-        ok, diag = no._emit("gesummv", info, pathlib.Path(td))
+        ok, diag = no.emit_kernel("gesummv", info, pathlib.Path(td))
         assert ok, f"gesummv emit failed{diag}"
         # The fp64 C/Fortran binding -- NOT the pluto sidecar
         # (``*_fp64_pluto_binding.json``), which carries its own symbols-first arg
@@ -873,7 +873,7 @@ def test_fp16_emission_compiles_c_cpp(kernel: str) -> None:
     info = BenchSpec.load(kernel)
     with tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
-        ok, diag = no._emit(kernel, info, tdp, precision="float16")
+        ok, diag = no.emit_kernel(kernel, info, tdp, precision="float16")
         assert ok, f"{kernel}: fp16 emit failed{diag}"
         for backend, ext in (("c", ".c"), ("cpp", ".cpp")):
             src = next(tdp.glob(f"*_fp16{ext}"))
@@ -900,7 +900,7 @@ def test_fp16_signature_uses_half_not_double() -> None:
     info = BenchSpec.load("gemm")
     with tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
-        ok, diag = no._emit("gemm", info, tdp, precision="float16")
+        ok, diag = no.emit_kernel("gemm", info, tdp, precision="float16")
         assert ok, f"gemm fp16 emit failed{diag}"
         c_src = next(tdp.glob("*_fp16.c")).read_text()
         sig = c_src.split("gemm_fp16(", 1)[1].split(")", 1)[0]
@@ -1893,10 +1893,10 @@ def test_pythran_export_dtypes_parses_2d_types() -> None:
     carries an inner comma (compute's TypeError was a mis-split here)."""
     no = oracle()
     sig = "#pythran export f(int64[:,:], int64[:,:], float64, float64, float64, int64[:,:])\n"
-    dts = no._pythran_export_dtypes(sig)
+    dts = no.pythran_export_dtypes(sig)
     assert dts == [np.int64, np.int64, np.float64, np.float64, np.float64, np.int64]
-    assert no._coerce_to_dtype(np.int64(4), np.float64).dtype == np.float64  # scalar cast
-    assert no._coerce_to_dtype(np.zeros(3, np.uint8), np.int64).dtype == np.int64  # array cast
+    assert no.coerce_to_dtype(np.int64(4), np.float64).dtype == np.float64  # scalar cast
+    assert no.coerce_to_dtype(np.zeros(3, np.uint8), np.int64).dtype == np.int64  # array cast
 
 
 @pytest.mark.parametrize("kernel", ["cholesky2", "contour_integral", "azimint_naive", "crc16", "compute"])

@@ -42,7 +42,7 @@ def test_fp16_dtype_and_tolerance() -> None:
 
 
 @pytest.mark.parametrize("dist", ["uniform", "normal"])
-def test_fp16_data_generation_is_finite(dist) -> None:
+def test_fp16_data_generation_is_finite(dist: str) -> None:
     """A generator at fp16 yields finite float16 (clamped to the safe range)."""
     from hpcagent_bench.support.distributions import generate
 
@@ -83,7 +83,7 @@ def test_fp16_native_emit_uses_the_toolchain_half() -> None:
     info = BenchSpec.load(short)
     with tempfile.TemporaryDirectory() as td:
         out = pathlib.Path(td)
-        ok, diag = no._emit(short, info, out, precision="float16")
+        ok, diag = no.emit_kernel(short, info, out, precision="float16")
         assert ok, f"{short}: fp16 emit failed{diag}"
         csrc = next(iter(out.glob(f"{short}_fp16.c")), None)
         assert csrc is not None, f"{short}: no fp16 C source emitted (got {sorted(p.name for p in out.iterdir())})"
@@ -92,7 +92,7 @@ def test_fp16_native_emit_uses_the_toolchain_half() -> None:
 
 
 @pytest.mark.parametrize("kernel", FP16_KERNELS)
-def test_fp16_native_kernel_executes(kernel) -> None:
+def test_fp16_native_kernel_executes(kernel: str) -> None:
     """An fp16-safe kernel emits, compiles and validates at float16 through C / C++.
 
     The native (NumpyToX) counterpart to the JAX leg below: it exercises the
@@ -107,7 +107,7 @@ def test_fp16_native_kernel_executes(kernel) -> None:
 
 
 @pytest.mark.parametrize("kernel", FP16_JAX_KERNELS)
-def test_fp16_kernel_executes_via_jax(kernel) -> None:
+def test_fp16_kernel_executes_via_jax(kernel: str) -> None:
     """An fp16-safe kernel runs at float16 through JAX and validates vs the compiled reference."""
     import_or_skip("jax")
     from hpcagent_bench.frameworks import Benchmark, Test, generate_framework

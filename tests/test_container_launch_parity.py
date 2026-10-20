@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def controlled_env(backend):
+def controlled_env(backend: containers.ContainerRuntime) -> dict[str, str]:
     """A reproducible environment: the ambient PATH etc., every HPCAGENT_BENCH_*/passthrough var
     stripped, then a FIXED set both folds will see identically (incl. a passthrough var and
     two out-of-order dynamic HPCAGENT_BENCH_* vars to exercise the pinned env ordering)."""
@@ -48,7 +48,9 @@ def controlled_env(backend):
 # purpose -- it has no wrapper argv to compare, and the bash launcher rejects it outright.
 @pytest.mark.parametrize("backend", containers.EXEC_BACKENDS, ids=lambda backend: backend.text)
 @pytest.mark.parametrize("hardware", list(Hardware), ids=lambda hardware: hardware.text)
-def test_bash_and_python_fold_identical_argv(backend, hardware, monkeypatch) -> None:
+def test_bash_and_python_fold_identical_argv(
+    backend: containers.ContainerRuntime, hardware: Hardware, monkeypatch: pytest.MonkeyPatch
+) -> None:
     env = controlled_env(backend)
     # bash: --print emits one token per line, no exec/probe.
     proc = subprocess.run(

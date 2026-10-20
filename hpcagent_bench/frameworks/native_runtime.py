@@ -203,13 +203,13 @@ def _ctype_for(dtype: "DTypeLike") -> type:
 def _is_device_array(a: object) -> bool:
     """Whether ``a`` is a cupy array, told by its type's package so this file never imports cupy on a
     CPU-only run. Its ``.data.ptr`` device address is what the GPU residency contract
-    (docs/abi_contract.md Sec. 10) needs handed to the .so instead of a host copy -- see :func:`_to_ctypes`."""
+    (docs/abi_contract.md Sec. 10) needs handed to the .so instead of a host copy -- see :func:`to_ctypes`."""
     return type(a).__module__.partition(".")[0] == "cupy"
 
 
-def _ctype_arg(a: Any, fcty: type, int_ctype: type) -> type:
+def ctype_arg(a: Any, fcty: type, int_ctype: type) -> type:  # noqa: ANN401
     """ctypes ``argtypes`` entry for one positional arg: a pointer for a host OR device array (an
-    ``np.ndarray`` reads ``.ctypes``, a device array reads ``.data.ptr`` -- see :func:`_to_ctypes`),
+    ``np.ndarray`` reads ``.ctypes``, a device array reads ``.data.ptr`` -- see :func:`to_ctypes`),
     ``int_ctype`` for an integer, ``fcty`` (the symbol's chosen float width) for a bare float."""
     import numpy as np
 
@@ -222,8 +222,8 @@ def _ctype_arg(a: Any, fcty: type, int_ctype: type) -> type:
     raise TypeError(f"unsupported arg type {type(a)}")
 
 
-def _to_ctypes(arg: Any, fcty: type, int_ctype: type) -> object:
-    """One positional argument, marshalled to what ``argtypes`` (:func:`_ctype_arg`) declared it."""
+def to_ctypes(arg: Any, fcty: type, int_ctype: type) -> object:  # noqa: ANN401
+    """One positional argument, marshalled to what ``argtypes`` (:func:`ctype_arg`) declared it."""
     import numpy as np
 
     if isinstance(arg, np.ndarray):
@@ -301,7 +301,7 @@ def wrap_kernel(wrapper_file: str, short: str, framework: str, kernel: str) -> C
             raise AttributeError(f"lib{short}_{framework}.so exposes neither {short}_fp64 nor {short}_fp32")
         state["loaded"] = True
 
-    def call(*args: Any) -> None:
+    def call(*args: Any) -> None:  # noqa: ANN401
         _ensure_loaded()
         # complex128 is the fp64 rung: without it a complex-only kernel binds the fp32 symbol.
         is_double = any(
@@ -315,11 +315,11 @@ def wrap_kernel(wrapper_file: str, short: str, framework: str, kernel: str) -> C
         if sym is None:
             raise RuntimeError(f"{short} ({framework}): no symbol for {fptype}")
         if fptype not in state["bound"]:
-            argtypes = [_ctype_arg(a, fcty, _int_ctype) for a in args]
+            argtypes = [ctype_arg(a, fcty, _int_ctype) for a in args]
             sym.argtypes = argtypes
             sym.restype = None
             state["bound"].add(fptype)
-        c_args = [_to_ctypes(a, fcty, _int_ctype) for a in args]
+        c_args = [to_ctypes(a, fcty, _int_ctype) for a in args]
         # In place, then undone: the caller reads its outputs back out of these very arrays, so a
         # rebased COPY would lose whatever the kernel wrote into an index buffer.
         deltas = state["rebase"]

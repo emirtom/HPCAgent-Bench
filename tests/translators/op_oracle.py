@@ -321,7 +321,7 @@ def run_op(
                     # runs it in a child and reports the crash as a ``FAIL`` string.
                     # frozenset(): these kernels are ad-hoc numpy source with no manifest, so no
                     # buffer is tagged index_array and nothing is rebased at the seam.
-                    status[b] = no._invoke_isolated(
+                    status[b] = no.invoke_isolated(
                         "cpp" if b == no.ISOPAR else b,
                         binding,
                         so,
@@ -774,7 +774,7 @@ def run_return_op(
                     continue
                 try:
                     # frozenset(): ad-hoc numpy source, no manifest, so no buffer is index_array-tagged.
-                    status[b] = no._invoke_isolated(
+                    status[b] = no.invoke_isolated(
                         b, binding, so, by, syms, expected, out_names, rtol, atol, frozenset()
                     )
                 except Exception as exc:  # noqa: BLE001

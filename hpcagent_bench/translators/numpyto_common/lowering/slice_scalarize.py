@@ -2,7 +2,8 @@
 
 import ast
 import copy
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_
 from hpcagent_bench.translators.numpyto_common.lib_nodes.extents import extent_is_scalar, iter_extent_of
@@ -45,10 +46,17 @@ class SliceToScalarRewriter(ast.NodeTransformer):
 
     __slots__ = ("_slice_iter_names", "array_shapes", "iter_vars", "lhs_dims", "lhs_name", "lhs_ranges")
 
-    def __init__(self, array_shapes, iter_vars, lhs_ranges, lhs_name, lhs_dims) -> None:
-        self.array_shapes = array_shapes
-        self.iter_vars = iter_vars
-        self.lhs_ranges = lhs_ranges
+    def __init__(
+        self,
+        array_shapes: Mapping[str, Sequence[str]],
+        iter_vars: Sequence[ast.Name | None],
+        lhs_ranges: Sequence[tuple[ast.expr | int, ...]],
+        lhs_name: str | None,
+        lhs_dims: Sequence[ast.expr],
+    ) -> None:
+        self.array_shapes: Mapping[Any, Any] = array_shapes
+        self.iter_vars: Sequence[Any] = iter_vars
+        self.lhs_ranges: Sequence[tuple[Any, ...]] = lhs_ranges
         self.lhs_name = lhs_name
         self.lhs_dims = lhs_dims
         # Iter vars for slice axes only, in order.

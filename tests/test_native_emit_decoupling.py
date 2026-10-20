@@ -15,7 +15,7 @@ from tests.optional_imports import import_or_skip
 def test_native_emit_failure_marks_native_but_still_runs_python_backends(monkeypatch: pytest.MonkeyPatch) -> None:
     # Force the shared native emit to fail; numba emits its own module, so it still
     # validates while c/fortran report the emit gap.
-    monkeypatch.setattr(no, "_emit", lambda *a, **k: (False, ""))
+    monkeypatch.setattr(no, "emit_kernel", lambda *a, **k: (False, ""))
     res = no.run_kernel("cond_reduce_sum", Preset.S, only_backends={"c", "fortran", "numba"})
     assert res["c"] == "FAIL:emit"
     assert res["fortran"] == "FAIL:emit"
@@ -26,7 +26,7 @@ def test_native_emit_failure_marks_native_but_still_runs_python_backends(monkeyp
 def test_pluto_skips_when_native_emit_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     # Pluto optimizes the emitted C scop; with no C source it skips (the gap is the
     # c backend's FAIL), rather than double-counting a second FAIL.
-    monkeypatch.setattr(no, "_emit", lambda *a, **k: (False, ""))
+    monkeypatch.setattr(no, "emit_kernel", lambda *a, **k: (False, ""))
     res = no.run_kernel("cond_reduce_sum", Preset.S, only_backends={"c", "pluto"})
     assert res["c"] == "FAIL:emit"
     assert res["pluto"] == "skip:native-emit"
@@ -65,7 +65,7 @@ def test_jax_only_request_is_not_blocked_by_native_emit(monkeypatch: pytest.Monk
     # A jax-only request must never surface a native-emit FAIL: the native backends
     # aren't even requested, so the result carries only the jax outcome.
     import_or_skip("jax")
-    monkeypatch.setattr(no, "_emit", lambda *a, **k: (False, ""))
+    monkeypatch.setattr(no, "emit_kernel", lambda *a, **k: (False, ""))
     res = jax_ok("cond_reduce_sum", only_backends={"jax"})
     assert set(res) == {"jax"}
     assert res["jax"] == "ok"

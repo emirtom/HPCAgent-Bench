@@ -8,8 +8,8 @@ import statistics
 
 import pytest
 
-from hpcagent_bench.harness import timing
 from hpcagent_bench.config import Statistic
+from hpcagent_bench.harness import timing
 
 
 # min_of_k
@@ -43,21 +43,21 @@ def test_reduce_dispatches_median_of_k_and_stamps_it() -> None:
 
 
 # mannwhitney_delta
-def _spread(center, n: int = 20):
+def spread(center: float, n: int = 20) -> list[float]:
     # deterministic small monotonic spread so the U test has no exact-tie issues
     return [center + 0.01 * i for i in range(n)]
 
 
 def test_mannwhitney_credits_clear_win_near_true_ratio() -> None:
-    cand = _spread(10.0)  # ~10 ns
-    base = _spread(20.0)  # ~20 ns -> ~2x
+    cand = spread(10.0)  # ~10 ns
+    base = spread(20.0)  # ~20 ns -> ~2x
     r = timing.reduce_mannwhitney_delta(cand, base, p=0.1)
     assert r.significant
     assert r.baseline_ns / r.native_ns == r.speedup
     assert 1.5 < r.speedup <= 2.05
 
 
-def _scaled(center, n: int = 20):
+def scaled(center: float, n: int = 20) -> list[float]:
     """``_spread`` with the jitter proportional to the centre, so both sides of a comparison
     carry the SAME relative noise. The absolute jitter in ``_spread`` is 3.8% of a 5ns candidate
     but 0.02% of a 1000ns baseline, which measures the fixture rather than the backend."""
@@ -68,7 +68,7 @@ def _scaled(center, n: int = 20):
 def test_a_large_win_is_credited_at_its_measured_ratio(true: float) -> None:
     """A pessimistic grid search caps every credit at its last point. A ratio of medians has no
     grid and no ceiling."""
-    r = timing.reduce_mannwhitney_delta(_scaled(1000.0 / true), _scaled(1000.0), p=0.1)
+    r = timing.reduce_mannwhitney_delta(scaled(1000.0 / true), scaled(1000.0), p=0.1)
     assert r.significant
     assert r.speedup == pytest.approx(true, rel=1e-12)
 
@@ -77,13 +77,13 @@ def test_a_large_win_is_credited_at_its_measured_ratio(true: float) -> None:
 def test_the_credit_precision_is_relative_at_every_magnitude(true: float) -> None:
     """Setups are compared by geomean, so a credit whose relative error grows with the ratio biases
     the aggregate by an amount that depends on how fast the kernels happen to be."""
-    r = timing.reduce_mannwhitney_delta(_scaled(1000.0 / true), _scaled(1000.0), p=0.1)
+    r = timing.reduce_mannwhitney_delta(scaled(1000.0 / true), scaled(1000.0), p=0.1)
     assert (true - r.speedup) / true == pytest.approx(0.0, abs=1e-12)
 
 
 def test_mannwhitney_no_credit_when_overlapping() -> None:
-    cand = _spread(20.0)
-    base = _spread(20.0)  # identical distributions -> not significantly different either way
+    cand = spread(20.0)
+    base = spread(20.0)  # identical distributions -> not significantly different either way
     r = timing.reduce_mannwhitney_delta(cand, base, p=0.1)
     assert not r.significant
     assert r.speedup == 1.0
@@ -104,8 +104,8 @@ def test_a_significantly_slower_candidate_is_credited_below_one() -> None:
     """A slow-down the test confirms must read as one; flooring it at 1.0 made every setup's credit
     distribution one-sided whatever the code did. ``significant`` means the two samples DIFFER at
     the p gate, not that the difference was a win."""
-    cand = _spread(30.0)  # candidate ~1.5x SLOWER than baseline
-    base = _spread(20.0)
+    cand = spread(30.0)  # candidate ~1.5x SLOWER than baseline
+    base = spread(20.0)
     r = timing.reduce_mannwhitney_delta(cand, base, p=0.1)
     assert r.significant
     assert r.speedup == pytest.approx(statistics.median(base) / statistics.median(cand), rel=1e-12)
@@ -118,8 +118,8 @@ def test_swapping_the_samples_gives_the_reciprocal_ratio() -> None:
     """The comparison has no preferred side: reducing ``(a, b)`` and ``(b, a)`` lands on reciprocal
     ratios. The one-sided estimator failed this outright -- it reported 1.0 for the loss whatever
     the win was, so no pair of setups could be read as each other's mirror."""
-    fast = _spread(10.0)
-    slow = _spread(25.0)
+    fast = spread(10.0)
+    slow = spread(25.0)
     won = timing.reduce_mannwhitney_delta(fast, slow, p=0.1)
     lost = timing.reduce_mannwhitney_delta(slow, fast, p=0.1)
     assert won.significant
@@ -152,7 +152,7 @@ def test_reduce_defaults_to_min_of_k() -> None:
 
 
 def test_reduce_honors_explicit_backend() -> None:
-    r = timing.reduce(_spread(10.0), _spread(20.0), backend=Statistic.MANNWHITNEY)
+    r = timing.reduce(spread(10.0), spread(20.0), backend=Statistic.MANNWHITNEY)
     assert r.backend == Statistic.MANNWHITNEY
     assert r.significant
 
@@ -161,7 +161,7 @@ def test_reduce_honors_explicit_backend() -> None:
 def test_a_reduction_names_the_version_of_the_arithmetic_behind_its_credit(backend: Statistic, stamp: str) -> None:
     """The stamp is what a table groups rows by before pooling them; two backends, or one backend
     before and after its arithmetic changed, must never share one."""
-    assert timing.reduce(_spread(10.0), _spread(20.0), backend=backend).reduction == stamp
+    assert timing.reduce(spread(10.0), spread(20.0), backend=backend).reduction == stamp
 
 
 # repeat validation (a distributional backend must fail loudly on too few samples)

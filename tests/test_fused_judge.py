@@ -19,7 +19,7 @@ import json
 import pathlib
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 from urllib.error import HTTPError
@@ -312,7 +312,9 @@ def upstream_get(url: str, setup: str | None) -> tuple[int, dict[str, object]]:
             return exc.code, json.loads(exc.read() or b"{}")
 
 
-def test_the_upstream_serves_each_setup_its_own_cpf_view(fused_job: dict[str, str], make_judge) -> None:
+def test_the_upstream_serves_each_setup_its_own_cpf_view(
+    fused_job: dict[str, str], make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]
+) -> None:
     """The CPF view is the cpf setup's; the control setup is answered as its own control job is."""
     _, url = make_judge(RunConfig())
     status, answer = upstream_get(url, fused_job["cpf-tool"])
@@ -321,7 +323,9 @@ def test_the_upstream_serves_each_setup_its_own_cpf_view(fused_job: dict[str, st
     assert (status, answer["verdict"]) == (200, "unavailable")
 
 
-def test_the_upstream_grades_nothing_without_a_known_setup(fused_job: dict[str, str], make_judge) -> None:
+def test_the_upstream_grades_nothing_without_a_known_setup(
+    fused_job: dict[str, str], make_judge: Callable[..., tuple[ThreadingHTTPServer, str]]
+) -> None:
     _, url = make_judge(RunConfig())
     assert upstream_get(url, None)[0] == 403
     assert upstream_get(url, "no-such-setup")[0] == 403

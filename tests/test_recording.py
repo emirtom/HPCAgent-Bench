@@ -13,7 +13,8 @@ Two layers:
 
 import json
 import pathlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
 
@@ -32,11 +33,11 @@ from tests.results_rows import attempts, calls, cells, grades, sources, submissi
 KERNEL = "tsvc_2_s212"  # any real, fast-loading loop_level_reasoning kernel
 
 
-def _sub():
+def sub() -> Submission:
     return Submission(language=Language.C, source="/* x */", build=[])
 
 
-def _correct_score(**kw):
+def correct_score(**kw: object) -> Score:
     base = {
         "correct": True,
         "max_rel_error": 0.0,
@@ -88,8 +89,8 @@ def test_the_host_override_wins_over_slurm(monkeypatch: pytest.MonkeyPatch) -> N
 def test_correct_and_verified_writes_a_leaderboard_row(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     table, detail, grade_id = recording.record(
-        _correct_score(),
-        _sub(),
+        correct_score(),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         episode_id="t",
@@ -110,9 +111,9 @@ def test_correct_and_verified_writes_a_leaderboard_row(tmp_path: pathlib.Path) -
 
 def test_suspect_speedup_is_recorded_but_flagged(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
-    table, detail, _grade = recording.record(
-        _correct_score(speedup=1e9),
-        _sub(),
+    table, detail, unused_grade = recording.record(
+        correct_score(speedup=1e9),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(Finding("plausibility", Effect.FLAG, "speedup 1000000000x over the 2000x bound")),
         path=db,
@@ -155,11 +156,11 @@ def test_a_speedup_above_the_suspect_threshold_is_flagged_on_every_path(
     threshold itself; and the CREDIT is 1007.75x, under the threshold, because the grid censors it --
     only the raw ``baseline_ns / native_ns`` can see this row."""
     db = str(tmp_path / "r.db")
-    score, task = _correct_score(**S316_ARTEFACT), Task(KERNEL, SourceMode.RESTRICTED, Language.C)
-    judgement = judge(Context(_sub(), task, score, Preset.S, "float64"), rerun=False) if judged_first else None
-    table, detail, _grade = recording.record(
+    score, task = correct_score(**S316_ARTEFACT), Task(KERNEL, SourceMode.RESTRICTED, Language.C)
+    judgement = judge(Context(sub(), task, score, Preset.S, "float64"), rerun=False) if judged_first else None
+    table, detail, unused_grade = recording.record(
         score,
-        _sub(),
+        sub(),
         task,
         judgement=judgement,
         episode_id="t",
@@ -183,9 +184,9 @@ def test_the_largest_real_device_win_is_not_flagged(tmp_path: pathlib.Path) -> N
        real GPU submission's task does): a plain "c" task would put it under the HOST bound instead,
        which 3228x clears and this test would (wrongly) start failing."""
     db = str(tmp_path / "r.db")
-    table, detail, _grade = recording.record(
-        _correct_score(**S255_REAL_DEVICE_WIN),
-        _sub(),
+    table, detail, unused_grade = recording.record(
+        correct_score(**S255_REAL_DEVICE_WIN),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.HIP),
         judgement=judged(),
         episode_id="t",
@@ -198,9 +199,9 @@ def test_the_largest_real_device_win_is_not_flagged(tmp_path: pathlib.Path) -> N
 def test_failed_independent_verify_goes_to_attempts_not_leaderboard(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     # The judge scored it correct, but the independent re-verify caught nondeterminism.
-    table, detail, _grade = recording.record(
-        _correct_score(),
-        _sub(),
+    table, detail, unused_grade = recording.record(
+        correct_score(),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(Finding("independent_verify", Effect.REJECT, "nondeterministic-or-public-mismatch")),
         path=db,
@@ -220,9 +221,9 @@ def test_a_judge_fault_in_the_verify_leg_is_recorded_as_score_error_not_as_the_s
     counted as the model failing."""
     db = str(tmp_path / "r.db")
     fault = "tsvc_2_s212: c reference build failed:\nvecmath.h: Stale file handle"
-    table, detail, _grade = recording.record(
-        _correct_score(),
-        _sub(),
+    table, detail, unused_grade = recording.record(
+        correct_score(),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(Finding("independent_verify", Effect.FAULT, fault)),
         path=db,
@@ -246,13 +247,13 @@ def test_a_later_rejection_does_not_disturb_the_verified_submission(tmp_path: pa
     db = str(tmp_path / "r.db")
     task = Task(KERNEL, SourceMode.RESTRICTED, Language.C)
     assert (
-        recording.record(_correct_score(speedup=3.0), _sub(), task, judgement=judged(), episode_id="t", path=db)[0]
+        recording.record(correct_score(speedup=3.0), sub(), task, judgement=judged(), episode_id="t", path=db)[0]
         == "submission"
     )
     assert (
         recording.record(
-            _correct_score(speedup=99.0),
-            _sub(),
+            correct_score(speedup=99.0),
+            sub(),
             task,
             judgement=judged(Finding("independent_verify", Effect.REJECT, "fresh-seed-mismatch")),
             episode_id="t",
@@ -276,7 +277,7 @@ def test_incorrect_submission_never_reaches_leaderboard(tmp_path: pathlib.Path) 
         public_correct=False,
         hidden_correct=False,
     )
-    table, reason, _grade = recording.record(bad, _sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), path=db)
+    table, reason, unused_grade = recording.record(bad, sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), path=db)
     assert table == "attempts"
     assert reason == "build"
     assert len(submissions(db)) == 0
@@ -298,7 +299,9 @@ def test_overfit_submission_records_overfit_not_incorrect(tmp_path: pathlib.Path
         hidden_passed=0,
         hidden_total=2,
     )
-    table, reason, _grade = recording.record(overfit, _sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), path=db)
+    table, reason, unused_grade = recording.record(
+        overfit, sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), path=db
+    )
     assert table == "attempts"
     assert reason == "size_class_sweep: overfit"
     assert len(submissions(db)) == 0
@@ -308,7 +311,7 @@ def test_overfit_submission_records_overfit_not_incorrect(tmp_path: pathlib.Path
 def test_harden_off_records_on_score_verdict_alone(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     # No judgement: only the gates that read the grade run, none that re-runs it.
-    table, *_ = recording.record(_correct_score(), _sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), path=db)
+    table, *unused = recording.record(correct_score(), sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), path=db)
     assert table == "submission"
     assert len(submissions(db)) == 1
 
@@ -316,7 +319,7 @@ def test_harden_off_records_on_score_verdict_alone(tmp_path: pathlib.Path) -> No
 # (tokens, score) trajectory (the `calls` table)
 
 
-def _stored_sources(db):
+def stored_sources(db: pathlib.Path) -> list[tuple[dict[str, Any], str]]:
     """Every persisted source for ``db``, as ``(row, text)`` -- the unit's row plus its bytes."""
     return [(row, row["text"]) for row in sources(db)]
 
@@ -324,14 +327,14 @@ def _stored_sources(db):
 def test_a_graded_source_is_persisted_beside_the_row_that_graded_it(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(),
+        correct_score(),
         Submission(language=Language.C, source="/* the winning body */", build=[]),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         episode_id="t",
         path=db,
     )
-    ((row, text),) = _stored_sources(db)
+    ((row, text),) = stored_sources(db)
     assert text == "/* the winning body */"
     # The grade's id is the join key back to the leaderboard row, so a recorded speedup can be
     # traced to the exact bytes that produced it.
@@ -349,31 +352,31 @@ def test_a_gpu_submission_persists_both_translation_units(tmp_path: pathlib.Path
     """
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(),
+        correct_score(),
         Submission(language=Language.HIP, source="/* host entry */", device_source="/* __global__ */", build=[]),
         Task(KERNEL, SourceMode.RESTRICTED, Language.HIP),
         judgement=judged(),
         episode_id="t",
         path=db,
     )
-    stored = {(row["part"], row["language"]): text for row, text in _stored_sources(db)}
+    stored = {(row["part"], row["language"]): text for row, text in stored_sources(db)}
     assert stored == {("host", "hip"): "/* host entry */", ("device", "hip"): "/* __global__ */"}
     # Both halves belong to the graded row, so the join back to the leaderboard reaches the complete
     # submission rather than half of it.
-    assert {row["grade_id"] for row, _ in _stored_sources(db)} == {submissions(db)[0]["id"]}
+    assert {row["grade_id"] for row, unused in stored_sources(db)} == {submissions(db)[0]["id"]}
 
 
 def test_a_source_that_failed_grading_is_persisted_too(tmp_path: pathlib.Path) -> None:
     """The triage case: a setup's failures are only classifiable afterwards if their bytes survive."""
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(correct=False, hidden_correct=False),
+        correct_score(correct=False, hidden_correct=False),
         Submission(language=Language.C, source="/* wrong */", build=[]),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         path=db,
     )
     assert len(submissions(db)) == 0
-    ((row, text),) = _stored_sources(db)
+    ((row, text),) = stored_sources(db)
     assert text == "/* wrong */"
     assert row["grade_id"] == attempts(db)[0]["id"]
 
@@ -381,9 +384,9 @@ def test_a_source_that_failed_grading_is_persisted_too(tmp_path: pathlib.Path) -
 def test_identical_sources_share_one_text_but_stay_two_rows(tmp_path: pathlib.Path) -> None:
     """Content-addressed: an agent resubmitting an identical body costs a row, not a copy."""
     db = str(tmp_path / "r.db")
-    for _ in range(2):
+    for unused in range(2):
         recording.record(
-            _correct_score(), _sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), judgement=judged(), path=db
+            correct_score(), sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), judgement=judged(), path=db
         )
     rows = sources(db)
     assert len(rows) == 2
@@ -430,12 +433,20 @@ def test_record_trajectory_empty_is_noop(tmp_path: pathlib.Path) -> None:
 
 
 @pytest.fixture
-def reset_log_calls():
+def reset_log_calls() -> Iterator[None]:
     yield
     config.clear_override("record.log_calls")
 
 
-def record_one_call(db, status, *, route: str = "score", episode_id: str = "t", score=None, kernel=KERNEL):
+def record_one_call(
+    db: pathlib.Path,
+    status: str,
+    *,
+    route: str = "score",
+    episode_id: str = "t",
+    score: Score | None = None,
+    kernel: str = KERNEL,
+) -> object:
     return recording.record_call(
         score,
         Task(kernel, SourceMode.RESTRICTED, Language.C),
@@ -451,7 +462,7 @@ def test_a_scored_call_carries_its_grading_protocol_and_baseline_policy(tmp_path
     """A /score row carries its timing bracket off ``grading_protocol``; an unstamped row
     cannot be checked at all."""
     db = str(tmp_path / "r.db")
-    stamped = _correct_score(grading_protocol="sealed-nonce-v1+host-monotonic", baseline_policy="single-v1:c")
+    stamped = correct_score(grading_protocol="sealed-nonce-v1+host-monotonic", baseline_policy="single-v1:c")
     record_one_call(db, RunStatus.OK, score=stamped)
     record_one_call(db, RunStatus.SCORE_ERROR, score=None)
     got = [(r["grading_protocol"], r["baseline_policy"]) for r in calls(db)]
@@ -500,7 +511,7 @@ def test_a_grade_records_the_agents_cumulative_token_spend(tmp_path: pathlib.Pat
     # value on its LAST row and a per-round cost is the difference between consecutive rows.
     assert (
         recording.record_call(
-            _correct_score(),
+            correct_score(),
             Task(KERNEL, SourceMode.RESTRICTED, Language.C),
             status=RunStatus.OK,
             route="score",
@@ -511,7 +522,7 @@ def test_a_grade_records_the_agents_cumulative_token_spend(tmp_path: pathlib.Pat
     )
     assert (
         recording.record_call(
-            _correct_score(),
+            correct_score(),
             Task(KERNEL, SourceMode.RESTRICTED, Language.C),
             status=RunStatus.OK,
             route="submit",
@@ -528,8 +539,8 @@ def test_a_submit_grade_is_one_row_carrying_the_call_and_the_verdict(tmp_path: p
     verdict under one stamp, so a trajectory and the leaderboard join exactly, never by nearest ts."""
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(),
-        _sub(),
+        correct_score(),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         tokens=4200,
@@ -553,7 +564,7 @@ def test_a_grade_without_a_verdict_records_no_build_commands(tmp_path: pathlib.P
 def test_the_grades_build_commands_are_recorded_on_the_call_as_json(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     commands = ("gcc -O3 -march=native -c k.c -o k.o", "gcc -shared k.o -o 'lib k.so'")
-    assert record_one_call(db, RunStatus.OK, score=_correct_score(build_commands=commands)) == 1
+    assert record_one_call(db, RunStatus.OK, score=correct_score(build_commands=commands)) == 1
     assert json.loads(calls(db)[0]["build_commands"]) == list(commands)
 
 
@@ -577,11 +588,11 @@ def test_round_counts_up_per_run_and_benchmark(tmp_path: pathlib.Path) -> None:
     assert record_one_call(db, RunStatus.OK, kernel="gemm") == 1
 
 
-def test_log_calls_disabled_writes_nothing(tmp_path: pathlib.Path, reset_log_calls) -> None:
+def test_log_calls_disabled_writes_nothing(tmp_path: pathlib.Path, reset_log_calls: None) -> None:
     db = str(tmp_path / "r.db")
     recording.connect(db).close()  # the schema exists; the row is what must not
     config.set_override("record.log_calls", False)
-    assert record_one_call(db, RunStatus.OK, score=_correct_score()) == 0
+    assert record_one_call(db, RunStatus.OK, score=correct_score()) == 0
     assert not calls(db)
 
 
@@ -658,7 +669,7 @@ def test_a_short_detail_is_recorded_verbatim() -> None:
 def test_recorded_detail_survives_a_long_traceback(tmp_path: pathlib.Path) -> None:
     db = str(tmp_path / "r.db")
     tail = "MemoryError: out of memory"
-    score = _correct_score(correct=False, build_ok=True, detail="head\n" + ("filler\n" * 900) + tail)
+    score = correct_score(correct=False, build_ok=True, detail="head\n" + ("filler\n" * 900) + tail)
     recording.record_call(
         score, Task(KERNEL, SourceMode.RESTRICTED, Language.C), status=RunStatus.INCORRECT, route="submit", path=db
     )
@@ -670,8 +681,8 @@ def test_recorded_detail_survives_a_long_traceback(tmp_path: pathlib.Path) -> No
 
 def stamped_submission(db: str) -> str | None:
     recording.record(
-        _correct_score(timing_reduction="mwd-v2"),
-        _sub(),
+        correct_score(timing_reduction="mwd-v2"),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         path=db,
@@ -680,7 +691,7 @@ def stamped_submission(db: str) -> str | None:
 
 
 def stamped_call(db: str) -> str | None:
-    record_one_call(db, RunStatus.OK, route="submit", score=_correct_score(timing_reduction="mwd-v2"))
+    record_one_call(db, RunStatus.OK, route="submit", score=correct_score(timing_reduction="mwd-v2"))
     return calls(db)[0]["timing_reduction"]
 
 
@@ -707,7 +718,7 @@ def test_a_grade_that_was_never_timed_records_no_reduction(tmp_path: pathlib.Pat
     assert calls(db)[0]["timing_reduction"] == ""
 
 
-def _cell(label, ratio, **kw):
+def make_cell(label: str, ratio: float, **kw: object) -> TimedCell:
     base = {"label": label, "shape": '{"N": 8}', "baseline_ns": 2000.0, "native_ns": 1000.0, "ratio": ratio}
     base.update(kw)
     return TimedCell(**base)
@@ -717,10 +728,10 @@ def test_a_recorded_submission_keeps_the_ratio_of_every_timed_cell(tmp_path: pat
     """The one ``submissions.speedup`` is a reduction over cells; without the cells behind it a
     reader cannot tell a 3x measured three times from a 3x measured once."""
     db = str(tmp_path / "r.db")
-    timed = (_cell("cfg0:large0", 2.0), _cell("cfg0:large1", 3.0), _cell("cfg1:large2", 4.0))
+    timed = (make_cell("cfg0:large0", 2.0), make_cell("cfg0:large1", 3.0), make_cell("cfg1:large2", 4.0))
     recording.record(
-        _correct_score(cells=timed),
-        _sub(),
+        correct_score(cells=timed),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         path=db,
@@ -739,8 +750,8 @@ def test_a_grade_under_no_declared_policy_is_stamped_the_single_reference_one(tm
     than naming the one policy they all actually ran under."""
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(cells=(_cell("cfg0:large0", 2.0),)),
-        _sub(),
+        correct_score(cells=(make_cell("cfg0:large0", 2.0),)),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         path=db,
@@ -753,7 +764,7 @@ def test_a_submission_that_timed_nothing_records_no_cells(tmp_path: pathlib.Path
     slowdown to anything that averages the column."""
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(), _sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), judgement=judged(), path=db
+        correct_score(), sub(), Task(KERNEL, SourceMode.RESTRICTED, Language.C), judgement=judged(), path=db
     )
     assert not cells(db)
 
@@ -762,10 +773,10 @@ def test_a_cell_records_which_references_were_timed(tmp_path: pathlib.Path) -> N
     """Under a best-of denominator the set the winner was chosen from is what makes the choice
     checkable (a cell that lost a compiled reference is visible)."""
     db = str(tmp_path / "r.db")
-    cell = _cell("cfg0:large0", 2.0, baseline="numba", baseline_candidates="c+c-autopar+numba")
+    cell = make_cell("cfg0:large0", 2.0, baseline="numba", baseline_candidates="c+c-autopar+numba")
     recording.record(
-        _correct_score(cells=(cell,)),
-        _sub(),
+        correct_score(cells=(cell,)),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         path=db,
@@ -778,14 +789,14 @@ def test_a_cell_that_timed_one_reference_reads_as_its_own_winner(tmp_path: pathl
     blanks as "unknown" would drop those rows out of a which-baseline-won table that they answer."""
     db = str(tmp_path / "r.db")
     recording.record(
-        _correct_score(cells=(_cell("cfg0:large0", 2.0, baseline="c"),)),
-        _sub(),
+        correct_score(cells=(make_cell("cfg0:large0", 2.0, baseline="c"),)),
+        sub(),
         Task(KERNEL, SourceMode.RESTRICTED, Language.C),
         judgement=judged(),
         path=db,
     )
     assert [r["baseline_candidates"] for r in cells(db)] == ["c"]
-    assert recording.realized_candidates(_cell("x", 1.0, baseline="numba")) == "numba"
+    assert recording.realized_candidates(make_cell("x", 1.0, baseline="numba")) == "numba"
 
 
 def test_a_real_grade_names_the_references_it_timed(tmp_path: pathlib.Path) -> None:

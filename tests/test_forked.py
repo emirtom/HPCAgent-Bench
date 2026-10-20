@@ -221,7 +221,7 @@ def test_a_host_oom_is_told_apart_from_a_bad_submission() -> None:
     "fork_call",
     [
         "from hpcagent_bench.frameworks.forked import run_forked; run_forked(child, timeout=120)",
-        "from hpcagent_bench import numerical_oracle; numerical_oracle._forked_status(child, 120)",
+        "from hpcagent_bench import numerical_oracle; numerical_oracle.forked_status(child, 120)",
     ],
     ids=["run_forked", "numerical_oracle"],
 )

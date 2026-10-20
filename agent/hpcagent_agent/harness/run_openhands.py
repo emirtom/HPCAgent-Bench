@@ -45,7 +45,7 @@ TERMINAL_TYPE = "subprocess"
 TERMINAL_SHELL = pathlib.Path(__file__).resolve().parent / "bash-norc"
 
 
-def build_agent(args: runner_common.RunnerArgs, environ: Mapping[str, str]) -> Any:
+def build_agent(args: runner_common.RunnerArgs, environ: Mapping[str, str]) -> Any:  # noqa: ANN401
     """The episode's Agent. Its condenser is the default preset's, built the way
     ``openhands.tools.preset.default.get_default_agent`` builds it: ``get_default_condenser`` on a copy
     of the agent's LLM under usage_id ``condenser``, with ``max_tokens`` set to the compaction trigger
@@ -93,7 +93,7 @@ def build_agent(args: runner_common.RunnerArgs, environ: Mapping[str, str]) -> A
     )
 
 
-def condenser(default: Any, args: runner_common.RunnerArgs) -> Any:
+def condenser(default: Any, args: runner_common.RunnerArgs) -> Any:  # noqa: ANN401
     """The preset's condenser, with the token trigger the driver names as its ``max_tokens``."""
     if args.compaction_trigger is None:
         return default
@@ -119,7 +119,7 @@ def lengthen_tool_waits(tools: Iterable[Any], executor_type: type[WaitingExecuto
     return sorted(lengthened)
 
 
-def usage_recorder(telemetry: Any, usage_log: runner_common.UsageLog) -> Callable[[], None]:
+def usage_recorder(telemetry: Any, usage_log: runner_common.UsageLog) -> Callable[[], None]:  # noqa: ANN401
     """A stats callback appending the newest call of ``telemetry`` to the usage log, once per response."""
     last_response_id = ""
 

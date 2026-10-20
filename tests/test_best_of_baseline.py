@@ -16,6 +16,8 @@ Two properties matter as much as the selection itself, and both are here:
   on anyone remembering to filter.
 """
 
+import pathlib
+
 import pandas as pd
 import pytest
 
@@ -87,7 +89,7 @@ def test_a_kernel_with_a_hand_written_reference_races_its_tracks_set() -> None:
     assert grading.resolve_baseline_set(None, spec) == grading.track_baseline_set(spec.track)
 
 
-def test_a_best_of_set_may_only_hold_kinds_timeable_in_the_candidates_bracket(monkeypatch) -> None:
+def test_a_best_of_set_may_only_hold_kinds_timeable_in_the_candidates_bracket(monkeypatch: pytest.MonkeyPatch) -> None:
     """A torch kind times in its own process, not the candidate's bracket, so it never races."""
     monkeypatch.setattr(grading, "track_baseline_set", lambda track: (Baseline.C_AUTOPAR, Baseline.TORCH_AUTOTUNE_CPU))
     with pytest.raises(ValueError, match="best-of candidates"):
@@ -174,7 +176,7 @@ def test_a_score_carries_the_stamp_and_defaults_to_none() -> None:
     assert scoring.score_from_answer(answer).baseline_policy == stamped.baseline_policy
 
 
-def test_the_database_carries_a_column_for_it(tmp_path) -> None:
+def test_the_database_carries_a_column_for_it(tmp_path: pathlib.Path) -> None:
     """A stamp that is not persisted cannot be grouped on, which is the whole point of having one."""
     import contextlib
 
@@ -273,14 +275,14 @@ def test_a_frame_without_the_denominator_column_credits_nothing() -> None:
 # degradation
 
 
-def test_a_kernel_numba_cannot_type_loses_the_race_and_the_grade_stands(monkeypatch) -> None:
+def test_a_kernel_numba_cannot_type_loses_the_race_and_the_grade_stands(monkeypatch: pytest.MonkeyPatch) -> None:
     """The requirement that makes best-of safe to enable corpus-wide: a candidate that cannot be
     built, emitted or typed is ABSENT from the race, never a failed grade and never a 0 ns
     denominator. Here numba raises the way its emitter and its TypingError both do.
     """
     from numba.core.errors import TypingError
 
-    def refuse(*_a, **_k):
+    def refuse(*a: object, **k: object) -> None:
         raise TypingError("cannot determine Numba type of <class 'object'>")
 
     monkeypatch.setattr(scoring, "time_numba_isolated", refuse)
@@ -291,7 +293,7 @@ def test_a_kernel_numba_cannot_type_loses_the_race_and_the_grade_stands(monkeypa
         scoring.time_numba_isolated(None, None, {}, 1, 1.0, 1.0)
 
 
-def test_the_numba_candidate_is_timed_in_the_candidates_own_child(monkeypatch) -> None:
+def test_the_numba_candidate_is_timed_in_the_candidates_own_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """Same process discipline as the numerator: one child, the judge-owned reference cap, a per-rep
     alarm, and a guillotine so a hopeless candidate cannot spend the kernel's whole budget.
 
@@ -302,7 +304,9 @@ def test_the_numba_candidate_is_timed_in_the_candidates_own_child(monkeypatch) -
 
     caps: list[float] = []
 
-    def fake_isolated(lib, binding, data, lang, **kw):
+    def fake_isolated(
+        lib: object, binding: object, data: object, lang: object, **kw: object
+    ) -> native_call.IsolatedCall:
         seen.update({"lib": lib, "lang": lang}, **kw)
         caps.append(kw["memory_gb"])
         return native_call.IsolatedCall({}, [11, 12, 13], None, [], ({},) * 3)

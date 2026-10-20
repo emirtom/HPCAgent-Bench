@@ -167,7 +167,7 @@ class InputSchema(pydantic.json_schema.GenerateJsonSchema):
         return super().default_schema(schema)
 
 
-def wire_form(schema: Any) -> Any:
+def wire_form(schema: Any) -> Any:  # noqa: ANN401
     """``schema`` in :data:`KEY_ORDER` and without pydantic's generated ``title`` keys: the field descriptions are
     the prompt text, the titles only repeat the field names."""
     if isinstance(schema, list):

@@ -34,6 +34,7 @@ import pytest
 from hpcagent_bench import config, experiments, fuzz, observations_extract, paths, protocols
 from hpcagent_bench.anticheat import Effect, Finding, Judgement
 from hpcagent_bench.categories import Language, Preset, SourceMode
+from hpcagent_bench.config import MpContext, Statistic
 from hpcagent_bench.harness import grade_under, recording, results_db, scoring, service, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
@@ -41,8 +42,6 @@ from hpcagent_bench.harness.optimizers import NoOpOptimizer
 from hpcagent_bench.harness.scoring import Score, TimedCell
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.stats import score_rule
-from hpcagent_bench.config import Statistic
-from hpcagent_bench.config import MpContext
 from tests.conftest import RANK_ENV_VARS
 from tests.rerun_stubs import pass_reruns
 
@@ -111,7 +110,7 @@ class Scorer:
         self.remaining = iter(results)
         self.calls: list[Seen] = []
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Score:
+    def __call__(self, *args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         names = grade_under.final_settings({})
         self.calls.append(
             Seen(
@@ -425,7 +424,7 @@ def judge_fixture(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Judge]:
     job = runs / "llr-root" / JOB
     seen: list[dict[str, Any]] = []
 
-    def logged(*args: Any, **kwargs: Any) -> Score:
+    def logged(*args: Any, **kwargs: Any) -> Score:  # noqa: ANN401
         seen.append(
             {
                 "repeat": kwargs["repeat"],

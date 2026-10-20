@@ -123,7 +123,7 @@ def test_gather_kernel_scop_is_detected_nonaffine(tmp_path: Path) -> None:
     from hpcagent_bench.spec import BenchSpec
 
     info = BenchSpec.load("reroll_gather")
-    ok, diag = numerical_oracle._emit("reroll_gather", info, tmp_path, precision="float64")
+    ok, diag = numerical_oracle.emit_kernel("reroll_gather", info, tmp_path, precision="float64")
     assert ok, f"reroll_gather emit failed{diag}"
     scops = sorted(tmp_path.glob("*_pluto_input.c"))
     assert scops, "expected a pluto scop for reroll_gather"

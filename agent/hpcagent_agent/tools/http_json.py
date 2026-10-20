@@ -639,7 +639,7 @@ class SubmissionInput(pydantic.BaseModel):
     )
 
 
-def optional_choice(values: tuple[str, ...]) -> Any:
+def optional_choice(values: tuple[str, ...]) -> Any:  # noqa: ANN401
     """The type of an optional field allowing exactly ``values``, built from data for ``pydantic.create_model``."""
     one_of: Any = Literal
     optional: Any = Optional

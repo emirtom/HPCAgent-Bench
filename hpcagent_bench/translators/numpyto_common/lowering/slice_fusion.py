@@ -2,7 +2,7 @@
 
 import ast
 import copy
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from hpcagent_bench.translators.numpyto_common.ast_build import name_, range_for, store_
 from hpcagent_bench.translators.numpyto_common.lib_nodes.dims import shape_exprs_equal
@@ -268,13 +268,21 @@ class SliceFusion(ast.NodeTransformer):
             return binop(self.axis_length(array_name, axis), ast.Sub(), const_(k))
         return bound
 
-    def scalar_slice(self, lhs_dims, iter_vars, ranges, name) -> ast.expr:
+    def scalar_slice(
+        self,
+        lhs_dims: Sequence[ast.expr],
+        iter_vars: Sequence[ast.Name | None],
+        ranges: Sequence[tuple[ast.expr, ast.expr, ast.expr | int, ast.expr]],
+        name: str,
+    ) -> ast.expr:
         """Build the LHS scalar subscript: iter vars per slice dim,
         original (negative-resolved) index per non-slice dim."""
         idx_nodes: list[ast.expr] = []
         for axis, d in enumerate(lhs_dims):
             if isinstance(d, ast.Slice):
-                ivar = name_(iter_vars[axis].id)
+                iter_var = iter_vars[axis]
+                assert iter_var is not None
+                ivar = name_(iter_var.id)
                 step, slice_start = ranges[axis][2], ranges[axis][3]
                 if step == 1:
                     idx_nodes.append(ivar)
