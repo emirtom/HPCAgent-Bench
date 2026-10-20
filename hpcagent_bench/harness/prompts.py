@@ -11,6 +11,7 @@ import dataclasses
 import importlib
 import json
 import math
+import os
 import pathlib
 import posixpath
 import re
@@ -20,6 +21,8 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 
 import jinja2
 import numpy as np
+from hpcagent_agent.tools import mcp_server
+from hpcagent_agent.tools import registry as tool_registry
 
 from hpcagent_bench import (
     config,
@@ -31,6 +34,7 @@ from hpcagent_bench import (
     modules,
     packets,
     paths,
+    plugins,
     protocols,
 )
 from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, Track
@@ -79,7 +83,6 @@ __all__ = [
     "MPI_SECTION",
     "NUMBA_PHRASE",
     "ORACLE_PHRASE",
-    "PACKET_TOOL_FRAGMENTS",
     "PROMPT_FACTS_KEY",
     "PROMPT_VARIANTS",
     "SIZE_CLASS_PHRASE",
@@ -548,6 +551,7 @@ def prompt_env(prompt_config: "PromptConfig | None" = None) -> jinja2.Environmen
     loaders = [jinja2.FileSystemLoader(d) for d in prompt_config.search_dirs()]
     loaders.append(jinja2.FileSystemLoader(str(paths.PROMPTS_DIR)))
     loaders.append(jinja2.FileSystemLoader(str(paths.PACKAGE)))
+    loaders += [jinja2.FileSystemLoader(str(root)) for root in plugins.roots()]
     loader = RecordingLoader(loaders, annotate=prompt_config.debug, aliases=prompt_config.aliases())
     env = jinja2.Environment(
         loader=loader,
@@ -634,44 +638,44 @@ def packet_skills(search_dirs: Sequence[str], language: str, *, multinode: bool 
 
 #: Lead order of the per-tool prompt fragments (``hpcagent_bench/tools/<tool>.md``); others follow
 #: alphabetically.
-_TOOL_ORDER = ("baseline", "score", "submit", "web-search")
-
-#: Fragment stem -> the non-core MCP tool it documents: a setup whose packet does not carry the tool
-#: (:data:`hpcagent_bench.packets.PACKET_TOOLS_ENV`, as the agent's MCP server reads it) is not told about it. Web
-#: search is one of them: runs have no internet unless a packet (``web-search``) brings it.
-PACKET_TOOL_FRAGMENTS = {"canonical-parallel-form": "canonical_parallel_form", "web-search": "search"}
+#: The order the curl prompt documents the judge's routes in; the rest follow alphabetically.
+_TOOL_ORDER = ("baseline", "score", "submit", "search")
 
 #: Fragment stem -> the config key that makes this judge serve the tool's route without a packet: a judge pointed at a
 #: CPF view (``hpcagent-bench serve``) answers the route, so its own prompt documents it.
-SERVED_BY_CONFIG = {"canonical-parallel-form": cpf_cache.CONFIG_KEY}
+SERVED_BY_CONFIG = {"canonical_parallel_form": cpf_cache.CONFIG_KEY}
 
 #: Fragment stem -> the languages its route serves: PAPI counts a host process, never a device kernel or
 #: a Python call (``POST /profile`` refuses those).
 LANGUAGE_TOOL_FRAGMENTS: dict[str, frozenset[Language]] = {
-    "counters": frozenset({Language.C, Language.CPP, Language.FORTRAN})
+    "profile": frozenset({Language.C, Language.CPP, Language.FORTRAN})
 }
 
 
 def tool_fragment_offered(stem: str, language: Language = Language.C) -> bool:
-    """Whether this run's judge can actually serve the tool ``stem`` documents for ``language``."""
-    tool = PACKET_TOOL_FRAGMENTS.get(stem)
-    carried = tool in (config.env_value(packets.PACKET_TOOLS_ENV) or "").split(",")
+    """Whether this run documents ``tools/<stem>.md``: the fragment of a registered tool is offered exactly where the
+    agent's MCP server serves that tool (:mod:`hpcagent_agent.tools.registry`, the one source of who is served
+    what), or where this judge's config serves its route; a route no tool wraps (``baseline``) always."""
+    mcp_server.load_tools()
+    entry = tool_registry.REGISTRY.get(stem)
+    environ = {**os.environ, tool_registry.PACKET_TOOLS_ENV: config.env_value(packets.PACKET_TOOLS_ENV) or ""}
+    served = entry is None or tool_registry.offered(entry, tool_registry.Setup.read(environ))
     key = SERVED_BY_CONFIG.get(stem)
     configured = key is not None and bool(str(config.get(key) or "").strip())
-    served = LANGUAGE_TOOL_FRAGMENTS.get(stem)
-    return (tool is None or carried or configured) and (served is None or language in served)
+    languages = LANGUAGE_TOOL_FRAGMENTS.get(stem)
+    return (served or configured) and (languages is None or language in languages)
 
 
 def tool_fragments(
     search_dirs: Sequence[str] = (), off: Collection[str] = (), language: Language = Language.C
 ) -> list[str]:
-    """Template names of the per-tool prompt fragments: :data:`_TOOL_ORDER` first, then other ``*.md``
-    alphabetically, resolved along the search path. Fragments for tools this run's packet lacks or
-    ``language`` cannot use (:func:`tool_fragment_offered`) and those named in ``off`` (turned off by
-    ``prompt.sections``) are dropped."""
+    """Template names of the per-tool prompt fragments (``tools/<tool>.md``, shipped or a plugin's beside its tool
+    modules): :data:`_TOOL_ORDER` first, then the rest alphabetically. Fragments :func:`tool_fragment_offered`
+    declines and those named in ``off`` (turned off by ``prompt.sections``) are dropped."""
+    roots = (*search_dirs, *(str(root) for root in plugins.roots()))
     by_stem = {
         name: f"tools/{path.name}"
-        for name, path in discover(search_dirs, "tools/*.md", lambda p: p.stem, builtin_root=paths.PACKAGE).items()
+        for name, path in discover(roots, "tools/*.md", lambda p: p.stem, builtin_root=paths.PACKAGE).items()
         if tool_fragment_offered(name, language) and f"tools/{path.name}" not in off
     }
     ordered = [by_stem.pop(t) for t in _TOOL_ORDER if t in by_stem]

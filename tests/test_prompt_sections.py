@@ -38,7 +38,7 @@ KEY_CASES = (
     ("scoring.j2", "scoring"),
     ("lang/cpp.j2", "lang_cpp"),
     ("partials/source-file-note.j2", "partials_source_file_note"),
-    ("tools/web-search.md", "tools_web_search"),
+    ("tools/search.md", "tools_search"),
 )
 OFF_CASES = ("off", "false", "none", "disabled")
 #: The tool fragments that include partials/source-file-note.j2.

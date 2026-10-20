@@ -146,9 +146,9 @@ def test_the_http_loop_prompt_documents_the_packet_tool_only_where_the_run_serve
     from hpcagent_bench.harness import prompts
 
     monkeypatch.setenv(TOOLS_ENV, "")
-    assert "tools/canonical-parallel-form.md" not in prompts.tool_fragments()
+    assert "tools/canonical_parallel_form.md" not in prompts.tool_fragments()
     monkeypatch.setenv(TOOLS_ENV, "canonical_parallel_form")
-    assert "tools/canonical-parallel-form.md" in prompts.tool_fragments()
+    assert "tools/canonical_parallel_form.md" in prompts.tool_fragments()
 
 
 def test_a_packet_tool_page_is_staged_by_that_packet_and_by_no_other() -> None:

@@ -123,7 +123,7 @@ def test_a_setup_whose_name_merely_starts_with_this_one_is_another_setup(router:
 
 
 def test_a_profile_without_a_episode_id_is_still_relayed(router: "TestClient") -> None:
-    """``tools/counters.md`` shows agents a curl ``/profile`` without one; a missing id is no other setup's."""
+    """``tools/profile.md`` shows agents a curl ``/profile`` without one; a missing id is no other setup's."""
     reply = router.post("/profile", json={"kernel": "dist_softmax", "language": "c", "source": "x", "rank": 0})
     assert reply.status_code == 200
     assert upstream_routes() == ["/profile"]

@@ -170,8 +170,8 @@ From finest to coarsest:
 
 1. **A section.** Every template under `prompts/` and every `tools/<tool>.md` is a section with a
    key: its path without the extension, `sections/` dropped and each other separator turned into `_`
-   (`sections/build_flags.j2` is `build_flags`, `lang/cpp.j2` is `lang_cpp`, `tools/web-search.md` is
-   `tools_web_search`). `hpcagent-bench prompt --sections` lists them. A section is turned off with
+   (`sections/build_flags.j2` is `build_flags`, `lang/cpp.j2` is `lang_cpp`, `tools/search.md` is
+   `tools_search`). `hpcagent-bench prompt --sections` lists them. A section is turned off with
    `off` (`false`, `none`, `disabled` and `0` also work), or replaced with a template name on the search
    path or a file path. Every `{% include %}` of that template then gets the replacement, so one key
    changes the batch and the service prompt alike, and a `partials_*` key changes every section that

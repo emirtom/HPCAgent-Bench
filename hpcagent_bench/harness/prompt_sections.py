@@ -4,8 +4,8 @@
 
 Each template under ``harness/prompts/`` (and each ``tools/<tool>.md`` fragment) is a section with a key:
 the path without its extension, ``sections/`` dropped and every other separator turned into ``_``
-(``sections/build_flags.j2`` is ``build_flags``, ``lang/cpp.j2`` is ``lang_cpp``, ``tools/web-search.md``
-is ``tools_web_search``). A section's value is ``off`` to render nothing, or a template name on the
+(``sections/build_flags.j2`` is ``build_flags``, ``lang/cpp.j2`` is ``lang_cpp``, ``tools/search.md``
+is ``tools_search``). A section's value is ``off`` to render nothing, or a template name on the
 search path, or a file path, to render that instead. The ``prompt.sections`` config key (a map) and
 ``HPCAGENT_BENCH_PROMPT_SECTIONS_<KEY>`` in the environment set it, the environment winning."""
 
