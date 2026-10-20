@@ -44,7 +44,9 @@ def test_submit_and_score_endpoints(make_judge: Callable[[ServiceConfig], tuple[
     ``build_log`` -- the same inversion ``scoring.score_from_answer`` performs -- rather than
     off a ``build_ok`` flag the route deliberately does not send.
     """
-    unused_srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2))
+    unused_srv, url = make_judge(
+        ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=2)
+    )
     client = tools.JudgeClient(url)
     sub = _reference_submission("gemm")
     v = client.submit(sub, "gemm")

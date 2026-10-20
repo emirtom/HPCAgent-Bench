@@ -98,7 +98,12 @@ def test_an_np_outer_is_a_matrix() -> None:
 
 @isolated
 def test_a_cast_outer_comparison_and_a_column_divided_product_are_peeled(tmp_path: pathlib.Path) -> None:
-    arrays = [("X", "float64", ("N", "D")), ("labels", "int64", ("N",)), ("ids", "int64", ("K",)), ("centroids", "float64", ("K", "D"))]
+    arrays = [
+        ("X", "float64", ("N", "D")),
+        ("labels", "int64", ("N",)),
+        ("ids", "int64", ("K",)),
+        ("centroids", "float64", ("K", "D")),
+    ]
     emitted, module = emit_and_load(tmp_path, ONE_HOT_SRC, kernel_ir(ONE_HOT_SRC, "update", arrays))
     assert "onehot[__ob0_i] = (labels[__ob0_i] == ids).astype(X.dtype)" in emitted, emitted
     assert "= onehot.T @ X" in emitted
