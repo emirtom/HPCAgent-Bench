@@ -106,7 +106,7 @@ def njit_decorator(parallel: bool, fastmath: bool) -> str:
     return f"@nb.njit({', '.join(opts)})"
 
 
-def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None = None, serial: bool = False) -> str:
+def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None = None) -> str:
     """Translate one numpy kernel source into its Numba sibling.
 
     :param numpy_source: contents of ``<short>_numpy.py``.
@@ -115,7 +115,6 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
         miscompiles some gather/while-loop reductions into a SIGSEGV on numba 0.65 + LLVM.
     :param kir: parsed :class:`KernelIR`; when supplied, ops numba cannot
         type verbatim (batched >=3-D ``@``) are desugared into plain loops.
-    :param serial: build without ``parallel=True`` (a body whose parfor compile alone outlasts a test budget).
     :returns: Python source code.
     """
     sparse = False
@@ -130,7 +129,7 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
     numpy_source = rewrite_lstsq_rcond(numpy_source)
     numpy_source, uses_objmode = rewrite_fft_to_objmode(numpy_source)
     numpy_source = spell_out_overlapping_augassigns(numpy_source)
-    parallel = not serial and emits_parallel(numpy_source)
+    parallel = emits_parallel(numpy_source)
     copier = None
     routed: frozenset[str] = frozenset()
     if parallel:
@@ -167,11 +166,9 @@ def emit_numba(numpy_source: str, fastmath: bool = False, kir: KernelIR | None =
     #    helper is never compiled; a called one must be njit to be callable from
     #    nopython code, so decorating all top-level defs is both correct and free.
     #    The helpers the parfor fixes add must run serial, so they get no ``parallel=True``.
-    serial_helpers = routed | ({copier} if copier is not None else set())
+    serial = routed | ({copier} if copier is not None else set())
     out = re.sub(
-        r"(?m)^def\s+(\w+)\(",
-        lambda m: f"{njit_decorator(parallel and m[1] not in serial_helpers, fastmath)}\n{m[0]}",
-        out,
+        r"(?m)^def\s+(\w+)\(", lambda m: f"{njit_decorator(parallel and m[1] not in serial, fastmath)}\n{m[0]}", out
     )
 
     body = "sparse operands lowered onto the unpacked buffer ABI" if sparse else "body preserved verbatim"

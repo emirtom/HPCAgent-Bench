@@ -82,7 +82,6 @@ __all__ = [
     "jax_compute",
     "mismatch_detail",
     "native_build_command",
-    "numba_checked_serial",
     "needs_fftw",
     "outputs_match",
     "pin_one_thread",
@@ -168,7 +167,6 @@ from hpcagent_bench.frameworks.forked import die_with_parent, run_forked  # noqa
 from hpcagent_bench.harness import disk_cache  # noqa: E402
 from hpcagent_bench.harness.grading import ReferenceUnavailable  # noqa: E402
 from hpcagent_bench.initialize import auto_initialize  # noqa: E402
-from hpcagent_bench.translators.numpyto_common.emit_io import is_override  # noqa: E402
 from hpcagent_bench.pluto_affine import scop_nonaffine_reason  # noqa: E402
 from hpcagent_bench.precision import Precision  # noqa: E402
 from hpcagent_bench.spec import BenchSpec  # noqa: E402
@@ -929,14 +927,6 @@ def coerce_to_dtype(v: object, dt: type | None) -> object:
 #: two the default pipeline costs ~20 minutes against ~1 at NUMBA_OPT=0, with identical outputs.
 NUMBA_LOW_OPT: dict[str, str] = {"cloudsc": "0", "cloudsc_monolith": "0"}
 
-
-
-def numba_checked_serial(bench: BenchSpec) -> bool:
-    """Whether ``bench``'s generated numba is checked as a serial build: a kernel with a hand-written numba reference
-    is graded on that file, never on the generated one, and numba's parfor compile of such bodies alone outlasts the
-    sweep (S, NUMBA_OPT=0: cloudsc 2578 s parallel vs 53 s serial, cloudsc_monolith 919 s vs 51 s)."""
-    return is_override(paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_numba.py")
-
 #: numba's pool in the oracle's child: two threads still race every prange, without waking a whole node's pool per
 #: parfor; the workqueue layer, since a libgomp pool does not survive the fork.
 ORACLE_NUMBA_ENV = {"NUMBA_NUM_THREADS": "2", "NUMBA_THREADING_LAYER": "workqueue"}
@@ -1024,8 +1014,6 @@ def py_backend_compute(
             cmd += ["--precision", emit_prec]
         if backend == "numba" and oracle_config().fastmath(short):
             cmd += ["--fastmath"]
-        if backend == "numba" and numba_checked_serial(bench):
-            cmd += ["--serial"]
         if backend == "cupy":  # cupy CLI takes no bench-info
             cmd = [sys.executable, "-m", cli, "emit", "--kernel", str(npy), "--out", str(tdp)]
         emit = subprocess.run(cmd, capture_output=True, text=True, cwd=str(paths.ROOT), check=False)

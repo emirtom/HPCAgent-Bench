@@ -235,8 +235,8 @@ jobs:
         with:
           coverage: perf-cloudsc
 
-  # The numerical sweep @ S on the Python backends, one leg per backend, each carrying riders that fill its runner
-  # to about 35-38 minutes: Alloy and perf[kernels] on numba, a quarter of the pythran stems on jax, the second
+  # The numerical sweep @ S on the Python backends, one leg per backend (numba in two), each carrying riders that fill
+  # its runner to about 35-38 minutes: Alloy and perf[kernels] on the numba halves, a quarter of the pythran stems on jax, the second
   # quarter and perf[cloudsc_monolith] on the pythran leg (the last quarter rides on integration[0]). One pythran
   # compile peaks at ~7 GB, so pythran runs one worker: 46 min for the whole sweep, in quarters
   # (HPCAGENT_BENCH_E2E_SHARD; test_ci_coverage.py::test_every_sliced_sweep_runs_each_slice_exactly_once).
@@ -249,8 +249,10 @@ jobs:
       fail-fast: false
       matrix:
         leg:
-          # numba 15.5 min + Alloy 5 + perf[kernels] 12.5
-          - { backend: numba, workers: auto, minutes: 22, alloy: true, perf: kernels }
+          # numba in halves (every generated build is parallel=True; cloudsc and cloudsc_monolith each compile for
+          # minutes and sort next to each other, so each half takes one): half + Alloy 5 / half + perf[kernels] 12.5
+          - { backend: numba, workers: auto, minutes: 25, shard: "0/2", alloy: true }
+          - { backend: numba, workers: auto, minutes: 25, shard: "1/2", perf: kernels }
           # jax 25 min + pythran 3/4 (about 10)
           - { backend: jax, workers: auto, minutes: 30, pythran: "3/4" }
           # pythran 0/4 + 1/4 (the old 0/2 half took 27 min, 1/2 19) + perf[cloudsc_monolith] 11.5
@@ -313,7 +315,7 @@ jobs:
       - uses: ./.github/actions/finish
         if: always()
         with:
-          coverage: e2e-${{ matrix.leg.backend }}
+          coverage: e2e-${{ matrix.leg.backend }}${{ matrix.leg.alloy && '-alloy' || '' }}${{ matrix.leg.perf && format('-{0}', matrix.leg.perf) || '' }}
 
   # The @pytest.mark.integration tests under tests/ (build and run real artifacts). The translator
   # tree's half of the marker runs in `translators`. Two shards: the one Phase 6 step measured
