@@ -1,34 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Closed categories as enums whose members are ``enum.auto()``, spelled as text only at a boundary.
-
-Code passes members (``InputMode.PY_BINDING``), never their spelling: a member is not a string, so comparing one
-to a string literal is always False and a type checker flags it. The spelling (``"py-binding"``) exists where a
-value leaves the process or enters it -- a YAML config, a JSON wire model, a results-database column, a CLI flag --
-and is read and written in exactly one way, :attr:`Coded.text` / :meth:`Coded.parse`. A pydantic field typed with a
-:class:`Coded` enum validates the spelling (or a member) and serializes back to the spelling, so a model is the
-boundary codec too.
-
-A member's spelling is its name in lower case with ``_`` as the separator, unless the class sets another
-``SEPARATOR`` or spells a member differently in ``SPELLINGS`` (both ``enum.nonmember``)::
-
-    class InputMode(Coded):
-        SEPARATOR = enum.nonmember("-")
-
-        PY_BINDING = enum.auto()   # "py-binding"
-        SOURCE = enum.auto()       # "source"
-
-    class Language(Coded):
-        SPELLINGS = enum.nonmember({"CPP": "c++"})
-
-The spellings of one class are distinct (checked when a class is first spelled). This module lives in the agent
-package because both sides of the judge-agent wire use it; it imports only the standard library and pydantic-core.
-
-``Coded`` itself declares neither name: mypy reads every attribute an enum body assigns as final, so a subclass
-redefining a base's ``SEPARATOR`` would be refused. A class's own definitions are read from its namespace, with
-:data:`SEPARATOR` and no overrides as the defaults; the class methods are typed by a type parameter for the same
-checker, which resolves ``Self`` on an enum class method to the base.
-"""
+"""Closed categories as ``enum.auto()`` enums, spelled as text only at a boundary via :attr:`Coded.text` /
+:meth:`Coded.parse` (a member is never compared to a string). A spelling is the lower-case name joined by
+``SEPARATOR`` unless ``SPELLINGS`` overrides it; spellings of one class are distinct."""
 
 import enum
 import functools
@@ -58,9 +32,7 @@ def spellings(cls: type["Coded"]) -> Mapping[str, "Coded"]:
 
 
 class Coded(enum.Enum):
-    """Base of a closed category (see the module docstring). Members are ``enum.auto()``; a subclass may set
-    ``SEPARATOR`` (what joins the words of a member's name in its spelling) and ``SPELLINGS`` (member name -> a
-    spelling that is not the name's, ``"c++"``), both ``enum.nonmember``."""
+    """Base of a closed category; a subclass may set ``SEPARATOR`` and ``SPELLINGS``, both ``enum.nonmember``."""
 
     @property
     def text(self) -> str:

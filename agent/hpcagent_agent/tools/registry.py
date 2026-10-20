@@ -1,28 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""One declaration per tool: ``@tool(...)`` on a module's ``run()`` registers it for the MCP server, the
-``hpcagent-bench-tool`` CLI and the prompt's tool list.
-
-    @tool(spec=Spec(DESCRIPTION, SearchInput, PROMPT), core=False)
-    def run(payload: dict[str, Any]) -> dict[str, Any]: ...
-
-What a tool shows the model -- its description, its input model, its prompt bullet -- is a :class:`Spec`. Where it
-depends on the setup (the language a track pins, the ``requests`` this task offers, the profiler a GPU track
-gets), ``spec`` is a function of the :class:`Setup`, read once from the environment, instead of a value: nothing
-is decided at import, so one process can describe any setup (:func:`served`). The input is always a pydantic
-model: ``tools/list`` shows its generated JSON schema and a call is validated against it before ``run`` sees the
-payload, so no schema is written by hand.
-
-The tool's name is its module's stem unless ``name`` says otherwise. Which tools a setup is served
-(:func:`offered`):
-
-* ``core`` tools always, except a ``preview`` tool (one that measures a version before it is submitted) in
-  the blind submission mode, where the judge router refuses its route too;
-* a non-core tool only when the setup's packet carries it: ``hpcagent_bench.packets`` exports the packet's
-  ``tools`` as :data:`PACKET_TOOLS_ENV`, so a tool whose only answer elsewhere would be ``unavailable`` (or
-  one that reaches the real internet, ``search``) never shows up in ``tools/list``, ``--allowedTools`` or
-  the prompt.
-"""
+"""One declaration per tool: ``@tool(spec=Spec(...))`` on a module's ``run()`` registers it for the MCP server, the CLI
+and the prompt's tool list. A :class:`Spec` may be a function of the :class:`Setup` (nothing decided at import); core
+tools are always served (preview tools not in blind mode), others only when the setup's packet carries them."""
 
 import dataclasses
 import functools
@@ -65,7 +45,7 @@ Run = Callable[[dict[str, Any]], dict[str, Any]]
 
 #: The tools the setup's packet carries, comma-separated (``hpcagent_bench.packets`` exports it).
 PACKET_TOOLS_ENV = "HPCAGENT_BENCH_PACKET_TOOLS"
-#: Where the launcher stages exactly the pages a setup's problems name (make_problems.py SKILL_DIR).
+#: Where the launcher stages exactly the pages a setup's problems name.
 SKILL_DIR_ENV = "AGENT_SKILL_DIR"
 
 
@@ -81,9 +61,9 @@ class Setup:
     request_actions: http_json.RequestActions
     #: The non-core tools the setup's packet carries.
     packet_tools: frozenset[str]
-    #: Whether the preview tools (``score``, ``profile``) are served: not in the blind submission mode.
+    #: Whether the preview tools (``score``, ``profile``) are served (not in blind mode).
     preview_served: bool
-    #: The staged skill pages, by name (``opt-reports`` brings the profiler's opt-report instrument).
+    #: The staged skill pages, by name (``opt-reports`` brings the opt-report instrument).
     skill_pages: frozenset[str]
     #: The environment the setup was read from, for a tool's own switches (a plugin's included).
     environ: Mapping[str, str]
@@ -155,8 +135,7 @@ NAMED_SCHEMAS = frozenset({"properties", "$defs"})
 
 
 class InputSchema(pydantic.json_schema.GenerateJsonSchema):
-    """A tool's input schema as the model reads it best: an optional field is its plain type, with no ``null``
-    branch and no ``default`` (leaving the field out is how a caller says "none")."""
+    """A tool's input schema as the model reads it best: an optional field is its plain type (no ``null``/default)."""
 
     def nullable_schema(self, schema: pydantic_core.core_schema.NullableSchema) -> JsonSchemaValue:
         return self.generate_inner(schema["schema"])
@@ -168,8 +147,7 @@ class InputSchema(pydantic.json_schema.GenerateJsonSchema):
 
 
 def wire_form(schema: Any) -> Any:
-    """``schema`` in :data:`KEY_ORDER` and without pydantic's generated ``title`` keys: the field descriptions are
-    the prompt text, the titles only repeat the field names."""
+    """``schema`` in :data:`KEY_ORDER` without pydantic's ``title`` keys (they only repeat the field names)."""
     if isinstance(schema, list):
         return [wire_form(value) for value in cast("list[Any]", schema)]
     if not isinstance(schema, dict):
@@ -193,8 +171,7 @@ def schema_of(model: type[pydantic.BaseModel]) -> dict[str, Any]:
 
 
 def validated(model: type[pydantic.BaseModel], run: Run) -> Run:
-    """``run`` behind ``model``'s validation: a malformed call answers ``ok: false`` with pydantic's reason (the
-    model reads it and fixes the call) and ``run`` sees only the fields the caller set."""
+    """``run`` behind ``model``'s validation: a malformed call answers ``ok: false`` with pydantic's reason."""
 
     @functools.wraps(run)
     def call(payload: dict[str, Any]) -> dict[str, Any]:
@@ -213,8 +190,7 @@ def validated(model: type[pydantic.BaseModel], run: Run) -> Run:
 def tool(
     *, spec: Spec | Callable[[Setup], Spec], core: bool = True, preview: bool = False, name: str = ""
 ) -> Callable[[Run], Run]:
-    """Register the decorated ``run`` as the tool ``name``, by default its module's stem (see the module docstring).
-    A name another module registered is refused; a reload of the same module registers it again."""
+    """Register the decorated ``run`` as tool ``name`` (default: its module's stem); a taken name is refused."""
 
     def register(run: Run) -> Run:
         tool_name = name or run.__module__.rpartition(".")[2]
@@ -237,8 +213,7 @@ def offered(entry: Tool, setup: Setup) -> bool:
 
 
 def served(setup: Setup, order: tuple[str, ...] = ()) -> dict[str, Served]:
-    """Every tool ``setup`` is served, those named in ``order`` first in that order, the rest in registration
-    order. A packet tool no module registers is refused: the setup would silently lack it."""
+    """Every tool ``setup`` is served, ``order`` first; a packet tool no module registers is refused."""
     if unknown := sorted(setup.packet_tools - REGISTRY.keys()):
         raise ValueError(f"{PACKET_TOOLS_ENV} names {unknown}, which no tool module registers")
     names = (*(name for name in order if name in REGISTRY), *(name for name in REGISTRY if name not in order))

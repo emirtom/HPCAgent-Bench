@@ -1,33 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Plugins: what extends the benchmark without editing it -- agent tools, judge routes, skill pages, packets and
-methods -- from a folder, the same layout whether it is shipped, dropped in by a user or installed.
-
-A plugin is a directory with a ``plugin.toml`` (:class:`Manifest`) and any of::
-
-    plugin.toml              name, description, and the packets it registers
-    __init__.py              optional; the directory is imported as a package either way
-    tools/<tool>.py          agent-side ``@tool`` modules (hpcagent_agent.tools.registry), served to the setups
-                             whose packet carries them
-    routes/<route>.py        judge-side ``@route`` modules (hpcagent_bench.harness.routes)
-    skills/<page>/SKILL.md   skill pages, a ``packet:`` frontmatter block making one a packet
-    methods/<method>/method.md   a method's prompt text ({{HINTS}}); its tools live in ``tools/``
-
-Where plugins come from (:func:`plugin_dirs`), first wins on a name clash, which is refused:
-
-* the repository's ``plugins/`` folder: the plugins we ship, and a user's own dropped in beside them;
-* ``HPCAGENT_BENCH_USER_PLUGIN_DIRS``: ``:``-separated folders outside the repository, each a plugin or a folder
-  of plugins;
-* ``HPCAGENT_BENCH_PLUGIN_DIRS``: the resolved list a launcher exports to every role, the same paths everywhere
-  (the agent's container binds each one), so the agent and the judge load the same plugins.
-
-An installed package registers its plugin directory under the ``hpcagent_bench.plugins`` entry point (the value
-names a package; its directory is the plugin), which the judge side resolves (``hpcagent_bench.plugins``).
-
-A plugin's directory is imported as the package ``hpcagent_bench_plugins.<name>``, so its modules import each
-other normally. This module needs only the standard library and pydantic: the agent image has no hpcagent_bench
-(and no yaml, hence TOML).
-"""
+"""Plugins: agent tools, judge routes, skill pages, packets and methods from a folder with a ``plugin.toml``, shipped
+(``plugins/``), user-supplied (``HPCAGENT_BENCH_USER_PLUGIN_DIRS``) or installed (entry point); first wins, a clash
+is refused. Imported as ``hpcagent_bench_plugins.<name>``; stdlib and pydantic only (the agent image)."""
 
 import dataclasses
 import functools
@@ -74,8 +49,7 @@ METHOD_ENV = "AGENT_METHOD"
 
 
 class Manifest(pydantic.BaseModel):
-    """A plugin's ``plugin.toml``. ``packets`` maps a packet key to its definition: the fields of a page's
-    ``packet:`` block (``hpcagent_bench.skill_frontmatter.PacketBlock``), read by the judge side."""
+    """A plugin's ``plugin.toml``; ``packets`` maps a packet key to its ``packet:`` block fields."""
 
     model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -134,8 +108,7 @@ def candidates(folder: pathlib.Path) -> Iterable[pathlib.Path]:
 
 
 def plugin_dirs(environ: Mapping[str, str] = os.environ) -> tuple[pathlib.Path, ...]:
-    """Every plugin directory this process sees: the launcher's resolved list when it exported one, else the
-    shipped folder and the user's folders (see the module docstring)."""
+    """Every plugin directory this process sees: the launcher's resolved list, else the shipped and user folders."""
     exported = environ.get(PLUGIN_DIRS_ENV, "").strip()
     if exported:
         return tuple(pathlib.Path(entry) for entry in exported.split(":") if entry)
@@ -155,8 +128,7 @@ def find(dirs: Iterable[pathlib.Path]) -> tuple[Plugin, ...]:
 
 
 def import_package(plugin: Plugin) -> ModuleType:
-    """``plugin``'s directory as the package :attr:`Plugin.package` (its ``__init__.py`` when it has one), so
-    ``<package>.tools.<tool>`` and ``<package>.routes.<route>`` import normally."""
+    """``plugin``'s directory as the package :attr:`Plugin.package`, so its submodules import normally."""
     if plugin.package in sys.modules:
         return sys.modules[plugin.package]
     for name, location in ((PACKAGE, None), (plugin.package, plugin.root)):
@@ -189,8 +161,7 @@ def import_tools(environ: Mapping[str, str] = os.environ) -> tuple[Plugin, ...]:
 
 @functools.lru_cache(maxsize=None, typed=True)
 def digest(root: pathlib.Path) -> str:
-    """The sha256 of every file under ``root`` (path and content, in path order, caches excluded): what a results
-    database records, so a row names exactly the plugin code that served it."""
+    """The sha256 of every file under ``root`` (path and content, caches excluded), recorded with each row."""
     sha = hashlib.sha256()
     for path in sorted(root.rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts:

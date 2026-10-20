@@ -1,17 +1,6 @@
-"""The ``hpcagent_bench`` MCP server: every tool registered with ``@tool`` (:mod:`hpcagent_agent.tools.registry`)
-that this setup is offered, served with the official MCP SDK over stdio.
-
-One tool per judge route the agent needs, plus ``syntax_check`` (the one tool that talks to no service: THIS
-process runs inside the agent's container next to the compilers) and the tools plugins bring. ``score`` and
-``submit`` are deliberately separate tools because they are separate grades: the public iteration signal and the
-terminal, hidden-seed, recorded one. Whether the agent also has a shell is the launcher's decision, not this
-server's, so no tool may assume the absence of a shell.
-
-Every MCP client consumes this one server: Claude Code, Codex and OpenHands, and the native Anthropic and OpenAI
-harnesses (``hpcagent_agent.harness``). mini-SWE has only a shell and reaches the same tools through the
-``hpcagent-bench-tool`` CLI. What a setup is served is a function of its environment (:func:`tools`), so the
-launcher asks this module in-process (:func:`describe`).
-"""
+"""The ``hpcagent_bench`` MCP server: every ``@tool`` this setup is offered, served with the MCP SDK over stdio to
+every MCP client (mini-SWE reaches the same tools through the ``hpcagent-bench-tool`` CLI). ``score`` and ``submit``
+are separate tools because they are separate grades; no tool may assume the absence of a shell."""
 
 import importlib
 import importlib.metadata
@@ -60,8 +49,7 @@ __all__ = [
 #: The server's name: Claude Code shows a tool as ``mcp__hpcagent_bench__<name>``.
 SERVER_NAME = "hpcagent_bench"
 
-#: The orders recorded setups saw in ``tools/list``, ``--allowedTools`` and the prompt. A tool missing from one
-#: follows the listed tools in registration order.
+#: The orders recorded setups saw in ``tools/list``, ``--allowedTools`` and the prompt; others follow.
 LIST_ORDER = ("score", "submit", "profile", "canonical_parallel_form", "search", "syntax_check")
 ALLOWED_ORDER = ("search", "score", "profile", "submit", "syntax_check", "canonical_parallel_form")
 PROMPT_ORDER = ("profile", "score", "submit", "search", "syntax_check")
@@ -71,8 +59,7 @@ NOT_TOOLS = frozenset({"mcp_server", "hpcagent_bench_tool", "registry", "http_js
 
 
 def load_tools(environ: Mapping[str, str] = os.environ) -> None:
-    """Import every core tool module and every plugin's tool modules; each registers itself. A plugin's tool is
-    served only to the setups whose packet carries it."""
+    """Import every core tool module and every plugin's tool modules; each registers itself."""
     for module in pkgutil.iter_modules(tool_package.__path__):
         if module.name not in NOT_TOOLS:
             importlib.import_module(f"{tool_package.__name__}.{module.name}")
@@ -91,15 +78,14 @@ def in_order(offered: Mapping[str, Served], first: tuple[str, ...]) -> tuple[str
 
 
 def allowed_tools(offered: Mapping[str, Served]) -> tuple[str, ...]:
-    """Claude Code's ``--allowedTools``, without the ``mcp__hpcagent_bench__`` prefix: exactly the served tools, so
-    the model is never offered a tool whose only answer is a refusal."""
+    """Claude Code's ``--allowedTools`` (unprefixed): exactly the served tools."""
     return in_order(offered, ALLOWED_ORDER)
 
 
 #: A prompt bullet's head, ``- `<tool>` --``.
 BULLET_HEAD = re.compile(r"^- `([a-z_]+)` --", re.MULTILINE)
 
-#: The line over the MCP tool list: the names the model's tool list shows, which the bullets abbreviate.
+#: The line over the MCP tool list.
 MCP_HEAD = (
     "They are the MCP tools of the server `hpcagent_bench`: your tool list names each one "
     "`mcp__hpcagent_bench__<name>`, and the bullets below say when to call it."
@@ -107,8 +93,7 @@ MCP_HEAD = (
 
 
 def prompt_tool_list(offered: Mapping[str, Served], cli: bool = False) -> str:
-    """The prompt's tool list: every served tool's non-empty bullet, in PROMPT_ORDER, under :data:`MCP_HEAD`.
-    ``cli`` names each tool as its ``hpcagent-bench-tool`` shell command instead."""
+    """The prompt's tool list: every served tool's bullet under :data:`MCP_HEAD` (``cli``: as shell commands)."""
     text = "\n".join(offered[name].prompt for name in in_order(offered, PROMPT_ORDER) if offered[name].prompt)
     if cli:
         return BULLET_HEAD.sub(r"- `hpcagent-bench-tool \1 '<json>'` --", text)
@@ -120,11 +105,8 @@ AGENT_PAYLOAD_DIR = pathlib.Path(__file__).resolve().parents[2]
 
 
 def server_instructions(offered: Mapping[str, Served], environ: Mapping[str, str] = os.environ) -> str:
-    """The ``initialize`` instructions: the prompt's tool list with the submission mode's slot filled.
-
-    The raw list carries ``{{MODE:tool}}`` (the ``submit`` bullet, which the mode decides), and Claude Code
-    injects these instructions into the system prompt verbatim, so the slot is filled from the payload's
-    template, the copy the launcher stages the shared one from."""
+    """The ``initialize`` instructions: the prompt's tool list with the submission mode's slot filled (Claude Code
+    injects them verbatim)."""
     template = submission_mode.current(dict(environ)).template
     sections = submission_mode.template_sections(AGENT_PAYLOAD_DIR / template)
     return submission_mode.fill_slots(prompt_tool_list(offered), sections, template)
@@ -139,11 +121,10 @@ def tool_definitions(offered: Mapping[str, Served]) -> list[types.Tool]:
 
 
 def call(entry: Served, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Run one tool. A tool fault is content the model must READ (a bad ``$JUDGE_RANK``, an unreachable judge),
-    so it comes back as ``ok: false`` rather than killing the request."""
+    """Run one tool; a tool fault comes back as ``ok: false`` content for the model, never a dead request."""
     try:
         return entry.run(arguments)
-    except Exception as exc:  # noqa: BLE001 -- the model reads this; a dead server tells it nothing
+    except Exception as exc:  # noqa: BLE001 -- the model reads this
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
@@ -158,9 +139,8 @@ def answer(offered: Mapping[str, Served], name: str, arguments: dict[str, Any]) 
 
 
 def build_server(environ: Mapping[str, str] = os.environ) -> Server:
-    """The SDK server for the setup ``environ`` describes. Inputs are validated by each tool (its pydantic model),
-    not by the SDK, so a malformed call answers with the tool's own reason. A tool blocks on the judge, so it runs
-    in a worker thread."""
+    """The SDK server for the setup ``environ`` describes; each tool validates its own input and runs in a worker
+    thread."""
     offered = tools(environ)
     version = importlib.metadata.version("hpcagent-agent")
     server: Server = Server(SERVER_NAME, version=version, instructions=server_instructions(offered, environ))
@@ -182,8 +162,7 @@ async def serve_stdio(server: Server) -> None:
 
 
 def describe(environ: Mapping[str, str] = os.environ) -> dict[str, Any]:
-    """What the setup ``environ`` describes is offered, for the launcher: ``--allowedTools``, the tools served and
-    the prompt's tool lists."""
+    """What setup ``environ`` is offered, for the launcher: ``--allowedTools``, the tools and the prompt lists."""
     offered = tools(environ)
     return {
         "allowed_tools": list(allowed_tools(offered)),

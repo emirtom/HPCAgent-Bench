@@ -1,37 +1,9 @@
 #!/usr/bin/env python3
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Run ONE agent worker in a namespace that shows it its own material and nothing else.
-
-Stage 1 is this module, started by ``agent_driver.py`` as root-in-a-user-namespace::
-
-    unshare -r -m -p -f --mount-proc --propagation private --kill-child \\
-        python3 seal_worker.py --workdir W --agent-dir A --shared S \\
-        --run-dir R --hide L --uid U --gid G -- <worker argv>
-
-It builds the view with the mount(2) syscall through ctypes: the image carries no bwrap, and
-mount(8) refuses to run ("drop permissions failed") when the namespace root is not uid 0 outside.
-Stage 2 is ``unshare -U --map-user=U --map-group=G -- <worker argv>``, which puts the real uid back
-on the worker -- every file it writes is owned by the submitting user, as before -- and clears its
-capabilities at exec, so nothing the agent runs can remount what stage 1 built.
-
-What the worker keeps: its own workdir at its own absolute path (the MCP tool server reads
-``$CLAUDE_LOG_PATH`` there), a private HOME inside it, its own shared folder (which the driver filled with
-its kernel's task material), the experiment-wide shared files read-only, its setup's skill pages read-only
-at /skills where the container mounts that point, the image's own filesystem, a private
-/tmp, /dev/shm and /opt/node-shm (with the driver's launch venv kept read-only: the MCP server runs on
-that interpreter) and the /proc of its own PID namespace. What it loses: the rest of the run directory
-(judge databases, edf, monitor, vllm, every other worker's dir), the launch directory (the setup's .env
-and problems file), other agents' write folders, other kernels' tasks, the host home, and the node's
-shared memory: other containers' launch venvs (a judge's included), the container runtime's own state
-and every other worker's scratch.
-
-Read-only is a REMOUNT, and in a user namespace a remount may not clear the flags the underlying
-mount has locked -- nosuid, nodev, noexec, the atime mode. A plain MS_REMOUNT|MS_BIND|MS_RDONLY is
-refused with EPERM; the flags are read back from /proc/self/mountinfo and carried into the remount.
-
-Standard library only: this runs inside the agent image, which has no hpcagent_bench.
-"""
+"""Run ONE agent worker in a namespace that shows it its own material and nothing else: stage 1 (this module, root
+in a user namespace) builds the view with mount(2) via ctypes, stage 2 restores the real uid and drops capabilities.
+Read-only remounts carry the locked mount flags (else EPERM). Standard library only."""
 
 import argparse
 import ctypes
@@ -98,7 +70,7 @@ __all__ = [
     "worker_argv",
 ]
 
-#: mount(2) flags. Spelled out rather than imported: python exposes none of them.
+#: mount(2) flags (python exposes none of them).
 MS_RDONLY = 0x1
 MS_NOSUID = 0x2
 MS_NODEV = 0x4
@@ -110,7 +82,7 @@ MS_BIND = 0x1000
 MS_REC = 0x4000
 MS_PRIVATE = 0x40000
 MS_RELATIME = 0x200000
-#: umount2(2): drop the mount from the tree now and let it go when the last user does.
+#: umount2(2): drop the mount from the tree now, freed when the last user does.
 MNT_DETACH = 0x2
 
 #: The per-mount options a user namespace refuses to let a remount clear, as mountinfo spells them.
@@ -126,27 +98,22 @@ LOCKED_OPTIONS: tuple[tuple[str, int], ...] = (
 
 MOUNTINFO = "/proc/self/mountinfo"
 
-#: Where the view is assembled: under /tmp, which is a private tmpfs by the time anything lands
-#: there, so the scratch mount points are the worker's own and go with its namespace.
+#: Where the view is assembled: under /tmp, a private tmpfs by then.
 PRIVATE_TMP = "/tmp"
-#: Node-wide scratch each worker gets a fresh empty tmpfs over, ``PRIVATE_TMP`` first: /dev/shm and the
-#: EDFs' /opt/node-shm are the node's own shared memory, where every container on the node keeps its
-#: launch venv and the container runtime its overlays. An agent that could reach them could read a
-#: judge's files or delete a running container's root.
+#: Node-wide scratch each worker gets a fresh tmpfs over: the node's shared memory holds other containers' venvs
+#: and overlays.
 PRIVATE_DIRS = (PRIVATE_TMP, "/dev/shm", "/opt/node-shm")
 SEAL_ROOT = "/tmp/hpcagent-bench-seal"
 VIEW_DIR = f"{SEAL_ROOT}/shared"
 #: The workdir is bound aside before the run directory is covered, then bound back at its own path.
 STASH_DIR = f"{SEAL_ROOT}/workdir"
 
-#: Where the skill pages appear, read-only: the agent EDF mounts the job's at this point, and the seal binds the
-#: worker's own setup's over it (a fused wave stages one set per setup).
+#: Where the skill pages appear, read-only (the worker's own setup's bound over the job's).
 SKILLS_MOUNT = "/skills"
 #: The staged skill pages, a top-level entry of the shared material.
 SKILLS_ENTRY = "skills"
 
-#: The private home inside the workdir. The driver creates it and wipes it between attempts;
-#: stage 1 only exports it.
+#: The private home inside the workdir (the driver creates and wipes it).
 HOME_NAME = "home"
 
 
@@ -192,14 +159,11 @@ class Layout(NamedTuple):
     run_dir: str
     #: Directories covered with an empty tmpfs: the launch directory, the host home's root.
     hide: tuple[str, ...]
-    #: Where the setup-wide staged files come from: ``shared`` itself, or in a fused owed wave the
-    #: worker's own setup's staging root (SHARED/setups/<setup>), presented at ``shared``.
+    #: Where the setup-wide staged files come from: ``shared``, or a fused wave's per-setup root presented there.
     material: str = ""
-    #: Files inside ``workdir`` covered with /dev/null once the workdir is back: the driver's
-    #: record of earlier attempts, which a relaunched worker must start without.
+    #: Files inside ``workdir`` covered with /dev/null: the record of earlier attempts.
     hide_files: tuple[str, ...] = ()
-    #: Directories under a private directory kept at their own path, read-only: the driver's launch
-    #: venv, whose interpreter is the MCP server's command.
+    #: Directories under a private directory kept read-only at their own path (the launch venv).
     keep: tuple[str, ...] = ()
     #: The :data:`PRIVATE_DIRS` this image has, each covered with a fresh tmpfs.
     private: tuple[str, ...] = (PRIVATE_TMP,)
@@ -262,15 +226,8 @@ def unescape(field: str) -> str:
 
 
 def locked_flags(mountinfo: str, target: str) -> int:
-    """The flags a user namespace will not let a remount of ``target`` clear, read off mountinfo.
-
-    Field 5 of a mountinfo line is the mount point and field 6 its per-mount options -- the vfs
-    flags, not the filesystem's. The LAST line naming the mount point wins: a stack of mounts at
-    one path is listed in the order they were made, and the top one is what a remount touches.
-
-    Returns 0 when the path carries no mount of its own, which is the caller's answer too: there is
-    then nothing locked to preserve.
-    """
+    """The flags a user namespace will not let a remount of ``target`` clear, read off mountinfo (the LAST line for
+    the mount point wins); 0 when the path carries no mount of its own."""
     flags = 0
     for line in mountinfo.splitlines():
         fields = line.split(" ")
@@ -295,20 +252,13 @@ def under(parent: str, child: str) -> bool:
     return not parent or child == parent or child.startswith(f"{parent}/")
 
 
-#: Shared-root names never passed through whole: ``tasks`` reaches a worker as the copy in its own folder,
-#: ``setups`` holds every setup of a fused owed wave (a worker sees only its own, as its material root), and
-#: the skill pages appear at :data:`SKILLS_MOUNT` instead.
+#: Shared-root names never passed through whole (per-worker task copies, fused setups, skills).
 PER_WORKER_ENTRIES = frozenset({"tasks", "setups", SKILLS_ENTRY})
 
 
 def shared_root_entries(shared: pathlib.Path) -> tuple[str, ...]:
-    """The shared mount's top-level names EVERY agent of the setup may read.
-
-    :data:`PER_WORKER_ENTRIES` and the per-agent folders are excluded: the worker's own folder is bound in by
-    name, and the rest are other kernels' material and other workers' submissions. Everything else materialize_shared.sh stages -- the prompt variants, the
-    build fragments, the submission policies, the skill pages -- is experiment-wide
-    and passes through read-only, so a file a future setup stages needs no change here.
-    """
+    """The shared mount's top-level names EVERY agent of the setup may read (all but per-worker entries and agent
+    folders), passed through read-only."""
     kept = [
         entry.name
         for entry in shared.iterdir()
@@ -318,24 +268,15 @@ def shared_root_entries(shared: pathlib.Path) -> tuple[str, ...]:
 
 
 def existing_dirs(paths: Sequence[str]) -> tuple[str, ...]:
-    """The ``paths`` the image has: the ones there are to cover or keep.
-
-    A path the image does not have hides nothing, and covering it would mean creating a directory
-    on a read-only image root -- which fails, and would take every worker of the setup down over a
-    directory that was never a leak.
-    """
+    """The ``paths`` the image has (covering a missing one would fail on a read-only root)."""
     return tuple(path for path in paths if pathlib.Path(path).is_dir())
 
 
 def seal_plan(layout: Layout, shared_entries: Sequence[str]) -> list[MountOp]:
     """The ordered mount operations that turn this process's view into the worker's.
 
-    Order carries the design: the private directories first (/tmp leading: the view is assembled inside it); the
-    workdir stashed before the run directory is covered, because covering it hides the source; the
-    view made read-only before it is bound over the shared mount, so a submission written to the
-    shared ROOT rather than into the agent folder is refused loudly instead of landing in a tmpfs
-    the judge cannot read.
-    """
+    Order matters: private dirs first, the workdir stashed before the run directory is covered, and the view made
+    read-only before it is bound over the shared mount (so a write to the shared ROOT fails loudly)."""
     material = layout.material or layout.shared
     for path in (
         layout.workdir,
@@ -458,13 +399,7 @@ def worker_argv(command: Sequence[str]) -> list[str]:
 
 
 def set_affinity(cpus: str) -> None:
-    """Pin this process, which the worker inherits at exec.
-
-    The driver pins the process it spawned, but that is ``unshare``, which forks the namespace's
-    init BEFORE the driver's sched_setaffinity lands -- and a mask is inherited at fork, not
-    afterwards. So the share is handed down here instead, inside the namespace, one exec above the
-    worker. An empty list means the node had no share to deal and the worker runs unpinned.
-    """
+    """Pin this process (inherited by the worker at exec): the driver's mask lands after unshare forked."""
     if not cpus.strip():
         return
     os.sched_setaffinity(0, {int(cpu) for cpu in cpus.split(",") if cpu.strip()})
@@ -501,8 +436,7 @@ def main(argv: Sequence[str]) -> int:
     os.chdir(layout.agent_dir)
     environment = dict(os.environ)
     environment["HOME"] = f"{workdir}/{HOME_NAME}"
-    # Claude Code reads IS_SANDBOX as permission to relax its own guards. The worker is not in one
-    # it set up, and inheriting the driver's copy would tell it otherwise.
+    # Claude Code reads IS_SANDBOX as permission to relax its own guards; this is not its sandbox.
     environment.pop("IS_SANDBOX", None)
     stage = stage_two(int(args.uid), int(args.gid), command)
     try:

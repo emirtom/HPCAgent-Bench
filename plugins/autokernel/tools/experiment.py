@@ -1,13 +1,6 @@
-"""AutoKernel's experiment ledger: record a hypothesis, decide keep or revert, remember the best.
-
-Harness-agnostic port of the upstream ``orchestrate.py`` record / ``results.tsv`` / git keep-revert
-workflow. This tool NEVER calls the judge -- the caller passes in the JSON its own ``score`` tool
-already returned. All state lives under the ledger root as plain files, re-derived from
-``results.tsv`` on every call, so a relaunched agent picks up exactly where the last one left off.
-
-The MCP server imports every plugin's tool modules; ``@tool`` registers this one under its stem, ``experiment``, and
-it is served to the setups whose packet carries it (``autokernel``).
-"""
+"""AutoKernel's experiment ledger: record a hypothesis, decide keep or revert, remember the best. Never calls the
+judge (the caller passes its ``score`` JSON); state lives as plain files re-derived from ``results.tsv`` on every
+call, so a relaunched agent resumes exactly."""
 
 import enum
 import hashlib
@@ -118,8 +111,7 @@ class ExperimentInput(pydantic.BaseModel):
 
 
 def ledger_root() -> pathlib.Path:
-    """The ledger's directory: the parent of $AGENT_SUBMISSION_MARKER when that is an absolute path,
-    else the current working directory."""
+    """The ledger's directory: the parent of an absolute $AGENT_SUBMISSION_MARKER, else the working directory."""
     marker = os.environ.get("AGENT_SUBMISSION_MARKER", "")
     marker_path = pathlib.Path(marker) if marker else None
     if marker_path is not None and marker_path.is_absolute():
@@ -128,8 +120,7 @@ def ledger_root() -> pathlib.Path:
 
 
 def read_raw_rows(results_path: pathlib.Path) -> list[dict[str, str]]:
-    """Every recorded row, oldest first, as raw tsv strings. Only this module writes the file, so a
-    plain split on tab is enough -- hypotheses have their tabs/newlines stripped before they land."""
+    """Every recorded row, oldest first, as raw tsv strings (hypotheses are stripped of tabs and newlines)."""
     if not results_path.is_file():
         return []
     rows: list[dict[str, str]] = []
@@ -159,8 +150,7 @@ def parse_row(raw: dict[str, str]) -> dict[str, Any]:
 
 
 def best_raw_row(raw_rows: list[dict[str, str]]) -> dict[str, str] | None:
-    """The kept row with the highest speedup. Every 'keep' row is correct with a numeric speedup by
-    construction, so this needs no extra filtering."""
+    """The kept row with the highest speedup (every kept row is correct with a numeric speedup)."""
     kept = [row for row in raw_rows if Decision.parse(row["decision"]) is Decision.KEEP]
     return max(kept, key=lambda row: float(row["speedup"])) if kept else None
 

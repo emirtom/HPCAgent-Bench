@@ -1,16 +1,6 @@
-"""Fetch this kernel's canonical parallel form: the kernel already parallelized by DaCe, with basic heuristics applied.
-
-Every loop in the form carries one of three verdicts: ``parallel`` is proven fully parallel,
-``sequential`` is proven sequential (its carried dependence named), and only ``unsure`` loops are open. The description and the
-reminder say exactly that, so an agent spends its effort on the heuristic optimizations rather than on
-re-deriving the dependence analysis. The ``cpf-tool-cpu`` / ``cpf-tool-gpu`` skills describe every field.
-
-A ``-kinds`` packet (``cpf-tool-cpu-kinds`` / ``cpf-tool-gpu-kinds``) sets :data:`HINTS_ENV` to ``kinds``: the form
-then carries one ``// par``, ``// seq`` or ``// unknown`` per loop and nothing else, the description and the
-reminder define those three words instead, and every request names the detail. The setup fixes it; the agent
-cannot ask for another (the input schema has no such field, and the judge refuses a detail its setup does not
-serve).
-"""
+"""Fetch this kernel's canonical parallel form (DaCe-parallelized), each loop marked ``parallel``, ``sequential`` or
+``unsure``. A ``-kinds`` packet sets :data:`HINTS_ENV` to ``kinds`` (one ``// par``, ``// seq`` or ``// unknown``
+per loop); the setup fixes the detail and the agent cannot ask for another."""
 
 import os
 from collections.abc import Mapping
@@ -42,8 +32,7 @@ __all__ = [
     "spec",
 ]
 
-#: The setup's hint detail, the env name of ``hpcagent_bench.cpf_cache.HINTS_CONFIG_KEY`` (this package imports no
-#: hpcagent_bench, so it spells the name; a test pins the two together). Unset is the setup's default, proofs.
+#: The setup's hint detail (``cpf_cache.HINTS_CONFIG_KEY``'s env name, pinned by a test); unset is proofs.
 HINTS_ENV = "HPCAGENT_BENCH_CPF_HINTS"
 #: The detail whose form carries one ``// par``, ``// seq`` or ``// unknown`` per loop and nothing else.
 KINDS = "kinds"
@@ -67,7 +56,7 @@ PROOFS_DESCRIPTION = (
     "means no form is served for this kernel and says nothing about whether it can be parallelized."
 )
 
-#: The description under :data:`KINDS`: the three words, defined once each, and nothing about how they were decided.
+#: The description under :data:`KINDS`: the three words, defined once each.
 KINDS_DESCRIPTION = (
     "Return this kernel's CANONICAL PARALLEL FORM: one self-contained C/C++ translation unit, "
     "ALREADY PARALLELIZED by DaCe with basic heuristics applied. Every loop carries exactly one comment: "
@@ -80,9 +69,7 @@ KINDS_DESCRIPTION = (
 )
 
 
-#: Dialects the renderer emits. The run's language picks one (cuda gets the hip device form: there is no
-#: CUDA form); anything else (fortran) still gets a form, rendered as C++ -- the parallelism facts in it
-#: are the point and they do not depend on the dialect it is spelled in.
+#: Dialects the renderer emits (cuda gets the hip form; anything else is rendered as C++).
 RENDER_LANGUAGES = ("c", "c++", "hip")
 DEFAULT_RENDER_LANGUAGE = "c++"
 TASK_DIALECT = {"c": "c", "cpp": "c++", "hip": "hip", "cuda": "hip"}
@@ -95,9 +82,7 @@ def dialect_name(asked: str) -> str:
     return "c++" if name == "cpp" else name
 
 
-#: The kernel is the driver's assignment (:func:`http_json.assigned_kernel`). ``dialect`` is NOT the run's
-#: ``language`` field: the form is rendered as C, C++ or HIP whatever the track submits in, and conflating the two
-#: would invite a Fortran track to ask for a Fortran rendering that does not exist.
+#: ``dialect`` is NOT the run's ``language``: the form is rendered as C, C++ or HIP whatever the track submits in.
 class CanonicalParallelFormInput(pydantic.BaseModel):
     dialect: Literal["c", "c++", "hip"] | None = pydantic.Field(
         None,
@@ -121,9 +106,7 @@ def render_language(payload: dict[str, Any]) -> str:
     return TASK_DIALECT.get(http_json.task_language(), DEFAULT_RENDER_LANGUAGE)
 
 
-#: No bullet: the prompt never listed this tool, and adding one would change every recorded setup's prompt.
-#: A CPF tool packet's skill page is what tells an agent the tool is there; the MCP server serves the tool
-#: only in the setups whose packet carries it (``core=False``), so no other setup can reach this module.
+#: No bullet: the prompt never listed this tool (adding one would change recorded prompts); its skill page does.
 PROMPT = ""
 
 
@@ -162,17 +145,11 @@ def spec(setup: Setup) -> Spec:
 
 @tool(spec=spec, core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
-    """Ask the judge for the form, and never let a miss read as a fact.
-
-    A miss is a statement about the renderer, not about the kernel, so it comes back as
-    ``unavailable`` with that said in words: an agent that reads a bare 404 as "this kernel is not
-    parallelizable" has been misled by the tool.
-    """
+    """Ask the judge for the form; a miss comes back as ``unavailable`` in words, never read as a fact."""
     kernel = http_json.assigned_kernel(payload)
     if not kernel:
         return {
-            # Same wire contract as submit.py: a malformed request is a failure, and
-            # only "ok": False reaches isError and the CLI exit status.
+            # Same wire contract as submit.py: only "ok": False reaches isError and the CLI exit status.
             "ok": False,
             "verdict": "unavailable",
             "error": "canonical_parallel_form needs 'kernel': the kernel key from your task, verbatim",

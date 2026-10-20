@@ -35,7 +35,7 @@ __all__ = [
 TRANSCRIPT = "anthropic.messages.jsonl"
 #: The task: the head every history window keeps (the system prompt is a request field of its own).
 HEAD_MESSAGES = 1
-#: What the claude CLI sends every request (measured on its wire, 2.1.197 and 2.1.303).
+#: What the claude CLI sends every request.
 THINKING = {"type": "adaptive"}
 CONTINUE_NOTE = (
     "Your reply reached the output token limit before it called a tool, so it was cut off. "
@@ -93,9 +93,7 @@ class Transcript:
 async def open_tools(
     stack: contextlib.AsyncExitStack, servers: Mapping[str, Mapping[str, Any]], cwd: pathlib.Path, wait: float
 ) -> dict[str, Any]:
-    """Every tool the model is offered, by name, as the SDK's runnable ``BetaAsyncFunctionTool``: each
-    stdio server's tools through ``async_mcp_tool``, then the shell. An MCP call is waited on for
-    ``wait`` seconds (the judge call's wait), and so is a shell command."""
+    """Every tool the model is offered (each stdio server's tools, then the shell), each waited ``wait`` seconds."""
     from anthropic.lib.tools import beta_async_tool
     from anthropic.lib.tools.mcp import async_mcp_tool
     from mcp import ClientSession, StdioServerParameters
@@ -125,8 +123,7 @@ async def open_tools(
 
 
 async def tool_result(block: Any, tools: Mapping[str, Any]) -> dict[str, Any]:
-    """The ``tool_result`` block answering one ``tool_use`` block. A failed call is answered as an
-    error the model reads, as the SDK's own tool runner does: one bad call must not end the episode."""
+    """The ``tool_result`` answering one ``tool_use`` block; a failed call is an error the model reads."""
     from anthropic.lib.tools import ToolError
 
     answer: dict[str, Any] = {"type": "tool_result", "tool_use_id": block.id}
@@ -143,10 +140,8 @@ async def tool_result(block: Any, tools: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The ``tool_result`` blocks answering every ``tool_use`` block of one reply, in order. A reply cut
-    off at ``max_tokens`` whose last block is a tool call stopped inside that call: it is answered with
-    :data:`CUT_OFF_NOTE` as an error instead of being run on its partial input; the calls before it are
-    whole and run."""
+    """The ``tool_result`` blocks for every ``tool_use`` of one reply; a call cut off at ``max_tokens`` is answered
+    with :data:`CUT_OFF_NOTE`, never run."""
     calls = [block for block in reply.content if block.type == "tool_use"]
     cut = reply.stop_reason == "max_tokens" and bool(reply.content) and reply.content[-1].type == "tool_use"
     results = [await tool_result(block, tools) for block in (calls[:-1] if cut else calls)]

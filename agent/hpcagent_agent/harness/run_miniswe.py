@@ -34,9 +34,7 @@ HEAD_MESSAGES = 2
 
 
 def bash_command(command: str) -> str:
-    """``command`` wrapped to run under bash without rc files. 2.4.6's ``LocalEnvironment`` runs commands
-    with ``shell=True`` and has no shell setting, and /bin/sh on the image is dash, which fails the
-    model's ``time`` and ``[[ ]]`` even though the tool it is given is named bash."""
+    """``command`` wrapped to run under bash without rc files (/bin/sh on the image is dash)."""
     return shlex.join([*runner_common.BASH, command])
 
 
@@ -56,9 +54,7 @@ def run_episode(
     )
 
     class UsageRecordingModel(LitellmModel):
-        """Records each response's usage where LitellmModel prices it, which is once per call,
-        including calls whose tool call then fails to parse; sends the ``runner_common.HistoryWindow`` of the
-        agent's history and calibrates it on that count."""
+        """Records each call's usage where LitellmModel prices it, sends the history window and calibrates it."""
 
         #: The messages the last request carried, which its usage counts.
         sent: Sequence[dict[str, Any]] = ()
@@ -82,8 +78,7 @@ def run_episode(
 
     config = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     model_config = dict(config["model"])
-    # LitellmModel forwards model_kwargs to litellm.completion, which is where the reply cap and the
-    # effort rung belong: miniswe.yaml names neither, so the driver's values are the only ones sent.
+    # The reply cap and effort rung go through model_kwargs (miniswe.yaml names neither).
     model_kwargs = {
         **model_config.pop("model_kwargs", {}),
         "api_base": args.base_url,
@@ -92,11 +87,9 @@ def run_episode(
     }
     if args.reasoning_effort:
         model_kwargs["reasoning_effort"] = args.reasoning_effort
-        # litellm knows no served model's parameters, and under miniswe.yaml's drop_params it drops the
-        # rung from every request to an ``openai/<served name>`` model unless the call allows it by name.
+        # Under drop_params litellm drops the rung for an unknown served model unless allowed by name.
         model_kwargs["allowed_openai_params"] = ["reasoning_effort"]
-    # litellm.completion's own default is 600 s, which a request queued behind a loaded server's
-    # prefills outlasts.
+    # litellm's own 600 s default is too short behind a loaded server's prefills.
     if args.request_timeout is not None:
         model_kwargs["timeout"] = args.request_timeout
     model = UsageRecordingModel(
