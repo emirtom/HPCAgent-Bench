@@ -14,6 +14,7 @@ import pytest
 from hpcagent_bench import config
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import MpContext
 
 
 @pytest.mark.integration
@@ -22,7 +23,7 @@ def test_a_grade_with_varied_inputs_survives_forkserver() -> None:
         pytest.skip("gcc absent")
     task = Task("gemm", "restricted", "c")
     with (
-        config.overridden("runtime.mp_context", "forkserver"),
+        config.overridden("runtime.mp_context", MpContext.FORKSERVER),
         config.overridden("measurement.vary_inputs", True),
         config.overridden("grading.seal", False),
     ):

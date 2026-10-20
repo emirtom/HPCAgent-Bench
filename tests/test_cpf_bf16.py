@@ -21,6 +21,7 @@ from hpcagent_bench import cpf_bridge, cpf_canonical
 from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
+from hpcagent_bench.cpf_cache import RenderVerdict
 
 BF16_KERNEL = "machine_learning/gemm_add_relu/gemm_add_relu"
 FP64_KERNEL = "scientific_computing/dense_linear_algebra/gemm/gemm"
@@ -96,7 +97,7 @@ def test_a_bf16_form_takes_the_stub_signature_and_reproduces_numpy(tmp_path: pat
         pytest.skip("no C++ compiler here does __bf16 arithmetic")
     spec = BenchSpec.load(BF16_KERNEL)
     record = cpf_bridge.render_kernel(spec, tmp_path, language="c++", precision="bf16")
-    assert record.verdict == "ok", f"{BF16_KERNEL} did not render at bf16: {record}"
+    assert record.verdict is RenderVerdict.OK, f"{BF16_KERNEL} did not render at bf16: {record}"
     code = pathlib.Path(record.source).read_text()
     native = binding_from_spec(spec)
     assert "typedef __bf16 __npb_bf16;" in code

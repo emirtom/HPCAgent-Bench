@@ -236,8 +236,8 @@ def test_sized_params_weak_rounds_a_non_power_p() -> None:
 @pytest.mark.parametrize("spelling", ["", "Strong", "amdahl", "cyclic"])
 def test_an_mpi_mode_that_is_not_a_scaling_law_is_refused(spelling: str) -> None:
     """``mpi.mode`` is parsed into a ScalingLaw, so a misspelled law fails at the config, never as a silent sizing."""
-    with pytest.raises(ValueError, match="is not a valid ScalingLaw"):
-        ScalingLaw(spelling)
+    with pytest.raises(ValueError, match="is not a ScalingLaw"):
+        ScalingLaw.parse(spelling)
 
 
 # Task: the distributed residency (opt-in, not GPU-gated)

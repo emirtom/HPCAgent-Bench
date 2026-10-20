@@ -16,6 +16,7 @@ import subprocess
 import pytest
 
 from hpcagent_bench import containers
+from hpcagent_bench.config import Hardware
 
 REPO_ROOT = pathlib.Path(containers.__file__).resolve().parent.parent
 LAUNCHER = REPO_ROOT / "helpers" / "scripts" / "run_agent_in_container.sh"
@@ -35,7 +36,7 @@ def controlled_env(backend):
         for k, v in os.environ.items()
         if not k.startswith("HPCAGENT_BENCH_") and k not in ("ANTHROPIC_API_KEY", "HPCAGENT_BENCH_LOCAL_MODEL")
     }
-    env["HPCAGENT_BENCH_RUNTIME_BACKEND"] = backend
+    env["HPCAGENT_BENCH_RUNTIME_BACKEND"] = backend.text
     env["ANTHROPIC_API_KEY"] = "sk-test"  # a passthrough (non-HPCAGENT_BENCH) var
     env["HPCAGENT_BENCH_ZED"] = "z"  # dynamic HPCAGENT_BENCH_*, must sort after ABC
     env["HPCAGENT_BENCH_ABC"] = "a"  # dynamic HPCAGENT_BENCH_*, must sort before ZED
@@ -45,13 +46,13 @@ def controlled_env(backend):
 # Driven off EXEC_BACKENDS, not a hand-written list: a wrapper backend added to the spelling
 # file without a parity check is exactly how the two folds drift. `ce` is excluded on
 # purpose -- it has no wrapper argv to compare, and the bash launcher rejects it outright.
-@pytest.mark.parametrize("backend", containers.EXEC_BACKENDS)
-@pytest.mark.parametrize("hardware", ["cpu", "nvidia", "amd"])
+@pytest.mark.parametrize("backend", containers.EXEC_BACKENDS, ids=lambda backend: backend.text)
+@pytest.mark.parametrize("hardware", list(Hardware), ids=lambda hardware: hardware.text)
 def test_bash_and_python_fold_identical_argv(backend, hardware, monkeypatch) -> None:
     env = controlled_env(backend)
     # bash: --print emits one token per line, no exec/probe.
     proc = subprocess.run(
-        ["bash", str(LAUNCHER), hardware, "--print", "--", *AGENT_ARGS],
+        ["bash", str(LAUNCHER), hardware.text, "--print", "--", *AGENT_ARGS],
         env=env,
         capture_output=True,
         text=True,

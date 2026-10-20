@@ -25,6 +25,7 @@ from hpcagent_bench.stats import score_rule
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.contract import Binding
 from hpcagent_bench.support.bindings.mpi_driver import gen_kernel_mpi_stub
+from hpcagent_bench.config import Statistic
 from tests import mpi_launch_helpers
 from tests.mpi_launch_helpers import c_toolchain, cc_override_for, mpi4py_launcher_diagnosis
 from tests.test_mpi_call import cupy_device_available
@@ -171,7 +172,7 @@ def test_distributed_leaderboard_routing_scores_solved(mpi_c) -> None:
     assert ts.s_i == score_rule.credit([ts.iterations[0].speedup], solved=True).score
     assert ts.iterations[0].timed
     assert ts.iterations[0].label.startswith("mpi:")
-    assert ts.perf_mode.startswith("mpi:")
+    assert isinstance(ts.perf_mode, ScalingLaw)
 
 
 def test_distributed_bad_kernel_is_a_scored_failure_not_a_crash(mpi_c) -> None:
@@ -234,7 +235,7 @@ def test_distributed_stencil_leaderboard_routing_scores_solved(mpi_c) -> None:
     assert ts.s_i == score_rule.credit([ts.iterations[0].speedup], solved=True).score
     assert ts.iterations[0].timed
     assert ts.iterations[0].label.startswith("mpi:")
-    assert ts.perf_mode.startswith("mpi:")
+    assert isinstance(ts.perf_mode, ScalingLaw)
 
 
 # 2-D block-cyclic distribution (mat_scaled_add): ScaLAPACK-style MxN over a [2,2] hypercube
@@ -487,7 +488,7 @@ def test_score_scaling_strong_times_anchor_once_and_notes_failures(monkeypatch) 
         "from_submission",
         classmethod(described),
     )
-    S.config.set_override("mpi.mode", "strong")
+    S.config.set_override("mpi.mode", ScalingLaw.STRONG)
     # warmup_count() is a separate config from S.config; zero it so anchor calls == 1, not warmup+1.
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
@@ -546,7 +547,7 @@ def gang_strong_sweep(
             raise fail("boom")
         return launched([1000 * p])
 
-    overrides = {"mpi.mode": "strong", "mpi.launcher": GANG_LAUNCHER}
+    overrides = {"mpi.mode": ScalingLaw.STRONG, "mpi.launcher": GANG_LAUNCHER}
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GANG_NODELIST", "nid001,nid002")
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_GANG_EDF", "/run/edf/judge.toml")
     monkeypatch.setenv("HPCAGENT_BENCH_MPI_RANKS_PER_NODE", "4")
@@ -677,7 +678,7 @@ def weak_jacobi_2d_sweep(monkeypatch: pytest.MonkeyPatch, rank_counts: tuple[int
         "from_submission",
         classmethod(described),
     )
-    S.config.set_override("mpi.mode", "weak")
+    S.config.set_override("mpi.mode", ScalingLaw.WEAK)
     monkeypatch.setattr(S.timing, "warmup_count", lambda: 0)
 
     grid1 = {"axes": [{"grid_dim": 0, "scheme": "block"}]}
@@ -756,7 +757,7 @@ def test_distributed_scaling_curve_e2e(mpi_c) -> None:
 
     anchor = NoOpOptimizer().solve(Task(kernel="scaled_add", language="c"))  # single-node reference == anchor
     config.set_override("mpi.leaderboard_preset", "S")  # keep the build + launches fast
-    config.set_override("mpi.mode", "strong")
+    config.set_override("mpi.mode", ScalingLaw.STRONG)
     config.set_override("mpi.rank_counts", [1, 2, 4])
     try:
         ts = score_task_fuzzed(
@@ -856,8 +857,8 @@ def test_score_distributed_credits_via_timing_reduce(monkeypatch: pytest.MonkeyP
     from hpcagent_bench.harness import scoring as S
 
     mock_mpi_runners(monkeypatch, native=[10], baseline=[20])
-    config.set_override("mpi.mode", "strong")
-    config.set_override("measurement.timing_backend", "mannwhitney_delta")
+    config.set_override("mpi.mode", ScalingLaw.STRONG)
+    config.set_override("measurement.timing_backend", Statistic.MANNWHITNEY)
     try:
         task = Task(kernel="scaled_add", language="c", residency="distributed")
         result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
@@ -880,9 +881,9 @@ def test_score_distributed_weak_mode_credits_the_reduced_ratio_directly(monkeypa
     from hpcagent_bench.harness import scoring as S
 
     mock_mpi_runners(monkeypatch, native=[10], baseline=[20])
-    config.set_override("mpi.mode", "weak")
+    config.set_override("mpi.mode", ScalingLaw.WEAK)
     config.set_override("mpi.ranks", 4)
-    config.set_override("measurement.timing_backend", "mannwhitney_delta")
+    config.set_override("measurement.timing_backend", Statistic.MANNWHITNEY)
     try:
         task = Task(kernel="scaled_add", language="c", residency="distributed")
         result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
@@ -904,9 +905,9 @@ def test_score_distributed_weak_mode_speedup_is_rank_count_independent(monkeypat
 
     def score_at(ranks: int) -> float:
         mock_mpi_runners(monkeypatch, native=[10], baseline=[20])
-        config.set_override("mpi.mode", "weak")
+        config.set_override("mpi.mode", ScalingLaw.WEAK)
         config.set_override("mpi.ranks", ranks)
-        config.set_override("measurement.timing_backend", "mannwhitney_delta")
+        config.set_override("measurement.timing_backend", Statistic.MANNWHITNEY)
         try:
             task = Task(kernel="scaled_add", language="c", residency="distributed")
             return S.score_distributed(_noop_submission(), task, preset="S", repeat=20).speedup
@@ -928,9 +929,9 @@ def test_score_distributed_weak_non_power_ranks_are_rounded_graded_and_corrected
 
     patch_work_exponent(monkeypatch, 2)
     mock_mpi_runners(monkeypatch, native=[10], baseline=[20])
-    config.set_override("mpi.mode", "weak")
+    config.set_override("mpi.mode", ScalingLaw.WEAK)
     config.set_override("mpi.ranks", 8)
-    config.set_override("measurement.timing_backend", "mannwhitney_delta")
+    config.set_override("measurement.timing_backend", Statistic.MANNWHITNEY)
     try:
         task = Task(kernel="scaled_add", language="c", residency="distributed")
         result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
@@ -958,7 +959,7 @@ def test_score_distributed_weak_refuses_a_manifest_without_work_exponent(monkeyp
         mock_mpi_runners(monkeypatch, native=[10], baseline=[20])
         config.set_override("mpi.mode", mode)
         config.set_override("mpi.ranks", 4)
-        config.set_override("measurement.timing_backend", "mannwhitney_delta")
+        config.set_override("measurement.timing_backend", Statistic.MANNWHITNEY)
         try:
             task = Task(kernel="scaled_add", language="c", residency="distributed")
             results[mode] = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)
@@ -980,7 +981,7 @@ def test_score_distributed_no_samples_credits_nothing(monkeypatch: pytest.Monkey
     from hpcagent_bench.harness import scoring as S
 
     mock_mpi_runners(monkeypatch, native=[], baseline=[20])
-    config.set_override("mpi.mode", "strong")
+    config.set_override("mpi.mode", ScalingLaw.STRONG)
     try:
         task = Task(kernel="scaled_add", language="c", residency="distributed")
         result = S.score_distributed(_noop_submission(), task, preset="S", repeat=20)

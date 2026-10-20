@@ -14,6 +14,8 @@ import numpy as np
 import pytest
 
 from hpcagent_bench import cpf_cache, cpf_canonical
+from hpcagent_bench.cpf_cache import Target
+from hpcagent_bench.cpf_cache import RenderVerdict
 
 PROGRAM = "@dc.program\ndef k(a: dc.float64[N]):\n    a[:] = 1.0\n"
 
@@ -42,16 +44,16 @@ def program(tmp_path: pathlib.Path, text: str = PROGRAM) -> pathlib.Path:
 @pytest.mark.parametrize(
     ("text", "commit", "precision", "target"),
     [
-        (PROGRAM + "# regenerated\n", "commit", "fp64", "cpu"),
-        (PROGRAM, "moved", "fp64", "cpu"),
-        (PROGRAM, "commit", "fp32", "cpu"),
-        (PROGRAM, "commit", "fp64", "gpu"),
+        (PROGRAM + "# regenerated\n", "commit", "fp64", Target.CPU),
+        (PROGRAM, "moved", "fp64", Target.CPU),
+        (PROGRAM, "commit", "fp32", Target.CPU),
+        (PROGRAM, "commit", "fp64", Target.GPU),
     ],
 )
 def test_the_canonical_key_moves_with_the_program_the_commit_the_precision_and_the_target(
-    tmp_path: pathlib.Path, text: str, commit: str, precision: str, target: str
+    tmp_path: pathlib.Path, text: str, commit: str, precision: str, target: Target
 ) -> None:
-    base = cpf_canonical.canonical_key(program(tmp_path), "commit", "fp64", "cpu")
+    base = cpf_canonical.canonical_key(program(tmp_path), "commit", "fp64", Target.CPU)
     assert cpf_canonical.canonical_key(program(tmp_path, text), commit, precision, target) != base
 
 
@@ -91,10 +93,10 @@ def test_a_canonicalize_that_raises_is_cached_and_not_run_again(
     monkeypatch.setattr(cpf_canonical, "parse_program", parse)
     monkeypatch.setattr(cpf_canonical, "canonicalize_for", canonicalize)
     impl, cache = program(tmp_path), tmp_path / "cache"
-    key = cpf_canonical.canonical_key(impl, "commit", "fp64", "cpu")
-    verdict = {"verdict": "fail", "error": "ValueError: cannot lift"}
-    assert cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", "cpu") == (verdict, False)
-    assert cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", "cpu") == (verdict, True)
+    key = cpf_canonical.canonical_key(impl, "commit", "fp64", Target.CPU)
+    verdict = cpf_canonical.RenderFailure(RenderVerdict.FAIL, "ValueError: cannot lift")
+    assert cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", Target.CPU) == (verdict, False)
+    assert cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", Target.CPU) == (verdict, True)
     assert parsed == [impl]
 
 
@@ -109,9 +111,9 @@ def test_a_canonicalize_ended_by_a_signal_is_not_cached(
     monkeypatch.setattr(cpf_canonical, "parse_program", lambda spec, impl, precision: object())
     monkeypatch.setattr(cpf_canonical, "canonicalize_for", canonicalize)
     impl, cache = program(tmp_path), tmp_path / "cache"
-    key = cpf_canonical.canonical_key(impl, "commit", "fp64", "cpu")
+    key = cpf_canonical.canonical_key(impl, "commit", "fp64", Target.CPU)
     with pytest.raises(SystemExit):
-        cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", "cpu")
+        cpf_canonical.canonical_sdfg(FakeSpec("k"), impl, key, cache, "fp64", Target.CPU)
     assert cpf_cache.canonical_entry(cache, key) is None
 
 

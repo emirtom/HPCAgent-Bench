@@ -13,6 +13,7 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, score
 from hpcagent_bench.harness.task import Task, expand_tasks
 from hpcagent_bench.support.bindings.stubs import STUB_BODY
+from hpcagent_bench.harness.outcomes import RunStatus
 from tests.own_process import fresh_interpreter
 from tests.port_toolchain import gcc_available
 
@@ -553,9 +554,9 @@ def test_status_overfit_mapping() -> None:
     overfit = Score(False, 0.0, 1, True, "", public_correct=True, hidden_correct=False, hidden_passed=0, hidden_total=1)
     wrong = Score(False, 1.0, 1, True, "", public_correct=False, hidden_correct=False)
     good = Score(True, 0.0, 1, True, "", public_correct=True, hidden_correct=True)
-    assert status_of(overfit) == "overfit"
-    assert status_of(wrong) == "incorrect"
-    assert status_of(good) == "ok"
+    assert status_of(overfit) is RunStatus.OVERFIT
+    assert status_of(wrong) is RunStatus.INCORRECT
+    assert status_of(good) is RunStatus.OK
 
 
 def test_status_timeout_and_harness_fault_mapping() -> None:
@@ -568,9 +569,9 @@ def test_status_timeout_and_harness_fault_mapping() -> None:
     timed = Score(False, float("inf"), 0, True, "native call failed: budget", timed_out=True)
     oracle_dead = Score(False, float("inf"), 0, False, "kernel: child exited 0 with no result", harness_fault=True)
     judge_oom = Score(False, float("inf"), 0, True, "MemoryError", harness_fault=True)
-    assert status_of(timed) == "timeout"
-    assert status_of(oracle_dead) == "score_error"  # harness_fault beats build_ok=False
-    assert status_of(judge_oom) == "score_error"
+    assert status_of(timed) is RunStatus.TIMEOUT
+    assert status_of(oracle_dead) is RunStatus.SCORE_ERROR  # harness_fault beats build_ok=False
+    assert status_of(judge_oom) is RunStatus.SCORE_ERROR
 
 
 def test_the_guillotine_kill_is_its_own_status() -> None:
@@ -584,8 +585,8 @@ def test_the_guillotine_kill_is_its_own_status() -> None:
     # too_slow is a NARROWING of timed_out, so both flags are set on a real guillotine kill.
     guillotined = Score(False, float("inf"), 0, True, "too slow", timed_out=True, too_slow=True)
     plain = Score(False, float("inf"), 0, True, "budget", timed_out=True)
-    assert status_of(guillotined) == "too_slow"
-    assert status_of(plain) == "timeout"
+    assert status_of(guillotined) is RunStatus.TOO_SLOW
+    assert status_of(plain) is RunStatus.TIMEOUT
 
 
 # runner + CLI
@@ -596,7 +597,7 @@ def test_runner_agent_error_is_scored_not_raised() -> None:
     from hpcagent_bench.harness.runner import solve_task
 
     row, _ = solve_task(StubAgent(), Task("gemm", "any", "c"))
-    assert row.status == "agent_error"
+    assert row.status is RunStatus.AGENT_ERROR
     assert row.correct is False
     assert row.agent == "stub"
     assert row.detail
@@ -608,7 +609,7 @@ def test_runner_stub_gemm_ok() -> None:
     from hpcagent_bench.harness.runner import solve_task
 
     row, _ = solve_task(StubAgent(), Task("gemm", "restricted", "c"), preset="S", repeat=2)
-    assert row.status == "ok", row
+    assert row.status is RunStatus.OK, row
     assert row.correct, row
     assert row.native_ns > 0, row
     assert row.baseline_ns > 0
@@ -734,7 +735,7 @@ def test_score_device_residency_gated() -> None:
     from hpcagent_bench.harness.runner import solve_task
 
     row, _ = solve_task(StubAgent(), Task("gemm", "restricted", "cuda", residency="device"))
-    assert row.status in ("agent_error", "score_error")
+    assert row.status in (RunStatus.AGENT_ERROR, RunStatus.SCORE_ERROR)
     assert row.correct is False
 
 

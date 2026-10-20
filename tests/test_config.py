@@ -14,8 +14,9 @@ import pydantic
 import pytest
 
 from hpcagent_bench import config, containers, flags, languages, paths, seal, spec
+from hpcagent_agent.coded import Coded
 from hpcagent_bench.api import InputMode, Oracle
-from hpcagent_bench.cli import Execution
+from hpcagent_bench.config import BaselineRace, ContainerRuntime, Execution, Hardware, ScalingLaw
 from hpcagent_bench.harness import (
     agent,
     denominator,
@@ -30,18 +31,20 @@ from hpcagent_bench.harness import (
     task,
     timing,
 )
-from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.requests_api import Location
 
 REPO = paths.ROOT
 
 
 def field_values(dotted: str) -> set[object]:
-    """The values the Literal of leaf ``dotted`` (or of its sequence items) allows."""
+    """The values the Literal of leaf ``dotted`` (or of its sequence items) allows; an enum's members."""
     annotation, _ = config.strip_optional(config.FIELDS[dotted].annotation)
     args = get_args(annotation)
     if args and args[-1] is Ellipsis:
-        args = get_args(args[0])
+        annotation = args[0]
+        args = get_args(annotation)
+    if isinstance(annotation, type) and issubclass(annotation, Coded):
+        return set(annotation)
     return set(args)
 
 
@@ -161,8 +164,8 @@ def test_an_override_wins_over_the_scoped_environment_which_wins_over_os_environ
 def test_the_container_backend_honours_an_override_over_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """The raw env read before the config made the env win over set_override and the scoped env."""
     monkeypatch.setenv("HPCAGENT_BENCH_RUNTIME_BACKEND", "apptainer")
-    with config.overridden("runtime.backend", "podman"):
-        assert containers.resolve_backend() == "podman"
+    with config.overridden("runtime.backend", ContainerRuntime.PODMAN):
+        assert containers.resolve_backend() is ContainerRuntime.PODMAN
 
 
 def test_the_agent_worker_count_honours_an_override_over_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,7 +183,7 @@ def test_harbor_images_follow_an_override_made_after_import() -> None:
     from hpcagent_bench import harbor
 
     with config.overridden("images.cpu.agent", "registry.example/agent:test"):
-        assert harbor.images_for("cpu")[0] == "registry.example/agent:test"
+        assert harbor.images_for(Hardware.CPU)[0] == "registry.example/agent:test"
 
 
 # readers take the model defaults
@@ -201,7 +204,7 @@ def test_harbor_images_follow_an_override_made_after_import() -> None:
         (lambda: config.current().limits.oracle_cache_gb, 12.0),
         (lambda: config.current().ml.rank_counts, (1, 2, 4)),
         (lambda: config.current().ml.grade_rank_counts, (1, 2, 4, 8, 16)),
-        (lambda: config.current().runtime.backend, "oci"),
+        (lambda: config.current().runtime.backend, ContainerRuntime.OCI),
     ],
 )
 def test_a_reader_without_an_override_returns_the_model_default(read: Callable[[], object], want: object) -> None:
@@ -217,8 +220,8 @@ def test_physical_bandwidth_gbps_is_no_key() -> None:
 
 
 def test_an_unknown_timing_backend_raises_instead_of_reducing_with_min_of_k() -> None:
-    with pytest.raises(ValueError, match="mannwhitney"):
-        timing.active_backend("mannwhitney")
+    with pytest.raises(pydantic.ValidationError, match="mannwhitney"):
+        config.set_override("measurement.timing_backend", "mannwhitney")
 
 
 def test_a_level_free_budget_still_honours_the_overrides() -> None:
@@ -281,12 +284,12 @@ def test_the_seal_hides_the_configured_generated_reference_cache(tmp_path: pathl
         ("measurement.denominator.scientific_computing", {member.value for member in denominator.Denominator}),
         ("measurement.denominator.machine_learning", {denominator.Denominator.TORCH_AUTOTUNE.value}),
         ("measurement.timing_backend", set(timing.REDUCTIONS)),
-        ("measurement.baseline_race", {grading.LEADER_FIRST_RACE, grading.COMPLETE_RACE}),
+        ("measurement.baseline_race", {BaselineRace.LEADER_FIRST, BaselineRace.COMPLETE}),
         ("prompt.strategy", set(prompts.STRATEGIES)),
         ("record.device", {member.value for member in recording.RecordDevice}),
         ("cache.disk_results_tracks", {member.value for member in spec.Track}),
-        ("agent.execution", {member.value for member in Execution}),
-        ("mpi.mode", {member.value for member in ScalingLaw}),
+        ("agent.execution", set(Execution)),
+        ("mpi.mode", set(ScalingLaw)),
         ("mpi.residency", {member.value for member in Location}),
         ("runtime.backend", set(containers.SELECTABLE)),
     ],

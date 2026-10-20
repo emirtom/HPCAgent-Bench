@@ -45,6 +45,7 @@ from hpcagent_bench.harness.requests_api import Requests
 from hpcagent_bench.harness.scoring import Score, TimedCell, VerifyResult, score
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.stats import score_rule
+from hpcagent_bench.config import Statistic
 from tests.fresh_module import module_at
 from tests.results_rows import cells, grades
 from tests.sqlite_closing import connect
@@ -616,7 +617,7 @@ def test_the_final_env_stamps_mwd_v3_on_a_real_kernel(tmp_path: pathlib.Path) ->
     # through grade(); test_finalize_grades_mw4x5_on_a_real_kernel covers the final rule end to end.
     with (
         config.overridden("service.preset", "S"),
-        config.overridden("measurement.timing_backend", "mannwhitney_delta"),
+        config.overridden("measurement.timing_backend", Statistic.MANNWHITNEY),
         config.overridden("measurement.repeat", 20),
         grade_under.environment_scope(),
     ):
@@ -641,7 +642,7 @@ def cell_result(ratio: float, **changes: object) -> Score:
         baseline_ns=80.0,
         native_ns=80.0 / ratio,
         ratio=ratio,
-        timing_reduction=timing.REDUCTIONS_VARIED["mannwhitney_delta"],
+        timing_reduction=timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY],
     )
     return score_result(speedup=ratio, cells=(cell,), **changes)
 

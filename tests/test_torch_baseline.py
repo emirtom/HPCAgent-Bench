@@ -47,6 +47,7 @@ from hpcagent_bench.harness import grading, kernelbench_adapter, scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import Statistic
 from tests.reference_outputs import torch_eager_outputs
 
 #: A covered kernel with no parameters at all, one with many, and one whose upstream model the
@@ -634,7 +635,7 @@ def test_a_final_grade_input_of_an_ml_kernel_is_reduced_against_torch_autotune()
         )
     assert result.correct, result.detail
     assert result.baseline == CPU_KIND
-    assert [cell.timing_reduction for cell in result.cells] == [timing.REDUCTIONS_VARIED["mannwhitney_delta"]]
+    assert [cell.timing_reduction for cell in result.cells] == [timing.REDUCTIONS_VARIED[Statistic.MANNWHITNEY]]
 
 
 def test_the_cpu_reference_at_the_track_datatype_matches_the_oracle() -> None:

@@ -22,6 +22,7 @@ from hpcagent_bench.harness.prompts import (
     parse_skill,
 )
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.config import PromptStrategy
 
 TASK = Task("gemm", "restricted", "c")
 
@@ -108,7 +109,7 @@ def test_no_skill_body_is_ever_inlined() -> None:
         PromptConfig.from_config(),
         PromptConfig.from_config(optimization_guidance=False),
         PromptConfig.from_config(profiling_guidance=True),
-        PromptConfig.from_config(strategy="profile_first"),
+        PromptConfig.from_config(strategy=PromptStrategy.PROFILE_FIRST),
     ):
         prompt = build_prompt(TASK, prompt_config=cfg)
         assert _inlined_pages(prompt) == frozenset(), f"a skill body was inlined: {_inlined_pages(prompt)}"

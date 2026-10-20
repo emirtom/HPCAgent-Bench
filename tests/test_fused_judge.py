@@ -37,6 +37,12 @@ from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import HealthAnswer, SubmitVerdict
 from hpcagent_bench.harness.scoring import Score
 from hpcagent_bench.harness.task import Task
+from hpcagent_bench.harness.outcomes import RunStatus
+from hpcagent_bench.cpf_cache import HintDetail
+from hpcagent_bench.cpf_cache import RenderVerdict
+from hpcagent_bench.cpf_cache import Role
+from hpcagent_bench.cpf_cache import Target
+from hpcagent_bench.harness.judge_wire import Correct
 
 KERNEL = "tsvc_2_s212"
 
@@ -83,12 +89,12 @@ def setup_lines(setup: str, view: pathlib.Path | None) -> list[str]:
 def publish_view(tmp_path: pathlib.Path) -> pathlib.Path:
     """A CPF view serving ``example_kernel``'s C form (as tests/test_canonical_parallel_form.py)."""
     cache, view = tmp_path / "cache", tmp_path / "view"
-    cpf_cache.open_view(view, cache, "cpu", "dace")
+    cpf_cache.open_view(view, cache, Target.CPU, "dace")
     key = cpf_cache.cache_key("sdfg", "dace", {"kernel": "example_kernel"})
     name = "example_kernel_fp64_cpf"
-    files = [("source", f"{name}.c", "// form\n"), ("binding", f"{name}_binding.json", "{}")]
+    files = [(Role.SOURCE, f"{name}.c", "// form\n"), (Role.BINDING, f"{name}_binding.json", "{}")]
     cpf_cache.publish(cache, key, {"kernel": "example_kernel", "entry": "example_kernel_fp64"}, files)
-    cpf_cache.record(view, "example_kernel", "c", "fp64", "proofs", {"key": key, "verdict": "ok"})
+    cpf_cache.record(view, "example_kernel", "c", "fp64", HintDetail.PROOFS, {"key": key, "verdict": RenderVerdict.OK})
     return view
 
 
@@ -239,7 +245,7 @@ def record_all(db: str, episode_id: str) -> None:
         episode_id=episode_id,
     )
     recording.record_call(
-        graded(), Task(KERNEL, "restricted", "c"), status="ok", route="score", episode_id=episode_id, path=db
+        graded(), Task(KERNEL, "restricted", "c"), status=RunStatus.OK, route="score", episode_id=episode_id, path=db
     )
 
 
@@ -338,7 +344,7 @@ class HeaderEcho(BaseHTTPRequestHandler):
         answer = (
             HealthAnswer(status="ok", rank=0, oracle="auto", baseline="auto", input_mode="any", submits_in_flight=0)
             if self.path.startswith("/health")
-            else SubmitVerdict(correct="yes", request_id="r")
+            else SubmitVerdict(correct=Correct.YES, request_id="r")
         )
         data = json.dumps(answer.to_json()).encode()
         self.send_response(200)

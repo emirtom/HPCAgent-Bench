@@ -21,6 +21,7 @@ from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.service import ServiceConfig, make_server
 from hpcagent_bench.harness.tools import error_with_body
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.config import SubmitFeedback
 from tests.conftest import RANK_ENV_VARS
 from tests.rerun_stubs import pass_reruns
 
@@ -286,7 +287,7 @@ def test_score_is_public_only_and_submit_grades_the_hidden_seed() -> None:
         assert scored["correct"] is True
         assert scored["hidden_total"] == 0, "/score must never touch the hidden seed"
         assert "recorded" not in scored, "/score must never record"
-        with config.overridden("service.submit_feedback", "full"):  # the grade, as the router sees it
+        with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # the grade, as the router sees it
             code, submitted = _post(port, "/submit", body)
         assert code == 200
         assert submitted["correct"] is True

@@ -12,6 +12,7 @@ failure, not a crashed runner.
 
 from hpcagent_bench import config, flags, osinfo
 from hpcagent_bench.harness import native_call
+from hpcagent_bench.config import MpContext
 
 
 # osinfo: the single OS/arch source of truth
@@ -27,7 +28,7 @@ def test_mp_context_resolves_auto_and_honours_an_explicit_override() -> None:
     # config default is `auto` -> the per-OS default
     assert osinfo.mp_context() == osinfo.default_mp_context()
     # a concrete value wins (this is how the threaded judge pins forkserver)
-    config.set_override("runtime.mp_context", "forkserver")
+    config.set_override("runtime.mp_context", MpContext.FORKSERVER)
     try:
         assert osinfo.mp_context() == "forkserver"
     finally:

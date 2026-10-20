@@ -9,6 +9,7 @@ import statistics
 import pytest
 
 from hpcagent_bench.harness import timing
+from hpcagent_bench.config import Statistic
 
 
 # min_of_k
@@ -17,7 +18,7 @@ def test_min_of_k_divides_the_minima() -> None:
     assert r.native_ns == 10
     assert r.baseline_ns == 20
     assert r.speedup == 2.0
-    assert r.backend == "min_of_k"
+    assert r.backend == Statistic.MIN
 
 
 def test_min_of_k_empty_candidate_is_zero_speedup() -> None:
@@ -28,7 +29,7 @@ def test_min_of_k_empty_candidate_is_zero_speedup() -> None:
 # median_of_k
 def test_median_of_k_divides_the_medians_and_ignores_one_outlier() -> None:
     r = timing.reduce_median_of_k([10, 11, 12, 13, 400], [20, 22, 24, 26, 28])
-    assert (r.native_ns, r.baseline_ns, r.speedup, r.backend) == (12, 24, 2.0, "median_of_k")
+    assert (r.native_ns, r.baseline_ns, r.speedup, r.backend) == (12, 24, 2.0, Statistic.MEDIAN)
     assert r.significant
 
 
@@ -37,7 +38,7 @@ def test_median_of_k_empty_candidate_is_zero_speedup() -> None:
 
 
 def test_reduce_dispatches_median_of_k_and_stamps_it() -> None:
-    r = timing.reduce([10, 12, 14], [20, 24, 28], backend="median_of_k")
+    r = timing.reduce([10, 12, 14], [20, 24, 28], backend=Statistic.MEDIAN)
     assert (r.speedup, r.reduction) == (2.0, "medk-v1")
 
 
@@ -146,18 +147,18 @@ def test_mannwhitney_too_few_samples_no_credit() -> None:
 # dispatch
 def test_reduce_defaults_to_min_of_k() -> None:
     r = timing.reduce([10, 12], [20, 24])
-    assert r.backend == "min_of_k"
+    assert r.backend == Statistic.MIN
     assert r.speedup == 2.0
 
 
 def test_reduce_honors_explicit_backend() -> None:
-    r = timing.reduce(_spread(10.0), _spread(20.0), backend="mannwhitney_delta")
-    assert r.backend == "mannwhitney_delta"
+    r = timing.reduce(_spread(10.0), _spread(20.0), backend=Statistic.MANNWHITNEY)
+    assert r.backend == Statistic.MANNWHITNEY
     assert r.significant
 
 
-@pytest.mark.parametrize(("backend", "stamp"), [("min_of_k", "mok-v1"), ("mannwhitney_delta", "mwd-v2")])
-def test_a_reduction_names_the_version_of_the_arithmetic_behind_its_credit(backend: str, stamp: str) -> None:
+@pytest.mark.parametrize(("backend", "stamp"), [(Statistic.MIN, "mok-v1"), (Statistic.MANNWHITNEY, "mwd-v2")])
+def test_a_reduction_names_the_version_of_the_arithmetic_behind_its_credit(backend: Statistic, stamp: str) -> None:
     """The stamp is what a table groups rows by before pooling them; two backends, or one backend
     before and after its arithmetic changed, must never share one."""
     assert timing.reduce(_spread(10.0), _spread(20.0), backend=backend).reduction == stamp
@@ -165,14 +166,14 @@ def test_a_reduction_names_the_version_of_the_arithmetic_behind_its_credit(backe
 
 # repeat validation (a distributional backend must fail loudly on too few samples)
 def test_validate_repeat_min_of_k_accepts_one() -> None:
-    timing.validate_repeat(1, backend="min_of_k")  # no raise
+    timing.validate_repeat(1, backend=Statistic.MIN)  # no raise
 
 
 def test_validate_repeat_mannwhitney_rejects_too_few() -> None:
-    need = timing.required_repeat("mannwhitney_delta")
-    timing.validate_repeat(need, backend="mannwhitney_delta")  # exactly enough: ok
+    need = timing.required_repeat(Statistic.MANNWHITNEY)
+    timing.validate_repeat(need, backend=Statistic.MANNWHITNEY)  # exactly enough: ok
     with pytest.raises(ValueError, match="repeat"):
-        timing.validate_repeat(need - 1, backend="mannwhitney_delta")
+        timing.validate_repeat(need - 1, backend=Statistic.MANNWHITNEY)
 
 
 def test_a_suspect_threshold_below_the_old_grid_ceiling_is_accepted_under_every_backend() -> None:
@@ -181,7 +182,7 @@ def test_a_suspect_threshold_below_the_old_grid_ceiling_is_accepted_under_every_
     from hpcagent_bench import config
     from hpcagent_bench.harness import scoring
 
-    for backend in ("min_of_k", "mannwhitney_delta"):
+    for backend in (Statistic.MIN, Statistic.MANNWHITNEY):
         with (
             config.overridden("measurement.timing_backend", backend),
             config.overridden("record.speedup_suspect_above_host", 1000.0),
@@ -254,20 +255,20 @@ def test_floor_off_by_default_never_flags() -> None:
 
 # REDUCTIONS_VARIED / mwd-v3 stamp -- B3 memo-guard (per-repeat input variation)
 def test_reduce_stamps_mwd_v3_when_varied() -> None:
-    r = timing.reduce(list(_LOCKED_CANDIDATE), list(_LOCKED_BASELINE), backend="mannwhitney_delta", varied=True)
+    r = timing.reduce(list(_LOCKED_CANDIDATE), list(_LOCKED_BASELINE), backend=Statistic.MANNWHITNEY, varied=True)
     assert r.reduction == "mwd-v3"
     assert r.speedup == pytest.approx(2.0, rel=1e-12)  # arithmetic is UNCHANGED, only the stamp differs
 
 
 def test_reduce_keeps_mwd_v2_when_not_varied() -> None:
-    r = timing.reduce(list(_LOCKED_CANDIDATE), list(_LOCKED_BASELINE), backend="mannwhitney_delta")
+    r = timing.reduce(list(_LOCKED_CANDIDATE), list(_LOCKED_BASELINE), backend=Statistic.MANNWHITNEY)
     assert r.reduction == "mwd-v2"
 
 
 def test_reduce_stamps_min_of_k_varied_too() -> None:
-    r = timing.reduce([10, 11], [20, 22], backend="min_of_k", varied=True)
+    r = timing.reduce([10, 11], [20, 22], backend=Statistic.MIN, varied=True)
     assert r.reduction == "mok-v1-varied"
-    r2 = timing.reduce([10, 11], [20, 22], backend="min_of_k")
+    r2 = timing.reduce([10, 11], [20, 22], backend=Statistic.MIN)
     assert r2.reduction == "mok-v1"
 
 

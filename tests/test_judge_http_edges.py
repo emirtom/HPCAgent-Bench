@@ -13,6 +13,7 @@ import pytest
 from hpcagent_bench.harness import service
 from hpcagent_bench.harness.judge_wire import SubmitVerdict
 from hpcagent_bench.harness.service import JudgeHandler, ServiceConfig, make_server
+from hpcagent_bench.harness.judge_wire import Correct
 
 RANK = 0  # make_server's default rank; every request names it
 
@@ -57,7 +58,7 @@ def test_an_answer_whose_client_left_is_dropped_not_raised(capsys: pytest.Captur
     handler.requestline, handler.client_address = "POST /submit HTTP/1.1", ("127.0.0.1", 1)
     handler.close_connection = False
 
-    handler.reply(200, SubmitVerdict(correct="yes", request_id="r"))
+    handler.reply(200, SubmitVerdict(correct=Correct.YES, request_id="r"))
 
     assert handler.close_connection is True
     assert "POST /submit answered 200 after its client left" in capsys.readouterr().out

@@ -29,6 +29,7 @@ from hpcagent_bench import fused
 from hpcagent_bench.harness import grade_under, scoring
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.tools import JudgeClient
+from hpcagent_bench.harness.judge_wire import Correct
 from tests import test_grade_under, test_scaling_grade
 from tests.fresh_module import fresh
 from tests.judge_router_stub import GRADE, REPORT, SCORE, StubJudge, load_router, stub_judge, through_router
@@ -195,7 +196,7 @@ def test_the_harness_judge_client_is_accepted(router: "TestClient", monkeypatch:
     submission = Submission(language="c", source="void k(void){}")
     StubJudge.replies.extend([(200, SCORE), (200, GRADE), (200, REPORT)])  # what each route answers
     assert client.score(submission, "dist_softmax").correct is True
-    assert client.submit(submission, "dist_softmax").correct == "yes"
+    assert client.submit(submission, "dist_softmax").correct is Correct.YES
     assert client.profile(submission, "dist_softmax").root.build_ok is True
     assert upstream_routes() == ["/score", "/submit", "/profile"]
 

@@ -19,6 +19,7 @@ from hpcagent_bench.harness import tools
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import GradeAnswer, SubmitVerdict
 from hpcagent_bench.harness.service import ServiceConfig
+from hpcagent_bench.config import SubmitFeedback
 
 
 def _reference_submission(kernel: str = "gemm", language: str = "c") -> Submission:
@@ -68,7 +69,7 @@ def test_submit_returns_both_slices(make_judge: Callable[[ServiceConfig], tuple[
     half of the contract is tests/test_agent_service.py's.
     """
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", repeat=2))
-    with config.overridden("service.submit_feedback", "full"):  # need the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # need the measured grade, not the verdict
         r = tools.JudgeClient(url).submit(_reference_submission("gemm"), "gemm")
     assert isinstance(r, GradeAnswer)
     assert r.correct is True

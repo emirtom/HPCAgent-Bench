@@ -39,6 +39,7 @@ from hpcagent_bench.api import InputMode
 from hpcagent_bench.harness.service import ServiceConfig, gpu_language_refusal, setup_language_refusal
 from hpcagent_bench.harness.task import RECORD_DEVICE_ENV, Task, setup_declared_host_only
 from hpcagent_bench.support.bindings.contract import binding_from_spec
+from hpcagent_bench.config import SubmitFeedback
 
 #: The exact key set ``POST /score`` may answer with -- FROZEN mid-experiment (an agent calling it
 #: before and after a deploy must see byte-identical shape). ``device_runtime`` is deliberately
@@ -514,7 +515,7 @@ def test_the_build_commands_are_recorded_never_answered_even_under_full_feedback
     _srv, url = make_judge(ServiceConfig(baseline="c", oracle="auto", input_mode="any", repeat=2))
     body = json.dumps({"kernel": KERNEL, "language": "c", "source": HONEST_SOURCE, "build": [], "rank": 0}).encode()
     request = Request(f"{url}/score", data=body, headers={"Content-Type": "application/json"}, method="POST")
-    with config.overridden("service.submit_feedback", "full"), urlopen(request, timeout=60) as reply:
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL), urlopen(request, timeout=60) as reply:
         payload = json.loads(reply.read())
     assert set(payload) == FROZEN_SCORE_ROUTE_KEYS
 

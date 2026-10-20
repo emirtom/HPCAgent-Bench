@@ -22,6 +22,7 @@ from hpcagent_bench.harness.optimizers import PlutoOptimizer, PpcgHipOptimizer
 from hpcagent_bench.harness.service import ServiceConfig
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.translators.numpyto_c.bindings import BindingArg, BindingFile, write_binding
+from hpcagent_bench.config import SubmitFeedback
 
 KERNEL = "tsvc_2_s115"
 SYMBOL = f"{KERNEL}_fp64"
@@ -127,7 +128,7 @@ MakeJudge = Callable[[ServiceConfig], tuple[object, str]]
 
 def grade(sub: Submission, make_judge: MakeJudge) -> GradeAnswer:
     _srv, url = make_judge(ServiceConfig(baseline=Baseline.C, oracle=Oracle.AUTO, input_mode=InputMode.ANY, repeat=3))
-    with config.overridden("service.submit_feedback", "full"):  # the measured grade, not the verdict
+    with config.overridden("service.submit_feedback", SubmitFeedback.FULL):  # the measured grade, not the verdict
         result = tools.JudgeClient(url).submit(sub, KERNEL)
     assert isinstance(result, GradeAnswer), result
     return result

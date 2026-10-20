@@ -98,7 +98,7 @@ def test_each_point_is_timed_once_and_a_problem_both_laws_share_is_launched_once
     }
     assert len(fake.calls) == len(points) - len(shared), fake.calls
     stored = rows(out)
-    assert set(stored) == {(p.law.value, p.ranks) for p in points}
+    assert set(stored) == {(p.law.text, p.ranks) for p in points}
     assert stored[("weak", 1)]["ranked_ns"] == stored[("strong", 1)]["ranked_ns"]
     assert all(row["compile_mode"] == COMPILE_MODE and row["source"] == "torch_dist" for row in stored.values())
     for point in points:  # a second grade (any submission) reads every point back
@@ -168,7 +168,7 @@ def test_a_scaling_shard_fills_the_baseline_curve_of_what_it_graded_once(
     items = shard_items(tmp_path)
     assert scaling_grade.run_shard(items, 0, 1, out, lambda item: fake_graded(), None) == 1
     planned = torch_dist_curve.planned_points(KERNEL, RANKS, "XL")
-    assert set(rows(out)) == {(p.law.value, p.ranks) for p in planned}
+    assert set(rows(out)) == {(p.law.text, p.ranks) for p in planned}
     launched = len(fake.calls)
     assert scaling_grade.run_shard(items, 0, 1, out, lambda item: fake_graded(), None) == 0
     assert len(fake.calls) == launched

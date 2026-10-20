@@ -34,6 +34,7 @@ from hpcagent_bench.harness.tools import DEFAULT_RANK
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
 from hpcagent_bench.support.bindings.stubs import gen_call_stub
+from hpcagent_bench.cpf_cache import RenderVerdict
 
 KERNELS_UNDER_TEST = ("tsvc_2_s311", "indirect_gather_3nbr", "gemm", "atax", "heat_3d")
 
@@ -55,7 +56,7 @@ def test_the_form_takes_the_required_signature_and_grades_correct(
 ) -> None:
     spec = BenchSpec.load(kernel)
     record = cpf_bridge.render_kernel(spec, tmp_path, language=dialect)
-    assert record.verdict == "ok", f"{record.kernel} [{record.language}]: {record.error}"
+    assert record.verdict is RenderVerdict.OK, f"{record.kernel} [{record.language}]: {record.error}"
     native = binding_from_spec(spec)
     code = pathlib.Path(record.source).read_text()
     stub = gen_call_stub(native, STUB_LANGUAGE[dialect])
