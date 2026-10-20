@@ -391,17 +391,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["E402"]  # imports after pytest.importorskip, which gates the optional extra they need
-# The numba translator and its tests are being rewritten on v021-numba-llr40-solver14; annotated after that merges.
-"hpcagent_bench/translators/numpyto_numba/emit.py" = ["ANN"]
-"hpcagent_bench/translators/numpyto_numba/parfor.py" = ["ANN"]
-"hpcagent_bench/translators/numpyto_numba/sparse.py" = ["ANN"]
-"tests/test_numba_generated_llr40_solvers.py" = ["ANN"]
-"tests/test_numba_reference_parallel.py" = ["ANN"]
-"tests/test_numba_strided_loops.py" = ["ANN"]
-"tests/translators/test_backend_semantics_fixes.py" = ["ANN"]
-"tests/translators/test_numba_parfor_fixes.py" = ["ANN"]
-"tests/translators/test_numba_prange_choice.py" = ["ANN"]
-"tests/translators/test_parallel_loop_body_scalars.py" = ["ANN"]
 # The ports keep their kernel's own names (SRAD's image I, a vexx O); E741 reads them as ambiguous.
 "tests/ports/**" = ["E402", "E741"]
 "tests/test_seissol_init_vectorized.py" = ["E402", "E741"]
