@@ -38,6 +38,7 @@ from cffi import FFI
 from relayout.convert import Conversion
 from relayout.layout import IndexMap
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages, omp_context, openmp_runtimes, osinfo, seal
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked
@@ -537,10 +538,18 @@ def received_regions(channel: RepChannel) -> dict[str, int]:
 #: ``ru_maxrss`` is KiB on Linux, bytes on macOS/BSD.
 RSS_TO_BYTES = 1 if osinfo.IS_MACOS else 1024
 
+
 #: Per-thread GPU assignment for the multi-device judge (:mod:`hpcagent_bench.harness.judge_scheduler`),
 #: read by :func:`_call_isolated` when its ``device_id`` is unset. Thread-local, so no
 #: ``CUDA_VISIBLE_DEVICES`` race. ``None`` = the default device.
-assigned = threading.local()
+class AssignedDevice(threading.local):
+    """The calling thread's pinned GPU (:func:`set_assigned_device`); ``None`` until a thread pins one."""
+
+    def __init__(self) -> None:
+        self.index: int | None = None
+
+
+assigned = AssignedDevice()
 
 
 def set_assigned_device(index: int | None) -> None:
@@ -550,7 +559,7 @@ def set_assigned_device(index: int | None) -> None:
 
 def assigned_device() -> int | None:
     """The calling thread's pinned GPU index, or ``None`` if unset."""
-    return vars(assigned).get("index")
+    return assigned.index
 
 
 #: The device-visibility variables, in the order read. ``ROCR_VISIBLE_DEVICES`` and
@@ -662,6 +671,21 @@ def check_loaded_openmp_width(threads: int) -> None:
             )
 
 
+class NumbaParallel(Protocol):
+    """The parts of ``numba.np.ufunc.parallel`` (no type stubs) :func:`size_loaded_numba_pool` sets."""
+
+    _is_initialized: bool
+    NUM_THREADS: int
+
+
+class NumbaConfig(Protocol):
+    NUMBA_NUM_THREADS: int
+
+
+class NumbaPackage(Protocol):
+    config: NumbaConfig
+
+
 def size_loaded_numba_pool(team: int) -> None:
     """Size the numba pool to the slot's ``team`` when numba is already loaded. A forked child inherits the
     parent's pool size, read when the parent imported numba from its own affinity (every logical CPU it saw), so
@@ -670,17 +694,18 @@ def size_loaded_numba_pool(team: int) -> None:
 
     The size is set without starting a thread: ``numba.set_num_threads`` launches the pool, and the seal applied
     after this refuses a multithreaded process. A pool the parent already launched is past resizing here."""
-    parallel = sys.modules.get("numba.np.ufunc.parallel")
-    if parallel is None:
+    loaded = sys.modules.get("numba.np.ufunc.parallel")
+    if loaded is None:
         return
+    parallel = cast("NumbaParallel", loaded)
     # numba re-reads its config from the environment at every compile, so NUMBA_NUM_THREADS must name the pool that
     # runs: the slot's size when this sets it, else the size the parent already launched (a different value raises
     # "Cannot set NUMBA_NUM_THREADS ... once the threads have been launched").
-    if not vars(parallel)["_is_initialized"]:
-        size = max(1, min(team, int(vars(parallel)["NUM_THREADS"])))
-        vars(parallel)["NUM_THREADS"] = size
-        vars(sys.modules["numba"])["config"].NUMBA_NUM_THREADS = size
-    os.environ["NUMBA_NUM_THREADS"] = str(vars(parallel)["NUM_THREADS"])
+    if not parallel._is_initialized:
+        size = max(1, min(team, int(parallel.NUM_THREADS)))
+        parallel.NUM_THREADS = size
+        cast("NumbaPackage", sys.modules["numba"]).config.NUMBA_NUM_THREADS = size
+    os.environ["NUMBA_NUM_THREADS"] = str(parallel.NUM_THREADS)
 
 
 def slot_threads(cpus: set[int], requested: int | None = None) -> int:
@@ -1158,6 +1183,15 @@ def sampled_calls(
 SETTLE_DECLS = "void GOMP_taskwait(void); int hipDeviceSynchronize(void); int cudaDeviceSynchronize(void);"
 
 
+class SyncRuntimes(Protocol):
+    """The waits :func:`settle_hook` looks up on a submission's cffi ``Lib``; one it did not link raises
+    AttributeError."""
+
+    GOMP_taskwait: Callable[[], object]
+    hipDeviceSynchronize: Callable[[], object]
+    cudaDeviceSynchronize: Callable[[], object]
+
+
 def settle_hook(lib: "Lib") -> Callable[[], None]:
     """A callable that returns once the kernel's own asynchronous work has finished.
 
@@ -1166,11 +1200,16 @@ def settle_hook(lib: "Lib") -> Callable[[], None]:
     resolves through the submission's own handle, so it uses the runtime the submission linked:
     ``GOMP_taskwait`` (libgomp, and libomp's GOMP ABI) and the device ``*DeviceSynchronize`` calls.
     Unlinked ones drop out. A never-joined raw thread cannot be covered."""
-    # getattr: a cffi Lib has no __dict__, and which symbols resolve is what the submission linked.
+    # Which symbols resolve is what the submission linked; a cffi Lib raises AttributeError for the rest.
     waits: list[Callable[[], object]] = []
-    for name in ("GOMP_taskwait", "hipDeviceSynchronize", "cudaDeviceSynchronize"):
+    runtimes = cast("SyncRuntimes", lib)
+    for resolve in (
+        lambda: runtimes.GOMP_taskwait,
+        lambda: runtimes.hipDeviceSynchronize,
+        lambda: runtimes.cudaDeviceSynchronize,
+    ):
         try:
-            waits.append(getattr(lib, name))
+            waits.append(resolve())
         except AttributeError:
             continue  # not linked against that runtime -- nothing of its kind to wait for
 
@@ -1736,6 +1775,12 @@ def hiprtc_include_dirs(dirs: Sequence[str]) -> tuple[str, ...]:
     return tuple(d for d in dirs if CLANG_CUDA_WRAPPERS not in d)
 
 
+class CupyEnvironment(Protocol):
+    """The private scrape in ``cupy._environment`` (no type stubs) :func:`repair_hiprtc_include_path` replaces."""
+
+    _get_hipcc_include_dirs: Callable[[], Sequence[str]]
+
+
 def repair_hiprtc_include_path(cupy: types.ModuleType) -> None:
     """Drop clang's CUDA wrapper directory from the include list ``cupy`` hands HIPRTC.
 
@@ -1748,17 +1793,16 @@ def repair_hiprtc_include_path(cupy: types.ModuleType) -> None:
     if not cupy.cuda.runtime.is_hip:
         return  # a CUDA build has no hipcc list to repair
     # Deferred and private: this patches a cupy defect; the guard below catches a moved name.
-    environment = importlib.import_module("cupy._environment")
-    scrape: Callable[[], Sequence[str]] | None = vars(environment).get("_get_hipcc_include_dirs")
-    if scrape is None:
+    module = importlib.import_module("cupy._environment")
+    if not modules.defines(module, "_get_hipcc_include_dirs"):
         raise RuntimeError(
             "cupy does not expose _get_hipcc_include_dirs, so the cuda_wrappers workaround in "
             "repair_hiprtc_include_path cannot apply. Re-test whether it is needed (a device grade "
             "fails inside <initializer_list> when it is) before deleting it."
         )
-    kept = hiprtc_include_dirs(scrape())
-    # Assigning the module's __dict__ entry is the attribute assignment.
-    vars(environment)["_get_hipcc_include_dirs"] = lambda: kept
+    environment = cast("CupyEnvironment", module)
+    kept = hiprtc_include_dirs(environment._get_hipcc_include_dirs())
+    environment._get_hipcc_include_dirs = lambda: kept
 
 
 #: Attributes the real cupy has and a hand-rolled shim would not bother to fake.
@@ -1771,11 +1815,11 @@ def reject_impostor_device_module(module: types.ModuleType) -> None:
     The repo root is first on the judge's PYTHONPATH and agents can write there, so an agent could
     supply a fake cupy whose ``get_elapsed_time`` returns 0.0 and record impossible speedups. Checked
     by shape, not path, so editable or vendored installs still pass."""
-    missing = [name for name in DEVICE_MODULE_MARKERS if name not in vars(module)]
+    missing = [name for name in DEVICE_MODULE_MARKERS if not modules.defines(module, name)]
     if missing:
         raise RuntimeError(
             f"the imported 'cupy' is missing {missing} and is not the real library "
-            f"(loaded from {vars(module).get('__file__', '<unknown>')}); "
+            f"(loaded from {modules.optional(module, '__file__', str) or '<unknown>'}); "
             "a hand-written stub on PYTHONPATH fabricates device timings -- remove it"
         )
 
@@ -2079,9 +2123,9 @@ def _call_python(
     # Register the module before exec, so multiprocessing/joblib workers can unpickle its functions.
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    if func_name not in vars(module):
+    if not modules.defines(module, func_name):
         raise RuntimeError(f"python submission must define a function named {func_name!r}")
-    func = vars(module)[func_name]
+    func = modules.function(module, func_name)
 
     # Bind outputs through the same helper the NumPy reference uses.
     from hpcagent_bench.harness.grading import KernelResult, bind_kernel_outputs
@@ -2667,7 +2711,7 @@ def rep_check_server(
 ) -> RepCheckServer | None:
     """The server of a measurement checked rep by rep, or None to spill every rep (no ``checks``, or no
     anonymous shared file on this host)."""
-    if checks is None or not hasattr(os, "memfd_create"):
+    if checks is None:
         return None
     names = (
         py_meta[2] if lang == "python" and py_meta is not None else [a.name for a in binding.args if a.role == "output"]

@@ -78,7 +78,7 @@ def has_cue(value: ast.expr, form: HoistForm) -> bool:
             continue  # a None dict key
         if type(node) in kinds or (type(node) is ast.Attribute and node.attr in attrs):
             return True
-        for child in vars(node).values():
+        for _field, child in ast.iter_fields(node):
             if type(child) is list:
                 stack.extend(child)
             elif isinstance(child, ast.AST):
@@ -167,9 +167,7 @@ class ValueHoist:
 
     def descend(self, node: ast.AST) -> None:
         """Hoist in every statement list under a compound statement, handler and match-case bodies included."""
-        fields = vars(node)
-        for name in type(node)._fields:
-            children = fields.get(name)
+        for _field, children in ast.iter_fields(node):
             if type(children) is not list or not children:
                 continue
             if isinstance(children[0], ast.stmt):

@@ -7,6 +7,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Sequence
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, paths
 from hpcagent_bench.frameworks import Benchmark, Framework
 
@@ -51,4 +52,4 @@ class PythranFramework(Framework):
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        return [(vars(module)[bench.spec.func_name], "default")]
+        return [(modules.function(module, bench.spec.func_name), "default")]

@@ -21,6 +21,7 @@ import re
 import pytest
 import yaml
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages, paths, perf_reports
 from hpcagent_bench.harness import gpu_profiling, papi, profiling, service
 from hpcagent_bench.harness.prompts import load_skills, parse_skill
@@ -475,7 +476,7 @@ def test_each_device_skill_names_every_cause_its_compute_profiler_refuses_with(
     """A 503 an agent cannot name is an agent that reads a refusal as a measurement."""
     from hpcagent_bench.harness import compute_profiling
 
-    refusal = vars(compute_profiling)[refusals]
+    refusal = modules.member(compute_profiling, refusals)
     body = skill_bodies()[page]
     for cause in (refusal.denied, refusal.failed, refusal.missing, *own_causes):
         assert cause in gpu_profiling.CAUSES, f"{cause!r} is no longer a GPU profiler cause"

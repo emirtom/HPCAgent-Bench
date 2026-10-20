@@ -40,6 +40,7 @@ import tempfile
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages
 from hpcagent_bench.flags import Mode
 from tests.own_process import isolated
@@ -329,7 +330,7 @@ def call_probe(lib: pathlib.Path, symbol: str) -> int:
     timed grade.
     """
     handle = ctypes.CDLL(str(lib), mode=os.RTLD_NOW | os.RTLD_LOCAL)
-    fn = getattr(handle, symbol)
+    fn = handle[symbol]
     fn.restype = ctypes.c_int
     fn.argtypes = []
     return int(fn())
@@ -511,7 +512,7 @@ def test_autopar_delta_is_reachable_and_mode_gated(lang) -> None:
     _cname, block = languages._compiler_for_lang(languages._load_compilers(), lang)
     autopar_ref = block.autopar_ref
     assert autopar_ref, f"{lang}'s compiler block declares no autopar_ref"
-    delta = vars(flags)[autopar_ref].format(n=flags.ncores())
+    delta = modules.member(flags, autopar_ref).format(n=flags.ncores())
     first = delta.split()[0]
     assert first.split("=")[0] in languages._resolve_baseline(block, Mode.MULTI_CORE), (
         f"{lang} MULTI_CORE line is missing its autopar delta {first}"

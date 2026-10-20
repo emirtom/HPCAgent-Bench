@@ -29,6 +29,7 @@ from typing import Any
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench.numerical_oracle import ProbeRecord, ProbeVerdict, comparison_array, mismatch_detail, outputs_match
 
 __all__ = [
@@ -52,9 +53,11 @@ def program_of(module: Any, func_name: str, module_name: str) -> Any:
     its kernel program in ``__hpcagent_bench_program__``. A module with kept helpers holds several
     programs, which is what makes the sole-program fallback below unable to answer on its own.
     """
-    members = vars(module)
+    members = modules.members(module)
     prog = (
-        members.get(members.get("__hpcagent_bench_program__", "")) or members.get(func_name) or members.get(module_name)
+        members.get(modules.optional(module, "__hpcagent_bench_program__", str) or "")
+        or members.get(func_name)
+        or members.get(module_name)
     )
     if prog is not None:
         return prog
@@ -133,7 +136,7 @@ def main() -> int:
     call = {n: marshal(n, v, sdfg) for n, v in case["by"].items()}
     # An argument spelled like a sympy callable is renamed by the emitter (see dace_emit); the
     # compiled SDFG only answers to the new spelling, so the keywords are built under it.
-    renames = vars(module).get("__hpcagent_bench_renames__", {})
+    renames = modules.optional(module, "__hpcagent_bench_renames__", dict) or {}
     kwargs: dict[str, Any] = {}
     for name in case["input_args"]:
         if name in call:
@@ -172,7 +175,7 @@ def main() -> int:
     for name in sorted({str(s) for s in sdfg.free_symbols} - set(kwargs)):
         if name in case["syms"]:
             kwargs[name] = case["syms"][name]
-    recipes = vars(module).get("__hpcagent_bench_symbol_defs__", ())
+    recipes = modules.optional(module, "__hpcagent_bench_symbol_defs__", list) or []
     try:
         args = [renames.get(a, a) for a in case["input_args"]]
         bound_arrays = {renames.get(k, k): v for k, v in call.items()} if renames else call

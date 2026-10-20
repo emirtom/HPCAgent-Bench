@@ -3,7 +3,7 @@
 import ast
 from collections.abc import Sequence
 
-from hpcagent_bench.translators.numpyto_common.ast_build import name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import name_, set_field, store_
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR, SparseArrayDesc
 from hpcagent_bench.translators.numpyto_common.numpy_desugar import expr_rank, rank_table
 
@@ -154,11 +154,11 @@ class SparseMatmulRewriter(ast.NodeTransformer):
     def generic_visit(self, node: ast.AST) -> ast.AST:
         for field, value in ast.iter_fields(node):
             if isinstance(value, list) and any(isinstance(v, ast.stmt) for v in value):
-                setattr(node, field, self.block(value))
+                set_field(node, field, self.block(value))
             elif isinstance(value, list):
-                setattr(node, field, [self.visit(v) if isinstance(v, ast.AST) else v for v in value])
+                set_field(node, field, [self.visit(v) if isinstance(v, ast.AST) else v for v in value])
             elif isinstance(value, ast.AST):
-                setattr(node, field, self.visit(value))
+                set_field(node, field, self.visit(value))
         return node
 
     def visit_While(self, node: ast.While) -> ast.AST:

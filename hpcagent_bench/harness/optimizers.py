@@ -100,6 +100,18 @@ def have_openblas() -> bool:
         )
 
 
+#: The non-AI optimizers by name, filled by :func:`optimizer`.
+OPTIMIZERS: dict[str, type[Agent]] = {}
+
+
+def optimizer[A: Agent](cls: type[A]) -> type[A]:
+    """Register ``cls`` under its ``name``: ``hpcagent-bench agent <name>`` runs it like an LLM agent."""
+    if cls.name in OPTIMIZERS:
+        raise ValueError(f"optimizer {cls.name!r} is registered twice")
+    OPTIMIZERS[cls.name] = cls
+    return cls
+
+
 class LibraryOptimizer(Agent):
     """Base for optimizers that can also submit a prebuilt ``.so`` (ABI mode). The ``.so`` is built in a
     throwaway dir removed when the returned :class:`Submission` is collected (``weakref.finalize``);
@@ -165,6 +177,7 @@ class LibraryOptimizer(Agent):
         return self._library_submission(task, source)
 
 
+@optimizer
 class NoOpOptimizer(LibraryOptimizer):
     """Identity agent: submit the NumpyToX reference unchanged (it already satisfies the C-ABI contract)."""
 
@@ -177,6 +190,7 @@ class NoOpOptimizer(LibraryOptimizer):
         return self._deliver(task, source)
 
 
+@optimizer
 class NoOpMPIOptimizer(Agent):
     """Identity optimizer for the distributed (MPI) track: the shipped reference ``kernel_mpi``
     (abi_contract.md Sec. 12) with a default 1-D block distribution over the kernel's decomposed axis,
@@ -207,6 +221,7 @@ class NoOpMPIOptimizer(Agent):
         return Submission(language=task.language, source=reference_mpi_source(task), requests=requests)
 
 
+@optimizer
 class BlasReductionOptimizer(LibraryOptimizer):
     """Lower a reduction kernel to OpenBLAS: TSVC ``vdotr`` (``cblas_ddot``) and ``gesummv``
     (``cblas_dgemv``)."""
@@ -341,6 +356,7 @@ def ppcg_hip_sources(task: Task) -> tuple[str, str]:
     return host, device
 
 
+@optimizer
 class PlutoOptimizer(Agent):
     """The Pluto polyhedral compiler as an optimizer, submitting C. A kernel Pluto declines raises
     :class:`NotImplementedError` (no submission); source mode only."""
@@ -355,6 +371,7 @@ class PlutoOptimizer(Agent):
         return Submission(language="c", source=pluto_source(task))
 
 
+@optimizer
 class PpcgHipOptimizer(Agent):
     """The PPCG polyhedral compiler as an optimizer, submitting hipified HIP; declines
     (:class:`NotImplementedError`) where the ``ppcg_hip`` column does."""
@@ -430,15 +447,10 @@ def agent_class(factory: Callable[..., Agent]) -> type[Agent]:
 
 
 def optimizer_registry() -> dict[str, Callable[..., Agent]]:
-    """Name -> non-AI optimizer factory: every :class:`Agent` subclass defined in this module that declares its
-    own ``name``, and every autotuning framework flavor (``hpcagent_bench.columns``) bound to its adapter class. The
+    """Name -> non-AI optimizer factory: every :class:`Agent` subclass registered with :func:`optimizer`, and every autotuning framework flavor (``hpcagent_bench.columns``) bound to its adapter class. The
     harness runs each through the SAME procedure as an LLM agent (``hpcagent-bench agent <name>``), so a new
     optimizer is one class here or one flavor there."""
-    classes: dict[str, Callable[..., Agent]] = {
-        vars(cls)["name"]: cls
-        for cls in list(globals().values())
-        if isinstance(cls, type) and issubclass(cls, Agent) and cls.__module__ == __name__ and "name" in vars(cls)
-    }
+    classes: dict[str, Callable[..., Agent]] = dict(OPTIMIZERS)
     flavors: dict[str, Callable[..., Agent]] = {
         name: functools.partial(globals()[meta["adapter"].partition(":")[2]], name)
         for name, meta in FRAMEWORKS.entries.items()

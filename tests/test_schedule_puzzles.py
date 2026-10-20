@@ -16,6 +16,7 @@ from types import ModuleType
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, fuzz, sizing
 from hpcagent_bench.spec import BenchSpec
 
@@ -31,7 +32,7 @@ def module(kernel: str, suffix: str = "") -> ModuleType:
 
 
 def run(kernel: str, buffers: list[np.ndarray], *sizes: int) -> None:
-    vars(module(kernel, "numpy"))[kernel](*buffers, *sizes)
+    modules.member(module(kernel, "numpy"), kernel)(*buffers, *sizes)
 
 
 # the layout pair

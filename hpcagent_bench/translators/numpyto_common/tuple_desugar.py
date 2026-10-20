@@ -32,14 +32,19 @@ import functools
 from collections.abc import Sequence
 from typing import Any
 
-from hpcagent_bench.translators.numpyto_common.ast_build import SubstituteLoads, map_statement_lists, name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import (
+    SubstituteLoads,
+    map_statement_lists,
+    name_,
+    set_field,
+    store_,
+)
 from hpcagent_bench.translators.numpyto_common.numpy_desugar import expr_rank
 from hpcagent_bench.translators.numpyto_common.ordered import OrderedSet
 
 __all__ = [
     "CAST_KINDS",
     "EXACT_COMPARE",
-    "FOLDED_TUPLE",
     "INT_OPS",
     "KIND_TYPES",
     "NO_VALUE",
@@ -274,7 +279,7 @@ class TupleDesugar:
     """The forward interpreter. ``int_scalars`` / ``float_scalars`` / ``arrays`` are the kernel's
     declared parameters, which is what makes an ``isinstance`` guard on a knob decidable."""
 
-    __slots__ = ("aliases", "arrays", "captured", "float_scalars", "int_scalars", "ranks")
+    __slots__ = ("aliases", "arrays", "captured", "float_scalars", "int_scalars", "materialized", "ranks")
 
     def __init__(
         self,
@@ -293,6 +298,10 @@ class TupleDesugar:
         self.aliases = 0
         #: ``(alias, name)`` per capture, for :func:`collapse_capture_aliases` to fold back.
         self.captured: list[tuple[str, str]] = []
+        #: The tuples this run materialised from a binding, by id (the values keep the ids unique). Their
+        #: elements were folded when the binding was recorded and must not be folded again: ``p = (p,)``
+        #: binds ``p`` to a tuple whose element IS ``p``, so re-entering it would substitute forever.
+        self.materialized: dict[int, ast.Tuple] = {}
 
     # -- kinds ------------------------------------------------------------- #
     def kind(self, node: ast.AST, env: Env) -> str | None:
@@ -499,9 +508,9 @@ class TupleDesugar:
                 return element
         for field, value in ast.iter_fields(stmt):
             if isinstance(value, ast.expr):
-                setattr(stmt, field, self.fold(value, env))
+                set_field(stmt, field, self.fold(value, env))
             elif isinstance(value, list):
-                setattr(stmt, field, [self.fold(v, env) if isinstance(v, ast.expr) else v for v in value])
+                set_field(stmt, field, [self.fold(v, env) if isinstance(v, ast.expr) else v for v in value])
         env.invalidate(assigned_names(stmt))
         return [stmt]
 
@@ -646,12 +655,6 @@ class TupleDesugar:
         return [stmt]
 
 
-#: Marks a tuple this pass materialised from a binding. Its elements were folded when the binding
-#: was recorded and must not be folded again: ``p = (p,)`` binds ``p`` to a tuple whose element IS
-#: ``p``, so re-entering it would substitute forever and yield ``((p,),)``.
-FOLDED_TUPLE = "tuple_desugar_folded"
-
-
 class Folder(ast.NodeTransformer):
     """Bottom-up expression rewrite against one :class:`Env`."""
 
@@ -662,11 +665,17 @@ class Folder(ast.NodeTransformer):
         self.env = env
 
     def visit(self, node: ast.AST) -> ast.AST:
-        return node if vars(node).get(FOLDED_TUPLE) else super().visit(node)
+        return node if id(node) in self.interp.materialized else super().visit(node)
 
     def materialize(self, elts: Sequence[ast.expr], at: ast.expr) -> ast.Tuple:
-        out = ast.copy_location(ast.Tuple(elts=[copy.deepcopy(e) for e in elts], ctx=ast.Load()), at)
-        setattr(out, FOLDED_TUPLE, True)
+        memo: dict[int, object] = {}
+        out = ast.copy_location(ast.Tuple(elts=[copy.deepcopy(e, memo) for e in elts], ctx=ast.Load()), at)
+        materialized = self.interp.materialized
+        # A copy of a materialised tuple is one too (``q = (p, 1)`` after ``p = (p,)``).
+        materialized.update(
+            {id(twin): twin for source, twin in memo.items() if source in materialized and isinstance(twin, ast.Tuple)}
+        )
+        materialized[id(out)] = out
         return out
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
@@ -900,12 +909,6 @@ def desugar_tuples(
     ranks: dict[str, int] | None = None,
 ) -> None:
     """Fold every compile-time tuple out of ``fn`` in place (see the module docstring)."""
-    # The marker guards ONE run against re-entering a tuple that run just materialised. Left
-    # standing it also freezes that tuple's ELEMENTS against the next run, and this pass runs a
-    # second time once helper calls are spliced -- which is how a ``np.full`` shape kept an
-    # unfolded ``padding[0]`` while the statement beside it folded the same read away.
-    for node in ast.walk(fn):
-        vars(node).pop(FOLDED_TUPLE, None)
     interp = TupleDesugar(int_scalars, float_scalars, arrays, ranks)
     env = Env(bound=set(int_scalars) | set(float_scalars) | set(arrays))
     fn.body = interp.run(fn.body, env)

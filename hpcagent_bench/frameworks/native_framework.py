@@ -12,6 +12,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench import paths
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks.framework import ArgValue, BenchData, KernelImpl
@@ -59,7 +60,7 @@ class NativeFramework(Framework):
         ensure_native(bench.bname, NATIVE_FRAMEWORKS[self.fname])
         module_str = bench.impl_module("cpp")
         module = importlib.import_module(module_str)
-        impl: KernelImpl | None = vars(module).get(self.kernel_attr)
+        impl: KernelImpl | None = modules.optional_function(module, self.kernel_attr)
         if impl is None:
             raise AttributeError(
                 f"{module_str} is missing {self.kernel_attr}(). Make sure "

@@ -13,6 +13,8 @@ from types import ModuleType
 from typing import Any, TypeGuard
 
 import numpy as np
+
+from hpcagent_bench import modules
 from numpy.typing import NDArray
 
 __all__ = ["DEVICE_MODULE", "is_array", "module_of"]
@@ -26,8 +28,8 @@ def module_of(value: object) -> ModuleType | None:
     if isinstance(value, np.ndarray):
         return np
     device = sys.modules.get(DEVICE_MODULE)
-    # vars(): a test may stand a namespace without ``ndarray`` in for the device module.
-    device_array = vars(device).get("ndarray") if device is not None else None
+    # A test may stand a namespace without ``ndarray`` in for the device module.
+    device_array = modules.optional(device, "ndarray", type) if device is not None else None
     if isinstance(device_array, type) and isinstance(value, device_array):
         return device
     return None

@@ -31,6 +31,7 @@ from typing import Any
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.numerical_oracle import custom_initialize
 from hpcagent_bench.precision import Precision
@@ -72,7 +73,7 @@ def load_fn(path: pathlib.Path, func_name: str, tag: str):
     spec = importlib.util.spec_from_file_location(f"kern_{tag}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return vars(mod)[func_name]
+    return modules.function(mod, func_name)
 
 
 def baseline_copy(rel: pathlib.Path, rev: str, tmp: pathlib.Path) -> pathlib.Path:

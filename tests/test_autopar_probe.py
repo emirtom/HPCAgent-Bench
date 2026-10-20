@@ -11,6 +11,7 @@ import shutil
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages, osinfo
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -110,7 +111,7 @@ def test_every_gated_framework_names_a_real_probe() -> None:
     """:data:`native_runtime.AUTOPAR_GATED` maps to constant NAMES in :mod:`flags`, so a typo or a
     renamed probe is a KeyError at build time -- deep inside a timed job -- rather than here."""
     for framework, probe_name in native_runtime.AUTOPAR_GATED.items():
-        assert probe_name in vars(flags), f"{framework} names flags.{probe_name}, which does not exist"
+        assert modules.defines(flags, probe_name), f"{framework} names flags.{probe_name}, which does not exist"
 
 
 # <execution> / cpp_isopar

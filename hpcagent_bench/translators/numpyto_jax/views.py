@@ -257,12 +257,12 @@ def fold_block(block: list[ast.stmt], written: set[str], slice_names: set[str]) 
     while i < len(block):
         vd = view_def(block[i])
         if vd is None or vd.name not in written:
-            for field in STMT_BLOCKS:
-                inner = getattr(block[i], field, None)
-                if isinstance(inner, list):
+            for field, inner in ast.iter_fields(block[i]):
+                if field in STMT_BLOCKS and isinstance(inner, list):
                     fold_block(inner, written, slice_names)
-            for handler in getattr(block[i], "handlers", []) or []:
-                fold_block(handler.body, written, slice_names)
+            if isinstance(stmt := block[i], ast.Try | ast.TryStar):
+                for handler in stmt.handlers:
+                    fold_block(handler.body, written, slice_names)
             i += 1
             continue
         deps = {n.id for e in vd.entries for n in ast.walk(e) if isinstance(n, ast.Name)}

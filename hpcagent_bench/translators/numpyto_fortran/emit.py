@@ -9,7 +9,15 @@ from collections.abc import Callable, Collection, Sequence
 from typing import ClassVar, Optional
 
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import ALL_BLOCK_FIELDS, const_int, map_blocks, name_, store_
+from hpcagent_bench.translators.numpyto_common.ast_build import (
+    ALL_BLOCK_FIELDS,
+    const_int,
+    line_of,
+    map_blocks,
+    name_,
+    set_field,
+    store_,
+)
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -1655,12 +1663,10 @@ class FortranBodyEmitter(BaseEmitter):
             # Never reached: hoist_ifexp_stmts lowers every IfExp to an if/else-over-a-temp first.
             # merge(a, b, mask) evaluates BOTH branches, so it cannot stand in for a guard that
             # skips a division-by-zero / out-of-bounds branch.
-            raise NotImplementedError(
-                f"unhoisted IfExp reached emit (line {vars(node).get('lineno', '?')}): {ast.unparse(node)[:120]}"
-            )
+            raise NotImplementedError(f"unhoisted IfExp reached emit (line {line_of(node)}): {ast.unparse(node)[:120]}")
         # A bare z.real/z.imag never reaches emit: native_desugar rewrites it to
         # np.real(z)/np.imag(z) at parse time, handled by that canonical call form.
-        raise NotImplementedError(f"expression {type(node).__name__} (line {vars(node).get('lineno', '?')})")
+        raise NotImplementedError(f"expression {type(node).__name__} (line {line_of(node)})")
 
     def emit_constant(self, v: object) -> str:
         if isinstance(v, bool):
@@ -2864,9 +2870,9 @@ def hoist_ifexp_stmts(stmts: Sequence[ast.stmt], hoister: HoistIfExpVisitor) -> 
             continue
         for field, value in ast.iter_fields(stmt):
             if isinstance(value, ast.expr):
-                setattr(stmt, field, hoister.visit(value))
+                set_field(stmt, field, hoister.visit(value))
             elif isinstance(value, list) and value and isinstance(value[0], ast.expr):
-                setattr(stmt, field, [hoister.visit(v) for v in value])
+                set_field(stmt, field, [hoister.visit(v) for v in value])
         out.extend(hoister.pre)
         hoister.pre = []
         out.append(stmt)
@@ -3847,9 +3853,9 @@ def hoist_nested_helper_calls(
             # nested blocks handled above, out of their loop variable's scope.
             for field, value in ast.iter_fields(stmt):
                 if isinstance(value, ast.expr):
-                    setattr(stmt, field, hoister.visit(value))
+                    set_field(stmt, field, hoister.visit(value))
                 elif isinstance(value, list) and value and all(isinstance(v, ast.expr) for v in value):
-                    setattr(stmt, field, [hoister.visit(v) for v in value])
+                    set_field(stmt, field, [hoister.visit(v) for v in value])
         out.extend(hoister.pre_stmts)
         temps.update(hoister.temps)
         out.append(stmt)

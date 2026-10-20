@@ -617,7 +617,8 @@ def test_every_cause_the_compute_module_raises_is_a_documented_gpu_cause() -> No
         node.args[0].value
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and getattr(node.func, "id", None) == "GpuProfilerUnavailable"
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "GpuProfilerUnavailable"
         and node.args
         and isinstance(node.args[0], ast.Constant)
     }
@@ -639,7 +640,7 @@ def test_no_message_the_compute_module_returns_hands_the_agent_a_command() -> No
         compute_profiling.NVIDIA_REFUSALS.fix,
     ]
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "GpuProfilerUnavailable":
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "GpuProfilerUnavailable":
             outward += [
                 part.value
                 for arg in node.args

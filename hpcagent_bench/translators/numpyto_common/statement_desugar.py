@@ -101,8 +101,7 @@ STATEMENT_FIELDS = ("body", "handlers", "orelse", "finalbody", "cases")
 
 
 def statement_blocks(node: ast.AST) -> list[list[ast.stmt]]:
-    fields = vars(node)
-    return [block for name in STATEMENT_FIELDS if isinstance(block := fields.get(name), list)]
+    return [block for name, block in ast.iter_fields(node) if name in STATEMENT_FIELDS and isinstance(block, list)]
 
 
 class StatementTransformer(ast.NodeTransformer):
@@ -268,10 +267,8 @@ class SplitChainedAssign(StatementTransformer):
         self.scope, self.ranks = outer_scope, outer_ranks
 
     def generic_visit(self, node: ast.AST) -> ast.AST:
-        fields = vars(node)
-        for name in STATEMENT_LISTS:
-            block = fields.get(name)
-            if isinstance(block, list):
+        for name, block in ast.iter_fields(node):
+            if name in STATEMENT_LISTS and isinstance(block, list):
                 self.split_block(block, node is self.scope)
         return super().generic_visit(node)
 

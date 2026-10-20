@@ -108,5 +108,5 @@ def test_c_lowering_matches_numpy_at_s(name: str, tmp_path: pathlib.Path) -> Non
             cargs.append(v.ctypes.data_as(ctypes.c_void_p))
     timing = np.zeros(1, dtype=np.int64)
     cargs.append(timing.ctypes.data_as(ctypes.c_void_p))
-    getattr(ctypes.CDLL(str(lib_path)), binding["symbols"]["c"])(*cargs)
+    ctypes.CDLL(str(lib_path))[binding["symbols"]["c"]](*cargs)
     np.testing.assert_allclose(x_c, x_ref, rtol=1e-9, atol=1e-10)

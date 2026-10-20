@@ -216,7 +216,8 @@ def test_compute_tries_its_largest_blocks_first() -> None:
     product = next(
         n
         for n in ast.walk(function)
-        if is_call(n, "product") or (isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "product")
+        if is_call(n, "product")
+        or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "product")
     )
     blocks = [element.value for element in product.args[0].elts]
     assert blocks == sorted(blocks, reverse=True)

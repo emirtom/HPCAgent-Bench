@@ -245,10 +245,7 @@ def task_dir_name(task_id: str) -> str:
 
 def images_for(hardware: str) -> tuple[str, str]:
     """``(agent_image, verifier_image)`` of config ``images.<hardware>``; KeyError if unknown."""
-    images = config.current().images
-    if hardware not in type(images).model_fields:
-        raise KeyError(f"unknown hardware target {hardware!r}; configured: {list(type(images).model_fields)}")
-    pair = getattr(images, hardware)
+    pair = config.current().images.pair(hardware)
     return pair.agent, pair.verifier
 
 

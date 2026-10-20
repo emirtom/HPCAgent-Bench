@@ -83,6 +83,7 @@ __all__ = [
     "run_draw",
     "submission_fault",
     "time_kernel",
+    "torch_dtype",
 ]
 
 #: ctypes type of a scalar argument, by its declared dtype.
@@ -100,6 +101,21 @@ TORCH_DTYPES: Mapping[str, str] = {
     "float32": "float32",
     "float64": "float64",
 }
+
+
+def torch_dtype(torch: ModuleType, datatype: str) -> "torch.dtype":
+    """The torch dtype of run datatype ``datatype`` (:data:`TORCH_DTYPES`)."""
+    match TORCH_DTYPES[datatype]:
+        case "bfloat16":
+            return torch.bfloat16
+        case "float16":
+            return torch.float16
+        case "float32":
+            return torch.float32
+        case "float64":
+            return torch.float64
+    raise KeyError(datatype)
+
 
 #: The python-delivery entry point, as the mpi4py driver names it.
 PY_KERNEL = "kernel_mpi"
@@ -328,7 +344,7 @@ def rank_tensors(
     for name, tensor in tensors.items():
         if name in shapes and list(tensor.shape) != list(shapes[name]):
             raise ValueError(f"{name}: make_inputs shard {list(tensor.shape)} != distribution tile {shapes[name]}")
-    dtype = getattr(torch, TORCH_DTYPES[str(plan["datatype"])])
+    dtype = torch_dtype(torch, str(plan["datatype"]))
     for name in plan["outputs"]:
         tensors[name] = torch.zeros(shapes[name], dtype=dtype, device=device)
     return tensors

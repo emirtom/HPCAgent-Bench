@@ -41,6 +41,7 @@ import numpy as np
 import pydantic
 import yaml
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, paths
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.spec import BenchSpec
@@ -98,6 +99,7 @@ __all__ = [
     "shape_of",
     "submodule_root",
     "to_torch",
+    "torch_named",
     "torch_dtype",
     "unstacked",
     "upstream_init_values",
@@ -208,7 +210,7 @@ def upstream_module(upstream: str) -> ModuleType:
 
 def model_class(module: ModuleType) -> type:
     """The upstream ``Model`` class."""
-    cls = vars(module).get(MODEL_CLASS)
+    cls = modules.optional(module, MODEL_CLASS, type)
     if not isinstance(cls, type):
         raise TorchBaselineUnavailable(f"{module.__name__}: defines no {MODEL_CLASS} class")
     return cls
@@ -227,7 +229,7 @@ def init_parameter_names(cls: type) -> tuple[str, ...]:
 def upstream_init_values(module: ModuleType, cls: type) -> dict[str, Any]:
     """What the upstream file passes to ``Model(...)``: ``get_init_inputs`` zipped with the constructor's
     parameter names. Used only where the manifest is silent (structural arguments such as ``layers``)."""
-    getter = vars(module).get(INIT_INPUTS_FUNC)
+    getter = modules.optional_function(module, INIT_INPUTS_FUNC)
     if not callable(getter):
         return {}
     try:
@@ -665,24 +667,35 @@ def floating(value: object) -> bool:
     return isinstance(value, np.ndarray) and (value.dtype.kind == "f" or value.dtype.name in TORCH_STORAGE_DTYPES)
 
 
+def torch_named(torch_mod: ModuleType, name: str) -> "torch.dtype":
+    """The torch dtype a storage-only format is held in (:data:`TORCH_STORAGE_DTYPES`) or viewed as
+    (:data:`INT_VIEW_BY_ITEMSIZE`)."""
+    match name:
+        case "bfloat16":
+            return torch_mod.bfloat16
+        case "int16":
+            return torch_mod.int16
+    raise KeyError(f"no torch dtype for storage format {name!r}")
+
+
 def to_torch(torch_mod: ModuleType, array: np.ndarray) -> "torch.Tensor":
     """A host tensor over ``array``'s memory (no copy), a storage-only float reinterpreted from its bytes."""
     torch_name = TORCH_STORAGE_DTYPES.get(array.dtype.name)
     if torch_name is None:
         return torch_mod.from_numpy(array)
     as_int = torch_mod.from_numpy(array.view(INT_VIEW_BY_ITEMSIZE[array.dtype.itemsize]))
-    return as_int.view(vars(torch_mod)[torch_name])
+    return as_int.view(torch_named(torch_mod, torch_name))
 
 
 def from_torch(torch_mod: ModuleType, tensor: "torch.Tensor") -> np.ndarray:
     """A tensor as a host numpy array, a storage-only float back in its ``ml_dtypes`` dtype."""
     host = tensor.detach().cpu()
-    storage = {vars(torch_mod)[torch_name]: name for name, torch_name in TORCH_STORAGE_DTYPES.items()}
+    storage = {torch_named(torch_mod, torch_name): name for name, torch_name in TORCH_STORAGE_DTYPES.items()}
     name = storage.get(host.dtype)
     if name is None:
         return host.numpy()
     int_view = np.dtype(INT_VIEW_BY_ITEMSIZE[host.element_size()])
-    return host.view(vars(torch_mod)[int_view.name]).numpy().view(np.dtype(name))
+    return host.view(torch_named(torch_mod, int_view.name)).numpy().view(np.dtype(name))
 
 
 def torch_dtype(torch_mod: ModuleType, data: Mapping[str, Any], spec: BenchSpec) -> "torch.dtype":

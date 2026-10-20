@@ -20,7 +20,10 @@ import importlib.util
 import io
 import re
 import tokenize
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import tree_sitter
 
 __all__ = [
     "ATTRIBUTION_RE",
@@ -38,13 +41,7 @@ __all__ = [
     "strip_python_tokenize",
     "strip_with_tree_sitter",
     "tree_sitter_available",
-    "ts_attr",
-    "ts_children",
     "ts_get_parser",
-    "ts_parse",
-    "ts_root",
-    "ts_span",
-    "ts_type",
 ]
 
 
@@ -64,53 +61,10 @@ def tree_sitter_available() -> bool:
     return importlib.util.find_spec("tree_sitter_language_pack") is not None
 
 
-# tree-sitter API adapter
-# We support whichever tree-sitter the grammar bundle ships. The bundled binding
-# in tree-sitter-language-pack 1.x differs from the official ``tree-sitter`` PyPI
-# wheel: ``Node.kind`` instead of ``Node.type``, ``Tree.root_node`` is a method,
-# children are reached via ``child(i)``/``child_count`` (no ``.children`` list),
-# and ``Parser.parse`` takes ``str``. These helpers normalize both shapes; byte
-# offsets are utf-8 byte indices in every variant, so span math is unaffected.
-def ts_attr(obj: object, name: str) -> Any:  # the bindings' node objects are untyped C extensions
-    """Read ``obj.name`` whether the binding exposes it as a property or a
-    nullary method (the two tree-sitter bindings disagree on which).
-
-    Keep the getattr: these are C-extension objects with no ``__dict__``, so ``vars(obj)`` raises."""
-    v = getattr(obj, name, None)
-    return v() if callable(v) else v
-
-
-def ts_get_parser(grammar: str) -> Any:
+def ts_get_parser(grammar: str) -> "tree_sitter.Parser":
     from tree_sitter_language_pack import get_parser
 
     return get_parser(grammar)
-
-
-def ts_parse(parser: Any, src: str) -> Any:
-    try:
-        return parser.parse(src)  # language-pack: str
-    except TypeError:
-        return parser.parse(src.encode("utf-8"))  # official: bytes
-
-
-def ts_root(tree: Any) -> Any:
-    return ts_attr(tree, "root_node")
-
-
-def ts_type(node: Any) -> str:
-    t = ts_attr(node, "type")  # official binding
-    return t if isinstance(t, str) else str(ts_attr(node, "kind"))  # language-pack
-
-
-def ts_span(node: Any) -> tuple[int, int]:
-    return ts_attr(node, "start_byte"), ts_attr(node, "end_byte")
-
-
-def ts_children(node: Any) -> list[Any]:
-    ch = ts_attr(node, "children")  # official: list property
-    if ch is not None:
-        return ch
-    return [node.child(i) for i in range(ts_attr(node, "child_count"))]
 
 
 # Map our language keys onto tree-sitter grammar names.
@@ -129,18 +83,18 @@ def strip_with_tree_sitter(src: str, lang: str) -> str:
     span (preserving newlines so line numbers / layout are stable)."""
     parser = ts_get_parser(TS_GRAMMAR[lang])
     data = src.encode("utf-8")
-    tree = ts_parse(parser, src)
+    tree = parser.parse(data)
 
-    spans: list[tuple] = []
+    spans: list[tuple[int, int]] = []
 
-    def walk(node: Any) -> None:
-        if "comment" in ts_type(node):
-            spans.append(ts_span(node))
+    def walk(node: "tree_sitter.Node") -> None:
+        if "comment" in node.type:
+            spans.append((node.start_byte, node.end_byte))
             return
-        for child in ts_children(node):
+        for child in node.children:
             walk(child)
 
-    walk(ts_root(tree))
+    walk(tree.root_node)
 
     if not spans:
         return src

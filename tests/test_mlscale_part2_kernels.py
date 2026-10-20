@@ -26,6 +26,7 @@ torch = pytest.importorskip("torch")
 dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 
+from hpcagent_bench import modules
 from hpcagent_bench import sizing
 from hpcagent_bench.fuzz import FuzzValue, safe_eval
 from hpcagent_bench.harness import mpi_sizing, torch_reference
@@ -241,7 +242,7 @@ def test_initialize_hands_the_harness_the_torch_inputs_and_numpy_agrees(stem: st
         assert np.array_equal(got, want.float().numpy() if want.is_floating_point() else want.numpy())
     data = dict(zip(init_of(spec).output_args, arrays, strict=True)) | params | dict(init_of(spec).scalars)
     numpy_ref = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}_numpy")
-    kernel = getattr(numpy_ref, spec.func_name)
+    kernel = modules.member(numpy_ref, spec.func_name)
     kernel(*[data[a] for a in inspect.signature(kernel).parameters])
     torch_in = [torch.from_numpy(np.asarray(a)) for a in arrays[: len(inputs)]]
     (want,) = torch_module(stem).reference(*torch_in)
@@ -255,7 +256,7 @@ def test_the_torch_constants_are_the_manifest_scalars(stem: str) -> None:
     the submission from ``init.scalars`` and the torch references from a module constant: equal."""
     module = torch_module(stem)
     for name, value in init_of(spec_of(stem)).scalars.items():
-        assert getattr(module, name.upper()) == value, (name, value)
+        assert modules.member(module, name.upper()) == value, (name, value)
 
 
 def test_moe_router_top1_is_planted_and_the_capacity_drops_tokens() -> None:

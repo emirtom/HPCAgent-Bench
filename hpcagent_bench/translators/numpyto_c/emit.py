@@ -13,7 +13,7 @@ from typing import NamedTuple, TypeGuard
 from hpcagent_bench.cache_files import write_atomic
 from hpcagent_bench.translators.numpyto_c.pluto_predicate import if_convert
 from hpcagent_bench.translators.numpyto_common import dtypes, operators, parallelism
-from hpcagent_bench.translators.numpyto_common.ast_build import const_int, name_
+from hpcagent_bench.translators.numpyto_common.ast_build import const_int, line_of, name_
 from hpcagent_bench.translators.numpyto_common.emit_helpers import fftw
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import (
     CONJ_ATTRS,
@@ -1452,9 +1452,7 @@ class CBodyEmitter(BaseEmitter):
         if isinstance(node, ast.IfExp):
             return f"({self.emit_expr(node.test)} ? {self.emit_expr(node.body)} : {self.emit_expr(node.orelse)})"
         # A bare z.real/z.imag never reaches emit: native_desugar rewrites it to np.real(z)/np.imag(z) at parse time.
-        raise NotImplementedError(
-            f"expression {type(node).__name__} (line {vars(node).get('lineno', '?')}): {ast.unparse(node)[:120]}"
-        )
+        raise NotImplementedError(f"expression {type(node).__name__} (line {line_of(node)}): {ast.unparse(node)[:120]}")
 
     def emit_compare_operand(self, node: ast.expr) -> str:
         """A comparison operand; in a narrow kernel a float constant expression is folded and compared in double, as

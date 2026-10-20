@@ -10,6 +10,7 @@ from unittest import mock
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, flags, languages
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import grading, sandbox, scoring
@@ -312,7 +313,9 @@ def test_gcc_has_no_offload_path_left() -> None:
     assert "gcc" not in languages.OFFLOAD_FAMILY.values()
     drivers = set(languages.OFFLOAD_BUILD_DRIVER.values())
     assert not drivers & {"gcc", "g++", "gfortran"}, f"a gcc driver is wired as an offload leg: {drivers}"
-    leftovers = [name for name in vars(flags) if "GCC" in name and ("OMP_TARGET" in name or "OPENACC" in name)]
+    leftovers = [
+        name for name in modules.members(flags) if "GCC" in name and ("OMP_TARGET" in name or "OPENACC" in name)
+    ]
     assert not leftovers, f"gcc offload flag sets still present: {leftovers}"
 
 
@@ -350,7 +353,7 @@ def test_the_amd_offload_driver_is_found_in_rocm_not_on_path(tmp_path) -> None:
 def test_no_offload_arch_is_a_constant() -> None:
     """The arch comes from the probe or from nowhere. ``OFFLOAD_ARCH_NVIDIA = 'sm_90'`` was already
     wrong for an sm_89 host, which is what a hardcoded ceiling always becomes."""
-    hardcoded = [name for name in vars(flags) if name.startswith("OFFLOAD_ARCH")]
+    hardcoded = [name for name in modules.members(flags) if name.startswith("OFFLOAD_ARCH")]
     assert not hardcoded, f"offload arch constants survive: {hardcoded}"
 
 
@@ -360,7 +363,7 @@ def test_the_nvidia_ladder_descends_and_amd_has_none() -> None:
     caps = [int(entry.removeprefix("sm_")) for entry in flags.SM_LADDER]
     assert caps == sorted(caps, reverse=True), f"SM_LADDER is not descending: {flags.SM_LADDER}"
     assert len(set(caps)) == len(caps)
-    assert not [name for name in vars(flags) if "GFX" in name and "LADDER" in name]
+    assert not [name for name in modules.members(flags) if "GFX" in name and "LADDER" in name]
 
 
 def test_the_nvidia_probe_clamps_down_to_what_the_compiler_takes(monkeypatch) -> None:
@@ -611,7 +614,7 @@ _VALUE_CHANGING = [
 @pytest.mark.parametrize("forbidden", _VALUE_CHANGING)
 @pytest.mark.parametrize("name", _GRADED_BASELINES)
 def test_no_baseline_carries_a_value_changing_flag(name, forbidden) -> None:
-    assert forbidden not in getattr(flags, name)
+    assert forbidden not in modules.member(flags, name, str)
 
 
 @pytest.fixture(name="licensed_flags")
@@ -679,7 +682,7 @@ def test_every_graded_baseline_carries_the_licence_when_it_is_on(name, licensed_
     with nothing in the flag list saying so -- a handicap on the C-vs-Fortran comparison that no
     amount of agent effort could show through.
     """
-    assert "-fassociative-math" in vars(licensed_flags)[name]
+    assert "-fassociative-math" in modules.member(licensed_flags, name, str)
 
 
 def test_the_flang_baseline_spells_nsz_beside_reassociation(licensed_flags) -> None:
@@ -700,7 +703,7 @@ def test_every_baseline_relaxes_the_same_way_on_host_and_device() -> None:
     relax = set(flags._FP_RELAX.split())
     assert relax, "the relax set is the thing being compared; an empty one makes this vacuous"
     for name in _GRADED_BASELINES:
-        present = {tok for tok in getattr(flags, name).replace("'", " ").split() if tok.startswith("-fno-")}
+        present = {tok for tok in modules.members(flags)[name].replace("'", " ").split() if tok.startswith("-fno-")}
         assert present == relax, f"{name} relaxes {sorted(present)}, the CPU baselines relax {sorted(relax)}"
 
 
@@ -831,4 +834,4 @@ def test_an_offload_setup_does_not_require_a_device_kernel() -> None:
     has decided not to, a host answer cannot out-run a device one, and the speed says the rest. The
     build path carries no gate that turns it into a build failure (one cost 92 of 130 build attempts
     across the four offload setups and measured nothing in their place)."""
-    assert not hasattr(sandbox, "offload_gate")
+    assert not modules.defines(sandbox, "offload_gate")

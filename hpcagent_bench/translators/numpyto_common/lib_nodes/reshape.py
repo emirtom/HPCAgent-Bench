@@ -218,7 +218,7 @@ def reshape_order(kwargs: list[ast.keyword] | None) -> str:
     other in the SAME order, so both the target flat index and the source multi-index use it."""
     order = "C"
     for kw in kwargs or []:
-        if vars(kw).get("arg") == "order" and isinstance(kw.value, ast.Constant):
+        if kw.arg == "order" and isinstance(kw.value, ast.Constant):
             order = str(kw.value.value).upper()
     return order
 

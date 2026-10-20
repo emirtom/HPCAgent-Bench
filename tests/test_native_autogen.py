@@ -13,6 +13,7 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages, paths
 from hpcagent_bench.spec import BenchSpec
 
@@ -170,7 +171,7 @@ def test_wrap_kernel_matches_numpy(framework, dtype, fptype) -> None:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[sm.name] = mod
     sm.loader.exec_module(mod)
-    ref = vars(mod)[spec.func_name]
+    ref = modules.member(mod, spec.func_name)
 
     with tempfile.TemporaryDirectory() as d:
         cpp = pathlib.Path(d) / "cpp_backend"
@@ -221,7 +222,7 @@ def test_sparse_layout_is_a_subbenchmark(framework, dtype, fptype) -> None:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[sm.name] = mod
     sm.loader.exec_module(mod)
-    ref = vars(mod)[spec.func_name]
+    ref = modules.member(mod, spec.func_name)
 
     ensure_native("spmv")
     cpp = paths.BENCHMARKS / spec.relative_path / "cpp_backend"

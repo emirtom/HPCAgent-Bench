@@ -377,9 +377,8 @@ def anthropic_usage(usage: object) -> TokenUsage:
     -- while :class:`~hpcagent_bench.harness.usage.TokenUsage` and the OpenAI-shaped parsers below
     carry the WHOLE prompt with its cached parts named inside it. So the three are summed here.
     """
-    # The SDK response object carries the counters as instance attributes and ships no types the
-    # harness can name, so its __dict__ is the boundary a field read converts from.
-    fields = json_object(vars(usage))
+    # The SDK's ``Usage`` is a pydantic model; a dict (a recorded event) reads as it is.
+    fields = json_object(usage.model_dump() if isinstance(usage, pydantic.BaseModel) else usage)
     uncached = json_count(fields, "input_tokens")
     cached = json_count(fields, "cache_read_input_tokens")
     created = json_count(fields, "cache_creation_input_tokens")

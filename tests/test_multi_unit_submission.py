@@ -16,6 +16,7 @@ built WITHOUT its second unit, which still links and still has the helper undefi
 """
 
 import ctypes
+import os
 import shutil
 import subprocess
 
@@ -158,7 +159,7 @@ def test_dropping_the_second_unit_still_links_and_that_is_the_defect(lang, tmp_p
         f"lost its subject -- check whether the link line grew --no-undefined:\n{log}"
     )
     with pytest.raises(OSError):
-        ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL | getattr(ctypes, "RTLD_NOW", 2))
+        ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL | os.RTLD_NOW)
 
 
 # the shape this stands in for

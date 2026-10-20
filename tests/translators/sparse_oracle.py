@@ -38,6 +38,7 @@ from typing import Any
 import numpy as np
 import scipy.sparse as sp
 
+from hpcagent_bench import modules
 from hpcagent_bench import languages, paths
 from hpcagent_bench.translators.numpyto_common.dtypes import SCALAR_KINDS, ctype_for_scalar_kind
 from hpcagent_bench.emit_bridge import InitDocument
@@ -274,7 +275,7 @@ def load_numpy_fn(numpy_py: pathlib.Path, func_name: str) -> Callable:
     # sys.modules[cls.__module__], which is None for a module loaded by path alone.
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
-    return vars(mod)[func_name]
+    return modules.member(mod, func_name)
 
 
 def emit_c_(short: str, numpy_py: pathlib.Path, out: pathlib.Path, config_name: str | None = None) -> None:
@@ -698,7 +699,7 @@ def run_dace(
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = mod
         spec.loader.exec_module(mod)
-        prog = vars(mod)[info["func_name"]]
+        prog = modules.member(mod, info["func_name"])
         sdfg = prog.to_sdfg(simplify=True)
         # Isolate the build under this run's own temp dir. dace's default build
         # folder is ``.dacecache/<sdfg.name>`` relative to CWD, shared across xdist
@@ -732,7 +733,7 @@ def run_dace(
     # A promoted workspace dimension (gmres ``n = N``, ``m = min(max_iter, n)``) is a dace
     # symbol the emitter cannot pass as an argument -- the caller binds it by evaluating
     # the recorded closed-form recipe, in dependency order, over the already-known values.
-    for name, expr in vars(mod).get("__hpcagent_bench_symbol_defs__", []):
+    for name, expr in modules.optional(mod, "__hpcagent_bench_symbol_defs__", list) or []:
         sym_vals[name] = int(evaluate(expr, {"__builtins__": {}, "min": min, "max": max, **sym_vals}))
     syms = {s: int(sym_vals[s]) for s in free_syms if s in sym_vals}
     try:

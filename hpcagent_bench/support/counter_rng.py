@@ -165,7 +165,7 @@ def accelerator(xp: ModuleType) -> ModuleType | None:
         except ImportError:
             return None
         return counter_rng_numba
-    if getattr(xp, "__name__", "") == "cupy":
+    if xp.__name__ == "cupy":
         from hpcagent_bench.support import counter_rng_cupy
 
         return counter_rng_cupy

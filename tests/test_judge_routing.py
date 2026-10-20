@@ -65,8 +65,8 @@ class Recorder:
         self.lock = threading.Lock()
 
     def __call__(self, req, timeout=None):
-        url = req.full_url if hasattr(req, "full_url") else req
-        body = json.loads(req.data) if getattr(req, "data", None) else None
+        url = req.full_url if isinstance(req, urllib.request.Request) else req
+        body = json.loads(req.data) if isinstance(req, urllib.request.Request) and req.data else None
         with self.lock:
             self.calls.append((url, body))
         if any(bad in url for bad in self.fail_for):

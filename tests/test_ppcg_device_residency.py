@@ -266,10 +266,11 @@ def test_a_passthrough_is_published_and_declined_not_crashed_on(
 
 
 class FakeCupyArray:
-    """Duck-types ``cupy.ndarray`` down to the two attributes ``_is_device_array``/``_to_ctypes``
-    read (``dtype`` and ``data.ptr``): a distinct type from ``np.ndarray``, with no
-    ``__array_interface__``, and a ``.data.ptr`` integer address -- backed by a real numpy buffer
+    """Stands in for ``cupy.ndarray``: a type of the ``cupy`` package (what ``_is_device_array`` reads) with
+    the ``dtype`` and ``.data.ptr`` integer address ``_to_ctypes`` reads -- backed by a real numpy buffer
     so the "device" pointer is dereferenceable and the round trip through ctypes is checkable."""
+
+    __module__ = "cupy._core.core"
 
     def __init__(self, host: np.ndarray) -> None:
         self._host = host

@@ -29,6 +29,7 @@ import tempfile
 import time
 import traceback
 
+from hpcagent_bench import modules
 from hpcagent_bench import paths
 
 REPO = paths.ROOT
@@ -71,7 +72,7 @@ def parse_path(path: pathlib.Path) -> dict:
     try:
         rec["file"] = str(path.relative_to(REPO))
         module = importlib.import_module(".".join(path.relative_to(REPO).with_suffix("").parts))
-        members = vars(module)
+        members = modules.members(module)
         # The generator names its kernel program: the stem does not (tsvc_2_s000 -> s000, gemm ->
         # kernel), and a module with kept helpers holds several programs, so neither the stem nor
         # "the sole program" finds it.

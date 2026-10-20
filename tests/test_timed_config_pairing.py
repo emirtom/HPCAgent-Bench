@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, fuzz
 from hpcagent_bench.harness import metric
 
@@ -69,8 +70,8 @@ def test_snap_to_class_takes_the_nearest_member_or_none() -> None:
 
 
 def test_no_edge_probe_code_remains() -> None:
-    assert not hasattr(fuzz, "edge_shapes")
-    assert not hasattr(fuzz, "EDGE_VALUES")
+    assert not modules.defines(fuzz, "edge_shapes")
+    assert not modules.defines(fuzz, "EDGE_VALUES")
     package = Path(fuzz.__file__).parent
     assert not [p for p in package.rglob("*.py") if "edge_shapes" in p.read_text(encoding="utf-8")]
 

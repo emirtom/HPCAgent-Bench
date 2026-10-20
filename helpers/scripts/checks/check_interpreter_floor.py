@@ -161,7 +161,8 @@ def scope_faults(body: list[ast.stmt], bound: set[str], starred: bool, aliases: 
     faults: list[str] = []
     for stmt in body:
         # PEP 695: a generic def/class binds its type parameters for its own annotations and body
-        params = {param.name for param in getattr(stmt, "type_params", ())}
+        generic = isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        params = {param.name for param in stmt.type_params} if generic else set()
         for annotation in annotations_of(stmt):
             faults.extend(annotation_faults(annotation, bound | params, starred, aliases))
         if isinstance(stmt, ast.ClassDef):

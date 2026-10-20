@@ -162,6 +162,17 @@ class Denominator(Section):
     #: The ML track has no numba or C reference (:data:`hpcagent_bench.autogen.NO_NUMBA_TRACKS`).
     machine_learning: Literal["torch-autotune"]
 
+    def of(self, track: str | None) -> str | None:
+        """The denominator of ``track``; None for a track this block does not configure."""
+        match track:
+            case "loop_level_reasoning":
+                return self.loop_level_reasoning
+            case "scientific_computing":
+                return self.scientific_computing
+            case "machine_learning":
+                return self.machine_learning
+        return None
+
 
 class Quiescence(Section):
     """``measurement.quiescence``: GPU suspect gates; a trip credits 1.0 and sets ``suspect``; inert on a host grade."""
@@ -291,41 +302,34 @@ class Attempts(Section):
     token_budget_override: PositiveInt | None
 
 
-class CpuImages(Section):
-    """``images.cpu``: agent (toolchain only) and verifier (full harness) OCI references."""
-
-    agent: str
-    verifier: str
-
-
-class AmdImages(Section):
-    """``images.amd``: agent and verifier OCI references."""
-
-    agent: str
-    verifier: str
-
-
-class NvidiaImages(Section):
-    """``images.nvidia``: agent and verifier OCI references."""
-
-    agent: str
-    verifier: str
-
-
-class MpiImages(Section):
-    """``images.mpi``: the distributed (multi-node MPI) track's agent and verifier OCI references."""
+class ImagePair(Section):
+    """``images.<target>``: the agent (toolchain only) and verifier (full harness) OCI references."""
 
     agent: str
     verifier: str
 
 
 class Images(Section):
-    """``images``: container images per hardware target (harbor.images_for)."""
+    """``images``: container images per hardware target (harbor.images_for). ``mpi`` is the distributed
+    (multi-node MPI) track's."""
 
-    cpu: CpuImages
-    amd: AmdImages
-    nvidia: NvidiaImages
-    mpi: MpiImages
+    cpu: ImagePair
+    amd: ImagePair
+    nvidia: ImagePair
+    mpi: ImagePair
+
+    def pair(self, target: str) -> ImagePair:
+        """The images of ``target``; KeyError for a target this block does not configure."""
+        match target:
+            case "cpu":
+                return self.cpu
+            case "amd":
+                return self.amd
+            case "nvidia":
+                return self.nvidia
+            case "mpi":
+                return self.mpi
+        raise KeyError(f"unknown hardware target {target!r}; configured: {list(type(self).model_fields)}")
 
 
 class Grading(Section):
@@ -449,6 +453,17 @@ class BuildCompiler(Section):
     cpp: str | None
     fortran: str | None
 
+    def pin(self, lang: str) -> str | None:
+        """The family ``lang`` is pinned to; None when unset or when ``lang`` has no pin."""
+        match lang:
+            case "c":
+                return self.c
+            case "cpp":
+                return self.cpp
+            case "fortran":
+                return self.fortran
+        return None
+
 
 class Build(Section):
     """``build``: native builds (languages.py)."""
@@ -486,6 +501,25 @@ class Oracle(Section):
     polycc_timeout_s: Seconds
     numba_fastmath: bool
     overrides: dict[str, OracleOverride]
+
+    def override(self, short: str) -> OracleOverride:
+        """Kernel ``short``'s entry of :attr:`overrides`; an entry that sets nothing when it has none."""
+        return self.overrides.get(short) or OracleOverride()
+
+    def compile_timeout(self, short: str = "") -> float:
+        """``compile_timeout_s``, or kernel ``short``'s override of it."""
+        value = self.override(short).compile_timeout_s
+        return self.compile_timeout_s if value is None else value
+
+    def polycc_timeout(self, short: str = "") -> float:
+        """``polycc_timeout_s``, or kernel ``short``'s override of it."""
+        value = self.override(short).polycc_timeout_s
+        return self.polycc_timeout_s if value is None else value
+
+    def fastmath(self, short: str = "") -> bool:
+        """``numba_fastmath``, or kernel ``short``'s override of it."""
+        value = self.override(short).numba_fastmath
+        return self.numba_fastmath if value is None else value
 
 
 class RequestCapability(enum.Enum):
@@ -876,12 +910,12 @@ def get(dotted: str) -> object:
     """The value of key ``dotted`` in :func:`current`; a block key returns the block as a dict.
 
     Raises ``KeyError`` for an unknown key. Typed attribute access (``current().a.b``) is preferred."""
-    node: object = current()
+    node: object = current().model_dump()
     for part in dotted.split("."):
-        if not isinstance(node, BaseModel) or part not in type(node).model_fields:
+        if not isinstance(node, dict) or part not in node:
             raise KeyError(f"unknown config key {dotted!r}")
-        node = getattr(node, part)
-    return node.model_dump() if isinstance(node, BaseModel) else node
+        node = node[part]
+    return node
 
 
 def default_value(dotted: str) -> object:

@@ -167,7 +167,7 @@ def call_abi_entry(library: ctypes.CDLL, data: dict[str, np.ndarray | int | floa
     Argument list and types are derived from the binding rather than hand-written, so this cannot
     drift from the ABI the harness actually calls.
     """
-    function = getattr(library, BINDING.symbol)
+    function = library[BINDING.symbol]
     argtypes, args = [], []
     for arg in BINDING.args:
         if arg.kind == "ptr":

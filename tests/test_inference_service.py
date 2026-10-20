@@ -23,6 +23,7 @@ import types
 from collections.abc import Iterator
 from typing import ClassVar
 
+import pydantic
 import pytest
 
 from hpcagent_bench import paths
@@ -348,14 +349,13 @@ def serve(handler: type[RecordingHandler]) -> Iterator[tuple[str, type[Recording
         thread.join(timeout=5)
 
 
-class FakeUsage:
-    """What the Anthropic SDK hands :func:`anthropic_usage`: counters as instance attributes."""
+class FakeUsage(pydantic.BaseModel):
+    """What the Anthropic SDK hands :func:`anthropic_usage`: its ``Usage``, a pydantic model of the counters."""
 
-    def __init__(self, counts: dict[str, int]) -> None:
-        self.input_tokens = counts["input_tokens"]
-        self.output_tokens = counts["output_tokens"]
-        self.cache_read_input_tokens = counts["cache_read_input_tokens"]
-        self.cache_creation_input_tokens = counts["cache_creation_input_tokens"]
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
 
 
 def test_an_openai_service_setup_sends_its_key_and_its_model(
@@ -401,7 +401,7 @@ def test_an_anthropic_service_setup_sends_the_key_header_the_launcher_chose(
     assert handler.seen["headers"]["x-api-key"] == SECRET
     assert handler.seen["payload"]["model"] == "claude-fable-5-1"
     # The Messages API reports the prompt as three disjoint counts; the fold must keep all three.
-    folded = anthropic_usage(FakeUsage(body["usage"]))
+    folded = anthropic_usage(FakeUsage(**body["usage"]))
     assert folded.input_tokens == 1050
     assert folded.cached_tokens == 900
     assert folded.cache_creation_tokens == 50

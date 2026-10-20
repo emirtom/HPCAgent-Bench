@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench.harness.mpi_wire import pack_outfile, unpack_infile
 
 __all__ = [
@@ -29,9 +30,9 @@ def load_kernel(module_path: str, func_name: str) -> Callable[..., object]:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    if func_name not in vars(module):
+    if not modules.defines(module, func_name):
         raise RuntimeError(f"python MPI submission must define a function named {func_name!r}")
-    return vars(module)[func_name]
+    return modules.function(module, func_name)
 
 
 def _stage(

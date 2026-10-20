@@ -103,13 +103,12 @@ def load_cpp_reference():
     lib.hotspot_rodinia_step_f32_ref.argtypes = step_argtypes(np.float32)
     lib.hotspot_rodinia_step_f32_ref.restype = ctypes.c_int
 
-    for name, dtype in (
-        ("hotspot_rodinia_ref", np.float64),
-        ("hotspot_rodinia_blocked_ref", np.float64),
-        ("hotspot_rodinia_f32_ref", np.float32),
-        ("hotspot_rodinia_blocked_f32_ref", np.float32),
+    for fn, dtype in (
+        (lib.hotspot_rodinia_ref, np.float64),
+        (lib.hotspot_rodinia_blocked_ref, np.float64),
+        (lib.hotspot_rodinia_f32_ref, np.float32),
+        (lib.hotspot_rodinia_blocked_f32_ref, np.float32),
     ):
-        fn = getattr(lib, name)
         fn.argtypes = run_argtypes(dtype)
         fn.restype = ctypes.c_int
     return lib

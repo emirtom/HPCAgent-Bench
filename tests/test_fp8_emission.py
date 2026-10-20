@@ -9,6 +9,7 @@ import subprocess
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import numerical_oracle as no
 from hpcagent_bench.translators.numpyto_common import dtypes
 from tests.optional_imports import import_or_skip
@@ -65,7 +66,7 @@ def test_registry_resolves_fp8_to_one_byte(cli, canon, mlname) -> None:
     assert dtypes.fortran_kind(cli) == "integer(c_int8_t)"
     # 1 byte on the marshalling side, matching the ml_dtypes itemsize.
     assert ctypes.sizeof(dtypes.ctype_for(cli)) == 1
-    assert np.dtype(vars(ml_dtypes)[mlname]).itemsize == 1
+    assert np.dtype(modules.member(ml_dtypes, mlname)).itemsize == 1
     # Storage-only: arithmetic is done in float32, not in the byte.
     assert dtypes.is_storage_only(cli) is True
     assert dtypes.compute_dtype(cli) == "float32"
@@ -154,7 +155,7 @@ def test_fp8_numeric_matches_numpy_oracle(tmp_path, cli, canon, mlname, backend)
     """The compiled fp8 kernel reproduces the numpy ml_dtypes reference EXACTLY (bit-equality, no tolerance)."""
     if shutil.which(_TOOL[backend]) is None:
         pytest.skip(f"{_TOOL[backend]} not installed")
-    f8 = vars(ml_dtypes)[mlname]
+    f8 = modules.member(ml_dtypes, mlname)
     _emit_fp8(tmp_path, cli)
     src = _src(tmp_path, cli, backend)
     so = tmp_path / f"num_{backend}.so"
@@ -185,7 +186,7 @@ def test_fp8_conversions_cover_every_code(tmp_path, cli, canon, mlname) -> None:
     """Drive all 256 fp8 codes (subnormals, zeros, Inf, NaN) through promote/demote and match ml_dtypes."""
     if shutil.which("gcc") is None:
         pytest.skip("gcc not installed")
-    f8 = vars(ml_dtypes)[mlname]
+    f8 = modules.member(ml_dtypes, mlname)
     _emit_fp8(tmp_path, cli)
     so = tmp_path / "rt.so"
     r = subprocess.run(

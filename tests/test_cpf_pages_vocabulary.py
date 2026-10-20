@@ -15,6 +15,7 @@ from dace.transformation.passes.canonicalize import annotate_loop_kinds as kinds
 from dace.transformation.passes.cpu_specialization import sequentialize_unprofitable_parallel_scopes as cpu_costs
 from dace.transformation.passes.gpu_specialization import block_tile_kernels, promote_warp_tiles
 
+from hpcagent_bench import modules
 from hpcagent_bench import paths
 
 SKILLS = paths.ROOT / "hpcagent_bench" / "skills"
@@ -35,7 +36,7 @@ COMMON = (
 GPU_ONLY = (
     *(
         gen.SCOPE_HINT
-        for gen in vars(scope_strategies).values()
+        for gen in modules.members(scope_strategies).values()
         if isinstance(gen, type) and vars(gen).get("SCOPE_HINT")
     ),
     block_tile_kernels.BLOCK_TILE_HINT,

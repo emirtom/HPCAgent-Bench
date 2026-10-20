@@ -18,6 +18,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.frameworks.test import tolerances_for
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.numerical_oracle import outputs_match
@@ -34,7 +35,7 @@ PIO2_LO = 6.077100506506192e-11
 
 def reference(name: str) -> Callable[..., None]:
     module = importlib.import_module(f"hpcagent_bench.benchmarks.loop_level_reasoning.{name}.{name}_numpy")
-    return vars(module)[name]
+    return modules.member(module, name)
 
 
 def run_reference(name: str, precision: Precision, variant: str | None = None) -> dict[str, np.ndarray]:

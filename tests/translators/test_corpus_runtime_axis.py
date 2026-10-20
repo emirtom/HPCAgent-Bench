@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.initialize import parse_shape
 from hpcagent_bench.spec import BenchSpec
 from tests.fresh_module import module_at
@@ -45,7 +46,7 @@ TOLERANCE = {"log_softmax": (1e-9, 1e-9)}
 def reference(spec: BenchSpec) -> Callable[..., None]:
     """The kernel's own numpy body as the oracle, so no hand-written stand-in can drift from it."""
     path = numpy_py_for(spec)
-    return getattr(module_at(path, f"ref_{spec.module_name}"), spec.func_name)
+    return modules.member(module_at(path, f"ref_{spec.module_name}"), spec.func_name)
 
 
 def extents(spec: BenchSpec, name: str, syms: dict[str, int]) -> tuple[int, ...]:

@@ -9,6 +9,7 @@ import re
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import anticheat, paths
 from hpcagent_bench.anticheat import ANTICHEAT, Context, Found, Gate, Verdict, build, judge
 from hpcagent_bench.harness import scoring
@@ -49,7 +50,7 @@ def test_every_gate_names_enforcement_that_exists() -> None:
         if gate.symbol:
             module_name, _, attr = gate.symbol.partition(":")
             module = importlib.import_module(module_name)
-            assert not attr or hasattr(module, attr), f"{key}: {gate.symbol} does not resolve"
+            assert not attr or modules.defines(module, attr), f"{key}: {gate.symbol} does not resolve"
 
 
 def test_the_docs_table_lists_the_registered_gates_in_order() -> None:
@@ -99,10 +100,19 @@ def test_a_rerun_label_needs_a_check_and_an_in_place_gate_takes_none() -> None:
 
     with pytest.raises(RegistryError, match="takes no check"):
         anticheat.anticheat("probe_check", order=ANTICHEAT.next_order())(
-            type("Probe", (), {**fields, "verdict": Verdict.CONSTRUCTION, "check": staticmethod(check)})
+            type(
+                "Probe",
+                (anticheat.PostRunGate,),
+                {**fields, "verdict": Verdict.CONSTRUCTION, "check": staticmethod(check)},
+            )
+        )
+    with pytest.raises(RegistryError, match="subclasses PostRunGate"):
+        anticheat.anticheat("probe_unrun", order=ANTICHEAT.next_order())(
+            type("Probe", (), {**fields, "verdict": Verdict.REJECT, "check": staticmethod(check)})
         )
     assert "probe_rerun" not in ANTICHEAT.entries
     assert "probe_check" not in ANTICHEAT.entries
+    assert "probe_unrun" not in ANTICHEAT.entries
 
 
 def graded(**changes: object) -> Score:

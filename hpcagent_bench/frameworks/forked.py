@@ -24,7 +24,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, cast
 
 from hpcagent_bench import osinfo
 from hpcagent_bench.isolation import pause_openmp_pools
@@ -301,13 +301,22 @@ def child_environment(env: Mapping[str, str]) -> Iterator[None]:
                     os.environ[key] = value
 
 
+class ForkServerHandle(Protocol):
+    """The private handle fields of ``multiprocessing.forkserver.ForkServer`` (absent from its type stubs)."""
+
+    _forkserver_pid: int | None
+    _forkserver_address: str | None
+    _forkserver_alive_fd: int | None
+
+
 def forget_inherited_forkserver() -> None:
     """A forked child inherits its parent's forkserver handle, but that server is not ITS child: the first
     forkserver start in the child would ``waitpid`` a stranger and raise ``ChildProcessError``. Forgetting the
     handle makes the child start a server of its own. CPython keeps no public reset for this."""
-    # The module's one ForkServer instance; its handle fields are private and absent from the type stubs.
-    server = multiprocessing.forkserver._forkserver
-    vars(server).update(_forkserver_pid=None, _forkserver_address=None, _forkserver_alive_fd=None)
+    server = cast("ForkServerHandle", multiprocessing.forkserver._forkserver)  # the module's one ForkServer
+    server._forkserver_pid = None
+    server._forkserver_address = None
+    server._forkserver_alive_fd = None
 
 
 os.register_at_fork(after_in_child=forget_inherited_forkserver)

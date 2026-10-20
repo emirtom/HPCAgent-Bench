@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import pydantic
 
+from hpcagent_bench import modules
 from hpcagent_bench import cpf_cache, paths, phase_clock
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.spec import BenchSpec
@@ -86,7 +87,9 @@ def resolve_program(module: ModuleType, path: pathlib.Path, entry: str = "") -> 
     that: the helpers it generates are ``_``-prefixed, which leaves one public program, and a
     module with a single program of any name is that program.
     """
-    programs = {name: value for name, value in vars(module).items() if type(value).__name__ == "DaceProgram"}
+    from dace.frontend.python.parser import DaceProgram  # deferred: dace loads only when a kernel is canonicalized
+
+    programs = {name: value for name, value in modules.members(module).items() if isinstance(value, DaceProgram)}
     chosen = entry_program_name(list(programs), path, entry)
     return None if chosen is None else programs[chosen]
 

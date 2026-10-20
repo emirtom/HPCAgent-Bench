@@ -17,6 +17,7 @@ from typing import (
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, precision
 from hpcagent_bench.columns import ALL_PRECISIONS, FRAMEWORKS, IEEE_PRECISIONS
 from hpcagent_bench.frameworks import Benchmark
@@ -451,7 +452,7 @@ def adapter_class(adapter: str) -> "type[Framework]":
         raise ModuleNotFoundError(
             f"adapter {adapter!r}: module {module_name} does not exist", name=module_name
         ) from exc
-    value = getattr(module, class_name, None)
+    value = modules.optional(module, class_name, type)
     if not (isinstance(value, type) and issubclass(value, Framework)):
         raise ImportError(
             f"adapter {adapter!r}: {module_name} defines no Framework subclass {class_name}", name=module_name
@@ -485,7 +486,7 @@ def framework_class(fname: str) -> "type[Framework]":
 def load_impl(bench: Benchmark, postfix: str) -> KernelImpl:
     """The kernel entry point ``func_name`` of ``bench``'s ``<module_name>_<postfix>.py``."""
     module_str = bench.impl_module(postfix)
-    impl: KernelImpl | None = vars(importlib.import_module(module_str)).get(bench.spec.func_name)
+    impl: KernelImpl | None = modules.optional_function(importlib.import_module(module_str), bench.spec.func_name)
     if impl is None:
         raise AttributeError(f"{module_str} defines no {bench.spec.func_name}")
     return impl

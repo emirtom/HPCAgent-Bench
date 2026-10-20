@@ -1527,10 +1527,8 @@ def resolve_kernel_timeout(spec: BenchSpec | None) -> float:
         return timeouts.kernel_s_override
     if spec is None:
         return timeouts.kernel_s
-    declared = {f.name for f in fields(spec)} if is_dataclass(spec) else set(vars(spec))
-    kernel_yaml = spec.timeout_s if "timeout_s" in declared else None
-    if kernel_yaml is not None:
-        return float(kernel_yaml)
+    if spec.timeout_s is not None:
+        return float(spec.timeout_s)
     level = spec.resolved_level
     if level is not None and level in timeouts.kernel_s_by_level:
         return timeouts.kernel_s_by_level[level]

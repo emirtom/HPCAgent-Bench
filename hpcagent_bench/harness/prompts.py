@@ -22,6 +22,7 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 import jinja2
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench import (
     config,
     cpf_cache,
@@ -1280,7 +1281,7 @@ def load_generator(spec: str) -> PromptGenerator:
     module_name, sep, func_name = spec.partition(":")
     if not sep or not module_name or not func_name:
         raise ValueError(f"prompt.generator must be 'module:function', got {spec!r}")
-    return vars(importlib.import_module(module_name))[func_name]
+    return modules.function(importlib.import_module(module_name), func_name)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

@@ -34,6 +34,7 @@ __all__ = [
     "Kind",
     "RegistryError",
     "fields_of",
+    "methods_of",
 ]
 
 
@@ -65,6 +66,17 @@ def fields_of(cls: type) -> dict[str, Any]:
         for key, value in vars(base).items()
         if not key.startswith("_") and not callable(value)
     }
+
+
+def methods_of(cls: type) -> frozenset[str]:
+    """The public methods ``cls`` defines or inherits, by name (a registry refuses one its kind does not take)."""
+    return frozenset(
+        key
+        for base in cls.__mro__
+        if base is not object
+        for key, value in vars(base).items()
+        if not key.startswith("_") and callable(value)
+    )
 
 
 class Kind[Entry]:

@@ -5,6 +5,7 @@ replays a fixed list of moves so a whole agent session plays out through the rea
 model or network -- both the in-process improve loop and the container tools loop against a live
 judge. These are the deterministic backbone tests, exercising every branch a real LLM agent hits."""
 
+import dataclasses
 import re
 
 import pytest
@@ -140,7 +141,9 @@ def test_the_row_keeps_the_requested_language_when_the_agent_ships_another(monke
     assert row.status == "ok"
     assert row.speedup == 2.0
     assert row.language == "fortran"  # the REQUEST, unchanged -- downstream keys on this field
-    assert not hasattr(row, "delivered_language"), "the body's own claim is deliberately not a column"
+    assert "delivered_language" not in {field.name for field in dataclasses.fields(row)}, (
+        "the body's own claim is deliberately not a column"
+    )
 
 
 def test_the_trajectory_rows_language_comes_from_the_run(monkeypatch, tmp_path) -> None:

@@ -82,8 +82,8 @@ TORCH_KINDS = ("torch-autotune-cpu", "torch-autotune-gpu")
 def configured(track: str | None) -> Denominator:
     """The denominator configured for ``track`` (``measurement.denominator.<track>``); :data:`FALLBACK` for a
     track with no key, or None."""
-    configured = config.current().measurement.denominator
-    return Denominator(getattr(configured, track)) if track in type(configured).model_fields else FALLBACK
+    kind = config.current().measurement.denominator.of(track)
+    return FALLBACK if kind is None else Denominator(kind)
 
 
 @functools.lru_cache(maxsize=None, typed=True)

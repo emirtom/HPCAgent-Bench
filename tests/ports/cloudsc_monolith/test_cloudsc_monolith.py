@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import autogen
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cloudsc_monolith.test_cloudsc_monolith_reference import (
     FIELDS,
@@ -60,7 +61,7 @@ def ulp_distance(got: np.ndarray, want: np.ndarray) -> np.ndarray:
 
 def numpy_outputs() -> list[Outputs]:
     """The outputs of the NumPy task program for every configuration."""
-    kernel = vars(importlib.import_module(NUMPY_MODULE))[KERNEL]
+    kernel = modules.member(importlib.import_module(NUMPY_MODULE), KERNEL)
     results = []
     for klev, klon, nblocks in CONFIGURATIONS:
         fields = make_fields(klev, klon, nblocks)
@@ -77,7 +78,7 @@ def numba_outputs() -> list[Outputs]:
     os.environ.update(NUMBA_ENV)
     config.reload_config()
     autogen.ensure(KERNEL, ("numba",))
-    kernel = vars(importlib.import_module(NUMBA_MODULE))[KERNEL]
+    kernel = modules.member(importlib.import_module(NUMBA_MODULE), KERNEL)
     results = []
     for klev, klon, nblocks in CONFIGURATIONS:
         fields = make_fields(klev, klon, nblocks)

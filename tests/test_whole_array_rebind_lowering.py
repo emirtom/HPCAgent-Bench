@@ -61,9 +61,8 @@ def _source_order(tree):
         for stmt in block:
             if isinstance(stmt, (ast.Assign, ast.AugAssign)):
                 out.append(stmt)
-            for field in ("body", "orelse", "finalbody"):
-                nested = vars(stmt).get(field)
-                if isinstance(nested, list):
+            for field, nested in ast.iter_fields(stmt):
+                if field in ("body", "orelse", "finalbody") and isinstance(nested, list):
                     walk(nested)
 
     walk(tree.body)

@@ -19,6 +19,7 @@ import importlib
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import fuzz
 from hpcagent_bench.spec import BenchSpec
 from tests.bench_specs import fuzz_constraints
@@ -77,7 +78,7 @@ def test_every_fuzz_draw_initializes(short) -> None:
     module = importlib.import_module(
         "hpcagent_bench.benchmarks.{p}.{m}".format(p=spec.relative_path.replace("/", "."), m=spec.module_name)
     )
-    initialize = getattr(module, spec.init.func_name)
+    initialize = modules.member(module, spec.init.func_name)
     budget = BUILD_BUDGET[short]
 
     built = 0

@@ -36,6 +36,7 @@ from typing import Any
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench import paths
 from hpcagent_bench.harness import kernelbench_adapter
 from tests.fresh_module import module_at
@@ -94,7 +95,7 @@ def patch_sizes(module, preset: dict[str, Any]) -> list[str]:
     the model is built with the wrong parameter shapes.
     """
     source = pathlib.Path(module.__file__).read_text()
-    for key in [k for k in preset if hasattr(module, k)]:
+    for key in [k for k in preset if modules.defines(module, k)]:
         setattr(module, key, preset[key])
     errors: list[str] = []
     for node in ast.parse(source).body:
@@ -229,14 +230,14 @@ def audit_hyperparameters(model, knobs: dict[str, Any]) -> list[str]:
     ``avg_pool_kernel_size: 2`` against a model pooling by 4 produces a plausible number for the
     wrong comparison. Refuse rather than report it.
     """
-    modules = {name.replace(".", "_"): mod for name, mod in model.named_modules() if name}
+    submodules = {name.replace(".", "_"): mod for name, mod in model.named_modules() if name}
     drift: list[str] = []
     for key, wanted in knobs.items():
-        for prefix, mod in modules.items():
+        for prefix, mod in submodules.items():
             if not key.startswith(f"{prefix}_"):
                 continue
             attr = key[len(prefix) + 1 :]
-            held = vars(mod).get(attr)
+            held = vars(mod).get(attr)  # a torch submodule's plain attributes (eps, momentum)
             if held is None:
                 continue
             flat = held[0] if isinstance(held, tuple) and len(set(held)) == 1 else held
@@ -338,7 +339,7 @@ def compare(spec, kernel: str, upstream: pathlib.Path, preset_name: str = "S", t
     mapping, positional, zero_filled = map_parameters(model, [a for a in array_inputs if a not in data_names], shapes)
     result.positional, result.zero_filled = positional, zero_filled
 
-    rng = np.random.default_rng(int(spec.seed) if getattr(spec, "seed", None) else 0)
+    rng = np.random.default_rng(0)
     data = {name: rng.random(tuple(shapes[name]), dtype=np.float64) for name in data_names}
     forward_args = [
         torch.from_numpy(data[p].astype(np.float32)) if p in data else preset.get(p, knobs.get(p))
@@ -366,7 +367,7 @@ def compare(spec, kernel: str, upstream: pathlib.Path, preset_name: str = "S", t
     port = load_module(
         REPO / "hpcagent_bench" / "benchmarks" / spec.relative_path / f"{kernel}_numpy.py", f"kernelbench_port_{kernel}"
     )
-    returned = getattr(port, spec.func_name)(*[call[a] for a in spec.input_args])
+    returned = modules.member(port, spec.func_name)(*[call[a] for a in spec.input_args])
     got = np.asarray(call[outputs[0]] if returned is None else returned, dtype=np.float64)
 
     if got.shape == (1,) and reference.shape == ():

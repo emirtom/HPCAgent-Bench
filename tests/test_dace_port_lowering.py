@@ -27,6 +27,7 @@ import sys
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from tests.test_dace_frontend_validity import REFUSED, REPO, ci_parse_shards, ensure_dace_program, shard_of
 
@@ -119,7 +120,7 @@ def to_sdfg_worker(results: mp.Queue, rel: str, mod: str, fn: str) -> None:
         dfw.dc_float = dace.float64
         dfw.dc_complex_float = dace.complex128
         module = importlib.import_module("hpcagent_bench.benchmarks." + rel.replace("/", ".") + f".{mod}_dace")
-        program = vars(module).get(fn) or vars(module).get(mod)
+        program = modules.optional(module, fn) or modules.optional(module, mod)
         if program is None:
             results.put(("error", f"no dace program {fn!r}/{mod!r} in {mod}_dace.py"))
             return

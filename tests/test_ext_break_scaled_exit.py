@@ -36,6 +36,7 @@ import importlib
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench import fuzz
 from hpcagent_bench.benchmarks.loop_level_reasoning.ext_break_capture import ext_break_capture as capture_gen
 from hpcagent_bench.frameworks.benchmark import Benchmark
@@ -90,7 +91,7 @@ def run_family(name, seed):
     materialized = dict(zip(spec.init.output_args, arrays, strict=False))
     before = {g: materialized[g].copy() for g in cfg["graded"]}
     ref = importlib.import_module(f"{pkg}.{cfg['ref']}")
-    cfg["call"](vars(ref)[cfg["fn"]], materialized)
+    cfg["call"](modules.member(ref, cfg["fn"]), materialized)
     after = {g: materialized[g] for g in cfg["graded"]}
     return before, after
 

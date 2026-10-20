@@ -23,6 +23,7 @@ from typing import Any
 
 import numpy as np
 
+from hpcagent_bench import modules
 from hpcagent_bench import languages, paths
 from hpcagent_bench.initialize import auto_initialize
 from hpcagent_bench.precision import Precision
@@ -45,7 +46,7 @@ SEED = 7
 def numpy_entry(spec: BenchSpec):
     """The kernel's numpy reference function, loaded from its co-located module."""
     path = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
-    return getattr(module_at(path, f"{spec.module_name}_numpy"), spec.func_name)
+    return modules.member(module_at(path, f"{spec.module_name}_numpy"), spec.func_name)
 
 
 def kernel_inputs(spec: BenchSpec) -> dict[str, Any]:
@@ -88,7 +89,7 @@ def build(source: pathlib.Path, out_so: pathlib.Path) -> str | None:
 def call_reference(so: pathlib.Path, binding: Binding, data: dict[str, Any]) -> dict[str, Any]:
     """dlopen ``so``, bind ``binding.symbols['c']`` and call it positionally in canonical order."""
     buffers = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in data.items()}
-    entry = getattr(ctypes.CDLL(str(so)), binding.symbols["c"])
+    entry = ctypes.CDLL(str(so))[binding.symbols["c"]]
     argtypes, argv = [], []
     for arg in binding.args:
         if arg.kind == "ptr":

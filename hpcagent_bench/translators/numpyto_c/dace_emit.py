@@ -20,6 +20,7 @@ from hpcagent_bench.translators.numpyto_common.ast_build import (
     name_,
     nested_blocks,
     numpy_attribute,
+    set_field,
     store_,
 )
 from hpcagent_bench.translators.numpyto_common.emit_helpers.numpy_names import is_numpy_module
@@ -2140,7 +2141,7 @@ class ReachingBindings:
         if isinstance(stmt, (ast.Break, ast.Continue)):
             (self.breaks if isinstance(stmt, ast.Break) else self.continues).append(state)
             return frozenset()
-        if "body" in vars(stmt) or isinstance(stmt, ast.Match):
+        if "body" in stmt._fields or isinstance(stmt, ast.Match):
             self.sound = False
             return state
         self.record(stmt, state)
@@ -4331,7 +4332,7 @@ def materialize_strided_helper_args(
         for stmt in stmts:
             for field, value in ast.iter_fields(stmt):
                 if isinstance(value, list) and value and all(isinstance(v, ast.stmt) for v in value):
-                    setattr(stmt, field, rewrite(value))
+                    set_field(stmt, field, rewrite(value))
             out.extend(materialized(stmt))
         return out
 

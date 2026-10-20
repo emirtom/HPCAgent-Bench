@@ -17,7 +17,7 @@ This module owns the second edit plus the runtime helpers:
   emitted ``<short>_*_auto.<ext>`` files, filtered to the kernel's declared
   ``languages``.
 * :func:`compile_variant` -- read ``compilers.yaml``, resolve the
-  ``baseline_ref`` to its :mod:`hpcagent_bench.flags` constant via ``vars(flags)[ref]``
+  ``baseline_ref`` to its :mod:`hpcagent_bench.flags` constant via :func:`flag_constant`
   (the repo's no-``getattr`` rule), compose autopar / CUDA for the mode, and
   substitute the compile-command template. It returns the argv; it does NOT run
   it (the caller owns process launching).
@@ -44,6 +44,7 @@ from typing import Any, NamedTuple
 import pydantic
 import yaml
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, flags, omp_context, osinfo, paths, seal
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import discover_tools
@@ -139,6 +140,7 @@ __all__ = [
     "executable_version",
     "family_names",
     "family_pin",
+    "flag_constant",
     "family_report_flags",
     "gpu_backend",
     "grading_ncores",
@@ -331,9 +333,14 @@ COMPILER_FAMILIES = {
 FAMILY_PIN_KEY = "build.compiler.{lang}"
 
 
+def flag_constant(ref: str) -> str:
+    """The :mod:`hpcagent_bench.flags` string constant a ``languages.yaml`` entry names by ``ref``."""
+    return modules.member(flags, ref, str)
+
+
 def family_pin(lang: str) -> str | None:
     """``build.compiler.<lang>``; None when unset or when ``lang`` has no pin key."""
-    return getattr(config.current().build.compiler, lang, None)
+    return config.current().build.compiler.pin(lang)
 
 
 def family_names() -> tuple[str, ...]:
@@ -983,13 +990,12 @@ def offload_flags(model: str, vendor: str, *, arch: str | None = None) -> str:
     ref = OFFLOAD_REFS.get((family, vendor), {}).get(model)
     if ref is None:
         return ""
-    flag_vars = vars(flags)
-    if ref not in flag_vars:
+    if not modules.defines(flags, ref):
         raise KeyError(f"offload ref {ref!r} is not a constant in hpcagent_bench.flags")
     resolved = arch or offload_arch(model, vendor)
     if not resolved:
         return ""
-    rendered = flag_vars[ref].format(arch=offload_arch_spelling(family, resolved))
+    rendered = flag_constant(ref).format(arch=offload_arch_spelling(family, resolved))
     return f"{rendered} {offload_runtime_rpath(model, vendor)}".rstrip()
 
 
@@ -1072,7 +1078,7 @@ def _resolve_baseline(block: CompilerBlock, mode: Mode) -> str:
     """Resolve a compiler block's flag string for ``mode``.
 
     ``baseline_ref`` names a constant in :mod:`hpcagent_bench.flags`; we look it up via
-    ``vars(flags)[ref]`` (NOT ``getattr`` -- the repo rule). CUDA blocks carry
+    :func:`flag_constant`. CUDA blocks carry
     no baseline_ref and use :func:`flags.compose_cuda`; an ``autopar_ref`` (when
     present and the mode is multi-core) is appended via
     :func:`flags.compose_autopar`. A ``warnings_ref`` (same name-indirection) is
@@ -1086,38 +1092,37 @@ def _resolve_baseline(block: CompilerBlock, mode: Mode) -> str:
     ref = block.baseline_ref
     if ref is None:
         return ""
-    flag_vars = vars(flags)
-    if ref not in flag_vars:
+    if not modules.defines(flags, ref):
         raise KeyError(f"baseline_ref {ref!r} is not a constant in hpcagent_bench.flags")
-    baseline = flag_vars[ref]
+    baseline = flag_constant(ref)
     # Vector libm, for a block whose baseline cannot carry it as a constant. gcc/clang get it
     # inside their baseline and gfortran from the driver spec; flang has neither, and a column
     # building libm scalar while its neighbours vectorize measures the library, not the compiler.
     veclib_ref = block.veclib_ref
     if veclib_ref is not None:
-        if veclib_ref not in flag_vars:
+        if not modules.defines(flags, veclib_ref):
             raise KeyError(f"veclib_ref {veclib_ref!r} is not a constant in hpcagent_bench.flags")
-        if _veclib_accepted(block.cc, flag_vars[veclib_ref], block.lang):
-            baseline = f"{baseline} {flag_vars[veclib_ref]}"
+        if _veclib_accepted(block.cc, flag_constant(veclib_ref), block.lang):
+            baseline = f"{baseline} {flag_constant(veclib_ref)}"
     autopar_ref = block.autopar_ref
-    if autopar_ref is not None and autopar_ref not in flag_vars:
+    if autopar_ref is not None and not modules.defines(flags, autopar_ref):
         raise KeyError(f"autopar_ref {autopar_ref!r} is not a constant in hpcagent_bench.flags")
-    autopar = flag_vars[autopar_ref] if autopar_ref else None
+    autopar = flag_constant(autopar_ref) if autopar_ref else None
     composed = flags.compose_autopar(baseline, autopar, mode, grading_ncores())
     # Unconditional of mode, unlike autopar: the run environment is always multi-core
     # (native_call.grading_cpus) and the opt-in is the construct in the source -- code
     # without `do concurrent` compiles byte-identically. See flags.DO_CONCURRENT_*.
     doconcurrent_ref = block.doconcurrent_ref
     if doconcurrent_ref is not None:
-        if doconcurrent_ref not in flag_vars:
+        if not modules.defines(flags, doconcurrent_ref):
             raise KeyError(f"doconcurrent_ref {doconcurrent_ref!r} is not a constant in hpcagent_bench.flags")
-        composed = f"{composed} {flag_vars[doconcurrent_ref].format(n=grading_ncores())}"
+        composed = f"{composed} {flag_constant(doconcurrent_ref).format(n=grading_ncores())}"
     warnings_ref = block.warnings_ref
     if warnings_ref is None:
         return composed
-    if warnings_ref not in flag_vars:
+    if not modules.defines(flags, warnings_ref):
         raise KeyError(f"warnings_ref {warnings_ref!r} is not a constant in hpcagent_bench.flags")
-    return f"{composed} {flag_vars[warnings_ref]}"
+    return f"{composed} {flag_constant(warnings_ref)}"
 
 
 def _compiler_for_lang(compilers: Mapping[str, CompilerBlock], lang: str, *, mpi: bool = False) -> CompilerChoice:
@@ -1450,10 +1455,9 @@ def _stdpar_link_for_block(block: CompilerBlock) -> tuple[str, ...]:
     ref = block.stdpar_link_ref
     if not ref:
         return ()
-    flag_vars = vars(flags)
-    if ref not in flag_vars:
+    if not modules.defines(flags, ref):
         raise KeyError(f"stdpar_link_ref {ref!r} is not a constant in hpcagent_bench.flags")
-    resolved = tuple(shlex.split(flag_vars[ref]))
+    resolved = tuple(shlex.split(flag_constant(ref)))
     # The probe asks a TBB-specific question, so it may only gate a TBB link. nvhpc routes
     # <execution> through its own runtime: -stdpar is in that block's baseline unconditionally, and
     # dropping it from the LINK leaves a .so that builds and then fails to dlopen on __acc_compiled.
@@ -1617,11 +1621,10 @@ def _mimalloc_link_for_block(block: CompilerBlock, cc: str | None = None) -> tup
     ref = block.mimalloc_link_ref
     if not ref:
         return ()
-    flag_vars = vars(flags)
-    if ref not in flag_vars:
+    if not modules.defines(flags, ref):
         raise KeyError(f"mimalloc_link_ref {ref!r} is not a constant in hpcagent_bench.flags")
     driver = cc or block.cc
-    tokens = tuple(shlex.split(flag_vars[ref]))
+    tokens = tuple(shlex.split(flag_constant(ref)))
     # The directory is named from THIS environment, because ``LIBRARY_PATH`` is where a spack view
     # is reached from and it is exactly what the build is about to lose.
     if offload_model():
@@ -2059,10 +2062,9 @@ def base_report_flags(family: str) -> str:
     ref = REPORT_REFS.get(family)
     if ref is None:
         return ""
-    flag_vars = vars(flags)
-    if ref not in flag_vars:
+    if not modules.defines(flags, ref):
         raise KeyError(f"REPORT_REFS[{family!r}] = {ref!r} is not a constant in hpcagent_bench.flags")
-    return flag_vars[ref]
+    return flag_constant(ref)
 
 
 def family_report_flags(family: str) -> str:
@@ -2071,7 +2073,7 @@ def family_report_flags(family: str) -> str:
     Not cached: the knob is config and may change per run, while :func:`base_report_flags` cannot."""
     report = base_report_flags(family)
     unlimited = VECT_UNLIMITED_REFS.get(family) if report and vect_cost_model() == "unlimited" else None
-    return f"{report} {vars(flags)[unlimited]}" if unlimited else report
+    return f"{report} {flag_constant(unlimited)}" if unlimited else report
 
 
 def report_flags(lang: str, *, compiler: str | None = None) -> str:

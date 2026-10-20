@@ -20,10 +20,13 @@ import sys
 import tempfile
 import time
 import warnings
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pydantic
+
+if TYPE_CHECKING:
+    from hpcagent_bench import config
 
 __all__ = [
     "BACKENDS",
@@ -202,6 +205,7 @@ os.environ.setdefault("BLIS_NUM_THREADS", "1")
 # each preallocate a slice of it. setdefault so a caller can still force JAX_PLATFORMS=cuda.
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
+from hpcagent_bench import modules  # noqa: E402
 from hpcagent_bench import dtypes as _dtypes  # noqa: E402
 
 # The polycc invocation the TIMED pluto column builds from -- flags, pet-parse env and process-group
@@ -409,14 +413,11 @@ def all_backend_status(reason: str) -> dict[str, str]:
     return dict.fromkeys((*BACKENDS, *PY_BACKENDS, "jax"), reason)
 
 
-def _cfg(key: Literal["compile_timeout_s", "polycc_timeout_s", "numba_fastmath"], short: str = "") -> Any:
-    """``oracle.<key>``, replaced by ``oracle.overrides[short].<key>`` when that entry sets it."""
+def oracle_config() -> "config.Oracle":
+    """The ``oracle`` block of the current configuration."""
     from hpcagent_bench import config
 
-    oracle = config.current().oracle
-    override = oracle.overrides.get(short)
-    value = getattr(override, key) if override is not None else None
-    return value if value is not None else getattr(oracle, key)
+    return config.current().oracle
 
 
 #: Precision sweep config: name -> (numpy float dtype, Precision enum, emit ``--precision``, rtol, atol).
@@ -544,7 +545,7 @@ def custom_initialize(spec: BenchSpec, syms, datatype: type[np.floating] = np.fl
     mod = importlib.import_module(
         f"hpcagent_bench.benchmarks.{spec.relative_path.replace('/', '.')}.{spec.module_name}"
     )
-    fn = vars(mod).get(init.func_name)
+    fn = modules.optional_function(mod, init.func_name)
     if fn is None:
         raise AttributeError(f"{src} defines no {init.func_name!r} -- {hint}.")
     # Pass args as-is (already typed int/float); int()-ing everything truncated float params before
@@ -985,7 +986,7 @@ def run_kernel(
                     native_build_command(backend, src, so, short),
                     capture_output=True,
                     text=True,
-                    timeout=_cfg("compile_timeout_s", short),
+                    timeout=oracle_config().compile_timeout(short),
                     check=False,
                 )
             except subprocess.TimeoutExpired:
@@ -1215,7 +1216,7 @@ def py_backend_compute(
         ]
         if backend == "pythran" and emit_prec:
             cmd += ["--precision", emit_prec]
-        if backend == "numba" and _cfg("numba_fastmath", short):
+        if backend == "numba" and oracle_config().fastmath(short):
             cmd += ["--fastmath"]
         if backend == "cupy":  # cupy CLI takes no bench-info
             cmd = [sys.executable, "-m", cli, "emit", "--kernel", str(npy), "--out", str(tdp)]
@@ -1236,7 +1237,7 @@ def py_backend_compute(
                     capture_output=True,
                     text=True,
                     preexec_fn=cap_compile_memory,
-                    timeout=_cfg("compile_timeout_s", short),
+                    timeout=oracle_config().compile_timeout(short),
                     check=False,
                 )
             except subprocess.TimeoutExpired:
@@ -1260,7 +1261,7 @@ def py_backend_compute(
             # sys.modules[cls.__module__], which is None for a module loaded by path alone.
             sys.modules[spec.name] = mod
             spec.loader.exec_module(mod)
-            fn = vars(mod)[bench.func_name]
+            fn = modules.function(mod, bench.func_name)
             call = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in by.items()}
             args: list[object] = []
             for nm in bench.input_args:
@@ -1544,7 +1545,7 @@ def _run_pluto(
         return f"skip:unsupported:non-affine:{nonaffine}"
     out_c = pluto_transform.transformed_path(src)
     try:
-        _cmd, proc = pluto_transform.run_polycc(src, out_c, timeout=_cfg("polycc_timeout_s", short))
+        _cmd, proc = pluto_transform.run_polycc(src, out_c, timeout=oracle_config().polycc_timeout(short))
     except subprocess.TimeoutExpired:
         return "skip:unsupported:polycc-timeout"
     if proc.returncode or not out_c.exists():
@@ -1555,7 +1556,7 @@ def _run_pluto(
         proc = pluto_transform.run_bounded(
             native_build_command("c", out_c, so, short, extra_compile=PLUTO_EXTRA_FLAGS),
             cwd=str(tdp),
-            timeout=_cfg("compile_timeout_s", short),
+            timeout=oracle_config().compile_timeout(short),
         )
     except subprocess.TimeoutExpired:
         return "skip:unsupported:compile-timeout"
@@ -1684,7 +1685,7 @@ def _run_isopar(
             native_build_command("cpp", matches[0], so, short, extra_link=_ISOPAR_LINK),
             capture_output=True,
             text=True,
-            timeout=_cfg("compile_timeout_s", short),
+            timeout=oracle_config().compile_timeout(short),
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -1713,9 +1714,11 @@ def pin_one_thread() -> None:
     for path in flags.loaded_threaded_runtimes():
         lib = ctypes.CDLL(str(path))
         for name in ONE_THREAD_SETTERS:
-            setter = getattr(lib, name, None)
-            if setter is not None:
-                setter(1)
+            try:
+                setter = lib[name]  # a CDLL resolves symbols on lookup and has no table of them
+            except AttributeError:
+                continue  # this runtime has no such setter
+            setter(1)
 
 
 def _invoke_isolated(backend, binding, so, by, syms, expected, compare, rtol, atol, index_names) -> str:

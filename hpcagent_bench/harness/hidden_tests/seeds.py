@@ -62,6 +62,15 @@ class Seeds(pydantic.BaseModel):
     second: int
     harden: int
 
+    def shared_with(self, other: "Seeds") -> list[str]:
+        """The names of the seeds this one and ``other`` set alike."""
+        seeds = (
+            ("first", self.first, other.first),
+            ("second", self.second, other.second),
+            ("harden", self.harden, other.harden),
+        )
+        return [name for name, mine, theirs in seeds if mine == theirs]
+
 
 #: The tracked development seeds, used when :data:`SECRETS_FILE` is absent.
 PUBLIC_SEEDS = Seeds(first=1, second=2, harden=3)
@@ -88,7 +97,7 @@ def deployment_seeds() -> Seeds:
 def public_seeds_refusal() -> str | None:
     """Why a recorded grade must not run on these seeds, or None: any seed still at its public value
     regenerates graded inputs from a tracked file."""
-    public = [name for name in Seeds.model_fields if getattr(deployment_seeds(), name) == getattr(PUBLIC_SEEDS, name)]
+    public = deployment_seeds().shared_with(PUBLIC_SEEDS)
     if not public or os.environ.get(PUBLIC_OK_ENV, "").strip() == "1":
         return None
     return (

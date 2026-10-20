@@ -24,8 +24,8 @@ from hpcagent_bench.spec import BenchSpec
 
 
 def _spec(*, level: int | None = None, **extra: object) -> types.SimpleNamespace:
-    """A minimal stand-in for a BenchSpec: `resolved_level` + whatever manifest fields the resolver reads."""
-    return types.SimpleNamespace(resolved_level=level, **extra)
+    """A minimal stand-in for a BenchSpec: the `resolved_level` and `timeout_s` the resolver reads."""
+    return types.SimpleNamespace(**{"resolved_level": level, "timeout_s": None, **extra})
 
 
 @pytest.fixture

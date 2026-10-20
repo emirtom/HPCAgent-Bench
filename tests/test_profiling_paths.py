@@ -19,6 +19,7 @@ from collections.abc import Callable
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, perf_reports
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import gpu_profiling, native_call, papi, profiling, sandbox, tools
@@ -202,7 +203,7 @@ def test_the_papi_routes_count_at_the_requested_pool_clamped_to_the_slot(
     monkeypatch.setattr(profiling, "count_metrics", counted)
     monkeypatch.setattr(profiling, "count_threads", counted)
     with pytest.raises(Measured):
-        vars(profiling)[entry](TRIVIAL_GEMM, Task("gemm", "restricted", "c"), preset="XL", reps=1, threads=64)
+        modules.member(profiling, entry)(TRIVIAL_GEMM, Task("gemm", "restricted", "c"), preset="XL", reps=1, threads=64)
     assert seen == [12], seen
 
 

@@ -10,6 +10,7 @@ import tempfile
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages
 
 # A trivial program per language whose result depends on an FP loop, so the optimizer can't delete it.
@@ -84,7 +85,7 @@ def _compiler_blocks():
 
 def test_every_compilers_yaml_ref_resolves() -> None:
     """A baseline_ref / autopar_ref naming a nonexistent constant is dead config."""
-    flag_vars = vars(flags)
+    flag_vars = modules.members(flags)
     bad = []
     for name, block in _compiler_blocks().items():
         for key, ref in (("baseline_ref", block.baseline_ref), ("autopar_ref", block.autopar_ref)):

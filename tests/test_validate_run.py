@@ -17,6 +17,7 @@ from types import ModuleType
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import paths
 from hpcagent_bench.harness import results_db
 from tests.fresh_module import fresh
@@ -170,7 +171,7 @@ def test_report_prints_a_pass_fail_line_per_check(tmp_path, validate_run, capsys
 def test_a_missing_subtree_fails_cleanly(tmp_path, validate_run, check_name, expected_summary) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    result = getattr(validate_run, check_name)(run_dir)
+    result = modules.member(validate_run, check_name)(run_dir)
     assert not result.ok
     assert expected_summary in result.summary
 

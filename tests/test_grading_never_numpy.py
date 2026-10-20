@@ -20,6 +20,7 @@ from typing import NoReturn
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, paths
 from hpcagent_bench.harness import grading, hidden_seeds, native_call, scoring
 from hpcagent_bench.harness.task import Task
@@ -87,9 +88,9 @@ def test_no_numpy_oracle_runner_exists() -> None:
     from hpcagent_bench.frameworks import test as framework_test
 
     for name in NUMPY_ORACLE_NAMES:
-        assert not hasattr(grading, name), name
+        assert not modules.defines(grading, name), name
     for name in NJIT_ORACLE_NAMES:
-        assert not hasattr(framework_test, name), name
+        assert not modules.defines(framework_test, name), name
     found: dict[str, set[str]] = {}
     for path in sorted(pathlib.Path(paths.ROOT, "hpcagent_bench").rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text())):
@@ -97,7 +98,7 @@ def test_no_numpy_oracle_runner_exists() -> None:
                 name = node.name
             elif isinstance(node, ast.Call):
                 func = node.func
-                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
             else:
                 continue
             if name in NUMPY_ORACLE_NAMES + NJIT_ORACLE_NAMES:
@@ -287,7 +288,7 @@ def test_the_numba_oracle_child_binds_the_reference_by_its_own_parameters(monkey
     monkeypatch.setattr(grading, "_call_isolated", child)
     got = grading.numba_reference_outputs(spec, {"A": np.zeros(1)}, memory_gb=2.0)
     assert list(got) == ["B"]
-    func = vars(grading.numba_impl_module(spec))[spec.func_name]
+    func = modules.member(grading.numba_impl_module(spec), spec.func_name)
     assert seen["lang"] == "python"
     assert seen["timeout"] == grading.NUMBA_ORACLE_TIMEOUT_S
     assert seen["py_meta"] == (

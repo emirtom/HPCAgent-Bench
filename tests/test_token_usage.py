@@ -7,6 +7,8 @@ usage across calls, and the runner snapshotting cumulative tokens at each score 
 into ``RunRow.trajectory`` (the performance-vs-tokens history).
 """
 
+import pydantic
+
 from hpcagent_bench.harness.agent import StubAgent, anthropic_usage
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.runner import solve_task
@@ -66,13 +68,13 @@ def test_non_llm_agent_costs_zero_tokens() -> None:
 # injects complete_fn, bypassing the real _backend)
 
 
-class _FakeAnthropicUsage:
-    """Mirrors the Anthropic SDK ``Usage`` (a pydantic model -> fields live in the
-    INSTANCE ``__dict__``, which is what ``vars()`` reads). ``**fields`` lets a test
-    omit the optional cache field."""
+class _FakeAnthropicUsage(pydantic.BaseModel):
+    """Mirrors the Anthropic SDK ``Usage``, a pydantic model whose cache fields are optional."""
 
-    def __init__(self, **fields) -> None:
-        self.__dict__.update(fields)
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
 
 
 def test_anthropic_usage_parse() -> None:

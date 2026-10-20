@@ -16,8 +16,6 @@ import pytest
 from hpcagent_bench import flags
 from hpcagent_bench.harness import native_call
 
-pytestmark = pytest.mark.skipif(not hasattr(os, "sched_getaffinity"), reason="needs Linux affinity")
-
 
 def sibling_group(cpu: int) -> str:
     try:

@@ -9,6 +9,7 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, fuzz
 from hpcagent_bench.spec import HARNESS_KWARGS, BenchSpec, InitSpec
 
@@ -227,7 +228,7 @@ class Benchmark:
         from hpcagent_bench.support.distributions.perturbation import Perturbation
 
         func_name, input_args, out_names = init.func_name, init.input_args, init.output_args
-        init_func = vars(importlib.import_module(self.impl_module()))[func_name]
+        init_func = modules.function(importlib.import_module(self.impl_module()), func_name)
         # Declared init scalars seed the data; an existing value wins.
         for name, value in init.scalars.items():
             data.setdefault(name, value)
@@ -267,7 +268,7 @@ class Benchmark:
         spec = self.spec
         if not spec.sparse_layouts or spec.init is None or not spec.init.revalue:
             return
-        revalue = vars(importlib.import_module(self.impl_module()))[spec.init.revalue]
+        revalue = modules.function(importlib.import_module(self.impl_module()), spec.init.revalue)
         for stream, logical in enumerate(sorted(spec.sparse_layouts)):
             matrix = base.get(logical)
             if matrix is not None and not spec.sparse_layouts[logical].pattern:

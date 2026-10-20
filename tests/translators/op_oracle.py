@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 
 # Reuse the repo oracle's compile flags + ctypes invoke + comparison.
+from hpcagent_bench import modules
 from hpcagent_bench import numerical_oracle as no
 from hpcagent_bench.frameworks.forked import RunResult, run_forked
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
@@ -417,7 +418,7 @@ def numba_leg_child(
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = m
         spec.loader.exec_module(m)
-        fn = vars(m)[func]  # already @nb.njit-decorated by emit_numba
+        fn = modules.member(m, func)  # already @nb.njit-decorated by emit_numba
         ins = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in inputs.items()}
         if capture_return:
             # Return-style kernel: emit_numba keeps the body verbatim (functional),
@@ -477,7 +478,7 @@ def run_pythran(
         # sys.modules[cls.__module__], which is None for a module loaded by path alone.
         sys.modules[spec.name] = m
         spec.loader.exec_module(m)
-        fn = vars(m)[func]
+        fn = modules.member(m, func)
     except Exception as exc:  # noqa: BLE001
         return f"skip:unsupported:import:{type(exc).__name__}"
     ins = {n: (v.copy() if isinstance(v, np.ndarray) else v) for n, v in inputs.items()}

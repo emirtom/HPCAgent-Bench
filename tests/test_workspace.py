@@ -26,6 +26,7 @@ import types
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import languages
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.native_call import (
@@ -88,7 +89,7 @@ def test_the_device_path_reads_types_and_bytes_without_copying_to_the_host() -> 
     """A HIP / CUDA call declares its C signature and resolves ``ARRAY_BYTES`` off host stand-ins of the
     device arrays: ``np.asarray`` on a cupy array raises, which failed every device CPF form."""
     device = types.ModuleType("device_xp")
-    vars(device)["ndarray"] = DeviceArray
+    device.ndarray = DeviceArray
     b = _binding()
     data = {"x": DeviceArray((32,), "float64"), "y": DeviceArray((32,), "float32"), "N": 32, "a": 2.0}
     stand_ins = host_stand_ins(data, device)

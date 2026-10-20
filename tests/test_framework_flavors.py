@@ -14,6 +14,7 @@ import types
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import frameworks
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks import NativeFramework, PlutoFramework
@@ -231,8 +232,8 @@ def test_the_build_tables_are_projections_of_the_registry() -> None:
         assert table == {n: m[key] for n, m in FRAMEWORKS.entries.items() if key in m}, key
     assert {"cc_autopar", "polly", "pluto"} <= set(native_runtime.FRAMEWORK_FLAGS), "vacuous projection"
     assert set(native_runtime.FRAMEWORK_COMPILER.values()) <= set(compiler_names())
-    assert all(isinstance(vars(flags)[preset], str) for preset in native_runtime.FRAMEWORK_FLAGS.values())
-    assert all(callable(vars(flags)[probe]) for probe in native_runtime.AUTOPAR_GATED.values())
+    assert all(isinstance(modules.member(flags, preset), str) for preset in native_runtime.FRAMEWORK_FLAGS.values())
+    assert all(callable(modules.member(flags, probe)) for probe in native_runtime.AUTOPAR_GATED.values())
 
 
 def test_a_new_base_is_one_adapter_module_plus_its_registered_column(
@@ -259,5 +260,5 @@ def test_a_new_base_is_one_adapter_module_plus_its_registered_column(
         assert frameworks.ProbeDropFramework is cls
     finally:
         sys.modules.pop(module_name, None)
-        if "ProbeDropFramework" in vars(frameworks):
+        if modules.defines(frameworks, "ProbeDropFramework"):
             delattr(frameworks, "ProbeDropFramework")

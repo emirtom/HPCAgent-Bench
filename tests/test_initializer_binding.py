@@ -13,6 +13,7 @@ import importlib
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.frameworks.benchmark import Benchmark, returned_names
 from hpcagent_bench.spec import BenchSpec
 
@@ -43,7 +44,7 @@ def test_the_initializer_returns_what_the_manifest_declares(kernel: str) -> None
     assert spec.init is not None
     module = importlib.import_module(Benchmark(kernel).impl_module())
     sizes = spec.parameters["S"]
-    values = getattr(module, spec.init.func_name)(*(sizes[name] for name in spec.init.input_args))
+    values = modules.member(module, spec.init.func_name)(*(sizes[name] for name in spec.init.input_args))
     built = [name for name in spec.init.output_args if name not in spec.init.scalars]
     assert len(values) == len(built), f"{kernel}: {len(values)} values for {built}"
 

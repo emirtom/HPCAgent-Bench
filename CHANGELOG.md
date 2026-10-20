@@ -2,7 +2,7 @@
 
 ## 0.2.1 (2026-10)
 
-Pinned with dace extended `6b6c01c7e` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
+Pinned with dace extended `0fd6219ce` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
 relayout `2718b2f`. Fixes the CI failures the 0.2.0 release left and makes every scientific_computing numba reference
 parallel.
 
@@ -24,8 +24,8 @@ parallel.
   compiler), in seconds; their sum is the total, and NULL means not measured. Results schema 14 is 13 plus these
   columns: a 13 file gains them when opened for writing and is read and merged as it is. A cached or prerendered
   artifact (emitted sources, parsed SDFG, canonical SDFG, CPF form) credits the time producing it took to its phase,
-  so a cache hit reports what a cold run costs. DaCe's code generation counts as compile until dace reports the two
-  apart.
+  so a cache hit reports what a cold run costs. DaCe builds split the two from `SDFG.compile(stats=)`;
+  `hpcagent-bench canon-times` reports p50/p90/max per column and phase.
 - **Single-source submissions in `any` mode.** An `any`-mode task accepts one C or Fortran source built with the
   agent's own compile flags (fast-math included); link flags stay restricted to `-l`/`-L`. Multi-file builds go
   through the existing `library` delivery.
@@ -63,6 +63,21 @@ parallel.
 - A CPF form gets the workspace and libraries it requests in the ABI check; DaCe integer helpers (`ipow`, ...) in a
   workspace size are translated to Python.
 - CI sizes OpenMP from the physical cores of the runner.
+- **Members are static.** Production code reads a model, dataclass, module or AST node by its declared field
+  (`vars(obj)[name]`, `isinstance`), never `getattr` / `hasattr` by name; only C-extension objects without a
+  `__dict__` (a cffi `Lib`, a tree-sitter node) are read by name. `tests/test_static_members.py` holds the line.
+  The tuple desugar's per-node marker attribute became a per-run registry.
+- The Anthropic harness answers a tool call cut off at `max_tokens` as an error instead of running it with
+  truncated input; Optimas reads its reward and usage from the Agents SDK's actual result shapes.
+- The phase clock is per context, so a judge thread rendering a CPF form does not bill another thread's span.
+- `registry.sh push` drops the session bus sbatch inherits and retries a load once (the job's first image came
+  back without an ID); `mirror-repos.sh` mirrors only the repositories of the image it builds and exits 2 on an
+  unknown one.
+- The x86_64 NVIDIA image builds native sm_86 / sm_89 (RTX 30 / 40) next to sm_75 to sm_120.
+
+### CI
+- 13 jobs plus coverage, each ~35-40 min (was 25): short legs ride along on longer jobs, and the nvc++ toolchain
+  goes to whichever unit shard holds `test_parallelism_dispatch.py` (it had drifted to a shard without it).
 
 ## 0.2.0 (2026-10)
 

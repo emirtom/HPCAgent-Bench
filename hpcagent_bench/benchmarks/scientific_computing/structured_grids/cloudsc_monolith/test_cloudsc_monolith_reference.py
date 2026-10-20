@@ -32,6 +32,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import sizing
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cloudsc_monolith import cloudsc_monolith
 from hpcagent_bench.benchmarks.scientific_computing.structured_grids.cloudsc_monolith import (
@@ -160,7 +161,7 @@ def compile_reference(directory: Path) -> Reference:
                     argument = np.zeros(shape, dtype=np.int32 if kind != "REAL(KIND=JPRB)" else np.float64)
                 assert argument.flags.c_contiguous
             elif kind == "REAL(KIND=JPRB)":
-                value = PTSPHY if name.upper() == "PTSPHY" else vars(numpy_port).get(name.upper(), 0.0)
+                value = PTSPHY if name.upper() == "PTSPHY" else modules.optional(numpy_port, name.upper(), float) or 0.0
                 argument = np.array([value], dtype=np.float64)
             else:
                 argument = np.array([integers[name.upper()]], dtype=np.int32)
@@ -226,7 +227,7 @@ def test_every_process_constant_moves_the_result_so_the_source_comparison_would_
     reference(want, 30, 16, 8)
     for name in PROCESS_CONSTANTS:
         got = make_fields(30, 16, 8)
-        with mock.patch.object(numpy_port, name, 1.1 * vars(numpy_port)[name]):
+        with mock.patch.object(numpy_port, name, 1.1 * modules.member(numpy_port, name)):
             run_numpy(got, 30, 16, 8)
         assert mismatches(got, want, rtol=1e-9, atol_share=1e-9), f"{name} changes nothing"
 

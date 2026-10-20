@@ -19,6 +19,7 @@ torch = pytest.importorskip("torch")
 dist = pytest.importorskip("torch.distributed")
 mp = pytest.importorskip("torch.multiprocessing")
 
+from hpcagent_bench import modules
 from hpcagent_bench import sizing
 from hpcagent_bench.frameworks.utilities import compare_arrays
 from hpcagent_bench.fuzz import safe_eval
@@ -219,7 +220,7 @@ def test_initialize_hands_the_harness_the_torch_inputs_and_numpy_agrees(stem: st
         assert np.array_equal(got, want.float().numpy() if want.is_floating_point() else want.numpy())
     data = dict(zip(spec.init.output_args, arrays, strict=False)) | params | dict(spec.init.scalars)
     numpy_ref = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}_numpy")
-    kernel = getattr(numpy_ref, spec.func_name)
+    kernel = modules.member(numpy_ref, spec.func_name)
     kernel(*[data[a] for a in inspect.signature(kernel).parameters])
     torch_in = [torch.from_numpy(np.asarray(a)) for a in arrays[: len(inputs)]]
     (want,) = torch_module(stem).reference(*torch_in)

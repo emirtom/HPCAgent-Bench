@@ -31,6 +31,7 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
+from hpcagent_bench import modules
 from hpcagent_bench import cpf_canonical, languages, paths, phase_clock
 from hpcagent_bench import flags as bench_flags
 from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
@@ -676,10 +677,7 @@ class TimedCompiledSDFG:
         """Drop the Python objects the last call still holds: ``CompiledSDFG`` keeps every argument in
         ``_argument_to_pyobject`` until the next call, which would free the previous inputs inside the
         timed call (GBs at large presets). Safe once outputs are read (``CallPlan.before_each``)."""
-        # getattr: ``_argument_to_pyobject`` is private; a DaCe without it makes this a no-op.
-        retained: dict[object, object] | None = getattr(self._exec, "_argument_to_pyobject", None)
-        if retained is not None:
-            retained.clear()
+        self._exec._argument_to_pyobject.clear()
 
 
 # Framework
@@ -740,7 +738,7 @@ class DaceFramework(Framework):
     def _import_kernel(self, bench: Benchmark) -> DaceProgram:
         """Import the kernel module and return the ``@dace.program``."""
         self.ensure_impls(bench)
-        program: DaceProgram = vars(self.kernel_module(bench))[bench.spec.func_name]
+        program: DaceProgram = modules.member(self.kernel_module(bench), bench.spec.func_name, DaceProgram)
         return program
 
     def _build_context(
@@ -1072,7 +1070,7 @@ class DaceFramework(Framework):
     def arg_renames(self, bench: Benchmark) -> dict[str, str]:
         """``{manifest name: emitted name}`` for arguments the emitter renamed (names that collide with sympy
         callables); applied only here."""
-        renames: dict[str, str] = vars(self.kernel_module(bench)).get("__hpcagent_bench_renames__", {})
+        renames: dict[str, str] = modules.optional(self.kernel_module(bench), "__hpcagent_bench_renames__", dict) or {}
         return renames
 
     def shape_symbols(
@@ -1081,7 +1079,9 @@ class DaceFramework(Framework):
         """Bind free SDFG symbols the manifest did not supply (:func:`bind_free_symbols`)."""
         if not isinstance(impl, TimedCompiledSDFG):
             return {}
-        recipes: Sequence[tuple[str, str]] = vars(self.kernel_module(bench)).get("__hpcagent_bench_symbol_defs__", ())
+        recipes: Sequence[tuple[str, str]] = (
+            modules.optional(self.kernel_module(bench), "__hpcagent_bench_symbol_defs__", list) or []
+        )
         renames = self.arg_renames(bench)
         args = [renames.get(name, name) for name in map(str, bench.spec.input_args)]
         # ``sdfg.arrays`` is keyed by the emitted name.

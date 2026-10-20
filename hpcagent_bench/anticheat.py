@@ -37,7 +37,7 @@ from hpcagent_bench.harness import scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, VerifyResult
 from hpcagent_bench.harness.task import Task, device_plausibility_row
-from hpcagent_bench.registry import Field, Kind, RegistryError
+from hpcagent_bench.registry import Field, Kind, RegistryError, methods_of
 
 __all__ = [
     "ANTICHEAT",
@@ -59,6 +59,7 @@ __all__ = [
     "Judgement",
     "LinkAllowlist",
     "Plausibility",
+    "PostRunGate",
     "Quiescence",
     "RepVariation",
     "Sanitizers",
@@ -207,6 +208,16 @@ class Gate:
     check: Check | None = None
 
 
+class PostRunGate:
+    """Base of a gate that checks a finished grade: the subclass defines ``check`` (:data:`Check`)."""
+
+    __slots__ = ()
+
+    @staticmethod
+    def check(context: Context) -> tuple[Found, ...]:
+        raise NotImplementedError
+
+
 def build(key: str, attrs: dict[str, Any]) -> Gate:
     """A gate's :class:`Gate`; refuses an empty ``where`` and a ``symbol`` that is not ``package.module[:attr]``
     (the registry already refused a ``verdict`` that is not a :class:`Verdict`)."""
@@ -245,13 +256,15 @@ def anticheat(key: str, *, order: int) -> Callable[[type], type]:
     (``ANTICHEAT.next_order()`` for a new one).
 
     The class must provide ``title``, ``catches``, ``verdict`` (a :class:`Verdict`) and ``where``; it may
-    provide ``symbol``, a ``check`` staticmethod (:data:`Check`, which makes it a post-run gate) and, with a
+    provide ``symbol``; a post-run gate subclasses :class:`PostRunGate` and defines its ``check`` and, with a
     check, ``reruns``. Every path in ``where`` and the ``symbol`` must exist:
     ``tests/test_anticheat.py`` resolves them. Add the gate to ``docs/anti_cheat.md`` in the same commit."""
 
     def apply(cls: type) -> type:
         gate = build(key, ANTICHEAT.read(key, cls))
-        check = vars(cls).get("check")
+        if not issubclass(cls, PostRunGate) and "check" in methods_of(cls):
+            raise RegistryError(f"anticheat {key!r}: a gate with a check subclasses PostRunGate")
+        check: Check | None = cls.check if issubclass(cls, PostRunGate) else None
         if check is None and gate.reruns:
             raise RegistryError(f"anticheat {key!r}: reruns describes a check; the gate has none")
         if check is not None and gate.verdict in IN_PLACE:
@@ -356,7 +369,7 @@ class FreshBuffers:
 
 
 @anticheat("rep_variation", order=5)
-class RepVariation:
+class RepVariation(PostRunGate):
     """The varied repeats ride in the timed call; the check reads which leg of that call failed."""
 
     __slots__ = ()
@@ -376,7 +389,7 @@ class RepVariation:
 
 
 @anticheat("size_class_sweep", order=6)
-class SizeClassSweep:
+class SizeClassSweep(PostRunGate):
     """The held-out cases ride in the timed call; correct on the public input but not on them is overfit."""
 
     __slots__ = ()
@@ -396,7 +409,7 @@ class SizeClassSweep:
 
 
 @anticheat("device_runtime", order=7)
-class DeviceRuntime:
+class DeviceRuntime(PostRunGate):
     """The grade already credited 1.0 (:data:`scoring.DEVICE_RUNTIME_REFUSAL`); the flag keeps it out of the speedups."""
 
     __slots__ = ()
@@ -414,7 +427,7 @@ class DeviceRuntime:
 
 
 @anticheat("quiescence", order=8)
-class Quiescence:
+class Quiescence(PostRunGate):
     __slots__ = ()
 
     title = "Device quiescence"
@@ -440,7 +453,7 @@ class Quiescence:
 
 
 @anticheat("plausibility", order=9)
-class Plausibility:
+class Plausibility(PostRunGate):
     __slots__ = ()
 
     title = "Plausibility"
@@ -463,7 +476,7 @@ class Plausibility:
 
 
 @anticheat("independent_verify", order=10)
-class IndependentVerify:
+class IndependentVerify(PostRunGate):
     __slots__ = ()
 
     title = "Independent re-verify"
@@ -492,7 +505,7 @@ class IndependentVerify:
 
 
 @anticheat("sanitizers", order=11)
-class Sanitizers:
+class Sanitizers(PostRunGate):
     __slots__ = ()
 
     title = "Sanitizers"

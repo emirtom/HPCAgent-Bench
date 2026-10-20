@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from hpcagent_bench import modules
 from hpcagent_bench import phase_clock
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -87,7 +88,7 @@ def framework_extra_flags(framework: str) -> str:
         return ""
     from hpcagent_bench import flags
 
-    return vars(flags)[FRAMEWORK_FLAGS[framework]].format(n=flags.ncores())
+    return modules.member(flags, FRAMEWORK_FLAGS[framework], str).format(n=flags.ncores())
 
 
 #: framework -> the flags.<name>_capability() probe that must read OK before this column builds
@@ -109,7 +110,7 @@ def assert_autopar_capable(framework: str, short: str) -> None:
         return
     from hpcagent_bench import flags
 
-    probe = vars(flags)[probe_name]()
+    probe = modules.function(flags, probe_name)()
     if probe.verdict is not flags.AutoparVerdict.OK:
         raise NotSupportedByFramework(
             framework,
@@ -197,11 +198,10 @@ def _ctype_for(dtype: "DTypeLike") -> type:
 
 
 def _is_device_array(a: object) -> bool:
-    """Whether ``a`` is a cupy ndarray, duck-typed so this file never imports cupy on a CPU-only
-    run: not an ``np.ndarray``, but carries a dtype and a ``.data.ptr`` device address the way every
-    cupy array does. ``ptr`` is what the GPU residency contract (docs/abi_contract.md Sec. 10) needs
-    handed to the .so instead of a host copy -- see :func:`_to_ctypes`."""
-    return not hasattr(a, "__array_interface__") and hasattr(a, "dtype") and hasattr(getattr(a, "data", None), "ptr")
+    """Whether ``a`` is a cupy array, told by its type's package so this file never imports cupy on a
+    CPU-only run. Its ``.data.ptr`` device address is what the GPU residency contract
+    (docs/abi_contract.md Sec. 10) needs handed to the .so instead of a host copy -- see :func:`_to_ctypes`."""
+    return type(a).__module__.partition(".")[0] == "cupy"
 
 
 def _ctype_arg(a: Any, fcty: type, int_ctype: type) -> type:

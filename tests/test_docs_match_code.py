@@ -15,6 +15,7 @@ import subprocess
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import cli, config, paths
 from hpcagent_bench.harness.prompts import PROMPT_VARIANTS, PromptConfig
 
@@ -207,7 +208,7 @@ def test_docs_name_only_autogen_registries_that_exist() -> None:
         for paragraph in text.split("\n\n")
         if "hpcagent_bench/autogen.py" in paragraph
         for name in re.findall(r"`([A-Z][A-Z_]+)`", paragraph)
-        if not hasattr(hpcagent_bench.autogen, name)
+        if not modules.defines(hpcagent_bench.autogen, name)
     ]
     assert not stale, f"documented autogen names that do not exist: {stale}"
 

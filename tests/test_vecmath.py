@@ -15,6 +15,7 @@ import tomllib
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import flags, languages, osinfo
 from hpcagent_bench.languages import _load_compilers
 
@@ -121,7 +122,9 @@ VECLIB_ROUTE = {
 def test_every_cpu_baseline_is_classified() -> None:
     """A new CPU baseline must declare how it reaches libmvec. Without this the guard below only
     checks the constants someone remembered to list, which is exactly how the gaps survived."""
-    declared = {name for name in vars(flags) if name.endswith("_BASELINE") or name.startswith("CPU_BASELINE_")}
+    declared = {
+        name for name in modules.members(flags) if name.endswith("_BASELINE") or name.startswith("CPU_BASELINE_")
+    }
     unclassified = sorted(declared - set(VECLIB_ROUTE))
     assert not unclassified, (
         f"these CPU baselines are not classified in VECLIB_ROUTE: {unclassified}. "
@@ -139,7 +142,7 @@ LINUX_ONLY = pytest.mark.skipif(not osinfo.IS_LINUX, reason="libmvec is glibc-on
 def test_every_cpu_baseline_reaches_libmvec(name) -> None:
     """The point of the whole file: no CPU baseline may silently lack the vector libm while another
     has it, or the compiler axis measures libmvec instead of the compiler."""
-    baseline = vars(flags)[name]
+    baseline = modules.member(flags, name)
     if not osinfo.IS_LINUX:
         # Not a skip: on macOS there is no libmvec, so the correct state is that no knob is present.
         assert "-fveclib" not in baseline
@@ -161,7 +164,7 @@ def test_a_block_routed_baseline_declares_its_veclib_ref(name) -> None:
     for block in users:
         ref = block.veclib_ref
         assert ref, f"{block.cc} uses {name} but declares no veclib_ref"
-        assert ref in vars(flags), f"veclib_ref {ref!r} is not a constant in hpcagent_bench.flags"
+        assert modules.defines(flags, ref), f"veclib_ref {ref!r} is not a constant in hpcagent_bench.flags"
 
 
 def test_the_fortran_baseline_does_not_carry_the_c_header() -> None:

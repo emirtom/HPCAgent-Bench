@@ -15,6 +15,7 @@ import yaml
 from hpcagent_agent.driver import agent_driver, harnesses
 from hpcagent_agent.tools import http_json
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, containers, paths, run_layout
 from hpcagent_bench.cluster import judge_service
 from hpcagent_bench.harness import recording
@@ -108,7 +109,7 @@ def test_run_cluster_spells_the_run_directory_as_run_layout_does() -> None:
         if name.startswith("LAYOUT_")
     }
     assert layout, "run_cluster.sh defines no LAYOUT_ names"
-    assert layout == {name: getattr(run_layout, name) for name in layout}
+    assert layout == {name: modules.member(run_layout, name) for name in layout}
 
 
 def test_the_agent_writes_the_names_run_layout_reads() -> None:

@@ -19,6 +19,7 @@ import time
 import numpy as np
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import languages, osinfo, spec
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness import native_call, timing
@@ -57,7 +58,7 @@ def test_every_lazily_exported_name_actually_resolves() -> None:
     from hpcagent_bench import frameworks
 
     for name, module in frameworks._LAZY_EXPORTS.items():
-        assert name in vars(importlib.import_module(f"hpcagent_bench.frameworks.{module}")), name
+        assert modules.defines(importlib.import_module(f"hpcagent_bench.frameworks.{module}"), name), name
         assert frameworks.__getattr__(name) is not None, name
 
 

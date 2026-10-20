@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from tests.optional_imports import import_or_skip
+from hpcagent_bench import modules
 
 _BENCH = "hpcagent_bench.benchmarks.scientific_computing"
 
@@ -31,7 +32,7 @@ _BENCH = "hpcagent_bench.benchmarks.scientific_computing"
 def _load(dwarf, kernel):
     init = importlib.import_module(f"{_BENCH}.{dwarf}.{kernel}.{kernel}")
     ref = importlib.import_module(f"{_BENCH}.{dwarf}.{kernel}.{kernel}_numpy")
-    return init.initialize, vars(ref)[kernel]
+    return init.initialize, modules.member(ref, kernel)
 
 
 # N-Body: Lennard-Jones force (miniMD ForceLJ::compute, explicit all-pairs)    #

@@ -50,4 +50,4 @@ def test_harbor_generate_parses_group_and_layout_values(flag: str, kind: type[ha
     """Each member's value is accepted and converts back to the member."""
     for member in kind:
         args = harbor.build_parser().parse_args(["generate", "--out", "x", flag, member.value])
-        assert kind(getattr(args, flag.removeprefix("--"))) is member
+        assert kind(vars(args)[flag.removeprefix("--")]) is member

@@ -12,6 +12,7 @@ import re
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench import config
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.harness.timing import parse_cpu_list, physical_core_affinity
@@ -55,7 +56,7 @@ def test_pin_threads_is_a_noop_when_disabled(monkeypatch) -> None:
     from hpcagent_bench.harness import timing
 
     calls = []
-    if "sched_setaffinity" in vars(__import__("os")):
+    if modules.defines(__import__("os"), "sched_setaffinity"):
         monkeypatch.setattr("os.sched_setaffinity", lambda *a: calls.append(a))
     config.set_override("measurement.pin_threads", False)
     try:

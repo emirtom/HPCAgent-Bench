@@ -17,6 +17,7 @@ import numpy as np
 import pydantic
 import yaml
 
+from hpcagent_bench import modules
 from hpcagent_bench import config, languages, omp_context, sizing
 from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.flags import Mode
@@ -785,7 +786,7 @@ def _time_numba_samples(
     """Per-repeat wall-clock (ns) of the parallel-numba reference, warmup reps discarded. At least one
     warmup always runs (the first call compiles). ``rep_data`` (None = reuse ``data``) gives each repeat's inputs
     (:mod:`hpcagent_bench.harness.rep_variation`)."""
-    func = vars(numba_impl_module(spec))[spec.func_name]
+    func = modules.function(numba_impl_module(spec), spec.func_name)
     order = numba_call_order(spec, func, data)
     return time_python_reference(func, order, data, repeat, max(warmup, 1), rep_data)
 
@@ -831,7 +832,7 @@ def numba_reference_outputs(
     Raises :class:`ReferenceUnavailable` on any failure: the numba form is one of the two compiled
     oracles (:func:`compiled_order`), and the caller moves to the other or scores the fault."""
     try:
-        func = vars(numba_impl_module(spec))[spec.func_name]
+        func = modules.function(numba_impl_module(spec), spec.func_name)
         outputs, _samples, _probes, _followups, _timed = _call_isolated(
             numba_reference_path(spec),
             binding_from_spec(spec),
@@ -1213,7 +1214,7 @@ def time_numba_isolated(
     per-rep ``timeout``, :func:`sizing.reference_memory_gb`, the same warmup discard (at least one
     warmup, since the first call compiles). ``guillotine_s`` bounds only the timed section and is
     derived from a finished candidate, so it cannot change the winner."""
-    func = vars(numba_impl_module(spec))[spec.func_name]
+    func = modules.function(numba_impl_module(spec), spec.func_name)
     outputs, samples, _mem, _extra, _timed = _call_isolated(
         numba_reference_path(spec),
         binding,

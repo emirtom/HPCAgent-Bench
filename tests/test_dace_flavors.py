@@ -18,6 +18,7 @@ from typing import ClassVar
 
 import pytest
 
+from hpcagent_bench import modules
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.dace_framework import (
     DACE_PIPELINES,
@@ -450,4 +451,4 @@ def test_every_dace_symbol_a_pipeline_names_still_resolves() -> None:
     for node in imports:
         module = importlib.import_module(node.module)
         for alias in node.names:
-            assert hasattr(module, alias.name), f"{node.module}.{alias.name} is gone (line {node.lineno})"
+            assert modules.defines(module, alias.name), f"{node.module}.{alias.name} is gone (line {node.lineno})"

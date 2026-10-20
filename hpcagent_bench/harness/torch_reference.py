@@ -151,7 +151,7 @@ def sync_for(device: object, torch: types.ModuleType) -> Callable[[], None]:
     """The device drain :func:`time_reference_dist` times around: ``torch.cuda.synchronize`` on cuda, a
     no-op on cpu (gloo is synchronous); the same split the rank driver makes
     (:func:`~hpcagent_bench.harness.mpi_shard_driver.run`)."""
-    if getattr(device, "type", None) == "cuda":
+    if str(device).partition(":")[0] == "cuda":  # a torch.device or its spelling, "cuda:0"
         return cast("Callable[[], None]", torch.cuda.synchronize)
     return lambda: None
 

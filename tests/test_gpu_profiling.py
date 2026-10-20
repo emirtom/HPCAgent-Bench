@@ -1096,7 +1096,7 @@ def test_no_message_this_module_returns_hands_the_agent_a_command() -> None:
         gpu_profiling.AMD_COUNTER_NOTE,
     ]
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "GpuProfilerUnavailable":
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "GpuProfilerUnavailable":
             outward += [arg.value for arg in node.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
     assert len(outward) > 10, f"only {len(outward)} outward strings found; the AST walk stopped matching"
 

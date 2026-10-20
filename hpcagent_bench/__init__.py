@@ -16,6 +16,7 @@ these names is first touched::
 import os
 from importlib import metadata
 
+from hpcagent_bench import modules
 from hpcagent_bench import core_dumps
 
 try:
@@ -69,7 +70,7 @@ def __getattr__(name: str) -> object:
     if name in _API_EXPORTS:
         from hpcagent_bench import api
 
-        return vars(api)[name]
+        return modules.member(api, name)
     raise AttributeError(f"module 'hpcagent_bench' has no attribute {name!r}")
 
 

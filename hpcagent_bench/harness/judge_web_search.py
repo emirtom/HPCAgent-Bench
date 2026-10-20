@@ -62,6 +62,7 @@ __all__ = [
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+    from crawl4ai.models import CrawlResult
 
 
 @dataclass(slots=True)
@@ -237,18 +238,24 @@ def call_serpapi(query: str, max_results: int, timeout: float) -> list[SearchRes
 
 
 def markdown_text(markdown: object) -> str:
-    for attr in ("fit_markdown", "markdown_with_citations", "raw_markdown"):
-        value = getattr(markdown, attr, None)
-        if value:
-            return str(value)
+    """The most distilled text of a page's markdown: crawl4ai's fit, cited or raw markdown, or the string itself."""
+    from crawl4ai.models import MarkdownGenerationResult  # deferred: the judge's optional search stack
+
+    if isinstance(markdown, MarkdownGenerationResult):
+        return markdown.fit_markdown or markdown.markdown_with_citations or markdown.raw_markdown or ""
     return str(markdown or "")
 
 
 def markdown_references(markdown: object) -> str:
-    return str(getattr(markdown, "references_markdown", "") or "")
+    """The reference list of a page's markdown; empty for a plain string."""
+    from crawl4ai.models import MarkdownGenerationResult  # deferred: the judge's optional search stack
+
+    return markdown.references_markdown or "" if isinstance(markdown, MarkdownGenerationResult) else ""
 
 
-async def collect_arun_many(crawler: "AsyncWebCrawler", urls: list[str], config: "CrawlerRunConfig") -> list[Any]:
+async def collect_arun_many(
+    crawler: "AsyncWebCrawler", urls: list[str], config: "CrawlerRunConfig"
+) -> list["CrawlResult"]:
     crawled = crawler.arun_many(urls, config=config)
     if inspect.isawaitable(crawled):
         crawled = await crawled
@@ -330,13 +337,13 @@ async def crawl_with_crawl4ai(
 
     seen_urls = set()
     for crawled in crawl_results:
-        url = str(getattr(crawled, "url", "") or "")
+        url = crawled.url or ""
         source = by_url.get(url) or next((candidate for candidate in selected if candidate.url == url), None)
         if source is None:
             source = SearchResult(title=url or "unknown", url=url, snippet="")
         seen_urls.add(source.url)
-        if getattr(crawled, "success", False):
-            markdown = getattr(crawled, "markdown", "")
+        if crawled.success:
+            markdown = crawled.markdown
             content = markdown_text(markdown)[:max_chars]
             references = markdown_references(markdown)
             pages.append(CrawledPage(source.title, source.url, source.snippet, content, references, True))
@@ -349,7 +356,7 @@ async def crawl_with_crawl4ai(
                     "",
                     "",
                     False,
-                    str(getattr(crawled, "error_message", "crawl failed")),
+                    crawled.error_message or "crawl failed",
                 )
             )
 
