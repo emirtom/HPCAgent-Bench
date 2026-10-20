@@ -2,9 +2,27 @@
 
 ## 0.2.1 (2026-10)
 
-Pinned with dace extended `0fd6219ce` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
+Pinned with dace extended `bda29a3d9` (the bench's pin now overrides the one Alloy names), Alloy `aeca753` and
 relayout `2718b2f`. Fixes the CI failures the 0.2.0 release left and makes every scientific_computing numba reference
 parallel.
+
+### dace extended `0fd6219ce` -> `bda29a3d9`
+Bug fixes and optimizations only; canonicalized programs compute the same values.
+- **More parallel loops.** Sibling loops that each write a scalar temporary before reading it get a private copy
+  each, also when it is written in every arm of a conditional or read by a branch condition, and LoopToMap no longer
+  reads a later loop reusing an iterator name as a use of the earlier loop's value. CloudSC's column loops become
+  maps on the GPU target: the level loop is one kernel over the columns (231 -> 19 kernels).
+- **GPU correctness.** CloudSC canonicalize-GPU, its vectorized GPU form and the parallelize pipeline run on the
+  device now match the reference (host arrays no longer reach kernels; the GPU vectorizer splits a fused map's
+  per-iteration buffer into per-element scalars instead of aborting). A `break` copies host writes back to the device
+  before leaving a loop (TSVC `s482`).
+- **Inliner.** No identity self-copies (`A -> A`); a map body's write keeps its path to the scope exit, anchored on the
+  node that writes.
+- **Speed** (canonicalize CPU seconds, output unchanged by hash): CloudSC about 12% and cloudsc_monolith about 12%
+  faster, velocity_tendencies about 6%; loop peeling 1.5x faster (monolith 21.9s -> 14.3s); `symbolic.simplify`
+  skips sympy for shapes it returns unchanged.
+- **Code.** Our passes read declared members (no `getattr`/`hasattr`); `dtypes.TYPECLASS_BY_NAME`;
+  `LibraryNode.folds_onto_output()`. Main's GPU schedule groups (#2702) merged.
 
 ### Changed
 - **Parallel numba references.** The scientific_computing oracle is best-of(numba, c), and 30 kernels' numba half
