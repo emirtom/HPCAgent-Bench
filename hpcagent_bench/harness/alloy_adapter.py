@@ -1,9 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Alloy (the optional ``alloy`` extra) on HPCAgent-Bench. Alloy builds and verifies every region's candidates and
-times none of them; the judge times each verified candidate as a ``/profile`` stub (the kernel's signature, the regions
-before it at their best, nothing after; one input, :data:`PROFILE_REPS` repetitions, at :data:`FAST_SIZE` where the run
-is larger) and scores the chosen library once with ``/score``."""
+"""Alloy (the optional ``alloy`` extra) on HPCAgent-Bench: Alloy builds and verifies every region's candidates, the
+judge times each as a ``/profile`` stub, and the chosen library is scored once with ``/score``."""
 
 import pathlib
 import sys
@@ -62,14 +60,14 @@ __all__ = [
 
 #: Repetitions the judge times a stub over (one input).
 PROFILE_REPS = 5
-#: The size a stub is timed at when the run's preset is larger: the hot regions rank alike at a fraction of the time.
+#: The size a stub is timed at when the run's preset is larger.
 FAST_SIZE = Preset.M
 #: Task language -> the CPF dialect the library is rendered in.
 DIALECT = {"c": "c", "cpp": "c++"}
 #: A flavor's ``arch`` -> the device its pipeline targets.
 DEVICES = {"cpu": dace.dtypes.DeviceType.CPU, "gpu": dace.dtypes.DeviceType.GPU}
 
-#: Builds a library submission from a rendered unit and what it links against (the bench's ``.so`` build).
+#: Builds a library submission from a rendered unit and what it links against.
 Deliver = Callable[[str, Sequence[str]], Submission]
 #: Times one library submission on the judge: ``/profile`` in production, a fake in tests.
 Profile = Callable[[Submission], ProfileAnswer]
@@ -93,15 +91,13 @@ def verified(rep: RegionReport, verdicts: dict[str, Verdict]) -> list[Build]:
 
 
 def fast_size(token: str) -> Preset | None:
-    """The size a stub is timed at on a run of the preset ``token`` (``XL``, ``L+fuzz``, ...): :data:`FAST_SIZE` when
-    the run's rung is larger, else the run's own (None)."""
+    """The size a stub is timed at on a run of preset ``token``: :data:`FAST_SIZE` when the run is larger, else None."""
     preset = Preset.parse(token.partition("+")[0])
     return FAST_SIZE if preset.is_rung and RUNGS.index(FAST_SIZE) < RUNGS.index(preset) else None
 
 
 def generated(sdfg: dace.SDFG, spec: BenchSpec, precision: Precision, matrix: Matrix, out: pathlib.Path) -> api.Result:
-    """Alloy on ``sdfg`` under ``out``, every candidate verified on the kernel's bench manifest at ``precision`` and
-    timed by nobody here."""
+    """Alloy on ``sdfg`` under ``out``, every candidate verified at ``precision`` and timed by nobody here."""
     manifest = inputs.load(
         paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}.yaml", datatype=numpy_dtype(precision).__name__
     )
@@ -112,8 +108,7 @@ def generated(sdfg: dace.SDFG, spec: BenchSpec, precision: Precision, matrix: Ma
 
 
 def nothing_to_generate(sdfg: dace.SDFG, matrix: Matrix) -> bool:
-    """Whether ``sdfg`` outlines into no region (a pipeline folded every loop away): the program is the default
-    codegen."""
+    """Whether ``sdfg`` outlines into no region (the program is the default codegen)."""
     return not regions.outline(sdfg, matrix.libm_calls).regions
 
 
@@ -148,8 +143,7 @@ def library(task: Task, spec: BenchSpec, linker: Linker, selection: dict[str, Bu
 
 
 def stub_time(answer: ProfileAnswer) -> float:
-    """A stub's time from its profile: device time per repetition from a device trace, else the elapsed time of the
-    linuxperf configuration with the most threads (the graded one)."""
+    """A stub's time: device time per repetition from a trace, else the graded linuxperf configuration's elapsed."""
     report = answer.root
     if isinstance(report, DeviceTraceReport):
         return report.device_ns_per_rep
@@ -172,9 +166,8 @@ def ranked[B: Named](
     time_stub: Callable[[dict[str, B], str], float],
     affordable: Callable[[], bool],
 ) -> dict[str, B]:
-    """The selection after the inner tier: region by region in execution ``order``, each of its ``candidates`` timed
-    as a stub over the regions before it at their best so far (``time_stub``), the fastest kept. A region whose stubs
-    all fail keeps ``start``'s build; the loop stops when no longer ``affordable``."""
+    """Region by region in execution ``order``, each candidate timed as a stub over the best of the regions before
+    it, the fastest kept; stops when no longer ``affordable``."""
     chosen = dict(start)
     for symbol in order:
         times: dict[str, float] = {}
@@ -183,7 +176,7 @@ def ranked[B: Named](
                 return chosen
             try:
                 times[build.name] = time_stub({**chosen, symbol: build}, symbol)
-            except Exception as exc:  # noqa: BLE001 -- a stub that fails to build or run drops out of the ranking
+            except Exception as exc:  # noqa: BLE001 -- a failing stub drops out of the ranking
                 print(f"alloy: stub {symbol}/{build.name} dropped: {exc}", file=sys.stderr, flush=True)
         pool = {b.name: b for b in [chosen[symbol], *candidates.get(symbol, [])]}
         print(f"alloy: {symbol}: {len(times)} stubs timed", file=sys.stderr, flush=True)
@@ -193,8 +186,8 @@ def ranked[B: Named](
 
 
 def optimize(task: Task, pipeline: str, deliver: Deliver, profile: Profile | None = None) -> Submission:
-    """Alloy on ``task``'s kernel after ``pipeline``: the selection the judge's stub timing chose, if ``/score`` grades
-    it correct, else every region's reference; with no region, CPF's default rendering of the program."""
+    """Alloy on ``task``'s kernel after ``pipeline``: the stub-timed selection if ``/score`` grades it correct, else
+    every region's reference (CPF's default rendering with no region)."""
     started = time.monotonic()
     if task.language.text not in DIALECT or task.source_mode is SourceMode.RESTRICTED:
         raise NotImplementedError(f"Alloy submits a C/C++ library; got {task.language.text}/{task.source_mode.text}")
@@ -217,7 +210,7 @@ def optimize(task: Task, pipeline: str, deliver: Deliver, profile: Profile | Non
     score_costs: list[float] = []
 
     def score_reserve() -> float:
-        # the final score of the selection and the harness's own grade; a stub's cost until a score is measured
+        # the selection's final score plus the harness's own grade
         return 2 * max(score_costs, default=max(stub_costs, default=0.0))
 
     def affordable_stub() -> bool:

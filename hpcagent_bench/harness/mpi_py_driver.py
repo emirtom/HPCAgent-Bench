@@ -61,9 +61,7 @@ def to_host(tile: np.ndarray, is_device: bool) -> np.ndarray:
 
 
 def _device_sync(on_device: "frozenset[int]") -> None:
-    """Block until every enqueued GPU op finishes; the C driver's gpuDeviceSynchronize twin
-    (support/bindings/mpi_driver.py dev_sync_before/dev_sync_after). A no-op for a host-only
-    submission, so this never imports cupy unless a tile is actually device-resident."""
+    """Block until every enqueued GPU op finishes (the C driver's twin); a no-op without device tiles."""
     if not on_device:
         return
     import cupy as cp  # pyright: ignore[reportMissingImports] -- optional GPU dependency, absent from the dev env
@@ -90,7 +88,7 @@ def run(
     device_mask: Sequence[int] = (),
 ) -> None:
     """Drive one rank of an MPI python submission end to end; device_mask lists GPU-located pointer indices."""
-    # explicit check-and-init: an ambient MPI4PY_RC_INITIALIZE=0 makes `from mpi4py import MPI` skip auto-init
+    # Explicit check-and-init: MPI4PY_RC_INITIALIZE=0 would make the import skip auto-init.
     from mpi4py import MPI
 
     if not MPI.Is_initialized():
@@ -117,7 +115,7 @@ def run(
     ws_bytes = cart.scatter(parsed.workspace_bytes if parsed is not None else None, root=0)
 
     kernel = load_kernel(module_path, func_name)
-    # workspace is uninitialised scratch, matching the C driver's xmalloc (ABI Sec. 11: scratch, not zeroed)
+    # workspace is uninitialised scratch, as in the C driver (ABI Sec. 11)
     on_device = frozenset(i for i in device_mask if 0 <= int(i) < n_ptr)
     compute, workspace = _stage(tiles, ws_bytes, on_device)
     pristine = [t.copy() for t in compute]
@@ -125,19 +123,19 @@ def run(
     samples: list[float] = []
     for _k in range(k_repeats):
         for i in range(n_ptr):
-            compute[i][...] = pristine[i]  # each repeat sees the same problem (like single-node)
-        _device_sync(on_device)  # sync before timing: keeps the untimed reseed out of the window
+            compute[i][...] = pristine[i]  # each repeat sees the same problem
+        _device_sync(on_device)  # keeps the untimed reseed out of the window
         cart.Barrier()
         t0 = MPI.Wtime()
         kernel(*compute, *scalars, comm=cart, workspace=workspace)
-        _device_sync(on_device)  # sync after kernel: the launch is async, so t0..here would
-        cart.Barrier()  # otherwise time only the enqueue, not the compute (C driver's twin gate)
+        _device_sync(on_device)  # the launch is async: time the compute,
+        cart.Barrier()  # not only the enqueue
         dt = MPI.Wtime() - t0
         g = cart.reduce(dt, op=MPI.MAX, root=0)  # slowest rank sets the repeat's time
         if g is not None:
             samples.append(g)
 
-    # gather output tiles to rank 0 in rank order (device tiles copied back to host first)
+    # Gather output tiles to rank 0 in rank order (device tiles copied back first).
     outputs: list[tuple[str, str, list[np.ndarray]]] = []
     for i in range(n_ptr):
         if not is_output[i]:
@@ -149,11 +147,8 @@ def run(
         with pathlib.Path(outfile).open("wb") as f:
             f.write(pack_outfile(world.size, k_repeats, samples, outputs))
 
-    # Match the C driver, which has always called MPI_Finalize (support/bindings/mpi_driver.py).
-    # mpi4py finalizes at exit only when IT did the init, and the check-and-init above means it
-    # did not -- so every rank exited an initialized world. Open MPI's prte reports that as
-    # `prun:proc-exit-no-sync` and the LAUNCHER exits 1 even though every rank ran and wrote its
-    # output, which read as a broken MPI environment and skipped the whole distributed track.
+    # Finalize explicitly, as the C driver does: mpi4py skips it when it did not init, and Open MPI's launcher then
+    # exits 1 (`prun:proc-exit-no-sync`) even though every rank succeeded.
     MPI.Finalize()
 
 
@@ -173,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     infile, outfile, module_path = argv[0], argv[1], argv[2]
-    # <grid> is the comma-joined descriptor grid dims (e.g. "4" or "2,2"); absent -> 1-D [nranks].
+    # <grid> is the comma-joined descriptor grid dims; absent -> 1-D [nranks].
     grid = tuple(int(x) for x in argv[3].split(",")) if len(argv) > 3 and argv[3] else None
     func_name = argv[4] if len(argv) > 4 else "kernel_mpi"
     run(infile, outfile, module_path, grid=grid, func_name=func_name, device_mask=device_mask)

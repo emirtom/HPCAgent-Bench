@@ -1,22 +1,8 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What the device did INSIDE its kernels: ``rocprof-compute`` on AMD, Nsight Compute (``ncu``) on NVIDIA.
-
-The device trace (:mod:`hpcagent_bench.harness.gpu_profiling`) answers which kernel, how often and
-for how long. These two answer why: utilization, occupancy, stalls, cache and LDS traffic. Both
-REPLAY to get there -- ``rocprof-compute`` runs the whole program once per counter pass (13 passes
-on ROCm 7.2.0, MI300A), ``ncu`` replays one launch per pass with the clocks pinned and the caches
-flushed -- so every number is a count, a share or a utilization, and no field is a time.
-
-Same build as the graded one, same measured child, a separate run. The payload carries the headline
-rows; the full report (every table, the rendered text, the raw counters) is copied into the agent's
-shared folder by :mod:`hpcagent_bench.harness.report_staging`, because the sandbox holding it is
-deleted when the request ends.
-
-``rocprof-compute``: ``profile --no-roof``, then ``analyze --output-format csv|txt``; the readers expect
-that layout. ``ncu``: ``--set basic -c -s -k -o -f --``, then ``-i --page details|raw --csv``; the CSV reader
-locates metric ids per row and assumes no column order.
-"""
+"""What the device did INSIDE its kernels: ``rocprof-compute`` (AMD) or Nsight Compute (``ncu``). Both replay the
+work per counter pass, so every number is a count, share or utilization, never a time; the full report is staged
+into the agent's shared folder."""
 
 import csv
 import io
@@ -94,10 +80,10 @@ NCU = "ncu"
 #: The compute profiler per device language; an OpenMP-offload setup takes the AMD one.
 COMPUTE_TOOLS: dict[Language, str] = {Language.HIP: ROCPROF_COMPUTE, Language.CUDA: NCU}
 
-#: Replays one request may pay for. rocprof-compute 3.4.0 ran the program 13 times on MI300A.
+#: Replays one request may pay for.
 PASS_BUDGET = 16
 
-#: Measured reps per replay when the request names none: every pass repeats all of them.
+#: Measured reps per replay when the request names none (every pass repeats all of them).
 DEFAULT_REPS = 1
 
 #: Under the sandbox root: the workload rocprof-compute records and the analysis it renders.
@@ -126,8 +112,7 @@ NCU_SET = "basic"
 NCU_DETAILS = "details.txt"
 NCU_RAW = "raw.csv"
 
-#: The raw metric ids read into the payload, from the shipped Speed Of Light, MemoryWorkloadAnalysis
-#: and Occupancy sections. The details text carries every other row.
+#: The raw ``ncu`` metric ids read into the payload; the details text carries every other row.
 NCU_METRICS = (
     "gpu__compute_memory_throughput.avg.pct_of_peak_sustained_elapsed",
     "gpu__compute_memory_access_throughput.avg.pct_of_peak_sustained_elapsed",
@@ -311,10 +296,7 @@ def rocprof_compute_tables(
 
 
 def ncu_metrics(raw_csv: str) -> list[ComputeMetric]:
-    """The :data:`NCU_METRICS` a raw ``--csv`` export carries, in that order, each once.
-
-    A row names a metric id in some cell and its value in the first numeric cell after it; the
-    layout is not assumed beyond that."""
+    """The :data:`NCU_METRICS` a raw ``--csv`` export carries, in that order, each once (no column order assumed)."""
     found: dict[str, float] = {}
     for cells in csv.reader(io.StringIO(raw_csv)):
         stripped = [cell.strip() for cell in cells]
@@ -400,10 +382,7 @@ def workload_failure(tool: str, proc: subprocess.CompletedProcess[str]) -> Runti
 
 
 def compute_check(language: Language) -> str:
-    """The compute profiler's executable for ``language``, or :class:`GpuProfilerUnavailable`.
-
-    The vendor's device gates first, shared with the trace and refused with the same causes; then
-    the tool itself, which a host can lack while carrying the tracer."""
+    """The compute profiler's executable for ``language``, or :class:`GpuProfilerUnavailable` (device gates first)."""
     if gpu_profiling.traces_amd(language):
         gpu_profiling.rocprof_check()
         exe = shutil.which(ROCPROF_COMPUTE)
@@ -434,8 +413,7 @@ def amd_compute_once(root: pathlib.Path, request_file: pathlib.Path, *, exe: str
     workload = base / WORKLOAD_DIR
     analysis = base / ANALYSIS_DIR
     analysis.mkdir(parents=True, exist_ok=True)
-    # Sealed OUTSIDE the profiler, as rocprof_record seals rocprofv3: rocprof-compute drives the same
-    # rocprofiler-sdk preload, under which the seal cannot enter its namespaces (gpu_profiling.child_argv).
+    # Sealed OUTSIDE the profiler: under the rocprofiler-sdk preload the seal cannot enter its namespaces.
     plan = profiling.request_plan(request_file)
     measured = gpu_profiling.measured_argv(request_file, sealed_outside=plan is not None)
     argv = seal.wrap(plan, rocprof_compute_profile_argv(exe, workload, measured))
@@ -567,9 +545,7 @@ def profile_compute_submission(
 ) -> ComputePayload | profiling.BuildFailure:
     """Build ``submission``, count one replayed run with the vendor's compute profiler, stage the report.
 
-    Refused BEFORE anything is compiled when the host cannot count (:func:`compute_check`). ``home``
-    is :func:`report_staging.report_home`'s ``(judge folder, agent folder)``. ``device_kernel`` is
-    ``ncu``'s exact kernel name; ``regex:`` is refused, because it matches substrings."""
+    Refused before compiling when the host cannot count; ``device_kernel`` is ``ncu``'s exact name (no ``regex:``)."""
     if device_kernel is not None and device_kernel.startswith("regex:"):
         raise ValueError("device_kernel is an exact kernel name as the trace reports it; 'regex:' matches substrings")
     exe = compute_check(task.language)
