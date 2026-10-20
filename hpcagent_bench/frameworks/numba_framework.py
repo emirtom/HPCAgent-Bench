@@ -1,21 +1,45 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import importlib.util
 import inspect
+import re
+import sys
+import tempfile
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, Protocol, cast
 
-from hpcagent_bench import autogen
+from hpcagent_bench import autogen, modules
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks.framework import BenchData, CallPlan, KernelImpl, load_impl
+from hpcagent_bench.harness import disk_cache
 
-__all__ = ["IMPL_NAME", "NumbaDispatcher", "NumbaFramework"]
+__all__ = ["FASTMATH_FLAVOR", "IMPL_NAME", "NumbaDispatcher", "NumbaFramework", "fastmath_source"]
+
+#: The numba column's flavor that compiles every ``njit`` function with ``fastmath=True``.
+FASTMATH_FLAVOR = "fastmath"
+
+#: An ``@njit`` / ``@nb.njit`` / ``@numba.njit`` decorator, bare or called.
+NJIT_DECORATOR = re.compile(r"@(?P<module>(?:nb|numba)\.)?njit\b(?:\((?P<options>[^)]*)\))?")
 
 
 #: The implementation name of the parallel (``np``) ``@nb.njit`` build in ``<module>_numba.py`` (a
 #: hand-written file at that name overrides the generated one). It is one reference of the configured
 #: speedup denominator (``measurement.denominator``, best-of(numba,c) by default).
 IMPL_NAME = "nopython-mode-parallel"
+
+
+def fastmath_source(source: str) -> str:
+    """``source`` with ``fastmath=True`` added to every ``njit`` decorator that does not set it."""
+
+    def add(match: re.Match[str]) -> str:
+        options = (match["options"] or "").strip()
+        if "fastmath" in options:
+            return match[0]
+        return f"@{match['module'] or ''}njit({options + ', ' if options else ''}fastmath=True)"
+
+    return NJIT_DECORATOR.sub(add, source)
 
 
 class NumbaDispatcher(Protocol):
@@ -98,8 +122,35 @@ class NumbaFramework(Framework):
             return []
         self.ensure_impls(bench)
         try:
+            if self.column.flavor == FASTMATH_FLAVOR:
+                return [(self.fastmath_impl(bench), IMPL_NAME)]
             return [(load_impl(bench, self.column.postfix), IMPL_NAME)]
         except ModuleNotFoundError as exc:
             if exc.name != bench.impl_module(self.column.postfix):
                 raise
             return []
+
+    def fastmath_impl(self, bench: Benchmark) -> KernelImpl:
+        """``<module>_numba.py``'s entry point with :func:`fastmath_source` applied, imported from a content-addressed
+        copy so ``cache=True`` never serves the strict build for it."""
+        name = bench.impl_module(self.column.postfix)
+        spec = importlib.util.find_spec(name)
+        if spec is None or spec.origin is None:
+            raise ModuleNotFoundError(f"no module named {name!r}", name=name)
+        source = Path(spec.origin)
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = Path(tmp) / f"{source.stem}_{FASTMATH_FLAVOR}.py"
+            staged.write_text(fastmath_source(source.read_text()))
+            path = disk_cache.shared_source(staged)
+            module_name = f"{name}_{FASTMATH_FLAVOR}"
+            module_spec = importlib.util.spec_from_file_location(module_name, path)
+            if module_spec is None or module_spec.loader is None:
+                raise ModuleNotFoundError(f"cannot load {path}", name=name)
+            module = importlib.util.module_from_spec(module_spec)
+            # Registered BEFORE exec: dataclasses resolves string annotations through sys.modules.
+            sys.modules[module_name] = module
+            module_spec.loader.exec_module(module)
+        impl = modules.optional_function(module, bench.spec.func_name)
+        if impl is None:
+            raise AttributeError(f"{name} defines no {bench.spec.func_name}")
+        return impl

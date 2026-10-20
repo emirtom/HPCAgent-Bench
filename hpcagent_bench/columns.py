@@ -563,3 +563,21 @@ add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_profile")
 add_dace(Arch.CPU, DaceStage.AUTOOPT, "alloy_heuristic")
 add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_profile")
 add_dace(Arch.GPU, DaceStage.AUTOOPT, "alloy_heuristic")
+
+
+# numba with LLVM's fast-math flags on every njit function of the reference (reassociation, no NaN/Inf guarantees).
+FRAMEWORKS.add(
+    "numba_fastmath",
+    Column(
+        display="Numba (fastmath)",
+        adapter="hpcagent_bench.frameworks.numba_framework:NumbaFramework",
+        base="numba",
+        full_name="Numba (fastmath)",
+        postfix="numba",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=IEEE_PRECISIONS,
+        column="numba",
+        flavor="fastmath",
+    ),
+)

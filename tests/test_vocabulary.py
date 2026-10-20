@@ -132,6 +132,7 @@ PINNED_FRAMEWORKS = (
     "dace_cpu_autoopt_alloy_heuristic",
     "dace_gpu_autoopt_alloy_profile",
     "dace_gpu_autoopt_alloy_heuristic",
+    "numba_fastmath",
 )
 
 PINNED = {
