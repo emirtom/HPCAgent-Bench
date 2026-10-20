@@ -148,7 +148,6 @@ MUTED: str = "#6b6b70"
 RULE: str = "#d6d6da"
 #: Text that labels the chart rather than the data (quadrant captions and the like).
 FAINT: str = "#a8a8ae"
-#: The zero/parity reference line, darker than the grid because it is a statement.
 #: Typographic points per inch: the unit of every font size and line width against the inch figure sizes.
 POINTS_PER_INCH: float = 72.0
 
@@ -333,16 +332,11 @@ def legend_below(
     handlelength: float = 2.0,
     exact: bool = False,
 ) -> float:
-    """One legend, centred under the whole figure and wrapped to its width; never inside the axes.
-    Returns the legend's height in inches, for the caller's bottom margin.
+    """One legend, centred under the whole figure (or the plot body ``span``) and wrapped to its width; returns its
+    height in inches.
 
-    The requested column count is a ceiling: a row too wide for the canvas drops a column until it
-    fits. ``fontsize``/``markerscale`` override the defaults for a figure too short to afford them.
-    ``span``, the plot body's (left, right) in figure fractions, makes the body's width the limit
-    instead of the canvas, and centres the legend on it. ``exact`` keeps the column count as given: a key laid
-    out by columns (one meaning per column) that does not fit draws nothing and returns -1.0, for the caller to
-    lay it out over fewer columns itself rather than have its columns refilled out of order.
-    """
+    The column count is a ceiling (dropped until a row fits); ``exact`` keeps it and returns -1.0, drawing nothing,
+    when it does not fit. ``fontsize``/``markerscale`` override the defaults."""
     columns = ncol if ncol != 0 else min(len(handles), 5)
     left, right = span if span is not None else (0.0, 1.0)
     limit = (right - left) * float(fig.get_size_inches()[0])
@@ -379,11 +373,7 @@ def legend_below(
 
 
 def decade_label(value: float, position: int = 0) -> str:
-    """A log-axis major as a plain number with a magnitude suffix: 500K, 1M, 2.5M.
-
-    Not scientific notation: matplotlib's own formatter also declines to label anything but 1x/2x
-    of a decade. Falls back to a plain number below a thousand.
-    """
+    """A log-axis major as a plain number with a magnitude suffix (500K, 1M, 2.5M); plain below a thousand."""
     if value <= 0:
         return ""
     for threshold, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
@@ -434,13 +424,8 @@ OCTAVE_TOLERANCE: float = 1e-6
 
 
 def ratio_minor_exponents(majors: Sequence[float], low: float, high: float) -> list[float]:
-    """Minor ticks of a ratio axis inside ``[low, high]`` (majors, limits and result all in log2
-    exponent units).
-
-    Spacing is read off ``majors``: more than an octave apart gets a minor at every octave between
-    them; one octave apart gets :data:`OCTAVE_SUBS` inside it. Fewer than two majors, or majors
-    under an octave apart, get none.
-    """
+    """Minor ticks of a ratio axis inside ``[low, high]`` (log2 exponent units): one per octave between majors more
+    than an octave apart, :data:`OCTAVE_SUBS` inside a single octave, none otherwise."""
     exponents = sorted(set(majors))
     if len(exponents) < 2:
         return []
@@ -549,19 +534,13 @@ def minor_ticks(axis: Axis, kind: MinorKind, color: str = MINOR_RULE, width: flo
 
 
 def value_axis(ax: Axes, axis: Literal["x", "y"] = "y", log_base: float = LOG_BASE, major: bool = True) -> None:
-    """Ticks and a major grid for the axis carrying the measured quantity; on a log axis, also the
-    shared minor ruling (:func:`minor_ticks`).
-
-    ``log_base`` is passed rather than read off the axis: matplotlib keeps it under a private name,
-    and a wrong guess puts gridlines at the wrong ratios.
-    """
+    """Ticks and a major grid for the axis carrying the measured quantity (plus :func:`minor_ticks` on a log axis);
+    ``log_base`` is passed because matplotlib keeps it private."""
     target: Axis = ax.yaxis if axis == "y" else ax.xaxis
     scale: str = ax.get_yscale() if axis == "y" else ax.get_xscale()
     if scale == "log":
         if major:
-            # A decade gets 1, 2, 5 (more than one labelled tick even under two decades). A base-2
-            # (ratio) axis gets 1 only: a 1.5 sub would label ticks a reader cannot place on a log2
-            # grid by eye (:func:`ratio_tick_label`).
+            # A decade gets 1, 2, 5; a base-2 (ratio) axis gets 1 only (a 1.5 sub cannot be placed by eye).
             subs = (1.0, 2.0, 5.0) if log_base == 10.0 else (1.0,)
             target.set_major_locator(LogLocator(base=log_base, subs=subs, numticks=VALUE_LOG_NUMTICKS))
         if log_base == 10.0 and major:
@@ -618,13 +597,8 @@ def point_mark(
     delivered: bool = True,
     clip: bool = True,
 ) -> None:
-    """One point of a two-condition pair: a white disc under the mark (masks the grid and any
-    connector), then the mark itself.
-
-    ``delivered=False`` overlays a small cross on the model's own shape, always hollow: a cross in
-    the series' own colour over a filled mark of that colour is invisible. ``clip=False`` lets a
-    mark on the axis limit print whole instead of halved.
-    """
+    """One point of a two-condition pair: a white disc under the mark (masking grid and connector), then the mark;
+    ``delivered=False`` overlays a hollow cross, ``clip=False`` prints a mark on the limit whole."""
     filled = filled and delivered
     size *= MARKER_AREA_SCALE.get(marker, 1.0) if isinstance(marker, str) else 1.0
     drawn = marker_style(marker)
@@ -693,12 +667,8 @@ PLACED_SIDE_PAD_IN: float = 0.02
 
 
 def placed_box(fig: Figure, width_in: float) -> Bbox:
-    """The saved box of a paper figure placed at ``width_in``: the ink's own height, the canvas's width.
-
-    A tight crop sets the width from the ink, so the page rescales the figure and its type by the
-    ratio of the two. Refuses a canvas of another width, ink outside it, and text outside the print
-    range (:func:`print_type_violations`).
-    """
+    """The saved box of a paper figure placed at ``width_in`` (the ink's height, the canvas's width); refuses another
+    canvas width, ink outside it, and off-scale text (:func:`print_type_violations`)."""
     width = float(fig.get_size_inches()[0])
     if abs(width - width_in) > PLACED_WIDTH_RTOL * width_in:
         raise ValueError(f"figure is {width:.3f}in wide, placed at {width_in:.3f}in")
@@ -721,17 +691,11 @@ def save(
     width_in: float = 0.0,
     print_size: bool = False,
 ) -> pathlib.Path:
-    """Write ``fig`` under ``stem`` once per suffix in ``formats``, and close it. Returns ``stem``.
+    """Write ``fig`` under ``stem`` once per suffix in ``formats`` (:data:`UNDATED`, so reruns are byte-identical),
+    close it, and return ``stem``.
 
-    A paper takes the PDF; a web page takes the PNG (at ``dpi``, 200 by default) or the SVG.
-    ``fixed`` keeps the canvas at its figsize instead of cropping to the ink, which is what keeps
-    two paired figures the same size: a tight box is sized by each figure's own legend. Closing
-    matters in a loop -- matplotlib keeps every open figure alive, and a sweep that renders one per
-    directory otherwise ends up holding all of them. Every file is written :data:`UNDATED`, so a
-    rerun is byte-identical. ``width_in`` marks a paper figure placed at that width
-    (:func:`placed_box`): it is saved exactly that wide, and refused if its type is off the print scale.
-    ``print_size`` applies the same type check to a figure that sizes its own canvas (``fixed``).
-    """
+    ``fixed`` keeps the figsize instead of cropping to the ink; ``width_in`` saves a paper figure exactly that wide
+    (:func:`placed_box`); ``print_size`` checks a self-sized figure's type against the print scale."""
     stem.parent.mkdir(parents=True, exist_ok=True)
     settle_clear_labels(fig)
     wrong = print_type_violations(fig) if print_size else []
@@ -747,9 +711,7 @@ def save(
     return stem
 
 
-# Measured layout. Every figure module sizes its chrome from what its text MEASURES on the laid-out
-# figure, never from a fixed fraction: a fixed band is right for one width and one label length,
-# and on any other it either wastes the page or prints the chrome over the data.
+# Measured layout: every figure module sizes its chrome from what its text MEASURES, never a fixed fraction.
 
 
 def renderer_of(fig: Figure | SubFigure) -> RendererBase:
@@ -812,13 +774,8 @@ def crowded_ticks(ax: Axes, renderer: RendererBase, gap: float) -> bool:
 
 
 def shrink_crowded_ticks(fig: Figure, axes: Sequence[Axes], start_pt: float, floor_pt: float) -> float:
-    """Step the X tick labels of ``axes`` down from ``start_pt``, all to one size, until no printed
-    line is crowded (:func:`crowded_ticks`); returns the size they got. Labels still crowded at
-    ``floor_pt`` stay at the floor and are reported: below it they are no longer readable, and an
-    overprint is a layout the caller has to change.
-
-    Two labels closer than a third of their type size read as one word ("OMPTriton").
-    """
+    """Step the X tick labels of ``axes`` down from ``start_pt``, all to one size, until no printed line is
+    crowded (:func:`crowded_ticks`); returns the size. Labels still crowded at ``floor_pt`` stay there, reported."""
     renderer = renderer_of(fig)
     size = start_pt
     while True:
@@ -895,16 +852,8 @@ CLEAR_PAD_PT: float = 1.5
 
 
 def settle_clear_labels(fig: Figure) -> None:
-    """Place every :data:`CLEAR_GID` annotation clear of the marks, of the labels settled before it
-    and of its axes' frame, moving it as little as possible.
-
-    A label starts where its caller put it (above a mark, beside a bracket). It is shifted inside the
-    frame sideways, raised until nothing under its span touches it, and held under the frame top; if
-    holding it there lands it on a mark again, it slides sideways at that height, and failing that
-    takes the highest clear gap below (:func:`clear_place`). Runs at
-    save time, when every limit and margin is final: a label's offset is in points, so a place clear
-    before the last ``subplots_adjust`` need not be clear after it.
-    """
+    """Place every :data:`CLEAR_GID` annotation clear of the marks, earlier settled labels and its frame, moving it
+    as little as possible (:func:`clear_place`); runs at save time, once limits and margins are final."""
     tagged = clear_labels(fig)
     if not tagged:
         return
@@ -989,8 +938,6 @@ def near_boxes(candidate: Bbox, taken: Sequence[Bbox], pad: float) -> list[Bbox]
 
 
 def right_protrusion_in(fig: Figure, ax: Axes) -> float:
-    """How far everything ``ax`` draws reaches right of its frame, in inches: a label centred on the
-    last column (a summary column's statistic) overruns it by half its own width, and a fixed right
-    pad cut it off at the canvas edge."""
+    """How far everything ``ax`` draws reaches right of its frame, in inches."""
     renderer = renderer_of(fig)
     return max(0.0, tight_bbox(ax, renderer).x1 - ax.get_window_extent(renderer).x1) / fig.dpi
