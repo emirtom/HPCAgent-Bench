@@ -21,7 +21,7 @@ from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.judge_scheduler import DeviceSlot
 from hpcagent_bench.harness.judge_wire import JudgeAnswer
 
-__all__ = ["ROUTES", "Handler", "Judge", "first_param", "load", "route"]
+__all__ = ["RESERVED", "ROUTES", "Handler", "Judge", "first_param", "load", "route"]
 
 
 class Judge(Protocol):
@@ -39,6 +39,9 @@ class Judge(Protocol):
 #: A route's handler: the judge, the path parts and the query; it answers through ``judge.reply``.
 Handler = Callable[[Judge, list[str], dict[str, list[str]]], None]
 
+#: The GET routes ``service.JudgeHandler.serve_get`` answers itself; a tool route may not take one.
+RESERVED = frozenset({"health", "build", "baseline"})
+
 #: Every tool route, by its first path segment.
 ROUTES: dict[str, Handler] = {}
 
@@ -53,6 +56,11 @@ def route(name: str) -> Callable[[Handler], Handler]:
     """Register the decorated handler for ``GET /<name>/...``."""
 
     def register(handler: Handler) -> Handler:
+        if name in RESERVED:
+            raise ValueError(f"route {name!r} of {handler.__module__} is one the judge answers itself")
+        existing = ROUTES.get(name)
+        if existing is not None and existing.__module__ != handler.__module__:  # a reload re-registers its own
+            raise ValueError(f"route {name!r} of {handler.__module__} is already registered by {existing.__module__}")
         ROUTES[name] = handler
         return handler
 

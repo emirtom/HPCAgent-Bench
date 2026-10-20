@@ -165,7 +165,7 @@ async def tool_results(reply: Any, tools: Mapping[str, Any]) -> list[dict[str, A
     :data:`CUT_OFF_NOTE` as an error instead of being run on its partial input; the calls before it are
     whole and run."""
     calls = [block for block in reply.content if block.type == "tool_use"]
-    cut = reply.stop_reason == "max_tokens" and reply.content[-1].type == "tool_use"
+    cut = reply.stop_reason == "max_tokens" and bool(reply.content) and reply.content[-1].type == "tool_use"
     results = [await tool_result(block, tools) for block in (calls[:-1] if cut else calls)]
     if cut:
         results.append({"type": "tool_result", "tool_use_id": calls[-1].id, "content": CUT_OFF_NOTE, "is_error": True})

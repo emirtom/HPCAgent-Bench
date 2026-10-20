@@ -26,7 +26,7 @@ import os
 import pathlib
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from hpcagent_agent.harness import runner_common
 
@@ -117,7 +117,14 @@ async def run_agent(
         return ModelInputData(input=window.view(data.model_data.input), instructions=data.model_data.instructions)
 
     async def shell(_context: Any, arguments: str) -> str:
-        return await asyncio.to_thread(runner_common.run_shell, json.loads(arguments or "{}"), args.command_dir, wait)
+        # A raw FunctionTool has no failure handler: an exception here would end the episode, so a malformed
+        # call is answered like any other bad command and the model resends it.
+        try:
+            parsed = json.loads(arguments or "{}")
+        except json.JSONDecodeError:
+            parsed = None
+        call = cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
+        return await asyncio.to_thread(runner_common.run_shell, call, args.command_dir, wait)
 
     client_options: dict[str, Any] = {"base_url": args.base_url, "api_key": runner_common.api_key(os.environ)}
     if args.request_timeout is not None:

@@ -148,6 +148,11 @@ def tool(
 
     def register(run: Run) -> Run:
         tool_name = name or run.__module__.rpartition(".")[2]
+        existing = REGISTRY.get(tool_name)
+        if existing is not None and existing.run.__module__ != run.__module__:  # a reload re-registers its own
+            raise ValueError(
+                f"tool {tool_name!r} of {run.__module__} is already registered by {existing.run.__module__}"
+            )
         if isinstance(input, Mapping):
             schema, body = dict(input), run
         else:
