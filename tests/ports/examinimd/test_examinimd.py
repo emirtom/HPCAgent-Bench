@@ -10,6 +10,7 @@ where applicable.
 """
 
 import ctypes
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -152,7 +153,7 @@ class ExaMiniMDCppReference:
         ]
         self.lib.force_lj_neigh_ref.restype = None
 
-    def validate_csr(self, inputs, offsets, indices):
+    def validate_csr(self, inputs: tuple[float | np.ndarray, ...], offsets: np.ndarray, indices: np.ndarray) -> int:
         return self.lib.examinimd_validate_csr_ref(
             n_local(inputs),
             inputs[0].shape[0],
@@ -168,7 +169,7 @@ class ExaMiniMDCppReference:
             inputs[7],
         )
 
-    def force_csr(self, inputs, offsets, indices):
+    def force_csr(self, inputs: tuple[float | np.ndarray, ...], offsets: np.ndarray, indices: np.ndarray) -> np.ndarray:
         f = np.zeros((n_local(inputs), 3), dtype=np.float64)
         status = self.lib.examinimd_force_lj_neigh_full_ref(
             n_local(inputs),
@@ -188,7 +189,7 @@ class ExaMiniMDCppReference:
         require_status(status, 0, "C++ CSR force")
         return f
 
-    def force_counts(self, inputs):
+    def force_counts(self, inputs: tuple[float | np.ndarray, ...]) -> np.ndarray:
         f = np.zeros((n_local(inputs), 3), dtype=np.float64)
         status = self.lib.examinimd_force_lj_neigh_counts_ref(
             n_local(inputs),
@@ -208,7 +209,7 @@ class ExaMiniMDCppReference:
         require_status(status, 0, "C++ rectangular force")
         return f
 
-    def energy(self, inputs, offsets, indices):
+    def energy(self, inputs: tuple[float | np.ndarray, ...], offsets: np.ndarray, indices: np.ndarray) -> float:
         energy = ctypes.c_double(0.0)
         status = self.lib.examinimd_compute_energy_full_ref(
             n_local(inputs),
@@ -227,7 +228,7 @@ class ExaMiniMDCppReference:
         require_status(status, 0, "C++ energy")
         return float(energy.value)
 
-    def compatibility_force(self, inputs):
+    def compatibility_force(self, inputs: tuple[float | np.ndarray, ...]) -> np.ndarray:
         f = np.zeros((n_local(inputs), 3), dtype=np.float64)
         self.lib.force_lj_neigh_ref(
             inputs[0],
@@ -246,27 +247,29 @@ class ExaMiniMDCppReference:
 
 
 @pytest.fixture(scope="module")
-def cpp():
+def cpp() -> ExaMiniMDCppReference:
     if gxx() is None:
         pytest.skip("no g++ that builds -std=c++20")
     return ExaMiniMDCppReference()
 
 
-def n_local(inputs):
+def n_local(inputs: tuple[float | np.ndarray, ...]) -> int:
     return inputs[0].shape[0] if inputs[12] is None else int(inputs[12])
 
 
-def require_status(actual, expected, label) -> None:
+def require_status(actual: int, expected: int, label: str) -> None:
     if actual != expected:
         raise AssertionError(f"{label}: expected status {expected}, got {actual}")
 
 
-def require_nonzero_status(actual, label) -> None:
+def require_nonzero_status(actual: int, label: str) -> None:
     if actual == 0:
         raise AssertionError(f"{label}: expected nonzero error status")
 
 
-def assert_allclose_named(name, actual, expected, rtol=RTOL, atol=ATOL) -> None:
+def assert_allclose_named(
+    name: str, actual: np.ndarray, expected: list[list[float]] | np.ndarray, rtol: float = RTOL, atol: float = ATOL
+) -> None:
     try:
         np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol)
     except AssertionError as exc:
@@ -274,12 +277,12 @@ def assert_allclose_named(name, actual, expected, rtol=RTOL, atol=ATOL) -> None:
         raise AssertionError(f"{name}: max_abs_error={max_abs}\n{exc}") from exc
 
 
-def assert_finite(name, array) -> None:
+def assert_finite(name: str, array: np.ndarray) -> None:
     if not np.all(np.isfinite(array)):
         raise AssertionError(f"{name}: contains non-finite values")
 
 
-def expect_value_error(label, fn) -> None:
+def expect_value_error(label: str, fn: Callable[[], object]) -> None:
     try:
         fn()
     except ValueError:
@@ -287,7 +290,9 @@ def expect_value_error(label, fn) -> None:
     raise AssertionError(f"{label}: expected ValueError")
 
 
-def copy_inputs(inputs, **overrides):
+def copy_inputs(
+    inputs: tuple[float | np.ndarray, ...], **overrides: float | np.ndarray
+) -> tuple[float | np.ndarray, ...]:
     fields = {
         "x": np.ascontiguousarray(inputs[0].copy()),
         "atom_type": np.ascontiguousarray(inputs[1].copy()),
@@ -307,7 +312,7 @@ def copy_inputs(inputs, **overrides):
     return tuple(fields[name] for name in EXAMINIMD_INPUT_ORDER)
 
 
-def counts_to_csr(inputs):
+def counts_to_csr(inputs: tuple[float | np.ndarray, ...]) -> tuple[np.ndarray, np.ndarray]:
     counts = np.ascontiguousarray(inputs[2].astype(np.int32, copy=False))
     offsets = np.empty(counts.size + 1, dtype=np.int32)
     offsets[0] = 0
@@ -318,7 +323,7 @@ def counts_to_csr(inputs):
     return np.ascontiguousarray(offsets), np.ascontiguousarray(indices)
 
 
-def independent_force_reference(inputs):
+def independent_force_reference(inputs: tuple[float | np.ndarray, ...]) -> np.ndarray:
     f = np.zeros((n_local(inputs), 3), dtype=np.float64)
     for i in range(n_local(inputs)):
         xi = inputs[0][i]
@@ -346,7 +351,7 @@ def independent_force_reference(inputs):
     return f
 
 
-def independent_energy_reference(inputs):
+def independent_energy_reference(inputs: tuple[float | np.ndarray, ...]) -> float:
     energy = 0.0
     for i in range(n_local(inputs)):
         xi = inputs[0][i]
@@ -370,7 +375,15 @@ def independent_energy_reference(inputs):
     return float(energy)
 
 
-def make_manual_inputs(x, rows, atom_type=None, lj1=None, lj2=None, cutsq=None, cutoff: float = 2.5):
+def make_manual_inputs(
+    x: list[list[float]],
+    rows: list[list[int]],
+    atom_type: list[int] | None = None,
+    lj1: np.ndarray | None = None,
+    lj2: np.ndarray | None = None,
+    cutsq: np.ndarray | None = None,
+    cutoff: float = 2.5,
+) -> tuple[float | np.ndarray, ...]:
     x = np.ascontiguousarray(x, dtype=np.float64)
     n_atoms = x.shape[0]
     max_neighs = max([len(row) for row in rows] + [1])
@@ -401,7 +414,7 @@ def make_manual_inputs(x, rows, atom_type=None, lj1=None, lj2=None, cutsq=None, 
     )
 
 
-def assert_sorted_rows(inputs) -> None:
+def assert_sorted_rows(inputs: tuple[float | np.ndarray, ...]) -> None:
     for i in range(n_local(inputs)):
         count = int(inputs[2][i])
         row = inputs[3][i, :count]
@@ -500,7 +513,9 @@ def test_numpy_validation_rejects_invalid_inputs() -> None:
     expect_value_error("unsorted neighbor row", lambda: validate_examinimd_inputs(*unsorted))
 
 
-def run_force_case(name, inputs, cpp, check_energy: bool = True):
+def run_force_case(
+    name: str, inputs: tuple[float | np.ndarray, ...], cpp: ExaMiniMDCppReference, check_energy: bool = True
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     validate_examinimd_inputs(*inputs)
     assert_sorted_rows(inputs)
     offsets, indices = counts_to_csr(inputs)
@@ -541,7 +556,7 @@ def run_force_case(name, inputs, cpp, check_energy: bool = True):
     return expected, numpy_force, cpp_csr_force
 
 
-def test_force_correctness(cpp) -> None:
+def test_force_correctness(cpp: ExaMiniMDCppReference) -> None:
     run_force_case(
         "small FCC",
         generate_random_examinimd_inputs(cells_per_dim=(2, 2, 2)),
@@ -603,7 +618,7 @@ def test_force_correctness(cpp) -> None:
     assert_allclose_named("newton-off untouched neighbor C++", cpp_force[1], np.zeros(3))
 
 
-def test_compatibility_wrappers(cpp) -> None:
+def test_compatibility_wrappers(cpp: ExaMiniMDCppReference) -> None:
     inputs = generate_random_examinimd_inputs(cells_per_dim=(2, 2, 2))
     expected = independent_force_reference(inputs)
 
@@ -624,7 +639,7 @@ def test_compatibility_wrappers(cpp) -> None:
     assert_allclose_named("C++ compatibility symbol", f_cpp_compat, expected)
 
 
-def test_cpp_invalid_statuses(cpp) -> None:
+def test_cpp_invalid_statuses(cpp: ExaMiniMDCppReference) -> None:
     inputs = generate_random_examinimd_inputs(cells_per_dim=(2, 2, 2))
     offsets, indices = counts_to_csr(inputs)
     require_status(cpp.validate_csr(inputs, offsets, indices), 0, "valid CSR status")

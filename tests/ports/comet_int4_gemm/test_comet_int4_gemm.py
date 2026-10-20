@@ -57,14 +57,14 @@ CPP_SOURCE = HERE / "comet_int4_gemm_ref.cpp"
 needs_gxx = pytest.mark.skipif(gxx() is None, reason="no g++ that builds -std=c++20")
 
 
-def _build_so():
+def build_so() -> Path:
     """comet_int4_gemm_ref.cpp, with OpenMP when available: correct either way, since the kernel has
     no scatter/accumulation race to threaten with the serial fallback."""
     return openmp_or_serial_library(gxx(), [CPP_SOURCE], ["-O3", "-std=c++20", "-shared", "-fPIC"])
 
 
-def _load_lib():
-    lib = ctypes.CDLL(str(_build_so()))
+def load_lib() -> ctypes.CDLL:
+    lib = ctypes.CDLL(str(build_so()))
     lib.comet_int4_gemm_ref.argtypes = [
         ndpointer(dtype=np.int8, flags="C_CONTIGUOUS"),
         ndpointer(dtype=np.int8, flags="C_CONTIGUOUS"),
@@ -77,7 +77,7 @@ def _load_lib():
     return lib
 
 
-def _run_cpp(lib, codes_left, codes_right):
+def run_cpp(lib: ctypes.CDLL, codes_left: np.ndarray, codes_right: np.ndarray) -> np.ndarray:
     num_left, num_field = codes_left.shape
     num_right = codes_right.shape[0]
     out = np.zeros((num_left, num_right, 2, 2), dtype=np.int32)
@@ -93,7 +93,7 @@ def _run_cpp(lib, codes_left, codes_right):
     return out
 
 
-def _run_numpy(codes_left, codes_right):
+def run_numpy(codes_left: np.ndarray, codes_right: np.ndarray) -> np.ndarray:
     num_left = codes_left.shape[0]
     num_right = codes_right.shape[0]
     out = np.zeros((num_left, num_right, 2, 2), dtype=np.int32)
@@ -106,8 +106,8 @@ def test_tiny_deterministic_case_matches_hand_derived_tallies() -> None:
     """Same 4-vector case CoMet's own Quick_Start.txt CCC example and this
     session's numpy/C++ ports were all cross-validated against."""
     codes = np.array([[0, 1], [2, 3], [1, 0], [3, 2]], dtype=np.int8)
-    lib = _load_lib()
-    out = _run_cpp(lib, codes, codes)
+    lib = load_lib()
+    out = run_cpp(lib, codes, codes)
 
     expected = {
         (0, 1): (2, 4, 0, 2),
@@ -134,14 +134,14 @@ def test_tiny_deterministic_case_matches_hand_derived_tallies() -> None:
         (32, 256, 5),
     ],
 )
-def test_cpp_matches_numpy_reference(num_vector, num_field, seed) -> None:
+def test_cpp_matches_numpy_reference(num_vector: int, num_field: int, seed: int) -> None:
     rng = np.random.default_rng(seed)
     codes_left = rng.integers(0, 4, size=(num_vector, num_field), dtype=np.int8)
     codes_right = rng.integers(0, 4, size=(num_vector, num_field), dtype=np.int8)
 
-    lib = _load_lib()
-    cpp_out = _run_cpp(lib, codes_left, codes_right)
-    numpy_out = _run_numpy(codes_left, codes_right)
+    lib = load_lib()
+    cpp_out = run_cpp(lib, codes_left, codes_right)
+    numpy_out = run_numpy(codes_left, codes_right)
 
     np.testing.assert_array_equal(cpp_out, numpy_out)
 
@@ -154,7 +154,7 @@ def test_asymmetric_left_right_blocks() -> None:
     codes_left = rng.integers(0, 4, size=(9, 40), dtype=np.int8)
     codes_right = rng.integers(0, 4, size=(13, 40), dtype=np.int8)
 
-    lib = _load_lib()
+    lib = load_lib()
     out = np.zeros((9, 13, 2, 2), dtype=np.int32)
     rc = lib.comet_int4_gemm_ref(codes_left, codes_right, out, 9, 13, 40)
     assert rc == 0
@@ -177,7 +177,7 @@ def test_asymmetric_left_right_blocks() -> None:
 
 @needs_gxx
 def test_invalid_dimensions_rejected() -> None:
-    lib = _load_lib()
+    lib = load_lib()
     codes = np.zeros((1, 1), dtype=np.int8)
     out = np.zeros((1, 1, 2, 2), dtype=np.int32)
     assert lib.comet_int4_gemm_ref(codes, codes, out, 0, 1, 1) != 0
@@ -186,7 +186,7 @@ def test_invalid_dimensions_rejected() -> None:
 
 
 @needs_gxx
-def test_result_independent_of_thread_count(monkeypatch) -> None:
+def test_result_independent_of_thread_count(monkeypatch: pytest.MonkeyPatch) -> None:
     """No scatter/shared-accumulation in this kernel (every output element is
     owned by exactly one (I,J) tile), so unlike a reduction-style kernel this
     should be bit-identical across thread counts, not merely peak-relative
@@ -196,7 +196,7 @@ def test_result_independent_of_thread_count(monkeypatch) -> None:
     codes_left = rng.integers(0, 4, size=(37, 130), dtype=np.int8)
     codes_right = rng.integers(0, 4, size=(29, 130), dtype=np.int8)
 
-    lib = _load_lib()
+    lib = load_lib()
     results = []
     for threads in (1, 2, 8):
         monkeypatch.setenv("OMP_NUM_THREADS", str(threads))

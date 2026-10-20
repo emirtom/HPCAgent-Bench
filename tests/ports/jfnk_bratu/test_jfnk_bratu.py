@@ -19,6 +19,8 @@ in either the stencil or the FD step shows up as a disagreement, not as a plausi
     pytest tests/ports/jfnk_bratu/
 """
 
+import types
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -57,16 +59,16 @@ CONTROL_EPS_FOR_RECORD = 1.0e-8
 
 
 @pytest.fixture(scope="module")
-def kernel():
+def kernel() -> types.ModuleType:
     return module_at(_BENCH / "jfnk_bratu_numpy.py")
 
 
 @pytest.fixture(scope="module")
-def initmod():
+def initmod() -> types.ModuleType:
     return module_at(_BENCH / "jfnk_bratu.py")
 
 
-def _scratch(km, restart):
+def scratch(km: types.ModuleType, restart: int) -> dict[str, np.ndarray]:
     return {
         "F": np.zeros((N, N)),
         "du": np.zeros((N, N)),
@@ -82,7 +84,9 @@ def _scratch(km, restart):
     }
 
 
-def _newton_history(km, u, lam, jvp_fn):
+def newton_history(
+    km: types.ModuleType, u: np.ndarray, lam: float, jvp_fn: Callable[..., np.ndarray]
+) -> list[np.float64]:
     """Drive the same Newton/GMRES structure as ``jfnk_bratu``, recording ||F|| every step.
 
     ``jvp_fn`` selects the Jacobian-vector product: the kernel's own scaled ``bratu_jvp``, or the
@@ -90,7 +94,7 @@ def _newton_history(km, u, lam, jvp_fn):
     stencil, Arnoldi orthogonalization, Givens rotations, back substitution) is the kernel's own
     code, called directly -- this is not a reimplementation of the numerics.
     """
-    s = _scratch(km, GMRES_RESTART)
+    s = scratch(km, GMRES_RESTART)
     km.bratu_residual(u, s["F"], N, lam)
     f0 = km.bratu_norm(s["F"], N)
     hist = [f0]
@@ -98,14 +102,25 @@ def _newton_history(km, u, lam, jvp_fn):
         fnow = km.bratu_norm(s["F"], N)
         if fnow <= NEWTON_RTOL * f0:
             break
-        _gmres_with_jvp(km, u, s["F"], s["du"], N, lam, GMRES_RESTART, INNER_TOL, s, jvp_fn)
+        gmres_with_jvp(km, u, s["F"], s["du"], N, lam, GMRES_RESTART, INNER_TOL, s, jvp_fn)
         u[:, :] = u[:, :] + s["du"][:, :]
         km.bratu_residual(u, s["F"], N, lam)
         hist.append(km.bratu_norm(s["F"], N))
     return hist
 
 
-def _gmres_with_jvp(km, u, Fu, du, N, lam, restart, tol, s, jvp_fn) -> None:
+def gmres_with_jvp(
+    km: types.ModuleType,
+    u: np.ndarray,
+    Fu: np.ndarray,
+    du: np.ndarray,
+    N: int,
+    lam: float,
+    restart: int,
+    tol: float,
+    s: dict[str, np.ndarray],
+    jvp_fn: Callable[..., np.ndarray],
+) -> None:
     """``bratu_gmres``'s exact Arnoldi/Givens body, with the JVP call swapped out."""
     Q, H, cs, sn, g, y, w = s["Q"], s["H"], s["cs"], s["sn"], s["g"], s["y"], s["w"]
     beta = km.bratu_norm(Fu, N)
@@ -148,16 +163,36 @@ def _gmres_with_jvp(km, u, Fu, du, N, lam, restart, tol, s, jvp_fn) -> None:
         du[:, :] = du[:, :] + Q[p, :, :] * y[p]
 
 
-def _scaled_jvp(km, u, v, Fu, Jv, up, Fp, N, lam) -> None:
+def scaled_jvp(
+    km: types.ModuleType,
+    u: np.ndarray,
+    v: np.ndarray,
+    Fu: np.ndarray,
+    Jv: np.ndarray,
+    up: np.ndarray,
+    Fp: np.ndarray,
+    N: int,
+    lam: float,
+) -> None:
     km.bratu_jvp(u, v, Fu, Jv, up, Fp, N, lam)
 
 
-def _const_eps_jvp_factory(eps_const):
+def const_eps_jvp_factory(eps_const: float) -> Callable[..., np.ndarray]:
     """The negative control, built IN THE TEST ONLY: ``bratu_jvp`` with the scaled ``eps`` replaced
     by a fixed constant. Everything else -- the residual stencil, the FD difference itself -- is
     the kernel's own ``bratu_residual``."""
 
-    def jvp(km, u, v, Fu, Jv, up, Fp, N, lam) -> None:
+    def jvp(
+        km: types.ModuleType,
+        u: np.ndarray,
+        v: np.ndarray,
+        Fu: np.ndarray,
+        Jv: np.ndarray,
+        up: np.ndarray,
+        Fp: np.ndarray,
+        N: int,
+        lam: float,
+    ) -> None:
         nv = km.bratu_norm(v, N)
         if nv == 0.0:
             Jv[:, :] = 0.0
@@ -169,7 +204,7 @@ def _const_eps_jvp_factory(eps_const):
     return jvp
 
 
-def _independent_vectorized_residual(u, lam):
+def independent_vectorized_residual(u: np.ndarray, lam: float) -> np.ndarray:
     """F(u), written as array-slice arithmetic (jacobi_2d_numpy.py's style) -- a second code path
     from the kernel's explicit i/j loop, sharing no lines with ``bratu_residual``."""
     h = 1.0 / (N - 1)
@@ -184,7 +219,7 @@ def _independent_vectorized_residual(u, lam):
     return F
 
 
-def _analytic_jacobian_vector(u, v, lam):
+def analytic_jacobian_vector(u: np.ndarray, v: np.ndarray, lam: float) -> np.ndarray:
     """J(u) v in closed form: -Laplacian(v) - lambda*exp(u)*v on the interior, v on the boundary."""
     h = 1.0 / (N - 1)
     Jv = np.empty((N, N))
@@ -198,16 +233,16 @@ def _analytic_jacobian_vector(u, v, lam):
     return Jv
 
 
-def test_edge_below_three_must_raise(initmod) -> None:
+def test_edge_below_three_must_raise(initmod: types.ModuleType) -> None:
     """The oracle does not know a 1-point or 2-point grid has no interior; initialize() has to."""
     with pytest.raises(ValueError, match="N must be"):
         initmod.initialize(2)
 
 
-def test_scaled_eps_converges_quadratically(kernel, initmod) -> None:
+def test_scaled_eps_converges_quadratically(kernel: types.ModuleType, initmod: types.ModuleType) -> None:
     """The gate: ||F|| roughly squares each step, reaching NEWTON_RTOL in 4-6 Newton steps."""
     u, lam = initmod.initialize(N), LAM
-    hist = _newton_history(kernel, u, lam, _scaled_jvp)
+    hist = newton_history(kernel, u, lam, scaled_jvp)
     print(f"\nscaled-eps ||F|| history: {[f'{h:.6e}' for h in hist]}")
 
     n_iters = len(hist) - 1
@@ -231,15 +266,15 @@ def test_scaled_eps_converges_quadratically(kernel, initmod) -> None:
     assert checked >= 2, f"only {checked} steps were small enough to check the asymptotic rate on"
 
 
-def test_negative_control_constant_eps_breaks_the_rate(kernel, initmod) -> None:
+def test_negative_control_constant_eps_breaks_the_rate(kernel: types.ModuleType, initmod: types.ModuleType) -> None:
     """Rerun with a constant FD epsilon: the module docstring's claim ("too small and round-off
     dominates") must be visible in the history, not just asserted in prose."""
     u_bad, lam = initmod.initialize(N), LAM
-    hist_bad = _newton_history(kernel, u_bad, lam, _const_eps_jvp_factory(BAD_CONST_EPS))
+    hist_bad = newton_history(kernel, u_bad, lam, const_eps_jvp_factory(BAD_CONST_EPS))
     print(f"\nconstant eps={BAD_CONST_EPS:.0e} ||F|| history: {[f'{h:.6e}' for h in hist_bad]}")
 
     u_ctrl, lam2 = initmod.initialize(N), LAM
-    hist_ctrl = _newton_history(kernel, u_ctrl, lam2, _const_eps_jvp_factory(CONTROL_EPS_FOR_RECORD))
+    hist_ctrl = newton_history(kernel, u_ctrl, lam2, const_eps_jvp_factory(CONTROL_EPS_FOR_RECORD))
     print(
         f"(for the record) constant eps={CONTROL_EPS_FOR_RECORD:.0e} ||F|| history: {[f'{h:.6e}' for h in hist_ctrl]}"
     )
@@ -258,7 +293,9 @@ def test_negative_control_constant_eps_breaks_the_rate(kernel, initmod) -> None:
     assert non_decreasing, "expected at least one step where ||F|| INCREASES under the bad epsilon"
 
 
-def test_kernel_solution_matches_independent_vectorized_residual(kernel, initmod) -> None:
+def test_kernel_solution_matches_independent_vectorized_residual(
+    kernel: types.ModuleType, initmod: types.ModuleType
+) -> None:
     """The converged u must also zero a residual evaluated by a second, differently coded F."""
     u, lam = initmod.initialize(N), LAM
     kernel.jfnk_bratu(u, N, lam, MAX_NEWTON, INNER_TOL, GMRES_RESTART)
@@ -267,7 +304,7 @@ def test_kernel_solution_matches_independent_vectorized_residual(kernel, initmod
     kernel.bratu_residual(u, F_own, N, lam)
     own_norm = np.sqrt(np.sum(F_own * F_own))
 
-    F_indep = _independent_vectorized_residual(u, lam)
+    F_indep = independent_vectorized_residual(u, lam)
     indep_norm = np.sqrt(np.sum(F_indep * F_indep))
 
     print(f"\n||F_kernel(u)|| = {own_norm:.3e}   ||F_independent(u)|| = {indep_norm:.3e}")
@@ -275,7 +312,7 @@ def test_kernel_solution_matches_independent_vectorized_residual(kernel, initmod
     assert np.allclose(F_own, F_indep, rtol=1.0e-12, atol=1.0e-14), "kernel and independent F disagree"
 
 
-def test_matrix_free_jvp_matches_analytic_jacobian(kernel, initmod) -> None:
+def test_matrix_free_jvp_matches_analytic_jacobian(kernel: types.ModuleType, initmod: types.ModuleType) -> None:
     """The decisive, cheap check: J(u) v from the FD kernel vs. the closed-form Jacobian, at the
     converged u, for several random v. Measures the FD truncation error rather than assuming it."""
     u, lam = initmod.initialize(N), LAM
@@ -292,7 +329,7 @@ def test_matrix_free_jvp_matches_analytic_jacobian(kernel, initmod) -> None:
     for _trial in range(5):
         v = rng.standard_normal((N, N))
         kernel.bratu_jvp(u, v, Fu, Jv_mf, up, Fp, N, lam)
-        Jv_an = _analytic_jacobian_vector(u, v, lam)
+        Jv_an = analytic_jacobian_vector(u, v, lam)
         _pow_base1 = Jv_mf - Jv_an
         abs_err = np.sqrt(np.sum(_pow_base1 * _pow_base1))
         rel_err = abs_err / np.sqrt(np.sum(Jv_an * Jv_an))

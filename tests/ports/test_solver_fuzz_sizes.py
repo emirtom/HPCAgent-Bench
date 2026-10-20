@@ -19,8 +19,7 @@ import importlib
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import fuzz
+from hpcagent_bench import fuzz, modules
 from hpcagent_bench.spec import BenchSpec
 from tests.bench_specs import fuzz_constraints
 from tests.corpus_counts import SOLVER_KERNELS
@@ -71,7 +70,7 @@ DRAWS = 24
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_every_fuzz_draw_initializes(short) -> None:
+def test_every_fuzz_draw_initializes(short: str) -> None:
     spec = BenchSpec.load(short)
     constraints = fuzz_constraints(spec)
     config_names = frozenset(spec.config or {})
@@ -107,7 +106,7 @@ def test_every_fuzz_draw_initializes(short) -> None:
 
 
 @pytest.mark.parametrize("short", SOLVER_KERNELS)
-def test_fuzz_spec_is_declared_not_inherited(short) -> None:
+def test_fuzz_spec_is_declared_not_inherited(short: str) -> None:
     """The manifest must declare its own ``fuzzed:`` preset.
 
     Without one, ``fuzz.resolve_ranges`` anchors a continuous interval on XL, which is what put a

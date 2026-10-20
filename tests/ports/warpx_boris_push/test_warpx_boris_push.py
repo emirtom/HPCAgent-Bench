@@ -17,14 +17,15 @@ SKIPS where no C++ compiler is available.
 """
 
 import ctypes
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from hpcagent_bench.support.counter_generator import CounterGenerator
 from tests.fresh_module import module_at
 from tests.port_toolchain import cxx, openmp_or_serial_library
-from hpcagent_bench.support.counter_generator import CounterGenerator
 
 _HERE = Path(__file__).resolve().parent
 # The NumPy kernel + initialize live with the benchmark; the original C++ sits
@@ -37,7 +38,7 @@ _P = ctypes.POINTER(_CD)
 
 
 @pytest.fixture(scope="session")
-def so():
+def so() -> Path:
     """Compile the original C++ once per session; yield its path, or None without a C++ compiler.
 
     Built with OpenMP when the toolchain has it, else serially: the push writes only element ip, so the two
@@ -51,7 +52,7 @@ def so():
     )
 
 
-def _oracle(so):
+def oracle(so: Path) -> Callable[..., None]:
     lib = ctypes.CDLL(str(so))
     fn = lib.warpx_boris_push_original
     fn.restype = None
@@ -59,19 +60,19 @@ def _oracle(so):
     return fn
 
 
-def _c(a):
+def contiguous(a: np.ndarray) -> np.ndarray:
     # A fresh C-contiguous copy -- NOT np.ascontiguousarray, which returns the input
     # unchanged when it is already contiguous, so the NumPy and C++ momentum buffers
     # would alias and the comparison would be an array against itself.
     return np.array(a, dtype=np.float64, order="C")
 
 
-def _ptr(a):
+def ptr(a: np.ndarray) -> ctypes.c_void_p:
     return a.ctypes.data_as(_P)
 
 
 @pytest.mark.parametrize("momentum_push_type", [0, 1, 2], ids=["Full", "FirstHalf", "SecondHalf"])
-def test_original_matches_numpy(so, momentum_push_type) -> None:
+def test_original_matches_numpy(so: Path, momentum_push_type: int) -> None:
     if so is None:
         pytest.skip("no C++ compiler (g++/clang++) -- original-source cross-check skipped")
     initialize = module_at(_BENCH / "warpx_boris_push.py").initialize
@@ -81,23 +82,38 @@ def test_original_matches_numpy(so, momentum_push_type) -> None:
     Bx, By, Bz, Ex, Ey, Ez, ux, uy, uz, m, q = initialize(4096, dt, momentum_push_type, rng=CounterGenerator(0))
 
     # NumPy port on one copy of the momenta (mutated in place).
-    nux, nuy, nuz = _c(ux), _c(uy), _c(uz)
-    kernel(_c(Bx), _c(By), _c(Bz), _c(Ex), _c(Ey), _c(Ez), nux, nuy, nuz, dt, m, momentum_push_type, 1, q)
+    nux, nuy, nuz = contiguous(ux), contiguous(uy), contiguous(uz)
+    kernel(
+        contiguous(Bx),
+        contiguous(By),
+        contiguous(Bz),
+        contiguous(Ex),
+        contiguous(Ey),
+        contiguous(Ez),
+        nux,
+        nuy,
+        nuz,
+        dt,
+        m,
+        momentum_push_type,
+        1,
+        q,
+    )
 
     # Original C++ on an independent copy.
-    Bxc, Byc, Bzc = _c(Bx), _c(By), _c(Bz)
-    Exc, Eyc, Ezc = _c(Ex), _c(Ey), _c(Ez)
-    cux, cuy, cuz = _c(ux), _c(uy), _c(uz)
-    _oracle(so)(
-        _ptr(Bxc),
-        _ptr(Byc),
-        _ptr(Bzc),
-        _ptr(Exc),
-        _ptr(Eyc),
-        _ptr(Ezc),
-        _ptr(cux),
-        _ptr(cuy),
-        _ptr(cuz),
+    Bxc, Byc, Bzc = contiguous(Bx), contiguous(By), contiguous(Bz)
+    Exc, Eyc, Ezc = contiguous(Ex), contiguous(Ey), contiguous(Ez)
+    cux, cuy, cuz = contiguous(ux), contiguous(uy), contiguous(uz)
+    oracle(so)(
+        ptr(Bxc),
+        ptr(Byc),
+        ptr(Bzc),
+        ptr(Exc),
+        ptr(Eyc),
+        ptr(Ezc),
+        ptr(cux),
+        ptr(cuy),
+        ptr(cuz),
         _CD(dt),
         _CD(m),
         _CI(momentum_push_type),
@@ -115,7 +131,7 @@ def test_original_matches_numpy(so, momentum_push_type) -> None:
         )
 
 
-def test_first_plus_second_half_equals_full(so) -> None:
+def test_first_plus_second_half_equals_full(so: Path) -> None:
     """The original C++ must satisfy the WarpX half-push identity: a FirstHalf push
     followed by a SecondHalf push equals a single Full push (the property the
     t-vector rescaling exists to guarantee)."""
@@ -124,21 +140,21 @@ def test_first_plus_second_half_equals_full(so) -> None:
     initialize = module_at(_BENCH / "warpx_boris_push.py").initialize
     Bx, By, Bz, Ex, Ey, Ez, ux, uy, uz, m, q = initialize(4096, 1.0e-13, 0, rng=CounterGenerator(1))
     dt = 1.0e-13
-    fn = _oracle(so)
+    fn = oracle(so)
 
-    def run(mpt, u):
-        u = [_c(x) for x in u]
-        f = [_c(Bx), _c(By), _c(Bz), _c(Ex), _c(Ey), _c(Ez)]
+    def run(mpt: int, u: list[np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]) -> list[np.ndarray]:
+        u = [contiguous(x) for x in u]
+        f = [contiguous(Bx), contiguous(By), contiguous(Bz), contiguous(Ex), contiguous(Ey), contiguous(Ez)]
         fn(
-            _ptr(f[0]),
-            _ptr(f[1]),
-            _ptr(f[2]),
-            _ptr(f[3]),
-            _ptr(f[4]),
-            _ptr(f[5]),
-            _ptr(u[0]),
-            _ptr(u[1]),
-            _ptr(u[2]),
+            ptr(f[0]),
+            ptr(f[1]),
+            ptr(f[2]),
+            ptr(f[3]),
+            ptr(f[4]),
+            ptr(f[5]),
+            ptr(u[0]),
+            ptr(u[1]),
+            ptr(u[2]),
             _CD(dt),
             _CD(m),
             _CI(mpt),

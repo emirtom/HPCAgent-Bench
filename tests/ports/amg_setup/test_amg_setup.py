@@ -16,6 +16,8 @@ reference also runs the V-cycles the convergence gate needs, which no manifest p
     pytest tests/ports/amg_setup/
 """
 
+import types
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -48,14 +50,14 @@ MAX_ITERATION_SPREAD = 1
 
 
 @pytest.fixture(scope="module")
-def kernel():
+def kernel() -> types.ModuleType:
     return module_at(_BENCH / "amg_setup_numpy.py")
 
 
 # An independent, vectorized smoothed-aggregation setup. Same mathematics, scipy operators.
 
 
-def strength(A, theta):
+def strength(A: sp.csr_matrix, theta: float) -> sp.csr_matrix:
     A = A.tocsr()
     d = np.abs(A.diagonal())
     n = A.shape[0]
@@ -65,7 +67,7 @@ def strength(A, theta):
     return sp.csr_matrix((np.ones(int(keep.sum())), (rows[keep], cols[keep])), shape=(n, n))
 
 
-def aggregate(S):
+def aggregate(S: sp.csr_matrix) -> tuple[np.ndarray, int]:
     n = S.shape[0]
     agg = -np.ones(n, dtype=np.int64)
     count = 0
@@ -92,7 +94,7 @@ def aggregate(S):
     return agg, count
 
 
-def spectral_radius(A):
+def spectral_radius(A: sp.csr_matrix) -> np.float64:
     """``rho(D^-1 A)`` by the SAME power iteration the kernel ships, from the same start vector.
 
     Not ``eigsh``: the Jacobi weight ``4 / (3 rho)`` is part of the algorithm's definition, so two
@@ -113,7 +115,7 @@ def spectral_radius(A):
     return rho
 
 
-def prolongation(A, agg, count):
+def prolongation(A: sp.csr_matrix, agg: np.ndarray, count: int) -> sp.csr_matrix:
     n = A.shape[0]
     tentative = sp.csr_matrix((np.ones(n), (np.arange(n), agg)), shape=(n, count))
     per = np.asarray(tentative.sum(axis=0)).ravel()
@@ -122,7 +124,9 @@ def prolongation(A, agg, count):
     return (sp.eye(n) - (4.0 / (3.0 * spectral_radius(A))) * (dinv @ A)) @ tentative
 
 
-def build_hierarchy(A, theta, max_coarse: int = 100, maxlev: int = 16):
+def build_hierarchy(
+    A: sp.csr_matrix, theta: float, max_coarse: int = 100, maxlev: int = 16
+) -> tuple[list[sp.csr_matrix], list[sp.csr_matrix]]:
     levels = [A.tocsr()]
     transfers = []
     while levels[-1].shape[0] > max_coarse and len(levels) < maxlev:
@@ -136,7 +140,7 @@ def build_hierarchy(A, theta, max_coarse: int = 100, maxlev: int = 16):
     return levels, transfers
 
 
-def vcycle(levels, transfers, b, level: int = 0):
+def vcycle(levels: list[sp.csr_matrix], transfers: list[sp.csr_matrix], b: np.ndarray, level: int = 0) -> np.ndarray:
     A = levels[level]
     if level == len(levels) - 1:
         return sla.spsolve(A.tocsc(), b) if A.shape[0] > 1 else b / A[0, 0]
@@ -150,7 +154,13 @@ def vcycle(levels, transfers, b, level: int = 0):
     return x
 
 
-def pcg_iterations(A, b, apply_M=None, tol: float = 1.0e-8, maxit: int = 3000):
+def pcg_iterations(
+    A: sp.csr_matrix,
+    b: np.ndarray,
+    apply_M: Callable[[np.ndarray], np.ndarray] | None = None,
+    tol: float = 1.0e-8,
+    maxit: int = 3000,
+) -> int:
     x = np.zeros(A.shape[0])
     r = b - A @ x
     z = apply_M(r) if apply_M else r
@@ -171,7 +181,9 @@ def pcg_iterations(A, b, apply_M=None, tol: float = 1.0e-8, maxit: int = 3000):
     return -1
 
 
-def run_kernel(kernel, edge, theta=THETA):
+def run_kernel(
+    kernel: types.ModuleType, edge: int, theta: float = THETA
+) -> dict[str, list[int] | np.ndarray | sp.csr_matrix]:
     init = module_at(_BENCH / "amg_setup.py")
     A, level_n, level_nnz, nlevels, agg0 = init.initialize(edge, edge, edge)
     indptr, indices, data = A.indptr, A.indices, A.data
@@ -191,7 +203,7 @@ def test_edges_must_be_divisible_by_eight() -> None:
         init.initialize(12, 32, 32)
 
 
-def test_aggregation_is_a_partition(kernel) -> None:
+def test_aggregation_is_a_partition(kernel: types.ModuleType) -> None:
     """Every node lands in exactly one aggregate and no aggregate is empty."""
     out = run_kernel(kernel, 16)
     agg = out["agg0"]
@@ -202,7 +214,7 @@ def test_aggregation_is_a_partition(kernel) -> None:
     print(f"\n16^3 aggregates: {out['n'][1]}, sizes min={counts.min()} max={counts.max()} mean={counts.mean():.1f}")
 
 
-def test_kernel_hierarchy_matches_the_vectorized_reference(kernel) -> None:
+def test_kernel_hierarchy_matches_the_vectorized_reference(kernel: types.ModuleType) -> None:
     """The padded flat buffers must reproduce the scipy-operator formulation, level for level."""
     edge = 16
     out = run_kernel(kernel, edge)
@@ -214,7 +226,7 @@ def test_kernel_hierarchy_matches_the_vectorized_reference(kernel) -> None:
 
 
 @pytest.mark.parametrize("edge", [16, 24, 32])
-def test_operator_complexity_and_coarsening(kernel, edge) -> None:
+def test_operator_complexity_and_coarsening(kernel: types.ModuleType, edge: int) -> None:
     """Gates (a) and (b), on the kernel's own reported hierarchy."""
     out = run_kernel(kernel, edge)
     complexity = sum(out["nnz"]) / out["nnz"][0]

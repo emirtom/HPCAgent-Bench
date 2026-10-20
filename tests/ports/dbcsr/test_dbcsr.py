@@ -63,10 +63,10 @@ class HashTable:
     def __init__(self) -> None:
         self.table = {}
 
-    def get(self, col):
+    def get(self, col: int) -> int:
         return self.table.get(col, 0)
 
-    def add(self, col, block_id) -> None:
+    def add(self, col: int, block_id: int) -> None:
         self.table[col] = block_id
 
 
@@ -85,7 +85,7 @@ class ProductWorkspace:
         self.datasize = 0
 
 
-def gemm_backend(A, B, m, n, k):
+def gemm_backend(A: np.ndarray, B: np.ndarray, m: np.int64, n: np.int64, k: np.int64) -> np.ndarray:
     """
     Dense block GEMM backend.
 
@@ -98,7 +98,9 @@ def gemm_backend(A, B, m, n, k):
     return A[:m, :k] @ B[:k, :n]
 
 
-def build_csr_index(mi, mf, ai, af, list_index, list_norms=None):
+def build_csr_index(
+    mi: int, mf: int, ai: int, af: int, list_index: np.ndarray, list_norms: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Translation of DBCSR build_csr_index.
 
@@ -139,7 +141,7 @@ def build_csr_index(mi, mf, ai, af, list_index, list_norms=None):
     return row_p, blk_info, csr_norms
 
 
-def find_cut_row(ai, af, index, val):
+def find_cut_row(ai: int, af: int, index: np.ndarray, val: int) -> int:
     """Translation of DBCSR find_cut_row for 0-based coordinates."""
 
     ilow = ai
@@ -160,7 +162,7 @@ def find_cut_row(ai, af, index, val):
     return ihigh
 
 
-def find_cut_col(ai, af, index, val):
+def find_cut_col(ai: int, af: int, index: np.ndarray, val: int) -> int:
     """Translation of DBCSR find_cut_col for 0-based coordinates."""
 
     ilow = ai
@@ -181,12 +183,12 @@ def find_cut_col(ai, af, index, val):
     return ihigh
 
 
-def rec_sort_index(index, mi, mf, ni, nf):
+def rec_sort_index(index: np.ndarray, mi: int, mf: int, ni: int, nf: int) -> np.ndarray:
     """Python equivalent of DBCSR rec_sort_index for 0-based coordinates."""
 
     ordered = np.array(index, copy=True)
 
-    def rec_sort_range(start, stop, row_min, row_max, col_min, col_max) -> None:
+    def rec_sort_range(start: int, stop: int, row_min: int, row_max: int, col_min: int, col_max: int) -> None:
         nele = stop - start
         if nele <= 1:
             return
@@ -269,10 +271,10 @@ class DBCSRKernel:
         self.c_blocks = {}
         self.flop = 0
 
-    def init_hash_tables(self, nrows) -> None:
+    def init_hash_tables(self, nrows: int) -> None:
         self.c_hashes = [HashTable() for _ in range(nrows)]
 
-    def push_stack(self, stack_id, entry) -> None:
+    def push_stack(self, stack_id: tuple[int, int, int], entry: np.ndarray) -> None:
         if stack_id not in self.stacks_data:
             self.stacks_data[stack_id] = []
             self.stacks_fillcount[stack_id] = 0
@@ -321,25 +323,25 @@ class DBCSRKernel:
 
     def dbcsr_mm_csr_multiply_low(
         self,
-        mi,
-        mf,
-        ki,
-        kf,
-        ai,
-        af,
-        bi,
-        bf,
-        a_index,
-        b_index,
-        m_sizes,
-        n_sizes,
-        k_sizes,
+        mi: int,
+        mf: int,
+        ki: int,
+        kf: int,
+        ai: int,
+        af: int,
+        bi: int,
+        bf: int,
+        a_index: np.ndarray,
+        b_index: np.ndarray,
+        m_sizes: np.ndarray,
+        n_sizes: np.ndarray,
+        k_sizes: np.ndarray,
         keep_sparsity: bool = False,
         use_eps: bool = False,
-        row_max_epss=None,
-        a_norms=None,
-        b_norms=None,
-    ):
+        row_max_epss: np.ndarray | None = None,
+        a_norms: np.ndarray | None = None,
+        b_norms: np.ndarray | None = None,
+    ) -> int:
         """
         dbcsr_mm_csr_multiply_low work loop.
 
@@ -447,23 +449,23 @@ class DBCSRKernel:
 
     def sparse_multrec(
         self,
-        left,
-        right,
-        mi,
-        mf,
-        ni,
-        nf,
-        ki,
-        kf,
-        ai,
-        af,
-        bi,
-        bf,
-        a_index,
-        b_index,
-        m_sizes,
-        n_sizes,
-        k_sizes,
+        left: None,
+        right: None,
+        mi: int,
+        mf: int,
+        ni: int,
+        nf: int,
+        ki: int,
+        kf: int,
+        ai: int,
+        af: int,
+        bi: int,
+        bf: int,
+        a_index: np.ndarray,
+        b_index: np.ndarray,
+        m_sizes: np.ndarray,
+        n_sizes: np.ndarray,
+        k_sizes: np.ndarray,
         multrec_limit: int = 512,
     ) -> None:
         if af < ai or bf < bi or mf < mi or nf < ni or kf < ki:
@@ -633,15 +635,15 @@ class DBCSRKernel:
 
     def run(
         self,
-        a_index,
-        b_index,
-        a_blocks,
-        b_blocks,
-        m_sizes,
-        n_sizes,
-        k_sizes,
+        a_index: np.ndarray,
+        b_index: np.ndarray,
+        a_blocks: dict[int, np.ndarray],
+        b_blocks: dict[int, np.ndarray],
+        m_sizes: np.ndarray,
+        n_sizes: np.ndarray,
+        k_sizes: np.ndarray,
         multrec_limit: int = 512,
-    ):
+    ) -> tuple[dict[np.int64, np.ndarray], ProductWorkspace, int]:
         """
         Public kernel entry point.
         """
@@ -692,7 +694,9 @@ class DBCSRKernel:
         return self.c_blocks, self.product_wm, self.flop
 
 
-def blocks_to_dense(index, blocks, row_sizes, col_sizes):
+def blocks_to_dense(
+    index: np.ndarray, blocks: dict[int, np.ndarray], row_sizes: np.ndarray, col_sizes: np.ndarray
+) -> np.ndarray:
     dense = np.zeros((np.sum(row_sizes), np.sum(col_sizes)), dtype=np.float64)
 
     row_offsets = np.zeros(len(row_sizes) + 1, dtype=np.int32)
@@ -712,7 +716,9 @@ def blocks_to_dense(index, blocks, row_sizes, col_sizes):
     return dense
 
 
-def c_blocks_to_dense(c_blocks, product_wm, m_sizes, n_sizes):
+def c_blocks_to_dense(
+    c_blocks: dict[np.int64, np.ndarray], product_wm: ProductWorkspace, m_sizes: np.ndarray, n_sizes: np.ndarray
+) -> np.ndarray:
     dense = np.zeros((np.sum(m_sizes), np.sum(n_sizes)), dtype=np.float64)
 
     row_offsets = np.zeros(len(m_sizes) + 1, dtype=np.int32)
@@ -735,7 +741,9 @@ def c_blocks_to_dense(c_blocks, product_wm, m_sizes, n_sizes):
     return dense
 
 
-def dense_from_packed(index, packed_blocks, row_sizes, col_sizes):
+def dense_from_packed(
+    index: np.ndarray, packed_blocks: np.ndarray, row_sizes: np.ndarray, col_sizes: np.ndarray
+) -> np.ndarray:
     """Reconstruct a dense matrix from the manifest-facing flat/padded CSR-like
     arrays (`index` rows sentinel-padded with -1, `packed_blocks` zero-padded
     to the max block shape) -- used to independently validate `dbcsr()`."""
@@ -813,14 +821,16 @@ def build_fortran_reference() -> Path:
     return shared_library("gfortran", [FORTRAN_SOURCE], ["-O3", "-shared", "-fPIC"])
 
 
-def normalize_index(index):
+def normalize_index(index: np.ndarray) -> np.ndarray:
     index = np.asarray(index, dtype=np.int32)
     if index.size == 0:
         return np.empty((0, 3), dtype=np.int32)
     return index.reshape((-1, 3))
 
 
-def normalize_inputs(args):
+def normalize_inputs(
+    args: tuple[dict[int, np.ndarray] | np.ndarray, ...],
+) -> tuple[dict[int, np.ndarray] | np.ndarray, ...]:
     a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_sizes = args
     return (
         normalize_index(a_index),
@@ -833,13 +843,21 @@ def normalize_inputs(args):
     )
 
 
-def flatten_blocks(blocks):
+def flatten_blocks(blocks: dict[int, np.ndarray]) -> np.ndarray:
     if len(blocks) == 0:
         return np.empty(0, dtype=np.float64)
     return np.concatenate([blocks[i].ravel() for i in range(len(blocks))]).astype(np.float64)
 
 
-def run_fortran_ref(a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_sizes):
+def run_fortran_ref(
+    a_index: np.ndarray,
+    b_index: np.ndarray,
+    a_blocks: dict[int, np.ndarray],
+    b_blocks: dict[int, np.ndarray],
+    m_sizes: np.ndarray,
+    n_sizes: np.ndarray,
+    k_sizes: np.ndarray,
+) -> tuple[np.ndarray, int, int]:
     lib_path = build_fortran_reference()
     lib = ctypes.CDLL(str(lib_path))
 
@@ -905,7 +923,9 @@ def run_fortran_ref(a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_si
     return c_dense, lastblk.value, flop.value
 
 
-def execute_python_kernel(args, stack_capacity: int = 64, multrec_limit: int = 32):
+def execute_python_kernel(
+    args: tuple[dict[int, np.ndarray] | np.ndarray, ...], stack_capacity: int = 64, multrec_limit: int = 32
+) -> tuple[np.ndarray, int, int]:
     a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_sizes = args
     kernel = DBCSRKernel(stack_capacity=stack_capacity)
 
@@ -925,13 +945,13 @@ def execute_python_kernel(args, stack_capacity: int = 64, multrec_limit: int = 3
 
 
 def validate_inputs(
-    name,
-    args,
+    name: str,
+    args: tuple[dict[int, np.ndarray] | np.ndarray, ...],
     stack_capacity: int = 64,
     multrec_limit: int = 32,
-    expected=None,
+    expected: tuple[np.ndarray, int, int] | None = None,
     verbose: bool = False,
-):
+) -> tuple[np.ndarray, int, int]:
     args = normalize_inputs(args)
     a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_sizes = args
 
@@ -1024,14 +1044,14 @@ def validate_inputs(
 
 
 def generated_case(
-    n_block_rows,
-    n_block_cols,
-    n_block_inner,
-    block_size,
-    density,
-    seed,
+    n_block_rows: int,
+    n_block_cols: int,
+    n_block_inner: int,
+    block_size: int | list[int],
+    density: float,
+    seed: int,
     sparsity_pattern: str = "structured",
-):
+) -> tuple[dict[int, np.ndarray] | np.ndarray, ...]:
     return normalize_inputs(
         generate_random_dbcsr_inputs(
             n_block_rows=n_block_rows,
@@ -1045,7 +1065,7 @@ def generated_case(
     )
 
 
-def exactly_one_product_case():
+def exactly_one_product_case() -> tuple[dict[int, np.ndarray] | np.ndarray, ...]:
     m_sizes = np.array([2, 3, 4], dtype=np.int32)
     n_sizes = np.array([5, 2], dtype=np.int32)
     k_sizes = np.array([3, 4, 2], dtype=np.int32)
@@ -1058,7 +1078,9 @@ def exactly_one_product_case():
     return a_index, b_index, a_blocks, b_blocks, m_sizes, n_sizes, k_sizes
 
 
-def assert_inputs_equal(left, right) -> None:
+def assert_inputs_equal(
+    left: tuple[dict[int, np.ndarray] | np.ndarray, ...], right: tuple[dict[int, np.ndarray] | np.ndarray, ...]
+) -> None:
     left = normalize_inputs(left)
     right = normalize_inputs(right)
     for left_array, right_array in zip(left[:2], right[:2], strict=False):
@@ -1072,7 +1094,9 @@ def assert_inputs_equal(left, right) -> None:
             np.testing.assert_array_equal(left_blocks[block_id], right_blocks[block_id])
 
 
-def assert_inputs_different(left, right) -> None:
+def assert_inputs_different(
+    left: tuple[dict[int, np.ndarray] | np.ndarray, ...], right: tuple[dict[int, np.ndarray] | np.ndarray, ...]
+) -> None:
     left = normalize_inputs(left)
     right = normalize_inputs(right)
     if left[0].shape != right[0].shape or left[1].shape != right[1].shape:
@@ -1115,7 +1139,9 @@ NUM_EDGE_RANDOM_TESTS = 60
 BLOCK_SIZE_CHOICES = [1, 2, 4, 8, [2, 4, 8], [1, 2, 8]]
 
 
-def build_randomized_params():
+def build_randomized_params() -> tuple[
+    list[tuple[int, int, int, int, int, float]], list[tuple[int, int, int, int, float]], list[tuple[float | list, ...]]
+]:
     """Reproduce main()'s randomized draws from a single rng stream so the
     parametrized cases stay deterministic and match the original sequence."""
 
@@ -1152,7 +1178,7 @@ RANDOM_CASES, VARIABLE_CASES, EDGE_CASES = build_randomized_params()
 
 
 @pytest.fixture(scope="module")
-def fortran_reference():
+def fortran_reference() -> Path:
     """Build the Fortran reference shared library once per module; individual
     checks bind it through run_fortran_ref()."""
 
@@ -1160,14 +1186,18 @@ def fortran_reference():
 
 
 @pytest.fixture(scope="module")
-def recursion_stress(fortran_reference):
+def recursion_stress(
+    fortran_reference: Path,
+) -> tuple[tuple[dict[int, np.ndarray] | np.ndarray, ...], tuple[np.ndarray, int, int]]:
     args = generated_case(9, 8, 7, [2, 4, 8], 0.45, 201)
     baseline = validate_inputs("recursion baseline", args, stack_capacity=64, multrec_limit=32)
     return args, baseline
 
 
 @pytest.fixture(scope="module")
-def stack_stress(fortran_reference):
+def stack_stress(
+    fortran_reference: Path,
+) -> tuple[tuple[dict[int, np.ndarray] | np.ndarray, ...], tuple[np.ndarray, int, int]]:
     args = generated_case(10, 9, 8, [2, 4, 8], 0.55, 202)
     baseline = validate_inputs("stack baseline", args, stack_capacity=64, multrec_limit=32)
     return args, baseline
@@ -1178,7 +1208,7 @@ def test_manifest_kernel_matches_dense() -> None:
 
 
 @pytest.mark.parametrize("case", FIXED_CASES, ids=[case[0] for case in FIXED_CASES])
-def test_fixed_case(case, fortran_reference) -> None:
+def test_fixed_case(case: tuple[float | list[int] | str, ...], fortran_reference: Path) -> None:
     name = case[0]
     pattern = "structured"
     if name == "banded sparse":
@@ -1203,18 +1233,22 @@ def test_generator_invariants() -> None:
     validate_dbcsr_inputs(*random_sparse)
 
 
-def test_exactly_one_product(fortran_reference) -> None:
+def test_exactly_one_product(fortran_reference: Path) -> None:
     validate_inputs("exactly one nonzero product", exactly_one_product_case(), verbose=True)
 
 
 @pytest.mark.parametrize("limit", MULTREC_LIMITS)
-def test_recursion_multrec_limit(limit, recursion_stress) -> None:
+def test_recursion_multrec_limit(
+    limit: int, recursion_stress: tuple[tuple[dict[int, np.ndarray] | np.ndarray, ...], tuple[np.ndarray, int, int]]
+) -> None:
     args, baseline = recursion_stress
     validate_inputs(f"recursion multrec_limit={limit}", args, stack_capacity=64, multrec_limit=limit, expected=baseline)
 
 
 @pytest.mark.parametrize("capacity", STACK_CAPACITIES)
-def test_stack_capacity(capacity, stack_stress) -> None:
+def test_stack_capacity(
+    capacity: int, stack_stress: tuple[tuple[dict[int, np.ndarray] | np.ndarray, ...], tuple[np.ndarray, int, int]]
+) -> None:
     args, baseline = stack_stress
     validate_inputs(f"stack capacity={capacity}", args, stack_capacity=capacity, multrec_limit=32, expected=baseline)
 
@@ -1222,13 +1256,23 @@ def test_stack_capacity(capacity, stack_stress) -> None:
 @pytest.mark.parametrize(
     ("test_id", "n_block_rows", "n_block_cols", "n_block_inner", "block_size", "density"), RANDOM_CASES
 )
-def test_randomized(test_id, n_block_rows, n_block_cols, n_block_inner, block_size, density, fortran_reference) -> None:
+def test_randomized(
+    test_id: int,
+    n_block_rows: int,
+    n_block_cols: int,
+    n_block_inner: int,
+    block_size: int,
+    density: float,
+    fortran_reference: Path,
+) -> None:
     args = generated_case(n_block_rows, n_block_cols, n_block_inner, block_size, density, test_id)
     validate_inputs(f"random_{test_id}", args)
 
 
 @pytest.mark.parametrize(("test_id", "n_block_rows", "n_block_cols", "n_block_inner", "density"), VARIABLE_CASES)
-def test_randomized_variable(test_id, n_block_rows, n_block_cols, n_block_inner, density, fortran_reference) -> None:
+def test_randomized_variable(
+    test_id: int, n_block_rows: int, n_block_cols: int, n_block_inner: int, density: float, fortran_reference: Path
+) -> None:
     args = generated_case(n_block_rows, n_block_cols, n_block_inner, [2, 4, 8], density, 1000 + test_id)
     validate_inputs(f"random_variable_{test_id}", args)
 
@@ -1247,15 +1291,15 @@ def test_randomized_variable(test_id, n_block_rows, n_block_cols, n_block_inner,
     EDGE_CASES,
 )
 def test_edge_random(
-    test_id,
-    n_block_rows,
-    n_block_cols,
-    n_block_inner,
-    block_size,
-    density,
-    multrec_limit,
-    stack_capacity,
-    fortran_reference,
+    test_id: int,
+    n_block_rows: int,
+    n_block_cols: int,
+    n_block_inner: int,
+    block_size: int | list[int],
+    density: float,
+    multrec_limit: int,
+    stack_capacity: int,
+    fortran_reference: Path,
 ) -> None:
     args = generated_case(
         n_block_rows,
