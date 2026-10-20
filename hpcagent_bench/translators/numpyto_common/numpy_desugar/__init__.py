@@ -72,9 +72,7 @@ from hpcagent_bench.translators.numpyto_common.numpy_desugar.kinds import (
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.linalg import (
     LINALG_HOIST,
-    LINALG_LOWERABLE,
     LOWER_SOLVE_RHS_RANKS,
-    NATIVE_LINALG,
 )
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.lists import fold_list_accumulators
 from hpcagent_bench.translators.numpyto_common.numpy_desugar.matmul import (
@@ -194,7 +192,6 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
     lowered to explicit loops. ``None`` lowers no linalg. A capability can be partial:
     :data:`LOWER_SOLVE_RHS_RANKS` lowers the ``solve`` right-hand-side ranks a nominally-native
     backend cannot expand."""
-    lower_linalg = LINALG_LOWERABLE - NATIVE_LINALG.get(backend, LINALG_LOWERABLE)
     lower_solve_rhs_ranks = LOWER_SOLVE_RHS_RANKS.get(backend, frozenset())
     tree = ast.parse(source)
     changed = False
@@ -250,7 +247,7 @@ def desugar_for_python_backend(source: str, kir: KernelIR, backend: str | None =
         noncontig = noncontig_names(fn)
         masked_gathers = masked_reduce_map(fn, ranks, dtypes)
         consts = const_name_values(fn)
-        tables = HoistTables(ranks, dtypes, masked_gathers, lower_linalg, lower_solve_rhs_ranks)
+        tables = HoistTables(ranks, dtypes, masked_gathers, lower_solve_rhs_ranks)
         numba_reshape_passes: list[DesugarPass] = (
             [ReshapeFortranOrderInline(), NumbaDtypeFixups(dtype_table_(fn, param_kinds.get(fn_name or "", {})))]
             if backend == "numba"
