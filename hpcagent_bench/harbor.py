@@ -480,7 +480,7 @@ def instruction_md(task_id: str, kts: list[KernelTask], language: Language) -> s
         intro = (
             f"Optimize **all {len(kts)} kernels** below for speedup over a sequential-C "
             f"baseline. Each kernel's leak-free reference semantics and C-ABI are provided "
-            f"as files in the container; write each optimized {language} implementation to "
+            f"as files in the container; write each optimized {language.text} implementation to "
             f"its submission path. Your score is the geometric mean of the per-kernel "
             f"speedups (a kernel scores 1.0 if incorrect or not faster than the baseline)."
         )
@@ -490,7 +490,7 @@ def instruction_md(task_id: str, kts: list[KernelTask], language: Language) -> s
         intro = (
             f"Optimize one kernel for speedup over a sequential-C baseline. Its leak-free "
             f"reference semantics and C-ABI are provided as files in the container; write "
-            f"your optimized {language} implementation to the submission path below."
+            f"your optimized {language.text} implementation to the submission path below."
         )
     sections = [
         f"""## `{kt.row.name}` (`{kt.row.id}`)
@@ -536,7 +536,7 @@ This directory is a git repository with the seed committed on `main`. Open a pul
 
 ## What to do
 
-- Create a branch and optimize the {language} implementation in `{src}` in place.
+- Create a branch and optimize the {language.text} implementation in `{src}` in place.
 - Keep the results numerically identical -- `reference.py` specifies what the kernel computes, and
   the verifier checks your outputs against a compiled reference (numba or sequential C) of it. Do NOT change the exported C-ABI symbol `{sym}` or its signature; the exact
   C-ABI is in `signature.json`.
@@ -656,7 +656,7 @@ def mpi_instruction_md(kt: KernelTask, language: Language, ranks: int, mode: Sca
   GPU-initiated NCCL/RCCL). Under device residency the harness delivers each tile as a GPU pointer
   (untimed H2D before your kernel, D2H after), so you compute -- and communicate device-to-device --
   on the GPU. The only requirement: return each output in its declared layout.
-- Write your `{language}` implementation to: `{kt.submission_path(language)}`
+- Write your `{language.text}` implementation to: `{kt.submission_path(language)}`
 - Declare your data layout in `{kt.requests_path()}` -- the starter holds this kernel's default
   layout and is valid as is. The harness scatters inputs and gathers outputs with EXACTLY this layout
   (it never re-lays-out the data), then grades the reconstructed whole-domain result. `startup.grid` lists
@@ -676,7 +676,7 @@ def mpi_instruction_md(kt: KernelTask, language: Language, ranks: int, mode: Sca
   `i = ((l // B) * P + p) * B + l % B`. For `block`: `base, rem = divmod(n, P)`, rank `p` owns
   `base + (1 if p < rem else 0)` rows from `lo = p*base + min(p, rem)`, so `i = lo + l`."""
     delivery = f"""## Delivery (an MPI executable OR a Python callable -- no prebuilt `.so`)
-- **Source** ({language} / C / C++ / Fortran): the harness compiles `{sym}` against its own MPI
+- **Source** ({language.text} / C / C++ / Fortran): the harness compiles `{sym}` against its own MPI
   `main` and launches an executable (`MPI_Init` must own `main`, so a `.so` is not accepted on this
   track). Link MPI through the wrapper compiler (`mpicc` / `mpicxx` / `mpifort`); `-fopenmp` is
   passed and `-ffast-math` is not; do not hardcode `-O3` / `-march`.
@@ -735,7 +735,7 @@ def test_sh(
         flags += f" --speedup-min {speedup_min:g}"
     lines += [
         f"python -m {GRADER_MODULE} grade \\",
-        f"    --language {language} --baseline {baseline}{flags} \\",
+        f"    --language {language.text} --baseline {baseline}{flags} \\",
         f"    --reward {REWARD_PATH} \\",
         '    "${ARGS[@]}"',
         "",
@@ -995,14 +995,14 @@ def _translations(
         found = {kt.key: _translation_source(kt, language) for kt in kts}
         solutions = {k: v for k, v in found.items() if v}
         if len(solutions) != len(kts):
-            print(f"hpcagent_bench: no oracle for {task_id!r} -- no {language} translation", file=sys.stderr)
+            print(f"hpcagent_bench: no oracle for {task_id!r} -- no {language.text} translation", file=sys.stderr)
             return None
     seed = None
     if layout is Layout.REPO:
         seed = _translation_source(kts[0], language)
         if seed is None:
             print(
-                f"hpcagent_bench: skipping repo layout for {kts[0].row.id!r} -- no {language} "
+                f"hpcagent_bench: skipping repo layout for {kts[0].row.id!r} -- no {language.text} "
                 f"translation available (a repo must ship a working seed)",
                 file=sys.stderr,
             )
@@ -1078,7 +1078,7 @@ def generate(
             )
         )
     if skipped:
-        print(f"hpcagent_bench: skipped {skipped} kernel(s) with no {language} translation", file=sys.stderr)
+        print(f"hpcagent_bench: skipped {skipped} kernel(s) with no {language.text} translation", file=sys.stderr)
     (base / "tasks.json").write_text(json.dumps([d.name for d in dirs], indent=2))
     return dirs
 
@@ -1765,7 +1765,12 @@ def add_generate_args(p: argparse.ArgumentParser) -> None:
         choices=[residency.text for residency in RESIDENCIES],
         help="single-node, or multi-node MPI tasks",
     )
-    p.add_argument("--language", default="c", choices=sorted(LANG_EXT), help="implementation language")
+    p.add_argument(
+        "--language",
+        default=Language.C.text,
+        choices=sorted(language.text for language in LANG_EXT),
+        help="implementation language",
+    )
     p.add_argument(
         "--hardware",
         default=DEFAULT_HARDWARE,
@@ -1841,7 +1846,7 @@ def cmd_generate(args: argparse.Namespace, harbor_extra: list[str]) -> int:
     dirs = generate(
         out,
         selector=args.selector,
-        language=args.language,
+        language=Language.parse(args.language),
         group=args.group,
         residency=Residency.parse(args.residency),
         layout=args.layout,
@@ -1912,7 +1917,7 @@ def cmd_grade(p: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         reward = grade_items(
             args.kernel,
             sources,
-            language=args.language,
+            language=Language.parse(args.language),
             baseline=args.baseline,
             libraries=libraries,
             k=args.k,
@@ -1924,7 +1929,7 @@ def cmd_grade(p: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             seed_shas=pad(args.seed_sha),
             anchor_sources=pad(args.anchor_source),
             anchor_libraries=pad(args.anchor_library),
-            anchor_language=args.anchor_language,
+            anchor_language=Language.parse(args.anchor_language) if args.anchor_language else None,
         )
     reward_path.write_text(json.dumps(harbor_reward(reward)))
     reward_path.with_name(DETAIL_NAME).write_text(grade_text(reward))
@@ -1948,7 +1953,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(adapter_metadata(), indent=2))
             return 0
         case "stage-repo":
-            if stage_repo(args.kernel, args.dest, language=args.language) is None:
+            if stage_repo(args.kernel, args.dest, language=Language.parse(args.language)) is None:
                 print(f"{args.kernel}: no repo task generated (no {args.language} translation)", file=sys.stderr)
                 return 2
             print(f"{args.kernel}: staged {args.dest}")

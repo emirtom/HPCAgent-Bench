@@ -2,13 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The closed categories a grade is configured and recorded by, as :class:`~hpcagent_agent.coded.Coded` enums.
 
-Code passes members; a member's spelling (``member.text``, ``Cls.parse(text)``) exists only where a value
-crosses a boundary: ``config.yaml`` and its environment names, the judge wire, a results-database column, a CLI
-argument, a file name. Every spelling is the one earlier builds wrote, so stored rows and configurations read
-back unchanged.
-
-They live here, apart from the modules that act on them, because :mod:`hpcagent_bench.config` types its fields
-with them and every one of those modules imports the configuration. This module imports nothing of the package.
+A leaf module (imports nothing of the package) so :mod:`hpcagent_bench.config` can type its fields with them.
 """
 
 import enum
@@ -39,8 +33,7 @@ __all__ = [
 
 
 def spelled(value: object) -> str:
-    """``json.dumps``'s ``default`` for a record holding members: a :class:`Coded` member's spelling; TypeError
-    for anything else, as ``json.dumps`` raises without a ``default``."""
+    """``json.dumps``'s ``default``: a :class:`Coded` member's spelling, TypeError for anything else."""
     if isinstance(value, Coded):
         return value.text
     raise TypeError(f"{type(value).__name__} is not JSON serializable")
@@ -55,9 +48,7 @@ class Track(Coded):
 
 
 class Preset(Coded):
-    """Size preset a benchmark runs at (the CLI ``-p`` / ``--preset`` choices): the size rungs ``S`` / ``M`` /
-    ``L`` / ``XL`` and ``fuzzed``, sizes drawn around a rung. A preset TOKEN (``M+fuzz:42``,
-    :func:`hpcagent_bench.spec.parse_preset`) adds a rung and a seed to it."""
+    """Size preset: the rungs ``S`` / ``M`` / ``L`` / ``XL``, and ``fuzzed`` (sizes drawn around a rung)."""
 
     SPELLINGS = enum.nonmember({"S": "S", "M": "M", "L": "L", "XL": "XL"})
 
@@ -74,10 +65,7 @@ class Preset(Coded):
 
 
 class Oracle(Coded):
-    """Which reference grades correctness. ``auto`` resolves per kernel track: ``compiled`` (the
-    best-of(numba, c) references, the race leader first) on scientific_computing and
-    loop_level_reasoning, ``torch`` (the torch.compile max-autotune reference) on machine_learning.
-    ``numba`` / ``c`` name one compiled reference."""
+    """Which reference grades correctness; ``auto`` resolves per kernel track (``compiled`` or ``torch``)."""
 
     AUTO = enum.auto()
     COMPILED = enum.auto()
@@ -87,22 +75,10 @@ class Oracle(Coded):
 
 
 class Baseline(Coded):
-    """The speedup denominator (what the submission is timed against).
+    """The reference a submission is timed against.
 
-    ``numba`` (the generated ``parallel=True`` njit build), ``c``, the
-    compiled-PyTorch reference (``torch-autotune``: the kernel's PyTorch model under
-    ``torch.compile(mode="max-autotune-no-cudagraphs")``, see
-    :mod:`hpcagent_bench.harness.torch_baseline`; resolved per grade to ``torch-autotune-cpu`` or
-    ``torch-autotune-gpu`` by the device the grade runs on, and only the resolved kind is recorded),
-    and the three per-language auto-parallelizing compiled references
-    (``*-autopar``: the reference built ``Mode.MULTI_CORE`` with the STRONGEST available
-    autopar compiler -- Polly or GCC autopar for c/cpp, GCC autopar for fortran). A
-    denominator is ONE reference -- there is no "both".
-
-    The per-kernel-track auto-default (loop_level_reasoning / scientific_computing -> the faster of
-    ``c`` and ``numba``, machine_learning -> ``torch-autotune``) is NOT a member here: pass
-    ``baseline=None`` (spelled :data:`AUTO_BASELINE` on the CLI / config / wire) and
-    :func:`hpcagent_bench.harness.grading.resolve_baseline` picks the concrete kind per kernel.
+    ``torch-autotune`` resolves per grade to its ``-cpu`` / ``-gpu`` kind. The per-track default is ``None``
+    (spelled :data:`AUTO_BASELINE`), resolved by :func:`hpcagent_bench.harness.grading.resolve_baseline`.
     """
 
     SEPARATOR = enum.nonmember("-")
@@ -135,22 +111,16 @@ def parse_baseline(text: str) -> Baseline | None:
 
 
 def auto_baseline(value: object) -> object:
-    """A boundary value with its :data:`AUTO_BASELINE` spelling read as ``None`` (for :data:`BaselineChoice`)."""
+    """``None`` for the :data:`AUTO_BASELINE` spelling, else ``value`` unchanged."""
     return None if value == AUTO_BASELINE else value
 
 
-#: A baseline choice in a boundary model (``config.yaml``, the judge wire): a :class:`Baseline` spelling, or
-#: :data:`AUTO_BASELINE` for ``None``; written back the same way.
+#: A baseline choice in a pydantic model: a :class:`Baseline` spelling, or :data:`AUTO_BASELINE` for ``None``.
 BaselineChoice = Annotated[Baseline | None, BeforeValidator(auto_baseline), PlainSerializer(baseline_text)]
 
 
 class InputMode(Coded):
-    """What a judge submission may carry (server-side policy).
-
-    ``py-binding`` = an interpreted Python submission called directly (no compile);
-    ``source`` = the agent submits code the judge compiles ("llvm as a port");
-    ``library`` = a prebuilt ``.so``; ``any`` = any of the above. Inert on the client path.
-    """
+    """What a judge submission may carry: a Python module, source to compile, a prebuilt ``.so``, or any."""
 
     SEPARATOR = enum.nonmember("-")
 
@@ -207,8 +177,7 @@ class Denominator(Coded):
     NUMBA = enum.auto()
     C = enum.auto()
     C_AUTOPAR = enum.auto()
-    #: What grades of the three kernels that once shipped their own native reference recorded; no kernel is
-    #: credited under it, so those grades are owed a regrade under their track's denominator.
+    #: Recorded by legacy grades against a kernel-shipped reference; no kernel is credited under it.
     VENDORED = enum.auto()
     BEST_OF_NUMBA_C = enum.auto()
     BEST_OF_NUMBA_C_AUTOPAR = enum.auto()
@@ -219,10 +188,9 @@ class Denominator(Coded):
 class Language(Coded):
     """A delivery language: what a submission is written in and graded as.
 
-    The C-ABI languages (:data:`hpcagent_bench.languages.LANG_EXT`, one source-file extension each) and
-    ``python``, a module the judge calls directly. A SETUP's language (``record.language``: ``triton``,
-    ``triton-device``, ``omp``, ...) is a registered vocabulary key, not a member: the judge maps it to the
-    language it grades (:func:`hpcagent_bench.harness.service.delivery_language`)."""
+    A setup's ``record.language`` (``triton``, ``omp``, ...) is an open vocabulary key mapped onto a member by
+    :func:`hpcagent_bench.harness.service.delivery_language`.
+    """
 
     C = enum.auto()
     CPP = enum.auto()

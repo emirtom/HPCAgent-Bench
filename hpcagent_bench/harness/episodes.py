@@ -51,6 +51,11 @@ ENDED_BY: dict[int, str] = {
 Count = Annotated[int, pydantic.BeforeValidator(lambda raw: int(raw) if isinstance(raw, float) else raw)]
 
 
+def blank_as_none(raw: object) -> object:
+    """``None`` for an empty field, else ``raw`` unchanged."""
+    return raw or None
+
+
 class RecordIdentity(pydantic.BaseModel):
     """The setup identity the driver ran under (``tokens.json`` ``identity``): its ``HPCAGENT_BENCH_RECORD_*``
     environment, '' where unset. What an episode that never reached the judge records its setup as, whatever
@@ -62,7 +67,7 @@ class RecordIdentity(pydantic.BaseModel):
     model: str
     language: str
     #: '' (unset) reads as None.
-    device: Annotated[RecordDevice | None, pydantic.BeforeValidator(lambda raw: raw or None)]
+    device: Annotated[RecordDevice | None, pydantic.BeforeValidator(blank_as_none)]
     packet: str
     harness: str
     tag_version: str

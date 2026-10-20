@@ -3298,7 +3298,7 @@ def score_distributed(
             0,
             False,
             "distributed device residency needs a python, cuda, or hip kernel_mpi (each "
-            f"rank's device tiles are GPU pointers); got a {submission.language} source",
+            f"rank's device tiles are GPU pointers); got a {submission.language.text} source",
         )
 
     if torch_reference.has_torch_reference(spec):
@@ -3749,7 +3749,7 @@ def score_scaling(
             and not submission.is_python
             and submission.language not in (Language.CUDA, Language.HIP)
         ):
-            note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {submission.language}")
+            note(p, f"device residency needs a python/cuda/hip kernel_mpi, got {submission.language.text}")
             continue
         try:
             # The placement from this launch's own launcher and environment.
@@ -3956,7 +3956,7 @@ def score_ml(
         and submission.language not in (Language.CUDA, Language.HIP)
     ):
         return refused(
-            f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language}"
+            f"distributed device residency needs a python, cuda, or hip kernel_mpi; got {submission.language.text}"
         )
     with Sandbox(binding, source_mode=task.source_mode) as sb:
         # The rank driver's kernel library is grid-independent, so one build serves every P and law.

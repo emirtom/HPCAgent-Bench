@@ -139,7 +139,7 @@ class LibraryOptimizer(Agent):
             src = root / f"{binding.symbol}.{ext}"
             src.write_text(source)
             # Key the artifact on language too, so one workdir can hold a kernel's C and Fortran builds.
-            lib = root / f"lib{task.kernel}_{task.language}.so"
+            lib = root / f"lib{task.kernel}_{task.language.text}.so"
             cmds = languages.build_shared_lib_commands(
                 task.language, src, lib, extra_compile=extra_compile, extra_link=extra_link
             )
@@ -251,7 +251,7 @@ class BlasReductionOptimizer(LibraryOptimizer):
         if task.kernel not in self._BODIES:
             raise NotImplementedError(f"{self.name} only optimizes {sorted(self._BODIES)}; got {task.kernel!r}")
         if task.language is not Language.C:
-            raise NotImplementedError(f"{self.name} emits C only; got language {task.language!r}")
+            raise NotImplementedError(f"{self.name} emits C only; got language {task.language.text!r}")
         source = self._emit_source(task)
         cflags, libs = openblas_flags()
         if task.source_mode is SourceMode.RESTRICTED:
@@ -368,7 +368,7 @@ class PlutoOptimizer(Agent):
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
         if task.language is not Language.C or task.source_mode is not SourceMode.RESTRICTED:
-            raise NotImplementedError(f"{self.name} submits restricted C; got {task.language}/{task.source_mode.text}")
+            raise NotImplementedError(f"{self.name} submits restricted C; got {task.language.text}/{task.source_mode.text}")
         return Submission(language=Language.C, source=pluto_source(task))
 
 
@@ -384,7 +384,7 @@ class PpcgHipOptimizer(Agent):
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
         if task.language is not Language.HIP or task.source_mode is not SourceMode.RESTRICTED:
             raise NotImplementedError(
-                f"{self.name} submits restricted HIP; got {task.language}/{task.source_mode.text}"
+                f"{self.name} submits restricted HIP; got {task.language.text}/{task.source_mode.text}"
             )
         host, device = ppcg_hip_sources(task)
         return Submission(language=Language.HIP, source=host, device_source=device)

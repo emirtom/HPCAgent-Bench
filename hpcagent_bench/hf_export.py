@@ -168,7 +168,7 @@ def resolved_row(spec: BenchSpec, rb: ResolvedBench, commit: str = "") -> Export
         dwarf=spec.dwarf or "",
         scale=spec.scale_class or "",
         tags=json.dumps(sorted(spec.study_tags)),
-        languages=json.dumps(list(spec.languages or DEFAULT_LANGUAGES)),
+        languages=json.dumps([language.text for language in spec.languages or DEFAULT_LANGUAGES]),
         allowed_precisions=json.dumps(list(spec.allowed_precisions)),
         source_mode=DEFAULT_SOURCE_MODE.text,
         baseline=AUTO_BASELINE,
@@ -227,7 +227,7 @@ def row_problems(r: ExportRow) -> list[str]:
             problems.append(f"{r.id}: {k} is not JSON")
     checks = [
         (r.track in Track.texts(), f"track {r.track!r} is not a Track"),
-        (json_list(r.languages) <= set(LANG_EXT), f"languages {r.languages} are not all Language values"),
+        (json_list(r.languages) <= {language.text for language in LANG_EXT}, f"languages {r.languages} are not all Language values"),
         (r.numpy_reference, "empty numpy_reference"),
         (r.signature and r.symbol, "empty signature/symbol"),
         (r.manifest and (paths.ROOT / r.manifest).is_file(), f"manifest {r.manifest!r} not found"),

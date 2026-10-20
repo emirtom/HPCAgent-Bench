@@ -1502,9 +1502,9 @@ def run_compiled_reference(
                 compiler=compiler,
             )
         except Exception as exc:
-            raise RuntimeError(f"{language} reference emit failed: {exc}") from exc
+            raise RuntimeError(f"{language.text} reference emit failed: {exc}") from exc
         if not built.ok or built.lib is None:
-            raise RuntimeError(f"{language} reference build failed:\n{built.log[-1500:]}")
+            raise RuntimeError(f"{language.text} reference build failed:\n{built.log[-1500:]}")
         lib = built.lib
 
         # The judge's own code: capped at the rank's reference share, not the kernel's array budget.
