@@ -450,7 +450,7 @@ Signatures: `@paired_test` `(log_ratios, alpha) -> Result` (finite logs, one per
 
 ## Framework sweep figures
 
-Framework sweeps (`hpcagent-bench run-benchmark -r N`, default 10 repeats) record one row per
+Framework sweeps (`hpcagent-bench run-framework -r N`, default 10 repeats) record one row per
 sample in `record.db_path` (`config.yaml`: `hpcagent_bench.db`, relative to the repo root). Per (framework, kernel) the
 median-fastest implementation is normalized to NumPy, `speedup = t_numpy / t_framework`; the group
 total is the geomean. Figure conventions: [plotting.md](plotting.md); the per-kernel figure of

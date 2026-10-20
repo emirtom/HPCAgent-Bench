@@ -94,8 +94,20 @@ def sweep(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """Drive the whole pipeline once: both sweeps, in one tmp cwd. Module-scoped since the
     two legs must land in the same ``hpcagent_bench.db`` for a speedup to exist."""
     cwd = tmp_path_factory.mktemp("integration_sweep")
-    run_cli(cwd, "run-benchmark", "-b", NUMPY_SELECTOR, "-f", "numpy", "-p", PRESET, "-r", "1")
-    run_cli(cwd, "run-benchmark", "-b", NATIVE_SELECTOR, "-f", NATIVE_FRAMEWORK, "-p", PRESET, "-r", "1")
+    run_cli(cwd, "run-framework", "-b", NUMPY_SELECTOR, "-f", "numpy", "-p", PRESET, "-r", "1", "--no-ignore-errors")
+    run_cli(
+        cwd,
+        "run-framework",
+        "-b",
+        NATIVE_SELECTOR,
+        "-f",
+        NATIVE_FRAMEWORK,
+        "-p",
+        PRESET,
+        "-r",
+        "1",
+        "--no-ignore-errors",
+    )
     # The legs wrote shard 0; the base DB the assertions open is rebuilt from the shards.
     recording.ensure_aggregated(str(cwd / "hpcagent_bench.db"))
     return cwd

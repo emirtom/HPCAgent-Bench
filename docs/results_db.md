@@ -11,11 +11,11 @@ reader of an older layout and no backwards compatibility; a dataset is recorded 
 
 ## Who writes it
 
-- **A baseline sweep** (`hpcagent-bench job baseline`, `run-framework`, `run-benchmark`) records one `canon`
+- **A baseline sweep** (`hpcagent-bench job baseline`, `run-framework`) records one `canon`
   row per (run, column, kernel, preset, datatype) as each kernel finishes (`support/collect/canon_db.py`): the
   median time, the validation verdict, the status and failure, the dace build, and the hardware that measured
   it (`node`, `cpu`, `gpu`, `execution`). `job baseline` writes `$HPCAGENT_BENCH_RESULTS_DIR/canon.db`, an
-  hb-results file every column of every experiment shares; `run-framework` and `run-benchmark` write this
+  hb-results file every column of every experiment shares; `run-framework` writes this
   process's results shard unless `--canon-db` names another file. The baseline figures (`stats/canon.py`) and
   the canon perf gate read it.
 

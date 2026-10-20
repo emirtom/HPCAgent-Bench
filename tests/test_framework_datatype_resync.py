@@ -90,13 +90,13 @@ def test_run_records_the_requested_precision_not_the_detected_one(dtype_globals:
     land under ``float32`` and vanish from every ``-d float64`` selection. An unrequested run resolves to
     fp64 (:func:`hpcagent_bench.precision.precision_from_datatype`), written out.
 
-    Cheap on purpose: the only other guard is a full ``run-benchmark`` + ``plot`` sweep.
+    Cheap on purpose: the only other guard is a full ``run-framework`` + ``plot`` sweep.
     """
     from hpcagent_bench.support.collect import canon_db
-    from hpcagent_bench.support.collect.sweep import CanonTarget, run_benchmark_sweep
+    from hpcagent_bench.support.collect.sweep import CanonTarget, run_framework_sweep
 
     canon = CanonTarget(tmp_path / "canon.db", "resync")
-    run_benchmark_sweep(KERNEL, "numpy", PRESET, False, 1, 120.0, None, canon)
+    run_framework_sweep(KERNEL, "numpy", PRESET, False, 1, 120.0, False, None, canon=canon)
     recorded = [row["datatype"] for row in canon_db.read(canon.db, run="resync")]
     assert recorded, f"{KERNEL} recorded no rows in {canon.db}"
     assert set(recorded) == {"float64"}, (

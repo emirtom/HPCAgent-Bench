@@ -84,7 +84,6 @@ __all__ = [
     "render_options",
     "render_sdfg",
     "render_timeout_s",
-    "render_track",
     "return_slot",
     "returned_slots",
     "run_child",
@@ -1024,33 +1023,6 @@ def track_specs(track: Track) -> list[BenchSpec]:
         if spec.track is track:
             specs.append(spec)
     return specs
-
-
-def render_track(
-    track: Track,
-    out_dir: os.PathLike,
-    *,
-    language: str = "c++",
-    precision: str = "",
-    target: Target = Target.CPU,
-    hints: HintDetail = DEFAULT_HINTS,
-    timeout: float | None = None,
-    jsonl: os.PathLike[str] | None = None,
-) -> list[RenderRecord]:
-    """Render every kernel on ``track``, appending one verdict per line to ``jsonl`` as it goes."""
-    records: list[RenderRecord] = []
-    with contextlib.ExitStack() as stack:
-        sink = stack.enter_context(pathlib.Path(jsonl).open("a")) if jsonl is not None else None
-        for index, spec in enumerate(track_specs(track), start=1):
-            rec = render_kernel(
-                spec, out_dir, language=language, precision=precision, target=target, hints=hints, timeout=timeout
-            )
-            records.append(rec)
-            print(f"[{index}] {rec.kernel}: {rec.verdict.text if rec.verdict else ''}", flush=True)
-            if sink is not None:
-                sink.write(rec.line() + "\n")
-                sink.flush()
-    return records
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -114,10 +114,6 @@ Changelog = "https://github.com/spcl/HPCAgent-Bench/blob/main/CHANGELOG.md"
 [project.scripts]
 hpcagent-bench = "hpcagent_bench.cli:main"
 hpcagent-bench-install-apptainer = "hpcagent_bench.containers:install_apptainer_main"
-numpyto = "hpcagent_bench.translators.numpyto_common.cli:main"
-numpyto_c = "hpcagent_bench.translators.numpyto_c.cli:main"
-numpyto_fortran = "hpcagent_bench.translators.numpyto_fortran.cli:main"
-numpyto_numba = "hpcagent_bench.translators.numpyto_numba.cli:main"
 
 # Exactly one of cpu / amdgpu / nvgpu is a COMPLETE install for that hardware: the package dependencies (the
 # grading stack, judge, HF export and agent clients) plus that hardware's framework set (torch, jax, triton,

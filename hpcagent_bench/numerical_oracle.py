@@ -514,25 +514,20 @@ def emit_kernel(
     bench: BenchSpec,
     out: pathlib.Path,
     precision: str = "",
-    mods: Sequence[str] = (
-        "hpcagent_bench.translators.numpyto_c.cli",
-        "hpcagent_bench.translators.numpyto_fortran.cli",
-    ),
-    extra: Sequence[str] = (),
+    targets: Sequence[str] = ("c", "fortran"),
 ) -> tuple[bool, str]:
-    """``(ok, diagnostic)``; ``mods``/``extra`` narrow the emit to one backend CLI with extra flags."""
+    """``(ok, diagnostic)`` of emitting ``bench`` for each of ``targets`` in-process."""
     from hpcagent_bench.emit_bridge import bench_info_tempfile
+    from hpcagent_bench.translators.numpyto_common.targets import EmitRequest, emit
 
     npy = paths.BENCHMARKS / bench.relative_path / f"{bench.module_name}_numpy.py"
     # The emitter reads a bench_info JSON, written from the co-located YAML for this call.
     with bench_info_tempfile(BenchSpec.load(short)) as bi:
-        for mod in mods:
-            cmd = [sys.executable, "-m", mod, "emit", "--kernel", str(npy), "--bench-info", str(bi), "--out", str(out)]
-            if precision:
-                cmd += ["--precision", precision]
-            r = subprocess.run(cmd + list(extra), capture_output=True, text=True, cwd=str(paths.ROOT), check=False)
-            if r.returncode:
-                return False, process_diag(r)
+        for target in targets:
+            try:
+                emit(target, EmitRequest(kernel=npy, out=out, bench_info=bi, precision=precision))
+            except Exception as exc:  # noqa: BLE001 -- the refusal is the diagnostic
+                return False, f": {type(exc).__name__}: {str(exc)[:300]}"
     return True, ""
 
 
@@ -833,10 +828,8 @@ def run_kernel(
     return status
 
 
-#: Python/JIT backends: (emit CLI module, extra emit args, glob for the emitted module, import dep).
-PY_BACKENDS: dict[str, tuple[str, list[str], str, str]] = {
-    "numba": ("hpcagent_bench.translators.numpyto_numba.cli", [], "*_numba*.py", "numba"),
-}
+#: Python/JIT backend -> the module it imports (its dependency).
+PY_BACKENDS: dict[str, str] = {"numba": "numba"}
 
 
 def coerce_to_dtype(v: object, dt: type | None) -> object:
@@ -876,8 +869,7 @@ def run_py_backend(
     emit_prec: str = "",
 ) -> str:
     """Validate a Python/JIT backend vs numpy in a forked child (extension modules can't unload)."""
-    _cli, _extra, _pattern, dep = PY_BACKENDS[backend]
-    if not dep_available(dep):
+    if not dep_available(PY_BACKENDS[backend]):
         return "skip:not-installed"
     if backend == "numba" and omp_context.numba_omp_pool_launched():
         return "FAIL:harness:numba omp pool already launched here; a forked child cannot run a parallel region"
@@ -902,7 +894,8 @@ def py_backend_compute(
     """Emit + compile + import + run + compare a Python/JIT backend, only in the forked child."""
     import importlib.util
 
-    cli, extra, pattern, dep = PY_BACKENDS[backend]
+    from hpcagent_bench.translators.numpyto_common.targets import EmitRequest, emit
+
     # Before the emitted module is imported: numba reads NUMBA_* once, at import (forked child only).
     if backend == "numba":
         os.environ.update(ORACLE_NUMBA_ENV)
@@ -913,25 +906,12 @@ def py_backend_compute(
 
     with bench_info_tempfile(BenchSpec.load(short)) as bi, tempfile.TemporaryDirectory() as td:
         tdp = pathlib.Path(td)
-        cmd = [
-            sys.executable,
-            "-m",
-            cli,
-            "emit",
-            "--kernel",
-            str(npy),
-            "--bench-info",
-            str(bi),
-            "--out",
-            str(tdp),
-            *extra,
-        ]
-        if backend == "numba" and oracle_config().fastmath(short):
-            cmd += ["--fastmath"]
-        emit = subprocess.run(cmd, capture_output=True, text=True, cwd=str(paths.ROOT), check=False)
-        if emit.returncode:
-            return "FAIL:emit" + process_diag(emit)
-        mods = sorted(tdp.glob(pattern))
+        request = EmitRequest(kernel=npy, out=tdp, bench_info=bi, fastmath=oracle_config().fastmath(short))
+        try:
+            emit(backend, request)
+        except Exception as exc:  # noqa: BLE001 -- the refusal is the status
+            return f"FAIL:emit: {type(exc).__name__}: {str(exc)[:300]}"
+        mods = sorted(tdp.glob(f"*_{backend}*.py"))
         if not mods:
             return "FAIL:no-module"
         modfile = mods[0]

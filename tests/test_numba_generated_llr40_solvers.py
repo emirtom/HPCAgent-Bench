@@ -6,8 +6,6 @@ build with no ``prange``: finding a loop's parallelism is the agent's task, not 
 import importlib.util
 import pathlib
 import re
-import subprocess
-import sys
 
 import numpy as np
 import pytest
@@ -17,6 +15,7 @@ from hpcagent_bench.categories import Oracle, Preset
 from hpcagent_bench.emit_bridge import bench_info_tempfile
 from hpcagent_bench.harness import grading, scoring
 from hpcagent_bench.spec import BenchSpec
+from hpcagent_bench.translators.numpyto_common.targets import EmitRequest, emit
 from tests.own_process import isolated
 from tests.reference_outputs import compiled_outputs
 
@@ -28,24 +27,11 @@ DECORATED_DEF = re.compile(r"^(@nb\.njit\([^)]*\))\ndef (\w+)\(", re.MULTILINE)
 
 
 def generated_numba(kernel: str, out: pathlib.Path) -> pathlib.Path:
-    """Emit ``kernel``'s numba sibling into ``out`` through the CLI the bench's autogen runs."""
+    """Emit ``kernel``'s numba sibling into ``out`` the way the bench's autogen does."""
     spec = BenchSpec.load(kernel)
     numpy_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
     with bench_info_tempfile(spec) as bench_info:
-        cmd = [
-            sys.executable,
-            "-m",
-            "hpcagent_bench.translators.numpyto_numba.cli",
-            "emit",
-            "--kernel",
-            str(numpy_py),
-            "--bench-info",
-            str(bench_info),
-            "--out",
-            str(out),
-        ]
-        done = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    assert done.returncode == 0, done.stderr[-2000:]
+        emit("numba", EmitRequest(kernel=numpy_py, out=out, bench_info=bench_info))
     (path,) = out.glob(f"{spec.module_name}_numba*.py")
     return path
 

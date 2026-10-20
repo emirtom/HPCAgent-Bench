@@ -6,7 +6,7 @@ LLM agents have their own page, [writing_an_agent.md](../writing_an_agent.md).
 | You have | Seam | Runs through | Recorded as |
 |---|---|---|---|
 | a tool that emits C/C++/Fortran/HIP source or a C-ABI `.so` per kernel | optimizer (`Agent.solve`) | `hpcagent-bench agent <name>` | JSONL `agent`, DB `optimizer` |
-| a Python-callable backend `<module>_<postfix>.py` | framework column (`@framework`) | `hpcagent-bench run-framework`, `run-benchmark` | DB `framework` |
+| a Python-callable backend `<module>_<postfix>.py` | framework column (`@framework`) | `hpcagent-bench run-framework` | DB `framework` |
 
 A new PyPI dependency goes in a `pyproject.toml` extra, the only dependency list.
 
@@ -127,20 +127,20 @@ is correct (it is 0 otherwise).
 | `hpcagent_bench/frameworks/<base>_framework.py` | the adapter class, named by the column's `adapter` | new `base` only |
 | `tests/test_vocabulary.py` | the column's slot in `PINNED_FRAMEWORKS` | always |
 
-The registration of Pythran:
+The registration of CuPy:
 
 ```python
 FRAMEWORKS.add(
-    "pythran",
+    "cupy",
     Column(
-        display="Pythran",
-        adapter="hpcagent_bench.frameworks.pythran_framework:PythranFramework",
-        base="pythran",
-        full_name="Pythran",
-        postfix="pythran",
-        arch=Arch.CPU,
+        display="CuPy",
+        adapter="hpcagent_bench.frameworks.cupy_framework:CupyFramework",
+        base="cupy",
+        full_name="CuPy",
+        postfix="cupy",
+        arch=Arch.GPU,
         sweep_deterministic=False,
-        precisions=IEEE_PRECISIONS,
+        precisions=frozenset({Precision.FP64, Precision.FP32, Precision.FP16, Precision.BF16}),
     ),
 )
 ```
@@ -167,10 +167,10 @@ is added last: its registration position is its slot (hue and marker) on every f
   `hpcagent-bench agent <name>` (`--native` keeps the judge in the same process).
 - A native column also declares `language`, plus `emit_language` when it starts from another translator's
   output, and `compiler` for a non-default `compilers.yaml` block.
-- New base: subclass `Framework` in `<base>_framework.py` (smallest: `pythran_framework.py`). To generate the
+- New base: subclass `Framework` in `<base>_framework.py` (smallest: `cupy_framework.py`). To generate the
   implementation file, return its target from the adapter's `autogen_targets()` and add one entry
-  `"<postfix>": <emitter>` to `EMITTERS` in `hpcagent_bench/autogen.py` (an in-process function such as the jax
-  one, or `emit_cli("<translator package>.cli", pass_bench_info=...)`); otherwise commit a hand-written
+  `"<postfix>": <emitter>` to `EMITTERS` in `hpcagent_bench/autogen.py` (an in-process function such as
+  `emit_numba_sibling`); otherwise commit a hand-written
   `<module>_<postfix>.py` per kernel.
 - A hand-written backend for an existing column, e.g. a kernel's `<kernel>_triton.py`, is one file and no
   registry change: [triton_authoring.md](../triton_authoring.md), [tvm_authoring.md](../tvm_authoring.md).
