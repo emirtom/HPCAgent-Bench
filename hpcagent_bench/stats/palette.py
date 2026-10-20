@@ -42,6 +42,7 @@ import functools
 import logging
 import zlib
 from collections.abc import Iterable
+from typing import NamedTuple
 
 import matplotlib as mpl
 from matplotlib.colors import to_hex
@@ -49,11 +50,13 @@ from matplotlib.markers import MarkerStyle
 
 from hpcagent_bench import packets
 from hpcagent_bench.study_tags import Marker, Registry, canonical, order, registry, slot
+from hpcagent_bench.vocabulary import KINDS
 
 __all__ = [
     "CONTROL_MARKER",
     "CONTROL_SHADE",
     "LOG",
+    "Look",
     "TAB20",
     "TAB20B",
     "TAB20B_ORDER",
@@ -61,15 +64,18 @@ __all__ = [
     "color",
     "colormap_slot",
     "colors",
+    "cycled",
     "control_color",
     "fixed_packet_markers",
     "framework_color",
+    "framework_marker",
     "harness_marker",
     "hue_order",
     "hues",
     "in_order",
     "darken",
     "lighten",
+    "look",
     "marker",
     "marker_style",
     "markers",
@@ -80,6 +86,7 @@ __all__ = [
     "packet_marker",
     "shape_table",
     "slot_color",
+    "slot_look",
     "tab20_slot",
     "treatment_shape",
     "warn_on_collision",
@@ -102,6 +109,11 @@ TAB20_ORDER: tuple[int, ...] = (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 1, 3, 5, 7, 9
 #: shade, so its first entries stay as far apart as tab20's dark half.
 TAB20B: str = "tab20b"
 TAB20B_ORDER: tuple[int, ...] = (0, 4, 8, 12, 16, 2, 6, 10, 14, 18, 1, 5, 9, 13, 17, 3, 7, 11, 15, 19)
+
+
+#: The control's shape, reserved: no packet or harness is ever assigned it, and the control is drawn
+#: hollow in its model's colour, so "no packet" reads the same in every figure.
+CONTROL_MARKER: str = "o"
 
 
 def colormap_slot(name: str, slot: int) -> str:
@@ -142,23 +154,42 @@ def hue_order(kind: str) -> tuple[str, ...]:
     return tuple(tag for tag in order(kind) if tag)
 
 
-def slot_color(kind: str, name: str) -> str:
-    """``name``'s tab20 slot within one entity ``kind``, silently -- an unregistered name gets a
-    stable CRC slot. :func:`ordered_color` is this plus the warning; a caller that has already
-    warned for ``name`` (:func:`color`) uses this one so one unknown entity logs once.
+class Look(NamedTuple):
+    """The colour and marker one entry is drawn with."""
 
-    CRC, never ``hash()``: ``hash`` is salted by PYTHONHASHSEED and would hand the same entity a
-    different colour in two runs of the same script."""
-    ramp = hues()
-    index = slot(kind, name)
-    if index is not None:
-        return ramp[index % len(ramp)]
-    return ramp[zlib.crc32(str(name).encode()) % len(ramp)]
+    colour: str
+    marker: Marker
+
+
+def slot_look(slot: int) -> Look:
+    """The look of registry slot ``slot``: colour ``hues()[slot % H]``, marker ``markers()[(slot // H) % M]`` for
+    ``H`` hues and ``M`` markers. Defined for every non-negative slot, so a new entry never raises or goes grey."""
+    ramp, shapes = hues(), markers()
+    return Look(ramp[slot % len(ramp)], shapes[(slot // len(ramp)) % len(shapes)])
+
+
+def look(kind: str, name: str) -> Look:
+    """``name``'s look within the registry kind ``kind`` (``"frameworks"``, ``"models"``, ...): its
+    :meth:`~hpcagent_bench.registry.Kind.slot` through :func:`slot_look`; the control's grey circle for an entry
+    without a slot. An unregistered name takes a stable CRC slot (never ``hash()``, which PYTHONHASHSEED salts)."""
+    entries = KINDS.get(kind)
+    key = canonical(kind, name)
+    if entries is not None and key in entries.keys():
+        index = entries.slot(key)
+        return slot_look(index) if index is not None else Look(control_color(), CONTROL_MARKER)
+    return slot_look(zlib.crc32(str(name).encode()) % (len(hues()) * len(markers())))
+
+
+def slot_color(kind: str, name: str) -> str:
+    """``name``'s colour within ``kind`` (:func:`look`), silently. :func:`ordered_color` is this plus the warning
+    for an unregistered name."""
+    return look(kind, name).colour
 
 
 def ordered_color(kind: str, name: str) -> str:
     """``name``'s tab20 slot within one entity ``kind``, warning when the registry does not name it."""
-    if canonical(kind, name) not in hue_order(kind):
+    entries = KINDS.get(kind)
+    if entries is None or canonical(kind, name) not in entries.keys():
         LOG.warning("palette: %s %r is not registered; using a hash colour", kind, name)
     return slot_color(kind, name)
 
@@ -240,9 +271,9 @@ def in_order(names: Iterable[str], kind: str = "models") -> list[str]:
 
 def marker(model: str) -> str:
     """The one SHAPE an optimizer wears: an LLM (``models``) or a standalone optimizer
-    (``optimizers``, e.g. DaCe or CPF). Models take shapes from the FRONT of the sequence and
-    standalone optimizers from the BACK, so registering another model never repaints a figure that
-    already carries DaCe or CPF. Pairs with :func:`color` so identity is never colour alone."""
+    (``optimizers``, e.g. DaCe or CPF), shape being how a compiler figure tells the two apart. Models take shapes
+    from the FRONT of the sequence by slot and standalone optimizers from the BACK, so registering another model
+    never reshapes DaCe or CPF. An unregistered name warns and takes a stable CRC shape."""
     shapes = markers()
     index = slot("models", model)
     if index is not None:
@@ -254,9 +285,12 @@ def marker(model: str) -> str:
     return shapes[zlib.crc32(str(model).encode()) % len(shapes)]
 
 
-#: The control's shape, reserved: no packet or harness is ever assigned it, and the control is drawn
-#: hollow in its model's colour, so "no packet" reads the same in every figure.
-CONTROL_MARKER: str = "o"
+def framework_marker(name: str) -> Marker:
+    """The marker a framework column wears: a standalone optimizer's shape (:func:`marker`) when the column is one,
+    else its slot's (:func:`look`), so a column registered at runtime or by a plugin needs no plot-code edit."""
+    if canonical("optimizers", name) in KINDS["optimizers"].keys():
+        return marker(name)
+    return look("frameworks", name).marker
 
 
 @functools.lru_cache(maxsize=1, typed=True)
@@ -265,8 +299,7 @@ def shape_table() -> dict[tuple[str, str], Marker]:
     packet in one figure never share a shape. The pool's free shapes split in two: the first ``harness_shapes``
     (the clearest filled ones) are the harnesses', the rest the packets', each kind taking its part in slot order
     unless a packet entry names its own ``marker:``. Registering a treatment of either kind therefore never reshapes
-    another of either kind; the control's circle is never handed out, and a part too small is a registry error raised
-    here rather than two treatments drawn alike."""
+    another of either kind; the control's circle is never handed out, and a part too small wraps with a warning."""
     reg = registry()
     fixed = fixed_packet_markers(reg)
     free = [shape for shape in reg.shapes if shape not in fixed.values() and shape != CONTROL_MARKER]
@@ -274,11 +307,16 @@ def shape_table() -> dict[tuple[str, str], Marker]:
     harnesses = [("harnesses", key) for key in hue_order("harnesses")]
     packets_left = [("packets", key) for key in hue_order("packets") if ("packets", key) not in fixed]
     if len(harnesses) > len(harness_part) or len(packets_left) > len(packet_part):
-        raise ValueError(
-            f"registry: {len(harnesses)} harnesses need {len(harnesses)} of {len(harness_part)} harness shapes and "
-            f"{len(packets_left)} packets {len(packets_left)} of {len(packet_part)}: raise harness_shapes or add shapes"
-        )
-    return dict(zip(harnesses, harness_part, strict=False)) | dict(zip(packets_left, packet_part, strict=False)) | fixed
+        LOG.warning(
+            "palette: %d harnesses share %d harness shapes and %d packets %d packet shapes; extend shapes",
+            len(harnesses), len(harness_part), len(packets_left), len(packet_part),
+        )  # fmt: skip
+    return cycled(harnesses, harness_part or free) | cycled(packets_left, packet_part or free) | fixed
+
+
+def cycled(keys: list[tuple[str, str]], shapes: list[Marker]) -> dict[tuple[str, str], Marker]:
+    """``keys`` matched to ``shapes`` in order, wrapping when there are more keys than shapes."""
+    return {key: shapes[index % len(shapes)] for index, key in enumerate(keys)} if shapes else {}
 
 
 def fixed_packet_markers(reg: Registry) -> dict[tuple[str, str], Marker]:

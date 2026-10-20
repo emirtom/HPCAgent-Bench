@@ -267,12 +267,12 @@ def registry() -> Registry:
 
 
 def slot(kind: str, tag: str) -> int | None:
-    """The slot ``tag`` takes within ``kind``: the explicit ``order`` of a vocabulary kind, else (the yaml
-    kinds) its position; ``None`` for an unregistered tag and for the no-packet control."""
+    """The slot ``tag`` takes within ``kind``: :meth:`~hpcagent_bench.registry.Kind.slot` of a vocabulary kind,
+    else (the yaml kinds) its position; ``None`` for an unregistered tag and for the no-packet control."""
     resolved = canonical(kind, tag)
     block = KINDS.get(kind)
     if block is not None:
-        return block.orders.get(resolved)
+        return block.slot(resolved) if resolved in block.keys() else None
     known = tuple(names(kind))
     return known.index(resolved) if resolved in known else None
 
