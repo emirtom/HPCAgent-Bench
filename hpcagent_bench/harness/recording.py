@@ -29,12 +29,13 @@ from typing import NamedTuple, Protocol
 
 from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.anticheat import Context, Judgement, judge
+from hpcagent_bench.categories import Baseline, Denominator, Preset, RecordDevice, SourceMode, baseline_text
 from hpcagent_bench.harness import db_json, denominator, grading, results_db
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.metric import LawCurve, ScalingDrop, ScalingScore
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.scoring import Score, TimedCell
-from hpcagent_bench.harness.task import RecordDevice, Task
+from hpcagent_bench.harness.task import Task
 from hpcagent_bench.run_layout import DB_FILENAME
 from hpcagent_bench.spec import BenchSpec, task_fingerprint
 from hpcagent_bench.support.bindings.contract import graded_datatype
@@ -107,6 +108,7 @@ __all__ = [
     "snapshot_commit",
     "stamp_values",
     "store_delivery",
+    "stored_denominator",
     "study_tag",
     "submission_envelope",
     "tag_version_tag",
@@ -120,13 +122,17 @@ def realized_candidates(cell: TimedCell) -> str:
     return cell.baseline_candidates or cell.baseline
 
 
-def grade_denominator(score: Score) -> str | None:
+def grade_denominator(score: Score) -> Denominator | None:
     """``grades.denominator`` of ``score``: the value its policy stamp and the references its inputs
     raced denote (:func:`denominator.of_grade`), or None when they show none."""
-    found = denominator.of_grade(
+    return denominator.of_grade(
         score.baseline_policy, [realized_candidates(cell) for cell in score.cells], score.baseline
     )
-    return None if found is None else found.value
+
+
+def stored_denominator(found: Denominator | None) -> str | None:
+    """``grades.denominator``'s value for ``found``: its spelling, NULL for none."""
+    return None if found is None else found.text
 
 
 def credited_ratios(cells: Sequence[TimedCell]) -> list[float]:
@@ -273,7 +279,7 @@ def study_tag() -> str | None:
 def device_tag() -> RecordDevice:
     """``record.device``; ``cpu`` when null."""
     device = config.current().record.device
-    return RecordDevice.CPU if device is None else RecordDevice(device)
+    return RecordDevice.CPU if device is None else device
 
 
 def packet_tag() -> str:
@@ -518,7 +524,7 @@ def open_episode_in_job(
         results_db.Setup(
             setup=setup,
             language=who.language or setup_language or "",
-            device=who.device.value,
+            device=who.device.text,
             harness=who.harness or results_db.DEFAULT_HARNESS,
             study=who.study,
             model=who.model,
@@ -558,16 +564,16 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def stamp_values(task: Task, preset: str, datatype: str, score: Score | None) -> dict[str, results_db.Value]:
+def stamp_values(task: Task, preset: Preset, datatype: str, score: Score | None) -> dict[str, results_db.Value]:
     """How a grade was graded: size, datatype, source mode, protocol stamps, machine, code and task
     (:func:`~hpcagent_bench.spec.task_fingerprint`). The datatype is the one the kernel ran in (a
     storage-only precision the manifest declares, else the configured one): it is part of the grade's
     identity."""
     spec = BenchSpec.load(task.kernel)
     values: dict[str, results_db.Value] = {
-        "preset": preset,
+        "preset": preset.text,
         "datatype": graded_datatype(spec, datatype),
-        "source_mode": task.source_mode,
+        "source_mode": task.source_mode.text,
         "cpu": osinfo.cpu_model(),
         "commit_sha": commit_sha(),
         "task_hash": task_fingerprint(spec.short_name),
@@ -579,7 +585,7 @@ def stamp_values(task: Task, preset: str, datatype: str, score: Score | None) ->
             "timing_reduction": score.timing_reduction,
             # The grade's own policy stamp; a grade under no declared policy ran the single reference.
             "baseline_policy": score.baseline_policy or grading.SINGLE_BASELINE_POLICY,
-            "denominator": grade_denominator(score),
+            "denominator": stored_denominator(grade_denominator(score)),
             "build_commands": build_commands_json(score),
         } | layout_values(score)
     return values
@@ -729,7 +735,7 @@ def record(
     judgement: Judgement | None = None,
     episode_id: str = ADHOC_EPISODE_ID,
     optimizer: str | None = None,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     path: str | None = None,
     curves: Sequence[LawCurve] = (),
@@ -788,7 +794,7 @@ def record_final(
     of_grade: int,
     final: FinalRecord,
     task: Task,
-    preset: str,
+    preset: Preset,
     datatype: str,
 ) -> int:
     """The ``final`` grade of submit grade ``of_grade`` (``grade-under run`` writes the same row for a
@@ -810,7 +816,7 @@ def record_call(
     route: str,
     episode_id: str = ADHOC_EPISODE_ID,
     optimizer: str | None = None,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     tokens: int = 0,
     detail: str = "",
@@ -860,11 +866,11 @@ def record_trajectory(
     trajectory: Sequence[TrajectoryPoint],
     *,
     episode_id: str = ADHOC_EPISODE_ID,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     language: str = "c",
-    source_mode: str = "restricted",
-    baseline: str = "c",
+    source_mode: SourceMode = SourceMode.RESTRICTED,
+    baseline: Baseline | None = Baseline.C,
     path: str | None = None,
 ) -> int:
     """Persist an in-process run's per-call (tokens, score) trajectory: one ``score`` grade per
@@ -879,10 +885,10 @@ def record_trajectory(
         return 0
     kernel = BenchSpec.load(task.kernel).short_name
     stamp: dict[str, str | None] = {
-        "preset": preset,
+        "preset": preset.text,
         "datatype": graded_datatype(BenchSpec.load(task.kernel), datatype),
     }
-    stamp |= {"source_mode": source_mode, "baseline": baseline}
+    stamp |= {"source_mode": source_mode.text, "baseline": baseline_text(baseline)}
     stamp |= {"cpu": osinfo.cpu_model(), "commit_sha": commit_sha(), "task_hash": task_fingerprint(kernel)}
     stamps = trajectory_stamps(points, now_ms())
     with contextlib.closing(connect(path)) as conn:

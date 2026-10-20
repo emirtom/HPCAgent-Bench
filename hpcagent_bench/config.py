@@ -38,6 +38,7 @@ from typing import Annotated, Any, ClassVar, Literal, Union, get_args, get_origi
 import yaml
 from annotated_types import Ge, Gt, Le
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     NonNegativeFloat,
@@ -50,6 +51,8 @@ from pydantic import (
 )
 from pydantic.fields import FieldInfo
 
+from hpcagent_bench import categories
+from hpcagent_bench.categories import BaselineChoice, Denominator, InputMode, RecordDevice, Residency, Track
 from hpcagent_bench.cpf_cache import HintDetail
 
 __all__ = [
@@ -89,18 +92,36 @@ RESOLVED_CACHE_SIZE = 64
 
 #: Seconds, >= 0.
 Seconds = NonNegativeFloat
+
+
+def rung(preset: categories.Preset) -> categories.Preset:
+    """``preset`` when it names a fixed size (:attr:`Preset.is_rung`); ValueError for ``fuzzed``."""
+    if not preset.is_rung:
+        raise ValueError(f"{preset.text!r} is not a size rung")
+    return preset
+
+
 #: A size rung of a manifest's preset ladder.
-Rung = Literal["S", "M", "L", "XL"]
+Rung = Annotated[categories.Preset, AfterValidator(rung)]
 #: A KernelBench level (``BenchSpec.resolved_level``).
 Level = Annotated[int, Ge(1), Le(3)]
 #: A fraction in (0, 1].
 Fraction = Annotated[float, Gt(0), Le(1)]
-#: A speedup denominator a track can be configured with (:class:`hpcagent_bench.harness.denominator.Denominator`).
-DenominatorKind = Literal[
-    "numba", "c", "c-autopar", "vendored", "best-of(numba,c)", "best-of(numba,c,c-autopar)", "torch-autotune"
-]
-#: A benchmark track (``spec.Track``).
-TrackName = Literal["loop_level_reasoning", "scientific_computing", "machine_learning"]
+
+
+def single_node_residency(residency: Residency) -> Residency:
+    """``residency`` when it is where one rank's buffers live (``host`` / ``device``); ValueError for
+    ``distributed``, which is the track, not a place."""
+    if residency is Residency.DISTRIBUTED:
+        raise ValueError(f"mpi.residency is host or device; got {residency.text!r}")
+    return residency
+
+
+def torch_denominator(denominator: Denominator) -> Denominator:
+    """``denominator`` when it is ``torch-autotune``; ValueError for any other."""
+    if denominator is not Denominator.TORCH_AUTOTUNE:
+        raise ValueError(f"the machine_learning track is graded against torch-autotune; got {denominator.text!r}")
+    return denominator
 
 
 class Section(BaseModel):
@@ -128,7 +149,7 @@ class Fuzz(Section):
     xl_lo_mult: PositiveFloat
     xl_hi_mult: PositiveFloat
     correctness_size_cap: NonNegativeInt
-    hidden_correctness_presets: tuple[str, ...]
+    hidden_correctness_presets: tuple[Rung, ...]
     size_distribution: Literal["log_uniform", "uniform"]
     data_distribution: str
 
@@ -143,8 +164,8 @@ class Inputs(Section):
 class Service(Section):
     """``service``: the judge service (``hpcagent-bench serve``); read by harness/service.from_config at start."""
 
-    oracle: Literal["auto", "compiled", "numba", "c", "torch"]
-    input_mode: Literal["py-binding", "source", "library", "any"]
+    oracle: categories.Oracle
+    input_mode: InputMode
     submit_feedback: Literal["verdict", "full"]
     preset: str
     datatype: str
@@ -154,24 +175,23 @@ class Service(Section):
     warm_shards: PositiveInt
 
 
-class Denominator(Section):
+class Denominators(Section):
     """``measurement.denominator``: the speedup denominator per track (harness/denominator.py)."""
 
-    loop_level_reasoning: DenominatorKind
-    scientific_computing: DenominatorKind
+    loop_level_reasoning: Denominator
+    scientific_computing: Denominator
     #: The ML track has no numba or C reference (:data:`hpcagent_bench.autogen.NO_NUMBA_TRACKS`).
-    machine_learning: Literal["torch-autotune"]
+    machine_learning: Annotated[Denominator, AfterValidator(torch_denominator)]
 
-    def of(self, track: str | None) -> str | None:
-        """The denominator of ``track``; None for a track this block does not configure."""
+    def of(self, track: Track) -> Denominator:
+        """The denominator of ``track``."""
         match track:
-            case "loop_level_reasoning":
+            case Track.LOOP_LEVEL_REASONING:
                 return self.loop_level_reasoning
-            case "scientific_computing":
+            case Track.SCIENTIFIC_COMPUTING:
                 return self.scientific_computing
-            case "machine_learning":
+            case Track.MACHINE_LEARNING:
                 return self.machine_learning
-        return None
 
 
 class Quiescence(Section):
@@ -193,18 +213,8 @@ class MannWhitney(Section):
 class Measurement(Section):
     """``measurement``: how one timing is taken; read by the judge and the Harbor grader."""
 
-    baseline: Literal[
-        "auto",
-        "numba",
-        "c",
-        "c-autopar",
-        "cpp-autopar",
-        "fortran-autopar",
-        "torch-autotune",
-        "torch-autotune-cpu",
-        "torch-autotune-gpu",
-    ]
-    denominator: Denominator
+    baseline: BaselineChoice
+    denominator: Denominators
     baseline_race: Literal["leader-first", "complete"]
     early_stop_factor: NonNegativeFloat
     early_stop_floor_s: Seconds
@@ -288,7 +298,7 @@ class Cache(Section):
     """``cache``: judge-side disk store of reference outputs and baseline timings (harness/disk_cache.py)."""
 
     disk_results_levels: tuple[Level, ...]
-    disk_results_tracks: tuple[TrackName, ...]
+    disk_results_tracks: tuple[Track, ...]
     disk_results_dir: str
 
 
@@ -349,7 +359,7 @@ class Record(Section):
     study: str
     model: str
     language: str
-    device: Literal["cpu", "gpu", "cpu-multinode", "gpu-multinode"] | None
+    device: RecordDevice | None
     packet: str
     setup: str
     harness: str
@@ -419,7 +429,7 @@ class Mpi(Section):
     leaderboard_preset: Rung
     mode: Literal["strong", "weak"]
     k_repeats: PositiveInt
-    residency: Literal["host", "device"]
+    residency: Annotated[Residency, AfterValidator(single_node_residency)]
     launch_timeout_s: Seconds
     env: dict[str, str]
 

@@ -463,7 +463,7 @@ def bench_info_document(spec: BenchSpec, config: str | None = None) -> BenchInfo
             fields.pop("configurations", None)
     return BenchInfoDocument(
         benchmark=BenchDocument.model_validate(fields),
-        track=spec.track,
+        track=spec.track.text,
         allowed_precisions=list(spec.allowed_precisions),
     )
 

@@ -41,6 +41,7 @@ import numpy.typing as npt
 
 from hpcagent_bench import config, osinfo, paths
 from hpcagent_bench.cache_files import replacing, sha256_hex
+from hpcagent_bench.categories import Track
 from hpcagent_bench.dtypes import is_storage_only
 from hpcagent_bench.harness.judge_scheduler import judge_gpu_slots
 from hpcagent_bench.spec import BenchSpec
@@ -156,14 +157,14 @@ def levels() -> frozenset[int]:
     return frozenset(config.current().cache.disk_results_levels)
 
 
-def tracks() -> frozenset[str]:
+def tracks() -> frozenset[Track]:
     """The tracks the store serves whatever the level (``cache.disk_results_tracks``); empty = none."""
     return frozenset(config.current().cache.disk_results_tracks)
 
 
 def in_scope(spec: BenchSpec) -> bool:
     """Whether grades of ``spec`` read and fill the store: its level or its track is listed."""
-    return bool(code_key()) and (spec.resolved_level in levels() or (spec.track or "") in tracks())
+    return bool(code_key()) and (spec.resolved_level in levels() or spec.track in tracks())
 
 
 def root() -> pathlib.Path:

@@ -10,14 +10,14 @@ import contextlib
 import pathlib
 import sqlite3
 from collections.abc import Mapping
-from typing import Annotated, Literal
+from typing import Annotated
 
 import pydantic
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
 
 from hpcagent_bench import config, fused
+from hpcagent_bench.categories import RecordDevice
 from hpcagent_bench.harness import recording, results_db
-from hpcagent_bench.harness.task import RecordDevice
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.run_layout import TOKENS_NAME, WORKER_GLOB
 
@@ -61,7 +61,8 @@ class RecordIdentity(pydantic.BaseModel):
     study: str
     model: str
     language: str
-    device: Literal["", "cpu", "gpu", "cpu-multinode", "gpu-multinode"]
+    #: '' (unset) reads as None.
+    device: Annotated[RecordDevice | None, pydantic.BeforeValidator(lambda raw: raw or None)]
     packet: str
     harness: str
     tag_version: str
@@ -74,7 +75,7 @@ class RecordIdentity(pydantic.BaseModel):
             study=self.study or None,
             model=self.model or None,
             language=self.language or None,
-            device=RecordDevice(self.device or RecordDevice.CPU.value),
+            device=self.device or RecordDevice.CPU,
             packet=recording.packet_key(self.packet),
             setup=setup or None,
             harness=self.harness or None,

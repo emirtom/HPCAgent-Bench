@@ -36,6 +36,7 @@ from hpcagent_agent.tools.http_json import (
     judge_headers,
 )
 
+from hpcagent_bench.categories import Preset, Residency
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.judge_wire import (
     SUBMIT_ANSWER,
@@ -138,10 +139,10 @@ class JudgeClient:
         """Liveness and the judge's own ``rank`` (answers any rank, so a mismatch can be diagnosed)."""
         return HealthAnswer.model_validate_json(self.get("/health"))
 
-    def baseline(self, kernel: str, language: str = "c", preset: str = "S") -> BaselineAnswer:
+    def baseline(self, kernel: str, language: str = "c", preset: Preset = Preset.S) -> BaselineAnswer:
         """Reference times (``baselines``, e.g. ``{"numba": ns, "c": ns}``) timed in the judge."""
         return BaselineAnswer.model_validate_json(
-            self.get(f"/baseline/{kernel}", {"language": language, "preset": preset})
+            self.get(f"/baseline/{kernel}", {"language": language, "preset": preset.text})
         )
 
     # submission endpoints
@@ -176,7 +177,7 @@ class JudgeClient:
         counters: bool = False,
         counter_group: str = "overview",
         per_thread: bool = False,
-        residency: str | None = None,
+        residency: Residency | None = None,
         device_kernel: str | None = None,
     ) -> "ProfileAnswer":
         """The diagnostic route; ``tool`` picks the instrument. Never scored.
@@ -223,7 +224,7 @@ class JudgeClient:
         if reps is not None:
             body["reps"] = reps
         if residency is not None:
-            body["residency"] = residency
+            body["residency"] = residency.text
         if device_kernel is not None:
             body["device_kernel"] = device_kernel
         # Imported here: the report models load the profilers, which this module's importers do not need.

@@ -24,6 +24,7 @@ one ``<episode_id>/<kernel>/submission.<ext>`` file per graded task.
 import pathlib
 
 from hpcagent_bench import paths
+from hpcagent_bench.categories import Residency
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.languages import LANG_EXT
@@ -45,7 +46,7 @@ def _leaf(task: Task, ext: str) -> str:
     residency, ``submission.<residency>.<ext>`` otherwise -- so a kernel run for BOTH
     host and (GPU) device residency in one run does not collide in its dir. The language
     is already carried by ``ext`` (c/cpp/f90/cu/hip/py)."""
-    infix = "" if task.residency == "host" else f".{task.residency}"
+    infix = "" if task.residency is Residency.HOST else f".{task.residency.text}"
     return f"submission{infix}.{ext}"
 
 

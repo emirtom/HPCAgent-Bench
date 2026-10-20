@@ -9,8 +9,8 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, fuzz
+from hpcagent_bench import config, fuzz, modules
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.spec import HARNESS_KWARGS, BenchSpec, InitSpec
 
 __all__ = [
@@ -54,7 +54,7 @@ class Benchmark:
 
     def get_data(
         self,
-        preset: str = "L",
+        preset: Preset = Preset.L,
         datatype: str | None = None,
         fuzz_iteration: int | None = None,
         input_seed: int | None = None,
@@ -96,7 +96,7 @@ class Benchmark:
         if datatype is not None:
             data["datatype"] = resolve_datatype(datatype)
         if self.spec.init is not None:
-            is_fuzz = preset == fuzz.FUZZED_PRESET
+            is_fuzz = preset is Preset.FUZZED
             base_seed = input_seed if input_seed is not None else config.current().seeds.input_dist
             self.initialize(
                 data,
@@ -114,12 +114,12 @@ class Benchmark:
         return data
 
     def parameters(
-        self, preset: str, fuzz_iteration: int | None, params_override: dict[str, Any] | None
+        self, preset: Preset, fuzz_iteration: int | None, params_override: dict[str, Any] | None
     ) -> dict[str, Any]:
         """The scalar parameters: an explicit override verbatim, else a fuzzed draw, else the preset's."""
         if params_override is not None:
             return dict(params_override)
-        if preset == fuzz.FUZZED_PRESET:
+        if preset is Preset.FUZZED:
             return fuzz.sample_params(
                 self.spec.parameters,
                 fuzz_iteration or 0,
@@ -127,14 +127,14 @@ class Benchmark:
                 constraints=tuple(self.spec.fuzz.get("constraints") or ()) + self.spec.constraints,
                 config_names=self.spec.config_names,
             )
-        if preset not in self.spec.parameters:
-            raise NotImplementedError(f"{self.bname} doesn't have a {preset} preset.")
-        return self.spec.parameters[preset]
+        if preset.text not in self.spec.parameters:
+            raise NotImplementedError(f"{self.bname} doesn't have a {preset.text} preset.")
+        return self.spec.parameters[preset.text]
 
     def initialize(
         self,
         data: dict[str, Any],
-        preset: str,
+        preset: Preset,
         datatype: str | None,
         *,
         seed: int,
@@ -163,7 +163,7 @@ class Benchmark:
         spec = self.spec
         # Fuzz cycling, else the config/uniform default.
         dist_name = ""
-        is_fuzz = preset == fuzz.FUZZED_PRESET
+        is_fuzz = preset is Preset.FUZZED
         if not dist_name and is_fuzz:
             dist_name = fuzz.pick_data_distribution(spec.fuzz, int(fuzz_iteration or 0))
         if not dist_name:

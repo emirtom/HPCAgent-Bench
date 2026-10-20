@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from hpcagent_bench import config, sizing
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.fuzz import enumerate_configs
 from hpcagent_bench.harness.hidden_seeds import salted
 from hpcagent_bench.harness.hidden_tests.seeds import secret_seed_second
@@ -40,14 +41,14 @@ class HiddenCase:
     ``variant`` (a :data:`hidden.VARIANTS` name, or ``""`` for the un-rotated data path) and under
     ``config`` (``(name, value)`` pairs from the kernel's config space, empty when it has none)."""
 
-    preset: str
+    preset: Preset
     seed: int
     label: str
     variant: str = ""
     config: tuple[tuple[str, Any], ...] = ()
 
 
-def cap_rung(rung: str, timed_preset: str) -> str:
+def cap_rung(rung: Preset, timed_preset: Preset) -> Preset:
     """``rung``, never larger than ``timed_preset``: a correctness probe should not materialise a
     bigger shape than the grade it rides on. Off the declared ladder either way, the rung stands."""
     order = sizing.PRESETS
@@ -56,7 +57,7 @@ def cap_rung(rung: str, timed_preset: str) -> str:
     return rung if order.index(rung) <= order.index(timed_preset) else timed_preset
 
 
-def hidden_cases(spec: BenchSpec, public_preset: str, nonce: int = 0) -> list[HiddenCase]:
+def hidden_cases(spec: BenchSpec, public_preset: Preset, nonce: int = 0) -> list[HiddenCase]:
     """Default held-out suite for ``spec``: the public size re-seeded with the hidden seed, run
     once per fixed variant in :data:`hidden.VARIANTS` (data/output overfit AND distribution
     overfit -- see that module's docstring for why the count is not configurable). Cheap +
@@ -89,13 +90,13 @@ def hidden_cases(spec: BenchSpec, public_preset: str, nonce: int = 0) -> list[Hi
         tag = "" if not knobs else ":" + ",".join(f"{name}={value}" for name, value in knobs)
         # Undeclared rung -> fall back; clamping a dimension can violate the kernel's constraints.
         case_preset = cap_rung(ladder[index], public_preset) if index < len(ladder) else public_preset
-        if case_preset not in spec.parameters:
+        if case_preset.text not in spec.parameters:
             case_preset = public_preset
         cases.append(
             HiddenCase(
                 case_preset,
                 hidden_seed,
-                f"{spec.short_name}:{case_preset}@hidden_seed:{variant.name}{tag}",
+                f"{spec.short_name}:{case_preset.text}@hidden_seed:{variant.name}{tag}",
                 variant.name,
                 knobs,
             )

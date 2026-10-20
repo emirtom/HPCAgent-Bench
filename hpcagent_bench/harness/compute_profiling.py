@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
 from hpcagent_bench import osinfo, seal
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.forked import run_command
 from hpcagent_bench.harness import gpu_profiling, profiling, report_staging
 from hpcagent_bench.harness.envelope import Submission
@@ -494,7 +495,7 @@ def compute_payload(
     run: ComputeRun,
     staged: report_staging.StagedReport,
     *,
-    preset: str,
+    preset: Preset,
     datatype: str,
     symbol: str,
     reps: int,
@@ -504,7 +505,7 @@ def compute_payload(
         "build_ok": True,
         "kernel": task.kernel,
         "language": task.language,
-        "preset": preset,
+        "preset": preset.text,
         "datatype": datatype,
         "symbol": symbol,
         "reps": reps,
@@ -558,7 +559,7 @@ def profile_compute_submission(
     submission: Submission,
     task: Task,
     *,
-    preset: str,
+    preset: Preset,
     home: tuple[pathlib.Path, str],
     datatype: str = "float64",
     reps: int | None = None,

@@ -11,8 +11,7 @@ import shutil
 
 import pytest
 
-from hpcagent_bench import modules
-from hpcagent_bench import flags, languages, osinfo
+from hpcagent_bench import flags, languages, modules, osinfo
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.harness import preflight
@@ -165,7 +164,7 @@ def test_preflight_measures_the_isopar_column() -> None:
     assert len(rows) == 1
     name, verdict, detail = rows[0]
     assert name == "cpp_isopar"
-    assert verdict in {v.value for v in flags.AutoparVerdict}
+    assert isinstance(verdict, flags.AutoparVerdict)
     assert detail
 
 

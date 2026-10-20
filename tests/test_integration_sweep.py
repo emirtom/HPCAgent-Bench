@@ -39,7 +39,7 @@ NATIVE_FRAMEWORK = "polly"
 _POLLY = flags.polly_capability()
 requires_polly = pytest.mark.skipif(
     _POLLY.verdict is not flags.AutoparVerdict.OK,
-    reason=f"this host's polly is {_POLLY.verdict.value}: {_POLLY.detail}",
+    reason=f"this host's polly is {_POLLY.verdict.text}: {_POLLY.detail}",
 )
 
 PRESET = "S"

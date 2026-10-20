@@ -17,10 +17,10 @@ from enum import Enum
 from typing import Protocol
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency, SourceMode
 from hpcagent_bench.frameworks.forked import run_forked
 from hpcagent_bench.harness.agent import Agent
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.grading import AUTO_ORACLE
 from hpcagent_bench.harness.prompts import PromptConfig, RunPrompt, build_run_prompt
 from hpcagent_bench.harness.scoring import Score, resolve_kernel_timeout, resolve_token_budget, score
 from hpcagent_bench.harness.task import Task
@@ -62,7 +62,15 @@ class Scorer(Protocol):
     :func:`run_forked`."""
 
     def __call__(
-        self, submission: Submission, task: Task, *, preset: str, datatype: str, repeat: int, oracle: str, baseline: str
+        self,
+        submission: Submission,
+        task: Task,
+        *,
+        preset: Preset,
+        datatype: str,
+        repeat: int,
+        oracle: Oracle,
+        baseline: Baseline | None,
     ) -> Score: ...
 
 
@@ -100,7 +108,7 @@ class RunRow:
     task_id: str
     kernel: str
     language: str
-    source_mode: str
+    source_mode: SourceMode
     agent: str
     status: str
     correct: bool
@@ -110,15 +118,15 @@ class RunRow:
     # The language the agent actually shipped (the task's ``language`` is what it asked for); "" = none.
     baseline_ns: int = 0
     speedup: float = 0.0
-    residency: str = "host"
+    residency: Residency = Residency.HOST
     public_correct: bool = False
     hidden_correct: bool = False
     hidden_passed: int = 0
     hidden_total: int = 0
     # Repair rounds spent (1 = single shot); ``baselines``/``speedups`` carry per-reference numbers.
     rounds: int = 1
-    oracle: str = ""
-    baseline: str = ""
+    oracle: Oracle = Oracle.AUTO
+    baseline: Baseline | None = None
     baselines: dict[str, int] = field(default_factory=dict[str, int])
     speedups: dict[str, float] = field(default_factory=dict[str, float])
     # The reduction stamp behind ``speedup`` (Score.timing_reduction); None when nothing was timed.
@@ -155,7 +163,9 @@ def status_of(result: Score) -> str:
     return "incorrect"
 
 
-def scored_row(task: Task, agent: Agent, result: Score, rounds: int, oracle: str, baseline: str) -> RunRow:
+def scored_row(
+    task: Task, agent: Agent, result: Score, rounds: int, oracle: Oracle, baseline: Baseline | None
+) -> RunRow:
     return RunRow(
         task.id,
         task.kernel,
@@ -184,7 +194,15 @@ def scored_row(task: Task, agent: Agent, result: Score, rounds: int, oracle: str
 
 
 def fail_row(
-    task: Task, agent: Agent, status: str, detail: str, *, rounds: int, oracle: str, baseline: str, tokens: int = 0
+    task: Task,
+    agent: Agent,
+    status: str,
+    detail: str,
+    *,
+    rounds: int,
+    oracle: Oracle,
+    baseline: Baseline | None,
+    tokens: int = 0,
 ) -> RunRow:
     """A scored failure row (not correct, inf error, 0 speedup) with the task and agent provenance."""
     return RunRow(
@@ -280,12 +298,12 @@ def _solve_rounds(
     agent: Agent,
     task: Task,
     *,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 5,
     with_prompt: bool = True,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = "c",
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = Baseline.C,
     max_rounds: int | None = None,
     time_budget_s: float | None = None,
     token_budget: int | None = None,
@@ -390,12 +408,12 @@ def solve_task(
     agent: Agent,
     task: Task,
     *,
-    preset: str = "S",
+    preset: Preset = Preset.S,
     datatype: str = "float64",
     repeat: int = 5,
     with_prompt: bool = True,
-    oracle: str = AUTO_ORACLE,
-    baseline: str = "c",
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = Baseline.C,
     max_rounds: int | None = None,
     time_budget_s: float | None = None,
     token_budget: int | None = None,

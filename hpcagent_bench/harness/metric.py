@@ -8,13 +8,10 @@ from dataclasses import dataclass, field, replace
 from typing import cast
 
 from hpcagent_bench import anticheat, config, fuzz
+from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency
 from hpcagent_bench.harness import mpi_sizing, timing, torch_reference
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.grading import (
-    AUTO_BASELINE,
-    AUTO_ORACLE,
-    resolve_baseline,
-)
+from hpcagent_bench.harness.grading import resolve_baseline
 from hpcagent_bench.harness.scoring import (
     CellScore,
     ScalingRuns,
@@ -450,7 +447,7 @@ def size_presets(spec: BenchSpec, anchored: bool) -> PresetTable:
     preset is its small correctness range; its timed inputs are near XL."""
     if not anchored:
         return spec.parameters
-    return {name: values for name, values in spec.parameters.items() if name != fuzz.FUZZED_PRESET}
+    return {name: values for name, values in spec.parameters.items() if name != Preset.FUZZED.text}
 
 
 def timed_cells_for(kernel: str, anchored: bool = False) -> list[ScoreCell]:
@@ -518,7 +515,7 @@ def shape_symbols(spec: BenchSpec) -> frozenset[str]:
     """Every size symbol that sizes an array axis in the manifest's ``init.arrays`` shapes."""
     shapes = spec.init.shapes if spec.init else {}
     tokens = {str(dim).strip() for expr in shapes.values() for dim in shape_dims(expr)}
-    return frozenset(tokens & set(spec.parameters.get(fuzz.FUZZED_PRESET, {})))
+    return frozenset(tokens & set(spec.parameters.get(Preset.FUZZED.text, {})))
 
 
 def ml_aligned(spec: BenchSpec, cells: Iterable[ScoreCell], floor: int) -> list[ScoreCell]:
@@ -527,7 +524,7 @@ def ml_aligned(spec: BenchSpec, cells: Iterable[ScoreCell], floor: int) -> list[
     to a multiple of ``QUANTUM * floor``, so every rank's block at up to ``floor`` ranks is a whole
     multiple of the quantum. Cells that collapse onto one point run once; set-valued symbols keep their
     draw (tests/test_mlscale_kernels.py holds them to the grid)."""
-    fuzzed = spec.parameters.get(fuzz.FUZZED_PRESET, {})
+    fuzzed = spec.parameters.get(Preset.FUZZED.text, {})
     drawn = {s for s in shape_symbols(spec) if not fuzz.is_set(fuzzed.get(s, 0))}
     quantum = mpi_sizing.RANK_BLOCK_QUANTUM
     split = mpi_sizing.aligned_symbols(spec.mpi)
@@ -811,7 +808,7 @@ def score_task_fuzzed(
     verify: bool = True,
     datatype: str = "float64",
     repeat: int = 5,
-    baseline: str = AUTO_BASELINE,
+    baseline: Baseline | None = None,
     rtol: float | None = None,
     atol: float | None = None,
     single_rank_anchor: Submission | None = None,
@@ -821,7 +818,7 @@ def score_task_fuzzed(
     ``rtol``/``atol`` stay ``None`` so :func:`hpcagent_bench.harness.scoring._resolve_tolerances`
     fills them from the datatype's precision band; a number is an explicit override of the band. The
     gate grades against the track's auto oracle; the timed-shape rule is ``fuzz.perf_mode()``."""
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return score_task_distributed(
             submission,
             task,
@@ -852,7 +849,7 @@ def score_task_fuzzed(
         _correctness_cells(params, configs, constraints, k, config_names),
         datatype=datatype,
         repeat=1,
-        oracle=AUTO_ORACLE,
+        oracle=Oracle.AUTO,
         baseline=baseline,
         verify=verify,
         rtol=rtol,
@@ -871,7 +868,7 @@ def score_task_fuzzed(
             _timed_cells(params, configs, constraints, mode, config_names),
             datatype=datatype,
             repeat=repeat,
-            oracle=AUTO_ORACLE,
+            oracle=Oracle.AUTO,
             baseline=baseline,
             verify=False,
             rtol=rtol,
@@ -891,7 +888,7 @@ def score_task_fuzzed(
     # S_i, g_i and gsd_i over the same cells, by the rule the Harbor reward and efficacy use.
     credit = score_rule.credit(valid_speedups, solved=solved)
     # the baseline a cell actually raced to (a best-of set names its winner per cell)
-    eff_baseline = cells[0].baseline if cells else baseline
+    eff_baseline = cells[0].baseline if cells else baseline.text
     return TaskScore(
         kernel=task.kernel,
         dwarf=dwarf,

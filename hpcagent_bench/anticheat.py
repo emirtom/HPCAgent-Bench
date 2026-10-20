@@ -32,7 +32,8 @@ import time
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
-from hpcagent_bench import config, paths
+from hpcagent_bench import paths
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import scoring, timing
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.scoring import Score, VerifyResult
@@ -129,7 +130,7 @@ class Context:
     submission: Submission
     task: Task
     score: Score
-    preset: str
+    preset: Preset
     datatype: str
     verifier: Callable[..., VerifyResult] | None = None
     rtol: float | None = None

@@ -42,7 +42,8 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, cpf_canonical, languages, phase_clock, paths
+from hpcagent_bench import config, cpf_canonical, languages, paths, phase_clock
+from hpcagent_bench.categories import Track
 from hpcagent_bench.cpf_cache import DEFAULT_HINTS, HINT_DETAILS, LANGUAGE_EXT, HintDetail
 from hpcagent_bench.cpf_canonical import (
     canonicalize_for,
@@ -1123,7 +1124,7 @@ def prerender_kernel(
     )
 
 
-def track_specs(track: str) -> list[BenchSpec]:
+def track_specs(track: Track) -> list[BenchSpec]:
     """Every registered spec on ``track``, ordered by name.
 
     Loaded rather than listed because a registry key is not always loadable (an entry whose
@@ -1137,13 +1138,13 @@ def track_specs(track: str) -> list[BenchSpec]:
             spec = BenchSpec.load(key)
         except Exception:  # noqa: BLE001 -- unregistered / unloadable -> not part of the sweep
             continue
-        if spec.track == track:
+        if spec.track is track:
             specs.append(spec)
     return specs
 
 
 def render_track(
-    track: str,
+    track: Track,
     out_dir: os.PathLike,
     *,
     language: str = "c++",

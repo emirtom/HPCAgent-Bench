@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
 from hpcagent_bench import config, languages, osinfo, seal
+from hpcagent_bench.categories import Preset, Residency
 from hpcagent_bench.flags import ROCMINFO_TIMEOUT
 from hpcagent_bench.frameworks.forked import run_command
 from hpcagent_bench.harness import profiling
@@ -1089,7 +1090,7 @@ def render_report(payload: GpuPayload) -> str:
     with the JSON; the tool is named in the header and occupancy note."""
     # Device-resident grades are timed by GPU events plus a device sync, all else by the host clock;
     # read off the residency, not the language.
-    timer = "GPU-event timed" if payload["residency"] == "device" else "host timed"
+    timer = "GPU-event timed" if Residency.parse(payload["residency"]) is Residency.DEVICE else "host timed"
     lines = [
         (
             f"{payload['kernel']} ({payload['language']}, preset {payload['preset']}) -- "
@@ -1144,7 +1145,7 @@ def profile_gpu_submission(
     submission: Submission,
     task: Task,
     *,
-    preset: str,
+    preset: Preset,
     datatype: str = "float64",
     reps: int | None = None,
     min_percent: float = 1.0,
@@ -1200,7 +1201,7 @@ def gpu_payload(
     task: Task,
     run: GpuRun,
     *,
-    preset: str,
+    preset: Preset,
     datatype: str,
     symbol: str,
     warmup: int,
@@ -1212,8 +1213,8 @@ def gpu_payload(
         "build_ok": True,
         "kernel": task.kernel,
         "language": task.language,
-        "residency": task.residency,
-        "preset": preset,
+        "residency": task.residency.text,
+        "preset": preset.text,
         "datatype": datatype,
         "symbol": symbol,
         "reps": run.reps,

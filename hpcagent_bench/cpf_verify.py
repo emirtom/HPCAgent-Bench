@@ -18,6 +18,7 @@ import sys
 from collections.abc import Sequence
 
 from hpcagent_bench import anticheat, cpf_bridge, cpf_cache, languages
+from hpcagent_bench.categories import SourceMode
 from hpcagent_bench.cpf_prerender import shard
 from hpcagent_bench.harness import native_call
 from hpcagent_bench.harness.envelope import Submission
@@ -87,7 +88,13 @@ def grade(view: str, kernel: str, language: str, fptype: str, hints: cpf_cache.H
     key = registry_key(kernel)
     form = cpf_cache.resolve(cpf_cache.pathlib.Path(view), kernel, language, cpf_bridge.form_fptype(key, fptype), hints)
     if refused := abi_refusal(form, key, language):
-        return {"verdict": "unverified", "reason": refused, "preset": cfg.preset, "build_ok": False, "correct": False}
+        return {
+            "verdict": "unverified",
+            "reason": refused,
+            "preset": cfg.preset.text,
+            "build_ok": False,
+            "correct": False,
+        }
     # A gpu form is the two units a GPU submission is: the host entry and the device kernels.
     # A form calling a vendor library is submitted with the load request the agent's would name.
     submission = Submission(
@@ -97,15 +104,15 @@ def grade(view: str, kernel: str, language: str, fptype: str, hints: cpf_cache.H
         requests=Requests.of(libraries=form.libraries),
         workspace_bytes=None if form.workspace_bytes == "0" else form.workspace_bytes,
     )
-    task = Task(key, "restricted", language, residency=grading_residency(key, language))
+    task = Task(key, SourceMode.RESTRICTED, language, residency=grading_residency(key, language))
     result = score(
         submission,
         task,
         preset=cfg.preset,
         datatype=cfg.datatype,
         repeat=cfg.repeat,
-        oracle=cfg.oracle.value,
-        baseline=cfg.baseline_token,
+        oracle=cfg.oracle,
+        baseline=cfg.baseline,
         hidden=True,
     )
     judgement = anticheat.judge(anticheat.Context(submission, task, result, cfg.preset, cfg.datatype))
@@ -114,7 +121,7 @@ def grade(view: str, kernel: str, language: str, fptype: str, hints: cpf_cache.H
     return {
         "verdict": "ok" if ok else "unverified",
         "reason": f"{reason}: {result.detail}"[:400] if reason else "",
-        "preset": cfg.preset,
+        "preset": cfg.preset.text,
         "build_ok": bool(result.build_ok),
         "correct": bool(result.correct),
         "speedup": float(result.speedup),

@@ -56,7 +56,8 @@ from hpcagent_agent.tools import submit
 from relayout.ops import Cast, DigitOperation, Distribute, Format, Unzip, Zip
 
 from hpcagent_bench import anticheat, config, core_dumps, fused, languages, seal
-from hpcagent_bench.api import Baseline, InputMode, Oracle, RunConfig
+from hpcagent_bench.api import RunConfig
+from hpcagent_bench.categories import InputMode, Preset, Residency, SourceMode, baseline_text
 from hpcagent_bench.config import GridChooser
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks import forked
@@ -117,7 +118,7 @@ from hpcagent_bench.harness.task import GPU_LANGUAGES, Task, grading_residency, 
 from hpcagent_bench.harness.timing import local_repeat, measurement_baseline, measurement_repeat
 from hpcagent_bench.harness.tools import DEFAULT_JUDGE_PORT, DEFAULT_RANK
 from hpcagent_bench.kernel_key import kernel_stem
-from hpcagent_bench.spec import KERNELS, PRESET_CHOICES, BenchSpec, resolve_preset
+from hpcagent_bench.spec import KERNELS, BenchSpec, resolve_preset
 from hpcagent_bench.support.bindings.contract import Binding, graded_datatype
 from hpcagent_bench.support.helpers.sparse.abi import LayoutRefused
 from hpcagent_bench.support.helpers.sparse.request import resolve_layout
@@ -131,7 +132,6 @@ __all__ = [
     "EXPLORATION_PRIORITY",
     "FALLBACK_REQUEST_LANGUAGE",
     "FORKSERVER_PRELOAD",
-    "INPUT_MODES",
     "JUDGE_FAULT_CAUSE",
     "JUDGE_PRELOAD",
     "MISDIRECTED_REQUEST",
@@ -541,9 +541,6 @@ def rank_error(judge_rank: int, requested: object) -> Refusal | None:
 #: Its own rank is :func:`make_server`'s ``rank``, not a config field.
 ServiceConfig = RunConfig
 
-#: The ``POST /submit`` input policies (from :class:`~hpcagent_bench.api.InputMode`).
-INPUT_MODES = tuple(m.value for m in InputMode)
-
 #: Delivery language -> the canonical extension of a ``source_file``
 #: (:data:`hpcagent_bench.languages.LANG_EXT`, plus ``python``).
 SOURCE_EXT: dict[str, str] = {**languages.LANG_EXT, PYTHON_LANG: "py"}
@@ -560,11 +557,11 @@ SUBMISSION_BUILD_MODE: Mode = Mode.SINGLE_CORE
 JUDGE_FAULT_CAUSE = submit.JUDGE_FAULT
 
 
-def task_source_mode(input_mode: InputMode, *, library: bool) -> str:
+def task_source_mode(input_mode: InputMode, *, library: bool) -> SourceMode:
     """The task's ``source_mode`` a submission grades in: ``any`` for a prebuilt library, and for every delivery of an
     ``any`` setup, whose source is then built with the agent's own compiler flags (:func:`sandbox.agent_build`);
     ``restricted`` otherwise."""
-    return "any" if library or input_mode is InputMode.ANY else "restricted"
+    return SourceMode.ANY if library or input_mode is InputMode.ANY else SourceMode.RESTRICTED
 
 
 #: Delivery languages each enforced ``input_mode`` accepts: ``source`` compiles, ``py-binding``
@@ -684,7 +681,7 @@ def module_names(source: str) -> list[str] | None:
 def python_entry(task: Task) -> str:
     """The function a Python submission of ``task`` must define: ``kernel_mpi`` on a distributed grade, scaling
     sweeps included (:data:`mpi_shard_driver.PY_KERNEL`), else the manifest's ``func_name``."""
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return mpi_shard_driver.PY_KERNEL
     return BenchSpec.load(task.kernel).func_name
 
@@ -720,7 +717,7 @@ def submit_verdict(result: Score, request_id: str) -> SubmitVerdict:
     return verdict
 
 
-def score_answer(result: Score, kernel: str, language: str, preset: str, residency: str) -> ScoreAnswer:
+def score_answer(result: Score, kernel: str, language: str, preset: Preset, residency: Residency) -> ScoreAnswer:
     """What ``/score`` answers: ``result`` without :data:`SCORE_ROUTE_REDACTED_FIELDS` (and its cells without
     :data:`SCORE_ROUTE_REDACTED_CELL_FIELDS`), ``detail`` as :func:`public_detail` reads it, and what was
     graded: the size actually graded and how (a distributed run looks single-node-shaped otherwise)."""
@@ -736,7 +733,13 @@ def score_answer(result: Score, kernel: str, language: str, preset: str, residen
 
 
 def grade_answer(
-    result: Score, kernel: str, language: str, preset: str, residency: str, recorded: RecordedAnswer, request_id: str
+    result: Score,
+    kernel: str,
+    language: str,
+    preset: Preset,
+    residency: Residency,
+    recorded: RecordedAnswer,
+    request_id: str,
 ) -> GradeAnswer:
     """What ``/submit`` answers under ``service.submit_feedback=full``: the whole grade, what was graded, how it
     was recorded and the request id."""
@@ -805,13 +808,11 @@ def triton_launch_problem(source: str) -> str | None:
 def from_config() -> RunConfig:
     """Build the judge :class:`~hpcagent_bench.api.RunConfig` from the ``service:`` block;
     ``baseline`` is ``measurement.baseline`` (shared with the Harbor grader). CLI-overridable."""
-    token = measurement_baseline()
     service = config.current().service
     return RunConfig(
-        oracle=Oracle(service.oracle),
-        # "auto" is the boundary token for "resolve per kernel track", which RunConfig holds as None.
-        baseline=None if token == "auto" else Baseline(token),
-        input_mode=InputMode(service.input_mode),
+        oracle=service.oracle,
+        baseline=measurement_baseline(),
+        input_mode=service.input_mode,
         # resolve_preset: ``service.preset`` may carry modifiers (``XL+fuzz``). Resolving once at startup
         # also applies the token's process-global overrides exactly once (the server is threaded).
         preset=resolve_preset(service.preset),
@@ -839,15 +840,15 @@ def service_prompt(
     prompt_config = dataclasses.replace(prompt_config or PromptConfig.from_config(), template=SERVICE_TEMPLATE)
     ctx = as_json_object(
         build_context(
-            Task(kernel, "restricted", language),
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            Task(kernel, SourceMode.RESTRICTED, language),
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             prompt_config=prompt_config,
         )
     )
     ctx["judge_url"] = judge_url.rstrip("/")
     ctx["judge_rank"] = judge_rank
-    ctx["input_mode"] = cfg.input_mode.value
+    ctx["input_mode"] = cfg.input_mode.text
     body = prompt_env(prompt_config).get_template(prompt_config.template).render(**ctx)
     # The same finishing step as the in-process prompt: strip host paths, apply debug markers.
     return finish_prompt(body, prompt_config)
@@ -978,7 +979,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
     spec = BenchSpec.load(task.kernel)
     binding = binding_from_spec(spec)
     problem = precision_problem_dtypes(spec, binding, datatype)
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         # The MPI driver casts each tile from the binding's declared dtype, which the wire carries.
         declared = {arg.name: arg.dtype for arg in binding.pointers}
         problem = {name: declared[name] for name in problem}
@@ -993,7 +994,7 @@ def requests_refusal(submission: Submission, task: Task, datatype: str) -> str |
             f"{task.kernel} is a sparse kernel; distributing its sparse formats is not implemented yet, so it takes "
             "no startup.grid; nothing was graded"
         )
-    if requests.distributed and task.residency != "distributed":
+    if requests.distributed and task.residency is not Residency.DISTRIBUTED:
         # A single-node grade runs the problem's arrays as they are; the grid would be accepted and never used.
         return (
             f"{task.kernel} is graded on one node; it takes no startup.grid and no distribute, replicate or place "
@@ -1026,7 +1027,7 @@ def requests_check(kernel: str, language: str, raw: object, datatype: str) -> Re
     pointer's element type and, laid out on one node, the extents of its packed buffer over the logical
     extents ``d0``, ``d1``, ...; with a grid, the distribution plan at ``mpi.ranks``. A malformed request
     raises ValueError."""
-    task = Task(kernel, "restricted", language, residency=grading_residency(kernel, language))
+    task = Task(kernel, SourceMode.RESTRICTED, language, residency=grading_residency(kernel, language))
     sent = Submission(language=language, source="/* checked, not built */", requests=Requests.validate(raw))
     probe = with_task_grid(sent, task)
     if isinstance(probe, str):
@@ -1083,7 +1084,7 @@ def with_task_grid(submission: Submission, task: Task) -> Submission | str:
     distributed grade, or why not: the submission named a grid of its own. Its operations then lay the arrays
     out over that grid (:func:`mpi_descriptor.default_requests`'s). Elsewhere ``submission`` as it is."""
     requests = submission.requests
-    if task.residency != "distributed" or RequestAllowances.from_config().grid is not GridChooser.TASK:
+    if task.residency is not Residency.DISTRIBUTED or RequestAllowances.from_config().grid is not GridChooser.TASK:
         return submission
     if requests.distributed:
         return (
@@ -1128,7 +1129,7 @@ def single_node_layout_refusal(submission: Submission, task: Task, spec: BenchSp
     actions = ", ".join(sorted({op.action.value for op in handled}))
     if submission.is_python:
         return f"{actions} is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
-    if task.residency == "distributed":
+    if task.residency is Residency.DISTRIBUTED:
         return f"{actions} without startup.grid on a distributed kernel: lay its arrays out per rank with a grid"
     binding = binding_from_spec(spec)
     sparse = {group.logical for group in binding.packed}
@@ -1162,7 +1163,7 @@ def precision_scope_refusal(submission: Submission, task: Task, spec: BenchSpec)
     delivery, the ML track's rank-generated shards and device-resident MPI tiles are not covered yet."""
     if submission.is_python:
         return "cast is not implemented for python deliveries yet; deliver C, C++, Fortran, CUDA or HIP"
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         return None
     if torch_reference.has_torch_reference(spec):
         return "cast is not implemented on the ML track yet (its ranks generate their own inputs)"
@@ -1217,7 +1218,7 @@ def workspace_refusal(submission: Submission, task: Task) -> str | None:
     return None
 
 
-def distribution_refusal(submission: Submission, task: Task, preset: str) -> str | None:
+def distribution_refusal(submission: Submission, task: Task, preset: Preset) -> str | None:
     """The distribution rules enforced before anything is built, or ``None``.
 
     1. ``mpi.replicatable``: only the named arrays (and single-element ones) may be replicated;
@@ -1230,7 +1231,7 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
     non-distributed tasks and for legacy MPI kernels whose distribution cannot be resolved here
     (those stay scored failures)."""
     spec = BenchSpec.load(task.kernel)
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         return None
     ml_track = torch_reference.has_torch_reference(spec)
     binding = binding_from_spec(spec)
@@ -1251,7 +1252,9 @@ def distribution_refusal(submission: Submission, task: Task, preset: str) -> str
         descriptor = lead or Descriptor.from_submission(
             submission, binding, ranks, ndims=kernel_ndims(spec.mpi, binding)
         )
-        shapes = mpi_shard_driver.global_shapes(spec, spec.parameters[preset], [ptr.name for ptr in binding.pointers])
+        shapes = mpi_shard_driver.global_shapes(
+            spec, spec.parameters[preset.text], [ptr.name for ptr in binding.pointers]
+        )
     except (KeyError, ValueError, TypeError):  # TypeError: a range-valued preset (fuzzed) has no shapes
         return None
     refused = replication_refusal(descriptor, shapes, allowed)
@@ -1294,7 +1297,7 @@ def ml_layout(submission: Submission, spec: BenchSpec, binding: Binding, ranks: 
 def scales(task: Task) -> bool:
     """True when this task is graded over a scaling sweep: distributed residency on a dense kernel
     with a torch reference (:func:`torch_reference.has_torch_reference`). Sparse kernels never scale."""
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         return False
     spec = BenchSpec.load(task.kernel)
     return not spec.sparse_layouts and torch_reference.has_torch_reference(spec)
@@ -1309,7 +1312,7 @@ class GradedRequest(NamedTuple):
     final: "FinalRecord | None" = None
 
 
-def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: str, hidden: bool) -> GradedRequest:
+def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: Preset, hidden: bool) -> GradedRequest:
     """Grade one /score (``hidden`` False) or /submit request. A single-node /submit IS the final grade
     (mw4x5, :func:`grade_under.submit_grade`) and a single-node /score its preview (mw2x5,
     :func:`grade_under.score_grade`). The ML track grades the same protocols' inputs in one sharded launch
@@ -1322,7 +1325,7 @@ def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: st
         protocol = grade_under.FINAL if hidden else grade_under.SCORE
         result, curves, final = grade_under.scaling_protocol_grade(submission, task, cfg, protocol)
         return GradedRequest(result, curves, final)
-    if task.residency != "distributed":
+    if task.residency is not Residency.DISTRIBUTED:
         if hidden:
             result, final = grade_under.submit_grade(submission, task, cfg, scorer=score)
             return GradedRequest(result, final=final)
@@ -1334,8 +1337,8 @@ def grade_request(submission: Submission, task: Task, cfg: RunConfig, preset: st
             preset=preset,
             datatype=cfg.datatype,
             repeat=cfg.repeat if hidden else local_repeat(),
-            oracle=cfg.oracle.value,
-            baseline=cfg.baseline_token,
+            oracle=cfg.oracle,
+            baseline=cfg.baseline,
             hidden=hidden,
         )
     )
@@ -1348,7 +1351,7 @@ def record_result(
     task: Task,
     episode_id: str,
     optimizer: str | None,
-    preset: str,
+    preset: Preset,
     tokens: int = 0,
     curves: Sequence[metric.LawCurve] = (),
     final: "FinalRecord | None" = None,
@@ -1625,9 +1628,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 HealthAnswer(
                     status="ok",
                     rank=self.judge_rank,
-                    oracle=self.cfg.oracle.value,
-                    baseline=self.cfg.baseline_token,
-                    input_mode=self.cfg.input_mode.value,
+                    oracle=self.cfg.oracle,
+                    baseline=self.cfg.baseline,
+                    input_mode=self.cfg.input_mode,
                     submits_in_flight=SUBMITS_IN_FLIGHT.count,
                 ),
             )
@@ -1648,7 +1651,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             )
         try:
             # score()/measure_baselines use the datatype string; baseline timing holds a device slot too.
-            t = Task(kernel, "restricted", language)
+            t = Task(kernel, SourceMode.RESTRICTED, language)
             with self.device_slot() as slot:
                 if slot is None:
                     return None
@@ -1658,7 +1661,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
                     preset=preset,
                     datatype=graded_datatype(BenchSpec.load(kernel), self.cfg.datatype),
                     repeat=self.cfg.repeat,
-                    baseline=self.cfg.baseline_token,
+                    baseline=self.cfg.baseline,
                 )
             return self.reply(HTTPStatus.OK, BaselineAnswer(kernel=kernel, preset=preset, baselines=bl))
         except Exception as exc:  # noqa: BLE001 -- infra failure (e.g. C emit) -> 500
@@ -1707,7 +1710,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
             BuildAnswer(
                 language=language,
-                mode=SUBMISSION_BUILD_MODE.value,
+                mode=SUBMISSION_BUILD_MODE,
                 source=source.name,
                 library=library.name,
                 commands=commands,
@@ -1763,16 +1766,6 @@ class JudgeHandler(BaseHTTPRequestHandler):
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error=refusal))
         # The run's configured size on every route; a body cannot name one (RequestFields has no preset).
         preset = self.cfg.preset
-        # A client preset naming nothing is a request fault (400, not a 500 from score()). Only bare
-        # presets: ``+fuzz`` modifiers set process-global overrides.
-        if preset not in PRESET_CHOICES:
-            return self.reply(
-                HTTPStatus.BAD_REQUEST,
-                JudgeError(
-                    error=f"unknown preset {preset!r}; choose from {', '.join(PRESET_CHOICES)}. "
-                    "Size modifiers such as '+fuzz' are set by the run, not per request."
-                ),
-            )
         # A non-str kernel is a body-shape fault: the registry lookup below would raise TypeError on it.
         if not isinstance(kernel, str) or not kernel:
             return self.reply(HTTPStatus.BAD_REQUEST, JudgeError(error="body must include 'kernel' (a kernel name)"))
@@ -1863,7 +1856,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
         submission: Submission,
         task: Task,
         body: RequestBody,
-        preset: str,
+        preset: Preset,
         kernel: str,
         language: str,
         cfg: RunConfig,
@@ -1898,7 +1891,7 @@ class JudgeHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK, grade_answer(result, kernel, language, preset, task.residency, recorded, request_id)
         )
 
-    def _profile(self, submission: Submission, task: Task, body: RequestBody, preset: str) -> None:
+    def _profile(self, submission: Submission, task: Task, body: RequestBody, preset: Preset) -> None:
         """``POST /profile``: the diagnostic route; ``tool`` picks the instrument. Nothing is graded or
         recorded; every branch holds a device slot.
 
@@ -1965,7 +1958,9 @@ class JudgeHandler(BaseHTTPRequestHandler):
                 JudgeError(error=f"tool {tool!r} {verb} a device submission: profile {task.language!r} with {served}"),
             )
         try:
-            task = dataclasses.replace(task, residency=body.text("residency", task.residency))
+            requested_residency = body.optional_text("residency")
+            if requested_residency is not None:
+                task = dataclasses.replace(task, residency=Residency.parse(requested_residency))
             min_percent = body.number("min_percent", 1.0)
             if not 0.0 <= min_percent <= 100.0:  # NaN fails this too
                 return self.reply(
@@ -2207,8 +2202,8 @@ def serve(
     srv = make_server(host, port, cfg, rank=rank)
     print(
         f"hpcagent_bench judge service on http://{host}:{port}  "
-        f"(rank={rank}, oracle={cfg.oracle.value}, baseline={cfg.baseline_token}, "
-        f"input_mode={cfg.input_mode.value}, preset={cfg.preset})"
+        f"(rank={rank}, oracle={cfg.oracle.text}, baseline={baseline_text(cfg.baseline)}, "
+        f"input_mode={cfg.input_mode.text}, preset={cfg.preset.text})"
     )
 
     # Re-raise SIGTERM as KeyboardInterrupt so serve_forever unwinds cleanly.

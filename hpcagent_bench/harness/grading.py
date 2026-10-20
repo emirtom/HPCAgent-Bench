@@ -17,9 +17,9 @@ import numpy as np
 import pydantic
 import yaml
 
-from hpcagent_bench import modules
-from hpcagent_bench import config, languages, omp_context, sizing
+from hpcagent_bench import config, languages, modules, omp_context, sizing
 from hpcagent_bench import dtypes as dtype_registry
+from hpcagent_bench.categories import Baseline, Oracle, Preset, Residency, SourceMode, Track
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.frameworks.utilities import ArrayVerdict, compare_arrays, resolve_outputs
 from hpcagent_bench.fuzz import safe_eval
@@ -44,20 +44,17 @@ from hpcagent_bench.units import NS_PER_S
 
 __all__ = [
     "AUTOPAR_BASELINES",
-    "AUTO_BASELINE",
-    "AUTO_ORACLE",
     "BASELINE_CHOICES",
     "BASELINE_LEADERS_PATH",
+    "COMPILED_ORACLES",
+    "Cut",
     "LEADERS_ADAPTER",
-    "BASELINE_OPTIONS",
     "BASIC_ORACLE_TRACKS",
     "BEST_OF_BASELINE_POLICY",
     "BEST_OF_KINDS",
     "COMPILED_BEST_OF_KINDS",
-    "COMPILED_ORACLE",
     "COMPLETE_RACE",
     "CUT_RETRIES",
-    "DEFAULT_ORACLE",
     "EARLY_STOP_BASELINE_POLICY",
     "EARLY_STOP_POLICIES",
     "KERNEL_COMPILED_HEAD",
@@ -72,12 +69,11 @@ __all__ = [
     "NUMBA_FIRST_BASELINE_SET",
     "NUMBA_ORACLE_TIMEOUT_S",
     "ORACLE_KINDS",
-    "ORACLE_OPTIONS",
     "PROBE_MASK_CACHE",
     "PROBE_RECHECK_SEED",
     "PROBE_SEED",
     "SINGLE_BASELINE_POLICY",
-    "TORCH_AUTOTUNE",
+    "Samples",
     "TORCH_BASELINES",
     "TRACK_COMPILED_HEAD",
     "TRACK_DEFAULT_ORACLE",
@@ -111,6 +107,7 @@ __all__ = [
     "fastest_baseline",
     "graded_extent",
     "is_best_of",
+    "joined",
     "largest_input_extent",
     "leader_hints",
     "lost_compiled_references",
@@ -138,6 +135,8 @@ __all__ = [
     "resolve_oracle",
     "run_compiled_reference",
     "runs_write_probe",
+    "sample_key",
+    "sample_name",
     "time_numba_isolated",
     "time_python_reference",
     "torch_autotune_kind",
@@ -151,7 +150,7 @@ __all__ = [
 
 def _data_seeded(
     kernel: str,
-    preset: str,
+    preset: Preset,
     datatype: str,
     seed: int,
     fuzz_iteration: int | None = None,
@@ -464,7 +463,7 @@ PROBE_MASK_CACHE: dict[tuple[Any, ...], tuple[dict[str, np.ndarray] | None, dict
 def probe_write_mask_cached(
     spec: BenchSpec,
     kernel: str,
-    preset: str,
+    preset: Preset,
     datatype: str,
     data: Mapping[str, object],
     expected: Mapping[str, object] | None,
@@ -507,7 +506,7 @@ def probe_write_mask_cached(
 def probe_write_mask_uncached(
     spec: BenchSpec,
     kernel: str,
-    preset: str,
+    preset: Preset,
     datatype: str,
     data: Mapping[str, object],
     expected: Mapping[str, object] | None,
@@ -746,7 +745,7 @@ def numba_impl_module(spec: BenchSpec) -> types.ModuleType:
     from hpcagent_bench import autogen
 
     if not autogen.has_numba(spec):
-        raise ReferenceUnavailable(f"{spec.short_name}: the {spec.track} track has no numba reference")
+        raise ReferenceUnavailable(f"{spec.short_name}: the {spec.track.text} track has no numba reference")
     key = f"{spec.relative_path}/{spec.module_name}"
     autogen.ensure(key, [NUMBA_BASELINE_TARGET])
     return benchmark_module(spec, "_numba")
@@ -862,34 +861,21 @@ def promoted(value: object) -> object:
 
 #: The references a grade's expected outputs come from: the kernel's numba reference, its sequential C
 #: reference, its compiled-PyTorch reference (``torch-autotune``, :mod:`hpcagent_bench.harness.torch_baseline`).
-ORACLE_KINDS = ("numba", "c", "torch")
-
-#: ``compiled``: numba and C in :func:`compiled_order`, the second when the first is unavailable.
-COMPILED_ORACLE = "compiled"
-
-
-#: Sentinel meaning "resolve the oracle from the kernel's track"; see resolve_oracle.
-AUTO_ORACLE = "auto"
-
-#: Everything the CLI / config / API / service accept for the oracle knob.
-ORACLE_OPTIONS = (*ORACLE_KINDS, COMPILED_ORACLE, AUTO_ORACLE)
+ORACLE_KINDS: tuple[Oracle, ...] = (Oracle.NUMBA, Oracle.C, Oracle.TORCH)
 
 #: Per-track default correctness oracle: the compiled best-of(numba, c) references on the two numpy
 #: tracks, the compiled PyTorch reference on machine_learning. A kernel's ``_numpy.py`` is the task
 #: program, never an oracle: :data:`ORACLE_KINDS` is every reference a grade can take its answer from.
-TRACK_DEFAULT_ORACLE: dict[str, str] = {
-    "loop_level_reasoning": COMPILED_ORACLE,
-    "machine_learning": "torch",
-    "scientific_computing": COMPILED_ORACLE,
+TRACK_DEFAULT_ORACLE: dict[Track, Oracle] = {
+    Track.LOOP_LEVEL_REASONING: Oracle.COMPILED,
+    Track.MACHINE_LEARNING: Oracle.TORCH,
+    Track.SCIENTIFIC_COMPUTING: Oracle.COMPILED,
 }
-
-#: Neutral fallback oracle for a track absent from TRACK_DEFAULT_ORACLE.
-DEFAULT_ORACLE = COMPILED_ORACLE
 
 #: The compiled reference a track's oracle tries FIRST when no measured race leader says otherwise
 #: (:func:`compiled_order`): ``c`` on ``loop_level_reasoning``; every other track starts from numba, the
 #: race's default.
-TRACK_COMPILED_HEAD: dict[str, str] = {"loop_level_reasoning": "c"}
+TRACK_COMPILED_HEAD: dict[Track, Oracle] = {Track.LOOP_LEVEL_REASONING: Oracle.C}
 
 #: Kernels whose oracle starts from a compiled reference other than the race leader, because the leader
 #: does not compute the task program's answer at the graded sizes (preset M, public input and held-out
@@ -897,24 +883,27 @@ TRACK_COMPILED_HEAD: dict[str, str] = {"loop_level_reasoning": "c"}
 #:
 #: ``bdf_newton_krylov``: numba does; the sequential C reference (the XL race leader) differs by 4e-9
 #: relative, 2.6e5 x the tolerance band.
-KERNEL_COMPILED_HEAD: dict[str, str] = {"bdf_newton_krylov": "numba"}
+KERNEL_COMPILED_HEAD: dict[str, Oracle] = {"bdf_newton_krylov": Oracle.NUMBA}
+
+#: The compiled oracle reference a compiled race leader is (:func:`compiled_order`).
+COMPILED_ORACLES: dict[Baseline, Oracle] = {Baseline.NUMBA: Oracle.NUMBA, Baseline.C: Oracle.C}
 
 #: Tracks whose C oracle never runs the write probe (:func:`probe_write_mask`): their tolerance floor keeps
 #: the declared output shape. Every other track runs it against whichever reference graded.
-BASIC_ORACLE_TRACKS: frozenset[str] = frozenset({"loop_level_reasoning"})
+BASIC_ORACLE_TRACKS: frozenset[Track] = frozenset({Track.LOOP_LEVEL_REASONING})
 
 
-def default_oracle_for_track(track: str | None) -> str:
+def default_oracle_for_track(track: Track) -> Oracle:
     """The default correctness oracle for a kernel on track."""
-    return TRACK_DEFAULT_ORACLE.get(track or "", DEFAULT_ORACLE)
+    return TRACK_DEFAULT_ORACLE[track]
 
 
 def runs_write_probe(spec: BenchSpec) -> bool:
     """Whether spec's grade runs the write probe against its oracle (see :data:`BASIC_ORACLE_TRACKS`)."""
-    return (spec.track or "") not in BASIC_ORACLE_TRACKS
+    return spec.track not in BASIC_ORACLE_TRACKS
 
 
-def compiled_order(spec: BenchSpec, preset: str | None = None) -> tuple[str, str]:
+def compiled_order(spec: BenchSpec, preset: Preset | None = None) -> tuple[Oracle, Oracle]:
     """``spec``'s two compiled references in the order the oracle tries them, then the other. First: the
     kernel's own head where its leader is known not to validate (:data:`KERNEL_COMPILED_HEAD`), else the
     measured race leader (:func:`leader_hints`: the ``preset``'s, else the ``XL`` one the table measured;
@@ -922,61 +911,55 @@ def compiled_order(spec: BenchSpec, preset: str | None = None) -> tuple[str, str
     the track's head (:data:`TRACK_COMPILED_HEAD`, default numba). A static table, never the judge's
     remembered winner, so a kernel's oracle does not move between calls."""
     hints = leader_hints().get(spec.short_name, {})
-    hinted = hints.get(preset or "XL") or hints.get("XL")
+    hinted = hints.get(preset or Preset.XL) or hints.get(Preset.XL)
     head = (
         KERNEL_COMPILED_HEAD.get(spec.short_name)
-        or (hinted if hinted in ("numba", "c") else None)
-        or TRACK_COMPILED_HEAD.get(spec.track or "", "numba")
+        or (None if hinted is None else COMPILED_ORACLES.get(hinted))
+        or TRACK_COMPILED_HEAD.get(spec.track, Oracle.NUMBA)
     )
-    return (head, "c" if head == "numba" else "numba")
+    return (head, Oracle.C if head is Oracle.NUMBA else Oracle.NUMBA)
 
 
-def resolve_oracle(oracle: str | None, spec: BenchSpec) -> str:
-    """Resolve an oracle selection to the reference name a grade of spec runs under: ``numba``, ``c``,
-    ``torch`` or ``compiled`` (numba and C, :func:`oracle_kinds` orders them). ``None`` / ``auto`` take
-    the track default; an explicit choice wins."""
-    if oracle is None or oracle == AUTO_ORACLE:
-        return default_oracle_for_track(spec.track)
-    if oracle not in ORACLE_OPTIONS:
-        raise ValueError(f"oracle must be one of {ORACLE_OPTIONS}; got {oracle!r}")
-    return oracle
+def resolve_oracle(oracle: Oracle, spec: BenchSpec) -> Oracle:
+    """Resolve an oracle selection to the reference a grade of spec runs under: ``numba``, ``c``,
+    ``torch`` or ``compiled`` (numba and C, :func:`oracle_kinds` orders them). ``auto`` takes the track
+    default; an explicit choice wins."""
+    return default_oracle_for_track(spec.track) if oracle is Oracle.AUTO else oracle
 
 
-def oracle_kinds(oracle: str, spec: BenchSpec, preset: str | None = None) -> tuple[str, ...]:
+def oracle_kinds(oracle: Oracle, spec: BenchSpec, preset: Preset | None = None) -> tuple[Oracle, ...]:
     """The references a resolved ``oracle`` (:func:`resolve_oracle`) tries, in order: ``compiled`` is
     :func:`compiled_order`, anything else names itself and has no second choice."""
-    return compiled_order(spec, preset) if oracle == COMPILED_ORACLE else (oracle,)
+    return compiled_order(spec, preset) if oracle is Oracle.COMPILED else (oracle,)
 
 
-def other_compiled(kind: str) -> str | None:
+def other_compiled(kind: Oracle) -> Oracle | None:
     """The compiled reference that is not ``kind`` (numba <-> C), for the dual-oracle leg; ``None`` for a
     kind with no compiled twin (``torch``)."""
-    return {"numba": "c", "c": "numba"}.get(kind)
+    match kind:
+        case Oracle.NUMBA:
+            return Oracle.C
+        case Oracle.C:
+            return Oracle.NUMBA
+    return None
 
 
-#: Per-language autopar baseline: label -> (language, candidate compiler blocks); denominator = fastest that builds.
-AUTOPAR_BASELINES: dict[str, tuple[str, tuple[str, ...]]] = {
-    "c-autopar": ("c", ("clang", "gcc")),
-    "cpp-autopar": ("cpp", ("clangpp", "gpp")),
-    "fortran-autopar": ("fortran", ("gfortran",)),
+#: Per-language autopar baseline: kind -> (language, candidate compiler blocks); denominator = fastest that builds.
+AUTOPAR_BASELINES: dict[Baseline, tuple[str, tuple[str, ...]]] = {
+    Baseline.C_AUTOPAR: ("c", ("clang", "gcc")),
+    Baseline.CPP_AUTOPAR: ("cpp", ("clangpp", "gpp")),
+    Baseline.FORTRAN_AUTOPAR: ("fortran", ("gfortran",)),
 }
 
-#: The compiled-PyTorch denominators, stored kind -> torch device: the kernel's PyTorch reference under
+#: The compiled-PyTorch denominators, recorded kind -> torch device: the kernel's PyTorch reference under
 #: ``torch.compile(mode="max-autotune-no-cudagraphs")`` (:mod:`hpcagent_bench.harness.torch_baseline`).
 #: Two kinds because a ratio over a CPU reference and one over a GPU reference are different quantities.
-TORCH_BASELINES: dict[str, str] = {"torch-autotune-cpu": "cpu", "torch-autotune-gpu": "cuda"}
-#: The token a config / CLI / API names the torch denominator by; a grade resolves it to the kind of the
-#: device it runs on (:func:`torch_autotune_kind`), and only the resolved kind is ever recorded.
-TORCH_AUTOTUNE: str = "torch-autotune"
+#: :attr:`Baseline.TORCH_AUTOTUNE` names the pair: a grade resolves it to the kind of the device it runs on
+#: (:func:`torch_autotune_kind`), and only the resolved kind is ever recorded.
+TORCH_BASELINES: dict[Baseline, str] = {Baseline.TORCH_AUTOTUNE_CPU: "cpu", Baseline.TORCH_AUTOTUNE_GPU: "cuda"}
 
-#: Concrete speedup-denominator kinds (one reference each), the values a grade records.
-BASELINE_CHOICES = ("numba", "c", *tuple(AUTOPAR_BASELINES), *tuple(TORCH_BASELINES))
-
-#: Sentinel meaning "resolve the baseline from the kernel's track"; see resolve_baseline.
-AUTO_BASELINE = "auto"
-
-#: Everything the CLI / config / API / service accept for the baseline knob.
-BASELINE_OPTIONS = (*BASELINE_CHOICES, AUTO_BASELINE, TORCH_AUTOTUNE)
+#: Concrete speedup-denominator kinds (one reference each), the kinds a grade records.
+BASELINE_CHOICES: tuple[Baseline, ...] = tuple(kind for kind in Baseline if kind is not Baseline.TORCH_AUTOTUNE)
 
 #: How a graded row's denominator was chosen (``grading_protocol`` stamps how it was timed).
 #:
@@ -1014,34 +997,36 @@ LEADER_BY_DEFAULT: str = "default"
 #: sweep. A missing file means no hints.
 BASELINE_LEADERS_PATH: pathlib.Path = pathlib.Path(__file__).resolve().parent / "baseline_leaders.yaml"
 #: :data:`BASELINE_LEADERS_PATH`'s schema: kernel -> preset -> the reference kind that leads its race.
-LEADERS_ADAPTER: pydantic.TypeAdapter[dict[str, dict[str, str]]] = pydantic.TypeAdapter(dict[str, dict[str, str]])
+LEADERS_ADAPTER: pydantic.TypeAdapter[dict[str, dict[Preset, Baseline]]] = pydantic.TypeAdapter(
+    dict[str, dict[Preset, Baseline]]
+)
 
 #: The ``best-of-v2`` set: autopar only stands in for a missing or failed numba.
-NUMBA_C_BASELINE_SET: tuple[str, ...] = ("c", "numba")
+NUMBA_C_BASELINE_SET: tuple[Baseline, ...] = (Baseline.C, Baseline.NUMBA)
 #: The ``best-of-v3`` set: ``best-of-v2``'s in timing order, numba first (cheap and usually fastest),
 #: so compiled candidates run under its early stop.
-NUMBA_FIRST_BASELINE_SET: tuple[str, ...] = ("numba", "c")
+NUMBA_FIRST_BASELINE_SET: tuple[Baseline, ...] = (Baseline.NUMBA, Baseline.C)
 #: Best-of kinds compiled from the kernel's emitted C: losing one is a judge failure.
-COMPILED_BEST_OF_KINDS: frozenset[str] = frozenset({"c", "c-autopar"})
+COMPILED_BEST_OF_KINDS: frozenset[Baseline] = frozenset({Baseline.C, Baseline.C_AUTOPAR})
 
 #: Kinds a best-of set may hold (timeable in the candidate's child bracket).
-BEST_OF_KINDS: tuple[str, ...] = ("numba", "c", *tuple(AUTOPAR_BASELINES))
+BEST_OF_KINDS: tuple[Baseline, ...] = (Baseline.NUMBA, Baseline.C, *AUTOPAR_BASELINES)
 
 
-def default_baseline_for_track(track: str | None) -> str:
+def default_baseline_for_track(track: Track | None) -> Baseline:
     """The one kind a kernel on ``track`` is timed against when one kind is asked for (a sweep cell):
     the head of the configured denominator's references
     (:func:`track_baseline_set`), its tie-break winner."""
     return track_baseline_set(track)[0]
 
 
-def track_baseline_set(track: str | None) -> tuple[str, ...]:
+def track_baseline_set(track: Track | None) -> tuple[Baseline, ...]:
     """Every denominator candidate for ``track``, in tie-break order: the references of the denominator
     configured for it (``measurement.denominator.<track>``, :func:`denominator.configured`)."""
-    return denominator.KINDS[denominator.configured(track)]
+    return tuple(Baseline.parse(kind) for kind in denominator.KINDS[denominator.configured(track)])
 
 
-def baseline_policy(kinds: Sequence[str]) -> str:
+def baseline_policy(kinds: Sequence[Baseline]) -> str:
     """The policy ``kinds`` were selected under: one kind is fixed, more is best-of; the numba-C set
     is raced as ``measurement.baseline_race`` says (``best-of-v4`` leader first, or ``best-of-v2``),
     and ``best-of-v3`` in its numba-first order."""
@@ -1056,7 +1041,7 @@ def baseline_policy(kinds: Sequence[str]) -> str:
 
 
 @functools.lru_cache(maxsize=1, typed=True)
-def leader_hints() -> dict[str, dict[str, str]]:
+def leader_hints() -> dict[str, dict[Preset, Baseline]]:
     """The shipped race leaders (:data:`BASELINE_LEADERS_PATH`), ``{kernel: {preset: kind}}``; empty
     when no table ships."""
     if not BASELINE_LEADERS_PATH.is_file():
@@ -1064,7 +1049,9 @@ def leader_hints() -> dict[str, dict[str, str]]:
     return LEADERS_ADAPTER.validate_python(yaml.safe_load(BASELINE_LEADERS_PATH.read_text(encoding="utf-8")) or {})
 
 
-def race_leader(kinds: Sequence[str], kernel: str, preset: str, remembered: str | None = None) -> tuple[str, str]:
+def race_leader(
+    kinds: Sequence[Baseline], kernel: str, preset: Preset, remembered: Baseline | None = None
+) -> tuple[Baseline, str]:
     """The reference a leader-first race times first and where that choice came from: the judge's own
     last winner of ``kernel`` at ``preset`` (``remembered``, source :data:`LEADER_FROM_CACHE`), else
     the shipped hint (:func:`leader_hints`, :data:`LEADER_FROM_TABLE`), else numba
@@ -1073,33 +1060,57 @@ def race_leader(kinds: Sequence[str], kernel: str, preset: str, remembered: str 
     for choice, source in ((remembered, LEADER_FROM_CACHE), (hinted, LEADER_FROM_TABLE)):
         if choice is not None and choice in kinds:
             return choice, source
-    return ("numba" if "numba" in kinds else kinds[0]), LEADER_BY_DEFAULT
+    return (Baseline.NUMBA if Baseline.NUMBA in kinds else kinds[0]), LEADER_BY_DEFAULT
 
 
-def race_order(kinds: Sequence[str], kernel: str, preset: str, remembered: str | None = None) -> tuple[str, ...]:
+def race_order(
+    kinds: Sequence[Baseline], kernel: str, preset: Preset, remembered: Baseline | None = None
+) -> tuple[Baseline, ...]:
     """``kinds`` in the order a leader-first race times them: its leader (:func:`race_leader`) first,
     then the rest in tie-break order."""
     leader = race_leader(kinds, kernel, preset, remembered)[0]
-    return (leader, *(kind for kind in kinds if kind != leader))
+    return (leader, *(kind for kind in kinds if kind is not leader))
 
 
-def is_best_of(kinds: Sequence[str]) -> bool:
+def is_best_of(kinds: Sequence[Baseline]) -> bool:
     """Whether ``kinds`` is raced (either best-of policy) rather than a fixed denominator."""
     return baseline_policy(kinds) != SINGLE_BASELINE_POLICY
 
 
-def cut_key(kind: str) -> str:
-    """The samples-map key for a cut ``best-of-v3`` candidate: the early-stop budget (ns) one rep
+class Cut(NamedTuple):
+    """The samples-map key of a cut ``best-of-v3`` candidate, whose value is the early-stop budget (ns) one rep
     outlasted, a lower bound. Lets the timing memo replay a cut; :func:`fastest_baseline` ignores it."""
-    return f"cut:{kind}"
+
+    kind: Baseline
 
 
-def was_cut(samples: Mapping[str, Sequence[int]], kind: str) -> bool:
+#: A grade's timing samples: per-repeat ns of every candidate timed (empty for one attempted and lost) and the
+#: budget of every candidate cut (:class:`Cut`).
+Samples = Mapping[Baseline | Cut, Sequence[int]]
+
+
+def cut_key(kind: Baseline) -> Cut:
+    """The samples-map key for a cut ``best-of-v3`` candidate (:class:`Cut`)."""
+    return Cut(kind)
+
+
+def sample_name(key: Baseline | Cut) -> str:
+    """A samples-map key as the timing memo stores it: the kind's spelling, ``cut:<kind>`` for a cut."""
+    return f"cut:{key.kind.text}" if isinstance(key, Cut) else key.text
+
+
+def sample_key(name: str) -> Baseline | Cut:
+    """The samples-map key :func:`sample_name` stored as ``name``; ValueError for a name no kind has."""
+    head, sep, kind = name.partition(":")
+    return Cut(Baseline.parse(kind)) if sep and head == "cut" else Baseline.parse(name)
+
+
+def was_cut(samples: Samples, kind: Baseline) -> bool:
     """Whether the race stopped timing ``kind`` early because it was already slower than its leader."""
     return bool(samples.get(cut_key(kind)))
 
 
-def early_stop_seconds(samples: Mapping[str, Sequence[int]], kinds: Sequence[str], timeout: float) -> float:
+def early_stop_seconds(samples: Samples, kinds: Sequence[Baseline], timeout: float) -> float:
     """Per-rep budget of the next candidate of a ``best-of-v3`` / ``best-of-v4`` race; 0 = no early stop.
 
     ``max(measurement.early_stop_floor_s, measurement.early_stop_factor x the leader's slowest timed rep)``,
@@ -1110,7 +1121,7 @@ def early_stop_seconds(samples: Mapping[str, Sequence[int]], kinds: Sequence[str
     measurement = config.current().measurement
     factor = measurement.early_stop_factor
     leader = fastest_baseline(samples, kinds)
-    if factor <= 0 or not leader:
+    if factor <= 0 or leader is None:
         return 0.0
     budget = max(measurement.early_stop_floor_s, factor * max(samples[leader]) * 1e-9)
     return budget if budget < timeout else 0.0
@@ -1133,7 +1144,7 @@ def cut_retried[T](run: Callable[[], T], cut_s: float) -> T:
     return run()
 
 
-def lost_compiled_references(kinds: Sequence[str], samples: Mapping[str, Sequence[int]]) -> list[str]:
+def lost_compiled_references(kinds: Sequence[Baseline], samples: Samples) -> list[Baseline]:
     """The compiled best-of candidates of ``kinds`` that produced no time and were not cut; empty for a
     fixed denominator."""
     if not is_best_of(kinds):
@@ -1145,40 +1156,46 @@ def lost_compiled_references(kinds: Sequence[str], samples: Mapping[str, Sequenc
     ]
 
 
-def baseline_policy_stamp(kinds: Sequence[str]) -> str:
+def baseline_policy_stamp(kinds: Sequence[Baseline]) -> str:
     """What every graded row records about its denominator: the policy, then the candidate set in
     tie-break order (the winner is ``Score.baseline``). Different sets are not poolable."""
-    return f"{baseline_policy(kinds)}:{'+'.join(kinds)}"
+    return f"{baseline_policy(kinds)}:{joined(kinds)}"
 
 
-def resolve_baseline_set(baseline: str | None, spec: BenchSpec, *, on_gpu: bool = False) -> tuple[str, ...]:
-    """Every denominator candidate this grade times, in tie-break order. Only ``auto`` on a multi-kind
-    track is best-of; an explicit kind stays one kind.
+def joined(kinds: Sequence[Baseline]) -> str:
+    """``kinds`` as a row records a set of references: their spellings, ``+``-joined in order."""
+    return "+".join(kind.text for kind in kinds)
+
+
+def resolve_baseline_set(baseline: Baseline | None, spec: BenchSpec, *, on_gpu: bool = False) -> tuple[Baseline, ...]:
+    """Every denominator candidate this grade times, in tie-break order. Only ``None`` (``auto``) on a
+    multi-kind track is best-of; an explicit kind stays one kind.
     ``on_gpu``: the grade runs on a GPU (:attr:`Task.on_gpu`), which picks the torch kind."""
-    if baseline is not None and baseline != AUTO_BASELINE:
+    if baseline is not None:
         return (resolve_baseline(baseline, spec, on_gpu=on_gpu),)
     kinds = track_baseline_set(spec.track)
     if len(kinds) > 1:
-        unusable = [kind for kind in kinds if kind not in BEST_OF_KINDS]
+        unusable = [kind.text for kind in kinds if kind not in BEST_OF_KINDS]
         if unusable:
             raise ValueError(
-                f"track {spec.track!r} lists {unusable} as best-of candidates; a best-of set may only "
-                f"hold kinds timeable in the candidate's own bracket ({BEST_OF_KINDS})"
+                f"track {spec.track.text!r} lists {unusable} as best-of candidates; a best-of set may only "
+                f"hold kinds timeable in the candidate's own bracket ({joined(BEST_OF_KINDS)})"
             )
         return kinds
     return tuple(resolve_baseline(kind, spec, on_gpu=on_gpu) for kind in kinds)
 
 
-def fastest_baseline(samples: Mapping[str, Sequence[int]], kinds: Sequence[str]) -> str:
+def fastest_baseline(samples: Samples, kinds: Sequence[Baseline]) -> Baseline | None:
     """The best-of winner: the candidate whose samples reduce to the smallest denominator
-    (:func:`hpcagent_bench.harness.timing.central_ns`), or ``""``. A later kind must be strictly faster
+    (:func:`hpcagent_bench.harness.timing.central_ns`), or None. A later kind must be strictly faster
     to win, so ties go to the head. Kinds without samples, or outside ``kinds``, are skipped."""
-    best, best_ns = "", 0.0
+    best: Baseline | None = None
+    best_ns = 0.0
     for kind in kinds:
         stat = timing.central_ns(samples.get(kind) or ())
         if stat <= 0:
             continue
-        if not best or stat < best_ns:
+        if best is None or stat < best_ns:
             best, best_ns = kind, stat
     return best
 
@@ -1235,40 +1252,36 @@ def time_numba_isolated(
     return [int(s) for s in samples]
 
 
-def torch_autotune_kind(on_gpu: bool) -> str:
-    """The stored torch kind of a grade: ``torch-autotune-gpu`` on a GPU grade, else ``-cpu``."""
-    device = "cuda" if on_gpu else "cpu"
-    return next(kind for kind, kind_device in TORCH_BASELINES.items() if kind_device == device)
+def torch_autotune_kind(on_gpu: bool) -> Baseline:
+    """The recorded torch kind of a grade: ``torch-autotune-gpu`` on a GPU grade, else ``-cpu``."""
+    return Baseline.TORCH_AUTOTUNE_GPU if on_gpu else Baseline.TORCH_AUTOTUNE_CPU
 
 
-def resolve_baseline(baseline: str | None, spec: BenchSpec, *, on_gpu: bool = False) -> str:
+def resolve_baseline(baseline: Baseline | None, spec: BenchSpec, *, on_gpu: bool = False) -> Baseline:
     """Resolve a baseline selection to a concrete kind for spec: an explicit choice, else the track default
-    (``None`` / ``auto`` = no choice).
-    :data:`TORCH_AUTOTUNE` resolves to the kind of the grade's device (``on_gpu``)."""
-    if baseline is None or baseline == AUTO_BASELINE:
+    (``None`` = no choice). ``torch-autotune`` resolves to the kind of the grade's device (``on_gpu``)."""
+    if baseline is None:
         return resolve_baseline(default_baseline_for_track(spec.track), spec, on_gpu=on_gpu)
-    if baseline == TORCH_AUTOTUNE:
+    if baseline is Baseline.TORCH_AUTOTUNE:
         return torch_autotune_kind(on_gpu)
-    if baseline not in BASELINE_CHOICES:
-        raise ValueError(f"baseline must be one of {BASELINE_OPTIONS}; got {baseline!r}")
     return baseline
 
 
-def baseline_uses_torch(baseline: str) -> bool:
+def baseline_uses_torch(baseline: Baseline) -> bool:
     """Whether the resolved baseline times the compiled upstream KernelBench model (either device)."""
     return baseline in TORCH_BASELINES
 
 
-def baseline_uses_numba(baseline: str) -> bool:
+def baseline_uses_numba(baseline: Baseline) -> bool:
     """Whether the resolved baseline times the parallel-numba reference."""
-    return baseline == "numba"
+    return baseline is Baseline.NUMBA
 
 
-def baseline_compiled(baseline: str) -> tuple[str, str, tuple[str, ...], Mode] | None:
-    """The compiled reference a resolved baseline times: (label, language, candidate blocks, mode) or
+def baseline_compiled(baseline: Baseline) -> tuple[Baseline, str, tuple[str, ...], Mode] | None:
+    """The compiled reference a resolved baseline times: (kind, language, candidate blocks, mode) or
     None."""
-    if baseline == "c":
-        return ("c", "c", ("",), Mode.SINGLE_CORE)
+    if baseline is Baseline.C:
+        return (Baseline.C, "c", ("",), Mode.SINGLE_CORE)
     if baseline in AUTOPAR_BASELINES:
         lang, compilers = AUTOPAR_BASELINES[baseline]
         return (baseline, lang, compilers, Mode.MULTI_CORE)
@@ -1279,25 +1292,26 @@ def baseline_compiled(baseline: str) -> tuple[str, str, tuple[str, ...], Mode] |
 class ReferencePlan:
     """The pure which-reference decode shared by score() and score_cells(); no timing, build, or I/O."""
 
-    compiled: tuple[str, str, tuple[str, ...], Mode] | None
+    compiled: tuple[Baseline, str, tuple[str, ...], Mode] | None
     oracle_wants_c: bool
     #: The timed baseline IS the single-core C reference, so it reuses the oracle's build.
     bl_is_seq_c: bool
     #: The timed baseline needs its own build (autopar).
     bl_own_build: bool
-    bl_label: str
+    #: The compiled kind the baseline times; None when it times no compiled reference.
+    bl_label: Baseline | None
     bl_lang: str
     need_seq_c: bool
 
 
-def reference_plan(oracle: str, baseline_resolved: str) -> ReferencePlan:
+def reference_plan(oracle: Oracle, baseline_resolved: Baseline) -> ReferencePlan:
     """Decode which compiled reference(s) a concrete oracle kind (``numba`` / ``c`` / ``torch``) and a
     resolved baseline select (pure)."""
     compiled = baseline_compiled(baseline_resolved)
-    oracle_wants_c = oracle == "c"
+    oracle_wants_c = oracle is Oracle.C
     bl_is_seq_c = compiled is not None and compiled[3] is Mode.SINGLE_CORE
     bl_own_build = compiled is not None and not bl_is_seq_c
-    bl_label = compiled[0] if compiled is not None else ""
+    bl_label = compiled[0] if compiled is not None else None
     bl_lang = compiled[1] if compiled is not None else "c"
     need_seq_c = oracle_wants_c or (compiled is not None)
     return ReferencePlan(
@@ -1313,7 +1327,7 @@ def reference_plan(oracle: str, baseline_resolved: str) -> ReferencePlan:
 
 def reference_task(task: Task, language: str = "c") -> Task:
     """``task`` reshaped for the compiled reference in ``language`` (restricted, host)."""
-    return replace(task, language=language, source_mode="restricted", residency="host")
+    return replace(task, language=language, source_mode=SourceMode.RESTRICTED, residency=Residency.HOST)
 
 
 def reference_submission(task: Task, language: str = "c", compiler: str | None = None) -> Submission:
@@ -1375,7 +1389,7 @@ def build_reference_lib(
 
 def _grade_against(
     spec: BenchSpec,
-    references: dict[str, dict],
+    references: Mapping[Oracle, dict],
     actual: dict,
     rtol: float,
     atol: float,
@@ -1410,7 +1424,7 @@ def _grade_against(
         for ref_name, expected in references.items()
     )
     return combine_grades(
-        (good, err, f"vs {ref_name}: {det or 'numeric mismatch'}") for ref_name, (good, err, det) in per_ref
+        (good, err, f"vs {ref_name.text}: {det or 'numeric mismatch'}") for ref_name, (good, err, det) in per_ref
     )
 
 

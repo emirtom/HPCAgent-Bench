@@ -25,6 +25,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 
 from hpcagent_bench import config, protocols
+from hpcagent_bench.categories import Baseline, Residency
 from hpcagent_bench.stats import significance
 
 __all__ = [
@@ -121,19 +122,19 @@ AA_REDUCTION: str = protocols.credited().aa
 #: ``host-monotonic``    ``perf_counter_ns`` around the whole call, transfers included (every CPU
 #:                       setup and the host-resident python setup).
 #: ``mpi-wtime-max``     ``MPI_Wtime`` reduced with ``MPI_MAX`` over the ranks, in the driver.
-TIMING_BRACKETS: dict[str, str] = {
-    "device": "gpu-event-nocopy",
-    "host": "host-monotonic",
-    "distributed": "mpi-wtime-max",
+TIMING_BRACKETS: dict[Residency, str] = {
+    Residency.DEVICE: "gpu-event-nocopy",
+    Residency.HOST: "host-monotonic",
+    Residency.DISTRIBUTED: "mpi-wtime-max",
 }
 
 
-def timing_bracket(residency: str, language: str) -> str:
+def timing_bracket(residency: Residency, language: str) -> str:
     """The :data:`TIMING_BRACKETS` stamp for a grade at ``residency``. Residency alone decides which child
     runs the call and so which clock reads it (``triton`` grades host, ``triton-device`` device).
     ``language`` is accepted but unused."""
     del language  # residency decides; see above
-    return TIMING_BRACKETS.get(residency, TIMING_BRACKETS["host"])
+    return TIMING_BRACKETS[residency]
 
 
 def quiescence_residual_limit(sample_ns: float) -> float:
@@ -255,9 +256,9 @@ def local_repeat() -> int:
     return config.current().measurement.local_repeat
 
 
-def measurement_baseline() -> str:
-    """The speedup denominator (``measurement.baseline``; ``"auto"`` = the per-track resolver), read by every
-    scoring path; callers forcing another baseline pass it explicitly."""
+def measurement_baseline() -> Baseline | None:
+    """The speedup denominator (``measurement.baseline``; None, spelled ``auto`` = the per-track resolver),
+    read by every scoring path; callers forcing another baseline pass it explicitly."""
     return config.current().measurement.baseline
 
 

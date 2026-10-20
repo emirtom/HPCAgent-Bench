@@ -6,6 +6,7 @@ signature for one language plus an empty body marked :data:`STUB_BODY` -- never 
 
 import re
 
+from hpcagent_bench.categories import Residency
 from hpcagent_bench.dtypes import fortran_kind
 from hpcagent_bench.languages import GPU_HOST_LANG, LANG_EXT
 from hpcagent_bench.support.bindings.contract import (
@@ -202,7 +203,7 @@ def gen_fortran(binding: Binding) -> str:
     )
 
 
-def gen_gpu(binding: Binding, lang: str, residency: str = "host") -> str:
+def gen_gpu(binding: Binding, lang: str, residency: Residency = Residency.HOST) -> str:
     """CUDA/HIP host-entry stub (Sec. 7): always an ``extern "C"`` host function. ``residency="host"``
     means the agent copies host<->device itself (harness times the whole call); ``"device"`` means the
     pointers are already device-resident and the agent only launches kernels (harness uses GPU events)."""
@@ -211,7 +212,7 @@ def gen_gpu(binding: Binding, lang: str, residency: str = "host") -> str:
     parts.extend(workspace_c_params(lang))
     sig = ",\n    ".join(parts)
     header = "#include <cuda_runtime.h>" if lang == "cuda" else "#include <hip/hip_runtime.h>"
-    if residency == "device":
+    if residency is Residency.DEVICE:
         note = (
             f"    /* {STUB_BODY}: pointers are DEVICE-resident -- launch "
             f"__global__ kernel(s) directly, NO host copies.\n"
@@ -222,7 +223,7 @@ def gen_gpu(binding: Binding, lang: str, residency: str = "host") -> str:
     return f'{header}\n#include <complex>\n#include <stdint.h>\n{c_constants(binding)}extern "C" void {sym}(\n    {sig}) {{\n{note}}}\n'
 
 
-def gen_call_stub(binding: Binding, lang: str, residency: str = "host") -> str:
+def gen_call_stub(binding: Binding, lang: str, residency: Residency = Residency.HOST) -> str:
     """Render the empty call stub for ``lang`` (Sec. 7); ``residency`` only affects the GPU languages."""
     if lang == "c":
         return gen_c(binding, cpp=False)

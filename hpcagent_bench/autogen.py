@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable, Iterable
 
 from hpcagent_bench import framework_cache, paths, phase_clock
+from hpcagent_bench.categories import Track
 from hpcagent_bench.emit_bridge import BenchInfoDocument, bench_info_tempfile
 from hpcagent_bench.frameworks.framework import native_column_languages
 from hpcagent_bench.languages import LANG_TARGET
@@ -128,12 +129,12 @@ EMITTERS: dict[str, Emitter] = {
 
 
 #: Tracks no numba sibling is generated for: a machine_learning kernel's only reference is PyTorch.
-NO_NUMBA_TRACKS: frozenset[str] = frozenset({"machine_learning"})
+NO_NUMBA_TRACKS: frozenset[Track] = frozenset({Track.MACHINE_LEARNING})
 
 
 def has_numba(spec: BenchSpec) -> bool:
     """Whether ``spec`` has a numba reference at all (its track is not in :data:`NO_NUMBA_TRACKS`)."""
-    return (spec.track or "") not in NO_NUMBA_TRACKS
+    return spec.track not in NO_NUMBA_TRACKS
 
 
 def emittable(spec: BenchSpec, targets: Iterable[str]) -> list[str]:

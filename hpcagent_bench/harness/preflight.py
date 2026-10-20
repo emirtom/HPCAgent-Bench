@@ -175,15 +175,15 @@ def check_dace_pipeline() -> str:
     return ""
 
 
-def check_autopar(frameworks: Sequence[str]) -> list[tuple[str, str, str]]:
+def check_autopar(frameworks: Sequence[str]) -> list[tuple[str, AutoparVerdict, str]]:
     """``(framework, verdict, detail)`` for each requested autopar column, measured on THIS node."""
-    out: list[tuple[str, str, str]] = []
+    out: list[tuple[str, AutoparVerdict, str]] = []
     for name in frameworks:
         probe = AUTOPAR_PROBES.get(name)
         if probe is None:
             continue
         result = probe()
-        out.append((name, result.verdict.value, result.detail))
+        out.append((name, result.verdict, result.detail))
     return out
 
 
@@ -259,11 +259,11 @@ def run(
             return 1, report, []
         report.append(f"preflight: ppcg present (needed by {', '.join(ppcg_columns)})")
     for name, verdict, detail in check_autopar(frameworks):
-        if verdict == AutoparVerdict.OK.value:
+        if verdict is AutoparVerdict.OK:
             report.append(f"preflight: {name} PARALLELIZES on this node ({detail})")
         else:
             report.append(
-                f"preflight: WARNING -- {name} is {verdict}: {detail}; "
+                f"preflight: WARNING -- {name} is {verdict.text}: {detail}; "
                 "this column is a serial baseline wearing an autopar label"
             )
     env = (

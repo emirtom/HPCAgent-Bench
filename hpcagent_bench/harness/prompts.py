@@ -11,7 +11,6 @@ import dataclasses
 import importlib
 import json
 import math
-import os
 import pathlib
 import posixpath
 import re
@@ -22,7 +21,6 @@ from typing import NamedTuple, Protocol, TypedDict, cast
 import jinja2
 import numpy as np
 
-from hpcagent_bench import modules
 from hpcagent_bench import (
     config,
     cpf_cache,
@@ -30,10 +28,12 @@ from hpcagent_bench import (
     fuzz,
     languages,
     manifest_schema,
+    modules,
     packets,
     paths,
     protocols,
 )
+from hpcagent_bench.categories import Baseline, Oracle, Residency, Track
 from hpcagent_bench.config import GridChooser, RequestCapability
 from hpcagent_bench.dtypes import c_type
 from hpcagent_bench.harness import mpi_sizing, prompt_sections, torch_reference
@@ -59,7 +59,7 @@ from hpcagent_bench.harness.requests_api import (
 )
 from hpcagent_bench.harness.resources import available_resources
 from hpcagent_bench.harness.sandbox import shared_dir
-from hpcagent_bench.harness.task import Residency, Task
+from hpcagent_bench.harness.task import Task
 from hpcagent_bench.precision import Precision, numpy_dtype, precision_from_datatype
 from hpcagent_bench.spec import BenchSpec, as_block, as_list, bsr_block_sizes
 from hpcagent_bench.support.bindings import binding_from_spec, gen_call_stub
@@ -71,15 +71,18 @@ from hpcagent_bench.support.helpers.sparse.request import served_by
 from hpcagent_bench.support.sanitize import strip_comments
 
 __all__ = [
+    "BASELINE_PHRASE",
+    "C_PHRASE",
     "DISTRIBUTED_GRADING",
     "FAMILY_NOTE",
     "JSON_TO_PYTHON",
     "LANGUAGE_TOOL_FRAGMENTS",
     "MPI_SECTION",
+    "NUMBA_PHRASE",
+    "ORACLE_PHRASE",
     "PACKET_TOOL_FRAGMENTS",
     "PROMPT_FACTS_KEY",
     "PROMPT_VARIANTS",
-    "REF_PHRASE",
     "SIZE_CLASS_PHRASE",
     "SOURCE_MARKER",
     "STRATEGIES",
@@ -255,7 +258,9 @@ class PublicInfo(TypedDict):
 class PromptGenerator(Protocol):
     """A ``prompt.generator`` that REPLACES the built-in render, called once per attempt."""
 
-    def __call__(self, task: Task, *, oracle: str, baseline: str, feedback: "Feedback | None") -> str: ...
+    def __call__(
+        self, task: Task, *, oracle: Oracle, baseline: Baseline | None, feedback: "Feedback | None"
+    ) -> str: ...
 
 
 #: The leak-free template context :func:`build_context` assembles (values are ``object``; jinja
@@ -736,7 +741,7 @@ def delivered_files(language: str, stem: str) -> DeliveredFiles:
     return DeliveredFiles(tuple(f"{stem}.{ext}" for ext in exts), device)
 
 
-def call_stub(binding: Binding, language: str, residency: str) -> str:
+def call_stub(binding: Binding, language: str, residency: Residency) -> str:
     """The single-node call stub (Sec. 7), or ``""`` for a language ``gen_call_stub`` does not emit
     (python, distributed tasks, which show ``mpi_stub``)."""
     try:
@@ -777,17 +782,17 @@ def _translation(task: Task) -> str:
 def _category(spec: BenchSpec) -> str:
     """A one-line label for the benchmark's category (``Scientific computing / <dwarf> / <scale>``,
     vectorization puzzle, or deep learning)."""
-    if spec.track == "scientific_computing":
-        parts = ["Scientific computing"]
-        if spec.dwarf:
-            parts.append(spec.dwarf)
-        parts.append(spec.scale_class or "micro")
-        return " / ".join(parts)
-    if spec.track == "loop_level_reasoning":
-        return "Loop-level reasoning (vectorization puzzle)"
-    if spec.track == "machine_learning":
-        return "Machine learning (deep-learning kernel)"
-    return spec.track.capitalize()
+    match spec.track:
+        case Track.SCIENTIFIC_COMPUTING:
+            parts = ["Scientific computing"]
+            if spec.dwarf:
+                parts.append(spec.dwarf)
+            parts.append(spec.scale_class or "micro")
+            return " / ".join(parts)
+        case Track.LOOP_LEVEL_REASONING:
+            return "Loop-level reasoning (vectorization puzzle)"
+        case Track.MACHINE_LEARNING:
+            return "Machine learning (deep-learning kernel)"
 
 
 def score_sampling() -> ScoreSampling:
@@ -885,42 +890,48 @@ SIZE_CLASS_PHRASE = {
 
 #: Human phrasing of the oracle/baseline kinds. ``*-autopar`` is the compiled reference built
 #: multi-core with auto-parallelization (Polly for c/cpp, gfortran's for fortran).
-REF_PHRASE = {
-    "compiled": "the NumPy reference as its compiled Numba and C versions compute it",
-    "torch": "the kernel's PyTorch model",
-    "numba": "the parallel Numba reference (the NumPy reference compiled by @numba.njit(parallel=True))",
-    "c": "the compiled C reference (NumpyToX-generated from the NumPy reference)",
-    "torch-autotune-cpu": "the compiled PyTorch reference (this kernel's PyTorch model run through "
+NUMBA_PHRASE = "the parallel Numba reference (the NumPy reference compiled by @numba.njit(parallel=True))"
+C_PHRASE = "the compiled C reference (NumpyToX-generated from the NumPy reference)"
+ORACLE_PHRASE: dict[Oracle, str] = {
+    Oracle.COMPILED: "the NumPy reference as its compiled Numba and C versions compute it",
+    Oracle.TORCH: "the kernel's PyTorch model",
+    Oracle.NUMBA: NUMBA_PHRASE,
+    Oracle.C: C_PHRASE,
+}
+BASELINE_PHRASE: dict[Baseline, str] = {
+    Baseline.NUMBA: NUMBA_PHRASE,
+    Baseline.C: C_PHRASE,
+    Baseline.TORCH_AUTOTUNE_CPU: "the compiled PyTorch reference (this kernel's PyTorch model run through "
     "torch.compile with max-autotune and frozen weights, on the CPU)",
-    "torch-autotune-gpu": "the compiled PyTorch reference (this kernel's PyTorch model run through "
+    Baseline.TORCH_AUTOTUNE_GPU: "the compiled PyTorch reference (this kernel's PyTorch model run through "
     "torch.compile with max-autotune, on the GPU)",
-    "c-autopar": "the auto-parallelized compiled C reference (NumpyToX-generated, built multi-core "
+    Baseline.C_AUTOPAR: "the auto-parallelized compiled C reference (NumpyToX-generated, built multi-core "
     "with clang + LLVM Polly)",
-    "cpp-autopar": "the auto-parallelized compiled C++ reference (NumpyToX-generated, built multi-core "
+    Baseline.CPP_AUTOPAR: "the auto-parallelized compiled C++ reference (NumpyToX-generated, built multi-core "
     "with clang++ + LLVM Polly)",
-    "fortran-autopar": "the auto-parallelized compiled Fortran reference (NumpyToX-generated, built "
+    Baseline.FORTRAN_AUTOPAR: "the auto-parallelized compiled Fortran reference (NumpyToX-generated, built "
     "multi-core with gfortran auto-parallelization)",
 }
 
 
-def reference_phrase(kinds: Sequence[str]) -> str:
-    """One resolved reference kind in words, or "the faster of" several (a best-of denominator)."""
-    phrases = [REF_PHRASE.get(kind, kind) for kind in kinds]
+def reference_phrase(phrases: Sequence[str]) -> str:
+    """One resolved reference in words, or "the faster of" several (a best-of denominator)."""
     return phrases[0] if len(phrases) == 1 else f"the faster of {' and '.join(phrases)}"
 
 
-def oracle_phrase(oracle: str, spec: BenchSpec) -> str:
+def oracle_phrase(oracle: Oracle, spec: BenchSpec) -> str:
     """The reference ``oracle`` (``auto`` resolved per track, :func:`grading.resolve_oracle`) grades ``spec`` with."""
     from hpcagent_bench.harness.grading import resolve_oracle
 
-    return reference_phrase((resolve_oracle(oracle, spec),))
+    return reference_phrase((ORACLE_PHRASE[resolve_oracle(oracle, spec)],))
 
 
-def baseline_phrase(baseline: str, spec: BenchSpec, *, on_gpu: bool) -> str:
+def baseline_phrase(baseline: Baseline | None, spec: BenchSpec, *, on_gpu: bool) -> str:
     """Every denominator a grade of ``spec`` races (:func:`grading.resolve_baseline_set`), in words."""
     from hpcagent_bench.harness.grading import resolve_baseline_set
 
-    return reference_phrase(resolve_baseline_set(baseline, spec, on_gpu=on_gpu))
+    kinds = resolve_baseline_set(baseline, spec, on_gpu=on_gpu)
+    return reference_phrase([BASELINE_PHRASE.get(kind, kind.text) for kind in kinds])
 
 
 def ml_layout(spec: BenchSpec, binding: Binding, ranks: int) -> dict[str, object]:
@@ -1013,14 +1024,14 @@ def layout_arrays(spec: BenchSpec, binding: Binding) -> list[dict[str, str | int
 def build_context(
     task: Task,
     *,
-    oracle: str = "auto",
-    baseline: str = "auto",
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
     prompt_config: "PromptConfig | None" = None,
 ) -> PromptContext:
     """Public, leak-free context for the prompt template.
 
     ``oracle`` / ``baseline`` name the correctness reference and the speedup denominator (``baseline``
-    defaults to ``auto``, the kernel's real per-track denominator). ``prompt_config`` (default
+    defaults to None, the kernel's real per-track denominator). ``prompt_config`` (default
     :meth:`PromptConfig.from_config`) supplies the knobs. Repair feedback is not part of the context:
     :meth:`RunPrompt.attempt` appends it."""
     if prompt_config is None:
@@ -1033,7 +1044,7 @@ def build_context(
 
     graded_oracle = oracle_phrase(oracle, spec)
     graded_baseline = baseline_phrase(baseline, spec, on_gpu=task.on_gpu)
-    baseline = resolve_baseline(baseline, spec, on_gpu=task.on_gpu)
+    resolved_baseline = resolve_baseline(baseline, spec, on_gpu=task.on_gpu)
     binding = binding_from_spec(spec)
     # The band the scorer uses (TOLERANCE_MATRIX via kernel_tolerances), off this task's precision.
     from hpcagent_bench.frameworks.test import kernel_tolerances
@@ -1068,7 +1079,7 @@ def build_context(
     resources = as_block(available_resources())
 
     # node_mode selects the single- vs multi-node contract from the residency.
-    is_mpi = task.residency == "distributed"
+    is_mpi = task.residency is Residency.DISTRIBUTED
     node_mode = "multi" if is_mpi else "single"
     other_skills = packet_skills(prompt_config.search_dirs(), task.language, multinode=is_mpi)
 
@@ -1108,11 +1119,11 @@ def build_context(
         # The vendor's transfer call, for the device-residency section.
         "transfer_call": {"cuda": "cudaMemcpy", "hip": "hipMemcpy"}.get(task.language, "memcpy"),
         "precision": precision,
-        "source_mode": task.source_mode,
+        "source_mode": task.source_mode.text,
         # service.input_mode: under source / py-binding the judge refuses other languages, so the prompt
         # offers none. service.service_prompt overwrites this with its live config.
-        "input_mode": cfg.service.input_mode,
-        "residency": task.residency,
+        "input_mode": cfg.service.input_mode.text,
+        "residency": task.residency.text,
         # An offload setup's contract (is_device_ptr on target regions) differs from hip's; read from
         # languages.offload_setup_language.
         "offload": languages.offload_setup_language(task.language),
@@ -1154,7 +1165,7 @@ def build_context(
         # The rank counts the grader sweeps; empty = the scalar ``ranks`` only.
         "rank_counts": (list(torch_reference.graded_rank_counts(spec)) if is_mpi else []),
         # Optional per-context fragments; Foundation kernels ship no optimization hint.
-        "track": spec.track,
+        "track": spec.track.text,
         "dwarf": spec.dwarf,
         "scale": spec.scale_class,
         "category": _category(spec),
@@ -1234,8 +1245,8 @@ def build_context(
         # What /score times (a preview of the final grade on fewer inputs); see score_sampling.
         "score_sampling": score_sampling(),
         # The correctness reference and the speedup denominator.
-        "oracle": oracle,
-        "baseline": baseline,
+        "oracle": oracle.text,
+        "baseline": resolved_baseline.text,
         "oracle_phrase": graded_oracle,
         "baseline_phrase": graded_baseline,
         # The shared library folder mounted in agent and judge; its include/lib dirs join every build.
@@ -1291,8 +1302,8 @@ class RunPrompt:
     called per attempt and returned verbatim."""
 
     task: Task
-    oracle: str
-    baseline: str
+    oracle: Oracle
+    baseline: Baseline | None
     prompt_config: "PromptConfig"
     body: str = ""
     generator: PromptGenerator | None = None
@@ -1310,7 +1321,11 @@ class RunPrompt:
 
 
 def build_run_prompt(
-    task: Task, *, oracle: str = "auto", baseline: str = "auto", prompt_config: "PromptConfig | None" = None
+    task: Task,
+    *,
+    oracle: Oracle = Oracle.AUTO,
+    baseline: Baseline | None = None,
+    prompt_config: "PromptConfig | None" = None,
 ) -> RunPrompt:
     """Render one run's static prompt body -- call ``.attempt(feedback)`` for each attempt."""
     if prompt_config is None:
@@ -1341,8 +1356,8 @@ def distributed_contract(task: Task) -> str:
     """The distributed contract of a ``residency="distributed"`` task alone (``kernel_mpi`` signature and
     symbol, distribution rule, delivery, timing, sizing), as :func:`build_prompt` renders it.
     ``hpcagent_bench/cluster/make_problems.py`` appends it to such a task's text. Host paths are stripped."""
-    if task.residency != Residency.DISTRIBUTED.value:
-        raise ValueError(f"{task.kernel}: residency {task.residency!r} has no distributed contract")
+    if task.residency is not Residency.DISTRIBUTED:
+        raise ValueError(f"{task.kernel}: residency {task.residency.text!r} has no distributed contract")
     prompt_config = PromptConfig.from_config()
     ctx = build_context(task, prompt_config=prompt_config)
     body = prompt_env(prompt_config).get_template(MPI_SECTION).render(**ctx).strip() + "\n"
@@ -1413,7 +1428,7 @@ def cluster_facts(task: Task) -> dict[str, str]:
 
     grading = (
         DISTRIBUTED_GRADING
-        if task.residency == Residency.DISTRIBUTED.value
+        if task.residency is Residency.DISTRIBUTED
         else "\n\n".join(("{{MODE:grading}}", partial("correctness"), partial("final-grade"), partial("sizes")))
     )
     stem = str(ctx["kernel"])
@@ -1433,7 +1448,7 @@ def cluster_facts(task: Task) -> dict[str, str]:
         body = {"source_file": f"{stem}.<ext>"}
         fields = [f'"source_file":os.path.abspath("{stem}.<ext>")']
     body_text = json.dumps(body)
-    if task.residency == Residency.DISTRIBUTED.value:
+    if task.residency is Residency.DISTRIBUTED:
         # Every distributed grade refuses a body without its layout: the ML track's one accepted layout,
         # else the one the agent declares (a file it writes beside its source).
         layout = str(ctx["mpi_fixed_layout"])

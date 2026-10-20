@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterable, Sequence
 from enum import Enum
 
 from hpcagent_bench import config
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import db_json, grade_under, results_db, torch_dist_curve
 from hpcagent_bench.harness.grade_under import Item
 from hpcagent_bench.harness.metric import LawCurve
@@ -252,7 +253,7 @@ class BaselineCurve:
     (arch, image) its rows are valid for."""
 
     counts: tuple[int, ...]
-    preset: str
+    preset: Preset
     where: torch_dist_curve.Stack
 
     @classmethod
@@ -267,7 +268,7 @@ def baseline_work(
     items: Iterable[Item],
     out_dir: pathlib.Path,
     counts: Sequence[int],
-    preset: str,
+    preset: Preset,
     where: torch_dist_curve.Stack | None,
 ) -> list[torch_dist_curve.Point]:
     """The baseline points of ``items``' kernels no grade DB of ``out_dir`` holds; unplannable kernels are

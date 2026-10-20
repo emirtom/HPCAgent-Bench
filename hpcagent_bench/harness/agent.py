@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, cast
 import pydantic
 
 from hpcagent_bench import config, framework_cache, paths
+from hpcagent_bench.categories import SourceMode
 from hpcagent_bench.harness.envelope import Submission
 from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.usage import TokenUsage
@@ -320,7 +321,7 @@ class StubAgent(Agent):
         self._source_fn = source_fn or reference_source
 
     def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        if task.source_mode != "restricted":
+        if task.source_mode is not SourceMode.RESTRICTED:
             raise NotImplementedError("StubAgent supports restricted (source) mode only")
         return Submission(language=task.language, source=self._source_fn(task))
 

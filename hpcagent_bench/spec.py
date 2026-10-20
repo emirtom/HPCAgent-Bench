@@ -19,6 +19,7 @@ low: no import side effects, and language-agnostic introspection.
 
 import ast
 import difflib
+import enum
 import functools
 import hashlib
 import itertools
@@ -28,10 +29,10 @@ import pathlib
 import re
 from collections.abc import Callable, Iterator, KeysView, Mapping
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, NamedTuple, TypeGuard, cast
 
 import yaml
+from hpcagent_agent.coded import Coded
 from pydantic import BaseModel, ConfigDict, Field, InstanceOf
 
 #: The loader :func:`load_yaml` parses manifests with. ``CSafeLoader`` is PyYAML's libyaml-backed
@@ -47,6 +48,7 @@ except ImportError:  # PyYAML built without libyaml
 
 from hpcagent_bench import config, fuzz, manifest_schema, paths
 from hpcagent_bench import dtypes as dtype_registry
+from hpcagent_bench.categories import Preset, Track
 from hpcagent_bench.fuzz import FuzzValue, is_range, is_set, safe_eval
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.manifest_schema import Number, Value
@@ -84,7 +86,6 @@ __all__ = [
     "LEVELS",
     "MANIFEST_DERIVED_CACHES",
     "MANIFEST_INIT_KEYS",
-    "PRESET_CHOICES",
     "RESERVED_BACKEND_NAMES",
     "RUNGS",
     "SCENARIO_KEYS",
@@ -103,7 +104,6 @@ __all__ = [
     "KernelRegistry",
     "LayoutChoice",
     "MpiDecomposition",
-    "Preset",
     "PresetTable",
     "PresetToken",
     "ResolvedBench",
@@ -111,7 +111,6 @@ __all__ = [
     "SparseConfiguration",
     "SparseLayout",
     "SparseLayoutVariant",
-    "Track",
     "as_block",
     "as_domain",
     "as_list",
@@ -317,35 +316,11 @@ def load_yaml(text: str) -> dict[str, object]:
     return as_block(yaml.load(text, Loader=MANIFEST_LOADER))
 
 
-class Track(Enum):
-    """A benchmark track: the top-level directory under ``hpcagent_bench/benchmarks``."""
-
-    LOOP_LEVEL_REASONING = "loop_level_reasoning"
-    SCIENTIFIC_COMPUTING = "scientific_computing"
-    MACHINE_LEARNING = "machine_learning"
-
-
-class Preset(Enum):
-    """Size preset a benchmark runs at (the CLI ``-p`` / ``--preset`` choices). ``fuzzed``
-    is a separate opt-in and may carry a ``:seed`` suffix (see :func:`parse_preset`)."""
-
-    S = "S"
-    M = "M"
-    L = "L"
-    XL = "XL"
-    FUZZED = "fuzzed"
-
-
-#: The preset vocabulary as a tuple; the single source of truth is :class:`Preset`.
-PRESET_CHOICES = tuple(p.value for p in Preset)
-
-#: The SIZE RUNGS -- the presets that name a fixed size, i.e. everything a ``+fuzz`` can
-#: attach to. Derived from :class:`Preset` rather than imported from ``sizing`` because
-#: ``sizing`` imports this module.
-RUNGS = tuple(p.value for p in Preset if p is not Preset.FUZZED)
+#: The SIZE RUNGS -- the presets that name a fixed size, i.e. everything a ``+fuzz`` can attach to.
+RUNGS: tuple[Preset, ...] = tuple(p for p in Preset if p.is_rung)
 
 #: The track whose kernels take a configured datatype (``ml.datatype``).
-TRACK_DATATYPE_TRACK = "machine_learning"
+TRACK_DATATYPE_TRACK = Track.MACHINE_LEARNING
 
 
 def declares_storage_precision(allowed_precisions: tuple[str, ...]) -> bool:
@@ -354,11 +329,11 @@ def declares_storage_precision(allowed_precisions: tuple[str, ...]) -> bool:
     return len(allowed_precisions) == 1 and dtype_registry.is_storage_only(allowed_precisions[0])
 
 
-def track_datatype(track: str, allowed_precisions: tuple[str, ...]) -> str:
+def track_datatype(track: Track, allowed_precisions: tuple[str, ...]) -> str:
     """The datatype a kernel of ``track`` allowing ``allowed_precisions`` is graded in by its TRACK:
     ``ml.datatype`` for a machine_learning kernel with no storage precision of its own, else ``""`` (the
     grade's configured datatype stands)."""
-    if track != TRACK_DATATYPE_TRACK or declares_storage_precision(allowed_precisions):
+    if track is not TRACK_DATATYPE_TRACK or declares_storage_precision(allowed_precisions):
         return ""
     return config.current().ml.datatype
 
@@ -368,15 +343,15 @@ FUZZ_SUFFIX = "fuzz"
 
 #: What a bare ``fuzzed`` token anchors on. XL is the size the manifests declare as the
 #: production shape, so it is what a submission is graded at unless a caller says otherwise.
-DEFAULT_FUZZ_ANCHOR = "XL"
+DEFAULT_FUZZ_ANCHOR = Preset.XL
 
 
 class PresetToken(NamedTuple):
     """A parsed preset token: the base preset, the pinned fuzz seed, and the rung fuzzing draws around."""
 
-    base: str
+    base: Preset
     seed: int | None
-    anchor: str
+    anchor: Preset
 
 
 def parse_preset(preset: str) -> PresetToken:
@@ -393,22 +368,21 @@ def parse_preset(preset: str) -> PresetToken:
 
     Raises ``ValueError`` on an unknown rung or a non-integer / misplaced seed."""
     head, sep, rest = preset.partition(":")
-    anchor, plus, suffix = head.partition("+")
+    rung, plus, suffix = head.partition("+")
     if plus:
         if suffix != FUZZ_SUFFIX:
             raise ValueError(f"unknown preset modifier {suffix!r} in {preset!r}; only '+{FUZZ_SUFFIX}' exists")
-        if anchor not in RUNGS:
-            raise ValueError(
-                f"'+{FUZZ_SUFFIX}' attaches to a size rung; got {anchor!r}, choose from {', '.join(RUNGS)}"
-            )
-        base = Preset.FUZZED.value
+        anchor = next((p for p in RUNGS if p.text == rung), None)
+        if anchor is None:
+            rungs = ", ".join(p.text for p in RUNGS)
+            raise ValueError(f"'+{FUZZ_SUFFIX}' attaches to a size rung; got {rung!r}, choose from {rungs}")
+        base = Preset.FUZZED
     else:
-        base, anchor = head, (head if head != Preset.FUZZED.value else DEFAULT_FUZZ_ANCHOR)
-        if base not in PRESET_CHOICES:
-            raise ValueError(f"unknown preset {base!r}; choose from {', '.join(PRESET_CHOICES)}")
+        base = Preset.parse(head)
+        anchor = DEFAULT_FUZZ_ANCHOR if base is Preset.FUZZED else base
     if not sep:
         return PresetToken(base, None, anchor)
-    if base != Preset.FUZZED.value:
+    if base is not Preset.FUZZED:
         raise ValueError(f"only a fuzzed preset takes a ':seed' suffix (got {preset!r})")
     try:
         return PresetToken(base, int(rest), anchor)
@@ -423,7 +397,7 @@ def preset_arg(preset: str) -> str:
     return preset
 
 
-def resolve_preset(preset: str) -> str:
+def resolve_preset(preset: str) -> Preset:
     """Parse a preset token, apply its modifiers as process overrides, and return the base
     preset (``fuzzed``/``S``/...) to run with.
 
@@ -872,7 +846,7 @@ def constraint_holds(expr: str, row: ConfigRow) -> bool:
 def scale_axes_of(raw: object, parameters: PresetTable, config_syms: set[str], source: str) -> tuple[str, ...]:
     """The manifest's ``scale_axes``: size symbols the XL rung declares, never ``config:`` knobs."""
     axes = tuple(str(name) for name in as_list(raw))
-    xl = parameters.get(Preset.XL.value, {})
+    xl = parameters.get(Preset.XL.text, {})
     bad = [name for name in axes if name in config_syms or not isinstance(xl.get(name), int)]
     if bad:
         raise ValueError(f"{source}: scale_axes {bad} are not integer size symbols of the XL rung")
@@ -888,10 +862,8 @@ def _validate_constraints(constraints: tuple[str, ...], parameters_view: PresetT
     rather than a false constraint (``'>=' not supported between instances of 'list' and 'dict'``).
     The fuzzer applies the same constraints to each RESOLVED draw (``fuzz.sample_params``), which is
     where they bite for that preset."""
-    from hpcagent_bench.fuzz import FUZZED_PRESET
-
     for preset, names in parameters_view.items():
-        if preset == FUZZED_PRESET:
+        if preset == Preset.FUZZED.text:
             continue
         for expr in constraints:
             try:
@@ -1308,7 +1280,7 @@ def derive_func_name(relative_path: str, module_name: str) -> str | None:
     return module_name if module_name in defs else None
 
 
-def validate_scale(scale: str | None, track: str, source: str = "<spec>") -> None:
+def validate_scale(scale: str | None, track: Track, source: str = "<spec>") -> None:
     """Raise ``ValueError`` if ``scale`` is off-vocabulary or set on a non-HPC
     track. ``None`` is allowed (HPC kernels then resolve to ``micro``)."""
     if scale is None:
@@ -1317,8 +1289,8 @@ def validate_scale(scale: str | None, track: str, source: str = "<spec>") -> Non
         raise ValueError(
             f"{source}: scale {scale!r} is not a valid HPC scale; valid values: {sorted(SUPPORTED_SCALES)}"
         )
-    if track != Track.SCIENTIFIC_COMPUTING.value:
-        raise ValueError(f"{source}: scale is only valid on the scientific_computing track; got track {track!r}")
+    if track is not Track.SCIENTIFIC_COMPUTING:
+        raise ValueError(f"{source}: scale is only valid on the scientific_computing track; got track {track.text!r}")
 
 
 #: A ``small`` size symbol stays below this in every preset and fuzz draw, and a ``big`` one's fuzz range
@@ -1454,7 +1426,7 @@ def validate_negative(spec: "BenchSpec", source: str) -> None:
         raise ValueError(f"{source}: public.negative names {extra}, which never go below zero")
 
 
-def validate_level(level: int | None, track: str = "", source: str = "<spec>") -> None:
+def validate_level(level: int | None, track: Track | None = None, source: str = "<spec>") -> None:
     """Raise ``ValueError`` unless ``level`` is ``None`` or one of 1/2/3 (the KernelBench
     difficulty declared in the manifest; see :attr:`BenchSpec.resolved_level`).
 
@@ -1465,7 +1437,7 @@ def validate_level(level: int | None, track: str = "", source: str = "<spec>") -
         return
     if level not in LEVELS:
         raise ValueError(f"{source}: level {level!r} must be 1, 2, or 3 (or omit to leave it unlabeled)")
-    if level == 3 and track == Track.LOOP_LEVEL_REASONING.value:
+    if level == 3 and track is Track.LOOP_LEVEL_REASONING:
         raise ValueError(
             f"{source}: loop_level_reasoning is single loop nests -- level 3 is the "
             f"full-application tier and no kernel on this track is one"
@@ -1699,17 +1671,17 @@ def parse_init(raw: object, source: str) -> InitSpec:
     )
 
 
-class ArgFlag(Enum):
-    """A boolean role one ``args`` entry may carry; the member's value is its manifest key."""
+class ArgFlag(Coded):
+    """A boolean role one ``args`` entry may carry; the member's spelling is its manifest key."""
 
     #: Graded against the reference after the call (``output_args``). Declared, never inferred:
     #: comparing only the outputs is what keeps grading memory small.
-    OUT = "out"
+    OUT = enum.auto()
     #: ``false``: a fallback ``initialize()`` does not return it -- a scalar seeded from its value, a
     #: buffer the harness zero-fills. Only a kernel with a fallback initializer can say so.
-    RETURNED = "returned"
+    RETURNED = enum.auto()
     #: Block-partitioned by the default ``mpi.decomposition`` over its shape's axes (``mpi.arrays``).
-    PARTITIONED = "partitioned"
+    PARTITIONED = enum.auto()
 
 
 #: Everything one ``args`` entry in mapping form may declare (:class:`hpcagent_bench.manifest_schema.ArgEntry`):
@@ -1717,7 +1689,7 @@ class ArgFlag(Enum):
 ARG_ENTRY_KEYS = manifest_schema.field_keys(manifest_schema.ArgEntry)
 
 #: The entry keys only an array (an entry with a ``shape``) may carry.
-ARRAY_ONLY_KEYS = (ARRAY_ENTRY_KEYS - {"shape", "dtype"}) | {ArgFlag.PARTITIONED.value}
+ARRAY_ONLY_KEYS = (ARRAY_ENTRY_KEYS - {"shape", "dtype"}) | {ArgFlag.PARTITIONED.text}
 
 #: The keys a manifest's ``init`` block may carry (:class:`hpcagent_bench.manifest_schema.InitBlock`): what
 #: the fallback initializer needs beyond ``args``.
@@ -1776,7 +1748,7 @@ def parse_args(entries: Mapping[str, manifest_schema.ArgEntry], fallback: bool, 
         if entry.shape is None and array_only:
             raise ValueError(f"{source}: {where} declares {array_only}, which only an array (a shape) can carry")
         is_returned = entry.returned is not False
-        if not fallback and ((entry.shape is None and entry.value is None) or ArgFlag.RETURNED.value in declared):
+        if not fallback and ((entry.shape is None and entry.value is None) or ArgFlag.RETURNED.text in declared):
             raise ValueError(
                 f"{source}: {where}: only a kernel with a fallback {INITIALIZER}() may name a value it builds "
                 f"or say it does not return one; a declarative init needs a shape or a value"
@@ -2137,7 +2109,7 @@ class BenchSpec(BaseModel):
     #: the leading (batch) dimension of its first array.
     scale_axes: tuple[str, ...] = ()
 
-    track: str = Track.LOOP_LEVEL_REASONING.value
+    track: Track = Track.LOOP_LEVEL_REASONING
     #: The precisions the kernel can run in (manifest ``allowed_precisions``); fp64 and fp32 when omitted.
     allowed_precisions: tuple[str, ...] = ("fp64", "fp32")
 
@@ -2252,7 +2224,7 @@ class BenchSpec(BaseModel):
         # with each config knob's representative value merged in.
         dimensions_map = parse_parameters(bench["parameters"], source)
         # Track loop_level_reasoning when a from_dict caller has no path to derive it from.
-        track = str(bench.get("track", Track.LOOP_LEVEL_REASONING.value))
+        track = Track.validate(bench.get("track", Track.LOOP_LEVEL_REASONING))
         declared_precisions = bench.get("allowed_precisions")
         allowed_precisions = (
             ("fp64", "fp32") if declared_precisions is None else tuple(str(p) for p in as_list(declared_precisions))
@@ -2347,7 +2319,7 @@ class BenchSpec(BaseModel):
                 f"of symbol -> {{domain: [...]}} when the space really is a product."
             )
         # A config param in the 'fuzzed' size preset would be re-sampled over the chosen config.
-        clash = sorted(set(dimensions_map.get("fuzzed") or {}) & config_syms)
+        clash = sorted(set(dimensions_map.get(Preset.FUZZED.text) or {}) & config_syms)
         if clash:
             raise ValueError(
                 f"{source}: {clash} appear in BOTH the 'fuzzed' size preset and the 'config' "
@@ -2503,7 +2475,7 @@ class BenchSpec(BaseModel):
         untagged HPC kernel, else ``None`` (machine_learning/loop_level_reasoning have no scale)."""
         if self.scale is not None:
             return self.scale
-        return "micro" if self.track == Track.SCIENTIFIC_COMPUTING.value else None
+        return "micro" if self.track is Track.SCIENTIFIC_COMPUTING else None
 
     @property
     def pinned_config(self) -> ConfigRow:

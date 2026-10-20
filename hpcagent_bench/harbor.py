@@ -52,6 +52,7 @@ from typing import Any
 import yaml
 
 from hpcagent_bench import config, containers, hf_export, languages, paths
+from hpcagent_bench.categories import BASELINE_OPTIONS, Residency, SourceMode, Track, baseline_text, parse_baseline
 from hpcagent_bench.harbor_grade import (
     BundleGrade,
     DistributedGrade,
@@ -69,17 +70,16 @@ from hpcagent_bench.harbor_grade import (
 )
 from hpcagent_bench.harness import repo_pr
 from hpcagent_bench.harness.envelope import Submission
-from hpcagent_bench.harness.grading import BASELINE_OPTIONS
 from hpcagent_bench.harness.metric import geomean, score_task_fuzzed
 from hpcagent_bench.harness.mpi_descriptor import default_requests, replicatable_allowlist
 from hpcagent_bench.harness.mpi_sizing import ScalingLaw
 from hpcagent_bench.harness.requests_api import Requests
-from hpcagent_bench.harness.task import Residency, Task
+from hpcagent_bench.harness.task import Task
 from hpcagent_bench.harness.timing import measurement_baseline, measurement_repeat, pin_threads
 from hpcagent_bench.harness.torch_reference import graded_rank_counts
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.languages import LANG_EXT
-from hpcagent_bench.spec import KERNELS, BenchSpec, ResolvedBench, Track, selector_slug
+from hpcagent_bench.spec import KERNELS, BenchSpec, ResolvedBench, selector_slug
 from hpcagent_bench.stats import score_rule
 from hpcagent_bench.stats.population import is_named, one_denominator
 from hpcagent_bench.support.bindings import Binding, binding_from_spec
@@ -222,7 +222,7 @@ DETAIL_NAME = "grade.json"
 #: Verifier timeout per kernel; a bundle's timeout scales with its kernel count.
 PER_KERNEL_TIMEOUT_S = 1200.0
 #: The residencies a Harbor task can be generated and graded at: single-node, or multi-node MPI.
-RESIDENCIES: tuple[str, ...] = (Residency.HOST.value, Residency.DISTRIBUTED.value)
+RESIDENCIES: tuple[Residency, ...] = (Residency.HOST, Residency.DISTRIBUTED)
 #: A directory with more microkernels than this is emitted per-kernel instead of as one bundle.
 MAX_BUNDLE = 24
 #: `make` outputs: kept out of the agent's PR (.gitignore) and out of the repo artifact tar.
@@ -722,7 +722,7 @@ def test_sh(
         lines.append(arg + ")")
     flags = ""
     if distributed:
-        flags += " --residency distributed"
+        flags += f" --residency {Residency.DISTRIBUTED.text}"
     if repo:
         flags += f" --speedup-min {speedup_min:g}"
     lines += [
@@ -799,7 +799,7 @@ def task_toml(
             "commit": row.commit,
         }
         if distributed and mode is not None:
-            meta.update(residency="distributed", ranks=ranks, mpi_mode=mode.value)
+            meta.update(residency=Residency.DISTRIBUTED.text, ranks=ranks, mpi_mode=mode.value)
         if repo:
             meta["layout"] = "repo"
             if seed_sha:
@@ -877,7 +877,7 @@ def write_task(
     """
     default_agent, default_judge = images_for(DEFAULT_HARDWARE)
     agent_image, judge_image = agent_image or default_agent, judge_image or default_judge
-    residency, layout = Residency(residency), Layout(layout)
+    layout = Layout(layout)
     distributed = residency is Residency.DISTRIBUTED
     repo = layout is Layout.REPO
     cfg = config.current()
@@ -966,8 +966,8 @@ def mpi_kernel_rows(rows: list[KernelRow]) -> list[KernelRow]:
 def check_modes(group: Group, residency: Residency, layout: Layout, *, oracle: bool) -> None:
     """Refuse a combination of task modes that has no meaning."""
     distributed = residency is Residency.DISTRIBUTED
-    if residency not in (Residency.HOST, Residency.DISTRIBUTED):
-        raise ValueError(f"residency must be 'host' or 'distributed', got {residency.value!r}")
+    if residency not in RESIDENCIES:
+        raise ValueError(f"residency must be 'host' or 'distributed', got {residency.text!r}")
     if distributed and group is not Group.KERNEL:
         raise ValueError("distributed tasks are one kernel each; use group='kernel'")
     if oracle and (layout is Layout.REPO or distributed):
@@ -1008,7 +1008,7 @@ def generate(
     selector: str = "all",
     language: str = "c",
     group: Group | str = Group.KERNEL,
-    residency: Residency | str = Residency.HOST,
+    residency: Residency = Residency.HOST,
     layout: Layout | str = Layout.KERNEL,
     hardware: str | None = None,
     baseline: str | None = None,
@@ -1027,7 +1027,7 @@ def generate(
     skips kernels with no NumpyToX translation for ``language``. ``oracle`` also ships a
     ``solution/`` with the reference translation, run by Harbor's ``oracle`` agent (no LLM).
     """
-    group, residency, layout = Group(group), Residency(residency), Layout(layout)
+    group, layout = Group(group), Layout(layout)
     check_modes(group, residency, layout, oracle=oracle)
     distributed = residency is Residency.DISTRIBUTED
     hardware = hardware or DEFAULT_HARDWARE
@@ -1035,7 +1035,7 @@ def generate(
         raise ValueError(f"hardware must be one of {HARDWARE}, got {hardware!r}")
     # A distributed cpu task runs on the mpi image pair (the cpu pair unless overridden).
     cfg_agent, cfg_judge = images_for("mpi" if distributed and hardware == DEFAULT_HARDWARE else hardware)
-    baseline = baseline or measurement_baseline()
+    baseline = baseline or baseline_text(measurement_baseline())
     commit = paths.git_head() if commit is None else commit
     base = pathlib.Path(out_dir)
     base.mkdir(parents=True, exist_ok=True)
@@ -1274,7 +1274,7 @@ def grade(
     repeat: int | None = None,
     verify: bool = True,
     requests: dict | None = None,
-    residency: str = "host",
+    residency: Residency = Residency.HOST,
     repo_dir: str | None = None,
     speedup_min: float | None = None,
     seed_sha: str | None = None,
@@ -1288,11 +1288,11 @@ def grade(
     geomean of the credited ratios; rule ``score_rule.SCORE_RULE``).
     ``k``, ``repeat`` and ``verify`` apply to the distributed track only, which keeps the fuzzed
     sweep (:func:`metric.score_task_fuzzed`) and its scaling curve."""
-    baseline = baseline or measurement_baseline()
+    baseline = baseline or baseline_text(measurement_baseline())
     datatype = datatype or config.current().service.datatype
     repeat = repeat if repeat is not None else measurement_repeat()
 
-    mode = "restricted" if source is not None else "any"
+    mode = SourceMode.RESTRICTED if source is not None else SourceMode.ANY
     submission = Submission(
         language=language,
         source=source,
@@ -1301,14 +1301,14 @@ def grade(
         requests=Requests.validate(requests),
     )
     task = Task(kernel, mode, language, residency=residency)
-    if residency != Residency.DISTRIBUTED.value:
+    if residency is not Residency.DISTRIBUTED:
         reward = final_reward(submission, task, baseline=baseline, datatype=datatype)
         return reward if repo_dir is None else _gate_repo_pr(reward, repo_dir, speedup_min, seed_sha)
     ts = score_task_fuzzed(
         submission,
         task,
         k=k,
-        baseline=baseline,
+        baseline=parse_baseline(baseline),
         datatype=datatype,
         repeat=repeat,
         verify=verify,
@@ -1465,7 +1465,7 @@ def _grade_one(
     k: int | None,
     verify: bool,
     requests_path: str | None = None,
-    residency: str = "host",
+    residency: Residency = Residency.HOST,
     repo_dir: str | None = None,
     speedup_min: float | None = None,
     seed_sha: str | None = None,
@@ -1479,7 +1479,7 @@ def _grade_one(
         requests = json.loads(pathlib.Path(requests_path).read_text()) if requests_path else None
         anchor = (
             _anchor_submission(anchor_source_path, anchor_library, anchor_language or language)
-            if residency == "distributed"
+            if residency is Residency.DISTRIBUTED
             else None
         )
         return grade(
@@ -1511,7 +1511,7 @@ def grade_items(
     k: int | None = None,
     verify: bool = True,
     requests_files: Sequence[str | None] | None = None,
-    residency: str = "host",
+    residency: Residency = Residency.HOST,
     repo_dirs: Sequence[str | None] | None = None,
     speedup_min: float | None = None,
     seed_shas: Sequence[str | None] | None = None,
@@ -1707,10 +1707,10 @@ def adapter_metadata() -> dict[str, object]:
         "harness": "agent",
         "task_type": "code-optimization",
         "languages": sorted(LANG_EXT),
-        "tracks": [track.value for track in Track],
+        "tracks": list(Track.texts()),
         "groups": [group.value for group in Group],
         "layouts": [layout.value for layout in Layout],
-        "residencies": list(RESIDENCIES),
+        "residencies": [residency.text for residency in RESIDENCIES],
         "images": (
             "config images.<hardware> (cpu, amd, nvidia): an agent image (toolchain only, the "
             "environment/docker-compose.yaml build base) and a separate verifier image"
@@ -1753,8 +1753,8 @@ def add_generate_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--residency",
-        default=Residency.HOST.value,
-        choices=RESIDENCIES,
+        default=Residency.HOST.text,
+        choices=[residency.text for residency in RESIDENCIES],
         help="single-node, or multi-node MPI tasks",
     )
     p.add_argument("--language", default="c", choices=sorted(LANG_EXT), help="implementation language")
@@ -1792,14 +1792,17 @@ def add_grade_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--language", default="c", help="implementation language (default c)")
     p.add_argument(
         "--residency",
-        default=Residency.HOST.value,
-        choices=RESIDENCIES,
+        default=Residency.HOST.text,
+        choices=[residency.text for residency in RESIDENCIES],
         help="host, or distributed (multi-node MPI scaling)",
     )
     p.add_argument("--reward", default=REWARD_PATH, help="reward file to write")
     p.add_argument("--k", type=int, default=None, help="fuzz iterations (default config fuzz.iterations)")
     p.add_argument(
-        "--baseline", default=measurement_baseline(), choices=list(BASELINE_OPTIONS), help="speedup denominator"
+        "--baseline",
+        default=baseline_text(measurement_baseline()),
+        choices=list(BASELINE_OPTIONS),
+        help="speedup denominator",
     )
     p.add_argument("--no-verify", dest="verify", action="store_false", help="skip independent_verify")
 
@@ -1832,7 +1835,7 @@ def cmd_generate(args: argparse.Namespace, harbor_extra: list[str]) -> int:
         selector=args.selector,
         language=args.language,
         group=args.group,
-        residency=args.residency,
+        residency=Residency.parse(args.residency),
         layout=args.layout,
         hardware=args.hardware,
         agent_image=args.agent_image,
@@ -1875,7 +1878,8 @@ def cmd_grade(p: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     per_kernel = (args.source, args.library, args.requests, args.repo_dir, args.seed_sha)
     if any(len(v) > n for v in (*per_kernel, args.anchor_source, args.anchor_library)):
         p.error("more per-kernel values (--source/--library/--requests/--repo-dir/--seed-sha/--anchor-*) than --kernel")
-    if (args.anchor_source or args.anchor_library) and args.residency != "distributed":
+    residency = Residency.parse(args.residency)
+    if (args.anchor_source or args.anchor_library) and residency is not Residency.DISTRIBUTED:
         p.error("--anchor-source/--anchor-library only apply to --residency distributed")
 
     def pad(vals: list[str]) -> list[str | None]:
@@ -1906,7 +1910,7 @@ def cmd_grade(p: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             k=args.k,
             verify=args.verify,
             requests_files=pad(args.requests),
-            residency=args.residency,
+            residency=residency,
             repo_dirs=pad(args.repo_dir),
             speedup_min=args.speedup_min,
             seed_shas=pad(args.seed_sha),

@@ -10,8 +10,7 @@ import tempfile
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from hpcagent_bench import modules
-from hpcagent_bench import phase_clock
+from hpcagent_bench import modules, phase_clock
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
 from hpcagent_bench.frameworks.framework import native_column_languages
@@ -115,7 +114,7 @@ def assert_autopar_capable(framework: str, short: str) -> None:
         raise NotSupportedByFramework(
             framework,
             short,
-            f"autopar probe verdict={probe.verdict.value} ({probe.detail}) -- "
+            f"autopar probe verdict={probe.verdict.text} ({probe.detail}) -- "
             f"this build of the toolchain does not genuinely parallelize anything",
         )
 

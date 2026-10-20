@@ -13,12 +13,12 @@ from dataclasses import dataclass, field
 
 import pydantic
 
+from hpcagent_bench.categories import Preset
 from hpcagent_bench.dtypes import c_type, canonical, is_storage_only
 from hpcagent_bench.languages import LANG_EXT
 from hpcagent_bench.spec import (
     BenchSpec,
     LayoutChoice,
-    Preset,
     declares_storage_precision,
     numpy_reference_path,
     track_datatype,
@@ -330,7 +330,7 @@ def _symbol_names(spec: BenchSpec, config: str) -> tuple[str, ...]:
     evidence; with no declared shapes (e.g. gemm's hand-written ``initialize()``) every name is kept."""
     names: set = set()
     for size_class_name, size_class in spec.parameters.items():
-        if size_class_name == Preset.FUZZED.value:
+        if size_class_name == Preset.FUZZED.text:
             continue
         names.update(size_class.keys())
     shape_idents = _shape_identifiers(spec, config)
@@ -408,7 +408,7 @@ def graded_datatype(spec: BenchSpec, configured: str) -> str:
     precisions = tuple(spec.allowed_precisions or ())
     if declares_storage_precision(precisions):
         return str(precisions[0])
-    return track_datatype(spec.track or "", precisions) or configured
+    return track_datatype(spec.track, precisions) or configured
 
 
 def _scalar_dtype(spec: BenchSpec, name: str) -> str:
