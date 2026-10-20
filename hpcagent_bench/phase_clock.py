@@ -1,28 +1,9 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""How long a framework column takes to turn a kernel into a binary, split into the three phases the canon table
-records (``transform_time``, ``codegen_time``, ``compile_time``), cached work included.
+"""A framework column's build time split into the canon table's phases (``<phase>_time``), cached work included.
 
-* ``transform``: everything that is not one of the other two -- parsing, simplify, canonicalize, auto-optimize,
-  a polyhedral transform (``polycc``);
-* ``codegen``: emitting source (the numpy-to-C/Fortran translators, DaCe's code generator, a CPF form render);
-* ``compile``: the backend compiler building the emitted source.
-
-The span is measured by :func:`measuring` around a column's emit, optimize and compile steps
-(:meth:`hpcagent_bench.frameworks.test.Test.run`); a step inside it marks its phase with :func:`phase`, and the rest of
-the span is ``transform``. A cache that serves an artifact credits the seconds producing it took to the phase that
-produced it (:func:`credit`), so a column that read its canonical SDFG or its emitted sources from a cache reports what
-the work costs, not what the cache saved.
-
-The running measurements and marks are per context (:mod:`contextvars`), so each thread -- a judge thread rendering
-a form on demand next to another -- times and credits only its own spans.
-
-    with phase_clock.measuring() as clock:
-        with phase_clock.phase(Phase.COMPILE):
-            ...                                    # the backend compiler
-        phase_clock.credit(12.5, Phase.CODEGEN)  # a cache hit on emitted sources
-    clock.times()                                  # {"transform_time": ..., "codegen_time": ..., "compile_time": ...}
-"""
+Time inside :func:`measuring` that no :func:`phase` marks is ``TRANSFORM``; a cache hit adds the seconds producing the
+artifact took (:func:`credit`). Measurements and marks are per context (:mod:`contextvars`)."""
 
 import contextlib
 import contextvars

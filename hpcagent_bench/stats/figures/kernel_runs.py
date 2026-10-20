@@ -64,9 +64,8 @@ __all__ = [
 
 
 class Mode(Coded):
-    """How a cell's runs are summarized under their dots: a box (median, quartiles, whiskers to the
-    extremes), or a violin of their density with the median's 95% bootstrap interval. Spelled as the
-    ``--style`` argument of :mod:`hpcagent_bench.stats.commands.kernel_runs`."""
+    """How a cell's runs are summarized under their dots (``--style``): a box, or a violin of their density with the
+    median's 95% bootstrap interval."""
 
     BOX = enum.auto()
     VIOLIN = enum.auto()

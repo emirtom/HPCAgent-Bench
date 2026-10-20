@@ -350,15 +350,8 @@ class Unusable(enum.Enum):
 
 
 def geomean(values: Samples, unusable: Unusable = Unusable.RAISE) -> float:
-    """Geometric mean of strictly positive ``values``, in log space so a long product cannot overflow.
-
-    :attr:`Unusable.RAISE` (the default) raises on an empty sequence or a non-positive entry: both are
-    the caller handing over something that is not a set of ratios, and dropping one silently changes
-    which kernels the summary is over without saying so. :attr:`Unusable.DROP` is the caller saying that
-    dropping IS the intent: a zero, negative or non-finite entry is a missing measurement and is
-    dropped, and a set with nothing usable left has no geometric mean, so it returns NaN -- never a
-    0.0 or a 1.0, which are the exact values of a total collapse and of no change.
-    """
+    """Geometric mean of strictly positive ``values``, in log space. :attr:`Unusable.RAISE` raises on an empty set or
+    a non-positive entry; :attr:`Unusable.DROP` drops zero, negative and non-finite entries, and NaN when none is left."""
     x: FloatArray = np.asarray(values, dtype=np.float64)
     if unusable == Unusable.DROP:
         x = x[np.isfinite(x) & (x > 0.0)]

@@ -206,10 +206,8 @@ class FigureConfig:
     #: (``legend_pt``). One of :mod:`~hpcagent_bench.stats.style`'s scales, so two figures of one
     #: page print at one size.
     type_: style.TypeScale = style.AUTHOR_SCALE
-    #: ``ABSOLUTE``: each setup where it sits against the experiment baseline, the no-packet control a hollow mark
-    #: beside its treated one. ``RELATIVE``: each LLM's no-packet control is that LLM's 1x and the treated mark is
-    #: its change over it (speedup: geomean of paired ratios; tokens: ratio of arithmetic means), the control's own
-    #: absolute level printed in a baseline band at the foot of the row (:func:`draw_baseline_band`).
+    #: Where a mark sits (:class:`Mode`); relative mode prints the control's own level in a baseline band
+    #: (:func:`draw_baseline_band`): speedup as a geomean of paired ratios, tokens as a ratio of arithmetic means.
     mode: Mode = Mode.ABSOLUTE
     #: A legend SWATCH's own size, points, and how far matplotlib scales it past that. At paper
     #: type a swatch drawn for authoring scale is taller than the row it sits in and the rows

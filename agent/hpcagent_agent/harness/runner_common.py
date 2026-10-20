@@ -1,35 +1,6 @@
-"""What the non-Claude harness runners share: launch arguments, the usage line, the end record, the
-mcp.json conversion, the history window and the native runners' shell tool.
-
-The standard library and the agent package's own :mod:`hpcagent_agent.coded` only. Each runner runs in its own
-venv inside the agent image, so nothing here may import hpcagent_bench or any harness package.
-
-``usage.jsonl`` gets ONE line per model call. Its four counts are DISJOINT and sum to the call's total:
-``input`` is the uncached prompt, ``cached_input`` the prompt served from the prefix cache, ``output``
-the completion without its reasoning, ``reasoning`` the reasoning part of the completion.
-
-``harness-end.json`` is ``{"reason", "turns", "detail", "effort"}``; ``reason`` is an :class:`EndReason`, ``turns`` is
-the number of model
-calls and ``effort`` the reasoning rung this client was actually sent ("" when it was sent no field).
-The rung is recorded because a client that accepts fewer rungs than the server is sent a LOWER one
-(see ``agent/hpcagent_agent/driver/effort.py``), and a difference between setups has to be visible in the data.
-
-The reply cap, the reasoning level, the context window, the compaction trigger and the request timeout
-are PASSED IN rather than read from the environment here: ``agent/hpcagent_agent/driver/harnesses.py`` derives them once
-(the launcher's ``CLAUDE_CODE_MAX_OUTPUT_TOKENS`` and ``API_TIMEOUT_MS``, the setup's ``AGENT_EFFORT`` and
-its served window, through ``harnesses.context_policy``) and hands every harness the same values, so one
-setup cannot answer at a longer length, compact later or give up on a queued request sooner than another
-because of which harness ran it.
-
-A judge call (``score``, ``submit``, ``profile``) is waited on for :func:`judge_call_timeout`: longer
-than the judge's own ``JUDGE_TIMEOUT_SECONDS``, because abandoning a call does not cancel its grade,
-which keeps holding a judge slot while the agent retries behind it.
-
-:class:`HistoryWindow` is the compaction of the runners whose client has none of its own (mini-SWE and
-the SDK runners anthropic, openai and optimas): past the driver's trigger the request carries the task and
-the newest steps only. :data:`SHELL_TOOL` is the one tool the SDK runners add to the MCP server's: a shell
-in the agent's folder, declared once here as a JSON schema both SDKs take as it is.
-"""
+"""What the non-Claude harness runners share: launch arguments, ``usage.jsonl`` lines (four disjoint counts per
+model call), the ``harness-end.json`` record (:class:`EndReason`, turns, detail, the effort rung sent), the mcp.json
+conversion, the history window and the shell tool. Imports no hpcagent_bench and no harness package."""
 
 import argparse
 import enum
