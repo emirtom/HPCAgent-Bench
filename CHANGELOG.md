@@ -2,13 +2,15 @@
 
 ## 0.2.1 (2026-10)
 
-Pins: dace extended `bda29a3d9` (overrides Alloy's), Alloy `b727c50`, relayout `2718b2f`. No backwards
+Pins: dace extended `baac24733` (overrides Alloy's), Alloy `b727c50`, relayout `2718b2f`. No backwards
 compatibility with 0.2.0 except the results database, which 0.2.1 reads and extends in place.
 
-### dace extended `0fd6219ce` -> `bda29a3d9`
+### dace extended `0fd6219ce` -> `baac24733`
 Bug fixes and optimizations only. More sibling loops parallelize (per-loop private scalars); CloudSC's
 canonicalize-GPU, vectorized-GPU and parallelize pipelines match the reference on the device (231 -> 19 kernels);
-the inliner emits no identity copies; canonicalize is 6-12% faster.
+the inliner emits no identity copies; loop-invariant code motion sees writes in conditional blocks (CloudSC CPU
+and GPU match the reference); loop peeling decides on virtual segments first; canonicalize is 6-16% faster;
+spcl/dace #2714 and #2715 merged.
 
 ### Extending the benchmark
 - **Plugins.** A folder with `plugin.toml` brings agent tools, judge routes, skill pages, packets and methods
