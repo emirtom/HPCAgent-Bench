@@ -487,8 +487,10 @@ RUN set -eux; \
       '    # fftw: ONE build with every precision. petsc +fftw names no precision, and under' \
       '    # unify:when_possible it concretized a second, double-only fftw that the view linked, so' \
       '    # /opt/view had no libfftw3f and the fp32 fftwf_* symbols of the fftw library request failed.' \
+      '    # fftw, superlu-dist, sundials: ldflags=-L/opt/gcc/lib64 puts gcc libgomp ahead of the ROCm link dirs' \
+      '    # mpich +rocm adds; their -lgomp linked libomp there, and the flag keeps such a cached binary from matching.' \
       '    fftw:' \
-      '      require: ["precision=float,double,long_double +mpi +openmp"]' \
+      '      require: ["precision=float,double,long_double +mpi +openmp ldflags=-L/opt/gcc/lib64"]' \
       '    yaksa:' \
       "      require: [\"amdgpu_target=$(echo "${ROCM_ARCH}" | tr ";" ",")\"]" \
       '    # libfabric: OURS. Two separate mechanisms had to be closed to make that stick, and' \
@@ -548,7 +550,7 @@ RUN set -eux; \
       '  - scotch +mpi +esmumps' \
       '  - suite-sparse +openmp' \
       '  - superlu' \
-      '  - superlu-dist +openmp +parmetis ~rocm' \
+      '  - superlu-dist +openmp +parmetis ~rocm ldflags=-L/opt/gcc/lib64' \
       '  - mumps +mpi +metis +parmetis +scotch +ptscotch +openmp +shared' \
       '  - strumpack +mpi +openmp +parmetis +scotch ~cuda ~rocm' \
       '  # hypre is the ONE library here without a GPU build, and the box it is in is closed on' \
@@ -573,7 +575,7 @@ RUN set -eux; \
       "  - slepc +arpack %gcc@${GCC_VERSION}" \
       '  # sundials had no provider at all: its entry declares -lsundials_core, which exists only' \
       '  # from SUNDIALS 7, so a distro 6.x fails on that token alone. Spack ships 7.x, with rocm.' \
-      "  - sundials +openmp ~cuda +rocm amdgpu_target=$(echo "${ROCM_ARCH}" | tr ";" ",")" \
+      "  - sundials +openmp ~cuda +rocm amdgpu_target=$(echo "${ROCM_ARCH}" | tr ";" ",") ldflags=-L/opt/gcc/lib64" \
       '  view:' \
       '    default:' \
       '      root: /opt/view' \
