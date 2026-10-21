@@ -585,8 +585,11 @@ class CBodyEmitter(BaseEmitter):
         return pluto_scop_regions(texts, indent, self.pluto_unscopable)
 
     def pluto_unscopable(self, text: str) -> bool:
-        """True when this emitted statement holds a construct no ``#pragma scop`` may contain."""
+        """True when this emitted statement holds a construct no ``#pragma scop`` may contain: an allocation, a
+        ``while``, a data-dependent ``if``, or a call to a kept helper (pet models no call)."""
         if PLUTO_UNSCOPABLE_RE.search(text):
+            return True
+        if any(re.search(rf"\b{re.escape(name)}\s*\(", text) for name in self.helper_params):
             return True
         return any(self.data_dependent_cond(c) for c in pluto_if_conditions(text))
 
@@ -3578,7 +3581,9 @@ def emit_pluto(kir: KernelIR, fn_name: str | None = None) -> str:
     # inside, and the body already carries its own scop markers (see CBodyEmitter.emit_block).
     decl_block = (decls + "\n") if decls else ""
     free_block = (frees + "\n") if frees else ""
+    # A helper the frontend could not inline (it returns an array, ...) is a plain C function; its calls stay
+    # outside every scop (CBodyEmitter.pluto_unscopable).
     return (
-        f"{C_HEADER}{fp8_prelude(kir)}\n{pinned_const_block(kir)}{signature} {{\n{C_PRELUDE}"
+        f"{C_HEADER}{fp8_prelude(kir)}\n{pinned_const_block(kir)}{emit_c_helpers(kir)}{signature} {{\n{C_PRELUDE}"
         f"{decl_block}{body}\n{free_block}{C_EPILOGUE}}}\n"
     )
