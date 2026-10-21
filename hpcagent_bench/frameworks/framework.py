@@ -68,6 +68,7 @@ __all__ = [
     "framework_flavors",
     "generate_framework",
     "is_dense",
+    "is_array_value",
     "is_numpy_array",
     "load_impl",
     "load_rewritten_impl",
@@ -159,6 +160,11 @@ ArtifactT = TypeVar("ArtifactT")
 def is_numpy_array(value: ArgValue) -> TypeGuard[ArrayLike]:
     """Whether ``value`` is a numpy array (copied fresh per timed call by :meth:`CallPlan.before_each`)."""
     return isinstance(value, np.ndarray)
+
+
+def is_array_value(value: ArgValue) -> TypeGuard[AnyArray]:
+    """Whether ``value`` is an array (dense or sparse) rather than a scalar, string, dtype, variant block or None."""
+    return value is not None and not isinstance(value, (str, Mapping, ModuleType, type, int, float, complex))
 
 
 @runtime_checkable

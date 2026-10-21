@@ -13,8 +13,9 @@ Merges dace main. Each modulo spelling has one meaning (`PyMod`/`FtnModulo` floo
 stays free; ExternCall on GPU data passes device pointers in stream order.
 
 ### Removed
-- **JAX, Pythran and the ISO-parallel C++ emit**: their columns, translators, frameworks and CI legs, and the
-  agent sandbox allowlist and prompt entries. The images keep the packages.
+- **Pythran, the ISO-parallel C++ emit and JAX auto-generation**: the Pythran column, the `numpyto_jax` and
+  `numpyto_pythran` translators and their CI legs. JAX stays a framework column that runs the hand-written
+  `*_jax.py` baselines (like Triton); nothing generates a JAX kernel any more.
 - **Alloy in core.** Alloy is a tuner plugin in its own repository (`alloy.hb_plugin`, entry point
   `hpcagent_bench.plugins`); its adapter, extra and pin are gone from the bench.
 - **CLIs**: the translator entry points (translators run in-process, `numpyto_common.targets.emit`), `cpf`,

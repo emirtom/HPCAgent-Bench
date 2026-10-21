@@ -100,6 +100,7 @@ PINNED_FRAMEWORKS = (
     "llvm",
     "pluto",
     "polly",
+    "jax",
     "tvm_gpu",
     "cc_llvm",
     "cc_llvm_autopar",

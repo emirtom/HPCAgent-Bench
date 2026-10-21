@@ -260,8 +260,21 @@ FRAMEWORKS.add(
 )
 
 
-# Retired in v0.3.0: old rows keep their slot and colour; nothing runs it.
-FRAMEWORKS.retire("jax", aliases=("jax_cpu", "jax_gpu"))
+# Hand-written *_jax.py baselines only, like triton: nothing generates a JAX kernel.
+FRAMEWORKS.add(
+    "jax",
+    Column(
+        display="JAX",
+        adapter="hpcagent_bench.frameworks.jax_framework:JaxFramework",
+        base="jax",
+        full_name="Jax",
+        postfix="jax",
+        arch=Arch.CPU,
+        sweep_deterministic=False,
+        precisions=ALL_PRECISIONS,
+    ),
+    aliases=("jax_cpu", "jax_gpu"),
+)
 
 
 # One base, two hardware flavors sharing the unified ``<kernel>_tvm.py`` (``tvm_build.active_kernel``).
