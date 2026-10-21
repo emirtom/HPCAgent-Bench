@@ -253,6 +253,19 @@ def number_of(raw: object, field_name: str, source: str) -> float:
     return raw
 
 
+def optional_number(
+    bench: Mapping[str, object], key: str, source: str, *, upper: float = math.inf, closed: bool = False
+) -> float | None:
+    """``bench[key]`` as a number in ``(0, upper)`` (``(0, upper]`` when ``closed``), ``None`` when absent."""
+    raw = bench.get(key)
+    if raw is None:
+        return None
+    value = number_of(raw, key, source)
+    if not (0 < value <= upper if closed else 0 < value < upper):
+        raise ValueError(f"{source}: {key} must be in (0, {upper}{']' if closed else ')'} (got {raw!r})")
+    return value
+
+
 def int_of(raw: object, field_name: str, source: str) -> int:
     """One declared integer. ``True`` is not one, however much Python says it is."""
     if isinstance(raw, bool) or not isinstance(raw, int):
@@ -1868,21 +1881,11 @@ class BenchSpec(BaseModel):
             )
         dwarf, scale = bench.get("dwarf"), bench.get("scale")
         level, timeout_s = bench.get("level"), bench.get("timeout_s")
-        memory_cap_gb = bench.get("memory_cap_gb")
-        if memory_cap_gb is not None and number_of(memory_cap_gb, "memory_cap_gb", source) <= 0:
-            raise ValueError(f"{source}: memory_cap_gb must be positive (got {memory_cap_gb!r})")
-        floor_fraction = bench.get("floor_bytes_fraction", 1.0)
-        if not 0 < number_of(floor_fraction, "floor_bytes_fraction", source) <= 1:
-            raise ValueError(f"{source}: floor_bytes_fraction must be in (0, 1] (got {floor_fraction!r})")
-        conditioning_rtol = bench.get("conditioning_rtol")
-        if conditioning_rtol is not None and not 0 < number_of(conditioning_rtol, "conditioning_rtol", source) < 1:
-            raise ValueError(f"{source}: conditioning_rtol must be in (0, 1) (got {conditioning_rtol!r})")
-        conditioning_atol = bench.get("conditioning_atol")
-        if conditioning_atol is not None and not 0 < number_of(conditioning_atol, "conditioning_atol", source) < 1:
-            raise ValueError(f"{source}: conditioning_atol must be in (0, 1) (got {conditioning_atol!r})")
-        mismatch_fraction = bench.get("mismatch_fraction")
-        if mismatch_fraction is not None and not 0 < number_of(mismatch_fraction, "mismatch_fraction", source) < 1:
-            raise ValueError(f"{source}: mismatch_fraction must be in (0, 1) (got {mismatch_fraction!r})")
+        memory_cap_gb = optional_number(bench, "memory_cap_gb", source)
+        floor_fraction = optional_number(bench, "floor_bytes_fraction", source, upper=1, closed=True)
+        conditioning_rtol = optional_number(bench, "conditioning_rtol", source, upper=1)
+        conditioning_atol = optional_number(bench, "conditioning_atol", source, upper=1)
+        mismatch_fraction = optional_number(bench, "mismatch_fraction", source, upper=1)
         public_raw = bench.get("public")
         public = None if public_raw is None else manifest_schema.PublicBlock.model_validate(public_raw)
         spec = cls(
@@ -1902,18 +1905,12 @@ class BenchSpec(BaseModel):
             scale=None if scale is None else str(scale),
             level=None if level is None else int_of(level, "level", source),
             timeout_s=None if timeout_s is None else number_of(timeout_s, "timeout_s", source),
-            memory_cap_gb=None if memory_cap_gb is None else number_of(memory_cap_gb, "memory_cap_gb", source),
-            floor_bytes_fraction=number_of(floor_fraction, "floor_bytes_fraction", source),
+            memory_cap_gb=memory_cap_gb,
+            floor_bytes_fraction=1.0 if floor_fraction is None else floor_fraction,
             scale_axes=scale_axes_of(bench.get("scale_axes"), parameters_view, config_syms, source),
-            conditioning_rtol=(
-                None if conditioning_rtol is None else number_of(conditioning_rtol, "conditioning_rtol", source)
-            ),
-            conditioning_atol=(
-                None if conditioning_atol is None else number_of(conditioning_atol, "conditioning_atol", source)
-            ),
-            mismatch_fraction=(
-                None if mismatch_fraction is None else number_of(mismatch_fraction, "mismatch_fraction", source)
-            ),
+            conditioning_rtol=conditioning_rtol,
+            conditioning_atol=conditioning_atol,
+            mismatch_fraction=mismatch_fraction,
             track=track,
             allowed_precisions=allowed_precisions,
             sparse_layouts=sparse_layouts,
