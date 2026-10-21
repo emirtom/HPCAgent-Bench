@@ -29,14 +29,13 @@ method, its ledger tool and the packet that runs both.
 
 ```toml
 # plugin.toml
-name = "nestforge"
-description = "Whole-program DaCe optimization by legal moves, scoped kernels and per-kernel placement."
+name = "my_plugin"
+description = "One line on what the plugin adds."
 
-[packets.nestforge]             # a packet key; it takes the next colour slot
-name = "NestForge"
-skills = ["nestforge-moves", "nestforge-scopes"]
-method = "nestforge"            # methods/nestforge/method.md
-tools = ["list_moves", "apply_move", "define_scope", "place", "set_kernel_source", "metrics"]
+[packets.my_packet]             # a packet key; it takes the next colour slot
+name = "My Packet"
+method = "my_method"            # methods/my_method/method.md
+tools = ["my_tool"]
 ```
 
 A packet's fields are those of [packets.md](packets.md). A plugin's packets take the next slots when it is
@@ -49,7 +48,7 @@ A tool is a `@tool` module, as in [skills-and-tools.md](skills-and-tools.md), wi
 the setups whose packet lists it under `tools`.
 
 ```python
-# tools/apply_move.py
+# tools/my_tool.py
 from typing import Any
 
 import pydantic
@@ -58,14 +57,13 @@ from hpcagent_agent.tools import http_json
 from hpcagent_agent.tools.registry import Spec, tool
 
 
-class ApplyMoveInput(pydantic.BaseModel):
-    move: str = pydantic.Field(description="A move id from list_moves.")
+class MyToolInput(pydantic.BaseModel):
+    step: str = pydantic.Field(description="Which step to take.")
 
 
-@tool(spec=Spec("Apply one legal move to the program and return its new view.", ApplyMoveInput,
-                "- `apply_move` -- apply a move list_moves offered."), core=False)
+@tool(spec=Spec("Take one step and return the new state.", MyToolInput, "- `my_tool` -- take one step."), core=False)
 def run(payload: dict[str, Any]) -> dict[str, Any]:
-    return http_json.post_judge("/apply_move", payload)
+    return http_json.post_judge("/my_tool", payload)
 ```
 
 The input is a pydantic model, whose generated schema is what `tools/list` shows; no schema is written by hand. A
@@ -78,22 +76,20 @@ A route is a `@route` handler (`hpcagent_bench.harness.routes`). A route that ch
 its state per episode in an `EpisodeStore`, so no two agents share it:
 
 ```python
-# routes/apply_move.py
+# routes/my_tool.py
 from http import HTTPMethod, HTTPStatus
 
-from hpcagent_bench.harness.judge_wire import JudgeError
 from hpcagent_bench.harness.routes import EpisodeStore, Judge, RouteRequest, route
-from nestforge.session import Session
 
-SESSIONS: EpisodeStore[Session] = EpisodeStore(Session.for_episode)
+STATES: EpisodeStore[MyState] = EpisodeStore(MyState)   # built from the episode id on first use
 
 
-@route("apply_move", methods=(HTTPMethod.POST,))
-def apply_move(judge: Judge, request: RouteRequest) -> None:
+@route("my_tool", methods=(HTTPMethod.POST,))
+def my_tool(judge: Judge, request: RouteRequest) -> None:
     with judge.device_slot() as slot:      # never beside a timed grade
         if slot is None:
             return
-        session = SESSIONS.get(request.episode_id)
+        state = STATES.get(request.episode_id)
         ...
         judge.reply(HTTPStatus.OK, answer)
 ```
@@ -134,7 +130,7 @@ finds.
 
 ## Example: NestForge
 
-NestForge's stages 2 to 5 become one method packet: its stage tools as `tools/`, its `Session` behind `POST` routes
-in `routes/` (the judge image has DaCe; the agent image does not), its stage docs as skill pages, and its loop's
-prompt as `methods/nestforge/method.md`. Every harness then drives it, and its grades are comparable with every
-other setup's.
+[NestForge](https://github.com/spcl/NestForge) ships as a plugin in its own repository (`plugin/nestforge`): one
+agent-side module registers a tool per optimization phase, each a thin `POST /nestforge/<tool>`, and one judge route
+serves each episode's kernel from a session process of its own, answering with whole-program, offloading and
+per-kernel performance. Its packet lists only the tools the session serves; a later phase's tool answers 501.
