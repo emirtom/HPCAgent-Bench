@@ -75,7 +75,7 @@ All in `numpyto_common` unless noted. Each keeps the NumPy result.
 function. Unscopable: `malloc`, `calloc`, `realloc`, `free`, `memset`, `memcpy`, `memmove`,
 `while`, and an `if` whose condition reads an array or a float. A zero or one fill inside the body
 is emitted as a loop nest so it stays scopable. A translation unit with no region is not pluto
-input. `hpcagent_bench/polyhedral/pluto.py` runs `polycc --pet --tile --parallel` (`POLYCC_ARGS`)
+input. `hpcagent_bench/polyhedral/pluto.py` runs `polycc --pet --tile --parallel --codegen-context=0` (`POLYCC_ARGS`)
 and merges duplicate scratch declarations across scops.
 
 Measured polycc, pet and Pluto defects live in one registry, with the translator change that

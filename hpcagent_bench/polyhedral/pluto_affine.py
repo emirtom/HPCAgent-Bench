@@ -351,14 +351,12 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
                 "t1' -- correlation, force_lj, mandelbrot1, needleman_wunsch), which is repaired by "
                 "merging the declarations, and polycc's own re-parse of that output fails the same "
                 "way mid-run ('redefinition of lb2', rc 1 -- eigh_test, largest_eigenval, "
-                "rayleigh_ritz_rotation at 6, 7 and 11 regions), which is NOT repairable from "
-                "outside. Not avoidable from the emitter either: bracketing each region in its own "
-                "{ } does not survive, because the --pet path regenerates the function from pet's "
-                "AST rather than splicing text."
+                "rayleigh_ritz_rotation, gem). The mid-run face is avoided by giving every region "
+                "its own { } block before polycc parses it."
             ),
             repro=f"{_BENCH}/n_body_methods/force_lj -- its transformed output redeclares t1 without the "
             "merge; largest_eigenval is the unrepairable half",
-            avoided_by="hpcagent_bench.polyhedral.pluto.dedupe_scratch_declarations",
+            avoided_by="hpcagent_bench.polyhedral.pluto_normalize.isolate_scops",
             upstream="not filed",
         ),
         PolyccIssue(

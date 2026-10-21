@@ -16,6 +16,8 @@ computation before polycc parses it (``pluto_affine.KNOWN_POLYCC_ISSUES``):
   (literal-step induction scalars as closed forms of the counter).
 * POLYCC-010: pet outlines helper calls into an undeclared ``__pet_ret``; :func:`floord_subscripts`
   and :func:`opaque_helper_calls` (undone on the output by :func:`restore_output`).
+* POLYCC-012: polycc declares its scratch counters where each scop starts, so two scops in one block
+  redeclare them in polycc's own re-parse; :func:`isolate_scops`.
 
 Applied to scratch copies only: :func:`hpcagent_bench.polyhedral.pluto.run_polycc` gets
 :func:`normalize_scop_input`, :func:`hpcagent_bench.polyhedral.ppcg.run_ppcg` the signature-preserving
@@ -31,6 +33,7 @@ __all__ = [
     "KEEP_CALLS",
     "OPAQUE_PREFIX",
     "SCALAR_DECL_RE",
+    "SCOP_BLOCK_RE",
     "SCOP_REGION_RE",
     "STRIDED_FOR_RE",
     "UNIT_FOR_RE",
@@ -42,6 +45,7 @@ __all__ = [
     "forward_substitute_scalars",
     "ident_re",
     "inline_pinned_constants",
+    "isolate_scops",
     "normalize_ppcg_input",
     "normalize_scop_input",
     "normalize_strided_loops",
@@ -72,6 +76,8 @@ STRIDED_FOR_RE = re.compile(
 )
 
 SCOP_REGION_RE = re.compile(r"#pragma scop.*?#pragma endscop", re.DOTALL)
+#: One scop region with the indentation of its opening pragma.
+SCOP_BLOCK_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<region>#pragma scop\b.*?#pragma endscop\b)", re.DOTALL | re.MULTILINE)
 
 
 def ident_re(name: str) -> "re.Pattern[str]":
@@ -479,8 +485,15 @@ def normalize_ppcg_input(text: str) -> str:
     return floord_subscripts(text)
 
 
+def isolate_scops(text: str) -> str:
+    """Wrap every ``#pragma scop`` region in its own ``{ }`` block when there are several (POLYCC-012)."""
+    if len(SCOP_REGION_RE.findall(text)) < 2:
+        return text
+    return SCOP_BLOCK_RE.sub(r"\g<indent>{\n\g<region>\n\g<indent>}", text)
+
+
 def normalize_scop_input(text: str) -> str:
     """Every rewrite, in dependency order: constants and single-assignment scalars first (they expose
     literal steps and affine subscripts), then strides, induction scalars, subscript divisions, opaque
-    helper calls, and last the scalars still local, which move to pointer cells."""
-    return externalize_scop_scalars(opaque_helper_calls(normalize_ppcg_input(text)))
+    helper calls, the scalars still local, which move to pointer cells, and last one block per scop."""
+    return isolate_scops(externalize_scop_scalars(opaque_helper_calls(normalize_ppcg_input(text))))

@@ -71,7 +71,10 @@ FRAMEWORK = "pluto"
 #: * ``--parallel`` -- also off by default. Without it polycc marks no loop parallel and emits
 #:                     no ``#pragma omp parallel for``. The compile has to genuinely honour that
 #:                     pragma, which is not automatic -- see ``flags.PLUTO_PAR``.
-POLYCC_ARGS: tuple[str, ...] = ("--pet", "--tile", "--parallel")
+#: * ``--codegen-context=0`` -- parameters are sizes and offsets, never negative. Without the
+#:                     bound, tiled bounds carry the full ``int64_t`` range of a parameter and
+#:                     the emitted literals overflow every C integer type (fdtd_2d, channel_flow).
+POLYCC_ARGS: tuple[str, ...] = ("--pet", "--tile", "--parallel", "--codegen-context=0")
 
 
 def polycc_exe() -> str | None:

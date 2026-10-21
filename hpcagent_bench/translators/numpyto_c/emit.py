@@ -1202,6 +1202,12 @@ class CBodyEmitter(BaseEmitter):
                     return sca.dtype
         return dt
 
+    def element_pointer(self, name: str, indices: list[str]) -> str:
+        """``&a[i]..[0]``: a flat element pointer into the pointer-to-VLA ``a`` (a helper's array
+        parameter is a plain ``T *``, which ``a`` or ``a[i]`` would not convert to)."""
+        zeros = ["0"] * (len(self.array_shapes[name]) - len(indices))
+        return f"&{name}" + "".join(f"[{i}]" for i in [*indices, *zeros])
+
     def contiguous_subarray_arg(self, node: ast.expr) -> str | None:
         """``a[k, :, :]`` as a pointer INTO ``a``, or None when the slice has no pointer spelling.
 
@@ -1237,7 +1243,7 @@ class CBodyEmitter(BaseEmitter):
                 return None
         indices = [self.emit_expr(e) for e in elts[:lead]]
         if node.value.id in self.multidim_arrays:
-            return node.value.id + "".join(f"[{i}]" for i in indices)
+            return self.element_pointer(node.value.id, indices)
         offset = self.flatten_indices(shape[:lead], indices)
         for dim in shape[lead:]:
             offset = f"({offset})*({c_shape_token(dim)})"
@@ -1251,6 +1257,8 @@ class CBodyEmitter(BaseEmitter):
         """
         if param_is_array:
             if isinstance(node, ast.Name) and self.array_shapes.get(node.id):
+                if node.id in self.multidim_arrays:
+                    return self.element_pointer(node.id, [])
                 return node.id
             subarray = self.contiguous_subarray_arg(node)
             if subarray is not None:
