@@ -123,7 +123,6 @@ __all__ = [
     "family_report_flags",
     "gpu_backend",
     "grading_ncores",
-    "stdpar_capability",
     "library_build_flags",
     "library_compiles",
     "library_linkable",
@@ -1532,23 +1531,6 @@ def library_build_flags(
         compile_out += [t for t in got_compile if t not in compile_out]
         link_out += [t for t in got_link if t not in link_out]
     return tuple(compile_out), tuple(link_out)
-
-
-def stdpar_capability() -> flags.AutoparProbe:
-    """Do THIS host's ``<execution>`` policies genuinely run in parallel, or only compile?
-
-    libstdc++ picks the backend per TU from ``__has_include(<tbb/tbb.h>)``, so a missing header silently runs a C++
-    submission's parallel algorithms serially; probed like every autopar column, with the real C++ flags."""
-    block = compiler_for_lang(load_compilers(), Language.CPP).block
-    composed = f"{baseline_flags(Language.CPP)} {std_flag(Language.CPP)}"
-    return flags.probe_autopar(
-        block.cc,
-        composed,
-        flags.NO_OUTLINE_PATTERN,
-        flags.STDPAR_PROBE_SOURCE,
-        flags.STDPAR_RUNTIME_CALL_PATTERN,
-        ".cpp",
-    )
 
 
 #: Optimization-report flags per toolchain FAMILY (the ONE table); keyed by the DRIVER's family, not the block.

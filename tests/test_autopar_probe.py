@@ -21,7 +21,8 @@ FORCE_SERIAL_BACKEND = "-D_GLIBCXX_USE_TBB_PAR_BACKEND=0"
 
 
 def stdpar_probe(extra: str = "") -> flags.AutoparProbe:
-    """:func:`languages.stdpar_capability`'s probe, with ``extra`` appended to its real flags."""
+    """Do this host's ``<execution>`` policies run in parallel? ``nm`` on a compiled ``par_unseq`` call, at the C++
+    submission flags plus ``extra``."""
     composed = f"{languages.baseline_flags(Language.CPP)} {languages.std_flag(Language.CPP)} {extra}"
     return flags.probe_autopar(
         "g++", composed, flags.NO_OUTLINE_PATTERN, flags.STDPAR_PROBE_SOURCE, flags.STDPAR_RUNTIME_CALL_PATTERN, ".cpp"
@@ -136,10 +137,10 @@ def test_stdpar_probe_discriminates_a_serial_execution_backend() -> None:
     assert forced.verdict is flags.AutoparVerdict.VACUOUS, forced
 
 
-def test_stdpar_capability_agrees_with_the_link_decision() -> None:
+def test_the_stdpar_probe_agrees_with_the_link_decision() -> None:
     """Two answers to one question, which must never differ: ``stdpar_link_flags`` asks the
     preprocessor whether TBB's headers exist (and links ``-ltbb`` when they do), while
-    ``stdpar_capability`` reads ``nm`` on a compiled ``par_unseq`` call. A host where one says
+    ``stdpar_probe`` reads ``nm`` on a compiled ``par_unseq`` call. A host where one says
     parallel and the other says serial has a wrong answer in it either way -- an unnecessary
     ``-ltbb`` on the link line, or a submission's parallel algorithms silently running serially.
 
@@ -149,10 +150,8 @@ def test_stdpar_capability_agrees_with_the_link_decision() -> None:
     if shutil.which("g++") is None:
         pytest.skip("g++ not installed")
     linked = languages.stdpar_link_flags(Language.CPP) != ()
-    genuine = languages.stdpar_capability().verdict is flags.AutoparVerdict.OK
-    assert linked == genuine, (
-        f"stdpar_link_flags says tbb={linked} but the compiled object says {languages.stdpar_capability()}"
-    )
+    genuine = stdpar_probe().verdict is flags.AutoparVerdict.OK
+    assert linked == genuine, f"stdpar_link_flags says tbb={linked} but the compiled object says {stdpar_probe()}"
 
 
 def test_probe_source_uses_a_parallel_policy() -> None:

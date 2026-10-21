@@ -672,7 +672,7 @@ def test_skill_taught_parallelism_dispatches_into_its_runtime(case: TaughtConstr
     agents failing to beat their baseline.
     """
     taught_block(case)
-    if case.runtime == "stdpar" and languages.stdpar_capability().verdict is not flags.AutoparVerdict.OK:
+    if case.runtime == "stdpar" and languages.stdpar_link_flags(Language.CPP) == ():
         pytest.skip(
             "environment cannot build this construct: this host's <execution> backend is "
             "not parallel (no TBB headers), so a runtime call is not expected here"
