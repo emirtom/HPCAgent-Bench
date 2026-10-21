@@ -21,6 +21,7 @@ stays free; ExternCall on GPU data passes device pointers in stream order.
 - **CLIs**: the translator entry points (translators run in-process, `numpyto_common.targets.emit`), `cpf`,
   `run-benchmark` (use `run-framework`), `drain_judges.py` and `recoverable_report.py` (folded into
   `merge_results.py --drain-url`), `packet_env.py` (`python -m hpcagent_bench.packets`).
+- **UBSan** in the sanitizer leg: it only ever flagged, never rejected. The leg is ASan (memory errors reject).
 - Study tags `schedule-puzzles`, `transcendental-approx`, `npbench`, `polybench`; the dead cholesky/inv loop lowering.
 
 ### Changed
