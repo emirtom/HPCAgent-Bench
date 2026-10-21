@@ -297,6 +297,22 @@ def test_pluto_emits_multidim_for_rank2_arrays() -> None:
         assert names.index("NI") < names.index("A"), "pluto binding: size symbols must precede array params"
 
 
+def test_pluto_input_inlines_the_helpers_the_c_source_keeps() -> None:
+    """A call is opaque to pet, and ppcg's host code hands a kept helper device pointers (bout_arakawa,
+    channel_flow, dwt2d validated wrong on ppcg), so the Pluto input inlines what the C source keeps."""
+    if not _emitter_present():
+        pytest.skip("translators absent")
+    from hpcagent_bench.emit_bridge import emit_kernel
+
+    spec = BenchSpec.load("dwt2d")
+    numpy_py = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
+    with tempfile.TemporaryDirectory() as d:
+        out = pathlib.Path(d)
+        assert emit_kernel(spec, numpy_py, out, target="c") == 0
+        assert "dwt2d_levels(" in (out / "dwt2d_fp64.c").read_text(), "premise: the C source keeps the helper"
+        assert "dwt2d_levels" not in (out / "dwt2d_fp64_pluto_input.c").read_text()
+
+
 def test_pluto_call_order_is_polyccs_not_the_canonical_abi(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

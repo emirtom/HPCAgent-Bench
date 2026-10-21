@@ -5,7 +5,7 @@ from hpcagent_bench.translators.numpyto_c.bindings import emit_binding, emit_plu
 from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_c_omp, emit_cpp, emit_cpp_omp, emit_pluto
 from hpcagent_bench.translators.numpyto_common.emit_helpers.request import EmitRequest, native_names, with_precision
 from hpcagent_bench.translators.numpyto_common.emit_io import write_generated
-from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel
+from hpcagent_bench.translators.numpyto_common.frontend import parse_kernel, without_kept_helpers
 from hpcagent_bench.translators.numpyto_common.lowering import lower
 
 __all__ = ["BLAS_PRECISIONS", "write_c_family"]
@@ -38,11 +38,13 @@ def write_c_family(request: EmitRequest) -> str:
     write_generated(out / f"{base}.c", emit_c(kir, fn_name=sym), line_comment="// ", source=src)
     write_generated(out / f"{base}.cpp", emit_cpp(kir, fn_name=sym), line_comment="// ", source=src)
     # Pluto optimises the contraction itself, so it gets the loop-lowered matmul: a library call is opaque to the
-    # scop. Re-parsed rather than shared, so neither lowering sees the other's rewrites.
-    pluto_kir = with_precision(
-        lower(parse_kernel(request.kernel, request.bench_info, config=request.config, precision=request.precision)),
-        request.precision,
-    )
+    # scop. Re-parsed rather than shared, so neither lowering sees the other's rewrites. Helpers are inlined: a call
+    # is opaque to pet, and ppcg's host code would hand a kept helper device pointers.
+    with without_kept_helpers():
+        pluto_kir = with_precision(
+            lower(parse_kernel(request.kernel, request.bench_info, config=request.config, precision=request.precision)),
+            request.precision,
+        )
     write_generated(out / f"{base}_pluto_input.c", emit_pluto(pluto_kir, fn_name=sym), line_comment="// ", source=src)
     emit_binding(kir, out / f"{base}_binding.json", base_name=base, symbol=sym)
     # Pluto's VLA-param signature reorders args (symbols first), so it needs its own binding.
