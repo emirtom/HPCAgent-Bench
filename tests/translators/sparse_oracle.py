@@ -563,7 +563,65 @@ def run_module_backend(
     in order. dace builds an SDFG (its symbolic shapes make the CSR slice expressible)."""
     if backend == "dace":
         return run_dace(k, info, sparse_logical, phys, dense_inputs, scalars, env, config_name, expected, rtol, atol)
+    if backend == "numba":
+        return run_numba(k, info, phys, dense_inputs, scalars, env, config_name, expected, rtol, atol)
     raise NotImplementedError(f"sparse backend {backend!r}")
+
+
+def run_numba(
+    k: SparseKernel,
+    info: dict[str, Any],
+    phys: dict[str, np.ndarray],
+    dense_inputs: dict[str, np.ndarray],
+    scalars: dict[str, Any],
+    env: dict[str, int],
+    config_name: str,
+    expected: dict[str, np.ndarray],
+    rtol: float,
+    atol: float,
+) -> OracleResult:
+    """Emit the numba sibling for ``config_name``'s layout and run it on the unpacked buffers: a logical
+    ``A @ x`` must have been lowered onto the buffer ABI, since numba cannot type a scipy matrix."""
+    import importlib.util
+    import tempfile
+
+    from hpcagent_bench.translators.numpyto_numba.emit import emit_numba
+    from tests.translators import bench_yaml
+
+    kir = bench_yaml.kir_for(k.short, config=config_name)
+    src = emit_numba(k.numpy_py.read_text(), kir=kir)
+    path = pathlib.Path(tempfile.mkdtemp()) / f"{info['func_name']}_numba.py"
+    path.write_text(src)
+    spec = importlib.util.spec_from_file_location(f"{k.short}_{config_name}_numba", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    call = {n: v.copy() for n, v in dense_inputs.items()}
+    args: list[Any] = []
+    for a in kir.input_args:
+        if a in phys:
+            args.append(np.ascontiguousarray(phys[a]))
+        elif a in call:
+            args.append(call[a])
+        elif a in scalars:
+            args.append(scalars[a])
+        elif a in env:
+            args.append(int(env[a]))
+        else:
+            return OracleResult(k.short, False, float("nan"), f"unresolved argument {a!r}")
+    try:
+        ret = modules.member(mod, info["func_name"])(*args)
+    except Exception as exc:  # noqa: BLE001
+        return OracleResult(k.short, False, float("nan"), f"numba run failed: {type(exc).__name__}: {exc}")
+    rets = ret if isinstance(ret, tuple) else (ret,)
+    ret_arrays = [np.asarray(r) for r in rets if r is not None and np.ndim(r) > 0]
+    got: dict[str, np.ndarray] = {}
+    for n in info["output_args"]:
+        if ret_arrays:
+            got[n] = np.asarray(ret_arrays.pop(0), dtype=np.float64)
+        elif n in call:
+            got[n] = np.asarray(call[n], dtype=np.float64)
+    return compare_outputs(k, "numba", info["output_args"], got, expected, rtol, atol)
 
 
 def compare_outputs(
