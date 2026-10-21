@@ -319,8 +319,8 @@ def catalog_path() -> pathlib.Path:
 
 def catalog_record() -> Catalog | None:
     """The catalog record, or ``None`` on a host without OpenMP contexts (a login node, CI), which has nothing to
-    refuse. A host with contexts and no readable catalog raises :class:`CatalogMissing`: the job start step
-    ``python3 -m hpcagent_bench.openmp.catalog --write`` writes it, so a missing one is a job set up wrong."""
+    refuse. A host with contexts and no readable catalog raises :class:`CatalogMissing`: the image build writes it
+    (``python3 -m hpcagent_bench.openmp.catalog --write``), so a missing one is an image built without it."""
     if not any(context_dir(context) for context in CONTEXTS):
         return None
     path = catalog_path()
@@ -328,9 +328,9 @@ def catalog_record() -> Catalog | None:
         return read_catalog(str(path), path.stat().st_mtime_ns)
     except (OSError, ValueError) as error:
         raise CatalogMissing(
-            f"the OpenMP catalog {path} cannot be read ({error}). It is written at every job start by "
-            f"`python3 -m hpcagent_bench.openmp.catalog --write {path}` (hpcagent_bench/cluster/run_cluster.sh); "
-            f"point {CATALOG_ENV} at it"
+            f"the OpenMP catalog {path} cannot be read ({error}). The image build writes it with "
+            f"`python3 -m hpcagent_bench.openmp.catalog --write {path}` (containers/images/*/Dockerfile): rebuild "
+            f"the image, or write one and point {CATALOG_ENV} at it"
         ) from error
 
 

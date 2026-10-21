@@ -317,10 +317,11 @@ def test_the_catalog_env_variable_is_the_configured_path(root: pathlib.Path, mon
     assert omp_context.catalog_path() == pathlib.Path("/run/dir/omp-catalog.json")
 
 
-def test_the_job_start_write_stores_the_scan_where_it_is_read(
+def test_the_image_build_write_stores_the_scan_where_it_is_read(
     root: pathlib.Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``omp_catalog --write PATH`` makes the run directory (atomically) and what it writes is what grading reads."""
+    """``omp_catalog --write PATH`` (the image build's step) makes the directory, writes atomically, and what it
+    writes is what grading reads."""
     runtimes = runtime_links(root)
     record = {"llvm": {"blas": [runtimes["gnu"]]}, "nvhpc": {"blas": []}}
     monkeypatch.setattr(omp_catalog, "scan", lambda: record)
