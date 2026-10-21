@@ -49,5 +49,3 @@ mpi:
   replicatable:
   - targets
   - out
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [predictions, targets, out, batch_size]

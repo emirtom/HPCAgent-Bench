@@ -33,5 +33,3 @@ args:
   fc3b: (10,)
   out: {shape: "(N, 10)", out: true}
   C_before_fc1: 0
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [input, conv1, conv1bias, conv2, conv2bias, fc1w, fc1b, fc2w, fc2b, fc3w, fc3b, N, C_before_fc1, out, H, W]

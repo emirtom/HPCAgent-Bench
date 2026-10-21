@@ -74,5 +74,3 @@ mpi:
   # one unit of work, so a rank holds a whole number of experts, not a multiple of 64 of them.
   rank_block_exempt:
   - num_experts
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, gate_weight, expert_weight, expert_bias, out, num_experts]

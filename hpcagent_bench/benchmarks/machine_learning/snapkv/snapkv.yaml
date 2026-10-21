@@ -19,5 +19,3 @@ args:
   out_key: {shape: "(batch_size, num_heads, capacity, head_dim)", out: true}
   out_value: {shape: "(batch_size, num_heads, capacity, head_dim)", out: true}
   pooling_kernel_size: {value: 5, returned: false}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [query, key, value, observation_window, capacity, pooling_kernel_size, out_key, out_value]

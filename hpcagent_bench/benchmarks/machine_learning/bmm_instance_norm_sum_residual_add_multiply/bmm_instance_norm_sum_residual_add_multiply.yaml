@@ -33,5 +33,3 @@ args:
   bmm_weight: (out_features, in_features)
   bmm_bias: (out_features,)
   out: {shape: "(batch_size, out_features)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, y, bmm_weight, bmm_bias, eps, out]

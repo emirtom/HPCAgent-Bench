@@ -16,7 +16,6 @@ import pydantic
 
 from hpcagent_bench import paths
 from hpcagent_bench.categories import AUTO_BASELINE, Preset, SourceMode, Track
-from hpcagent_bench.harness.agent import task_reference_file
 from hpcagent_bench.harness.task import DEFAULT_LANGUAGES
 from hpcagent_bench.harness.timing import FINAL_GRADE_REDUCTION
 from hpcagent_bench.languages import LANG_EXT
@@ -39,7 +38,6 @@ __all__ = [
     "manifest_path",
     "numpy_reference_source",
     "push_folder",
-    "reference_kind",
     "resolved_row",
     "row_problems",
     "validate",
@@ -96,15 +94,12 @@ FIELDS: tuple[str, ...] = tuple(ExportRow.model_fields)
 
 
 def numpy_reference_source(spec: BenchSpec) -> str:
-    """The comment-stripped reference, exactly as the agent prompt shows it (PyTorch on the machine_learning track);
-    "" if missing."""
-    path = task_reference_file(spec)
-    return strip_comments(path.read_text(), "python").strip() if path is not None and path.is_file() else ""
-
-
-def reference_kind(track: str) -> str:
-    """The language a track's reference is written in, as task text names it."""
-    return "PyTorch" if track == Track.MACHINE_LEARNING.text else "NumPy"
+    """The comment-stripped reference, exactly as the agent prompt shows it; "" if missing."""
+    base = paths.BENCHMARKS / spec.relative_path
+    for cand in (base / f"{spec.module_name}_numpy.py", base / f"{spec.module_name}.py"):
+        if cand.is_file():
+            return strip_comments(cand.read_text(), "python").strip()
+    return ""
 
 
 def manifest_path(spec: BenchSpec) -> str:
@@ -120,7 +115,7 @@ def _instructions(spec: BenchSpec, rb: ResolvedBench, symbol: str) -> str:
             f" Inputs use the `{rb.config_key}` sparse layout; the `signature` lists its unpacked buffer arguments."
         )
     return (
-        f"Optimize the `{spec.name}` task (`{rb.id}`). The reference {reference_kind(spec.track.text)} implementation "
+        f"Optimize the `{spec.name}` task (`{rb.id}`). The reference numpy implementation "
         f"in `numpy_reference` defines the exact semantics.{layout} Your implementation "
         f"must match the leak-free C-ABI `signature`: the argument order, dtypes, the entry "
         f"symbol `{symbol}`. Emit a faster implementation "

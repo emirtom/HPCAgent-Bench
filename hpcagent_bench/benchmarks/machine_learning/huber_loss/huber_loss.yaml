@@ -19,5 +19,3 @@ args:
   predictions: (batch_size, dim1)
   targets: (batch_size, dim1)
   out: {shape: "(1,)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [predictions, targets, out]

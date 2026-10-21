@@ -35,5 +35,3 @@ args:
   bn_running_var: {shape: "(features,)", dist: lognormal, domain: [0.5, 1.5]}
   out: {shape: "(batch_size, features, dim1, dim2)", out: true}
   bn_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, bn_weight, bn_bias, bn_running_mean, bn_running_var, bn_eps, out, features]

@@ -61,5 +61,3 @@ args:
   fc_weight: (num_classes, embed_dim)
   fc_bias: (num_classes,)
   out: {shape: "(batch_size, num_classes)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, num_heads, conv1_weight, conv1_bias, proj_weight, proj_bias, cls_token, attn_in_weight, attn_in_bias, attn_out_weight, attn_out_bias, norm1_weight, norm1_bias, linear1_weight, linear1_bias, linear2_weight, linear2_bias, norm2_weight, norm2_bias, fc_weight, fc_bias, out, batch_size, embed_dim, num_layers, patch_grid, patch_size]

@@ -36,5 +36,3 @@ args:
   group_norm_bias: {shape: "(out_features,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, out_features)", out: true}
   group_norm_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, num_groups, group_norm_eps, matmul_weight, matmul_bias, bias, group_norm_weight, group_norm_bias, out, batch_size, out_features]

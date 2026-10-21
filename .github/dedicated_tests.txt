@@ -27,6 +27,7 @@ tests/test_mlscale_part2_real_launch.py
 tests/test_torch_dist_curve.py
 
 # --- mpi: the torch agreement sweeps (CPU torch + the KernelBench submodule) --------------------
+tests/test_kernelbench_torch_agreement.py
 tests/test_torch_baseline.py
 tests/test_torch_reference_coverage.py
 tests/test_torch_autotune_coverage.py
@@ -55,6 +56,7 @@ tests/test_pluto_affine_detect.py
 tests/test_pluto_genuine.py
 tests/test_pluto_override.py
 tests/test_integration_sweep.py
+tests/test_kernelbench_translation.py
 tests/test_generated_references.py
 tests/test_e2e_numerical.py
 

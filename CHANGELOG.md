@@ -10,9 +10,6 @@ columns stay readable and plottable, not runnable.
   agent sandbox allowlist and prompt entries. The images keep the packages.
 - **Alloy in core.** Alloy is a tuner plugin in its own repository (`alloy.hb_plugin`, entry point
   `hpcagent_bench.plugins`); its adapter, extra and pin are gone from the bench.
-- **NumPy references of the machine_learning track.** Its reference is PyTorch: the kernel's `_torch.py`, else the
-  KernelBench model `kernelbench_map.yaml` names. A manifest declares `input_args`; the translators and the
-  numerical sweep skip the track.
 - **CLIs**: the translator entry points (translators run in-process, `numpyto_common.targets.emit`), `cpf`,
   `run-benchmark` (use `run-framework`), `drain_judges.py` and `recoverable_report.py` (folded into
   `merge_results.py --drain-url`), `packet_env.py` (`python -m hpcagent_bench.packets`).
@@ -23,9 +20,8 @@ columns stay readable and plottable, not runnable.
   declares tuners in `[tuners.<key>]` of its `plugin.toml`.
 - **CuPy** runs the NumPy reference with numpy bound to cupy; **numba fastmath** is a flavor of the numba column
   (`numba_fastmath`).
-- **Numba sparse**: every sparse layout with a stored-entry walk (coo, dia, ell, bsr, csc) lowers to numba,
-  forward and transposed, checked per layout against scipy.
-- HF export and Harbor ship the PyTorch reference for machine_learning rows.
+- **Numba sparse**: every sparse layout (coo, dia, ell, bsr, csc) lowers to numba, forward, transposed and
+  sparse x sparse (coo sized by its largest stored index), checked per layout against scipy.
 - README "For students" is "Getting started".
 
 ### Fixed

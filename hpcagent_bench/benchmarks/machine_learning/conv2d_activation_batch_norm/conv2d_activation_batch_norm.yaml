@@ -47,5 +47,3 @@ args:
   conv_dilation: 1
   conv_groups: 1
   bn_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, conv_weight, conv_bias, conv_stride, conv_padding, conv_dilation, conv_groups, bn_weight, bn_bias, bn_running_mean, bn_running_var, bn_eps, out, batch_size, in_channels, out_channels, height, width, kernel_size]

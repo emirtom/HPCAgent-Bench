@@ -38,5 +38,3 @@ args:
 # reads it from the manifest instead of naming a dtype of its own.
 allowed_precisions:
 - fp32
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [input, conv1, conv2, conv3, out, N, H, W, C1, C2]

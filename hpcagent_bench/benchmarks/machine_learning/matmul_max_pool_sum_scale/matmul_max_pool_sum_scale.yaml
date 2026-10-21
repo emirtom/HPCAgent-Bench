@@ -29,5 +29,3 @@ args:
   matmul_bias: (out_features,)
   out: {shape: "(batch_size,)", out: true}
   scale_factor: 0.5
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, kernel_size, scale_factor, matmul_weight, matmul_bias, out, batch_size, out_features]

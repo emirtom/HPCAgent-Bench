@@ -40,7 +40,6 @@ import dataclasses
 
 import pytest
 
-from hpcagent_bench.categories import Track
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
@@ -131,7 +130,7 @@ def findings() -> CorpusFindings:
     # finding below is a kernel NAME asserted absent, so the union of the shards' findings is this
     # sweep's, and a kernel that regresses fails in whichever shard holds it.
     for short in corpus_shard(sorted(KERNELS)):
-        if short.rsplit("/", 1)[-1] in TOO_SLOW_TO_LOWER or BenchSpec.load(short).track is Track.MACHINE_LEARNING:
+        if short.rsplit("/", 1)[-1] in TOO_SLOW_TO_LOWER:
             continue
         try:
             kir = kir_for(short, do_lower=True, abi=True)

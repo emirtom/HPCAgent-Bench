@@ -10,8 +10,7 @@
 # rendered one is per task (agent_driver.py substitutes {{TASK}} per agent). Kernel names come from
 # the problems JSON/JSONL, or from $KERNELS when there is no such file. Per-language task sources
 # are emitted on demand into a temp dir (harness/agent.py:emit_reference_source) and exist nowhere
-# in the repo, so a kernel's copyable material is its numpy (machine_learning: PyTorch) reference plus any
-# hand-written ``*_reference.*``.
+# in the repo, so a kernel's copyable material is its numpy reference plus any hand-written ``*_reference.*``.
 set -euo pipefail
 
 # A core dump lands in the crashing process's CWD (the checkout) and Slurm propagates the
@@ -83,13 +82,6 @@ while read -r kernel; do
             chmod a-w "${dest}/${material##*/}"
         fi
     done
-    # The machine_learning track's reference is PyTorch: the kernel's own <module>_torch.py, else the
-    # upstream KernelBench model, under the name the prompt cites (harness/agent.py:task_reference_file).
-    if [[ "${src}" == "${benchmarks}/machine_learning/"* ]]; then
-        torch_ref="$("${bench_python}" -m hpcagent_bench.harness.torch_baseline reference-file "${kernel}")"
-        cp -f "${torch_ref}" "${dest}/"
-        chmod a-w "${dest}/${torch_ref##*/}"
-    fi
     # cpf-src setup: the canonical parallel form, staged AS the kernel's reference source --
     # <module>_reference.<ext>, the name the plain setup's hand-written reference has -- so the setup
     # differs from the control in that file's content only. A drop-in: canonical symbol, the ABI's

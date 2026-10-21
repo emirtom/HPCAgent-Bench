@@ -375,9 +375,6 @@ class Manifest(ManifestBlock):
     config: ConfigBlock | None = None
     constraints: list[str] | None = None
     args: dict[str, ArgEntry]
-    #: The kernel's call order (the C ABI's parameters): the NumPy reference's signature when omitted, so a kernel
-    #: with no NumPy reference (the machine_learning track's reference is torch) declares it.
-    input_args: list[str] | None = None
     output_extent: dict[str, str] | None = None
     chain_length: dict[str, str | int] | None = None
     init: InitBlock | None = None

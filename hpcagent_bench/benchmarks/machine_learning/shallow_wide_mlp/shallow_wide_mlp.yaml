@@ -39,5 +39,3 @@ args:
   fc3_weight: {shape: "(output_size, hidden2)", domain: [-0.00762, 0.00762]}
   fc3_bias: {shape: "(output_size,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, output_size)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, fc1_weight, fc1_bias, fc2_weight, fc2_bias, fc3_weight, fc3_bias, out]

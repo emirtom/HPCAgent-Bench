@@ -59,5 +59,3 @@ args:
     out: true
   sum_weight: 1.0
   norm_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, stride, padding, output_padding, conv_transpose_weight, conv_transpose_bias, sum_weight, norm_weight, norm_bias, norm_eps, pool_kernel_size, out, batch_size, in_channels, out_channels, D, H, W, kernel_size]

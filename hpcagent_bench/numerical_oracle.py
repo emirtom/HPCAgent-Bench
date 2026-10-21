@@ -60,6 +60,7 @@ __all__ = [
     "PY_FORK_TIMEOUT_S",
     "ProbeRecord",
     "ProbeVerdict",
+    "TORCH_PORT_TOLERANCE",
     "all_backend_status",
     "binding_shape",
     "call_by_name",
@@ -329,6 +330,9 @@ PRECISIONS: dict[str, tuple[type[np.floating], Precision, str, float, float]] = 
     "fp16": (np.float16, Precision.FP16, "float16", 2e-2, 2e-2),
 }
 
+#: The band a machine_learning sweep is never TIGHTER than: the numpy port matches its torch oracle to ~1e-7.
+TORCH_PORT_TOLERANCE: tuple[float, float] = (1e-6, 1e-6)
+
 #: Backends with a native half type (gfortran's emit silently falls back to double).
 FP16_BACKENDS = frozenset({"c", "cpp"})
 
@@ -544,9 +548,6 @@ def run_kernel(
     spec = BenchSpec.load(short)
     # Buffers whose ELEMENTS are subscripts, rebased per target language as production does; read from the spec.
     index_names = frozenset(spec.init.index_arrays) if spec.init is not None else frozenset()
-    if spec.track is Track.MACHINE_LEARNING:
-        # The reference is PyTorch: no translator emits it, so no backend has a translation to check.
-        return all_backend_status("skip:torch-only")
     if spec.sparse_layouts:
         # Delegated to tests/translators/test_sparse_oracle.py (the per-layout buffer ABI).
         return all_backend_status("skip:sparse")
@@ -558,11 +559,17 @@ def run_kernel(
     chaotic = CHAOTIC_FLOAT_TOLERANCE.get(short)
     if chaotic is not None:
         rtol, atol = max(rtol, chaotic[0]), max(atol, chaotic[1])
+    torch_oracle = spec.track is Track.MACHINE_LEARNING
+    if torch_oracle and max_size is not None:
+        # The torch model is built from the manifest's hyperparameters, so it only runs at graded sizes.
+        return all_backend_status("skip:torch-oracle-graded-size-only")
+    if torch_oracle:
+        rtol, atol = max(rtol, TORCH_PORT_TOLERANCE[0]), max(atol, TORCH_PORT_TOLERANCE[1])
     out_args = list(spec.output_args)
     syms = dict(spec.parameters[preset.text])
     # Scale every size symbol down to ~48 (ratios kept, floor 10): correctness is size-independent and Python
-    # initializers are slow. loop_level_reasoning and NO_SCALE kernels run at true size.
-    if "loop_level_reasoning" not in spec.relative_path and short not in NO_SCALE:
+    # initializers are slow. loop_level_reasoning, NO_SCALE and torch-oracle kernels run at true size.
+    if "loop_level_reasoning" not in spec.relative_path and short not in NO_SCALE and not torch_oracle:
         ints = {k: v for k, v in syms.items() if isinstance(v, int) and not isinstance(v, bool)}
         mx = max(ints.values(), default=0)
         # max_size tightens the 48 default so even sub-48 presets shrink.

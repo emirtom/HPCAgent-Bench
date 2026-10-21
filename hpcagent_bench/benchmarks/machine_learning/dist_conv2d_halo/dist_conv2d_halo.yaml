@@ -67,5 +67,3 @@ mpi:
   replicatable:
   - conv_weight
   - conv_bias
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, conv_weight, conv_bias, out, height, width]

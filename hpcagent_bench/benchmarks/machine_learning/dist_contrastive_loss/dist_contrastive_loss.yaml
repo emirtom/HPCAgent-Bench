@@ -52,5 +52,3 @@ mpi:
   # a row's positive is the text row at its GLOBAL index, read from the contiguous block offset.
   replicatable:
   - text_embeds
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [image_embeds, text_embeds, out, logit_scale]

@@ -24,5 +24,3 @@ args:
   positive: (batch_size, dim1)
   negative: (batch_size, dim1)
   out: {shape: "(1,)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [anchor, positive, negative, margin, out]

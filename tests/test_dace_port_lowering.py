@@ -13,7 +13,6 @@ import sys
 import pytest
 
 from hpcagent_bench import modules
-from hpcagent_bench.categories import Track
 from hpcagent_bench.spec import KERNELS, BenchSpec
 from tests.test_dace_frontend_validity import REFUSED, REPO, ci_parse_shards, ensure_dace_program, shard_of
 
@@ -41,7 +40,11 @@ LOWERING_REFUSED: dict[str, tuple[str, str]] = {}
 
 # Ports left out of the gate until their blocker is fixed: stem -> why. Restore each entry the day
 # the blocker goes, so the port is lowered again.
-DESELECTED: dict[str, str] = {}
+DESELECTED: dict[str, str] = {
+    # Killed by a 3 GB memory cap after 992 s locally, still in the frontend; as a
+    # timeout xfail it would spend the whole LOWER_TIMEOUT_S of a shard on every CI run.
+    "densenet201": "DaCe Python frontend parse exceeds the time cap (known frontend slowness)",
+}
 
 # Ports whose numpy->dace lowering was broken and fixed (HANDOFF_ISSUES/05): a nested ternary as a
 # value, a leaked ``np_float`` token, a reduction shape scalar clashing with a descriptor symbol,
@@ -55,11 +58,11 @@ class LoweringRefused(Exception):
 
 @functools.lru_cache(maxsize=1, typed=True)
 def level3_keys() -> tuple[str, ...]:
-    """Registry keys of every level-3 kernel with a NumPy reference the frontend does not refuse (a manifest walk)."""
+    """Registry keys of every level-3 kernel the frontend does not refuse. A manifest walk only."""
     keys: list[str] = []
     for key in sorted(KERNELS):
         spec = BenchSpec.load(key)
-        if spec.level == 3 and spec.track is not Track.MACHINE_LEARNING and spec.relative_path not in REFUSED:
+        if spec.level == 3 and spec.relative_path not in REFUSED:
             keys.append(key)
     return tuple(keys)
 

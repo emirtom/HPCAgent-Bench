@@ -50,5 +50,3 @@ args:
   out:
     shape: (batch_size, out_channels, (height - kernel_size + 1 - kernel_size_pool)//kernel_size_pool + 1, (width - kernel_size + 1 - kernel_size_pool)//kernel_size_pool + 1)
     out: true
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, subtract1_value, subtract2_value, kernel_size_pool, conv_weight, conv_bias, out, batch_size, in_channels, out_channels, height, width, kernel_size]

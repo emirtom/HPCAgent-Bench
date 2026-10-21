@@ -519,27 +519,13 @@ def fp64_track() -> Any:  # noqa: ANN401
         yield
 
 
-#: A NumPy ``average_pooling_1d`` (PLAIN_KERNEL), delivered as the ``python`` submission the grades below score.
-AVERAGE_POOLING_1D = """import numpy as np
-
-
-def average_pooling_1d(
-    x, avg_pool_kernel_size, avg_pool_stride, avg_pool_padding, out, batch_size, in_channels, input_length
-):
-    k, stride, padding = int(avg_pool_kernel_size), int(avg_pool_stride), int(avg_pool_padding)
-    padded = np.pad(x, ((0, 0), (0, 0), (padding, padding)))
-    out_len = (input_length + 2 * padding - k) // stride + 1
-    span = (out_len - 1) * stride + 1
-    acc = np.zeros((batch_size, in_channels, out_len), dtype=x.dtype)
-    for kk in range(k):
-        acc += padded[:, :, kk : kk + span : stride]
-    out[:] = acc / k
-"""
-
-
-def python_submission() -> Submission:
-    """:data:`AVERAGE_POOLING_1D` as a ``python`` submission."""
-    return Submission(language=Language.PYTHON, source=AVERAGE_POOLING_1D)
+def numpy_submission(kernel: str) -> Submission:
+    """The kernel's own numpy reference, delivered as a ``python`` submission."""
+    spec = BenchSpec.load(kernel)
+    source = (paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py").read_text(encoding="utf-8")
+    return Submission(
+        language=Language.PYTHON, source=f"{source}\n\ndef kernel(*args):\n    return {spec.func_name}(*args)\n"
+    )
 
 
 @pytest.mark.usefixtures("fp64_track")
@@ -548,7 +534,7 @@ def test_a_default_grade_on_the_machine_learning_track_credits_the_cpu_kind() ->
     baseline): a host grade of an ML kernel is timed against ``torch-autotune-cpu``, the row names
     it, and the speedup is a real ratio over it."""
     task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
-    result = scoring.score(python_submission(), task, preset=PRESET, repeat=2, baseline=None)
+    result = scoring.score(numpy_submission(PLAIN_KERNEL), task, preset=PRESET, repeat=2, baseline=None)
     assert result.correct, result.detail
     assert result.baseline == CPU_KIND.text
     assert result.baselines.keys() == {CPU_KIND.text}
@@ -560,7 +546,9 @@ def test_a_kernel_without_a_reference_is_a_judge_fault_on_the_row_it_asked_for()
     """No denominator is the JUDGE's gap: ``harness_fault``, never ``incorrect``, and the row names
     the torch kind rather than numpy -- the kind a ``one_denominator`` guard reads."""
     task = Task(UNCOVERED_KERNEL, SourceMode.RESTRICTED, Language.C)
-    result = scoring.score(python_submission(), task, preset=PRESET, repeat=2, hidden=False, baseline=None)
+    result = scoring.score(
+        numpy_submission(UNCOVERED_KERNEL), task, preset=PRESET, repeat=2, hidden=False, baseline=None
+    )
     assert result.harness_fault
     assert not result.correct
     assert result.baseline == CPU_KIND.text
@@ -620,7 +608,7 @@ def test_a_final_grade_input_of_an_ml_kernel_is_reduced_against_torch_autotune()
     task = Task(PLAIN_KERNEL, SourceMode.RESTRICTED, Language.C)
     with config.scoped_environment(grade_under.final_settings({})):
         result = scoring.score(
-            python_submission(),
+            numpy_submission(PLAIN_KERNEL),
             task,
             preset=PRESET,
             repeat=grade_under.FINAL.repeat or 1,

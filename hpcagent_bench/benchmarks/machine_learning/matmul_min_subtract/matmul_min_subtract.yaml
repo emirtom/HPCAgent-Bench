@@ -29,5 +29,3 @@ args:
   linear_bias: (out_features,)
   constant_value: ()
   out: {shape: "(batch_size, out_features)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, linear_weight, linear_bias, constant_value, out]

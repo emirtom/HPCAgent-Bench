@@ -19,5 +19,3 @@ args:
   predictions: (batch_size, num_classes)
   targets: {shape: "(batch_size,)", dtype: int64, index_array: true}
   out: {shape: "(1,)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [predictions, targets, out, batch_size]

@@ -63,5 +63,3 @@ args:
   conv_transpose_groups: 1
   group_norm_num_groups: 2
   group_norm_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, conv_transpose_weight, conv_transpose_bias, group_norm_weight, group_norm_bias, conv_transpose_stride, conv_transpose_padding, conv_transpose_dilation, conv_transpose_groups, conv_transpose_output_padding, group_norm_num_groups, group_norm_eps, out, batch_size, in_channels, out_channels, height, width, kernel_size]

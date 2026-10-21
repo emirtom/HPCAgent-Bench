@@ -292,10 +292,12 @@ jobs:
           coverage: e2e-${{ strategy.job-index }}
 
   # The @pytest.mark.integration tests under tests/ (build and run real artifacts). The translator
-  # tree's half of the marker runs in `translators`. Two shards: shard 0 builds OpenBLAS, names
-  # the from-source OpenBLAS test (556 s) and carries the container launch and packaging steps;
-  # shard 1 sweeps tests/ with that file --ignore'd and carries the c/cpp/fortran fp64 e2e sweep in
-  # two halves (about 9 min each) (test_ci_coverage.py::test_the_integration_shards_partition_tests_dir).
+  # tree's half of the marker runs in `translators`. Two shards: the one Phase 6 step measured
+  # 30m05s (kernelbench_translation 904 s, the from-source OpenBLAS test 556 s, the rest < 40 s
+  # each). Shard 0 names test_kernelbench_translation.py and carries the container launch and
+  # packaging steps; shard 1 sweeps tests/ with that file --ignore'd,
+  # builds OpenBLAS, and carries the c/cpp/fortran fp64 e2e sweep in two halves (about 9 min each)
+  # (test_ci_coverage.py::test_the_integration_shards_partition_tests_dir).
   integration:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ci') }}
     name: integration[${{ matrix.shard.id }}]${{ matrix.shard.native_fp64 && ' + e2e[c,cpp,fortran] fp64' || '' }} (build/run real artifacts)
@@ -305,14 +307,14 @@ jobs:
       matrix:
         shard:
           - id: 0
-            openblas: true
-            select: >-
-              tests/test_dace_openblas_link.py
-          - id: 1
             openblas: false
+            select: >-
+              tests/test_kernelbench_translation.py
+          - id: 1
+            openblas: true
             native_fp64: true
             select: >-
-              --ignore=tests/test_dace_openblas_link.py tests/
+              --ignore=tests/test_kernelbench_translation.py tests/
     timeout-minutes: 45
     env:
       # tests/test_dace_openblas_link.py builds a pinned OpenBLAS (USE_OPENMP=1) unless cached.
@@ -606,6 +608,14 @@ jobs:
         run: |
           python -m pytest -q -p no:cacheprovider -rfEs -n auto --dist loadgroup --timeout=600 tests/test_e2e_numerical.py
 
+      # The KernelBench ratchet itself is integration-marked and runs in `integration`.
+      - name: Phase 5c -- kernelbench corpus size pin
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: |
+          python -m pytest -q -p no:cacheprovider -rfEs --timeout=2400 -m "not integration" \
+            tests/test_kernelbench_translation.py
+
       - name: Phase 5e -- emitted references are well-formed and share one ABI
         if: ${{ !cancelled() }}
         # 8 minutes cut it off on a slow runner (one xdist group, so it runs serially); 7 measured.
@@ -747,12 +757,15 @@ jobs:
           python -m pytest -q -p no:cacheprovider -p tests.openmp_launch_plugin -rfEs --import-mode=importlib \
             -n auto --timeout=600 hpcagent_bench/benchmarks/
 
-      # Every ML kernel resolves to a PyTorch reference the judge can compile and grade against.
-      - name: Phase 8b -- the ML track's PyTorch references
+      # The ML ports still compute what their PyTorch models compute; UNALIGNED is a ratchet. Every ML
+      # kernel resolves to a torch reference that agrees with its numpy oracle.
+      - name: Phase 8b -- the ML ports still compute what their PyTorch models compute
         if: ${{ !cancelled() }}
         # torch_baseline compiles in spawned children (about 15 s each on a CPU runner).
         timeout-minutes: 15
         run: |
+          python -m pytest -q -p no:cacheprovider -rfEs --maxfail=10 -m torch_agreement \
+            --timeout=600 tests/test_kernelbench_torch_agreement.py
           python -m pytest -q -p no:cacheprovider -rfEs --timeout=600 tests/test_torch_baseline.py \
             tests/test_torch_autotune_coverage.py \
             tests/test_torch_reference_coverage.py

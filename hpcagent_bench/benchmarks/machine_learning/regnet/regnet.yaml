@@ -66,5 +66,3 @@ args:
   fc_weight: (num_classes, 256)
   fc_bias: (num_classes,)
   out: {shape: "(batch_size, num_classes)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, stage1_conv1_weight, stage1_conv1_bias, stage1_bn1_weight, stage1_bn1_bias, stage1_bn1_running_mean, stage1_bn1_running_var, stage1_conv2_weight, stage1_conv2_bias, stage1_bn2_weight, stage1_bn2_bias, stage1_bn2_running_mean, stage1_bn2_running_var, stage2_conv1_weight, stage2_conv1_bias, stage2_bn1_weight, stage2_bn1_bias, stage2_bn1_running_mean, stage2_bn1_running_var, stage2_conv2_weight, stage2_conv2_bias, stage2_bn2_weight, stage2_bn2_bias, stage2_bn2_running_mean, stage2_bn2_running_var, stage3_conv1_weight, stage3_conv1_bias, stage3_bn1_weight, stage3_bn1_bias, stage3_bn1_running_mean, stage3_bn1_running_var, stage3_conv2_weight, stage3_conv2_bias, stage3_bn2_weight, stage3_bn2_bias, stage3_bn2_running_mean, stage3_bn2_running_var, fc_weight, fc_bias, out, height, width]

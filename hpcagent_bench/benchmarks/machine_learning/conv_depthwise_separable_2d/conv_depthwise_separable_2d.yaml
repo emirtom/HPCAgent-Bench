@@ -62,5 +62,3 @@ args:
   pointwise_stride: 1
   pointwise_dilation: 1
   pointwise_groups: 1
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, depthwise_weight, depthwise_bias, pointwise_weight, pointwise_bias, depthwise_stride, depthwise_padding, depthwise_dilation, pointwise_stride, pointwise_padding, pointwise_dilation, pointwise_groups, out, batch_size, in_channels, out_channels, height, width, kernel_size]

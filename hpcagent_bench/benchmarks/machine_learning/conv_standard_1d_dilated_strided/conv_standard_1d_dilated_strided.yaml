@@ -47,5 +47,3 @@ args:
   out:
     shape: (batch_size, out_channels, (length + 2 * conv1d_padding - conv1d_dilation * (kernel_size - 1) - 1) // conv1d_stride + 1)
     out: true
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, conv1d_weight, conv1d_bias, conv1d_stride, conv1d_padding, conv1d_dilation, conv1d_groups, out, batch_size, in_channels, out_channels, length, kernel_size]

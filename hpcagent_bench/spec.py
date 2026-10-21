@@ -950,10 +950,7 @@ def derive_array_args(
 
 
 def numpy_reference_path(relative_path: str, module_name: str) -> pathlib.Path | None:
-    """The kernel's numpy reference: ``<module>_numpy.py``, else ``<module>.py``, else ``None``; always ``None`` on the
-    machine_learning track, whose reference is PyTorch (its ``<module>.py`` holds only the initializer)."""
-    if pathlib.PurePosixPath(relative_path).parts[:1] == (Track.MACHINE_LEARNING.text,):
-        return None
+    """The kernel's numpy reference: ``<module>_numpy.py``, else ``<module>.py``, else ``None``."""
     base = paths.BENCHMARKS / relative_path
     for cand in (base / f"{module_name}_numpy.py", base / f"{module_name}.py"):
         if cand.exists():
@@ -1966,8 +1963,8 @@ class BenchSpec(BaseModel):
             # The stem IS the name (unique, not declarable); a too-long name is shortened at emission only.
             raw["short_name"] = p.stem
             fn = derive_func_name(str(raw.get("relative_path", "")), str(raw["module_name"]))
-            # A kernel with no NumPy reference (the machine_learning track's is torch) names its entry after its module.
-            raw["func_name"] = fn if fn is not None else str(raw["module_name"])
+            if fn is not None:
+                raw["func_name"] = fn
             module = p.parent / f"{raw['module_name']}.py"
             initializer = module if defines_function(module, INITIALIZER) else None
             raw.setdefault("name", raw["short_name"])  # human title, free-form; NOT an identity
@@ -2470,8 +2467,6 @@ def validate_kernel(spec: BenchSpec) -> list[str]:
     valid); corpus-wide rules stay in the corpus tests."""
     problems = unimportable_module_path(spec) + missing_level(spec) + misplaced_initializer(spec)
     problems += shape_reads_init_scalars(spec) + scenarios_without_perturbation(spec)
-    if spec.track is Track.MACHINE_LEARNING:  # PyTorch reference: torch_baseline.coverage checks it
-        return problems
     reference = paths.BENCHMARKS / spec.relative_path / f"{spec.module_name}_numpy.py"
     if not reference.is_file():
         return [*problems, f"{spec.short_name}: missing numpy reference {reference}"]

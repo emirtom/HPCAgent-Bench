@@ -25,5 +25,3 @@ args:
   out: {shape: "(batch_size, dim1)", out: true}
 chain_length:
   out: dim1
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, mask, dim, out]

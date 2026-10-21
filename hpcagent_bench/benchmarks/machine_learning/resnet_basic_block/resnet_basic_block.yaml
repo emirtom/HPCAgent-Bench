@@ -46,5 +46,3 @@ args:
   downsample_bn_running_var: {shape: "(out_channels,)", dist: lognormal, domain: [0.5, 1.5]}
   out: {shape: "(batch_size, out_channels, height, width)", out: true}
   bn_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, conv1_weight, bn1_weight, bn1_bias, bn1_running_mean, bn1_running_var, conv2_weight, bn2_weight, bn2_bias, bn2_running_mean, bn2_running_var, downsample_conv_weight, downsample_bn_weight, downsample_bn_bias, downsample_bn_running_mean, downsample_bn_running_var, bn_eps, out, batch_size, in_channels, out_channels, height, width]

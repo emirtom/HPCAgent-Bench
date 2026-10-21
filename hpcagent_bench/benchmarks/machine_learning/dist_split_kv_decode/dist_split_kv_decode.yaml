@@ -69,5 +69,3 @@ mpi:
   layout_flexible:
   - keys
   - values
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [query, keys, values, out, head_dim]

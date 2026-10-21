@@ -13,7 +13,6 @@ import yaml
 
 from hpcagent_bench import paths
 from hpcagent_bench.precommit_support import git_tracked
-from hpcagent_bench.categories import Track
 from hpcagent_bench.spec import (
     KERNELS,
     BenchSpec,
@@ -70,8 +69,6 @@ def test_every_kernel_resolves_under_a_track() -> None:
         assert track in TRACKS, f"{short}: track {track!r} not in {TRACKS}"
         kdir = paths.BENCHMARKS / spec.relative_path
         assert kdir.is_dir(), f"{short}: {kdir} is not a directory"
-        if spec.track is Track.MACHINE_LEARNING:
-            continue  # the reference is PyTorch (torch_baseline.coverage)
         ref = kdir / f"{spec.module_name}_numpy.py"
         assert ref.is_file(), f"{short}: missing numpy reference {ref}"
 
@@ -135,7 +132,8 @@ def test_a_convolution_kernel_pins_padding_to_one_constant_in_config() -> None:
     ``padding=2`` inside ``__init__`` where no knob can reach it, and
     conv_transpose3d_layer_norm_gelu_scaling's ``nn.LayerNorm(out_channels)`` only matches the
     port's trailing extent at ``padding=1``. Both were rewritten to 0 to satisfy this assertion and
-    both then computed a different function than the model they were ported from. A ``domain:`` sweep is what
+    both then computed a different function than the model they were ported from
+    (tests/test_kernelbench_torch_agreement.py is what caught it). A ``domain:`` sweep is what
     breaks the folding, not a nonzero pin.
     """
     stray, unpinned = [], []

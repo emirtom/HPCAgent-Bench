@@ -61,5 +61,3 @@ mpi:
   - exp_avg
   - exp_avg_sq
   - out
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [param, grad, exp_avg, exp_avg_sq, out, lr, beta1, beta2, adam_eps, weight_decay, max_grad_norm, step]

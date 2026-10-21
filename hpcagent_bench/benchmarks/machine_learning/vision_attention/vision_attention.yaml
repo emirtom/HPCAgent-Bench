@@ -41,5 +41,3 @@ args:
   norm_bias: (embed_dim,)
   out: {shape: "(batch_size, embed_dim, image_height, image_width)", out: true}
   norm_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, num_heads, in_proj_weight, in_proj_bias, out_proj_weight, out_proj_bias, norm_weight, norm_bias, norm_eps, out, batch_size, embed_dim, image_height, image_width]

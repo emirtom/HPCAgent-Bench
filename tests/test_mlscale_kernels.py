@@ -210,8 +210,9 @@ def test_the_uniform_stream_is_uniform_and_in_range() -> None:
 
 
 @pytest.mark.parametrize("stem", sorted(SOURCES))
-def test_initialize_hands_the_harness_the_torch_inputs(stem: str) -> None:
-    """``initialize`` draws exactly the inputs the torch reference makes."""
+def test_initialize_hands_the_harness_the_torch_inputs_and_numpy_agrees(stem: str) -> None:
+    """The numpy full check (small fuzzed sizes) sees the same data as the torch reference, and the
+    numpy reference computes the same outputs."""
     spec = spec_of(stem)
     params = dict(spec.parameters["S"])
     init = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}")
@@ -219,6 +220,14 @@ def test_initialize_hands_the_harness_the_torch_inputs(stem: str) -> None:
     inputs = torch_module(stem).make_inputs(params, 0, "cpu")
     for got, want in zip(arrays, inputs, strict=False):
         assert np.array_equal(got, want.float().numpy() if want.is_floating_point() else want.numpy())
+    data = dict(zip(spec.init.output_args, arrays, strict=False)) | params | dict(spec.init.scalars)
+    numpy_ref = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}_numpy")
+    kernel = modules.member(numpy_ref, spec.func_name)
+    kernel(*[data[a] for a in inspect.signature(kernel).parameters])
+    torch_in = [torch.from_numpy(np.asarray(a)) for a in arrays[: len(inputs)]]
+    (want,) = torch_module(stem).reference(*torch_in)
+    got = data[spec.output_args[0]]
+    np.testing.assert_allclose(got, want.numpy(), rtol=1e-4, atol=1e-5)
 
 
 def test_moe_gate_logits_are_the_planted_ones_with_a_clear_top2_margin() -> None:

@@ -73,5 +73,3 @@ args:
   head2_bias: (num_classes,)
   out: {shape: "(batch_size, num_classes)", out: true}
   ln_eps: 1.0e-05
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, patch_size, num_heads, patch_embed_weight, patch_embed_bias, cls_token, pos_embedding, enc_in_proj_weight, enc_in_proj_bias, enc_out_proj_weight, enc_out_proj_bias, enc_linear1_weight, enc_linear1_bias, enc_linear2_weight, enc_linear2_bias, enc_norm1_weight, enc_norm1_bias, enc_norm2_weight, enc_norm2_bias, head1_weight, head1_bias, head2_weight, head2_bias, ln_eps, out, batch_size, channels, grid, dim, num_classes]

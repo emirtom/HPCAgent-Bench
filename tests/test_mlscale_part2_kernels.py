@@ -225,8 +225,9 @@ def test_the_seed_changes_the_values(stem: str) -> None:
 
 
 @pytest.mark.parametrize("stem", STEMS)
-def test_initialize_hands_the_harness_the_torch_inputs(stem: str) -> None:
-    """``initialize`` draws exactly the inputs the torch reference makes."""
+def test_initialize_hands_the_harness_the_torch_inputs_and_numpy_agrees(stem: str) -> None:
+    """The numpy full check (small fuzzed sizes) sees the same data as the torch reference, and the
+    numpy reference computes the same outputs."""
     spec = spec_of(stem)
     params = dict(spec.parameters["S"])
     init = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}")
@@ -234,6 +235,14 @@ def test_initialize_hands_the_harness_the_torch_inputs(stem: str) -> None:
     inputs = torch_module(stem).make_inputs(params, 0, "cpu")
     for got, want in zip(arrays[: len(inputs)], inputs, strict=True):
         assert np.array_equal(got, want.float().numpy() if want.is_floating_point() else want.numpy())
+    data = dict(zip(init_of(spec).output_args, arrays, strict=True)) | params | dict(init_of(spec).scalars)
+    numpy_ref = importlib.import_module(f"hpcagent_bench.benchmarks.{KEYS[stem].replace('/', '.')}_numpy")
+    kernel = modules.member(numpy_ref, spec.func_name)
+    kernel(*[data[a] for a in inspect.signature(kernel).parameters])
+    torch_in = [torch.from_numpy(np.asarray(a)) for a in arrays[: len(inputs)]]
+    (want,) = torch_module(stem).reference(*torch_in)
+    got = np.asarray(data[spec.output_args[0]])
+    np.testing.assert_allclose(got, want.numpy(), rtol=1e-4, atol=1e-4)
 
 
 @pytest.mark.parametrize("stem", STEMS)

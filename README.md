@@ -141,9 +141,8 @@ hpcagent-bench plot efficacy data/obs.db --experiment llrblind --out figures/ski
 
 ## How it works
 
-- **Corpus** (`hpcagent_bench/benchmarks/`): one reference plus a YAML manifest per kernel folder; the
-  folder name is the ID. The reference is NumPy, or PyTorch on `machine_learning` (the kernel's `_torch.py`
-  or its KernelBench model). Other-language references are generated from the NumPy source; a hand-written
+- **Corpus** (`hpcagent_bench/benchmarks/`): one NumPy reference plus a YAML manifest per kernel folder;
+  the folder name is the ID. Other-language references are generated from the NumPy source; a hand-written
   file with the canonical name overrides a generated one.
 - **Frameworks** (`hpcagent_bench/frameworks/`): non-agent optimizers (DaCe, Numba, TVM, Triton, ...).
 - **Oracle and baseline.** The oracle is what the output must match: the kernel's compiled references on

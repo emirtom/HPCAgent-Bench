@@ -20,5 +20,3 @@ args:
   page_min: (num_pages, num_heads, head_dim)
   page_max: (num_pages, num_heads, head_dim)
   out: {shape: "(1, num_heads, head_dim)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [query, key, value, page_min, page_max, page_size, page_budget, out]

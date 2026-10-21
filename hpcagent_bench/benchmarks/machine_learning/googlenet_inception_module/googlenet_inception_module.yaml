@@ -62,5 +62,3 @@ args:
   branch_pool_weight: {shape: "(pool_proj, in_channels, 1, 1)", domain: [-0.04564, 0.04564]}
   branch_pool_bias: {shape: "(pool_proj,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, out_1x1 + out_3x3 + out_5x5 + pool_proj, height, width)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, branch1x1_weight, branch1x1_bias, branch3x3_reduce_weight, branch3x3_reduce_bias, branch3x3_weight, branch3x3_bias, branch5x5_reduce_weight, branch5x5_reduce_bias, branch5x5_weight, branch5x5_bias, branch_pool_weight, branch_pool_bias, out, batch_size, height, width, in_channels, out_1x1, reduce_3x3, out_3x3, reduce_5x5, out_5x5, pool_proj]

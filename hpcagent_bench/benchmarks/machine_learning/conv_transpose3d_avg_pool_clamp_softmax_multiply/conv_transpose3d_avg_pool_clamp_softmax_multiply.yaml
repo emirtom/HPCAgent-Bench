@@ -62,5 +62,3 @@ args:
     out: true
   clamp_min: 0.0
   clamp_max: 1.0
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, conv_transpose_weight, conv_transpose_bias, scale, clamp_min, clamp_max, pool_kernel_size, stride, padding, output_padding, out, batch_size, in_channels, out_channels, depth, height, width, kernel_size]

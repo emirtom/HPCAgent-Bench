@@ -4,17 +4,14 @@
 from collections.abc import Callable
 
 import numpy as np
-import pytest
 
 from hpcagent_bench import paths
 from tests.fresh_module import module_at
 
-torch = pytest.importorskip("torch")
 
-
-def _quest() -> Callable[..., tuple]:
-    path = paths.BENCHMARKS / "machine_learning" / "quest" / "quest_torch.py"
-    return module_at(path, "quest_torch").reference
+def _quest() -> Callable[..., None]:
+    path = paths.BENCHMARKS / "machine_learning" / "quest" / "quest_numpy.py"
+    return module_at(path, "quest_numpy").quest
 
 
 def test_upstream_page_bound_topk_and_mandatory_newest_page() -> None:
@@ -24,8 +21,9 @@ def test_upstream_page_bound_topk_and_mandatory_newest_page() -> None:
     pages = key.reshape(4, 2, 1, 1)
     page_min = np.min(pages, axis=1)
     page_max = np.max(pages, axis=1)
-    tensors = (torch.from_numpy(a) for a in (query, key, value, page_min, page_max))
-    out = _quest()(*tensors, page_budget=2)[0].numpy()
+    out = np.empty_like(query)
+
+    _quest()(query, key, value, page_min, page_max, 2, 2, out)
 
     # Page 1 wins the upper-bound top-k; page 3 is retained unconditionally.
     tokens = np.array([2, 3, 6, 7])

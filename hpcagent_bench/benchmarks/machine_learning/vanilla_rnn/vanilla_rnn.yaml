@@ -31,5 +31,3 @@ args:
   h2o_weight: (output_size, hidden_size)
   h2o_bias: (output_size,)
   out: {shape: "(batch_size, output_size)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, h0, i2h_weight, i2h_bias, h2o_weight, h2o_bias, batch_size, input_size, hidden_size, out]

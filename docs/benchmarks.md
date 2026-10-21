@@ -10,8 +10,7 @@ find hpcagent_bench/benchmarks/<track> -name '*.yaml' -not -path '*/.cache/*' | 
 A benchmark is a folder under `hpcagent_bench/benchmarks/<track>/[<dwarf>/]<kernel>/` with two
 files:
 
-- `<kernel>_numpy.py`: the NumPy reference, the single source of truth. On `machine_learning` the reference
-  is PyTorch instead: `<kernel>_torch.py`, else the KernelBench model `kernelbench_map.yaml` names.
+- `<kernel>_numpy.py`: the NumPy reference, the single source of truth.
 - `<kernel>.yaml`: the manifest (presets `S`/`M`/`L`/`XL`/`fuzzed`, the ordered `args` block,
   ...). The schema is the `Manifest` pydantic model in
   [`hpcagent_bench/manifest_schema.py`](../hpcagent_bench/manifest_schema.py): an unknown key or a

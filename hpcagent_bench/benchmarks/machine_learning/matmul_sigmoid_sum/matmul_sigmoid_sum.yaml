@@ -24,5 +24,3 @@ args:
   linear_weight: {shape: "(hidden_size, input_size)", domain: [-0.01147, 0.01147]}
   linear_bias: {shape: "(hidden_size,)", domain: [-0.1, 0.1]}
   out: {shape: "(batch_size, 1)", out: true}
-# The call order (the C ABI); this track's reference is torch, so it is declared, not read from a NumPy signature.
-input_args: [x, linear_weight, linear_bias, out]
