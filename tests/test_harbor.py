@@ -899,7 +899,7 @@ def test_agent_args_map_our_backends_and_endpoint_without_keys(monkeypatch: pyte
     assert "anthropic/claude-opus-4-8" in A.agent_args("claude")
     assert A.agent_args("noop") == ["--agent", "oracle"]
     with pytest.raises(ValueError, match="no Harbor agent"):
-        A.agent_args("blas-reduction")
+        A.agent_args("pluto")
 
 
 def test_run_agent_runs_harbor_on_oracle_tasks_and_reads_grades(

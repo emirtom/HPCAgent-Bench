@@ -17,14 +17,14 @@ from tests.probe_tuner import PROBE_STAGES, probe_tuner  # noqa: F401 -- the fix
 
 def test_optimizers_share_the_agent_contract_and_registry() -> None:
     reg = optimizers.optimizer_registry()
-    assert {"noop", "noop-mpi", "blas-reduction"} <= set(reg)
+    assert {"noop", "noop-mpi", "pluto", "ppcg-hip"} <= set(reg)
     for name, factory in reg.items():
         assert issubclass(optimizers.agent_class(factory), Agent), f"{name} must be an Agent (the plug-in contract)"
         assert callable(factory().solve)
 
 
 def test_non_ai_optimizers_are_in_the_cli_registry() -> None:
-    """`hpcagent-bench agent noop|blas-reduction` resolves -- non-AI optimizers run
+    """`hpcagent-bench agent noop|pluto` resolves -- non-AI optimizers run
     through the same 'optimize procedure' as an LLM agent, no separate code path."""
     assert set(optimizers.optimizer_registry()) <= set(agent_registry())
 

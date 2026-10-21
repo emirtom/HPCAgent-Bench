@@ -832,7 +832,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "agent",
         help="an agent_registry() key: an LLM backend (claude, openai, vllm, stub, local) or a non-AI optimizer "
-        "(noop, noop-mpi, blas-reduction, pluto, ppcg-hip) or a tuner plugin's flavor (dace_<arch>_<stage>_<tuner>)",
+        "(noop, noop-mpi, pluto, ppcg-hip) or a tuner plugin's flavor (dace_<arch>_<stage>_<tuner>)",
     )
     a.add_argument(
         "--fail-if-none-correct",

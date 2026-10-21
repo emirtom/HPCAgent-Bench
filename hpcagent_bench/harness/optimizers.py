@@ -31,7 +31,6 @@ from hpcagent_bench.translators.numpyto_c.bindings import read_binding
 from hpcagent_bench.vocabulary import Arch
 
 __all__ = [
-    "BlasReductionOptimizer",
     "LibraryOptimizer",
     "NoOpMPIOptimizer",
     "NoOpOptimizer",
@@ -41,9 +40,7 @@ __all__ = [
     "agent_class",
     "call_argument",
     "emit_scops",
-    "have_openblas",
     "inline_header",
-    "openblas_flags",
     "optimizer_registry",
     "own_sources",
     "pluto_source",
@@ -51,42 +48,6 @@ __all__ = [
     "ppcg_hip_sources",
     "tuner_agent",
 ]
-
-
-def openblas_flags() -> tuple[list[str], list[str]]:
-    """``(cflags, libs)`` for OpenBLAS: ``pkg-config openblas`` when available, else ``-lopenblas``."""
-    pc = shutil.which("pkg-config")
-    if pc:
-        try:
-            cflags = subprocess.run(
-                [pc, "--cflags", "openblas"], capture_output=True, text=True, check=True
-            ).stdout.split()
-            libs = subprocess.run([pc, "--libs", "openblas"], capture_output=True, text=True, check=True).stdout.split()
-        except (subprocess.CalledProcessError, OSError):
-            pass
-        else:
-            return cflags, libs
-    return [], ["-lopenblas"]
-
-
-def have_openblas() -> bool:
-    """True when OpenBLAS links with :func:`openblas_flags` (a linker probe, for test guards)."""
-    cc = shutil.which("cc") or shutil.which("gcc")
-    if not cc:
-        return False
-    _cflags, libs = openblas_flags()
-    with tempfile.TemporaryDirectory() as d:
-        out = pathlib.Path(d) / "probe"
-        return (
-            subprocess.run(
-                [cc, "-xc", "-", *libs, "-o", str(out)],
-                input="int main(void){return 0;}",
-                text=True,
-                capture_output=True,
-                check=False,
-            ).returncode
-            == 0
-        )
 
 
 #: The non-AI optimizers by name, filled by :func:`optimizer`.
@@ -201,41 +162,6 @@ class NoOpMPIOptimizer(Agent):
         # The default 1-D block layout from the kernel's ``mpi:`` block.
         requests = default_requests(spec.mpi, binding, ranks)
         return Submission(language=task.language, source=reference_mpi_source(task), requests=requests)
-
-
-@optimizer
-class BlasReductionOptimizer(LibraryOptimizer):
-    """Lower a reduction kernel to OpenBLAS (``vdotr`` -> ``cblas_ddot``, ``gesummv`` -> ``cblas_dgemv``)."""
-
-    __slots__ = ()
-
-    name = "blas-reduction"
-
-    #: kernel short-name -> the BLAS body computing each declared output (canonical C-ABI names).
-    _BODIES: ClassVar[dict[str, str]] = {
-        "tsvc_2_vdotr": "    dot_out[0] = cblas_ddot((int)LEN_1D, a, 1, b, 1);",
-        "gesummv": (
-            "    cblas_dgemv(CblasRowMajor, CblasNoTrans, (int)N, (int)N, alpha, A, (int)N, x, 1, 0.0, out, 1);\n"
-            "    cblas_dgemv(CblasRowMajor, CblasNoTrans, (int)N, (int)N, beta,  B, (int)N, x, 1, 1.0, out, 1);"
-        ),
-    }
-
-    def _emit_source(self, task: Task) -> str:
-        """Render the C-ABI signature from the binding, fill in the BLAS body."""
-        binding = binding_from_spec(BenchSpec.load(task.kernel))
-        header = gen_call_stub(binding, Language.C).split(") {", 1)[0] + ") {"
-        return f"#include <stdint.h>\n#include <cblas.h>\n{header}\n{self._BODIES[task.kernel]}\n}}\n"
-
-    def solve(self, task: Task, prompt: str = "", budget: object | None = None) -> Submission:
-        if task.kernel not in self._BODIES:
-            raise NotImplementedError(f"{self.name} only optimizes {sorted(self._BODIES)}; got {task.kernel!r}")
-        if task.language is not Language.C:
-            raise NotImplementedError(f"{self.name} emits C only; got language {task.language.text!r}")
-        source = self._emit_source(task)
-        cflags, libs = openblas_flags()
-        if task.source_mode is SourceMode.RESTRICTED:
-            return Submission(language=Language.C, source=source, build=cflags + libs)
-        return self._library_submission(task, source, extra_compile=cflags, extra_link=libs)
 
 
 def emit_scops(spec: BenchSpec, work: pathlib.Path) -> pathlib.Path:

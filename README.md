@@ -49,7 +49,7 @@ to a reported speedup).
 ## Getting started
 
 - **Run a deterministic optimizer** (no LLM, no API key): `uv run hpcagent-bench agent <name> --kernels gemm
-  --native`, with `<name>` one of `noop`, `blas-reduction`, `pluto`, `ppcg-hip`, `noop-mpi` or a tuner plugin's flavor
+  --native`, with `<name>` one of `noop`, `pluto`, `ppcg-hip`, `noop-mpi` or a tuner plugin's flavor
   such as Alloy's `dace_cpu_canon_alloy_profile` (`uv run hpcagent-bench agent --help`). From kernel choice to a reported
   speedup, plugging in your own optimizer, and a sample job script for a compute node:
   [`docs/extending/optimizer.md`](docs/extending/optimizer.md).

@@ -12,8 +12,7 @@ A new PyPI dependency goes in a `pyproject.toml` extra, the only dependency list
 
 ## Run one first
 
-The shipped optimizers are `noop` (the NumpyToX reference unchanged), `blas-reduction` (C, `tsvc_2_vdotr` and
-`gesummv` only), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels), all in `hpcagent_bench/harness/optimizers.py` (`optimizer_registry()`), plus the
+The shipped optimizers are `noop` (the NumpyToX reference unchanged), `pluto` (C), `ppcg-hip` (HIP), `noop-mpi` (distributed kernels), all in `hpcagent_bench/harness/optimizers.py` (`optimizer_registry()`), plus the
 flavors of every installed tuner plugin ([plugins.md](plugins.md#tuners)). Grading needs the OpenMP launch environment before Python starts (the numpy import
 fixes it once): `hpcagent_bench/cluster/env.sh` exports `OMP_STACKSIZE=512M` and `OMP_THREAD_LIMIT` (the cores the
 shell owns), and the stack limit is one shell step:
