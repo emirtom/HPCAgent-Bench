@@ -38,7 +38,8 @@ from typing import Protocol
 
 import pydantic
 
-from hpcagent_bench import config, openmp_runtimes
+from hpcagent_bench import config
+from hpcagent_bench.openmp import runtimes as openmp_runtimes
 
 __all__ = [
     "CATALOG_ENV",
@@ -149,7 +150,7 @@ def context_for_python_imports(imported: AbstractSet[str]) -> str:
 
 
 #: The context of the runtime a shared library records in ``DT_NEEDED``, by soname stem: a soname counts
-#: when it names a runtime file (:data:`hpcagent_bench.openmp_runtimes.RUNTIME_FILE`, so ``libomptarget``
+#: when it names a runtime file (:data:`hpcagent_bench.openmp.runtimes.RUNTIME_FILE`, so ``libomptarget``
 #: and ``libompd`` do not), and Intel's ``libiomp5`` is LLVM's runtime.
 NEEDED_RUNTIME_CONTEXT: Mapping[str, str] = {**RUNTIME_CONTEXT, "libiomp5": LLVM}
 
@@ -265,7 +266,7 @@ def context_build_env(context: str, base: Mapping[str, str] | None = None) -> di
 
 
 #: The per-image record of which OpenMP runtimes each catalog library's build maps in each context, written
-#: by :mod:`hpcagent_bench.omp_catalog` at image build: ``{context: {library: [runtime realpath, ...] | null}}``
+#: by :mod:`hpcagent_bench.openmp.catalog` at image build: ``{context: {library: [runtime realpath, ...] | null}}``
 #: (``null``: the context cannot link it at all).
 CATALOG_FILE = "catalog.json"
 
@@ -307,7 +308,7 @@ def catalog_path() -> pathlib.Path:
 def catalog_record() -> dict[str, dict[str, list[str] | None]] | None:
     """The catalog record, or ``None`` on a host without OpenMP contexts (a login node, CI), which has nothing to
     refuse. A host with contexts and no readable catalog raises :class:`CatalogMissing`: the job start step
-    ``python3 -m hpcagent_bench.omp_catalog --write`` writes it, so a missing one is a job set up wrong."""
+    ``python3 -m hpcagent_bench.openmp.catalog --write`` writes it, so a missing one is a job set up wrong."""
     if not any(context_dir(context) for context in CONTEXTS):
         return None
     path = catalog_path()
@@ -316,7 +317,7 @@ def catalog_record() -> dict[str, dict[str, list[str] | None]] | None:
     except (OSError, ValueError) as error:
         raise CatalogMissing(
             f"the OpenMP catalog {path} cannot be read ({error}). It is written at every job start by "
-            f"`python3 -m hpcagent_bench.omp_catalog --write {path}` (hpcagent_bench/cluster/run_cluster.sh); "
+            f"`python3 -m hpcagent_bench.openmp.catalog --write {path}` (hpcagent_bench/cluster/run_cluster.sh); "
             f"point {CATALOG_ENV} at it"
         ) from error
 

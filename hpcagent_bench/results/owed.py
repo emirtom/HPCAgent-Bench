@@ -29,7 +29,7 @@ from hpcagent_bench.harness import episodes, results_db
 from hpcagent_bench.harness.recording import slot_of
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.problem_file import ProblemLine, raw_lines, read_lines
-from hpcagent_bench.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
+from hpcagent_bench.results.recorded_rows import ADHOC_EPISODE_ID, RERUN_PREFIXES, TASK_CHANGED_PREFIX
 from hpcagent_bench.stats.population import HARNESS_FAULT_REASON
 
 __all__ = [
@@ -179,7 +179,7 @@ def delivered(job_dir: pathlib.Path) -> set[Run]:
     return set(delivered_at(job_dir))
 
 
-#: Per final grade whose reason is :data:`~hpcagent_bench.recorded_rows.TASK_CHANGED_PREFIX`: the setup, slot
+#: Per final grade whose reason is :data:`~hpcagent_bench.results.recorded_rows.TASK_CHANGED_PREFIX`: the setup, slot
 #: and kernel of the submission it re-timed, and that submission's ``ts_ms``.
 TASK_CHANGED_FINALS = """
 select r.setup, r.slot, o.kernel, o.ts_ms from grades f join grades o on o.id = f.of_grade_id

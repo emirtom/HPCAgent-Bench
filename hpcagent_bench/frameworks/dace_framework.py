@@ -31,11 +31,12 @@ from dace.codegen.instrumentation.report import DurationEvent
 from dace.frontend.python.parser import DaceProgram
 from dace.transformation.dataflow import MapCollapse
 
-from hpcagent_bench import cpf_canonical, languages, modules, paths, phase_clock
+from hpcagent_bench import languages, modules, paths, phase_clock
+from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench import flags as bench_flags
 from hpcagent_bench.categories import Language
-from hpcagent_bench.cpf_cache import CACHE_ENV as CPF_CACHE_ENV
-from hpcagent_bench.cpf_cache import Target
+from hpcagent_bench.cpf.cache import CACHE_ENV as CPF_CACHE_ENV
+from hpcagent_bench.cpf.cache import Target
 from hpcagent_bench.frameworks import Benchmark, Framework
 from hpcagent_bench.frameworks import utilities as util
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
@@ -744,7 +745,7 @@ class DaceFramework(Framework):
 
     def cached_canonical(self, bench: Benchmark, cache_root: pathlib.Path) -> dace.SDFG:
         """The kernel's canonical SDFG for this device from the CPF cache under ``cache_root``
-        (:func:`hpcagent_bench.cpf_canonical.canonical_sdfg`, the entry the CPF prerender renders its forms
+        (:func:`hpcagent_bench.cpf.canonical.canonical_sdfg`, the entry the CPF prerender renders its forms
         from), canonicalized and published there on a miss. A cached canonicalize failure raises its error."""
         spec = bench.spec
         precision = self.datatype or ""

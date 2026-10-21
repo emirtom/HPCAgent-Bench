@@ -16,11 +16,11 @@ import threading
 
 import pytest
 
-from hpcagent_bench import cpf_cache
-from hpcagent_bench.cpf_cache import HintDetail
-from hpcagent_bench.cpf_cache import RenderVerdict
-from hpcagent_bench.cpf_cache import Role
-from hpcagent_bench.cpf_cache import Target
+from hpcagent_bench.cpf import cache as cpf_cache
+from hpcagent_bench.cpf.cache import HintDetail
+from hpcagent_bench.cpf.cache import RenderVerdict
+from hpcagent_bench.cpf.cache import Role
+from hpcagent_bench.cpf.cache import Target
 
 OPTIONS = {
     "kernel": "k",
@@ -68,7 +68,7 @@ def test_the_key_is_pinned_and_blind_to_dict_order() -> None:
 
 def test_the_key_is_the_same_in_every_interpreter() -> None:
     """Prerender ranks and the judge are different processes; str hashing must not reach the key."""
-    code = f"from hpcagent_bench import cpf_cache; print(cpf_cache.cache_key('sdfg', 'dace', {OPTIONS!r}))"
+    code = f"from hpcagent_bench.cpf import cache as cpf_cache; print(cpf_cache.cache_key('sdfg', 'dace', {OPTIONS!r}))"
     for seed in ("1", "12345"):
         env = {**os.environ, "PYTHONHASHSEED": seed}
         done = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)

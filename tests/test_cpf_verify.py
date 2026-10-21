@@ -6,15 +6,17 @@ import pathlib
 
 import pytest
 
-from hpcagent_bench import cpf_bridge, cpf_cache, cpf_verify
+from hpcagent_bench.cpf import bridge as cpf_bridge
+from hpcagent_bench.cpf import cache as cpf_cache
+from hpcagent_bench.cpf import verify as cpf_verify
 from hpcagent_bench.categories import Language
 from hpcagent_bench.harness import scoring
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings import binding_from_spec
 from hpcagent_bench.support.bindings.stubs import gen_c
-from hpcagent_bench.cpf_cache import HintDetail
-from hpcagent_bench.cpf_cache import Target
-from hpcagent_bench.cpf_cache import Verified
+from hpcagent_bench.cpf.cache import HintDetail
+from hpcagent_bench.cpf.cache import Target
+from hpcagent_bench.cpf.cache import Verified
 from tests.test_cpf_cache import view_with
 
 KERNEL = "tsvc_2_s311"

@@ -22,7 +22,8 @@ from typing import NamedTuple
 import pydantic
 import yaml
 
-from hpcagent_bench import config, flags, modules, omp_context, osinfo, paths, seal
+from hpcagent_bench import config, flags, modules, osinfo, paths, seal
+from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench.categories import Language
 from hpcagent_bench.config import VectCostModel
 from hpcagent_bench.flags import Mode

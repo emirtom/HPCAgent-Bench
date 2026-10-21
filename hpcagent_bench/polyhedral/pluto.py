@@ -28,8 +28,8 @@ from collections.abc import Sequence
 
 from hpcagent_bench import core_dumps
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
-from hpcagent_bench.pluto_affine import has_scop, scop_nonaffine_reason
-from hpcagent_bench.pluto_normalize import normalize_scop_input, restore_output
+from hpcagent_bench.polyhedral.pluto_affine import has_scop, scop_nonaffine_reason
+from hpcagent_bench.polyhedral.pluto_normalize import normalize_scop_input, restore_output
 
 __all__ = [
     "FP32_LIBM",
@@ -248,7 +248,7 @@ def scop_inputs(cpp_backend: pathlib.Path, base: str, bench_dir: pathlib.Path | 
     :func:`specialize_override`.
 
     A file that marks no region is not a scop input: polycc would hand it straight back and the
-    column would time untransformed C (see :func:`hpcagent_bench.pluto_affine.has_scop`)."""
+    column would time untransformed C (see :func:`hpcagent_bench.polyhedral.pluto_affine.has_scop`)."""
     override = override_source(bench_dir if bench_dir is not None else cpp_backend.parent, base)
     if override is not None:
         return override_scop_inputs(cpp_backend, override, base)
@@ -368,7 +368,7 @@ def run_polycc(
     with tempfile.TemporaryDirectory(prefix="pluto_transform_") as scratch:
         src = scop
         if scop.name.endswith("_pluto_input.c"):
-            # Translator output only, respelled for pet/Pluto (hpcagent_bench.pluto_normalize); the
+            # Translator output only, respelled for pet/Pluto (hpcagent_bench.polyhedral.pluto_normalize); the
             # file on disk stays PPCG's input and the build's freshness key, so the copy lives here.
             src = pathlib.Path(scratch) / scop.name
             src.write_text(normalize_scop_input(scop.read_text()))

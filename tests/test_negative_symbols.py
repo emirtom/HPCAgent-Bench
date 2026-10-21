@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from hpcagent_bench import cpf_canonical
+from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.harness import prompts
 from hpcagent_bench.harness.task import Task

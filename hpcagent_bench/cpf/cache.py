@@ -166,7 +166,7 @@ LAYOUT = 3
 MANIFEST_NAME = "manifest.json"
 VIEW_NAME = "cpf-view.json"
 ENTRIES_NAME = "entries"
-#: Per-pointer judge verdicts on a view's drop-ins (hpcagent_bench.cpf_verify), beside the pointers.
+#: Per-pointer judge verdicts on a view's drop-ins (hpcagent_bench.cpf.verify), beside the pointers.
 VERIFIED_NAME = "verified"
 
 #: Canonical SDFG entries live under this directory of a cache root, apart from rendered forms.
@@ -606,7 +606,7 @@ def unverified(view: pathlib.Path, kernel: str, language: str, fptype: str, hint
     try:
         verdict = Verification.model_validate_json((view / VERIFIED_NAME / name).read_bytes())
     except (OSError, ValueError):
-        return f"view {view} form {name} was never graded (run python -m hpcagent_bench.cpf_verify)"
+        return f"view {view} form {name} was never graded (run python -m hpcagent_bench.cpf.verify)"
     if verdict.key != key:
         return f"view {view} form {name} was graded as {verdict.key}, it now serves {key}"
     if verdict.verdict is not Verified.OK:

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """HPCAgent-Bench under Harbor: task generation (one task dir per kernel or bundle), offline validation, the
-in-container grader (the reward is the final grade's S_i) and the CLI (``python -m hpcagent_bench.harbor
+in-container grader (the reward is the final grade's S_i) and the CLI (``python -m hpcagent_bench.export.harbor
 generate|validate|grade|stage-repo|metadata``). No oracle solution ships: it would need the harness in the agent
 image."""
 
@@ -31,7 +31,8 @@ from typing import Any
 import yaml
 from hpcagent_agent.coded import Coded
 
-from hpcagent_bench import config, containers, hf_export, languages, paths
+from hpcagent_bench import config, containers, languages, paths
+from hpcagent_bench.export import hf as hf_export
 from hpcagent_bench.categories import (
     BASELINE_OPTIONS,
     Language,
@@ -42,7 +43,7 @@ from hpcagent_bench.categories import (
     parse_baseline,
 )
 from hpcagent_bench.config import Hardware
-from hpcagent_bench.harbor_grade import (
+from hpcagent_bench.export.harbor_grade import (
     BundleGrade,
     DistributedGrade,
     FailedGrade,
@@ -187,7 +188,7 @@ GPU_ACCESS: dict[Hardware, dict[str, list[str]]] = {
 MAIN_SERVICE = "main"
 #: Harbor's compose file name (``environment/`` for the agent, ``tests/`` for a separate verifier).
 COMPOSE_NAME = "docker-compose.yaml"
-GRADER_MODULE = "hpcagent_bench.harbor"
+GRADER_MODULE = "hpcagent_bench.export.harbor"
 WORKDIR = "/app"
 REWARD_PATH = "/logs/verifier/reward.json"
 #: Host directory of the secret seeds the verifier mounts (never carried by generated tasks).

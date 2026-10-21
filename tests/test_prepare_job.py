@@ -92,7 +92,8 @@ def test_the_cpf_step_renders_then_grades_the_same_share_in_the_setup_language(
 ) -> None:
     """The target follows the language, both halves take the same kernels and rank, and a form that does not
     verify (exit 1) fails nothing: only the render's status is the task's."""
-    from hpcagent_bench import cpf_prerender, cpf_verify
+    from hpcagent_bench.cpf import prerender as cpf_prerender
+    from hpcagent_bench.cpf import verify as cpf_verify
 
     calls: list[tuple[str, list[str]]] = []
     monkeypatch.setattr(cpf_prerender, "main", lambda argv: calls.append(("render", list(argv))) or 0)

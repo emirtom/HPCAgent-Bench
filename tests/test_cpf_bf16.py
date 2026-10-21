@@ -11,12 +11,13 @@ import ml_dtypes
 import numpy as np
 import pytest
 
-from hpcagent_bench import cpf_bridge, cpf_canonical
+from hpcagent_bench.cpf import bridge as cpf_bridge
+from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Language
 from hpcagent_bench.harness.native_call import _call_native
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import binding_from_spec
-from hpcagent_bench.cpf_cache import RenderVerdict
+from hpcagent_bench.cpf.cache import RenderVerdict
 
 BF16_KERNEL = "machine_learning/gemm_add_relu/gemm_add_relu"
 FP64_KERNEL = "scientific_computing/dense_linear_algebra/gemm/gemm"

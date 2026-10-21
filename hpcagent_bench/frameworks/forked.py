@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, cast
 
 from hpcagent_bench import osinfo
-from hpcagent_bench.isolation import pause_openmp_pools
+from hpcagent_bench.openmp.isolation import pause_openmp_pools
 from hpcagent_bench.seal import SealPlan, enter
 
 __all__ = [
@@ -288,7 +288,7 @@ def child_environment(env: Mapping[str, str]) -> Iterator[None]:
     """``env`` in ``os.environ`` for the span of one child START, then the previous values again.
 
     A spawned child execs a fresh interpreter, and the dynamic loader reads ``LD_LIBRARY_PATH`` at exec:
-    this is how a child gets an OpenMP context (:mod:`hpcagent_bench.omp_context`) without changing the
+    this is how a child gets an OpenMP context (:mod:`hpcagent_bench.openmp.context`) without changing the
     parent, whose own libraries are already mapped. ``Process.start`` returns only after the child has
     exec'd, so the environment is restored before anything else can see it; the lock keeps another
     thread's start from inheriting it."""

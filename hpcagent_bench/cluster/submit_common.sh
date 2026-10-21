@@ -194,7 +194,7 @@ forms_missing() {
     local -a hints=()
     [[ -z "${6:-}" ]] || hints=(--hints "$6")
     if [[ "$3" == verified ]]; then
-        "${HPCAGENT_BENCH_HOST_PYTHON}" -m hpcagent_bench.cpf_cache check --view "$1" --language "$2" --target "$4" \
+        "${HPCAGENT_BENCH_HOST_PYTHON}" -m hpcagent_bench.cpf.cache check --view "$1" --language "$2" --target "$4" \
             --kernels "$5" "${hints[@]}" --verified || [[ $? == 1 ]] || echo "cpf_cache check failed for view $1"
         return 0
     fi
@@ -203,7 +203,7 @@ forms_missing() {
         echo "no dace pin to check view $1 against"
         return 0
     }
-    plan="$("${HPCAGENT_BENCH_HOST_PYTHON}" -m hpcagent_bench.cpf_cache check --view "$1" --language "$2" --target "$4" \
+    plan="$("${HPCAGENT_BENCH_HOST_PYTHON}" -m hpcagent_bench.cpf.cache check --view "$1" --language "$2" --target "$4" \
         --kernels "$5" "${hints[@]}" --on-demand --cache "${HPCAGENT_BENCH_CPF_CACHE:?cache_env.sh exports it}" \
         --dace-commit "${dace_commit}" 2>&1)" && return 0
     printf '%s\n' "${plan:-cpf_cache check failed for view $1}"

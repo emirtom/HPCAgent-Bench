@@ -15,7 +15,9 @@ import weakref
 from collections.abc import Callable, Sequence
 from typing import ClassVar
 
-from hpcagent_bench import config, languages, modules, paths, pluto_transform, ppcg_transform
+from hpcagent_bench import config, languages, modules, paths
+from hpcagent_bench.polyhedral import pluto as pluto_transform
+from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.emit_bridge import emit_kernel

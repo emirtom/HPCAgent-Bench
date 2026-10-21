@@ -24,8 +24,8 @@ HARNESS_FAULT_REASON = "score_error"
 
 #: The episode id the judge files a grade under when its request named none (the recorder's default).
 #: Such a row has no agent-episode identity, so it is credited to NOTHING --
-#: not to analysis (hpcagent_bench.studies.read_observations) and not to coverage
-#: (:func:`hpcagent_bench.owed.delivered`) -- and the (setup, kernel) it would have
+#: not to analysis (hpcagent_bench.results.studies.read_observations) and not to coverage
+#: (:func:`hpcagent_bench.results.owed.delivered`) -- and the (setup, kernel) it would have
 #: answered is owed a rerun instead. The databases keep the row; only its readers skip it.
 ADHOC_EPISODE_ID = "adhoc"
 

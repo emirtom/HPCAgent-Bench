@@ -4,7 +4,7 @@
 observations CSV (docs/observations.md), baseline/candidate sources with an index whose ``provenance`` column marks
 reconstructions, and an optional canon table. Byte-identical output on unchanged inputs.
 
-    python -m hpcagent_bench.observations_extract --runs '/path/to/runs/*' \
+    python -m hpcagent_bench.results.extract --runs '/path/to/runs/*' \
         --benchmarks /path/to/hpcagent_bench/benchmarks --canon /path/to/canon.out --out /path/to/artifact
 """
 
@@ -27,12 +27,14 @@ import pydantic
 from hpcagent_agent.driver.agent_driver import CANCELLED_MARKER
 from hpcagent_agent.driver.promote_unsubmitted import PROMOTED_TAG
 
-from hpcagent_bench import config, data_guard, recorded_rows
+from hpcagent_bench import config
+from hpcagent_bench.results import data_guard
+from hpcagent_bench.results import recorded_rows
 from hpcagent_bench.cache_files import sha256_hex
 from hpcagent_bench.categories import Residency
 from hpcagent_bench.harness import db_json, denominator, recording, results_db, scoring, timing
 from hpcagent_bench.harness.native_call import TimingProbe
-from hpcagent_bench.observation_columns import (
+from hpcagent_bench.results.observation_columns import (
     CANON_FIELDS,
     NUMERIC_COLUMNS,
     OBSERVATION_FIELDS,
@@ -43,7 +45,7 @@ from hpcagent_bench.run_layout import AGENT_DIR_PREFIX, JUDGE_DIRNAME, SHARED_DI
 from hpcagent_bench.spec import BenchSpec, load_spec
 from hpcagent_bench.stats import population, score_rule
 from hpcagent_bench.stats.databases import check_setups
-from hpcagent_bench.studies import agent_indices, judge_database
+from hpcagent_bench.results.studies import agent_indices, judge_database
 
 __all__ = [
     "ADHOC_SETUP",

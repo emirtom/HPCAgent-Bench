@@ -12,13 +12,13 @@ from typing import Any
 
 import pytest
 
-from hpcagent_bench import cpf_cache
+from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.routes import canonical_parallel_form as cpf_route
-from hpcagent_bench.cpf_cache import HintDetail
-from hpcagent_bench.cpf_cache import RenderVerdict
-from hpcagent_bench.cpf_cache import Role
-from hpcagent_bench.cpf_cache import Target
+from hpcagent_bench.cpf.cache import HintDetail
+from hpcagent_bench.cpf.cache import RenderVerdict
+from hpcagent_bench.cpf.cache import Role
+from hpcagent_bench.cpf.cache import Target
 from tests.fresh_module import fresh
 from tests.test_container_agent_tools import served_tool
 
@@ -109,7 +109,7 @@ def test_the_server_lists_it_for_the_packet_that_renders_the_view(monkeypatch: p
 
 def publish_view(tmp_path: pathlib.Path, kernel: str, source: str) -> pathlib.Path:
     """A cache view whose form for ``kernel`` (C, fp64) is ``source``."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     cache, view = tmp_path / "cache", tmp_path / "view"
     cpf_cache.open_view(view, cache, Target.CPU, "dace")
@@ -244,7 +244,7 @@ def test_a_request_is_never_answered_with_another_kernels_form(tmp_path: pathlib
     """A rendered name is <kernel>_<fptype>_cpf.<ext>, and kernel names nest: cloudsc_init and
     cloudsc_liq_ice_frac sit beside cloudsc. Served on a prefix match, an agent asking about the
     full cloud scheme is handed the field-initialisation kernel's source, marked ok."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     view = publish_view(tmp_path, "cloudsc_init", "// cloudsc_init\n")
     cpf_cache.record(
@@ -259,7 +259,7 @@ def test_a_request_is_never_answered_with_another_kernels_form(tmp_path: pathlib
 
 def test_the_kernels_own_form_is_still_found_beside_its_longer_neighbours(tmp_path: pathlib.Path) -> None:
     """Refusing a prefix match must not refuse the exact match that shares that prefix."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     view = publish_view(tmp_path, "cloudsc", "// cloudsc\n")
     cpf_cache.record(view, "cloudsc_init", "c", "fp64", HintDetail.PROOFS, {"key": None, "verdict": RenderVerdict.FAIL})

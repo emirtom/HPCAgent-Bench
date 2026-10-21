@@ -81,9 +81,9 @@ is stamped with are the checkout's (`--repo`, default `$HPCAGENT_BENCH_REPO`).
 - **Steps.** Per kernel: `sources` (the generated reference), `frameworks` (each `--frameworks` sibling and DaCe's
   parsed base SDFG), `grade` (the reference graded as `/score` grades it: golden outputs and baseline timings into
   the judge's disk store), `torch` (every timed cell of an ML kernel's `torch.compile` denominator). Then `cpf` over
-  the task's share: the canonical parallel forms rendered into `--cpf-view` (`hpcagent_bench.cpf_prerender`; the cache
+  the task's share: the canonical parallel forms rendered into `--cpf-view` (`hpcagent_bench.cpf.prerender`; the cache
   is `--cpf-cache`, default `$HPCAGENT_BENCH_CPF_CACHE`), the target following `--language` (hip and cuda render the
-  device form), then each form graded once in `--language` as `/submit` would (`hpcagent_bench.cpf_verify`). The
+  device form), then each form graded once in `--language` as `/submit` would (`hpcagent_bench.cpf.verify`). The
   default is every per-kernel step, plus `cpf` when `--cpf-view` is given.
 - **Rank distribution.** Task `r` of `n` takes `kernels[r::n]` (`--rank`/`--ranks` are set from the environment);
   `cpf` splits the same way, so a task verifies only what it rendered.

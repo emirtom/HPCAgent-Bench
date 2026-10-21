@@ -19,7 +19,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from hpcagent_bench import flags, pluto_transform, ppcg_transform
+from hpcagent_bench import flags
+from hpcagent_bench.polyhedral import pluto as pluto_transform
+from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 from hpcagent_bench.categories import Language, Preset
 from hpcagent_bench.frameworks import native_runtime
 from hpcagent_bench.frameworks.benchmark import Benchmark
@@ -257,7 +259,8 @@ def test_the_ppcg_column_follows_the_local_gpu_toolchain(monkeypatch: pytest.Mon
     of that -- the language the build compiles and the extension ppcg's output is handed over with --
     have to move together, and compilers.yaml turns the language into the compiler, so a hardcoded
     ``cuda``/``nvcc`` was a column that could only ever run on one vendor."""
-    from hpcagent_bench import languages, ppcg_transform
+    from hpcagent_bench import languages
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     scop = pathlib.Path("/tmp/x_fp64_pluto_input.c")
     for backend, ext, compiler in ((Language.HIP, "hip", "hipcc"), (Language.CUDA, "cu", "nvcc")):
@@ -279,7 +282,8 @@ def test_the_named_ppcg_columns_do_not_follow_the_host(monkeypatch: pytest.Monke
     the bare column has by design and these two exist to avoid. Pinned by flipping the probe under
     them: the derived column moves, the named ones must not.
     """
-    from hpcagent_bench import languages, ppcg_transform
+    from hpcagent_bench import languages
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     scop = pathlib.Path("/tmp/x_fp64_pluto_input.c")
     for host in (Language.HIP, Language.CUDA):
@@ -302,7 +306,7 @@ def test_every_ppcg_column_compiles_ppcg_output_for_its_own_vendor(monkeypatch: 
     the transform with the wrong vendor generates ``.cu`` for a column that then asks hipcc for
     ``.hip``, which fails as a missing file rather than as a wrong answer.
     """
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     seen: list[tuple] = []
     monkeypatch.setattr(
@@ -318,7 +322,7 @@ def test_every_ppcg_column_compiles_ppcg_output_for_its_own_vendor(monkeypatch: 
 def test_an_unknown_ppcg_vendor_is_refused_rather_than_guessed() -> None:
     """A vendor with no :data:`languages.LANG_EXT` entry has no extension and no compilers.yaml
     block, so accepting one would write sources nothing compiles. Raise where it is named."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     with pytest.raises(KeyError, match="unknown GPU backend"):
         ppcg_transform.resolve_backend(Language.C)
@@ -339,7 +343,7 @@ def test_a_scop_ppcg_passed_through_is_declined_rather_than_timed(
     the same kernel finds them fresh and never runs ppcg at all; a gate wired into ``run_ppcg``
     would fire on the first call and wave the same passthrough through on every one after it.
     """
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     cpp_backend = tmp_path / "cpp_backend"
     scop = write_scop(cpp_backend)
@@ -370,7 +374,7 @@ def test_ppcgs_c_output_is_repaired_into_the_cpp_the_gpu_drivers_compile() -> No
     translator's C11 prelude into a file nvcc/hipcc compile as C++. Three spellings do not survive
     that, and the third is the dangerous one: an entry point left with C++ linkage BUILDS and LINKS,
     and is then missing at the ctypes lookup that has to find it by name."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     source = (
         "static inline double _Complex __npb_conj(double _Complex z) {\n"
@@ -391,7 +395,7 @@ def test_a_prelude_helper_the_kernel_calls_is_copied_into_the_device_half() -> N
     ``quasi_affine_mod_k_stripe`` ("use of undeclared identifier '__npb_mod_i'"). The translator
     declares it host+device already, so the definition is copied VERBATIM, behind the ``NPB_HD``
     guard, with its own callees first, and nothing else."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
     from hpcagent_bench.translators.numpyto_c.emit import NPB_HD_GUARD
 
     prelude = (
@@ -418,7 +422,7 @@ def test_a_prelude_helper_the_kernel_calls_is_copied_into_the_device_half() -> N
 
 def test_a_device_half_that_calls_no_prelude_helper_is_left_byte_for_byte_alone() -> None:
     """Most ppcg kernels call no helper; their device half must be exactly what ppcg wrote."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     kernel = '#include "k_kernel.hu"\n__global__ void kernel0(double *a) {\n  a[0] = 1.0;\n}\n'
     assert (
@@ -435,7 +439,7 @@ def test_a_read_only_input_array_does_not_make_ppcgs_output_unbuildable(tmp_path
     nvcc and hipcc compile does not, so the generated host half stops building on any kernel with a
     read-only input -- most of them. Stripped from the COPY ppcg reads, never from the file, which is
     the Pluto column's input as well."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     scop = write_scop(tmp_path / "cpp_backend", base="mm", fptype="fp32")
     original = scop.read_text()
@@ -477,7 +481,7 @@ def test_ppcg_only_ever_asks_for_cuda() -> None:
     """The ``--target`` is not vendor-derived and must not become so: ppcg takes c/cuda/opencl and
     has no AMD target at all, so ``cuda`` is what it is asked for on every host and the translation
     happens after (:func:`ppcg_transform.hipify`)."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     assert "--target=cuda" in ppcg_transform.PPCG_ARGS
 
@@ -1025,7 +1029,7 @@ def test_ppcg_exe_prefers_an_explicit_home_over_the_shared_tools_dir_and_path(
     """:data:`ppcg_transform.PPCG_HOME_ENV` names ONE specific prefix and must win over both the
     shared tools cache and PATH -- otherwise a host pinning a particular build to test it would
     still get whatever every other job on that host finds instead."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     home_ppcg = _make_exe(tmp_path / "explicit" / "bin" / "ppcg")
     _make_exe(tmp_path / "tools" / "ppcg" / "bin" / "ppcg")
@@ -1046,7 +1050,7 @@ def test_ppcg_exe_falls_back_from_the_shared_tools_dir_to_path(
     build script's ``ppcg`` symlink -- ``helpers/scripts/cache_env.sh``) is found next; with NEITHER env
     var pointing at a real build, this falls back to PATH -- the only lookup a host without a cache
     build ever had, and it must keep working exactly as before."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     on_path = _make_exe(tmp_path / "path" / "bin" / "ppcg")
     monkeypatch.delenv(ppcg_transform.PPCG_HOME_ENV, raising=False)
@@ -1065,7 +1069,7 @@ def test_ppcg_exe_ignores_a_tools_dir_with_no_build_in_it(
     """A tools dir that exists but has never had ``ppcg`` built into it (no ``ppcg`` symlink, or
     one pointing nowhere) must not be mistaken for a working install -- ``os.access`` on a missing
     file is False, so the lookup has to fall through to PATH rather than hand back a dead path."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     monkeypatch.delenv(ppcg_transform.PPCG_HOME_ENV, raising=False)
     (tmp_path / "tools").mkdir()
@@ -1081,7 +1085,7 @@ def test_hipify_exe_falls_back_to_rocm_path_when_path_omits_it(
     exists for a launch mode where PATH does not carry that -- and it must read ``ROCM_PATH``, the
     SAME env var ``compilers.yaml``'s hipcc block and the EDF both set, never a literal
     ``/opt/rocm``."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     monkeypatch.setattr(ppcg_transform.shutil, "which", lambda _name: None)
     monkeypatch.delenv("ROCM_PATH", raising=False)
@@ -1095,7 +1099,7 @@ def test_hipify_exe_falls_back_to_rocm_path_when_path_omits_it(
 def test_hipify_exe_prefers_path_over_rocm_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """PATH is checked first: it is what the image's own EDF declares, so a stale or foreign
     ``ROCM_PATH`` must never shadow a ``hipify-perl`` the launch environment already resolved."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     monkeypatch.setattr(
         ppcg_transform.shutil,
@@ -1116,7 +1120,7 @@ def test_ppcg_run_env_puts_its_own_lib_dir_ahead_of_ld_library_path(
     shadows the correct isl and ppcg dies at startup with ``undefined symbol: isl_id_set_alloc``
     -- so ``_ppcg_run_env`` has to WIN the race by prepending ppcg's own lib dir,
     not merely appending it or leaving RPATH to sort it out."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     prefix = tmp_path / "ppcg-install"
     (prefix / "bin").mkdir(parents=True)
@@ -1137,7 +1141,7 @@ def test_ppcg_run_env_works_through_a_path_symlink(tmp_path: pathlib.Path, monke
     Dockerfile's own ``/usr/local/bin/ppcg -> /opt/ppcg-install/bin/ppcg``) -- the lib dir has to
     be resolved from the REAL prefix, not from the symlink's own directory (``/usr/local/lib``,
     which is where Pluto's isl lives and is exactly the collision this design avoids)."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     real_prefix = tmp_path / "opt" / "ppcg-install"
     (real_prefix / "bin").mkdir(parents=True)
@@ -1164,7 +1168,7 @@ def test_ppcg_run_env_is_a_noop_with_no_lib_dir_beside_the_exe(
     installed -- there is nothing to prepend, and returning ``None`` tells :func:`run_ppcg` to
     pass ``subprocess.run`` no ``env`` override at all, inheriting the caller's environment
     exactly as it did before this lookup existed."""
-    from hpcagent_bench import ppcg_transform
+    from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
     lone = tmp_path / "bin" / "ppcg"
     lone.parent.mkdir(parents=True)

@@ -683,7 +683,7 @@ RUN set -eux; \
     true
 
 # ---------------------------------------------------------------------------------------------
-# 9b. The llvm OpenMP context's library variants (hpcagent_bench/omp_context.py), built by the one script
+# 9b. The llvm OpenMP context's library variants (hpcagent_bench/openmp/context.py), built by the one script
 # every judge-agent image runs (containers/images/lib/omp_llvm_env.sh, which documents the environment and its
 # cuda package list).
 ENV OMP_LLVM_ENV_DIR=/opt/omp/llvm/env

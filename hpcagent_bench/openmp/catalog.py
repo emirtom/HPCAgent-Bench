@@ -3,7 +3,7 @@
 """Which OpenMP runtimes each catalog library's build maps, per context (measured by a trial link + ``ldd``); a
 library mapping another context's runtime is refused for it up front.
 
-    python -m hpcagent_bench.omp_catalog [--write [PATH]] [--check] [--root /opt/omp]
+    python -m hpcagent_bench.openmp.catalog [--write [PATH]] [--check] [--root /opt/omp]
 
 ``--check`` exits 1 when ``blas``/``lapack`` are not served in a context; other refusals are printed only.
 """
@@ -17,7 +17,9 @@ import sys
 import tempfile
 from collections.abc import Sequence
 
-from hpcagent_bench import languages, omp_context, openmp_runtimes
+from hpcagent_bench import languages
+from hpcagent_bench.openmp import context as omp_context
+from hpcagent_bench.openmp import runtimes as openmp_runtimes
 from hpcagent_bench.categories import Language
 
 __all__ = [

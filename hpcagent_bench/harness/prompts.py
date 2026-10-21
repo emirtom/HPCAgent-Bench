@@ -22,7 +22,6 @@ from hpcagent_agent.tools import registry as tool_registry
 
 from hpcagent_bench import (
     config,
-    cpf_cache,
     external_skills,
     fuzz,
     languages,
@@ -33,6 +32,7 @@ from hpcagent_bench import (
     plugins,
     protocols,
 )
+from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.categories import Baseline, Language, Oracle, Residency, Track
 from hpcagent_bench.config import GridChooser, PromptStrategy, RequestCapability
 from hpcagent_bench.dtypes import c_type
@@ -997,7 +997,7 @@ def build_context(
     original_path = original_paths[0] if original_paths else ""
     strategy = STRATEGIES[prompt_config.strategy]
     # In a container the reference is uploaded to <workdir>/<slug>/reference.py; a native run points at the repo.
-    from hpcagent_bench.harbor import slug
+    from hpcagent_bench.export.harbor import slug
 
     if prompt_config.native:
         kernel_path = local_path(ref_py)

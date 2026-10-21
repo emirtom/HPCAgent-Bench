@@ -17,8 +17,8 @@ computation before polycc parses it (``pluto_affine.KNOWN_POLYCC_ISSUES``):
 * POLYCC-010: pet outlines helper calls into an undeclared ``__pet_ret``; :func:`floord_subscripts`
   and :func:`opaque_helper_calls` (undone on the output by :func:`restore_output`).
 
-Applied to scratch copies only: :func:`hpcagent_bench.pluto_transform.run_polycc` gets
-:func:`normalize_scop_input`, :func:`hpcagent_bench.ppcg_transform.run_ppcg` the signature-preserving
+Applied to scratch copies only: :func:`hpcagent_bench.polyhedral.pluto.run_polycc` gets
+:func:`normalize_scop_input`, :func:`hpcagent_bench.polyhedral.ppcg.run_ppcg` the signature-preserving
 subset :func:`normalize_ppcg_input`. The file on disk is the build's freshness key and never changes.
 """
 

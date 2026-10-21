@@ -121,13 +121,13 @@ hpcagent-bench extract --runs "$RUN_ROOT/llrblind-*" --runs "$RUN_ROOT/6[0-9][0-
 
 `--runs` is a run-root glob (repeatable) and `--setup-prefix` keeps the setups of one experiment. Keep waves in a
 suffix (`<experiment>-w2`) so one prefix matches every wave. Check the printed summary: a missing setup means a
-wrong prefix. From Python: `hpcagent_bench.studies.read_observations(path)` reads the table back.
+wrong prefix. From Python: `hpcagent_bench.results.studies.read_observations(path)` reads the table back.
 
 Registered studies (`hpcagent_bench.experiments`) extract by name, reading their experiments' run
 roots and the owed waves' `owed-<study>-<date>` roots, and fuse final-grade rows:
 
 ```bash
-python -m hpcagent_bench.dataset --study llr-focus40-blind \
+python -m hpcagent_bench.export.dataset --study llr-focus40-blind \
     --regrades "$RUN_ROOT/regrades/regrade-*.db" --out data/llrblind.db --csv data/llrblind.csv
 ```
 
@@ -136,7 +136,7 @@ read as one (`hpcagent_bench.stats.databases.union`). Several databases merge by
 two of them hold with different rows is refused.
 
 ```bash
-python -m hpcagent_bench.dataset --study llr40 --db hpcagent-bench-v1-final2.db --out data/llr40.db
+python -m hpcagent_bench.export.dataset --study llr40 --db hpcagent-bench-v1-final2.db --out data/llr40.db
 ```
 
 Regrade precedence, exempt submissions and promotion:
@@ -206,7 +206,7 @@ draws them as `?` for a preview of an unfinished study. Every run drawn goes to 
 with its condition, state, speedup and tokens; `--table` writes the per-cell reliability statistics.
 
 ```bash
-python -m hpcagent_bench.dataset --study temperature3 --out data/temperature3.db
+python -m hpcagent_bench.export.dataset --study temperature3 --out data/temperature3.db
 hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
     --conditions t0,default --out figures/temperature3_t0_t1.pdf          # the paper's figure: square, one column
 hpcagent-bench plot kernel-runs data/temperature3.db --experiment temperature3 --tag temperature3 \
@@ -316,7 +316,7 @@ as scaling rows under the pseudo-setup `torch_dist`, and every overlay panel dra
 control's grey, dashed, beside the models; `--no-torch-dist` leaves it out.
 
 ```bash
-OBS=data/mlscale20.db  # python -m hpcagent_bench.dataset --study mlscale20 --out data/mlscale20.db
+OBS=data/mlscale20.db  # python -m hpcagent_bench.export.dataset --study mlscale20 --out data/mlscale20.db
 hpcagent-bench plot scaling "$OBS" --experiment mlscale --out figures/scaling --table data/scaling.csv
 hpcagent-bench plot scaling "$OBS" --experiment mlscale --figure efficiency --out figures/scaling
 hpcagent-bench plot scaling "$OBS" --experiment mlscale --figure speedup --out figures/scaling

@@ -8,7 +8,8 @@ import pathlib
 import sys
 from http import HTTPStatus
 
-from hpcagent_bench import config, cpf_cache
+from hpcagent_bench import config
+from hpcagent_bench.cpf import cache as cpf_cache
 from hpcagent_bench.api import RunConfig
 from hpcagent_bench.harness.judge_wire import CanonicalFormAnswer, CanonicalFormQuery, FormVerdict, JudgeError
 from hpcagent_bench.harness.routes import Judge, RouteRequest, route
@@ -88,7 +89,7 @@ def serve(judge: Judge, request: RouteRequest) -> None:
                 "about whether the kernel can be parallelized",
             ),
         )
-    from hpcagent_bench import cpf_bridge  # only a CPF request needs it
+    from hpcagent_bench.cpf import bridge as cpf_bridge
 
     fptype = cpf_bridge.form_fptype(kernel, judge.cfg.datatype)
     try:
@@ -146,7 +147,7 @@ def serve(judge: Judge, request: RouteRequest) -> None:
 
 def render(cfg: RunConfig, view: pathlib.Path, kernel: str, hints: cpf_cache.HintDetail) -> str:
     """Render ``kernel`` into ``view`` at ``hints`` for a request that missed; "" when an outcome is recorded."""
-    from hpcagent_bench import cpf_prerender
+    from hpcagent_bench.cpf import prerender as cpf_prerender
 
     cache = canonical_parallel_form_cache(view)
     fptype = fptype_tag(cfg.datatype)

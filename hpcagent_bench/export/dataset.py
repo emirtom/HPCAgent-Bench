@@ -21,8 +21,10 @@ import sys
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 
-from hpcagent_bench import experiments, observations_extract, paths, studies
-from hpcagent_bench.observation_columns import OBSERVATION_FIELDS
+from hpcagent_bench import experiments, paths
+from hpcagent_bench.results import extract as observations_extract
+from hpcagent_bench.results import studies
+from hpcagent_bench.results.observation_columns import OBSERVATION_FIELDS
 from hpcagent_bench.stats import databases
 
 __all__ = [
@@ -136,7 +138,7 @@ def extract(
 ) -> "pd.DataFrame":
     """Every row of the study: judge rows and task rows with their token totals.
 
-    One extractor (:mod:`hpcagent_bench.observations_extract`), because there were two and they
+    One extractor (:mod:`hpcagent_bench.results.extract`), because there were two and they
     disagreed: the other wrote the plural table name into its row kind and no ``task`` rows at all,
     so a frame from it carried no token cost and every ``row_kind == "episode"`` rule silently did
     nothing. ``episodes`` (a results database, or run-root globs) replaces the selection's run roots."""

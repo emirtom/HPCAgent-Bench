@@ -328,7 +328,7 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
             ),
             repro=f"{_BENCH}/dense_linear_algebra/correlation -- polycc --pet --tile --parallel on its "
             "2-region pluto input, with and without pluto_transform.PET_OMP_SHIM",
-            avoided_by="hpcagent_bench.pluto_transform.pet_parse_env",
+            avoided_by="hpcagent_bench.polyhedral.pluto.pet_parse_env",
             upstream="not filed",
         ),
         PolyccIssue(
@@ -351,7 +351,7 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
             ),
             repro=f"{_BENCH}/n_body_methods/force_lj -- its transformed output redeclares t1 without the "
             "merge; largest_eigenval is the unrepairable half",
-            avoided_by="hpcagent_bench.pluto_transform.dedupe_scratch_declarations",
+            avoided_by="hpcagent_bench.polyhedral.pluto.dedupe_scratch_declarations",
             upstream="not filed",
         ),
         PolyccIssue(
@@ -388,7 +388,7 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
                 "Measured on polycc 0.12.0-33-gdc46216."
             ),
             repro="tests/test_pluto_normalize.py",
-            avoided_by="hpcagent_bench.pluto_normalize.externalize_scop_scalars",
+            avoided_by="hpcagent_bench.polyhedral.pluto_normalize.externalize_scop_scalars",
             upstream="not filed",
         ),
         PolyccIssue(
@@ -403,7 +403,7 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
                 "same way (tsvc_2_s1112, s112, neg_stride_rev, thomas_solve)."
             ),
             repro="tests/test_pluto_normalize.py",
-            avoided_by="hpcagent_bench.pluto_normalize.normalize_strided_loops",
+            avoided_by="hpcagent_bench.polyhedral.pluto_normalize.normalize_strided_loops",
             upstream="not filed",
         ),
         PolyccIssue(
@@ -417,7 +417,7 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
                 "fission_dep_sym_offset)."
             ),
             repro="tests/test_pluto_normalize.py",
-            avoided_by="hpcagent_bench.pluto_normalize.inline_pinned_constants",
+            avoided_by="hpcagent_bench.polyhedral.pluto_normalize.inline_pinned_constants",
             upstream="n/a",
         ),
         PolyccIssue(
@@ -433,7 +433,7 @@ KNOWN_POLYCC_ISSUES: dict[str, PolyccIssue] = {
                 "Substituting the expression or the closed form of the counter validates."
             ),
             repro="tests/test_pluto_normalize.py",
-            avoided_by="hpcagent_bench.pluto_normalize.substitute_induction_scalars",
+            avoided_by="hpcagent_bench.polyhedral.pluto_normalize.substitute_induction_scalars",
             upstream="n/a",
         ),
         PolyccIssue(

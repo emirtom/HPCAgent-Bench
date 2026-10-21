@@ -3,7 +3,7 @@
 """Write one kernel's leak-free C-ABI to <dest>/signature.json.
 
 The file holds the entry symbol and C signature the judge links against (:mod:`hpcagent_bench.languages`),
-the same content :mod:`hpcagent_bench.harbor` writes for a non-repo task. ``materialize_shared.sh`` runs it
+the same content :mod:`hpcagent_bench.export.harbor` writes for a non-repo task. ``materialize_shared.sh`` runs it
 once per kernel for every setup.
 
     python -m hpcagent_bench.cluster.stage_signature <kernel> <dest> [--language <lang>]

@@ -215,12 +215,12 @@ files, when given, override the staging. The extraction applies the promotions i
 
 ## 2. Extract observations
 
-`hpcagent_bench.observations_extract` turns results
+`hpcagent_bench.results.extract` turns results
 DBs into the observations CSV and SQLite every figure reads. Opening is read-only; unchanged inputs
 give byte-identical output.
 
 ```bash
-"$HPCAGENT_BENCH_HOST_PYTHON" -m hpcagent_bench.observations_extract \
+"$HPCAGENT_BENCH_HOST_PYTHON" -m hpcagent_bench.results.extract \
     --runs "$SCRATCH/hpcagent-bench-runs/llr40-<date>/*" \
     --runs "$SCRATCH/hpcagent-bench-runs/owed-llr40-<date>/*" \
     --setup-prefix llr40-qwen38 --benchmarks $HB/hpcagent_bench/benchmarks \

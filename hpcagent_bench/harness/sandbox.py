@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING, Self
 import pydantic
 from hpcagent_agent.driver.promote_unsubmitted import AGENT_FOLDERS_LOG
 
-from hpcagent_bench import config, flags, languages, omp_context, seal
+from hpcagent_bench import config, flags, languages, seal
+from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench.categories import Language, SourceMode
 from hpcagent_bench.flags import Mode
 from hpcagent_bench.harness.envelope import Submission

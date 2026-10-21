@@ -1,6 +1,6 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Reading an extracted observations table (:mod:`hpcagent_bench.observations_extract`): episode-id parsing, which
+"""Reading an extracted observations table (:mod:`hpcagent_bench.results.extract`): episode-id parsing, which
 run-root files are judge records, and the rules every figure applies on read (:func:`read_observations`).
 Databases are opened READ-ONLY."""
 
@@ -8,9 +8,10 @@ import contextlib
 import pathlib
 from typing import TYPE_CHECKING, NamedTuple
 
-from hpcagent_bench import packets, recorded_rows, study_tags
+from hpcagent_bench import packets, study_tags
+from hpcagent_bench.results import recorded_rows
 from hpcagent_bench.harness import recording, results_db
-from hpcagent_bench.observation_columns import RowKind
+from hpcagent_bench.results.observation_columns import RowKind
 from hpcagent_bench.run_layout import JUDGE_DIRNAME, MERGE_FAILED_NAME, MERGED_DB_NAME
 from hpcagent_bench.stats import population
 

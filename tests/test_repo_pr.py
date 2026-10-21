@@ -297,7 +297,7 @@ def test_gitignore_excludes_built_lib_from_pr(tmp_path: pathlib.Path) -> None:
 def test_gate_reads_the_reward_not_the_raw_speedup(monkeypatch: pytest.MonkeyPatch) -> None:
     """A reward below the bar is not accepted on a raw speedup above it: the acceptance gate reads the
     reward the perf pipeline credited, so the two never disagree."""
-    from hpcagent_bench import harbor as HG
+    from hpcagent_bench.export import harbor as HG
 
     monkeypatch.setattr(repo_pr, "evaluate", lambda repo_dir, **k: make_pr())  # a clean, src-only PR
     graded = host_grade(reward=1.0, solved=True, speedup=1.35)  # a reward below the raw speedup
@@ -313,7 +313,7 @@ def test_gate_reads_the_reward_not_the_raw_speedup(monkeypatch: pytest.MonkeyPat
 def test_gate_reject_floors_solved_and_speedup(monkeypatch: pytest.MonkeyPatch) -> None:
     """A correct+fast PR that touches a disallowed path is rejected, and every aggregator-visible
     win field (reward, solved, speedup) is floored -- not just the reward."""
-    from hpcagent_bench import harbor as HG
+    from hpcagent_bench.export import harbor as HG
 
     monkeypatch.setattr(
         repo_pr,

@@ -9,7 +9,7 @@ import shutil
 import time
 
 from hpcagent_bench import columns, paths
-from hpcagent_bench import observations_extract as ox
+from hpcagent_bench.results import extract as ox
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.support.collect import canon_db
 

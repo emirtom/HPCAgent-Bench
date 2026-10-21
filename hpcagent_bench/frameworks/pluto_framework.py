@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Framework binding for the Pluto polyhedral backend: a NativeFramework subclass that compiles polycc's OUTPUT
-(:func:`hpcagent_bench.pluto_transform.transformed_sources`), calls it in polycc's own argument order, and is
+(:func:`hpcagent_bench.polyhedral.pluto.transformed_sources`), calls it in polycc's own argument order, and is
 timed only after the numerical oracle grades the transformed binary ``ok``."""
 
 import os
 from collections.abc import Callable, Sequence
 
-from hpcagent_bench import pluto_transform, polygeist_transform
+from hpcagent_bench.polyhedral import pluto as pluto_transform
+from hpcagent_bench.polyhedral import polygeist as polygeist_transform
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.frameworks import Benchmark
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework

@@ -3,7 +3,7 @@
 """Running Polygeist: the ONE place the ``polygeist_cpu`` / ``polygeist_gpu`` pipelines are spelled.
 
 The columns compile what this module writes from the C target's scop (``_pluto_input.c``, the file polycc reads,
-selected by :func:`hpcagent_bench.pluto_transform.scop_inputs`): ``cgeist`` lowers it to affine MLIR,
+selected by :func:`hpcagent_bench.polyhedral.pluto.scop_inputs`): ``cgeist`` lowers it to affine MLIR,
 ``polygeist-opt`` parallelizes it with MLIR's own passes, and the image's LLVM turns it into LLVM IR that the
 column's clang compiles (``compilers.yaml``: ``clang-polygeist`` / ``clang-polygeist-gpu``).
 
@@ -31,7 +31,7 @@ import subprocess
 
 from hpcagent_bench import config, flags
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
-from hpcagent_bench.pluto_transform import run_bounded, scop_inputs
+from hpcagent_bench.polyhedral.pluto import run_bounded, scop_inputs
 from hpcagent_bench.translators.numpyto_c.bindings import BindingArg, read_binding
 from hpcagent_bench.translators.numpyto_common.dtypes import SCALAR_KINDS, info_for_kind
 

@@ -11,7 +11,9 @@ import subprocess
 import numpy as np
 import pytest
 
-from hpcagent_bench import config, languages, omp_catalog, omp_context, spec
+from hpcagent_bench import config, languages, spec
+from hpcagent_bench.openmp import catalog as omp_catalog
+from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks import forked
 from hpcagent_bench.harness import native_call, sandbox
@@ -294,7 +296,7 @@ def test_a_host_with_contexts_and_no_catalog_fails_naming_the_step_that_writes_i
         omp_context.library_refusal("blas", "llvm")
     message = str(raised.value)
     assert str(root / omp_context.CATALOG_FILE) in message
-    assert "omp_catalog --write" in message
+    assert "hpcagent_bench.openmp.catalog --write" in message
     assert omp_context.CATALOG_ENV in message
 
 

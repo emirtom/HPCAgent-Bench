@@ -346,11 +346,11 @@ def fused_cpf_views() -> tuple[str, ...]:
 @functools.lru_cache(maxsize=None, typed=True)
 def cached_cache_root(view: str) -> str:
     """``view``'s cache_root, read once: a rendered CPF view's cpf-view.json is immutable (mirrors
-    :func:`_fused_cpf_view_lines`). Raises :class:`hpcagent_bench.cpf_cache.CacheMiss` on a view
+    :func:`_fused_cpf_view_lines`). Raises :class:`hpcagent_bench.cpf.cache.CacheMiss` on a view
     that has not rendered yet -- deliberately NOT caught here, so ``functools.lru_cache`` does not
     cache it and :func:`cpf_paths` re-reads on the next call instead of an empty answer sticking
     forever once the view finishes rendering."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     return cpf_cache.read_view(pathlib.Path(view)).cache_root
 
@@ -360,7 +360,8 @@ def cpf_paths(view: str) -> tuple[str, ...]:
     judge creates a missing view there on a kernel's first request, so it is covered before it exists)."""
     if not view:
         return ()
-    from hpcagent_bench import config, cpf_cache
+    from hpcagent_bench import config
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     try:
         root = cached_cache_root(view)

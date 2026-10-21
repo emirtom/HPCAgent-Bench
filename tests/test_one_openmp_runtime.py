@@ -25,7 +25,8 @@ import tempfile
 import pytest
 import yaml
 
-from hpcagent_bench import openmp_runtimes, paths
+from hpcagent_bench import paths
+from hpcagent_bench.openmp import runtimes as openmp_runtimes
 
 REPO = paths.ROOT
 LIB = REPO / "containers" / "images" / "lib"
@@ -329,7 +330,7 @@ def test_numpy_scipy_numba_prange_and_a_gcc_openmp_library_map_one_runtime() -> 
 def test_clang_compiles_the_pragma_away_under_the_libgomp_spelling(tmp_path: pathlib.Path) -> None:
     """``-fopenmp=libgomp`` links libgomp but emits no OpenMP code: clang generates ``__kmpc_*`` calls only
     for libomp/libiomp5, so the loop runs serial with no diagnostic. That is why the llvm family gets its
-    own OpenMP context (libomp, hpcagent_bench/omp_context.py) instead of being pointed at libgomp."""
+    own OpenMP context (libomp, hpcagent_bench/openmp/context.py) instead of being pointed at libgomp."""
     src = tmp_path / "p.c"
     src.write_text(PARALLEL_C)
     counts = {}

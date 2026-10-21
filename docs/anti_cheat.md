@@ -182,7 +182,7 @@ toolchain family, and every image carries one OpenMP **context** per family unde
 A submission's family picks its context (`sandbox.submission_omp_context`), and its grading child
 starts in it (`native_call._call_isolated(omp_context_name=...)`); baselines and the oracle each run
 in a child of their own family, never in a submission's process. Mechanics are in the docstrings of
-`hpcagent_bench/omp_context.py` and `hpcagent_bench/omp_catalog.py` (a catalog library whose link
+`hpcagent_bench/openmp/context.py` and `hpcagent_bench/openmp/catalog.py` (a catalog library whose link
 closure maps another runtime than the context's is refused up front, `sandbox.catalog_refusal`).
 
 **Gates.** At image build, `containers/images/lib/openmp_gate.py context` runs an OpenMP probe per context and

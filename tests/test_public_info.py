@@ -10,12 +10,12 @@ from typing import Any
 
 import pytest
 
-from hpcagent_bench import cpf_canonical
+from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Preset
 from hpcagent_bench.frameworks.benchmark import Benchmark
 from hpcagent_bench.harness import prompts
 from hpcagent_bench.spec import KERNELS, SMALL_LIMIT, BenchSpec
-from hpcagent_bench.cpf_cache import Target
+from hpcagent_bench.cpf.cache import Target
 
 SMALL_NLEV = {"scale": "small", "description": "vertical levels"}
 BIG_N = {"scale": "big", "description": "the columns"}

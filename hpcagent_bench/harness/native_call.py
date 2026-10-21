@@ -37,7 +37,9 @@ from cffi import FFI
 from relayout.convert import Conversion
 from relayout.layout import IndexMap
 
-from hpcagent_bench import flags, languages, modules, omp_context, openmp_runtimes, osinfo, seal
+from hpcagent_bench import flags, languages, modules, osinfo, seal
+from hpcagent_bench.openmp import context as omp_context
+from hpcagent_bench.openmp import runtimes as openmp_runtimes
 from hpcagent_bench.categories import Language
 from hpcagent_bench.dtypes import c_type, is_storage_only, storage_typedef
 from hpcagent_bench.frameworks.forked import RunResult, exception_header, run_forked

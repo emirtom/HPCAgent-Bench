@@ -24,7 +24,8 @@ from collections.abc import Iterable, Iterator, Sequence
 
 from hpcagent_agent.coded import Coded
 
-from hpcagent_bench import data_guard, experiments, paths
+from hpcagent_bench import experiments, paths
+from hpcagent_bench.results import data_guard
 from hpcagent_bench.cache_files import file_sha256
 from hpcagent_bench.harness import results_db
 from hpcagent_bench.run_layout import MERGE_FAILED_NAME

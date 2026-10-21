@@ -339,7 +339,7 @@ def run_numba(
 ) -> str:
     """Grade the numba emission of ``func`` in a FORKED child, so numba's omp pool never launches in this
     process: a pool launched in the xdist worker terminates every numba child later forked from it
-    (:func:`hpcagent_bench.omp_context.numba_omp_pool_launched`)."""
+    (:func:`hpcagent_bench.openmp.context.numba_omp_pool_launched`)."""
     if importlib.util.find_spec("numba") is None:
         return "skip:not-installed"
     outcome = run_forked(

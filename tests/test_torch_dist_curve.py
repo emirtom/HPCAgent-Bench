@@ -12,7 +12,7 @@ from collections.abc import Callable
 
 import pytest
 
-from hpcagent_bench import observations_extract
+from hpcagent_bench.results import extract as observations_extract
 from hpcagent_bench.categories import Preset
 from hpcagent_bench.harness import (
     grade_under,

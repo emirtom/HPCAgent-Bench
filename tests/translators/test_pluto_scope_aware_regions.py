@@ -11,8 +11,8 @@ translation unit is the normal output.
 
 import re
 
-from hpcagent_bench.pluto_affine import KNOWN_POLYCC_ISSUES, has_scop, scop_nonaffine_reason
-from hpcagent_bench.pluto_transform import dedupe_scratch_declarations
+from hpcagent_bench.polyhedral.pluto_affine import KNOWN_POLYCC_ISSUES, has_scop, scop_nonaffine_reason
+from hpcagent_bench.polyhedral.pluto import dedupe_scratch_declarations
 from hpcagent_bench.translators.numpyto_c.emit import emit_pluto
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower
@@ -230,4 +230,4 @@ def test_the_registry_names_this_scoping_as_what_avoids_those_bugs() -> None:
         assert (
             KNOWN_POLYCC_ISSUES[issue].avoided_by == "hpcagent_bench.translators.numpyto_c.emit.pluto_scop_regions"
         ), issue
-    assert KNOWN_POLYCC_ISSUES["POLYCC-011"].avoided_by == "hpcagent_bench.pluto_transform.pet_parse_env"
+    assert KNOWN_POLYCC_ISSUES["POLYCC-011"].avoided_by == "hpcagent_bench.polyhedral.pluto.pet_parse_env"

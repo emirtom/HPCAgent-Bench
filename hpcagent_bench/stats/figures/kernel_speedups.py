@@ -18,7 +18,7 @@ from matplotlib.lines import Line2D
 
 from hpcagent_bench import packets, study_tags
 from hpcagent_bench.harness import denominator
-from hpcagent_bench.observation_columns import RowKind
+from hpcagent_bench.results.observation_columns import RowKind
 from hpcagent_bench.stats import canon, palette, population, rules, style
 from hpcagent_bench.stats.figures import per_kernel, setup_names
 from hpcagent_bench.stats.summary import geomean_ci, signed_change, usable_ratios

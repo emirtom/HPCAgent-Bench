@@ -21,10 +21,11 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pydantic
 
-from hpcagent_bench import config, cpf_canonical, languages, paths, phase_clock
+from hpcagent_bench import config, languages, paths, phase_clock
+from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.categories import Language, Track
-from hpcagent_bench.cpf_cache import DEFAULT_HINTS, LANGUAGE_EXT, HintDetail, RenderVerdict, Role, Target
-from hpcagent_bench.cpf_canonical import (
+from hpcagent_bench.cpf.cache import DEFAULT_HINTS, LANGUAGE_EXT, HintDetail, RenderVerdict, Role, Target
+from hpcagent_bench.cpf.canonical import (
     canonicalize_for,
     entry_program_name,
     failure,
@@ -88,7 +89,6 @@ __all__ = [
     "returned_slots",
     "run_child",
     "timeout_error",
-    "track_specs",
 ]
 
 if TYPE_CHECKING:
@@ -813,7 +813,7 @@ def prerender_sdfg(
 
     Keys are computed and printed before any parse or render, so an all-hit kernel is never parsed and a killed child
     still names what it was rendering."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     if dace_root() != expected_root.resolve():
         raise RuntimeError(f"dace imports from {dace_root()}, but its commit was read in {expected_root}")
@@ -1008,21 +1008,6 @@ def prerender_kernel(
     return RenderRecord(
         kernel=spec.short_name, precision=fptype_tag(precision), target=target, results=results, seconds=run.seconds
     )
-
-
-def track_specs(track: Track) -> list[BenchSpec]:
-    """Every loadable registered spec on ``track``, ordered by name (unloadable keys are skipped)."""
-    from hpcagent_bench.spec import KERNELS
-
-    specs: list[BenchSpec] = []
-    for key in sorted(KERNELS):
-        try:
-            spec = BenchSpec.load(key)
-        except Exception:  # noqa: BLE001 -- unregistered / unloadable -> not part of the sweep
-            continue
-        if spec.track is track:
-            specs.append(spec)
-    return specs
 
 
 def main(argv: list[str] | None = None) -> int:

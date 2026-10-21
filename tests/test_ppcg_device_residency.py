@@ -13,12 +13,12 @@ import textwrap
 import numpy as np
 import pytest
 
-from hpcagent_bench import ppcg_transform
+from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 from hpcagent_bench.columns import FRAMEWORKS
 from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks import native_runtime, pluto_framework
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework
-from hpcagent_bench.ppcg_transform import device_resident_host
+from hpcagent_bench.polyhedral.ppcg import device_resident_host
 
 # fixture
 

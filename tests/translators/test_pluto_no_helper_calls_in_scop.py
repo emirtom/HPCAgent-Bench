@@ -4,7 +4,7 @@
 
 pet outlines a call whose body it can see into a return temporary ``__pet_ret_0`` it never declares,
 so polycc exits 0 and the transformed output does not compile (POLYCC-010 in
-:mod:`hpcagent_bench.pluto_affine`). Two spellings remove the call: ``np.maximum``/``np.minimum``
+:mod:`hpcagent_bench.polyhedral.pluto_affine`). Two spellings remove the call: ``np.maximum``/``np.minimum``
 take the prelude's own NaN-propagating ``max``/``min`` macro, which pet expands away, and a
 symbol-only ``floord`` in a SUBSCRIPT is hoisted to a scop-external temp. The loop-BOUND ``floord``
 that POLYCC-008 needs is untouched -- pet name-matches it there -- so these tests pin the split too.
@@ -19,8 +19,8 @@ from collections.abc import Callable
 
 import pytest
 
-from hpcagent_bench import pluto_transform
-from hpcagent_bench.pluto_affine import KNOWN_POLYCC_ISSUES
+from hpcagent_bench.polyhedral import pluto as pluto_transform
+from hpcagent_bench.polyhedral.pluto_affine import KNOWN_POLYCC_ISSUES
 from hpcagent_bench.translators.numpyto_c.emit import emit_c, emit_pluto, pluto_call_free
 from hpcagent_bench.translators.numpyto_common.ir import KernelIR
 from hpcagent_bench.translators.numpyto_common.lowering import lower

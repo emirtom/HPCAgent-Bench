@@ -43,7 +43,7 @@ FRAMEWORK_LANG: dict[str, Language] = {
 }
 
 #: The columns that compile PPCG's output (``transform: ppcg``). Their FRAMEWORK_LANG entry doubles as
-#: the vendor handed to :func:`hpcagent_bench.ppcg_transform.transformed_sources`.
+#: the vendor handed to :func:`hpcagent_bench.polyhedral.ppcg.transformed_sources`.
 PPCG_FRAMEWORKS: tuple[str, ...] = tuple(n for n, c in FRAMEWORKS.entries.items() if c.transform is Transform.PPCG)
 
 #: framework -> forced ``compilers.yaml`` block (each column's ``compiler``); an absent column takes
@@ -64,15 +64,15 @@ def native_sources(cpp_backend: pathlib.Path, short: str, framework: str) -> lis
     language)."""
     column = FRAMEWORKS.entries[framework]
     if column.transform is Transform.PLUTO:
-        from hpcagent_bench import pluto_transform
+        from hpcagent_bench.polyhedral import pluto as pluto_transform
 
         return pluto_transform.transformed_sources(cpp_backend, short)
     if column.transform is Transform.PPCG:
-        from hpcagent_bench import ppcg_transform
+        from hpcagent_bench.polyhedral import ppcg as ppcg_transform
 
         return ppcg_transform.transformed_sources(cpp_backend, short, FRAMEWORK_LANG[framework])
     if column.transform is Transform.POLYGEIST:
-        from hpcagent_bench import polygeist_transform
+        from hpcagent_bench.polyhedral import polygeist as polygeist_transform
 
         return polygeist_transform.transformed_sources(cpp_backend, short, column.arch.text)
     ext = LANG_EXT[FRAMEWORK_LANG[framework]]

@@ -24,7 +24,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from hpcagent_bench import languages, paths, protocols, recorded_rows
+from hpcagent_bench import languages, paths, protocols
+from hpcagent_bench.results import recorded_rows
 from hpcagent_bench.categories import Language, Residency, SourceMode
 from hpcagent_bench.config import Statistic
 from hpcagent_bench.harness import (
@@ -60,7 +61,7 @@ def load(name: str, relative: str) -> types.ModuleType:
     return module_at(REPO / relative, name)
 
 
-from hpcagent_bench import observations_extract as extract
+from hpcagent_bench.results import extract
 
 if TYPE_CHECKING:
     import argparse

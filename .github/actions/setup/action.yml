@@ -235,7 +235,7 @@ runs:
         # dace must be the pinned commit: a dependency that caps dace would otherwise swap in a PyPI release.
         .venv/bin/python - "$(helpers/scripts/pins.sh)" <<'PY'
         import sys
-        from hpcagent_bench import cpf_canonical
+        from hpcagent_bench.cpf import canonical as cpf_canonical
         got = cpf_canonical.dace_commit()
         if got != sys.argv[1]:
             sys.exit(f"dace is {got}, not the pin {sys.argv[1]}")

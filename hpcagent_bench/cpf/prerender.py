@@ -4,7 +4,7 @@
 a kernel's first request (:func:`render_on_demand`). A dace commit that moves mid-run withdraws what the run
 published; temporaries live under the cache root.
 
-    python3 -m hpcagent_bench.cpf_prerender --cache C --view V --kernels a,b --target cpu [--hints kinds]
+    python3 -m hpcagent_bench.cpf.prerender --cache C --view V --kernels a,b --target cpu [--hints kinds]
 """
 
 import argparse
@@ -17,7 +17,9 @@ import sys
 import threading
 from collections.abc import Sequence
 
-from hpcagent_bench import cpf_bridge, cpf_cache, cpf_canonical
+from hpcagent_bench.cpf import bridge as cpf_bridge
+from hpcagent_bench.cpf import cache as cpf_cache
+from hpcagent_bench.cpf import canonical as cpf_canonical
 from hpcagent_bench.kernel_key import kernel_stem
 from hpcagent_bench.spec import BenchSpec
 from hpcagent_bench.support.bindings.contract import graded_datatype
@@ -188,7 +190,7 @@ def render_on_demand(
     else why nothing could be rendered.
 
     A missing view is created pinned to ``cache``/``target``; one pinned elsewhere is refused. Renders are serialized
-    per (view, kernel, precision) (:func:`hpcagent_bench.cpf_cache.render_lock`) and never repeated."""
+    per (view, kernel, precision) (:func:`hpcagent_bench.cpf.cache.render_lock`) and never repeated."""
     if problem := toolchain_error():
         return problem
     try:

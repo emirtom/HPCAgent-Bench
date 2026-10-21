@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The cluster launcher's ``run_in_judge_container``, and what calls it.
 
-The token-record freeze runs hpcagent_bench.observations_extract, which imports numpy; only the judge
+The token-record freeze runs hpcagent_bench.results.extract, which imports numpy; only the judge
 image carries it, so the freeze block runs the extractor through ``run_in_judge_container`` and never
 on the batch host's interpreter. The function composes a container invocation for every
 CONTAINER_RUNTIME the script supports, with the same mount policy

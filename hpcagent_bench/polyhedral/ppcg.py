@@ -1,7 +1,7 @@
 # Copyright 2026 ETH Zurich and the HPCAgent-Bench authors.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Running ``ppcg`` (the GPU sibling of Pluto): scop selection and the affine guard are imported from
-:mod:`hpcagent_bench.pluto_transform`. ppcg has no AMD target, so a HIP build hipifies its CUDA output; ``ppcg_cuda``
+:mod:`hpcagent_bench.polyhedral.pluto`. ppcg has no AMD target, so a HIP build hipifies its CUDA output; ``ppcg_cuda``
 / ``ppcg_hip`` name their vendor (declining when it is absent), bare ``ppcg`` follows the local toolchain."""
 
 import os
@@ -15,8 +15,8 @@ from collections.abc import Callable, Sequence
 from hpcagent_bench.categories import Language
 from hpcagent_bench.frameworks.errors import NotSupportedByFramework, ToolMissing
 from hpcagent_bench.languages import GPU_HOST_LANG, LANG_EXT, gpu_backend
-from hpcagent_bench.pluto_normalize import normalize_ppcg_input
-from hpcagent_bench.pluto_transform import OVERRIDE_INPUT_SUFFIX, assert_affine, scop_inputs
+from hpcagent_bench.polyhedral.pluto_normalize import normalize_ppcg_input
+from hpcagent_bench.polyhedral.pluto import OVERRIDE_INPUT_SUFFIX, assert_affine, scop_inputs
 from hpcagent_bench.translators.numpyto_c.emit import NPB_HD_GUARD
 
 __all__ = [

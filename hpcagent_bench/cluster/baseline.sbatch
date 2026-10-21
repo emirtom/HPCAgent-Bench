@@ -59,7 +59,7 @@ mkdir -p "${out_root}"
 trap 'rm -f "${HPCAGENT_BENCH_RUNTIME_OMP_CATALOG}" "${JOB_STEP_EDF}"' EXIT
 JOB_STEP_ENV+=(HPCAGENT_BENCH_RUNTIME_OMP_CATALOG="${HPCAGENT_BENCH_RUNTIME_OMP_CATALOG}")
 srun --overlap --kill-on-bad-exit=0 --nodes=1 --ntasks=1 ${JOB_STEP_EDF:+--environment="${JOB_STEP_EDF}"} env "${JOB_STEP_ENV[@]}" \
-    bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON:-${HPCAGENT_BENCH_PYTHON:-python3}}" -m hpcagent_bench.omp_catalog --write "$1"' \
+    bash -c 'exec "${HPCAGENT_BENCH_IMAGE_PYTHON:-${HPCAGENT_BENCH_PYTHON:-python3}}" -m hpcagent_bench.openmp.catalog --write "$1"' \
     _ "${HPCAGENT_BENCH_RUNTIME_OMP_CATALOG}" || { echo "baseline: the OpenMP catalog could not be written" >&2; exit 2; }
 
 status=0

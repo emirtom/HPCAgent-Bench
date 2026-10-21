@@ -30,7 +30,7 @@ class SelfAssignDropper(ast.NodeTransformer):
     ``H, W = image.shape`` into ``H = H; W = W``. They compute nothing, and in the C
     pluto input they WRITE a signature parameter inside ``#pragma scop`` -- pet models
     that as a data-dependent condition and aborts polycc on an isl assert (POLYCC-003
-    in :mod:`hpcagent_bench.pluto_affine`). Every other backend just carries dead text.
+    in :mod:`hpcagent_bench.polyhedral.pluto_affine`). Every other backend just carries dead text.
 
     Two names are never dropped. A kernel ARRAY (``a = a``) is a whole-array write that
     ``detect_output_and_index_arrays`` reads to flip ``is_output``, so deleting it would
@@ -120,7 +120,7 @@ class ForwardSubstituteInvariantScalars(ast.NodeTransformer):
     """Replay a loop-invariant scalar's RHS at its deeper use sites and delete the assign.
 
     pet drops the assign and its deeper consumers then read an uninitialised value: conv_2d's
-    ``w = w_box[di + R, dj + R]`` (POLYCC-001 in :mod:`hpcagent_bench.pluto_affine`). Two things
+    ``w = w_box[di + R, dj + R]`` (POLYCC-001 in :mod:`hpcagent_bench.polyhedral.pluto_affine`). Two things
     fall out -- laundered indirection becomes literal, so the detector declines lavamd
     (POLYCC-006), and the OpenMP column loses a scalar ``--parallel`` never privatises (C-001).
     An AST copy keeps the grouping the assign had, so floating point stays bit-identical.

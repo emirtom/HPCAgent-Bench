@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from hpcagent_bench import modules, numerical_oracle
-from hpcagent_bench.pluto_affine import KNOWN_POLYCC_ISSUES, scop_nonaffine_reason
+from hpcagent_bench.polyhedral.pluto_affine import KNOWN_POLYCC_ISSUES, scop_nonaffine_reason
 
 _SCOP = "#pragma scop\n{body}\n#pragma endscop\n"
 

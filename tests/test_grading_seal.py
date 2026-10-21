@@ -156,7 +156,7 @@ def test_the_cpf_view_and_its_cache_are_read_only_to_a_kernel(
 ) -> None:
     """The judge mounts the setup's CPF view and the cache its pointers name; a kernel that could write
     them would change every later canonical_parallel_form answer, for every setup."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     view, cache = tmp_path / "views" / "v", tmp_path / "cache"
     view.mkdir(parents=True)
@@ -186,7 +186,7 @@ def test_a_fused_judges_readonly_set_covers_every_setups_cpf_view(
     cache_root, read-write, into the judge (fused_cpf_views). A kernel graded for setup A must not
     be able to write setup B's view or its cache: that would change B's canonical_parallel_form
     answer for every later grade of B's setup."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     setups_dir = tmp_path / "setups"
     setups_dir.mkdir()
@@ -238,7 +238,7 @@ def test_a_fused_judges_readonly_set_keeps_every_value_of_a_duplicated_key(
     override layered on a per-setup default) means the shell mounts BOTH values read-write.
     fused.parse_resolved's dict semantics keep only the LAST value, which would silently drop the
     earlier one from plan.readonly: a kernel graded under the earlier value could then write it."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     setups_dir = tmp_path / "setups"
     setups_dir.mkdir()
@@ -312,7 +312,7 @@ def test_the_current_setups_cpf_view_resolved_through_the_config_layer_is_read_o
     harness/service.py itself resolves it with -- not raw os.environ. A fused judge's per-request
     scope (config.scoped_environment, applied by JudgeHandler.setup_scope) is a ContextVar that
     never touches os.environ, so an os.environ read would miss this request's own view entirely."""
-    from hpcagent_bench import cpf_cache
+    from hpcagent_bench.cpf import cache as cpf_cache
 
     view = tmp_path / "views" / "scoped"
     view.mkdir(parents=True)

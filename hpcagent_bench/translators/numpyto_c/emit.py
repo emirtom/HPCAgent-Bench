@@ -88,7 +88,6 @@ __all__ = [
     "STACK_BUDGET_BYTES",
     "STDLIB_STRING_NAMES",
     "CBodyEmitter",
-    "ElementSubst",
     "FunctionTopDecls",
     "LocalGroups",
     "ReservedNameRespelling",
@@ -148,7 +147,6 @@ __all__ = [
     "pluto_if_conditions",
     "pluto_multidim_array_signature",
     "pluto_scop_regions",
-    "reduction_operand",
     "render_c_shape",
     "reserved_name_respellings",
     "respelled_locals",
@@ -475,35 +473,6 @@ def unit_stride_offset(expr: ast.expr, idx: str) -> tuple[ast.expr | None, int] 
         return None if inner is None else join_offset(inner, expr.left, ast.Add)
     inner = unit_stride_offset(expr.left, idx)
     return None if inner is None else join_offset(inner, expr.right, type(expr.op))
-
-
-def reduction_operand(value: ast.expr, acc: str) -> ast.expr | None:
-    """The non-accumulator operand of a combine :func:`parallelism.reduction_op` already accepted."""
-    if isinstance(value, ast.BinOp):
-        return value.right if (isinstance(value.left, ast.Name) and value.left.id == acc) else value.left
-    if isinstance(value, ast.Call):
-        rest = [a for a in value.args if not (isinstance(a, ast.Name) and a.id == acc)]
-        return rest[0] if len(rest) == 1 else None
-    return None
-
-
-class ElementSubst(ast.NodeTransformer):
-    """Replace each recorded element read with the lambda parameter standing in for it.
-
-    Only the recorded subscripts are rewritten; nothing else is, so an invariant element read
-    (``bias[oc]``) survives into the lambda body as itself.
-    """
-
-    __slots__ = ("by_id",)
-
-    def __init__(self, by_id: dict[int, str]) -> None:
-        self.by_id = by_id
-
-    def visit_Subscript(self, node: ast.Subscript) -> ast.expr:
-        name = self.by_id.get(id(node))
-        if name is None:
-            return node
-        return ast.copy_location(name_(name), node)
 
 
 class CBodyEmitter(BaseEmitter):

@@ -17,7 +17,8 @@ import numpy as np
 import pydantic
 import yaml
 
-from hpcagent_bench import config, languages, modules, omp_context, sizing
+from hpcagent_bench import config, languages, modules, sizing
+from hpcagent_bench.openmp import context as omp_context
 from hpcagent_bench import dtypes as dtype_registry
 from hpcagent_bench.categories import Baseline, Language, Oracle, Preset, Residency, SourceMode, Track
 from hpcagent_bench.config import BaselineRace
