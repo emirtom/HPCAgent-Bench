@@ -18,6 +18,7 @@ from hpcagent_bench.frameworks.framework import (
     TimingResult,
     cupy_event_timer,
     start_event_timer,
+    load_rewritten_impl,
     stop_cupy_event_timer,
 )
 
@@ -48,21 +49,7 @@ class CupyFramework(Framework):
 
     def implementations(self, bench: Benchmark) -> Sequence[tuple[KernelImpl, str]]:
         """The NumPy reference's entry point, executed with numpy rebound to cupy."""
-        reference = bench.impl_module("numpy")
-        spec = importlib.util.find_spec(reference)
-        if spec is None or spec.origin is None:
-            raise ModuleNotFoundError(f"no NumPy reference {reference}", name=reference)
-        name = reference.removesuffix("_numpy") + "_cupy"
-        module = ModuleType(name)
-        module.__file__ = spec.origin
-        # Registered BEFORE exec: dataclasses resolves string annotations through sys.modules.
-        sys.modules[name] = module
-        code = compile(cupy_source(pathlib.Path(spec.origin).read_text()), spec.origin, "exec")
-        exec(code, vars(module))  # noqa: S102 -- the repository's own reference, rebound to cupy
-        impl = modules.optional_function(module, bench.spec.func_name)
-        if impl is None:
-            raise AttributeError(f"{reference} defines no {bench.spec.func_name}")
-        return [(impl, "default")]
+        return [(load_rewritten_impl(bench, "numpy", "cupy", cupy_source), "default")]
 
     def imports(self) -> dict[str, ModuleType]:
         import cupy  # pyright: ignore[reportMissingImports]  # optional dep, not in the dev env
