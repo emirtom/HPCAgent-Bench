@@ -70,7 +70,10 @@ def requested(environ: Mapping[str, str]) -> tuple[str, ...]:
 def load(home: pathlib.Path, environ: Mapping[str, str]) -> tuple[Subagent, ...]:
     """The packet's subagents (:func:`requested`) as staged under ``home``, by name; none when it names none, so a
     file the user keeps in their own ``~/.claude/agents`` is never offered."""
-    return tuple(parse((home / AGENTS_DIR / f"{name}.md").read_text(encoding="utf-8"), name) for name in sorted(requested(environ)))
+    return tuple(
+        parse((home / AGENTS_DIR / f"{name}.md").read_text(encoding="utf-8"), name)
+        for name in sorted(requested(environ))
+    )
 
 
 def tool_names(subagent: Subagent, available: Iterable[str]) -> list[str]:

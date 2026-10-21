@@ -71,7 +71,9 @@ def test_the_driver_stages_exactly_the_subagents_the_packet_names(tmp_path: path
 
 def test_a_packet_naming_a_subagent_exports_it_to_the_job(tmp_path: pathlib.Path) -> None:
     folder = write_plugin(tmp_path / "plugins")
-    (folder / "plugin.toml").write_text('name = "subplugin"\n\n[packets.subprobe]\nname = "Sub probe"\nagents = ["helper"]\n')
+    (folder / "plugin.toml").write_text(
+        'name = "subplugin"\n\n[packets.subprobe]\nname = "Sub probe"\nagents = ["helper"]\n'
+    )
     env = {**os.environ, plugins.USER_PLUGIN_DIRS_ENV: str(tmp_path / "plugins")}
     env.pop(plugins.PLUGIN_DIRS_ENV, None)
     done = subprocess.run(
@@ -107,7 +109,15 @@ class ScriptedClient:
 
 def reply(content: list[dict[str, Any]], stop: str) -> dict[str, Any]:
     usage = {"input_tokens": 10, "output_tokens": 5}
-    return {"id": "m", "type": "message", "role": "assistant", "model": "m", "content": content, "stop_reason": stop, "usage": usage}
+    return {
+        "id": "m",
+        "type": "message",
+        "role": "assistant",
+        "model": "m",
+        "content": content,
+        "stop_reason": stop,
+        "usage": usage,
+    }
 
 
 @pytest.fixture
@@ -135,7 +145,17 @@ def test_the_task_tool_runs_the_subagent_as_a_nested_conversation(
     }
     client = ScriptedClient(
         [
-            reply([{"type": "tool_use", "id": "t1", "name": "task", "input": {"subagent_type": "helper", "prompt": "go"}}], "tool_use"),
+            reply(
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "task",
+                        "input": {"subagent_type": "helper", "prompt": "go"},
+                    }
+                ],
+                "tool_use",
+            ),
             reply([{"type": "text", "text": "the summary"}], "end_turn"),
             reply([{"type": "text", "text": "done"}], "end_turn"),
         ]
